@@ -1,0 +1,94 @@
+[
+  {
+    "case": "original",
+    "n": 3,
+    "fresh_seconds": {
+      "n": 3,
+      "median": 46.621246120892465,
+      "min": 12.97251022187993,
+      "max": 46.62801146320999,
+      "p95": 46.627334928978236
+    },
+    "usable_seconds": {
+      "n": 3,
+      "median": 47.13023557513952,
+      "min": 13.348917768802494,
+      "max": 47.13862558687106,
+      "p95": 47.1377865856979
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/original-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/original-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/original-3/results.json"
+    ]
+  },
+  {
+    "case": "fresh-ssh-at-wake",
+    "n": 3,
+    "fresh_seconds": {
+      "n": 3,
+      "median": 4.314483828376979,
+      "min": 4.1757930582389235,
+      "max": 4.329801362007856,
+      "p95": 4.328269608644769
+    },
+    "usable_seconds": {
+      "n": 3,
+      "median": 4.716829381417483,
+      "min": 4.6698851538822055,
+      "max": 4.828977703116834,
+      "p95": 4.817762870946899
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-3/results.json"
+    ]
+  },
+  {
+    "case": "no-pending-input",
+    "n": 3,
+    "fresh_seconds": {
+      "n": 3,
+      "median": 4.27564686210826,
+      "min": 4.274311774875969,
+      "max": 4.328672576230019,
+      "p95": 4.323370004817844
+    },
+    "usable_seconds": {
+      "n": 3,
+      "median": 4.770945157390088,
+      "min": 4.749445838853717,
+      "max": 4.803533194120973,
+      "p95": 4.800274390447885
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/no-pending-input-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/no-pending-input-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/no-pending-input-3/results.json"
+    ]
+  },
+  {
+    "case": "transport-survives",
+    "n": 3,
+    "fresh_seconds": {
+      "n": 3,
+      "median": 14.31078324187547,
+      "min": 6.614468760322779,
+      "max": 16.522434066981077,
+      "p95": 16.301268984470518
+    },
+    "usable_seconds": {
+      "n": 3,
+      "median": 14.701904438901693,
+      "min": 7.1283926223404706,
+      "max": 17.042020421940833,
+      "p95": 16.808008823636918
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/transport-survives-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/transport-survives-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/transport-survives-3/results.json"
+    ]
+  }
+]

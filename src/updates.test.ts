@@ -307,7 +307,10 @@ test("an older runtime saves its session for the update check", async () => {
   // A runtime before protocol 4 ignores request ids and answers untagged.
   const server = createServer(peer =>
     peer.on("data", chunk => {
-      asked.push(JSON.parse(chunk.toString()));
+      if (chunk.toString().startsWith("POST ")) return void peer.end('{"err":"UnexpectedToken"}\n');
+      const message = JSON.parse(chunk.toString());
+      if (message.op === "hello") return void peer.end('{"type":"hello","protocol":3}\n');
+      asked.push(message);
       peer.write(JSON.stringify({ ok: true, path: join(dir, "recovery") }) + "\n");
     }),
   );

@@ -1,0 +1,13 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/44 finished · 0 running
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/remote.test.ts:
+Testing · 0% · 0/44 finished · 1 running
+(pass) SSH machines > test_no_echo_acknowledgement_retracts_prediction_and_retrains_on_the_same_row [32852.73ms]
+
+ 1 pass
+ 43 filtered out
+ 0 fail
+Ran 1 test across 1 file. [32.96s]
+Cleanup · 2% · 1/44 finished · 0 running

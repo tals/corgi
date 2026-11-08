@@ -1,0 +1,12 @@
+{
+  "path": "dist/corgi-websocket-evidence-20261108.tar.gz",
+  "bytes": 180103075,
+  "sha256": "308a09b23d1aaaf2b5f43aa4227f15b6b70b06ca2b3fa33da523f158786d2ac5",
+  "gzip_verified": true,
+  "raw_labs": {
+    "review": 45,
+    "websocket": 120
+  },
+  "component_trials": 316,
+  "source": "Full raw application labs, reductions, prototype patches/build metadata and baseline bundle proof. Component raw trials are committed separately in websocket_eval/evidence."
+}

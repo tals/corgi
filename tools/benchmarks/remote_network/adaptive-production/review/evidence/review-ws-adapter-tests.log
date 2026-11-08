@@ -1,0 +1,16 @@
+bun test v1.4.4 (38afee6c8)
+
+tools/benchmarks/remote_network/websocket_app/adapter.test.ts:
+(pass) raw control preserves final bytes before EOF [26.14ms]
+(pass) raw control bounds queues while a reader pauses and resumes [110.43ms]
+(pass) raw control propagates an abrupt upstream close [3.03ms]
+(pass) raw control bounds uploads while the upstream reader pauses [81.32ms]
+(pass) WebSocket preserves final bytes before EOF [13.86ms]
+(pass) WebSocket bounds queues while a reader pauses and resumes [100.92ms]
+(pass) WebSocket propagates an abrupt upstream close [4.58ms]
+(pass) WebSocket bounds uploads while the upstream reader pauses [97.97ms]
+
+ 8 pass
+ 0 fail
+ 38 expect() calls
+Ran 8 tests across 1 file. [688.00ms]

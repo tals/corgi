@@ -1,0 +1,12 @@
+{
+  "sha256": {
+    "audit.json": "98216870e5667c7715743d74a8758ac082f8bcfb14eaff11e897d3163033b19b",
+    "audit-checks.json.gz": "4abbeac4f8019f03b540354f219cc5cd0db6822cf97f616a356a2afb1fe26086",
+    "outlier.json": "ce62ffcf8d8c4292e184026286a397ec5a526713783d3cd3187b822f2314ca69",
+    "summary.json": "7ab2cb3958f6c5c654df1ba47b32d060177efb42956acb9cec2e93408fcf02f4",
+    "trials.json.gz": "c5e6a591744fc1ac592ca43c305cac6be24886e88af36b93698ab00276518d10",
+    "additional-trials.json.gz": "088656871bf49683abab3f8766114c037eeb5b5326ca77b784326c87d602c60d",
+    "raw.tar.gz": "eead37089127b2fe7663fc49aee7d61d380e49030d4c8db1dad0e2137cb1aba4"
+  },
+  "publisher_sha256": "c3aca2f1ec108c1913e576dfbad6ebf1384fd888a13563e20e8d0a0f2001a05d"
+}

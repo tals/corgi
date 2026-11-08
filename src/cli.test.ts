@@ -1,6 +1,7 @@
 import { test, expect, spyOn } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
+import * as websocket from "./wire_websocket";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Memory } from "./prompt_memory";
@@ -434,8 +435,8 @@ test("a chat whose commands run where its environment can't reach names itself w
   for (const [k] of saved) delete process.env[k];
   const server = createServer(connection => {
     let buffer = "";
-    connection.setEncoding("utf8");
-    connection.on("data", chunk => {
+    let ws: websocket.Server | null = null;
+    const receive = (chunk: Buffer) => {
       buffer += chunk;
       for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
         const request = JSON.parse(buffer.slice(0, end));
@@ -451,8 +452,14 @@ test("a chat whose commands run where its environment can't reach names itself w
                 ],
               }
             : { ok: true, request_id: request.request_id };
-        connection.write(JSON.stringify(reply) + "\n");
+        const bytes = Buffer.from(JSON.stringify(reply) + "\n");
+        connection.write(ws ? websocket.frame(bytes) : bytes);
       }
+    };
+    connection.on("data", (chunk: Buffer) => {
+      if (!ws && !buffer && chunk[0] === 71) ws = new websocket.Server(bytes => connection.write(bytes), receive);
+      if (ws) ws.receive(chunk);
+      else receive(chunk);
     });
   });
   await new Promise<void>(resolve => server.listen(socket, resolve));

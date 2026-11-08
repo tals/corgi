@@ -1,0 +1,304 @@
+diff --git a/src/connection_stats.test.ts b/src/connection_stats.test.ts
+index eb8a9c07..48308d90 100644
+--- a/src/connection_stats.test.ts
++++ b/src/connection_stats.test.ts
+@@ -55,6 +55,20 @@ test("replies delayed by a detected outage do not make the next outage slower to
+   expect(stats.stallMs).toBeGreaterThan(before);
+ });
+
++test("speculative probes wait for learned latency and leave stall and timeout budgets intact", () => {
++  const stats = new Stats();
++  expect(stats.probeMs).toBe(4000);
++  for (let i = 0; i < 30; i++) stats.answer(120, false);
++  expect(stats.probeMs).toBe(1500);
++  expect(stats.stallMs).toBe(4000);
++  expect(stats.timeoutMs).toBe(12000);
++  for (let i = 0; i < 30; i++) stats.answer(2000 + (i % 2) * 500, false);
++  expect(stats.probeMs).toBeGreaterThan(6000);
++  expect(stats.probeMs).toBe(stats.stallMs);
++  for (let i = 0; i < 30; i++) stats.answer(60000, false);
++  expect(stats.probeMs).toBe(30000);
++});
++
+ test("reception bars reflect sustained response time and jitter", () => {
+   expect(new Stats().quality).toBeNull();
+   for (const [latency, bars] of [
+diff --git a/src/connection_stats.ts b/src/connection_stats.ts
+index adcb79a8..7aa526a6 100644
+--- a/src/connection_stats.ts
++++ b/src/connection_stats.ts
+@@ -67,9 +67,12 @@ export class Stats {
+     // One broken connection can reject many requests in the same instant.
+     if (now - (this.disruptions.at(-1) ?? -Infinity) >= 1000) this.disruptions.push(now);
+   }
+-  /** A conservative budget, learned from successful application round trips. */
++  /** Probe silence before declaring a stall; a live but slow path keeps its budget. */
++  get probeMs(): number {
++    return this.answers ? Math.min(30000, Math.max(1500, 1000 + 3 * this.mean + 4 * this.deviation)) : 4000;
++  }
+   get stallMs(): number {
+-    return this.answers ? Math.min(30000, Math.max(4000, 1000 + 3 * this.mean + 4 * this.deviation)) : 4000;
++    return Math.max(4000, this.probeMs);
+   }
+   get timeoutMs(): number {
+     return Math.max(10000, this.stallMs * 3);
+diff --git a/src/machine_connection.test.ts b/src/machine_connection.test.ts
+index fc9d9760..9c64f6f9 100644
+--- a/src/machine_connection.test.ts
++++ b/src/machine_connection.test.ts
+@@ -482,3 +482,72 @@ test("a spare that answers during reconnect takes over and resumes the same link
+     await daemon.close();
+   }
+ });
++
++test("a silent established stream gets an early spare but partial frame progress does not", async () => {
++  const endpoint = new Endpoint(recoveryProfile, "/unused", new Probe(), new Host());
++  const clock = spyOn(performance, "now").mockReturnValue(10000);
++  const race = spyOn(endpoint as any, "race").mockResolvedValue(undefined);
++  const connection = { lastReceived: 9000, close() {} };
++  const stream = { fresh: true, age: () => 2000 };
++  Reflect.set(endpoint, "connection", connection);
++  Reflect.set(endpoint, "stream", stream);
++  Reflect.set(endpoint, "link", "saved-link");
++  Reflect.set(endpoint, "task", Promise.resolve(false));
++  endpoint.status = "online";
++  endpoint.ready = endpoint.fresh = true;
++  for (let i = 0; i < 30; i++) endpoint.stats.answer(120, false);
++  try {
++    endpoint.pump(false);
++    expect(race).not.toHaveBeenCalled();
++    clock.mockReturnValue(10500);
++    stream.fresh = false;
++    endpoint.pump(false);
++    expect(race).not.toHaveBeenCalled();
++    stream.fresh = true;
++    endpoint.pump(false);
++    expect(race).toHaveBeenCalledTimes(1);
++    expect(endpoint.status).toBe("online");
++    expect(endpoint.ready).toBe(true);
++    // Do not open another spare on every pump while the path stays silent.
++    Reflect.set(endpoint, "raced_at", 10500);
++    clock.mockReturnValue(12000);
++    endpoint.pump(false);
++    expect(race).toHaveBeenCalledTimes(1);
++  } finally {
++    await endpoint.close();
++    clock.mockRestore();
++    race.mockRestore();
++  }
++});
++
++for (const progress of [false, true]) {
++  test(`an early spare ${progress ? "yields to renewed primary byte progress" : "takes over a silent online primary"}`, async () => {
++    const daemon = await flakyDaemon();
++    const endpoint = daemon.endpoint;
++    const open = spyOn(Remote.prototype, "open").mockImplementation(async function (this: Remote) {
++      Reflect.set(this, "socket", endpoint.local);
++      if (progress) Reflect.get(endpoint, "connection").lastReceived = performance.now();
++    });
++    try {
++      await daemon.connect();
++      Reflect.set(endpoint, "profile", recoveryProfile);
++      endpoint.status = "online";
++      Reflect.get(endpoint, "connection").lastReceived = performance.now() - 5000;
++      const generation = endpoint.generation;
++      await Reflect.get(endpoint, "race").call(endpoint, performance.now());
++      if (progress) {
++        expect(endpoint.generation).toBe(generation);
++        expect(endpoint.status).toBe("online");
++        expect(Reflect.get(endpoint, "dialed")).toBeNull();
++      } else {
++        expect(endpoint.generation).toBeGreaterThan(generation);
++        expect(Reflect.get(endpoint, "dialed")).not.toBeNull();
++        await daemon.connect();
++        expect(daemon.seen.filter(request => request.op === "link.resume")).toHaveLength(1);
++      }
++    } finally {
++      open.mockRestore();
++      await daemon.close();
++    }
++  });
++}
+diff --git a/src/machine_connection.ts b/src/machine_connection.ts
+index c02e72c6..57e5440a 100644
+--- a/src/machine_connection.ts
++++ b/src/machine_connection.ts
+@@ -86,6 +86,34 @@ export class Endpoint {
+   private numbered: Numbered[] = [];
+   /** A second connection is being dialed beside a silent one. */
+   private racing = false;
++  private warm: { tunnel: Remote; conn: Connection } | null = null;
++  private warmed = false;
++  private async warmup(): Promise<void> {
++    this.warmed = true;
++    const generation = this.generation;
++    const tunnel = new Remote(this.profile!, true);
++    let conn: Connection | null = null;
++    this.trace("remote.race", "warm_start");
++    try {
++      await tunnel.open();
++      let established = false;
++      conn = new Connection(tunnel.socket, { timeout_ms: () => established ? this.stallMs : startup_ms });
++      const hello = await conn.call("hello");
++      established = true;
++      if (this.stopped || generation !== this.generation || compatible(hello) !== this.instance) throw Error("RaceLost");
++      this.warm = { tunnel, conn };
++      this.trace("remote.race", "warm_ready");
++    } catch {
++      conn?.close();
++      tunnel.close();
++      this.trace("remote.race", "warm_failed");
++    }
++  }
++  private closeWarm(): void {
++    this.warm?.conn.close();
++    this.warm?.tunnel.close();
++    this.warm = null;
++  }
+   /** When the last race began; races come at most every `race_ms`. */
+   private raced_at = -Infinity;
+   /** The dial that won a race, for the next connect to carry on over. */
+@@ -168,6 +196,8 @@ export class Endpoint {
+         age_ms: this.healthAge(performance.now()),
+         stall_ms: this.stallMs,
+         race_ms: this.raceMs,
++        probe_ms: this.stats.probeMs,
++        idle_ms: this.connection ? performance.now() - this.connection.lastReceived : -1,
+         ...details,
+       });
+   }
+@@ -357,6 +387,7 @@ export class Endpoint {
+     }
+     if (this.stopped || this.status === "paused" || this.status === "incompatible") return;
+     const now = performance.now();
++    if (visible && this.profile && this.status === "online" && this.link && !this.warmed) void this.warmup();
+     if (this.stream && this.status === "online" && this.stream.age(now) >= this.stallMs) {
+       this.status = "stalled";
+       this.stats.stalled(now);
+@@ -379,11 +410,17 @@ export class Endpoint {
+       (this.status === "connecting" || this.status === "offline") &&
+       now - (this.stats.lastReceived ?? this.task_started) >= this.raceMs;
+     const due = !this.racing && now - this.raced_at >= (recovering ? this.stallMs : this.raceMs);
++    // Byte progress distinguishes a lost path from a slowly arriving frame.
++    const silent =
++      (this.status === "online" || this.status === "stalled") &&
++      this.stream?.fresh &&
++      this.connection &&
++      now - this.connection.lastReceived >= this.stats.probeMs;
+     if (
+       this.profile &&
+       this.link &&
+       due &&
+-      (this.suspect || recovering || (this.status === "stalled" && quiet >= this.raceMs))
++      (this.suspect || silent || recovering || (this.status === "stalled" && quiet >= this.raceMs))
+     )
+       void this.race(now);
+     if (this.task) return;
+@@ -441,9 +478,13 @@ export class Endpoint {
+    * busy answers on neither until it's done, and the old one carries on.
+    * Over a link either can: nothing in flight is lost or run twice. */
+   private async race(now: number): Promise<void> {
++    const warm = this.warm;
++    this.warm = null;
+     const profile = this.profile!,
+       interruption = this.interruption,
+-      tunnel = new Remote(profile, true, Math.min(startup_ms, this.stats.timeoutMs));
++      primary = this.connection,
++      received = primary?.lastReceived,
++      tunnel = warm?.tunnel ?? new Remote(profile, true, Math.min(startup_ms, this.stats.timeoutMs));
+     this.probe_tunnel = tunnel;
+     this.racing = true;
+     this.raced_at = now;
+@@ -451,9 +492,9 @@ export class Endpoint {
+     this.suspect = false;
+     let conn: Connection | null = null;
+     try {
+-      await tunnel.open();
++      if (!warm) await tunnel.open();
+       let established = false;
+-      conn = new Connection(tunnel.socket, {
++      conn = warm?.conn ?? new Connection(tunnel.socket, {
+         timeout_ms: () => (established ? this.stats.timeoutMs : Math.min(startup_ms, this.stats.timeoutMs)),
+         stats: this.stats,
+         trace: { machine: this.name, generation: this.generation, path: "race" },
+@@ -461,11 +502,19 @@ export class Endpoint {
+       const hello = await conn.call("hello");
+       established = true;
+       this.trace("remote.race", "hello");
++      const silent =
++        primary &&
++        this.connection === primary &&
++        primary.lastReceived === received &&
++        performance.now() - primary.lastReceived >= this.stats.probeMs;
+       // The old connection answering again, or anything else moving on, wins.
+       if (
+         interruption !== this.interruption ||
+         this.stopped ||
+-        (this.status !== "stalled" && this.status !== "connecting" && this.status !== "offline")
++        (this.status !== "stalled" &&
++          this.status !== "connecting" &&
++          this.status !== "offline" &&
++          !(this.status === "online" && silent))
+       )
+         throw Error("RaceLost");
+       if (compatible(hello) !== this.instance) throw Error("RaceLost");
+@@ -847,6 +896,7 @@ export class Endpoint {
+     view.prefix = false;
+   }
+   private disconnect(keepTask = false, keepProbe = false): void {
++    this.closeWarm();
+     this.generation++;
+     if (!keepTask) this.task = null;
+     if (!keepProbe) {
+diff --git a/src/rpc.test.ts b/src/rpc.test.ts
+index 27dc0f54..425f6e4a 100644
+--- a/src/rpc.test.ts
++++ b/src/rpc.test.ts
+@@ -434,3 +434,26 @@ test.each([false, true])("reload waits out a busy daemon until its deadline (exp
+     rmSync(dir, { recursive: true, force: true });
+   }
+ });
++
++test("partial replies count as connection progress before the request completes", async () => {
++  let finish!: () => void;
++  const remote = await peer((message, socket) => {
++    socket.write(`{"request_id":${message.request_id},`);
++    finish = () => socket.write('"ok":true,"pid":7}\n');
++  });
++  try {
++    remote.conn.lastReceived = 0;
++    let completed = false;
++    const reply = remote.conn.call("ping").then(value => {
++      completed = true;
++      return value;
++    });
++    await new Promise<void>(resolve => remote.conn.socket.once("data", () => resolve()));
++    expect(remote.conn.lastReceived).toBeGreaterThan(0);
++    expect(completed).toBe(false);
++    finish();
++    expect(await reply).toEqual({ ok: true, pid: 7 });
++  } finally {
++    await remote.close();
++  }
++});
+diff --git a/src/rpc.ts b/src/rpc.ts
+index 6f42409b..8afdf412 100644
+--- a/src/rpc.ts
++++ b/src/rpc.ts
+@@ -17,6 +17,8 @@ export interface ConnectionInit {
+ }
+ export class Connection {
+   readonly socket: Socket;
++  /** Any received byte is progress, even before a large reply is complete. */
++  lastReceived = performance.now();
+   private readonly requestIds: boolean;
+   private pending = new Map<number, Pending>();
+   private next = 1;
+@@ -39,6 +41,7 @@ export class Connection {
+     this.socket = typeof target === "string" ? createSocket(target) : target;
+     this.socket.setEncoding("utf8");
+     this.socket.on("data", chunk => {
++      this.lastReceived = performance.now();
+       this.stats?.traffic("received", Buffer.byteLength(chunk));
+       this.buffer += chunk;
+       if (Buffer.byteLength(this.buffer) > 64 * 1024 * 1024) {

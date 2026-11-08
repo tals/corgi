@@ -1,0 +1,42 @@
+bun test v1.4.4 (38afee6c8)
+
+src/machine_stream.test.ts:
+(pass) incremental frames decode before UI coalescing and rebuild after a daemon handoff [16.11ms]
+(pass) only frames that change something wake the viewer [5.33ms]
+(pass) input and pushed output proceed while older input acknowledgements are withheld [6.44ms]
+(pass) frames and failures wake the viewer, but successful acknowledgements do not spin it [7.31ms]
+(pass) a reset rejects an old in-flight frame and requests a full replacement [14.63ms]
+(pass) outstanding input is bounded without acknowledging or replaying unsent bytes [0.36ms]
+(pass) a coalesced RPC reply and subsequent push are applied in wire order [7.81ms]
+
+src/viewer_stream.test.ts:
+(pass) receipts bound frames beyond socket buffers and skip blocked intermediate screens [1.34ms]
+(pass) an oversized snapshot travels alone and a byte-full window resumes on receipt [0.79ms]
+(pass) row patches preserve Unicode, hyperlinks, cursor, scrollback and modes [0.54ms]
+
+src/viewer_protocol.test.ts:
+(pass) a throttled stream sends its latest frame at the deadline without a maintenance tick [4.44ms]
+(pass) a blocked stream retains one latest frame and resumes when output drains [0.88ms]
+(pass) a rejected stream frame keeps an input receipt pending until it is sent [3.25ms]
+(pass) stream reconfiguration and client pause cancel deferred frames [0.59ms]
+(pass) a viewer reads the view the daemon writes [0.13ms]
+(pass) viewer wire version checked on every exchange [0.09ms]
+(pass) incremental streams are opt-in and missing handoff state asks for a fresh base [1.50ms]
+(pass) interest bounds and repeated pane validation match daemon [0.16ms]
+(pass) unqualified controls target oldest live viewer and pane routes reject ambiguity [0.66ms]
+(pass) controls remain ordered and bounded, and wake their viewer [0.54ms]
+(pass) OSC52 copy chooses most recently active interested viewer and replaces pending copy [0.53ms]
+(pass) relaunch validates absolute executable and goes to viewer showing pane [0.73ms]
+(pass) viewers are listed in order with their process and how recently each was used [0.39ms]
+(pass) open from a pane goes to the viewer showing it [0.43ms]
+(pass) an empty workspace does not ask older viewers to detach [0.89ms]
+(pass) resource receipts reuse published samples across viewers and follow detail and replacement [1.71ms]
+(pass) surface modes follow the live terminal while a restored ghost supplies its screen [1.97ms]
+(pass) the data connection reads its viewer's surfaces and receipts without becoming a viewer [1.38ms]
+(pass) a fresh daemon's starter gives way to onboarding, and waits for any other viewer's folder [16.56ms]
+(pass) a new viewer opens on the pane last used in the preferred workspace [1.87ms]
+
+ 30 pass
+ 0 fail
+ 155 expect() calls
+Ran 30 tests across 3 files. [248.00ms]

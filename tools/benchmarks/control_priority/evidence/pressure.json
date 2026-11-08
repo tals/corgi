@@ -1,0 +1,1110 @@
+[
+  {
+    "label": "before",
+    "raw": "/home/t/dev/personal/corgi-remote-network-eval/dist/control-priority-pressure-before",
+    "repeat": 0,
+    "control_rpc_ms": {
+      "n": 10,
+      "median": 550.3877804999993,
+      "min": 304.07891799999925,
+      "max": 570.5830179999994,
+      "p95": 568.8509747499991
+    },
+    "control_errors": 0,
+    "control_events": [
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1542713,
+        "tid": 0,
+        "ts": 1794164596575131.8,
+        "dur": 566734.0329999988,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 41,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1542713,
+        "tid": 0,
+        "ts": 1794164596594208.5,
+        "dur": 570583.0179999993,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 42,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1542713,
+        "tid": 0,
+        "ts": 1794164599418661.5,
+        "dur": 417521.7549999998,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 58,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1542713,
+        "tid": 0,
+        "ts": 1794164599436806.2,
+        "dur": 415104.38799999974,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 59,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1542713,
+        "tid": 0,
+        "ts": 1794164603418383,
+        "dur": 552611.7769999983,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 78,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1542713,
+        "tid": 0,
+        "ts": 1794164603436893.5,
+        "dur": 549868.7219999993,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 79,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1542713,
+        "tid": 0,
+        "ts": 1794164607418963.5,
+        "dur": 306830.8229999966,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 99,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1542713,
+        "tid": 0,
+        "ts": 1794164607437667.2,
+        "dur": 304078.91799999925,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 100,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1542713,
+        "tid": 0,
+        "ts": 1794164611418489.5,
+        "dur": 554937.758,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 121,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1542713,
+        "tid": 0,
+        "ts": 1794164611437257.8,
+        "dur": 550906.8389999993,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 122,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      }
+    ],
+    "visible_updates_s": 3.649984786458628,
+    "network": {
+      "tx_kbit_s": 60.363454921238336,
+      "rx_kbit_s": 10.387720066235056
+    },
+    "held_age_s": {
+      "n": 401,
+      "median": 0.5752219734713435,
+      "min": 0.22498661885038018,
+      "max": 0.9250621986575425,
+      "p95": 0.825120200868696
+    },
+    "catchup_s": 0.26771937776356936,
+    "probes": [
+      {
+        "token": "FLOW2P0",
+        "sent": 2489549.056936566,
+        "ok": true,
+        "seconds": 0.8551674271002412,
+        "observation_seconds": 18.851963407360017
+      },
+      {
+        "token": "FLOW2P1",
+        "sent": 2489551.909819132,
+        "ok": true,
+        "seconds": 0.6694650356657803,
+        "observation_seconds": 15.99908084096387
+      },
+      {
+        "token": "FLOW2P2",
+        "sent": 2489555.909241312,
+        "ok": true,
+        "seconds": 0.8057148489169776,
+        "observation_seconds": 11.999658660963178
+      },
+      {
+        "token": "FLOW2P3",
+        "sent": 2489559.909415205,
+        "ok": true,
+        "seconds": 0.3770483317784965,
+        "observation_seconds": 7.999484768137336
+      },
+      {
+        "token": "FLOW2P4",
+        "sent": 2489563.909376954,
+        "ok": true,
+        "seconds": 0.8095067986287177,
+        "observation_seconds": 3.999523018952459
+      }
+    ],
+    "input_receipts": {
+      "FLOW2P0": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489549.237182908,
+          "token": "FLOW2P0",
+          "pid": 1542005
+        }
+      ],
+      "FLOW2P1": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489552.079793264,
+          "token": "FLOW2P1",
+          "pid": 1542005
+        }
+      ],
+      "FLOW2P2": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489556.079706237,
+          "token": "FLOW2P2",
+          "pid": 1542005
+        }
+      ],
+      "FLOW2P3": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489560.080838086,
+          "token": "FLOW2P3",
+          "pid": 1542005
+        }
+      ],
+      "FLOW2P4": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489564.079955702,
+          "token": "FLOW2P4",
+          "pid": 1542005
+        }
+      ]
+    }
+  },
+  {
+    "label": "before",
+    "raw": "/home/t/dev/personal/corgi-remote-network-eval/dist/control-priority-pressure-before",
+    "repeat": 1,
+    "control_rpc_ms": {
+      "n": 10,
+      "median": 605.4795445,
+      "min": 303.5919599999979,
+      "max": 757.1638779999993,
+      "p95": 756.0072474999995
+    },
+    "control_errors": 0,
+    "control_events": [
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1544814,
+        "tid": 0,
+        "ts": 1794164628120902.5,
+        "dur": 628643.0569999993,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 41,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1544814,
+        "tid": 0,
+        "ts": 1794164628140017.5,
+        "dur": 624237.4670000009,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 42,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1544814,
+        "tid": 0,
+        "ts": 1794164631016612.8,
+        "dur": 311218.2589999993,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 57,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1544814,
+        "tid": 0,
+        "ts": 1794164631034765.5,
+        "dur": 303624.8829999986,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 58,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1544814,
+        "tid": 0,
+        "ts": 1794164635016301.2,
+        "dur": 757163.8779999993,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 78,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1544814,
+        "tid": 0,
+        "ts": 1794164635034725.8,
+        "dur": 754593.5879999998,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 79,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1544814,
+        "tid": 0,
+        "ts": 1794164639016266.2,
+        "dur": 606939.8739999997,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 98,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1544814,
+        "tid": 0,
+        "ts": 1794164639034826.2,
+        "dur": 604019.2150000003,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 99,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1544814,
+        "tid": 0,
+        "ts": 1794164643016269.5,
+        "dur": 306112.0090000004,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 119,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1544814,
+        "tid": 0,
+        "ts": 1794164643035068.2,
+        "dur": 303591.9599999979,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 120,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      }
+    ],
+    "visible_updates_s": 3.6999792777184553,
+    "network": {
+      "tx_kbit_s": 60.974311188358456,
+      "rx_kbit_s": 10.39263326567252
+    },
+    "held_age_s": {
+      "n": 401,
+      "median": 0.5725907278247178,
+      "min": 0.222536476328969,
+      "max": 0.9227677993476391,
+      "p95": 0.8227662406861782
+    },
+    "catchup_s": 0.38476906530559063,
+    "probes": [
+      {
+        "token": "FLOW3P0",
+        "sent": 2489580.602867878,
+        "ok": true,
+        "seconds": 0.9105527591891587,
+        "observation_seconds": 18.903589577879757
+      },
+      {
+        "token": "FLOW3P1",
+        "sent": 2489583.506980383,
+        "ok": true,
+        "seconds": 0.44679342303425074,
+        "observation_seconds": 15.999477073084563
+      },
+      {
+        "token": "FLOW3P2",
+        "sent": 2489587.506967308,
+        "ok": true,
+        "seconds": 1.033679932821542,
+        "observation_seconds": 11.999490147922188
+      },
+      {
+        "token": "FLOW3P3",
+        "sent": 2489591.506864303,
+        "ok": true,
+        "seconds": 0.8605243354104459,
+        "observation_seconds": 7.999593153130263
+      },
+      {
+        "token": "FLOW3P4",
+        "sent": 2489595.50711811,
+        "ok": true,
+        "seconds": 0.4290631399489939,
+        "observation_seconds": 3.9993393458426
+      }
+    ],
+    "input_receipts": {
+      "FLOW3P0": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489580.785171303,
+          "token": "FLOW3P0",
+          "pid": 1542005
+        }
+      ],
+      "FLOW3P1": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489583.677722134,
+          "token": "FLOW3P1",
+          "pid": 1542005
+        }
+      ],
+      "FLOW3P2": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489587.677699078,
+          "token": "FLOW3P2",
+          "pid": 1542005
+        }
+      ],
+      "FLOW3P3": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489591.677648604,
+          "token": "FLOW3P3",
+          "pid": 1542005
+        }
+      ],
+      "FLOW3P4": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489595.678081456,
+          "token": "FLOW3P4",
+          "pid": 1542005
+        }
+      ]
+    }
+  },
+  {
+    "label": "after",
+    "raw": "/home/t/dev/personal/corgi-remote-network-eval/dist/control-priority-pressure-after",
+    "repeat": 0,
+    "control_rpc_ms": {
+      "n": 10,
+      "median": 538.4692229999991,
+      "min": 302.90205500000224,
+      "max": 806.7618320000001,
+      "p95": 699.2286327500003
+    },
+    "control_errors": 0,
+    "control_events": [
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1548410,
+        "tid": 0,
+        "ts": 1794164676084586.8,
+        "dur": 542980.2470000014,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 40,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1548410,
+        "tid": 0,
+        "ts": 1794164676093406.5,
+        "dur": 806761.8320000002,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 42,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1548410,
+        "tid": 0,
+        "ts": 1794164678983971.8,
+        "dur": 430010.9089999987,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 56,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1548410,
+        "tid": 0,
+        "ts": 1794164679002420.8,
+        "dur": 427310.1850000003,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 57,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1548410,
+        "tid": 0,
+        "ts": 1794164682983724,
+        "dur": 549114.5920000017,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 76,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1548410,
+        "tid": 0,
+        "ts": 1794164683001226.8,
+        "dur": 547391.6649999992,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 77,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1548410,
+        "tid": 0,
+        "ts": 1794164686983689.2,
+        "dur": 304894.70000000077,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 96,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1548410,
+        "tid": 0,
+        "ts": 1794164687001344.5,
+        "dur": 302902.05500000226,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 97,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1548410,
+        "tid": 0,
+        "ts": 1794164690983762.5,
+        "dur": 533958.198999997,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 117,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1548410,
+        "tid": 0,
+        "ts": 1794164690989591.2,
+        "dur": 567799.1670000011,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 119,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      }
+    ],
+    "visible_updates_s": 3.6499829911197126,
+    "network": {
+      "tx_kbit_s": 60.24744054973253,
+      "rx_kbit_s": 9.941692360576845
+    },
+    "held_age_s": {
+      "n": 401,
+      "median": 0.5851764539256692,
+      "min": 0.23490812303498387,
+      "max": 0.9351084786467254,
+      "p95": 0.8351084790192544
+    },
+    "catchup_s": 0.35460104793310165,
+    "probes": [
+      {
+        "token": "FLOW2P0",
+        "sent": 2489628.565692958,
+        "ok": true,
+        "seconds": 1.0974399759434164,
+        "observation_seconds": 18.908722668886185
+      },
+      {
+        "token": "FLOW2P1",
+        "sent": 2489631.474801697,
+        "ok": true,
+        "seconds": 0.7066315212287009,
+        "observation_seconds": 15.99961393000558
+      },
+      {
+        "token": "FLOW2P2",
+        "sent": 2489635.474847398,
+        "ok": true,
+        "seconds": 1.0825633089989424,
+        "observation_seconds": 11.99956822860986
+      },
+      {
+        "token": "FLOW2P3",
+        "sent": 2489639.47478185,
+        "ok": true,
+        "seconds": 0.5527932210825384,
+        "observation_seconds": 7.9996337769553065
+      },
+      {
+        "token": "FLOW2P4",
+        "sent": 2489643.474825338,
+        "ok": true,
+        "seconds": 0.8331017610616982,
+        "observation_seconds": 3.999590288847685
+      }
+    ],
+    "input_receipts": {
+      "FLOW2P0": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489628.737487074,
+          "token": "FLOW2P0",
+          "pid": 1547607
+        }
+      ],
+      "FLOW2P1": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489631.645475412,
+          "token": "FLOW2P1",
+          "pid": 1547607
+        }
+      ],
+      "FLOW2P2": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489635.645464992,
+          "token": "FLOW2P2",
+          "pid": 1547607
+        }
+      ],
+      "FLOW2P3": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489639.644129379,
+          "token": "FLOW2P3",
+          "pid": 1547607
+        }
+      ],
+      "FLOW2P4": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489643.632741836,
+          "token": "FLOW2P4",
+          "pid": 1547607
+        }
+      ]
+    }
+  },
+  {
+    "label": "after",
+    "raw": "/home/t/dev/personal/corgi-remote-network-eval/dist/control-priority-pressure-after",
+    "repeat": 1,
+    "control_rpc_ms": {
+      "n": 10,
+      "median": 479.6661540000006,
+      "min": 303.80251700000014,
+      "max": 698.389556000002,
+      "p95": 697.5868730000008
+    },
+    "control_errors": 0,
+    "control_events": [
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1550772,
+        "tid": 0,
+        "ts": 1794164709871861.8,
+        "dur": 310620.601999999,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 41,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1550772,
+        "tid": 0,
+        "ts": 1794164709875938.8,
+        "dur": 572807.280000001,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 43,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1550772,
+        "tid": 0,
+        "ts": 1794164712703232.5,
+        "dur": 312287.8569999994,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 56,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1550772,
+        "tid": 0,
+        "ts": 1794164712720920.5,
+        "dur": 303802.5170000001,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 57,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1550772,
+        "tid": 0,
+        "ts": 1794164716703402.8,
+        "dur": 569550.430000003,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 77,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1550772,
+        "tid": 0,
+        "ts": 1794164716721214.2,
+        "dur": 567416.6509999996,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 78,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1550772,
+        "tid": 0,
+        "ts": 1794164720703776.2,
+        "dur": 698389.556000002,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 97,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1550772,
+        "tid": 0,
+        "ts": 1794164720721538.5,
+        "dur": 696605.8159999993,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 98,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1550772,
+        "tid": 0,
+        "ts": 1794164724703971.8,
+        "dur": 312422.6290000006,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 117,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      },
+      {
+        "name": "remote.rpc",
+        "ph": "X",
+        "pid": 1550772,
+        "tid": 0,
+        "ts": 1794164724710791,
+        "dur": 391915.6570000014,
+        "args": {
+          "machine": "atlas",
+          "generation": 1,
+          "path": "primary",
+          "op": "session.command",
+          "request": 119,
+          "failed": 0,
+          "timeout_ms": 12000
+        }
+      }
+    ],
+    "visible_updates_s": 3.6499812469419144,
+    "network": {
+      "tx_kbit_s": 60.41075409551398,
+      "rx_kbit_s": 10.10419066467121
+    },
+    "held_age_s": {
+      "n": 401,
+      "median": 0.604548464063555,
+      "min": 0.2538568275049329,
+      "max": 0.9544993382878602,
+      "p95": 0.8545355619862676
+    },
+    "catchup_s": 0.3746912577189505,
+    "probes": [
+      {
+        "token": "FLOW3P0",
+        "sent": 2489662.353766132,
+        "ok": true,
+        "seconds": 0.9295418430119753,
+        "observation_seconds": 18.840290122665465
+      },
+      {
+        "token": "FLOW3P1",
+        "sent": 2489665.194424662,
+        "ok": true,
+        "seconds": 0.5676714791916311,
+        "observation_seconds": 15.999631593003869
+      },
+      {
+        "token": "FLOW3P2",
+        "sent": 2489669.194489809,
+        "ok": true,
+        "seconds": 0.8545921957120299,
+        "observation_seconds": 11.99956644559279
+      },
+      {
+        "token": "FLOW3P3",
+        "sent": 2489673.194506038,
+        "ok": true,
+        "seconds": 0.9866489791311324,
+        "observation_seconds": 7.999550216831267
+      },
+      {
+        "token": "FLOW3P4",
+        "sent": 2489677.194681046,
+        "ok": true,
+        "seconds": 0.7409412977285683,
+        "observation_seconds": 3.999375208746642
+      }
+    ],
+    "input_receipts": {
+      "FLOW3P0": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489662.520461097,
+          "token": "FLOW3P0",
+          "pid": 1547607
+        }
+      ],
+      "FLOW3P1": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489665.363919353,
+          "token": "FLOW3P1",
+          "pid": 1547607
+        }
+      ],
+      "FLOW3P2": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489669.364038391,
+          "token": "FLOW3P2",
+          "pid": 1547607
+        }
+      ],
+      "FLOW3P3": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489673.364436381,
+          "token": "FLOW3P3",
+          "pid": 1547607
+        }
+      ],
+      "FLOW3P4": [
+        {
+          "machine": "atlas-input.jsonl",
+          "at": 2489677.357836494,
+          "token": "FLOW3P4",
+          "pid": 1547607
+        }
+      ]
+    }
+  }
+]

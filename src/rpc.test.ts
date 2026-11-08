@@ -7,6 +7,80 @@ import { Connection, reload, request } from "./rpc";
 import * as json from "./json";
 import * as protocol from "./protocol";
 
+test("a timed out request closes its generation and never accepts a late reply", async () => {
+  const sockets = new Set<import("node:net").Socket>();
+  let received = "";
+  const server = createServer(socket => {
+    sockets.add(socket);
+    socket.on("data", bytes => {
+      received += bytes.toString();
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as import("node:net").AddressInfo;
+  const conn = new Connection(createConnection(address.port, "127.0.0.1"), 25);
+  try {
+    const first = conn.call("ping"),
+      second = conn.call("hello");
+    const results = await Promise.allSettled([first, second]);
+    expect(results.every(r => r.status === "rejected" && r.reason.message === "RequestTimedOut")).toBe(true);
+    await expect(conn.call("ping")).rejects.toThrow("RequestTimedOut");
+    expect(received.trim().split("\n").length).toBe(2);
+    expect(conn.socket.destroyed).toBe(true);
+  } finally {
+    conn.close();
+    for (const socket of sockets) socket.destroy();
+    server.close();
+  }
+});
+
+test("lost mutation acknowledgments are not replayed and cancellation rejects every pending call", async () => {
+  const sockets = new Set<import("node:net").Socket>();
+  let applied = 0;
+  let mutation: (() => void) | null = null;
+  const received = new Promise<void>(resolve => (mutation = resolve));
+  const server = createServer(socket => {
+    sockets.add(socket);
+    let buffer = "";
+    socket.on("data", chunk => {
+      buffer += chunk;
+      for (;;) {
+        const newline = buffer.indexOf("\n");
+        if (newline < 0) break;
+        const request = json.parse(buffer.slice(0, newline));
+        buffer = buffer.slice(newline + 1);
+        if (request.op === "session.command") {
+          applied++;
+          mutation!();
+          // The daemon applied the command, but its acknowledgment never reaches the client.
+        } else if (request.op === "ping")
+          socket.write(json.stringify({ ok: true, pid: 7, request_id: request.request_id }) + "\n");
+      }
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as import("node:net").AddressInfo;
+  const conn = new Connection(createConnection(address.port, "127.0.0.1"), 10_000);
+  let replacement: Connection | null = null;
+  try {
+    const results = Promise.allSettled([
+      conn.call("session.command", { command: { "pane.input": { target: 1, data: "run once\r" } } }),
+      conn.call("hello"),
+    ]);
+    await received;
+    conn.close();
+    expect((await results).every(r => r.status === "rejected" && r.reason.message === "ConnectionClosed")).toBe(true);
+    replacement = new Connection(createConnection(address.port, "127.0.0.1"), 1000);
+    expect(await replacement.call("ping")).toEqual({ ok: true, pid: 7 });
+    expect(applied).toBe(1);
+  } finally {
+    conn.close();
+    replacement?.close();
+    for (const socket of sockets) socket.destroy();
+    server.close();
+  }
+});
+
 // These assertions run during typechecking without sending invalid requests.
 function requestTypes(conn: Connection) {
   conn.call("viewer.search", { pane: 1, needle: "text", skip: 2n });
@@ -185,7 +259,10 @@ test("one-shot unversioned requests accept an older daemon's replies and errors"
     socket.on("data", chunk => {
       buffer += chunk;
       if (!buffer.includes("\n")) return;
-      received.push(json.parse(buffer.trim()));
+      if (buffer.startsWith("POST ")) return void socket.end('{"err":"UnexpectedToken"}\n');
+      const message = json.parse(buffer.trim());
+      if (message.op === "hello") return void send(socket, { type: "hello", protocol: 3 });
+      received.push(message);
       send(socket, replies[received.length - 1]);
     });
   });
@@ -345,7 +422,11 @@ test.each([false, true])("reload waits out a busy daemon until its deadline (exp
     socket = join(dir, "corgi.sock");
   let asked = 0;
   const server = createServer(peer =>
-    peer.on("data", () => send(peer, asked++ < 2 ? { err: "ReloadBusy" } : { ok: true, server_pid: 9, panes: 0 })),
+    peer.on("data", chunk => {
+      if (chunk.toString().startsWith("POST ")) return void peer.end('{"err":"UnexpectedToken"}\n');
+      if (json.parse(chunk.toString()).op === "hello") return void send(peer, { type: "hello", protocol: 3 });
+      send(peer, asked++ < 2 ? { err: "ReloadBusy" } : { ok: true, server_pid: 9, panes: 0 });
+    }),
   );
   await new Promise<void>(resolve => server.listen(socket, resolve));
   try {

@@ -1,0 +1,62 @@
+[
+  {
+    "root": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-trace",
+    "kind": "dense",
+    "rate": null,
+    "seconds": 30.00010062381625,
+    "displayed_updates": 600,
+    "rpc_calls": {
+      "viewer.receipt": 663,
+      "session.command": 10
+    },
+    "source_binary_sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe"
+  },
+  {
+    "root": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-trace",
+    "kind": "dense",
+    "rate": "1mbit",
+    "seconds": 30.000124531798065,
+    "displayed_updates": 587,
+    "rpc_calls": {
+      "viewer.receipt": 653,
+      "session.command": 10
+    },
+    "source_binary_sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe"
+  },
+  {
+    "root": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-trace",
+    "kind": "dense",
+    "rate": "256kbit",
+    "seconds": 30.000100106932223,
+    "displayed_updates": 236,
+    "rpc_calls": {
+      "viewer.receipt": 280,
+      "session.command": 10
+    },
+    "source_binary_sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe"
+  },
+  {
+    "root": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-trace",
+    "kind": "dense",
+    "rate": "64kbit",
+    "seconds": 30.000080942176282,
+    "displayed_updates": 57,
+    "rpc_calls": {
+      "viewer.receipt": 78,
+      "session.command": 10
+    },
+    "source_binary_sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe"
+  },
+  {
+    "root": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-sparse-trace",
+    "kind": "sparse",
+    "rate": null,
+    "seconds": 30.000077687669545,
+    "displayed_updates": 600,
+    "rpc_calls": {
+      "viewer.receipt": 663,
+      "session.command": 10
+    },
+    "source_binary_sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe"
+  }
+]

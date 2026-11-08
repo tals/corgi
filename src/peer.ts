@@ -2,17 +2,24 @@ import type { Wait as StartupWait } from "./startup";
 import * as telemetry from "./telemetry";
 import { n, ptr, ReadyLoop, READ, WRITE } from "./native_bridge";
 import * as json from "./json";
+import * as wire_compression from "./wire_compression";
+import * as wire_websocket from "./wire_websocket";
+import * as errors from "./errors";
 import type { Control } from "./protocol";
 import type { Interest } from "./viewer_protocol";
 import type { Subscription } from "./launch_service";
+import type { Link } from "./link";
+import type { Frames } from "./viewer_stream";
 /** A request owns its response even when it completes after another request. */
 export class Reply {
   constructor(
     private client: Client,
     readonly id: number | null = null,
+    private readonly sent?: (value: object) => void,
   ) {}
   send(value: object): void {
-    this.client.queue(this.id === null ? value : { ...value, request_id: this.id });
+    if (this.sent) this.sent(value);
+    else this.client.queue(this.id === null ? value : { ...value, request_id: this.id });
   }
   ok(value: object = {}): void {
     this.send({ ok: true, ...value });
@@ -38,7 +45,17 @@ export class Client {
   subscribed = false;
   /** Whether terminal output alone pushes this subscriber a snapshot. */
   subscribed_output = true;
+  stream: {
+    delivery?: Frames;
+    separate?: boolean;
+    sequence: number;
+    session_hash: bigint | null;
+    resources_hash: bigint | null;
+    sent: number;
+    wake: bigint;
+  } | null = null;
   watching = false;
+  stream_data = false;
   watch_viewer = 0;
   woken = 0n;
   launch_preview: Subscription | null = null;
@@ -53,7 +70,10 @@ export class Client {
   resource_detail: number | null = null;
   worktree_detail: number | null = null;
   resources = true;
+  resource_observer = false;
   dead = false;
+  /** The link this connection carries, once the client opened or resumed one. */
+  link: Link | null = null;
   touched = Date.now();
   input: Buffer = Buffer.alloc(0);
   output: Buffer = Buffer.alloc(0);
@@ -66,6 +86,9 @@ export class Client {
   pending: any[] = [];
   private busy = false;
   private paused = false;
+  private frame_timer: ReturnType<typeof setTimeout> | null = null;
+  private frame_pending: (() => void) | null = null;
+  private frame_deadline = 0;
   private registration: ReturnType<ReadyLoop["watch"]> | null = null;
   private scratch = Buffer.alloc(65536);
   constructor(
@@ -79,7 +102,63 @@ export class Client {
     this.paused = !start;
     if (start) this.resume();
   }
-  queue(value: unknown): void {
+  private codec: wire_compression.Channel | null = null;
+  private websocket: wire_websocket.Server | null = null;
+  private waiting_for_close = false;
+  private compressed_overhead = 0;
+  savedWebSocket(): wire_websocket.State | null {
+    return this.websocket?.save() ?? null;
+  }
+  restoreWebSocket(value: unknown): void {
+    this.websocket = new wire_websocket.Server(
+      bytes => this.writeRaw(bytes),
+      bytes => this.decode(bytes),
+      wire_websocket.state(value),
+    );
+  }
+  get compressed(): boolean {
+    return this.codec !== null;
+  }
+  get canCompress(): boolean {
+    return (
+      !this.codec &&
+      this.http === "no" &&
+      this.lines === 1 &&
+      this.pending.length === 0 &&
+      !this.input.length &&
+      (!this.websocket || this.websocket.idle)
+    );
+  }
+  get queued(): number {
+    return this.output.length - this.sent + (this.codec?.pending ?? 0);
+  }
+  compress(): void {
+    if (this.codec || this.http !== "no") throw Error("InvalidCompressionState");
+    this.codec = new wire_compression.Channel(
+      bytes => this.write(bytes),
+      bytes => this.receiveBytes(bytes),
+      () => this.close(),
+    );
+  }
+  async prepareHandoff(): Promise<void> {
+    if (!this.compressed || !this.viewer) return;
+    this.cancelFrame();
+    this.stream = null;
+    this.queue({ type: "viewer.reconnect" });
+    const until = performance.now() + 1000;
+    while (!this.dead && this.queued && performance.now() < until) await Bun.sleep(1);
+  }
+  async rolledBack(): Promise<void> {
+    if (!this.websocket || this.dead) return;
+    // Let the peer read and acknowledge Close before dropping a socket with unread receipts.
+    this.waiting_for_close = true;
+    this.websocket.fail(wire_websocket.rolled_back);
+    this.resume();
+    const until = performance.now() + 1000;
+    while (!this.dead && performance.now() < until) await Bun.sleep(1);
+    this.close();
+  }
+  queue(value: unknown, delivery = this.stream?.delivery): void {
     if (this.dead) return;
     if (this.http === "replied") return;
     if (this.http === "request") {
@@ -97,6 +176,29 @@ export class Client {
     const encode_started = telemetry.begin();
     const bytes = Buffer.from(json.stringify(value) + "\n");
     telemetry.end("wire.encode", encode_started, bytes.length);
+    const frame =
+      value && typeof value === "object" && "frame" in value && typeof value.frame === "bigint" ? value.frame : null;
+    if (this.codec)
+      this.codec.encode(bytes, count => {
+        const wire_bytes = count + this.compressed_overhead;
+        this.compressed_overhead = 0;
+        if (frame !== null) delivery?.encoded(frame, wire_bytes);
+        this.armFrame();
+      });
+    else {
+      const wire_bytes = this.write(bytes);
+      if (frame !== null) delivery?.encoded(frame, wire_bytes);
+    }
+  }
+  private write(bytes: Buffer): number {
+    if (this.websocket?.closing) return 0;
+    const framed = this.websocket ? wire_websocket.frame(bytes) : bytes;
+    if (this.codec) this.compressed_overhead += framed.length - bytes.length;
+    this.writeRaw(framed);
+    return framed.length;
+  }
+  private writeRaw(bytes: Buffer): void {
+    if (this.dead) return;
     if (this.output.length - this.sent + bytes.length > 4 * 1024 * 1024) {
       this.close();
       return;
@@ -106,10 +208,34 @@ export class Client {
     this.flush();
     this.arm();
   }
+  reply(_op: string, value: object): void {
+    this.queue({ ok: true, ...value });
+  }
+  deferFrame(deadline: number, send: () => void): void {
+    this.frame_pending = send;
+    this.frame_deadline = deadline;
+    this.armFrame();
+  }
+  cancelFrame(): void {
+    if (this.frame_timer !== null) clearTimeout(this.frame_timer);
+    this.frame_timer = this.frame_pending = null;
+  }
+  private armFrame(): void {
+    if (this.paused || this.dead || this.queued || this.frame_timer !== null || !this.frame_pending) return;
+    this.frame_timer = setTimeout(
+      () => {
+        const send = this.frame_pending;
+        this.frame_timer = this.frame_pending = null;
+        send?.();
+      },
+      Math.max(0, this.frame_deadline - Date.now()),
+    );
+  }
   flush(): void {
     if (this.paused) return;
-    while (this.sent < this.output.length && !this.dead) {
-      const b = this.output.subarray(this.sent),
+    const until = this.sent + 65536;
+    while (this.sent < this.output.length && this.sent < until && !this.dead) {
+      const b = this.output.subarray(this.sent, until),
         count = n.probe_write(this.fd, ptr(b), b.length);
       if (count > 0) this.sent += count;
       else if (count === -4) continue;
@@ -122,49 +248,77 @@ export class Client {
     if (this.output.length > 0 && this.sent === this.output.length) {
       this.output = Buffer.alloc(0);
       this.sent = 0;
-      if (this.http === "replied") this.close();
+      if (this.http === "replied" || (this.websocket?.closing && !this.waiting_for_close)) this.close();
       else this.drained(this);
+      this.armFrame();
     }
   }
   private read(): void {
     for (let i = 0; i < 8 && !this.dead; i++) {
       const count = n.probe_read(this.fd, ptr(this.scratch), this.scratch.length);
       if (count > 0) {
-        this.input = Buffer.concat([this.input, this.scratch.subarray(0, count)]);
-        if (this.input.length > 4 * 1024 * 1024) {
-          this.close();
+        const bytes = Buffer.from(this.scratch.subarray(0, count));
+        try {
+          if (this.websocket) this.websocket.receive(bytes);
+          else this.decode(bytes);
+        } catch (error) {
+          this.websocket?.fail(errors.is(error, "MessageTooLarge") ? 1009 : 1002);
+          if (!this.websocket?.closing) this.close();
           return;
-        }
-        if (
-          this.http === "no" &&
-          this.lines === 0 &&
-          this.input.length >= 5 &&
-          this.input.subarray(0, 5).toString() === "POST "
-        )
-          this.http = "request";
-        if (this.http !== "no") {
-          this.readHttp();
-          continue;
-        }
-        for (;;) {
-          const end = this.input.indexOf(10);
-          if (end < 0) break;
-          const line = this.input.subarray(0, end).toString();
-          this.input = Buffer.from(this.input.subarray(end + 1));
-          this.lines++;
-          try {
-            this.touched = Date.now();
-            this.pending.push(json.parse(line));
-            this.dispatch();
-          } catch {
-            this.queue({ err: "InvalidJson" });
-          }
         }
       } else if (count === -4) continue;
       else if (count === -11 || count === -35) break;
       else {
         this.close();
         return;
+      }
+    }
+  }
+  private decode(bytes: Buffer): void {
+    if (this.codec) this.codec.decode(bytes);
+    else this.receiveBytes(bytes);
+  }
+  private receiveBytes(bytes: Buffer): void {
+    if (this.dead) return;
+    this.input = Buffer.concat([this.input, bytes]);
+    if (this.input.length > 4 * 1024 * 1024) {
+      this.close();
+      return;
+    }
+    if (!this.websocket && !this.lines && this.http === "no" && this.input.subarray(0, 4).toString() === "GET ") {
+      const input = this.input;
+      this.input = Buffer.alloc(0);
+      this.restoreWebSocket({ ready: false, closing: false, input: "", fragment: null });
+      this.websocket!.receive(input);
+      return;
+    }
+    if (
+      this.http === "no" &&
+      this.lines === 0 &&
+      this.input.length >= 5 &&
+      this.input.subarray(0, 5).toString() === "POST "
+    )
+      this.http = "request";
+    if (this.http !== "no") {
+      this.readHttp();
+      return;
+    }
+    for (;;) {
+      const end = this.input.indexOf(10);
+      if (end < 0) break;
+      const line = this.input.subarray(0, end).toString();
+      this.input = Buffer.from(this.input.subarray(end + 1));
+      this.lines++;
+      try {
+        if (this.pending.length >= 512) {
+          this.close();
+          return;
+        }
+        this.touched = Date.now();
+        this.pending.push(json.parse(line));
+        this.dispatch();
+      } catch {
+        this.queue({ err: "InvalidJson" });
       }
     }
   }
@@ -219,6 +373,7 @@ export class Client {
   }
   pause(): void {
     this.paused = true;
+    this.cancelFrame();
     this.registration?.close();
     this.registration = null;
   }
@@ -237,6 +392,7 @@ export class Client {
   close(): void {
     if (this.dead) return;
     this.dead = true;
+    this.codec?.close();
     this.pause();
     n.probe_close(this.fd);
     this.disconnected();

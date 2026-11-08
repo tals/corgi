@@ -1,0 +1,69 @@
+{
+  "unit": {
+    "command": "bun test ./src",
+    "passed": 3480,
+    "skipped": 1,
+    "failed": 0,
+    "evidence": "unit.txt.gz"
+  },
+  "typecheck": {
+    "command": "bun typecheck.ts",
+    "exit": 0,
+    "evidence": "typecheck.txt"
+  },
+  "builds": {
+    "commands": [
+      "bun build.ts --no-native",
+      "bun build.ts --test --no-native"
+    ],
+    "exit": 0
+  },
+  "integration": {
+    "command": "bun integration.ts remote reloads rpc --jobs 1",
+    "passed_in_batch": 77,
+    "failed_in_batch": 1,
+    "evidence": "integration.txt",
+    "rerun": {
+      "command": "bun integration.ts remote --jobs 1 -- --test-name-pattern 'a_hung_reconnect|raising_latency_then_reconnecting'",
+      "passed": 2,
+      "failed": 0,
+      "evidence": "reconnect.txt"
+    },
+    "resolved_failure": "The hung-reconnect fixture treated the second TCP connection as the spare dial. With separate lanes it is the data connection. It now waits for the third connection before testing recovery. A pending-data handshake watchdog was also added and tested with continuing control traffic.",
+    "unique_cases_covered": 78
+  },
+  "compatibility": {
+    "command": "CORGI_OLD_EXE=\"$PWD/dist/corgi-before-ws\" bun integration.ts rollback reload_compatibility --jobs 1",
+    "passed": 8,
+    "failed": 0,
+    "evidence": "compatibility.txt"
+  },
+  "binaries": [
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-control-before",
+      "sha256": "8e1dca8935eadb01db41d4f060b48885e83fd0835b053e6e2e98d60609e1f135"
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-control-priority-final",
+      "sha256": "2f3df8aceb4e9a621977771320d19a38bb24d741974553d73786246285dd4456"
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-control-priority-release",
+      "sha256": "546efa7aea76572aa110f5446af0df29d8542e811dd0780232f750b419e4c7a6"
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi",
+      "sha256": "546efa7aea76572aa110f5446af0df29d8542e811dd0780232f750b419e4c7a6"
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-test",
+      "sha256": "bb2bef480c52a481fd10272d21fdefe8ca3f6def8831e57c4674b528bed11c99"
+    }
+  ],
+  "measurement_versions": "Steady-state isolation/WAN runs use corgi-control-priority-final. Saturation and final test drive use corgi-control-priority-release, adding only pending-handshake progress monitoring; established frame traffic is unchanged.",
+  "limitations": [
+    "No CPU equivalence claim from this change.",
+    "A shared saturated network link still delays control; separate queues do not provide network QoS.",
+    "No new Herdr measurements; comparison is Corgi before versus after this change."
+  ]
+}

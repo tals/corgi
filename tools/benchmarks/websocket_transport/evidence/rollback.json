@@ -1,0 +1,109 @@
+{
+  "created_utc": "2026-11-08T09:49:46.371257+00:00",
+  "base_commit": "8802db035ece9404dfa3a1478c28cedf83489bca",
+  "scope": "One live handoff rollback from format 7 to 6 with checkpoint 6 and the existing ABI validation. WS connections exit with a reattach explanation after commit; processes and raw connections are retained. No general reverse migration or transport fallback.",
+  "old_binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-upstream-test",
+  "old_build": {
+    "builtAt": "2026-11-06T23:34:51.832Z",
+    "target": "linux-x64",
+    "bunVersion": "1.4.4",
+    "testBuild": true,
+    "releaseVersion": "0.1.0-dev",
+    "releaseCommit": "455a941bcdb1b2584b00b7771afe6f67dcc057b3",
+    "sha256": "de4906935bf18966dd27f9efc806a2125e93f8b2d0eff126c589fa9aef1e98f2",
+    "sourceSHA256": "93856a6665c008820c28af25976d03228badc22fc31fd10fadc268636fac511b",
+    "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+    "inputsSHA256": "02903ba8e76752163d23ead227d84a5dc63c2a34cd34b490eb0e7bbb026f1a03"
+  },
+  "new_build": {
+    "builtAt": "2026-11-08T09:47:01.119Z",
+    "target": "linux-x64",
+    "bunVersion": "1.4.4",
+    "testBuild": true,
+    "releaseVersion": "0.1.0-dev",
+    "releaseCommit": "8802db035ece9404dfa3a1478c28cedf83489bca-dirty",
+    "sha256": "7279b94e74f7f82cbe2775bde4f2ef4cc18b843c39b0c1dd9d6b259b09b6ab4c",
+    "sourceSHA256": "df0eca15c27bb2ed7fec71fa96b3c65fe286f9997ba8f1deecf7af9dc3d9f8b2",
+    "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+    "inputsSHA256": "4cdacdb64fa305bacd4f44ea6a29f2ddf799a96e36259e804b7f1981070494b5"
+  },
+  "source_sha256": {
+    "src/machine_connection.ts": "93626069e41a647e825d14f600a27e91f31d5c4b3a30e6080c4d0f6780676523",
+    "src/machine_stream.ts": "f80f6409caa8ff6d1f13750bcb1a2610f562b03228030211834e4382a0aa709c",
+    "src/main.test.ts": "408446d62f63d73bd31f846d2857a4c12556432bf34b3ecae948bda74f01330c",
+    "src/main.ts": "7fbcd4a89ebaa42a615ee62dee576f940d37270e53f310659029247ead088c5d",
+    "src/peer.ts": "93f8e3d356d4bcafae69f74a1072ca34e4c54c3e4dccdc76e78a01bcf4c10a57",
+    "src/persist/handoff.ts": "ae8ed322508edc95fae7e581d0f9be1ca78380d45420d73a6bf2fa5d21db1ab8",
+    "src/persist/handoff_rollback.ts": "a1b26492fcf28c558447b51253e88425cf366a0c8fb9bd2520f73ba281f0d4ef",
+    "src/rpc.ts": "9265b927bd38a52498fbe9614c5b647fa0b23f56c8cbb72c6a4a9b5354c9c0dd",
+    "src/server.test.ts": "b502b1b2a84d2e0ceb3cd571556adbb24bd7e8c2a8f19d524d5bb6cb0d69d65d",
+    "src/server.ts": "a4828b572fd206c01f6455c4c1dd21c02d3e8df63bbbf5891f00a38848bd6f2d",
+    "src/watch.ts": "2a068ec0ae2845b1ea81dfcf776bf16d39610d9df4d7fc9f156ce3debbdd81aa",
+    "src/websocket_socket.test.ts": "8453253ffe216ae385fb803be90cc26da4ed853d04ec42520656500f2992f569",
+    "src/websocket_socket.ts": "388f3775383cff3df4406c3cffe19a5d6e2d5e785ff2addfb1ec9215a78bd29f",
+    "src/wire_websocket.ts": "8da93c0816e0530691f0ee2be95381518bad9955d7c65a5f4539d1276cb126fc",
+    "tests/rollback.test.ts": "a4a1c1c57f2a5c58dd416bded72fc9a28eaa04f3b9537c394acad460b5878638"
+  },
+  "binary_sha256": {
+    "dist/corgi": "5f85d99fbc328a679b73221ddf72931b3786cdf0fa31e49c0dc25e45da0acb41",
+    "dist/corgi-test": "7279b94e74f7f82cbe2775bde4f2ef4cc18b843c39b0c1dd9d6b259b09b6ab4c",
+    "dist/corgi-upstream-test": "de4906935bf18966dd27f9efc806a2125e93f8b2d0eff126c589fa9aef1e98f2"
+  },
+  "checks": [
+    {
+      "command": "bun test ./src",
+      "passed": 3463,
+      "skipped": 1,
+      "failed": 0,
+      "log": "rollback-unit.txt.gz",
+      "note": "The skipped case is opt-in live inference. Final source."
+    },
+    {
+      "command": "bun typecheck.ts",
+      "exit_code": 0,
+      "log": "rollback-typecheck.txt"
+    },
+    {
+      "command": "bun build.ts --test --no-native",
+      "exit_code": 0,
+      "log": "rollback-build.txt"
+    },
+    {
+      "command": "bun build.ts --no-native",
+      "exit_code": 0,
+      "log": "rollback-build-production.txt"
+    },
+    {
+      "command": "CORGI_OLD_EXE=/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-upstream-test bun integration.ts rollback --jobs 1",
+      "passed": 5,
+      "failed": 0,
+      "log": "rollback-cases.txt",
+      "note": "Final source: plain and compressed WS requester results; no replay of input queued behind rollback; viewer terminal restoration and exit explanation; subscription exit; stable shell PID/input across rollback and upgrade; two-attempt bound; invalid-candidate recovery including compressed viewers."
+    },
+    {
+      "command": "CORGI_OLD_EXE=/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-upstream-test bun integration.ts rollback reloads rpc --jobs 1",
+      "passed": 36,
+      "failed": 0,
+      "log": "rollback-rpc-reloads.txt",
+      "note": "Before the final compressed non-requester cleanup on rejection. Final rollback cases and focused compressed reload checks below cover that change."
+    },
+    {
+      "command": "CORGI_OLD_EXE=/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-upstream-test bun integration.ts updates reloads remote --jobs 1 -- --test-name-pattern 'explicit update preserves real pane PID|background download stages without activating|test_compressed_reload_|test_remote_reload_rebuilds|test_typing_after_a_remote_reload'",
+      "passed": 6,
+      "filtered": 82,
+      "failed": 0,
+      "log": "rollback-updates-remote.txt",
+      "note": "Final source; real old-binary signed updater upgrade/rollback and background stage/offline activation, successful/rejected compressed reloads, SSH reload and typed input across a slow-link handoff."
+    }
+  ],
+  "implementation_findings": "The first live UI check found that immediately closing a Unix socket with unread receipts could lose its WS Close reason. The final code completes the Close handshake with a bounded wait; the real PTY and subscription test passes. Failure cleanup also reconnects compressed viewers that had received a planned reconnect notice.",
+  "log_sha256": {
+    "rollback-unit.txt.gz": "58235c2453f0319f130425d11357794a81f4c9993815f61929021432146004c7",
+    "rollback-typecheck.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "rollback-build.txt": "5652628e1774b25d4a07cf3ea7c30a0ecd6d805ab5e2197754288688fce8999a",
+    "rollback-build-production.txt": "5d02eff7b303b22cba3b7b6280163b419b9278e1c58e42e709827a38153aadfc",
+    "rollback-cases.txt": "45ac25442a399531a4e726d5f725fce7ebc07c17f062b7209a4f8631ed9fae7b",
+    "rollback-rpc-reloads.txt": "c8a28d04419979354412acd6b6b7b4de75f24645509e73a41d91f762f35f519b",
+    "rollback-updates-remote.txt": "a4fae25eada4205c0cea0066ff6ad4ea496f525cdec98e17bfb4fa58ff7de36b"
+  }
+}

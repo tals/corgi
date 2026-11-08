@@ -1,0 +1,18 @@
+{
+  "matrix_cells": 40,
+  "fresh_process_trials": 120,
+  "all_byte_exact": true,
+  "independent_frames_verified_from_fresh_decoder": true,
+  "all_dictionary_modes_reject_missing_dictionary": true,
+  "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+  "training_changed": false,
+  "production_changes": false,
+  "unit_tests": {
+    "pass": 3375,
+    "skip": 1,
+    "fail": 0
+  },
+  "typecheck": "passed",
+  "benchmark_strict_typecheck": "passed",
+  "python_compile": "passed"
+}

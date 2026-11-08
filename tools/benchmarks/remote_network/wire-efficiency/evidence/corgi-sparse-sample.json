@@ -1,0 +1,84 @@
+{
+  "pid": 1334184,
+  "epoch": 1794022726.888985,
+  "direction": "down",
+  "bytes": 1622,
+  "value": {
+    "type": "viewer.frame",
+    "sequence": 1,
+    "view": {
+      "type": "view",
+      "viewer_protocol": 4,
+      "session": null,
+      "session_hash": 9948299947674730203,
+      "resources": null,
+      "resources_hash": 15311143173315016153,
+      "surfaces": [],
+      "bell_seq": 0,
+      "bell_kind": "none",
+      "controls": [],
+      "viewer": 1,
+      "detach": false,
+      "patches": [
+        {
+          "surface": {
+            "pane": 1,
+            "cols": 132,
+            "rows": 47,
+            "lines": [
+              {
+                "row": 0,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mNETEVAL_atlas S00000290 T2347679379718370                                                                                           \u001b[0m"
+              },
+              {
+                "row": 4,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mbuild job 03: compiled module, tests passing; waiting for next task                                                                 \u001b[0m"
+              },
+              {
+                "row": 5,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mbuild job 04: step 00000290 compiled module, tests passing                                                                          \u001b[0m"
+              },
+              {
+                "row": 24,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mEND_atlas S00000290 ACK_NONE                                                                                                        \u001b[0m"
+              }
+            ],
+            "cursor": null,
+            "images": []
+          },
+          "bottom": 0,
+          "offset": 0,
+          "modes": {
+            "bracketed_paste": false,
+            "cursor_keys": false,
+            "keypad_keys": false,
+            "backarrow": false,
+            "numlock": true,
+            "alt_escape": true,
+            "modify_other": false,
+            "kitty": 0,
+            "mouse_event": "none",
+            "mouse_format": "x10",
+            "paste_events": false
+          },
+          "stamp": {
+            "identity": 4845234525659229543,
+            "revision": 296,
+            "offset": null
+          },
+          "input_ack": {
+            "epoch": "6a0f2f56-46b1-401d-8bae-06b5fa868d80",
+            "sequence": 1
+          },
+          "base": {
+            "identity": 4845234525659229543,
+            "revision": 295,
+            "offset": null
+          }
+        }
+      ]
+    },
+    "frame": 109
+  },
+  "kind": "viewer.frame"
+}

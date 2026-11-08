@@ -1,0 +1,1194 @@
+{
+  "checks": [
+    "identity: completed and cleaned up",
+    "identity: actual SSH compression is none",
+    "identity: observed live WS connections to both remote machines",
+    "identity connection 0: HTTP upgrade completed",
+    "identity connection 0: bidirectional binary payload observed",
+    "identity connection 0: correct WS masking",
+    "identity connection 0: no native WS compression",
+    "identity connection 0: RSV1 clear",
+    "identity connection 0: correct application codec negotiation",
+    "identity connection 1: HTTP upgrade completed",
+    "identity connection 1: bidirectional binary payload observed",
+    "identity connection 1: correct WS masking",
+    "identity connection 1: no native WS compression",
+    "identity connection 1: RSV1 clear",
+    "identity connection 1: correct application codec negotiation",
+    "identity connection 2: HTTP upgrade completed",
+    "identity connection 2: bidirectional binary payload observed",
+    "identity connection 2: correct WS masking",
+    "identity connection 2: no native WS compression",
+    "identity connection 2: RSV1 clear",
+    "identity connection 2: correct application codec negotiation",
+    "identity connection 3: HTTP upgrade completed",
+    "identity connection 3: bidirectional binary payload observed",
+    "identity connection 3: correct WS masking",
+    "identity connection 3: no native WS compression",
+    "identity connection 3: RSV1 clear",
+    "identity connection 3: correct application codec negotiation",
+    "identity connection 4: HTTP upgrade completed",
+    "identity connection 4: bidirectional binary payload observed",
+    "identity connection 4: correct WS masking",
+    "identity connection 4: no native WS compression",
+    "identity connection 4: RSV1 clear",
+    "identity connection 4: correct application codec negotiation",
+    "identity connection 5: HTTP upgrade completed",
+    "identity connection 5: bidirectional binary payload observed",
+    "identity connection 5: correct WS masking",
+    "identity connection 5: no native WS compression",
+    "identity connection 5: RSV1 clear",
+    "identity connection 5: correct application codec negotiation",
+    "identity sparse local: packet sum agrees with receiving-interface counter within 5%",
+    "identity sparse atlas: packet sum agrees with receiving-interface counter within 5%",
+    "identity dense local: packet sum agrees with receiving-interface counter within 5%",
+    "identity dense atlas: packet sum agrees with receiving-interface counter within 5%",
+    "identity local: no capture drops",
+    "identity atlas: no capture drops",
+    "zstd: completed and cleaned up",
+    "zstd: actual SSH compression is none",
+    "zstd: observed live WS connections to both remote machines",
+    "zstd connection 0: HTTP upgrade completed",
+    "zstd connection 0: bidirectional binary payload observed",
+    "zstd connection 0: correct WS masking",
+    "zstd connection 0: no native WS compression",
+    "zstd connection 0: RSV1 clear",
+    "zstd connection 0: correct application codec negotiation",
+    "zstd connection 1: HTTP upgrade completed",
+    "zstd connection 1: bidirectional binary payload observed",
+    "zstd connection 1: correct WS masking",
+    "zstd connection 1: no native WS compression",
+    "zstd connection 1: RSV1 clear",
+    "zstd connection 1: correct application codec negotiation",
+    "zstd connection 2: HTTP upgrade completed",
+    "zstd connection 2: bidirectional binary payload observed",
+    "zstd connection 2: correct WS masking",
+    "zstd connection 2: no native WS compression",
+    "zstd connection 2: RSV1 clear",
+    "zstd connection 2: correct application codec negotiation",
+    "zstd connection 3: HTTP upgrade completed",
+    "zstd connection 3: bidirectional binary payload observed",
+    "zstd connection 3: correct WS masking",
+    "zstd connection 3: no native WS compression",
+    "zstd connection 3: RSV1 clear",
+    "zstd connection 3: correct application codec negotiation",
+    "zstd connection 4: HTTP upgrade completed",
+    "zstd connection 4: bidirectional binary payload observed",
+    "zstd connection 4: correct WS masking",
+    "zstd connection 4: no native WS compression",
+    "zstd connection 4: RSV1 clear",
+    "zstd connection 4: correct application codec negotiation",
+    "zstd connection 5: HTTP upgrade completed",
+    "zstd connection 5: bidirectional binary payload observed",
+    "zstd connection 5: correct WS masking",
+    "zstd connection 5: no native WS compression",
+    "zstd connection 5: RSV1 clear",
+    "zstd connection 5: correct application codec negotiation",
+    "zstd sparse local: packet sum agrees with receiving-interface counter within 5%",
+    "zstd sparse atlas: packet sum agrees with receiving-interface counter within 5%",
+    "zstd dense local: packet sum agrees with receiving-interface counter within 5%",
+    "zstd dense atlas: packet sum agrees with receiving-interface counter within 5%",
+    "zstd local: no capture drops",
+    "zstd atlas: no capture drops",
+    "deflate: completed and cleaned up",
+    "deflate: actual SSH compression is none",
+    "deflate: observed live WS connections to both remote machines",
+    "deflate connection 0: HTTP upgrade completed",
+    "deflate connection 0: bidirectional binary payload observed",
+    "deflate connection 0: correct WS masking",
+    "deflate connection 0: native PMD with context takeover",
+    "deflate connection 0: server sets RSV1 on all binary messages",
+    "deflate connection 0: no stacked application zstd",
+    "deflate connection 1: HTTP upgrade completed",
+    "deflate connection 1: bidirectional binary payload observed",
+    "deflate connection 1: correct WS masking",
+    "deflate connection 1: native PMD with context takeover",
+    "deflate connection 1: server sets RSV1 on all binary messages",
+    "deflate connection 1: no stacked application zstd",
+    "deflate connection 2: HTTP upgrade completed",
+    "deflate connection 2: bidirectional binary payload observed",
+    "deflate connection 2: correct WS masking",
+    "deflate connection 2: native PMD with context takeover",
+    "deflate connection 2: server sets RSV1 on all binary messages",
+    "deflate connection 2: no stacked application zstd",
+    "deflate connection 3: HTTP upgrade completed",
+    "deflate connection 3: bidirectional binary payload observed",
+    "deflate connection 3: correct WS masking",
+    "deflate connection 3: native PMD with context takeover",
+    "deflate connection 3: server sets RSV1 on all binary messages",
+    "deflate connection 3: no stacked application zstd",
+    "deflate connection 4: HTTP upgrade completed",
+    "deflate connection 4: bidirectional binary payload observed",
+    "deflate connection 4: correct WS masking",
+    "deflate connection 4: native PMD with context takeover",
+    "deflate connection 4: server sets RSV1 on all binary messages",
+    "deflate connection 4: no stacked application zstd",
+    "deflate connection 5: HTTP upgrade completed",
+    "deflate connection 5: bidirectional binary payload observed",
+    "deflate connection 5: correct WS masking",
+    "deflate connection 5: native PMD with context takeover",
+    "deflate connection 5: server sets RSV1 on all binary messages",
+    "deflate connection 5: no stacked application zstd",
+    "deflate sparse local: packet sum agrees with receiving-interface counter within 5%",
+    "deflate sparse atlas: packet sum agrees with receiving-interface counter within 5%",
+    "deflate dense local: packet sum agrees with receiving-interface counter within 5%",
+    "deflate dense atlas: packet sum agrees with receiving-interface counter within 5%",
+    "deflate local: no capture drops",
+    "deflate atlas: no capture drops",
+    "herdr: completed and cleaned up",
+    "herdr: actual SSH compression is zlib@openssh.com",
+    "herdr sparse local: packet sum agrees with receiving-interface counter within 5%",
+    "herdr sparse atlas: packet sum agrees with receiving-interface counter within 5%",
+    "herdr dense local: packet sum agrees with receiving-interface counter within 5%",
+    "herdr dense atlas: packet sum agrees with receiving-interface counter within 5%",
+    "herdr local: no capture drops",
+    "herdr atlas: no capture drops"
+  ],
+  "problems": [],
+  "evidence": {
+    "identity": {
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-builds/corgi-identity",
+        "sha256": "cded501ca5e79528b5bcc6e688fcff5e8f67fe5cbf4174c6eec526111ea42274",
+        "corgi_commit": "0ab9600ea262309b6532286730cc9d426b544f57",
+        "build": {
+          "builtAt": "2026-11-08T06:18:22.389Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "0ab9600ea262309b6532286730cc9d426b544f57-dirty",
+          "sha256": "cded501ca5e79528b5bcc6e688fcff5e8f67fe5cbf4174c6eec526111ea42274",
+          "sourceSHA256": "a8fe48b39613b2c533a65e83a119b5f96d05e26ed883a76b9ec88d61e5c53349",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "3994fc613f48a9582afb905fdecebf96e1a212ed588b8952723ba2bc5c4bb9e9"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "dist/websocket-codecs-builds/corgi-identity",
+          "output": "dist/websocket-codecs-diagnostic/identity",
+          "cpus": "0-3",
+          "panes": 4,
+          "ui": false,
+          "ansi": false,
+          "calibrate": false,
+          "capture": true,
+          "trace": true,
+          "ssh_compression": "default",
+          "stream_rtt": 300,
+          "fault_kind": "sparse",
+          "suite": "diagnostic"
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-08T06:21:21Z"
+      },
+      "ssh": [
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2540339.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2540339.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2540346.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2540346.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2540711.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2540711.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2540712.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2540712.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2542856.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2542856.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2542857.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/identity/ssh-debug/2542857.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        }
+      ],
+      "connections": [
+        {
+          "machine": "atlas",
+          "pid": 2540325,
+          "up": {
+            "bytes": 3412,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: iJQuQeN6E2nCr2uF9PUOhg==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 23,
+            "payload": 3072,
+            "compressed": 0,
+            "masked": 23,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 85287,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: 2vGVUjRa6/iNqB0jHsRHU0VNnsM=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:21:28 GMT\r\n\r\n",
+            "frames": 31,
+            "payload": 84974,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello"
+            },
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "borealis",
+          "pid": 2540325,
+          "up": {
+            "bytes": 617,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: 1unKXsNM8w3F3pKLonO5zg==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 5,
+            "payload": 395,
+            "compressed": 0,
+            "masked": 5,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 30915,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: 1NT5VISGiNuyxAcyUBX7tv/JBT8=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:21:29 GMT\r\n\r\n",
+            "frames": 4,
+            "payload": 30692,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello"
+            },
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "atlas",
+          "pid": 2540674,
+          "up": {
+            "bytes": 36879,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: 3rKG1ABOWkqzLlSPq/kYww==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 284,
+            "payload": 34955,
+            "compressed": 0,
+            "masked": 284,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 523129,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: tXHVxbiA8DjUuhz3G++bHYYyHQ8=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:21:32 GMT\r\n\r\n",
+            "frames": 529,
+            "payload": 521306,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello"
+            },
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "borealis",
+          "pid": 2540674,
+          "up": {
+            "bytes": 1784,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: Nlv1OYRoC8wphhQzv/vzdw==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 20,
+            "payload": 1472,
+            "compressed": 0,
+            "masked": 20,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 234169,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: JlpDn3ryi7OS32sFhNmplN4QWQU=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:21:32 GMT\r\n\r\n",
+            "frames": 20,
+            "payload": 233882,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello"
+            },
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "atlas",
+          "pid": 2542823,
+          "up": {
+            "bytes": 37620,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: FrWkv20N3XPt/2kYDxjoLg==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 295,
+            "payload": 35638,
+            "compressed": 0,
+            "masked": 295,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 1579748,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: hmTG4Al3RVinSoYry2mT7sCYCIY=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:21:51 GMT\r\n\r\n",
+            "frames": 558,
+            "payload": 1577855,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello"
+            },
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "borealis",
+          "pid": 2542823,
+          "up": {
+            "bytes": 1784,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: JkH0ptvdEMYx0E6WAKA/aA==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 20,
+            "payload": 1472,
+            "compressed": 0,
+            "masked": 20,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 307193,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: OLpm0eDRSHs3Q3CLanKDIg9CKzU=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:21:52 GMT\r\n\r\n",
+            "frames": 20,
+            "payload": 306906,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello"
+            },
+            "incomplete": 0
+          }
+        }
+      ],
+      "packet_checks": [
+        {
+          "kind": "sparse",
+          "receiver": "local",
+          "counter_bytes": 319136,
+          "pcap_bytes": 319246,
+          "relative_error": 0.000344680637721849,
+          "packets": 505
+        },
+        {
+          "kind": "sparse",
+          "receiver": "atlas",
+          "counter_bytes": 59522,
+          "pcap_bytes": 59588,
+          "relative_error": 0.0011088337085447398,
+          "packets": 470
+        },
+        {
+          "kind": "dense",
+          "receiver": "local",
+          "counter_bytes": 978848,
+          "pcap_bytes": 977484,
+          "relative_error": 0.0013934747785151525,
+          "packets": 834
+        },
+        {
+          "kind": "dense",
+          "receiver": "atlas",
+          "counter_bytes": 64556,
+          "pcap_bytes": 64214,
+          "relative_error": 0.005297726005328707,
+          "packets": 537
+        }
+      ],
+      "capture_logs": {
+        "local": "libibverbs: Warning: couldn't open config directory '/etc/libibverbs.d'.\ntcpdump: data link type LINUX_SLL2\ntcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 128 bytes\n4871 packets captured\n5012 packets received by filter\n0 packets dropped by kernel\n",
+        "atlas": "libibverbs: Warning: couldn't open config directory '/etc/libibverbs.d'.\ntcpdump: data link type LINUX_SLL2\ntcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 128 bytes\n4094 packets captured\n4230 packets received by filter\n0 packets dropped by kernel\n"
+      },
+      "capture_sha256": {
+        "local": "9789b10853402c7c217917dfcaf06e7be88ebe954d9fed9470028f8058e262f4",
+        "atlas": "cc21f981bc3b9d4335a84019c7db198f54cd46553af06a51f36bc99c4d738117"
+      }
+    },
+    "zstd": {
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-builds/corgi-zstd",
+        "sha256": "3743dfba5635eaaa3ff9ac982d1e29c3e4ddd3f8a4a9c474c90e728f2dc4adae",
+        "corgi_commit": "0ab9600ea262309b6532286730cc9d426b544f57",
+        "build": {
+          "builtAt": "2026-11-08T06:18:23.278Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "0ab9600ea262309b6532286730cc9d426b544f57-dirty",
+          "sha256": "3743dfba5635eaaa3ff9ac982d1e29c3e4ddd3f8a4a9c474c90e728f2dc4adae",
+          "sourceSHA256": "d16878d226dc77ea4b789e84aa044ffee1f2c17c4e89766b5c4daf184dd59edd",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "b46c7134b709e0e28587596251e52f56047673239544898e7bf2cdaed018f128"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "dist/websocket-codecs-builds/corgi-zstd",
+          "output": "dist/websocket-codecs-diagnostic/zstd",
+          "cpus": "0-3",
+          "panes": 4,
+          "ui": false,
+          "ansi": false,
+          "calibrate": false,
+          "capture": true,
+          "trace": true,
+          "ssh_compression": "default",
+          "stream_rtt": 300,
+          "fault_kind": "sparse",
+          "suite": "diagnostic"
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-08T06:22:11Z"
+      },
+      "ssh": [
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2548655.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2548655.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2548656.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2548656.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2549133.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2549133.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2549134.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2549134.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2556642.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2556642.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2556643.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/zstd/ssh-debug/2556643.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        }
+      ],
+      "connections": [
+        {
+          "machine": "atlas",
+          "pid": 2548587,
+          "up": {
+            "bytes": 1348,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: VcP1uuzUaldJ310Y5UQ7bg==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 26,
+            "payload": 996,
+            "compressed": 0,
+            "masked": 26,
+            "hello": {
+              "op": "hello",
+              "accept_encoding": [
+                "zstd"
+              ]
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 6025,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: bvbx3LkkmJJpCc0kn1XgEZuSRPU=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:22:19 GMT\r\n\r\n",
+            "frames": 34,
+            "payload": 5740,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello",
+              "content_encoding": "zstd"
+            },
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "borealis",
+          "pid": 2548587,
+          "up": {
+            "bytes": 443,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: NcdomsCTdXBgDixOWU2ccQ==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 5,
+            "payload": 221,
+            "compressed": 0,
+            "masked": 5,
+            "hello": {
+              "op": "hello",
+              "accept_encoding": [
+                "zstd"
+              ]
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 3752,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: zxmK3DRXdccuzANa+ydqWT1LyTM=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:22:18 GMT\r\n\r\n",
+            "frames": 5,
+            "payload": 3531,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello",
+              "content_encoding": "zstd"
+            },
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "atlas",
+          "pid": 2549102,
+          "up": {
+            "bytes": 8027,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: uKZ4ersFUqnjN2ZKaw2E/Q==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 298,
+            "payload": 6041,
+            "compressed": 0,
+            "masked": 298,
+            "hello": {
+              "op": "hello",
+              "accept_encoding": [
+                "zstd"
+              ]
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 26014,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: 0i85arQ87d7nH9qJUZ3aEZsnFrA=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:22:23 GMT\r\n\r\n",
+            "frames": 552,
+            "payload": 24689,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello",
+              "content_encoding": "zstd"
+            },
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "borealis",
+          "pid": 2549102,
+          "up": {
+            "bytes": 749,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: DUa7ySKOWDRXXAhc6HEQ2w==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 21,
+            "payload": 431,
+            "compressed": 0,
+            "masked": 21,
+            "hello": {
+              "op": "hello",
+              "accept_encoding": [
+                "zstd"
+              ]
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 5637,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: syaC9c/dw7ECc0fF6zm+pyNf5ao=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:22:22 GMT\r\n\r\n",
+            "frames": 21,
+            "payload": 5366,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello",
+              "content_encoding": "zstd"
+            },
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "atlas",
+          "pid": 2556609,
+          "up": {
+            "bytes": 8449,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: URWinhpsD7Rd/2jkGZSYlA==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 313,
+            "payload": 6373,
+            "compressed": 0,
+            "masked": 313,
+            "hello": {
+              "op": "hello",
+              "accept_encoding": [
+                "zstd"
+              ]
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 461402,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: vkr7BfbAiR8taaamwZJ7ZVP0O1E=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:22:42 GMT\r\n\r\n",
+            "frames": 610,
+            "payload": 459387,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello",
+              "content_encoding": "zstd"
+            },
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "borealis",
+          "pid": 2556609,
+          "up": {
+            "bytes": 749,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: STiY2OylCbCX0nz84nlgSA==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 21,
+            "payload": 431,
+            "compressed": 0,
+            "masked": 21,
+            "hello": {
+              "op": "hello",
+              "accept_encoding": [
+                "zstd"
+              ]
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 5945,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: lM22x9RVdRdpEWugOXbCUT8AMCQ=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nDate: Sun, 08 Nov 2026 06:22:42 GMT\r\n\r\n",
+            "frames": 21,
+            "payload": 5676,
+            "compressed": 0,
+            "masked": 0,
+            "hello": {
+              "type": "hello",
+              "content_encoding": "zstd"
+            },
+            "incomplete": 0
+          }
+        }
+      ],
+      "packet_checks": [
+        {
+          "kind": "sparse",
+          "receiver": "local",
+          "counter_bytes": 48586,
+          "pcap_bytes": 48704,
+          "relative_error": 0.0024286831597579548,
+          "packets": 346
+        },
+        {
+          "kind": "sparse",
+          "receiver": "atlas",
+          "counter_bytes": 39294,
+          "pcap_bytes": 39234,
+          "relative_error": 0.0015269506794930523,
+          "packets": 429
+        },
+        {
+          "kind": "dense",
+          "receiver": "local",
+          "counter_bytes": 324654,
+          "pcap_bytes": 324446,
+          "relative_error": 0.0006406820799990143,
+          "packets": 513
+        },
+        {
+          "kind": "dense",
+          "receiver": "atlas",
+          "counter_bytes": 42568,
+          "pcap_bytes": 42694,
+          "relative_error": 0.0029599699304641985,
+          "packets": 479
+        }
+      ],
+      "capture_logs": {
+        "local": "libibverbs: Warning: couldn't open config directory '/etc/libibverbs.d'.\ntcpdump: data link type LINUX_SLL2\ntcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 128 bytes\n3303 packets captured\n3372 packets received by filter\n0 packets dropped by kernel\n",
+        "atlas": "libibverbs: Warning: couldn't open config directory '/etc/libibverbs.d'.\ntcpdump: data link type LINUX_SLL2\ntcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 128 bytes\n3026 packets captured\n3100 packets received by filter\n0 packets dropped by kernel\n"
+      },
+      "capture_sha256": {
+        "local": "0586baddfea30f6557d945fc3ec5ef8cb3abe228ef86e4ebb9f30c7245e5fbc7",
+        "atlas": "410229f94bfc80e8b36c256503ad09e4fc02d8d1225085d0bb1a352582dddcba"
+      }
+    },
+    "deflate": {
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-builds/corgi-deflate",
+        "sha256": "c68734b98b05982dfb90823cb4609149a96e4ef454dc2081f9f819eb011a1d7d",
+        "corgi_commit": "0ab9600ea262309b6532286730cc9d426b544f57",
+        "build": {
+          "builtAt": "2026-11-08T06:18:24.142Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "0ab9600ea262309b6532286730cc9d426b544f57-dirty",
+          "sha256": "c68734b98b05982dfb90823cb4609149a96e4ef454dc2081f9f819eb011a1d7d",
+          "sourceSHA256": "a0c78b149a3cba294d66c7cb93e5186e67c84207c05d720d6f3e50b61ef20f48",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "89451a106189490b3a97210d5760b25415a8e2719f668a42a38b4062b77aec4a"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "dist/websocket-codecs-builds/corgi-deflate",
+          "output": "dist/websocket-codecs-diagnostic/deflate",
+          "cpus": "0-3",
+          "panes": 4,
+          "ui": false,
+          "ansi": false,
+          "calibrate": false,
+          "capture": true,
+          "trace": true,
+          "ssh_compression": "default",
+          "stream_rtt": 300,
+          "fault_kind": "sparse",
+          "suite": "diagnostic"
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-08T06:19:44Z"
+      },
+      "ssh": [
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2518443.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2518443.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2518444.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2518444.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2519556.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2519556.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2519557.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2519557.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2524218.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2524218.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2524219.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/deflate/ssh-debug/2524219.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        }
+      ],
+      "connections": [
+        {
+          "machine": "atlas",
+          "pid": 2518406,
+          "up": {
+            "bytes": 3398,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\nSec-WebSocket-Key: h5qcbo/+YybGfvRcV8DiDQ==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 21,
+            "payload": 3000,
+            "compressed": 0,
+            "masked": 21,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 5266,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: Z5eTLyHhmk4xfh3O4Ia0+oUIoXw=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nSec-WebSocket-Extensions: permessage-deflate\r\nDate: Sun, 08 Nov 2026 06:19:52 GMT\r\n\r\n",
+            "frames": 29,
+            "payload": 4945,
+            "compressed": 29,
+            "masked": 0,
+            "hello": null,
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "borealis",
+          "pid": 2518406,
+          "up": {
+            "bytes": 610,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\nSec-WebSocket-Key: jLAriqlpMn14kvmctO1b5g==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 4,
+            "payload": 324,
+            "compressed": 0,
+            "masked": 4,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 3000,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: apQP/yXWrLPNS3aOcPFyhY1O4IY=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nSec-WebSocket-Extensions: permessage-deflate\r\nDate: Sun, 08 Nov 2026 06:19:52 GMT\r\n\r\n",
+            "frames": 4,
+            "payload": 2735,
+            "compressed": 4,
+            "masked": 0,
+            "hello": null,
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "atlas",
+          "pid": 2519442,
+          "up": {
+            "bytes": 36260,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\nSec-WebSocket-Key: Hwi5+0accyBadwc1q23VLA==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 282,
+            "payload": 34278,
+            "compressed": 1,
+            "masked": 282,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 28425,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: 4X8xvev/AVQtE5Pm/UlqEL06sQ8=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nSec-WebSocket-Extensions: permessage-deflate\r\nDate: Sun, 08 Nov 2026 06:19:56 GMT\r\n\r\n",
+            "frames": 534,
+            "payload": 27068,
+            "compressed": 534,
+            "masked": 0,
+            "hello": null,
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "borealis",
+          "pid": 2519442,
+          "up": {
+            "bytes": 1854,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\nSec-WebSocket-Key: wIck+CRLXgGL6T7rVhixgQ==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 20,
+            "payload": 1472,
+            "compressed": 0,
+            "masked": 20,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 9485,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: +mHg4kvbhkndo4GtTTbcmvweKSM=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nSec-WebSocket-Extensions: permessage-deflate\r\nDate: Sun, 08 Nov 2026 06:19:56 GMT\r\n\r\n",
+            "frames": 20,
+            "payload": 9156,
+            "compressed": 20,
+            "masked": 0,
+            "hello": null,
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "atlas",
+          "pid": 2524172,
+          "up": {
+            "bytes": 37160,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\nSec-WebSocket-Key: AdTqRzPJcAjrcwjWDoXDZw==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 300,
+            "payload": 35076,
+            "compressed": 1,
+            "masked": 300,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 461391,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: U6cQP2fWYHSeM+/ctrcjhzYq71I=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nSec-WebSocket-Extensions: permessage-deflate\r\nDate: Sun, 08 Nov 2026 06:20:15 GMT\r\n\r\n",
+            "frames": 554,
+            "payload": 459484,
+            "compressed": 554,
+            "masked": 0,
+            "hello": null,
+            "incomplete": 0
+          }
+        },
+        {
+          "machine": "borealis",
+          "pid": 2524172,
+          "up": {
+            "bytes": 1854,
+            "header": "GET /rpc HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\nSec-WebSocket-Key: 30Qs+oVTHxzbfhzbPbFMug==\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\n\r\n",
+            "frames": 20,
+            "payload": 1472,
+            "compressed": 0,
+            "masked": 20,
+            "hello": {
+              "op": "hello"
+            },
+            "incomplete": 0
+          },
+          "down": {
+            "bytes": 12898,
+            "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: pZBCLUgQHJoz5S+OscBhq5atFp4=\r\nSec-WebSocket-Protocol: corgi-stream-v1\r\nSec-WebSocket-Extensions: permessage-deflate\r\nDate: Sun, 08 Nov 2026 06:20:16 GMT\r\n\r\n",
+            "frames": 20,
+            "payload": 12565,
+            "compressed": 20,
+            "masked": 0,
+            "hello": null,
+            "incomplete": 0
+          }
+        }
+      ],
+      "packet_checks": [
+        {
+          "kind": "sparse",
+          "receiver": "local",
+          "counter_bytes": 49160,
+          "pcap_bytes": 48980,
+          "relative_error": 0.003661513425549227,
+          "packets": 338
+        },
+        {
+          "kind": "sparse",
+          "receiver": "atlas",
+          "counter_bytes": 55602,
+          "pcap_bytes": 55952,
+          "relative_error": 0.006294737599366929,
+          "packets": 418
+        },
+        {
+          "kind": "dense",
+          "receiver": "local",
+          "counter_bytes": 329386,
+          "pcap_bytes": 329114,
+          "relative_error": 0.0008257788734190282,
+          "packets": 507
+        },
+        {
+          "kind": "dense",
+          "receiver": "atlas",
+          "counter_bytes": 60314,
+          "pcap_bytes": 60026,
+          "relative_error": 0.004775010776934045,
+          "packets": 471
+        }
+      ],
+      "capture_logs": {
+        "local": "libibverbs: Warning: couldn't open config directory '/etc/libibverbs.d'.\ntcpdump: data link type LINUX_SLL2\ntcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 128 bytes\n3154 packets captured\n3222 packets received by filter\n0 packets dropped by kernel\n",
+        "atlas": "libibverbs: Warning: couldn't open config directory '/etc/libibverbs.d'.\ntcpdump: data link type LINUX_SLL2\ntcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 128 bytes\n2882 packets captured\n2956 packets received by filter\n0 packets dropped by kernel\n"
+      },
+      "capture_sha256": {
+        "local": "78294d4b0bbe77d748977b556f5f61e5f11a7f0b976aebc11e22df53db17aa09",
+        "atlas": "e6a0534900035d9dac497f6f10b219683bfb0a787bcf9d2ea56c313413590d6b"
+      }
+    },
+    "herdr": {
+      "manifest": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "corgi_commit": "0ab9600ea262309b6532286730cc9d426b544f57",
+        "build": null,
+        "args": {
+          "product": "herdr",
+          "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+          "output": "dist/websocket-codecs-diagnostic/herdr",
+          "cpus": "0-3",
+          "panes": 4,
+          "ui": false,
+          "ansi": false,
+          "calibrate": false,
+          "capture": true,
+          "trace": true,
+          "ssh_compression": "default",
+          "stream_rtt": 300,
+          "fault_kind": "sparse",
+          "suite": "diagnostic"
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-08T06:23:01Z"
+      },
+      "ssh": [
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2559512.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2559512.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2559515.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2559515.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2560114.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2560114.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2560115.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2560115.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2562399.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2562399.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2562400.log",
+          "negotiated": "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        },
+        {
+          "file": "dist/websocket-codecs-diagnostic/herdr/ssh-debug/2562400.log",
+          "negotiated": "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        }
+      ],
+      "connections": [],
+      "packet_checks": [
+        {
+          "kind": "sparse",
+          "receiver": "local",
+          "counter_bytes": 73810,
+          "pcap_bytes": 73762,
+          "relative_error": 0.0006503183850426771,
+          "packets": 165
+        },
+        {
+          "kind": "sparse",
+          "receiver": "atlas",
+          "counter_bytes": 6480,
+          "pcap_bytes": 6546,
+          "relative_error": 0.010185185185185186,
+          "packets": 87
+        },
+        {
+          "kind": "dense",
+          "receiver": "local",
+          "counter_bytes": 846678,
+          "pcap_bytes": 845330,
+          "relative_error": 0.0015921046726146185,
+          "packets": 821
+        },
+        {
+          "kind": "dense",
+          "receiver": "atlas",
+          "counter_bytes": 30108,
+          "pcap_bytes": 30182,
+          "relative_error": 0.002457818519994686,
+          "packets": 429
+        }
+      ],
+      "capture_logs": {
+        "local": "libibverbs: Warning: couldn't open config directory '/etc/libibverbs.d'.\ntcpdump: data link type LINUX_SLL2\ntcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 128 bytes\n3328 packets captured\n3445 packets received by filter\n0 packets dropped by kernel\n",
+        "atlas": "libibverbs: Warning: couldn't open config directory '/etc/libibverbs.d'.\ntcpdump: data link type LINUX_SLL2\ntcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 128 bytes\n3008 packets captured\n3132 packets received by filter\n0 packets dropped by kernel\n"
+      },
+      "capture_sha256": {
+        "local": "5d3190ad71b4f4000210a939a8df9e9a8ccfd10bceea8736a885cfaf93e45669",
+        "atlas": "e8696054c84373b6da4537f78d46b0c42b820c362326f32bcdcf69c8b7f1766e"
+      }
+    }
+  }
+}

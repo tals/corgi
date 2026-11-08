@@ -1,0 +1,22 @@
+{
+  "date": "2026-11-06",
+  "branch": "origin/design/remote-attempt-2",
+  "corgi_commit": "eeef7b27d46316dec1fc216541337c5c1785f67e",
+  "corgi_commit_date": "2026-11-05T23:28:45-05:00",
+  "eval_branch": "eval/remote-network-20261106",
+  "worktree": "/home/t/dev/personal/corgi-remote-network-eval",
+  "herdr_release": "v0.9.5",
+  "herdr_commit": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+  "herdr_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+  "product_patches": [],
+  "topology": "intermediate-bridge-tbf-netem-v2",
+  "sampling": "Three fresh environments per product/suite, product order alternates by round and suite. One independent trial per sleep duration/product. Compression diagnostic separate.",
+  "pilots": "All /tmp/cne-results-20261106 and other pilot runs excluded from final comparison. They preceded fixture validation or used endpoint egress netem rate limiting. Final results use only /tmp/cne-final-20261106, with receiver-adjacent bridge shaping and separate TBF rate limiting.",
+  "main_results_exclusions": [],
+  "orchestration_note": "The last Herdr stream block and follow-ups initially found the shared benchmark lock busy before creating any application environment. Those launches are preserved in execution logs and resumed under one held reservation; no measured trial was excluded.",
+  "raw_evidence": "dist/remote-network-20261106/raw",
+  "harness_notes": [
+    "After the first seventeen main blocks, batch coordination was changed to reserve the lock across cases and accept a live parent reservation. The core measurement code stayed identical across all main trials.",
+    "After all measurements, the observer was updated to use namespace imports and explicit TypeScript types; measurement behavior is unchanged. Every trial retains the exact measured observer source."
+  ]
+}

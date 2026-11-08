@@ -1,0 +1,19 @@
+[
+  {
+    "path": "dist/remote-network-followup-startup",
+    "reason": "Startup-only check of the cached-row fix; superseded by the complete final candidate matrix."
+  },
+  {
+    "path": "dist/remote-network-followup-pilot",
+    "reason": "Exploratory 8 KiB window without SSH compression. Dense workload exited on a nonblocking PTY write; no final estimate uses this trial. Raw viewer-4.ansi retains the traceback.",
+    "subsequent_application_fix": "The producer exit exposed synchronous snapshot publication during Runtime.close after workspace removal. Fixed separately in 59a7fa4c, with unit and real-SSH regressions."
+  },
+  {
+    "path": "dist/remote-network-followup-compressed",
+    "reason": "Exploratory 8 KiB window with SSH compression; superseded by the final 16 KiB configuration."
+  },
+  {
+    "path": "dist/remote-network-followup-faults-pilot",
+    "reason": "Exploratory single outage round before the final configuration; kept separate from all final medians."
+  }
+]

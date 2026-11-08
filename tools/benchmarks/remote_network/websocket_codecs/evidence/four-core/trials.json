@@ -1,0 +1,614 @@
+[
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-1",
+    "label": "after",
+    "sha256": "3743dfba5635eaaa3ff9ac982d1e29c3e4ddd3f8a4a9c474c90e728f2dc4adae",
+    "results": [
+      {
+        "local_seconds": 0.42645903769880533,
+        "remote_seconds": 2.928620280697942,
+        "usable_seconds": 3.096680630929768,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-1/results.json"
+      },
+      {
+        "fps": 3.466655786907711,
+        "p95_age": 1.083654078654945,
+        "max_age": 1.5836540767922997,
+        "down_kbit_s": 55.477885586556546,
+        "up_kbit_s": 8.5138010323531,
+        "total_kbit_s": 63.99168661890965,
+        "catchup_seconds": 0.3348874682560563,
+        "echo_seconds": 1.0599639927968383,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.22365101016921352,
+        "product_sum_rss_mib": 428.32421875,
+        "key": [
+          "stream-600-low",
+          "after",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-2",
+    "label": "after",
+    "sha256": "3743dfba5635eaaa3ff9ac982d1e29c3e4ddd3f8a4a9c474c90e728f2dc4adae",
+    "results": [
+      {
+        "local_seconds": 0.41331067215651274,
+        "remote_seconds": 2.9226650479249656,
+        "usable_seconds": 3.119225449860096,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-2/results.json"
+      },
+      {
+        "fps": 3.2999908468288,
+        "p95_age": 2.3757618204690516,
+        "max_age": 3.6257842825725675,
+        "down_kbit_s": 54.04179239476301,
+        "up_kbit_s": 8.428903951631332,
+        "total_kbit_s": 62.47069634639434,
+        "catchup_seconds": 0.6381935551762581,
+        "echo_seconds": 1.2122360267676413,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.23312480890400397,
+        "product_sum_rss_mib": 422.24609375,
+        "key": [
+          "stream-600-low",
+          "after",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-3",
+    "label": "after",
+    "sha256": "3743dfba5635eaaa3ff9ac982d1e29c3e4ddd3f8a4a9c474c90e728f2dc4adae",
+    "results": [
+      {
+        "local_seconds": 0.408192987088114,
+        "remote_seconds": 2.936912032775581,
+        "usable_seconds": 3.120729373767972,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-3/results.json"
+      },
+      {
+        "fps": 3.399988152065933,
+        "p95_age": 0.9757143957540393,
+        "max_age": 1.1255728797987103,
+        "down_kbit_s": 53.99340015207982,
+        "up_kbit_s": 8.553356970987489,
+        "total_kbit_s": 62.54675712306731,
+        "catchup_seconds": 0.44387085223570466,
+        "echo_seconds": 1.0501202819868922,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.2303377829513525,
+        "product_sum_rss_mib": 426.48046875,
+        "key": [
+          "stream-600-low",
+          "after",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-1",
+    "label": "before",
+    "sha256": "cded501ca5e79528b5bcc6e688fcff5e8f67fe5cbf4174c6eec526111ea42274",
+    "results": [
+      {
+        "local_seconds": 0.40255760308355093,
+        "remote_seconds": 2.91881121089682,
+        "usable_seconds": 3.091528959106654,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-1/results.json"
+      },
+      {
+        "fps": 0.9999963017162116,
+        "p95_age": 10.000428965315223,
+        "max_age": 11.30045404471457,
+        "down_kbit_s": 52.78493669634045,
+        "up_kbit_s": 6.935320843012118,
+        "total_kbit_s": 59.72025753935257,
+        "catchup_seconds": 0.6337596019729972,
+        "echo_seconds": 2.7663991905283183,
+        "inputs": 5,
+        "visible_inputs": 4,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.20800025887482887,
+        "product_sum_rss_mib": 403.109375,
+        "key": [
+          "stream-600-low",
+          "before",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-2",
+    "label": "before",
+    "sha256": "cded501ca5e79528b5bcc6e688fcff5e8f67fe5cbf4174c6eec526111ea42274",
+    "results": [
+      {
+        "local_seconds": 0.4145314199849963,
+        "remote_seconds": 2.9077485371381044,
+        "usable_seconds": 3.082388048991561,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-2/results.json"
+      },
+      {
+        "fps": 0.8999958539805449,
+        "p95_age": 4.642912419978529,
+        "max_age": 6.142912414390594,
+        "down_kbit_s": 47.81488142716607,
+        "up_kbit_s": 6.670572309808119,
+        "total_kbit_s": 54.48545373697419,
+        "catchup_seconds": 0.5001500654034317,
+        "echo_seconds": 2.6469236528500915,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.18871840121628278,
+        "product_sum_rss_mib": 417.3828125,
+        "key": [
+          "stream-600-low",
+          "before",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-3",
+    "label": "before",
+    "sha256": "cded501ca5e79528b5bcc6e688fcff5e8f67fe5cbf4174c6eec526111ea42274",
+    "results": [
+      {
+        "local_seconds": 0.4121083300560713,
+        "remote_seconds": 2.9381897831335664,
+        "usable_seconds": 3.1127578341402113,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-3/results.json"
+      },
+      {
+        "fps": 1.0666612881362112,
+        "p95_age": 18.742111893370748,
+        "max_age": 20.242111887782812,
+        "down_kbit_s": 58.58435455170904,
+        "up_kbit_s": 6.895698262505191,
+        "total_kbit_s": 65.48005281421423,
+        "catchup_seconds": 0.4587483978830278,
+        "echo_seconds": 2.6686350288800895,
+        "inputs": 5,
+        "visible_inputs": 3,
+        "received_inputs": 4,
+        "product_cpu_cores": 0.2071298706268712,
+        "product_sum_rss_mib": 413.04296875,
+        "key": [
+          "stream-600-low",
+          "before",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-1",
+    "label": "control",
+    "sha256": "c68734b98b05982dfb90823cb4609149a96e4ef454dc2081f9f819eb011a1d7d",
+    "results": [
+      {
+        "local_seconds": 0.40846892911940813,
+        "remote_seconds": 2.912779939826578,
+        "usable_seconds": 3.104080834891647,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "control",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-1/results.json"
+      },
+      {
+        "fps": 3.2333186636159597,
+        "p95_age": 2.338257955852896,
+        "max_age": 3.588288285303861,
+        "down_kbit_s": 52.87515849780943,
+        "up_kbit_s": 10.86841762095798,
+        "total_kbit_s": 63.74357611876741,
+        "catchup_seconds": 0.47147305496037006,
+        "echo_seconds": 1.1653135996311903,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.2097843749510243,
+        "product_sum_rss_mib": 418.453125,
+        "key": [
+          "stream-600-low",
+          "control",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-2",
+    "label": "control",
+    "sha256": "c68734b98b05982dfb90823cb4609149a96e4ef454dc2081f9f819eb011a1d7d",
+    "results": [
+      {
+        "local_seconds": 0.4148554909043014,
+        "remote_seconds": 2.9425348839722574,
+        "usable_seconds": 3.1369682089425623,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "control",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-2/results.json"
+      },
+      {
+        "fps": 3.4333167111576315,
+        "p95_age": 2.3126655030064285,
+        "max_age": 3.5126564549282193,
+        "down_kbit_s": 55.69633299186033,
+        "up_kbit_s": 11.146931780442085,
+        "total_kbit_s": 66.84326477230242,
+        "catchup_seconds": 0.3405897682532668,
+        "echo_seconds": 1.215313711669296,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.2397939552060426,
+        "product_sum_rss_mib": 408.81640625,
+        "key": [
+          "stream-600-low",
+          "control",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-3",
+    "label": "control",
+    "sha256": "c68734b98b05982dfb90823cb4609149a96e4ef454dc2081f9f819eb011a1d7d",
+    "results": [
+      {
+        "local_seconds": 0.4083891329355538,
+        "remote_seconds": 2.919272609986365,
+        "usable_seconds": 3.1033055768348277,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "control",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-3/results.json"
+      },
+      {
+        "fps": 3.499988535107416,
+        "p95_age": 1.9445017175748944,
+        "max_age": 3.1444257237017155,
+        "down_kbit_s": 56.95616688100106,
+        "up_kbit_s": 11.742255277636586,
+        "total_kbit_s": 68.69842215863764,
+        "catchup_seconds": 0.4640265037305653,
+        "echo_seconds": 1.186121363658458,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.21261977914713323,
+        "product_sum_rss_mib": 421.265625,
+        "key": [
+          "stream-600-low",
+          "control",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-1",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2921915170736611,
+        "remote_seconds": 3.942620526999235,
+        "usable_seconds": 4.452325416263193,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-1/results.json"
+      },
+      {
+        "fps": 1.0333298766361285,
+        "p95_age": 30.79326109448448,
+        "max_age": 32.29326108889654,
+        "down_kbit_s": 63.79733062594909,
+        "up_kbit_s": 3.909556963090165,
+        "total_kbit_s": 67.70688758903925,
+        "catchup_seconds": 9.005638431292027,
+        "echo_seconds": null,
+        "inputs": 5,
+        "visible_inputs": 0,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.05410824288888646,
+        "product_sum_rss_mib": 64.125,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-2",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2932959827594459,
+        "remote_seconds": 3.934184815734625,
+        "usable_seconds": 4.308802938554436,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-2/results.json"
+      },
+      {
+        "fps": 0.9999961684139107,
+        "p95_age": 30.98732719803229,
+        "max_age": 32.337269756477326,
+        "down_kbit_s": 63.92995817135656,
+        "up_kbit_s": 4.497196814753458,
+        "total_kbit_s": 68.42715498611003,
+        "catchup_seconds": 23.542613128665835,
+        "echo_seconds": null,
+        "inputs": 5,
+        "visible_inputs": 0,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.04626468993902473,
+        "product_sum_rss_mib": 64.125,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-3",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.28111097821965814,
+        "remote_seconds": 3.9400094551965594,
+        "usable_seconds": 4.320613956078887,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-3/results.json"
+      },
+      {
+        "fps": 1.1666626184750084,
+        "p95_age": 30.60243905382231,
+        "max_age": 32.10243904823437,
+        "down_kbit_s": 64.20691025355143,
+        "up_kbit_s": 3.875634642847575,
+        "total_kbit_s": 68.082544896399,
+        "catchup_seconds": 12.055417594034225,
+        "echo_seconds": null,
+        "inputs": 5,
+        "visible_inputs": 0,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.05395662906408397,
+        "product_sum_rss_mib": 70.125,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-3/results.json"
+      }
+    ]
+  }
+]

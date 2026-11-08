@@ -1,0 +1,12 @@
+{
+  "source": "/home/t/dev/personal/herdr-cpu-benchmark/source",
+  "commit": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+  "remote": "https://github.com/herdrdev/herdr.git",
+  "status": "",
+  "files": {
+    "src/remote/attach.rs": "b08065b8b5761aa0c028aee344a0e2c6c64cff9ac8e198e20058844b3b866e49",
+    "src/client/endpoint/health.rs": "6188a6f6d648f776e15a7f0ad1e8d4cace1b3969b159d9f08b5d3855bc15ec73",
+    "src/server/client_transport.rs": "15d4b6c825fb840305f1dc558789e8c0c50a43db5ab1e73069063ee29bc271ad",
+    "src/client/transport.rs": "54f68977d3ae84f9e20f744e66bcb48b87f9c87ff1ca8ef8705ec3d53d4dbb7a"
+  }
+}

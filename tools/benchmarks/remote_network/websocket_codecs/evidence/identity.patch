@@ -1,0 +1,567 @@
+diff --git a/src/daemon_transport.ts b/src/daemon_transport.ts
+index ffa946e6..e8e9d9cc 100644
+--- a/src/daemon_transport.ts
++++ b/src/daemon_transport.ts
+@@ -1,3 +1,6 @@
++import { inspect } from "./eval_inspect";
++import * as evalTransport from "./eval_transport";
++import { evalDeflate } from "./eval_transport_mode";
+ import { mkdtempSync, rmSync, existsSync, chmodSync } from "node:fs";
+ import { createServer, type Server, type Socket } from "node:net";
+ import { spawn, type ChildProcess } from "node:child_process";
+@@ -45,6 +48,7 @@ export class Remote {
+   readonly directory = mkdtempSync(`/tmp/corgi-ssh-${process.getuid?.() ?? "user"}-`);
+   readonly socket = this.directory + "/s";
+   private listener: Server | null = null;
++  private evalAdapter: { close(): void } | null = null;
+   private children = new Set<ChildProcess>();
+   private clients = new Set<Socket>();
+   private stopped = false;
+@@ -63,7 +67,7 @@ export class Remote {
+     const listener = (this.listener = createServer(client => this.attach(client)));
+     await new Promise<void>((resolve, reject) => {
+       listener.once("error", reject);
+-      listener.listen(this.socket, () => {
++      listener.listen(this.socket + ".tunnel", () => {
+         if (this.stopped) {
+           listener.close();
+           rmSync(this.directory, { recursive: true, force: true });
+@@ -71,7 +75,7 @@ export class Remote {
+           return;
+         }
+         try {
+-          chmodSync(this.socket, 0o600);
++          chmodSync(this.socket + ".tunnel", 0o600);
+           resolve();
+         } catch (error) {
+           this.close();
+@@ -79,6 +83,9 @@ export class Remote {
+         }
+       });
+     });
++    const adapter = await evalTransport.listenWebSocketClient({ path: this.socket, target: this.socket + ".tunnel", deflate: evalDeflate });
++    if (this.stopped) { await adapter.close(); throw Error("TransportClosed"); }
++    this.evalAdapter = adapter;
+   }
+   private attach(client: Socket): void {
+     if (this.stopped) {
+@@ -90,7 +97,7 @@ export class Remote {
+     try {
+       child = this.spawn([
+         ...ssh.args(this.profile.target, false, this.fresh, false),
+-        ssh.command(this.profile.bridge!, [this.profile.socket]),
++        ssh.command(this.profile.bridge!, [this.profile.socket + ".transport"]),
+       ]);
+     } catch (error) {
+       this.stderr = error instanceof Error ? error.message : "SSH startup failed";
+@@ -107,7 +114,9 @@ export class Remote {
+         fresh: Number(this.fresh),
+       });
+     });
++    const observed = inspect(this.profile.name, client, preamble);
+     const close = () => {
++      observed();
+       client.destroy();
+       preamble.destroy();
+       this.stop(child);
+@@ -198,6 +207,7 @@ export class Remote {
+   }
+   close(): void {
+     this.stopped = true;
++    this.evalAdapter?.close();
+     this.listener?.close();
+     for (const client of this.clients) client.destroy();
+     for (const child of this.children) this.stop(child);
+diff --git a/src/eval_inspect.ts b/src/eval_inspect.ts
+new file mode 100644
+index 00000000..bed44a0a
+--- /dev/null
++++ b/src/eval_inspect.ts
+@@ -0,0 +1,87 @@
++import { appendFileSync } from "node:fs";
++import type { Socket } from "node:net";
++import type { Readable } from "node:stream";
++
++/** Read-only diagnostics before SSH encryption; disabled in measured trials. */
++export class Inspect {
++  private pending = Buffer.alloc(0);
++  private upgraded = false;
++  bytes = 0;
++  header = "";
++  frames = 0;
++  payload = 0;
++  compressed = 0;
++  masked = 0;
++  hello: object | null = null;
++  read(chunk: Buffer): void {
++    this.bytes += chunk.length;
++    this.pending = Buffer.concat([this.pending, chunk]);
++    if (!this.upgraded) {
++      const end = this.pending.indexOf("\r\n\r\n");
++      if (end < 0) return;
++      this.header = this.pending.subarray(0, end + 4).toString();
++      this.pending = this.pending.subarray(end + 4);
++      this.upgraded = true;
++    }
++    while (this.pending.length >= 2) {
++      const bytes = this.pending,
++        short = bytes[1] & 127,
++        masked = Boolean(bytes[1] & 128),
++        extended = short === 126 ? 2 : short === 127 ? 8 : 0,
++        head = 2 + extended + (masked ? 4 : 0);
++      if (bytes.length < head) break;
++      const length = short === 126 ? bytes.readUInt16BE(2) : short === 127 ? Number(bytes.readBigUInt64BE(2)) : short;
++      if (length > 4 * 1024 * 1024) throw Error("OversizedDiagnosticFrame");
++      if (bytes.length < head + length) break;
++      const data = (bytes[0] & 15) === 2;
++      if (data) {
++        this.frames++;
++        this.payload += length;
++        if (bytes[0] & 64) this.compressed++;
++        if (masked) this.masked++;
++        if (!this.hello && !(bytes[0] & 64)) {
++          const payload = Buffer.from(bytes.subarray(head, head + length));
++          if (masked) for (let i = 0; i < payload.length; i++) payload[i] ^= bytes[2 + extended + (i % 4)];
++          try {
++            const message = JSON.parse(payload.toString().split("\n")[0]);
++            if (message.op === "hello" || message.type === "hello")
++              this.hello = {
++                op: message.op,
++                type: message.type,
++                accept_encoding: message.accept_encoding,
++                content_encoding: message.content_encoding,
++              };
++          } catch {}
++        }
++      }
++      this.pending = bytes.subarray(head + length);
++    }
++  }
++  result() {
++    return {
++      bytes: this.bytes,
++      header: this.header,
++      frames: this.frames,
++      payload: this.payload,
++      compressed: this.compressed,
++      masked: this.masked,
++      hello: this.hello,
++      incomplete: this.pending.length,
++    };
++  }
++}
++
++export function inspect(machine: string, upstream: Socket, downstream: Readable): () => void {
++  const file = process.env.CORGI_EVAL_CODEC_PROOF;
++  if (!file) return () => {};
++  const up = new Inspect(),
++    down = new Inspect();
++  upstream.on("data", bytes => up.read(bytes));
++  downstream.on("data", bytes => down.read(bytes));
++  let done = false;
++  return () => {
++    if (done) return;
++    done = true;
++    appendFileSync(file, JSON.stringify({ machine, pid: process.pid, up: up.result(), down: down.result() }) + "\n");
++  };
++}
+diff --git a/src/eval_transport.ts b/src/eval_transport.ts
+new file mode 100644
+index 00000000..fc7f2702
+--- /dev/null
++++ b/src/eval_transport.ts
+@@ -0,0 +1,306 @@
++import { chmodSync, rmSync } from "node:fs";
++import { createConnection, createServer, type Socket } from "node:net";
++
++const protocol = "corgi-stream-v1";
++const capacity = 4 * 1024 * 1024;
++export interface Options {
++  path: string;
++  target: string;
++  maximum?: number;
++  deflate?: boolean;
++}
++export interface Metrics {
++  connections: number;
++  toTarget: number;
++  toClient: number;
++  targetPeak: number;
++  clientPeak: number;
++  pauses: number;
++  drops: number;
++}
++export interface Adapter {
++  close(): Promise<void>;
++  metrics: Metrics;
++}
++function metrics(): Metrics {
++  return { connections: 0, toTarget: 0, toClient: 0, targetPeak: 0, clientPeak: 0, pauses: 0, drops: 0 };
++}
++function socket(path: string): Socket {
++  return createConnection({ path, allowHalfOpen: true, highWaterMark: 65536 });
++}
++
++/** The control adds the same two Unix-socket hops as the WebSocket adapters. */
++export async function listenRaw(options: Options): Promise<Adapter> {
++  const stats = metrics(),
++    clients = new Set<Socket>();
++  const server = createServer({ allowHalfOpen: true, highWaterMark: 65536 }, left => {
++    const right = socket(options.target);
++    stats.connections++;
++    clients.add(left).add(right);
++    left
++      .on("error", () => right.end())
++      .on("close", () => {
++        clients.delete(left);
++        if (!left.readableEnded) right.end();
++      });
++    right
++      .on("error", () => left.end())
++      .on("close", () => {
++        clients.delete(right);
++        if (!right.readableEnded) left.end();
++      });
++    left.on("data", bytes => {
++      stats.toTarget += bytes.length;
++      stats.targetPeak = Math.max(stats.targetPeak, right.writableLength + bytes.length);
++    });
++    right.on("data", bytes => {
++      stats.toClient += bytes.length;
++      stats.clientPeak = Math.max(stats.clientPeak, left.writableLength + bytes.length);
++    });
++    left.pipe(right).pipe(left);
++  });
++  await new Promise<void>((resolve, reject) => {
++    server.once("error", reject);
++    server.listen(options.path, resolve);
++  });
++  chmodSync(options.path, 0o600);
++  return {
++    metrics: stats,
++    async close() {
++      for (const client of clients) client.destroy();
++      await new Promise<void>(resolve => server.close(() => resolve()));
++    },
++  };
++}
++
++/** Binary WebSocket messages carry the existing byte stream, including its hello and zstd history. */
++export async function listenWebSocket(options: Options): Promise<Adapter> {
++  const stats = metrics(),
++    maximum = options.maximum ?? capacity,
++    clients = new Set<() => void>();
++  interface State {
++    target: Socket;
++    stop: () => void;
++    finish: () => void;
++    ending: boolean;
++  }
++  const server = Bun.serve<State>({
++    unix: options.path,
++    fetch(request, server) {
++      const offered = request.headers
++        .get("sec-websocket-protocol")
++        ?.split(",")
++        .map(value => value.trim());
++      if (!offered?.includes(protocol)) return new Response("Subprotocol required", { status: 400 });
++      if (server.upgrade(request, { headers: { "Sec-WebSocket-Protocol": protocol } })) return;
++      return new Response("Upgrade failed", { status: 400 });
++    },
++    websocket: {
++      perMessageDeflate: options.deflate ? { compress: "dedicated", decompress: "dedicated" } : false,
++      idleTimeout: 0,
++      maxPayloadLength: maximum,
++      backpressureLimit: maximum,
++      closeOnBackpressureLimit: true,
++      open(ws) {
++        stats.connections++;
++        const target = socket(options.target);
++        let stopped = false;
++        const stop = () => {
++          if (stopped) return;
++          stopped = true;
++          clients.delete(stop);
++          target.destroy();
++          ws.terminate();
++        };
++        const finish = () => {
++          ws.data.ending = true;
++          target.pause();
++          // Send Close after accepted application bytes have left Bun's queue.
++          if (!ws.getBufferedAmount()) ws.close(1000);
++        };
++        ws.data = { target, stop, finish, ending: false };
++        clients.add(stop);
++        target.on("data", bytes => {
++          if (stopped || ws.data.ending) return;
++          const queued = ws.getBufferedAmount() + bytes.length;
++          stats.clientPeak = Math.max(stats.clientPeak, queued);
++          if (queued > maximum) {
++            stats.drops++;
++            stop();
++            return;
++          }
++          const sent = ws.send(bytes, options.deflate ?? false);
++          if (!sent) {
++            stats.drops++;
++            stop();
++            return;
++          }
++          stats.toClient += bytes.length;
++          if (sent === -1) {
++            stats.pauses++;
++            target.pause();
++          }
++        });
++        target.on("drain", () => {
++          if (!stopped) ws.resume();
++        });
++        target.on("end", finish).on("error", finish);
++        target.on("close", () => {
++          if (!stopped) finish();
++        });
++      },
++      message(ws, message) {
++        const state = ws.data;
++        if (state.ending) return;
++        if (typeof message === "string") {
++          state.stop();
++          return;
++        }
++        const queued = state.target.writableLength + message.length;
++        stats.targetPeak = Math.max(stats.targetPeak, queued);
++        if (queued > maximum) {
++          stats.drops++;
++          state.stop();
++          return;
++        }
++        stats.toTarget += message.length;
++        if (!state.target.write(message)) {
++          stats.pauses++;
++          ws.pause();
++        }
++      },
++      drain(ws) {
++        if (ws.data.ending) ws.data.finish();
++        else ws.data.target.resume();
++      },
++      close(ws) {
++        ws.data?.stop();
++      },
++      error(_error, ws) {
++        ws.data?.stop();
++      },
++    },
++  });
++  chmodSync(options.path, 0o600);
++  return {
++    metrics: stats,
++    async close() {
++      for (const stop of clients) stop();
++      await server.stop(true);
++      rmSync(options.path, { force: true });
++    },
++  };
++}
++
++/** Expose a byte-stream Unix socket backed by Bun's native WebSocket client. */
++export async function listenWebSocketClient(options: Options): Promise<Adapter> {
++  const stats = metrics(),
++    maximum = options.maximum ?? capacity,
++    clients = new Set<() => void>();
++  const server = createServer({ allowHalfOpen: true, highWaterMark: 65536 }, local => {
++    stats.connections++;
++    local.pause();
++    const ws = new WebSocket(`ws+unix://${options.target}:/rpc`, {
++      protocols: [protocol],
++      perMessageDeflate: options.deflate ?? false,
++    });
++    let stopped = false,
++      ending = false,
++      poll: ReturnType<typeof setTimeout> | undefined;
++    const stop = () => {
++      if (stopped) return;
++      stopped = true;
++      clearTimeout(poll);
++      clients.delete(stop);
++      local.destroy();
++      ws.terminate();
++    };
++    const drain = () => {
++      poll = undefined;
++      if (stopped || ws.readyState !== WebSocket.OPEN) return;
++      if (ws.bufferedAmount) {
++        poll = setTimeout(drain, 1);
++        return;
++      }
++      if (ending) ws.close(1000);
++      else local.resume();
++    };
++    clients.add(stop);
++    local.on("data", bytes => {
++      if (stopped || ending) return;
++      const queued = ws.bufferedAmount + bytes.length;
++      stats.targetPeak = Math.max(stats.targetPeak, queued);
++      if (queued > maximum || ws.readyState !== WebSocket.OPEN) {
++        stats.drops++;
++        stop();
++        return;
++      }
++      ws.send(bytes);
++      stats.toTarget += bytes.length;
++      if (ws.bufferedAmount) {
++        stats.pauses++;
++        local.pause();
++        poll ??= setTimeout(drain, 1);
++      }
++    });
++    local.on("drain", () => {
++      if (!stopped) ws.resume();
++    });
++    local.on("end", () => {
++      ending = true;
++      drain();
++    });
++    local.on("error", stop).on("close", stop);
++    ws.onopen = () => {
++      if (
++        ws.protocol !== protocol ||
++        (options.deflate ? ws.extensions !== "permessage-deflate" : Boolean(ws.extensions))
++      ) {
++        stop();
++        return;
++      }
++      drain();
++    };
++    ws.onmessage = event => {
++      if (stopped) return;
++      if (typeof event.data === "string") {
++        stop();
++        return;
++      }
++      const bytes = Buffer.from(event.data),
++        queued = local.writableLength + bytes.length;
++      stats.clientPeak = Math.max(stats.clientPeak, queued);
++      if (queued > maximum) {
++        stats.drops++;
++        stop();
++        return;
++      }
++      stats.toClient += bytes.length;
++      if (!local.write(bytes)) {
++        stats.pauses++;
++        ws.pause();
++      }
++    };
++    ws.onerror = () => {};
++    ws.onclose = () => {
++      ending = true;
++      clearTimeout(poll);
++      local.pause();
++      // EOF must follow bytes already delivered by the WebSocket callbacks.
++      local.end();
++      local.once("finish", stop);
++    };
++  });
++  await new Promise<void>((resolve, reject) => {
++    server.once("error", reject);
++    server.listen(options.path, resolve);
++  });
++  chmodSync(options.path, 0o600);
++  return {
++    metrics: stats,
++    async close() {
++      for (const stop of clients) stop();
++      await new Promise<void>(resolve => server.close(() => resolve()));
++    },
++  };
++}
+diff --git a/src/eval_transport_mode.ts b/src/eval_transport_mode.ts
+new file mode 100644
+index 00000000..21693ac1
+--- /dev/null
++++ b/src/eval_transport_mode.ts
+@@ -0,0 +1,3 @@
++export const evalDeflate = false;
++export const evalZstd = false;
++export const evalRawAccounting = false;
+diff --git a/src/machine_connection.ts b/src/machine_connection.ts
+index bd960efd..ada80f6a 100644
+--- a/src/machine_connection.ts
++++ b/src/machine_connection.ts
+@@ -1,3 +1,4 @@
++import { evalZstd } from "./eval_transport_mode";
+ import * as ssh from "./ssh";
+ import * as telemetry from "./telemetry";
+ import { Stats } from "./connection_stats";
+@@ -488,7 +489,7 @@ export class Endpoint {
+       await tunnel.open();
+       let established = false;
+       conn = new Connection(tunnel.socket, {
+-        compression: true,
++        compression: evalZstd,
+         timeout_ms: () => (established ? this.stats.timeoutMs : Math.min(startup_ms, this.stats.timeoutMs)),
+         stats: this.stats,
+         trace: { machine: this.name, generation: this.generation, path: "race" },
+@@ -575,7 +576,7 @@ export class Endpoint {
+       const socket = this.tunnel?.socket ?? this.local;
+       let established = false;
+       conn = this.connection = new Connection(socket, {
+-        compression: this.profile !== null,
++        compression: this.profile !== null && evalZstd,
+         timeout_ms: () => (this.profile ? (established ? this.stats.timeoutMs : startup_ms) : 10000),
+         stats: this.stats,
+         trace: { machine: this.name, generation, path: "primary" },
+diff --git a/src/peer.ts b/src/peer.ts
+index 4a6da657..1659649c 100644
+--- a/src/peer.ts
++++ b/src/peer.ts
+@@ -1,3 +1,4 @@
++import { evalRawAccounting } from "./eval_transport_mode";
+ import type { Wait as StartupWait } from "./startup";
+ import * as telemetry from "./telemetry";
+ import { n, ptr, ReadyLoop, READ, WRITE } from "./native_bridge";
+@@ -147,7 +148,7 @@ export class Client {
+       value && typeof value === "object" && "frame" in value && typeof value.frame === "bigint" ? value.frame : null;
+     if (this.codec)
+       this.codec.encode(bytes, count => {
+-        if (frame !== null) delivery?.encoded(frame, count);
++        if (frame !== null) delivery?.encoded(frame, evalRawAccounting ? bytes.length : count);
+         this.armFrame();
+       });
+     else {
+diff --git a/src/server.ts b/src/server.ts
+index 8440266e..a63ccc08 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -1,3 +1,5 @@
++import * as evalTransport from "./eval_transport";
++import { evalDeflate } from "./eval_transport_mode";
+ import * as startup from "./startup_service";
+ import * as archiveInventory from "./archive_inventory";
+ import * as launcherConfig from "./launcher_config";
+@@ -59,6 +61,7 @@ export class Server {
+   resource_readings = true;
+   dirty = true;
+   listener = -1;
++  private evalAdapter: { close(): void } | null = null;
+   private socketPath: SocketPath | null = null;
+   private loop = new ReadyLoop();
+   private registration?: ReturnType<ReadyLoop["watch"]>;
+@@ -294,6 +297,7 @@ export class Server {
+       // Before anyone can connect, so a plugin removed after the daemon answers is seen.
+       this.watchInstall();
+       this.startLoop();
++      this.evalAdapter = await evalTransport.listenWebSocket({ path: this.socket + ".transport", target: this.socket, deflate: evalDeflate });
+       process.on("SIGTERM", () => void this.shutdown());
+       process.on("SIGINT", () => void this.shutdown());
+       await this.saveWorkspaces();
+@@ -1155,6 +1159,7 @@ export class Server {
+   async shutdown(): Promise<void> {
+     if (this.stopped) return;
+     this.stopped = true;
++    this.evalAdapter?.close();
+     clearInterval(this.timer);
+     this.pluginWatch?.close();
+     this.registration?.close();

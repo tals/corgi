@@ -4,6 +4,8 @@ $.update_abi: optional
 $.update_abi?: string
 $.terminal_abi: u64
 $.listener: i32
+$.instance: optional
+$.instance?: string
 $.requester: i32
 $.request_id: optional
 $.request_id?: u64
@@ -213,6 +215,12 @@ $.usage?[].checklist?.items[].group: custom bounded_text.BoundedText(160)
 $.usage?[].checklist?.partial: bool
 $.usage?[].checklist?.at: i64
 $.clients[].fd: i32
+$.clients[].websocket: optional
+$.clients[].websocket?.ready: bool
+$.clients[].websocket?.closing: bool
+$.clients[].websocket?.input: string
+$.clients[].websocket?.fragment: optional
+$.clients[].websocket?.fragment?: string
 $.clients[].input: string
 $.clients[].output: string
 $.clients[].viewer: bool
@@ -303,6 +311,14 @@ $.clients[].launch_preview?.history_sent: u64
 $.clients[].snapshot_revision: optional
 $.clients[].snapshot_revision?: u64
 $.clients[].touched: i64
+$.clients[].link: optional
+$.clients[].link?: string
+$.links[].id: string
+$.links[].applied: u64
+$.links[].replies: any
+$.links[].viewer: any
+$.links[].detached_at: optional
+$.links[].detached_at?: i64
 $.theme.foreground: optional
 $.theme.foreground?.r: u8
 $.theme.foreground?.g: u8
@@ -334,3 +350,5 @@ $.clients[].startup_wait?.phase: enum discovering service session installing age
 $.clients[].startup_wait?.detail: string
 $.clients[].startup_wait?.started_at: i64
 $.clients[].startup_wait?.cancelled: bool
+$.clients[].stream_data: optional
+$.clients[].stream_data?: bool

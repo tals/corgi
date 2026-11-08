@@ -6,6 +6,9 @@ export const specs: Record<string, string> = {
   "cancel-dock": "void",
   "undo-layout": "void",
   "redo-layout": "void",
+  machines: "void",
+  connectivity: "void",
+  "instant-typing": "[]const u8",
   new: "void",
   next: "void",
   prev: "void",
@@ -110,6 +113,7 @@ export const specs: Record<string, string> = {
 export function parse(name: string, value = ""): Action {
   const type = specs[name];
   if (!Object.hasOwn(specs, name)) throw new Error("UnknownAction");
+  if (name === "instant-typing" && value !== "auto" && value !== "off") throw new Error("BadValue");
   if (type === "void") return { name };
   if (type === "usize") {
     if ((name === "worktrees" || name === "resources") && !value) return { name, value: 0 };
@@ -157,9 +161,12 @@ export function needsPane(action: Action): boolean {
   ].includes(action.name);
 }
 export function title(action: Action): string {
+  if (action.name === "connectivity") return "Developer connectivity";
   const titles: Record<string, string> = {
     "undo-layout": i18n.t`Undo layout change`,
     "redo-layout": i18n.t`Redo layout change`,
+    machines: "Filter workspace machines",
+    "instant-typing": "Remote instant typing",
     onboard: i18n.t`Onboarding`,
     keybindings: i18n.t`Customize shortcuts`,
     new: i18n.t`New tab (agent picker)`,

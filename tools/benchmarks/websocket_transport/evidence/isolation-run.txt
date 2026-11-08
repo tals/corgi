@@ -1,0 +1,5 @@
+1/5 dense isolation websocket: verified
+2/5 dense isolation websocket: verified
+3/5 dense isolation websocket: verified
+4/5 dense isolation websocket: verified
+5/5 dense isolation websocket: verified

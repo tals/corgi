@@ -1,0 +1,68 @@
+{
+  "unit": {
+    "command": "taskset -c 16-23 bun test src",
+    "exit": 0,
+    "pass": 3375,
+    "skip": 1,
+    "fail": 0,
+    "seconds": 61.49
+  },
+  "typecheck": {
+    "command": "taskset -c 24-27 bun typecheck.ts",
+    "exit": 0
+  },
+  "integration": {
+    "command": "CORGI_TEST_BIN=/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-throughput-after-test taskset -c 16-23 bun integration.ts remote viewer_sync reloads --jobs 1",
+    "exit": 0,
+    "pass": 70,
+    "fail": 0,
+    "seconds": 625.62
+  },
+  "python": {
+    "command": "python3 -m py_compile tools/benchmarks/remote_network/{run,outages,outage_report,summarize,throughput_matrix,throughput_report,throughput_tables}.py",
+    "exit": 0
+  },
+  "herdr_source_clean": true,
+  "herdr_binary_unmodified": true,
+  "application_commit": "9eff77f42da1f8b9669a044f8d4d06c10df740d3",
+  "logs": {
+    "unit": {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/throughput-unit.log",
+      "sha256": "ad4751baff6dc25de8c40e0e4758367f9fa4a1a00d5ba0de7d1ef3ca4e0c2a1c"
+    },
+    "typecheck": {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/throughput-typecheck.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "integration": {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/throughput-integration.log",
+      "sha256": "2c2c0f02152602db11c6e92496073649e82c91df2edda1a88a73eea10ad1be9b"
+    }
+  },
+  "benchmark_audit": {
+    "checks_passed": 3579,
+    "problems": [],
+    "stream_cases": 99,
+    "outage_cases": 108,
+    "sleep_cases": 9,
+    "total_cases_excluding_setup": 216
+  },
+  "measured_source_matches_application_commit": true,
+  "stream_input_probes": {
+    "before": {
+      "sent": 165,
+      "independently_received": 165,
+      "visibly_echoed": 165
+    },
+    "after": {
+      "sent": 165,
+      "independently_received": 165,
+      "visibly_echoed": 165
+    },
+    "herdr": {
+      "sent": 165,
+      "independently_received": 165,
+      "visibly_echoed": 139
+    }
+  }
+}

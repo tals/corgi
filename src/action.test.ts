@@ -9,6 +9,8 @@ test("wire names used by the CLI and the test suites parse", () => {
   });
   expect(parse("detach")).toEqual({ name: "detach" });
   expect(parse("copy", "copied").value).toBe("copied");
+  expect(parse("instant-typing", "off")).toEqual({ name: "instant-typing", value: "off" });
+  expect(parse("instant-typing", "auto")).toEqual({ name: "instant-typing", value: "auto" });
   expect(parse("move-tab")).toEqual({ name: "move-tab", value: "right" });
   expect(parse("join", "1")).toEqual({ name: "join", value: 1 });
   expect(parse("focus", "up")).toEqual({ name: "focus", value: "up" });
@@ -26,6 +28,8 @@ test("wire names used by the CLI and the test suites parse", () => {
     ["focus", "north", "BadValue"],
     ["resize", "", "BadValue"],
     ["tab", "two", "BadValue"],
+    ["instant-typing", "", "BadValue"],
+    ["instant-typing", "on", "BadValue"],
   ])
     expect(() => parse(name, value)).toThrow(error);
 });

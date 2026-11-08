@@ -14,6 +14,11 @@ import { JsonSocket, EXE, quote, registerCase, run, shellJoin, sleep, versioned,
 import * as protocol from "../src/protocol";
 import { byProvider } from "../src/providers";
 import { Runtime } from "./runtime";
+import { Connection } from "../src/rpc";
+import { Endpoint } from "../src/machine_connection";
+import { Probe } from "../src/terminal_info";
+import { Host } from "../src/host";
+import * as rpc_http from "../src/rpc_http";
 import { Viewer } from "./viewer_client";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
 
@@ -118,6 +123,58 @@ class Reloads extends Runtime {
   }
   reload(exe = EXE) {
     return this.rpc({ op: "server.reload", executable: exe });
+  }
+  async test_active_viewer_retains_both_ws_connections_across_local_handoff() {
+    const pane = await this.new("cat"),
+      endpoint = new Endpoint(null, this.path, new Probe(), new Host());
+    const step = () => Reflect.get(endpoint, "step").call(endpoint, true, 0);
+    try {
+      await step();
+      await this.until(async () => {
+        await step();
+        return endpoint.fresh;
+      });
+      const control = Reflect.get(endpoint, "connection") as Connection,
+        data = Reflect.get(endpoint, "data").channel as Connection,
+        before = await control.call("hello");
+      this.assertTrue(control !== data);
+      this.assertTrue((await this.reload()).ok);
+      this.assertNotEqual((await control.call("hello")).server_pid, before.server_pid);
+      this.assertTrue((await data.call("ping")).ok);
+      await this.command("pane.input", { target: pane, data: "AFTER_SPLIT_HANDOFF\r" });
+      await this.until(async () => {
+        await step();
+        const terminal = endpoint.machine.runtime.pane(pane)?.terminal;
+        terminal?.updateRender();
+        return terminal?.inner.text().includes("AFTER_SPLIT_HANDOFF") ?? false;
+      });
+      this.assertTrue(Reflect.get(endpoint, "connection") === control);
+      this.assertTrue(Reflect.get(endpoint, "data").channel === data);
+    } finally {
+      await endpoint.close();
+    }
+  }
+  async test_http_discovery_and_reload_reply_survive_handoff() {
+    const before = await rpc_http.discover(this.path);
+    this.assertEqual(before.transport, "http");
+    this.assertEqual("err" in before.hello ? null : before.hello.transports, protocol.transports);
+    const pane = await this.new(),
+      pid = (await this.session()).panes.find((p: any) => p.id === pane).pid;
+    const reply = await rpc_http.call(this.path, "server.reload", { executable: EXE });
+    this.assertTrue(reply.ok);
+    const after = await rpc_http.call(this.path, "hello");
+    this.assertEqual(reply.server_pid, after.server_pid);
+    this.assertNotEqual(after.server_pid, "err" in before.hello ? null : before.hello.server_pid);
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === pane).pid, pid);
+  }
+  async test_http_failed_reload_keeps_the_daemon_and_reports_rejection() {
+    const before = await rpc_http.call(this.path, "hello");
+    const response = await rpc_http.post(
+      this.path,
+      protocol.envelope("server.reload", { executable: "/nonexistent-corgi" }),
+    );
+    this.assertEqual(response, { err: "ReloadCandidateFailed" });
+    this.assertEqual((await rpc_http.call(this.path, "hello")).server_pid, before.server_pid);
   }
   async test_management_version_is_strict_and_independent_of_runtime() {
     const pane = await this.new(),
@@ -277,6 +334,79 @@ libc.symbols.lseek(fd, 0n, 0);
     await this.reload();
     await a.input("printf 'STILL_%s\\n' HERE\r");
     await this.until(async () => (await this.screen(first)).includes("STILL_HERE"));
+  }
+  async test_compressed_reload_returns_the_committed_reply_and_rejects_later_requests() {
+    const pane = await this.new(),
+      before = await this.session(),
+      connection = new Connection(this.path, { compression: true, timeout_ms: 10000 });
+    try {
+      const hello = await connection.call("hello");
+      this.assertEqual(hello.content_encoding, "zstd");
+      const { link } = await connection.call("link.open");
+      await connection.call("viewer.open");
+      const results = await Promise.allSettled([
+        connection.call("server.reload", { executable: EXE }),
+        connection.call("ping"),
+      ]);
+      this.assertEqual(results[0].status, "fulfilled");
+      if (results[0].status !== "fulfilled") throw results[0].reason;
+      this.assertEqual(results[1].status, "rejected");
+      const after = await this.session();
+      this.assertEqual(results[0].value.server_pid, after.server_pid);
+      this.assertNotEqual(after.server_pid, before.server_pid);
+      this.assertEqual(
+        after.panes.find((p: any) => p.id === pane).pid,
+        before.panes.find((p: any) => p.id === pane).pid,
+      );
+      const check = new Connection(this.path, { timeout_ms: 3000 });
+      try {
+        this.assertEqual((await check.call("hello")).instance, hello.instance);
+        this.assertTrue((await check.call("link.resume", { link })).viewer);
+      } finally {
+        check.close();
+      }
+    } finally {
+      connection.close();
+    }
+  }
+  async test_compressed_reload_reports_rejection_without_committing_or_replaying_input() {
+    const pane = await this.new(),
+      before = await this.session();
+    for (const executable of ["/does/not/exist", "/usr/bin/false"]) {
+      const connection = new Connection(this.path, { compression: true, timeout_ms: 10000 });
+      try {
+        const hello = await connection.call("hello");
+        this.assertEqual(hello.content_encoding, "zstd");
+        const { link } = await connection.call("link.open");
+        await connection.call("viewer.open");
+        const [reload, input] = await Promise.allSettled([
+          connection.request("server.reload", { executable }),
+          connection.call("session.command", {
+            command: { "pane.input": { target: pane, data: "MUST_NOT_RUN\r" } },
+          }),
+        ]);
+        this.assertEqual(reload.status, "fulfilled");
+        if (reload.status !== "fulfilled") throw reload.reason;
+        this.assertEqual(reload.value, { err: "ReloadCandidateFailed" });
+        this.assertEqual(input.status, "rejected");
+        const after = await this.session();
+        this.assertEqual(after.server_pid, before.server_pid);
+        this.assertEqual(after.panes[0].pid, before.panes[0].pid);
+        this.assertNotIn("MUST_NOT_RUN", await this.screen(pane));
+        const check = new Connection(this.path, { timeout_ms: 3000 });
+        try {
+          this.assertEqual((await check.call("hello")).instance, hello.instance);
+          this.assertTrue((await check.call("link.resume", { link })).viewer);
+        } finally {
+          check.close();
+        }
+      } finally {
+        connection.close();
+      }
+    }
+    await this.reload();
+    await this.command("pane.input", { target: pane, data: "printf 'RETRY_%s\\n' WORKED\r" });
+    await this.until(async () => (await this.screen(pane)).includes("RETRY_WORKED"));
   }
   async test_v2_migration_preserves_processes_viewers_and_inference_counts() {
     const first = await this.new(),

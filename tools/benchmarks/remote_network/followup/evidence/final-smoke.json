@@ -1,0 +1,490 @@
+{
+  "trials": [
+    {
+      "path": "dist/remote-network-followup-final-smoke",
+      "product": "corgi",
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi",
+        "sha256": "e526d0b2aea5d3ebc4a3e18979f65127f3dea28f3b14b62a0f45eba1d98eb07b",
+        "corgi_commit": "59a7fa4c81211a48065f7c56fb2383126b44468c",
+        "args": {
+          "product": "corgi",
+          "binary": "dist/corgi",
+          "output": "dist/remote-network-followup-final-smoke",
+          "suite": "smoke",
+          "repeats": 3,
+          "panes": 4,
+          "cpus": "32-39",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "sparse:unlimited,sparse:1mbit,sparse:256kbit,sparse:64kbit,dense:1mbit,dense:256kbit,dense:64kbit,loss"
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-06T18:55:11Z"
+      },
+      "receipts": {
+        "READYV1MatlasI19P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2316273.041979032,
+            "token": "READYV1MatlasI19P0",
+            "pid": 3887292
+          }
+        ],
+        "READYV1MatlasI19P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2316273.152093229,
+            "token": "READYV1MatlasI19P1",
+            "pid": 3887292
+          }
+        ],
+        "FLOW2P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2316284.132433558,
+            "token": "FLOW2P0",
+            "pid": 3887292
+          }
+        ],
+        "FLOW2P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2316284.265116834,
+            "token": "FLOW2P1",
+            "pid": 3887292
+          }
+        ],
+        "FLOW2P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2316285.464822792,
+            "token": "FLOW2P2",
+            "pid": 3887292
+          }
+        ],
+        "FLOW2P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2316286.665702652,
+            "token": "FLOW2P3",
+            "pid": 3887292
+          }
+        ],
+        "FLOW2P4": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2316287.865917164,
+            "token": "FLOW2P4",
+            "pid": 3887292
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "startup",
+          "rtt_ms": 120,
+          "warm": false,
+          "repeat": 0,
+          "local_seconds": 0.4054385609924793,
+          "remote_seconds": 2.9277386819012463,
+          "usable_seconds": 3.0889248331077397,
+          "ready": {
+            "ack_at": 2316273.113132587,
+            "ack": "READYV1MatlasI19P0",
+            "probes": [
+              {
+                "token": "READYV1MatlasI19P0",
+                "sent": 2316272.967386006
+              },
+              {
+                "token": "READYV1MatlasI19P1",
+                "sent": 2316273.087555909
+              }
+            ]
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1
+          ],
+          "evidence": "dist/remote-network-followup-final-smoke/results.json"
+        },
+        {
+          "case": "stream",
+          "kind": "sparse",
+          "rate": "256kbit",
+          "loss_percent": null,
+          "jitter_ms": null,
+          "repeat": 0,
+          "snapshot_prefix": "stream-2",
+          "start": 2316283.001459512,
+          "end": 2316289.001567756,
+          "frames": 120,
+          "initial_frame": {
+            "at": 2316282.963152967,
+            "event": "frame",
+            "machine": "atlas",
+            "seq": 333,
+            "source": 2316282.90062273,
+            "ack": "READYV1MatlasI19P1",
+            "bytes": 87432
+          },
+          "probes": [
+            {
+              "token": "FLOW2P0",
+              "sent": 2316284.0600154,
+              "ok": true,
+              "seconds": 0.16659583384171128,
+              "observation_seconds": 4.941552355885506
+            },
+            {
+              "token": "FLOW2P1",
+              "sent": 2316284.201744045,
+              "ok": true,
+              "seconds": 0.1611669398844242,
+              "observation_seconds": 4.799823710694909
+            },
+            {
+              "token": "FLOW2P2",
+              "sent": 2316285.401879964,
+              "ok": true,
+              "seconds": 0.16129296412691474,
+              "observation_seconds": 3.5996877918951213
+            },
+            {
+              "token": "FLOW2P3",
+              "sent": 2316286.602204029,
+              "ok": true,
+              "seconds": 0.16097796615213156,
+              "observation_seconds": 2.3993637268431485
+            },
+            {
+              "token": "FLOW2P4",
+              "sent": 2316287.801896528,
+              "ok": true,
+              "seconds": 0.160937394015491,
+              "observation_seconds": 1.1996712279506028
+            }
+          ],
+          "catchup_seconds": 0.07733613904565573,
+          "producers": [
+            {
+              "machine": "local",
+              "source": "local-source.json",
+              "alive": true,
+              "seq": 480,
+              "at": 2316289.673503961,
+              "pid": 3887215,
+              "rows": 47,
+              "cols": 132,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local1-source.json",
+              "alive": true,
+              "seq": 480,
+              "at": 2316289.677180029,
+              "pid": 3887217,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local2-source.json",
+              "alive": true,
+              "seq": 480,
+              "at": 2316289.678806722,
+              "pid": 3887218,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local3-source.json",
+              "alive": true,
+              "seq": 480,
+              "at": 2316289.682160661,
+              "pid": 3887219,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas-source.json",
+              "alive": true,
+              "seq": 460,
+              "at": 2316289.250641226,
+              "pid": 3887292,
+              "rows": 47,
+              "cols": 132,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas1-source.json",
+              "alive": true,
+              "seq": 460,
+              "at": 2316289.254400946,
+              "pid": 3887294,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas2-source.json",
+              "alive": true,
+              "seq": 460,
+              "at": 2316289.256194183,
+              "pid": 3887295,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas3-source.json",
+              "alive": true,
+              "seq": 460,
+              "at": 2316289.258754121,
+              "pid": 3887296,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis-source.json",
+              "alive": true,
+              "seq": 460,
+              "at": 2316289.827154383,
+              "pid": 3887365,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis1-source.json",
+              "alive": true,
+              "seq": 460,
+              "at": 2316289.830038249,
+              "pid": 3887367,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis2-source.json",
+              "alive": true,
+              "seq": 460,
+              "at": 2316289.832120104,
+              "pid": 3887368,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis3-source.json",
+              "alive": true,
+              "seq": 460,
+              "at": 2316289.834765944,
+              "pid": 3887369,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            }
+          ],
+          "failure": null,
+          "held_age": {
+            "n": 121,
+            "median": 0.10082435375079513,
+            "min": 0.10039477190002799,
+            "max": 0.10091687785461545,
+            "p95": 0.10085518658161163
+          },
+          "fresh_fraction_under_500ms": 1.0,
+          "frames_per_second": 19.999639193517325,
+          "network": {
+            "tx_kbit_s": 203.77816938721233,
+            "rx_kbit_s": 46.03154212140901
+          },
+          "input_latency": {
+            "n": 5,
+            "median": 0.1611669398844242,
+            "min": 0.160937394015491,
+            "max": 0.16659583384171128,
+            "p95": 0.16553525989875198
+          },
+          "input_visible": 5,
+          "input_received": 5,
+          "evidence": "dist/remote-network-followup-final-smoke/results.json"
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "key": [
+        "corgi",
+        "default",
+        "startup",
+        120,
+        false
+      ],
+      "trials": 1,
+      "evidence": [
+        "dist/remote-network-followup-final-smoke/results.json"
+      ],
+      "remote_seconds": {
+        "n": 1,
+        "median": 2.9277386819012463,
+        "min": 2.9277386819012463,
+        "max": 2.9277386819012463,
+        "p95": 2.9277386819012463
+      },
+      "usable_seconds": {
+        "n": 1,
+        "median": 3.0889248331077397,
+        "min": 3.0889248331077397,
+        "max": 3.0889248331077397,
+        "p95": 3.0889248331077397
+      },
+      "local_seconds": {
+        "n": 1,
+        "median": 0.4054385609924793,
+        "min": 0.4054385609924793,
+        "max": 0.4054385609924793,
+        "p95": 0.4054385609924793
+      },
+      "first_probe_received": 1,
+      "failures": []
+    },
+    {
+      "key": [
+        "corgi",
+        "default",
+        "stream",
+        "sparse",
+        "256kbit",
+        null
+      ],
+      "trials": 1,
+      "evidence": [
+        "dist/remote-network-followup-final-smoke/results.json"
+      ],
+      "catchup_seconds": {
+        "n": 1,
+        "median": 0.07733613904565573,
+        "min": 0.07733613904565573,
+        "max": 0.07733613904565573,
+        "p95": 0.07733613904565573
+      },
+      "frames_per_second": {
+        "n": 1,
+        "median": 19.999639193517325,
+        "min": 19.999639193517325,
+        "max": 19.999639193517325,
+        "p95": 19.999639193517325
+      },
+      "fresh_fraction_under_500ms": {
+        "n": 1,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "held_age_median": {
+        "n": 1,
+        "median": 0.10082435375079513,
+        "min": 0.10082435375079513,
+        "max": 0.10082435375079513,
+        "p95": 0.10082435375079513
+      },
+      "held_age_p95": {
+        "n": 1,
+        "median": 0.10085518658161163,
+        "min": 0.10085518658161163,
+        "max": 0.10085518658161163,
+        "p95": 0.10085518658161163
+      },
+      "held_age_max": {
+        "n": 1,
+        "median": 0.10091687785461545,
+        "min": 0.10091687785461545,
+        "max": 0.10091687785461545,
+        "p95": 0.10091687785461545
+      },
+      "input_visible": 5,
+      "input_sent": 5,
+      "input_received": 5,
+      "input_latency": {
+        "n": 5,
+        "median": 0.1611669398844242,
+        "min": 0.160937394015491,
+        "max": 0.16659583384171128,
+        "p95": 0.16553525989875198
+      },
+      "tx_kbit_s": {
+        "n": 1,
+        "median": 203.77816938721233,
+        "min": 203.77816938721233,
+        "max": 203.77816938721233,
+        "p95": 203.77816938721233
+      },
+      "failures": []
+    }
+  ],
+  "excluded": []
+}

@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-08T18:55:23.983Z",
+  "bun": "1.4.4",
+  "repeats": 3,
+  "seconds": 6,
+  "binaries": [
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-control-before",
+      "sha256": "8e1dca8935eadb01db41d4f060b48885e83fd0835b053e6e2e98d60609e1f135"
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-control-priority-final",
+      "sha256": "2f3df8aceb4e9a621977771320d19a38bb24d741974553d73786246285dd4456"
+    }
+  ],
+  "measurement": "Real daemon and pane producer, 160x48 at 50 Hz; plain/zstd WS over Unix sockets. Bytes include WS framing. Zstd isolates codec behavior; it is not an SSH/WAN result. Eight selective 250 ms pane-reader pauses per trial."
+}

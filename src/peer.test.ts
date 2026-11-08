@@ -108,3 +108,13 @@ test("JSON lines keep working, and a later line starting with POST is not HTTP",
     loop.close();
   }
 });
+
+test("compression negotiation cannot reinterpret a pipelined or established plain stream", async () => {
+  const ready: boolean[] = [];
+  await exchange('{"op":"ping"}\n{"op":"hello"}\n', cl => {
+    ready.push(cl.canCompress);
+    cl.queue({ ok: true });
+    if (ready.length === 2) cl.close();
+  });
+  expect(ready).toEqual([false, false]);
+});

@@ -258,6 +258,7 @@ async function follow(
   // Freshness and preferences keep the viewer's quiet 500 ms cadence.
   const refresh = subscribed && failure === null ? setInterval(() => show(), 500) : null;
   await closed;
+  if (connection.failure && lost(connection.failure) === null) failure ??= connection.failure;
   if (refresh !== null) clearInterval(refresh);
   signal?.removeEventListener("abort", stop);
   runtime.destroy();

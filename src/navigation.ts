@@ -32,12 +32,16 @@ export interface Intent {
 
 export class State {
   workspace_id = 0;
+  /** Explicit navigation takes precedence over attachment defaults. */
+  revision = 0;
   previous_workspace: number | null = null;
   entries: Entry[] = [];
 
   /** The current workspace's place in `store`; with none active, past its end. */
   index(store: Workspaces): number {
-    const i = store.index(this.workspace_id) ?? store.items.findIndex(w => !w.archived);
+    const found = store.index(this.workspace_id);
+    if (found === null && this.workspace_id !== 0 && !store.loaded) return store.items.length;
+    const i = found ?? store.items.findIndex(w => !w.archived);
     this.workspace_id = store.items[i]?.id ?? 0;
     return i < 0 ? store.items.length : i;
   }
@@ -49,10 +53,11 @@ export class State {
     return this.entry(store, this.current(store)).value;
   }
   switchWorkspace(store: Workspaces, id: number): void {
-    if (store.index(id) === null) throw Error("NoWorkspace");
+    if (store.loaded && store.index(id) === null) throw Error("NoWorkspace");
     const current = this.current(store);
     // Leaving an archived workspace keeps the live one before it.
     if (current.id !== id && !current.archived) this.previous_workspace = current.id;
+    if (this.revision === 0 || this.workspace_id !== id) this.revision++;
     this.workspace_id = id;
   }
   /** The workspace switched from, unless it has since closed or been archived. */
@@ -64,8 +69,10 @@ export class State {
   focus(store: Workspaces, id: number, remember = true): void {
     const ws = this.current(store),
       e = this.entry(store, ws),
-      previous = e.value.tab()?.id ?? null;
+      previous = e.value.tab()?.id ?? null,
+      focus = e.value.tab()?.focus ?? null;
     e.value.focus(ws.model, id);
+    if (this.revision === 0 || focus !== e.value.tab().focus) this.revision++;
     if (remember && previous !== e.value.tab().id) e.previous_tab = previous;
   }
   lastTab(store: Workspaces): number | null {

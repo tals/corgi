@@ -1,63 +1,129 @@
-import { createConnection as createSocket, type Socket } from "node:net";
+import type { Duplex } from "node:stream";
 import * as errors from "./errors";
 import * as json from "./json";
 import * as telemetry from "./telemetry";
 import * as protocol from "./protocol";
+import * as rpc_http from "./rpc_http";
+import * as wire_compression from "./wire_compression";
+import * as websocket_socket from "./websocket_socket";
+import type { Stats } from "./connection_stats";
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
+  encoding?: string[];
 }
 export interface ConnectionInit {
   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
   requestIds?: boolean;
+  compression?: boolean;
+  stats?: Stats;
+  trace?: telemetry.Details;
+  timeout_ms?: number | (() => number);
 }
 export class Connection {
-  readonly socket: Socket;
+  readonly socket: Duplex;
   private readonly requestIds: boolean;
   private pending = new Map<number, Pending>();
   private next = 1;
-  private buffer = "";
+  private buffer: Buffer = Buffer.alloc(0);
+  private codec: wire_compression.Channel | null = null;
+  private readonly compression: boolean;
+  private negotiating = false;
+  private started = false;
   private closed: Error | null = null;
+  private ending: Error | null = null;
   private listeners = new Set<(event: protocol.Event) => void>();
-  constructor(path: string, init?: ConnectionInit);
-  constructor(socket: Socket, init?: ConnectionInit);
-  constructor(target: string | Socket, init: ConnectionInit = {}) {
+  private closedListeners = new Set<() => void>();
+  private readonly timeout: number | (() => number);
+  get timeout_ms(): number {
+    return typeof this.timeout === "function" ? this.timeout() : this.timeout;
+  }
+  get draining(): boolean {
+    return this.ending !== null && this.closed === null;
+  }
+  get disconnected(): boolean {
+    return this.closed !== null;
+  }
+  get failure(): Error | null {
+    return this.closed;
+  }
+  private readonly stats?: Stats;
+  private readonly trace?: telemetry.Details;
+  constructor(target: string | Duplex, options: ConnectionInit | number = {}) {
+    const init = typeof options === "number" ? { timeout_ms: options } : options;
+    this.stats = init.stats;
+    this.compression = init.compression ?? false;
+    this.trace = init.trace;
+    if (this.stats) this.stats.connections++;
+    this.timeout = init.timeout_ms ?? 0;
     this.requestIds = init.requestIds ?? true;
-    this.socket = typeof target === "string" ? createSocket(target) : target;
-    this.socket.setEncoding("utf8");
-    this.socket.on("data", chunk => {
-      this.buffer += chunk;
-      if (Buffer.byteLength(this.buffer) > 64 * 1024 * 1024) {
-        this.fail(Error("MessageTooLarge"));
-        this.socket.destroy();
+    this.socket = typeof target === "string" ? new websocket_socket.Socket(target) : target;
+    this.socket.on("data", (chunk: Buffer) => {
+      this.stats?.traffic("received", chunk.length);
+      this.read(chunk);
+    });
+    this.socket.on("error", error => this.finish(error));
+    this.socket.on("close", () => this.finish(Error("ConnectionClosed")));
+  }
+  private finish(error: Error): void {
+    if (this.closed || this.ending) return;
+    this.ending = error;
+    // EOF and resets can follow bytes before the asynchronous decoder emits their last message.
+    if (this.codec) void this.codec.drainInput().then(() => this.fail(error));
+    else this.fail(error);
+  }
+  private read(chunk: Buffer, decoded = false): void {
+    if (this.closed) return;
+    if (this.codec && !decoded) {
+      this.codec.decode(chunk);
+      return;
+    }
+    this.buffer = Buffer.concat([this.buffer, chunk]);
+    if (this.buffer.length > 64 * 1024 * 1024) {
+      this.fail(Error("MessageTooLarge"));
+      return;
+    }
+    for (;;) {
+      const newline = this.buffer.indexOf(10);
+      if (newline < 0) break;
+      const line = this.buffer.subarray(0, newline);
+      this.buffer = Buffer.from(this.buffer.subarray(newline + 1));
+      if (!line.length) continue;
+      try {
+        const started = telemetry.begin();
+        const message = json.parse(line.toString());
+        telemetry.end("wire.decode", started, line.length);
+        this.receive(message);
+      } catch (error) {
+        this.fail(error as Error);
         return;
       }
-      for (;;) {
-        const newline = this.buffer.indexOf("\n");
-        if (newline < 0) break;
-        const line = this.buffer.slice(0, newline);
-        this.buffer = this.buffer.slice(newline + 1);
-        if (!line) continue;
-        try {
-          const decode_started = telemetry.begin();
-          const message = json.parse(line);
-          telemetry.end("wire.decode", decode_started, telemetry.enabled ? Buffer.byteLength(line) : 0);
-          this.receive(message);
-        } catch (error) {
-          this.fail(error as Error);
-          return;
-        }
+      if (!decoded && this.codec) {
+        const rest = this.buffer;
+        this.buffer = Buffer.alloc(0);
+        if (rest.length) this.codec.decode(rest);
+        return;
       }
-    });
-    this.socket.on("error", error => this.fail(error));
-    this.socket.on("close", () => this.fail(Error("ConnectionClosed")));
+    }
+  }
+  private write(bytes: Buffer): void {
+    if (this.closed || this.ending) return;
+    if (this.socket.writableLength + bytes.length > 4 * 1024 * 1024) {
+      this.fail(Error("RequestBackpressure"));
+      return;
+    }
+    this.stats?.traffic("sent", bytes.length);
+    this.socket.write(bytes);
   }
   private fail(error: Error) {
     if (this.closed) return;
     this.closed = error;
+    this.codec?.close();
     for (const p of this.pending.values()) p.reject(error);
     this.pending.clear();
     this.socket.destroy();
+    for (const listener of this.closedListeners) listener();
+    this.closedListeners.clear();
   }
   private receive(value: unknown): void {
     const message = json.object(value);
@@ -72,9 +138,28 @@ export class Connection {
       // parse) answers no one request; it fails the connection under its name.
       throw Error(typeof message.err === "string" ? message.err : "UnexpectedReply");
     }
+    if (message.type === "viewer.stream") {
+      const event = protocol.event(message);
+      if (event) for (const listener of this.listeners) listener(event);
+    }
     const pending = this.pending.get(id);
     if (!pending) throw Error("UnexpectedReply");
+    const selected = protocol.encoding(message.content_encoding);
+    if (
+      message.content_encoding !== undefined &&
+      (message.type !== "hello" || !selected || !pending.encoding?.includes(selected) || this.codec)
+    )
+      throw Error("InvalidEncodingNegotiation");
     this.pending.delete(id);
+    if (pending.encoding) {
+      this.negotiating = false;
+      if (selected === "zstd")
+        this.codec = new wire_compression.Channel(
+          bytes => this.write(bytes),
+          bytes => this.read(bytes, true),
+          error => this.fail(error),
+        );
+    }
     if (!this.requestIds) {
       pending.resolve(message);
       return;
@@ -88,19 +173,75 @@ export class Connection {
       this.listeners.delete(listener);
     };
   }
+  /** Socket EOF and errors notify after decoding all received bytes; close() aborts immediately. */
+  onClose(listener: () => void): () => void {
+    if (this.closed) {
+      queueMicrotask(listener);
+      return () => {};
+    }
+    this.closedListeners.add(listener);
+    return () => {
+      this.closedListeners.delete(listener);
+    };
+  }
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>> {
     // Replies are raw operation-specific JSON. Consumers normalize their model.
     return this.rawRequest(protocol.envelope(op, args[0])) as Promise<protocol.Response<K>>;
   }
   async rawRequest(value: unknown): Promise<unknown> {
-    if (this.closed) throw this.closed;
+    const closed = this.closed ?? this.ending;
+    if (closed) throw closed;
     const message = json.object(value);
+    if (this.negotiating) throw Error("CompressionNegotiating");
+    let encoding: string[] | undefined;
+    if (message.op === "hello") {
+      if (this.compression && !this.started && message.accept_encoding === undefined)
+        message.accept_encoding = [...protocol.encodings];
+      encoding = protocol.decode("hello", message).accept_encoding;
+      if (encoding.length && this.started) throw Error("InvalidEncodingNegotiation");
+      this.negotiating = encoding.length > 0;
+    }
     if (!this.requestIds && this.pending.size) throw Error("RequestInFlight");
+    if (this.pending.size >= 128) throw Error("RequestBackpressure");
+    this.started = true;
     const id = this.requestIds ? this.next++ : 0;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timeout = this.timeout_ms;
+      const timer = timeout > 0 ? setTimeout(() => this.fail(Error("RequestTimedOut")), timeout) : null;
+      const started = performance.now();
+      if (this.stats) this.stats.pending++;
+      const done = (failed: boolean) => {
+        if (this.stats) {
+          this.stats.pending--;
+          const now = performance.now();
+          // Hello may include SSH authentication; it is not an established-path round trip.
+          this.stats.answer(now - started, failed, now, message.op !== "hello");
+        }
+        if (telemetry.enabled && this.trace)
+          telemetry.end("remote.rpc", started, 0, {
+            ...this.trace,
+            op: typeof message.op === "string" ? message.op : "unknown",
+            request: id,
+            failed: Number(failed),
+            timeout_ms: timeout,
+          });
+        if (timer) clearTimeout(timer);
+      };
+      this.pending.set(id, {
+        encoding,
+        resolve: value => {
+          done(false);
+          resolve(value);
+        },
+        reject: error => {
+          done(true);
+          reject(error);
+        },
+      });
       try {
-        this.socket.write(json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n");
+        const bytes = Buffer.from(json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n");
+        if (this.codec) this.codec.encode(bytes);
+        else this.write(bytes);
       } catch (error) {
         this.fail(error as Error);
       }
@@ -112,6 +253,7 @@ export class Connection {
     return reply;
   }
   close(): void {
+    this.fail(Error("ConnectionClosed"));
     this.socket.destroy();
   }
 }
@@ -122,7 +264,9 @@ export async function request<K extends protocol.Op>(
 ): Promise<protocol.Reply<K>> {
   // Management and unversioned requests also reach daemons without correlation.
   const check = protocol.check(op);
-  const conn = new Connection(path, { requestIds: check === "runtime" || check === "viewer" });
+  const runtime = check === "runtime" || check === "viewer";
+  if (!runtime) return rpc_http.call(path, op, ...args);
+  const conn = new Connection(path);
   try {
     return await conn.call(op, ...args);
   } finally {

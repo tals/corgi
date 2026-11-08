@@ -1,0 +1,22 @@
+{
+  "application_baseline": "0ab9600ea262309b6532286730cc9d426b544f57",
+  "bun": "1.4.4",
+  "bun_revision": "1.4.4+38afee6c8",
+  "ssh": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024",
+  "packages": "libzstd1:amd64\t1.5.5+dfsg2-2build1.1\nopenssh-client\t1:9.6p1-3ubuntu13.20\nopenssh-server\t1:9.6p1-3ubuntu13.20",
+  "kernel": {
+    "system": "Linux",
+    "node": "nocap",
+    "release": "6.8.0-146-generic",
+    "version": "#146-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep  3 16:12:30 UTC 2026",
+    "machine": "x86_64",
+    "processor": "x86_64"
+  },
+  "herdr_source": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+  "herdr_status": "",
+  "binaries": {
+    "/usr/bin/ssh": "fc47ea24323fdd5687c5aefae6fd0060faabfa8f2944c6a68f6a442fbe0dd131",
+    "/usr/sbin/sshd": "95b291d957f87dd200796c4986c97b6f4d970e26ad620ec9174e69c13ec5c137",
+    "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d"
+  }
+}

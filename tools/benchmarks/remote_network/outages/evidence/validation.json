@@ -1,0 +1,66 @@
+{
+  "application_commit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+  "upstream_commit": "455a941b",
+  "before_commit": "1b41f5ad",
+  "rebase_backup": "backup/remote-network-before-20261106-rebase",
+  "unit": {
+    "command": "taskset -c 16-23 bun test src",
+    "exit_code": 0,
+    "passed": 3372,
+    "skipped": 1,
+    "failed": 0,
+    "seconds": 62.98,
+    "evidence": "unit-tests.txt"
+  },
+  "typecheck": {
+    "command": "bun typecheck.ts",
+    "exit_code": 0
+  },
+  "integration": {
+    "command": "CORGI_TEST_BIN=$PWD/dist/corgi-outage-after-test taskset -c 16-23 bun integration.ts remote viewer_sync reloads --jobs 1",
+    "exit_code": 0,
+    "passed": 70,
+    "failed": 0,
+    "seconds": 639.13,
+    "evidence": "integration-tests.txt"
+  },
+  "matrix": {
+    "command": "python3 tools/benchmarks/remote_network/outages.py dist/corgi-outage-before dist/corgi-outage-after /home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5 dist/remote-outage-comparison",
+    "runs": 9,
+    "outage_cases": 36,
+    "checks_passed": 675,
+    "problems": [],
+    "evidence": "audit.json"
+  },
+  "controls": {
+    "evidence": "controls.json",
+    "startup_300ms": {
+      "cold_passed": 3,
+      "cold_total": 3,
+      "warm_passed": 3,
+      "warm_total": 3
+    },
+    "stream": {
+      "profiles": [
+        "sparse64kbit",
+        "sparse256kbit",
+        "loss1percent_jitter10ms"
+      ],
+      "repeats": 1,
+      "visible_probes": 15,
+      "independent_receipts": 15,
+      "duplicate_tokens": 0,
+      "all_producers_alive": true
+    }
+  },
+  "diagnostic": {
+    "evidence": "after-timeline.json",
+    "dropped_trace_events": 0,
+    "note": "Separate telemetry-enabled diagnostic; not pooled with performance trials."
+  },
+  "regressions": {
+    "input_receipt": "Failing pre-fix regression in receipt-before.txt; passing focused tests in receipt-after.txt and final full suite.",
+    "hung_reconnect": "Pre-fix binary fails hung-reconnect-before.txt; final full integration suite passes.",
+    "upstream_assertions": "The selector check fails on unmodified upstream; tests now follow its always-visible selector and current connection header. Slow-link typing waits for actual remote input."
+  }
+}

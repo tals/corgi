@@ -1,0 +1,22 @@
+{
+  "unit_tests": {
+    "command": "bun test src",
+    "passed": 3375,
+    "skipped": 1,
+    "failed": 0,
+    "log_sha256": "c979f3218dd0b1183e63c84384ba469e79d40e6e2ba751f66b9bcc5e66e89ab6"
+  },
+  "typecheck": {
+    "command": "bun typecheck.ts",
+    "exit_code": 0
+  },
+  "c_build": "cc -O3 -Wall -Wextra -Werror; rebuilt binary matches measured binary byte-for-byte",
+  "sanitizers": "AddressSanitizer + UndefinedBehaviorSanitizer: all four codec modes on Codex corpus passed",
+  "roundtrips": {
+    "fresh_process_trials": 456,
+    "matrix_cells": 152,
+    "all_byte_exact": true
+  },
+  "production_changes": false,
+  "split_checks": "No source reuse, no identical messages, disjoint training/test agent scenario hashes"
+}

@@ -1,0 +1,61 @@
+bun test v1.4.4 (38afee6c8)
+
+src/core_schema.test.ts:
+(pass) the runtime wire matches protocol.version [68.87ms]
+(pass) every agent view a snapshot carries lists the same fields [2.99ms]
+(pass) the viewer wire matches viewer_version.version [3.67ms]
+(pass) saved handoff format matches its version [12.20ms]
+(pass) a schema shows a JSON value a provider or command defines as any [0.13ms]
+
+src/server.test.ts:
+(pass) session snapshots are shared by subscribers and skipped without them [1.15ms]
+(pass) a subscriber that leaves out output hears only what viewers would show changing [0.61ms]
+(pass) publishing agent entries preserves request order without snapshot subscribers [1.76ms]
+(pass) publishing resolves relative launch accounts before the pane changes directory [1.90ms]
+(pass) idle collection uses elapsed time and still collects on the first timer tick [1.99ms]
+(pass) a viewer's protocol version is checked before its request is decoded [5.68ms]
+(pass) one client's or pane's error must not end the daemon loop [0.63ms]
+(pass) a cancelled branch read cannot release a later request when it finishes [1.55ms]
+(pass) a buffered data reply delivers the latest wake when it drains [23.65ms]
+(pass) attention prioritizes input within a burst and releases the next completion [1.03ms]
+(pass) input sent into a pane counts as work in it, as a focused viewer's does [0.98ms]
+(pass) provisional pane completions ring until their receipts are read [0.78ms]
+(pass) a subscriber that leaves out output still does after a handoff [1.76ms]
+(pass) handoff restoration normalizes small and wide viewer counters before waking [2.93ms]
+(pass) model requests use their workspace or cwd and keep legacy requests valid [3.20ms]
+(pass) pending model discovery releases the shared request queue [1.06ms]
+(pass) model discovery preserves pipelined reply order on success [1.41ms]
+(pass) model discovery preserves pipelined reply order on failure [1.12ms]
+(pass) handoff saves a cancelled untagged model reply and ignores late success [1.55ms]
+(pass) handoff saves a cancelled untagged model reply and ignores late failure [1.34ms]
+(pass) handoff saves a cancelled tagged model reply and ignores late success [1.00ms]
+(pass) handoff saves a cancelled tagged model reply and ignores late failure [1.72ms]
+(pass) startup waits are shared, cancellable, and removed when their reporter disconnects [2.46ms]
+(pass) startup cancellation survives the reporter connection's live handoff [2.12ms]
+(pass) a numbered command sent again over a link gets its reply without running twice [13.03ms]
+(pass) resuming a link brings its viewer back and takes it from a connection that still held it [1.07ms]
+(pass) a link no connection comes back for is dropped after its grace [0.86ms]
+(pass) deferred checkout requests cannot record a synthetic replay success [0.68ms]
+(pass) handoff drops compression histories and retains the viewer link for a fresh stream [2.02ms]
+
+src/viewer_stream.test.ts:
+(pass) receipts bound frames beyond socket buffers and skip blocked intermediate screens [1.90ms]
+(pass) an oversized snapshot travels alone and a byte-full window resumes on receipt [0.81ms]
+(pass) dense screens use all three frame slots without queuing a fourth [1.86ms]
+(pass) large updates exhaust the byte budget before the frame slots [0.56ms]
+(pass) a drained small probe relearns propagation without losing the latest screen [0.94ms]
+(pass) compressed wire accounting admits dense high-RTT frames while raw memory stays bounded [1.40ms]
+(pass) row patches preserve Unicode, hyperlinks, cursor, scrollback and modes [0.62ms]
+(pass) a sparse-to-dense RTT step to 300 ms cannot trap the delivery estimate [35.89ms]
+(pass) a sparse-to-dense RTT step to 600 ms cannot trap the delivery estimate [25.78ms]
+
+src/wire_compression.test.ts:
+(pass) live history survives byte fragmentation and flushes each message with exact costs [94.46ms]
+(pass) corrupt streams and oversized encoder queues fail closed [4.75ms]
+(pass) RPC negotiates compression=false in hello without another round trip [5.97ms]
+(pass) RPC negotiates compression=true in hello without another round trip [5.07ms]
+
+ 47 pass
+ 0 fail
+ 7087 expect() calls
+Ran 47 tests across 4 files. [650.00ms]

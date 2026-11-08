@@ -1,0 +1,164 @@
+{
+  "pid": 1381546,
+  "epoch": 1794023582.627832,
+  "direction": "down",
+  "bytes": 5596,
+  "value": {
+    "type": "viewer.frame",
+    "sequence": 1,
+    "view": {
+      "type": "view",
+      "viewer_protocol": 4,
+      "session": null,
+      "session_hash": 9701863430651108174,
+      "resources": null,
+      "resources_hash": 8134747847440284354,
+      "surfaces": [],
+      "bell_seq": 0,
+      "bell_kind": "none",
+      "controls": [],
+      "viewer": 1,
+      "detach": false,
+      "patches": [
+        {
+          "surface": {
+            "pane": 1,
+            "cols": 132,
+            "rows": 47,
+            "lines": [
+              {
+                "row": 0,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mNETEVAL_atlas S00000287 T2348535082191825                                                                                           \u001b[0m"
+              },
+              {
+                "row": 1,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mcq07b70os2xsl7immsnwagbae3lqjrtx205adkwz3kerpfyydit9r9q8nzf8e8xi4nu1kl3n5damx35sdmqufl9lt496gfrz6o9y3qttz68o                        \u001b[0m"
+              },
+              {
+                "row": 2,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mayj2fgtfyozjk9134zmndfxigqtir34dsd3u6tu9ob63y3wm591jq5imsru31mgkct3ou889fg2ekmy9te1t3yi3l7xiithb4geh5ylh9h8a                        \u001b[0m"
+              },
+              {
+                "row": 3,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mi3darcrbea1lr1kbo8s9lntiel8kg07te07vr3ka6q6rlzlc6de9v6b3qakenwupiatpoosvqmyotrtcujtypvl6d06snuw056q8o2ifo0wg                        \u001b[0m"
+              },
+              {
+                "row": 4,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0m4r2u3ahhsmkj9r6ibdjanzwjdsag0q97frwbaqiqi6blxkk3pkqbmda4cy4r61q48qz6po41n3mkfo08f0jgfanf5gr5e1io08p6ywnqv7pq                        \u001b[0m"
+              },
+              {
+                "row": 5,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mksmffibyvag1kh94y3q30dkq6c992klhtb85wea1vrx2cm5hs1a4zwdvhs2ayvbfkoa9ldmraki5ajucfnsjlclfknl978eq27i5i8ln6jyp                        \u001b[0m"
+              },
+              {
+                "row": 6,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0m00w2b6chtrxjpxohm9p5bfgf3wtf3ehtzcafpqt2qi4sc3oys5fou0legzjru45qmt1sh2lppl88q47zg2vfv4nfe9np4nd7ozc9ynh9d335                        \u001b[0m"
+              },
+              {
+                "row": 7,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mgybhvz28sb0um0azaihzftzk3uwk9yvwv8ul40joql2x441iu7tfn8u8rbfoehfl9oisn5uvth1l8whzxez9j0mmcxga70s5um2z9a2so6lz                        \u001b[0m"
+              },
+              {
+                "row": 8,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mnrxn6agezx7pzk1zj8jkve1a9lhfwys9meed2apjosb6n7gg45zpea06iojzw98u08h958she7i4fa968469twe16nnklwcgc1eeeqdznzx0                        \u001b[0m"
+              },
+              {
+                "row": 9,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mq1xdjqwocgil008hy4ys8tjvlr937zj7ysne7xen0cos57b60rh61i036k9q83vus6hwub5zp8sic1kjtp3rb3yriia3ar0mziinypcin5xi                        \u001b[0m"
+              },
+              {
+                "row": 10,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0m9v2dsa3sk2czxqlbfoqiry7pizcs9w419zchhfr9iultqdw49wq2clhboqc8g2uazko1ffrevqdi3zak3cca2tdd3zq89cn7r0cmi63zhpa5                        \u001b[0m"
+              },
+              {
+                "row": 11,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mmoa7dckclmm7m8y63kkiv0p1amorgenue64gmcv5jzl6d78kdtcihe72x0w8dce3mofdpedblkdu6htj9p9af6z7o6s2oml5qm4kzv0oll7a                        \u001b[0m"
+              },
+              {
+                "row": 12,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0m9rgcyzp5izi5h79zlo9w3tyz0q4dvdl84x1rhj8d2wj4n7ahxk5dk6bq4upbmiarjjzityl4vmn8nv6w22iv791h5w56gajhqa4tz9rmsz84                        \u001b[0m"
+              },
+              {
+                "row": 13,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mo6205ngcqma0swdn99aaj9wuwwlympguf6nfzf3ak4th5ldse4mcbavfgf84ivwvwb34qmava2nllw029h4ybvy7lop1y05vrltp6vs3hdak                        \u001b[0m"
+              },
+              {
+                "row": 14,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mhn6fhplr0z0i50o6qdmhgist7r659reqyeivo9kgqujnysxaltusze2dvkmxtg1bkl78gdgklcaxojsdajsj52kzfan4l2qq38tedxb60g4d                        \u001b[0m"
+              },
+              {
+                "row": 15,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mriv3fztpcs38kf28c5ifdttrnvxvcl24e7fp9r9mfiotp0x791iy45osng0wb383tz87ctirg2cy3gyup3e3v0zborpclv13iatpe9qdb02q                        \u001b[0m"
+              },
+              {
+                "row": 16,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mhrefcgqhr5vg77rqbumlgudyg9lptofojxpf22i7na36u5hd5lyrwup4lm3bs5kk5jxwuypxxe6ahqu972tj9sk9wqq8k9f3p1zitjng254z                        \u001b[0m"
+              },
+              {
+                "row": 17,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0m29t3cg79o2m5qyin41ar4iu0y6fgoghar33r40adfpan0oy7gzu2nkjo1gpbvyekrhy1w82rhw85n0gpjkfa5c990ibzb1vmq8p1ny0y11ai                        \u001b[0m"
+              },
+              {
+                "row": 18,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mkxbf68bin873te4edxxjytaxu4n63640ns4ukfyh9bkqbb40vaq7icftio2jbichmd14errg74476wtk31afrzlu58shtn1boib32su2k25w                        \u001b[0m"
+              },
+              {
+                "row": 19,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0modwtk6qjptsonay4mimc32kom9nwmyvwexvwm5wbjcez65y2tcjnolf83vf3ssqw6efp4e1o5v02fr9ng2jsg6zop7n6ygc935i794aysq85                        \u001b[0m"
+              },
+              {
+                "row": 20,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0md4b9add6v6gnijh6dthp43ljp6he46fzd6vam2puki0x51ruq3bfs6h74800isz8zt23a6o6owwtwq8g5aw14x1efnmoo39y2s4134a1lwpv                        \u001b[0m"
+              },
+              {
+                "row": 21,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mxbb5o3d549xdr5vbzlqttg8c7mkcha9gax68xfbprolowx3rj766vdy7ro92xipi1yzqul0f7lhlnmv5p7atc5b197u9hz0pn0cmxsv7qp4d                        \u001b[0m"
+              },
+              {
+                "row": 22,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0m2ik8odzbnoyi9aliu3j5wibzbllimvw4n5e3p1yettpv0vnezisn7nam6yaer56d0w33khopwkn0a4299jgctb7jqsy9c2m7wg1vppny9wfl                        \u001b[0m"
+              },
+              {
+                "row": 24,
+                "line": "\u001b[0;38;2;255;255;255;48;2;0;0;0mEND_atlas S00000287 ACK_NONE                                                                                                        \u001b[0m"
+              }
+            ],
+            "cursor": null,
+            "images": []
+          },
+          "bottom": 0,
+          "offset": 0,
+          "modes": {
+            "bracketed_paste": false,
+            "cursor_keys": false,
+            "keypad_keys": false,
+            "backarrow": false,
+            "numlock": true,
+            "alt_escape": true,
+            "modify_other": false,
+            "kitty": 0,
+            "mouse_event": "none",
+            "mouse_format": "x10",
+            "paste_events": false
+          },
+          "stamp": {
+            "identity": 12275388393284857814,
+            "revision": 294,
+            "offset": null
+          },
+          "input_ack": {
+            "epoch": "c4ef1342-44c6-48eb-bd54-8dcbccaeaeb1",
+            "sequence": 1
+          },
+          "base": {
+            "identity": 12275388393284857814,
+            "revision": 293,
+            "offset": null
+          }
+        }
+      ]
+    },
+    "frame": 106
+  },
+  "kind": "viewer.frame"
+}

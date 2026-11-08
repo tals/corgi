@@ -1,0 +1,15 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/44 finished · 0 running
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/remote.test.ts:
+Testing · 0% · 0/44 finished · 1 running
+(pass) SSH machines > test_a_hung_reconnect_is_raced_without_waiting_for_the_ssh_timeout [13588.78ms]
+Testing · 2% · 1/44 finished · 1 running
+(pass) SSH machines > test_raising_latency_then_reconnecting_keeps_local_navigation_responsive [44272.96ms]
+
+ 2 pass
+ 42 filtered out
+ 0 fail
+Ran 2 tests across 1 file. [57.97s]
+Cleanup · 4% · 2/44 finished · 0 running

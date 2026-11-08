@@ -1,0 +1,289 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/108 finished · 0 running
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/reloads.test.ts:
+(pass) Reloads > test_candidate_rejects_incompatible_or_partly_restored_state_without_killing_panes [2456.06ms]
+(pass) Reloads > test_cold_migration_upgrades_only_after_successful_restore [3161.51ms]
+(pass) Reloads > test_cold_recovery_preserves_layout_cwd_history_and_resume_hint [3375.53ms]
+Testing · 2% · 3/108 finished · 1 running
+(pass) Reloads > test_cold_recovery_resumes_the_agent_in_its_pane_once_focused [3977.01ms]
+(pass) Reloads > test_compressed_reload_reports_rejection_without_committing_or_replaying_input [1590.83ms]
+(pass) Reloads > test_compressed_reload_returns_the_committed_reply_and_rejects_later_requests [1524.33ms]
+(pass) Reloads > test_failed_candidate_rolls_back_and_can_retry [1827.10ms]
+Testing · 6% · 7/108 finished · 1 running
+(pass) Reloads > test_fragmented_rpc_and_paste_survive [1877.25ms]
+(pass) Reloads > test_handoff_keeps_the_host_theme_in_open_panes [1538.73ms]
+(pass) Reloads > test_handoff_preserves_processes_viewers_and_queued_controls [2879.21ms]
+(pass) Reloads > test_headless_cold_recovery_displays_resume_without_starting_agent [3069.50ms]
+(pass) Reloads > test_headless_partial_initialization_and_deferred_request_survive [2234.53ms]
+Testing · 11% · 12/108 finished · 1 running
+(pass) Reloads > test_headless_session_retains_pid_approvals_and_transport [2511.15ms]
+(pass) Reloads > test_management_version_is_strict_and_independent_of_runtime [1591.04ms]
+(pass) Reloads > test_missing_directory_and_removed_socket_directory_do_not_lose_recovery [1982.00ms]
+(pass) Reloads > test_pipelined_requests_remain_ordered_across_handoff [1594.16ms]
+Testing · 14% · 16/108 finished · 1 running
+(pass) Reloads > test_recovery_prefills_editable_command_until_enter [5611.00ms]
+(pass) Reloads > test_reload_drops_input_a_blocked_pane_never_read [3258.46ms]
+(pass) Reloads > test_removed_attachment_cannot_create_a_shell_or_block_reload [1764.77ms]
+Testing · 17% · 19/108 finished · 1 running
+23 |     this.reader = (async () => {
+24 |       const decoder = new TextDecoder();
+25 |       try {
+26 |         for await (const chunk of proc.stdout) this.lines.feed(decoder.decode(chunk, { stream: true }));
+27 |         this.lines.feed(decoder.decode());
+28 |         this.lines.end(new Error(`Viewer exited: ${await stderr}`));
+                                ^
+error: Viewer exited: corgi: WebSocket connection to 'ws+unix:///tmp/corgi-test-jIcQJA/control.sock:/rpc' failed: Protocol error - RSV2 and RSV3 must be clear
+
+      at /home/t/dev/personal/corgi-remote-network-eval/tests/viewer_client.ts:28:28
+(fail) Reloads > test_v2_migration_preserves_processes_viewers_and_inference_counts [1902.49ms]
+(pass) Reloads > test_workspace_names_survive_handoff [2134.49ms]
+
+tests/remote.test.ts:
+Testing · 19% · 21/108 finished · 1 running
+(pass) SSH machines > test_a_hung_reconnect_is_raced_without_waiting_for_the_ssh_timeout [12824.13ms]
+Testing · 20% · 22/108 finished · 1 running
+(pass) SSH machines > test_a_network_change_is_raced_without_waiting_for_the_timeout_and_typing_lands_once [13037.97ms]
+Testing · 21% · 23/108 finished · 1 running
+(pass) SSH machines > test_a_pane_exit_with_a_live_stream_keeps_the_machine_usable [4919.67ms]
+Testing · 22% · 24/108 finished · 1 running
+sign-in prediction: 4.6ms at 2000ms RTT; exact input delivery verified
+(pass) SSH machines > test_agent_signin_prediction_at_one_second_one_way_latency [24937.34ms]
+Testing · 23% · 25/108 finished · 1 running
+(pass) SSH machines > test_all_agents_lists_both_machines_and_clicking_a_remote_agent_focuses_it_there [4763.54ms]
+(pass) SSH machines > test_all_workspaces_default_inline_dropdown_and_cross_machine_mouse_and_keyboard_navigation [5453.86ms]
+Testing · 25% · 27/108 finished · 1 running
+(pass) SSH machines > test_blackhole_times_out_and_reconnects_automatically_without_replaying_queued_input [12790.13ms]
+(pass) SSH machines > test_clearing_then_typing_does_not_flicker_when_an_empty_redraw_catches_up [8171.85ms]
+Testing · 26% · 29/108 finished · 1 running
+(pass) SSH machines > test_cli_routes_paths_input_and_context_to_the_selected_machine [5993.33ms]
+Testing · 27% · 30/108 finished · 1 running
+(pass) SSH machines > test_cold_remote_listing_allows_ssh_authentication_on_a_slow_link [22078.76ms]
+Testing · 28% · 31/108 finished · 1 running
+(pass) SSH machines > test_dropdown_retry_bypasses_backoff_and_repeated_disconnects_do_not_mix_generations [10237.10ms]
+Testing · 29% · 32/108 finished · 1 running
+(pass) SSH machines > test_image_paste_cancels_on_switch_or_disconnect_and_the_next_paste_works [14429.72ms]
+image upload receiver progress: 43, 62, 81%
+(pass) SSH machines > test_image_upload_progress_follows_the_caret_until_remote_delivery [6790.93ms]
+Testing · 31% · 34/108 finished · 1 running
+instant editing at 240ms RTT: [33,7,5,7,7,8,5,5,5,5,6,5,5,5,5,5,5,5,7,5,5,5,5,4,5,5,10,2,5]ms; exact input delivery verified
+(pass) SSH machines > test_instant_editing_keeps_wrapped_drafts_and_recovers_after_completion [9699.44ms]
+Testing · 32% · 35/108 finished · 1 running
+instant remote wrap: 25.8ms with 240ms RTT; off and blackhole recovery verified
+(pass) SSH machines > test_instant_typing_wraps_locally_off_waits_and_a_blackhole_discards_only_the_preview [10875.51ms]
+Testing · 33% · 36/108 finished · 1 running
+(pass) SSH machines > test_local_starts_and_remains_usable_during_the_initial_remote_handshake [10553.19ms]
+Testing · 34% · 37/108 finished · 1 running
+(pass) SSH machines > test_machine_collapse_and_authentication_diagnostics_keep_local_input_usable [5642.56ms]
+Testing · 35% · 38/108 finished · 1 running
+(pass) SSH machines > test_native_stdio_and_cli_share_ssh_without_socket_forwarding [5645.49ms]
+Testing · 36% · 39/108 finished · 1 running
+AssertionError: condition timed out
+ generatedMessage: false,
+     actual: undefined,
+   expected: undefined,
+   operator: undefined,
+       diff: "simple",
+       code: "ERR_ASSERTION"
+
+      at new AssertionError (internal:assert/assertion_error:239:27)
+      at fail (/home/t/dev/personal/corgi-remote-network-eval/tests/support.ts:263:22)
+      at until (/home/t/dev/personal/corgi-remote-network-eval/tests/runtime.ts:387:10)
+      at test_no_echo_acknowledgement_retracts_prediction_and_retrains_on_the_same_row (/home/t/dev/personal/corgi-remote-network-eval/tests/remote.test.ts:357:16)
+      at /home/t/dev/personal/corgi-remote-network-eval/tests/support.ts:370:26
+(fail) SSH machines > test_no_echo_acknowledgement_retracts_prediction_and_retrains_on_the_same_row [35777.83ms]
+Testing · 37% · 40/108 finished · 1 running
+(pass) SSH machines > test_one_second_one_way_latency_stays_online_and_delivers_typing [39122.39ms]
+Testing · 37% · 41/108 finished · 1 running
+(pass) SSH machines > test_paste_started_before_an_outage_cannot_finish_in_a_new_connection [5003.96ms]
+Testing · 38% · 42/108 finished · 1 running
+(pass) SSH machines > test_pause_and_retry_abort_an_inflight_request_and_a_hung_ssh_handshake_immediately [11933.05ms]
+(pass) SSH machines > test_pinned_host_keys_and_image_uploads [5037.89ms]
+Testing · 40% · 44/108 finished · 1 running
+(pass) SSH machines > test_raising_latency_then_reconnecting_keeps_local_navigation_responsive [41927.93ms]
+Testing · 41% · 45/108 finished · 1 running
+(pass) SSH machines > test_readline_edits_keep_the_latest_draft_through_delayed_echoes [26850.00ms]
+Testing · 42% · 46/108 finished · 1 running
+(pass) SSH machines > test_remote_reload_rebuilds_the_stream_without_replacing_its_panes [5007.38ms]
+(pass) SSH machines > test_reopening_retains_ghost_workspace_cards_while_local_input_starts [6578.64ms]
+Testing · 44% · 48/108 finished · 1 running
+(pass) SSH machines > test_resource_hover_follows_workspace_ownership_without_selecting_it [8684.40ms]
+Testing · 45% · 49/108 finished · 1 running
+(pass) SSH machines > test_resource_readings_keep_updating_on_both_machines_across_workspace_switches [19300.82ms]
+Testing · 46% · 50/108 finished · 1 running
+(pass) SSH machines > test_restarted_daemon_uses_fresh_surfaces_and_does_not_replay_into_reused_pane_ids [10754.99ms]
+Testing · 47% · 51/108 finished · 1 running
+(pass) SSH machines > test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells [9915.42ms]
+Testing · 48% · 52/108 finished · 1 running
+(pass) SSH machines > test_shared_master_and_failed_recovery_handshake_keep_navigation_responsive [25942.86ms]
+Testing · 49% · 53/108 finished · 1 running
+shell prediction: 2.4ms at 2000ms RTT; exact input delivery verified
+(pass) SSH machines > test_shell_prediction_at_one_second_one_way_latency [24824.27ms]
+Testing · 50% · 54/108 finished · 1 running
+(pass) SSH machines > test_short_network_hiccup_shows_stall_discards_input_and_recovers_on_the_same_connection [9826.94ms]
+Testing · 50% · 55/108 finished · 1 running
+(pass) SSH machines > test_slow_image_paste_keeps_the_viewer_live_and_delivers_remote_bytes [7396.43ms]
+Testing · 51% · 56/108 finished · 1 running
+(pass) SSH machines > test_slow_image_paste_relays_to_the_remote_program [7357.73ms]
+Testing · 52% · 57/108 finished · 1 running
+Spotty SSH at 160ms RTT / 128KiB/s: [{"fault":"replies","navigation_ms":100,"recovery_ms":5010},{"fault":"blackhole","navigation_ms":100,"recovery_ms":4773},{"fault":"strand","navigation_ms":100,"recovery_ms":10228},{"fault":"cut","navigation_ms":101,"recovery_ms":2405},{"fault":"blackhole","navigation_ms":100,"recovery_ms":4750}]
+(pass) SSH machines > test_spotty_connection_repeatedly_recovers_without_freezing_navigation_or_duplicating_input [35646.99ms]
+Testing · 53% · 58/108 finished · 1 running
+(pass) SSH machines > test_typing_a_cut_connection_never_delivered_lands_after_the_link_resumes [9872.90ms]
+Testing · 54% · 59/108 finished · 1 running
+(pass) SSH machines > test_typing_after_a_remote_reload_waits_for_the_same_viewer_on_a_slow_link [10366.49ms]
+Testing · 55% · 60/108 finished · 1 running
+Typing echo at 120ms RTT {"ssh":[121,121,130,132,131,122,140,137,133,129,129,123,139,140,136,132,141,126,125,123,142,137,133,130,128,127],"corgi":[140,132,127,127,128,129,127,129,129,126,129,134,126,128,128,140,130,127,128,129,126,125,126,126,127,133]}
+(pass) SSH machines > test_typing_latency_matches_ssh_without_waiting_for_poll_or_acknowledgement [15335.62ms]
+(pass) SSH machines > test_typing_whose_reply_a_cut_connection_lost_lands_once_after_the_link_resumes [5175.89ms]
+Testing · 57% · 62/108 finished · 1 running
+(pass) SSH machines > test_workspace_filters_keep_local_interaction_live_while_a_host_is_down [5535.10ms]
+Testing · 58% · 63/108 finished · 1 running
+(pass) SSH machines > test_workspace_selection_and_tabs_are_immediate_before_slow_attachment [9465.55ms]
+Testing · 59% · 64/108 finished · 1 running
+(pass) SSH machines > test_workspaces_reorder_across_machines_while_remote_is_stalled [11100.28ms]
+
+tests/rpc.test.ts:
+84 |       let buffer = "";
+85 |       socket.setEncoding("utf8");
+86 |       socket.on("data", chunk => {
+87 |         buffer += chunk;
+88 |         if (!buffer.includes("\n")) return;
+89 |         const query = JSON.parse(buffer.trim());
+                                ^
+SyntaxError: JSON Parse error: Unexpected identifier "GET"
+      at <anonymous> (/home/t/dev/personal/corgi-remote-network-eval/tests/rpc.test.ts:89:28)
+      at emit (node:events:100:22)
+      at addChunk (internal:streams/readable:267:47)
+      at readableAddChunkPushByteMode (internal:streams/readable:245:18)
+      at pushDataToSocket (node:net:360:21)
+      at data (node:net:580:74)
+(fail) Rpc > test_bugreport_keeps_diagnostics_from_an_older_daemon [761.79ms]
+84 |       let buffer = "";
+85 |       socket.setEncoding("utf8");
+86 |       socket.on("data", chunk => {
+87 |         buffer += chunk;
+88 |         if (!buffer.includes("\n")) return;
+89 |         const query = JSON.parse(buffer.trim());
+                                ^
+SyntaxError: JSON Parse error: Unexpected identifier "GET"
+      at <anonymous> (/home/t/dev/personal/corgi-remote-network-eval/tests/rpc.test.ts:89:28)
+      at emit (node:events:100:22)
+      at addChunk (internal:streams/readable:267:47)
+      at readableAddChunkPushByteMode (internal:streams/readable:245:18)
+      at pushDataToSocket (node:net:360:21)
+      at data (node:net:580:74)
+(fail) Rpc > test_disconnected_deferred_request_finishes_without_blocking_reload [1.22ms]
+84 |       let buffer = "";
+85 |       socket.setEncoding("utf8");
+86 |       socket.on("data", chunk => {
+87 |         buffer += chunk;
+88 |         if (!buffer.includes("\n")) return;
+89 |         const query = JSON.parse(buffer.trim());
+                                ^
+SyntaxError: JSON Parse error: Unexpected identifier "GET"
+      at <anonymous> (/home/t/dev/personal/corgi-remote-network-eval/tests/rpc.test.ts:89:28)
+      at emit (node:events:100:22)
+      at addChunk (internal:streams/readable:267:47)
+      at readableAddChunkPushByteMode (internal:streams/readable:245:18)
+      at pushDataToSocket (node:net:360:21)
+      at data (node:net:580:74)
+(fail) Rpc > test_failed_reload_releases_an_untagged_branch_request [0.89ms]
+(pass) Rpc > test_followed_history_replies_before_its_events [1571.22ms]
+(pass) Rpc > test_reload_drops_pending_git_then_preserves_correlated_and_pipelined_replies [2025.65ms]
+Testing · 64% · 70/108 finished · 1 running
+(pass) Rpc > test_requests_without_ids_reply_in_order [1223.97ms]
+(pass) Rpc > test_shared_rpc_keeps_branch_replies_errors_and_viewer_sync_separate [1544.76ms]
+(pass) Rpc > test_shared_rpc_keeps_worktree_success_and_failure_with_their_request [1582.40ms]
+
+# Unhandled error between tests
+-------------------------------
+30 |   let timer: ReturnType<typeof setTimeout>;
+31 |   try {
+32 |     return await Promise.race([
+33 |       promise,
+34 |       new Promise<never>((_, reject) => {
+35 |         timer = setTimeout(() => reject(new Error(message)), milliseconds);
+                                                 ^
+error: Command timed out: /home/t/dev/personal/corgi-remote-network-eval/dist/corgi-test
+      at <anonymous> (/home/t/dev/personal/corgi-remote-network-eval/tests/support.ts:35:45)
+-------------------------------
+
+126 |       let buffer = "";
+127 |       socket.setEncoding("utf8");
+128 |       socket.on("data", chunk => {
+129 |         buffer += chunk;
+130 |         if (!buffer.includes("\n")) return;
+131 |         requests.push(JSON.parse(buffer.trim()));
+                                 ^
+SyntaxError: JSON Parse error: Unexpected identifier "GET"
+      at <anonymous> (/home/t/dev/personal/corgi-remote-network-eval/tests/rpc.test.ts:131:28)
+      at emit (node:events:100:22)
+      at addChunk (internal:streams/readable:267:47)
+      at readableAddChunkPushByteMode (internal:streams/readable:245:18)
+      at pushDataToSocket (node:net:360:21)
+      at data (node:net:580:74)
+(fail) Rpc > test_unversioned_cli_controls_accept_older_daemon_replies [765.04ms]
+(pass) Rpc > test_websocket_subscription_and_viewer_survive_reload_on_their_original_connections [1585.30ms]
+
+tests/viewers.test.ts:
+(pass) Viewers > test_agent_hotkeys_follow_complete_workspace_sidebar [1840.02ms]
+(pass) Viewers > test_agent_navigation_includes_native_sessions_and_handles_empty_lists [1650.15ms]
+Testing · 71% · 77/108 finished · 1 running
+(pass) Viewers > test_agent_scope_menu_only_offers_all_and_current_workspace [2054.08ms]
+(pass) Viewers > test_agent_search_reuses_sidebar_and_restores_it_on_escape [1631.96ms]
+(pass) Viewers > test_agent_sidebar_search_input_mouse_and_stale_targets [1602.33ms]
+(pass) Viewers > test_arrangement_is_shared_and_close_reconciles_selection [1672.81ms]
+(pass) Viewers > test_arrows_follow_focused_pane_cursor_mode [2463.60ms]
+(pass) Viewers > test_closing_paste_target_does_not_crash_or_redirect_input [1435.44ms]
+Testing · 76% · 83/108 finished · 1 running
+(pass) Viewers > test_delivered_controls_remain_pending_until_acknowledged [1214.98ms]
+(pass) Viewers > test_ended_agent_keeps_row_until_pane_closes_then_fades_without_stale_clicks [2399.00ms]
+(skip) Viewers > test_ghostty_setup_toggle_preserves_config_and_routes_tabs
+(pass) Viewers > test_headless_usage_and_attention_are_visible_and_survive_reload [2332.42ms]
+(pass) Viewers > test_independent_edits_from_stale_viewers_compose [1637.79ms]
+(pass) Viewers > test_last_agent_history_is_per_workspace_and_per_viewer [1755.69ms]
+Testing · 81% · 88/108 finished · 1 running
+(pass) Viewers > test_pane_menu_names_target_without_stealing_focus [1663.34ms]
+(pass) Viewers > test_pane_name_survives_reload_and_reopen [2080.63ms]
+(pass) Viewers > test_queued_focus_and_split_execute_in_the_viewer [1467.45ms]
+(pass) Viewers > test_scroll_and_copy_are_private_and_preserve_live_screen [1694.68ms]
+(pass) Viewers > test_search_and_selection_copy_do_not_change_other_view [1643.98ms]
+(pass) Viewers > test_selection_and_dialogs_are_viewer_specific [1693.16ms]
+Testing · 87% · 94/108 finished · 1 running
+(pass) Viewers > test_session_edits_reject_invalid_targets_and_stale_dividers_atomically [1470.55ms]
+(pass) Viewers > test_shared_break_join_and_undo [1731.04ms]
+(pass) Viewers > test_sidebar_width_is_local_sticky_and_clamped [1887.56ms]
+(pass) Viewers > test_sizes_follow_visible_panes_and_expand_after_detach [1653.59ms]
+(pass) Viewers > test_targeted_cli_navigation_and_paste_keep_original_target [1657.76ms]
+(pass) Viewers > test_viewer_creation_inherits_its_own_focused_directory [1925.41ms]
+Testing · 92% · 100/108 finished · 1 running
+(pass) Viewers > test_viewer_encodes_keys_and_mouse_for_child_modes [1848.97ms]
+(pass) Viewers > test_viewer_reopen_preserves_daemon_and_pane_processes [1620.29ms]
+(pass) Viewers > test_viewer_reopens_on_the_last_used_pane [1626.21ms]
+Testing · 95% · 103/108 finished · 1 running
+(pass) Viewers > test_workspace_away_usage_resets_on_visit_and_respects_other_viewers [5439.31ms]
+(pass) Viewers > test_workspace_context_menu_targets_background_workspace [1668.01ms]
+(pass) Viewers > test_workspace_drag_order_marker_and_cancellation [2430.30ms]
+(pass) Viewers > test_workspace_name_keeps_chosen_folder_in_both_viewers [1977.30ms]
+(pass) Viewers > test_workspace_scroll_while_dragging_reaches_offscreen_slots [1446.20ms]
+
+1 tests skipped:
+(skip) Viewers > test_ghostty_setup_toggle_preserves_config_and_routes_tabs
+
+
+6 tests failed:
+(fail) Reloads > test_v2_migration_preserves_processes_viewers_and_inference_counts [1902.49ms]
+(fail) SSH machines > test_no_echo_acknowledgement_retracts_prediction_and_retrains_on_the_same_row [35777.83ms]
+(fail) Rpc > test_bugreport_keeps_diagnostics_from_an_older_daemon [761.79ms]
+(fail) Rpc > test_disconnected_deferred_request_finishes_without_blocking_reload [1.22ms]
+(fail) Rpc > test_failed_reload_releases_an_untagged_branch_request [0.89ms]
+(fail) Rpc > test_unversioned_cli_controls_accept_older_daemon_replies [765.04ms]
+
+ 102 pass
+ 1 skip
+ 6 fail
+ 1 error
+Ran 109 tests across 4 files. [718.12s]
+Cleanup · 100% · 108/108 finished · 0 running

@@ -1,0 +1,20 @@
+[
+  {
+    "path": "dist/remote-network-followup-final.tar.gz",
+    "bytes": 9581093,
+    "sha256": "0ed1cb12aa228ca013a1407a8420dd3f9540516400db469c1a810465de80336f",
+    "files": 1523
+  },
+  {
+    "path": "dist/remote-network-followup-diagnostics.tar.gz",
+    "bytes": 982464,
+    "sha256": "8e813b2ef7324ebf3e11fc5e08405f7eee59be0ba47e023bf79a1bfed23ecef1",
+    "files": 451
+  },
+  {
+    "path": "dist/remote-network-followup-smoke.tar.gz",
+    "bytes": 78286,
+    "sha256": "d5674f75bf8d755b8cc90a1aa44bc36e47269820451e79bdc111c92014208e3e",
+    "files": 100
+  }
+]

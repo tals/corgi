@@ -1,0 +1,3347 @@
+{
+  "root": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace",
+  "manifest": {
+    "product": "corgi",
+    "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after",
+    "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+    "corgi_commit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+    "build": {
+      "builtAt": "2026-11-06T23:46:34.639Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+      "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+      "sourceSHA256": "69905a134c6e344b8c91716f748f90c285e5f423cd6bff6cb605f161204683f9",
+      "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+      "inputsSHA256": "10f80e8dadcd78f698e7744c52f638e606cbd675389fdf14908fcad46107399d"
+    },
+    "args": {
+      "product": "corgi",
+      "binary": "dist/corgi-outage-after",
+      "output": "dist/remote-outage-final-trace",
+      "suite": "faults",
+      "repeats": 1,
+      "panes": 4,
+      "cpus": "32-39",
+      "sleep_seconds": 180,
+      "ansi": false,
+      "trace": true,
+      "fault_cases": "blackhole35,blackhole60",
+      "calibrate": false,
+      "rtts": "0,20,120,300",
+      "ssh_compression": "default",
+      "stream_cases": "sparse:unlimited,sparse:1mbit,sparse:256kbit,sparse:64kbit,dense:1mbit,dense:256kbit,dense:64kbit,loss"
+    },
+    "kernel": "6.8.0-146-generic",
+    "clock": "CLOCK_MONOTONIC",
+    "uid": 1000,
+    "topology": "intermediate-bridge-tbf-netem-v2",
+    "started_utc": "2026-11-06T23:56:45Z"
+  },
+  "dropped_trace_events": 0,
+  "windows": [
+    {
+      "case": "blackhole35",
+      "repeat": 0,
+      "fault_start": {
+        "at": 2334375.598366042,
+        "epoch": 1794009423.106307,
+        "event": "fault_start",
+        "case": "blackhole35",
+        "repeat": 0
+      },
+      "fault_end": {
+        "at": 2334410.834379905,
+        "epoch": 1794009458.342319,
+        "event": "fault_end",
+        "case": "blackhole35",
+        "repeat": 0
+      },
+      "result": {
+        "at": 2334413.653258417,
+        "epoch": 1794009461.161199,
+        "event": "result",
+        "case": "blackhole35",
+        "repeat": 0,
+        "fault_seconds": 35,
+        "actual_fault_seconds": 35.23601386277005,
+        "recovery_seconds": 2.3938863282091916,
+        "usable_seconds": 2.559516523964703,
+        "ready": {
+          "ack_at": 2334413.393896429,
+          "ack": "READYV2MatlasI7P0",
+          "probes": [
+            {
+              "token": "READYV2MatlasI7P0",
+              "sent": 2334413.247747417
+            },
+            {
+              "token": "READYV2MatlasI7P1",
+              "sent": 2334413.368043854
+            }
+          ]
+        },
+        "before": {
+          "token": "BEFOREblackhole350V2I2",
+          "sent": 2334375.434481255,
+          "seconds": 0.1598271164111793,
+          "ok": true
+        },
+        "echo": {
+          "token": "AFTERblackhole350V2I9",
+          "sent": 2334413.488408983,
+          "seconds": 0.155708028934896,
+          "ok": true
+        },
+        "during_input_at": 2334377.677759923,
+        "late_input_at": 2334383.598793808,
+        "isolation": [],
+        "producers_before": [
+          {
+            "machine": "local",
+            "source": "local-source.json",
+            "alive": true,
+            "seq": 320,
+            "at": 2334375.37215941,
+            "pid": 650914,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local1-source.json",
+            "alive": true,
+            "seq": 320,
+            "at": 2334375.378577112,
+            "pid": 650926,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local2-source.json",
+            "alive": true,
+            "seq": 320,
+            "at": 2334375.379410047,
+            "pid": 650929,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local3-source.json",
+            "alive": true,
+            "seq": 320,
+            "at": 2334375.384015575,
+            "pid": 650931,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2334375.031550112,
+            "pid": 651095,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas1-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2334375.035200821,
+            "pid": 651097,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas2-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2334375.037856121,
+            "pid": 651098,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas3-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2334375.04049359,
+            "pid": 651099,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis-source.json",
+            "alive": true,
+            "seq": 280,
+            "at": 2334374.692096599,
+            "pid": 651254,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis1-source.json",
+            "alive": true,
+            "seq": 280,
+            "at": 2334374.696098548,
+            "pid": 651257,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis2-source.json",
+            "alive": true,
+            "seq": 280,
+            "at": 2334374.697731207,
+            "pid": 651258,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis3-source.json",
+            "alive": true,
+            "seq": 280,
+            "at": 2334374.699459099,
+            "pid": 651259,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          }
+        ],
+        "producers_after": [
+          {
+            "machine": "local",
+            "source": "local-source.json",
+            "alive": true,
+            "seq": 1080,
+            "at": 2334413.372167658,
+            "pid": 650914,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local1-source.json",
+            "alive": true,
+            "seq": 1080,
+            "at": 2334413.37856668,
+            "pid": 650926,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local2-source.json",
+            "alive": true,
+            "seq": 1080,
+            "at": 2334413.379456646,
+            "pid": 650929,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local3-source.json",
+            "alive": true,
+            "seq": 1080,
+            "at": 2334413.384061724,
+            "pid": 650931,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas-source.json",
+            "alive": true,
+            "seq": 1060,
+            "at": 2334413.031554864,
+            "pid": 651095,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas1-source.json",
+            "alive": true,
+            "seq": 1060,
+            "at": 2334413.035224394,
+            "pid": 651097,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas2-source.json",
+            "alive": true,
+            "seq": 1060,
+            "at": 2334413.037850393,
+            "pid": 651098,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas3-source.json",
+            "alive": true,
+            "seq": 1060,
+            "at": 2334413.040491432,
+            "pid": 651099,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis-source.json",
+            "alive": true,
+            "seq": 1040,
+            "at": 2334412.692167678,
+            "pid": 651254,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis1-source.json",
+            "alive": true,
+            "seq": 1040,
+            "at": 2334412.696144597,
+            "pid": 651257,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis2-source.json",
+            "alive": true,
+            "seq": 1040,
+            "at": 2334412.697785996,
+            "pid": 651258,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis3-source.json",
+            "alive": true,
+            "seq": 1040,
+            "at": 2334412.699528749,
+            "pid": 651259,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          }
+        ]
+      },
+      "trace": [
+        {
+          "seconds_from_restoration": -35.19126534461975,
+          "duration_seconds": 12.000382595,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009423151053.8,
+          "dur": 12000382.594999999,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "viewer.receipt",
+            "request": 65,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -35.13969540596008,
+          "duration_seconds": 11.949114251000001,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009423202623.5,
+          "dur": 11949114.251,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "viewer.receipt",
+            "request": 66,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -35.07064461708069,
+          "duration_seconds": 11.880071892999998,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009423271674.5,
+          "dur": 11880071.893,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "viewer.receipt",
+            "request": 67,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -33.154672145843506,
+          "duration_seconds": 9.964107576,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009425187646.8,
+          "dur": 9964107.576,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "session.command",
+            "request": 68,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -33.13493824005127,
+          "duration_seconds": 9.944377005000002,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009425207380.8,
+          "dur": 9944377.005,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "session.command",
+            "request": 69,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -31.103002786636353,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009427239316.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "phase": "stalled",
+            "status": "stalled",
+            "age_ms": 4016.0242819999994,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -27.112114191055298,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009431230204.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "phase": "start",
+            "status": "stalled",
+            "age_ms": 8006.91168,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -27.109665393829346,
+          "duration_seconds": 12.000155006999998,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009431232653.5,
+          "dur": 12000155.006999997,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -27.107980489730835,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009431234338.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 654263,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -23.188035011291504,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009435154284,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "phase": "failed",
+            "status": "stalled",
+            "age_ms": 11930.987076999998,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "RequestTimedOut"
+          }
+        },
+        {
+          "seconds_from_restoration": -23.18493962287903,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009435157379.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 0.04121099999974831,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -23.182901620864868,
+          "duration_seconds": 25.071203596,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009435159417.5,
+          "dur": 25071203.596,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "primary",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 30000
+          }
+        },
+        {
+          "seconds_from_restoration": -23.18212103843689,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009435160198,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 652746,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -23.181148767471313,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009435161170.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 654620,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -15.109142303466797,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009443233176.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 8075.834492000002,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "RequestTimedOut"
+          }
+        },
+        {
+          "seconds_from_restoration": -15.107354164123535,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009443234964.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 654263,
+            "code": -1,
+            "signal": "SIGTERM"
+          }
+        },
+        {
+          "seconds_from_restoration": -15.101346731185913,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009443240972.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 8083.633775999999,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -15.100404262542725,
+          "duration_seconds": 12.000140947,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009443241914.8,
+          "dur": 12000140.947,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -15.099243402481079,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009443243075.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 655478,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -3.0999858379364014,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009455242333.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 20084.988780000003,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "RequestTimedOut"
+          }
+        },
+        {
+          "seconds_from_restoration": -3.09847092628479,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009455243848,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 655478,
+            "code": -1,
+            "signal": "SIGTERM"
+          }
+        },
+        {
+          "seconds_from_restoration": -3.0973687171936035,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009455244950.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 20087.601529000003,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -3.096524953842163,
+          "duration_seconds": 4.984656230000001,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009455245794,
+          "dur": 4984656.23,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 0,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -3.095520496368408,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009455246798.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 656240,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": 1.7818787097930908,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460124197.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "bridge",
+            "pid": 656240,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": 1.8882174491882324,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460230536.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "hello",
+            "status": "connecting",
+            "age_ms": 0.25722700000187615,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 1.888249158859253,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460230568.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "won",
+            "status": "connecting",
+            "age_ms": 0.29227800000080606,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 1.8891143798828125,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460231433.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 5,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 0.018099999993864913,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 1.8891220092773438,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460231441,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 5,
+            "phase": "hello",
+            "status": "connecting",
+            "age_ms": 0.027089999995951075,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 1.8892014026641846,
+          "duration_seconds": 0.12306743999999889,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460231520.5,
+          "dur": 123067.4399999989,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "race",
+            "op": "link.resume",
+            "request": 2,
+            "failed": 0,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": 1.890815258026123,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460233134.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 654620,
+            "code": -1,
+            "signal": "SIGTERM"
+          }
+        },
+        {
+          "seconds_from_restoration": 2.0123684406280518,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460354687.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 5,
+            "phase": "linked",
+            "status": "connecting",
+            "age_ms": 0.13808399999834364,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "resumed": 1
+          }
+        },
+        {
+          "seconds_from_restoration": 2.0123796463012695,
+          "duration_seconds": 0.2480054569999993,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460354698.8,
+          "dur": 248005.4569999993,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "race",
+            "op": "session.snapshot",
+            "request": 5,
+            "failed": 0,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": 2.260424852371216,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460602743.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 5,
+            "phase": "snapshot",
+            "status": "connecting",
+            "age_ms": 0.8763560000006692,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 2.2610368728637695,
+          "duration_seconds": 0.13027510699999403,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460603356,
+          "dur": 130275.10699999402,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "race",
+            "op": "viewer.stream",
+            "request": 7,
+            "failed": 0,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": 2.261082649230957,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460603401.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 5,
+            "phase": "online",
+            "status": "connecting",
+            "age_ms": 0.15984500000195112,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 2.3947341442108154,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/652693-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 652693,
+          "tid": 0,
+          "ts": 1794009460737053.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 5,
+            "phase": "presented",
+            "status": "online",
+            "age_ms": 3.4949049999995623,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        }
+      ],
+      "tcp_near_restoration": [
+        {
+          "at": 2334408.923326779,
+          "epoch": 1794009456.4312668,
+          "sockets": {
+            "local": "State      Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      \nFIN-WAIT-1 0      953       10.203.1.1:48950   10.203.1.2:2222\n\t cubic wscale:7,7 rto:20544 backoff:6 rtt:120.732/0.406 ato:40 mss:1448 pmtu:1500 rcvmss:1108 advmss:1448 cwnd:1 ssthresh:7 bytes_sent:16015 bytes_retrans:2508 bytes_acked:12556 bytes_received:111999 segs_out:152 segs_in:164 data_segs_out:83 data_segs_in:157 send 95948bps lastsnd:4103 lastrcv:33399 lastack:33399 pacing_rate 1918944bps delivery_rate 349784bps delivered:73 app_limited busy:38244ms unacked:2 retrans:1/7 lost:1 rcv_rtt:121.234 rcv_space:14480 rcv_ssthresh:69632 minrtt:120.044 snd_wnd:77696\nSYN-SENT   0      1         10.203.1.1:44970   10.203.1.2:2222 users:((\"ssh\",pid=654620,fd=3))\n\t cubic rto:16000 backoff:4 mss:524 pmtu:1500 rcvmss:88 advmss:1460 cwnd:1 ssthresh:7 segs_out:9 lastsnd:2334106461 lastrcv:2334106461 lastack:2334106461 app_limited unacked:1 retrans:1/8 lost:1 rcv_ssthresh:64240                                                                                                                                                                                                                                                                       \nSYN-SENT   0      1         10.203.1.1:35926   10.203.1.2:2222 users:((\"ssh\",pid=656240,fd=3))\n\t cubic rto:1000 mss:524 pmtu:1500 rcvmss:88 advmss:1460 cwnd:1 ssthresh:7 segs_out:2 lastsnd:2334106463 lastrcv:2334106463 lastack:2334106463 app_limited unacked:1 retrans:1/1 lost:1 rcv_ssthresh:64240                                                                                                                                                                                                                                                                                  \nESTAB      0      0         10.203.2.1:34692   10.203.2.2:2222 users:((\"ssh\",pid=652903,fd=3),(\"ssh\",pid=652747,fd=3))\n\t cubic wscale:7,7 rto:327 rtt:126.271/8.645 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:8551 bytes_acked:8552 bytes_received:361727 segs_out:198 segs_in:327 data_segs_out:59 data_segs_in:312 send 917392bps lastsnd:246 lastrcv:124 lastack:124 pacing_rate 1834768bps delivery_rate 193000bps delivered:60 app_limited busy:7303ms rcv_rtt:121.125 rcv_space:14480 rcv_ssthresh:77635 minrtt:120.041 snd_wnd:77696                     \n",
+            "atlas": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nESTAB 0      3480      10.203.1.2:2222   10.203.1.1:48950 users:((\"sshd\",pid=652896,fd=3),(\"sshd\",pid=652776,fd=3))\n\t cubic wscale:7,7 rto:21760 backoff:6 rtt:139.367/5.873 ato:93 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:1 ssthresh:16 bytes_sent:116975 bytes_retrans:3900 bytes_acked:109595 bytes_received:12555 segs_out:171 segs_in:138 data_segs_out:165 data_segs_in:72 send 83119bps lastsnd:11306 lastrcv:33669 lastack:33671 pacing_rate 3823448bps delivery_rate 836832bps delivered:153 app_limited busy:38410ms unacked:4 retrans:1/7 lost:4 rcv_space:14480 rcv_ssthresh:77683 minrtt:120.058 snd_wnd:69632\n",
+            "borealis": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nESTAB 0      0         10.203.2.2:2222   10.203.2.1:34692 users:((\"sshd\",pid=652895,fd=3),(\"sshd\",pid=652777,fd=3))\n\t cubic wscale:7,7 rto:321 rtt:120.229/0.324 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:18 bytes_sent:361727 bytes_acked:361727 bytes_received:8551 segs_out:326 segs_in:198 data_segs_out:312 data_segs_in:59 send 1734290bps lastsnd:620 lastrcv:622 lastack:500 pacing_rate 3468552bps delivery_rate 866296bps delivered:313 app_limited busy:6547ms rcv_space:14480 rcv_ssthresh:77611 minrtt:120.018 snd_wnd:77056\n"
+          }
+        },
+        {
+          "at": 2334410.754983664,
+          "epoch": 1794009458.2629242,
+          "sockets": {
+            "local": "State      Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      \nFIN-WAIT-1 0      953       10.203.1.1:48950   10.203.1.2:2222\n\t cubic wscale:7,7 rto:20544 backoff:6 rtt:120.732/0.406 ato:40 mss:1448 pmtu:1500 rcvmss:1108 advmss:1448 cwnd:1 ssthresh:7 bytes_sent:16015 bytes_retrans:2508 bytes_acked:12556 bytes_received:111999 segs_out:152 segs_in:164 data_segs_out:83 data_segs_in:157 send 95948bps lastsnd:5947 lastrcv:35243 lastack:35243 pacing_rate 1918944bps delivery_rate 349784bps delivered:73 app_limited busy:40088ms unacked:2 retrans:1/7 lost:1 rcv_rtt:121.234 rcv_space:14480 rcv_ssthresh:69632 minrtt:120.044 snd_wnd:77696\nSYN-SENT   0      1         10.203.1.1:44970   10.203.1.2:2222 users:((\"ssh\",pid=654620,fd=3))\n\t cubic rto:16000 backoff:4 mss:524 pmtu:1500 rcvmss:88 advmss:1460 cwnd:1 ssthresh:7 segs_out:9 lastsnd:2334108306 lastrcv:2334108306 lastack:2334108306 app_limited unacked:1 retrans:1/8 lost:1 rcv_ssthresh:64240                                                                                                                                                                                                                                                                       \nSYN-SENT   0      1         10.203.1.1:35926   10.203.1.2:2222 users:((\"ssh\",pid=656240,fd=3))\n\t cubic rto:1000 mss:524 pmtu:1500 rcvmss:88 advmss:1460 cwnd:1 ssthresh:7 segs_out:3 lastsnd:2334108308 lastrcv:2334108308 lastack:2334108308 app_limited unacked:1 retrans:0/2 lost:1 rcv_ssthresh:64240                                                                                                                                                                                                                                                                                  \nESTAB      0      108       10.203.2.1:34692   10.203.2.2:2222 users:((\"ssh\",pid=652903,fd=3),(\"ssh\",pid=652747,fd=3))\n\t cubic wscale:7,7 rto:326 rtt:125.633/7.761 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:8767 bytes_acked:8660 bytes_received:373203 segs_out:209 segs_in:336 data_segs_out:61 data_segs_in:321 send 922051bps lastsnd:86 lastrcv:967 lastack:967 pacing_rate 1844096bps delivery_rate 193000bps delivered:61 app_limited busy:7511ms unacked:1 rcv_rtt:121.234 rcv_space:14480 rcv_ssthresh:77635 minrtt:120.041 snd_wnd:77696            \n",
+            "atlas": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process                                                                                                                                                                                                                                                                                                                                                                                    \nESTAB 0      1115      10.203.1.2:2222   10.203.1.1:35926\n\t cubic wscale:7,7 rto:361 rtt:120.129/60.064 ato:40 mss:1448 pmtu:1500 rcvmss:536 advmss:1448 cwnd:10 bytes_sent:43 bytes_received:43 segs_out:2 segs_in:3 data_segs_out:1 data_segs_in:1 send 964297bps lastsnd:49 lastrcv:57 lastack:57 pacing_rate 1928592bps delivered:1 app_limited busy:49ms unacked:1 rcv_space:14480 rcv_ssthresh:64088 notsent:1072 minrtt:120.129 snd_wnd:64256\nESTAB 0      3480      10.203.1.2:2222   10.203.1.1:48950 users:((\"sshd\",pid=652896,fd=3),(\"sshd\",pid=652776,fd=3))\n\t cubic wscale:7,7 rto:21760 backoff:6 rtt:139.367/5.873 ato:93 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:1 ssthresh:16 bytes_sent:116975 bytes_retrans:3900 bytes_acked:109595 bytes_received:12555 segs_out:171 segs_in:138 data_segs_out:165 data_segs_in:72 send 83119bps lastsnd:13162 lastrcv:35525 lastack:35527 pacing_rate 3823448bps delivery_rate 836832bps delivered:153 app_limited busy:40266ms unacked:4 retrans:1/7 lost:4 rcv_space:14480 rcv_ssthresh:77683 minrtt:120.058 snd_wnd:69632\n",
+            "borealis": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nESTAB 0      0         10.203.2.2:2222   10.203.2.1:34692 users:((\"sshd\",pid=652895,fd=3),(\"sshd\",pid=652777,fd=3))\n\t cubic wscale:7,7 rto:321 rtt:120.094/0.043 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:18 bytes_sent:384687 bytes_acked:384687 bytes_received:8803 segs_out:345 segs_in:219 data_segs_out:330 data_segs_in:62 send 1736240bps lastsnd:456 lastrcv:336 lastack:336 pacing_rate 3472464bps delivery_rate 867136bps delivered:331 app_limited busy:6787ms rcv_space:14480 rcv_ssthresh:77611 minrtt:120.018 snd_wnd:77696\n"
+          }
+        },
+        {
+          "at": 2334412.58586206,
+          "epoch": 1794009460.0938022,
+          "sockets": {
+            "local": "State      Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      \nFIN-WAIT-1 0      953       10.203.1.1:48950   10.203.1.2:2222\n\t cubic wscale:7,7 rto:20544 backoff:6 rtt:120.732/0.406 ato:40 mss:1448 pmtu:1500 rcvmss:1108 advmss:1448 cwnd:1 ssthresh:7 bytes_sent:16015 bytes_retrans:2508 bytes_acked:12556 bytes_received:111999 segs_out:152 segs_in:164 data_segs_out:83 data_segs_in:157 send 95948bps lastsnd:7754 lastrcv:37050 lastack:37050 pacing_rate 1918944bps delivery_rate 349784bps delivered:73 app_limited busy:41895ms unacked:2 retrans:1/7 lost:1 rcv_rtt:121.234 rcv_space:14480 rcv_ssthresh:69632 minrtt:120.044 snd_wnd:77696\nESTAB      0      124       10.203.1.1:35926   10.203.1.2:2222 users:((\"ssh\",pid=656240,fd=3))\n\t cubic wscale:7,7 rto:2553 rtt:387.008/438.898 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:4 bytes_sent:4019 bytes_acked:3896 bytes_received:4523 segs_out:25 segs_in:18 data_segs_out:13 data_segs_in:13 send 119729bps lastsnd:46 lastrcv:50 lastack:50 pacing_rate 239456bps delivery_rate 192912bps delivered:13 app_limited busy:1432ms unacked:1 retrans:0/2 rcv_rtt:121.5 rcv_space:14480 rcv_ssthresh:77229 minrtt:120.055 snd_wnd:77696                                \nESTAB      0      0         10.203.2.1:34692   10.203.2.2:2222 users:((\"ssh\",pid=652903,fd=3),(\"ssh\",pid=652747,fd=3))\n\t cubic wscale:7,7 rto:329 rtt:128.39/12.795 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:8911 bytes_acked:8912 bytes_received:396171 segs_out:222 segs_in:356 data_segs_out:63 data_segs_in:339 send 902251bps lastsnd:878 lastrcv:756 lastack:756 pacing_rate 1804496bps delivery_rate 193000bps delivered:64 app_limited busy:7828ms rcv_rtt:121.33 rcv_space:14480 rcv_ssthresh:77635 minrtt:120.041 snd_wnd:77696                      \n",
+            "atlas": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     \nESTAB 0      11820     10.203.1.2:2222   10.203.1.1:35926 users:((\"sshd\",pid=656646,fd=3),(\"sshd\",pid=656584,fd=3))\n\t cubic wscale:7,7 rto:330 rtt:127.694/14.055 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:15127 bytes_acked:4647 bytes_received:4295 segs_out:28 segs_in:24 data_segs_out:24 data_segs_in:14 send 907169bps lastsnd:66 lastrcv:74 lastack:74 pacing_rate 1814328bps delivery_rate 192832bps delivered:15 app_limited busy:1596ms unacked:10 rcv_space:14480 rcv_ssthresh:77685 notsent:1340 minrtt:120.054 snd_wnd:77312\nESTAB 0      3664      10.203.1.2:2222   10.203.1.1:48950 users:((\"sshd\",pid=652896,fd=3),(\"sshd\",pid=652776,fd=3))\n\t cubic wscale:7,7 rto:21760 backoff:6 rtt:139.367/5.873 ato:93 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:1 ssthresh:16 bytes_sent:116975 bytes_retrans:3900 bytes_acked:109595 bytes_received:12555 segs_out:171 segs_in:138 data_segs_out:165 data_segs_in:72 send 83119bps lastsnd:14968 lastrcv:37331 lastack:37333 pacing_rate 3823448bps delivery_rate 836832bps delivered:153 app_limited busy:42072ms unacked:4 retrans:1/7 lost:4 rcv_space:14480 rcv_ssthresh:77683 notsent:184 minrtt:120.058 snd_wnd:69632\n",
+            "borealis": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nESTAB 0      0         10.203.2.2:2222   10.203.2.1:34692 users:((\"sshd\",pid=652895,fd=3),(\"sshd\",pid=652777,fd=3))\n\t cubic wscale:7,7 rto:321 rtt:120.106/0.052 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:20 bytes_sent:408191 bytes_acked:408191 bytes_received:9019 segs_out:365 segs_in:227 data_segs_out:349 data_segs_in:64 send 1928963bps lastsnd:237 lastrcv:239 lastack:117 pacing_rate 3857912bps delivery_rate 961320bps delivered:350 app_limited busy:7027ms rcv_space:14480 rcv_ssthresh:77611 minrtt:120.018 snd_wnd:77696\n"
+          }
+        }
+      ]
+    },
+    {
+      "case": "blackhole60",
+      "repeat": 0,
+      "fault_start": {
+        "at": 2334421.966592058,
+        "epoch": 1794009469.4745326,
+        "event": "fault_start",
+        "case": "blackhole60",
+        "repeat": 0
+      },
+      "fault_end": {
+        "at": 2334482.203993265,
+        "epoch": 1794009529.7119322,
+        "event": "fault_end",
+        "case": "blackhole60",
+        "repeat": 0
+      },
+      "result": {
+        "at": 2334486.210408934,
+        "epoch": 1794009533.7183495,
+        "event": "result",
+        "case": "blackhole60",
+        "repeat": 0,
+        "fault_seconds": 60,
+        "actual_fault_seconds": 60.237401206977665,
+        "recovery_seconds": 3.5526070557534695,
+        "usable_seconds": 3.740168444812298,
+        "ready": {
+          "ack_at": 2334485.94416171,
+          "ack": "READYV3MatlasI7P0",
+          "probes": [
+            {
+              "token": "READYV3MatlasI7P0",
+              "sent": 2334485.763703225
+            },
+            {
+              "token": "READYV3MatlasI7P1",
+              "sent": 2334485.883414624
+            }
+          ]
+        },
+        "before": {
+          "token": "BEFOREblackhole600V3I2",
+          "sent": 2334421.783116825,
+          "seconds": 0.16143149230629206,
+          "ok": true
+        },
+        "echo": {
+          "token": "AFTERblackhole600V3I9",
+          "sent": 2334486.004258917,
+          "seconds": 0.1899249986745417,
+          "ok": true
+        },
+        "during_input_at": 2334424.038703204,
+        "late_input_at": 2334429.967104322,
+        "isolation": [],
+        "producers_before": [
+          {
+            "machine": "local",
+            "source": "local-source.json",
+            "alive": true,
+            "seq": 1240,
+            "at": 2334421.372158268,
+            "pid": 650914,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local1-source.json",
+            "alive": true,
+            "seq": 1240,
+            "at": 2334421.37856034,
+            "pid": 650926,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local2-source.json",
+            "alive": true,
+            "seq": 1240,
+            "at": 2334421.379437776,
+            "pid": 650929,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local3-source.json",
+            "alive": true,
+            "seq": 1240,
+            "at": 2334421.383961582,
+            "pid": 650931,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas-source.json",
+            "alive": true,
+            "seq": 1220,
+            "at": 2334421.031554222,
+            "pid": 651095,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas1-source.json",
+            "alive": true,
+            "seq": 1220,
+            "at": 2334421.03516703,
+            "pid": 651097,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas2-source.json",
+            "alive": true,
+            "seq": 1220,
+            "at": 2334421.037883042,
+            "pid": 651098,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas3-source.json",
+            "alive": true,
+            "seq": 1220,
+            "at": 2334421.04049299,
+            "pid": 651099,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis-source.json",
+            "alive": true,
+            "seq": 1220,
+            "at": 2334421.692158366,
+            "pid": 651254,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis1-source.json",
+            "alive": true,
+            "seq": 1220,
+            "at": 2334421.696184227,
+            "pid": 651257,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis2-source.json",
+            "alive": true,
+            "seq": 1220,
+            "at": 2334421.697783005,
+            "pid": 651258,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis3-source.json",
+            "alive": true,
+            "seq": 1220,
+            "at": 2334421.699552848,
+            "pid": 651259,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          }
+        ],
+        "producers_after": [
+          {
+            "machine": "local",
+            "source": "local-source.json",
+            "alive": true,
+            "seq": 2520,
+            "at": 2334485.372174624,
+            "pid": 650914,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local1-source.json",
+            "alive": true,
+            "seq": 2520,
+            "at": 2334485.378586827,
+            "pid": 650926,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local2-source.json",
+            "alive": true,
+            "seq": 2520,
+            "at": 2334485.379436542,
+            "pid": 650929,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local3-source.json",
+            "alive": true,
+            "seq": 2520,
+            "at": 2334485.384050681,
+            "pid": 650931,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas-source.json",
+            "alive": true,
+            "seq": 2520,
+            "at": 2334486.031516936,
+            "pid": 651095,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas1-source.json",
+            "alive": true,
+            "seq": 2520,
+            "at": 2334486.035189566,
+            "pid": 651097,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas2-source.json",
+            "alive": true,
+            "seq": 2520,
+            "at": 2334486.037857997,
+            "pid": 651098,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas3-source.json",
+            "alive": true,
+            "seq": 2520,
+            "at": 2334486.040494876,
+            "pid": 651099,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis-source.json",
+            "alive": true,
+            "seq": 2500,
+            "at": 2334485.692151824,
+            "pid": 651254,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis1-source.json",
+            "alive": true,
+            "seq": 2500,
+            "at": 2334485.696182935,
+            "pid": 651257,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis2-source.json",
+            "alive": true,
+            "seq": 2500,
+            "at": 2334485.697752062,
+            "pid": 651258,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis3-source.json",
+            "alive": true,
+            "seq": 2500,
+            "at": 2334485.699531525,
+            "pid": 651259,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          }
+        ]
+      },
+      "trace": [
+        {
+          "seconds_from_restoration": -60.21158218383789,
+          "duration_seconds": 12.000466619000001,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009469500350,
+          "dur": 12000466.619,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "viewer.receipt",
+            "request": 65,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -60.16104507446289,
+          "duration_seconds": 11.950024335999998,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009469550887,
+          "dur": 11950024.336,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "viewer.receipt",
+            "request": 66,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -60.11102366447449,
+          "duration_seconds": 11.900011826000002,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009469600908.5,
+          "dur": 11900011.826000001,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "viewer.receipt",
+            "request": 67,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -60.10969090461731,
+          "duration_seconds": 11.898683226000001,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009469602241.2,
+          "dur": 11898683.226000002,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "viewer.receipt",
+            "request": 68,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -58.16360878944397,
+          "duration_seconds": 9.95260666,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009471548323.5,
+          "dur": 9952606.66,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "session.command",
+            "request": 69,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -58.144171714782715,
+          "duration_seconds": 9.933172186999998,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009471567760.5,
+          "dur": 9933172.186999999,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "primary",
+            "op": "session.command",
+            "request": 70,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -56.09492492675781,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009473617007.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "phase": "stalled",
+            "status": "stalled",
+            "age_ms": 4016.1412459999992,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -52.097787380218506,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009477614144.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "phase": "start",
+            "status": "stalled",
+            "age_ms": 8013.277168999999,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -52.09536409378052,
+          "duration_seconds": 12.000148037,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009477616568,
+          "dur": 12000148.037,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -52.0937077999115,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009477618224.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 657305,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -48.20855140686035,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009481503380.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 1,
+            "phase": "failed",
+            "status": "stalled",
+            "age_ms": 11902.504690999998,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "RequestTimedOut"
+          }
+        },
+        {
+          "seconds_from_restoration": -48.20556688308716,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009481506365.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 0.05193100000178674,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -48.2033486366272,
+          "duration_seconds": 30.000150076,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009481508583.5,
+          "dur": 30000150.076,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "primary",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 30000
+          }
+        },
+        {
+          "seconds_from_restoration": -48.20277166366577,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009481509160.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 656824,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -48.20183253288269,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009481510099.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 657482,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -40.094935178756714,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009489616997,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 8110.681896999999,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "RequestTimedOut"
+          }
+        },
+        {
+          "seconds_from_restoration": -40.09323811531067,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009489618694,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 657305,
+            "code": -1,
+            "signal": "SIGTERM"
+          }
+        },
+        {
+          "seconds_from_restoration": -40.091169118881226,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009489620763,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 8114.450930999999,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -40.09022569656372,
+          "duration_seconds": 12.000138293999996,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009489621706.5,
+          "dur": 12000138.293999996,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -40.089088439941406,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009489622843.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 657830,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -28.089781999588013,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009501622150.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 20115.830092000004,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "RequestTimedOut"
+          }
+        },
+        {
+          "seconds_from_restoration": -28.088319540023804,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009501623612.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 657830,
+            "code": -1,
+            "signal": "SIGTERM"
+          }
+        },
+        {
+          "seconds_from_restoration": -28.08381152153015,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009501628120.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 20121.808781,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -28.082948923110962,
+          "duration_seconds": 5.148491166,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009501628983.2,
+          "dur": 5148491.166,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -28.082006454467773,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009501629925.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 658406,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -22.935009241104126,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009506776923,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 658406,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -22.93439245223999,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009506777539.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 25271.223944999998,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "ConnectionClosed"
+          }
+        },
+        {
+          "seconds_from_restoration": -22.932893991470337,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009506779038.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 25272.72533,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -22.93156147003174,
+          "duration_seconds": 3.0669064330000038,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009506780370.8,
+          "dur": 3066906.433000004,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -22.93018889427185,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009506781743.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 658603,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -19.864785194396973,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009509847147,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 658603,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -19.864615201950073,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009509847317,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 28341.002944,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "ConnectionClosed"
+          }
+        },
+        {
+          "seconds_from_restoration": -18.917542219161987,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009510794390,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 29288.073934,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -18.915956735610962,
+          "duration_seconds": 3.0842061150000006,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009510795975.5,
+          "dur": 3084206.1150000007,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -18.914263486862183,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009510797668.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 658728,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -18.20289158821106,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009511509040.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 3,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 30002.724023000002,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "RequestTimedOut"
+          }
+        },
+        {
+          "seconds_from_restoration": -18.200372457504272,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009511511559.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 657482,
+            "code": -1,
+            "signal": "SIGTERM"
+          }
+        },
+        {
+          "seconds_from_restoration": -17.187714099884033,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009512524218,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 5,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 0.05449100000259932,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -17.185412168502808,
+          "duration_seconds": 1.3539758869999932,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009512526520,
+          "dur": 1353975.8869999931,
+          "args": {
+            "machine": "atlas",
+            "generation": 5,
+            "path": "primary",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 30000
+          }
+        },
+        {
+          "seconds_from_restoration": -17.183898448944092,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009512528033.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 658874,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -15.83208703994751,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009513879845.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 658728,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -15.832000017166138,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009513879932.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 658874,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -15.831689834594727,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009513880242.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 5,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 1356.0783100000044,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "ConnectionClosed"
+          }
+        },
+        {
+          "seconds_from_restoration": -15.831418514251709,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009513880513.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 5,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 1356.3535279999996,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "ConnectionClosed"
+          }
+        },
+        {
+          "seconds_from_restoration": -14.911574602127075,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009514800357.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 6,
+            "phase": "start",
+            "status": "offline",
+            "age_ms": 2276.1938540000046,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -14.909454822540283,
+          "duration_seconds": 3.109062005000007,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009514802477.2,
+          "dur": 3109062.005000007,
+          "args": {
+            "machine": "atlas",
+            "generation": 6,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -14.9078688621521,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009514804063.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 658910,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -13.821436166763306,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009515890496,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 7,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 0.03718099999969127,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -13.820109844207764,
+          "duration_seconds": 2.020015755,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009515891822.2,
+          "dur": 2020015.7550000004,
+          "args": {
+            "machine": "atlas",
+            "generation": 7,
+            "path": "primary",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 30000
+          }
+        },
+        {
+          "seconds_from_restoration": -13.819092988967896,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009515892839.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 659003,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -11.80066704750061,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009517911265.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 658910,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -11.800583124160767,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009517911349,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 659003,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -11.800337314605713,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009517911594.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 7,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 2021.1333379999996,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "ConnectionClosed"
+          }
+        },
+        {
+          "seconds_from_restoration": -11.80007815361023,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009517911854,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 7,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 2021.3986159999986,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "ConnectionClosed"
+          }
+        },
+        {
+          "seconds_from_restoration": -10.899891376495361,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009518812040.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 8,
+            "phase": "start",
+            "status": "offline",
+            "age_ms": 2921.581834999997,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -10.897928476333618,
+          "duration_seconds": 3.0652788220000002,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009518814003.8,
+          "dur": 3065278.822,
+          "args": {
+            "machine": "atlas",
+            "generation": 8,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -10.89618992805481,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009518815742.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 659172,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -7.832807540893555,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009521879124.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 659172,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -7.83261251449585,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009521879319.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 8,
+            "phase": "failed",
+            "status": "offline",
+            "age_ms": 5988.862728,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "ConnectionClosed"
+          }
+        },
+        {
+          "seconds_from_restoration": -7.792069435119629,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009521919862.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 9,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 0.015391000000818167,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -7.790056943893433,
+          "duration_seconds": 3.0942195819999982,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009521921875.2,
+          "dur": 3094219.581999998,
+          "args": {
+            "machine": "atlas",
+            "generation": 9,
+            "path": "primary",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 30000
+          }
+        },
+        {
+          "seconds_from_restoration": -7.7885448932647705,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009521923387.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 659328,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -6.898069143295288,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009522813863,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 9,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 894.013927,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -6.896143198013306,
+          "duration_seconds": 2.199919345000002,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009522815789,
+          "dur": 2199919.345000002,
+          "args": {
+            "machine": "atlas",
+            "generation": 9,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -6.894750595092773,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009522817181.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 659350,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": -4.696436166763306,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009525015496,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 659350,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -4.69634747505188,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009525015584.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 659328,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": -4.696199893951416,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009525015732.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 9,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 3095.884312000002,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "ConnectionClosed"
+          }
+        },
+        {
+          "seconds_from_restoration": -4.695813417434692,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009525016118.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 9,
+            "phase": "failed",
+            "status": "connecting",
+            "age_ms": 3096.2669730000052,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "ConnectionClosed"
+          }
+        },
+        {
+          "seconds_from_restoration": -2.8886964321136475,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009526823235.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 10,
+            "phase": "start",
+            "status": "offline",
+            "age_ms": 4903.385258000002,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": -2.887320041656494,
+          "duration_seconds": 3.1190912639999953,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009526824612.2,
+          "dur": 3119091.2639999953,
+          "args": {
+            "machine": "atlas",
+            "generation": 10,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 1,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": -2.885791540145874,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009526826140.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 659435,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": 0.23162412643432617,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009529943556.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "exit",
+            "pid": 659435,
+            "code": 255,
+            "signal": ""
+          }
+        },
+        {
+          "seconds_from_restoration": 0.23180508613586426,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009529943737.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 10,
+            "phase": "failed",
+            "status": "offline",
+            "age_ms": 8023.889535000002,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "error": "ConnectionClosed"
+          }
+        },
+        {
+          "seconds_from_restoration": 1.1184144020080566,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009530830346.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 10,
+            "phase": "start",
+            "status": "offline",
+            "age_ms": 8910.497586999998,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 1.1199915409088135,
+          "duration_seconds": 1.9146756679999963,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009530831923.8,
+          "dur": 1914675.6679999963,
+          "args": {
+            "machine": "atlas",
+            "generation": 10,
+            "path": "race",
+            "op": "hello",
+            "request": 1,
+            "failed": 0,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": 1.121450424194336,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009530833382.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "spawn",
+            "pid": 659661,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": 2.928675651550293,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.transport",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009532640607.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "phase": "bridge",
+            "pid": 659661,
+            "fresh": 1
+          }
+        },
+        {
+          "seconds_from_restoration": 3.0347537994384766,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009532746686,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 10,
+            "phase": "hello",
+            "status": "offline",
+            "age_ms": 0.20706600000266917,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 3.034776210784912,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.race",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009532746708.5,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 10,
+            "phase": "won",
+            "status": "offline",
+            "age_ms": 0.2334770000015851,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 3.034931182861328,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009532746863.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 12,
+            "phase": "start",
+            "status": "connecting",
+            "age_ms": 0.012989999988349155,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 3.0349366664886475,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009532746868.8,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 12,
+            "phase": "hello",
+            "status": "connecting",
+            "age_ms": 0.019439999989117496,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 3.0350327491760254,
+          "duration_seconds": 0.12280451200000243,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009532746965,
+          "dur": 122804.51200000243,
+          "args": {
+            "machine": "atlas",
+            "generation": 10,
+            "path": "race",
+            "op": "link.resume",
+            "request": 2,
+            "failed": 0,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": 3.1579930782318115,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009532869925.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 12,
+            "phase": "linked",
+            "status": "connecting",
+            "age_ms": 0.2065569999977015,
+            "stall_ms": 4000,
+            "race_ms": 8000,
+            "resumed": 1
+          }
+        },
+        {
+          "seconds_from_restoration": 3.158025026321411,
+          "duration_seconds": 0.25194522400001007,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009532869957.2,
+          "dur": 251945.22400001006,
+          "args": {
+            "machine": "atlas",
+            "generation": 10,
+            "path": "race",
+            "op": "session.snapshot",
+            "request": 5,
+            "failed": 0,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": 3.4099957942962646,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009533121928,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 12,
+            "phase": "snapshot",
+            "status": "connecting",
+            "age_ms": 1.7590630000049714,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 3.410952091217041,
+          "duration_seconds": 0.13904823000000033,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.rpc",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009533122884.2,
+          "dur": 139048.23000000033,
+          "args": {
+            "machine": "atlas",
+            "generation": 10,
+            "path": "race",
+            "op": "viewer.stream",
+            "request": 7,
+            "failed": 0,
+            "timeout_ms": 12000
+          }
+        },
+        {
+          "seconds_from_restoration": 3.41099214553833,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009533122924.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 12,
+            "phase": "online",
+            "status": "connecting",
+            "age_ms": 0.21421700000064448,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        },
+        {
+          "seconds_from_restoration": 3.55340313911438,
+          "duration_seconds": 0.0,
+          "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-final-trace/telemetry/local/656801-0.json",
+          "name": "remote.connection",
+          "ph": "X",
+          "pid": 656801,
+          "tid": 0,
+          "ts": 1794009533265335.2,
+          "dur": 0,
+          "args": {
+            "machine": "atlas",
+            "generation": 12,
+            "phase": "presented",
+            "status": "online",
+            "age_ms": 3.4804449999937788,
+            "stall_ms": 4000,
+            "race_ms": 8000
+          }
+        }
+      ],
+      "tcp_near_restoration": [
+        {
+          "at": 2334480.900572875,
+          "epoch": 1794009528.4085138,
+          "sockets": {
+            "local": "State      Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   \nFIN-WAIT-1 0      1009      10.203.1.1:35938   10.203.1.2:2222\n\t cubic wscale:7,7 rto:20544 backoff:6 rtt:120.875/0.478 ato:50 mss:1448 pmtu:1500 rcvmss:1108 advmss:1448 cwnd:1 ssthresh:7 bytes_sent:17563 bytes_retrans:3964 bytes_acked:12592 bytes_received:147131 segs_out:158 segs_in:191 data_segs_out:85 data_segs_in:182 send 95835bps lastsnd:16523 lastrcv:59008 lastack:59008 pacing_rate 1916680bps delivery_rate 309872bps delivered:74 app_limited busy:64052ms unacked:1 retrans:1/8 lost:1 rcv_rtt:121 rcv_space:14480 rcv_ssthresh:70144 minrtt:120.071 snd_wnd:77696\nESTAB      0      0         10.203.2.1:40672   10.203.2.2:2222 users:((\"ssh\",pid=656858,fd=3),(\"ssh\",pid=656825,fd=3))\n\t cubic wscale:7,7 rto:330 rtt:129.978/14.131 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:11703 bytes_acked:11704 bytes_received:1052959 segs_out:471 segs_in:872 data_segs_out:95 data_segs_in:835 send 891228bps lastsnd:691 lastrcv:448 lastack:448 pacing_rate 1782440bps delivery_rate 192952bps delivered:96 app_limited busy:12104ms rcv_rtt:120.343 rcv_space:19304 rcv_ssthresh:79444 minrtt:120.055 snd_wnd:77696             \nSYN-SENT   0      1         10.203.1.1:54124   10.203.1.2:2222 users:((\"ssh\",pid=659435,fd=3))\n\t cubic rto:1000 mss:524 pmtu:1500 rcvmss:88 advmss:1460 cwnd:1 ssthresh:7 segs_out:1 lastsnd:2334178448 lastrcv:2334178448 lastack:2334178448 app_limited unacked:1 lost:1 rcv_ssthresh:64240                                                                                                                                                                                                                                                                                           \n",
+            "atlas": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nESTAB 0      8600      10.203.1.2:2222   10.203.1.1:35938 users:((\"sshd\",pid=656854,fd=3),(\"sshd\",pid=656828,fd=3))\n\t cubic wscale:7,7 rto:43776 backoff:7 rtt:141.187/4.692 ato:95 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:1 ssthresh:15 bytes_sent:158131 bytes_retrans:9840 bytes_acked:144803 bytes_received:12723 segs_out:200 segs_in:145 data_segs_out:192 data_segs_in:74 send 82047bps lastsnd:14724 lastrcv:59296 lastack:59297 pacing_rate 3610064bps delivery_rate 962472bps delivered:179 app_limited busy:64098ms unacked:4 retrans:1/8 lost:4 rcv_space:14480 rcv_ssthresh:77683 notsent:5112 minrtt:120.059 snd_wnd:70144\n",
+            "borealis": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nESTAB 0      19912     10.203.2.2:2222   10.203.2.1:40672 users:((\"sshd\",pid=656853,fd=3),(\"sshd\",pid=656829,fd=3))\n\t cubic wscale:7,7 rto:321 rtt:120.137/0.036 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:1065983 bytes_acked:1052959 bytes_received:11811 segs_out:881 segs_in:472 data_segs_out:845 data_segs_in:96 send 964233bps lastsnd:79 lastrcv:81 lastack:81 pacing_rate 4821136bps delivery_rate 1156472bps delivered:836 app_limited busy:16562ms unacked:10 rcv_space:14480 rcv_ssthresh:77611 notsent:6888 minrtt:120.03 snd_wnd:79488\n"
+          }
+        },
+        {
+          "at": 2334482.755583015,
+          "epoch": 1794009530.263523,
+          "sockets": {
+            "local": "State      Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   \nFIN-WAIT-1 0      1009      10.203.1.1:35938   10.203.1.2:2222\n\t cubic wscale:7,7 rto:20544 backoff:6 rtt:120.875/0.478 ato:50 mss:1448 pmtu:1500 rcvmss:1108 advmss:1448 cwnd:1 ssthresh:7 bytes_sent:17563 bytes_retrans:3964 bytes_acked:12592 bytes_received:147131 segs_out:158 segs_in:191 data_segs_out:85 data_segs_in:182 send 95835bps lastsnd:18366 lastrcv:60851 lastack:60851 pacing_rate 1916680bps delivery_rate 309872bps delivered:74 app_limited busy:65895ms unacked:1 retrans:1/8 lost:1 rcv_rtt:121 rcv_space:14480 rcv_ssthresh:70144 minrtt:120.071 snd_wnd:77696\nESTAB      0      0         10.203.2.1:40672   10.203.2.2:2222 users:((\"ssh\",pid=656858,fd=3),(\"ssh\",pid=656825,fd=3))\n\t cubic wscale:7,7 rto:332 rtt:131.329/16.232 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:11963 bytes_acked:11964 bytes_received:1092783 segs_out:482 segs_in:904 data_segs_out:98 data_segs_in:865 send 882060bps lastsnd:511 lastrcv:268 lastack:268 pacing_rate 1764112bps delivery_rate 192952bps delivered:99 app_limited busy:12507ms rcv_rtt:120.656 rcv_space:19912 rcv_ssthresh:79444 minrtt:120.055 snd_wnd:77696             \n",
+            "atlas": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nESTAB 0      8600      10.203.1.2:2222   10.203.1.1:35938 users:((\"sshd\",pid=656854,fd=3),(\"sshd\",pid=656828,fd=3))\n\t cubic wscale:7,7 rto:43776 backoff:7 rtt:141.187/4.692 ato:95 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:1 ssthresh:15 bytes_sent:158131 bytes_retrans:9840 bytes_acked:144803 bytes_received:12723 segs_out:200 segs_in:145 data_segs_out:192 data_segs_in:74 send 82047bps lastsnd:16537 lastrcv:61109 lastack:61110 pacing_rate 3610064bps delivery_rate 962472bps delivered:179 app_limited busy:65911ms unacked:4 retrans:1/8 lost:4 rcv_space:14480 rcv_ssthresh:77683 notsent:5112 minrtt:120.059 snd_wnd:70144\n",
+            "borealis": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nESTAB 0      0         10.203.2.2:2222   10.203.2.1:40672 users:((\"sshd\",pid=656853,fd=3),(\"sshd\",pid=656829,fd=3))\n\t cubic wscale:7,7 rto:321 rtt:120.154/0.025 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:25 bytes_sent:1092783 bytes_acked:1092783 bytes_received:11963 segs_out:903 segs_in:482 data_segs_out:865 data_segs_in:98 send 2410240bps lastsnd:765 lastrcv:887 lastack:644 pacing_rate 4820440bps delivery_rate 1156472bps delivered:866 app_limited busy:16964ms rcv_space:14480 rcv_ssthresh:77611 minrtt:120.03 snd_wnd:79488\n"
+          }
+        },
+        {
+          "at": 2334484.582406732,
+          "epoch": 1794009532.0903468,
+          "sockets": {
+            "local": "State      Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   \nFIN-WAIT-1 0      1009      10.203.1.1:35938   10.203.1.2:2222\n\t cubic wscale:7,7 rto:20544 backoff:6 rtt:120.875/0.478 ato:50 mss:1448 pmtu:1500 rcvmss:1108 advmss:1448 cwnd:1 ssthresh:7 bytes_sent:17563 bytes_retrans:3964 bytes_acked:12592 bytes_received:147131 segs_out:158 segs_in:191 data_segs_out:85 data_segs_in:182 send 95835bps lastsnd:20187 lastrcv:62672 lastack:62672 pacing_rate 1916680bps delivery_rate 309872bps delivered:74 app_limited busy:67716ms unacked:1 retrans:1/8 lost:1 rcv_rtt:121 rcv_space:14480 rcv_ssthresh:70144 minrtt:120.071 snd_wnd:77696\nESTAB      0      44        10.203.2.1:40672   10.203.2.2:2222 users:((\"ssh\",pid=656858,fd=3),(\"ssh\",pid=656825,fd=3))\n\t cubic wscale:7,7 rto:330 rtt:129.221/12.795 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:12223 bytes_acked:12180 bytes_received:1133895 segs_out:493 segs_in:936 data_segs_out:101 data_segs_in:897 send 896449bps lastsnd:70 lastrcv:70 lastack:70 pacing_rate 1792888bps delivery_rate 192952bps delivered:101 app_limited busy:12822ms unacked:1 rcv_rtt:120 rcv_space:19912 rcv_ssthresh:79444 minrtt:120.055 snd_wnd:77696        \nESTAB      0      128       10.203.1.1:54130   10.203.1.2:2222 users:((\"ssh\",pid=659661,fd=3))\n\t cubic wscale:7,7 rto:514 rtt:166.419/68.028 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:3551 bytes_acked:3424 bytes_received:3075 segs_out:16 segs_in:13 data_segs_out:10 data_segs_in:8 send 696074bps lastsnd:55 lastrcv:55 lastack:55 pacing_rate 1392144bps delivery_rate 192952bps delivered:10 app_limited busy:1079ms unacked:1 rcv_rtt:121.625 rcv_space:14480 rcv_ssthresh:72992 minrtt:120.05 snd_wnd:76800                                         \n",
+            "atlas": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    \nESTAB 0      44        10.203.1.2:2222   10.203.1.1:54130 users:((\"sshd\",pid=659680,fd=3),(\"sshd\",pid=659663,fd=3))\n\t cubic wscale:7,7 rto:333 rtt:127.4/17.37 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:10 bytes_sent:3499 bytes_acked:3455 bytes_received:3551 segs_out:14 segs_in:17 data_segs_out:10 data_segs_in:10 send 909262bps lastsnd:26 lastrcv:188 lastack:26 pacing_rate 1818512bps delivery_rate 192864bps delivered:10 app_limited busy:1071ms unacked:1 rcv_space:14480 rcv_ssthresh:77685 minrtt:120.063 snd_wnd:75904\nESTAB 0      8600      10.203.1.2:2222   10.203.1.1:35938 users:((\"sshd\",pid=656854,fd=3),(\"sshd\",pid=656828,fd=3))\n\t cubic wscale:7,7 rto:43776 backoff:7 rtt:141.187/4.692 ato:95 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:1 ssthresh:15 bytes_sent:158131 bytes_retrans:9840 bytes_acked:144803 bytes_received:12723 segs_out:200 segs_in:145 data_segs_out:192 data_segs_in:74 send 82047bps lastsnd:18344 lastrcv:62916 lastack:62917 pacing_rate 3610064bps delivery_rate 962472bps delivered:179 app_limited busy:67718ms unacked:4 retrans:1/8 lost:4 rcv_space:14480 rcv_ssthresh:77683 notsent:5112 minrtt:120.059 snd_wnd:70144\n",
+            "borealis": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nESTAB 0      0         10.203.2.2:2222   10.203.2.1:40672 users:((\"sshd\",pid=656853,fd=3),(\"sshd\",pid=656829,fd=3))\n\t cubic wscale:7,7 rto:321 rtt:120.209/0.115 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:26 bytes_sent:1133895 bytes_acked:1133895 bytes_received:12223 segs_out:936 segs_in:493 data_segs_out:897 data_segs_in:101 send 2505503bps lastsnd:541 lastrcv:421 lastack:421 pacing_rate 5011000bps delivery_rate 1156472bps delivered:898 app_limited busy:17445ms rcv_space:14480 rcv_ssthresh:77611 minrtt:120.03 snd_wnd:79488\n"
+          }
+        }
+      ]
+    }
+  ]
+}

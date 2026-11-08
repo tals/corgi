@@ -1,0 +1,13 @@
+bun test v1.4.4 (38afee6c8)
+
+src/wire_compression.test.ts:
+(pass) live history survives byte fragmentation and flushes each message with exact costs [45.68ms]
+(pass) corrupt streams and oversized encoder queues fail closed [1.60ms]
+(pass) EOF waits for the last compressed message to be decoded [2.42ms]
+(pass) RPC negotiates compression=false in hello without another round trip [7.48ms]
+(pass) RPC negotiates compression=true in hello without another round trip [3.03ms]
+
+ 5 pass
+ 0 fail
+ 21 expect() calls
+Ran 5 tests across 1 file. [328.00ms]

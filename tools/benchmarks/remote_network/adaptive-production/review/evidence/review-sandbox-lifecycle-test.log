@@ -1,0 +1,10 @@
+bun test v1.4.4 (38afee6c8)
+
+tools/remote_lifecycle.test.ts:
+(pass) remote shutdown waits for supervisor cleanup even when its status request fails [103.31ms]
+(pass) repeated shutdown signals wait for remote children before removing the control socket [699.90ms]
+
+ 2 pass
+ 0 fail
+ 6 expect() calls
+Ran 2 tests across 1 file. [842.00ms]

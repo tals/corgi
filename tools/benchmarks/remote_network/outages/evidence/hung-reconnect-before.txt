@@ -1,0 +1,26 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/43 finished · 0 running
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/remote.test.ts:
+Testing · 0% · 0/43 finished · 1 running
+AssertionError: condition timed out
+ generatedMessage: false,
+     actual: undefined,
+   expected: undefined,
+   operator: undefined,
+       diff: "simple",
+       code: "ERR_ASSERTION"
+
+      at new AssertionError (internal:assert/assertion_error:239:27)
+      at fail (/home/t/dev/personal/corgi-remote-network-eval/tests/support.ts:263:22)
+      at until (/home/t/dev/personal/corgi-remote-network-eval/tests/runtime.ts:387:10)
+      at test_a_hung_reconnect_is_raced_without_waiting_for_the_ssh_timeout (/home/t/dev/personal/corgi-remote-network-eval/tests/remote.test.ts:1538:16)
+      at /home/t/dev/personal/corgi-remote-network-eval/tests/support.ts:370:26
+(fail) SSH machines > test_a_hung_reconnect_is_raced_without_waiting_for_the_ssh_timeout [16335.94ms]
+
+ 0 pass
+ 42 filtered out
+ 1 fail
+Ran 1 test across 1 file. [16.43s]
+Cleanup · 2% · 1/43 finished · 0 running

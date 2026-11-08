@@ -1,0 +1,5722 @@
+[
+  {
+    "scenario": "300ms-1mbit",
+    "corpus": "dense",
+    "mode": "tcp-zstd",
+    "trials": 3,
+    "messages": 96,
+    "raw_bytes": 527921,
+    "metrics": {
+      "socket_bytes": {
+        "median": 163127,
+        "min": 163098,
+        "max": 163172
+      },
+      "data_bytes": {
+        "median": 163127,
+        "min": 163098,
+        "max": 163172
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 160790,
+        "min": 160790,
+        "max": 160790
+      },
+      "down_payload_bytes": {
+        "median": 160790,
+        "min": 160790,
+        "max": 160790
+      },
+      "up_data_bytes": {
+        "median": 2337,
+        "min": 2308,
+        "max": 2382
+      },
+      "total_cpu_us_per_message": {
+        "median": 1841.3333333333333,
+        "min": 1745.15625,
+        "max": 1867.46875
+      },
+      "server_cpu_us_per_message": {
+        "median": 649.7395833333334,
+        "min": 641.78125,
+        "max": 684.8645833333334
+      },
+      "client_cpu_us_per_message": {
+        "median": 1182.6041666666667,
+        "min": 1095.4166666666667,
+        "max": 1199.5520833333333
+      },
+      "duration_ms": {
+        "median": 2112.74905,
+        "min": 2110.510955,
+        "max": 2113.972205
+      },
+      "messages_per_second": {
+        "median": 45.438430087094346,
+        "min": 45.41213918183943,
+        "max": 45.48661534903049
+      },
+      "rtt_p50_ms": {
+        "median": 316.995388,
+        "min": 316.64077,
+        "max": 317.519587
+      },
+      "rtt_p95_ms": {
+        "median": 469.6061,
+        "min": 469.076322,
+        "max": 469.767684
+      },
+      "delivery_p95_ms": {
+        "median": 318.271143,
+        "min": 317.717997,
+        "max": 318.37877
+      },
+      "connect_ms": {
+        "median": 4.693999,
+        "min": 4.629658,
+        "max": 6.968371
+      },
+      "first_message_ms": {
+        "median": 330.197912,
+        "min": 329.960574,
+        "max": 335.646124
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 89552,
+        "min": 89552,
+        "max": 89552
+      },
+      "proxy_max_queue": {
+        "median": 27560,
+        "min": 27560,
+        "max": 27560
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "300ms-1mbit",
+    "corpus": "dense",
+    "mode": "websocket-deflate",
+    "trials": 3,
+    "messages": 96,
+    "raw_bytes": 527921,
+    "metrics": {
+      "socket_bytes": {
+        "median": 170470,
+        "min": 170470,
+        "max": 170470
+      },
+      "data_bytes": {
+        "median": 170025,
+        "min": 170025,
+        "max": 170025
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 165203,
+        "min": 165203,
+        "max": 165203
+      },
+      "down_payload_bytes": {
+        "median": 164819,
+        "min": 164819,
+        "max": 164819
+      },
+      "up_data_bytes": {
+        "median": 4822,
+        "min": 4822,
+        "max": 4822
+      },
+      "total_cpu_us_per_message": {
+        "median": 690.71875,
+        "min": 676.9895833333334,
+        "max": 732.9375
+      },
+      "server_cpu_us_per_message": {
+        "median": 336.6666666666667,
+        "min": 334.6458333333333,
+        "max": 379.3958333333333
+      },
+      "client_cpu_us_per_message": {
+        "median": 353.5416666666667,
+        "min": 340.3229166666667,
+        "max": 356.0729166666667
+      },
+      "duration_ms": {
+        "median": 2117.102149,
+        "min": 2116.603557,
+        "max": 2117.10782
+      },
+      "messages_per_second": {
+        "median": 45.345001442346565,
+        "min": 45.34487997876272,
+        "max": 45.35568301513537
+      },
+      "rtt_p50_ms": {
+        "median": 316.503242,
+        "min": 316.496892,
+        "max": 316.600331
+      },
+      "rtt_p95_ms": {
+        "median": 474.637523,
+        "min": 474.448348,
+        "max": 474.984948
+      },
+      "delivery_p95_ms": {
+        "median": 323.211592,
+        "min": 323.145073,
+        "max": 323.319748
+      },
+      "connect_ms": {
+        "median": 307.877684,
+        "min": 307.421219,
+        "max": 308.313404
+      },
+      "first_message_ms": {
+        "median": 630.863643,
+        "min": 630.839777,
+        "max": 632.533127
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 28531,
+        "min": 28531,
+        "max": 28531
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "300ms-1mbit",
+    "corpus": "dense",
+    "mode": "websocket-zstd",
+    "trials": 3,
+    "messages": 96,
+    "raw_bytes": 527921,
+    "metrics": {
+      "socket_bytes": {
+        "median": 164492,
+        "min": 164471,
+        "max": 164509
+      },
+      "data_bytes": {
+        "median": 164163,
+        "min": 164142,
+        "max": 164180
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 161206,
+        "min": 161206,
+        "max": 161206
+      },
+      "down_payload_bytes": {
+        "median": 160790,
+        "min": 160790,
+        "max": 160790
+      },
+      "up_data_bytes": {
+        "median": 2957,
+        "min": 2936,
+        "max": 2974
+      },
+      "total_cpu_us_per_message": {
+        "median": 1251.6875,
+        "min": 1138.3541666666667,
+        "max": 1381.5
+      },
+      "server_cpu_us_per_message": {
+        "median": 566.875,
+        "min": 533.8125,
+        "max": 601.5416666666666
+      },
+      "client_cpu_us_per_message": {
+        "median": 684.8125,
+        "min": 604.5416666666666,
+        "max": 779.9583333333334
+      },
+      "duration_ms": {
+        "median": 2113.310075,
+        "min": 2110.411115,
+        "max": 2114.847655
+      },
+      "messages_per_second": {
+        "median": 45.42636744870485,
+        "min": 45.39334063757892,
+        "max": 45.48876724429117
+      },
+      "rtt_p50_ms": {
+        "median": 317.448316,
+        "min": 317.099584,
+        "max": 317.762722
+      },
+      "rtt_p95_ms": {
+        "median": 468.902088,
+        "min": 468.694788,
+        "max": 468.99755
+      },
+      "delivery_p95_ms": {
+        "median": 318.119851,
+        "min": 317.827482,
+        "max": 318.390901
+      },
+      "connect_ms": {
+        "median": 308.215527,
+        "min": 308.199651,
+        "max": 308.834315
+      },
+      "first_message_ms": {
+        "median": 635.837707,
+        "min": 635.212083,
+        "max": 636.675752
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 89552,
+        "min": 89552,
+        "max": 89552
+      },
+      "proxy_max_queue": {
+        "median": 27628,
+        "min": 27628,
+        "max": 27628
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "300ms-1mbit",
+    "corpus": "sparse",
+    "mode": "tcp-zstd",
+    "trials": 3,
+    "messages": 96,
+    "raw_bytes": 154382,
+    "metrics": {
+      "socket_bytes": {
+        "median": 8705,
+        "min": 8690,
+        "max": 8706
+      },
+      "data_bytes": {
+        "median": 8705,
+        "min": 8690,
+        "max": 8706
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 6431,
+        "min": 6431,
+        "max": 6431
+      },
+      "down_payload_bytes": {
+        "median": 6431,
+        "min": 6431,
+        "max": 6431
+      },
+      "up_data_bytes": {
+        "median": 2274,
+        "min": 2259,
+        "max": 2275
+      },
+      "total_cpu_us_per_message": {
+        "median": 753.5625,
+        "min": 725.3541666666666,
+        "max": 866.4270833333334
+      },
+      "server_cpu_us_per_message": {
+        "median": 364.4895833333333,
+        "min": 357.4791666666667,
+        "max": 412.9895833333333
+      },
+      "client_cpu_us_per_message": {
+        "median": 396.0833333333333,
+        "min": 360.8645833333333,
+        "max": 453.4375
+      },
+      "duration_ms": {
+        "median": 1839.046778,
+        "min": 1837.550759,
+        "max": 1840.343551
+      },
+      "messages_per_second": {
+        "median": 52.20095603245172,
+        "min": 52.164173340263474,
+        "max": 52.24345478883176
+      },
+      "rtt_p50_ms": {
+        "median": 304.318876,
+        "min": 304.068023,
+        "max": 305.473364
+      },
+      "rtt_p95_ms": {
+        "median": 313.768495,
+        "min": 313.286038,
+        "max": 314.488188
+      },
+      "delivery_p95_ms": {
+        "median": 161.744509,
+        "min": 161.731106,
+        "max": 162.367975
+      },
+      "connect_ms": {
+        "median": 4.840243,
+        "min": 4.633147,
+        "max": 4.983237
+      },
+      "first_message_ms": {
+        "median": 317.892172,
+        "min": 316.6178,
+        "max": 319.324068
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 25957,
+        "min": 25957,
+        "max": 25957
+      },
+      "proxy_max_queue": {
+        "median": 1473,
+        "min": 1473,
+        "max": 1473
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "300ms-1mbit",
+    "corpus": "sparse",
+    "mode": "websocket-deflate",
+    "trials": 3,
+    "messages": 96,
+    "raw_bytes": 154382,
+    "metrics": {
+      "socket_bytes": {
+        "median": 12597,
+        "min": 12597,
+        "max": 12597
+      },
+      "data_bytes": {
+        "median": 12152,
+        "min": 12152,
+        "max": 12152
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 7330,
+        "min": 7330,
+        "max": 7330
+      },
+      "down_payload_bytes": {
+        "median": 7132,
+        "min": 7132,
+        "max": 7132
+      },
+      "up_data_bytes": {
+        "median": 4822,
+        "min": 4822,
+        "max": 4822
+      },
+      "total_cpu_us_per_message": {
+        "median": 281.8645833333333,
+        "min": 247.73958333333334,
+        "max": 288.1979166666667
+      },
+      "server_cpu_us_per_message": {
+        "median": 146.15625,
+        "min": 138.88541666666666,
+        "max": 148.1875
+      },
+      "client_cpu_us_per_message": {
+        "median": 133.67708333333334,
+        "min": 108.85416666666667,
+        "max": 142.04166666666666
+      },
+      "duration_ms": {
+        "median": 1840.478612,
+        "min": 1839.532135,
+        "max": 1840.676746
+      },
+      "messages_per_second": {
+        "median": 52.16034534390992,
+        "min": 52.15473070359525,
+        "max": 52.18718291105037
+      },
+      "rtt_p50_ms": {
+        "median": 303.996083,
+        "min": 303.905693,
+        "max": 303.998572
+      },
+      "rtt_p95_ms": {
+        "median": 314.039148,
+        "min": 313.966525,
+        "max": 314.053441
+      },
+      "delivery_p95_ms": {
+        "median": 163.253782,
+        "min": 163.144452,
+        "max": 163.2651
+      },
+      "connect_ms": {
+        "median": 307.645352,
+        "min": 307.319572,
+        "max": 308.2143
+      },
+      "first_message_ms": {
+        "median": 617.347301,
+        "min": 617.102001,
+        "max": 617.763658
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 1585,
+        "min": 1585,
+        "max": 1585
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "300ms-1mbit",
+    "corpus": "sparse",
+    "mode": "websocket-zstd",
+    "trials": 3,
+    "messages": 96,
+    "raw_bytes": 154382,
+    "metrics": {
+      "socket_bytes": {
+        "median": 9842,
+        "min": 9763,
+        "max": 9844
+      },
+      "data_bytes": {
+        "median": 9513,
+        "min": 9434,
+        "max": 9515
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 6627,
+        "min": 6627,
+        "max": 6627
+      },
+      "down_payload_bytes": {
+        "median": 6431,
+        "min": 6431,
+        "max": 6431
+      },
+      "up_data_bytes": {
+        "median": 2886,
+        "min": 2807,
+        "max": 2888
+      },
+      "total_cpu_us_per_message": {
+        "median": 754.1145833333334,
+        "min": 702.84375,
+        "max": 866.59375
+      },
+      "server_cpu_us_per_message": {
+        "median": 376.125,
+        "min": 316.0625,
+        "max": 404.3229166666667
+      },
+      "client_cpu_us_per_message": {
+        "median": 386.78125,
+        "min": 377.9895833333333,
+        "max": 462.2708333333333
+      },
+      "duration_ms": {
+        "median": 1839.908734,
+        "min": 1838.328207,
+        "max": 1841.688021
+      },
+      "messages_per_second": {
+        "median": 52.176501054644156,
+        "min": 52.1260924246409,
+        "max": 52.22136049180472
+      },
+      "rtt_p50_ms": {
+        "median": 304.318598,
+        "min": 304.233175,
+        "max": 305.416829
+      },
+      "rtt_p95_ms": {
+        "median": 314.557739,
+        "min": 313.384368,
+        "max": 317.521129
+      },
+      "delivery_p95_ms": {
+        "median": 162.083512,
+        "min": 161.521792,
+        "max": 163.987618
+      },
+      "connect_ms": {
+        "median": 309.106751,
+        "min": 308.197073,
+        "max": 310.807205
+      },
+      "first_message_ms": {
+        "median": 622.783897,
+        "min": 622.282399,
+        "max": 626.231407
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 25957,
+        "min": 25957,
+        "max": 25957
+      },
+      "proxy_max_queue": {
+        "median": 1507,
+        "min": 1507,
+        "max": 1507
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "freeze",
+    "corpus": "dense",
+    "mode": "tcp-zstd",
+    "trials": 3,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 416947,
+        "min": 416880,
+        "max": 416969
+      },
+      "data_bytes": {
+        "median": 416947,
+        "min": 416880,
+        "max": 416969
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 411090,
+        "min": 411090,
+        "max": 411090
+      },
+      "down_payload_bytes": {
+        "median": 411090,
+        "min": 411090,
+        "max": 411090
+      },
+      "up_data_bytes": {
+        "median": 5857,
+        "min": 5790,
+        "max": 5879
+      },
+      "total_cpu_us_per_message": {
+        "median": 797.1219512195122,
+        "min": 595.8536585365854,
+        "max": 822.430894308943
+      },
+      "server_cpu_us_per_message": {
+        "median": 419.0243902439024,
+        "min": 328.0772357723577,
+        "max": 425.2154471544715
+      },
+      "client_cpu_us_per_message": {
+        "median": 378.0975609756098,
+        "min": 267.7764227642276,
+        "max": 397.2154471544715
+      },
+      "duration_ms": {
+        "median": 1511.1581,
+        "min": 1510.995477,
+        "max": 1524.030337
+      },
+      "messages_per_second": {
+        "median": 162.78905562561584,
+        "min": 161.41410969826384,
+        "max": 162.8065760252438
+      },
+      "rtt_p50_ms": {
+        "median": 32.70473,
+        "min": 32.564567,
+        "max": 32.723392
+      },
+      "rtt_p95_ms": {
+        "median": 1009.034174,
+        "min": 1005.443666,
+        "max": 1028.82098
+      },
+      "delivery_p95_ms": {
+        "median": 991.706417,
+        "min": 988.346924,
+        "max": 1012.179561
+      },
+      "connect_ms": {
+        "median": 4.786232,
+        "min": 4.434572,
+        "max": 5.161572
+      },
+      "first_message_ms": {
+        "median": 40.26992,
+        "min": 40.119715,
+        "max": 40.665519
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 89552,
+        "min": 89552,
+        "max": 89552
+      },
+      "proxy_max_queue": {
+        "median": 27560,
+        "min": 27560,
+        "max": 27560
+      },
+      "freeze_bytes": {
+        "median": 27223,
+        "min": 25942,
+        "max": 27265
+      }
+    }
+  },
+  {
+    "scenario": "freeze",
+    "corpus": "dense",
+    "mode": "websocket-deflate",
+    "trials": 3,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 434246,
+        "min": 434246,
+        "max": 434246
+      },
+      "data_bytes": {
+        "median": 433801,
+        "min": 433801,
+        "max": 433801
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 421333,
+        "min": 421333,
+        "max": 421333
+      },
+      "down_payload_bytes": {
+        "median": 420349,
+        "min": 420349,
+        "max": 420349
+      },
+      "up_data_bytes": {
+        "median": 12468,
+        "min": 12468,
+        "max": 12468
+      },
+      "total_cpu_us_per_message": {
+        "median": 270.7926829268293,
+        "min": 248.10162601626016,
+        "max": 276.1178861788618
+      },
+      "server_cpu_us_per_message": {
+        "median": 169.54471544715446,
+        "min": 163.5528455284553,
+        "max": 179.91463414634146
+      },
+      "client_cpu_us_per_message": {
+        "median": 96.20325203252033,
+        "min": 84.54878048780488,
+        "max": 101.2479674796748
+      },
+      "duration_ms": {
+        "median": 1478.60164,
+        "min": 1477.67318,
+        "max": 1481.83355
+      },
+      "messages_per_second": {
+        "median": 166.37341211118905,
+        "min": 166.01054821575607,
+        "max": 166.47794879785258
+      },
+      "rtt_p50_ms": {
+        "median": 31.488215,
+        "min": 31.417996,
+        "max": 31.805205
+      },
+      "rtt_p95_ms": {
+        "median": 1002.638679,
+        "min": 1002.295868,
+        "max": 1004.223066
+      },
+      "delivery_p95_ms": {
+        "median": 986.118405,
+        "min": 985.818095,
+        "max": 987.444014
+      },
+      "connect_ms": {
+        "median": 33.539643,
+        "min": 33.198245,
+        "max": 33.980564
+      },
+      "first_message_ms": {
+        "median": 66.89509,
+        "min": 66.338829,
+        "max": 67.543907
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 28531,
+        "min": 28531,
+        "max": 28531
+      },
+      "freeze_bytes": {
+        "median": 27864,
+        "min": 27864,
+        "max": 27864
+      }
+    }
+  },
+  {
+    "scenario": "freeze",
+    "corpus": "dense",
+    "mode": "websocket-zstd",
+    "trials": 3,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 419861,
+        "min": 419697,
+        "max": 419867
+      },
+      "data_bytes": {
+        "median": 419532,
+        "min": 419368,
+        "max": 419538
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 412156,
+        "min": 412156,
+        "max": 412156
+      },
+      "down_payload_bytes": {
+        "median": 411090,
+        "min": 411090,
+        "max": 411090
+      },
+      "up_data_bytes": {
+        "median": 7376,
+        "min": 7212,
+        "max": 7382
+      },
+      "total_cpu_us_per_message": {
+        "median": 629.6585365853658,
+        "min": 623.069105691057,
+        "max": 635.5
+      },
+      "server_cpu_us_per_message": {
+        "median": 335.849593495935,
+        "min": 332.0650406504065,
+        "max": 349.8780487804878
+      },
+      "client_cpu_us_per_message": {
+        "median": 287.219512195122,
+        "min": 285.6219512195122,
+        "max": 297.5934959349593
+      },
+      "duration_ms": {
+        "median": 1512.288904,
+        "min": 1497.558662,
+        "max": 1512.76148
+      },
+      "messages_per_second": {
+        "median": 162.6673311887237,
+        "min": 162.6165150635644,
+        "max": 164.26735475688497
+      },
+      "rtt_p50_ms": {
+        "median": 32.205755,
+        "min": 32.010512,
+        "max": 32.529386
+      },
+      "rtt_p95_ms": {
+        "median": 1009.006462,
+        "min": 1004.664565,
+        "max": 1031.09801
+      },
+      "delivery_p95_ms": {
+        "median": 991.717756,
+        "min": 988.211872,
+        "max": 1014.142374
+      },
+      "connect_ms": {
+        "median": 34.46114,
+        "min": 34.126197,
+        "max": 36.542756
+      },
+      "first_message_ms": {
+        "median": 70.967616,
+        "min": 70.663941,
+        "max": 72.843056
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 89552,
+        "min": 89552,
+        "max": 89552
+      },
+      "proxy_max_queue": {
+        "median": 27628,
+        "min": 27628,
+        "max": 27628
+      },
+      "freeze_bytes": {
+        "median": 26043,
+        "min": 26031,
+        "max": 27302
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "claude",
+    "mode": "tcp",
+    "trials": 7,
+    "messages": 46,
+    "raw_bytes": 92677,
+    "metrics": {
+      "socket_bytes": {
+        "median": 94717,
+        "min": 94717,
+        "max": 94717
+      },
+      "data_bytes": {
+        "median": 94717,
+        "min": 94717,
+        "max": 94717
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 92677,
+        "min": 92677,
+        "max": 92677
+      },
+      "down_payload_bytes": {
+        "median": 92677,
+        "min": 92677,
+        "max": 92677
+      },
+      "up_data_bytes": {
+        "median": 2040,
+        "min": 2040,
+        "max": 2040
+      },
+      "total_cpu_us_per_message": {
+        "median": 252.47826086956522,
+        "min": 224.58695652173913,
+        "max": 260.3478260869565
+      },
+      "server_cpu_us_per_message": {
+        "median": 120.17391304347827,
+        "min": 106.06521739130434,
+        "max": 121.43478260869566
+      },
+      "client_cpu_us_per_message": {
+        "median": 131.91304347826087,
+        "min": 118.52173913043478,
+        "max": 139.04347826086956
+      },
+      "duration_ms": {
+        "median": 8.193775,
+        "min": 8.010839,
+        "max": 14.424847
+      },
+      "messages_per_second": {
+        "median": 5614.017958755274,
+        "min": 3188.9419693671625,
+        "max": 5742.220009664406
+      },
+      "rtt_p50_ms": {
+        "median": 0.109564,
+        "min": 0.092803,
+        "max": 0.118234
+      },
+      "rtt_p95_ms": {
+        "median": 0.657632,
+        "min": 0.496216,
+        "max": 1.720336
+      },
+      "delivery_p95_ms": {
+        "median": 0.188107,
+        "min": 0.149645,
+        "max": 0.31688
+      },
+      "connect_ms": {
+        "median": 4.02607,
+        "min": 3.663308,
+        "max": 4.071621
+      },
+      "first_message_ms": {
+        "median": 5.56442,
+        "min": 5.191468,
+        "max": 8.666271
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 9172,
+        "min": 9172,
+        "max": 9172
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "claude",
+    "mode": "tcp-zstd",
+    "trials": 7,
+    "messages": 46,
+    "raw_bytes": 92677,
+    "metrics": {
+      "socket_bytes": {
+        "median": 6104,
+        "min": 6101,
+        "max": 6117
+      },
+      "data_bytes": {
+        "median": 6104,
+        "min": 6101,
+        "max": 6117
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 5011,
+        "min": 5011,
+        "max": 5011
+      },
+      "down_payload_bytes": {
+        "median": 5011,
+        "min": 5011,
+        "max": 5011
+      },
+      "up_data_bytes": {
+        "median": 1093,
+        "min": 1090,
+        "max": 1106
+      },
+      "total_cpu_us_per_message": {
+        "median": 603.6521739130435,
+        "min": 547.8695652173913,
+        "max": 641.5869565217391
+      },
+      "server_cpu_us_per_message": {
+        "median": 287.10869565217394,
+        "min": 257.4782608695652,
+        "max": 307.8695652173913
+      },
+      "client_cpu_us_per_message": {
+        "median": 316.32608695652175,
+        "min": 290.39130434782606,
+        "max": 333.7173913043478
+      },
+      "duration_ms": {
+        "median": 21.738124,
+        "min": 19.636646,
+        "max": 25.206415
+      },
+      "messages_per_second": {
+        "median": 2116.0979668714745,
+        "min": 1824.9322642668544,
+        "max": 2342.558907463118
+      },
+      "rtt_p50_ms": {
+        "median": 0.362422,
+        "min": 0.32571,
+        "max": 0.377262
+      },
+      "rtt_p95_ms": {
+        "median": 1.109756,
+        "min": 0.92698,
+        "max": 1.286672
+      },
+      "delivery_p95_ms": {
+        "median": 0.574789,
+        "min": 0.462465,
+        "max": 0.608859
+      },
+      "connect_ms": {
+        "median": 4.097833,
+        "min": 3.882296,
+        "max": 4.372822
+      },
+      "first_message_ms": {
+        "median": 8.612519,
+        "min": 8.287818,
+        "max": 8.93407
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 9172,
+        "min": 9172,
+        "max": 9172
+      },
+      "proxy_max_queue": {
+        "median": 692,
+        "min": 692,
+        "max": 692
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "claude",
+    "mode": "websocket",
+    "trials": 7,
+    "messages": 46,
+    "raw_bytes": 92677,
+    "metrics": {
+      "socket_bytes": {
+        "median": 95512,
+        "min": 95512,
+        "max": 95512
+      },
+      "data_bytes": {
+        "median": 95183,
+        "min": 95183,
+        "max": 95183
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 92861,
+        "min": 92861,
+        "max": 92861
+      },
+      "down_payload_bytes": {
+        "median": 92677,
+        "min": 92677,
+        "max": 92677
+      },
+      "up_data_bytes": {
+        "median": 2322,
+        "min": 2322,
+        "max": 2322
+      },
+      "total_cpu_us_per_message": {
+        "median": 102.84782608695652,
+        "min": 92.58695652173913,
+        "max": 105.23913043478261
+      },
+      "server_cpu_us_per_message": {
+        "median": 49.54347826086956,
+        "min": 44.28260869565217,
+        "max": 51.28260869565217
+      },
+      "client_cpu_us_per_message": {
+        "median": 53.15217391304348,
+        "min": 48.30434782608695,
+        "max": 53.95652173913044
+      },
+      "duration_ms": {
+        "median": 5.675763,
+        "min": 5.25049,
+        "max": 5.928392
+      },
+      "messages_per_second": {
+        "median": 8104.637209129416,
+        "min": 7759.270979381931,
+        "max": 8761.087060445787
+      },
+      "rtt_p50_ms": {
+        "median": 0.085183,
+        "min": 0.082063,
+        "max": 0.090103
+      },
+      "rtt_p95_ms": {
+        "median": 0.32455,
+        "min": 0.269749,
+        "max": 0.332171
+      },
+      "delivery_p95_ms": {
+        "median": 0.171176,
+        "min": 0.170506,
+        "max": 0.183926
+      },
+      "connect_ms": {
+        "median": 1.882491,
+        "min": 1.755957,
+        "max": 2.128639
+      },
+      "first_message_ms": {
+        "median": 2.696217,
+        "min": 2.530362,
+        "max": 2.908084
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 9176,
+        "min": 9176,
+        "max": 9176
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "claude",
+    "mode": "websocket-deflate",
+    "trials": 7,
+    "messages": 46,
+    "raw_bytes": 92677,
+    "metrics": {
+      "socket_bytes": {
+        "median": 8059,
+        "min": 8059,
+        "max": 8059
+      },
+      "data_bytes": {
+        "median": 7614,
+        "min": 7614,
+        "max": 7614
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 5292,
+        "min": 5292,
+        "max": 5292
+      },
+      "down_payload_bytes": {
+        "median": 5182,
+        "min": 5182,
+        "max": 5182
+      },
+      "up_data_bytes": {
+        "median": 2322,
+        "min": 2322,
+        "max": 2322
+      },
+      "total_cpu_us_per_message": {
+        "median": 124.73913043478261,
+        "min": 118.91304347826087,
+        "max": 126.97826086956522
+      },
+      "server_cpu_us_per_message": {
+        "median": 68.15217391304348,
+        "min": 64.54347826086956,
+        "max": 70.15217391304348
+      },
+      "client_cpu_us_per_message": {
+        "median": 56.73913043478261,
+        "min": 54.369565217391305,
+        "max": 57.69565217391305
+      },
+      "duration_ms": {
+        "median": 6.525171,
+        "min": 6.18239,
+        "max": 6.621244
+      },
+      "messages_per_second": {
+        "median": 7049.623680360254,
+        "min": 6947.334972098899,
+        "max": 7440.488225427383
+      },
+      "rtt_p50_ms": {
+        "median": 0.101793,
+        "min": 0.093533,
+        "max": 0.106623
+      },
+      "rtt_p95_ms": {
+        "median": 0.340451,
+        "min": 0.331871,
+        "max": 0.348592
+      },
+      "delivery_p95_ms": {
+        "median": 0.210986,
+        "min": 0.175526,
+        "max": 0.221207
+      },
+      "connect_ms": {
+        "median": 2.100378,
+        "min": 1.8686,
+        "max": 3.330468
+      },
+      "first_message_ms": {
+        "median": 2.928205,
+        "min": 2.763609,
+        "max": 4.169205
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 760,
+        "min": 760,
+        "max": 760
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "claude",
+    "mode": "websocket-zstd",
+    "trials": 7,
+    "messages": 46,
+    "raw_bytes": 92677,
+    "metrics": {
+      "socket_bytes": {
+        "median": 6820,
+        "min": 6818,
+        "max": 6835
+      },
+      "data_bytes": {
+        "median": 6491,
+        "min": 6489,
+        "max": 6506
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 5123,
+        "min": 5123,
+        "max": 5123
+      },
+      "down_payload_bytes": {
+        "median": 5011,
+        "min": 5011,
+        "max": 5011
+      },
+      "up_data_bytes": {
+        "median": 1368,
+        "min": 1366,
+        "max": 1383
+      },
+      "total_cpu_us_per_message": {
+        "median": 512.9565217391304,
+        "min": 466.4130434782609,
+        "max": 533.3478260869565
+      },
+      "server_cpu_us_per_message": {
+        "median": 238.45652173913044,
+        "min": 215.0,
+        "max": 254.8695652173913
+      },
+      "client_cpu_us_per_message": {
+        "median": 273.67391304347825,
+        "min": 251.41304347826087,
+        "max": 291.6521739130435
+      },
+      "duration_ms": {
+        "median": 19.056707,
+        "min": 17.218728,
+        "max": 21.048923
+      },
+      "messages_per_second": {
+        "median": 2413.848310728606,
+        "min": 2185.3849719531972,
+        "max": 2671.509765413566
+      },
+      "rtt_p50_ms": {
+        "median": 0.29878,
+        "min": 0.257869,
+        "max": 0.342121
+      },
+      "rtt_p95_ms": {
+        "median": 0.951731,
+        "min": 0.877388,
+        "max": 1.162217
+      },
+      "delivery_p95_ms": {
+        "median": 0.496466,
+        "min": 0.355631,
+        "max": 0.730453
+      },
+      "connect_ms": {
+        "median": 2.723758,
+        "min": 2.428458,
+        "max": 3.305547
+      },
+      "first_message_ms": {
+        "median": 7.39591,
+        "min": 6.942034,
+        "max": 8.301089
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 9172,
+        "min": 9172,
+        "max": 9172
+      },
+      "proxy_max_queue": {
+        "median": 696,
+        "min": 696,
+        "max": 696
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "codex",
+    "mode": "tcp",
+    "trials": 7,
+    "messages": 78,
+    "raw_bytes": 218275,
+    "metrics": {
+      "socket_bytes": {
+        "median": 221723,
+        "min": 221723,
+        "max": 221723
+      },
+      "data_bytes": {
+        "median": 221723,
+        "min": 221723,
+        "max": 221723
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 218275,
+        "min": 218275,
+        "max": 218275
+      },
+      "down_payload_bytes": {
+        "median": 218275,
+        "min": 218275,
+        "max": 218275
+      },
+      "up_data_bytes": {
+        "median": 3448,
+        "min": 3448,
+        "max": 3448
+      },
+      "total_cpu_us_per_message": {
+        "median": 207.14102564102564,
+        "min": 199.55128205128204,
+        "max": 211.47435897435898
+      },
+      "server_cpu_us_per_message": {
+        "median": 102.47435897435898,
+        "min": 99.06410256410257,
+        "max": 107.66666666666667
+      },
+      "client_cpu_us_per_message": {
+        "median": 103.62820512820512,
+        "min": 100.23076923076923,
+        "max": 106.84615384615384
+      },
+      "duration_ms": {
+        "median": 12.413922,
+        "min": 11.753881,
+        "max": 13.625351
+      },
+      "messages_per_second": {
+        "median": 6283.268092066311,
+        "min": 5724.623167505923,
+        "max": 6636.10598065439
+      },
+      "rtt_p50_ms": {
+        "median": 0.103713,
+        "min": 0.097823,
+        "max": 0.111804
+      },
+      "rtt_p95_ms": {
+        "median": 0.522907,
+        "min": 0.470995,
+        "max": 0.701133
+      },
+      "delivery_p95_ms": {
+        "median": 0.155155,
+        "min": 0.144345,
+        "max": 0.28384
+      },
+      "connect_ms": {
+        "median": 4.010059,
+        "min": 3.901496,
+        "max": 4.228267
+      },
+      "first_message_ms": {
+        "median": 5.575381,
+        "min": 5.434496,
+        "max": 5.780478
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 11480,
+        "min": 11480,
+        "max": 11480
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "codex",
+    "mode": "tcp-zstd",
+    "trials": 7,
+    "messages": 78,
+    "raw_bytes": 218275,
+    "metrics": {
+      "socket_bytes": {
+        "median": 9217,
+        "min": 9175,
+        "max": 9234
+      },
+      "data_bytes": {
+        "median": 9217,
+        "min": 9175,
+        "max": 9234
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 7404,
+        "min": 7404,
+        "max": 7404
+      },
+      "down_payload_bytes": {
+        "median": 7404,
+        "min": 7404,
+        "max": 7404
+      },
+      "up_data_bytes": {
+        "median": 1813,
+        "min": 1771,
+        "max": 1830
+      },
+      "total_cpu_us_per_message": {
+        "median": 508.55128205128204,
+        "min": 462.6794871794872,
+        "max": 528.0128205128206
+      },
+      "server_cpu_us_per_message": {
+        "median": 246.4102564102564,
+        "min": 226.0,
+        "max": 267.2435897435897
+      },
+      "client_cpu_us_per_message": {
+        "median": 260.8974358974359,
+        "min": 236.67948717948718,
+        "max": 277.11538461538464
+      },
+      "duration_ms": {
+        "median": 32.471231,
+        "min": 29.608127,
+        "max": 34.94201
+      },
+      "messages_per_second": {
+        "median": 2402.126362255869,
+        "min": 2232.2699810342906,
+        "max": 2634.4118288873865
+      },
+      "rtt_p50_ms": {
+        "median": 0.293249,
+        "min": 0.280399,
+        "max": 0.31254
+      },
+      "rtt_p95_ms": {
+        "median": 1.079565,
+        "min": 0.911929,
+        "max": 1.175508
+      },
+      "delivery_p95_ms": {
+        "median": 0.541667,
+        "min": 0.488876,
+        "max": 0.607189
+      },
+      "connect_ms": {
+        "median": 4.02541,
+        "min": 3.756721,
+        "max": 4.252138
+      },
+      "first_message_ms": {
+        "median": 8.470124,
+        "min": 7.493522,
+        "max": 8.826466
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 11480,
+        "min": 11480,
+        "max": 11480
+      },
+      "proxy_max_queue": {
+        "median": 688,
+        "min": 688,
+        "max": 688
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "codex",
+    "mode": "websocket",
+    "trials": 7,
+    "messages": 78,
+    "raw_bytes": 218275,
+    "metrics": {
+      "socket_bytes": {
+        "median": 222838,
+        "min": 222838,
+        "max": 222838
+      },
+      "data_bytes": {
+        "median": 222509,
+        "min": 222509,
+        "max": 222509
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 218587,
+        "min": 218587,
+        "max": 218587
+      },
+      "down_payload_bytes": {
+        "median": 218275,
+        "min": 218275,
+        "max": 218275
+      },
+      "up_data_bytes": {
+        "median": 3922,
+        "min": 3922,
+        "max": 3922
+      },
+      "total_cpu_us_per_message": {
+        "median": 93.37179487179488,
+        "min": 92.28205128205128,
+        "max": 101.44871794871794
+      },
+      "server_cpu_us_per_message": {
+        "median": 48.93589743589744,
+        "min": 48.07692307692308,
+        "max": 53.43589743589744
+      },
+      "client_cpu_us_per_message": {
+        "median": 44.43589743589744,
+        "min": 44.205128205128204,
+        "max": 48.205128205128204
+      },
+      "duration_ms": {
+        "median": 9.822987,
+        "min": 9.209238,
+        "max": 11.640437
+      },
+      "messages_per_second": {
+        "median": 7940.5582029173,
+        "min": 6700.779360774857,
+        "max": 8469.75612966024
+      },
+      "rtt_p50_ms": {
+        "median": 0.087743,
+        "min": 0.084303,
+        "max": 0.107723
+      },
+      "rtt_p95_ms": {
+        "median": 0.348171,
+        "min": 0.325031,
+        "max": 0.402913
+      },
+      "delivery_p95_ms": {
+        "median": 0.139134,
+        "min": 0.124424,
+        "max": 0.208666
+      },
+      "connect_ms": {
+        "median": 1.980384,
+        "min": 1.807719,
+        "max": 2.428339
+      },
+      "first_message_ms": {
+        "median": 2.815511,
+        "min": 2.629335,
+        "max": 3.354789
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 11484,
+        "min": 11484,
+        "max": 11484
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "codex",
+    "mode": "websocket-deflate",
+    "trials": 7,
+    "messages": 78,
+    "raw_bytes": 218275,
+    "metrics": {
+      "socket_bytes": {
+        "median": 13148,
+        "min": 13148,
+        "max": 13148
+      },
+      "data_bytes": {
+        "median": 12703,
+        "min": 12703,
+        "max": 12703
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 8781,
+        "min": 8781,
+        "max": 8781
+      },
+      "down_payload_bytes": {
+        "median": 8595,
+        "min": 8595,
+        "max": 8595
+      },
+      "up_data_bytes": {
+        "median": 3922,
+        "min": 3922,
+        "max": 3922
+      },
+      "total_cpu_us_per_message": {
+        "median": 114.51282051282051,
+        "min": 113.87179487179488,
+        "max": 126.14102564102564
+      },
+      "server_cpu_us_per_message": {
+        "median": 67.41025641025641,
+        "min": 66.05128205128206,
+        "max": 72.67948717948718
+      },
+      "client_cpu_us_per_message": {
+        "median": 47.82051282051282,
+        "min": 47.1025641025641,
+        "max": 53.46153846153846
+      },
+      "duration_ms": {
+        "median": 10.567392,
+        "min": 10.371106,
+        "max": 19.688509
+      },
+      "messages_per_second": {
+        "median": 7381.196798604614,
+        "min": 3961.701721547325,
+        "max": 7520.895071364616
+      },
+      "rtt_p50_ms": {
+        "median": 0.097664,
+        "min": 0.095983,
+        "max": 0.150075
+      },
+      "rtt_p95_ms": {
+        "median": 0.349052,
+        "min": 0.33811,
+        "max": 1.010613
+      },
+      "delivery_p95_ms": {
+        "median": 0.168605,
+        "min": 0.161195,
+        "max": 0.228248
+      },
+      "connect_ms": {
+        "median": 2.125419,
+        "min": 2.034376,
+        "max": 2.744099
+      },
+      "first_message_ms": {
+        "median": 2.976296,
+        "min": 2.886953,
+        "max": 3.853995
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 973,
+        "min": 973,
+        "max": 973
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "codex",
+    "mode": "websocket-zstd",
+    "trials": 7,
+    "messages": 78,
+    "raw_bytes": 218275,
+    "metrics": {
+      "socket_bytes": {
+        "median": 10191,
+        "min": 10184,
+        "max": 10194
+      },
+      "data_bytes": {
+        "median": 9862,
+        "min": 9855,
+        "max": 9865
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 7582,
+        "min": 7582,
+        "max": 7582
+      },
+      "down_payload_bytes": {
+        "median": 7404,
+        "min": 7404,
+        "max": 7404
+      },
+      "up_data_bytes": {
+        "median": 2280,
+        "min": 2273,
+        "max": 2283
+      },
+      "total_cpu_us_per_message": {
+        "median": 475.6794871794872,
+        "min": 463.2307692307692,
+        "max": 491.20512820512823
+      },
+      "server_cpu_us_per_message": {
+        "median": 227.5,
+        "min": 222.96153846153845,
+        "max": 237.78205128205127
+      },
+      "client_cpu_us_per_message": {
+        "median": 246.84615384615384,
+        "min": 236.12820512820514,
+        "max": 263.14102564102564
+      },
+      "duration_ms": {
+        "median": 30.133015,
+        "min": 28.690817,
+        "max": 31.570351
+      },
+      "messages_per_second": {
+        "median": 2588.522920789705,
+        "min": 2470.67256236714,
+        "max": 2718.63990488664
+      },
+      "rtt_p50_ms": {
+        "median": 0.282949,
+        "min": 0.278049,
+        "max": 0.29174
+      },
+      "rtt_p95_ms": {
+        "median": 0.945901,
+        "min": 0.861707,
+        "max": 1.019543
+      },
+      "delivery_p95_ms": {
+        "median": 0.552258,
+        "min": 0.407913,
+        "max": 0.735614
+      },
+      "connect_ms": {
+        "median": 2.871923,
+        "min": 2.262733,
+        "max": 3.132902
+      },
+      "first_message_ms": {
+        "median": 7.382248,
+        "min": 6.625034,
+        "max": 7.809903
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 11480,
+        "min": 11480,
+        "max": 11480
+      },
+      "proxy_max_queue": {
+        "median": 692,
+        "min": 692,
+        "max": 692
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "dense",
+    "mode": "tcp",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 1359830,
+        "min": 1359830,
+        "max": 1359830
+      },
+      "data_bytes": {
+        "median": 1359830,
+        "min": 1359830,
+        "max": 1359830
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 1348844,
+        "min": 1348844,
+        "max": 1348844
+      },
+      "down_payload_bytes": {
+        "median": 1348844,
+        "min": 1348844,
+        "max": 1348844
+      },
+      "up_data_bytes": {
+        "median": 10986,
+        "min": 10986,
+        "max": 10986
+      },
+      "total_cpu_us_per_message": {
+        "median": 154.1951219512195,
+        "min": 144.91869918699186,
+        "max": 163.71544715447155
+      },
+      "server_cpu_us_per_message": {
+        "median": 73.51219512195122,
+        "min": 69.60975609756098,
+        "max": 79.3170731707317
+      },
+      "client_cpu_us_per_message": {
+        "median": 80.6829268292683,
+        "min": 75.3089430894309,
+        "max": 84.39837398373983
+      },
+      "duration_ms": {
+        "median": 35.010642,
+        "min": 33.243268,
+        "max": 36.703069
+      },
+      "messages_per_second": {
+        "median": 7026.434990823648,
+        "min": 6702.43679077627,
+        "max": 7399.994489109795
+      },
+      "rtt_p50_ms": {
+        "median": 0.106153,
+        "min": 0.099083,
+        "max": 0.112464
+      },
+      "rtt_p95_ms": {
+        "median": 0.339751,
+        "min": 0.321291,
+        "max": 0.437554
+      },
+      "delivery_p95_ms": {
+        "median": 0.136244,
+        "min": 0.117154,
+        "max": 0.150765
+      },
+      "connect_ms": {
+        "median": 4.094062,
+        "min": 3.635067,
+        "max": 4.34086
+      },
+      "first_message_ms": {
+        "median": 5.685685,
+        "min": 5.035943,
+        "max": 6.126578
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 5597,
+        "min": 5597,
+        "max": 5597
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "dense",
+    "mode": "tcp-zstd",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 416745,
+        "min": 416673,
+        "max": 416996
+      },
+      "data_bytes": {
+        "median": 416745,
+        "min": 416673,
+        "max": 416996
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 411090,
+        "min": 411090,
+        "max": 411090
+      },
+      "down_payload_bytes": {
+        "median": 411090,
+        "min": 411090,
+        "max": 411090
+      },
+      "up_data_bytes": {
+        "median": 5655,
+        "min": 5583,
+        "max": 5906
+      },
+      "total_cpu_us_per_message": {
+        "median": 462.6626016260163,
+        "min": 452.9308943089431,
+        "max": 466.020325203252
+      },
+      "server_cpu_us_per_message": {
+        "median": 230.4512195121951,
+        "min": 228.58943089430895,
+        "max": 233.390243902439
+      },
+      "client_cpu_us_per_message": {
+        "median": 232.21138211382114,
+        "min": 224.21138211382114,
+        "max": 232.9918699186992
+      },
+      "duration_ms": {
+        "median": 103.442734,
+        "min": 101.385989,
+        "max": 105.357243
+      },
+      "messages_per_second": {
+        "median": 2378.127399455625,
+        "min": 2334.913034882661,
+        "max": 2426.370768055535
+      },
+      "rtt_p50_ms": {
+        "median": 0.32011,
+        "min": 0.31275,
+        "max": 0.32511
+      },
+      "rtt_p95_ms": {
+        "median": 0.915319,
+        "min": 0.803126,
+        "max": 1.091646
+      },
+      "delivery_p95_ms": {
+        "median": 0.551868,
+        "min": 0.512127,
+        "max": 0.611399
+      },
+      "connect_ms": {
+        "median": 4.072062,
+        "min": 3.798574,
+        "max": 4.375711
+      },
+      "first_message_ms": {
+        "median": 8.590508,
+        "min": 7.936668,
+        "max": 9.055674
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 5597,
+        "min": 5597,
+        "max": 5597
+      },
+      "proxy_max_queue": {
+        "median": 2309,
+        "min": 2309,
+        "max": 2309
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "dense",
+    "mode": "websocket",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 1362625,
+        "min": 1362625,
+        "max": 1362625
+      },
+      "data_bytes": {
+        "median": 1362296,
+        "min": 1362296,
+        "max": 1362296
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 1349828,
+        "min": 1349828,
+        "max": 1349828
+      },
+      "down_payload_bytes": {
+        "median": 1348844,
+        "min": 1348844,
+        "max": 1348844
+      },
+      "up_data_bytes": {
+        "median": 12468,
+        "min": 12468,
+        "max": 12468
+      },
+      "total_cpu_us_per_message": {
+        "median": 81.64634146341463,
+        "min": 71.67886178861788,
+        "max": 86.91869918699187
+      },
+      "server_cpu_us_per_message": {
+        "median": 40.353658536585364,
+        "min": 36.34959349593496,
+        "max": 42.8130081300813
+      },
+      "client_cpu_us_per_message": {
+        "median": 41.447154471544714,
+        "min": 35.329268292682926,
+        "max": 44.10569105691057
+      },
+      "duration_ms": {
+        "median": 28.923906,
+        "min": 24.890474,
+        "max": 35.635914
+      },
+      "messages_per_second": {
+        "median": 8505.075351856005,
+        "min": 6903.148323907169,
+        "max": 9883.299128815304
+      },
+      "rtt_p50_ms": {
+        "median": 0.098944,
+        "min": 0.073532,
+        "max": 0.101183
+      },
+      "rtt_p95_ms": {
+        "median": 0.207707,
+        "min": 0.194756,
+        "max": 0.344741
+      },
+      "delivery_p95_ms": {
+        "median": 0.079333,
+        "min": 0.073003,
+        "max": 0.142414
+      },
+      "connect_ms": {
+        "median": 1.970604,
+        "min": 1.903411,
+        "max": 2.059327
+      },
+      "first_message_ms": {
+        "median": 2.836942,
+        "min": 2.637615,
+        "max": 2.914574
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 5601,
+        "min": 5601,
+        "max": 5601
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "dense",
+    "mode": "websocket-deflate",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 434246,
+        "min": 434246,
+        "max": 434246
+      },
+      "data_bytes": {
+        "median": 433801,
+        "min": 433801,
+        "max": 433801
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 421333,
+        "min": 421333,
+        "max": 421333
+      },
+      "down_payload_bytes": {
+        "median": 420349,
+        "min": 420349,
+        "max": 420349
+      },
+      "up_data_bytes": {
+        "median": 12468,
+        "min": 12468,
+        "max": 12468
+      },
+      "total_cpu_us_per_message": {
+        "median": 170.6260162601626,
+        "min": 160.77235772357724,
+        "max": 170.9918699186992
+      },
+      "server_cpu_us_per_message": {
+        "median": 113.9959349593496,
+        "min": 107.42276422764228,
+        "max": 114.92682926829268
+      },
+      "client_cpu_us_per_message": {
+        "median": 56.09756097560975,
+        "min": 53.34959349593496,
+        "max": 56.63008130081301
+      },
+      "duration_ms": {
+        "median": 49.553363,
+        "min": 48.028386,
+        "max": 51.593411
+      },
+      "messages_per_second": {
+        "median": 4964.34520498639,
+        "min": 4768.0507109716,
+        "max": 5121.970994403185
+      },
+      "rtt_p50_ms": {
+        "median": 0.181306,
+        "min": 0.173646,
+        "max": 0.185926
+      },
+      "rtt_p95_ms": {
+        "median": 0.285239,
+        "min": 0.230717,
+        "max": 0.33308
+      },
+      "delivery_p95_ms": {
+        "median": 0.165215,
+        "min": 0.163455,
+        "max": 0.176326
+      },
+      "connect_ms": {
+        "median": 2.328266,
+        "min": 2.218612,
+        "max": 3.005607
+      },
+      "first_message_ms": {
+        "median": 3.291957,
+        "min": 3.192584,
+        "max": 3.953798
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 2296,
+        "min": 2296,
+        "max": 2296
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "dense",
+    "mode": "websocket-zstd",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 419595,
+        "min": 419502,
+        "max": 419852
+      },
+      "data_bytes": {
+        "median": 419266,
+        "min": 419173,
+        "max": 419523
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 412156,
+        "min": 412156,
+        "max": 412156
+      },
+      "down_payload_bytes": {
+        "median": 411090,
+        "min": 411090,
+        "max": 411090
+      },
+      "up_data_bytes": {
+        "median": 7110,
+        "min": 7017,
+        "max": 7367
+      },
+      "total_cpu_us_per_message": {
+        "median": 405.890243902439,
+        "min": 396.0325203252033,
+        "max": 420.130081300813
+      },
+      "server_cpu_us_per_message": {
+        "median": 206.34959349593495,
+        "min": 201.3089430894309,
+        "max": 210.9268292682927
+      },
+      "client_cpu_us_per_message": {
+        "median": 201.72357723577235,
+        "min": 194.72357723577235,
+        "max": 209.20325203252034
+      },
+      "duration_ms": {
+        "median": 96.374674,
+        "min": 92.820078,
+        "max": 100.343143
+      },
+      "messages_per_second": {
+        "median": 2552.537817144782,
+        "min": 2451.5875489369514,
+        "max": 2650.288658451677
+      },
+      "rtt_p50_ms": {
+        "median": 0.303439,
+        "min": 0.30271,
+        "max": 0.31059
+      },
+      "rtt_p95_ms": {
+        "median": 0.800536,
+        "min": 0.770994,
+        "max": 0.92019
+      },
+      "delivery_p95_ms": {
+        "median": 0.507976,
+        "min": 0.439554,
+        "max": 0.548388
+      },
+      "connect_ms": {
+        "median": 2.886323,
+        "min": 2.742308,
+        "max": 3.022038
+      },
+      "first_message_ms": {
+        "median": 7.667388,
+        "min": 7.462892,
+        "max": 7.755491
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 5597,
+        "min": 5597,
+        "max": 5597
+      },
+      "proxy_max_queue": {
+        "median": 2313,
+        "min": 2313,
+        "max": 2313
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "sparse",
+    "mode": "tcp",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 395013,
+    "metrics": {
+      "socket_bytes": {
+        "median": 405999,
+        "min": 405999,
+        "max": 405999
+      },
+      "data_bytes": {
+        "median": 405999,
+        "min": 405999,
+        "max": 405999
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 395013,
+        "min": 395013,
+        "max": 395013
+      },
+      "down_payload_bytes": {
+        "median": 395013,
+        "min": 395013,
+        "max": 395013
+      },
+      "up_data_bytes": {
+        "median": 10986,
+        "min": 10986,
+        "max": 10986
+      },
+      "total_cpu_us_per_message": {
+        "median": 153.4959349593496,
+        "min": 152.59349593495935,
+        "max": 157.3130081300813
+      },
+      "server_cpu_us_per_message": {
+        "median": 75.78048780487805,
+        "min": 74.8170731707317,
+        "max": 79.2560975609756
+      },
+      "client_cpu_us_per_message": {
+        "median": 77.71544715447155,
+        "min": 77.02439024390245,
+        "max": 78.82520325203252
+      },
+      "duration_ms": {
+        "median": 33.73651,
+        "min": 31.415197,
+        "max": 37.189066
+      },
+      "messages_per_second": {
+        "median": 7291.803449734426,
+        "min": 6614.84749307767,
+        "max": 7830.60504124803
+      },
+      "rtt_p50_ms": {
+        "median": 0.096954,
+        "min": 0.088613,
+        "max": 0.102704
+      },
+      "rtt_p95_ms": {
+        "median": 0.354261,
+        "min": 0.31368,
+        "max": 0.384703
+      },
+      "delivery_p95_ms": {
+        "median": 0.122224,
+        "min": 0.102864,
+        "max": 0.134294
+      },
+      "connect_ms": {
+        "median": 4.01551,
+        "min": 3.448182,
+        "max": 4.31021
+      },
+      "first_message_ms": {
+        "median": 5.54842,
+        "min": 5.279041,
+        "max": 5.829439
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 1624,
+        "min": 1624,
+        "max": 1624
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "sparse",
+    "mode": "tcp-zstd",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 395013,
+    "metrics": {
+      "socket_bytes": {
+        "median": 21135,
+        "min": 21071,
+        "max": 21276
+      },
+      "data_bytes": {
+        "median": 21135,
+        "min": 21071,
+        "max": 21276
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 15504,
+        "min": 15504,
+        "max": 15504
+      },
+      "down_payload_bytes": {
+        "median": 15504,
+        "min": 15504,
+        "max": 15504
+      },
+      "up_data_bytes": {
+        "median": 5631,
+        "min": 5567,
+        "max": 5772
+      },
+      "total_cpu_us_per_message": {
+        "median": 365.0934959349593,
+        "min": 339.5528455284553,
+        "max": 376.1951219512195
+      },
+      "server_cpu_us_per_message": {
+        "median": 177.01626016260164,
+        "min": 162.90243902439025,
+        "max": 182.6260162601626
+      },
+      "client_cpu_us_per_message": {
+        "median": 188.41869918699186,
+        "min": 176.65040650406505,
+        "max": 197.27235772357724
+      },
+      "duration_ms": {
+        "median": 80.359092,
+        "min": 75.092716,
+        "max": 84.756979
+      },
+      "messages_per_second": {
+        "median": 3061.2590794331027,
+        "min": 2902.4158588757628,
+        "max": 3275.9502266504783
+      },
+      "rtt_p50_ms": {
+        "median": 0.239348,
+        "min": 0.228868,
+        "max": 0.246388
+      },
+      "rtt_p95_ms": {
+        "median": 0.745864,
+        "min": 0.670852,
+        "max": 0.808386
+      },
+      "delivery_p95_ms": {
+        "median": 0.431164,
+        "min": 0.375323,
+        "max": 0.507076
+      },
+      "connect_ms": {
+        "median": 3.995559,
+        "min": 3.326608,
+        "max": 4.243827
+      },
+      "first_message_ms": {
+        "median": 8.402952,
+        "min": 7.028957,
+        "max": 8.705501
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 1624,
+        "min": 1624,
+        "max": 1624
+      },
+      "proxy_max_queue": {
+        "median": 651,
+        "min": 651,
+        "max": 651
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "sparse",
+    "mode": "websocket",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 395013,
+    "metrics": {
+      "socket_bytes": {
+        "median": 408794,
+        "min": 408794,
+        "max": 408794
+      },
+      "data_bytes": {
+        "median": 408465,
+        "min": 408465,
+        "max": 408465
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 395997,
+        "min": 395997,
+        "max": 395997
+      },
+      "down_payload_bytes": {
+        "median": 395013,
+        "min": 395013,
+        "max": 395013
+      },
+      "up_data_bytes": {
+        "median": 12468,
+        "min": 12468,
+        "max": 12468
+      },
+      "total_cpu_us_per_message": {
+        "median": 75.9390243902439,
+        "min": 68.84959349593495,
+        "max": 78.52032520325203
+      },
+      "server_cpu_us_per_message": {
+        "median": 38.49186991869919,
+        "min": 35.02845528455285,
+        "max": 39.699186991869915
+      },
+      "client_cpu_us_per_message": {
+        "median": 37.109756097560975,
+        "min": 33.82113821138211,
+        "max": 39.08536585365854
+      },
+      "duration_ms": {
+        "median": 24.420701,
+        "min": 22.063524,
+        "max": 28.536825
+      },
+      "messages_per_second": {
+        "median": 10073.42090630404,
+        "min": 8620.440430916893,
+        "max": 11149.624148889361
+      },
+      "rtt_p50_ms": {
+        "median": 0.077333,
+        "min": 0.067472,
+        "max": 0.084963
+      },
+      "rtt_p95_ms": {
+        "median": 0.209947,
+        "min": 0.194136,
+        "max": 0.230337
+      },
+      "delivery_p95_ms": {
+        "median": 0.064662,
+        "min": 0.060882,
+        "max": 0.078982
+      },
+      "connect_ms": {
+        "median": 1.873901,
+        "min": 1.667403,
+        "max": 1.906101
+      },
+      "first_message_ms": {
+        "median": 2.635715,
+        "min": 2.413968,
+        "max": 2.750209
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 1628,
+        "min": 1628,
+        "max": 1628
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "sparse",
+    "mode": "websocket-deflate",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 395013,
+    "metrics": {
+      "socket_bytes": {
+        "median": 31289,
+        "min": 31289,
+        "max": 31289
+      },
+      "data_bytes": {
+        "median": 30844,
+        "min": 30844,
+        "max": 30844
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 18376,
+        "min": 18376,
+        "max": 18376
+      },
+      "down_payload_bytes": {
+        "median": 17866,
+        "min": 17866,
+        "max": 17866
+      },
+      "up_data_bytes": {
+        "median": 12468,
+        "min": 12468,
+        "max": 12468
+      },
+      "total_cpu_us_per_message": {
+        "median": 88.76829268292683,
+        "min": 80.52439024390245,
+        "max": 90.35772357723577
+      },
+      "server_cpu_us_per_message": {
+        "median": 49.36178861788618,
+        "min": 45.18292682926829,
+        "max": 50.146341463414636
+      },
+      "client_cpu_us_per_message": {
+        "median": 39.40650406504065,
+        "min": 35.34146341463415,
+        "max": 41.17479674796748
+      },
+      "duration_ms": {
+        "median": 26.21446,
+        "min": 25.837606,
+        "max": 27.996248
+      },
+      "messages_per_second": {
+        "median": 9384.133794859783,
+        "min": 8786.891729206,
+        "max": 9521.005932205948
+      },
+      "rtt_p50_ms": {
+        "median": 0.083963,
+        "min": 0.080492,
+        "max": 0.087153
+      },
+      "rtt_p95_ms": {
+        "median": 0.201016,
+        "min": 0.195316,
+        "max": 0.249799
+      },
+      "delivery_p95_ms": {
+        "median": 0.080353,
+        "min": 0.075772,
+        "max": 0.085523
+      },
+      "connect_ms": {
+        "median": 2.131229,
+        "min": 1.782548,
+        "max": 2.218951
+      },
+      "first_message_ms": {
+        "median": 2.987267,
+        "min": 2.490151,
+        "max": 3.136212
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 628,
+        "min": 628,
+        "max": 628
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "latency",
+    "corpus": "sparse",
+    "mode": "websocket-zstd",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 395013,
+    "metrics": {
+      "socket_bytes": {
+        "median": 23566,
+        "min": 23375,
+        "max": 23658
+      },
+      "data_bytes": {
+        "median": 23237,
+        "min": 23046,
+        "max": 23329
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 16000,
+        "min": 16000,
+        "max": 16000
+      },
+      "down_payload_bytes": {
+        "median": 15504,
+        "min": 15504,
+        "max": 15504
+      },
+      "up_data_bytes": {
+        "median": 7237,
+        "min": 7046,
+        "max": 7329
+      },
+      "total_cpu_us_per_message": {
+        "median": 325.390243902439,
+        "min": 310.8333333333333,
+        "max": 334.5325203252033
+      },
+      "server_cpu_us_per_message": {
+        "median": 154.8089430894309,
+        "min": 148.16666666666666,
+        "max": 160.76829268292684
+      },
+      "client_cpu_us_per_message": {
+        "median": 172.76829268292684,
+        "min": 162.66666666666666,
+        "max": 174.4268292682927
+      },
+      "duration_ms": {
+        "median": 73.332704,
+        "min": 71.125753,
+        "max": 81.173229
+      },
+      "messages_per_second": {
+        "median": 3354.574242891684,
+        "min": 3030.555800607611,
+        "max": 3458.662855913806
+      },
+      "rtt_p50_ms": {
+        "median": 0.226637,
+        "min": 0.218067,
+        "max": 0.235188
+      },
+      "rtt_p95_ms": {
+        "median": 0.669971,
+        "min": 0.60691,
+        "max": 0.747814
+      },
+      "delivery_p95_ms": {
+        "median": 0.428324,
+        "min": 0.368312,
+        "max": 0.473605
+      },
+      "connect_ms": {
+        "median": 2.77762,
+        "min": 2.659506,
+        "max": 3.023008
+      },
+      "first_message_ms": {
+        "median": 7.561684,
+        "min": 7.334077,
+        "max": 9.134957
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 1624,
+        "min": 1624,
+        "max": 1624
+      },
+      "proxy_max_queue": {
+        "median": 655,
+        "min": 655,
+        "max": 655
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "reconnect",
+    "corpus": "dense",
+    "mode": "tcp-zstd",
+    "trials": 3,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 416746,
+        "min": 416666,
+        "max": 416748
+      },
+      "data_bytes": {
+        "median": 416746,
+        "min": 416666,
+        "max": 416748
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 411070,
+        "min": 411070,
+        "max": 411070
+      },
+      "down_payload_bytes": {
+        "median": 411070,
+        "min": 411070,
+        "max": 411070
+      },
+      "up_data_bytes": {
+        "median": 5676,
+        "min": 5596,
+        "max": 5678
+      },
+      "total_cpu_us_per_message": {
+        "median": 575.5162601626016,
+        "min": 566.6747967479674,
+        "max": 585.4186991869918
+      },
+      "server_cpu_us_per_message": {
+        "median": 304.0325203252033,
+        "min": 296.2439024390244,
+        "max": 309.0934959349593
+      },
+      "client_cpu_us_per_message": {
+        "median": 271.4837398373984,
+        "min": 270.4308943089431,
+        "max": 276.3252032520325
+      },
+      "duration_ms": {
+        "median": 528.49934,
+        "min": 518.789776,
+        "max": 543.500617
+      },
+      "messages_per_second": {
+        "median": 465.4688878135591,
+        "min": 452.6213812927465,
+        "max": 474.1805089081016
+      },
+      "rtt_p50_ms": {
+        "median": 32.284827,
+        "min": 31.9669,
+        "max": 32.571164
+      },
+      "rtt_p95_ms": {
+        "median": 35.606628,
+        "min": 34.982102,
+        "max": 45.541542
+      },
+      "delivery_p95_ms": {
+        "median": 19.199947,
+        "min": 18.54302,
+        "max": 28.482163
+      },
+      "connect_ms": {
+        "median": 4.769931,
+        "min": 4.570726,
+        "max": 4.929586
+      },
+      "first_message_ms": {
+        "median": 43.598167,
+        "min": 40.36663,
+        "max": 49.417808
+      },
+      "reconnect_first_ms": {
+        "median": 34.011944,
+        "min": 33.967253,
+        "max": 34.362865
+      },
+      "endpoint_max_queue": {
+        "median": 89552,
+        "min": 89552,
+        "max": 89552
+      },
+      "proxy_max_queue": {
+        "median": 27560,
+        "min": 27560,
+        "max": 27560
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "reconnect",
+    "corpus": "dense",
+    "mode": "websocket-deflate",
+    "trials": 3,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 435216,
+        "min": 435216,
+        "max": 435216
+      },
+      "data_bytes": {
+        "median": 434326,
+        "min": 434326,
+        "max": 434326
+      },
+      "handshake_bytes": {
+        "median": 890,
+        "min": 890,
+        "max": 890
+      },
+      "down_data_bytes": {
+        "median": 421875,
+        "min": 421875,
+        "max": 421875
+      },
+      "down_payload_bytes": {
+        "median": 420891,
+        "min": 420891,
+        "max": 420891
+      },
+      "up_data_bytes": {
+        "median": 12451,
+        "min": 12451,
+        "max": 12451
+      },
+      "total_cpu_us_per_message": {
+        "median": 260.5081300813008,
+        "min": 254.28048780487805,
+        "max": 272.2967479674797
+      },
+      "server_cpu_us_per_message": {
+        "median": 167.52032520325204,
+        "min": 164.130081300813,
+        "max": 169.89837398373984
+      },
+      "client_cpu_us_per_message": {
+        "median": 92.98780487804878,
+        "min": 90.15040650406505,
+        "max": 102.39837398373983
+      },
+      "duration_ms": {
+        "median": 544.908215,
+        "min": 540.312299,
+        "max": 546.867138
+      },
+      "messages_per_second": {
+        "median": 451.4521771340885,
+        "min": 449.83503835990234,
+        "max": 455.29224571658324
+      },
+      "rtt_p50_ms": {
+        "median": 31.750155,
+        "min": 31.548568,
+        "max": 32.00534
+      },
+      "rtt_p95_ms": {
+        "median": 33.667166,
+        "min": 33.563465,
+        "max": 35.342911
+      },
+      "delivery_p95_ms": {
+        "median": 17.002309,
+        "min": 16.988437,
+        "max": 17.360988
+      },
+      "connect_ms": {
+        "median": 33.274914,
+        "min": 32.925196,
+        "max": 33.7169
+      },
+      "first_message_ms": {
+        "median": 66.312262,
+        "min": 65.871233,
+        "max": 66.7296
+      },
+      "reconnect_first_ms": {
+        "median": 65.456945,
+        "min": 64.648296,
+        "max": 65.708149
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 28531,
+        "min": 28531,
+        "max": 28531
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "reconnect",
+    "corpus": "dense",
+    "mode": "websocket-zstd",
+    "trials": 3,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 420120,
+        "min": 420006,
+        "max": 420122
+      },
+      "data_bytes": {
+        "median": 419462,
+        "min": 419348,
+        "max": 419464
+      },
+      "handshake_bytes": {
+        "median": 658,
+        "min": 658,
+        "max": 658
+      },
+      "down_data_bytes": {
+        "median": 412142,
+        "min": 412142,
+        "max": 412142
+      },
+      "down_payload_bytes": {
+        "median": 411070,
+        "min": 411070,
+        "max": 411070
+      },
+      "up_data_bytes": {
+        "median": 7320,
+        "min": 7206,
+        "max": 7322
+      },
+      "total_cpu_us_per_message": {
+        "median": 574.6178861788618,
+        "min": 536.760162601626,
+        "max": 576.9837398373984
+      },
+      "server_cpu_us_per_message": {
+        "median": 297.780487804878,
+        "min": 280.9268292682927,
+        "max": 303.3292682926829
+      },
+      "client_cpu_us_per_message": {
+        "median": 273.6544715447154,
+        "min": 255.83333333333334,
+        "max": 276.8373983739837
+      },
+      "duration_ms": {
+        "median": 558.434105,
+        "min": 552.513124,
+        "max": 559.791601
+      },
+      "messages_per_second": {
+        "median": 440.5175074326809,
+        "min": 439.44925140096916,
+        "max": 445.23829265637505
+      },
+      "rtt_p50_ms": {
+        "median": 32.203164,
+        "min": 31.849988,
+        "max": 32.31276
+      },
+      "rtt_p95_ms": {
+        "median": 36.088324,
+        "min": 35.70594,
+        "max": 36.312862
+      },
+      "delivery_p95_ms": {
+        "median": 18.857018,
+        "min": 18.682826,
+        "max": 19.231299
+      },
+      "connect_ms": {
+        "median": 34.342835,
+        "min": 34.014878,
+        "max": 34.365303
+      },
+      "first_message_ms": {
+        "median": 70.910672,
+        "min": 69.99713,
+        "max": 71.727068
+      },
+      "reconnect_first_ms": {
+        "median": 66.263234,
+        "min": 65.64553,
+        "max": 66.354661
+      },
+      "endpoint_max_queue": {
+        "median": 89552,
+        "min": 89552,
+        "max": 89552
+      },
+      "proxy_max_queue": {
+        "median": 27628,
+        "min": 27628,
+        "max": 27628
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "claude",
+    "mode": "tcp",
+    "trials": 7,
+    "messages": 46,
+    "raw_bytes": 92677,
+    "metrics": {
+      "socket_bytes": {
+        "median": 94717,
+        "min": 94717,
+        "max": 94717
+      },
+      "data_bytes": {
+        "median": 94717,
+        "min": 94717,
+        "max": 94717
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 92677,
+        "min": 92677,
+        "max": 92677
+      },
+      "down_payload_bytes": {
+        "median": 92677,
+        "min": 92677,
+        "max": 92677
+      },
+      "up_data_bytes": {
+        "median": 2040,
+        "min": 2040,
+        "max": 2040
+      },
+      "total_cpu_us_per_message": {
+        "median": 153.58695652173913,
+        "min": 128.58695652173913,
+        "max": 155.91304347826087
+      },
+      "server_cpu_us_per_message": {
+        "median": 72.32608695652173,
+        "min": 61.84782608695652,
+        "max": 75.23913043478261
+      },
+      "client_cpu_us_per_message": {
+        "median": 79.43478260869566,
+        "min": 66.73913043478261,
+        "max": 81.67391304347827
+      },
+      "duration_ms": {
+        "median": 3.485773,
+        "min": 2.970376,
+        "max": 3.610787
+      },
+      "messages_per_second": {
+        "median": 13196.499026184436,
+        "min": 12739.604967005807,
+        "max": 15486.254938768696
+      },
+      "rtt_p50_ms": {
+        "median": 0.870278,
+        "min": 0.705842,
+        "max": 1.049554
+      },
+      "rtt_p95_ms": {
+        "median": 1.332493,
+        "min": 1.126876,
+        "max": 1.470937
+      },
+      "delivery_p95_ms": {
+        "median": 0.548608,
+        "min": 0.467785,
+        "max": 0.578099
+      },
+      "connect_ms": {
+        "median": 4.02435,
+        "min": 3.804033,
+        "max": 4.141264
+      },
+      "first_message_ms": {
+        "median": 5.537029,
+        "min": 5.134397,
+        "max": 5.708355
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 9172,
+        "min": 9172,
+        "max": 10536
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "claude",
+    "mode": "tcp-zstd",
+    "trials": 7,
+    "messages": 46,
+    "raw_bytes": 92677,
+    "metrics": {
+      "socket_bytes": {
+        "median": 6082,
+        "min": 6074,
+        "max": 6087
+      },
+      "data_bytes": {
+        "median": 6082,
+        "min": 6074,
+        "max": 6087
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 5011,
+        "min": 5011,
+        "max": 5011
+      },
+      "down_payload_bytes": {
+        "median": 5011,
+        "min": 5011,
+        "max": 5011
+      },
+      "up_data_bytes": {
+        "median": 1071,
+        "min": 1063,
+        "max": 1076
+      },
+      "total_cpu_us_per_message": {
+        "median": 442.9782608695652,
+        "min": 417.80434782608694,
+        "max": 494.3478260869565
+      },
+      "server_cpu_us_per_message": {
+        "median": 217.06521739130434,
+        "min": 201.6086956521739,
+        "max": 239.41304347826087
+      },
+      "client_cpu_us_per_message": {
+        "median": 231.58695652173913,
+        "min": 216.19565217391303,
+        "max": 254.93478260869566
+      },
+      "duration_ms": {
+        "median": 10.174089,
+        "min": 9.467217,
+        "max": 11.376768
+      },
+      "messages_per_second": {
+        "median": 4521.289326248276,
+        "min": 4043.327595324085,
+        "max": 4858.872464843682
+      },
+      "rtt_p50_ms": {
+        "median": 3.015958,
+        "min": 2.729758,
+        "max": 3.267396
+      },
+      "rtt_p95_ms": {
+        "median": 5.059803,
+        "min": 4.407953,
+        "max": 5.628972
+      },
+      "delivery_p95_ms": {
+        "median": 2.682907,
+        "min": 2.068037,
+        "max": 2.874642
+      },
+      "connect_ms": {
+        "median": 3.981339,
+        "min": 3.349408,
+        "max": 4.296018
+      },
+      "first_message_ms": {
+        "median": 8.497445,
+        "min": 7.147182,
+        "max": 9.007501
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 41206,
+        "min": 41206,
+        "max": 41206
+      },
+      "proxy_max_queue": {
+        "median": 692,
+        "min": 692,
+        "max": 692
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "claude",
+    "mode": "websocket",
+    "trials": 7,
+    "messages": 46,
+    "raw_bytes": 92677,
+    "metrics": {
+      "socket_bytes": {
+        "median": 95512,
+        "min": 95512,
+        "max": 95512
+      },
+      "data_bytes": {
+        "median": 95183,
+        "min": 95183,
+        "max": 95183
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 92861,
+        "min": 92861,
+        "max": 92861
+      },
+      "down_payload_bytes": {
+        "median": 92677,
+        "min": 92677,
+        "max": 92677
+      },
+      "up_data_bytes": {
+        "median": 2322,
+        "min": 2322,
+        "max": 2322
+      },
+      "total_cpu_us_per_message": {
+        "median": 77.97826086956522,
+        "min": 65.04347826086956,
+        "max": 83.52173913043478
+      },
+      "server_cpu_us_per_message": {
+        "median": 35.84782608695652,
+        "min": 29.47826086956522,
+        "max": 41.32608695652174
+      },
+      "client_cpu_us_per_message": {
+        "median": 41.97826086956522,
+        "min": 35.56521739130435,
+        "max": 43.45652173913044
+      },
+      "duration_ms": {
+        "median": 2.16019,
+        "min": 1.817939,
+        "max": 3.199794
+      },
+      "messages_per_second": {
+        "median": 21294.423175739168,
+        "min": 14375.925450200859,
+        "max": 25303.379266301014
+      },
+      "rtt_p50_ms": {
+        "median": 0.59975,
+        "min": 0.506596,
+        "max": 0.979222
+      },
+      "rtt_p95_ms": {
+        "median": 0.853878,
+        "min": 0.739933,
+        "max": 1.277052
+      },
+      "delivery_p95_ms": {
+        "median": 0.796696,
+        "min": 0.691582,
+        "max": 0.970491
+      },
+      "connect_ms": {
+        "median": 1.886651,
+        "min": 1.800208,
+        "max": 1.908462
+      },
+      "first_message_ms": {
+        "median": 2.79144,
+        "min": 2.643825,
+        "max": 2.864153
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 32768,
+        "min": 32768,
+        "max": 41270
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "claude",
+    "mode": "websocket-deflate",
+    "trials": 7,
+    "messages": 46,
+    "raw_bytes": 92677,
+    "metrics": {
+      "socket_bytes": {
+        "median": 8059,
+        "min": 8059,
+        "max": 8059
+      },
+      "data_bytes": {
+        "median": 7614,
+        "min": 7614,
+        "max": 7614
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 5292,
+        "min": 5292,
+        "max": 5292
+      },
+      "down_payload_bytes": {
+        "median": 5182,
+        "min": 5182,
+        "max": 5182
+      },
+      "up_data_bytes": {
+        "median": 2322,
+        "min": 2322,
+        "max": 2322
+      },
+      "total_cpu_us_per_message": {
+        "median": 94.0,
+        "min": 91.06521739130434,
+        "max": 102.32608695652173
+      },
+      "server_cpu_us_per_message": {
+        "median": 48.91304347826087,
+        "min": 46.82608695652174,
+        "max": 57.67391304347826
+      },
+      "client_cpu_us_per_message": {
+        "median": 44.65217391304348,
+        "min": 44.23913043478261,
+        "max": 45.73913043478261
+      },
+      "duration_ms": {
+        "median": 2.597374,
+        "min": 2.500131,
+        "max": 2.994437
+      },
+      "messages_per_second": {
+        "median": 17710.194989246833,
+        "min": 15361.819266860515,
+        "max": 18399.035890519335
+      },
+      "rtt_p50_ms": {
+        "median": 0.758524,
+        "min": 0.738864,
+        "max": 0.772935
+      },
+      "rtt_p95_ms": {
+        "median": 0.94622,
+        "min": 0.93153,
+        "max": 0.965661
+      },
+      "delivery_p95_ms": {
+        "median": 0.843527,
+        "min": 0.838707,
+        "max": 0.861987
+      },
+      "connect_ms": {
+        "median": 2.16502,
+        "min": 1.948273,
+        "max": 2.523892
+      },
+      "first_message_ms": {
+        "median": 3.318087,
+        "min": 3.087569,
+        "max": 3.685159
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 2782,
+        "min": 2782,
+        "max": 2782
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "claude",
+    "mode": "websocket-zstd",
+    "trials": 7,
+    "messages": 46,
+    "raw_bytes": 92677,
+    "metrics": {
+      "socket_bytes": {
+        "median": 6816,
+        "min": 6810,
+        "max": 6817
+      },
+      "data_bytes": {
+        "median": 6487,
+        "min": 6481,
+        "max": 6488
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 5123,
+        "min": 5123,
+        "max": 5123
+      },
+      "down_payload_bytes": {
+        "median": 5011,
+        "min": 5011,
+        "max": 5011
+      },
+      "up_data_bytes": {
+        "median": 1364,
+        "min": 1358,
+        "max": 1365
+      },
+      "total_cpu_us_per_message": {
+        "median": 507.19565217391306,
+        "min": 440.0869565217391,
+        "max": 516.7826086956521
+      },
+      "server_cpu_us_per_message": {
+        "median": 249.95652173913044,
+        "min": 206.08695652173913,
+        "max": 254.02173913043478
+      },
+      "client_cpu_us_per_message": {
+        "median": 258.7608695652174,
+        "min": 234.0,
+        "max": 262.7608695652174
+      },
+      "duration_ms": {
+        "median": 11.554494,
+        "min": 10.146318,
+        "max": 12.463523
+      },
+      "messages_per_second": {
+        "median": 3981.134959263469,
+        "min": 3690.7702581364833,
+        "max": 4533.664330252609
+      },
+      "rtt_p50_ms": {
+        "median": 3.226725,
+        "min": 2.813831,
+        "max": 3.455202
+      },
+      "rtt_p95_ms": {
+        "median": 5.929192,
+        "min": 5.012182,
+        "max": 6.236282
+      },
+      "delivery_p95_ms": {
+        "median": 3.631797,
+        "min": 3.477192,
+        "max": 3.780882
+      },
+      "connect_ms": {
+        "median": 2.689807,
+        "min": 2.625795,
+        "max": 2.877034
+      },
+      "first_message_ms": {
+        "median": 7.698079,
+        "min": 7.347018,
+        "max": 7.956618
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 41206,
+        "min": 41206,
+        "max": 41206
+      },
+      "proxy_max_queue": {
+        "median": 696,
+        "min": 696,
+        "max": 696
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "codex",
+    "mode": "tcp",
+    "trials": 7,
+    "messages": 78,
+    "raw_bytes": 218275,
+    "metrics": {
+      "socket_bytes": {
+        "median": 221723,
+        "min": 221723,
+        "max": 221723
+      },
+      "data_bytes": {
+        "median": 221723,
+        "min": 221723,
+        "max": 221723
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 218275,
+        "min": 218275,
+        "max": 218275
+      },
+      "down_payload_bytes": {
+        "median": 218275,
+        "min": 218275,
+        "max": 218275
+      },
+      "up_data_bytes": {
+        "median": 3448,
+        "min": 3448,
+        "max": 3448
+      },
+      "total_cpu_us_per_message": {
+        "median": 118.52564102564102,
+        "min": 116.01282051282051,
+        "max": 123.32051282051282
+      },
+      "server_cpu_us_per_message": {
+        "median": 59.44871794871795,
+        "min": 58.52564102564103,
+        "max": 61.46153846153846
+      },
+      "client_cpu_us_per_message": {
+        "median": 59.94871794871795,
+        "min": 56.333333333333336,
+        "max": 61.85897435897436
+      },
+      "duration_ms": {
+        "median": 4.827347,
+        "min": 4.747903,
+        "max": 5.431426
+      },
+      "messages_per_second": {
+        "median": 16157.943483242452,
+        "min": 14360.869502778827,
+        "max": 16428.305296043327
+      },
+      "rtt_p50_ms": {
+        "median": 0.737794,
+        "min": 0.672002,
+        "max": 0.894999
+      },
+      "rtt_p95_ms": {
+        "median": 1.390125,
+        "min": 1.327623,
+        "max": 1.498629
+      },
+      "delivery_p95_ms": {
+        "median": 0.583309,
+        "min": 0.558198,
+        "max": 1.2197
+      },
+      "connect_ms": {
+        "median": 4.01903,
+        "min": 3.939948,
+        "max": 4.288789
+      },
+      "first_message_ms": {
+        "median": 5.602772,
+        "min": 5.480627,
+        "max": 5.85063
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 16462,
+        "min": 13647,
+        "max": 46197
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "codex",
+    "mode": "tcp-zstd",
+    "trials": 7,
+    "messages": 78,
+    "raw_bytes": 218275,
+    "metrics": {
+      "socket_bytes": {
+        "median": 9183,
+        "min": 9171,
+        "max": 9188
+      },
+      "data_bytes": {
+        "median": 9183,
+        "min": 9171,
+        "max": 9188
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 7404,
+        "min": 7404,
+        "max": 7404
+      },
+      "down_payload_bytes": {
+        "median": 7404,
+        "min": 7404,
+        "max": 7404
+      },
+      "up_data_bytes": {
+        "median": 1779,
+        "min": 1767,
+        "max": 1784
+      },
+      "total_cpu_us_per_message": {
+        "median": 404.61538461538464,
+        "min": 362.6025641025641,
+        "max": 426.2564102564103
+      },
+      "server_cpu_us_per_message": {
+        "median": 195.85897435897436,
+        "min": 173.56410256410257,
+        "max": 211.3846153846154
+      },
+      "client_cpu_us_per_message": {
+        "median": 208.48717948717947,
+        "min": 189.03846153846155,
+        "max": 214.87179487179486
+      },
+      "duration_ms": {
+        "median": 15.784041,
+        "min": 14.672835,
+        "max": 16.550936
+      },
+      "messages_per_second": {
+        "median": 4941.7002908190625,
+        "min": 4712.724404227048,
+        "max": 5315.946100395732
+      },
+      "rtt_p50_ms": {
+        "median": 2.810851,
+        "min": 2.517912,
+        "max": 2.888934
+      },
+      "rtt_p95_ms": {
+        "median": 4.700632,
+        "min": 4.369752,
+        "max": 5.032943
+      },
+      "delivery_p95_ms": {
+        "median": 2.946365,
+        "min": 2.46017,
+        "max": 3.375539
+      },
+      "connect_ms": {
+        "median": 4.002629,
+        "min": 3.736101,
+        "max": 4.073213
+      },
+      "first_message_ms": {
+        "median": 8.582238,
+        "min": 7.559645,
+        "max": 8.796314
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 39344,
+        "min": 39344,
+        "max": 45663
+      },
+      "proxy_max_queue": {
+        "median": 688,
+        "min": 688,
+        "max": 688
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "codex",
+    "mode": "websocket",
+    "trials": 7,
+    "messages": 78,
+    "raw_bytes": 218275,
+    "metrics": {
+      "socket_bytes": {
+        "median": 222838,
+        "min": 222838,
+        "max": 222838
+      },
+      "data_bytes": {
+        "median": 222509,
+        "min": 222509,
+        "max": 222509
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 218587,
+        "min": 218587,
+        "max": 218587
+      },
+      "down_payload_bytes": {
+        "median": 218275,
+        "min": 218275,
+        "max": 218275
+      },
+      "up_data_bytes": {
+        "median": 3922,
+        "min": 3922,
+        "max": 3922
+      },
+      "total_cpu_us_per_message": {
+        "median": 67.16666666666667,
+        "min": 55.34615384615385,
+        "max": 70.51282051282051
+      },
+      "server_cpu_us_per_message": {
+        "median": 33.8974358974359,
+        "min": 27.67948717948718,
+        "max": 37.56410256410256
+      },
+      "client_cpu_us_per_message": {
+        "median": 33.07692307692308,
+        "min": 27.666666666666668,
+        "max": 33.35897435897436
+      },
+      "duration_ms": {
+        "median": 3.327098,
+        "min": 2.742669,
+        "max": 4.245278
+      },
+      "messages_per_second": {
+        "median": 23443.854073429757,
+        "min": 18373.355054721975,
+        "max": 28439.450768576156
+      },
+      "rtt_p50_ms": {
+        "median": 0.589329,
+        "min": 0.496206,
+        "max": 0.634941
+      },
+      "rtt_p95_ms": {
+        "median": 0.897389,
+        "min": 0.741944,
+        "max": 1.605042
+      },
+      "delivery_p95_ms": {
+        "median": 0.695952,
+        "min": 0.613049,
+        "max": 1.262561
+      },
+      "connect_ms": {
+        "median": 1.857141,
+        "min": 1.595361,
+        "max": 2.529802
+      },
+      "first_message_ms": {
+        "median": 2.786881,
+        "min": 2.403068,
+        "max": 3.501293
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 39408,
+        "min": 32768,
+        "max": 47226
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "codex",
+    "mode": "websocket-deflate",
+    "trials": 7,
+    "messages": 78,
+    "raw_bytes": 218275,
+    "metrics": {
+      "socket_bytes": {
+        "median": 13148,
+        "min": 13148,
+        "max": 13148
+      },
+      "data_bytes": {
+        "median": 12703,
+        "min": 12703,
+        "max": 12703
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 8781,
+        "min": 8781,
+        "max": 8781
+      },
+      "down_payload_bytes": {
+        "median": 8595,
+        "min": 8595,
+        "max": 8595
+      },
+      "up_data_bytes": {
+        "median": 3922,
+        "min": 3922,
+        "max": 3922
+      },
+      "total_cpu_us_per_message": {
+        "median": 84.3974358974359,
+        "min": 79.56410256410257,
+        "max": 88.41025641025641
+      },
+      "server_cpu_us_per_message": {
+        "median": 48.743589743589745,
+        "min": 44.96153846153846,
+        "max": 52.15384615384615
+      },
+      "client_cpu_us_per_message": {
+        "median": 35.833333333333336,
+        "min": 34.6025641025641,
+        "max": 36.256410256410255
+      },
+      "duration_ms": {
+        "median": 4.146514,
+        "min": 3.791582,
+        "max": 4.576058
+      },
+      "messages_per_second": {
+        "median": 18810.981947727658,
+        "min": 17045.238500036496,
+        "max": 20571.887934904218
+      },
+      "rtt_p50_ms": {
+        "median": 0.713843,
+        "min": 0.664681,
+        "max": 0.799406
+      },
+      "rtt_p95_ms": {
+        "median": 0.977812,
+        "min": 0.898419,
+        "max": 1.155788
+      },
+      "delivery_p95_ms": {
+        "median": 0.723813,
+        "min": 0.627361,
+        "max": 0.91206
+      },
+      "connect_ms": {
+        "median": 2.191441,
+        "min": 1.778148,
+        "max": 2.329285
+      },
+      "first_message_ms": {
+        "median": 3.313648,
+        "min": 2.736459,
+        "max": 3.582476
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 2465,
+        "min": 2465,
+        "max": 2465
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "codex",
+    "mode": "websocket-zstd",
+    "trials": 7,
+    "messages": 78,
+    "raw_bytes": 218275,
+    "metrics": {
+      "socket_bytes": {
+        "median": 10173,
+        "min": 10151,
+        "max": 10188
+      },
+      "data_bytes": {
+        "median": 9844,
+        "min": 9822,
+        "max": 9859
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 7582,
+        "min": 7582,
+        "max": 7582
+      },
+      "down_payload_bytes": {
+        "median": 7404,
+        "min": 7404,
+        "max": 7404
+      },
+      "up_data_bytes": {
+        "median": 2262,
+        "min": 2240,
+        "max": 2277
+      },
+      "total_cpu_us_per_message": {
+        "median": 455.65384615384613,
+        "min": 427.4102564102564,
+        "max": 484.3076923076923
+      },
+      "server_cpu_us_per_message": {
+        "median": 223.84615384615384,
+        "min": 205.9102564102564,
+        "max": 235.16666666666666
+      },
+      "client_cpu_us_per_message": {
+        "median": 230.05128205128204,
+        "min": 219.07692307692307,
+        "max": 249.14102564102564
+      },
+      "duration_ms": {
+        "median": 17.60773,
+        "min": 16.650299,
+        "max": 18.766638
+      },
+      "messages_per_second": {
+        "median": 4429.872561653319,
+        "min": 4156.311855112247,
+        "max": 4684.600558824799
+      },
+      "rtt_p50_ms": {
+        "median": 2.982796,
+        "min": 2.799931,
+        "max": 3.201184
+      },
+      "rtt_p95_ms": {
+        "median": 5.88974,
+        "min": 4.734034,
+        "max": 6.197911
+      },
+      "delivery_p95_ms": {
+        "median": 3.566746,
+        "min": 3.161892,
+        "max": 4.00453
+      },
+      "connect_ms": {
+        "median": 2.79115,
+        "min": 2.629965,
+        "max": 2.977567
+      },
+      "first_message_ms": {
+        "median": 7.546944,
+        "min": 6.715688,
+        "max": 7.875094
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 39344,
+        "min": 39344,
+        "max": 39344
+      },
+      "proxy_max_queue": {
+        "median": 692,
+        "min": 692,
+        "max": 692
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "dense",
+    "mode": "tcp",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 1359830,
+        "min": 1359830,
+        "max": 1359830
+      },
+      "data_bytes": {
+        "median": 1359830,
+        "min": 1359830,
+        "max": 1359830
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 1348844,
+        "min": 1348844,
+        "max": 1348844
+      },
+      "down_payload_bytes": {
+        "median": 1348844,
+        "min": 1348844,
+        "max": 1348844
+      },
+      "up_data_bytes": {
+        "median": 10986,
+        "min": 10986,
+        "max": 10986
+      },
+      "total_cpu_us_per_message": {
+        "median": 94.36178861788618,
+        "min": 82.3821138211382,
+        "max": 97.89430894308943
+      },
+      "server_cpu_us_per_message": {
+        "median": 45.46341463414634,
+        "min": 42.66260162601626,
+        "max": 48.23170731707317
+      },
+      "client_cpu_us_per_message": {
+        "median": 47.6910569105691,
+        "min": 39.71951219512195,
+        "max": 49.67886178861789
+      },
+      "duration_ms": {
+        "median": 12.280968,
+        "min": 10.733957,
+        "max": 15.491822
+      },
+      "messages_per_second": {
+        "median": 20030.99429947216,
+        "min": 15879.345889721686,
+        "max": 22917.922998946244
+      },
+      "rtt_p50_ms": {
+        "median": 0.744654,
+        "min": 0.392793,
+        "max": 0.756885
+      },
+      "rtt_p95_ms": {
+        "median": 1.310323,
+        "min": 1.184239,
+        "max": 3.929638
+      },
+      "delivery_p95_ms": {
+        "median": 0.806386,
+        "min": 0.62491,
+        "max": 1.005813
+      },
+      "connect_ms": {
+        "median": 4.096463,
+        "min": 3.805853,
+        "max": 4.275678
+      },
+      "first_message_ms": {
+        "median": 5.684964,
+        "min": 5.134586,
+        "max": 5.862959
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 28926,
+        "min": 27985,
+        "max": 44776
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "dense",
+    "mode": "tcp-zstd",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 416728,
+        "min": 416551,
+        "max": 416841
+      },
+      "data_bytes": {
+        "median": 416728,
+        "min": 416551,
+        "max": 416841
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 411090,
+        "min": 411090,
+        "max": 411090
+      },
+      "down_payload_bytes": {
+        "median": 411090,
+        "min": 411090,
+        "max": 411090
+      },
+      "up_data_bytes": {
+        "median": 5638,
+        "min": 5461,
+        "max": 5751
+      },
+      "total_cpu_us_per_message": {
+        "median": 385.5975609756098,
+        "min": 376.280487804878,
+        "max": 400.2073170731707
+      },
+      "server_cpu_us_per_message": {
+        "median": 198.77235772357724,
+        "min": 193.6788617886179,
+        "max": 206.33739837398375
+      },
+      "client_cpu_us_per_message": {
+        "median": 187.22764227642276,
+        "min": 182.28861788617886,
+        "max": 193.869918699187
+      },
+      "duration_ms": {
+        "median": 50.740652,
+        "min": 48.688333,
+        "max": 52.541438
+      },
+      "messages_per_second": {
+        "median": 4848.18366149493,
+        "min": 4682.01879057821,
+        "max": 5052.545134375416
+      },
+      "rtt_p50_ms": {
+        "median": 3.101181,
+        "min": 2.992217,
+        "max": 3.205703
+      },
+      "rtt_p95_ms": {
+        "median": 5.209578,
+        "min": 4.714013,
+        "max": 5.798517
+      },
+      "delivery_p95_ms": {
+        "median": 3.925787,
+        "min": 3.636968,
+        "max": 4.307819
+      },
+      "connect_ms": {
+        "median": 4.047491,
+        "min": 3.467762,
+        "max": 4.104933
+      },
+      "first_message_ms": {
+        "median": 8.691071,
+        "min": 7.354908,
+        "max": 8.793454
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 89552,
+        "min": 89552,
+        "max": 89552
+      },
+      "proxy_max_queue": {
+        "median": 5093,
+        "min": 2309,
+        "max": 15412
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "dense",
+    "mode": "websocket",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 1362625,
+        "min": 1362625,
+        "max": 1362625
+      },
+      "data_bytes": {
+        "median": 1362296,
+        "min": 1362296,
+        "max": 1362296
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 1349828,
+        "min": 1349828,
+        "max": 1349828
+      },
+      "down_payload_bytes": {
+        "median": 1348844,
+        "min": 1348844,
+        "max": 1348844
+      },
+      "up_data_bytes": {
+        "median": 12468,
+        "min": 12468,
+        "max": 12468
+      },
+      "total_cpu_us_per_message": {
+        "median": 56.51219512195122,
+        "min": 53.853658536585364,
+        "max": 58.2479674796748
+      },
+      "server_cpu_us_per_message": {
+        "median": 25.971544715447155,
+        "min": 24.19918699186992,
+        "max": 27.678861788617887
+      },
+      "client_cpu_us_per_message": {
+        "median": 30.052845528455286,
+        "min": 29.528455284552845,
+        "max": 30.715447154471544
+      },
+      "duration_ms": {
+        "median": 8.900318,
+        "min": 8.295129,
+        "max": 9.699014
+      },
+      "messages_per_second": {
+        "median": 27639.461870912924,
+        "min": 25363.40291910085,
+        "max": 29655.958334101862
+      },
+      "rtt_p50_ms": {
+        "median": 0.534627,
+        "min": 0.428964,
+        "max": 0.597969
+      },
+      "rtt_p95_ms": {
+        "median": 0.953911,
+        "min": 0.893899,
+        "max": 1.150238
+      },
+      "delivery_p95_ms": {
+        "median": 0.778635,
+        "min": 0.735784,
+        "max": 0.93333
+      },
+      "connect_ms": {
+        "median": 1.989974,
+        "min": 1.913602,
+        "max": 2.061456
+      },
+      "first_message_ms": {
+        "median": 3.026478,
+        "min": 2.923585,
+        "max": 3.282166
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 65483,
+        "min": 62542,
+        "max": 89616
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "dense",
+    "mode": "websocket-deflate",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 434246,
+        "min": 434246,
+        "max": 434246
+      },
+      "data_bytes": {
+        "median": 433801,
+        "min": 433801,
+        "max": 433801
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 421333,
+        "min": 421333,
+        "max": 421333
+      },
+      "down_payload_bytes": {
+        "median": 420349,
+        "min": 420349,
+        "max": 420349
+      },
+      "up_data_bytes": {
+        "median": 12468,
+        "min": 12468,
+        "max": 12468
+      },
+      "total_cpu_us_per_message": {
+        "median": 130.39837398373984,
+        "min": 122.0691056910569,
+        "max": 132.23170731707316
+      },
+      "server_cpu_us_per_message": {
+        "median": 86.91463414634147,
+        "min": 81.09349593495935,
+        "max": 88.16666666666667
+      },
+      "client_cpu_us_per_message": {
+        "median": 43.483739837398375,
+        "min": 40.97560975609756,
+        "max": 44.199186991869915
+      },
+      "duration_ms": {
+        "median": 21.95917,
+        "min": 20.507864,
+        "max": 22.216058
+      },
+      "messages_per_second": {
+        "median": 11202.609206085657,
+        "min": 11073.071559319838,
+        "max": 11995.39844812702
+      },
+      "rtt_p50_ms": {
+        "median": 1.357904,
+        "min": 1.185938,
+        "max": 1.425276
+      },
+      "rtt_p95_ms": {
+        "median": 1.82632,
+        "min": 1.706455,
+        "max": 1.974974
+      },
+      "delivery_p95_ms": {
+        "median": 1.23777,
+        "min": 1.185618,
+        "max": 1.299882
+      },
+      "connect_ms": {
+        "median": 2.296564,
+        "min": 1.938603,
+        "max": 3.260765
+      },
+      "first_message_ms": {
+        "median": 4.372361,
+        "min": 3.859145,
+        "max": 5.343943
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 28531,
+        "min": 28531,
+        "max": 28531
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "dense",
+    "mode": "websocket-zstd",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "metrics": {
+      "socket_bytes": {
+        "median": 419542,
+        "min": 419523,
+        "max": 419564
+      },
+      "data_bytes": {
+        "median": 419213,
+        "min": 419194,
+        "max": 419235
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 412156,
+        "min": 412156,
+        "max": 412156
+      },
+      "down_payload_bytes": {
+        "median": 411090,
+        "min": 411090,
+        "max": 411090
+      },
+      "up_data_bytes": {
+        "median": 7057,
+        "min": 7038,
+        "max": 7079
+      },
+      "total_cpu_us_per_message": {
+        "median": 372.3211382113821,
+        "min": 337.5081300813008,
+        "max": 382.8048780487805
+      },
+      "server_cpu_us_per_message": {
+        "median": 188.8048780487805,
+        "min": 173.90243902439025,
+        "max": 199.109756097561
+      },
+      "client_cpu_us_per_message": {
+        "median": 183.390243902439,
+        "min": 163.60569105691056,
+        "max": 185.8861788617886
+      },
+      "duration_ms": {
+        "median": 46.69424,
+        "min": 43.220658,
+        "max": 49.412451
+      },
+      "messages_per_second": {
+        "median": 5268.31574943719,
+        "min": 4978.502280730822,
+        "max": 5691.722694272725
+      },
+      "rtt_p50_ms": {
+        "median": 2.561873,
+        "min": 2.314305,
+        "max": 3.022857
+      },
+      "rtt_p95_ms": {
+        "median": 5.772877,
+        "min": 5.148557,
+        "max": 5.995194
+      },
+      "delivery_p95_ms": {
+        "median": 3.171993,
+        "min": 2.977427,
+        "max": 3.764222
+      },
+      "connect_ms": {
+        "median": 2.855602,
+        "min": 2.631985,
+        "max": 3.002947
+      },
+      "first_message_ms": {
+        "median": 7.73955,
+        "min": 7.276116,
+        "max": 8.123563
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 89552,
+        "min": 89552,
+        "max": 89552
+      },
+      "proxy_max_queue": {
+        "median": 3563,
+        "min": 2313,
+        "max": 18883
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "sparse",
+    "mode": "tcp",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 395013,
+    "metrics": {
+      "socket_bytes": {
+        "median": 405999,
+        "min": 405999,
+        "max": 405999
+      },
+      "data_bytes": {
+        "median": 405999,
+        "min": 405999,
+        "max": 405999
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 395013,
+        "min": 395013,
+        "max": 395013
+      },
+      "down_payload_bytes": {
+        "median": 395013,
+        "min": 395013,
+        "max": 395013
+      },
+      "up_data_bytes": {
+        "median": 10986,
+        "min": 10986,
+        "max": 10986
+      },
+      "total_cpu_us_per_message": {
+        "median": 89.58943089430895,
+        "min": 74.32926829268293,
+        "max": 95.4959349593496
+      },
+      "server_cpu_us_per_message": {
+        "median": 44.9349593495935,
+        "min": 39.6869918699187,
+        "max": 47.58130081300813
+      },
+      "client_cpu_us_per_message": {
+        "median": 43.88211382113821,
+        "min": 34.642276422764226,
+        "max": 47.91463414634146
+      },
+      "duration_ms": {
+        "median": 11.969387,
+        "min": 9.863799,
+        "max": 13.57941
+      },
+      "messages_per_second": {
+        "median": 20552.43096409198,
+        "min": 18115.661873380363,
+        "max": 24939.68094848648
+      },
+      "rtt_p50_ms": {
+        "median": 0.588409,
+        "min": 0.337591,
+        "max": 0.762355
+      },
+      "rtt_p95_ms": {
+        "median": 1.420926,
+        "min": 1.318983,
+        "max": 1.920432
+      },
+      "delivery_p95_ms": {
+        "median": 0.705342,
+        "min": 0.484995,
+        "max": 1.303953
+      },
+      "connect_ms": {
+        "median": 3.989239,
+        "min": 3.381039,
+        "max": 4.345851
+      },
+      "first_message_ms": {
+        "median": 5.589991,
+        "min": 4.883588,
+        "max": 9.172938
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 8112,
+        "min": 6492,
+        "max": 12992
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "sparse",
+    "mode": "tcp-zstd",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 395013,
+    "metrics": {
+      "socket_bytes": {
+        "median": 21055,
+        "min": 20845,
+        "max": 21137
+      },
+      "data_bytes": {
+        "median": 21055,
+        "min": 20845,
+        "max": 21137
+      },
+      "handshake_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "down_data_bytes": {
+        "median": 15504,
+        "min": 15504,
+        "max": 15504
+      },
+      "down_payload_bytes": {
+        "median": 15504,
+        "min": 15504,
+        "max": 15504
+      },
+      "up_data_bytes": {
+        "median": 5551,
+        "min": 5341,
+        "max": 5633
+      },
+      "total_cpu_us_per_message": {
+        "median": 282.7073170731707,
+        "min": 264.6016260162602,
+        "max": 294.0853658536585
+      },
+      "server_cpu_us_per_message": {
+        "median": 135.9918699186992,
+        "min": 127.07723577235772,
+        "max": 140.72357723577235
+      },
+      "client_cpu_us_per_message": {
+        "median": 146.53658536585365,
+        "min": 135.8130081300813,
+        "max": 154.95934959349594
+      },
+      "duration_ms": {
+        "median": 36.313396,
+        "min": 34.049511,
+        "max": 38.958382
+      },
+      "messages_per_second": {
+        "median": 6774.359522860379,
+        "min": 6314.43061470058,
+        "max": 7224.773360181295
+      },
+      "rtt_p50_ms": {
+        "median": 2.025746,
+        "min": 1.896822,
+        "max": 2.265094
+      },
+      "rtt_p95_ms": {
+        "median": 4.282878,
+        "min": 3.985459,
+        "max": 5.003162
+      },
+      "delivery_p95_ms": {
+        "median": 2.639775,
+        "min": 2.144469,
+        "max": 2.921884
+      },
+      "connect_ms": {
+        "median": 4.121983,
+        "min": 3.363349,
+        "max": 4.323
+      },
+      "first_message_ms": {
+        "median": 8.584268,
+        "min": 7.44073,
+        "max": 9.009582
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 25957,
+        "min": 25957,
+        "max": 25957
+      },
+      "proxy_max_queue": {
+        "median": 651,
+        "min": 651,
+        "max": 709
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "sparse",
+    "mode": "websocket",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 395013,
+    "metrics": {
+      "socket_bytes": {
+        "median": 408794,
+        "min": 408794,
+        "max": 408794
+      },
+      "data_bytes": {
+        "median": 408465,
+        "min": 408465,
+        "max": 408465
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 395997,
+        "min": 395997,
+        "max": 395997
+      },
+      "down_payload_bytes": {
+        "median": 395013,
+        "min": 395013,
+        "max": 395013
+      },
+      "up_data_bytes": {
+        "median": 12468,
+        "min": 12468,
+        "max": 12468
+      },
+      "total_cpu_us_per_message": {
+        "median": 51.6910569105691,
+        "min": 47.05691056910569,
+        "max": 53.947154471544714
+      },
+      "server_cpu_us_per_message": {
+        "median": 25.36178861788618,
+        "min": 23.24390243902439,
+        "max": 27.41869918699187
+      },
+      "client_cpu_us_per_message": {
+        "median": 26.1869918699187,
+        "min": 23.8130081300813,
+        "max": 26.78048780487805
+      },
+      "duration_ms": {
+        "median": 7.646328,
+        "min": 6.749778,
+        "max": 8.247957
+      },
+      "messages_per_second": {
+        "median": 32172.305451714863,
+        "min": 29825.567713313736,
+        "max": 36445.64310115088
+      },
+      "rtt_p50_ms": {
+        "median": 0.434565,
+        "min": 0.411263,
+        "max": 0.461855
+      },
+      "rtt_p95_ms": {
+        "median": 0.839087,
+        "min": 0.743774,
+        "max": 1.028303
+      },
+      "delivery_p95_ms": {
+        "median": 0.730734,
+        "min": 0.582779,
+        "max": 0.768214
+      },
+      "connect_ms": {
+        "median": 1.884181,
+        "min": 1.691735,
+        "max": 2.262003
+      },
+      "first_message_ms": {
+        "median": 2.809511,
+        "min": 2.429529,
+        "max": 3.202344
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 26021,
+        "min": 26021,
+        "max": 26041
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "sparse",
+    "mode": "websocket-deflate",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 395013,
+    "metrics": {
+      "socket_bytes": {
+        "median": 31289,
+        "min": 31289,
+        "max": 31289
+      },
+      "data_bytes": {
+        "median": 30844,
+        "min": 30844,
+        "max": 30844
+      },
+      "handshake_bytes": {
+        "median": 445,
+        "min": 445,
+        "max": 445
+      },
+      "down_data_bytes": {
+        "median": 18376,
+        "min": 18376,
+        "max": 18376
+      },
+      "down_payload_bytes": {
+        "median": 17866,
+        "min": 17866,
+        "max": 17866
+      },
+      "up_data_bytes": {
+        "median": 12468,
+        "min": 12468,
+        "max": 12468
+      },
+      "total_cpu_us_per_message": {
+        "median": 59.28048780487805,
+        "min": 50.53252032520325,
+        "max": 62.63414634146341
+      },
+      "server_cpu_us_per_message": {
+        "median": 31.98780487804878,
+        "min": 27.25609756097561,
+        "max": 33.353658536585364
+      },
+      "client_cpu_us_per_message": {
+        "median": 27.857723577235774,
+        "min": 23.276422764227643,
+        "max": 29.28048780487805
+      },
+      "duration_ms": {
+        "median": 8.284489,
+        "min": 7.047579,
+        "max": 11.594745
+      },
+      "messages_per_second": {
+        "median": 29694.046307503093,
+        "min": 21216.50799564803,
+        "max": 34905.603754140255
+      },
+      "rtt_p50_ms": {
+        "median": 0.457084,
+        "min": 0.328791,
+        "max": 0.534177
+      },
+      "rtt_p95_ms": {
+        "median": 0.91733,
+        "min": 0.780805,
+        "max": 3.71225
+      },
+      "delivery_p95_ms": {
+        "median": 0.746614,
+        "min": 0.575638,
+        "max": 0.996042
+      },
+      "connect_ms": {
+        "median": 2.191611,
+        "min": 1.891131,
+        "max": 2.665186
+      },
+      "first_message_ms": {
+        "median": 3.192124,
+        "min": 2.890723,
+        "max": 3.793683
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "proxy_max_queue": {
+        "median": 1585,
+        "min": 1585,
+        "max": 1585
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  {
+    "scenario": "throughput",
+    "corpus": "sparse",
+    "mode": "websocket-zstd",
+    "trials": 7,
+    "messages": 246,
+    "raw_bytes": 395013,
+    "metrics": {
+      "socket_bytes": {
+        "median": 23420,
+        "min": 23331,
+        "max": 23581
+      },
+      "data_bytes": {
+        "median": 23091,
+        "min": 23002,
+        "max": 23252
+      },
+      "handshake_bytes": {
+        "median": 329,
+        "min": 329,
+        "max": 329
+      },
+      "down_data_bytes": {
+        "median": 16000,
+        "min": 16000,
+        "max": 16000
+      },
+      "down_payload_bytes": {
+        "median": 15504,
+        "min": 15504,
+        "max": 15504
+      },
+      "up_data_bytes": {
+        "median": 7091,
+        "min": 7002,
+        "max": 7252
+      },
+      "total_cpu_us_per_message": {
+        "median": 294.7926829268293,
+        "min": 275.1138211382114,
+        "max": 303.260162601626
+      },
+      "server_cpu_us_per_message": {
+        "median": 143.1178861788618,
+        "min": 134.0487804878049,
+        "max": 148.28861788617886
+      },
+      "client_cpu_us_per_message": {
+        "median": 150.3617886178862,
+        "min": 141.0650406504065,
+        "max": 155.8861788617886
+      },
+      "duration_ms": {
+        "median": 36.604115,
+        "min": 34.222996,
+        "max": 38.226678
+      },
+      "messages_per_second": {
+        "median": 6720.555871928606,
+        "min": 6435.296313218742,
+        "max": 7188.149161458569
+      },
+      "rtt_p50_ms": {
+        "median": 2.060326,
+        "min": 1.929733,
+        "max": 2.16775
+      },
+      "rtt_p95_ms": {
+        "median": 4.562917,
+        "min": 3.932427,
+        "max": 5.358474
+      },
+      "delivery_p95_ms": {
+        "median": 3.155493,
+        "min": 2.540432,
+        "max": 3.672508
+      },
+      "connect_ms": {
+        "median": 2.652606,
+        "min": 2.276623,
+        "max": 4.518616
+      },
+      "first_message_ms": {
+        "median": 7.39155,
+        "min": 6.287913,
+        "max": 9.495217
+      },
+      "reconnect_first_ms": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "endpoint_max_queue": {
+        "median": 25957,
+        "min": 25957,
+        "max": 25957
+      },
+      "proxy_max_queue": {
+        "median": 655,
+        "min": 655,
+        "max": 655
+      },
+      "freeze_bytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  }
+]

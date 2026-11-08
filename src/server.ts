@@ -36,11 +36,15 @@ import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import { testBuild } from "./build_assets";
 import * as agentRetry from "./agent_retry";
+import * as link from "./link";
 export class Server {
+  readonly instance = crypto.randomUUID();
   summaries: SummaryWorker | null = null;
   usage: UsageWorker | null = null;
   runtime = new Runtime();
   clients: Client[] = [];
+  /** Links by id, carried by a connection or waiting for one to resume them. */
+  links = new Map<string, link.Link>();
   theme = new Theme();
   started_at = Date.now();
   next_viewer = 1;
@@ -191,7 +195,7 @@ export class Server {
         pane.terminal.on("ioError", error => console.error("terminal:", error));
       }
   }
-  private wakeSeq(id: number): bigint {
+  wakeSeq(id: number): bigint {
     let seq = this.runtime.shown + this.bell_seq;
     for (const c of this.clients)
       if (c.viewer && c.viewer_id === id) {
@@ -204,7 +208,7 @@ export class Server {
     return BigInt.asUintN(64, seq);
   }
   private wakeViewer(c: Client): void {
-    if (!c.watching || c.dead || c.output.length > 0) return;
+    if (!c.watching || c.stream_data || c.dead || c.output.length > 0) return;
     const next = this.wakeSeq(c.watch_viewer);
     if (c.woken !== next) {
       c.woken = next;
@@ -212,6 +216,7 @@ export class Server {
     }
   }
   private wakeViewers(): void {
+    for (const c of this.clients) if (c.stream) viewer.publish(this, c, this.wakeSeq(c.viewer_id));
     for (const c of this.clients) this.wakeViewer(c);
   }
   private publish(): void {
@@ -342,12 +347,16 @@ export class Server {
       this.runtime.sessions.some(s => s.urgent())
     );
   }
-  pause(): void {
+  pause(requester?: Client, retainCompressed = false): void {
     this.frozen = true;
     clearInterval(this.timer);
     this.registration?.close();
     this.registration = undefined;
-    for (const c of this.clients) c.pause();
+    for (const c of this.clients) {
+      // Compression histories cannot be handed to another process. Links resume on a fresh stream.
+      if (c.compressed && c !== requester && !retainCompressed) c.close();
+      else c.pause();
+    }
     // Queue cancellation before handoff captures output; paused clients keep later input queued.
     for (const cancel of this.modelReads.values()) cancel();
     for (const p of this.runtime.panes) p.terminal.pause();
@@ -361,12 +370,13 @@ export class Server {
     this.startLoop();
   }
   addClient(fd: number, start = true): Client {
-    const client = new Client(
+    const client: Client = new Client(
       fd,
       this.loop,
       cl => {
         // A hook sender may close as soon as it has written, as `corgi hook`
-        // does; the event it sent still applies. Other requests die with their client.
+        // does; the event it sent still applies. Other requests die with their
+        // client; a numbered one comes again over the link once it's resumed.
         this.enqueue(async () => {
           if (cl.dead && cl.pending[0]?.op !== "hook") return;
           const v = cl.take();
@@ -374,7 +384,9 @@ export class Server {
           let reply = new Reply(cl);
           try {
             reply = new Reply(cl, protocol.requestId(v));
-            deferred = (await this.request(cl, v, reply)) === "deferred";
+            const seq = numbered(v, "seq");
+            if (seq !== null && cl.link) await this.once(cl, cl.link, seq, v, reply);
+            else deferred = (await this.request(cl, v, reply)) === "deferred";
           } catch (error) {
             const err = error instanceof Error ? error.message : String(error);
             // An invalid id is echoed as sent, so its client can still match the error.
@@ -388,6 +400,7 @@ export class Server {
         });
       },
       () => {
+        if (client.viewer) viewer.data(this, client)?.close();
         this.modelReads.get(client)?.();
         if (client.headless_start) {
           const session = this.runtime.sessions.find(s => s.id === client.headless_start!.id);
@@ -398,6 +411,7 @@ export class Server {
           }
           client.headless_start = null;
         }
+        this.detachLink(client);
         this.clients = this.clients.filter(c => !c.dead);
         this.dirty = true;
         void viewer.resize(this);
@@ -507,8 +521,12 @@ export class Server {
         account: inference?.account ?? "",
         file: settings.path(this.socket),
       }) || tracked;
-    if (viewers.length) this.resource_readings = viewers.some(c => c.resources);
-    if (this.resource_readings && (viewers.length || this.runtime.panes.length || this.runtime.sessions.length))
+    const resource_clients = this.clients.filter(c => !c.dead && (c.viewer || c.resource_observer));
+    if (resource_clients.length) this.resource_readings = resource_clients.some(c => c.resources);
+    if (
+      this.resource_readings &&
+      (resource_clients.length || this.runtime.panes.length || this.runtime.sessions.length)
+    )
       tracked =
         this.runtime.resources.tick(
           this.runtime,
@@ -520,6 +538,7 @@ export class Server {
     this.flushBell(now);
     const launcher_started = telemetry.begin();
     launch.sample(this);
+    this.expireLinks(now);
     for (const c of this.clients) launch.publish(this, c);
     telemetry.end("daemon.launcher", launcher_started);
     if (this.savedDurable !== this.runtime.durable) {
@@ -534,6 +553,91 @@ export class Server {
       }
     }
     this.publish();
+    this.wakeViewers();
+  }
+  /** Runs numbered request `seq` once. Sent again, it gets the reply it had. */
+  private async once(
+    cl: Client,
+    carried: link.Link,
+    seq: bigint,
+    v: unknown,
+    reply = new Reply(cl, protocol.requestId(v)),
+  ): Promise<void> {
+    const answered = numbered(v, "answered");
+    if (answered !== null) carried.confirm(answered);
+    const pending = carried.pending.get(seq);
+    if (pending) {
+      void pending.then(value => reply.send(value));
+      return;
+    }
+    const admitted = carried.admit(seq);
+    if (!admitted.run) return reply.send(admitted.reply as object);
+    let finish!: (value: object) => void;
+    const result = new Promise<object>(resolve => {
+      finish = resolve;
+    });
+    carried.pending.set(seq, result);
+    let sent = false;
+    const recorded = new Reply(cl, reply.id, value => {
+      if (sent) return;
+      sent = true;
+      carried.record(seq, value);
+      carried.pending.delete(seq);
+      finish(value);
+      reply.send(value);
+    });
+    try {
+      const op = protocol.parse(v);
+      if (op === null || !protocol.once(op)) throw Error("UnnumberedOperation");
+      await this.request(cl, v, recorded);
+    } catch (error) {
+      recorded.send({ err: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  /** Keeps a closed connection's link, with the viewer it carried, for a
+   * client to resume. */
+  private detachLink(cl: Client): void {
+    const carried = cl.link;
+    if (!carried) return;
+    cl.link = null;
+    if (cl.viewer)
+      carried.viewer = {
+        viewer_id: cl.viewer_id,
+        active_seq: cl.active_seq,
+        view_workspace: cl.view_workspace,
+        controls: [...cl.controls],
+        next_control: cl.next_control,
+        last_control: cl.last_control,
+      };
+    carried.detached_at = Date.now();
+  }
+  /** Gives `cl` the link `id`, taking it from a connection that still holds
+   * it, which a client resuming has given up on. */
+  private resumeLink(cl: Client, id: string): boolean {
+    const carried = this.links.get(id);
+    if (!carried) throw Error("NoLink");
+    if (cl.link || cl.viewer) throw Error("AlreadyAttached");
+    for (const other of this.clients)
+      if (other !== cl && other.link === carried) {
+        this.detachLink(other);
+        other.close();
+      }
+    cl.link = carried;
+    carried.detached_at = null;
+    const viewer = carried.viewer;
+    carried.viewer = null;
+    if (!viewer) return false;
+    cl.viewer = true;
+    cl.protocol_version = protocol.version;
+    Object.assign(cl, viewer);
+    return true;
+  }
+  /** Drops links no client came back for. */
+  private expireLinks(now: number): void {
+    const detached = [...this.links.values()].filter(l => l.detached_at !== null);
+    detached.sort((a, b) => a.detached_at! - b.detached_at!);
+    for (const [i, l] of detached.entries())
+      if (now - l.detached_at! > link.grace_ms || detached.length - i > link.detached_limit) this.links.delete(l.id);
   }
   async request(
     cl: Client,
@@ -554,21 +658,41 @@ export class Server {
     const request = protocol.decoded(op, v);
     if (!["onboarding.copy", "onboarding.handoff"].includes(op)) importer.admit(this, op);
     switch (request.op) {
-      case "hello":
+      case "hello": {
+        const encoding = protocol.encodings.find(encoding => request.payload.accept_encoding.includes(encoding));
+        if (encoding && !cl.canCompress) throw Error("InvalidEncodingNegotiation");
+        const compress = encoding && v.runtime_protocol === protocol.version;
         cl.protocol_version = v.runtime_protocol === protocol.version ? protocol.version : null;
         reply.send({
           type: "hello",
           protocol: protocol.version,
           capabilities: protocol.capabilities,
+          transports: protocol.transports,
           server_pid: process.pid,
           build_id: this.build_id,
           executable: this.executable,
           release_version: updates.release(this.executable).version,
           update_abi: updates.abi,
+          viewer_protocol: protocol.viewer_version,
+          instance: this.instance,
+          ...(compress ? { content_encoding: encoding } : {}),
         });
+        if (compress) cl.compress();
         return;
+      }
       case "ping":
         reply.send({ ok: true, pid: process.pid });
+        return;
+      case "link.open": {
+        if (cl.link) throw Error("AlreadyAttached");
+        const opened = new link.Link();
+        this.links.set(opened.id, opened);
+        cl.link = opened;
+        reply.ok({ link: opened.id });
+        return;
+      }
+      case "link.resume":
+        reply.ok({ link: request.payload.link, viewer: this.resumeLink(cl, request.payload.link) });
         return;
       case "shutdown":
         reply.send({ ok: true });
@@ -634,6 +758,10 @@ export class Server {
         reply.send({ ok: true, result: session.snapshot(this.runtime), viewers: viewer.viewers(this) });
         return;
       case "session.snapshot":
+        if (request.payload.resources !== null) {
+          cl.resource_observer = true;
+          cl.resources = request.payload.resources;
+        }
         reply.send(session.snapshot(this.runtime));
         return;
       case "session.subscribe":
@@ -650,6 +778,20 @@ export class Server {
         return;
       case "viewer.surfaces":
         viewer.surfaces(this, cl, reply);
+        return;
+      case "viewer.stream": {
+        reply.send(await viewer.start(this, cl, request.payload));
+        return;
+      }
+      case "viewer.data":
+        reply.ok({ viewer: viewer.bindData(this, cl, request.payload.link) });
+        return;
+      case "viewer.stream.configure":
+        await viewer.configure(this, cl, request.payload);
+        reply.ok({ viewer_protocol: protocol.viewer_version });
+        return;
+      case "viewer.receipt":
+        reply.ok({ stream: viewer.receipt(this, cl, request.payload) });
         return;
       case "viewer.search":
         await viewer.search(this, cl, request.payload, reply);
@@ -1013,7 +1155,7 @@ export class Server {
   private async uninstalled(root: string): Promise<void> {
     if (this.stopped || this.uninstalling) return;
     this.uninstalling = true;
-    for (const c of this.clients) if (c.watching && !c.dead) c.queue({ type: "uninstalled" });
+    for (const c of this.clients) if ((c.watching || c.stream) && !c.dead) c.queue({ type: "uninstalled" });
     updates.forget(root);
     // Long enough for viewers to hear it before their connections close.
     await Bun.sleep(300);
@@ -1041,4 +1183,10 @@ export class Server {
     closeReadiness();
     this.socketPath?.release();
   }
+}
+/** A request's number in `field`, when its client numbered it. */
+function numbered(value: unknown, field: "seq" | "answered"): bigint | null {
+  const n = value && typeof value === "object" ? (value as Record<string, unknown>)[field] : undefined;
+  if (typeof n === "bigint") return n > 0n ? n : null;
+  return typeof n === "number" && Number.isSafeInteger(n) && n > 0 ? BigInt(n) : null;
 }

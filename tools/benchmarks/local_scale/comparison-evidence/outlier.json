@@ -1,0 +1,24 @@
+[
+  {
+    "side": "before",
+    "source": "n32-p0-before/results.json",
+    "seconds": 5.0,
+    "downstream_writes": 216,
+    "upstream_writes": 113,
+    "mean_upstream_bytes_per_write": 116.0,
+    "protocol_Bps": 223998.8,
+    "producer_Bps": 1372160,
+    "terminal_Bps": 34853.037869229374
+  },
+  {
+    "side": "after",
+    "source": "failures/n32-p0-after-attempt1/results.json",
+    "seconds": 5.0,
+    "downstream_writes": 262,
+    "upstream_writes": 136,
+    "mean_upstream_bytes_per_write": 122.0,
+    "protocol_Bps": 275701.8,
+    "producer_Bps": 1372160,
+    "terminal_Bps": 86537.88551304604
+  }
+]

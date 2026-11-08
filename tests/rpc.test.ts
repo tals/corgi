@@ -54,6 +54,30 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
     rmSync(join(this.gate, "armed"), { force: true });
     writeFileSync(join(this.gate, "release"), fail ? "fail" : "ok");
   }
+  async test_websocket_subscription_and_viewer_survive_reload_on_their_original_connections() {
+    const viewer = new Connection(this.path),
+      subscriber = new Connection(this.path),
+      events: protocol.Event[] = [];
+    subscriber.onEvent(event => events.push(event));
+    try {
+      await viewer.call("viewer.open", { cwd: this.temp.name });
+      await subscriber.call("session.subscribe", { output: false });
+      const before = await viewer.call("viewer.sync", { interests: [] });
+      await viewer.call("server.reload", { executable: EXE });
+      const after = await viewer.call("viewer.sync", { interests: [] });
+      this.assertEqual(after.viewer, before.viewer);
+      this.assertFalse(viewer.disconnected);
+      this.assertFalse(subscriber.disconnected);
+      const count = events.length,
+        pane = (await this.session()).panes[0].id;
+      await this.command("pane.rename", { target: pane, name: "After WS reload" });
+      await this.until(() => events.slice(count).some(event => event.type === "session"));
+      this.assertTrue((await subscriber.call("ping")).ok);
+    } finally {
+      viewer.close();
+      subscriber.close();
+    }
+  }
   async test_bugreport_keeps_diagnostics_from_an_older_daemon() {
     const path = join(this.temp.name, "legacy.sock");
     const server = createServer(socket => {
@@ -62,6 +86,7 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
       socket.on("data", chunk => {
         buffer += chunk;
         if (!buffer.includes("\n")) return;
+        if (buffer.startsWith("POST ")) return void socket.end('{"err":"UnexpectedToken"}\n');
         const query = JSON.parse(buffer.trim());
         // Protocol 3 ignores request ids and replies without them.
         switch (query.op) {
@@ -104,7 +129,10 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
       socket.on("data", chunk => {
         buffer += chunk;
         if (!buffer.includes("\n")) return;
-        requests.push(JSON.parse(buffer.trim()));
+        if (buffer.startsWith("POST ")) return void socket.end('{"err":"UnexpectedToken"}\n');
+        const query = JSON.parse(buffer.trim());
+        if (query.op === "hello") return void socket.end('{"type":"hello","protocol":3}\n');
+        requests.push(query);
         // Older daemons ignore request ids and reply without them.
         socket.end('{"ok":true}\n');
       });

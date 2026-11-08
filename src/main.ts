@@ -4,6 +4,7 @@ import { mkdirSync, openSync, closeSync, readFileSync, unlinkSync } from "node:f
 import { spawn } from "node:child_process";
 import * as os from "./os";
 import * as rpc from "./rpc";
+import * as rpc_http from "./rpc_http";
 import * as cli from "./cli";
 import * as cli_help from "./cli_help";
 import * as agent_mode from "./agent_mode";
@@ -57,14 +58,12 @@ export function paneId(value: string): number {
 }
 /** Any reply, even an error, means a daemon owns the socket. */
 async function reachable(path: string): Promise<boolean> {
-  const connection = new rpc.Connection(path, { requestIds: false });
   try {
-    await connection.request("hello");
+    await rpc_http.discover(path);
     return true;
-  } catch {
-    return false;
-  } finally {
-    connection.close();
+  } catch (error) {
+    if (["ENOENT", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+    throw error;
   }
 }
 export async function ensureServer(path: string, exe = executable): Promise<void> {
@@ -91,7 +90,7 @@ export async function ensureServer(path: string, exe = executable): Promise<void
       child = spawn(exe, ["serve"], {
         detached: true,
         stdio: ["ignore", fd, fd],
-        env: { ...process.env, CORGI_APP_EXE: exe },
+        env: { ...process.env, CORGI_APP_EXE: exe, CORGI_MACHINE: undefined },
       });
       child.unref();
     } finally {
@@ -174,6 +173,94 @@ function asksJson(args: string[]): boolean {
 }
 export async function run(args = process.argv.slice(2)): Promise<void> {
   localeHost.initialize(preferences.load().language);
+  if (args[0] === "machine") {
+    const remote = await import("./machine_cli");
+    await remote.manage(args.slice(1));
+    return;
+  }
+  if (args[0] === "__remote-info") {
+    if (args.length !== 1) throw Error("Usage");
+    const remote = await import("./machine_cli");
+    await ensureServer(os.socketPath());
+    process.stdout.write(json.stringify(remote.remoteInfo(executable)) + "\n");
+    return;
+  }
+  if (args[0] === "__remote-image") {
+    if (args.length !== 4 || !args[1].startsWith("/")) throw Error("Usage");
+    const conn = new rpc.Connection(args[1], 10_000);
+    try {
+      if ((await conn.call("hello")).instance !== args[2]) throw Error("StaleConnection");
+      const upload = await import("./image_upload");
+      const bytes = await upload.receive(Bun.stdin.stream(), received => {
+        process.stdout.write(json.stringify({ received }) + "\n");
+      });
+      const clipboard = await import("./host_clipboard");
+      const path = clipboard.saveImage(dirname(args[1]) + "/paste", args[3], bytes, Date.now());
+      process.stdout.write(json.stringify({ path }) + "\n");
+    } finally {
+      conn.close();
+    }
+    return;
+  }
+  if (args[0] === "__remote-run") {
+    const remote = await import("./machine_cli");
+    if (!args[1]?.startsWith("/") || !remote.remoteCommand(args.slice(2))) throw Error("Usage");
+    process.env.CORGI_SOCKET = args[1];
+    delete process.env.CORGI_MACHINE;
+    delete process.env.CORGI_PANE;
+    const machines = await import("./machines");
+    const conn = new rpc.Connection(args[1], 10_000);
+    try {
+      machines.compatible(await conn.call("hello"));
+      await remote.run(args[1], args.slice(2), conn);
+    } finally {
+      conn.close();
+    }
+    return;
+  }
+  const accepts_machine =
+    cli.handles(agent_mode.flags(args).args) ||
+    ["attach", "open", "ping", "rpc", "action", "checkpoint", "shutdown"].includes(args[0] ?? "attach");
+  const selected =
+    args[0] === "--machine"
+      ? args[1]
+      : process.env.CORGI_PANE || !accepts_machine
+        ? undefined
+        : process.env.CORGI_MACHINE;
+  if (args[0] === "--machine") {
+    if (!selected) throw Error("Usage");
+    args = args.slice(2);
+  }
+  if (selected && selected !== "local") {
+    const machines = await import("./machines");
+    const profile = machines.find(selected);
+    const command = args[0] ?? "attach";
+    if (command === "attach" || command === "open") {
+      if (process.env.CORGI_PANE) throw Error("NestedCorgi");
+      if ((command === "open" && args.length !== 2) || (command === "attach" && args.length > 1)) throw Error("Usage");
+      const client = await import("./client");
+      await client.attachMachines(os.socketPath(), selected, command === "open" ? args[1] : null, () =>
+        ensureServer(os.socketPath()),
+      );
+    } else {
+      const remote = await import("./machine_cli");
+      if (!remote.remoteCommand(args)) throw Error("UnsupportedRemoteCommand");
+      const mode = agent_mode.flags(args);
+      const command = cli.handles(mode.args)
+        ? [
+            agent_mode.enabled(mode.flag, process.env, process.stdout.isTTY === true) ? "--agent" : "--no-agent",
+            ...mode.args,
+          ]
+        : args;
+      process.exitCode = await machines.execute(profile, command);
+    }
+    return;
+  }
+  if (args[0] === "list" && args[1] === "--all-machines" && args.length === 2) {
+    const remote = await import("./machine_cli");
+    await remote.all(os.socketPath());
+    return;
+  }
   if (args[0] === "__opencode2") {
     await (await import("./providers/opencode2/worker")).run();
     return;
@@ -217,7 +304,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         process.stdout.write(
           topic.length
             ? cli.helpFor(cli.handles(topic) ? commandHelp : humanHelp, topic, agent)
-            : humanHelp + "\n" + commandHelp,
+            : humanHelp + "\n" + commandHelp + (await import("./machine_cli")).help,
         );
         if (topic[0] === "action") process.stdout.write("\n" + actionNames + "\n");
         break;
@@ -301,7 +388,9 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       updates.background(path, executable);
       await (await import("./state_report")).showRepairs(path);
       const client = await import("./client");
-      await client.attach(path);
+      // `--machine local` is the local viewer alone.
+      if (selected === "local") await client.attachLocal(path);
+      else await client.attach(path);
       return;
     }
     case "open": {
@@ -384,12 +473,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "rpc": {
       if (args.length !== 2) throw Error("Usage");
       // Sent as typed, so it reaches any daemon version.
-      const connection = new rpc.Connection(path, { requestIds: false });
-      try {
-        process.stdout.write(json.stringify(await connection.rawRequest(json.parse(args[1]))) + "\n");
-      } finally {
-        connection.close();
-      }
+      process.stdout.write(json.stringify(await rpc_http.rawRequest(path, json.parse(args[1]))) + "\n");
       return;
     }
     case "action": {
@@ -556,6 +640,8 @@ export function failure(args: string[], error: unknown): string {
     case "IncompatibleViewerProtocol":
     case "UnsupportedViewerProtocol":
       return `corgi: this viewer is incompatible with the server (requires viewer protocol ${protocol.viewer_version}). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n`;
+    case "ServerRolledBack":
+      return "corgi: the server rolled back to a version without WebSocket support. Reattach using the selected Corgi version; running shells and agents were preserved.\n";
     case "UnsupportedProtocol":
       return `corgi: this client uses runtime protocol ${protocol.version}, which the server does not support. Reload the server using this Corgi version, or use a matching client.\n`;
     case "UnsupportedManagementProtocol":

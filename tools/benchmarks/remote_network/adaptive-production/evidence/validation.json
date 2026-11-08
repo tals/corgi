@@ -1,0 +1,31 @@
+{
+  "unit": {
+    "command": "bun test src",
+    "passed": 3386,
+    "skipped": 1,
+    "failed": 0,
+    "log": "validation/adaptive-accepted-unit-final.log"
+  },
+  "integration": {
+    "command": "CORGI_OLD_EXE=dist/corgi-throughput-after bun integration.ts remote reloads reload_compatibility viewers --jobs 1",
+    "passed": 98,
+    "skipped": 1,
+    "failed": 0,
+    "log": "validation/adaptive-accepted-integration.log",
+    "new_slow_handoff_test_passed": true
+  },
+  "typecheck": {
+    "command": "bun typecheck.ts",
+    "exit_code": 0,
+    "log": "validation/adaptive-accepted-typecheck.log"
+  },
+  "benchmark": {
+    "main_labs": 117,
+    "main_checks": 2494,
+    "edge_labs": 9,
+    "edge_checks": 136,
+    "problems": []
+  },
+  "namespaces_remaining": [],
+  "production_source_unchanged_since_benchmark_build_snapshot": true
+}

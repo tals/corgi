@@ -1,0 +1,41 @@
+{
+  "unit": {
+    "command": "bun test ./src",
+    "pass": 3415,
+    "skip": 1,
+    "fail": 0,
+    "skip_reason": "opt-in live inference"
+  },
+  "tools": {
+    "command": "bun test ./tools/benchmarks/remote_network/websocket_codecs",
+    "pass": 15,
+    "fail": 0
+  },
+  "typecheck": {
+    "command": "bun typecheck.ts",
+    "exit_code": 0
+  },
+  "python": {
+    "command": "python3 -m py_compile tools/benchmarks/remote_network/websocket_codecs/*.py",
+    "exit_code": 0
+  },
+  "benchmarks": {
+    "main_labs": 180,
+    "main_checks": 6488,
+    "control_labs": 12,
+    "control_checks": 380,
+    "packet_checks": 143,
+    "cpu_samples": 48,
+    "problems": []
+  },
+  "notes": [
+    "The initial unqualified bun test src also matched nested source checkouts under dist, which lacked local native libraries. The explicit ./src run tests the full application suite and passed.",
+    "An initial 8 MiB highly compressible paused-reader case exceeded the bounded receive queue. Final tests retain an explicit overflow-disconnection case, exact 8 MiB incompressible transfers, and the exact 2 MiB compressible application-flight case.",
+    "Production application source and Herdr source were not changed. No live remote daemon backward-compatibility claim is made."
+  ],
+  "logs": {
+    "ws-codecs-unit-final.log": "9a6696db4f96d0fcacd6753508c1909a698d342b2fd8790cf86b2b8ed49ba253",
+    "ws-codecs-tools-validation.log": "4773f32673e83e8d56530954cf48c2953782fb8eb5d4f3594621f80df58ad92e",
+    "ws-codecs-typecheck-validation.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

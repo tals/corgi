@@ -1,0 +1,66 @@
+{
+  "created_utc": "2026-11-08T08:21:28.689216+00:00",
+  "base_commit": "6c9cafb3939d076fd25854dfbb9be2a61d229839",
+  "implementation": "Uncommitted source delta identified below; included in the commit containing this manifest.",
+  "bun": "1.4.4",
+  "host": {
+    "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "available_cpus": 256,
+    "server_cpu": 176,
+    "client_cpu": 177
+  },
+  "measurement_notes": "Five trials; each arm uses separate pinned server/client processes. Raw/WS arm order alternates. Final local matrix ran after integration and unit tests completed; isolation ran after the local matrix. Shared host, not an isolated machine. No compression or SSH in either measurement.",
+  "commands": [
+    "bun tools/benchmarks/websocket_transport/local.ts --cores 176,177 --trials 5 --out tools/benchmarks/websocket_transport/evidence/local.json",
+    "bun tools/benchmarks/websocket_transport/local.ts --cores 176,177 --trials 5 --scenario isolation --out tools/benchmarks/websocket_transport/evidence/isolation.json"
+  ],
+  "source_sha256": {
+    "src/bug_report.ts": "af1c76540a1e2276b51b668ff559bef65e59b94b7b51fa65ffc81800eb12a80b",
+    "src/cli.test.ts": "5b57977d7ee14e29729abed8e1f387ae599906ee5af44772d6969ef9a0fa0ac7",
+    "src/cli.ts": "cfda5de838bc5e9e283c5d8e0ac10d8f7b54201e0117088650cd9695fc13ffaf",
+    "src/core_schema.test.ts": "3f2f3d8c69cebfd958fb585729bac85be3c4e50f0ec10c362a5cc6eaf5dc9cbf",
+    "src/fixtures/handoff.schema": "817e4785eaaedf38e4685314fdcb5f36e305e637e889bc338183b09c5cc44218",
+    "src/fixtures/steps/handoff-6.in.json": "2df6e61db82796fa435b51c0398e2f0f595449c4abdf9cfc99faebed26895536",
+    "src/fixtures/steps/handoff-6.out.json": "148acec0bf06d52e81b75461afd1d90491299298980963e2d936316715449c7f",
+    "src/fixtures/websocket_server.ts": "23283059930fba4e878a5ab45163ab741b49c581e50feafe179c778abd959a58",
+    "src/machine_connection.test.ts": "8dde225ee314f7ef4f13ce8612ffaf8593a518d9d1c2ea56df6eaf880bc050a3",
+    "src/machine_install.ts": "8836e7271e9d4e17d0faf6a8be9e27292169f43508d2b5803f50ed611f326174",
+    "src/main.ts": "9b175af60b7864854f6373301fad3379ca6e2f4cf5ad331e556a89a2716af984",
+    "src/peer.ts": "bc1d634dcc9fd29c0af9fd6535d5bbc860a77fee513e7774f19ac72ea9e560eb",
+    "src/persist/handoff.ts": "ebd0569fb4819575f81b26e9060de548a7076645c1bcf1bede5525b4bb4edc59",
+    "src/persist/steps.ts": "c444ae0d68aef1751360ff3c89189286e06d8775c06e57cccef51a77295317b6",
+    "src/rpc.ts": "4516ffd7b2a83909b5e24734c1a26bbe67bbee54a07cdbee506a1d5ebe3b522e",
+    "src/server.test.ts": "2a9dcb6b9125bf9d0b64d62b18d3482cb7607a92862f0fb8d07072c75a055ae9",
+    "src/updates.ts": "37b0eba7a343fe4555f709696a98eb059f858d36fed3cc266fcd093e38455a2a",
+    "src/viewer_connection.test.ts": "520b37f4c238662ac34776b9da30424b2cf7d18d832f2f1e82aa8dd6c08554b6",
+    "src/watch.test.ts": "f55537eeee30d9047eebd8c436a887df27f3a464b3c7ea21e75f8a273da3d410",
+    "src/websocket_peer.test.ts": "a2f0d8a191174a51be79b9618e72e2b452fb0c96b3bf2e7cb4d62520709078e7",
+    "src/websocket_socket.test.ts": "5a769598716abfb22e0a250c8087bd3157967ede46f112ddbc5274576a6d0da4",
+    "src/websocket_socket.ts": "fffe45a67480286d6123a042f8ebd49f439725cb99177f3d0d39a2fdfd50f15f",
+    "src/wire_websocket.test.ts": "03d7b2afac24d89121747586255a1b8f7ec8e36f19e1c651e0df04fba091a630",
+    "src/wire_websocket.ts": "a05df95c58c80ef7c07889e2c163f5ef5a0ead131c5417b0a656a3f0c671f48b",
+    "tests/rpc.test.ts": "9e816839f397769db54e56591aed00da57d781f37b5b24080280f220e3ab6458",
+    "tools/benchmarks/websocket_transport/local.ts": "0fa6fa48e940a131cfbba4f6e3ceb088278e757de71d868fb729032aa7f7104c"
+  },
+  "binary_sha256": {
+    "dist/corgi": "a156ed73668847b88b3f8b69f40d07ee626add006417c774473e16ef66b553bc",
+    "dist/corgi-test": "e966e74ff748ef778ff52e4ae41c926fab2aec9cff24fdaf2422c9490870d10a",
+    "dist/corgi-reviewed": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49"
+  },
+  "evidence_sha256": {
+    "build-production.txt": "5d02eff7b303b22cba3b7b6280163b419b9278e1c58e42e709827a38153aadfc",
+    "build-tests.txt": "5652628e1774b25d4a07cf3ea7c30a0ecd6d805ab5e2197754288688fce8999a",
+    "compatibility.txt": "670a6c6b6a3045b6611931acb60da407ba7bb3083e6848e4f7b2825dc7abf14b",
+    "integration-initial.txt": "bc1b2302c2a308f1940ab10c6cdd598e9334b9c5d61aff4c792a6bbaeee5fbda",
+    "isolation-run.txt": "e7e25bf425aedba93a92c0323dd594ec1b253c81a5ee0da4dc76ce8e3e3d9af3",
+    "isolation.json": "7940177de1dcd27d2df1c68a36aa7c54e8d12a8129baa2eb7113325e115310a3",
+    "local-run.txt": "788be1bd33a2c9b94e98b10f62c407fa7216da8d158c7fd1a8c5de675dbef3c5",
+    "local.json": "555de11cce8c330f1d0e064205d02502b5bd7da747267c814f60ae7f0088c334",
+    "prediction-retry.txt": "ffb8c3069fb01da225a909a5fb77fdcde1fe6190104995f0ee3191c29ecc534d",
+    "rpc-reloads.txt": "1182345ba40a7bc6d246286bc65395bd2d75fa6ac2de54082bc0e85a9f863b78",
+    "typecheck.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "unit.txt.gz": "e3cff0ce5593595db12d606f7dfda7e08157e173932afa3ae80be1e99d367395",
+    "validation.json": "0944bafffdbb24187a0ca9716174d5942a5079a074dc384dc7a800b511813bd1"
+  }
+}

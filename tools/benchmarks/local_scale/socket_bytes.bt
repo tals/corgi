@@ -1,0 +1,18 @@
+// Arguments: daemon PID, viewer PID (0 detached), CLOCK_MONOTONIC start/end ns.
+// Count successful kernel Unix-stream writes, including WS framing. No proxy.
+BEGIN { @ready_ns = nsecs; }
+kprobe:unix_stream_sendmsg
+/(pid == $1 || ($2 > 0 && pid == $2)) && nsecs >= $3 && nsecs < $4/
+{
+  @socket[tid] = ((struct socket *)arg0)->file->f_inode->i_ino;
+}
+kretprobe:unix_stream_sendmsg
+/@socket[tid]/
+{
+  if (retval > 0) {
+    @bytes[pid, @socket[tid]] = sum(retval);
+    @writes[pid, @socket[tid]] = count();
+  }
+  delete(@socket[tid]);
+}
+interval:s:1 { if (nsecs > $4 + 100000000) { exit(); } }

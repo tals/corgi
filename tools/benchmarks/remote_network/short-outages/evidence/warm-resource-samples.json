@@ -1,0 +1,504 @@
+{
+  "before": {
+    "seconds_from_fault_start": -0.7743459581397474,
+    "at": 2337053.992464583,
+    "processes": [
+      {
+        "machine": "local",
+        "pid": 779174,
+        "command": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after serve ",
+        "cpu_ticks": 148,
+        "rss_bytes": 92467200
+      },
+      {
+        "machine": "local",
+        "pid": 779288,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/local/work local ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10502144
+      },
+      {
+        "machine": "local",
+        "pid": 779294,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/local/work local1 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10498048
+      },
+      {
+        "machine": "local",
+        "pid": 779297,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/local/work local2 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10493952
+      },
+      {
+        "machine": "local",
+        "pid": 779299,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/local/work local3 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10498048
+      },
+      {
+        "machine": "local",
+        "pid": 780712,
+        "command": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after --no-update ",
+        "cpu_ticks": 185,
+        "rss_bytes": 104665088
+      },
+      {
+        "machine": "local",
+        "pid": 780757,
+        "command": "/usr/bin/ssh -F /tmp/cne-778776/local/home/.ssh/config -S /tmp/corgi-mux-1000/391a8ae6a31d533fe01b-%C -o ControlMaster=auto -o ControlPersist=600 -T -C -o ForwardAgent=no -o ForwardX11=no -o PermitLocalCommand=no -o RemoteCommand=none -o ForkAfterAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -o BatchMode=yes -o StrictHostKeyChecking=yes -- atlas sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-778776/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-778776/atlas/run/corgi.sock'\" ",
+        "cpu_ticks": 9,
+        "rss_bytes": 6311936
+      },
+      {
+        "machine": "local",
+        "pid": 780758,
+        "command": "/usr/bin/ssh -F /tmp/cne-778776/local/home/.ssh/config -S /tmp/corgi-mux-1000/b3fb30395e47aa297b13-%C -o ControlMaster=auto -o ControlPersist=600 -T -C -o ForwardAgent=no -o ForwardX11=no -o PermitLocalCommand=no -o RemoteCommand=none -o ForkAfterAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -o BatchMode=yes -o StrictHostKeyChecking=yes -- borealis sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-778776/borealis/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-778776/borealis/run/corgi.sock'\" ",
+        "cpu_ticks": 9,
+        "rss_bytes": 6316032
+      },
+      {
+        "machine": "local",
+        "pid": 780989,
+        "command": "ssh: /tmp/corgi-mux-1000/b3fb30395e47aa297b13-a1bf320410786736a8babefd901f95f51db9fece [mux]                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   ",
+        "cpu_ticks": 0,
+        "rss_bytes": 2101248
+      },
+      {
+        "machine": "local",
+        "pid": 780990,
+        "command": "ssh: /tmp/corgi-mux-1000/391a8ae6a31d533fe01b-d82c5cffc70b890089bbf4ba172b93b9d23b2a8e [mux]                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ",
+        "cpu_ticks": 0,
+        "rss_bytes": 2097152
+      },
+      {
+        "machine": "atlas",
+        "pid": 779068,
+        "command": "sshd: /usr/sbin/sshd -D -e -f /tmp/cne-778776/atlas/sshd_config [listener] 0 of 10-100 startups ",
+        "cpu_ticks": 1,
+        "rss_bytes": 6316032
+      },
+      {
+        "machine": "atlas",
+        "pid": 779394,
+        "command": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after serve ",
+        "cpu_ticks": 137,
+        "rss_bytes": 98697216
+      },
+      {
+        "machine": "atlas",
+        "pid": 779473,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/atlas/work atlas ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10498048
+      },
+      {
+        "machine": "atlas",
+        "pid": 779479,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/atlas/work atlas1 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10489856
+      },
+      {
+        "machine": "atlas",
+        "pid": 779481,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/atlas/work atlas2 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10485760
+      },
+      {
+        "machine": "atlas",
+        "pid": 779482,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/atlas/work atlas3 ",
+        "cpu_ticks": 6,
+        "rss_bytes": 10485760
+      },
+      {
+        "machine": "atlas",
+        "pid": 780766,
+        "command": "sshd: t [priv]                                               ",
+        "cpu_ticks": 0,
+        "rss_bytes": 6303744
+      },
+      {
+        "machine": "atlas",
+        "pid": 780984,
+        "command": "sshd: t@notty                                                ",
+        "cpu_ticks": 1,
+        "rss_bytes": 4198400
+      },
+      {
+        "machine": "atlas",
+        "pid": 781021,
+        "command": "fish -c /tmp/cne-778776/atlas/remote-shell ",
+        "cpu_ticks": 0,
+        "rss_bytes": 6316032
+      },
+      {
+        "machine": "atlas",
+        "pid": 781028,
+        "command": "/bin/sh -c sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-778776/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-778776/atlas/run/corgi.sock'\" ",
+        "cpu_ticks": 0,
+        "rss_bytes": 0
+      },
+      {
+        "machine": "atlas",
+        "pid": 781030,
+        "command": "/tmp/cne-778776/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge /tmp/cne-778776/atlas/run/corgi.sock ",
+        "cpu_ticks": 0,
+        "rss_bytes": 0
+      },
+      {
+        "machine": "borealis",
+        "pid": 779072,
+        "command": "sshd: /usr/sbin/sshd -D -e -f /tmp/cne-778776/borealis/sshd_config [listener] 0 of 10-100 startups ",
+        "cpu_ticks": 1,
+        "rss_bytes": 6307840
+      },
+      {
+        "machine": "borealis",
+        "pid": 779568,
+        "command": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after serve ",
+        "cpu_ticks": 124,
+        "rss_bytes": 91430912
+      },
+      {
+        "machine": "borealis",
+        "pid": 779668,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/borealis/work borealis ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10493952
+      },
+      {
+        "machine": "borealis",
+        "pid": 779670,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/borealis/work borealis1 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10485760
+      },
+      {
+        "machine": "borealis",
+        "pid": 779671,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/borealis/work borealis2 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10498048
+      },
+      {
+        "machine": "borealis",
+        "pid": 779672,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778776/borealis/work borealis3 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10498048
+      },
+      {
+        "machine": "borealis",
+        "pid": 780767,
+        "command": "sshd: t [priv]                                                  ",
+        "cpu_ticks": 0,
+        "rss_bytes": 6307840
+      },
+      {
+        "machine": "borealis",
+        "pid": 780983,
+        "command": "sshd: t@notty                                                   ",
+        "cpu_ticks": 0,
+        "rss_bytes": 4194304
+      },
+      {
+        "machine": "borealis",
+        "pid": 781022,
+        "command": "fish -c /tmp/cne-778776/borealis/remote-shell ",
+        "cpu_ticks": 0,
+        "rss_bytes": 4194304
+      },
+      {
+        "machine": "borealis",
+        "pid": 781027,
+        "command": "/bin/sh -c sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-778776/borealis/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-778776/borealis/run/corgi.sock'\" ",
+        "cpu_ticks": 0,
+        "rss_bytes": 0
+      },
+      {
+        "machine": "borealis",
+        "pid": 781029,
+        "command": "/tmp/cne-778776/borealis/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge /tmp/cne-778776/borealis/run/corgi.sock ",
+        "cpu_ticks": 0,
+        "rss_bytes": 0
+      }
+    ]
+  },
+  "after": {
+    "seconds_from_fault_start": -0.7526514176279306,
+    "at": 2337054.798903269,
+    "processes": [
+      {
+        "machine": "local",
+        "pid": 779186,
+        "command": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-short-warm-pilot serve ",
+        "cpu_ticks": 141,
+        "rss_bytes": 100614144
+      },
+      {
+        "machine": "local",
+        "pid": 779272,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/local/work local ",
+        "cpu_ticks": 8,
+        "rss_bytes": 10485760
+      },
+      {
+        "machine": "local",
+        "pid": 779276,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/local/work local1 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10485760
+      },
+      {
+        "machine": "local",
+        "pid": 779279,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/local/work local2 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10506240
+      },
+      {
+        "machine": "local",
+        "pid": 779280,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/local/work local3 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10510336
+      },
+      {
+        "machine": "local",
+        "pid": 780824,
+        "command": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-short-warm-pilot --no-update ",
+        "cpu_ticks": 168,
+        "rss_bytes": 100569088
+      },
+      {
+        "machine": "local",
+        "pid": 780909,
+        "command": "/usr/bin/ssh -F /tmp/cne-778777/local/home/.ssh/config -S /tmp/corgi-mux-1000/7cbed9a01d517954d079-%C -o ControlMaster=auto -o ControlPersist=600 -T -C -o ForwardAgent=no -o ForwardX11=no -o PermitLocalCommand=no -o RemoteCommand=none -o ForkAfterAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -o BatchMode=yes -o StrictHostKeyChecking=yes -- atlas sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-778777/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-778777/atlas/run/corgi.sock'\" ",
+        "cpu_ticks": 9,
+        "rss_bytes": 6328320
+      },
+      {
+        "machine": "local",
+        "pid": 780910,
+        "command": "/usr/bin/ssh -F /tmp/cne-778777/local/home/.ssh/config -S /tmp/corgi-mux-1000/635a7b0ae54b5790225e-%C -o ControlMaster=auto -o ControlPersist=600 -T -C -o ForwardAgent=no -o ForwardX11=no -o PermitLocalCommand=no -o RemoteCommand=none -o ForkAfterAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -o BatchMode=yes -o StrictHostKeyChecking=yes -- borealis sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-778777/borealis/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-778777/borealis/run/corgi.sock'\" ",
+        "cpu_ticks": 9,
+        "rss_bytes": 6320128
+      },
+      {
+        "machine": "local",
+        "pid": 781068,
+        "command": "ssh: /tmp/corgi-mux-1000/7cbed9a01d517954d079-d82c5cffc70b890089bbf4ba172b93b9d23b2a8e [mux]                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ",
+        "cpu_ticks": 0,
+        "rss_bytes": 2105344
+      },
+      {
+        "machine": "local",
+        "pid": 781069,
+        "command": "ssh: /tmp/corgi-mux-1000/635a7b0ae54b5790225e-a1bf320410786736a8babefd901f95f51db9fece [mux]                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   ",
+        "cpu_ticks": 0,
+        "rss_bytes": 2109440
+      },
+      {
+        "machine": "local",
+        "pid": 781255,
+        "command": "/usr/bin/ssh -F /tmp/cne-778777/local/home/.ssh/config -S none -o ControlMaster=no -T -C -o ForwardAgent=no -o ForwardX11=no -o PermitLocalCommand=no -o RemoteCommand=none -o ForkAfterAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -o BatchMode=yes -o StrictHostKeyChecking=yes -- atlas sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-778777/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-778777/atlas/run/corgi.sock'\" ",
+        "cpu_ticks": 11,
+        "rss_bytes": 6311936
+      },
+      {
+        "machine": "atlas",
+        "pid": 779109,
+        "command": "sshd: /usr/sbin/sshd -D -e -f /tmp/cne-778777/atlas/sshd_config [listener] 0 of 10-100 startups ",
+        "cpu_ticks": 1,
+        "rss_bytes": 6299648
+      },
+      {
+        "machine": "atlas",
+        "pid": 779391,
+        "command": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-short-warm-pilot serve ",
+        "cpu_ticks": 130,
+        "rss_bytes": 97771520
+      },
+      {
+        "machine": "atlas",
+        "pid": 779434,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/atlas/work atlas ",
+        "cpu_ticks": 8,
+        "rss_bytes": 10498048
+      },
+      {
+        "machine": "atlas",
+        "pid": 779466,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/atlas/work atlas1 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10506240
+      },
+      {
+        "machine": "atlas",
+        "pid": 779468,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/atlas/work atlas2 ",
+        "cpu_ticks": 8,
+        "rss_bytes": 10493952
+      },
+      {
+        "machine": "atlas",
+        "pid": 779471,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/atlas/work atlas3 ",
+        "cpu_ticks": 8,
+        "rss_bytes": 10506240
+      },
+      {
+        "machine": "atlas",
+        "pid": 780917,
+        "command": "sshd: t [priv]                                               ",
+        "cpu_ticks": 1,
+        "rss_bytes": 6291456
+      },
+      {
+        "machine": "atlas",
+        "pid": 781057,
+        "command": "sshd: t@notty                                                ",
+        "cpu_ticks": 1,
+        "rss_bytes": 4210688
+      },
+      {
+        "machine": "atlas",
+        "pid": 781106,
+        "command": "fish -c /tmp/cne-778777/atlas/remote-shell ",
+        "cpu_ticks": 0,
+        "rss_bytes": 6316032
+      },
+      {
+        "machine": "atlas",
+        "pid": 781112,
+        "command": "/bin/sh -c sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-778777/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-778777/atlas/run/corgi.sock'\" ",
+        "cpu_ticks": 0,
+        "rss_bytes": 0
+      },
+      {
+        "machine": "atlas",
+        "pid": 781116,
+        "command": "/tmp/cne-778777/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge /tmp/cne-778777/atlas/run/corgi.sock ",
+        "cpu_ticks": 0,
+        "rss_bytes": 0
+      },
+      {
+        "machine": "atlas",
+        "pid": 781257,
+        "command": "sshd: t [priv]                                               ",
+        "cpu_ticks": 0,
+        "rss_bytes": 6295552
+      },
+      {
+        "machine": "atlas",
+        "pid": 781314,
+        "command": "sshd: t@notty                                                ",
+        "cpu_ticks": 0,
+        "rss_bytes": 4218880
+      },
+      {
+        "machine": "atlas",
+        "pid": 781344,
+        "command": "fish -c /tmp/cne-778777/atlas/remote-shell ",
+        "cpu_ticks": 0,
+        "rss_bytes": 6320128
+      },
+      {
+        "machine": "atlas",
+        "pid": 781347,
+        "command": "/bin/sh -c sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-778777/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-778777/atlas/run/corgi.sock'\" ",
+        "cpu_ticks": 0,
+        "rss_bytes": 0
+      },
+      {
+        "machine": "atlas",
+        "pid": 781349,
+        "command": "/tmp/cne-778777/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge /tmp/cne-778777/atlas/run/corgi.sock ",
+        "cpu_ticks": 0,
+        "rss_bytes": 0
+      },
+      {
+        "machine": "borealis",
+        "pid": 779119,
+        "command": "sshd: /usr/sbin/sshd -D -e -f /tmp/cne-778777/borealis/sshd_config [listener] 0 of 10-100 startups ",
+        "cpu_ticks": 1,
+        "rss_bytes": 6299648
+      },
+      {
+        "machine": "borealis",
+        "pid": 779566,
+        "command": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-short-warm-pilot serve ",
+        "cpu_ticks": 120,
+        "rss_bytes": 90796032
+      },
+      {
+        "machine": "borealis",
+        "pid": 779655,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/borealis/work borealis ",
+        "cpu_ticks": 8,
+        "rss_bytes": 10506240
+      },
+      {
+        "machine": "borealis",
+        "pid": 779657,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/borealis/work borealis1 ",
+        "cpu_ticks": 8,
+        "rss_bytes": 10506240
+      },
+      {
+        "machine": "borealis",
+        "pid": 779658,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/borealis/work borealis2 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10498048
+      },
+      {
+        "machine": "borealis",
+        "pid": 779659,
+        "command": "/usr/bin/python3 /home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/remote_network/workload.py /tmp/cne-778777/borealis/work borealis3 ",
+        "cpu_ticks": 7,
+        "rss_bytes": 10498048
+      },
+      {
+        "machine": "borealis",
+        "pid": 780918,
+        "command": "sshd: t [priv]                                                  ",
+        "cpu_ticks": 0,
+        "rss_bytes": 6299648
+      },
+      {
+        "machine": "borealis",
+        "pid": 781058,
+        "command": "sshd: t@notty                                                   ",
+        "cpu_ticks": 0,
+        "rss_bytes": 4206592
+      },
+      {
+        "machine": "borealis",
+        "pid": 781107,
+        "command": "fish -c /tmp/cne-778777/borealis/remote-shell ",
+        "cpu_ticks": 0,
+        "rss_bytes": 4194304
+      },
+      {
+        "machine": "borealis",
+        "pid": 781113,
+        "command": "/bin/sh -c sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-778777/borealis/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-778777/borealis/run/corgi.sock'\" ",
+        "cpu_ticks": 0,
+        "rss_bytes": 0
+      },
+      {
+        "machine": "borealis",
+        "pid": 781115,
+        "command": "/tmp/cne-778777/borealis/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge /tmp/cne-778777/borealis/run/corgi.sock ",
+        "cpu_ticks": 0,
+        "rss_bytes": 0
+      }
+    ]
+  }
+}

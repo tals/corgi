@@ -1,0 +1,50 @@
+import { dlopen, ptr } from "bun:ffi";
+import { writeFileSync, writeSync } from "node:fs";
+import { join } from "node:path";
+
+const clock = new BigInt64Array(2);
+const libc = dlopen("libc.so.6", { clock_gettime: { args: ["i32", "ptr"], returns: "i32" } });
+function now() {
+  if (libc.symbols.clock_gettime(1, ptr(clock))) throw Error("ClockFailed");
+  return clock[0] * 1000000000n + clock[1];
+}
+let timer, state = null;
+const writes = [];
+export function terminalLog(value) { writeSync(1, String(value) + "\n"); }
+export function observeTerminal() {
+  process.on("SIGUSR2", () => writeFileSync(join(process.env.HOME, `scale-${process.pid}.json`),
+    JSON.stringify({ pid: process.pid, at_ns: String(now()), mode: state?.mode ?? "idle", writes })));
+}
+function emit() {
+  const s = state;
+  if (!s || s.mode === "idle") return;
+  const period = s.mode === "light" ? 500000000n : 50000000n;
+  const target = s.epoch + BigInt(s.index) * period;
+  const at = now();
+  if (at < target) { timer = setTimeout(emit, Math.max(1, Number(target - at) / 1e6)); return; }
+  // Skip missed deadlines instead of manufacturing catch-up bursts.
+  s.index += Number((at - target) / period);
+  const sequence = ++s.index;
+  const marker = `Working (esc to interrupt) ${String(sequence).padStart(7, "0")} lane=${s.lane}`;
+  const line = marker + " " + "build/test output ".repeat(8);
+  const payload = s.mode === "light" ? `\x1b[1;1H${line.slice(0, 125)}\x1b[K` :
+    Array.from({ length: 16 }, (_, row) => `\x1b[${row % 2 ? 36 : 33}m${line.slice(0, 120)} ${String(row).padStart(2, "0")}\x1b[0m\r\n`).join("");
+  const before = now();
+  const bytes = writeSync(1, payload);
+  const after = now();
+  if (bytes !== Buffer.byteLength(payload)) throw Error("ShortProducerWrite");
+  writes.push([String(before), String(after), sequence, bytes]);
+  timer = setTimeout(emit, Math.max(1, Number(s.epoch + BigInt(s.index) * period - now()) / 1e6));
+}
+export function handle(command) {
+  if (!command.startsWith("bench-mode ")) return false;
+  const config = JSON.parse(command.slice(11));
+  if (!["idle", "light", "spammy"].includes(config.mode)) throw Error("UnknownMode");
+  clearTimeout(timer);
+  writes.length = 0;
+  const period = config.mode === "light" ? 500000000n : 50000000n;
+  state = { ...config, epoch: BigInt(config.epoch_ns) + BigInt(config.lane) * period / BigInt(config.lanes), index: 0 };
+  writeSync(1, "\x1b[2J\x1b[H" + (config.mode === "idle" ? "› " : "Working (esc to interrupt)"));
+  emit();
+  return true;
+}

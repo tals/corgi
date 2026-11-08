@@ -38,6 +38,7 @@ import { Dialog, View as NameView, name_limit } from "./name_dialog";
 import { ClickHistory, InlineRename, type RenameTarget } from "./inline_rename";
 import * as sidebar from "./sidebar";
 import type { Entry, Target, WorkspaceEntry, Scope } from "./sidebar";
+import * as resources from "./trackers/resources";
 import * as agentNavigation from "./agent_navigation";
 import * as sidebarFocus from "./sidebar_focus";
 import { Picker as AgentPicker } from "./agent_navigation";
@@ -83,6 +84,8 @@ import * as paneImages from "./pane_images";
 import * as tabIcons from "./tab_icons";
 import * as startupCard from "./startup_card";
 import * as resourceTooltip from "./resource_tooltip";
+import type { Card as ConnectionCard } from "./connectivity_card";
+import * as signalBars from "./signal_bars";
 import * as gitTooltip from "./git_tooltip";
 import type { Signal } from "./trackers/resources";
 import * as worktreeTooltip from "./worktree_tooltip";
@@ -96,7 +99,8 @@ import * as rpc from "./rpc";
 import type { CommandInput, Op, PickResult, PickUnit } from "./protocol";
 import * as launcherWorktree from "./launcher_worktree";
 import * as preferences from "./preferences";
-import { Preferences } from "./preferences";
+import type { Preferences } from "./preferences";
+import { Host } from "./host";
 import { Drag as AgentDrag } from "./agent_drag";
 import * as docking from "./docking";
 import { Drag as TabDrag } from "./docking_drag";
@@ -106,6 +110,7 @@ import * as ghosttyIntegration from "./ghostty_integration";
 import * as hostClipboard from "./host_clipboard";
 import * as framePacing from "./frame_pacing";
 import * as pasteCard from "./paste_card";
+import * as pasteProgress from "./paste_progress";
 import * as panel from "./review/panel";
 import * as summaries from "./review/summaries";
 import * as subagentTooltip from "./subagent_tooltip";
@@ -142,13 +147,9 @@ import type { Marks } from "./provider_mark";
 import * as modelSuggest from "./model_suggest";
 import * as promptModels from "./prompt_models";
 import { shellWords } from "./os";
+import * as tasks from "./tasks";
+import { Machine, type Focus, type Stopped } from "./machine";
 
-/** A conversation a pane stopped running, and when, in seconds. */
-interface Stopped {
-  provider: Provider;
-  session: string;
-  at: number;
-}
 export type Effect = { write_terminal: string } | { open_url: string };
 type HoverMenu = "launcher" | "scope";
 /** A paste goes to the text field that owned the keyboard when it began, or
@@ -304,8 +305,6 @@ interface PendingCopy {
   due: number;
 }
 class InputState {
-  viewer_id = 0;
-  last_control = 0n;
   attached = false;
   watched = true;
   /** User input or a window resize since the last sync; the daemon sizes
@@ -320,6 +319,8 @@ class InputState {
   tab_drag: TabDrag | null = null;
   divider: { hit: Divider; area: Rect; cancelled: boolean } | null = null;
   keybuf: number[] = [];
+  /** Input that arrived while a task decided where it goes, in order. */
+  held: number[] = [];
   escape_at = 0;
 }
 const sameRect = (a: Rect, b: Rect) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
@@ -347,9 +348,8 @@ export class Controller {
     this.dirty = true;
     this.wake();
   });
-  connection: Transport;
-  runtime = new Runtime();
-  navigation = new Navigation();
+  /** The daemon the view shows: its data, selection and connection. */
+  machine: Machine;
   workspace_offset = 0;
   archived_expanded = false;
   archived_offset = 0;
@@ -369,8 +369,16 @@ export class Controller {
   }
   /** Saved preferences as this viewer last loaded or set them. The sidebar
    * width is live while dragging and saved on release. */
-  prefs = new Preferences();
   closePreferences: (() => void) | null = null;
+  get prefs(): Preferences {
+    return this.host.prefs;
+  }
+  set prefs(value: Preferences) {
+    this.host.prefs = value;
+  }
+  set sidebar_focus(value: sidebarFocus.State | null) {
+    this.keyboard = value ? { sidebar: value } : "pane";
+  }
   onboarding: onboarding.State | null = null;
   help = new shortcutHelp.State();
   help_visible = false;
@@ -379,16 +387,37 @@ export class Controller {
   menu_page = 0;
   menu_highlight: string | null = null;
   sidebar_open = true;
-  corgi_badge: corgiBadge.Mode = "none";
-  /** What the viewer found out about its terminal, once it has. */
   host_terminal: TerminalSnapshot | null = null;
-  supports_kitty_graphics = false;
-  /** The host's cell in pixels, when it reports it. */
-  cell_pixels: forkHero.Cell | null = null;
-  /** Whether the host draws Kitty's branch drawing characters. */
-  branch_glyphs = false;
-  /** The host's colors, when it reports them; both themes follow them. */
-  terminal_colors: TerminalColors | null = null;
+  get corgi_badge() {
+    return this.host.corgi_badge;
+  }
+  set corgi_badge(value: Host["corgi_badge"]) {
+    this.host.corgi_badge = value;
+  }
+  get supports_kitty_graphics() {
+    return this.host.supports_kitty_graphics;
+  }
+  set supports_kitty_graphics(value: Host["supports_kitty_graphics"]) {
+    this.host.supports_kitty_graphics = value;
+  }
+  get cell_pixels() {
+    return this.host.cell_pixels;
+  }
+  set cell_pixels(value: Host["cell_pixels"]) {
+    this.host.cell_pixels = value;
+  }
+  get branch_glyphs() {
+    return this.host.branch_glyphs;
+  }
+  set branch_glyphs(value: Host["branch_glyphs"]) {
+    this.host.branch_glyphs = value;
+  }
+  get terminal_colors() {
+    return this.host.colors;
+  }
+  set terminal_colors(value: Host["colors"]) {
+    this.host.colors = value;
+  }
   /** The "All" list's scroll; each workspace keeps its own list's. */
   all_offset = 0;
   /** A tab this viewer launched or restored; its agent scrolls into view once listed. */
@@ -396,19 +425,35 @@ export class Controller {
   private selected_pane: number | null = null;
   private wake_pending: number | null = null;
   private unarchive_pending: number | null = null;
+  /** A dormant pane that failed to resume while focused; focusing it again retries. */
+  private wake_failed: number | null = null;
+  private import_polling = false;
+  /** The ratio a dragged divider reached that the daemon hasn't been sent. */
+  private split_wanted: { target: number; other: number; ratio: number } | null = null;
+  private split_sending = false;
+  /** The launcher draft the daemon is resolving now. */
+  private previewing: number | null = null;
+  /** The dormant pane whose resume the daemon hasn't answered yet. */
+  private waking: number | null = null;
   sidebar_rows = new SidebarRows();
-  remote_links = false;
-  /** The host terminal's clipboard, read over SSH; the paste being read goes to `paste_target`. */
-  host_clipboard: hostClipboard.State | null = null;
-  /** The host terminal's frame pacing, for Terminal capabilities. */
-  host_pacer: framePacing.Pacer | null = null;
+  get host_pacer(): framePacing.Pacer | null {
+    return this.host.pacer;
+  }
+  set host_pacer(value: framePacing.Pacer | null) {
+    this.host.pacer = value;
+  }
+  instant_ready = false;
+  /** Opens the machine dropdown, in a viewer that shows several machines. */
+  onMachines: (() => void) | null = null;
+  onConnectivity: (() => void) | null = null;
   paste_target: Paste | null = null;
+  paste_progress: pasteProgress.State | null = null;
   /** Why a paste brought no image, over the pane it was meant for. */
   paste_card: PasteCard | null = null;
   tab_menu: TabMenu | null = null;
+  /** An agent menu waiting on the daemon's say about rename and fork. */
+  private menu_pending: TabMenu | null = null;
   port_menu: sidebar.PortMenu | null = null;
-  /** Workspace ids whose group is folded in the manual "All" list. */
-  folded_groups: number[] = [];
   /** Activity sections folded to their header; done starts so. */
   folded_sections = new Set<Section>(["done"]);
   /** When each listed agent entered its activity section. */
@@ -425,14 +470,16 @@ export class Controller {
   private finding_agents_until = 0;
   private was_managing = false;
   launch_previews = new LaunchPreviewStream();
-  /** Conversations panes run, and recent ones that stopped, with when. */
-  running: launcherResume.Open[] = [];
-  stopped: Stopped[] = [];
   corgi_setup: SetupMenu | null = null;
   launcher_hover_blocked = false;
   private menu_hover: { target: HoverMenu; since: number } | null = null;
   pointer: render.Pointer | null = null;
-  iterm2_pointer = false;
+  get iterm2_pointer() {
+    return this.host.iterm2_pointer;
+  }
+  set iterm2_pointer(value: boolean) {
+    this.host.iterm2_pointer = value;
+  }
   link_tooltip = new linkTooltip.State();
   link_copy_press: linkTooltip.Link | null = null;
   /** The picture of the prompt's pasted image under the pointer, this frame. */
@@ -453,10 +500,12 @@ export class Controller {
   worktree_card = new worktreeTooltip.State();
   /** The worktree the overview selects once the removed one is gone. */
   private removal_next: string | null = null;
-  worktree_agents = new worktreeAgents.State();
   startup_card: startupCard.State | null = null;
   private startup_second = 0;
   resource_card = new resourceTooltip.State();
+  connection_card: ConnectionCard | null = null;
+  signal_bars = new signalBars.Images();
+  hide_connection_signals = false;
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
   sidebar_drag: "width" | "split" | null = null;
@@ -472,7 +521,10 @@ export class Controller {
   /** The last left press on a sidebar row, which tells a double-click. */
   clicks = new ClickHistory();
   /** Agent names whose rename failed, by pane, for the next try. */
-  remembered_names = new Map<number, string>();
+  get remembered_names(): Map<number, string> {
+    return this.machine.remembered_names;
+  }
+  private rename_pending: object | null = null;
   /** An account signing in over the panes, and a selection being dragged in
    * its agent's screen. */
   signin: signin.Signin | null = null;
@@ -490,10 +542,6 @@ export class Controller {
   picked: Picked | null = null;
   pending_open: PendingOpen | null = null;
   pending_copy: PendingCopy | null = null;
-  /** Panes marked unread from the agent menu, each with whether it had
-   * focus when last shown. Showing one doesn't read it until focus moves
-   * onto it, it takes input, or it leaves view. */
-  marked_unread = new Map<number, boolean>();
   search_mode = false;
   search_text: number[] = [];
   search_skip = 0;
@@ -540,8 +588,19 @@ export class Controller {
   /** Corgi answered or needs you while put away; the viewer sounds it once. */
   prompt_chime: "finished" | "needs_input" | null = null;
 
-  constructor(connection: Transport) {
-    this.connection = connection;
+  /** Every machine this viewer shows, the current one among them. */
+  machines: Machine[] = [];
+  /** The machine whose workspaces the sidebar lists, or null for all. */
+  machine_filter: Machine | null = null;
+  /** Shows another machine, on one of its workspaces or agents when given:
+   * the loop that runs the machines' connections switches them. */
+  onMachine: (machine: Machine, focus: Focus | null) => void = () => {};
+  constructor(
+    connection: Transport | Machine,
+    readonly host = new Host(),
+  ) {
+    this.machine = connection instanceof Machine ? connection : new Machine(connection);
+    this.adopt(this.machine);
     this.prompt = new Prompt({
       daemon: this.promptDaemon(),
       memory_root: Memory.root(),
@@ -550,7 +609,7 @@ export class Controller {
         "",
       resolve: mention => this.resolveMention(mention),
       clock: milliTimestamp,
-      viewer: () => this.input_state.viewer_id || null,
+      viewer: () => this.machine.viewer_id || null,
       conversations: () => this.promptConversations(),
     });
     // Its replies are read by the next poll, which says whether they show.
@@ -577,6 +636,182 @@ export class Controller {
       this.wake();
     };
   }
+  /** Takes `machine` among those this viewer shows: its tasks' failures and
+   * replies come here. */
+  adopt(machine: Machine): void {
+    if (this.machines.includes(machine)) return;
+    this.machines.push(machine);
+    machine.failed = error => this.taskFailed(error);
+    // A finished task wakes the loop for what it changed or the input it held.
+    machine.settled = () => {
+      if (this.dirty || this.input_state.held.length > 0) this.wake();
+    };
+  }
+  /** Shows `machine`. What was open for the last one closes, since menus,
+   * dialogs and selections name its ids. */
+  switchMachine(machine: Machine): void {
+    this.adopt(machine);
+    if (machine === this.machine) return;
+    this.closeMachineUi();
+    this.cancelInput();
+    this.machine = machine;
+    this.selected_pane = null;
+    this.wake_pending = this.unarchive_pending = null;
+    this.agent_since = new agentSections.Since();
+    if (machine.viewer_id !== 0) this.launch_previews.connect(machine.connection);
+    this.dirty = true;
+  }
+  /** Closes what names the shown machine's ids, which a switch or a replaced
+   * daemon leaves meaning nothing. */
+  closeMachineUi(): void {
+    this.closeMenu();
+    this.dismissName();
+    this.closeInlineRename();
+    this.clicks.reset();
+    const images = this.images.clear();
+    if (images) this.queueEffect({ write_terminal: images });
+    this.copy_mode = false;
+    this.search_mode = false;
+    this.selection = null;
+    this.cancelDividers();
+    this.cancelDock();
+    this.dock_history.clear();
+    this.startup_card = null;
+    this.worktree_card.clear();
+    this.agent_drag = null;
+    this.workspace_drag = null;
+    this.git_hover = null;
+    this.git_card = new gitTooltip.State();
+    this.resource_card = new resourceTooltip.State();
+    this.link_tooltip.move();
+    this.headless_notice = null;
+    this.review.pinned = false;
+    this.sidebar_rows.discard();
+    this.launch_previews.disconnect();
+    this.dirty = true;
+  }
+  /** A sidebar row's id: a daemon's workspace id, set apart for each machine
+   * so ids from different daemons never meet. The first machine's rows keep
+   * their own ids. */
+  rowKey(id: number, machine = this.machine): number {
+    return Math.max(0, this.machines.indexOf(machine)) * machine_stride + id;
+  }
+  /** The machine and workspace a sidebar row's id names; 0 for a machine
+   * with no workspaces listed yet. */
+  rowOf(key: number): { machine: Machine; id: number } | null {
+    const machine = this.machines[Math.floor(key / machine_stride)];
+    return machine ? { machine, id: key % machine_stride } : null;
+  }
+  /** Shows the workspace a sidebar row names, on its own machine. */
+  selectRow(key: number): void {
+    const row = this.rowOf(key);
+    if (!row) return;
+    row.machine.collapsed = false;
+    if (this.stale(row.machine)) {
+      this.leaveSidebar();
+      this.onMachine(row.machine, null);
+      return;
+    }
+    if (row.machine === this.machine && this.runtime.workspaces.index(row.id) !== null)
+      return this.switchWorkspace(row.id);
+    this.leaveSidebar();
+    this.onMachine(row.machine, row.id ? { workspace: row.id } : null);
+  }
+  /** An agent list row's id: the shown machine's own, else set apart for
+   * the machine it's on. Unlike row keys, these follow the shown machine. */
+  private agentKey(id: number, machine: Machine): number {
+    return machine === this.machine ? id : (this.machines.indexOf(machine) + 1) * machine_stride + id;
+  }
+  /** The machine and id an agent list row's id names. */
+  private agentOf(key: number): { machine: Machine; id: number } {
+    if (key < machine_stride) return { machine: this.machine, id: key };
+    return { machine: this.machines[Math.floor(key / machine_stride) - 1] ?? this.machine, id: key % machine_stride };
+  }
+  /** An agent list target in its own machine's ids, and that machine. */
+  private agentTarget(target: Target): { machine: Machine; target: Target } {
+    if ("pane" in target) {
+      const { machine, id } = this.agentOf(target.pane);
+      return { machine, target: { pane: id } };
+    }
+    if ("headless" in target) {
+      const { machine, id } = this.agentOf(target.headless);
+      return { machine, target: { headless: id } };
+    }
+    if ("group" in target) {
+      const { machine, id } = this.agentOf(target.group);
+      return { machine, target: { group: id } };
+    }
+    if ("workspace" in target) {
+      const { machine, id } = this.agentOf(target.workspace);
+      return { machine, target: { ...target, workspace: id } };
+    }
+    return { machine: this.machine, target };
+  }
+  /** Whether an agent list row is another machine's. */
+  private away(target: Target): boolean {
+    return this.agentTarget(target).machine !== this.machine;
+  }
+  /** Whether `machine`'s rows are only cached ones from a daemon since replaced. */
+  private stale(machine: Machine): boolean {
+    return machine.runtime.workspaces.items.length === 0 && machine.presence().stale;
+  }
+  /** Whether rows name their machine: another machine has answered. */
+  private machineLabels(): boolean {
+    return this.machines.some(m => m.remote);
+  }
+  /** What the sidebar's machine filter says, while rows name machines. */
+  machineScope(): string {
+    return this.machineLabels() ? (this.machine_filter?.name ?? "all") : "";
+  }
+  get remote_links(): boolean {
+    return this.machine.remote_links;
+  }
+  set remote_links(value: boolean) {
+    this.machine.remote_links = value;
+  }
+  get worktree_agents(): worktreeAgents.State {
+    return this.machine.worktree_agents;
+  }
+  get folded_groups(): number[] {
+    return this.machine.folded_groups;
+  }
+  set folded_groups(value: number[]) {
+    this.machine.folded_groups = value;
+  }
+  get marked_unread(): Map<number, boolean> {
+    return this.machine.marked_unread;
+  }
+  get running(): launcherResume.Open[] {
+    return this.machine.running;
+  }
+  set running(value: launcherResume.Open[]) {
+    this.machine.running = value;
+  }
+  get stopped(): Stopped[] {
+    return this.machine.stopped;
+  }
+  set stopped(value: Stopped[]) {
+    this.machine.stopped = value;
+  }
+  get runtime(): Runtime {
+    return this.machine.runtime;
+  }
+  get navigation(): Navigation {
+    return this.machine.navigation;
+  }
+  set navigation(value: Navigation) {
+    this.machine.navigation = value;
+  }
+  get connection(): Transport {
+    return this.machine.connection;
+  }
+  set connection(value: Transport) {
+    this.machine.connection = value;
+  }
+  /** Daemon work started from input; the viewer never waits for it. */
+  get tasks(): tasks.Tasks {
+    return this.machine.tasks;
+  }
   private model(): Model {
     return this.current().model;
   }
@@ -595,32 +830,81 @@ export class Controller {
   layoutView(): LayoutView {
     return new LayoutView(this.model(), this.nav());
   }
-  /** Runs `command` in the daemon, then reads what changed; `done` hears
-   * that the daemon did it, even when the reading fails. */
+  /** Starts daemon work for what the user just did; the viewer doesn't wait,
+   * but the input after it does, since the reply decides where it goes. */
+  private later(task: (lane: tasks.Lane) => Promise<void>): void {
+    this.tasks.start(task, true);
+  }
+  /** Starts daemon work that leaves the next keys where they'd go anyway. */
+  private background(task: (lane: tasks.Lane) => Promise<void>): void {
+    this.tasks.start(task);
+  }
+  /** Whether the user is still on this workspace, and with `tab`, this tab:
+   * a task's reply changes what they see only then. */
+  private here(tab = false): () => boolean {
+    const machine = this.machine,
+      workspace = this.current().id,
+      at = tab ? (this.selectedTab()?.id ?? null) : null;
+    return () =>
+      this.machine === machine && this.current().id === workspace && (!tab || (this.selectedTab()?.id ?? null) === at);
+  }
   private async execute(
     command: CommandInput,
-    done?: () => void,
+    lane?: tasks.Lane | (() => void),
+    completed?: () => void,
   ): Promise<{ pane: number; workspace: number; text: string | null }> {
-    const response = await call(this.connection, "session.command", { command });
+    const done = typeof lane === "function" ? lane : undefined;
+    lane = typeof lane === "function" ? undefined : lane;
+    const machine = lane ? (this.machines.find(m => m.connection === lane.transport) ?? this.machine) : this.machine;
+    const response = await (lane
+      ? lane.call("session.command", { command })
+      : call(this.connection, "session.command", { command }));
     done?.();
+    completed?.();
     const result = {
       pane: Number(response.result?.pane ?? 0),
       workspace: Number(response.result?.workspace ?? 0),
       text: response.result?.text ?? null,
     };
-    await this.refresh();
+    await this.refresh(machine);
     this.dirty = true;
     return result;
   }
-  private async edit(command: CommandInput): Promise<void> {
-    await this.execute(command);
+  private async edit(command: CommandInput, lane?: tasks.Lane): Promise<void> {
+    await this.execute(command, lane);
   }
-  private async moveTab(id: number, gap: number): Promise<void> {
+  /** Sends `command` and shows its result once the daemon has it. */
+  private command(command: CommandInput): void {
+    this.later(lane => this.edit(command, lane));
+  }
+  private moveTab(id: number, gap: number): void {
     const operation = navigation.moveTab(this.model(), id, gap);
-    if (operation) await this.edit(operation);
+    if (operation) this.command(operation);
+  }
+  /** Sends a dragged divider's ratio: one request at a time, and when it's
+   * answered, the latest ratio the drag reached. */
+  private resizeSplit(drag: { cancelled: boolean }, wanted: { target: number; other: number; ratio: number }): void {
+    this.split_wanted = wanted;
+    if (this.split_sending) return;
+    this.split_sending = true;
+    this.background(async lane => {
+      try {
+        for (let next = this.split_wanted; next; next = this.split_wanted) {
+          this.split_wanted = null;
+          const owner = this.runtime.workspaces.owner(next.target);
+          if (!owner) break;
+          await this.edit({ "split.ratio": { ...next, expected: owner.model.revision } }, lane);
+          // A successful local resize changes revision, but keeps this gesture valid.
+          drag.cancelled = false;
+          this.dirty = true;
+        }
+      } finally {
+        this.split_sending = false;
+      }
+    });
   }
   switchWorkspace(id: number): void {
-    if (this.runtime.workspaces.index(id) === null) throw Error("NoWorkspace");
+    if (this.runtime.workspaces.loaded && this.runtime.workspaces.index(id) === null) throw Error("NoWorkspace");
     this.observeFocus();
     this.rememberAgent();
     if (this.input_state.tab_drag) this.input_state.tab_drag.cancelled = true;
@@ -640,19 +924,21 @@ export class Controller {
     this.dirty = true;
     this.observeFocus();
   }
-  private async closeWorkspace(id: number, close_contents: boolean): Promise<void> {
+  private closeWorkspace(id: number, close_contents: boolean): void {
     if (this.runtime.workspaces.index(id) === null) throw Error("NoWorkspace");
-    await this.edit({ "workspace.close": { target: id, close_contents } });
-    // Closing the last one leaves the button to create another.
-    if (this.current().id) this.switchWorkspace(this.current().id);
-    else this.closeMenu();
+    this.later(async lane => {
+      await this.edit({ "workspace.close": { target: id, close_contents } }, lane);
+      // Still on the closed workspace: settle on the neighbour shown instead.
+      if (this.navigation.workspace_id === id) {
+        if (this.current().id) this.switchWorkspace(this.current().id);
+        else this.closeMenu();
+      }
+    });
   }
-  private revealWorkspace(index = this.workspaceIds().indexOf(this.current().id)): void {
+  private revealWorkspace(index = this.workspaceIds().indexOf(this.rowKey(this.current().id))): void {
     if (index < 0) return;
     if (this.archived_expanded && this.sidebarView([]).workspaceCapacity() === 0) this.archived_expanded = false;
-    const capacity = this.sidebarView([]).workspaceCapacity();
-    if (index < this.workspace_offset) this.workspace_offset = index;
-    else if (index >= this.workspace_offset + capacity) this.workspace_offset = index + 1 - capacity;
+    this.workspace_offset = this.sidebarView([]).workspaceReveal(index);
   }
   /** Moves focus one step within the region that has the keyboard, and past
    * its edge on to the region beside it. */
@@ -715,7 +1001,7 @@ export class Controller {
     this.selection = null;
     this.cancelDividers();
     const entries = this.sidebarEntries(),
-      current = this.current().id;
+      current = this.rowKey(this.current().id);
     const cursor = list === "workspaces" ? { workspace: current } : sidebarFocus.initial(current, entries);
     this.giveKeyboard({ sidebar: new sidebarFocus.State(cursor, folded ? list : null) });
     this.revealCursor(entries);
@@ -770,7 +1056,7 @@ export class Controller {
       return arrow ? undefined : this.perform({ name: "new-workspace" });
     }
     if ("archived" in cursor) return this.perform({ name: "toggle-archived-workspaces" });
-    if ("workspace" in cursor) return this.switchWorkspace(cursor.workspace);
+    if ("workspace" in cursor) return this.selectRow(cursor.workspace);
     const target = cursor.entry;
     const index = agentNavigation.indexOf(this.sidebarEntries(), target);
     if (index === null) return;
@@ -913,10 +1199,10 @@ export class Controller {
       this.sidebar_open,
       offset,
       entries.length,
-      this.prefs.sidebar_split,
+      this.host.prefs.sidebar_split,
     )
       .withSearch(this.agentSearch())
-      .withWidth(this.prefs.sidebar_width);
+      .withWidth(this.host.prefs.sidebar_width);
     view = view.withPanel(this.reviewWidth(view.width));
     // Workspace rows, and so paging, depend on whether readings are shown.
     view.resources = this.prefs.resources;
@@ -929,12 +1215,22 @@ export class Controller {
       this.archived_offset,
       this.sidebar_focus !== null && "archived" in this.sidebar_focus.cursor,
     );
-    view = view.withWorkspaces(this.workspaceIds().length, this.workspace_offset).withEntries(entries);
+    view = view
+      .withWorkspaces(
+        this.workspaceRows().length,
+        this.workspace_offset,
+        this.workspaceRows().map(row => row.machine),
+        this.workspaceRows().map(row => row.collapsed),
+      )
+      .withEntries(entries)
+      .withRename(this.renameState());
     view.scope_label = this.scopeLabel();
+    view.workspace_scope = this.machineScope();
+    view.corgi_badge = this.host.corgi_badge;
     return view;
   }
   private agentOffset(): { get(): number; set(value: number): void } {
-    if (this.prefs.agents === "workspace") return this.navigation.agentOffset(this.runtime.workspaces);
+    if (this.host.prefs.agents === "workspace") return this.navigation.agentOffset(this.runtime.workspaces);
     return {
       get: () => this.all_offset,
       set: (value: number) => {
@@ -944,20 +1240,20 @@ export class Controller {
   }
   /** The list the agent scroll belongs to: the current workspace's, or the "All" list (null). */
   private agentList(): number | null {
-    return this.prefs.agents === "workspace" ? this.current().id : null;
+    return this.host.prefs.agents === "workspace" ? this.current().id : null;
   }
   /** Scrolls the agent list where the last viewer left it, when this one shows the same list. */
   restoreAgentScroll(): void {
-    const saved = this.prefs.agent_scroll;
+    const saved = this.host.prefs.agent_scroll;
     if (saved && saved.workspace === this.agentList()) this.agentOffset().set(saved.offset);
   }
   /** Saves the agent list's scroll for the next viewer, when it moved. */
   saveAgentScroll(): void {
     if (!this.current().id) return;
     const scroll = { workspace: this.agentList(), offset: this.agentOffset().get() };
-    const saved = this.prefs.agent_scroll;
+    const saved = this.host.prefs.agent_scroll;
     if (saved && saved.workspace === scroll.workspace && saved.offset === scroll.offset) return;
-    this.prefs.agent_scroll = scroll;
+    this.host.prefs.agent_scroll = scroll;
     // Best effort: without it the next viewer starts at the top.
     try {
       preferences.update({ agent_scroll: scroll });
@@ -968,7 +1264,7 @@ export class Controller {
     return this.prefs.agents === "workspace" && this.current().id ? this.current().name : "all";
   }
   private inScope(id: number): boolean {
-    return this.prefs.agents === "workspace" ? id === this.current().id : true;
+    return this.host.prefs.agents === "workspace" ? id === this.current().id : true;
   }
   private setAgentScope(choice: sidebar.ScopeChoice): void {
     this.closeMenu();
@@ -992,6 +1288,7 @@ export class Controller {
       if (existsSync(preferences.path()) && preferences.readExisting(preferences.path()) === null)
         this.notice(i18n.t`Invalid viewer.json; using default preferences until the file is repaired.`);
       this.closePreferences = keybindingFile.observe(preferences.path(), saved => {
+        if (saved) this.prefs.workspace_order = saved.workspace_order;
         if (saved && saved.language !== this.prefs.language) {
           this.prefs.language = saved.language;
           localeHost.initialize(saved.language);
@@ -1042,17 +1339,35 @@ export class Controller {
         theme: this.prefs.theme,
       });
   }
-  private groupFolded(id: number): boolean {
-    return this.folded_groups.includes(id);
+  /** Forgets what the last connection to the daemon agreed, before the next
+   * one opens. The panes, selection and menus stay. */
+  resetConnection(machine = this.machine): void {
+    machine.viewer_id = 0;
+    machine.last_control = 0n;
+    machine.runtime.snapshot_hash = null;
+    machine.runtime.resources_hash = null;
+    if (machine !== this.machine) return;
+    this.launch_previews.disconnect();
+    this.input_state = Object.assign(new InputState(), { attached: this.input_state.attached });
+    this.executable = "";
   }
-  private toggleGroup(id: number): void {
-    const index = this.folded_groups.indexOf(id);
+  /** Opens onboarding when the preferences say it never finished. */
+  offerOnboarding(): void {
+    const prefs = this.host.prefs;
+    if (!prefs.onboarding_complete && !this.onboarding)
+      this.onboarding = Object.assign(new onboarding.State(), { preset: prefs.preset, prefix: prefs.prefix });
+  }
+  /** Folds or unfolds a group header, on whichever machine it lists. */
+  private toggleGroup(key: number): void {
+    const { machine, id } = this.agentOf(key);
+    const folded = machine.folded_groups;
+    const index = folded.indexOf(id);
     if (index >= 0) {
-      this.folded_groups[index] = this.folded_groups[this.folded_groups.length - 1];
-      this.folded_groups.pop();
-    } else if (this.folded_groups.length < max_workspaces) this.folded_groups.push(id);
+      folded[index] = folded[folded.length - 1];
+      folded.pop();
+    } else if (folded.length < max_workspaces) folded.push(id);
     this.sidebar_rows.discard();
-    if (index >= 0) this.revealGroup({ group: id });
+    if (index >= 0) this.revealGroup({ group: key });
     this.dirty = true;
   }
   private toggleSection(kind: Section): void {
@@ -1068,9 +1383,10 @@ export class Controller {
     this.dirty = true;
   }
   private toggleWorktree(selection: worktreeAgents.Selection): void {
-    const key = worktreeAgents.key(selection);
-    const unfolded = this.worktree_agents.folded.delete(key);
-    if (!unfolded) this.worktree_agents.folded.add(key);
+    const { machine, id } = this.agentOf(selection.workspace);
+    const key = worktreeAgents.key({ workspace: id, path: selection.path });
+    const unfolded = machine.worktree_agents.folded.delete(key);
+    if (!unfolded) machine.worktree_agents.folded.add(key);
     this.sidebar_rows.discard();
     // Folding from a pinned header leaves the header in its own row.
     const entries = this.sidebarEntries();
@@ -1147,7 +1463,180 @@ export class Controller {
     return this.inheritedCwd(this.current(), p ? p.id : null);
   }
   private workspaceIds(): number[] {
-    return this.workspaceList().map(ws => ws.id);
+    return this.workspaceRows().map(ws => ws.id);
+  }
+  /** The sidebar's workspace rows for every machine shown, by row id; see `key`. */
+  workspaceRows(all = false, expanded = false): WorkspaceEntry[] {
+    if (this.machines.length === 1) return this.workspaceEntries();
+    const labels = this.machineLabels();
+    const rows = this.machines.flatMap(machine => {
+      if (!all && this.machine_filter && this.machine_filter !== machine) return [];
+      const presence = machine.presence(),
+        rows =
+          machine.runtime.workspaces.loaded || machine.runtime.workspaces.items.length > 0
+            ? this.workspaceEntries(machine)
+            : presence.cached,
+        unavailable = presence.online ? "" : presence.description,
+        shown = machine === this.machine;
+      if (!rows.length)
+        return [
+          sidebar.workspaceEntry({
+            id: this.rowKey(0, machine),
+            name: machine.name,
+            cwd: "",
+            active: false,
+            machine: labels ? machine.name : "",
+            link_quality: presence.link_quality,
+            unavailable: unavailable || "Loading workspaces…",
+            connecting: presence.connecting,
+            connection_status: presence.connection_status,
+            external: !shown,
+          }),
+        ];
+      return rows.map(row => ({
+        ...row,
+        id: this.rowKey(row.id, machine),
+        // Ports are found by the row's id, so they take it too.
+        ports: {
+          ...row.ports,
+          workspaces: (row.ports?.workspaces ?? [])
+            .filter(w => w.id === row.id)
+            .map(w => ({ ...w, id: this.rowKey(w.id, machine) })),
+        },
+        active: shown && row.id === machine.navigation.workspace_id,
+        machine: labels ? machine.name : "",
+        link_quality: presence.link_quality,
+        external: !shown,
+        unavailable,
+        connecting: presence.connecting,
+        connection_status: presence.connection_status,
+      }));
+    });
+    const order = new Map(this.prefs.workspace_order.map((key, i) => [key, i]));
+    rows.sort(
+      (a, b) =>
+        (order.get(this.workspaceOrderKey(a.id)) ?? Infinity) - (order.get(this.workspaceOrderKey(b.id)) ?? Infinity),
+    );
+    if (all || expanded) return rows;
+    const folded = new Set<Machine>();
+    return rows.flatMap(row => {
+      const machine = this.rowOf(row.id)!.machine;
+      if (!machine.collapsed) return [row];
+      if (folded.has(machine)) return [];
+      folded.add(machine);
+      return [{ ...row, collapsed: true }];
+    });
+  }
+  toggleMachine(machine: Machine): void {
+    machine.collapsed = !machine.collapsed;
+    this.cancelWorkspaceDrag();
+    this.workspace_offset = this.sidebarView([]).workspace_offset;
+    this.dirty = true;
+  }
+  /** Keyboard cycling retains reconnecting rows, but skips machines needing intervention. */
+  navigateWorkspace(forward: boolean): void {
+    const ids = this.workspaceRows(false, true)
+      .filter(row => {
+        const presence = this.rowOf(row.id)!.machine.presence();
+        return presence.online || presence.connecting;
+      })
+      .map(row => row.id);
+    if (!ids.length) return;
+    const current = ids.indexOf(this.rowKey(this.current().id));
+    const index =
+      current < 0 ? (forward ? 0 : ids.length - 1) : (current + (forward ? 1 : ids.length - 1)) % ids.length;
+    this.selectRow(ids[index]);
+  }
+  private workspaceOrderKey(key: number): string {
+    const row = this.rowOf(key)!;
+    return JSON.stringify([row.machine.order_scope || row.machine.name, row.id]);
+  }
+  /** Global display order is viewer-owned; local-only order remains daemon-owned. */
+  private dropWorkspace(drag: WorkspaceDrag): void {
+    if (!drag.drop) return;
+    const source = drag.ids[drag.source];
+    if (this.machines.length > 1) {
+      const rows = this.workspaceRows(true)
+        .map(row => row.id)
+        .filter(id => id !== source);
+      const before = drag.drop.index >= drag.ids.length ? null : drag.ids[drag.drop.index];
+      const at = before === null ? rows.length : rows.indexOf(before);
+      if (at < 0) return;
+      rows.splice(at, 0, source);
+      this.prefs.workspace_order = rows.map(id => this.workspaceOrderKey(id));
+      try {
+        preferences.update({ workspace_order: this.prefs.workspace_order });
+      } catch (error) {
+        this.notice((error as Error).message);
+      }
+      this.dirty = true;
+      return;
+    }
+    const here = this.here();
+    this.later(async lane => {
+      await this.refresh();
+      if (!here() || !drag.valid(this.sidebarView([]), this.workspaceIds()) || !drag.drop) return;
+      const target = this.rowOf(source)!;
+      const before = drag.drop.index >= drag.ids.length ? target.id : this.rowOf(drag.ids[drag.drop.index])!.id;
+      await this.edit({ "workspace.move": { target: target.id, before } }, lane);
+    });
+  }
+  cancelWorkspaceDrag(): boolean {
+    if (!this.workspace_drag) return false;
+    this.workspace_drag.cancelled = true;
+    this.workspace_drag.drop = null;
+    this.workspace_drag.preview = null;
+    this.dirty = true;
+    return true;
+  }
+  /** Workspace gestures stay local even while the selected endpoint is stalled. */
+  workspaceDragInput(x: number, y: number, button: number, release: boolean): boolean {
+    const side = this.sidebarView([]),
+      ids = this.workspaceIds();
+    if (!this.workspace_drag) {
+      if (!this.workspaceNavigation() || this.copy_mode || this.overlayOpen()) return false;
+      const rows = this.workspaceRows();
+      if (sidebar.portWorkspace(side, rows, x, y) || sidebar.gitActionWorkspace(side, rows, this.git_hover, x, y))
+        return false;
+      const hit = side.hit(x, y);
+      if (release || button !== 0 || hit.tag !== "workspace" || y !== side.workspaceY(hit.workspace)) return false;
+      const key = ids[hit.workspace];
+      this.selectRow(key);
+      const after = this.sidebarView([]),
+        updated = this.workspaceIds(),
+        at = updated.indexOf(key);
+      if (after.workspace_offset === side.workspace_offset && at >= 0)
+        this.workspace_drag = WorkspaceDrag.init(after, updated, at, x, y);
+      return true;
+    }
+    const drag = this.workspace_drag;
+    if (button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
+    if (!release && (button === 64 || button === 65) && drag.valid(side, ids)) {
+      this.workspace_offset = Math.max(
+        0,
+        Math.min(side.workspaceMaxOffset(), side.workspace_offset + (button === 64 ? -1 : 1)),
+      );
+      drag.dragging = true;
+    }
+    drag.update(this.sidebarView([]), this.workspaceIds(), x, y);
+    if (release && (button & 3) === 0) {
+      this.workspace_drag = null;
+      this.ui_mouse_down = false;
+      this.dropWorkspace(drag);
+    }
+    this.dirty = true;
+    return true;
+  }
+  /** The readings a row's machine sampled, its workspace under the row's id. */
+  private rowResources(key: number): resources.Snapshot | null {
+    const row = this.rowOf(key);
+    if (!row || !row.machine.presence().online || this.stale(row.machine)) return null;
+    const snapshot = row.machine.runtime.resources,
+      work = snapshot.workspaces.find(work => work.id === row.id);
+    if (!work) return null;
+    return Object.assign(new resources.Snapshot(), snapshot, {
+      workspaces: [Object.assign(new resources.Work(key), work, { id: key })],
+    });
   }
   private workspaceList(): Workspace[] {
     return this.runtime.workspaces.items.filter(ws => !ws.archived || ws.id === this.current().id);
@@ -1161,7 +1650,7 @@ export class Controller {
   }
   archivedWorkspaceEntries(): sidebar.ArchivedWorkspace[] {
     return this.archivedWorkspaces().map(ws => ({
-      id: ws.id,
+      id: this.rowKey(ws.id),
       name: ws.name,
       active: false,
       summary:
@@ -1174,41 +1663,56 @@ export class Controller {
     }));
   }
   private sidebarWorkspaceIds(): number[] {
-    return [...this.workspaceIds(), ...(this.archived_expanded ? this.archivedWorkspaces().map(ws => ws.id) : [])];
+    return [
+      ...this.workspaceRows()
+        .filter(row => {
+          const presence = this.rowOf(row.id)!.machine.presence();
+          return presence.online || presence.connecting;
+        })
+        .map(row => row.id),
+      ...(this.archived_expanded ? this.archivedWorkspaces().map(ws => this.rowKey(ws.id)) : []),
+    ];
   }
   private archivedHeaderIndex(): number | null {
     return this.archivedWorkspaces().length ? this.workspaceIds().length : null;
   }
-  workspaceEntries(): WorkspaceEntry[] {
-    return this.workspaceList().map(ws => {
-      const entry = sidebar.workspaceEntry({
-        id: ws.id,
-        name: ws.name,
-        cwd: ws.cwd,
-        active: ws.id === this.current().id,
-        archived: ws.archived,
-        git_ahead: ws.git_ahead,
-        git_push: ws.git_push,
-        git_commits: ws.git_commits,
-        git_diff: ws.git_diff,
-        worktrees: ws.worktrees,
-        stats: ws.stats,
+  /** `machine`'s workspaces as the sidebar lists them, by their own ids. */
+  workspaceEntries(machine = this.machine): WorkspaceEntry[] {
+    const runtime = machine.runtime;
+    // Until the daemon first answers, it has none.
+    if (runtime.workspaces.items.length === 0) return [];
+    const current = machine.navigation.current(runtime.workspaces).id;
+    return runtime.workspaces.items
+      .filter(ws => !ws.archived || ws.id === machine.navigation.current(runtime.workspaces).id)
+      .map((ws, i) => {
+        const entry = sidebar.workspaceEntry({
+          id: ws.id,
+          name: ws.name,
+          cwd: ws.cwd,
+          active: ws.id === current,
+          archived: ws.archived,
+          git_ahead: ws.git_ahead,
+          git_push: ws.git_push,
+          git_commits: ws.git_commits,
+          git_diff: ws.git_diff,
+          worktrees: ws.worktrees,
+          stats: ws.stats,
+        });
+        entry.ports = runtime.ports;
+        entry.resources = sidebar.resourcesFor(runtime.resources, ws.id);
+        entry.remote_links = machine.remote_links;
+        for (const p of runtime.panes) {
+          if (p.agent.provider === null || ws.model.tabForPane(p.id) === null) continue;
+          sidebar.tally(entry, p.agent.state, p.agent.attention);
+          if (unread(p.agent.observation)) entry.unread += 1;
+        }
+        for (const session of agentRows.sessions(runtime)) {
+          if (session.workspace !== ws.id) continue;
+          sidebar.tally(entry, session.state, session.attention);
+          if (unread(session.observation)) entry.unread += 1;
+        }
+        return entry;
       });
-      entry.ports = this.runtime.ports;
-      entry.resources = sidebar.resourcesFor(this.runtime.resources, ws.id);
-      entry.remote_links = this.remote_links;
-      for (const p of this.runtime.panes) {
-        if (p.agent.provider === null || ws.model.tabForPane(p.id) === null) continue;
-        sidebar.tally(entry, p.agent.state, p.agent.attention);
-        if (unread(p.agent.observation)) entry.unread += 1;
-      }
-      for (const session of this.listedSessions()) {
-        if (session.workspace !== ws.id) continue;
-        sidebar.tally(entry, session.state, session.attention);
-        if (unread(session.observation)) entry.unread += 1;
-      }
-      return entry;
-    });
   }
   /** The agent list; `unfolded` keeps the agents of folded sections. */
   agentEntries(workspace?: number, unfolded = false): Entry[] {
@@ -1219,115 +1723,164 @@ export class Controller {
     const sectioned = workspace === undefined && this.prefs.agentSort() === "activity";
     // A hand-sorted "All" groups agents under a header per workspace that has any.
     const grouped = workspace === undefined && !sectioned && this.prefs.agents === "all";
-    const totals = grouped ? this.workspaceEntries() : [];
+    const machines =
+      workspace !== undefined || this.prefs.agents !== "all"
+        ? [this.machine]
+        : this.machine_filter
+          ? [this.machine_filter]
+          : this.machines;
+    const label = (id: number, checkout: string | null, all: boolean) => {
+      const owner = this.agentOf(id);
+      const name = this.checkoutLabel(owner.id, checkout, all, owner.machine);
+      return all && this.machineLabels() ? `${owner.machine.name} · ${name}` : name;
+    };
     const items: agentSections.Item[] = [],
       held = new Set<string>(),
       now_ms = milliTimestamp();
-    this.runtime.workspaces.items.forEach((ws, ws_index) => {
-      if (workspace !== undefined ? ws.id !== workspace : !this.inScope(ws.id)) return;
-      if (workspace === undefined && this.archivedAway(ws.id)) return;
-      if (grouped) {
-        const total = totals.find(w => w.id === ws.id);
-        if (!total) return;
-        if (total.agents === 0) return;
-        const folded = this.groupFolded(ws.id);
-        const here = ws.id === this.current().id;
-        // A folded header stands in for the focused agent it hides.
-        entries.push(
-          sidebar.entry({
-            target: { group: ws.id },
-            name: ws.name,
-            provider: null,
-            state: "idle",
-            attention: "none",
-            focused: folded && here && this.focusedAgent() !== null,
-            group: { agents: total.agents, working: total.working, attention: total.attention, folded, current: here },
-          }),
-        );
-        if (folded) return;
-      }
-      const first_agent = entries.length,
-        starts: number[] = [];
-      for (const { entry, start } of agentRows.rows(this.runtime, ws, now_ms)) {
-        const t = entry.target,
-          chat = "headless" in t ? this.runtime.corgi_sessions.find(s => s.id === t.headless) : null,
-          pane = "pane" in t ? t.pane : chat?.pane;
-        entry.focused =
-          pane != null
-            ? this.headless_notice === null && focus === pane
-            : "headless" in t && this.headless_notice === t.headless;
-        entries.push(entry);
-        starts.push(start);
-      }
-      if (!sectioned) {
-        // std.sort.insertion is stable.
-        const sorted = entries
-          .slice(first_agent)
-          .sort((l, r) =>
-            sidebar.lessThan(ws.agent_order, l, r) ? -1 : sidebar.lessThan(ws.agent_order, r, l) ? 1 : 0,
+    for (const machine of machines) {
+      if (machine !== this.machine && !machine.presence().online) continue;
+      const runtime = machine.runtime,
+        shown = machine === this.machine;
+      const totals = grouped ? this.workspaceEntries(machine) : [];
+      const keyed = (entry: Entry): Entry => {
+        const target = entry.target;
+        const key = (id: number) => this.agentKey(id, machine);
+        return {
+          ...entry,
+          target:
+            "pane" in target
+              ? { pane: key(target.pane) }
+              : "headless" in target
+                ? { headless: key(target.headless) }
+                : "group" in target
+                  ? { group: key(target.group) }
+                  : "workspace" in target
+                    ? { ...target, workspace: key(target.workspace) }
+                    : target,
+          worktree: entry.worktree ? { ...entry.worktree, workspace: key(entry.worktree.workspace) } : null,
+        };
+      };
+      runtime.workspaces.items.forEach(ws => {
+        if (ws.archived && (!shown || ws.id !== this.current().id)) return;
+        if (workspace !== undefined ? ws.id !== workspace : this.prefs.agents !== "all" && !this.inScope(ws.id)) return;
+        if (grouped) {
+          const total = totals.find(w => w.id === ws.id);
+          if (!total) return;
+          if (total.agents === 0) return;
+          const folded = machine.folded_groups.includes(ws.id);
+          const here = shown && ws.id === this.current().id;
+          // A folded header stands in for the focused agent it hides.
+          entries.push(
+            sidebar.entry({
+              target: { group: this.agentKey(ws.id, machine) },
+              name: ws.name,
+              provider: null,
+              state: "idle",
+              attention: "none",
+              focused: folded && here && this.focusedAgent() !== null,
+              group: {
+                agents: total.agents,
+                working: total.working,
+                attention: total.attention,
+                folded,
+                current: here,
+                machine: this.machineLabels() ? machine.name : "",
+              },
+            }),
           );
-        // Worktrees label the rows that sit together, as in the sections.
-        const placed = sorted.map(entry => {
-          const checkout = worktreeAgents.listedWorktree(ws.worktrees, entry.target, entry.cwd);
-          return {
-            entry: {
-              ...entry,
-              worktree: checkout === null ? null : { workspace: ws.id, path: checkout, ghost: false },
-            },
-            workspace: ws.id,
-            checkout,
-          };
+          if (folded) return;
+        }
+        const first_agent = entries.length,
+          starts: number[] = [];
+        for (const { entry, start } of agentRows.rows(runtime, ws, now_ms)) {
+          const target = entry.target,
+            chat = "headless" in target ? runtime.corgi_sessions.find(s => s.id === target.headless) : null,
+            pane = "pane" in target ? target.pane : chat?.pane;
+          entry.focused =
+            shown &&
+            (pane != null
+              ? this.headless_notice === null && focus === pane
+              : "headless" in target && this.headless_notice === target.headless);
+          entries.push(entry);
+          starts.push(start);
+        }
+        if (!sectioned) {
+          // std.sort.insertion is stable.
+          const sorted = entries
+            .slice(first_agent)
+            .sort((l, r) =>
+              sidebar.lessThan(ws.agent_order, l, r) ? -1 : sidebar.lessThan(ws.agent_order, r, l) ? 1 : 0,
+            );
+          // Worktrees label the rows that sit together, as in the sections.
+          const placed = sorted.map(entry => {
+            const checkout = worktreeAgents.listedWorktree(ws.worktrees, entry.target, entry.cwd);
+            return {
+              entry: {
+                ...entry,
+                worktree: checkout === null ? null : { workspace: ws.id, path: checkout, ghost: false },
+              },
+              workspace: ws.id,
+              checkout,
+            };
+          });
+          const decorated =
+            workspace === undefined
+              ? agentSections.labelled(placed, null, false, (id, checkout) =>
+                  this.checkoutLabel(id, checkout, false, machine),
+                )
+              : sorted;
+          entries.splice(first_agent, sorted.length, ...decorated.map(keyed));
+          return;
+        }
+        entries.slice(first_agent).forEach((entry, i) => {
+          const target = entry.target as OrderTarget,
+            key = agentKey(keyed(entry).target as OrderTarget),
+            pin = ws.pinned_agents.findIndex(t => sidebar.sameTarget(t, target)),
+            rank = ws.activity_order.findIndex(t => sidebar.sameTarget(t, target));
+          // Opening an unread agent reads it; it stays among the ready until left.
+          const kind = agentSections.section(entry),
+            shown = this.agent_since.shown(key, kind, entry.focused);
+          items.push({
+            key,
+            entry: keyed(entry),
+            workspace: this.agentKey(ws.id, machine),
+            checkout: worktreeAgents.listedWorktree(ws.worktrees, target, entry.cwd),
+            section: shown,
+            since: this.agent_since.observe(key, shown, starts[i], now_ms),
+            pin: pin < 0 ? null : pin,
+            rank: rank < 0 ? ws.activity_order.length : rank,
+          });
+          if (shown !== kind) held.add(key);
         });
-        const decorated =
-          workspace === undefined
-            ? agentSections.labelled(placed, null, false, (id, checkout) => this.checkoutLabel(id, checkout, false))
-            : sorted;
-        entries.splice(first_agent, sorted.length, ...decorated);
-        return;
-      }
-      entries.slice(first_agent).forEach((entry, i) => {
-        const target = entry.target as OrderTarget,
-          key = agentKey(target),
-          pin = ws.pinned_agents.findIndex(t => sidebar.sameTarget(t, target)),
-          rank = ws.activity_order.findIndex(t => sidebar.sameTarget(t, target));
-        // Opening an unread agent reads it; it stays among the ready until left.
-        const kind = agentSections.section(entry),
-          shown = this.agent_since.shown(key, kind, entry.focused);
-        items.push({
-          key,
-          entry,
-          workspace: ws.id,
-          checkout: worktreeAgents.listedWorktree(ws.worktrees, target, entry.cwd),
-          section: shown,
-          since: this.agent_since.observe(key, shown, starts[i], now_ms),
-          pin: pin < 0 ? null : pin,
-          rank: rank < 0 ? ws.activity_order.length : rank,
-        });
-        if (shown !== kind) held.add(key);
       });
-    });
+    }
     if (sectioned) {
       this.agent_since.place(items, held);
       const all = this.prefs.agents === "all";
       entries = agentSections.arrange(items, {
         all,
         folded: unfolded ? new Set() : this.folded_sections,
-        workspaces: this.runtime.workspaces.items.map(ws => ws.id),
-        label: (id, checkout) => this.checkoutLabel(id, checkout, all),
+        workspaces: machines.flatMap(machine =>
+          machine.runtime.workspaces.items.map(ws => this.agentKey(ws.id, machine)),
+        ),
+        label: (id, checkout) => label(id, checkout, all),
       });
     }
     for (const entry of entries) {
       if (!sidebar.isAgent(entry.target)) continue;
-      const conversation = this.runtime.conversations.find(c => c.id === entry.conversation);
+      const owner = this.agentTarget(entry.target);
+      const runtime = owner.machine.runtime;
+      const conversation = runtime.conversations.find(c => c.id === entry.conversation);
       if (conversation) entry.context = contextView(conversation.context);
-      if ("pane" in entry.target) entry.notes = this.review.noteCount(entry.target.pane);
+      if (owner.machine === this.machine && "pane" in entry.target)
+        entry.notes = this.review.noteCount(entry.target.pane);
     }
     return entries;
   }
   /** A subhead's text for checkout `checkout` of workspace `id`: a worktree's
    * branch, or the workspace's own checkout's branch; in `all`, by workspace. */
-  private checkoutLabel(id: number, checkout: string | null, all: boolean): string {
-    const ws = this.runtime.workspaces.items.find(ws => ws.id === id);
+  private checkoutLabel(id: number, checkout: string | null, all: boolean, machine = this.machine): string {
+    const ws = machine.runtime.workspaces.items.find(ws => ws.id === id);
     const linked =
       checkout !== null && ws?.worktrees ? worktrees.linked(ws.worktrees).find(e => e.path === checkout) : null;
     const branch = linked ? worktreeAgents.label(linked) : null;
@@ -1336,7 +1889,7 @@ export class Controller {
     return primary ? worktreeAgents.label(primary) : (ws?.name ?? "");
   }
   private sidebarEntries(): Entry[] {
-    const list = this.prefs.agents === "workspace" ? this.current().id : 0xffffffff;
+    const list = this.host.prefs.agents === "workspace" ? this.current().id : 0xffffffff;
     let entries = this.sidebar_rows.update(list, this.agentEntries(), [], milliTimestamp());
     const spot = this.spotlight(),
       selected = spot?.path != null ? { workspace: spot.workspace, path: spot.path } : null;
@@ -1395,7 +1948,15 @@ export class Controller {
   private listedSessions(): Headless[] {
     return agentRows.sessions(this.runtime);
   }
-  private selectAgent(target: Target): void {
+  selectAgent(target: Target): void {
+    const away = this.agentTarget(target);
+    if (away.machine !== this.machine) {
+      if ("group" in target) return this.toggleGroup(target.group);
+      if ("worktree" in target) return this.toggleWorktree({ workspace: target.workspace, path: target.worktree });
+      if (!sidebar.isAgent(away.target)) return;
+      this.closeMenu();
+      return this.onMachine(away.machine, away.target);
+    }
     if ("worktree" in target) return this.revealWorktree({ workspace: target.workspace, path: target.worktree }, true);
     // A subhead stands for its worktree; a workspace's own rows have nothing to open.
     if (sidebar.isSubhead(target)) {
@@ -1525,6 +2086,15 @@ export class Controller {
   focused(): Pane | null {
     return this.model().count === 0 ? null : this.pane(this.nav().tab().focus);
   }
+  /** A task's failure, told wherever the user is now. */
+  private taskFailed(error: unknown): void {
+    this.notice(
+      lost(error)
+        ? " Connection lost before the reply; check before trying again"
+        : (errors.name(error) ?? "ActionFailed"),
+    );
+    this.wake();
+  }
   notice(msg: string): void {
     this.message = byteSlice(msg.replace(/[\x00-\x1f\x7f-\x9f]/g, " "), 512);
     this.headless_notice = null;
@@ -1581,6 +2151,9 @@ export class Controller {
       this.prompt.open
     );
   }
+  workspaceNavigation(): boolean {
+    return !this.hasMenu() && this.name_dialog === null;
+  }
   /** Open UI that can change with no input, such as the launcher's preview
    * arriving; the viewer keeps drawing at full rate while it shows. */
   overlayOpen(): boolean {
@@ -1617,7 +2190,7 @@ export class Controller {
   }
   /** Opens agent pane `id`'s menu. The daemon says whether its agent can
    * be renamed now, and whether it has a conversation to fork. */
-  private async openAgentMenu(id: number, x: number, y: number): Promise<void> {
+  private openAgentMenu(id: number, x: number, y: number): void {
     this.closeMenu();
     this.search_mode = false;
     this.cancelDividers();
@@ -1635,16 +2208,27 @@ export class Controller {
     // again now, or placeholder bars until git answers.
     this.review_summaries.ask(this.agentFolder(p));
     if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
-    if (!(await this.renamable(id))) opened.off.add("rename");
-    try {
-      await call(this.connection, "session.command", { command: { "agent.fork": { target: id, check: true } } });
-    } catch {
-      opened.off.add("fork");
-    }
-    opened.setDetail("review", this.review_summaries.get(this.agentFolder(p)));
-    opened.highlightFirst();
-    this.tab_menu = opened;
-    this.dirty = true;
+    // The menu opens once the daemon answers, unless another click or Esc came first.
+    this.menu_pending = opened;
+    const here = this.here();
+    this.later(async lane => {
+      for (const [item, command] of [
+        ["rename", { "agent.rename": { target: id } }],
+        ["fork", { "agent.fork": { target: id, check: true } }],
+      ] as const)
+        try {
+          await lane.call("session.command", { command });
+        } catch (error) {
+          if (lost(error)) throw error;
+          if (item !== "rename" || !errors.is(error, "AgentBusy")) opened.off.add(item);
+        }
+      if (this.menu_pending !== opened || this.tab_menu !== null || !here()) return;
+      this.menu_pending = null;
+      opened.setDetail("review", this.review_summaries.get(this.agentFolder(p)));
+      opened.highlightFirst();
+      this.tab_menu = opened;
+      this.dirty = true;
+    });
   }
   /** The checkout a menu's Review changes reads: its agent's, or its worktree. */
   private menuCheckout(menu: TabMenu): string | null {
@@ -1704,8 +2288,12 @@ export class Controller {
   private openCurrentWorkspaceMenu(): void {
     this.revealWorkspace();
     const side = this.sidebarView([]),
-      slot = this.workspaceIds().indexOf(this.current().id) - side.workspace_offset;
-    const menu = this.openWorkspaceMenu(this.current().id, 0, side.width > 0 ? 3 + slot * side.workspaceRows() : 1);
+      slot = this.workspaceIds().indexOf(this.rowKey(this.current().id)) - side.workspace_offset;
+    const menu = this.openWorkspaceMenu(
+      this.current().id,
+      0,
+      side.width > 0 ? side.workspaceY(slot + side.workspace_offset) + 1 : 1,
+    );
     const across = side.width > 0 ? side.width : this.width;
     menu.anchor_x = Math.floor(sat(across, menu.bounds(this.width, this.height).width) / 2);
   }
@@ -1763,10 +2351,10 @@ export class Controller {
           this.toggleWorktree(selection);
           break;
         case "close-all":
-          for (const id of this.worktreePanes(selection)) await this.close(id);
+          for (const id of this.worktreePanes(selection)) this.close(id);
           break;
         case "review":
-          await this.reviewWorktree(selection);
+          this.reviewWorktree(selection);
           break;
         case "open-folder":
           await this.openWorktreeFolder(selection);
@@ -1802,19 +2390,29 @@ export class Controller {
         case "copy-details":
           this.copyText(breadcrumbs(p));
           break;
-        case "mark-unread":
-          try {
-            await call(this.connection, "pane.mark_unread", {
-              pane: p.id,
-              binding: p.binding,
-              conversation: p.agent.conversation,
-              session: p.agent.session,
-            });
+        case "mark-unread": {
+          const fields = {
+            pane: p.id,
+            binding: p.binding,
+            conversation: p.agent.conversation,
+            session: p.agent.session,
+          };
+          const here = this.here();
+          this.background(async lane => {
+            try {
+              await lane.call("pane.mark_unread", fields);
+            } catch (error) {
+              if (lost(error)) throw error;
+              this.notice(i18n.t` Couldn't mark as unread`);
+              return;
+            }
+            // Gone elsewhere, the pane is out of view, which lets the mark go.
+            if (!here()) return;
             this.marked_unread.set(p.id, this.focused()?.id === p.id);
-          } catch {
-            this.notice(i18n.t` Couldn't mark as unread`);
-          }
+            this.dirty = true;
+          });
           break;
+        }
         case "review":
           this.focusPane(pane_id);
           if (this.review.open) {
@@ -1824,7 +2422,7 @@ export class Controller {
           this.dirty = true;
           break;
         case "close":
-          await this.close(pane_id);
+          this.close(pane_id);
           break;
         default:
           break;
@@ -1840,17 +2438,17 @@ export class Controller {
           this.dirty = true;
           break;
         case "clear-name":
-          await this.renamePane(pane_id, "");
+          this.renamePane(pane_id, "");
           break;
         case "close":
-          await this.close(pane_id);
+          this.close(pane_id);
           break;
         case "swap":
           if (context.source !== null) {
             const source = context.source;
             if (this.model().tabForPane(source) !== this.model().tabForPane(pane_id)) return;
             this.focusPane(source);
-            await this.edit({ "pane.swap": { target: source, other: pane_id } });
+            this.command({ "pane.swap": { target: source, other: pane_id } });
             this.dirty = true;
           }
           break;
@@ -1886,7 +2484,7 @@ export class Controller {
           break;
         case "close":
           try {
-            await this.closeWorkspace(context.tab, true);
+            this.closeWorkspace(context.tab, true);
           } catch {
             this.notice(i18n.t` Could not close workspace`);
           }
@@ -2000,6 +2598,7 @@ export class Controller {
     this.moonlander?.reply(sequence, this.width, this.height);
   }
   closeMenu(): void {
+    this.rename_pending = null;
     this.startup_card = null;
     this.archive_dialog = null;
     this.closeMoonlander();
@@ -2018,6 +2617,7 @@ export class Controller {
     this.menu_hover = null;
     this.port_menu = null;
     this.tab_menu = null;
+    this.menu_pending = null;
     this.menu_highlight = null;
     this.prefix = false;
     this.resize_mode = false;
@@ -2057,18 +2657,21 @@ export class Controller {
     this.prepareName();
     this.fitNameDialog();
   }
-  private async newWorkspace(name: string, cwd: string): Promise<number> {
-    const id = (await this.execute({ "workspace.create": { name, cwd } })).workspace;
-    this.switchWorkspace(id);
-    return id;
+  /** Adds a workspace, and shows it unless the user has gone elsewhere. */
+  private newWorkspace(name: string, cwd: string): void {
+    const here = this.here();
+    this.later(async lane => {
+      const id = (await this.execute({ "workspace.create": { name, cwd } }, lane)).workspace;
+      if (here()) this.switchWorkspace(id);
+    });
   }
   /** Shows the workspace for a folder, adding one when none has it. */
-  private async openFolder(cwd: string): Promise<void> {
+  private openFolder(cwd: string): void {
     if (!isAbsolute(cwd)) throw Error("InvalidDirectory");
     const current = this.current(),
       found = current.cwd === cwd ? current : this.runtime.workspaces.items.find(w => w.cwd === cwd);
     if (found) this.switchWorkspace(found.id);
-    else await this.newWorkspace("", cwd);
+    else this.newWorkspace("", cwd);
   }
   private beginRename(): void {
     if (this.model().count === 0) return;
@@ -2109,105 +2712,101 @@ export class Controller {
       this.input_state.tab_drag?.dragging;
     return smooth ? 30 : corgiAnimation.frameDelay();
   }
-  private async renamePane(id: number, name: string): Promise<void> {
-    await this.edit({ "pane.rename": { target: id, name } });
+  private renamePane(id: number, name: string): void {
+    this.command({ "pane.rename": { target: id, name } });
   }
-  private async finishName(save: boolean): Promise<void> {
+  /** Closes the name dialog, saving its name first when `save`. The dialog
+   * stays up until the daemon takes the name; a refusal marks it failed, or
+   * says so once the dialog is gone. */
+  private finishName(save: boolean): void {
     this.dirty = true;
     const dialog = this.name_dialog;
     // Escape drops an agent's name kept from a failed rename, as on its row.
     if (!save && dialog && "agent" in dialog.target) this.remembered_names.delete(dialog.target.agent);
-    if (save && dialog) {
-      const target = dialog.target;
-      if ("agent_command" in target) {
-        // The launcher edits saved commands in its own dialog.
-      } else if ("pane" in target) {
-        try {
-          await this.renamePane(target.pane, dialog.name());
-        } catch {
-          dialog.failed = true;
-          return;
-        }
-      } else if ("workspace_name" in target) {
-        const fresh = dialog instanceof newWorkspace.Dialog ? dialog : null;
-        const name = dialog.name();
-        if (!name) {
-          dialog.failed = true;
-          return;
-        }
-        if (target.workspace_name === null) {
-          const cwd = fresh ? fresh.confirm() : this.currentCwd();
-          if (cwd === null) return;
-          try {
-            await this.newWorkspace(name, cwd);
-          } catch {
-            this.notice(i18n.t` Could not create workspace`);
+    const close = () => {
+      if (this.name_dialog !== dialog) return;
+      this.dismissName();
+      this.message = "";
+    };
+    if (!save || !dialog || "agent_command" in dialog.target) return close();
+    if (dialog.saving) return;
+    const target = dialog.target,
+      fresh = dialog instanceof newWorkspace.Dialog ? dialog : null,
+      name = dialog.name(),
+      cwd = fresh ? fresh.confirm() : this.currentCwd(),
+      here = this.here();
+    if (cwd === null) return;
+    if ("workspace_name" in target && !name) {
+      dialog.failed = true;
+      return;
+    }
+    const agent =
+      "agent" in target ? this.pane(target.agent)?.agent : "fork" in target ? this.pane(target.fork)?.agent : undefined;
+    // An emptied agent name keeps the one it has.
+    if ("agent" in target && name.length === 0) return close();
+    const refused = (message: string | null) => {
+      dialog.saving = false;
+      if (message === null && this.name_dialog === dialog) dialog.failed = true;
+      else {
+        close();
+        this.notice(message ?? " Could not save the name");
+      }
+    };
+    dialog.saving = true;
+    this.later(async lane => {
+      let pane: number | null = null;
+      try {
+        if ("pane" in target) await this.edit({ "pane.rename": { target: target.pane, name } }, lane);
+        else if ("workspace_name" in target) {
+          if (target.workspace_name === null) {
+            const id = (await this.execute({ "workspace.create": { name, cwd } }, lane)).workspace;
+            dialog.saving = false;
+            if (here()) this.switchWorkspace(id);
+            return close();
           }
-          return;
-        }
-        if (fresh) {
-          const cwd = fresh.confirm();
-          if (cwd === null) return;
-          try {
-            await this.edit({ "workspace.edit": { target: target.workspace_name, name, cwd } });
-          } catch {
-            dialog.failed = true;
-            return;
-          }
-        } else if ((await this.applyName({ workspace: target.workspace_name }, name)) !== null) {
-          dialog.failed = true;
-          return;
-        }
-      } else if ("rename" in target) {
-        try {
-          await this.edit({ "tab.rename": { target: target.rename, name: dialog.name() } });
-        } catch {
-          dialog.failed = true;
-          return;
-        }
-      } else if ("agent" in target) {
-        if (dialog.name().length > 0) {
-          const failure = await this.applyName({ agent: target.agent }, dialog.name());
+          await this.edit(
+            { "workspace.edit": { target: target.workspace_name, name, ...(fresh ? { cwd } : {}) } },
+            lane,
+          );
+        } else if ("rename" in target) await this.edit({ "tab.rename": { target: target.rename, name } }, lane);
+        else if ("agent" in target) {
+          const failure = await this.applyName({ agent: target.agent }, name, lane);
+          if (this.name_dialog !== dialog) return;
           if (failure !== null) {
-            this.remembered_names.set(target.agent, dialog.name());
-            this.dismissName();
-            this.notice(" " + failure);
-            return;
+            this.remembered_names.set(target.agent, name);
+            return refused(" " + failure);
           }
           this.remembered_names.delete(target.agent);
-        }
-      } else if ("shell" in target) {
-        if (!(await this.configureShell(dialog.name()))) {
-          dialog.failed = true;
-          return;
-        }
-      } else if ("fork" in target) {
-        // An emptied name keeps the one the copy takes over.
-        const name = dialog.name().length > 0 ? dialog.name() : null;
-        let created: { pane: number };
-        try {
-          created = await this.execute({ "agent.fork": { target: target.fork, name } });
-        } catch (error) {
-          this.dismissName();
-          this.notice(
-            agentMessage((error as Error).message, i18n.t` Could not fork this agent`, this.pane(target.fork)?.agent),
-          );
-          return;
-        }
-        try {
-          this.focusPane(created.pane);
-        } catch {}
+        } else if ("shell" in target) {
+          if (!(await this.configureShell(name, lane))) return refused(null);
+        } else if ("fork" in target)
+          // An emptied name keeps the one the copy takes over.
+          pane = (await this.execute({ "agent.fork": { target: target.fork, name: name || null } }, lane)).pane;
+      } catch (error) {
+        dialog.saving = false;
+        if (lost(error)) throw error;
+        const reason = (error as Error).message;
+        if ("workspace_name" in target && target.workspace_name === null)
+          return this.notice(i18n.t` Could not create workspace`);
+        if ("agent" in target) return refused(agentMessage(reason, i18n.t` Could not rename this agent`, agent));
+        if ("fork" in target) return refused(agentMessage(reason, i18n.t` Could not fork this agent`, agent));
+        return refused(null);
       }
-    }
-    this.dismissName();
-    this.message = "";
+      dialog.saving = false;
+      close();
+      if (pane !== null && here())
+        try {
+          this.focusPane(pane);
+        } catch {}
+    });
   }
   /** Renames a sidebar row's agent or workspace as the centered dialog does:
    * null once the name took, else what to tell the user. */
-  private async applyName(target: RenameTarget, name: string): Promise<string | null> {
+  private async applyName(target: RenameTarget, name: string, lane?: tasks.Lane): Promise<string | null> {
+    const agent = "agent" in target ? this.pane(target.agent)?.agent : undefined;
     if ("workspace" in target) {
       try {
-        await this.edit({ "workspace.edit": { target: target.workspace, name } });
+        await this.edit({ "workspace.edit": { target: target.workspace, name } }, lane);
         return null;
       } catch (error) {
         if (errors.unreachable(error)) return i18n.t`No daemon connection`;
@@ -2215,16 +2814,19 @@ export class Controller {
       }
     }
     try {
-      await this.edit({ "agent.rename": { target: target.agent, name } });
+      await this.edit({ "agent.rename": { target: target.agent, name } }, lane);
       return null;
     } catch (error) {
       if (errors.unreachable(error)) return i18n.t`No daemon connection`;
-      return agentMessage(
-        (error as Error).message,
-        i18n.t` Could not rename this agent`,
-        this.pane(target.agent)?.agent,
-      ).trim();
+      return agentMessage((error as Error).message, i18n.t` Could not rename this agent`, agent).trim();
     }
+  }
+  private renameTarget(target: RenameTarget): RenameTarget {
+    return "workspace" in target ? { workspace: this.rowKey(target.workspace) } : target;
+  }
+  private renameState(): sidebar.RenameState | null {
+    const open = this.inline_rename;
+    return open && { ...open, target: this.renameTarget(open.target) };
   }
   /** Opens the field on `target`'s row, in place of its name. A folded
    * sidebar shows its workspaces drawer for a workspace, which goes away with
@@ -2241,9 +2843,9 @@ export class Controller {
       if (!this.sidebar_open) {
         this.enterSidebar("workspaces");
         drawer = this.sidebar_focus?.drawer === "workspaces";
-        if (drawer) this.sidebar_focus!.cursor = { workspace: target.workspace };
+        if (drawer) this.sidebar_focus!.cursor = { workspace: this.rowKey(target.workspace) };
       }
-      this.revealWorkspace(this.workspaceIds().indexOf(target.workspace));
+      this.revealWorkspace(this.workspaceIds().indexOf(this.rowKey(target.workspace)));
       const ws = this.runtime.workspaces.items[index];
       text = ws.name;
       fallback = basename(ws.cwd) || "/";
@@ -2256,7 +2858,7 @@ export class Controller {
       text = this.renameText(p);
       fallback = providerName(p.agent);
     }
-    if (this.sidebarView(this.sidebarEntries()).fieldRect(target, this.workspaceEntries()) === null) {
+    if (this.sidebarView(this.sidebarEntries()).fieldRect(this.renameTarget(target), this.workspaceRows()) === null) {
       if (drawer) this.leaveSidebar();
       return false;
     }
@@ -2285,7 +2887,7 @@ export class Controller {
         this.closeInlineRename();
         break;
       case "save":
-        await this.saveInlineRename(open);
+        this.later(lane => this.saveInlineRename(open, lane));
         break;
       default:
         this.inlineEdited(open, before);
@@ -2301,7 +2903,7 @@ export class Controller {
   /** Return in the field: the name is applied as the centered dialog applies
    * it. A failure keeps the field with its text and says why; an agent's
    * name is then kept for the next try. */
-  private async saveInlineRename(open: InlineRename): Promise<void> {
+  private async saveInlineRename(open: InlineRename, lane?: tasks.Lane): Promise<void> {
     if (open.saving) return;
     const name = open.field.name();
     if ("agent" in open.target && name.length === 0) return this.closeInlineRename();
@@ -2312,7 +2914,7 @@ export class Controller {
       return;
     }
     open.saving = true;
-    const failure = await this.applyName(open.target, name);
+    const failure = await this.applyName(open.target, name, lane);
     open.saving = false;
     if (this.inline_rename !== open) return;
     if (failure === null) {
@@ -2332,18 +2934,25 @@ export class Controller {
   }
   /** Whether the daemon says agent pane `id` takes a rename, as its menu
    * offers one. A full input box passes: the rename says so on Return. */
-  private async renamable(id: number): Promise<boolean> {
+  private async renamable(id: number, lane: tasks.Lane): Promise<boolean> {
     try {
-      await call(this.connection, "session.command", { command: { "agent.rename": { target: id } } });
+      await lane.call("session.command", { command: { "agent.rename": { target: id } } });
       return true;
     } catch (error) {
       return errors.is(error, "AgentBusy");
     }
   }
-  /** The second press of a double-click on agent pane `id`'s row: true once
-   * the field opens there, false when the agent takes no rename. */
-  private async doubleClickAgent(id: number): Promise<boolean> {
-    return (await this.renamable(id)) && this.pane(id) !== null && this.beginInlineRename({ agent: id });
+  /** Opens the field once the daemon allows it, while the user stays here. */
+  private doubleClickAgent(id: number): void {
+    const pending = {},
+      here = this.here();
+    this.rename_pending = pending;
+    this.later(async lane => {
+      const allowed = await this.renamable(id, lane);
+      if (this.rename_pending !== pending || !here()) return;
+      this.rename_pending = null;
+      if (allowed && this.pane(id) !== null && this.beginInlineRename({ agent: id })) this.agent_drag = null;
+    });
   }
   private async create(
     split: Axis | null,
@@ -2351,6 +2960,7 @@ export class Controller {
     command: string | null,
     title: string,
     made?: () => void,
+    lane?: tasks.Lane,
   ): Promise<number> {
     const operation: CommandInput = split
       ? {
@@ -2363,25 +2973,31 @@ export class Controller {
           },
         }
       : { "pane.create": { workspace: this.current().id, cwd, command, title } };
-    const id = (await this.execute(operation, made)).pane;
+    const here = this.here(true);
+    const id = (await this.execute(operation, lane, made)).pane;
+    if (!here()) return id;
     this.focusPane(id);
     this.nav().tab().zoom = false;
     this.dirty = true;
     return id;
   }
-  async close(id: number): Promise<void> {
-    await this.edit({ "pane.close": { target: id } });
-    this.dirty = true;
+  close(id: number): void {
+    this.command({ "pane.close": { target: id } });
   }
-  private async undoClose(): Promise<void> {
+  private undoClose(): void {
     if (this.current().closed_agents === 0) {
       this.notice(i18n.t` No closed agents to reopen in this workspace`);
       return;
     }
-    const id = (await this.execute({ "pane.restore": { workspace: this.current().id } })).pane;
-    this.focusPane(id);
-    this.launched = id;
-    this.copy_mode = false;
+    const workspace = this.current().id,
+      here = this.here();
+    this.later(async lane => {
+      const id = (await this.execute({ "pane.restore": { workspace } }, lane)).pane;
+      if (!here()) return;
+      this.focusPane(id);
+      this.launched = id;
+      this.copy_mode = false;
+    });
   }
   /** Dormancy alone never creates a new selection. */
   private observeFocus(): void {
@@ -2531,6 +3147,14 @@ export class Controller {
         this.dirty = true;
         break;
       }
+      case "connectivity":
+        this.closeMenu();
+        this.onConnectivity?.();
+        break;
+      case "machines":
+        if (this.onMachines) this.onMachines();
+        else this.notice(i18n.t`Add a machine with corgi machine add NAME`);
+        break;
       case "worktrees": {
         const id = Number(act.value) || this.current().id;
         if (this.runtime.workspaces.index(id) === null) break;
@@ -2538,7 +3162,8 @@ export class Controller {
         this.sidebar_open = true;
         this.worktree_card.workspace = id;
         this.worktree_card.pinned = true;
-        this.worktree_card.anchor = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceEntries(), id)?.y ?? 3;
+        this.worktree_card.anchor =
+          sidebar.worktreeBadge(this.sidebarView([]), this.workspaceRows(), this.rowKey(id))?.y ?? 3;
         this.dirty = true;
         break;
       }
@@ -2593,12 +3218,14 @@ export class Controller {
             break;
           case "resource-go": {
             const pane = this.selectedProcess()?.pane ?? null;
-            if (pane === null || !this.pane(pane)) {
+            const owner = card.workspace === null ? null : this.rowOf(card.workspace);
+            if (pane === null || !owner?.machine.runtime.pane(pane)) {
               card.notice = i18n.t`It runs in a background session, outside any pane`;
               break;
             }
             this.closeMenu();
-            this.focusPane(pane);
+            if (owner.machine === this.machine) this.focusPane(pane);
+            else this.onMachine(owner.machine, { pane });
             break;
           }
           case "resource-signal":
@@ -2647,22 +3274,25 @@ export class Controller {
       }
       case "worktree-enter": {
         const selection = this.browsingWorktree();
-        if (selection) await this.enterWorktree(selection);
+        if (selection) this.enterWorktree(selection);
         break;
       }
       case "worktree-review": {
         const selection = this.browsingWorktree();
-        if (selection) await this.reviewWorktree(selection);
+        if (selection) this.reviewWorktree(selection);
         break;
       }
       case "worktree-refresh": {
         const id = this.worktreeDetail();
         if (id === null) break;
-        try {
-          await call(this.connection, "worktree.brief", { workspace: id });
-        } catch {
-          this.notice(i18n.t` Worktree briefs: the runtime did not accept the refresh`);
-        }
+        this.background(async lane => {
+          try {
+            await lane.call("worktree.brief", { workspace: id });
+          } catch (error) {
+            if (lost(error)) throw error;
+            this.notice(i18n.t` Worktree briefs: the runtime did not accept the refresh`);
+          }
+        });
         break;
       }
       case "worktree-remove":
@@ -2683,32 +3313,41 @@ export class Controller {
         this.dirty = true;
         const target = confirming ? card.removal.target! : worktreeRemoval.target(ws.id, checkout, index, panes.length);
         const now = milliTimestamp();
-        // A lock that changed since its band showed isn't the one confirmed; its agents stay.
         if (confirming && card.removal.phase === "confirm" && checkout.locked !== target.locked) {
           card.removal.settle(now, removalReason("WorktreeLockChanged"));
           break;
         }
         if (!(confirming ? card.removal.confirm(now) : card.removal.press(now, target, card.removalEffect()))) break;
-        try {
-          for (const id of panes) await this.close(id);
-        } catch {
-          card.removal.settle(milliTimestamp(), i18n.t`its agents didn't close`);
-          break;
-        }
-        // The daemon deletes the files in the background and reports on them.
-        try {
-          const confirmed = target.locked === null ? {} : { locked: target.locked },
-            reply = await call(this.connection, "worktree.remove", { ...selection, ...confirmed });
-          card.removal.job = Number(reply.removal) || 0;
-          this.removal_next = (entries[index + 1] ?? entries[index - 1])?.path ?? null;
-          // A daemon that removes before it answers sends no removal to follow.
-          if (!card.removal.job) {
-            card.removal.settle(milliTimestamp(), null);
-            if (card.selected === selection.path) card.select(this.removal_next);
+        const removal = card.removal,
+          held = removal.target;
+        // Replies settle this removal only; a later hold has its own target.
+        const ours = () => removal.target === held;
+        this.background(async lane => {
+          try {
+            for (const id of panes) await this.edit({ "pane.close": { target: id } }, lane);
+          } catch (error) {
+            if (lost(error)) throw error;
+            if (ours()) removal.settle(milliTimestamp(), i18n.t`its agents didn't close`);
+            return;
           }
-        } catch (error) {
-          card.removal.settle(milliTimestamp(), removalReason(errors.name(error)));
-        }
+          // The daemon deletes the files in the background and reports on them.
+          try {
+            const confirmed = target.locked === null ? {} : { locked: target.locked };
+            const reply = await lane.call("worktree.remove", { ...selection, ...confirmed });
+            if (!ours()) return;
+            removal.job = Number(reply.removal) || 0;
+            this.removal_next = (entries[index + 1] ?? entries[index - 1])?.path ?? null;
+            // A daemon that removes before it answers sends no removal to follow.
+            if (!removal.job) {
+              removal.settle(milliTimestamp(), null);
+              if (card.selected === selection.path) card.select(this.removal_next);
+            }
+          } catch (error) {
+            if (lost(error)) throw error;
+            if (ours()) removal.settle(milliTimestamp(), removalReason(errors.name(error)));
+          }
+          this.dirty = true;
+        });
         break;
       }
       case "cancel-retry": {
@@ -2725,10 +3364,14 @@ export class Controller {
         this.worktree_card.removal.cancel(milliTimestamp());
         this.dirty = true;
         if (this.worktree_card.removal.phase !== "removing" || !t) break;
-        try {
-          await call(this.connection, "worktree.stop", { workspace: t.workspace });
-        } catch {}
-        this.dirty = true;
+        this.background(async lane => {
+          try {
+            await lane.call("worktree.stop", { workspace: t.workspace });
+          } catch (error) {
+            if (lost(error)) throw error;
+          }
+          this.dirty = true;
+        });
         break;
       }
       case "worktree-agent": {
@@ -2737,15 +3380,16 @@ export class Controller {
         const target = row.target;
         if ("asleep" in target && row.worktree) {
           // Entering brings the ghost's agents back asleep; the clicked one wakes.
-          await this.enterWorktree({ workspace: row.worktree.workspace, path: row.worktree.path });
-          const p = this.runtime.panes.find(
-            p => p.agent.provider === target.provider && p.agent.session === target.asleep,
-          );
-          if (p) this.selectAgent({ pane: p.id });
+          this.enterWorktree({ workspace: row.worktree.workspace, path: row.worktree.path }, () => {
+            const p = this.runtime.panes.find(
+              p => p.agent.provider === target.provider && p.agent.session === target.asleep,
+            );
+            if (p) this.selectAgent({ pane: p.id });
+          });
         } else if ("worktree" in target) {
           // A ghost's header keeps its group; one in the list folds it.
           const selection = { workspace: target.workspace, path: target.worktree };
-          if (row.worktree?.ghost) await this.enterWorktree(selection);
+          if (row.worktree?.ghost) this.enterWorktree(selection);
           else this.toggleWorktree(selection);
         } else if (sidebar.isAgent(target)) {
           this.closeMenu();
@@ -2756,17 +3400,8 @@ export class Controller {
       case "onboard":
         return this.openOnboarding("welcome");
       case "workspace-next":
-      case "workspace-prev": {
-        const workspaces = this.runtime.workspaces.items.filter(w => !w.archived);
-        const count = workspaces.length;
-        if (count === 0) break;
-        const current = Math.max(
-          0,
-          workspaces.findIndex(w => w.id === this.current().id),
-        );
-        const index = act.name === "workspace-next" ? (current + 1) % count : (current + count - 1) % count;
-        return this.switchWorkspace(workspaces[index].id);
-      }
+      case "workspace-prev":
+        return this.navigateWorkspace(act.name === "workspace-next");
       case "last-workspace": {
         const id = this.navigation.lastWorkspace(this.runtime.workspaces);
         if (id !== null) this.switchWorkspace(id);
@@ -2806,7 +3441,10 @@ export class Controller {
       case "hibernate":
       case "wake": {
         const p = this.focused();
-        if (p) await this.paneLifecycle(p.id, act.name);
+        if (p) {
+          const operation = act.name;
+          this.background(async () => this.paneLifecycle(p.id, operation));
+        }
         break;
       }
       case "archive-cancel":
@@ -2851,9 +3489,11 @@ export class Controller {
         const dialog = this.archive_dialog;
         if (!dialog?.preview || dialog.pending) return;
         dialog.pending = true;
-        await this.workspaceLifecycle(dialog.workspace, "archive", true);
-        if (this.archive_dialog === dialog) this.archive_dialog = null;
-        this.dirty = true;
+        this.background(async () => {
+          await this.workspaceLifecycle(dialog.workspace, "archive", true);
+          if (this.archive_dialog === dialog) this.archive_dialog = null;
+          this.dirty = true;
+        });
         return;
       }
       case "archive-workspace":
@@ -2875,8 +3515,11 @@ export class Controller {
         this.dirty = true;
         return;
       }
-      case "unarchive-workspace":
-        return this.workspaceLifecycle(this.current().id, "unarchive");
+      case "unarchive-workspace": {
+        const workspace = this.current().id;
+        this.background(async () => this.workspaceLifecycle(workspace, "unarchive"));
+        return;
+      }
       case "attention":
         return this.attention();
       case "rename-tab":
@@ -2889,15 +3532,15 @@ export class Controller {
         if (this.current().id) this.openCurrentWorkspaceMenu();
         break;
       case "close-workspace":
-        if (this.current().id) await this.closeWorkspace(this.current().id, true);
+        if (this.current().id) this.closeWorkspace(this.current().id, true);
         break;
       case "choose-workspace":
         this.chooseIn("workspaces");
         break;
       case "goto-workspace": {
         const number = Number(act.value);
-        const workspaces = this.workspaceList();
-        if (number >= 1 && number <= workspaces.length) this.switchWorkspace(workspaces[number - 1].id);
+        const ids = this.workspaceIds();
+        if (number >= 1 && number <= ids.length) this.selectRow(ids[number - 1]);
         break;
       }
       case "open":
@@ -2977,6 +3620,11 @@ export class Controller {
           }
         }
         break;
+      case "instant-typing":
+        if (act.value !== "auto" && act.value !== "off") throw Error("BadValue");
+        await this.applySetup({ kind: "instant_typing", mode: act.value });
+        this.notice(` Remote instant typing: ${act.value}`);
+        return;
       case "setup":
         this.openSetup();
         break;
@@ -2998,11 +3646,15 @@ export class Controller {
       case "close":
       case "close-tab":
         if (this.model().count === 0) throw Error("NoPane");
-        if (act.name === "split")
-          await this.create(act.value === "down" ? "vertical" : "horizontal", this.currentCwd(), null, "");
-        else if (act.name === "zoom") this.nav().tab().zoom = !this.nav().tab().zoom;
-        else if (act.name === "close") await this.close(this.nav().tab().focus);
-        else await this.edit({ "tab.close": { target: this.selectedTab().id } });
+        if (act.name === "split") {
+          const axis = act.value === "down" ? "vertical" : "horizontal",
+            cwd = this.currentCwd();
+          this.later(async lane => {
+            await this.create(axis, cwd, null, "", undefined, lane);
+          });
+        } else if (act.name === "zoom") this.nav().tab().zoom = !this.nav().tab().zoom;
+        else if (act.name === "close") this.close(this.nav().tab().focus);
+        else this.command({ "tab.close": { target: this.selectedTab().id } });
         break;
       case "focus":
         await this.moveFocus(act.value as Direction);
@@ -3018,9 +3670,19 @@ export class Controller {
       case "join": {
         if (this.model().count === 0) throw Error("NoPane");
         const intent = this.navigation.command(this.runtime.workspaces, act, this.area());
-        if (intent.edit) await this.edit(intent.edit);
-        if (intent.focus !== null) {
-          this.focusPane(intent.focus);
+        const focus = intent.focus;
+        if (intent.edit) {
+          // Focus follows an edit once the daemon has made it.
+          const edit = intent.edit,
+            here = this.here();
+          this.later(async lane => {
+            await this.edit(edit, lane);
+            if (focus === null || !here()) return;
+            this.focusPane(focus);
+            this.copy_mode = false;
+          });
+        } else if (focus !== null) {
+          this.focusPane(focus);
           this.copy_mode = false;
         }
         break;
@@ -3232,6 +3894,7 @@ export class Controller {
       this.selection = null;
       this.dirty = true;
     }
+    this.updateInstant();
     term.send(bytes);
   }
   private queueEffect(effect: Effect): void {
@@ -3255,34 +3918,49 @@ export class Controller {
     this.dirty = true;
   }
   /** The agent `New` repeats in the current workspace. */
+  private groupFolded(id: number): boolean {
+    return this.folded_groups.includes(id);
+  }
+  private showLaunched(pane: number): void {
+    this.focusPane(pane);
+    this.launched = pane;
+    this.dirty = true;
+  }
   private lastAgent(): Provider {
     return this.current().last_agent ?? this.runtime.last_agent;
   }
   /** Starts `provider`'s agent in `account`, "" its default. */
   private async launchAgent(provider: Provider | null, account = "", message = ""): Promise<void> {
     if (!this.current().id) return this.beginWorkspace(null);
+    const machine = this.machine,
+      workspace = this.current().id,
+      here = this.here();
+    const last = this.lastAgent();
     const dir = await this.launcherDir();
-    if (dir === null) return;
+    if (dir === null || this.machine !== machine) return;
     if (byteLength(dir) > 4096) throw Error("NameTooLong");
     this.closeMenu();
-    this.rememberLauncherRow(this.current().id, Row.of(provider ?? this.lastAgent(), account));
+    this.rememberLauncherRow(workspace, Row.of(provider ?? last, account));
     let created: { pane: number };
     try {
       // An older daemon refuses fields it doesn't know, so the default sends none.
       created = await this.execute({
-        "agent.create": { workspace: this.current().id, cwd: dir, provider, ...(account ? { account } : {}) },
+        "agent.create": { workspace, cwd: dir, provider, ...(account ? { account } : {}) },
       });
     } catch (error) {
       const reason = (error as Error).message;
       this.notice(message ? i18n.t`${message} Couldn't start the agent: ${reason}` : reason);
       return;
     }
+    if (!here()) return;
     this.focusPane(created.pane);
     this.launched = created.pane;
     if (message) this.notice(message);
     this.dirty = true;
   }
   private async launchRow(row: LauncherRow): Promise<void> {
+    const machine = this.machine,
+      here = this.here();
     const launch = this.agent_launcher;
     if (launch) {
       if (launch.managing) return;
@@ -3292,11 +3970,12 @@ export class Controller {
       const profile = Row.profile(row);
       if (profile) {
         const dir = await this.launcherDir();
-        if (dir === null) return;
+        if (dir === null || this.machine !== machine) return;
         const created = await this.execute({
           "agent.profile.create": { workspace: launch.workspace, cwd: dir, id: profile },
         });
         this.rememberLauncherRow(launch.workspace, row);
+        if (!here()) return;
         this.closeMenu();
         this.focusPane(created.pane);
         this.launched = created.pane;
@@ -3306,10 +3985,11 @@ export class Controller {
       const index = Row.custom(row);
       if (index !== null) {
         const dir = await this.launcherDir();
-        if (dir === null) return;
+        if (dir === null || this.machine !== machine) return;
         const created = await this.execute({
           "agent.command.create": { workspace: launch.workspace, cwd: dir, index },
         });
+        if (!here()) return;
         this.closeMenu();
         this.focusPane(created.pane);
         this.launched = created.pane;
@@ -3320,7 +4000,7 @@ export class Controller {
     const agent = Row.launch(row);
     if (agent) return this.launchAgent(agent.provider, agent.account);
     const dir = await this.launcherDir();
-    if (dir === null) return;
+    if (dir === null || this.machine !== machine) return;
     if (byteLength(dir) > 4096) throw Error("NameTooLong");
     this.closeMenu();
     await this.create(null, dir, null, "");
@@ -3357,6 +4037,10 @@ export class Controller {
     const launch = this.launcherModel();
     this.dirty = true;
     if (!launch || !action) return;
+    if (this.machine.remote && action.kind !== "back" && action.kind !== "close") {
+      launch.manager.fail("Manage accounts and launch options on the remote machine.");
+      return;
+    }
     launch.pinned = true;
     switch (action.kind) {
       case "find":
@@ -3398,7 +4082,7 @@ export class Controller {
               env: JSON.stringify(Object.fromEntries(action.options.env)),
             },
           });
-          launch.profiles = agentProfiles.list();
+          launch.profiles = this.machine.remote ? [] : agentProfiles.list();
           launch.manager.configured();
           if (action.agent.profile) return;
           if (!action.agent.account) launch.preview.names[action.agent.provider] = action.name;
@@ -3419,7 +4103,7 @@ export class Controller {
               effort: action.effort ?? "default",
             },
           });
-          launch.profiles = agentProfiles.list();
+          launch.profiles = this.machine.remote ? [] : agentProfiles.list();
         } catch (error) {
           launch.manager.fail(signin.problem(error));
         }
@@ -3459,7 +4143,7 @@ export class Controller {
             await this.execute({ "agent.launcher.remove": { row } });
             throw error;
           }
-          launch.profiles = agentProfiles.list();
+          launch.profiles = this.machine.remote ? [] : agentProfiles.list();
           launch.workspace_order = launcherOrder.move(
             launcherOrder.arrange(move.order, launch.workspace_order),
             move.row,
@@ -3505,7 +4189,7 @@ export class Controller {
         if (action.agent.profile) {
           try {
             await this.execute({ "agent.launcher.remove": { row: agentManager.agentRow(action.agent) } });
-            launch.profiles = agentProfiles.list();
+            launch.profiles = this.machine.remote ? [] : agentProfiles.list();
             launch.manager.removed();
           } catch (error) {
             launch.manager.removed(signin.problem(error));
@@ -3720,6 +4404,7 @@ export class Controller {
    * input meanwhile, its agent in the launcher's folder; once signed in, it
    * can start that agent as any launch does. */
   private openSignin(make: (host: signin.Host) => signin.Signin): void {
+    if (this.machine.remote) return this.notice(i18n.t` Sign in on the remote machine`);
     const launcher = this.agent_launcher,
       setup = this.corgi_setup,
       launch = this.launcherModel(),
@@ -4123,17 +4808,23 @@ export class Controller {
     this.agent_launcher = null;
   }
   /** Dismissing the first launcher leaves a shell to return to. */
-  private async dismissLauncher(): Promise<void> {
-    if (this.runtime.panes.length === 0 && this.runtime.workspaces.items.length === 1) {
-      if (this.agent_launcher) this.agent_launcher.pinned = true;
+  private dismissLauncher(): void {
+    const launch = this.agent_launcher;
+    if (this.runtime.panes.length !== 0 || this.runtime.workspaces.items.length !== 1) return this.closeMenu();
+    if (launch) launch.pinned = true;
+    const workspace = this.current().id,
+      cwd = this.current().cwd,
+      here = this.here();
+    this.later(async lane => {
       try {
-        await this.create(null, this.current().cwd, null, "");
+        const created = await this.execute({ "pane.create": { workspace, cwd, command: null, title: "" } }, lane);
+        if (!here() || this.agent_launcher !== launch) return;
+        this.closeMenu();
+        this.focusPane(created.pane);
       } catch (error) {
         this.notice((error as Error).message);
-        return;
       }
-    }
-    this.closeMenu();
+    });
   }
   /** Where the launcher starts: the workspace's root, or the root of the
    * worktree the agent list puts the focused pane under. */
@@ -4170,7 +4861,7 @@ export class Controller {
       account_hidden: this.runtime.account_hidden,
       workspace_hidden: this.current().launcher_hidden,
       workspace_order: this.current().launcher_order,
-      profiles: agentProfiles.list(),
+      profiles: this.machine.remote ? [] : agentProfiles.list(),
       workspace_name: this.current().name,
       commands: this.runtime.agent_commands,
       accounts: this.runtime.accounts,
@@ -4181,6 +4872,20 @@ export class Controller {
     launch.worktrees = this.current().worktrees ?? null;
     launch.worktree_folder = this.prefs.worktree_folder;
     return launch;
+  }
+  private async newAgentShortcut(): Promise<void> {
+    const launch = this.agent_launcher;
+    if (launch) {
+      if (launch.pinned) {
+        await this.launchRow(launch.selected);
+        return;
+      }
+      launch.pinned = true;
+      this.dirty = true;
+      return;
+    }
+    this.sidebar_open = true;
+    this.openLauncher(true);
   }
   private moveLauncher(next: boolean, wrap: boolean): void {
     const launch = this.agent_launcher;
@@ -4206,14 +4911,18 @@ export class Controller {
     const launch = this.agent_launcher;
     if (!launch || !launch.trackable(row)) return;
     launch.pinned = true;
-    try {
-      await call(this.connection, "agent.track_usage", { workspace: launch.workspace, cwd: launch.cwd });
-    } catch {
-      return;
-    }
-    launch.preview.pending = true;
-    this.launch_previews.pending(launch.cwd);
-    this.dirty = true;
+    const fields = { workspace: launch.workspace, cwd: launch.cwd };
+    this.background(async lane => {
+      try {
+        await lane.call("agent.track_usage", fields);
+      } catch (error) {
+        if (lost(error)) throw error;
+        return;
+      }
+      launch.preview.pending = true;
+      this.launch_previews.pending(fields.cwd);
+      this.dirty = true;
+    });
   }
   private pollLauncher(hover: boolean): Promise<void> | void {
     this.updateLaunchPreview();
@@ -4241,10 +4950,10 @@ export class Controller {
         launch.workspace_hidden = this.runtime.workspaces.items[i].launcher_hidden;
         launch.workspace_order = this.runtime.workspaces.items[i].launcher_order;
       }
-      launch.profiles = agentProfiles.list();
+      launch.profiles = this.machine.remote ? [] : agentProfiles.list();
       launch.commands = this.runtime.agent_commands;
       launch.accounts = this.runtime.accounts;
-      if (launch.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
+      if (!this.machine.remote && launch.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
         for (const agent of launch.manageModel().agents)
           if (agent.shown && launch.preview.installed[agent.provider])
             this.model_cache.get(agent.provider, agent.account, launch.cwd);
@@ -4352,6 +5061,7 @@ export class Controller {
     launch.resume_view.reveal(launch.resumeContext(), launch.resumeArea(this.width, this.height, this.sidebarView([])));
   }
   private async openManager(): Promise<void> {
+    if (this.machine.remote) return this.notice(i18n.t` Manage accounts and launch options on the remote machine`);
     const launch = this.agent_launcher;
     if (!launch) return;
     launch.resume_view.focused = false;
@@ -4502,7 +5212,7 @@ export class Controller {
     if (!e) return this.expandResume(false);
     return this.resumeEntry(e, this.current().id);
   }
-  private async resumeEntry(e: launcherResume.Entry, workspace: number): Promise<void> {
+  private resumeEntry(e: launcherResume.Entry, workspace: number): void {
     for (const open of this.running)
       if (open.provider === e.provider && open.session === e.session) {
         this.closeMenu();
@@ -4519,25 +5229,10 @@ export class Controller {
       },
     };
     this.closeMenu();
-    let created: { pane: number };
-    try {
-      created = await this.execute(command);
-    } catch (error) {
-      this.notice((error as Error).message);
-      return;
-    }
-    this.focusPane(created.pane);
-    this.launched = created.pane;
-    this.dirty = true;
-  }
-  private portWorkspaceEntry(id: number): WorkspaceEntry {
-    return sidebar.workspaceEntry({
-      id,
-      name: "",
-      cwd: "",
-      active: false,
-      ports: this.runtime.ports,
-      remote_links: this.remote_links,
+    const here = this.here();
+    this.later(async lane => {
+      const created = await this.execute(command, lane);
+      if (here()) this.showLaunched(created.pane);
     });
   }
   /** Opens the prompt over the panes, told where it opened, or puts it away. */
@@ -4725,7 +5420,7 @@ export class Controller {
         try {
           await this.create(null, effect.cwd || this.currentCwd(), shellWords(effect.argv), "", () => (made = true));
         } catch (error) {
-          const name = errors.name(error) ?? "unknown error";
+          const name = errors.name(error) ?? i18n.t`unknown error`;
           // A pane the daemon made goes on with the conversation. The card
           // takes it back only when the daemon refused: after a lost reply, a
           // pane may still start and read the handoff.
@@ -4769,7 +5464,7 @@ export class Controller {
     try {
       await this.resumeEntry(e, workspaceFor(workspaces, e.cwd, this.current().id)!);
     } catch (error) {
-      this.notice(` Couldn't open it: ${errors.name(error) ?? "unknown error"}`);
+      this.notice(` Couldn't open it: ${errors.name(error) ?? i18n.t`unknown error`}`);
     }
   }
   private savePromptModel(choice: modelPicker.Choice | null): void {
@@ -4873,6 +5568,13 @@ export class Controller {
       tone: attention === "needs_input" ? "warm" : "accent",
     };
   }
+  /** The ports of a sidebar row's workspace, from the row's own machine. */
+  private portWorkspaceEntry(key: number): WorkspaceEntry {
+    return (
+      this.workspaceRows().find(row => row.id === key) ??
+      sidebar.workspaceEntry({ id: key, name: "", cwd: "", active: false })
+    );
+  }
   private openSetup(): void {
     this.closeMenu();
     const setup = SetupMenu.open();
@@ -4880,13 +5582,13 @@ export class Controller {
     setup.agents.managing = true;
     setup.agents.manager.back = "settings";
     setup.integration = this.remote_links ? "unavailable" : ghosttyIntegration.state();
-    setup.image_paste = this.host_clipboard;
-    setup.pacing = this.host_pacer;
+    setup.image_paste = this.host.clipboard;
+    setup.pacing = this.host.pacer;
     setup.terminal = {
-      name: this.host_clipboard?.terminal.text() || (process.env.TERM_PROGRAM ?? ""),
+      name: this.host.clipboard?.terminal.text() || (process.env.TERM_PROGRAM ?? ""),
       ssh: this.remote_links,
-      graphics: this.supports_kitty_graphics,
-      colors: this.terminal_colors !== null,
+      graphics: this.host.supports_kitty_graphics,
+      colors: this.host.colors !== null,
     };
     setup.shell = this.runtime.shell;
     setup.host_terminal = this.host_terminal;
@@ -4941,12 +5643,15 @@ export class Controller {
       case "import": {
         const picker = this.corgi_setup?.import_picker;
         if (!picker) return;
-        try {
-          await picker.begin(this.rpc());
-        } catch (error) {
-          picker.message = (error as Error).message;
-        }
-        return;
+        return this.background(async () => {
+          try {
+            await picker.begin(this.rpc());
+          } catch (error) {
+            if (lost(error)) throw error;
+            picker.message = (error as Error).message;
+          }
+          this.dirty = true;
+        });
       }
       case "detach":
         this.closeMenu();
@@ -4960,10 +5665,7 @@ export class Controller {
       case "imported":
         this.closeMenu();
         if (apply.workspace === null) return;
-        await this.refresh();
-        this.switchWorkspace(apply.workspace);
-        if (this.model().count === 0) this.openLauncher(true);
-        return;
+        return this.showImported(apply.workspace);
       case "keybindings":
         return this.perform({ name: "keybindings" });
       case "keymap":
@@ -4978,20 +5680,35 @@ export class Controller {
           }
           return;
         }
-        return this.saveKeys(apply.preset, this.prefs.prefix);
+        return this.saveKeys(apply.preset, this.host.prefs.prefix);
       case "prefix":
-        return this.saveKeys(this.prefs.preset, this.prefs.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b");
+        return this.saveKeys(this.host.prefs.preset, this.host.prefs.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b");
       case "readings":
-        this.prefs.resources.enabled = apply.on;
+        this.host.prefs.resources.enabled = apply.on;
         try {
-          preferences.update({ resources: this.prefs.resources });
+          preferences.update({ resources: this.host.prefs.resources });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
+      case "instant_typing":
+        this.host.prefs.instant_typing = apply.mode;
+        if (apply.dim !== undefined) this.host.prefs.dim_predictions = apply.dim;
+        // Turning it on or off drops every machine's previews.
+        for (const machine of this.machines) for (const pane of machine.runtime.panes) pane.terminal.resetPrediction();
+        this.updateInstant();
+        try {
+          preferences.update({
+            instant_typing: apply.mode,
+            ...(apply.dim === undefined ? {} : { dim_predictions: apply.dim }),
+          });
         } catch (error) {
           this.notice((error as Error).message);
         }
         return;
       case "corgi_intensity":
-        if (this.prefs.corgi_intensity === apply.value) return;
-        this.prefs.corgi_intensity = apply.value;
+        if (this.host.prefs.corgi_intensity === apply.value) return;
+        this.host.prefs.corgi_intensity = apply.value;
         try {
           preferences.update({ corgi_intensity: apply.value });
         } catch (error) {
@@ -4999,15 +5716,15 @@ export class Controller {
         }
         return;
       case "theme":
-        this.prefs.theme = apply.theme;
+        this.host.prefs.theme = apply.theme;
         try {
-          preferences.update({ theme: this.prefs.theme });
+          preferences.update({ theme: this.host.prefs.theme });
         } catch (error) {
           this.notice((error as Error).message);
         }
         return;
       case "worktree_folder":
-        this.prefs.worktree_folder = apply.template;
+        this.host.prefs.worktree_folder = apply.template;
         try {
           preferences.update({ worktree_folder: apply.template });
         } catch (error) {
@@ -5079,6 +5796,15 @@ export class Controller {
         : i18n.t` Summaries and link names: ${label} (not saved for next start)`,
     );
   }
+  private showImported(workspace: number): void {
+    const here = this.here();
+    this.later(async () => {
+      await this.refresh();
+      if (!here()) return;
+      this.switchWorkspace(workspace);
+      if (this.model().count === 0) this.openLauncher(true);
+    });
+  }
   private async configureUse(use: Use, on: boolean): Promise<void> {
     let response: any;
     try {
@@ -5127,7 +5853,7 @@ export class Controller {
     return !!p && p.agent.state === "working" && p.agent.retry_at > milliTimestamp();
   }
   /** A shell option: Other… asks for a path; the rest go to the daemon. */
-  private async chooseShell(entry: shellPicker.Entry): Promise<void> {
+  private chooseShell(entry: shellPicker.Entry): void {
     if (entry === "other") {
       const setting = this.runtime.shell.setting;
       // Setup draws over dialogs, so it closes first.
@@ -5135,15 +5861,20 @@ export class Controller {
       this.name_dialog = Dialog.init({ shell: null }, setting);
       return;
     }
-    await this.configureShell(entry === "default" ? "" : entry.path);
+    this.background(async lane => {
+      await this.configureShell(entry === "default" ? "" : entry.path, lane);
+    });
   }
   /** False when the daemon finds no executable shell for the setting. */
-  private async configureShell(shell: string): Promise<boolean> {
+  private async configureShell(shell: string, lane?: tasks.Lane): Promise<boolean> {
     let response: any;
     try {
-      response = await call(this.connection, "shell.configure", { shell });
+      response = await (lane
+        ? lane.call("shell.configure", { shell })
+        : call(this.connection, "shell.configure", { shell }));
     } catch (error) {
       if (errors.is(error, "ShellNotFound")) return false;
+      if (lost(error)) throw error;
       this.notice(i18n.t` Corgi setup: the runtime did not accept the change`);
       return true;
     }
@@ -5192,19 +5923,15 @@ export class Controller {
     wizard.close();
     this.onboarding = null;
     if (mode === "keyboard") this.keysNotice(reload);
-    else if (target !== null && target !== undefined) {
-      await this.refresh();
-      this.switchWorkspace(target);
-      if (this.model().count === 0) this.openLauncher(true);
-    }
+    else if (target !== null && target !== undefined) this.showImported(target);
     this.dirty = true;
   }
   /** Saves the shortcut preset and prefix; true when Ghostty needs a reload. */
   private async storeKeys(preset: keymap.Preset, prefix: keymap.Prefix): Promise<boolean> {
     preferences.update({ preset, prefix, onboarding_complete: true });
-    this.prefs.preset = preset;
-    this.prefs.prefix = prefix;
-    this.prefs.onboarding_complete = true;
+    this.host.prefs.preset = preset;
+    this.host.prefs.prefix = prefix;
+    this.host.prefs.onboarding_complete = true;
     // An enabled Ghostty block types the old prefix and keys until re-rendered.
     if (this.remote_links) return false;
     try {
@@ -5248,6 +5975,10 @@ export class Controller {
     this.focusPane(list[next ? (index + 1) % list.length : (index + list.length - 1) % list.length].id);
   }
   private async key(byte: number, literal = false): Promise<void> {
+    if (byte === 27 && this.rename_pending !== null) {
+      this.rename_pending = null;
+      return;
+    }
     this.endSigninExit();
     const cl = this.input_state;
     if (cl.tab_drag) {
@@ -5356,19 +6087,19 @@ export class Controller {
           break;
         case 13:
         case 32:
-          await this.applySetup(setup.enter(s, this.prefs));
+          await this.applySetup(setup.enter(s, this.host.prefs));
           break;
         case 106:
         case 14:
         case 9:
-          setup.move(true, s, this.prefs);
+          setup.move(true, s, this.host.prefs);
           break;
         case 107:
         case 16:
-          setup.move(false, s, this.prefs);
+          setup.move(false, s, this.host.prefs);
           break;
         case 108:
-          setup.openOptions(s, this.prefs);
+          setup.openOptions(s, this.host.prefs);
           break;
         case 104:
           setup.back();
@@ -5436,7 +6167,7 @@ export class Controller {
             this.moveLauncher(false, false);
             break;
           case 116:
-            await this.launchRow("terminal");
+            this.launchRow("terminal");
             break;
 
           case 119:
@@ -5454,10 +6185,10 @@ export class Controller {
           default:
             if (byte >= 48 && byte <= 57) {
               const row = launch.shortcutRow(byte);
-              if (row !== null) await this.launchRow(row);
+              if (row !== null) this.launchRow(row);
             } else {
               const provider = keyAgent(byte);
-              if (provider && !launch.managing && launch.shown(Row.of(provider))) await this.launchAgent(provider);
+              if (provider && !launch.managing && launch.shown(Row.of(provider))) this.launchAgent(provider);
             }
         }
         return;
@@ -5530,8 +6261,9 @@ export class Controller {
           this.movePortMenu(false);
           break;
         case 13:
-          if (!this.remote_links) {
-            const url = sidebar.workspaceUrl(this.portWorkspaceEntry(links.workspace), links.selected);
+          const ws = this.portWorkspaceEntry(links.workspace);
+          if (!ws.remote_links) {
+            const url = sidebar.workspaceUrl(ws, links.selected);
             if (url !== null) {
               this.queueEffect({ open_url: url });
               this.closeMenu();
@@ -5545,12 +6277,7 @@ export class Controller {
     }
     this.sidebar_drag = null;
     this.clicks.reset();
-    if (this.workspace_drag) {
-      this.workspace_drag.cancelled = true;
-      this.workspace_drag.drop = null;
-      this.workspace_drag.preview = null;
-      this.dirty = true;
-    }
+    this.cancelWorkspaceDrag();
     if (this.agent_drag) {
       this.agent_drag.cancelled = true;
       this.agent_drag.drop = null;
@@ -5579,7 +6306,7 @@ export class Controller {
         default: {
           const item = context.itemFor(byte);
           if (item) await this.tabMenuAction(item);
-          else if (byte === keymap.prefixByte(this.prefs.prefix)) this.beginPrefix();
+          else if (byte === keymap.prefixByte(this.host.prefs.prefix)) this.beginPrefix();
         }
       }
       return;
@@ -5600,7 +6327,7 @@ export class Controller {
       } else if (byte >= 32 && byte < 127 && this.search_text.length < 128) {
         this.search_text.push(byte);
       }
-      if (this.search_mode) this.message = ("/" + Buffer.from(this.search_text).toString()).slice(0, 512);
+      if (this.search_mode) this.message = (i18n.t`/` + Buffer.from(this.search_text).toString()).slice(0, 512);
       this.dirty = true;
       return;
     }
@@ -5608,10 +6335,10 @@ export class Controller {
       this.fitNameDialog();
       switch (this.name_dialog.key(byte)) {
         case "save":
-          await this.finishName(true);
+          this.finishName(true);
           break;
         case "cancel":
-          await this.finishName(false);
+          this.finishName(false);
           break;
         default:
           break;
@@ -5647,7 +6374,7 @@ export class Controller {
       if (act) await this.runPrefixed(act, false);
       return;
     }
-    if (byte === keymap.prefixByte(this.prefs.prefix)) {
+    if (byte === keymap.prefixByte(this.host.prefs.prefix)) {
       this.beginPrefix();
       return;
     }
@@ -5798,7 +6525,7 @@ export class Controller {
   /** A paste from the host's clipboard listed `listing`: read what it
    * brings for the keyboard's owner. */
   async pasteEvent(listing: string): Promise<void> {
-    const clipboard = this.host_clipboard;
+    const clipboard = this.host.clipboard;
     if (!clipboard) return;
     this.closePasteCard();
     const target = this.pasteTarget();
@@ -5808,7 +6535,11 @@ export class Controller {
     if (typeof target === "object" && types.length > 0) {
       const p = this.pane(target.pane);
       if (p && p.terminal.pasteEvents()) {
-        if (clipboard.relay(types, Date.now())) this.paste_target = target;
+        if (clipboard.relay(types, Date.now()))
+          this.expectPaste(
+            target,
+            types.some(type => type !== "text/plain"),
+          );
         else this.notice(hostClipboard.Failure.message("busy"));
         return;
       }
@@ -5817,19 +6548,53 @@ export class Controller {
     const choice = hostClipboard.choose(listing, typeof target === "object" || target === "prompt");
     if (choice === "nothing") return;
     if ("read" in choice) {
-      if (clipboard.request(choice.read, Date.now())) this.paste_target = target;
+      if (clipboard.request(choice.read, Date.now())) this.expectPaste(target, choice.read !== "text/plain");
       else this.notice(hostClipboard.Failure.message("busy"));
     } else this.notice(hostClipboard.Failure.message(choice.refuse));
   }
-  async pasteResult(result: hostClipboard.Result): Promise<void> {
+  private expectPaste(target: Paste, image: boolean): void {
+    this.paste_target = target;
+    this.paste_progress =
+      this.connection.image && image && typeof target === "object" ? new pasteProgress.State(target.pane) : null;
+  }
+  private async uploadImage(path: string, mime: string, progress: pasteProgress.State | null): Promise<string> {
+    if (!this.connection.image) return path;
+    const result = await this.connection.image(path, mime, (received, total) => {
+      if (progress && this.paste_progress === progress) progress.update(received, total);
+    });
+    if (progress && this.paste_progress === progress) progress.phase = "attaching";
+    return result;
+  }
+  /** Pastes what the host clipboard brought, uploading an image first. The
+   * viewer doesn't wait; the promise settles once the paste is done. */
+  pasteResult(result: hostClipboard.Result): Promise<void> {
     const target = this.paste_target;
-    if (target === null) return;
+    if (target === null) return Promise.resolve();
     this.paste_target = null;
-    if ("text" in result) this.pasteClipboardText(target, result.text);
-    else if ("path" in result && target === "prompt") this.promptImage(result.path);
-    else if ("path" in result) this.pasteText(target, result.path);
-    else if ("relay" in result) await this.relayPaste(target, result.relay);
-    else this.notice(hostClipboard.Failure.message(result.failed));
+    const progress = this.paste_progress;
+    return this.tasks.run(async lane => {
+      try {
+        if ("text" in result) this.pasteClipboardText(target, result.text);
+        else if ("path" in result) {
+          const mime = (
+            { png: "image/png", jpg: "image/jpeg", gif: "image/gif", webp: "image/webp" } as Record<string, string>
+          )[result.path.split(".").at(-1)!];
+          const path = await this.uploadImage(result.path, mime, progress);
+          if (target === "prompt") this.promptImage(path);
+          else this.pasteText(target, path);
+        } else if ("relay" in result) await this.relayPaste(target, result.relay, progress, lane);
+        else this.notice(hostClipboard.Failure.message(result.failed));
+        if (progress && this.paste_progress === progress) {
+          if ("failed" in result) progress.finish(false);
+          else if ("path" in result || ("relay" in result && result.relay.image))
+            progress.finish(this.pane(progress.pane) !== null);
+          else this.paste_progress = null;
+        }
+      } catch (error) {
+        if (progress && this.paste_progress === progress) progress.finish(false);
+        throw error;
+      }
+    });
   }
   /** A pasted image becomes a chip on the prompt's next message. */
   private promptImage(path: string): void {
@@ -5842,7 +6607,7 @@ export class Controller {
    * machine's clipboard, read here. Over SSH that clipboard isn't the user's,
    * so only a terminal that sends paste events brings one. */
   private async promptClipboardImage(): Promise<void> {
-    const folder = this.host_clipboard?.folder;
+    const folder = this.host.clipboard?.folder;
     if (this.remote_links || !folder)
       return this.notice(i18n.t`Over SSH, images paste only from terminals that send them`);
     const path = await promptAttach.clipboardImage(folder, Date.now());
@@ -5856,16 +6621,28 @@ export class Controller {
   }
   /** Has the daemon offer the clipboard in the program's own paste event,
    * or pastes it as text or an image's path when the daemon can't. */
-  private async relayPaste(target: Paste, relayed: hostClipboard.Relay): Promise<void> {
+  private async relayPaste(
+    target: Paste,
+    relayed: hostClipboard.Relay,
+    progress: pasteProgress.State | null,
+    lane: tasks.Lane,
+  ): Promise<void> {
+    if (relayed.image && this.connection.image)
+      relayed = {
+        ...relayed,
+        image: { ...relayed.image, path: await this.uploadImage(relayed.image.path, relayed.image.mime, progress) },
+      };
     const encoded = relayed.text !== null ? Buffer.from(relayed.text).toString("base64") : null;
     try {
-      const reply = await call(this.connection, "pane.paste", {
+      const reply = await lane.call("pane.paste", {
         pane: typeof target === "object" ? target.pane : 0,
         text: encoded,
         image: relayed.image ? { mime: relayed.image.mime, path: relayed.image.path } : null,
       });
       if (reply.pasted) return;
-    } catch {}
+    } catch (error) {
+      if (this.connection.image) throw error;
+    }
     if (relayed.text !== null) return this.pasteClipboardText(target, relayed.text);
     if (relayed.image) return this.pasteText(target, relayed.image.path);
   }
@@ -5890,7 +6667,7 @@ export class Controller {
    * reads this machine's clipboard on its own Ctrl+V. */
   private imageHint(pressed: hostClipboard.Key): boolean {
     if (!this.remote_links) return false;
-    const clipboard = this.host_clipboard;
+    const clipboard = this.host.clipboard;
     if (!clipboard) return false;
     const p = this.focused();
     if (!p) return false;
@@ -6013,15 +6790,38 @@ export class Controller {
         break;
     }
   }
-  async input(data: Uint8Array): Promise<void> {
-    const cl = this.input_state;
+  /** Invalidates a suspended input batch as well as keys not yet processed. */
+  cancelInput(): void {
+    const { attached, watched } = this.input_state;
+    this.input_state = Object.assign(new InputState(), { attached, watched });
+  }
+  async input(data: Uint8Array, current = () => true): Promise<void> {
+    const cl = this.input_state,
+      machine = this.machine;
     if (data.length > 0) cl.active = true;
+    // Keys after an action that decides where they go wait until it's done.
+    if (cl.held.length > 0 || this.tasks.holds()) {
+      if (cl.held.length + data.length > held_limit) {
+        cl.held = [];
+        throw Error("InputBackpressure");
+      }
+      for (const byte of data) cl.held.push(byte);
+      if (this.tasks.holds()) return;
+      data = Uint8Array.from(cl.held.splice(0));
+    }
     for (const byte of data) cl.keybuf.push(byte);
     let used = 0;
     while (used < cl.keybuf.length) {
+      if (cl !== this.input_state || machine !== this.machine || !current()) return;
       if (!cl.attached) {
         cl.keybuf = [];
         return;
+      }
+      if (this.tasks.holds()) {
+        cl.held = cl.keybuf.slice(used);
+        cl.keybuf = [];
+        used = 0;
+        break;
       }
       const buf = cl.keybuf,
         byte = buf[used];
@@ -6348,9 +7148,9 @@ export class Controller {
         } else if (intensity) await this.applySetup(intensity);
         else if (setup.sequence(text)) {
           // The worktree folder field took it.
-        } else if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.prefs);
-        else if (parsed_key === "down") setup.move(true, s, this.prefs);
-        else if (parsed_key === "right") setup.openOptions(s, this.prefs);
+        } else if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.host.prefs);
+        else if (parsed_key === "down") setup.move(true, s, this.host.prefs);
+        else if (parsed_key === "right") setup.openOptions(s, this.host.prefs);
         else if (parsed_key === "left") setup.back();
         this.dirty = true;
       } else if (this.agent_launcher) {
@@ -6414,6 +7214,7 @@ export class Controller {
       }
       used += len;
     }
+    if (cl !== this.input_state || machine !== this.machine || !current()) return;
     cl.keybuf = cl.keybuf.slice(used);
     cl.escape_at = Date.now();
     if (cl.keybuf.length > 256) {
@@ -6480,7 +7281,7 @@ export class Controller {
     const command: CommandInput = {
       "layout.dock": {
         workspace,
-        viewer: this.input_state.viewer_id,
+        viewer: this.machine.viewer_id,
         expected: drag.revision,
         source: drag.source,
         drop: drag.drop,
@@ -6504,7 +7305,7 @@ export class Controller {
       workspace = this.current().id;
     if (!h[direction]) return;
     const result = await this.execute(
-      { "layout.history": { workspace, viewer: this.input_state.viewer_id, expected: h.revision, direction } },
+      { "layout.history": { workspace, viewer: this.machine.viewer_id, expected: h.revision, direction } },
       () => {
         this.dock_history.set(workspace, {
           revision: h.revision + 1n,
@@ -6636,6 +7437,7 @@ export class Controller {
     // A link open still waiting out the double-click window goes to a press
     // that may pick it instead; any other press opens it now.
     if (!release && isButton(button)) {
+      this.rename_pending = null;
       // Only a third press on the double-click's cell keeps its copy waiting.
       if (!continuesSeries(series, button, x, y, milliTimestamp())) this.flushPendingCopy();
       this.clearPicked();
@@ -6712,7 +7514,7 @@ export class Controller {
     // closes the field unsaved and then does what it would have done.
     if (this.inline_rename && !release && (button & 0xe0) === 0) {
       const open = this.inline_rename,
-        rect = this.sidebarView(this.sidebarEntries()).fieldRect(open.target, this.workspaceEntries());
+        rect = this.sidebarView(this.sidebarEntries()).fieldRect(this.renameTarget(open.target), this.workspaceRows());
       if (rect && y === rect.y && x >= rect.x && x < rect.x + rect.width) {
         this.ui_mouse_down = true;
         return;
@@ -6895,7 +7697,7 @@ export class Controller {
       if (!release && button === 0) {
         const index = links.hit(ws, this.width, this.height, x, y);
         if (index !== null) {
-          if (!this.remote_links) {
+          if (!ws.remote_links) {
             const url = sidebar.workspaceUrl(ws, index);
             if (url !== null) cl.port_click = portClick({ x, y, url: byteLength(url) <= 4096 ? url : "" });
           }
@@ -6930,17 +7732,11 @@ export class Controller {
         const node = this.model().nodes[drag.hit.node];
         if (node && "split" in node) {
           const split = node.split;
-          await this.edit({
-            "split.ratio": {
-              target: this.model().firstPane(split.first),
-              other: this.model().firstPane(split.second),
-              ratio: LayoutView.dividerRatio(drag.hit, x, y),
-              expected: this.model().revision,
-            },
+          this.resizeSplit(drag, {
+            target: this.model().firstPane(split.first),
+            other: this.model().firstPane(split.second),
+            ratio: LayoutView.dividerRatio(drag.hit, x, y),
           });
-          // A successful local resize changes revision, but keeps this gesture valid.
-          drag.cancelled = false;
-          this.dirty = true;
         }
       }
       if (release) cl.divider = null;
@@ -6951,15 +7747,15 @@ export class Controller {
       if (release) {
         this.sidebar_drag = null;
         try {
-          if (drag === "width") preferences.update({ sidebar_width: this.prefs.sidebar_width });
-          else preferences.update({ sidebar_split: this.prefs.sidebar_split });
+          if (drag === "width") preferences.update({ sidebar_width: this.host.prefs.sidebar_width });
+          else preferences.update({ sidebar_split: this.host.prefs.sidebar_split });
         } catch (error) {
           this.notice((error as Error).message);
         }
       } else if (button === 32) {
         if (drag === "width")
-          this.prefs.sidebar_width = Math.min(Math.max(x + 1, 20), Math.max(20, sat(this.width, 20)));
-        else this.prefs.sidebar_split = sidebar.View.splitFor(this.height, y + 1);
+          this.host.prefs.sidebar_width = Math.min(Math.max(x + 1, 20), Math.max(20, sat(this.width, 20)));
+        else this.host.prefs.sidebar_split = sidebar.View.splitFor(this.height, y + 1);
         this.dirty = true;
       }
       this.dirty = true;
@@ -6967,9 +7763,6 @@ export class Controller {
     }
     if (this.agent_drag) {
       const drag = this.agent_drag;
-      // Input can arrive before the next snapshot poll. Validate a drop
-      // against current shared state, including rows removed mid-drag.
-      if (release && (button & 3) === 0) await this.refresh();
       const live = this.sidebarEntries();
       let side = this.sidebarView(live);
       if (!release && (button === 64 || button === 65) && drag.valid(side, this.current().id)) {
@@ -6984,15 +7777,20 @@ export class Controller {
       if (release && (button & 3) === 0) {
         this.agent_drag = null;
         this.ui_mouse_down = false;
-        if (drag.drop && sidebar.isAgent(drag.target)) {
-          // Pins and section order belong to a workspace; above another's row,
-          // the agent goes last in its own.
-          const at = drag.before(),
-            other = at === null ? null : sidebar.orderTarget(live[at]),
-            before = other && this.agentWorkspace(other) === drag.workspace ? other : null,
-            place = { workspace: drag.workspace, target: drag.target, before };
-          try {
-            // The preview already shows where it lands; nothing should glide there again.
+        const here = this.here();
+        if (drag.dragging && !drag.cancelled)
+          this.later(async lane => {
+            await this.refresh();
+            if (!here()) return;
+            const live = this.sidebarEntries();
+            drag.update(this.sidebarView(live), this.current().id, x, y, milliTimestamp());
+            if (!drag.drop || !sidebar.isAgent(drag.target)) return;
+            // Pins and section order belong to a workspace; above another's row,
+            // the agent goes last in its own.
+            const at = drag.before(),
+              other = at === null ? null : sidebar.orderTarget(live[at]),
+              before = other && this.agentWorkspace(other) === drag.workspace ? other : null,
+              place = { workspace: drag.workspace, target: drag.target, before };
             this.sidebar_rows.discard();
             await this.edit(
               drag.action === "move"
@@ -7000,29 +7798,25 @@ export class Controller {
                 : drag.action === "place"
                   ? { "agent.place": place }
                   : { "agent.pin": { ...place, pinned: true } },
+              lane,
             );
+            if (!here()) return;
             if (drag.action === "place") this.agent_since.move(agentKey(drag.target), before ? agentKey(before) : null);
-            // Nor step back from the order shown before the daemon took the drop.
             this.sidebar_rows.discard();
-          } catch (error) {
-            this.notice((error as Error).message);
-          }
-        }
+          });
       }
       this.dirty = true;
       return;
     }
     if (this.workspace_drag) {
       const drag = this.workspace_drag;
-      // Mirrors the agent drag: validate against current shared state.
-      if (release && (button & 3) === 0) await this.refresh();
       const ids = this.workspaceIds();
       let side = this.sidebarView([]);
       if (!release && (button === 64 || button === 65) && drag.valid(side, ids)) {
         this.workspace_offset =
           button === 64
             ? sat(side.workspace_offset, 1)
-            : Math.min(side.workspace_offset + 1, sat(ids.length, side.workspaceCapacity()));
+            : Math.min(side.workspace_offset + 1, side.workspaceMaxOffset());
         side = this.sidebarView([]);
         drag.dragging = true;
         this.clicks.move();
@@ -7032,14 +7826,7 @@ export class Controller {
       if (release && (button & 3) === 0) {
         this.workspace_drag = null;
         this.ui_mouse_down = false;
-        const before = drag.before();
-        if (before !== null) {
-          try {
-            await this.edit({ "workspace.move": { target: drag.ids[drag.source], before } });
-          } catch (error) {
-            this.notice((error as Error).message);
-          }
-        }
+        this.dropWorkspace(drag);
       }
       this.dirty = true;
       return;
@@ -7049,11 +7836,11 @@ export class Controller {
         this.review_drag = false;
         this.ui_mouse_down = false;
         try {
-          preferences.update({ review_width: this.prefs.review_width });
+          preferences.update({ review_width: this.host.prefs.review_width });
         } catch (error) {
           this.notice((error as Error).message);
         }
-      } else if (button === 32) this.prefs.review_width = Math.max(40, this.width - x);
+      } else if (button === 32) this.host.prefs.review_width = Math.max(40, this.width - x);
       this.dirty = true;
       return;
     }
@@ -7159,7 +7946,7 @@ export class Controller {
     if (this.corgi_setup) {
       const setup = this.corgi_setup,
         s = this.runtime.inference,
-        hit = setup.hit(this.width, this.height, x, y, s, this.prefs);
+        hit = setup.hit(this.width, this.height, x, y, s, this.host.prefs);
       if (!release && button === 0) {
         this.ui_mouse_down = hit === null || !("intensity" in hit);
         if (hit && "manager" in hit) {
@@ -7250,9 +8037,9 @@ export class Controller {
         const hit = side.hit(x, y).tag;
         const yolo = this.agent_launcher.yoloHit(this.width, this.height, side, x, y);
         const usage = yolo === null ? this.agent_launcher.usageHit(this.width, this.height, side, x, y) : null;
-        if (yolo !== null) await this.toggleLauncherYolo(yolo);
-        else if (usage !== null) await this.trackLauncherUsage(usage);
-        else if (hit === "agent_new") await this.launchAgent(null);
+        if (yolo !== null) this.toggleLauncherYolo(yolo);
+        else if (usage !== null) this.trackLauncherUsage(usage);
+        else if (hit === "agent_new") this.launchAgent(null);
         else if (hit === "agent_options") this.agent_launcher.pinned = true;
         else {
           const row = this.agent_launcher.hit(this.width, this.height, side, x, y);
@@ -7389,10 +8176,17 @@ export class Controller {
     }
     let entries = this.sidebarEntries();
     const side = this.sidebarView(entries);
-    const worktree_hit = sidebar.worktreeAt(side, this.workspaceEntries(), x, y);
-    if (!release && button === 0 && worktree_hit && !resource_workspace_press && !this.copy_mode) {
+    const worktree_hit = sidebar.worktreeAt(side, this.workspaceRows(), x, y);
+    const worktree_row = worktree_hit ? this.rowOf(worktree_hit.id) : null;
+    if (
+      !release &&
+      button === 0 &&
+      worktree_row?.machine === this.machine &&
+      !resource_workspace_press &&
+      !this.copy_mode
+    ) {
       this.ui_mouse_down = true;
-      await this.perform({ name: "worktrees", value: worktree_hit.id });
+      await this.perform({ name: "worktrees", value: worktree_row.id });
       return;
     }
     if (!release && button === 0 && side.width > 0 && x === side.width - 1) {
@@ -7406,32 +8200,36 @@ export class Controller {
     // Do not activate Git or URL controls hidden behind the resource card.
     const git_hit = resource_workspace_press
       ? null
-      : sidebar.gitActionWorkspace(side, this.workspaceEntries(), this.git_hover, x, y);
+      : sidebar.gitActionWorkspace(side, this.workspaceRows(), this.git_hover, x, y);
     this.git_hover = git_hit ? git_hit.id : null;
     if (!release && button === 0 && git_hit !== null && !this.copy_mode) {
       this.ui_mouse_down = true;
-      const ws = git_hit;
-      if (ws.git_push.phase === "pushing" || ws.git_push.phase === "succeeded") return;
-      const index = this.runtime.workspaces.index(ws.id);
-      if (index === null) return;
-      try {
-        await call(this.connection, "git.push", {
-          workspace: ws.id,
-          ref: this.runtime.workspaces.items[index].git_ref,
-        });
-      } catch (error) {
-        this.notice(gitPushMessage((error as Error).message));
-      }
-      await this.refresh();
-      this.dirty = true;
+      if (git_hit.git_push.phase === "pushing" || git_hit.git_push.phase === "succeeded") return;
+      // The push runs on the row's own machine, which needn't be the one shown.
+      const row = this.rowOf(git_hit.id);
+      const ws = row?.machine.runtime.workspaces.items.find(w => w.id === row.id);
+      if (!row || !ws) return;
+      const { machine } = row,
+        ref = ws.git_ref;
+      // The row shows how the push went, wherever the user is by then.
+      machine.tasks.start(async lane => {
+        try {
+          await lane.call("git.push", { workspace: row.id, ref });
+        } catch (error) {
+          if (lost(error)) throw error;
+          this.notice(gitPushMessage((error as Error).message));
+        }
+        await this.refresh(machine);
+        this.dirty = true;
+      });
       return;
     }
     if (!release && button === 0 && !resource_workspace_press) {
-      const ws = sidebar.portWorkspace(side, this.workspaceEntries(), x, y);
+      const ws = sidebar.portWorkspace(side, this.workspaceRows(), x, y);
       if (ws) {
         const click = portClick({ x, y });
         if (sidebar.urlCount(ws) > 1) click.menu = ws.id;
-        else if (!this.remote_links) {
+        else if (!ws.remote_links) {
           const url = sidebar.workspaceUrl(ws, 0);
           if (url === null) return;
           click.url = url;
@@ -7452,12 +8250,12 @@ export class Controller {
           this.workspace_offset =
             button === 64
               ? sat(side.workspace_offset, 1)
-              : Math.min(side.workspace_offset + 1, sat(this.workspaceIds().length, side.workspaceCapacity()));
+              : Math.min(side.workspace_offset + 1, side.workspaceMaxOffset());
         else this.agentOffset().set(button === 64 ? sat(side.offset, 1) : Math.min(side.offset + 1, side.maxOffset()));
         this.dirty = true;
       } else if (!release && (button === 0 || button === 2)) {
         this.ui_mouse_down = true;
-        if (corgiBadge.hit(this.corgi_badge, side.width, x, y)) {
+        if (corgiBadge.hit(this.host.corgi_badge, side.width, x, y)) {
           this.clicks.reset();
           return this.openSetup();
         }
@@ -7484,6 +8282,7 @@ export class Controller {
               break;
             }
             const target = entries[index].target;
+            // Another machine's rows have no menus or drags here: they switch to it, or fold.
             if (button === 2 && sidebar.isSubhead(target)) {
               this.clicks.reset();
               this.openWorktreeMenu(entries[index], x, y);
@@ -7499,9 +8298,9 @@ export class Controller {
             // A second left press on the same pane agent's name renames it; the
             // first already selected it, so this one neither selects nor drags.
             // An agent that takes no rename gets a plain press instead.
-            const name = "pane" in target ? { agent: target.pane } : null;
+            const name = "pane" in target && !this.away(target) ? { agent: target.pane } : null;
             if (button === 0 && name && side.onName(name, this.workspaceEntries(), x, y)) {
-              if (this.clicks.press(name, milliTimestamp(), x, y) && (await this.doubleClickAgent(name.agent))) break;
+              if (this.clicks.press(name, milliTimestamp(), x, y)) this.doubleClickAgent(name.agent);
             } else this.clicks.reset();
             this.selectAgent(target);
             if (button === 2 && "pane" in target) await this.openAgentMenu(target.pane, x, y);
@@ -7532,8 +8331,11 @@ export class Controller {
           case "workspace_new":
             this.beginWorkspace(null);
             break;
+          case "workspace_scope":
+            this.onMachines?.();
+            break;
           case "agent_new":
-            if (button === 0) await this.launchAgent(null);
+            if (button === 0) this.launchAgent(null);
             else this.openLauncher(true);
             break;
           case "agent_options":
@@ -7547,22 +8349,26 @@ export class Controller {
             break;
           case "workspace": {
             const index = found.workspace;
-            const ws = this.workspaceList()[index];
+            const row = this.workspaceRows()[index];
+            if (row.external) {
+              this.selectRow(row.id);
+              break;
+            }
+            const workspace = this.rowOf(row.id)!.id;
             if (button === 2) {
               this.clicks.reset();
-              this.openWorkspaceMenu(ws.id, x, y);
+              this.openWorkspaceMenu(workspace, x, y);
             } else {
-              const id = ws.id;
-              const ws_entries = this.workspaceEntries();
               // Only presses on the name itself make the double-click that renames.
-              if (!side.onName({ workspace: id }, ws_entries, x, y)) this.clicks.reset();
-              else if (this.clicks.press({ workspace: id }, milliTimestamp(), x, y)) {
-                this.beginInlineRename({ workspace: id });
+              if (!side.onName({ workspace: row.id }, this.workspaceRows(), x, y)) this.clicks.reset();
+              else if (this.clicks.press({ workspace }, milliTimestamp(), x, y)) {
+                this.beginInlineRename({ workspace });
                 break;
               }
-              const jump = !resource_workspace_press && side.unreadHit(ws_entries[index], x, y);
-              const target = jump ? this.firstUnreadAgent(this.runtime.workspaces.index(id)!) : null;
-              this.switchWorkspace(id);
+              const jump = !resource_workspace_press && side.unreadHit(row, x, y);
+              const local_index = this.runtime.workspaces.index(workspace);
+              const target = jump && local_index !== null ? this.firstUnreadAgent(local_index) : null;
+              this.switchWorkspace(workspace);
               if (jump) {
                 if (target) {
                   this.selectAgent(target);
@@ -7574,7 +8380,7 @@ export class Controller {
                 const ids = this.workspaceIds();
                 // Switching can scroll the list; capture the post-switch viewport.
                 const after = this.sidebarView([]);
-                const at = ids.indexOf(id);
+                const at = ids.indexOf(row.id);
                 if (after.workspace_offset === side.workspace_offset && at >= 0)
                   this.workspace_drag = WorkspaceDrag.init(after, ids, at, x, y);
               }
@@ -7751,11 +8557,17 @@ export class Controller {
       this.dirty = true;
     }
   }
-  async refresh(): Promise<void> {
-    const reply = await call(this.connection, "session.snapshot", {});
-    this.receiveSnapshot(reply);
+  async refresh(machine = this.machine): Promise<void> {
+    const reply = await call(machine.connection, "session.snapshot", {});
+    this.receiveSnapshot(reply, machine);
   }
-  receiveSnapshot(snapshot: any): void {
+  /** Takes `machine`'s session as its daemon reports it. Only the machine
+   * shown has menus and selections to keep in step with it. */
+  receiveSnapshot(snapshot: any, machine = this.machine): void {
+    if (machine !== this.machine) {
+      machine.runtime.receive(machine.connection, snapshot);
+      return;
+    }
     const had = this.runtime.workspaces.items.length > 0;
     if (had) this.observeFocus();
     const previous_focus = had ? (this.focused()?.id ?? 0) : 0;
@@ -7811,7 +8623,7 @@ export class Controller {
     if (this.port_menu) {
       const links = this.port_menu;
       const count = sidebar.urlCount(this.portWorkspaceEntry(links.workspace));
-      if (this.runtime.workspaces.index(links.workspace) === null || count === 0) this.port_menu = null;
+      if (count === 0) this.port_menu = null;
       else links.selected = Math.min(links.selected, count - 1);
     }
     if (this.tab_menu && this.tabMenuStale(this.tab_menu)) this.tab_menu = null;
@@ -7850,7 +8662,20 @@ export class Controller {
     for (const id of this.remembered_names.keys()) if (this.pane(id) === null) this.remembered_names.delete(id);
     this.dirty = true;
   }
-  async expireInput(): Promise<void> {
+  /** Waits until no task runs and no input waits on one; for the test driver. */
+  async settle(): Promise<void> {
+    for (;;) {
+      await this.tasks.idle();
+      if (this.input_state.held.length === 0) return;
+      await this.input(new Uint8Array(0));
+    }
+  }
+  async expireInput(current = () => true): Promise<void> {
+    const machine = this.machine,
+      input = this.input_state;
+    const valid = () => current() && this.machine === machine && this.input_state === input;
+    if (!valid()) return;
+    if (this.tasks.holds()) return;
     const drag = this.input_state.tab_drag;
     if (drag) {
       if (!this.validTabDrag(drag)) this.cancelDock();
@@ -7877,9 +8702,9 @@ export class Controller {
       this.startup_second = startup_second;
       this.dirty = true;
     }
-    const waking = this.wakeFocused();
-    if (waking) await waking;
+    this.wakeFocused();
     this.pollPrompt();
+    if (!valid()) return;
     if (this.agent_drag?.scrolling()) {
       const entries = this.sidebarEntries(),
         now = milliTimestamp(),
@@ -7891,10 +8716,13 @@ export class Controller {
       }
     }
     if (this.onboarding && (await this.onboarding.poll(this.rpc()))) this.dirty = true;
+    if (!valid()) return;
     if (this.corgi_setup && (await this.corgi_setup.poll(this.rpc(), this.width, this.height))) this.dirty = true;
+    if (!valid()) return;
     const hover = this.pollMenuHover();
     const launcher = this.pollLauncher(hover === "launcher");
     if (launcher) await launcher;
+    if (!valid()) return;
     this.pollScopeMenu(hover === "scope");
     if (this.link_tooltip.due(milliTimestamp())) this.dirty = true;
     if (this.link_tooltip.copied_until !== 0 && milliTimestamp() >= this.link_tooltip.copied_until) {
@@ -7940,6 +8768,7 @@ export class Controller {
       }
     }
     if (this.account_removals.size > 0) await this.finishAccountRemovals();
+    if (!valid()) return;
     const removal = this.worktree_card.removal;
     if (removal.phase !== "idle") {
       this.followRemoval();
@@ -7981,6 +8810,7 @@ export class Controller {
     if (
       cl.attached &&
       cl.keybuf.length > 0 &&
+      cl.held.length === 0 &&
       // A paste terminator can straddle slow reads; it isn't a lone Escape key.
       !(cl.paste !== null && keys.paste_end.startsWith(latin1(cl.keybuf))) &&
       Date.now() - cl.escape_at > (cl.paste !== null || cl.keybuf.length === 1 ? 40 : 1000)
@@ -8089,7 +8919,7 @@ export class Controller {
   }
   private resourceProcesses(): resourceTooltip.Process[] {
     const id = this.resource_card.workspace;
-    return this.runtime.resources.workspaces.find(w => w.id === id)?.processes ?? [];
+    return id === null ? [] : (this.rowResources(id)?.workspaces.find(w => w.id === id)?.processes ?? []);
   }
   private selectedProcess(): resourceTooltip.Process | null {
     return resourceTooltip.find(this.resourceProcesses(), this.resource_card.selected);
@@ -8097,7 +8927,8 @@ export class Controller {
   /** Where a process runs, as its workspace and tab; null in a background session. */
   private processPlace(p: resourceTooltip.Process | null): string | null {
     const pane = p?.pane ?? null,
-      ws = pane === null ? null : this.runtime.workspaces.owner(pane),
+      owner = this.resource_card.workspace === null ? null : this.rowOf(this.resource_card.workspace),
+      ws = pane === null ? null : owner?.machine.runtime.workspaces.owner(pane),
       tab = ws?.model.tabForPane(pane!) ?? null;
     if (!ws || tab === null) return null;
     const index = tab + 1;
@@ -8108,6 +8939,8 @@ export class Controller {
     const card = this.resource_card,
       targets = card.targets();
     if (card.workspace === null || !targets.length) return;
+    const owner = this.rowOf(card.workspace);
+    if (!owner || !owner.machine.presence().online || this.stale(owner.machine)) return;
     if (card.confirm !== signal) {
       card.confirm = signal;
       card.notice = "";
@@ -8118,8 +8951,8 @@ export class Controller {
     let gone = 0;
     for (const k of targets)
       try {
-        await call(this.connection, "process.signal", {
-          workspace: card.workspace,
+        await call(owner.machine.connection, "process.signal", {
+          workspace: owner.id,
           pid: k.pid,
           start: BigInt(k.start),
           signal,
@@ -8198,7 +9031,9 @@ export class Controller {
   /** Keeps a browsed worktree in the agent list. One with no agents gets its
    * newest conversations back as hibernated agents, or, with none, the agent
    * picker there; otherwise its first agent takes focus. */
-  private async enterWorktree(selection: worktreeAgents.Selection): Promise<void> {
+  /** Shows a worktree's agents, bringing back asleep the ones it had, then
+   * runs `then`, unless the user has gone elsewhere meanwhile. */
+  private enterWorktree(selection: worktreeAgents.Selection, then: () => void = () => {}): void {
     const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace)?.worktrees;
     if (!snapshot || !worktrees.linked(snapshot).some(e => e.path === selection.path)) return;
     const live = this.agentEntries(selection.workspace).some(e => worktreeAgents.belongs(snapshot, selection.path, e)),
@@ -8211,37 +9046,51 @@ export class Controller {
       this.openLauncher(true, selection.path);
       return;
     }
-    for (const e of asleep) {
-      const resume = { workspace: selection.workspace, cwd: e.cwd, provider: e.provider, session: e.session };
-      try {
-        await this.execute({ "agent.resume": { ...resume, asleep: true, name: worktreeAgents.name(e) } });
-      } catch (error) {
-        this.notice((error as Error).message);
-        break;
-      }
+    if (live) {
+      this.revealWorktree(selection, true);
+      return then();
     }
-    this.revealWorktree(selection, live);
+    const here = this.here();
+    this.later(async lane => {
+      for (const e of asleep) {
+        const resume = { workspace: selection.workspace, cwd: e.cwd, provider: e.provider, session: e.session };
+        try {
+          await this.execute({ "agent.resume": { ...resume, asleep: true, name: worktreeAgents.name(e) } }, lane);
+        } catch (error) {
+          if (lost(error)) throw error;
+          this.notice((error as Error).message);
+          break;
+        }
+      }
+      if (!here()) return;
+      this.revealWorktree(selection, false);
+      then();
+    });
   }
   /** Reviews a worktree from the overview or its heading: starts an agent
    * there to take the notes, focuses it, and pins the panel to its checkout. */
-  private async reviewWorktree(selection: worktreeAgents.Selection): Promise<void> {
+  private reviewWorktree(selection: worktreeAgents.Selection): void {
     this.worktree_card.clear();
     this.worktree_agents.previewed = null;
     this.closeMenu();
-    let created: { pane: number };
-    try {
-      created = await this.execute({
-        "agent.create": { workspace: selection.workspace, cwd: selection.path, provider: null },
-      });
-    } catch (error) {
-      this.notice((error as Error).message);
-      return;
-    }
-    try {
-      await this.execute({ "pane.rename": { target: created.pane, name: "Reviewer" } });
-    } catch {}
-    this.focusPane(created.pane);
-    this.launched = created.pane;
+    const here = this.here();
+    this.later(async lane => {
+      const created = await this.execute(
+        { "agent.create": { workspace: selection.workspace, cwd: selection.path, provider: null } },
+        lane,
+      );
+      try {
+        await this.execute({ "pane.rename": { target: created.pane, name: "Reviewer" } }, lane);
+      } catch (error) {
+        if (lost(error)) throw error;
+      }
+      if (here()) this.showReviewer(selection, created.pane);
+    });
+  }
+  /** Focuses a worktree's new reviewer and pins the review panel to it. */
+  private showReviewer(selection: worktreeAgents.Selection, pane: number): void {
+    this.focusPane(pane);
+    this.launched = pane;
     this.revealWorktree(selection, false);
     if (!this.review.open) this.openReview();
     else {
@@ -8306,7 +9155,7 @@ export class Controller {
     const id = this.worktreeDetail();
     if (id === null) return null;
     const ws = this.runtime.workspaces.items.find(w => w.id === id);
-    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceEntries(), id),
+    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceRows(), this.rowKey(id)),
       shown = worktreeTooltip.listing(ws?.worktrees ?? null, this.worktree_card);
     return worktreeTooltip.geometry(
       this.width,
@@ -8322,18 +9171,28 @@ export class Controller {
     const rect = this.worktreeRect();
     if (!rect) return false;
     if (rect.contains(x, y)) return true;
-    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceEntries(), this.worktree_card.workspace!);
+    const badge = sidebar.worktreeBadge(
+      this.sidebarView([]),
+      this.workspaceRows(),
+      this.rowKey(this.worktree_card.workspace!),
+    );
     return badge !== null && worktreeTooltip.between(rect, badge, x, y);
+  }
+  /** `machine`'s workspace whose readings the card shows, by its own id. */
+  resourceWorkspace(machine = this.machine): number | null {
+    const detail = this.resourceDetail(),
+      row = detail === null ? null : this.rowOf(detail);
+    return row && row.machine === machine && !this.stale(machine) ? row.id : null;
   }
   resourceDetail(): number | null {
     const pinned = this.resource_card.pinned ? this.resource_card.workspace : null;
-    if (this.prefs.resources.enabled && pinned !== null && this.runtime.workspaces.index(pinned) !== null)
-      return pinned;
+    if (this.prefs.resources.enabled && pinned !== null && this.rowResources(pinned) !== null) return pinned;
     if (!this.prefs.resources.enabled || !this.link_tooltip.shown || this.link_tooltip.target === null) return null;
     const id = this.link_tooltip.target.resource ?? null;
     if (id === null) return null;
-    if (this.runtime.workspaces.index(id) === null) return null;
-    const work = sidebar.resourcesFor(this.runtime.resources, id);
+    const row = this.workspaceRows().find(row => row.id === id);
+    if (!row || row.unavailable) return null;
+    const work = row.resources;
     if (work.cpu === null && work.memory === null && work.read === null && work.written === null) return null;
     return id;
   }
@@ -8344,7 +9203,7 @@ export class Controller {
       this.height,
       this.sidebarView([]).width,
       this.resource_card.anchor,
-      resourceTooltip.gpuCount(this.runtime.resources),
+      resourceTooltip.gpuCount(this.rowResources(this.resourceDetail()!) ?? this.runtime.resources),
     );
   }
   private resourceBridgeContains(rect: Rect, x: number, y: number): boolean {
@@ -8370,7 +9229,7 @@ export class Controller {
       return;
     }
     const rect = this.resourceRect()!;
-    const entries = this.workspaceEntries();
+    const entries = this.workspaceRows();
     const view = this.sidebarView([]);
     const on_row = sidebar.resourceAt(view, entries, x, y)?.id === id;
     if (on_row || this.resourceBridgeContains(rect, x, y)) {
@@ -8499,7 +9358,7 @@ export class Controller {
     const panes = this.runtime.panes.filter(p => {
       if (this.runtime.workspaces.owner(p.id)?.id !== ws.id) return false;
       const cwd = this.agentFolder(p);
-      return (cwd === ws.cwd || cwd.startsWith(ws.cwd + "/")) && !linked.has(cwd);
+      return (cwd === ws.cwd || cwd.startsWith(ws.cwd + i18n.t`/`)) && !linked.has(cwd);
     });
     const focused = this.focused();
     return panes.find(p => p.id === focused?.id) ?? panes[0] ?? null;
@@ -8599,9 +9458,7 @@ export class Controller {
         (this.signin ||
           (!this.resourceHoverContains(x, y) && !this.worktreeHoverContains(x, y) && !this.gitHoverContains(x, y)))
       ) {
-        const resource_hit = this.signin
-          ? null
-          : sidebar.resourceAt(this.sidebarView([]), this.workspaceEntries(), x, y);
+        const resource_hit = this.signin ? null : sidebar.resourceAt(this.sidebarView([]), this.workspaceRows(), x, y);
         if (resource_hit === null || this.resourceDetail() !== resource_hit.id) this.link_tooltip.move();
         this.launcher_hover_blocked = false;
       }
@@ -8624,7 +9481,7 @@ export class Controller {
         if (this.worktreeHoverContains(pointer.x, pointer.y)) return true;
         if (this.resourceHoverContains(pointer.x, pointer.y)) return true;
         if (this.gitHoverContains(pointer.x, pointer.y)) return true;
-        const ws = sidebar.resourceAt(this.sidebarView([]), this.workspaceEntries(), pointer.x, pointer.y);
+        const ws = sidebar.resourceAt(this.sidebarView([]), this.workspaceRows(), pointer.x, pointer.y);
         if (ws && resourceTooltip.geometry(this.width, this.height, this.sidebarView([]).width, pointer.y) !== null) {
           target = { resource: ws.id };
           this.resource_card.anchor = pointer.y;
@@ -8666,7 +9523,7 @@ export class Controller {
         // The host may leave its last mouse report at the window edge.
         if (pointer.x > 0) {
           const entry = sidebar.agentAt(this.sidebarView(entries), entries, pointer.x, pointer.y);
-          if (entry) target = { conversation: entry.conversation, agent: entry.target };
+          if (entry && !this.away(entry.target)) target = { conversation: entry.conversation, agent: entry.target };
         }
       }
       const link = !this.paste_card ? this.linkAt(pointer.x, pointer.y) : null;
@@ -8678,15 +9535,38 @@ export class Controller {
     }
     return this.link_tooltip.ready(target, milliTimestamp());
   }
+  private updateInstant(): void {
+    const focus =
+      this.instant_ready &&
+      this.host.prefs.instant_typing === "auto" &&
+      !this.overlayOpen() &&
+      !this.copy_mode &&
+      !this.search_mode &&
+      this.input_state.paste === null &&
+      !this.reviewKeys() &&
+      !this.selection
+        ? this.focused()
+        : null;
+    for (const pane of this.runtime.panes) {
+      const eligible = pane === focus && !pane.dormant && !pane.restoring && pane.agent.attention !== "needs_input";
+      pane.terminal.instant(
+        eligible ? (pane.agent.provider ?? "terminal") : null,
+        `${pane.binding}:${pane.agent.conversation}:${pane.agent.session}`,
+        this.host.prefs.dim_predictions,
+      );
+    }
+  }
   frame(): string {
     const frame = this.compose(false);
     return typeof frame === "string" ? frame : frame.text();
   }
   compose(retain = true): composition.Output {
-    const hide = this.images.begin() + this.tab_icons.begin();
+    if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;
+    this.updateInstant();
+    const hide = this.images.begin() + this.tab_icons.begin() + this.signal_bars.begin();
     const retained = retain ? new composition.Frame() : undefined;
     const frame = this.renderFrame(retained);
-    const writes = this.images.end() + this.tab_icons.end();
+    const writes = this.images.end() + this.tab_icons.end() + this.signal_bars.end();
     if (writes) this.queueEffect({ write_terminal: writes });
     const prefix = hide ? "\x1b[?2026h" + hide : "",
       suffix = hide ? "\x1b[?2026l" : "";
@@ -8710,10 +9590,10 @@ export class Controller {
       return this.help.frame(
         this.width,
         this.height,
-        this.prefs.preset,
-        this.prefs.prefix,
+        this.host.prefs.preset,
+        this.host.prefs.prefix,
         Date.now(),
-        hand ? render.handShape(this.iterm2_pointer) : "default",
+        hand ? render.handShape(this.host.iterm2_pointer) : "default",
       );
     }
     this.rememberAgent();
@@ -8728,7 +9608,7 @@ export class Controller {
     if (this.pointer) {
       const hit = sidebar.gitActionWorkspace(
         this.sidebarView(entries),
-        this.workspaceEntries(),
+        this.workspaceRows(),
         this.git_hover,
         this.pointer.x,
         this.pointer.y,
@@ -8746,7 +9626,7 @@ export class Controller {
     if (this.inline_rename) {
       const open = this.inline_rename,
         covered = this.name_dialog !== null || (this.hasMenu() && this.sidebar_focus === null);
-      if (covered || this.sidebarView(entries).fieldRect(open.target, this.workspaceEntries()) === null)
+      if (covered || this.sidebarView(entries).fieldRect(this.renameTarget(open.target), this.workspaceRows()) === null)
         this.closeInlineRename();
     }
     const tooltip_ready = this.linkTooltipReady();
@@ -8760,15 +9640,20 @@ export class Controller {
     const thumbnail = this.thumbnails.sync(link_card?.thumbnail ?? this.prompt_preview?.thumbnail ?? null);
     if (thumbnail) this.queueEffect({ write_terminal: thumbnail });
     const detail = this.resourceDetail();
+    // Another machine's row reads from that machine.
+    const readings =
+      this.machines.length > 1 && detail !== null
+        ? (this.rowResources(detail) ?? this.runtime.resources)
+        : this.runtime.resources;
     if (detail !== null) {
       const rect = this.resourceRect();
       const freeze =
         this.resource_card.pinned ||
         (this.pointer !== null && rect !== null && rect.contains(this.pointer.x, this.pointer.y));
       this.resource_card.update(
-        sidebar.resourcesFor(this.runtime.resources, detail) as any,
+        sidebar.resourcesFor(readings, detail) as any,
         freeze,
-        resourceTooltip.gpuCount(this.runtime.resources),
+        resourceTooltip.gpuCount(readings),
       );
       if (this.resource_card.pinned && rect) {
         this.resource_card.reveal(resourceTooltip.rows(rect, this.resource_card.gpus));
@@ -8796,16 +9681,18 @@ export class Controller {
       this.width,
       this.height,
       render.ui({
-        prefs: this.prefs,
+        prefs: this.host.prefs,
         pointer: this.pointer,
-        iterm2_pointer: this.iterm2_pointer,
+        iterm2_pointer: this.host.iterm2_pointer,
         link_tooltip: tooltip_ready,
         link_card,
         startup_waits: this.runtime.startup_waits,
         startup_card: this.startup_card,
-        resources: this.runtime.resources,
+        resources: readings,
         resource_hover: this.link_tooltip.target?.resource ?? null,
         resource_card: (tooltip_ready || this.resource_card.pinned) && detail !== null ? this.resource_card : null,
+        connection_card: this.connection_card,
+        signal_bars: this.supports_kitty_graphics && !this.hide_connection_signals ? this.signal_bars : null,
         git_hover: this.hoverIdle() ? this.git_hover : null,
         grip_hover: this.grip_hover,
         git_card: (tooltip_ready || this.git_card.pinned) && git_ws ? this.git_card : null,
@@ -8831,15 +9718,17 @@ export class Controller {
         agent_launcher: this.agent_launcher,
         scope_menu: this.scope_menu,
         scope_label: this.scopeLabel(),
+        workspace_scope: this.machineScope(),
         corgi_setup: this.corgi_setup,
         paste_card: card && focused && focused.id === card.pane ? card.notice : null,
         paste_copied: card ? card.copied : false,
+        paste_progress: this.paste_progress,
         inference: this.runtime.inference,
         tab_drop_x: this.tabDropX(),
         docking: this.dockingPreview(),
         dialog: this.name_dialog,
         archive_dialog: this.archive_dialog,
-        inline_rename: this.inline_rename,
+        inline_rename: this.renameState(),
         sidebar_open: this.sidebar_open,
         sidebar_drawer: this.sidebar_focus?.drawer ?? null,
         corgi_badge: this.corgi_badge,
@@ -8883,9 +9772,7 @@ export class Controller {
           panes: this.runtime.panes,
           system: this.runtime.inference.provider,
         }),
-        workspaces: this.sidebar_focus
-          ? this.sidebar_focus.markWorkspaces(this.workspaceEntries())
-          : this.workspaceEntries(),
+        workspaces: this.sidebar_focus ? this.sidebar_focus.markWorkspaces(this.workspaceRows()) : this.workspaceRows(),
         workspace_offset: this.workspace_offset,
         archived_workspaces: this.sidebar_focus
           ? this.sidebar_focus.markWorkspaces(this.archivedWorkspaceEntries())
@@ -8910,9 +9797,11 @@ export class Controller {
               }
             : null,
         signin_draw: this.signin ? (w: Writer, pointer: render.Pointer | null) => this.drawSignin(w, pointer) : null,
-        no_workspace: this.current().id
-          ? null
-          : { focused: this.keyboard === "pane" && !this.hasMenu() && this.name_dialog === null },
+        workspace_loading: !this.runtime.workspaces.loaded,
+        no_workspace:
+          this.current().id || !this.runtime.workspaces.loaded
+            ? null
+            : { focused: this.keyboard === "pane" && !this.hasMenu() && this.name_dialog === null },
         prompt_draw: this.prompt.open
           ? (w: Writer, marks: Marks | null) =>
               this.prompt.draw(w, this.width, this.height, marks, milliTimestamp(), this.prompt_preview ?? undefined)
@@ -8931,7 +9820,7 @@ export class Controller {
   }
   /** The review panel's columns, or 0 while it is closed or can't fit beside panes. */
   private reviewWidth(sidebar_width: number): number {
-    return this.review.open ? panel.Panel.fit(this.prefs.review_width, this.width - sidebar_width) : 0;
+    return this.review.open ? panel.Panel.fit(this.host.prefs.review_width, this.width - sidebar_width) : 0;
   }
   private reviewRect(): Rect | null {
     const width = this.sidebarView([]).panel;
@@ -9182,7 +10071,22 @@ function removalReason(err: string | null): string {
       return err ?? i18n.t`unknown error`;
   }
 }
-
+const preview_changed = i18n.t`The commits to push changed. Review them and push again.`;
+/** Input held for a task, at most; the same bound pane input has. */
+const held_limit = 1024 * 1024;
+/** Room for each machine's workspace ids in a sidebar row's id. */
+const machine_stride = 2 ** 32;
+/** The connection went before the reply came, so the request may have run. */
+function lost(error: unknown): boolean {
+  switch (errors.name(error)) {
+    case "StaleConnection":
+    case "ConnectionClosed":
+    case "RequestTimedOut":
+      return true;
+    default:
+      return false;
+  }
+}
 function gitPushMessage(err: string): string {
   switch (err) {
     case "GitPreviewChanged":

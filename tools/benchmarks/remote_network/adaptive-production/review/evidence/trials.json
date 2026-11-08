@@ -1,0 +1,3660 @@
+[
+  {
+    "path": "dist/review-network-20261108/cadence/after-1",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.42991941794753075,
+        "remote_seconds": 2.8409528080374002,
+        "usable_seconds": 2.9905480798333883,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "cadence",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/cadence/after-1/results.json"
+      },
+      {
+        "fps": 59.9998002906458,
+        "p95_age": 0.1662249336950481,
+        "max_age": 0.18289087433367968,
+        "down_kbit_s": 138.64479258979637,
+        "up_kbit_s": 88.77667780564624,
+        "total_kbit_s": 227.4214703954426,
+        "catchup_seconds": 0.1575263189151883,
+        "echo_seconds": 0.3180087227374315,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.2938722794514858,
+        "product_sum_rss_mib": 436.578125,
+        "key": [
+          "cadence",
+          "after",
+          "stream",
+          "sparse",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/after-1/results.json"
+      },
+      {
+        "fps": 59.86638969945439,
+        "p95_age": 0.17853933293372393,
+        "max_age": 0.21187806082889438,
+        "down_kbit_s": 966.6434105863096,
+        "up_kbit_s": 95.04626622862008,
+        "total_kbit_s": 1061.6896768149297,
+        "catchup_seconds": 0.16473848884925246,
+        "echo_seconds": 0.32843611016869545,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.3537257935275499,
+        "product_sum_rss_mib": 464.05859375,
+        "key": [
+          "cadence",
+          "after",
+          "stream",
+          "dense",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/after-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/cadence/after-2",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.41208845004439354,
+        "remote_seconds": 2.812850789166987,
+        "usable_seconds": 2.9571428787894547,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "cadence",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/cadence/after-2/results.json"
+      },
+      {
+        "fps": 59.99984286301013,
+        "p95_age": 0.16765301022678614,
+        "max_age": 0.16767001058906317,
+        "down_kbit_s": 138.55064191659477,
+        "up_kbit_s": 88.31072806821348,
+        "total_kbit_s": 226.86136998480825,
+        "catchup_seconds": 0.17789425514638424,
+        "echo_seconds": 0.3338799481280148,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.39449833086209707,
+        "product_sum_rss_mib": 437.359375,
+        "key": [
+          "cadence",
+          "after",
+          "stream",
+          "sparse",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/after-2/results.json"
+      },
+      {
+        "fps": 59.93316784954998,
+        "p95_age": 0.18308291491121054,
+        "max_age": 0.1832945542410016,
+        "down_kbit_s": 965.7430767381102,
+        "up_kbit_s": 95.1084588306672,
+        "total_kbit_s": 1060.8515355687773,
+        "catchup_seconds": 0.16583759104833007,
+        "echo_seconds": 0.32365616597235203,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.4440592858496774,
+        "product_sum_rss_mib": 459.83203125,
+        "key": [
+          "cadence",
+          "after",
+          "stream",
+          "dense",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/after-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/cadence/after-3",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.408559946808964,
+        "remote_seconds": 2.8093366259709,
+        "usable_seconds": 2.9906562049873173,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "cadence",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/cadence/after-3/results.json"
+      },
+      {
+        "fps": 59.96648976394215,
+        "p95_age": 0.169678985606879,
+        "max_age": 0.1696981443092227,
+        "down_kbit_s": 138.74614339037709,
+        "up_kbit_s": 87.84800631534532,
+        "total_kbit_s": 226.5941497057224,
+        "catchup_seconds": 0.17890333756804466,
+        "echo_seconds": 0.3316915910691023,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.37367997878281545,
+        "product_sum_rss_mib": 446.5390625,
+        "key": [
+          "cadence",
+          "after",
+          "stream",
+          "sparse",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/after-3/results.json"
+      },
+      {
+        "fps": 59.89979045838466,
+        "p95_age": 0.1679124510847032,
+        "max_age": 0.20110241835936904,
+        "down_kbit_s": 968.7402052900336,
+        "up_kbit_s": 94.91695019339296,
+        "total_kbit_s": 1063.6571554834265,
+        "catchup_seconds": 0.1769701149314642,
+        "echo_seconds": 0.3248784854076803,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.387187869483269,
+        "product_sum_rss_mib": 460.23828125,
+        "key": [
+          "cadence",
+          "after",
+          "stream",
+          "dense",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/after-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/cadence/before-1",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4120781756937504,
+        "remote_seconds": 2.792592825833708,
+        "usable_seconds": 2.961795585695654,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "cadence",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/cadence/before-1/results.json"
+      },
+      {
+        "fps": 59.99982240476127,
+        "p95_age": 0.16987934615463018,
+        "max_age": 0.1698940978385508,
+        "down_kbit_s": 138.88278508157097,
+        "up_kbit_s": 87.59366180635466,
+        "total_kbit_s": 226.47644688792565,
+        "catchup_seconds": 0.15627725888043642,
+        "echo_seconds": 0.33113938197493553,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.34334360129251523,
+        "product_sum_rss_mib": 441.15234375,
+        "key": [
+          "cadence",
+          "before",
+          "stream",
+          "sparse",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/before-1/results.json"
+      },
+      {
+        "fps": 59.89984765658251,
+        "p95_age": 0.16974663827568293,
+        "max_age": 0.18642850872129202,
+        "down_kbit_s": 967.3210169397937,
+        "up_kbit_s": 95.78051936894394,
+        "total_kbit_s": 1063.1015363087376,
+        "catchup_seconds": 0.1714002569206059,
+        "echo_seconds": 0.32085181307047606,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.39729803181840145,
+        "product_sum_rss_mib": 467.94921875,
+        "key": [
+          "cadence",
+          "before",
+          "stream",
+          "dense",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/before-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/cadence/before-2",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.41437765676528215,
+        "remote_seconds": 2.816438491921872,
+        "usable_seconds": 3.001975209917873,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "cadence",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/cadence/before-2/results.json"
+      },
+      {
+        "fps": 59.999819218725776,
+        "p95_age": 0.1706059374846518,
+        "max_age": 0.17063184548169374,
+        "down_kbit_s": 139.02086153348927,
+        "up_kbit_s": 88.30348565860031,
+        "total_kbit_s": 227.3243471920896,
+        "catchup_seconds": 0.16526975389569998,
+        "echo_seconds": 0.33069264702498913,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.3966124069983984,
+        "product_sum_rss_mib": 424.9296875,
+        "key": [
+          "cadence",
+          "before",
+          "stream",
+          "sparse",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/before-2/results.json"
+      },
+      {
+        "fps": 59.89982294435173,
+        "p95_age": 0.16983832232654095,
+        "max_age": 0.20297006564214826,
+        "down_kbit_s": 965.5353049689978,
+        "up_kbit_s": 95.01101753975799,
+        "total_kbit_s": 1060.5463225087558,
+        "catchup_seconds": 0.16610599914565682,
+        "echo_seconds": 0.3210110440850258,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.4297439729731098,
+        "product_sum_rss_mib": 457.00390625,
+        "key": [
+          "cadence",
+          "before",
+          "stream",
+          "dense",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/before-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/cadence/before-3",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4114421922713518,
+        "remote_seconds": 2.796202989295125,
+        "usable_seconds": 2.977282742038369,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "cadence",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/cadence/before-3/results.json"
+      },
+      {
+        "fps": 59.999815762608726,
+        "p95_age": 0.17014141473919153,
+        "max_age": 0.1701525440439582,
+        "down_kbit_s": 138.9240524211554,
+        "up_kbit_s": 89.09465051741793,
+        "total_kbit_s": 228.01870293857334,
+        "catchup_seconds": 0.15695474622771144,
+        "echo_seconds": 0.3306239931844175,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.30224080092041583,
+        "product_sum_rss_mib": 430.33203125,
+        "key": [
+          "cadence",
+          "before",
+          "stream",
+          "sparse",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/before-3/results.json"
+      },
+      {
+        "fps": 59.833156890813065,
+        "p95_age": 0.17462584329769015,
+        "max_age": 0.20770840859040618,
+        "down_kbit_s": 967.8952856676832,
+        "up_kbit_s": 95.15342693372925,
+        "total_kbit_s": 1063.0487126014125,
+        "catchup_seconds": 0.168381969910115,
+        "echo_seconds": 0.33269547997042537,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.37339739469330896,
+        "product_sum_rss_mib": 447.40625,
+        "key": [
+          "cadence",
+          "before",
+          "stream",
+          "dense",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/before-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/cadence/herdr-1",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.28220102470368147,
+        "remote_seconds": 3.933740695938468,
+        "usable_seconds": 4.444505851715803,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "cadence",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/cadence/herdr-1/results.json"
+      },
+      {
+        "fps": 59.999830740981444,
+        "p95_age": 0.16332307225093246,
+        "max_age": 0.16333183832466602,
+        "down_kbit_s": 221.76478443010558,
+        "up_kbit_s": 16.52898275190358,
+        "total_kbit_s": 238.29376718200916,
+        "catchup_seconds": 0.16528521804139018,
+        "echo_seconds": 0.3042725189588964,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.10851934424738598,
+        "product_sum_rss_mib": 60.12109375,
+        "key": [
+          "cadence",
+          "herdr",
+          "stream",
+          "sparse",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/herdr-1/results.json"
+      },
+      {
+        "fps": 23.566600492392322,
+        "p95_age": 6.042069636285305,
+        "max_age": 7.09206963237375,
+        "down_kbit_s": 1000.4680217631413,
+        "up_kbit_s": 35.63762686390132,
+        "total_kbit_s": 1036.1056486270427,
+        "catchup_seconds": 13.190660105086863,
+        "echo_seconds": 4.881771308835596,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.16859492528471606,
+        "product_sum_rss_mib": 70.109375,
+        "key": [
+          "cadence",
+          "herdr",
+          "stream",
+          "dense",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/herdr-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/cadence/herdr-2",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.28230446903035045,
+        "remote_seconds": 3.9333002981729805,
+        "usable_seconds": 4.310834378935397,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "cadence",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/cadence/herdr-2/results.json"
+      },
+      {
+        "fps": 59.99988209851902,
+        "p95_age": 0.15937981056049466,
+        "max_age": 0.15938482666388154,
+        "down_kbit_s": 222.04962541242384,
+        "up_kbit_s": 16.515770574867833,
+        "total_kbit_s": 238.56539598729168,
+        "catchup_seconds": 0.1788071859627962,
+        "echo_seconds": 0.3081308430992067,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.11911541493818054,
+        "product_sum_rss_mib": 62.125,
+        "key": [
+          "cadence",
+          "herdr",
+          "stream",
+          "sparse",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/herdr-2/results.json"
+      },
+      {
+        "fps": 23.63325854932029,
+        "p95_age": 6.099526350386441,
+        "max_age": 6.932790636550635,
+        "down_kbit_s": 998.0486651385473,
+        "up_kbit_s": 37.77933479909287,
+        "total_kbit_s": 1035.8279999376402,
+        "catchup_seconds": 10.794287933968008,
+        "echo_seconds": 4.864711497910321,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.15438665788650358,
+        "product_sum_rss_mib": 69.9765625,
+        "key": [
+          "cadence",
+          "herdr",
+          "stream",
+          "dense",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/herdr-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/cadence/herdr-3",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2922446010634303,
+        "remote_seconds": 3.934868643991649,
+        "usable_seconds": 4.319448423106223,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "cadence",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/cadence/herdr-3/results.json"
+      },
+      {
+        "fps": 59.999831490691896,
+        "p95_age": 0.1575507763773203,
+        "max_age": 0.15756004583090544,
+        "down_kbit_s": 221.75386107532654,
+        "up_kbit_s": 16.541317875894766,
+        "total_kbit_s": 238.29517895122132,
+        "catchup_seconds": 0.1561763440258801,
+        "echo_seconds": 0.30990206077694893,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.11431880370141352,
+        "product_sum_rss_mib": 62.125,
+        "key": [
+          "cadence",
+          "herdr",
+          "stream",
+          "sparse",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/herdr-3/results.json"
+      },
+      {
+        "fps": 22.866585450893428,
+        "p95_age": 5.954489365685731,
+        "max_age": 6.254508627578616,
+        "down_kbit_s": 1000.5902194469819,
+        "up_kbit_s": 32.22718551607305,
+        "total_kbit_s": 1032.817404963055,
+        "catchup_seconds": 16.801735820714384,
+        "echo_seconds": 5.537079385947436,
+        "inputs": 5,
+        "visible_inputs": 4,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.16961690814621266,
+        "product_sum_rss_mib": 65.79296875,
+        "key": [
+          "cadence",
+          "herdr",
+          "stream",
+          "dense",
+          "1mbit",
+          300,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/cadence/herdr-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/faults-sparse/after-1",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.40947003988549113,
+        "remote_seconds": 2.8122713658958673,
+        "usable_seconds": 2.97721493197605,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "faults-sparse",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-1/results.json"
+      },
+      {
+        "fresh_seconds": 2.0793858910910785,
+        "usable_seconds": 2.235239579807967,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "tcp_reset"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-1/results.json"
+      },
+      {
+        "fresh_seconds": 2.9306562170386314,
+        "usable_seconds": 3.119718349073082,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "blackhole3"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-1/results.json"
+      },
+      {
+        "fresh_seconds": 2.2864198428578675,
+        "usable_seconds": 2.477958784904331,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "blackhole35"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-1/results.json"
+      },
+      {
+        "fresh_seconds": 2.2242842642590404,
+        "usable_seconds": 2.41270810412243,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "downstream15"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-1/results.json"
+      },
+      {
+        "fresh_seconds": 3.649957220070064,
+        "usable_seconds": 3.8168746777810156,
+        "isolation": [
+          {
+            "machine": "local",
+            "switch_seconds": 0.02787921205163002,
+            "echo": {
+              "token": "OTHERisolated300localV6I8",
+              "sent": 2439590.387736497,
+              "seconds": 0.04577737208455801,
+              "ok": true
+            },
+            "usable_seconds": 0.10714541841298342,
+            "ready": {
+              "ack_at": 2439590.33381693,
+              "ack": "READYV6MlocalI7P0",
+              "probes": [
+                {
+                  "token": "READYV6MlocalI7P0",
+                  "sent": 2439590.26710826
+                }
+              ]
+            }
+          },
+          {
+            "machine": "borealis",
+            "switch_seconds": 0.41355402395129204,
+            "echo": {
+              "token": "OTHERisolated300borealisV6I13",
+              "sent": 2439591.110825275,
+              "seconds": 0.16879500076174736,
+              "ok": true
+            },
+            "usable_seconds": 0.582492568064481,
+            "ready": {
+              "ack_at": 2439591.03039564,
+              "ack": "READYV6MborealisI11P0",
+              "probes": [
+                {
+                  "token": "READYV6MborealisI11P0",
+                  "sent": 2439590.870150224
+                },
+                {
+                  "token": "READYV6MborealisI11P1",
+                  "sent": 2439590.990516825
+                }
+              ]
+            }
+          }
+        ],
+        "key": [
+          "faults-sparse",
+          "after",
+          "isolated30"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/faults-sparse/after-2",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.4031149009242654,
+        "remote_seconds": 2.9298108629882336,
+        "usable_seconds": 3.1078219707123935,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "faults-sparse",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-2/results.json"
+      },
+      {
+        "fresh_seconds": 2.0863610287196934,
+        "usable_seconds": 2.241859547793865,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "tcp_reset"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-2/results.json"
+      },
+      {
+        "fresh_seconds": 2.8695478825829923,
+        "usable_seconds": 3.0610078340396285,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "blackhole3"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-2/results.json"
+      },
+      {
+        "fresh_seconds": 3.3879770380444825,
+        "usable_seconds": 3.563050638884306,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "blackhole35"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-2/results.json"
+      },
+      {
+        "fresh_seconds": 2.188240119256079,
+        "usable_seconds": 2.3635450289584696,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "downstream15"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-2/results.json"
+      },
+      {
+        "fresh_seconds": 3.622989245224744,
+        "usable_seconds": 3.9233159949071705,
+        "isolation": [
+          {
+            "machine": "local",
+            "switch_seconds": 0.047160320449620485,
+            "echo": {
+              "token": "OTHERisolated300localV6I8",
+              "sent": 2439782.468870813,
+              "seconds": 0.04849689593538642,
+              "ok": true
+            },
+            "usable_seconds": 0.13007131963968277,
+            "ready": {
+              "ack_at": 2439782.417981676,
+              "ack": "READYV6MlocalI7P0",
+              "probes": [
+                {
+                  "token": "READYV6MlocalI7P0",
+                  "sent": 2439782.34854851
+                }
+              ]
+            }
+          },
+          {
+            "machine": "borealis",
+            "switch_seconds": 0.4142294921912253,
+            "echo": {
+              "token": "OTHERisolated300borealisV6I13",
+              "sent": 2439783.192146161,
+              "seconds": 0.2624691007658839,
+              "ok": true
+            },
+            "usable_seconds": 0.5758230914361775,
+            "ready": {
+              "ack_at": 2439783.104932728,
+              "ack": "READYV6MborealisI11P0",
+              "probes": [
+                {
+                  "token": "READYV6MborealisI11P0",
+                  "sent": 2439782.951449142
+                },
+                {
+                  "token": "READYV6MborealisI11P1",
+                  "sent": 2439783.071848708
+                }
+              ]
+            }
+          }
+        ],
+        "key": [
+          "faults-sparse",
+          "after",
+          "isolated30"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/faults-sparse/after-3",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.4067277587018907,
+        "remote_seconds": 2.808531740680337,
+        "usable_seconds": 2.9701557559892535,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "faults-sparse",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-3/results.json"
+      },
+      {
+        "fresh_seconds": 2.099905411247164,
+        "usable_seconds": 2.2485099560581148,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "tcp_reset"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-3/results.json"
+      },
+      {
+        "fresh_seconds": 2.96993904421106,
+        "usable_seconds": 3.1689863451756537,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "blackhole3"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-3/results.json"
+      },
+      {
+        "fresh_seconds": 2.4203857467509806,
+        "usable_seconds": 2.6055786898359656,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "blackhole35"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-3/results.json"
+      },
+      {
+        "fresh_seconds": 2.5370316449552774,
+        "usable_seconds": 2.702928083948791,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "after",
+          "downstream15"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-3/results.json"
+      },
+      {
+        "fresh_seconds": 3.7286811717785895,
+        "usable_seconds": 4.002046919893473,
+        "isolation": [
+          {
+            "machine": "local",
+            "switch_seconds": 0.02746022306382656,
+            "echo": {
+              "token": "OTHERisolated300localV6I8",
+              "sent": 2439967.643092601,
+              "seconds": 0.04168335674330592,
+              "ok": true
+            },
+            "usable_seconds": 0.10293746320530772,
+            "ready": {
+              "ack_at": 2439967.585171785,
+              "ack": "READYV6MlocalI7P0",
+              "probes": [
+                {
+                  "token": "READYV6MlocalI7P0",
+                  "sent": 2439967.522761858
+                }
+              ]
+            }
+          },
+          {
+            "machine": "borealis",
+            "switch_seconds": 0.4179986910894513,
+            "echo": {
+              "token": "OTHERisolated300borealisV6I13",
+              "sent": 2439968.366250992,
+              "seconds": 0.15511618414893746,
+              "ok": true
+            },
+            "usable_seconds": 0.5671313530765474,
+            "ready": {
+              "ack_at": 2439968.270461093,
+              "ack": "READYV6MborealisI11P0",
+              "probes": [
+                {
+                  "token": "READYV6MborealisI11P0",
+                  "sent": 2439968.125498063
+                },
+                {
+                  "token": "READYV6MborealisI11P1",
+                  "sent": 2439968.245847047
+                }
+              ]
+            }
+          }
+        ],
+        "key": [
+          "faults-sparse",
+          "after",
+          "isolated30"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/after-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/faults-sparse/before-1",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.43311826698482037,
+        "remote_seconds": 2.8085333141498268,
+        "usable_seconds": 2.9816222190856934,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "faults-sparse",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-1/results.json"
+      },
+      {
+        "fresh_seconds": 2.1004149219952524,
+        "usable_seconds": 2.2949546072632074,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "tcp_reset"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-1/results.json"
+      },
+      {
+        "fresh_seconds": 2.748368710745126,
+        "usable_seconds": 2.9135402869433165,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "blackhole3"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-1/results.json"
+      },
+      {
+        "fresh_seconds": 2.8105178349651396,
+        "usable_seconds": 3.0028919489122927,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "blackhole35"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-1/results.json"
+      },
+      {
+        "fresh_seconds": 2.5500210439786315,
+        "usable_seconds": 2.692765009123832,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "downstream15"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-1/results.json"
+      },
+      {
+        "fresh_seconds": 3.91246344614774,
+        "usable_seconds": 4.356197386048734,
+        "isolation": [
+          {
+            "machine": "local",
+            "switch_seconds": 0.05012347176671028,
+            "echo": {
+              "token": "OTHERisolated300localV6I8",
+              "sent": 2439591.18487753,
+              "seconds": 0.06939370697364211,
+              "ok": true
+            },
+            "usable_seconds": 0.10005827993154526,
+            "ready": {
+              "ack_at": 2439591.103905891,
+              "ack": "READYV6MlocalI7P0",
+              "probes": [
+                {
+                  "token": "READYV6MlocalI7P0",
+                  "sent": 2439591.064479008
+                }
+              ]
+            }
+          },
+          {
+            "machine": "borealis",
+            "switch_seconds": 0.41101767122745514,
+            "echo": {
+              "token": "OTHERisolated300borealisV6I13",
+              "sent": 2439591.927736319,
+              "seconds": 0.1483929678797722,
+              "ok": true
+            },
+            "usable_seconds": 0.609642974101007,
+            "ready": {
+              "ack_at": 2439591.874887178,
+              "ack": "READYV6MborealisI11P0",
+              "probes": [
+                {
+                  "token": "READYV6MborealisI11P0",
+                  "sent": 2439591.687110648
+                },
+                {
+                  "token": "READYV6MborealisI11P1",
+                  "sent": 2439591.807377448
+                }
+              ]
+            }
+          }
+        ],
+        "key": [
+          "faults-sparse",
+          "before",
+          "isolated30"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/faults-sparse/before-2",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.40688991779461503,
+        "remote_seconds": 2.818407765123993,
+        "usable_seconds": 2.983296186197549,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "faults-sparse",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-2/results.json"
+      },
+      {
+        "fresh_seconds": 2.0835261391475797,
+        "usable_seconds": 2.24155190307647,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "tcp_reset"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-2/results.json"
+      },
+      {
+        "fresh_seconds": 2.92138983681798,
+        "usable_seconds": 3.086659082211554,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "blackhole3"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-2/results.json"
+      },
+      {
+        "fresh_seconds": 2.3650423823855817,
+        "usable_seconds": 2.5559939071536064,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "blackhole35"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-2/results.json"
+      },
+      {
+        "fresh_seconds": 2.5007570600137115,
+        "usable_seconds": 2.663265634328127,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "downstream15"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-2/results.json"
+      },
+      {
+        "fresh_seconds": 4.116293859202415,
+        "usable_seconds": 4.417064391076565,
+        "isolation": [
+          {
+            "machine": "local",
+            "switch_seconds": 0.04587200563400984,
+            "echo": {
+              "token": "OTHERisolated300localV6I8",
+              "sent": 2439782.066911436,
+              "seconds": 0.061765373684465885,
+              "ok": true
+            },
+            "usable_seconds": 0.09225129475817084,
+            "ready": {
+              "ack_at": 2439781.977719781,
+              "ack": "READYV6MlocalI7P0",
+              "probes": [
+                {
+                  "token": "READYV6MlocalI7P0",
+                  "sent": 2439781.946308335
+                }
+              ]
+            }
+          },
+          {
+            "machine": "borealis",
+            "switch_seconds": 0.4090463542379439,
+            "echo": {
+              "token": "OTHERisolated300borealisV6I13",
+              "sent": 2439782.810743373,
+              "seconds": 0.16618259903043509,
+              "ok": true
+            },
+            "usable_seconds": 0.5793484221212566,
+            "ready": {
+              "ack_at": 2439782.726697333,
+              "ack": "READYV6MborealisI11P0",
+              "probes": [
+                {
+                  "token": "READYV6MborealisI11P0",
+                  "sent": 2439782.569640703
+                },
+                {
+                  "token": "READYV6MborealisI11P1",
+                  "sent": 2439782.690276345
+                }
+              ]
+            }
+          }
+        ],
+        "key": [
+          "faults-sparse",
+          "before",
+          "isolated30"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/faults-sparse/before-3",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4080401840619743,
+        "remote_seconds": 2.8004183671437204,
+        "usable_seconds": 2.9486174141056836,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "faults-sparse",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-3/results.json"
+      },
+      {
+        "fresh_seconds": 2.079444846138358,
+        "usable_seconds": 2.244411456864327,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "tcp_reset"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-3/results.json"
+      },
+      {
+        "fresh_seconds": 2.956891485955566,
+        "usable_seconds": 3.12423491012305,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "blackhole3"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-3/results.json"
+      },
+      {
+        "fresh_seconds": 2.8882665671408176,
+        "usable_seconds": 3.063904593233019,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "blackhole35"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-3/results.json"
+      },
+      {
+        "fresh_seconds": 2.486451413948089,
+        "usable_seconds": 2.6739358357153833,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "before",
+          "downstream15"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-3/results.json"
+      },
+      {
+        "fresh_seconds": 3.778371856082231,
+        "usable_seconds": 4.24718723911792,
+        "isolation": [
+          {
+            "machine": "local",
+            "switch_seconds": 0.051494572311639786,
+            "echo": {
+              "token": "OTHERisolated300localV6I8",
+              "sent": 2439968.132461772,
+              "seconds": 0.07043432397767901,
+              "ok": true
+            },
+            "usable_seconds": 0.10079079493880272,
+            "ready": {
+              "ack_at": 2439968.052249433,
+              "ack": "READYV6MlocalI7P0",
+              "probes": [
+                {
+                  "token": "READYV6MlocalI7P0",
+                  "sent": 2439968.011995095
+                }
+              ]
+            }
+          },
+          {
+            "machine": "borealis",
+            "switch_seconds": 0.4137267852202058,
+            "echo": {
+              "token": "OTHERisolated300borealisV6I13",
+              "sent": 2439968.876353174,
+              "seconds": 0.18864634120836854,
+              "ok": true
+            },
+            "usable_seconds": 0.6023321249522269,
+            "ready": {
+              "ack_at": 2439968.815127369,
+              "ack": "READYV6MborealisI11P0",
+              "probes": [
+                {
+                  "token": "READYV6MborealisI11P0",
+                  "sent": 2439968.635834831
+                },
+                {
+                  "token": "READYV6MborealisI11P1",
+                  "sent": 2439968.756172035
+                }
+              ]
+            }
+          }
+        ],
+        "key": [
+          "faults-sparse",
+          "before",
+          "isolated30"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/before-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/faults-sparse/herdr-1",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.28560719918459654,
+        "remote_seconds": 3.940390903968364,
+        "usable_seconds": 4.435375727247447,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-1/results.json"
+      },
+      {
+        "fresh_seconds": 4.105639602988958,
+        "usable_seconds": 4.625772770959884,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "tcp_reset"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-1/results.json"
+      },
+      {
+        "fresh_seconds": 1.264714976772666,
+        "usable_seconds": 1.40464867092669,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "blackhole3"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-1/results.json"
+      },
+      {
+        "fresh_seconds": 18.610482271760702,
+        "usable_seconds": 19.10558880865574,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "blackhole35"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-1/results.json"
+      },
+      {
+        "fresh_seconds": 13.368817207869142,
+        "usable_seconds": 13.865863312967122,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "downstream15"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-1/results.json"
+      },
+      {
+        "fresh_seconds": 19.622757336124778,
+        "usable_seconds": 20.11835759691894,
+        "isolation": [
+          {
+            "machine": "local",
+            "switch_seconds": 0.05425611510872841,
+            "echo": {
+              "token": "OTHERisolated300localV6I8",
+              "sent": 2439615.132699157,
+              "seconds": 0.04938181070610881,
+              "ok": true
+            },
+            "usable_seconds": 0.08020846266299486,
+            "ready": {
+              "ack_at": 2439615.032171359,
+              "ack": "READYV6MlocalI7P0",
+              "probes": [
+                {
+                  "token": "READYV6MlocalI7P0",
+                  "sent": 2439615.012418578
+                }
+              ]
+            }
+          },
+          {
+            "machine": "borealis",
+            "switch_seconds": 0.2723410031758249,
+            "echo": {
+              "token": "OTHERisolated300borealisV6I16",
+              "sent": 2439616.076250335,
+              "seconds": 0.15067467978224158,
+              "ok": true
+            },
+            "usable_seconds": 0.7839795728214085,
+            "ready": {
+              "ack_at": 2439615.976908356,
+              "ack": "READYV6MborealisI11P3",
+              "probes": [
+                {
+                  "token": "READYV6MborealisI11P0",
+                  "sent": 2439615.474303775
+                },
+                {
+                  "token": "READYV6MborealisI11P1",
+                  "sent": 2439615.594640315
+                },
+                {
+                  "token": "READYV6MborealisI11P2",
+                  "sent": 2439615.714923704
+                },
+                {
+                  "token": "READYV6MborealisI11P3",
+                  "sent": 2439615.835298836
+                },
+                {
+                  "token": "READYV6MborealisI11P4",
+                  "sent": 2439615.955726339
+                }
+              ]
+            }
+          }
+        ],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "isolated30"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/faults-sparse/herdr-2",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2791399182751775,
+        "remote_seconds": 3.9310118262656033,
+        "usable_seconds": 4.32831763708964,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-2/results.json"
+      },
+      {
+        "fresh_seconds": 4.133838212117553,
+        "usable_seconds": 4.552745767869055,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "tcp_reset"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-2/results.json"
+      },
+      {
+        "fresh_seconds": 1.1402142937295139,
+        "usable_seconds": 1.3170700059272349,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "blackhole3"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-2/results.json"
+      },
+      {
+        "fresh_seconds": 13.158501759171486,
+        "usable_seconds": 13.55142236314714,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "blackhole35"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-2/results.json"
+      },
+      {
+        "fresh_seconds": 13.682265388779342,
+        "usable_seconds": 14.2175911529921,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "downstream15"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-2/results.json"
+      },
+      {
+        "fresh_seconds": 19.754540416877717,
+        "usable_seconds": 20.28608229989186,
+        "isolation": [
+          {
+            "machine": "local",
+            "switch_seconds": 0.032002334017306566,
+            "echo": {
+              "token": "OTHERisolated300localV6I9",
+              "sent": 2439800.759026368,
+              "seconds": 0.031136712059378624,
+              "ok": true
+            },
+            "usable_seconds": 0.2123931422829628,
+            "ready": {
+              "ack_at": 2439800.690229893,
+              "ack": "READYV6MlocalI7P1",
+              "probes": [
+                {
+                  "token": "READYV6MlocalI7P0",
+                  "sent": 2439800.518275047
+                },
+                {
+                  "token": "READYV6MlocalI7P1",
+                  "sent": 2439800.638666333
+                }
+              ]
+            }
+          },
+          {
+            "machine": "borealis",
+            "switch_seconds": 0.2782599809579551,
+            "echo": {
+              "token": "OTHERisolated300borealisV6I16",
+              "sent": 2439801.562449242,
+              "seconds": 0.16390463383868337,
+              "ok": true
+            },
+            "usable_seconds": 0.6766067687422037,
+            "ready": {
+              "ack_at": 2439801.475823667,
+              "ack": "READYV6MborealisI12P2",
+              "probes": [
+                {
+                  "token": "READYV6MborealisI12P0",
+                  "sent": 2439801.081045153
+                },
+                {
+                  "token": "READYV6MborealisI12P1",
+                  "sent": 2439801.201280984
+                },
+                {
+                  "token": "READYV6MborealisI12P2",
+                  "sent": 2439801.321898816
+                },
+                {
+                  "token": "READYV6MborealisI12P3",
+                  "sent": 2439801.44220157
+                }
+              ]
+            }
+          }
+        ],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "isolated30"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/faults-sparse/herdr-3",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2827518442645669,
+        "remote_seconds": 3.934523245319724,
+        "usable_seconds": 4.334630938246846,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+      },
+      {
+        "fresh_seconds": 4.118245390243828,
+        "usable_seconds": 4.499455549288541,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "tcp_reset"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+      },
+      {
+        "fresh_seconds": 0.8156525162048638,
+        "usable_seconds": 1.1163243213668466,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "blackhole3"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+      },
+      {
+        "fresh_seconds": 18.236420331988484,
+        "usable_seconds": 18.771522504277527,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "blackhole35"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+      },
+      {
+        "fresh_seconds": 13.551977504976094,
+        "usable_seconds": 14.20255077118054,
+        "isolation": [],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "downstream15"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+      },
+      {
+        "fresh_seconds": 24.039467588067055,
+        "usable_seconds": 24.416476319078356,
+        "isolation": [
+          {
+            "machine": "local",
+            "switch_seconds": 0.0335191092453897,
+            "echo": {
+              "token": "OTHERisolated300localV6I9",
+              "sent": 2439991.216267942,
+              "seconds": 0.02950569987297058,
+              "ok": true
+            },
+            "usable_seconds": 0.21013367688283324,
+            "ready": {
+              "ack_at": 2439991.145207066,
+              "ack": "READYV6MlocalI7P1",
+              "probes": [
+                {
+                  "token": "READYV6MlocalI7P0",
+                  "sent": 2439990.975512955
+                },
+                {
+                  "token": "READYV6MlocalI7P1",
+                  "sent": 2439991.095849107
+                }
+              ]
+            }
+          },
+          {
+            "machine": "borealis",
+            "switch_seconds": 0.28051355481147766,
+            "echo": {
+              "token": "OTHERisolated300borealisV6I17",
+              "sent": 2439992.13975321,
+              "seconds": 0.1638074922375381,
+              "ok": true
+            },
+            "usable_seconds": 0.7977447486482561,
+            "ready": {
+              "ack_at": 2439992.054128349,
+              "ack": "READYV6MborealisI12P3",
+              "probes": [
+                {
+                  "token": "READYV6MborealisI12P0",
+                  "sent": 2439991.537974054
+                },
+                {
+                  "token": "READYV6MborealisI12P1",
+                  "sent": 2439991.658246915
+                },
+                {
+                  "token": "READYV6MborealisI12P2",
+                  "sent": 2439991.778730182
+                },
+                {
+                  "token": "READYV6MborealisI12P3",
+                  "sent": 2439991.898997373
+                },
+                {
+                  "token": "READYV6MborealisI12P4",
+                  "sent": 2439992.019407597
+                }
+              ]
+            }
+          }
+        ],
+        "key": [
+          "faults-sparse",
+          "herdr",
+          "isolated30"
+        ],
+        "evidence": "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/sleep-clean/after-1",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.4088156661018729,
+        "remote_seconds": 2.8166819219477475,
+        "usable_seconds": 2.96507356595248,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "sleep-clean",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/after-1/results.json"
+      },
+      {
+        "fresh_seconds": 2.1780764684081078,
+        "usable_seconds": 2.3391484189778566,
+        "continuity": {
+          "samples": 150,
+          "remote_producer_count": 8,
+          "same_remote_pids_throughout": true,
+          "all_remote_cpu_ticks_advanced": true,
+          "observed_source_sequence_advance": null,
+          "observed_source_seconds": null
+        },
+        "isolation": [],
+        "key": [
+          "sleep-clean",
+          "after",
+          "sleep"
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/after-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/sleep-clean/after-2",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.40576832508668303,
+        "remote_seconds": 2.8121033050119877,
+        "usable_seconds": 2.991859483998269,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "sleep-clean",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/after-2/results.json"
+      },
+      {
+        "fresh_seconds": 2.181646376848221,
+        "usable_seconds": 2.3516023168340325,
+        "continuity": {
+          "samples": 151,
+          "remote_producer_count": 8,
+          "same_remote_pids_throughout": true,
+          "all_remote_cpu_ticks_advanced": true,
+          "observed_source_sequence_advance": null,
+          "observed_source_seconds": null
+        },
+        "isolation": [],
+        "key": [
+          "sleep-clean",
+          "after",
+          "sleep"
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/after-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/sleep-clean/after-3",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.4096362739801407,
+        "remote_seconds": 2.8152245972305536,
+        "usable_seconds": 2.9891067040152848,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "sleep-clean",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/after-3/results.json"
+      },
+      {
+        "fresh_seconds": 2.203542872797698,
+        "usable_seconds": 2.3657982158474624,
+        "continuity": {
+          "samples": 151,
+          "remote_producer_count": 8,
+          "same_remote_pids_throughout": true,
+          "all_remote_cpu_ticks_advanced": true,
+          "observed_source_sequence_advance": null,
+          "observed_source_seconds": null
+        },
+        "isolation": [],
+        "key": [
+          "sleep-clean",
+          "after",
+          "sleep"
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/after-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/sleep-clean/before-1",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4083362747915089,
+        "remote_seconds": 2.8137141978368163,
+        "usable_seconds": 2.996979739982635,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "sleep-clean",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/before-1/results.json"
+      },
+      {
+        "fresh_seconds": 2.1718179848976433,
+        "usable_seconds": 2.3404700411483645,
+        "continuity": {
+          "samples": 149,
+          "remote_producer_count": 8,
+          "same_remote_pids_throughout": true,
+          "all_remote_cpu_ticks_advanced": true,
+          "observed_source_sequence_advance": null,
+          "observed_source_seconds": null
+        },
+        "isolation": [],
+        "key": [
+          "sleep-clean",
+          "before",
+          "sleep"
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/before-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/sleep-clean/before-2",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4522038218565285,
+        "remote_seconds": 2.8345545628108084,
+        "usable_seconds": 2.9834917266853154,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "sleep-clean",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/before-2/results.json"
+      },
+      {
+        "fresh_seconds": 2.1670991079881787,
+        "usable_seconds": 2.313168860040605,
+        "continuity": {
+          "samples": 151,
+          "remote_producer_count": 8,
+          "same_remote_pids_throughout": true,
+          "all_remote_cpu_ticks_advanced": true,
+          "observed_source_sequence_advance": null,
+          "observed_source_seconds": null
+        },
+        "isolation": [],
+        "key": [
+          "sleep-clean",
+          "before",
+          "sleep"
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/before-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/sleep-clean/before-3",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.403868290130049,
+        "remote_seconds": 2.801238540094346,
+        "usable_seconds": 2.9736197157762945,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "sleep-clean",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/before-3/results.json"
+      },
+      {
+        "fresh_seconds": 2.177469126880169,
+        "usable_seconds": 2.3490795860998333,
+        "continuity": {
+          "samples": 151,
+          "remote_producer_count": 8,
+          "same_remote_pids_throughout": true,
+          "all_remote_cpu_ticks_advanced": true,
+          "observed_source_sequence_advance": null,
+          "observed_source_seconds": null
+        },
+        "isolation": [],
+        "key": [
+          "sleep-clean",
+          "before",
+          "sleep"
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/before-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/sleep-clean/herdr-1",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2912379647605121,
+        "remote_seconds": 3.9332019849680364,
+        "usable_seconds": 4.323043618816882,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "sleep-clean",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/herdr-1/results.json"
+      },
+      {
+        "fresh_seconds": 4.254739533178508,
+        "usable_seconds": 4.652602149173617,
+        "continuity": {
+          "samples": 149,
+          "remote_producer_count": 8,
+          "same_remote_pids_throughout": true,
+          "all_remote_cpu_ticks_advanced": true,
+          "observed_source_sequence_advance": null,
+          "observed_source_seconds": null
+        },
+        "isolation": [],
+        "key": [
+          "sleep-clean",
+          "herdr",
+          "sleep"
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/herdr-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/sleep-clean/herdr-2",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2947983262129128,
+        "remote_seconds": 3.935352184344083,
+        "usable_seconds": 4.322053337004036,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "sleep-clean",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/herdr-2/results.json"
+      },
+      {
+        "fresh_seconds": 4.311135184019804,
+        "usable_seconds": 4.728623955976218,
+        "continuity": {
+          "samples": 151,
+          "remote_producer_count": 8,
+          "same_remote_pids_throughout": true,
+          "all_remote_cpu_ticks_advanced": true,
+          "observed_source_sequence_advance": null,
+          "observed_source_seconds": null
+        },
+        "isolation": [],
+        "key": [
+          "sleep-clean",
+          "herdr",
+          "sleep"
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/herdr-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/sleep-clean/herdr-3",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2921493658795953,
+        "remote_seconds": 3.935690884012729,
+        "usable_seconds": 4.357954537030309,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "sleep-clean",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/herdr-3/results.json"
+      },
+      {
+        "fresh_seconds": 4.25850800704211,
+        "usable_seconds": 4.788356245029718,
+        "continuity": {
+          "samples": 151,
+          "remote_producer_count": 8,
+          "same_remote_pids_throughout": true,
+          "all_remote_cpu_ticks_advanced": true,
+          "observed_source_sequence_advance": null,
+          "observed_source_seconds": null
+        },
+        "isolation": [],
+        "key": [
+          "sleep-clean",
+          "herdr",
+          "sleep"
+        ],
+        "evidence": "dist/review-network-20261108/sleep-clean/herdr-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/stream-600-low/after-1",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.42246592696756124,
+        "remote_seconds": 2.831170598976314,
+        "usable_seconds": 3.0171031057834625,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/after-1/results.json"
+      },
+      {
+        "fps": 3.1333254207570413,
+        "p95_age": 1.0037077297456563,
+        "max_age": 1.15383653761819,
+        "down_kbit_s": 51.76157424314812,
+        "up_kbit_s": 8.405668514089246,
+        "total_kbit_s": 60.16724275723736,
+        "catchup_seconds": 0.5088092642836273,
+        "echo_seconds": 0.8844196130521595,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.21377381389788672,
+        "product_sum_rss_mib": 413.2734375,
+        "key": [
+          "stream-600-low",
+          "after",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/after-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/stream-600-low/after-2",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.4115058886818588,
+        "remote_seconds": 2.8118967576883733,
+        "usable_seconds": 2.9830697788856924,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/after-2/results.json"
+      },
+      {
+        "fps": 3.1333221374272675,
+        "p95_age": 1.0534025127999485,
+        "max_age": 2.153170483186841,
+        "down_kbit_s": 52.34600790346196,
+        "up_kbit_s": 8.52136579029827,
+        "total_kbit_s": 60.86737369376023,
+        "catchup_seconds": 0.48651096876710653,
+        "echo_seconds": 1.2517796489410102,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.21518648171255456,
+        "product_sum_rss_mib": 413.60546875,
+        "key": [
+          "stream-600-low",
+          "after",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/after-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/stream-600-low/after-3",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.4140151268802583,
+        "remote_seconds": 2.7960763201117516,
+        "usable_seconds": 2.964696621056646,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/after-3/results.json"
+      },
+      {
+        "fps": 3.06665452885796,
+        "p95_age": 0.9622170133516192,
+        "max_age": 1.11222330853343,
+        "down_kbit_s": 50.30219942992035,
+        "up_kbit_s": 8.452389282860253,
+        "total_kbit_s": 58.7545887127806,
+        "catchup_seconds": 0.6010699830949306,
+        "echo_seconds": 1.0496579152531922,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.18843290460014278,
+        "product_sum_rss_mib": 425.72265625,
+        "key": [
+          "stream-600-low",
+          "after",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/after-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/stream-600-low/before-1",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4278003480285406,
+        "remote_seconds": 2.814151317346841,
+        "usable_seconds": 3.0048254993744195,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/before-1/results.json"
+      },
+      {
+        "fps": 2.8666586791180775,
+        "p95_age": 1.7319822264835238,
+        "max_age": 1.9819822255522013,
+        "down_kbit_s": 47.39137191409677,
+        "up_kbit_s": 8.38834414857993,
+        "total_kbit_s": 55.779716062676705,
+        "catchup_seconds": 0.7772485837340355,
+        "echo_seconds": 1.4284138083457947,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.21563792630967843,
+        "product_sum_rss_mib": 407.92578125,
+        "key": [
+          "stream-600-low",
+          "before",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/before-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/stream-600-low/before-2",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4110026671551168,
+        "remote_seconds": 2.7965259170159698,
+        "usable_seconds": 2.983657362870872,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/before-2/results.json"
+      },
+      {
+        "fps": 2.8333234666517666,
+        "p95_age": 1.7992535750381649,
+        "max_age": 1.9993188460357487,
+        "down_kbit_s": 46.660132736399746,
+        "up_kbit_s": 8.167991940053138,
+        "total_kbit_s": 54.82812467645289,
+        "catchup_seconds": 0.4352576592937112,
+        "echo_seconds": 1.283857136964798,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.19696498561355907,
+        "product_sum_rss_mib": 407.578125,
+        "key": [
+          "stream-600-low",
+          "before",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/before-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/stream-600-low/before-3",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4127646554261446,
+        "remote_seconds": 2.800151903182268,
+        "usable_seconds": 3.0193054620176554,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/before-3/results.json"
+      },
+      {
+        "fps": 2.866656746512666,
+        "p95_age": 1.7636738209985197,
+        "max_age": 1.9636738202534616,
+        "down_kbit_s": 47.023390309004085,
+        "up_kbit_s": 8.216555329630868,
+        "total_kbit_s": 55.23994563863495,
+        "catchup_seconds": 0.3630503942258656,
+        "echo_seconds": 1.2798128169961274,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.19013705596745956,
+        "product_sum_rss_mib": 410.37109375,
+        "key": [
+          "stream-600-low",
+          "before",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/before-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/stream-600-low/herdr-1",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2864488190971315,
+        "remote_seconds": 3.9345612339675426,
+        "usable_seconds": 4.309057535137981,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/herdr-1/results.json"
+      },
+      {
+        "fps": 1.1666634068294555,
+        "p95_age": 30.6129599660635,
+        "max_age": 32.112959960475564,
+        "down_kbit_s": 64.09806713347973,
+        "up_kbit_s": 3.905670590929327,
+        "total_kbit_s": 68.00373772440906,
+        "catchup_seconds": 9.042980345897377,
+        "echo_seconds": null,
+        "inputs": 5,
+        "visible_inputs": 0,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.0490783145687076,
+        "product_sum_rss_mib": 70.125,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/herdr-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/stream-600-low/herdr-2",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2896813079714775,
+        "remote_seconds": 3.934051995165646,
+        "usable_seconds": 4.321655300911516,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/herdr-2/results.json"
+      },
+      {
+        "fps": 1.0333299730485923,
+        "p95_age": 30.80719497706741,
+        "max_age": 32.307194971479475,
+        "down_kbit_s": 64.06231568072201,
+        "up_kbit_s": 3.88796959899228,
+        "total_kbit_s": 67.9502852797143,
+        "catchup_seconds": 11.78526586573571,
+        "echo_seconds": null,
+        "inputs": 5,
+        "visible_inputs": 0,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.04479847256153671,
+        "product_sum_rss_mib": 64.125,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/herdr-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/stream-600-low/herdr-3",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.2786062676459551,
+        "remote_seconds": 3.9408766459673643,
+        "usable_seconds": 4.340995570644736,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/herdr-3/results.json"
+      },
+      {
+        "fps": 1.1999965254131728,
+        "p95_age": 30.85913867969066,
+        "max_age": 32.05912745324895,
+        "down_kbit_s": 63.659111123595665,
+        "up_kbit_s": 4.275660453001641,
+        "total_kbit_s": 67.9347715765973,
+        "catchup_seconds": 14.478556649759412,
+        "echo_seconds": null,
+        "inputs": 5,
+        "visible_inputs": 0,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.0461185875590302,
+        "product_sum_rss_mib": 60.125,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/review-network-20261108/stream-600-low/herdr-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/transition/after-1",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.4065918722189963,
+        "remote_seconds": 2.809360192157328,
+        "usable_seconds": 3.0073146210052073,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "transition",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-1/results.json"
+      },
+      {
+        "fps": 19.999642742660228,
+        "p95_age": 0.10244642291218042,
+        "max_age": 0.1024684077128768,
+        "down_kbit_s": 323.00758982910213,
+        "up_kbit_s": 34.07413082057767,
+        "total_kbit_s": 357.0817206496798,
+        "catchup_seconds": 0.11234089406207204,
+        "echo_seconds": 0.16504359198734164,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.30452691967556744,
+        "product_sum_rss_mib": 411.23046875,
+        "key": [
+          "transition",
+          "after",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "before-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-1/results.json"
+      },
+      {
+        "fps": 3.849982159342635,
+        "p95_age": 1.1963472315110266,
+        "max_age": 2.046372311655432,
+        "down_kbit_s": 63.782137891285785,
+        "up_kbit_s": 10.807897139157017,
+        "total_kbit_s": 74.5900350304428,
+        "catchup_seconds": 0.301946802996099,
+        "echo_seconds": 0.5089210947044194,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.19726432453580503,
+        "product_sum_rss_mib": 423.15625,
+        "key": [
+          "transition",
+          "after",
+          "transition",
+          "dense",
+          "64kbit",
+          120,
+          null,
+          "capped"
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-1/results.json"
+      },
+      {
+        "fps": 19.799799006768314,
+        "p95_age": 0.10183237120509148,
+        "max_age": 0.4016804648563266,
+        "down_kbit_s": 323.5074669437286,
+        "up_kbit_s": 34.00710834949343,
+        "total_kbit_s": 357.51457529322204,
+        "catchup_seconds": 0.16179316397756338,
+        "echo_seconds": 0.14916292391717434,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.22835371246926353,
+        "product_sum_rss_mib": 437.58203125,
+        "key": [
+          "transition",
+          "after",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "after-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/transition/after-2",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.4084897367283702,
+        "remote_seconds": 2.8068924848921597,
+        "usable_seconds": 2.9742994369007647,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "transition",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-2/results.json"
+      },
+      {
+        "fps": 19.99981206180182,
+        "p95_age": 0.09963245270773768,
+        "max_age": 0.09965878073126078,
+        "down_kbit_s": 324.84235101037274,
+        "up_kbit_s": 34.38130470883691,
+        "total_kbit_s": 359.22365571920966,
+        "catchup_seconds": 0.0652970070950687,
+        "echo_seconds": 0.16250686207786202,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.32176551410924614,
+        "product_sum_rss_mib": 403.375,
+        "key": [
+          "transition",
+          "after",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "before-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-2/results.json"
+      },
+      {
+        "fps": 3.8499819901939114,
+        "p95_age": 1.2350840796716511,
+        "max_age": 2.0851386659778655,
+        "down_kbit_s": 63.698192512866456,
+        "up_kbit_s": 10.776404425605048,
+        "total_kbit_s": 74.4745969384715,
+        "catchup_seconds": 2.4042424373328686,
+        "echo_seconds": 0.5725528337061405,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.21103150484603642,
+        "product_sum_rss_mib": 419.61328125,
+        "key": [
+          "transition",
+          "after",
+          "transition",
+          "dense",
+          "64kbit",
+          120,
+          null,
+          "capped"
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-2/results.json"
+      },
+      {
+        "fps": 19.699825248606018,
+        "p95_age": 0.09991574753075838,
+        "max_age": 0.5498003466054797,
+        "down_kbit_s": 326.97052245597087,
+        "up_kbit_s": 34.127916604692665,
+        "total_kbit_s": 361.0984390606635,
+        "catchup_seconds": 0.10612072981894016,
+        "echo_seconds": 0.16246882919222116,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.23039609508801517,
+        "product_sum_rss_mib": 424.03515625,
+        "key": [
+          "transition",
+          "after",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "after-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/transition/after-3",
+    "label": "after",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "results": [
+      {
+        "local_seconds": 0.41221286822110415,
+        "remote_seconds": 2.796663850080222,
+        "usable_seconds": 2.945533338934183,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "transition",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-3/results.json"
+      },
+      {
+        "fps": 19.9998293347319,
+        "p95_age": 0.0875541539862752,
+        "max_age": 0.08761348249390721,
+        "down_kbit_s": 325.0427186966494,
+        "up_kbit_s": 34.34649399285458,
+        "total_kbit_s": 359.38921268950395,
+        "catchup_seconds": 0.0776055590249598,
+        "echo_seconds": 0.1910545090213418,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.3006878287094316,
+        "product_sum_rss_mib": 399.8515625,
+        "key": [
+          "transition",
+          "after",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "before-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-3/results.json"
+      },
+      {
+        "fps": 3.799986383470139,
+        "p95_age": 1.2412200723774731,
+        "max_age": 2.091254172846675,
+        "down_kbit_s": 64.0358401820245,
+        "up_kbit_s": 10.946158750736933,
+        "total_kbit_s": 74.98199893276143,
+        "catchup_seconds": 0.30695132026448846,
+        "echo_seconds": 0.659797943662852,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.19350531202643337,
+        "product_sum_rss_mib": 415.96484375,
+        "key": [
+          "transition",
+          "after",
+          "transition",
+          "dense",
+          "64kbit",
+          120,
+          null,
+          "capped"
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-3/results.json"
+      },
+      {
+        "fps": 19.699824464283378,
+        "p95_age": 0.08958081854507327,
+        "max_age": 0.48952256981283426,
+        "down_kbit_s": 331.37018995574783,
+        "up_kbit_s": 34.18791359907317,
+        "total_kbit_s": 365.558103554821,
+        "catchup_seconds": 0.13054563896730542,
+        "echo_seconds": 0.1918645421974361,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.22878658283200135,
+        "product_sum_rss_mib": 419.33984375,
+        "key": [
+          "transition",
+          "after",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "after-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/after-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/transition/before-1",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.42360756592825055,
+        "remote_seconds": 2.833394018933177,
+        "usable_seconds": 3.0238073859363794,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "transition",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-1/results.json"
+      },
+      {
+        "fps": 19.999838805194017,
+        "p95_age": 0.08277065213769674,
+        "max_age": 0.08278904063627124,
+        "down_kbit_s": 323.07462383701125,
+        "up_kbit_s": 34.357738123775306,
+        "total_kbit_s": 357.4323619607866,
+        "catchup_seconds": 0.08200253313407302,
+        "echo_seconds": 0.16066774493083358,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.3049399132164451,
+        "product_sum_rss_mib": 404.05078125,
+        "key": [
+          "transition",
+          "before",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "before-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-1/results.json"
+      },
+      {
+        "fps": 3.7999702687000614,
+        "p95_age": 1.387815275695175,
+        "max_age": 2.2878242610022426,
+        "down_kbit_s": 63.60195379816916,
+        "up_kbit_s": 10.581666643602091,
+        "total_kbit_s": 74.18362044177125,
+        "catchup_seconds": 0.3090765867382288,
+        "echo_seconds": 0.6129074841737747,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.1995264127662686,
+        "product_sum_rss_mib": 421.02734375,
+        "key": [
+          "transition",
+          "before",
+          "transition",
+          "dense",
+          "64kbit",
+          120,
+          null,
+          "capped"
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-1/results.json"
+      },
+      {
+        "fps": 19.999845180927622,
+        "p95_age": 0.1133690276183188,
+        "max_age": 0.5132930995896459,
+        "down_kbit_s": 323.8412702532534,
+        "up_kbit_s": 34.55306885761072,
+        "total_kbit_s": 358.3943391108641,
+        "catchup_seconds": 0.1312270201742649,
+        "echo_seconds": 0.1817866200581193,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.24040604310318353,
+        "product_sum_rss_mib": 432.796875,
+        "key": [
+          "transition",
+          "before",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "after-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/transition/before-2",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4107102216221392,
+        "remote_seconds": 2.8207045076414943,
+        "usable_seconds": 2.9701145025901496,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "transition",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-2/results.json"
+      },
+      {
+        "fps": 19.999819680811513,
+        "p95_age": 0.0964293391443789,
+        "max_age": 0.09649906354025006,
+        "down_kbit_s": 324.594399948114,
+        "up_kbit_s": 34.386616591708716,
+        "total_kbit_s": 358.98101653982275,
+        "catchup_seconds": 0.06848553707823157,
+        "echo_seconds": 0.18485753098502755,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.3041975917520769,
+        "product_sum_rss_mib": 402.75390625,
+        "key": [
+          "transition",
+          "before",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "before-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-2/results.json"
+      },
+      {
+        "fps": 3.8499837193302104,
+        "p95_age": 1.380513313692063,
+        "max_age": 2.130707344505936,
+        "down_kbit_s": 63.56540668569239,
+        "up_kbit_s": 10.627990333601783,
+        "total_kbit_s": 74.19339701929417,
+        "catchup_seconds": 2.460855574347079,
+        "echo_seconds": 0.7258368288166821,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.19508588989367878,
+        "product_sum_rss_mib": 407.20703125,
+        "key": [
+          "transition",
+          "before",
+          "transition",
+          "dense",
+          "64kbit",
+          120,
+          null,
+          "capped"
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-2/results.json"
+      },
+      {
+        "fps": 19.999894918494693,
+        "p95_age": 0.06704835826531053,
+        "max_age": 0.1669946857728064,
+        "down_kbit_s": 325.2996025702404,
+        "up_kbit_s": 33.97800452881294,
+        "total_kbit_s": 359.27760709905334,
+        "catchup_seconds": 0.118995803873986,
+        "echo_seconds": 0.1640372211113572,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.23407403046481381,
+        "product_sum_rss_mib": 420.5234375,
+        "key": [
+          "transition",
+          "before",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "after-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/transition/before-3",
+    "label": "before",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4134209589101374,
+        "remote_seconds": 2.795198214240372,
+        "usable_seconds": 2.945122070144862,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "transition",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-3/results.json"
+      },
+      {
+        "fps": 19.999878069197923,
+        "p95_age": 0.08732975507155061,
+        "max_age": 0.08733589528128505,
+        "down_kbit_s": 326.02119877542464,
+        "up_kbit_s": 34.15919808456197,
+        "total_kbit_s": 360.1803968599866,
+        "catchup_seconds": 0.07795239798724651,
+        "echo_seconds": 0.17233289266005158,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.2853858782532359,
+        "product_sum_rss_mib": 403.3046875,
+        "key": [
+          "transition",
+          "before",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "before-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-3/results.json"
+      },
+      {
+        "fps": 3.849982035820142,
+        "p95_age": 1.3744881860911846,
+        "max_age": 2.174348904751241,
+        "down_kbit_s": 64.3941409746571,
+        "up_kbit_s": 10.517231841849759,
+        "total_kbit_s": 74.91137281650687,
+        "catchup_seconds": 0.5249713771045208,
+        "echo_seconds": 0.5309248920530081,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.18680074831917357,
+        "product_sum_rss_mib": 415.42578125,
+        "key": [
+          "transition",
+          "before",
+          "transition",
+          "dense",
+          "64kbit",
+          120,
+          null,
+          "capped"
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-3/results.json"
+      },
+      {
+        "fps": 19.999787039528464,
+        "p95_age": 0.08012594701722264,
+        "max_age": 0.4800833286717534,
+        "down_kbit_s": 330.04445096926247,
+        "up_kbit_s": 34.29411000305741,
+        "total_kbit_s": 364.3385609723199,
+        "catchup_seconds": 0.14951952500268817,
+        "echo_seconds": 0.16085691517218947,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.22089252376907878,
+        "product_sum_rss_mib": 416.08984375,
+        "key": [
+          "transition",
+          "before",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "after-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/before-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/transition/herdr-1",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.29126613680273294,
+        "remote_seconds": 3.9349408275447786,
+        "usable_seconds": 4.3096723249182105,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "transition",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-1/results.json"
+      },
+      {
+        "fps": 19.999776394743797,
+        "p95_age": 0.1118656862527132,
+        "max_age": 0.11189708998426795,
+        "down_kbit_s": 837.5694483044285,
+        "up_kbit_s": 30.319169537357745,
+        "total_kbit_s": 867.8886178417863,
+        "catchup_seconds": 0.1308096908032894,
+        "echo_seconds": 0.19685872783884406,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.10355217744859659,
+        "product_sum_rss_mib": 70.109375,
+        "key": [
+          "transition",
+          "herdr",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "before-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-1/results.json"
+      },
+      {
+        "fps": 1.0999953393649338,
+        "p95_age": 18.026802423410118,
+        "max_age": 19.026802419684827,
+        "down_kbit_s": 63.55096114718354,
+        "up_kbit_s": 4.268637292139049,
+        "total_kbit_s": 67.81959843932259,
+        "catchup_seconds": null,
+        "echo_seconds": null,
+        "inputs": 3,
+        "visible_inputs": 0,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.05379421877124138,
+        "product_sum_rss_mib": 68.09375,
+        "key": [
+          "transition",
+          "herdr",
+          "transition",
+          "dense",
+          "64kbit",
+          120,
+          null,
+          "capped"
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-1/results.json"
+      },
+      {
+        "fps": 24.99973399847654,
+        "p95_age": 20.454434789251536,
+        "max_age": 20.704434788320214,
+        "down_kbit_s": 997.1887580515978,
+        "up_kbit_s": 34.33047486393069,
+        "total_kbit_s": 1031.5192329155284,
+        "catchup_seconds": null,
+        "echo_seconds": 4.428220419446006,
+        "inputs": 3,
+        "visible_inputs": 2,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.11490647305090516,
+        "product_sum_rss_mib": 70.09375,
+        "key": [
+          "transition",
+          "herdr",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "after-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/transition/herdr-2",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.29363997699692845,
+        "remote_seconds": 3.9386674971319735,
+        "usable_seconds": 4.314384031109512,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "transition",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-2/results.json"
+      },
+      {
+        "fps": 19.999814973993203,
+        "p95_age": 0.10841445624828339,
+        "max_age": 0.10845707822591066,
+        "down_kbit_s": 841.7676380337911,
+        "up_kbit_s": 30.56397867957879,
+        "total_kbit_s": 872.3316167133698,
+        "catchup_seconds": 0.13374461978673935,
+        "echo_seconds": 0.16842291178181767,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.10641633041870831,
+        "product_sum_rss_mib": 70.12109375,
+        "key": [
+          "transition",
+          "herdr",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "before-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-2/results.json"
+      },
+      {
+        "fps": 1.5499923188002986,
+        "p95_age": 17.695677740499377,
+        "max_age": 18.595676937606186,
+        "down_kbit_s": 64.72934887534174,
+        "up_kbit_s": 4.43618035145008,
+        "total_kbit_s": 69.16552922679182,
+        "catchup_seconds": null,
+        "echo_seconds": 18.676067689899355,
+        "inputs": 3,
+        "visible_inputs": 1,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.056714420910965256,
+        "product_sum_rss_mib": 70.1171875,
+        "key": [
+          "transition",
+          "herdr",
+          "transition",
+          "dense",
+          "64kbit",
+          120,
+          null,
+          "capped"
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-2/results.json"
+      },
+      {
+        "fps": 23.899756704745197,
+        "p95_age": 20.484905174467713,
+        "max_age": 20.734778293408453,
+        "down_kbit_s": 1001.683846207596,
+        "up_kbit_s": 38.196357435314624,
+        "total_kbit_s": 1039.8802036429106,
+        "catchup_seconds": null,
+        "echo_seconds": 4.288791211089119,
+        "inputs": 3,
+        "visible_inputs": 2,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.12480553559626452,
+        "product_sum_rss_mib": 70.10546875,
+        "key": [
+          "transition",
+          "herdr",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "after-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/review-network-20261108/transition/herdr-3",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.28196673607453704,
+        "remote_seconds": 3.9351259670220315,
+        "usable_seconds": 4.454127707052976,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "transition",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-3/results.json"
+      },
+      {
+        "fps": 19.99980540390408,
+        "p95_age": 0.10869610868394375,
+        "max_age": 0.10871625365689397,
+        "down_kbit_s": 848.2218164857168,
+        "up_kbit_s": 30.40140146857275,
+        "total_kbit_s": 878.6232179542895,
+        "catchup_seconds": 0.13346273312345147,
+        "echo_seconds": 0.17619715770706534,
+        "inputs": 3,
+        "visible_inputs": 3,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.10997889170633281,
+        "product_sum_rss_mib": 70.125,
+        "key": [
+          "transition",
+          "herdr",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "before-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-3/results.json"
+      },
+      {
+        "fps": 1.5499936705282915,
+        "p95_age": 17.689503281377256,
+        "max_age": 18.58939142152667,
+        "down_kbit_s": 64.9501931951955,
+        "up_kbit_s": 4.095722127784327,
+        "total_kbit_s": 69.04591532297982,
+        "catchup_seconds": null,
+        "echo_seconds": 17.926774309948087,
+        "inputs": 3,
+        "visible_inputs": 1,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.0576665920456207,
+        "product_sum_rss_mib": 66.109375,
+        "key": [
+          "transition",
+          "herdr",
+          "transition",
+          "dense",
+          "64kbit",
+          120,
+          null,
+          "capped"
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-3/results.json"
+      },
+      {
+        "fps": 24.09974935733151,
+        "p95_age": 20.586090443190187,
+        "max_age": 20.786132701206952,
+        "down_kbit_s": 996.0831866920182,
+        "up_kbit_s": 38.883130975869605,
+        "total_kbit_s": 1034.9663176678878,
+        "catchup_seconds": null,
+        "echo_seconds": 4.297569137765095,
+        "inputs": 3,
+        "visible_inputs": 2,
+        "received_inputs": 3,
+        "product_cpu_cores": 0.12514003331992257,
+        "product_sum_rss_mib": 66.109375,
+        "key": [
+          "transition",
+          "herdr",
+          "transition",
+          "dense",
+          "1mbit",
+          120,
+          null,
+          "after-cap"
+        ],
+        "evidence": "dist/review-network-20261108/transition/herdr-3/results.json"
+      }
+    ]
+  }
+]

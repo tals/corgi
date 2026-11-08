@@ -1,0 +1,17 @@
+{
+  "bun": "1.4.4",
+  "revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+  "rawBytes": 100000,
+  "returned": 100000,
+  "decodedExact": true,
+  "wire": {
+    "bytes": 330,
+    "header": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: Plqct4rbymP2dI1ax5Fx9RVKtt8=\r\nSec-WebSocket-Extensions: permessage-deflate\r\nDate: Sun, 08 Nov 2026 06:31:27 GMT\r\n\r\n",
+    "frames": 1,
+    "payload": 116,
+    "compressed": 1,
+    "masked": 0,
+    "hello": null,
+    "incomplete": 0
+  }
+}

@@ -1,0 +1,203 @@
+{
+  "corgi": {
+    "diagnostic_only": true,
+    "binary_sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "negotiated_directions": {
+      "none": 8
+    },
+    "ssh_logs": [
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/ssh-debug/1063432.log",
+        "negotiated": [
+          "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none",
+          "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        ]
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/ssh-debug/1063431.log",
+        "negotiated": [
+          "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none",
+          "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        ]
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/ssh-debug/1065923.log",
+        "negotiated": [
+          "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none",
+          "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        ]
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/ssh-debug/1065919.log",
+        "negotiated": [
+          "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none",
+          "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none"
+        ]
+      }
+    ],
+    "codec_output_bytes": 651800,
+    "codec_message_count": 1334,
+    "window_samples": [
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/telemetry/atlas/1060850-0.json",
+        "sample": {
+          "frames": 21,
+          "pending": 6,
+          "wire_bytes": 10270,
+          "raw_bytes": 33996,
+          "budget": 35513.24401734711,
+          "receipt_ms": 304.8710940000019,
+          "baseline_ms": 301.4366829999999,
+          "bytes_per_second": 91312.773123503,
+          "congested": 0,
+          "probe": 0
+        }
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/telemetry/atlas/1060850-0.json",
+        "sample": {
+          "frames": 21,
+          "pending": 6,
+          "wire_bytes": 10236,
+          "raw_bytes": 33996,
+          "budget": 35562.07183791461,
+          "receipt_ms": 305.447530999998,
+          "baseline_ms": 301.4366829999999,
+          "bytes_per_second": 94040.4823000297,
+          "congested": 0,
+          "probe": 0
+        }
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/telemetry/atlas/1060850-0.json",
+        "sample": {
+          "frames": 21,
+          "pending": 6,
+          "wire_bytes": 10273,
+          "raw_bytes": 33996,
+          "budget": 35986.43967565766,
+          "receipt_ms": 305.46364800000083,
+          "baseline_ms": 301.4366829999999,
+          "bytes_per_second": 94040.4823000297,
+          "congested": 0,
+          "probe": 0
+        }
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/telemetry/atlas/1060850-0.json",
+        "sample": {
+          "frames": 21,
+          "pending": 6,
+          "wire_bytes": 10323,
+          "raw_bytes": 34002,
+          "budget": 35373.626682477014,
+          "receipt_ms": 305.5890790000012,
+          "baseline_ms": 301.4366829999999,
+          "bytes_per_second": 90944.42639949037,
+          "congested": 0,
+          "probe": 0
+        }
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/telemetry/atlas/1060850-0.json",
+        "sample": {
+          "frames": 21,
+          "pending": 6,
+          "wire_bytes": 10244,
+          "raw_bytes": 34002,
+          "budget": 35379.83048494587,
+          "receipt_ms": 304.9356950000001,
+          "baseline_ms": 301.4366829999999,
+          "bytes_per_second": 90944.42639949037,
+          "congested": 0,
+          "probe": 0
+        }
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/telemetry/atlas/1060850-0.json",
+        "sample": {
+          "frames": 21,
+          "pending": 6,
+          "wire_bytes": 10279,
+          "raw_bytes": 34002,
+          "budget": 20309.78735496487,
+          "receipt_ms": 305.1828760000026,
+          "baseline_ms": 301.4366829999999,
+          "bytes_per_second": 48123.54735872506,
+          "congested": 0,
+          "probe": 0
+        }
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/telemetry/atlas/1060850-0.json",
+        "sample": {
+          "frames": 21,
+          "pending": 6,
+          "wire_bytes": 10300,
+          "raw_bytes": 34002,
+          "budget": 20347.787942707735,
+          "receipt_ms": 305.1567240000004,
+          "baseline_ms": 301.4366829999999,
+          "bytes_per_second": 48123.54735872506,
+          "congested": 0,
+          "probe": 0
+        }
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-corgi/telemetry/atlas/1060850-0.json",
+        "sample": {
+          "frames": 21,
+          "pending": 6,
+          "wire_bytes": 10335,
+          "raw_bytes": 33996,
+          "budget": 19994.980242489244,
+          "receipt_ms": 303.1705079999956,
+          "baseline_ms": 301.4366829999999,
+          "bytes_per_second": 47143.08675635237,
+          "congested": 0,
+          "probe": 0
+        }
+      }
+    ]
+  },
+  "herdr": {
+    "diagnostic_only": true,
+    "binary_sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "negotiated_directions": {
+      "zlib@openssh.com": 8
+    },
+    "ssh_logs": [
+      {
+        "path": "dist/adaptive-accepted-diagnostic-herdr/ssh-debug/1083110.log",
+        "negotiated": [
+          "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com",
+          "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        ]
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-herdr/ssh-debug/1083113.log",
+        "negotiated": [
+          "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com",
+          "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        ]
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-herdr/ssh-debug/1085798.log",
+        "negotiated": [
+          "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com",
+          "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        ]
+      },
+      {
+        "path": "dist/adaptive-accepted-diagnostic-herdr/ssh-debug/1085797.log",
+        "negotiated": [
+          "debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com",
+          "debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: zlib@openssh.com"
+        ]
+      }
+    ],
+    "codec_output_bytes": 0,
+    "codec_message_count": 0,
+    "window_samples": []
+  }
+}

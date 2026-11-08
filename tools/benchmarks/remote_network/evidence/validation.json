@@ -1,0 +1,40 @@
+{
+  "application_build": {
+    "command": "bun build.ts",
+    "exit_code": 0
+  },
+  "unit_tests": {
+    "command": "bun test src",
+    "exit_code": 0,
+    "pass": 3270,
+    "skip": 1,
+    "fail": 0,
+    "seconds": 66.17
+  },
+  "typecheck": {
+    "command": "bun typecheck.ts",
+    "exit_code": 0,
+    "run": "2026-11-06T16:05Z"
+  },
+  "application_source_changes": false,
+  "observer_typecheck": {
+    "exit_code": 0,
+    "compiler": "TypeScript 6.0.3 with repository compiler options and pinned Bun/Node types",
+    "scope": "Repository sources and ambient declarations plus observe.ts"
+  },
+  "evidence_audit": {
+    "exit_code": 0,
+    "checks_passed": 569,
+    "problems": []
+  },
+  "python_compile": {
+    "command": "python3 -m py_compile tools/benchmarks/remote_network/*.py",
+    "exit_code": 0
+  },
+  "observer_smoke": {
+    "exit_code": 0,
+    "matching_frames": 1,
+    "ack": "CHECK",
+    "source_to_observation_seconds": 0.0009174160659313202
+  }
+}

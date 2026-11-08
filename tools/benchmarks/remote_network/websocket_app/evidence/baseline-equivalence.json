@@ -1,0 +1,52 @@
+{
+  "first": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-reviewed",
+  "second": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-provenance/corgi-committed",
+  "first_sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+  "second_sha256": "91f4858265acc2ebadef0459d770e78263776dfc321a85ae7cbca1845f2328e8",
+  "format": "Bun 1.4.4 standalone ELF64 little-endian .bun section; three bundled JS entrypoints",
+  "native_assets_sha256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+  "first_release_commit": "47bb46fe8d1b241ebe619c99b533ca0cc73ace87-dirty",
+  "second_release_commit": "b0e3482848dad6c1cd107d3b4c36ac4371c5c684",
+  "normalization": [
+    "build_config.releaseCommit",
+    "build_config.builtAt",
+    "build_config.sourceHash",
+    "bundler source-path comments: ../ prefixes before native/zig-out and node_modules"
+  ],
+  "modules": [
+    {
+      "name": "main",
+      "first_chars": 4400019,
+      "second_chars": 4400454,
+      "equal_unmodified": false,
+      "equal_after_allowed_normalization": true,
+      "first_raw_sha256": "8a48769f821b317dbdb1973f53a059a022e83e03fb2f99e765160bd911da41e7",
+      "second_raw_sha256": "a97f4b3f1de19cebb01678bb67b37540c078423385fb67cc02424067e32bb99b",
+      "first_normalized_sha256": "7d3341edca002c02598f4e5652cfa288c7b80a9a8259e54af7b49b0e6b9fa49f",
+      "second_normalized_sha256": "7d3341edca002c02598f4e5652cfa288c7b80a9a8259e54af7b49b0e6b9fa49f"
+    },
+    {
+      "name": "codex-worker",
+      "first_chars": 8539,
+      "second_chars": 8584,
+      "equal_unmodified": false,
+      "equal_after_allowed_normalization": true,
+      "first_raw_sha256": "0a877324b55f7033c01deaf358457319993e8b6bd947e1067956909109d9b988",
+      "second_raw_sha256": "d5f34805b0c8021d3160cfbd16c4d40310f82d56184e7a953b3cbb346ac4272b",
+      "first_normalized_sha256": "0a877324b55f7033c01deaf358457319993e8b6bd947e1067956909109d9b988",
+      "second_normalized_sha256": "0a877324b55f7033c01deaf358457319993e8b6bd947e1067956909109d9b988"
+    },
+    {
+      "name": "resources-worker",
+      "first_chars": 1383025,
+      "second_chars": 1383466,
+      "equal_unmodified": false,
+      "equal_after_allowed_normalization": true,
+      "first_raw_sha256": "5e12378eaa34edf20e39dd4bea59542efaef636b76e8a9f9f2899a6bf8f52279",
+      "second_raw_sha256": "13e8869f1fe9de6b31eda7aa6d18072a1be312595c91fba7162d96366cc05270",
+      "first_normalized_sha256": "5e12378eaa34edf20e39dd4bea59542efaef636b76e8a9f9f2899a6bf8f52279",
+      "second_normalized_sha256": "5e12378eaa34edf20e39dd4bea59542efaef636b76e8a9f9f2899a6bf8f52279"
+    }
+  ],
+  "all_runtime_modules_equal": true
+}

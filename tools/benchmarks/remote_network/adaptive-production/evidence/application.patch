@@ -1,0 +1,1432 @@
+diff --git a/HACKING.md b/HACKING.md
+index 05dfb242..bb85adef 100644
+--- a/HACKING.md
++++ b/HACKING.md
+@@ -375,12 +375,16 @@ capability and the defaulted `viewer.stream.incremental` flag. A stream sends
+ full surfaces initially, then changed rows against the preceding sent surface.
+ The receiver checks the base stamp and reconstructs every delta before it
+ coalesces frames for display. Cumulative receipts bound outstanding render data
+-to three frames and initially 16 KiB of encoded JSON. The byte budget grows to
+-32 KiB while receipt round trips stay within 50 ms of the fastest receipt on
+-that stream, and returns to 16 KiB when they slow down. The frame limit stays
+-at three; an oversized snapshot travels alone. `remote.stream.window` telemetry
+-records budget changes and receipt timings. This is a bounded delay heuristic,
+-not a bandwidth estimate; a new stream starts learning again.
++with adaptive frame and wire-byte allowances. The frame target covers the receipt
++round trip at the 16 ms publication cadence, capped at 64 frames. Startup grows
++cautiously; queue delay reduces the allowance. Delivered bytes and receipt spacing
++estimate the byte budget using a two-second peak delivery window, with a separate
++2 MiB raw-data limit. This prevents application-limited gaps from reinforcing an
++undersized window. A single oversized
++snapshot can still make progress. A small frame sent after draining outstanding
++frames refreshes the RTT baseline without retaining a congested queue as the
++baseline. `remote.stream.window` records pending frames, raw/wire bytes, budget,
++receipt/baseline times, delivery rate and probes. A new stream starts learning again.
+ While blocked, the daemon captures the latest screen after a receipt, without
+ queuing intermediate screens. These receipts confirm transport decoding, not
+ display or agent activity; `pane.acknowledge` still follows presentation.
+@@ -391,7 +395,24 @@ the viewer then requests a full base. New peers opt in; older viewers still get
+ full frames, and a new viewer uses the original stream with older daemons.
+ Runtime/viewer protocol 4 and saved-format versions are unchanged because the
+ new operation and optional fields are negotiated and no cache is persisted.
+-Remote SSH connections enable compression for terminal text and metadata.
++Remote viewers request live-history zstd level 3 in the existing `hello` exchange.
++The plain hello reply opts in; all subsequent bytes in both directions use fresh
++zstd histories with a 1 MiB window. Messages flush immediately without ending the
++history. The native SSH bridge still relays bytes. Local connections stay plain,
++and older peers that omit the optional hello field stay plain. Runtime/viewer and
++saved-format versions do not change. SSH compression is disabled on these
++attachments, which have a separate master namespace from compressed CLI sessions.
++`wire.compress` records raw and emitted bytes and encoding duration.
++
++Compression queues are bounded, and codec failure closes the connection. Histories
++are never replayed across a new transport. During daemon handoff, compressed sockets
++close after a planned-reconnect notice. The handoff preserves the daemon's instance
++identity, viewer links and numbered mutation receipts. The viewer briefly holds up
++to 64 KiB of typing until that same viewer resumes; changing machine, focus or
++navigation cancels the held input. Unplanned outages retain their input-discard
++behavior. Plain local sockets retain the existing in-place handoff. No zstd context
++is serialized. Older handoffs without the optional instance field receive a fresh
++identity as before.
+ 
+ Each viewer keeps two daemon connections in `viewer_connection.ts`. The control
+ connection owns the viewer, commands, pane input, metadata and launcher/history
+diff --git a/src/core_schema.test.ts b/src/core_schema.test.ts
+index 2b745441..3ebf7bef 100644
+--- a/src/core_schema.test.ts
++++ b/src/core_schema.test.ts
+@@ -172,7 +172,7 @@ test("the runtime wire matches protocol.version", () => {
+   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
+   expect(protocol.management_version).toBe(1);
+   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
+-    "e5e7245fd8d71b58b1b60db760c0514aa0a17d72755225c86087a19ae3b59947",
++    "c4bf363baaaea23c552cb76bd3235b4a05338d82c5939ccf4ec524b9b671d218",
+   );
+   const { server, client, dispose } = fixture();
+   try {
+@@ -278,7 +278,7 @@ test("saved handoff format matches its version", async () => {
+   expect(handoff_version).toBe(6);
+   expect(checkpoint_version).toBe(6);
+   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
+-    "d7ac789b51dc3a9a38fcd8125329a7c65be653085ef08fb2136b75cba04d5520",
++    "64010b512bd7929253836bfa48f55cec1660b8084961cb7f95783559c4ab75f7",
+   );
+   const { server, client, dispose } = fixture();
+   const summaries = new Worker();
+diff --git a/src/daemon_transport.ts b/src/daemon_transport.ts
+index b4521381..ffa946e6 100644
+--- a/src/daemon_transport.ts
++++ b/src/daemon_transport.ts
+@@ -89,7 +89,7 @@ export class Remote {
+     let child: ChildProcess;
+     try {
+       child = this.spawn([
+-        ...ssh.args(this.profile.target, false, this.fresh),
++        ...ssh.args(this.profile.target, false, this.fresh, false),
+         ssh.command(this.profile.bridge!, [this.profile.socket]),
+       ]);
+     } catch (error) {
+@@ -157,7 +157,7 @@ export class Remote {
+   }
+   /** Older saved profiles retain forwarding until machine setup discovers a native bridge. */
+   private async forward(): Promise<void> {
+-    const args = ssh.args(this.profile.target, false, true);
++    const args = ssh.args(this.profile.target, false, true, false);
+     args.unshift(
+       "-N",
+       "-o",
+diff --git a/src/fixtures/handoff.schema b/src/fixtures/handoff.schema
+index 69b544e3..fd4f2229 100644
+--- a/src/fixtures/handoff.schema
++++ b/src/fixtures/handoff.schema
+@@ -4,6 +4,8 @@ $.update_abi: optional
+ $.update_abi?: string
+ $.terminal_abi: u64
+ $.listener: i32
++$.instance: optional
++$.instance?: string
+ $.requester: i32
+ $.request_id: optional
+ $.request_id?: u64
+diff --git a/src/fixtures/protocol.schema b/src/fixtures/protocol.schema
+index 9a81bb0e..accc8af1 100644
+--- a/src/fixtures/protocol.schema
++++ b/src/fixtures/protocol.schema
+@@ -1,7 +1,8 @@
+ $.envelope.request_id: optional
+ $.envelope.request_id?: u64
+ $.requests: one of
+-$.requests|hello: {}
++$.requests|hello.compression: optional
++$.requests|hello.compression?: enum none zstd
+ $.requests|session.command.command: one of
+ $.requests|session.command.command|layout.dock.workspace: u32
+ $.requests|session.command.command|layout.dock.viewer: u32
+@@ -923,6 +924,8 @@ $.replies.hello.build_id: string
+ $.replies.hello.executable: string
+ $.replies.hello.release_version: string
+ $.replies.hello.update_abi: string
++$.replies.hello.compression: optional
++$.replies.hello.compression?: enum zstd
+ $.replies.session.command.result.pane: u32
+ $.replies.session.command.result.tab: u32
+ $.replies.session.command.result.workspace: u32
+diff --git a/src/machine_connection.ts b/src/machine_connection.ts
+index c02e72c6..c0e47c76 100644
+--- a/src/machine_connection.ts
++++ b/src/machine_connection.ts
+@@ -109,6 +109,15 @@ export class Endpoint {
+   private opened = false;
+   private connected = false;
+   private input: number[] = [];
++  private handoff: {
++    instance: string;
++    selection: number;
++    navigation: number;
++    pane: number | null;
++    generation: number;
++    until: number;
++    input: number[];
++  } | null = null;
+   private ui_task: Promise<void> | null = null;
+   private resource_detail: number | null = null;
+   private bell = { seq: 0n };
+@@ -229,6 +238,12 @@ export class Endpoint {
+     this.onChange();
+   }
+   enqueue(bytes: Uint8Array): void {
++    if (this.handoff) {
++      if (this.handoff.input.length + bytes.length <= 64 * 1024) this.handoff.input.push(...bytes);
++      else this.clearInput();
++      this.wake();
++      return;
++    }
+     if (this.input.length + bytes.length > 1024 * 1024) {
+       this.error = "Input queue full; unsent input discarded";
+       this.clearInput();
+@@ -248,6 +263,21 @@ export class Endpoint {
+   /** UI work never waits behind a connection's snapshot or attachment. */
+   private pumpUi(): void {
+     if (this.ui_task || !this.shown || this.stopped) return;
++    if (this.handoff) {
++      const held = this.handoff;
++      if (
++        held.instance !== this.instance ||
++        held.selection !== this.selection ||
++        held.navigation !== this.navigation_revision ||
++        held.pane !== (this.view().focused()?.id ?? null) ||
++        performance.now() > held.until
++      )
++        this.clearInput();
++      else if (this.ready && this.resumed && this.generation > held.generation) {
++        this.input.push(...held.input);
++        this.handoff = null;
++      } else return;
++    }
+     const view = this.view(),
+       selection = this.selection,
+       dirty = view.dirty;
+@@ -273,6 +303,7 @@ export class Endpoint {
+   }
+   retry(): void {
+     if (this.stopped) return;
++    this.handoff = null;
+     this.interruption++;
+     this.disconnect();
+     this.fresh_connection = this.issue === "error";
+@@ -283,6 +314,7 @@ export class Endpoint {
+   }
+   pause(): void {
+     if (this.stopped) return;
++    this.handoff = null;
+     this.interruption++;
+     this.disconnect();
+     // Paused, nothing sends them again.
+@@ -454,6 +486,7 @@ export class Endpoint {
+       await tunnel.open();
+       let established = false;
+       conn = new Connection(tunnel.socket, {
++        compression: true,
+         timeout_ms: () => (established ? this.stats.timeoutMs : Math.min(startup_ms, this.stats.timeoutMs)),
+         stats: this.stats,
+         trace: { machine: this.name, generation: this.generation, path: "race" },
+@@ -521,6 +554,7 @@ export class Endpoint {
+       const socket = this.tunnel?.socket ?? this.local;
+       let established = false;
+       conn = this.connection = new Connection(socket, {
++        compression: this.profile !== null,
+         timeout_ms: () => (this.profile ? (established ? this.stats.timeoutMs : startup_ms) : 10000),
+         stats: this.stats,
+         trace: { machine: this.name, generation, path: "primary" },
+@@ -532,6 +566,20 @@ export class Endpoint {
+     this.trace("remote.connection", "hello");
+     conn.onEvent(event => {
+       if (this.connection !== conn) return;
++      if (event.type === "viewer.reconnect" && this.link) {
++        this.trace("remote.connection", "handoff");
++        this.handoff = {
++          instance: this.instance,
++          selection: this.selection,
++          navigation: this.navigation_revision,
++          pane: this.view().focused()?.id ?? null,
++          generation: this.generation,
++          until: performance.now() + startup_ms,
++          input: this.input.splice(0),
++        };
++        this.ready = this.fresh = false;
++        this.wake();
++      }
+       if (event.type === "uninstalled" && !this.profile) {
+         this.uninstalled = true;
+         this.onChange();
+@@ -554,14 +602,18 @@ export class Endpoint {
+       this.workspaces_instance = this.instance;
+       this.updated = 0;
+     }
+-    this.resumed = hello.capabilities.includes("link.resume") && (await this.relink(conn, same));
++    const linking = hello.capabilities.includes("link.resume") ? this.relink(conn, same) : Promise.resolve(false);
++    const snapshotRequest = () => conn.call("session.snapshot", { resources: this.host.prefs.resources.enabled });
++    // A snapshot must follow replayed mutations. Otherwise it can share the link's round trip.
++    const [resumed, snapshot] = await Promise.all([
++      linking,
++      this.numbered.length ? linking.then(snapshotRequest) : snapshotRequest(),
++    ]);
++    this.resumed = resumed;
+     this.trace("remote.connection", "linked", { resumed: Number(this.resumed) });
+     this.current(generation);
+-    // A resumed viewer keeps what its connection agreed with the daemon.
+     if (!this.resumed) view.resetConnection(this.machine);
+-    const snapshot = await conn.call("session.snapshot", { resources: this.host.prefs.resources.enabled });
+     this.trace("remote.connection", "snapshot");
+-    this.current(generation);
+     view.receiveSnapshot(snapshot, this.machine);
+     this.machine.runtime.receiveResources(snapshot.resources);
+   }
+@@ -827,7 +879,8 @@ export class Endpoint {
+     });
+     return changed;
+   }
+-  private clearInput(): void {
++  private clearInput(keepHandoff = false): void {
++    if (!keepHandoff) this.handoff = null;
+     this.input_epoch++;
+     this.cancellation.abort();
+     this.cancellation = new AbortController();
+@@ -869,7 +922,7 @@ export class Endpoint {
+     this.opened = false;
+     this.acknowledging = false;
+     this.fresh = false;
+-    this.clearInput();
++    this.clearInput(!this.stopped);
+   }
+   async close(): Promise<void> {
+     this.stopped = true;
+diff --git a/src/peer.test.ts b/src/peer.test.ts
+index 0b80d179..7194583e 100644
+--- a/src/peer.test.ts
++++ b/src/peer.test.ts
+@@ -108,3 +108,13 @@ test("JSON lines keep working, and a later line starting with POST is not HTTP",
+     loop.close();
+   }
+ });
++
++test("compression negotiation cannot reinterpret a pipelined or established plain stream", async () => {
++  const ready: boolean[] = [];
++  await exchange('{"op":"ping"}\n{"op":"hello"}\n', cl => {
++    ready.push(cl.canCompress);
++    cl.queue({ ok: true });
++    if (ready.length === 2) cl.close();
++  });
++  expect(ready).toEqual([true, false]);
++});
+diff --git a/src/peer.ts b/src/peer.ts
+index 2b59921f..07bc37f4 100644
+--- a/src/peer.ts
++++ b/src/peer.ts
+@@ -2,6 +2,7 @@ import type { Wait as StartupWait } from "./startup";
+ import * as telemetry from "./telemetry";
+ import { n, ptr, ReadyLoop, READ, WRITE } from "./native_bridge";
+ import * as json from "./json";
++import * as wire_compression from "./wire_compression";
+ import type { Control } from "./protocol";
+ import type { Interest } from "./viewer_protocol";
+ import type { Subscription } from "./launch_service";
+@@ -97,6 +98,32 @@ export class Client {
+     this.paused = !start;
+     if (start) this.resume();
+   }
++  private codec: wire_compression.Channel | null = null;
++  get compressed(): boolean {
++    return this.codec !== null;
++  }
++  get canCompress(): boolean {
++    return !this.codec && this.http === "no" && this.lines === 1 && this.pending.length === 0;
++  }
++  get queued(): number {
++    return this.output.length - this.sent + (this.codec?.pending ?? 0);
++  }
++  compress(): void {
++    if (this.codec || this.http !== "no") throw Error("InvalidCompressionState");
++    this.codec = new wire_compression.Channel(
++      bytes => this.write(bytes),
++      bytes => this.receiveBytes(bytes),
++      () => this.close(),
++    );
++  }
++  async prepareHandoff(): Promise<void> {
++    if (!this.compressed || !this.viewer) return;
++    this.cancelFrame();
++    this.stream = null;
++    this.queue({ type: "viewer.reconnect" });
++    const until = performance.now() + 1000;
++    while (!this.dead && this.queued && performance.now() < until) await Bun.sleep(1);
++  }
+   queue(value: unknown): void {
+     if (this.dead) return;
+     if (this.http === "replied") return;
+@@ -115,6 +142,21 @@ export class Client {
+     const encode_started = telemetry.begin();
+     const bytes = Buffer.from(json.stringify(value) + "\n");
+     telemetry.end("wire.encode", encode_started, bytes.length);
++    const delivery = this.stream?.delivery;
++    const frame =
++      value && typeof value === "object" && "frame" in value && typeof value.frame === "bigint" ? value.frame : null;
++    if (this.codec)
++      this.codec.encode(bytes, count => {
++        if (frame !== null) delivery?.encoded(frame, count);
++        this.armFrame();
++      });
++    else {
++      this.write(bytes);
++      if (frame !== null) delivery?.encoded(frame, bytes.length);
++    }
++  }
++  private write(bytes: Buffer): void {
++    if (this.dead) return;
+     if (this.output.length - this.sent + bytes.length > 4 * 1024 * 1024) {
+       this.close();
+       return;
+@@ -137,7 +179,7 @@ export class Client {
+     this.frame_timer = this.frame_pending = null;
+   }
+   private armFrame(): void {
+-    if (this.paused || this.dead || this.output.length || this.frame_timer !== null || !this.frame_pending) return;
++    if (this.paused || this.dead || this.queued || this.frame_timer !== null || !this.frame_pending) return;
+     this.frame_timer = setTimeout(
+       () => {
+         const send = this.frame_pending;
+@@ -172,36 +214,9 @@ export class Client {
+     for (let i = 0; i < 8 && !this.dead; i++) {
+       const count = n.probe_read(this.fd, ptr(this.scratch), this.scratch.length);
+       if (count > 0) {
+-        this.input = Buffer.concat([this.input, this.scratch.subarray(0, count)]);
+-        if (this.input.length > 4 * 1024 * 1024) {
+-          this.close();
+-          return;
+-        }
+-        if (
+-          this.http === "no" &&
+-          this.lines === 0 &&
+-          this.input.length >= 5 &&
+-          this.input.subarray(0, 5).toString() === "POST "
+-        )
+-          this.http = "request";
+-        if (this.http !== "no") {
+-          this.readHttp();
+-          continue;
+-        }
+-        for (;;) {
+-          const end = this.input.indexOf(10);
+-          if (end < 0) break;
+-          const line = this.input.subarray(0, end).toString();
+-          this.input = Buffer.from(this.input.subarray(end + 1));
+-          this.lines++;
+-          try {
+-            this.touched = Date.now();
+-            this.pending.push(json.parse(line));
+-            this.dispatch();
+-          } catch {
+-            this.queue({ err: "InvalidJson" });
+-          }
+-        }
++        const bytes = Buffer.from(this.scratch.subarray(0, count));
++        if (this.codec) this.codec.decode(bytes);
++        else this.receiveBytes(bytes);
+       } else if (count === -4) continue;
+       else if (count === -11 || count === -35) break;
+       else {
+@@ -210,6 +225,43 @@ export class Client {
+       }
+     }
+   }
++  private receiveBytes(bytes: Buffer): void {
++    if (this.dead) return;
++    this.input = Buffer.concat([this.input, bytes]);
++    if (this.input.length > 4 * 1024 * 1024) {
++      this.close();
++      return;
++    }
++    if (
++      this.http === "no" &&
++      this.lines === 0 &&
++      this.input.length >= 5 &&
++      this.input.subarray(0, 5).toString() === "POST "
++    )
++      this.http = "request";
++    if (this.http !== "no") {
++      this.readHttp();
++      return;
++    }
++    for (;;) {
++      const end = this.input.indexOf(10);
++      if (end < 0) break;
++      const line = this.input.subarray(0, end).toString();
++      this.input = Buffer.from(this.input.subarray(end + 1));
++      this.lines++;
++      try {
++        if (this.pending.length >= 512) {
++          this.close();
++          return;
++        }
++        this.touched = Date.now();
++        this.pending.push(json.parse(line));
++        this.dispatch();
++      } catch {
++        this.queue({ err: "InvalidJson" });
++      }
++    }
++  }
+   /** Takes the request once its head and Content-Length body have arrived. */
+   private readHttp(): void {
+     if (this.http !== "request" || this.pending.length || this.busy) return;
+@@ -280,6 +332,7 @@ export class Client {
+   close(): void {
+     if (this.dead) return;
+     this.dead = true;
++    this.codec?.close();
+     this.pause();
+     n.probe_close(this.fd);
+     this.disconnected();
+diff --git a/src/persist/handoff.ts b/src/persist/handoff.ts
+index a1f166e6..143edb0f 100644
+--- a/src/persist/handoff.ts
++++ b/src/persist/handoff.ts
+@@ -83,6 +83,7 @@ export function captureManifest(server: Server, requester: Client, request_id: n
+     update_abi,
+     terminal_abi,
+     listener: server.listener,
++    instance: server.instance,
+     requester: requester.fd,
+     request_id,
+     runtime: checkpoint.capture(server.runtime, true),
+@@ -103,6 +104,7 @@ export function captureManifest(server: Server, requester: Client, request_id: n
+ }
+ export function restoreMetadata(server: Server, value: unknown): void {
+   const saved = json.object(value);
++  if (typeof saved.instance === "string") Object.assign(server, { instance: saved.instance });
+   for (const key of [
+     "preferred_workspace",
+     "default_folder_pending",
+@@ -182,6 +184,7 @@ export async function replace(
+     await Bun.sleep(5);
+   }
+   await observers.pause(server);
++  await Promise.all(server.clients.map(client => client.prepareHandoff()));
+   server.pause();
+   breadcrumbs.record("reloading");
+   const fds = new Int32Array(2);
+diff --git a/src/protocol.test.ts b/src/protocol.test.ts
+index b0f4a2a3..7759a045 100644
+--- a/src/protocol.test.ts
++++ b/src/protocol.test.ts
+@@ -71,6 +71,11 @@ test("every op decodes a sample request", () => {
+     expect(() => protocol.decode(op, samples[op])).not.toThrow();
+   }
+ });
++test("hello compression is optional and accepts only the negotiated codecs", () => {
++  expect(protocol.decode("hello", {}).compression).toBe("none");
++  expect(protocol.decode("hello", { compression: "zstd" }).compression).toBe("zstd");
++  expect(() => protocol.decode("hello", { compression: "gzip" })).toThrow("InvalidEnumTag");
++});
+ test("a client's envelope writes what the hand-written requests did", () => {
+   for (const [op, payload, expected] of [
+     ["hello", {}, { op: "hello", protocol: protocol.management_version, runtime_protocol: protocol.version }],
+diff --git a/src/protocol.ts b/src/protocol.ts
+index d08c3f94..1396808a 100644
+--- a/src/protocol.ts
++++ b/src/protocol.ts
+@@ -660,6 +660,7 @@ const structures = {
+ } as const satisfies Record<string, Fields>;
+ const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
+ const requests = {
++  hello: { compression: ["none|zstd", "none"] },
+   /** `output: false` leaves out pushes for terminal output alone, as a status display wants. */
+   "session.subscribe": { output: ["bool", true] },
+   "launcher.catalog": { workspace: ["u32", 0], cwd: ["string", ""] },
+@@ -847,6 +848,7 @@ export interface ReplyPayloads {
+     update_abi: string;
+     viewer_protocol?: number;
+     instance?: string;
++    compression?: "zstd";
+   };
+   ping: Ok & { pid: number };
+   "link.open": Ok & { link: string };
+@@ -948,6 +950,7 @@ export type Event =
+   | Reply<"viewer.stream">
+   | { type: "viewer.frame"; sequence: number; frame?: Wire<bigint>; view: Reply<"viewer.sync"> }
+   | { type: "viewer.wake" }
++  | { type: "viewer.reconnect" }
+   /** The installation the daemon runs from was deleted, as `omarchy plugin remove` does; it's stopping. */
+   | { type: "uninstalled" }
+   | Wire<SessionSnapshot>
+@@ -958,6 +961,7 @@ export const event_types = [
+   "viewer.stream",
+   "viewer.frame",
+   "viewer.wake",
++  "viewer.reconnect",
+   "uninstalled",
+   "session",
+   "agent.preview",
+diff --git a/src/rpc.ts b/src/rpc.ts
+index 6f42409b..c5d723d9 100644
+--- a/src/rpc.ts
++++ b/src/rpc.ts
+@@ -3,6 +3,7 @@ import * as errors from "./errors";
+ import * as json from "./json";
+ import * as telemetry from "./telemetry";
+ import * as protocol from "./protocol";
++import * as wire_compression from "./wire_compression";
+ import type { Stats } from "./connection_stats";
+ interface Pending {
+   resolve: (value: unknown) => void;
+@@ -11,6 +12,7 @@ interface Pending {
+ export interface ConnectionInit {
+   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
+   requestIds?: boolean;
++  compression?: boolean;
+   stats?: Stats;
+   trace?: telemetry.Details;
+   timeout_ms?: number | (() => number);
+@@ -20,7 +22,10 @@ export class Connection {
+   private readonly requestIds: boolean;
+   private pending = new Map<number, Pending>();
+   private next = 1;
+-  private buffer = "";
++  private buffer: Buffer = Buffer.alloc(0);
++  private codec: wire_compression.Channel | null = null;
++  private readonly compression: boolean;
++  private negotiating = false;
+   private closed: Error | null = null;
+   private listeners = new Set<(event: protocol.Event) => void>();
+   private readonly timeout: number | (() => number);
+@@ -32,43 +37,69 @@ export class Connection {
+   constructor(target: string | Socket, options: ConnectionInit | number = {}) {
+     const init = typeof options === "number" ? { timeout_ms: options } : options;
+     this.stats = init.stats;
++    this.compression = init.compression ?? false;
+     this.trace = init.trace;
+     if (this.stats) this.stats.connections++;
+     this.timeout = init.timeout_ms ?? 0;
+     this.requestIds = init.requestIds ?? true;
+     this.socket = typeof target === "string" ? createSocket(target) : target;
+-    this.socket.setEncoding("utf8");
+-    this.socket.on("data", chunk => {
+-      this.stats?.traffic("received", Buffer.byteLength(chunk));
+-      this.buffer += chunk;
+-      if (Buffer.byteLength(this.buffer) > 64 * 1024 * 1024) {
+-        this.fail(Error("MessageTooLarge"));
+-        this.socket.destroy();
++    this.socket.on("data", (chunk: Buffer) => {
++      this.stats?.traffic("received", chunk.length);
++      this.read(chunk);
++    });
++    this.socket.on("error", error => this.fail(error));
++    this.socket.on("close", () => {
++      // EOF can follow compressed bytes before the asynchronous decoder emits their last message.
++      if (this.codec) void this.codec.drainInput().then(() => this.fail(Error("ConnectionClosed")));
++      else this.fail(Error("ConnectionClosed"));
++    });
++  }
++  private read(chunk: Buffer, decoded = false): void {
++    if (this.closed) return;
++    if (this.codec && !decoded) {
++      this.codec.decode(chunk);
++      return;
++    }
++    this.buffer = Buffer.concat([this.buffer, chunk]);
++    if (this.buffer.length > 64 * 1024 * 1024) {
++      this.fail(Error("MessageTooLarge"));
++      return;
++    }
++    for (;;) {
++      const newline = this.buffer.indexOf(10);
++      if (newline < 0) break;
++      const line = this.buffer.subarray(0, newline);
++      this.buffer = Buffer.from(this.buffer.subarray(newline + 1));
++      if (!line.length) continue;
++      try {
++        const started = telemetry.begin();
++        const message = json.parse(line.toString());
++        telemetry.end("wire.decode", started, line.length);
++        this.receive(message);
++      } catch (error) {
++        this.fail(error as Error);
+         return;
+       }
+-      for (;;) {
+-        const newline = this.buffer.indexOf("\n");
+-        if (newline < 0) break;
+-        const line = this.buffer.slice(0, newline);
+-        this.buffer = this.buffer.slice(newline + 1);
+-        if (!line) continue;
+-        try {
+-          const decode_started = telemetry.begin();
+-          const message = json.parse(line);
+-          telemetry.end("wire.decode", decode_started, telemetry.enabled ? Buffer.byteLength(line) : 0);
+-          this.receive(message);
+-        } catch (error) {
+-          this.fail(error as Error);
+-          return;
+-        }
++      if (!decoded && this.codec) {
++        const rest = this.buffer;
++        this.buffer = Buffer.alloc(0);
++        if (rest.length) this.codec.decode(rest);
++        return;
+       }
+-    });
+-    this.socket.on("error", error => this.fail(error));
+-    this.socket.on("close", () => this.fail(Error("ConnectionClosed")));
++    }
++  }
++  private write(bytes: Buffer): void {
++    if (this.socket.writableLength + bytes.length > 4 * 1024 * 1024) {
++      this.fail(Error("RequestBackpressure"));
++      return;
++    }
++    this.stats?.traffic("sent", bytes.length);
++    this.socket.write(bytes);
+   }
+   private fail(error: Error) {
+     if (this.closed) return;
+     this.closed = error;
++    this.codec?.close();
+     for (const p of this.pending.values()) p.reject(error);
+     this.pending.clear();
+     this.socket.destroy();
+@@ -93,6 +124,15 @@ export class Connection {
+     const pending = this.pending.get(id);
+     if (!pending) throw Error("UnexpectedReply");
+     this.pending.delete(id);
++    if (this.negotiating && message.type === "hello") {
++      this.negotiating = false;
++      if (message.compression === "zstd")
++        this.codec = new wire_compression.Channel(
++          bytes => this.write(bytes),
++          bytes => this.read(bytes, true),
++          error => this.fail(error),
++        );
++    }
+     if (!this.requestIds) {
+       pending.resolve(message);
+       return;
+@@ -113,6 +153,12 @@ export class Connection {
+   async rawRequest(value: unknown): Promise<unknown> {
+     if (this.closed) throw this.closed;
+     const message = json.object(value);
++    if (this.negotiating) throw Error("CompressionNegotiating");
++    if (message.op === "hello" && (this.compression || message.compression === "zstd") && !this.codec) {
++      if (this.pending.size) throw Error("RequestInFlight");
++      message.compression = "zstd";
++      this.negotiating = true;
++    }
+     if (!this.requestIds && this.pending.size) throw Error("RequestInFlight");
+     if (this.pending.size >= 128) throw Error("RequestBackpressure");
+     const id = this.requestIds ? this.next++ : 0;
+@@ -149,9 +195,9 @@ export class Connection {
+         },
+       });
+       try {
+-        const bytes = json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n";
+-        this.stats?.traffic("sent", Buffer.byteLength(bytes));
+-        this.socket.write(bytes);
++        const bytes = Buffer.from(json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n");
++        if (this.codec) this.codec.encode(bytes);
++        else this.write(bytes);
+       } catch (error) {
+         this.fail(error as Error);
+       }
+diff --git a/src/server.test.ts b/src/server.test.ts
+index 5de5cdd0..0396c419 100644
+--- a/src/server.test.ts
++++ b/src/server.test.ts
+@@ -15,6 +15,7 @@ import * as session from "./session";
+ import * as worktreeAdd from "./worktree_add";
+ import { n } from "./native_bridge";
+ import * as native_ffi from "./native_ffi";
++import { Link } from "./link";
+ function fixture() {
+   const server = new Server("", "", "0".repeat(64));
+   return {
+@@ -829,3 +830,36 @@ test("deferred checkout requests cannot record a synthetic replay success", asyn
+     dispose();
+   }
+ });
++
++test("handoff drops compression histories and retains the viewer link for a fresh stream", () => {
++  const { server, dispose } = fixture();
++  const [fd, peer] = native_ffi.pair();
++  const client = server.addClient(fd, false),
++    link = new Link();
++  server.links.set(link.id, link);
++  client.link = link;
++  client.viewer = true;
++  client.viewer_id = 7;
++  client.compress();
++  try {
++    server.pause();
++    expect(client.dead).toBe(true);
++    expect(link.detached_at).not.toBeNull();
++    expect(link.viewer?.viewer_id).toBe(7);
++    const saved = handoff.captureManifest(server, client);
++    expect(saved.clients).toHaveLength(0);
++    const restored = fixture();
++    try {
++      expect(restored.server.instance).not.toBe(server.instance);
++      handoff.restoreMetadata(restored.server, saved);
++      expect(restored.server.instance).toBe(server.instance);
++      expect(restored.server.links.get(link.id)?.viewer?.viewer_id).toBe(7);
++    } finally {
++      restored.dispose();
++    }
++  } finally {
++    client.close();
++    n.probe_close(peer);
++    dispose();
++  }
++});
+diff --git a/src/server.ts b/src/server.ts
+index a52f0fe1..84687db7 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -352,7 +352,11 @@ export class Server {
+     clearInterval(this.timer);
+     this.registration?.close();
+     this.registration = undefined;
+-    for (const c of this.clients) c.pause();
++    for (const c of this.clients) {
++      // Compression histories cannot be handed to another process. Links resume on a fresh stream.
++      if (c.compressed) c.close();
++      else c.pause();
++    }
+     // Queue cancellation before handoff captures output; paused clients keep later input queued.
+     for (const cancel of this.modelReads.values()) cancel();
+     for (const p of this.runtime.panes) p.terminal.pause();
+@@ -653,7 +657,9 @@ export class Server {
+     const request = protocol.decoded(op, v);
+     if (!["onboarding.copy", "onboarding.handoff"].includes(op)) importer.admit(this, op);
+     switch (request.op) {
+-      case "hello":
++      case "hello": {
++        const compress =
++          request.payload.compression === "zstd" && cl.canCompress && v.runtime_protocol === protocol.version;
+         cl.protocol_version = v.runtime_protocol === protocol.version ? protocol.version : null;
+         reply.send({
+           type: "hello",
+@@ -666,8 +672,11 @@ export class Server {
+           update_abi: updates.abi,
+           viewer_protocol: protocol.viewer_version,
+           instance: this.instance,
++          ...(compress ? { compression: "zstd" } : {}),
+         });
++        if (compress) cl.compress();
+         return;
++      }
+       case "ping":
+         reply.send({ ok: true, pid: process.pid });
+         return;
+diff --git a/src/ssh.ts b/src/ssh.ts
+index 0d7b9d44..2cddd8ac 100644
+--- a/src/ssh.ts
++++ b/src/ssh.ts
+@@ -5,7 +5,7 @@ import * as preferences from "./preferences";
+ import * as os from "./os";
+ 
+ /** A private namespace keeps Corgi independent of a user-owned SSH master. */
+-function sharing(host: string, fresh: boolean): string[] {
++function sharing(host: string, fresh: boolean, compression: boolean): string[] {
+   if (!host || host.startsWith("-") || /[\s\x00-\x1f\x7f]/.test(host)) throw Error("InvalidSshTarget");
+   if (fresh) return ["-S", "none", "-o", "ControlMaster=no"];
+   const directory = `/tmp/corgi-mux-${process.getuid?.() ?? "user"}`;
+@@ -15,17 +15,19 @@ function sharing(host: string, fresh: boolean): string[] {
+     .update(dirname(preferences.path()))
+     .update("\0")
+     .update(host)
++    .update(compression ? "zlib" : "plain")
+     .digest("hex")
+     .slice(0, 20);
+   return ["-S", `${directory}/${key}-%C`, "-o", "ControlMaster=auto", "-o", "ControlPersist=600"];
+ }
+ 
+ /** OpenSSH owns authentication and encryption. A background connection cannot prompt or trust a new host. */
+-export function args(host: string, interactive: boolean, fresh = false): string[] {
++export function args(host: string, interactive: boolean, fresh = false, compression = true): string[] {
+   return [
+-    ...sharing(host, fresh),
++    ...sharing(host, fresh, compression),
+     "-T",
+-    "-C",
++    "-o",
++    `Compression=${compression ? "yes" : "no"}`,
+     "-o",
+     "ForwardAgent=no",
+     "-o",
+diff --git a/src/telemetry.ts b/src/telemetry.ts
+index c6cd37b8..67255edf 100644
+--- a/src/telemetry.ts
++++ b/src/telemetry.ts
+@@ -73,6 +73,7 @@ export const names = [
+   "native.other",
+   "wire.encode",
+   "wire.decode",
++  "wire.compress",
+   "terminal.feed",
+   "terminal.snapshot",
+   "pty.drain",
+diff --git a/src/viewer_protocol.ts b/src/viewer_protocol.ts
+index 58e14a4e..b2cca828 100644
+--- a/src/viewer_protocol.ts
++++ b/src/viewer_protocol.ts
+@@ -242,7 +242,7 @@ export function publish(s: Server, cl: Client, wake: bigint, now = Date.now()):
+   if (!stream || cl.dead || !cl.viewer) return;
+   if (stream.delivery && !stream.delivery.available) return;
+   if (stream.wake === wake && now - stream.sent < 250) return;
+-  if (cl.output.length || now - stream.sent < 16) {
++  if (cl.queued || now - stream.sent < 16) {
+     cl.deferFrame(stream.sent + 16, () => {
+       if (cl.stream === stream) publish(s, cl, wake);
+     });
+@@ -251,7 +251,8 @@ export function publish(s: Server, cl: Client, wake: bigint, now = Date.now()):
+   const view = capture(s, cl, stream.session_hash, stream.resources_hash);
+   const encoded = stream.delivery?.offer(view);
+   if (stream.delivery && !encoded) return;
+-  remember(cl, view, wake, now);
++  if (encoded?.probe) stream.sent = now;
++  else remember(cl, view, wake, now);
+   cl.queue({
+     type: "viewer.frame",
+     sequence: stream.sequence,
+diff --git a/src/viewer_stream.test.ts b/src/viewer_stream.test.ts
+index 980e3221..4ea7fb8d 100644
+--- a/src/viewer_stream.test.ts
++++ b/src/viewer_stream.test.ts
+@@ -103,7 +103,7 @@ test("large updates exhaust the byte budget before the frame slots", () => {
+     terminal.destroy();
+   }
+ });
+-test("slow receipts restore the small window, then fresh receipts can reopen it", () => {
++test("a drained small probe relearns propagation without losing the latest screen", () => {
+   let now = 0;
+   const output = new Frames(() => now),
+     terminal = Terminal.create(80, 24);
+@@ -111,26 +111,52 @@ test("slow receipts restore the small window, then fresh receipts can reopen it"
+     const first = output.offer(view(terminal))!;
+     now = 120;
+     output.acknowledge(first.frame);
+-    const large = view(terminal);
+-    large.session = { large: "界".repeat(4_000) } as unknown as View["session"];
+-    const second = output.offer(large)!;
+-    const third = output.offer(large)!;
+-    expect(third).not.toBeNull();
+-    now += 400;
++    terminal.feed("before path change");
++    const second = output.offer(view(terminal))!;
++    now += 300;
+     output.acknowledge(second.frame);
+-    expect(output.offer(large)).toBeNull();
+-    // An already acknowledged frame must not change the learned delay or budget.
++    terminal.feed("\rlatest after change");
++    const probe = output.offer(view(terminal))!;
++    expect(probe.probe).toBe(true);
++    expect(probe.view.surfaces).toHaveLength(0);
++    expect(probe.view.patches).toHaveLength(0);
++    expect(output.available).toBe(false);
++    now += 300;
++    output.acknowledge(probe.frame);
++    const latest = output.offer(view(terminal))!;
++    const before = surface.apply(first.view.surfaces[0], second.view.patches![0]);
++    expect(surface.apply(before, latest.view.patches![0])).toEqual(view(terminal).surfaces[0]);
++    // A healthy 300 ms path accommodates more than three outstanding frames.
++    for (let i = 0; i < 3; i++) {
++      terminal.feed(String(i));
++      expect(output.offer(view(terminal))).not.toBeNull();
++    }
++  } finally {
++    terminal.destroy();
++  }
++});
++test("compressed wire accounting admits dense high-RTT frames while raw memory stays bounded", () => {
++  let now = 0;
++  const output = new Frames(() => now),
++    terminal = Terminal.create(80, 24);
++  try {
++    const first = output.offer(view(terminal))!;
++    output.encoded(first.frame, 200);
++    now = 600;
+     output.acknowledge(first.frame);
+-    expect(output.offer(large)).toBeNull();
+-    output.acknowledge(third.frame);
+-    const fourth = output.offer(large)!;
+-    expect(fourth).not.toBeNull();
+-    expect(output.offer(large)).toBeNull();
+-    now += 120;
+-    output.acknowledge(fourth.frame);
+-    expect(output.offer(large)).not.toBeNull();
+-    expect(output.offer(large)).not.toBeNull();
+-    expect(output.offer(large)).toBeNull();
++    const large = view(terminal);
++    large.session = { large: "界".repeat(20000) } as unknown as View["session"];
++    let accepted = 0;
++    for (let i = 0; i < 100; i++) {
++      const sent = output.offer(large);
++      if (!sent) break;
++      output.encoded(sent.frame, 200);
++      accepted++;
++    }
++    expect(accepted).toBeGreaterThan(3);
++    expect(accepted).toBeLessThan(36);
++    output.acknowledge(BigInt(accepted + 1));
++    expect(output.available).toBe(true);
+   } finally {
+     terminal.destroy();
+   }
+@@ -158,3 +184,34 @@ test("row patches preserve Unicode, hyperlinks, cursor, scrollback and modes", (
+     terminal.destroy();
+   }
+ });
++
++for (const rtt of [300, 600])
++  test(`a sparse-to-dense RTT step to ${rtt} ms cannot trap the delivery estimate`, () => {
++    let now = 0,
++      departure = 0;
++    const output = new Frames(() => now),
++      terminal = Terminal.create(80, 24);
++    const receipts: { at: number; frame: bigint; probe: boolean }[] = [];
++    let received = 0;
++    try {
++      for (now = 0; now < 20000; now++) {
++        while (receipts[0]?.at <= now) {
++          const receipt = receipts.shift()!;
++          output.acknowledge(receipt.frame);
++          if (now >= 15000 && !receipt.probe) received++;
++        }
++        if (now % 50) continue;
++        const current = view(terminal);
++        current.session = { text: "x".repeat(now < 5000 ? 200 : 6000), tick: now } as unknown as View["session"];
++        const frame = output.offer(current);
++        if (!frame) continue;
++        const bytes = frame.probe ? 40 : now < 5000 ? 100 : 1700;
++        output.encoded(frame.frame, bytes);
++        departure = Math.max(now, departure) + bytes / 125; // 1 Mbit/s, with a FIFO bottleneck.
++        receipts.push({ at: departure + (now < 5000 ? 120 : rtt), frame: frame.frame, probe: frame.probe });
++      }
++      expect(received / 5).toBeGreaterThanOrEqual(19);
++    } finally {
++      terminal.destroy();
++    }
++  });
+diff --git a/src/viewer_stream.ts b/src/viewer_stream.ts
+index 26a803d4..b86f03b3 100644
+--- a/src/viewer_stream.ts
++++ b/src/viewer_stream.ts
+@@ -4,57 +4,149 @@ import * as text from "./text";
+ import * as telemetry from "./telemetry";
+ import type { View } from "./viewer_protocol";
+ 
+-/** Bound bytes already accepted by the socket, SSH and the network, too. */
++interface Pending {
++  raw: number;
++  bytes: number;
++  at: number;
++  probe: boolean;
++}
++/** Bound accepted work across the codec, socket and network; coalesce before admission. */
+ export class Frames {
+   private retained = new Map<number, surface.View>();
+-  private pending = new Map<bigint, { bytes: number; at: number }>();
++  private pending = new Map<bigint, Pending>();
+   private sent = 0n;
+   private bytes = 0;
+-  private limit = 16384;
+-  private fastest = Infinity;
++  private raw = 0;
++  private baseline = 0;
++  private slots = 3;
++  private ratio = 1;
++  private average = 8192;
++  private congested = false;
++  private adjust = 0;
++  private probeAt = -Infinity;
++  private draining = false;
++  private probing = false;
++  private last: View | null = null;
++  private reported = 0;
++  private rate = 0;
++  private rates: { at: number; bytes: number }[] = [];
++  private acknowledged = 0;
++  private busy = false;
+   constructor(private readonly now = () => performance.now()) {}
++  private get target(): number {
++    return Math.max(3, Math.min(64, Math.ceil(this.baseline / 16) + 2));
++  }
++  private get limit(): number {
++    const flight = this.rate ? this.rate * (this.baseline + 50) + this.average * 2 : Infinity;
++    return Math.min(512 * 1024, Math.max(4096, Math.min(flight, Math.max(32768, this.average * this.slots))));
++  }
+   get available(): boolean {
+-    return this.pending.size < 3 && this.bytes < this.limit;
++    if (this.probing || (this.draining && this.pending.size)) return false;
++    return this.pending.size < this.slots && this.bytes < this.limit && this.raw < 2 * 1024 * 1024;
+   }
+-  offer(view: View): { frame: bigint; view: View } | null {
++  offer(view: View): { frame: bigint; view: View; probe: boolean } | null {
+     if (!this.available) return null;
++    const probe = this.draining && this.last !== null;
+     const surfaces: surface.View[] = [],
+       patches: surface.Patch[] = [];
+-    for (const frame of view.surfaces) {
+-      const before = this.retained.get(frame.surface.pane);
+-      const patch = before && surface.difference(before, frame);
+-      if (patch && json.stringify(patch).length < json.stringify(frame).length) patches.push(patch);
+-      else surfaces.push(frame);
++    if (!probe)
++      for (const frame of view.surfaces) {
++        const before = this.retained.get(frame.surface.pane);
++        const patch = before && surface.difference(before, frame);
++        if (patch && json.stringify(patch).length < json.stringify(frame).length) patches.push(patch);
++        else surfaces.push(frame);
++      }
++    const encoded = probe
++      ? { ...this.last!, session: null, resources: null, surfaces: [], patches: [], controls: [] }
++      : { ...view, surfaces, patches };
++    const raw = text.byteLength(json.stringify(encoded)) + 128;
++    const bytes = Math.max(64, raw * this.ratio);
++    // A single oversized snapshot must still make progress.
++    if (this.pending.size && (this.bytes + bytes > this.limit || this.raw + raw > 2 * 1024 * 1024)) return null;
++    if (probe) {
++      this.draining = false;
++      this.probing = true;
++      this.probeAt = this.now();
++    } else {
++      for (const frame of view.surfaces) this.retained.set(frame.surface.pane, frame);
++      this.last = view;
+     }
+-    const encoded = { ...view, surfaces, patches };
+-    // Include room for the stream envelope and RPC id. One oversized frame
+-    // may travel alone, so a full snapshot can always make progress.
+-    const bytes = text.byteLength(json.stringify(encoded)) + 128;
+-    if (this.pending.size && this.bytes + bytes > this.limit) return null;
+-    for (const frame of view.surfaces) this.retained.set(frame.surface.pane, frame);
+     const frame = ++this.sent;
+-    this.pending.set(frame, { bytes, at: this.now() });
++    this.pending.set(frame, { raw, bytes, at: this.now(), probe });
+     this.bytes += bytes;
+-    return { frame, view: encoded };
++    this.raw += raw;
++    return { frame, view: encoded, probe };
++  }
++  /** Reconcile admission estimates with bytes emitted by the negotiated codec. */
++  encoded(frame: bigint, bytes: number): void {
++    const pending = this.pending.get(frame);
++    if (!pending) return;
++    this.bytes += bytes - pending.bytes;
++    pending.bytes = bytes;
++    if (!pending.probe) {
++      this.ratio = this.ratio * 0.75 + (bytes / pending.raw) * 0.25;
++      this.average = this.average * 0.75 + bytes * 0.25;
++    }
+   }
+   acknowledge(frame: bigint): void {
+     if (frame > this.sent) throw Error("InvalidAcknowledgement");
+     const received = this.pending.get(frame);
+-    if (received) {
+-      const elapsed = this.now() - received.at;
+-      this.fastest = Math.min(this.fastest, elapsed);
+-      // Allow dense frames to fill the three slots on an uncongested link.
+-      // Added receipt delay means bytes are queuing; restore the small budget.
+-      const limit = elapsed <= this.fastest + 50 ? 32768 : 16384;
+-      if (limit !== this.limit) {
+-        this.limit = limit;
+-        telemetry.event("remote.stream.window", { bytes: limit, receipt_ms: elapsed, fastest_ms: this.fastest });
+-      }
+-    }
++    if (!received) return;
++    const now = this.now(),
++      elapsed = now - received.at;
++    let delivered = 0;
+     for (const [sent, pending] of this.pending) {
+       if (sent > frame) break;
+       this.pending.delete(sent);
+       this.bytes -= pending.bytes;
++      delivered += pending.bytes;
++      this.raw -= pending.raw;
++    }
++    if (!received.probe && this.busy && now - this.acknowledged >= 5) {
++      const sample = delivered / (now - this.acknowledged);
++      this.rates = this.rates.filter(sample => now - sample.at <= 2000);
++      this.rates.push({ at: now, bytes: sample });
++      // Application-limited gaps must not shrink the window that caused them.
++      this.rate = Math.max(...this.rates.map(sample => sample.bytes));
++    }
++    this.acknowledged = now;
++    this.busy = this.pending.size > 0;
++    const previous = this.slots;
++    if (received.probe) {
++      this.probing = false;
++      // This small frame was sent only after all previous frames were decoded.
++      const changedPath = elapsed > this.baseline + 50;
++      this.baseline = Math.max(1, elapsed);
++      this.slots = changedPath && this.rate ? this.target : Math.min(this.target, this.slots + 1);
++      this.congested = false;
++    } else if (!this.baseline) {
++      this.baseline = Math.max(1, elapsed);
++      this.slots = Math.min(8, this.target);
++    } else {
++      this.baseline = Math.min(this.baseline, Math.max(1, elapsed));
++      const serialization = this.rate ? received.bytes / this.rate : 0;
++      this.congested = elapsed > this.baseline + serialization + Math.max(50, this.baseline / 4);
++      if (now >= this.adjust) {
++        this.slots = this.congested ? Math.max(1, Math.floor(this.slots / 2)) : Math.min(this.target, this.slots + 1);
++        this.adjust = now + Math.max(100, this.baseline);
++      }
++      // A low delivery estimate must not explain away a changed propagation delay.
++      if (elapsed > this.baseline + Math.max(50, this.baseline / 4) && now - this.probeAt >= 3000) this.draining = true;
++    }
++    if (previous !== this.slots || now - this.reported >= 1000 || received.probe) {
++      this.reported = now;
++      telemetry.event("remote.stream.window", {
++        frames: this.slots,
++        pending: this.pending.size,
++        wire_bytes: this.bytes,
++        raw_bytes: this.raw,
++        budget: this.limit,
++        receipt_ms: elapsed,
++        baseline_ms: this.baseline,
++        bytes_per_second: this.rate * 1000,
++        congested: Number(this.congested),
++        probe: Number(received.probe),
++      });
+     }
+   }
+ }
+diff --git a/tests/remote.test.ts b/tests/remote.test.ts
+index d9de760d..8aebb498 100644
+--- a/tests/remote.test.ts
++++ b/tests/remote.test.ts
+@@ -1392,6 +1392,10 @@ process.stdin.on("data", chunk => {
+     );
+     this.assertEqual((await this.remote!.command("pane.read", { target: 1 })).text.split("AFTER_RELOAD").length - 1, 1);
+   }
++  async test_typing_after_a_remote_reload_waits_for_the_same_viewer_on_a_slow_link() {
++    this.network!.latency_ms = 120;
++    await this.test_remote_reload_rebuilds_the_stream_without_replacing_its_panes();
++  }
+   async test_short_network_hiccup_shows_stall_discards_input_and_recovers_on_the_same_connection() {
+     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
+     await this.startViewer();
+diff --git a/src/wire_compression.ts b/src/wire_compression.ts
+new file mode 100644
+index 00000000..520fc683
+--- /dev/null
++++ b/src/wire_compression.ts
+@@ -0,0 +1,86 @@
++import * as zlib from "node:zlib";
++import * as telemetry from "./telemetry";
++
++const capacity = 4 * 1024 * 1024;
++/** One bounded, live history per direction. A new transport always starts fresh. */
++export class Channel {
++  private encoder = zlib.createZstdCompress({
++    params: { [zlib.constants.ZSTD_c_compressionLevel]: 3, [zlib.constants.ZSTD_c_windowLog]: 20 },
++    flush: zlib.constants.ZSTD_e_flush,
++  });
++  private decoder = zlib.createZstdDecompress({ params: { [zlib.constants.ZSTD_d_windowLogMax]: 20 } });
++  private queue: { data: Buffer; done?: (bytes: number) => void }[] = [];
++  private encoding = false;
++  private stopped = false;
++  private emitted = 0;
++  pending = 0;
++  private incoming = 0;
++  private readers: (() => void)[] = [];
++  constructor(
++    private readonly write: (bytes: Buffer) => void,
++    private readonly read: (bytes: Buffer) => void,
++    private readonly failed: (error: Error) => void,
++  ) {
++    this.encoder.on("data", (bytes: Buffer) => {
++      if (this.stopped) return;
++      this.emitted += bytes.length;
++      this.write(bytes);
++    });
++    this.decoder.on("data", (bytes: Buffer) => {
++      if (!this.stopped) this.read(bytes);
++    });
++    this.encoder.on("error", error => this.fail(error));
++    this.decoder.on("error", error => this.fail(error));
++  }
++  private fail(error: Error): void {
++    if (this.stopped) return;
++    this.close();
++    this.failed(error);
++  }
++  encode(data: Buffer, done?: (bytes: number) => void): void {
++    if (this.stopped) return;
++    if (this.pending + data.length > capacity) return this.fail(Error("MessageTooLarge"));
++    this.pending += data.length;
++    this.queue.push({ data, done });
++    this.next();
++  }
++  private next(): void {
++    if (this.encoding || this.stopped) return;
++    const item = this.queue.shift();
++    if (!item) return;
++    this.encoding = true;
++    const before = this.emitted,
++      started = telemetry.begin();
++    this.encoder.write(item.data, error => {
++      if (error) return this.fail(error);
++      if (this.stopped) return;
++      this.pending -= item.data.length;
++      this.encoding = false;
++      const bytes = this.emitted - before;
++      telemetry.end("wire.compress", started, bytes, { raw_bytes: item.data.length });
++      item.done?.(bytes);
++      this.next();
++    });
++  }
++  decode(data: Buffer): void {
++    if (this.stopped) return;
++    if (this.incoming + data.length > capacity) return this.fail(Error("MessageTooLarge"));
++    this.incoming += data.length;
++    this.decoder.write(data, error => {
++      this.incoming -= data.length;
++      if (!this.incoming) for (const done of this.readers.splice(0)) done();
++      if (error) this.fail(error);
++    });
++  }
++  drainInput(): Promise<void> {
++    return this.incoming && !this.stopped ? new Promise(resolve => this.readers.push(resolve)) : Promise.resolve();
++  }
++  close(): void {
++    this.stopped = true;
++    for (const done of this.readers.splice(0)) done();
++    this.queue = [];
++    this.pending = 0;
++    this.encoder.destroy();
++    this.decoder.destroy();
++  }
++}
+diff --git a/src/wire_compression.test.ts b/src/wire_compression.test.ts
+new file mode 100644
+index 00000000..72c7a8f0
+--- /dev/null
++++ b/src/wire_compression.test.ts
+@@ -0,0 +1,138 @@
++import { expect, test } from "bun:test";
++import { Channel } from "./wire_compression";
++import { Connection } from "./rpc";
++import { Client } from "./peer";
++import { ReadyLoop, n, ptr, READ } from "./native_bridge";
++import { mkdtempSync, rmSync } from "node:fs";
++
++async function until(check: () => boolean): Promise<void> {
++  const end = performance.now() + 3000;
++  while (!check() && performance.now() < end) await Bun.sleep(1);
++  expect(check()).toBe(true);
++}
++test("live history survives byte fragmentation and flushes each message with exact costs", async () => {
++  const wire: Buffer[] = [],
++    decoded: Buffer[] = [],
++    costs: number[] = [],
++    errors: Error[] = [];
++  const receiver = new Channel(
++    () => {},
++    bytes => decoded.push(bytes),
++    error => errors.push(error),
++  );
++  const sender = new Channel(
++    bytes => {
++      wire.push(bytes);
++      for (const byte of bytes) receiver.decode(Buffer.from([byte]));
++    },
++    () => {},
++    error => errors.push(error),
++  );
++  const data = Buffer.from(Array.from({ length: 500 }, (_, i) => `unique-${i} 界 é ${i * 7919}\n`).join(""));
++  try {
++    sender.encode(data, bytes => costs.push(bytes));
++    await until(() => Buffer.concat(decoded).length === data.length);
++    sender.encode(data, bytes => costs.push(bytes));
++    await until(() => Buffer.concat(decoded).length === data.length * 2 && costs.length === 2);
++    expect(Buffer.concat(decoded)).toEqual(Buffer.concat([data, data]));
++    expect(costs[1]).toBeLessThan(costs[0] / 4);
++    expect(costs.reduce((a, b) => a + b, 0)).toBe(Buffer.concat(wire).length);
++    expect(sender.pending).toBe(0);
++    expect(errors).toEqual([]);
++  } finally {
++    sender.close();
++    receiver.close();
++  }
++});
++test("corrupt streams and oversized encoder queues fail closed", async () => {
++  const errors: Error[] = [];
++  const decoder = new Channel(
++    () => {},
++    () => {},
++    error => errors.push(error),
++  );
++  const encoder = new Channel(
++    () => {},
++    () => {},
++    error => errors.push(error),
++  );
++  try {
++    decoder.decode(Buffer.from("not a zstd stream"));
++    encoder.encode(Buffer.alloc(4 * 1024 * 1024 + 1));
++    await until(() => errors.length === 2);
++    expect(encoder.pending).toBe(0);
++  } finally {
++    encoder.close();
++    decoder.close();
++  }
++});
++test("EOF waits for the last compressed message to be decoded", async () => {
++  const decoded: Buffer[] = [],
++    wire: Buffer[] = [],
++    errors: Error[] = [];
++  const sender = new Channel(
++    bytes => wire.push(bytes),
++    () => {},
++    error => errors.push(error),
++  );
++  const receiver = new Channel(
++    () => {},
++    bytes => decoded.push(bytes),
++    error => errors.push(error),
++  );
++  try {
++    await new Promise<void>(resolve => sender.encode(Buffer.from('{"type":"viewer.reconnect"}\n'), () => resolve()));
++    receiver.decode(Buffer.concat(wire));
++    await receiver.drainInput();
++    expect(Buffer.concat(decoded).toString()).toBe('{"type":"viewer.reconnect"}\n');
++    expect(errors).toEqual([]);
++  } finally {
++    sender.close();
++    receiver.close();
++  }
++});
++for (const supported of [false, true])
++  test(`RPC negotiates compression=${supported} in hello without another round trip`, async () => {
++    const loop = new ReadyLoop(),
++      directory = mkdtempSync("/tmp/corgi-codec-test-"),
++      path = directory + "/s";
++    const listener = n.probe_listen(ptr(Buffer.from(path + "\0")));
++    const peers = new Set<Client>();
++    const seen: string[] = [];
++    const registration = loop.watch(listener, () => {
++      const fd = n.probe_accept(listener);
++      if (fd < 0) return;
++      const peer = new Client(
++        fd,
++        loop,
++        cl => {
++          const value = cl.take();
++          seen.push(value.op);
++          if (value.op === "hello") {
++            expect(value.compression).toBe("zstd");
++            expect(cl.canCompress).toBe(true);
++            cl.queue({ type: "hello", request_id: value.request_id, ...(supported ? { compression: "zstd" } : {}) });
++            if (supported) cl.compress();
++          } else cl.queue({ ok: true, pid: 123, request_id: value.request_id });
++          cl.done();
++        },
++        () => {},
++      );
++      peers.add(peer);
++    });
++    registration.arm(READ);
++    const conn = new Connection(path, { compression: true, timeout_ms: 2000 });
++    try {
++      await conn.call("hello");
++      expect(await conn.call("ping")).toEqual({ ok: true, pid: 123 });
++      expect(await Promise.all([conn.call("ping"), conn.call("ping")])).toHaveLength(2);
++      expect(seen).toEqual(["hello", "ping", "ping", "ping"]);
++    } finally {
++      conn.close();
++      for (const peer of peers) peer.close();
++      registration.close();
++      n.probe_close(listener);
++      loop.close();
++      rmSync(directory, { recursive: true, force: true });
++    }
++  });

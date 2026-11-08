@@ -1,0 +1,12 @@
+{
+  "file": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-websocket-codecs-evidence-20261108.tar.gz",
+  "sha256": "efe367edcc19d9af1cdc9f22951d649010b522839bc6c370748acda76aeead2a",
+  "bytes": 204029751,
+  "members": 27670,
+  "application_labs": 197,
+  "main_labs": 180,
+  "four_core_controls": 12,
+  "diagnostic_labs": 5,
+  "gzip_verified": true,
+  "includes": "raw PTY observations, /proc counters, network snapshots, diagnostic pcaps and traces, frozen harness, exact build patches/metadata and reductions; binaries are referenced by hashes rather than archived"
+}

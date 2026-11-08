@@ -195,3 +195,11 @@ test("keys whose legacy encoding loses an edit get the sequence text boxes read"
   expect(key(127, {})).toBeNull();
   expect(key(97, { ctrl: true })).toBeNull();
 });
+
+test("modifyOtherKeys controls decode to the same logical keys as Kitty", () => {
+  for (const codepoint of [97, 101, 106, 107, 117, 119]) {
+    expect(decode(`\x1b[27;5;${codepoint}~`)).toEqual(decode(`\x1b[${codepoint};5u`));
+  }
+  for (const sequence of ["\x1b[27;0;97~", "\x1b[27;257;97~", "\x1b[27;5;1114112~"])
+    expect(decode(sequence)).toBeNull();
+});

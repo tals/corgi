@@ -1,0 +1,27 @@
+{
+  "application_changes_retained": false,
+  "application_commit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+  "unit": {
+    "command": "taskset -c 16-23 bun test src",
+    "exit": 0,
+    "pass": 3372,
+    "skip": 1,
+    "fail": 0,
+    "seconds": 61.49
+  },
+  "typecheck": {
+    "command": "taskset -c 24-27 bun typecheck.ts",
+    "exit": 0
+  },
+  "python": {
+    "command": "python3 -m py_compile tools/benchmarks/remote_network/{run,outage_report,packet_timeline}.py",
+    "exit": 0
+  },
+  "integration": "Application unchanged; previous 70-test validation is in ../../outages/evidence/validation.json",
+  "comparison_audit": {
+    "pass": 819,
+    "failed_assertions": 0,
+    "cases": 45,
+    "root": "dist/remote-short-timed"
+  }
+}

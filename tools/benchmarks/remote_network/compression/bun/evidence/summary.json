@@ -1,0 +1,2434 @@
+[
+  {
+    "mode": "bun-sync",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 46,
+    "raw_bytes": 92677,
+    "compressed_bytes": 30852,
+    "warm_compressed_bytes": 30852,
+    "compressed_bytes_range": [
+      30852,
+      30852
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 10.079710144927537,
+      "cpu_us_per_message_range": [
+        10.013470258735662,
+        11.836405166981727
+      ],
+      "wall_us_per_message": 10.084029388083735,
+      "wall_us_per_message_range": [
+        10.02031961856495,
+        11.837812933207312
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 4.261834487456011,
+      "cpu_us_per_message_range": [
+        4.054226302997569,
+        4.648984268549486
+      ],
+      "wall_us_per_message": 4.261983766602338,
+      "wall_us_per_message_range": [
+        4.054354820415879,
+        4.651322030224204
+      ]
+    },
+    "setup_ms": 0.0008199999999991547,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+    "dictionary_sha256": null,
+    "dataset": "claude",
+    "warm_compressed_bytes_range": [
+      30852,
+      30852
+    ],
+    "setup_ms_range": [
+      0.0007699999999992713,
+      0.0009099999999993003
+    ],
+    "all_pass_compressed_bytes_range": [
+      30852,
+      30852
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "deflate",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 46,
+    "raw_bytes": 92677,
+    "compressed_bytes": 5205,
+    "warm_compressed_bytes": 5205,
+    "compressed_bytes_range": [
+      5205,
+      5205
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 27.68595041322314,
+      "cpu_us_per_message_range": [
+        27.372439813151274,
+        29.08734128510966
+      ],
+      "wall_us_per_message": 27.696566115702478,
+      "wall_us_per_message_range": [
+        27.390418972332018,
+        29.09186860330897
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 21.25020769869842,
+      "cpu_us_per_message_range": [
+        21.02187759623373,
+        23.063839559093694
+      ],
+      "wall_us_per_message": 21.25102118526724,
+      "wall_us_per_message_range": [
+        21.022654804763228,
+        23.064516993263933
+      ]
+    },
+    "setup_ms": 1.4712270000000007,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+    "dictionary_sha256": null,
+    "dataset": "claude",
+    "warm_compressed_bytes_range": [
+      5205,
+      5205
+    ],
+    "setup_ms_range": [
+      1.3242919999999998,
+      1.4923079999999995
+    ],
+    "all_pass_compressed_bytes_range": [
+      5205,
+      5205
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "ffi-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 46,
+    "raw_bytes": 92677,
+    "compressed_bytes": 12104,
+    "warm_compressed_bytes": 12104,
+    "compressed_bytes_range": [
+      12104,
+      12104
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 3.4886770518484074,
+      "cpu_us_per_message_range": [
+        3.4550709285187913,
+        4.069241155819606
+      ],
+      "wall_us_per_message": 3.49366942571495,
+      "wall_us_per_message_range": [
+        3.458049672991894,
+        4.072430704833918
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 1.4443813301498056,
+      "cpu_us_per_message_range": [
+        1.4347443524168404,
+        1.6343774505532804
+      ],
+      "wall_us_per_message": 1.444433174798783,
+      "wall_us_per_message_range": [
+        1.435781661852752,
+        1.6352105079724666
+      ]
+    },
+    "setup_ms": 0.7689150000000016,
+    "native_memory": {
+      "encoder": 256619,
+      "decoder": 95992,
+      "cdict": 219712,
+      "ddict": 35544,
+      "scratch_buffers": 18438
+    },
+    "native_version": 10505,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "claude",
+    "warm_compressed_bytes_range": [
+      12104,
+      12104
+    ],
+    "setup_ms_range": [
+      0.6969019999999997,
+      0.7732139999999994
+    ],
+    "all_pass_compressed_bytes_range": [
+      12104,
+      12104
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "frame",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 46,
+    "raw_bytes": 92677,
+    "compressed_bytes": 30852,
+    "warm_compressed_bytes": 30852,
+    "compressed_bytes_range": [
+      30852,
+      30852
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 27.3625,
+      "cpu_us_per_message_range": [
+        26.966223499820337,
+        28.30491004497751
+      ],
+      "wall_us_per_message": 27.366278623188407,
+      "wall_us_per_message_range": [
+        26.97842939274165,
+        28.315181596701652
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 27.305072463768116,
+      "cpu_us_per_message_range": [
+        25.138127090301005,
+        28.02638424377555
+      ],
+      "wall_us_per_message": 27.30582010869565,
+      "wall_us_per_message_range": [
+        25.138958862876258,
+        28.027129505759945
+      ]
+    },
+    "setup_ms": 1.068454000000001,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+    "dictionary_sha256": null,
+    "dataset": "claude",
+    "warm_compressed_bytes_range": [
+      30852,
+      30852
+    ],
+    "setup_ms_range": [
+      1.0579640000000001,
+      1.0837339999999998
+    ],
+    "all_pass_compressed_bytes_range": [
+      30852,
+      30852
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "frame-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 46,
+    "raw_bytes": 92677,
+    "compressed_bytes": 12094,
+    "warm_compressed_bytes": 12094,
+    "compressed_bytes_range": [
+      12094,
+      12094
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 21.281907433380084,
+      "cpu_us_per_message_range": [
+        20.915691192865104,
+        22.7181461352657
+      ],
+      "wall_us_per_message": 21.283269284712482,
+      "wall_us_per_message_range": [
+        20.917069119286513,
+        22.721194142512072
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 21.764927536231884,
+      "cpu_us_per_message_range": [
+        21.364450127877237,
+        25.00597411218055
+      ],
+      "wall_us_per_message": 21.792644202898547,
+      "wall_us_per_message_range": [
+        21.366652031827225,
+        25.006904580152675
+      ]
+    },
+    "setup_ms": 1.0643639999999994,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "claude",
+    "warm_compressed_bytes_range": [
+      12094,
+      12094
+    ],
+    "setup_ms_range": [
+      1.0584239999999987,
+      1.4206650000000014
+    ],
+    "all_pass_compressed_bytes_range": [
+      12094,
+      12094
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "huffman",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 46,
+    "raw_bytes": 92677,
+    "compressed_bytes": 56285,
+    "warm_compressed_bytes": 56285,
+    "compressed_bytes_range": [
+      56285,
+      56285
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 36.518115942028984,
+      "cpu_us_per_message_range": [
+        33.70909905871807,
+        39.44787847040335
+      ],
+      "wall_us_per_message": 36.52092342995169,
+      "wall_us_per_message_range": [
+        33.74056499327656,
+        39.45115610267155
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 30.353462157809982,
+      "cpu_us_per_message_range": [
+        28.02657004830918,
+        30.869975389663658
+      ],
+      "wall_us_per_message": 30.355877616747186,
+      "wall_us_per_message_range": [
+        28.02729282794501,
+        30.87098482362593
+      ]
+    },
+    "setup_ms": 1.3163219999999995,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+    "dictionary_sha256": null,
+    "dataset": "claude",
+    "warm_compressed_bytes_range": [
+      56285,
+      56285
+    ],
+    "setup_ms_range": [
+      1.2635109999999994,
+      1.4684660000000012
+    ],
+    "all_pass_compressed_bytes_range": [
+      56285,
+      56285
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "live",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 46,
+    "raw_bytes": 92677,
+    "compressed_bytes": 5011,
+    "warm_compressed_bytes": 5011,
+    "compressed_bytes_range": [
+      5011,
+      5011
+    ],
+    "stream_end_bytes": 3,
+    "encode": {
+      "cpu_us_per_message": 21.454404291360813,
+      "cpu_us_per_message_range": [
+        20.119962884411454,
+        24.027333759590793
+      ],
+      "wall_us_per_message": 21.457185064935064,
+      "wall_us_per_message_range": [
+        20.121329798515376,
+        24.040116208439894
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 24.679227053140096,
+      "cpu_us_per_message_range": [
+        21.111360448807854,
+        24.92770092226614
+      ],
+      "wall_us_per_message": 24.680117391304353,
+      "wall_us_per_message_range": [
+        21.12981837307153,
+        24.950375988142287
+      ]
+    },
+    "setup_ms": 1.067444,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+    "dictionary_sha256": null,
+    "dataset": "claude",
+    "warm_compressed_bytes_range": [
+      5011,
+      5011
+    ],
+    "setup_ms_range": [
+      1.0373929999999998,
+      1.26525
+    ],
+    "all_pass_compressed_bytes_range": [
+      5011,
+      5011
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "live-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 46,
+    "raw_bytes": 92677,
+    "compressed_bytes": 4217,
+    "warm_compressed_bytes": 4217,
+    "compressed_bytes_range": [
+      4217,
+      4217
+    ],
+    "stream_end_bytes": 3,
+    "encode": {
+      "cpu_us_per_message": 20.11723126166978,
+      "cpu_us_per_message_range": [
+        19.081617086193745,
+        20.892550540016614
+      ],
+      "wall_us_per_message": 20.12977113897039,
+      "wall_us_per_message_range": [
+        19.090727180269514,
+        20.89578703960122
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 21.788260869565217,
+      "cpu_us_per_message_range": [
+        21.25663466967815,
+        21.901371461920046
+      ],
+      "wall_us_per_message": 21.789068985507246,
+      "wall_us_per_message_range": [
+        21.27515909090909,
+        21.90210796615115
+      ]
+    },
+    "setup_ms": 1.0721540000000012,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": true,
+    "corpus_sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "claude",
+    "warm_compressed_bytes_range": [
+      4217,
+      4217
+    ],
+    "setup_ms_range": [
+      1.0605340000000005,
+      1.2720010000000013
+    ],
+    "all_pass_compressed_bytes_range": [
+      4217,
+      4217
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "node-sync",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 46,
+    "raw_bytes": 92677,
+    "compressed_bytes": 30852,
+    "warm_compressed_bytes": 30852,
+    "compressed_bytes_range": [
+      30852,
+      30852
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 15.388433141919606,
+      "cpu_us_per_message_range": [
+        14.930712725828867,
+        17.373843663274744
+      ],
+      "wall_us_per_message": 15.3944543683347,
+      "wall_us_per_message_range": [
+        14.93167033948779,
+        17.376263066604995
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 11.797833935018051,
+      "cpu_us_per_message_range": [
+        10.236540820498842,
+        12.47784600066379
+      ],
+      "wall_us_per_message": 11.798340527389733,
+      "wall_us_per_message_range": [
+        10.246241311162603,
+        12.478230750082975
+      ]
+    },
+    "setup_ms": 0.0006700000000012807,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+    "dictionary_sha256": null,
+    "dataset": "claude",
+    "warm_compressed_bytes_range": [
+      30852,
+      30852
+    ],
+    "setup_ms_range": [
+      0.0006199999999996209,
+      0.0007599999999996498
+    ],
+    "all_pass_compressed_bytes_range": [
+      30852,
+      30852
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "node-sync-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 46,
+    "raw_bytes": 92677,
+    "compressed_bytes": 12094,
+    "warm_compressed_bytes": 12094,
+    "compressed_bytes_range": [
+      12094,
+      12094
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 29.24902950310559,
+      "cpu_us_per_message_range": [
+        27.440891124685592,
+        30.05584363781412
+      ],
+      "wall_us_per_message": 29.250517663043475,
+      "wall_us_per_message_range": [
+        27.45551113905857,
+        30.0575981252493
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 17.000226449275363,
+      "cpu_us_per_message_range": [
+        15.769586221382063,
+        19.384744018523282
+      ],
+      "wall_us_per_message": 17.018123188405795,
+      "wall_us_per_message_range": [
+        15.7702131905062,
+        19.385597761770004
+      ]
+    },
+    "setup_ms": 0.0007200000000011642,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "claude",
+    "warm_compressed_bytes_range": [
+      12094,
+      12094
+    ],
+    "setup_ms_range": [
+      0.0007099999999997664,
+      0.0008999999999996788
+    ],
+    "all_pass_compressed_bytes_range": [
+      12094,
+      12094
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "bun-sync",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 78,
+    "raw_bytes": 218275,
+    "compressed_bytes": 61891,
+    "warm_compressed_bytes": 61891,
+    "compressed_bytes_range": [
+      61891,
+      61891
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 12.679487179487179,
+      "cpu_us_per_message_range": [
+        12.15876471536849,
+        13.048769923769925
+      ],
+      "wall_us_per_message": 12.680542763157893,
+      "wall_us_per_message_range": [
+        12.170467989034027,
+        13.052157484407484
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 5.228365384615385,
+      "cpu_us_per_message_range": [
+        4.912480376766091,
+        5.2718651211801895
+      ],
+      "wall_us_per_message": 5.228504633500557,
+      "wall_us_per_message_range": [
+        4.9126373953427525,
+        5.272061362838075
+      ]
+    },
+    "setup_ms": 0.000700000000000145,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+    "dictionary_sha256": null,
+    "dataset": "codex",
+    "warm_compressed_bytes_range": [
+      61891,
+      61891
+    ],
+    "setup_ms_range": [
+      0.0006910000000015515,
+      0.0009300000000003195
+    ],
+    "all_pass_compressed_bytes_range": [
+      61891,
+      61891
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "deflate",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 78,
+    "raw_bytes": 218275,
+    "compressed_bytes": 8631,
+    "warm_compressed_bytes": 8631,
+    "compressed_bytes_range": [
+      8631,
+      8631
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 29.055300420972063,
+      "cpu_us_per_message_range": [
+        27.120982304080897,
+        30.845746845746845
+      ],
+      "wall_us_per_message": 29.057034634519713,
+      "wall_us_per_message_range": [
+        27.122759299386058,
+        30.85111009361009
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 24.53034728984096,
+      "cpu_us_per_message_range": [
+        22.182287061597407,
+        26.447505197505198
+      ],
+      "wall_us_per_message": 24.533492697176243,
+      "wall_us_per_message_range": [
+        22.18419864426761,
+        26.48686174636175
+      ]
+    },
+    "setup_ms": 1.3191020000000009,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+    "dictionary_sha256": null,
+    "dataset": "codex",
+    "warm_compressed_bytes_range": [
+      8631,
+      8631
+    ],
+    "setup_ms_range": [
+      1.1095559999999995,
+      1.3313620000000004
+    ],
+    "all_pass_compressed_bytes_range": [
+      8631,
+      8631
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "ffi-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 78,
+    "raw_bytes": 218275,
+    "compressed_bytes": 24469,
+    "warm_compressed_bytes": 24469,
+    "compressed_bytes_range": [
+      24469,
+      24469
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 4.6934959349593495,
+      "cpu_us_per_message_range": [
+        4.069442185721256,
+        4.857744107744108
+      ],
+      "wall_us_per_message": 4.696975641025641,
+      "wall_us_per_message_range": [
+        4.0697319347319345,
+        4.863137496762496
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 1.854820364463566,
+      "cpu_us_per_message_range": [
+        1.6576116963713863,
+        1.9565172027023503
+      ],
+      "wall_us_per_message": 1.855050762801968,
+      "wall_us_per_message_range": [
+        1.6576915236643919,
+        1.9572338211127636
+      ]
+    },
+    "setup_ms": 0.7773850000000007,
+    "native_memory": {
+      "encoder": 265266,
+      "decoder": 95992,
+      "cdict": 219712,
+      "ddict": 35544,
+      "scratch_buffers": 23062
+    },
+    "native_version": 10505,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "codex",
+    "warm_compressed_bytes_range": [
+      24469,
+      24469
+    ],
+    "setup_ms_range": [
+      0.7286030000000014,
+      0.7904959999999992
+    ],
+    "all_pass_compressed_bytes_range": [
+      24469,
+      24469
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "frame",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 78,
+    "raw_bytes": 218275,
+    "compressed_bytes": 61891,
+    "warm_compressed_bytes": 61891,
+    "compressed_bytes_range": [
+      61891,
+      61891
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 29.971992110453648,
+      "cpu_us_per_message_range": [
+        27.161430119176597,
+        30.370392628205128
+      ],
+      "wall_us_per_message": 29.98549289940829,
+      "wall_us_per_message_range": [
+        27.172713795594078,
+        30.37231290064102
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 27.707142857142856,
+      "cpu_us_per_message_range": [
+        25.115884115884114,
+        29.59506903353057
+      ],
+      "wall_us_per_message": 27.737326190476193,
+      "wall_us_per_message_range": [
+        25.143590742590742,
+        29.597472781065097
+      ]
+    },
+    "setup_ms": 1.2536300000000011,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+    "dictionary_sha256": null,
+    "dataset": "codex",
+    "warm_compressed_bytes_range": [
+      61891,
+      61891
+    ],
+    "setup_ms_range": [
+      1.0468039999999998,
+      1.2908810000000006
+    ],
+    "all_pass_compressed_bytes_range": [
+      61891,
+      61900
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "frame-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 78,
+    "raw_bytes": 218275,
+    "compressed_bytes": 24523,
+    "warm_compressed_bytes": 24523,
+    "compressed_bytes_range": [
+      24523,
+      24523
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 21.66738692019591,
+      "cpu_us_per_message_range": [
+        21.361369399830938,
+        22.395078101974654
+      ],
+      "wall_us_per_message": 21.668632670700088,
+      "wall_us_per_message_range": [
+        21.375347844463228,
+        22.409976422045386
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 22.402057245080503,
+      "cpu_us_per_message_range": [
+        22.205275567344533,
+        22.47823494335122
+      ],
+      "wall_us_per_message": 22.409601222420992,
+      "wall_us_per_message_range": [
+        22.20590716180371,
+        22.479117322599883
+      ]
+    },
+    "setup_ms": 1.2695509999999999,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "codex",
+    "warm_compressed_bytes_range": [
+      24523,
+      24523
+    ],
+    "setup_ms_range": [
+      1.0733450000000015,
+      1.438165999999999
+    ],
+    "all_pass_compressed_bytes_range": [
+      24523,
+      24523
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "huffman",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 78,
+    "raw_bytes": 218275,
+    "compressed_bytes": 126921,
+    "warm_compressed_bytes": 126921,
+    "compressed_bytes_range": [
+      126921,
+      126921
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 35.51398601398601,
+      "cpu_us_per_message_range": [
+        35.43916083916084,
+        41.95540691192865
+      ],
+      "wall_us_per_message": 35.55043916083916,
+      "wall_us_per_message_range": [
+        35.45184405594406,
+        41.97995930880714
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 30.76251526251526,
+      "cpu_us_per_message_range": [
+        30.695156695156694,
+        30.76984126984127
+      ],
+      "wall_us_per_message": 30.76523422873423,
+      "wall_us_per_message_range": [
+        30.710051485551485,
+        30.787152014652023
+      ]
+    },
+    "setup_ms": 1.414765000000001,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+    "dictionary_sha256": null,
+    "dataset": "codex",
+    "warm_compressed_bytes_range": [
+      126921,
+      126923
+    ],
+    "setup_ms_range": [
+      1.1458069999999996,
+      1.443206
+    ],
+    "all_pass_compressed_bytes_range": [
+      126921,
+      126923
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "live",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 78,
+    "raw_bytes": 218275,
+    "compressed_bytes": 7404,
+    "warm_compressed_bytes": 7404,
+    "compressed_bytes_range": [
+      7404,
+      7404
+    ],
+    "stream_end_bytes": 3,
+    "encode": {
+      "cpu_us_per_message": 19.91990483743061,
+      "cpu_us_per_message_range": [
+        19.55089355089355,
+        20.02445149352366
+      ],
+      "wall_us_per_message": 19.920919640496958,
+      "wall_us_per_message_range": [
+        19.55169968919969,
+        20.03289902194026
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 22.19437076333628,
+      "cpu_us_per_message_range": [
+        22.16652097902098,
+        23.767647989870213
+      ],
+      "wall_us_per_message": 22.196664308871206,
+      "wall_us_per_message_range": [
+        22.1673328962704,
+        23.769645457423234
+      ]
+    },
+    "setup_ms": 1.0584240000000005,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+    "dictionary_sha256": null,
+    "dataset": "codex",
+    "warm_compressed_bytes_range": [
+      7404,
+      7404
+    ],
+    "setup_ms_range": [
+      1.0521440000000002,
+      1.2551100000000002
+    ],
+    "all_pass_compressed_bytes_range": [
+      7404,
+      7404
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "live-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 78,
+    "raw_bytes": 218275,
+    "compressed_bytes": 6399,
+    "warm_compressed_bytes": 6399,
+    "compressed_bytes_range": [
+      6399,
+      6399
+    ],
+    "stream_end_bytes": 3,
+    "encode": {
+      "cpu_us_per_message": 18.786034353995518,
+      "cpu_us_per_message_range": [
+        18.602810650887573,
+        19.13023610053313
+      ],
+      "wall_us_per_message": 18.7993498879761,
+      "wall_us_per_message_range": [
+        18.604010601577908,
+        19.13131467377507
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 21.23513665821358,
+      "cpu_us_per_message_range": [
+        20.919314381270905,
+        21.498860398860398
+      ],
+      "wall_us_per_message": 21.235913919413914,
+      "wall_us_per_message_range": [
+        20.920003762541803,
+        21.510281481481478
+      ]
+    },
+    "setup_ms": 1.272711000000001,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": true,
+    "corpus_sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "codex",
+    "warm_compressed_bytes_range": [
+      6399,
+      6399
+    ],
+    "setup_ms_range": [
+      1.0954650000000008,
+      1.4140949999999997
+    ],
+    "all_pass_compressed_bytes_range": [
+      6399,
+      6399
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "node-sync",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 78,
+    "raw_bytes": 218275,
+    "compressed_bytes": 61891,
+    "warm_compressed_bytes": 61891,
+    "compressed_bytes_range": [
+      61891,
+      61891
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 16.34485006518905,
+      "cpu_us_per_message_range": [
+        16.343980877879183,
+        16.673519009725908
+      ],
+      "wall_us_per_message": 16.346399282920473,
+      "wall_us_per_message_range": [
+        16.344888961321168,
+        16.675822502210433
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 11.539613081529248,
+      "cpu_us_per_message_range": [
+        10.959498834498834,
+        12.58513490866432
+      ],
+      "wall_us_per_message": 11.546971211423308,
+      "wall_us_per_message_range": [
+        10.965727054195803,
+        12.585511982570806
+      ]
+    },
+    "setup_ms": 0.0007999999999999119,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+    "dictionary_sha256": null,
+    "dataset": "codex",
+    "warm_compressed_bytes_range": [
+      61891,
+      61891
+    ],
+    "setup_ms_range": [
+      0.0007300000000007856,
+      0.0008499999999997954
+    ],
+    "all_pass_compressed_bytes_range": [
+      61891,
+      61891
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "node-sync-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 78,
+    "raw_bytes": 218275,
+    "compressed_bytes": 24523,
+    "warm_compressed_bytes": 24523,
+    "compressed_bytes_range": [
+      24523,
+      24523
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 30.06270032051282,
+      "cpu_us_per_message_range": [
+        28.364630467571644,
+        30.209535256410255
+      ],
+      "wall_us_per_message": 30.06520572916667,
+      "wall_us_per_message_range": [
+        28.33715931372549,
+        30.22622055288461
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 16.185089420383537,
+      "cpu_us_per_message_range": [
+        14.922480620155039,
+        18.026000479271506
+      ],
+      "wall_us_per_message": 16.1893722258134,
+      "wall_us_per_message_range": [
+        14.92784237726098,
+        18.026623292595257
+      ]
+    },
+    "setup_ms": 0.0006199999999996209,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "codex",
+    "warm_compressed_bytes_range": [
+      24523,
+      24523
+    ],
+    "setup_ms_range": [
+      0.0005900000000007566,
+      0.0007500000000000284
+    ],
+    "all_pass_compressed_bytes_range": [
+      24523,
+      24523
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "bun-sync",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "compressed_bytes": 555869,
+    "warm_compressed_bytes": 555869,
+    "compressed_bytes_range": [
+      555869,
+      555869
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 22.23403019744483,
+      "cpu_us_per_message_range": [
+        22.1345818815331,
+        22.72824450466727
+      ],
+      "wall_us_per_message": 22.235050087108014,
+      "wall_us_per_message_range": [
+        22.14924738675958,
+        22.732256398675094
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 6.329854999580924,
+      "cpu_us_per_message_range": [
+        6.263978762236602,
+        6.584229390681004
+      ],
+      "wall_us_per_message": 6.335626183890704,
+      "wall_us_per_message_range": [
+        6.267317487970797,
+        6.584567488416821
+      ]
+    },
+    "setup_ms": 0.0007799999999988927,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+    "dictionary_sha256": null,
+    "dataset": "dense",
+    "warm_compressed_bytes_range": [
+      555869,
+      555869
+    ],
+    "setup_ms_range": [
+      0.0006700000000012807,
+      0.0009099999999993003
+    ],
+    "all_pass_compressed_bytes_range": [
+      555869,
+      555869
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "deflate",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "compressed_bytes": 420463,
+    "warm_compressed_bytes": 420463,
+    "compressed_bytes_range": [
+      420463,
+      420463
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 70.73170731707317,
+      "cpu_us_per_message_range": [
+        70.71725383920506,
+        74.40379403794039
+      ],
+      "wall_us_per_message": 70.7731467931346,
+      "wall_us_per_message_range": [
+        70.76757362240289,
+        74.46236630532972
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 34.27664859981933,
+      "cpu_us_per_message_range": [
+        33.058836114676936,
+        38.2464430894309
+      ],
+      "wall_us_per_message": 34.28050158084914,
+      "wall_us_per_message_range": [
+        33.06174561403508,
+        38.24854725609756
+      ]
+    },
+    "setup_ms": 1.1004649999999998,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+    "dictionary_sha256": null,
+    "dataset": "dense",
+    "warm_compressed_bytes_range": [
+      420463,
+      420463
+    ],
+    "setup_ms_range": [
+      1.0962449999999997,
+      1.1065259999999988
+    ],
+    "all_pass_compressed_bytes_range": [
+      420463,
+      420463
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "ffi-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "compressed_bytes": 467931,
+    "warm_compressed_bytes": 467931,
+    "compressed_bytes_range": [
+      467931,
+      467931
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 25.95189701897019,
+      "cpu_us_per_message_range": [
+        25.92090108401084,
+        26.874690703428772
+      ],
+      "wall_us_per_message": 25.9617120596206,
+      "wall_us_per_message_range": [
+        25.9355543699187,
+        26.87848709791446
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 5.496118069288801,
+      "cpu_us_per_message_range": [
+        5.355405790900014,
+        6.321976364093538
+      ],
+      "wall_us_per_message": 5.497356881271515,
+      "wall_us_per_message_range": [
+        5.357425545571245,
+        6.325819922889951
+      ]
+    },
+    "setup_ms": 0.8522669999999994,
+    "native_memory": {
+      "encoder": 144890,
+      "decoder": 95992,
+      "cdict": 219712,
+      "ddict": 35544,
+      "scratch_buffers": 11276
+    },
+    "native_version": 10505,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "dense",
+    "warm_compressed_bytes_range": [
+      467931,
+      467931
+    ],
+    "setup_ms_range": [
+      0.8496279999999992,
+      0.8769780000000011
+    ],
+    "all_pass_compressed_bytes_range": [
+      467931,
+      467931
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "frame",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "compressed_bytes": 555869,
+    "warm_compressed_bytes": 555869,
+    "compressed_bytes_range": [
+      555869,
+      555869
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 39.26803861788618,
+      "cpu_us_per_message_range": [
+        38.47052845528455,
+        40.823577235772355
+      ],
+      "wall_us_per_message": 39.28834679878049,
+      "wall_us_per_message_range": [
+        38.475818089430895,
+        40.82599593495935
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 28.436622320768663,
+      "cpu_us_per_message_range": [
+        28.3519955654102,
+        31.37317073170732
+      ],
+      "wall_us_per_message": 28.43866001478196,
+      "wall_us_per_message_range": [
+        28.363127679231344,
+        31.37672032520324
+      ]
+    },
+    "setup_ms": 1.2265200000000007,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+    "dictionary_sha256": null,
+    "dataset": "dense",
+    "warm_compressed_bytes_range": [
+      555869,
+      555869
+    ],
+    "setup_ms_range": [
+      1.046773,
+      1.2461499999999983
+    ],
+    "all_pass_compressed_bytes_range": [
+      555869,
+      555878
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "frame-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "compressed_bytes": 468070,
+    "warm_compressed_bytes": 468070,
+    "compressed_bytes_range": [
+      468070,
+      468070
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 47.7098186366479,
+      "cpu_us_per_message_range": [
+        46.01858304297329,
+        54.78184281842818
+      ],
+      "wall_us_per_message": 47.71254471544716,
+      "wall_us_per_message_range": [
+        46.02388675958188,
+        54.78547764227642
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 28.14320029563932,
+      "cpu_us_per_message_range": [
+        27.828529194382853,
+        33.00171159606333
+      ],
+      "wall_us_per_message": 28.144916666666663,
+      "wall_us_per_message_range": [
+        27.830453436807097,
+        33.004056696619585
+      ]
+    },
+    "setup_ms": 1.0872349999999997,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "dense",
+    "warm_compressed_bytes_range": [
+      468070,
+      468070
+    ],
+    "setup_ms_range": [
+      1.0766340000000003,
+      1.2781409999999997
+    ],
+    "all_pass_compressed_bytes_range": [
+      468070,
+      468070
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "huffman",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "compressed_bytes": 894605,
+    "warm_compressed_bytes": 894605,
+    "compressed_bytes_range": [
+      894605,
+      894605
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 49.57848655409631,
+      "cpu_us_per_message_range": [
+        48.961225766103816,
+        51.333333333333336
+      ],
+      "wall_us_per_message": 49.581687929956225,
+      "wall_us_per_message_range": [
+        48.96640869293308,
+        51.35904979674797
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 39.98755081300813,
+      "cpu_us_per_message_range": [
+        38.88338414634146,
+        45.36207897793263
+      ],
+      "wall_us_per_message": 39.98957063008129,
+      "wall_us_per_message_range": [
+        38.88639024390244,
+        45.36706852497097
+      ]
+    },
+    "setup_ms": 1.1077849999999998,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+    "dictionary_sha256": null,
+    "dataset": "dense",
+    "warm_compressed_bytes_range": [
+      894605,
+      894605
+    ],
+    "setup_ms_range": [
+      1.1007549999999995,
+      1.3318019999999997
+    ],
+    "all_pass_compressed_bytes_range": [
+      894605,
+      894605
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "live",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "compressed_bytes": 411050,
+    "warm_compressed_bytes": 411050,
+    "compressed_bytes_range": [
+      411050,
+      411050
+    ],
+    "stream_end_bytes": 3,
+    "encode": {
+      "cpu_us_per_message": 44.68350754936121,
+      "cpu_us_per_message_range": [
+        44.07520325203252,
+        49.72732958098812
+      ],
+      "wall_us_per_message": 44.685809523809525,
+      "wall_us_per_message_range": [
+        44.0772305458769,
+        49.73259662288931
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 26.939201131141747,
+      "cpu_us_per_message_range": [
+        26.765464828561328,
+        28.479120473022913
+      ],
+      "wall_us_per_message": 26.953196182396603,
+      "wall_us_per_message_range": [
+        26.768805408271472,
+        28.480742239467855
+      ]
+    },
+    "setup_ms": 1.057703,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+    "dictionary_sha256": null,
+    "dataset": "dense",
+    "warm_compressed_bytes_range": [
+      411050,
+      411050
+    ],
+    "setup_ms_range": [
+      1.0399740000000008,
+      1.2332900000000002
+    ],
+    "all_pass_compressed_bytes_range": [
+      411050,
+      411050
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "live-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "compressed_bytes": 427176,
+    "warm_compressed_bytes": 427176,
+    "compressed_bytes_range": [
+      427176,
+      427176
+    ],
+    "stream_end_bytes": 3,
+    "encode": {
+      "cpu_us_per_message": 54.5819783197832,
+      "cpu_us_per_message_range": [
+        52.28827913279133,
+        60.529933481152995
+      ],
+      "wall_us_per_message": 54.65370460704606,
+      "wall_us_per_message_range": [
+        52.29021476964771,
+        60.53303584626755
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 27.895787139689578,
+      "cpu_us_per_message_range": [
+        27.276422764227643,
+        31.59390243902439
+      ],
+      "wall_us_per_message": 27.912440317812276,
+      "wall_us_per_message_range": [
+        27.277803640862505,
+        31.608113821138218
+      ]
+    },
+    "setup_ms": 1.0707839999999997,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": true,
+    "corpus_sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "dense",
+    "warm_compressed_bytes_range": [
+      427176,
+      427176
+    ],
+    "setup_ms_range": [
+      1.064114,
+      1.2322189999999988
+    ],
+    "all_pass_compressed_bytes_range": [
+      427176,
+      427176
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "node-sync",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "compressed_bytes": 555869,
+    "warm_compressed_bytes": 555869,
+    "compressed_bytes_range": [
+      555869,
+      555869
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 25.16390243902439,
+      "cpu_us_per_message_range": [
+        25.00861788617886,
+        26.03302845528455
+      ],
+      "wall_us_per_message": 25.165121300813006,
+      "wall_us_per_message_range": [
+        25.010871056910567,
+        26.034441565040648
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 12.346016260162601,
+      "cpu_us_per_message_range": [
+        12.112625538020087,
+        12.664011946241912
+      ],
+      "wall_us_per_message": 12.346615691056908,
+      "wall_us_per_message_range": [
+        12.11459732185557,
+        12.673054836568774
+      ]
+    },
+    "setup_ms": 0.0006799999999991257,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+    "dictionary_sha256": null,
+    "dataset": "dense",
+    "warm_compressed_bytes_range": [
+      555869,
+      555869
+    ],
+    "setup_ms_range": [
+      0.0006500000000002615,
+      0.0007099999999997664
+    ],
+    "all_pass_compressed_bytes_range": [
+      555869,
+      555869
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "node-sync-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 1348844,
+    "compressed_bytes": 468070,
+    "warm_compressed_bytes": 468070,
+    "compressed_bytes_range": [
+      468070,
+      468070
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 52.137533875338754,
+      "cpu_us_per_message_range": [
+        49.90056285178236,
+        54.950542005420054
+      ],
+      "wall_us_per_message": 52.14002371273712,
+      "wall_us_per_message_range": [
+        49.902808005003116,
+        54.9742066395664
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 18.031922525107603,
+      "cpu_us_per_message_range": [
+        17.99701099952176,
+        18.311453849832617
+      ],
+      "wall_us_per_message": 18.033597680535628,
+      "wall_us_per_message_range": [
+        18.013924677187944,
+        18.312351147776187
+      ]
+    },
+    "setup_ms": 0.0006199999999996209,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "dense",
+    "warm_compressed_bytes_range": [
+      468070,
+      468070
+    ],
+    "setup_ms_range": [
+      0.0005900000000007566,
+      0.0007199999999993878
+    ],
+    "all_pass_compressed_bytes_range": [
+      468070,
+      468070
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "bun-sync",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 395013,
+    "compressed_bytes": 161748,
+    "warm_compressed_bytes": 161748,
+    "compressed_bytes_range": [
+      161748,
+      161748
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 9.049497847919655,
+      "cpu_us_per_message_range": [
+        8.590117943432956,
+        9.916601101494885
+      ],
+      "wall_us_per_message": 9.051063426590149,
+      "wall_us_per_message_range": [
+        8.595126989579754,
+        9.917872672436403
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 3.7694720465723175,
+      "cpu_us_per_message_range": [
+        3.6502129307007354,
+        4.213624894869638
+      ],
+      "wall_us_per_message": 3.769612842517315,
+      "wall_us_per_message_range": [
+        3.6520098722415795,
+        4.213762097000281
+      ]
+    },
+    "setup_ms": 0.0007599999999996498,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+    "dictionary_sha256": null,
+    "dataset": "sparse",
+    "warm_compressed_bytes_range": [
+      161748,
+      161748
+    ],
+    "setup_ms_range": [
+      0.000700000000000145,
+      0.0007699999999992713
+    ],
+    "all_pass_compressed_bytes_range": [
+      161748,
+      161748
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "deflate",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 395013,
+    "compressed_bytes": 17978,
+    "warm_compressed_bytes": 17978,
+    "compressed_bytes_range": [
+      17978,
+      17978
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 23.22222222222222,
+      "cpu_us_per_message_range": [
+        22.289488966318235,
+        24.732032520325202
+      ],
+      "wall_us_per_message": 23.22441884974406,
+      "wall_us_per_message_range": [
+        22.291458768873404,
+        24.73403284552845
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 21.356602186711523,
+      "cpu_us_per_message_range": [
+        18.91229366839123,
+        21.88547799271096
+      ],
+      "wall_us_per_message": 21.35894322960471,
+      "wall_us_per_message_range": [
+        18.92281707317073,
+        21.907601065321003
+      ]
+    },
+    "setup_ms": 1.2946620000000006,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+    "dictionary_sha256": null,
+    "dataset": "sparse",
+    "warm_compressed_bytes_range": [
+      17978,
+      17978
+    ],
+    "setup_ms_range": [
+      1.172618,
+      1.3550129999999996
+    ],
+    "all_pass_compressed_bytes_range": [
+      17978,
+      17978
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "ffi-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 395013,
+    "compressed_bytes": 70425,
+    "warm_compressed_bytes": 70425,
+    "compressed_bytes_range": [
+      70425,
+      70425
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 3.714979058881498,
+      "cpu_us_per_message_range": [
+        3.316454577589254,
+        3.7184959349593494
+      ],
+      "wall_us_per_message": 3.7186886917960087,
+      "wall_us_per_message_range": [
+        3.3167112274655355,
+        3.7193371257188184
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 1.5454564165894824,
+      "cpu_us_per_message_range": [
+        1.4704868253501813,
+        1.5557594989215198
+      ],
+      "wall_us_per_message": 1.5455109601728927,
+      "wall_us_per_message_range": [
+        1.470532647663826,
+        1.555811919279907
+      ]
+    },
+    "setup_ms": 0.8308369999999989,
+    "native_memory": {
+      "encoder": 56274,
+      "decoder": 95992,
+      "cdict": 219712,
+      "ddict": 35544,
+      "scratch_buffers": 3317
+    },
+    "native_version": 10505,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "sparse",
+    "warm_compressed_bytes_range": [
+      70425,
+      70425
+    ],
+    "setup_ms_range": [
+      0.6745210000000004,
+      1.0117519999999995
+    ],
+    "all_pass_compressed_bytes_range": [
+      70425,
+      70425
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "frame",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 395013,
+    "compressed_bytes": 161748,
+    "warm_compressed_bytes": 161748,
+    "compressed_bytes_range": [
+      161748,
+      161748
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 24.71317073170732,
+      "cpu_us_per_message_range": [
+        24.56520325203252,
+        25.39658536585366
+      ],
+      "wall_us_per_message": 24.716546016260164,
+      "wall_us_per_message_range": [
+        24.56814617886179,
+        25.405179512195122
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 22.47691637630662,
+      "cpu_us_per_message_range": [
+        22.42247386759582,
+        22.812857573020175
+      ],
+      "wall_us_per_message": 22.485782520325206,
+      "wall_us_per_message_range": [
+        22.42345325203252,
+        22.828674495633848
+      ]
+    },
+    "setup_ms": 1.1205660000000002,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+    "dictionary_sha256": null,
+    "dataset": "sparse",
+    "warm_compressed_bytes_range": [
+      161748,
+      161748
+    ],
+    "setup_ms_range": [
+      1.0620339999999988,
+      1.2475899999999989
+    ],
+    "all_pass_compressed_bytes_range": [
+      161748,
+      161748
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "frame-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 395013,
+    "compressed_bytes": 70472,
+    "warm_compressed_bytes": 70472,
+    "compressed_bytes_range": [
+      70472,
+      70472
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 20.17387883556255,
+      "cpu_us_per_message_range": [
+        20.01481772882245,
+        23.582395247029392
+      ],
+      "wall_us_per_message": 20.174725544190927,
+      "wall_us_per_message_range": [
+        20.025354314188302,
+        23.585681832395245
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 20.424661246612466,
+      "cpu_us_per_message_range": [
+        18.326996652319465,
+        20.862466124661246
+      ],
+      "wall_us_per_message": 20.42752276422765,
+      "wall_us_per_message_range": [
+        18.32909851745577,
+        20.864097696476964
+      ]
+    },
+    "setup_ms": 1.0870540000000002,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "sparse",
+    "warm_compressed_bytes_range": [
+      70472,
+      70472
+    ],
+    "setup_ms_range": [
+      1.073334000000001,
+      1.2815010000000004
+    ],
+    "all_pass_compressed_bytes_range": [
+      70472,
+      70472
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "huffman",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 395013,
+    "compressed_bytes": 249489,
+    "warm_compressed_bytes": 249489,
+    "compressed_bytes_range": [
+      249489,
+      249489
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 30.741260162601627,
+      "cpu_us_per_message_range": [
+        29.73964382500968,
+        31.367276422764228
+      ],
+      "wall_us_per_message": 30.744681707317067,
+      "wall_us_per_message_range": [
+        29.754504839334107,
+        31.370738617886182
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 26.782255213856487,
+      "cpu_us_per_message_range": [
+        24.1729205753596,
+        27.841463414634145
+      ],
+      "wall_us_per_message": 26.783613290915515,
+      "wall_us_per_message_range": [
+        24.18520856785491,
+        27.871160753880268
+      ]
+    },
+    "setup_ms": 1.1958979999999997,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+    "dictionary_sha256": null,
+    "dataset": "sparse",
+    "warm_compressed_bytes_range": [
+      249489,
+      249489
+    ],
+    "setup_ms_range": [
+      1.097434999999999,
+      1.3084620000000005
+    ],
+    "all_pass_compressed_bytes_range": [
+      249489,
+      249490
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "live",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 395013,
+    "compressed_bytes": 15504,
+    "warm_compressed_bytes": 15504,
+    "compressed_bytes_range": [
+      15504,
+      15504
+    ],
+    "stream_end_bytes": 3,
+    "encode": {
+      "cpu_us_per_message": 18.36716881874701,
+      "cpu_us_per_message_range": [
+        17.94858919177427,
+        20.40772357723577
+      ],
+      "wall_us_per_message": 18.369532639885218,
+      "wall_us_per_message_range": [
+        17.949751195600193,
+        20.4092825203252
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 18.667282581916727,
+      "cpu_us_per_message_range": [
+        17.583507549361208,
+        21.849012775842045
+      ],
+      "wall_us_per_message": 18.679669499876812,
+      "wall_us_per_message_range": [
+        17.584873403019746,
+        21.85017290940766
+      ]
+    },
+    "setup_ms": 1.2477199999999993,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": false,
+    "corpus_sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+    "dictionary_sha256": null,
+    "dataset": "sparse",
+    "warm_compressed_bytes_range": [
+      15504,
+      15504
+    ],
+    "setup_ms_range": [
+      1.0449029999999997,
+      1.2479600000000008
+    ],
+    "all_pass_compressed_bytes_range": [
+      15504,
+      15504
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "live-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 395013,
+    "compressed_bytes": 14347,
+    "warm_compressed_bytes": 14347,
+    "compressed_bytes_range": [
+      14347,
+      14347
+    ],
+    "stream_end_bytes": 3,
+    "encode": {
+      "cpu_us_per_message": 17.66214995483288,
+      "cpu_us_per_message_range": [
+        17.62369337979094,
+        18.591032273959105
+      ],
+      "wall_us_per_message": 17.663160569105685,
+      "wall_us_per_message_range": [
+        17.63246608594657,
+        18.59478258191673
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 18.004662840746054,
+      "cpu_us_per_message_range": [
+        17.82322880371661,
+        18.35019129603061
+      ],
+      "wall_us_per_message": 18.006310856049737,
+      "wall_us_per_message_range": [
+        17.82467537746806,
+        18.362820420851268
+      ]
+    },
+    "setup_ms": 1.2554210000000001,
+    "roundtrip": true,
+    "independent_frame_verified": false,
+    "dictionary_required": true,
+    "corpus_sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "sparse",
+    "warm_compressed_bytes_range": [
+      14347,
+      14347
+    ],
+    "setup_ms_range": [
+      1.089055,
+      1.4217659999999999
+    ],
+    "all_pass_compressed_bytes_range": [
+      14347,
+      14347
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "node-sync",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 395013,
+    "compressed_bytes": 161748,
+    "warm_compressed_bytes": 161748,
+    "compressed_bytes_range": [
+      161748,
+      161748
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 14.976502082093992,
+      "cpu_us_per_message_range": [
+        14.079730229120473,
+        15.408739837398373
+      ],
+      "wall_us_per_message": 14.977445865556216,
+      "wall_us_per_message_range": [
+        14.08068569844789,
+        15.410001727642275
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 8.800696864111499,
+      "cpu_us_per_message_range": [
+        8.3022412656559,
+        9.16399708773207
+      ],
+      "wall_us_per_message": 8.806137456445994,
+      "wall_us_per_message_range": [
+        8.302818666227203,
+        9.171140152894065
+      ]
+    },
+    "setup_ms": 0.0007299999999990092,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": false,
+    "corpus_sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+    "dictionary_sha256": null,
+    "dataset": "sparse",
+    "warm_compressed_bytes_range": [
+      161748,
+      161748
+    ],
+    "setup_ms_range": [
+      0.000700000000000145,
+      0.0007300000000007856
+    ],
+    "all_pass_compressed_bytes_range": [
+      161748,
+      161748
+    ],
+    "repetitions": 3
+  },
+  {
+    "mode": "node-sync-dict",
+    "bun": "1.4.4",
+    "bun_revision": "38afee6c84fcf48c0edb2466aa4b27d287a59c30",
+    "zstd_revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "zlib_revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+    "messages": 246,
+    "raw_bytes": 395013,
+    "compressed_bytes": 70472,
+    "warm_compressed_bytes": 70472,
+    "compressed_bytes_range": [
+      70472,
+      70472
+    ],
+    "stream_end_bytes": 0,
+    "encode": {
+      "cpu_us_per_message": 27.973946784922394,
+      "cpu_us_per_message_range": [
+        25.68919376693767,
+        28.37971175166297
+      ],
+      "wall_us_per_message": 28.008897819660014,
+      "wall_us_per_message_range": [
+        25.6905298102981,
+        28.380981152993346
+      ]
+    },
+    "decode": {
+      "cpu_us_per_message": 14.748161053039102,
+      "cpu_us_per_message_range": [
+        13.026984950700571,
+        15.026373190561173
+      ],
+      "wall_us_per_message": 14.74873790166473,
+      "wall_us_per_message_range": [
+        13.031687078360147,
+        15.028224767003763
+      ]
+    },
+    "setup_ms": 0.00075099999999928,
+    "roundtrip": true,
+    "independent_frame_verified": true,
+    "dictionary_required": true,
+    "corpus_sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+    "dictionary_sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+    "dataset": "sparse",
+    "warm_compressed_bytes_range": [
+      70472,
+      70472
+    ],
+    "setup_ms_range": [
+      0.0007199999999993878,
+      0.0007999999999999119
+    ],
+    "all_pass_compressed_bytes_range": [
+      70472,
+      70472
+    ],
+    "repetitions": 3
+  }
+]

@@ -1,0 +1,49 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/31 finished · 0 running · ~2m left
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/reloads.test.ts:
+(pass) Reloads > test_candidate_rejects_incompatible_or_partly_restored_state_without_killing_panes [2482.23ms]
+(pass) Reloads > test_cold_migration_upgrades_only_after_successful_restore [3195.49ms]
+(pass) Reloads > test_cold_recovery_preserves_layout_cwd_history_and_resume_hint [3488.09ms]
+Testing · 9% · 3/31 finished · 1 running · <1m left
+(pass) Reloads > test_cold_recovery_resumes_the_agent_in_its_pane_once_focused [4129.88ms]
+(pass) Reloads > test_compressed_reload_reports_rejection_without_committing_or_replaying_input [1679.66ms]
+(pass) Reloads > test_compressed_reload_returns_the_committed_reply_and_rejects_later_requests [1695.45ms]
+(pass) Reloads > test_failed_candidate_rolls_back_and_can_retry [1873.99ms]
+Testing · 22% · 7/31 finished · 1 running · <1m left
+(pass) Reloads > test_fragmented_rpc_and_paste_survive [1926.15ms]
+(pass) Reloads > test_handoff_keeps_the_host_theme_in_open_panes [1611.95ms]
+(pass) Reloads > test_handoff_preserves_processes_viewers_and_queued_controls [2962.00ms]
+(pass) Reloads > test_headless_cold_recovery_displays_resume_without_starting_agent [3205.88ms]
+Testing · 35% · 11/31 finished · 1 running · <1m left
+(pass) Reloads > test_headless_partial_initialization_and_deferred_request_survive [2271.29ms]
+(pass) Reloads > test_headless_session_retains_pid_approvals_and_transport [2499.27ms]
+(pass) Reloads > test_management_version_is_strict_and_independent_of_runtime [1612.71ms]
+(pass) Reloads > test_missing_directory_and_removed_socket_directory_do_not_lose_recovery [1997.23ms]
+(pass) Reloads > test_pipelined_requests_remain_ordered_across_handoff [1621.73ms]
+Testing · 51% · 16/31 finished · 1 running · <1m left
+(pass) Reloads > test_recovery_prefills_editable_command_until_enter [5637.62ms]
+(pass) Reloads > test_reload_drops_input_a_blocked_pane_never_read [3205.97ms]
+(pass) Reloads > test_removed_attachment_cannot_create_a_shell_or_block_reload [1806.75ms]
+Testing · 61% · 19/31 finished · 1 running · <1m left
+(pass) Reloads > test_v2_migration_preserves_processes_viewers_and_inference_counts [2242.46ms]
+(pass) Reloads > test_workspace_names_survive_handoff [2100.57ms]
+
+tests/rpc.test.ts:
+(pass) Rpc > test_bugreport_keeps_diagnostics_from_an_older_daemon [1590.91ms]
+(pass) Rpc > test_disconnected_deferred_request_finishes_without_blocking_reload [1601.58ms]
+(pass) Rpc > test_failed_reload_releases_an_untagged_branch_request [1256.53ms]
+(pass) Rpc > test_followed_history_replies_before_its_events [1581.30ms]
+Testing · 80% · 25/31 finished · 1 running · <1m left
+(pass) Rpc > test_reload_drops_pending_git_then_preserves_correlated_and_pipelined_replies [2043.20ms]
+(pass) Rpc > test_requests_without_ids_reply_in_order [1256.19ms]
+(pass) Rpc > test_shared_rpc_keeps_branch_replies_errors_and_viewer_sync_separate [1529.37ms]
+(pass) Rpc > test_shared_rpc_keeps_worktree_success_and_failure_with_their_request [1565.69ms]
+(pass) Rpc > test_unversioned_cli_controls_accept_older_daemon_replies [1544.21ms]
+(pass) Rpc > test_websocket_subscription_and_viewer_survive_reload_on_their_original_connections [1668.87ms]
+
+ 31 pass
+ 0 fail
+Ran 31 tests across 2 files. [69.05s]
+Cleanup · 100% · 31/31 finished · 0 running

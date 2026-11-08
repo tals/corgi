@@ -1,0 +1,70 @@
+{
+  "before": {
+    "builtAt": "2026-11-06T23:46:34.639Z",
+    "target": "linux-x64",
+    "bunVersion": "1.4.4",
+    "testBuild": false,
+    "releaseVersion": "0.1.0-dev",
+    "releaseCommit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+    "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+    "sourceSHA256": "69905a134c6e344b8c91716f748f90c285e5f423cd6bff6cb605f161204683f9",
+    "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+    "inputsSHA256": "10f80e8dadcd78f698e7744c52f638e606cbd675389fdf14908fcad46107399d"
+  },
+  "after": {
+    "builtAt": "2026-11-07T02:54:26.464Z",
+    "target": "linux-x64",
+    "bunVersion": "1.4.4",
+    "testBuild": false,
+    "releaseVersion": "0.1.0-dev",
+    "releaseCommit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c-dirty",
+    "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+    "sourceSHA256": "a313b23d71dfee6d307715b162a2c443e3bf39c6f08f80d5992f99ed3602ecb1",
+    "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+    "inputsSHA256": "ad6a2112fc5834ac29d077b2b67cde39472fc84e8846ab2b88f8268586f3d3a4",
+    "application_commit": "9eff77f4",
+    "committed_source_matches_measured_source": true
+  },
+  "test": {
+    "builtAt": "2026-11-07T02:54:27.422Z",
+    "target": "linux-x64",
+    "bunVersion": "1.4.4",
+    "testBuild": true,
+    "releaseVersion": "0.1.0-dev",
+    "releaseCommit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c-dirty",
+    "sha256": "f2b2a6ced3403623a3e28b83686211112016d907ac766b672253038489f22a0a",
+    "sourceSHA256": "a313b23d71dfee6d307715b162a2c443e3bf39c6f08f80d5992f99ed3602ecb1",
+    "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+    "inputsSHA256": "c927426c66b7d088bc8d19e7f2e0cce15c6b199b43e42f506e2a1acfe9b13809"
+  },
+  "fixed_pilot": {
+    "builtAt": "2026-11-07T02:48:19.363Z",
+    "target": "linux-x64",
+    "bunVersion": "1.4.4",
+    "testBuild": false,
+    "releaseVersion": "0.1.0-dev",
+    "releaseCommit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c-dirty",
+    "sha256": "5930041417dbbd15dfae06206546c59101d361d064b7be58f49303a153e77b6b",
+    "sourceSHA256": "b59bc1782d763392469a9d6067ed75d078b9566e290b1f0ca134eaaf092e73b9",
+    "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+    "inputsSHA256": "201766498c135f5fd18dd05b4b34583f176ee85a4cdaaa55847e41d247f57411"
+  },
+  "adaptive_pilot": {
+    "builtAt": "2026-11-07T02:52:04.313Z",
+    "target": "linux-x64",
+    "bunVersion": "1.4.4",
+    "testBuild": false,
+    "releaseVersion": "0.1.0-dev",
+    "releaseCommit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c-dirty",
+    "sha256": "61c794766955cf270666518eb8b24a4d4ca80e6be568811796a6789a79a92239",
+    "sourceSHA256": "9d32206b6a33fd8bbfd841d2d8ca8f2e8dd5de56d342ae968a031ee1c2c977fe",
+    "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+    "inputsSHA256": "72acdffc22eb2c77c0b77b63a1484ed5c1ac1d2bc76c1c27c78f57d0aae533c0"
+  },
+  "herdr": {
+    "version": "0.9.5",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "source_commit": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+    "unmodified": true
+  }
+}

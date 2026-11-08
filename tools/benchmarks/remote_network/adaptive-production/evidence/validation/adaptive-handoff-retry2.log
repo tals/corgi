@@ -1,0 +1,12 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/43 finished · 0 running
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/remote.test.ts:
+(pass) SSH machines > test_remote_reload_rebuilds_the_stream_without_replacing_its_panes [4989.13ms]
+
+ 1 pass
+ 42 filtered out
+ 0 fail
+Ran 1 test across 1 file. [5.09s]
+Cleanup · 2% · 1/43 finished · 0 running

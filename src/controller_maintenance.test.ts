@@ -269,9 +269,34 @@ test("archive preview never mutates until confirmed, and cancellation ignores a 
     expect(f.view.archive_dialog?.preview).not.toBeNull();
     expect(edit).not.toHaveBeenCalled();
     await f.view.input(Buffer.from("a"));
+    await f.view.tasks.idle();
     expect(edit).toHaveBeenCalledWith({ "workspace.archive": { target: 1 } });
     expect(f.view.archive_dialog).toBeNull();
   } finally {
+    edit.mockRestore();
+    f.close();
+  }
+});
+
+test("a hanging lifecycle request leaves same-machine UI actions responsive", async () => {
+  const f = fixture();
+  let release!: () => void;
+  const edit = spyOn(f.view as unknown as { edit(command: unknown): Promise<void> }, "edit").mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        release = resolve;
+      }),
+  );
+  try {
+    await f.view.perform({ name: "hibernate" });
+    await f.view.perform({ name: "help" });
+    expect(f.view.help_visible).toBe(true);
+    expect(edit).toHaveBeenCalledTimes(1);
+    release();
+    await f.view.tasks.idle();
+  } finally {
+    release?.();
+    await f.view.tasks.idle();
     edit.mockRestore();
     f.close();
   }

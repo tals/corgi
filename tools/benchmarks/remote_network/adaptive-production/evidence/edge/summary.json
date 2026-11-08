@@ -1,0 +1,442 @@
+[
+  {
+    "key": [
+      "stream-600-low",
+      "after",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4260980999097228,
+        "min": 0.4122418127954006,
+        "max": 0.4266168759204447,
+        "p95": 0.42656499831937256
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.8150586718693376,
+        "min": 2.8091973909176886,
+        "max": 2.8282668008469045,
+        "p95": 2.8269459879491476
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.9960427368059754,
+        "min": 2.9796767998486757,
+        "max": 3.0029161451384425,
+        "p95": 3.002228804305196
+      }
+    },
+    "evidence": [
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/after-1/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/after-2/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "after",
+      "stream",
+      "dense",
+      "64kbit",
+      600,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.608639108017087,
+        "min": 0.49083412531763315,
+        "max": 1.4691294939257205,
+        "p95": 1.383080455334857
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 46.73688080807408,
+        "min": 45.83194579588612,
+        "max": 46.99675245212806,
+        "p95": 46.97076528772266
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 1.2834580093622208,
+        "min": 1.106670812703669,
+        "max": 1.516240278724581,
+        "p95": 1.492962051788345
+      },
+      "fps": {
+        "n": 3,
+        "median": 2.7999911519171254,
+        "min": 2.733322006241896,
+        "max": 2.8666569751342377,
+        "p95": 2.8599903928125263
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 1.99759351182729,
+        "min": 1.993867291137576,
+        "max": 3.3535682358779013,
+        "p95": 3.21797076347284
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 1.7970989868044853,
+        "min": 1.7437873468734324,
+        "max": 2.203747105784714,
+        "p95": 2.163082293886691
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.23930613928805589,
+        "min": 0.23414923253605066,
+        "max": 0.2580343184010548,
+        "p95": 0.2561615004897549
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 412.41796875,
+        "min": 412.1953125,
+        "max": 422.77734375,
+        "p95": 421.74140625
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 55.09167310502041,
+        "min": 53.871974199887234,
+        "max": 55.2115039780142,
+        "p95": 55.19952089071482
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 8.214751525886143,
+        "min": 8.040028404001117,
+        "max": 8.35479229694633,
+        "p95": 8.340788219840311
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/after-1/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/after-2/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "before",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4143193569034338,
+        "min": 0.40702591463923454,
+        "max": 0.42914618039503694,
+        "p95": 0.4276634980458766
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.93953147996217,
+        "min": 2.918767302762717,
+        "max": 2.9481118763796985,
+        "p95": 2.9472538367379455
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 3.128232697956264,
+        "min": 3.118136155884713,
+        "max": 3.134003493003547,
+        "p95": 3.133426413498819
+      }
+    },
+    "evidence": [
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/before-1/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/before-2/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "before",
+      "stream",
+      "dense",
+      "64kbit",
+      600,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.5732691292650998,
+        "min": 0.49649894423782825,
+        "max": 0.5922280601225793,
+        "p95": 0.5903321670368313
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 64.21816137323452,
+        "min": 64.01999083653507,
+        "max": 64.24636850447851,
+        "p95": 64.24354779135412
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 1.3720145979896188,
+        "min": 1.2987653110176325,
+        "max": 1.3930912199430168,
+        "p95": 1.390983557747677
+      },
+      "fps": {
+        "n": 3,
+        "median": 1.8666597976829717,
+        "min": 1.866657308796767,
+        "max": 1.8666599295738437,
+        "p95": 1.8666599163847566
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 1.423389668110758,
+        "min": 1.394760106690228,
+        "max": 1.4266144852153957,
+        "p95": 1.426292003504932
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 1.323166985064745,
+        "min": 1.2947352398186922,
+        "max": 1.3266095449216664,
+        "p95": 1.3262652889359743
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.261349395153322,
+        "min": 0.2556991508509738,
+        "max": 0.2642223298999285,
+        "p95": 0.26393503642526783
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 404.58984375,
+        "min": 404.1484375,
+        "max": 412.234375,
+        "p95": 411.469921875
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 72.44812974960843,
+        "min": 72.26038111845975,
+        "max": 72.62362115610568,
+        "p95": 72.60607201545596
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 8.24039028192467,
+        "min": 8.2299683763739,
+        "max": 8.37725265162718,
+        "p95": 8.363566414656928
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/before-1/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/before-2/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "herdr",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.29170323396101594,
+        "min": 0.28311185585334897,
+        "max": 0.29251644806936383,
+        "p95": 0.29243512665852905
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 3.939644285943359,
+        "min": 3.938801772892475,
+        "max": 3.9412917783483863,
+        "p95": 3.9411270291078835
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 4.457105514127761,
+        "min": 4.3389365850016475,
+        "max": 4.460045066662133,
+        "p95": 4.459751111408695
+      }
+    },
+    "evidence": [
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-1/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-2/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "herdr",
+      "stream",
+      "dense",
+      "64kbit",
+      600,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 12.368185059633106,
+        "min": 12.027677500154823,
+        "max": 14.140709295403212,
+        "p95": 13.963456871826201
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 63.884086575138085,
+        "min": 63.28682870518952,
+        "max": 63.895693721829836,
+        "p95": 63.89453300716066
+      },
+      "fps": {
+        "n": 3,
+        "median": 1.1333286257925301,
+        "min": 0.9666619173908697,
+        "max": 1.533328688424699,
+        "p95": 1.4933286821614822
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 32.15271345293149,
+        "min": 31.562584147788584,
+        "max": 32.415305477101356,
+        "p95": 32.38904627468437
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 30.65271345851943,
+        "min": 30.212878777179867,
+        "max": 31.065099932719022,
+        "p95": 31.023861285299063
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.05480910200514021,
+        "min": 0.05108668802801492,
+        "max": 0.06058236584494985,
+        "p95": 0.060005039460968884
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 66.125,
+        "min": 62.12109375,
+        "max": 68.125,
+        "p95": 67.925
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 67.74304158913833,
+        "min": 67.28882255115985,
+        "max": 67.98062679750345,
+        "p95": 67.95686827666694
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 4.001993845970339,
+        "min": 3.8589550140002506,
+        "max": 4.084933075673618,
+        "p95": 4.07663915270329
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "p95": 0.0
+      }
+    },
+    "evidence": [
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-1/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-2/results.json",
+      "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-3/results.json"
+    ]
+  }
+]

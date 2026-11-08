@@ -1,0 +1,2879 @@
+{
+  "root": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-short-pilot-trace",
+  "manifest": {
+    "product": "corgi",
+    "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-short-pilot2",
+    "sha256": "b3511150e99a029290874ee29d162e902e38c8ebf2dd69a8172754fbe7200624",
+    "corgi_commit": "cc3b3ba7f60a8ff52bec6c4a7bb18f5047e4f9cc",
+    "build": {
+      "builtAt": "2026-11-07T00:27:19.046Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "cc3b3ba7f60a8ff52bec6c4a7bb18f5047e4f9cc-dirty",
+      "sha256": "b3511150e99a029290874ee29d162e902e38c8ebf2dd69a8172754fbe7200624",
+      "sourceSHA256": "336eee8614c224944f89881e652e30ca5fb3a3a05feb1edf40374d3adcaa4b43",
+      "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+      "inputsSHA256": "36cb0ef0dc3632e754a9a98e40d11bda3b4467a3e7a6a77df2f34b90c6e14ef7"
+    },
+    "args": {
+      "product": "corgi",
+      "binary": "dist/corgi-short-pilot2",
+      "output": "dist/remote-short-pilot-trace",
+      "suite": "faults",
+      "repeats": 1,
+      "panes": 4,
+      "cpus": "32-39",
+      "sleep_seconds": 180,
+      "ansi": false,
+      "trace": true,
+      "capture": true,
+      "fault_cases": "blackhole3",
+      "calibrate": false,
+      "rtts": "0,20,120,300",
+      "ssh_compression": "default",
+      "stream_cases": "sparse:unlimited,sparse:1mbit,sparse:256kbit,sparse:64kbit,dense:1mbit,dense:256kbit,dense:64kbit,loss"
+    },
+    "kernel": "6.8.0-146-generic",
+    "clock": "CLOCK_MONOTONIC",
+    "uid": 1000,
+    "topology": "intermediate-bridge-tbf-netem-v2",
+    "started_utc": "2026-11-07T00:27:19Z"
+  },
+  "captures": {
+    "local": {
+      "sha256": "e6e01fb05c3b2a13e2e7fa5ae92bb101b35747df3fb3be155ed811fda1e93518",
+      "log": "libibverbs: Warning: couldn't open config directory '/etc/libibverbs.d'.\ntcpdump: data link type LINUX_SLL2\ntcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 128 bytes\n740 packets captured\n807 packets received by filter\n0 packets dropped by kernel\n"
+    },
+    "atlas": {
+      "sha256": "d39bd14b1e216ed5f25a27a3882ef441fdcb7d3da8e1ad852d088c40c5a6aa45",
+      "log": "libibverbs: Warning: couldn't open config directory '/etc/libibverbs.d'.\ntcpdump: data link type LINUX_SLL2\ntcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 128 bytes\n497 packets captured\n559 packets received by filter\n0 packets dropped by kernel\n"
+    }
+  },
+  "windows": [
+    {
+      "case": "blackhole3",
+      "repeat": 0,
+      "primary_client_port": 54262,
+      "fault_start": {
+        "at": 2336210.034374046,
+        "epoch": 1794011257.5423145,
+        "event": "fault_start",
+        "case": "blackhole3",
+        "repeat": 0
+      },
+      "fault_end": {
+        "at": 2336213.231245981,
+        "epoch": 1794011260.7391849,
+        "event": "fault_end",
+        "case": "blackhole3",
+        "repeat": 0
+      },
+      "result": {
+        "at": 2336216.030740284,
+        "epoch": 1794011263.538681,
+        "event": "result",
+        "case": "blackhole3",
+        "repeat": 0,
+        "fault_seconds": 3,
+        "actual_fault_seconds": 3.1968719349242747,
+        "recovery_seconds": 2.3755197189748287,
+        "usable_seconds": 2.5441290657036006,
+        "ready": {
+          "ack_at": 2336215.775375047,
+          "ack": "READYV2MatlasI5P0",
+          "probes": [
+            {
+              "token": "READYV2MatlasI5P0",
+              "sent": 2336215.624623431
+            },
+            {
+              "token": "READYV2MatlasI5P1",
+              "sent": 2336215.744804009
+            }
+          ]
+        },
+        "before": {
+          "token": "BEFOREblackhole30V2I2",
+          "sent": 2336209.849626291,
+          "seconds": 0.17652915278449655,
+          "ok": true
+        },
+        "echo": {
+          "token": "AFTERblackhole30V2I7",
+          "sent": 2336215.865141442,
+          "seconds": 0.16079959273338318,
+          "ok": true
+        },
+        "during_input_at": 2336212.102722227,
+        "late_input_at": null,
+        "isolation": [],
+        "producers_before": [
+          {
+            "machine": "local",
+            "source": "local-source.json",
+            "alive": true,
+            "seq": 320,
+            "at": 2336209.681379942,
+            "pid": 717129,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local1-source.json",
+            "alive": true,
+            "seq": 320,
+            "at": 2336209.684740452,
+            "pid": 717131,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local2-source.json",
+            "alive": true,
+            "seq": 320,
+            "at": 2336209.687371571,
+            "pid": 717132,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local3-source.json",
+            "alive": true,
+            "seq": 320,
+            "at": 2336209.689541751,
+            "pid": 717133,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2336209.313184903,
+            "pid": 717173,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas1-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2336209.316775752,
+            "pid": 717175,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas2-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2336209.318846668,
+            "pid": 717176,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas3-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2336209.321232147,
+            "pid": 717177,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2336209.95177722,
+            "pid": 717214,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis1-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2336209.955217323,
+            "pid": 717216,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis2-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2336209.957563291,
+            "pid": 717217,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis3-source.json",
+            "alive": true,
+            "seq": 300,
+            "at": 2336209.959856426,
+            "pid": 717218,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          }
+        ],
+        "producers_after": [
+          {
+            "machine": "local",
+            "source": "local-source.json",
+            "alive": true,
+            "seq": 440,
+            "at": 2336215.681446619,
+            "pid": 717129,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local1-source.json",
+            "alive": true,
+            "seq": 440,
+            "at": 2336215.684754817,
+            "pid": 717131,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local2-source.json",
+            "alive": true,
+            "seq": 440,
+            "at": 2336215.687368335,
+            "pid": 717132,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "local",
+            "source": "local3-source.json",
+            "alive": true,
+            "seq": 440,
+            "at": 2336215.689583307,
+            "pid": 717133,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas-source.json",
+            "alive": true,
+            "seq": 420,
+            "at": 2336215.313203616,
+            "pid": 717173,
+            "rows": 47,
+            "cols": 132,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas1-source.json",
+            "alive": true,
+            "seq": 420,
+            "at": 2336215.316795455,
+            "pid": 717175,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas2-source.json",
+            "alive": true,
+            "seq": 420,
+            "at": 2336215.318882431,
+            "pid": 717176,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "atlas",
+            "source": "atlas3-source.json",
+            "alive": true,
+            "seq": 420,
+            "at": 2336215.321209488,
+            "pid": 717177,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis-source.json",
+            "alive": true,
+            "seq": 420,
+            "at": 2336215.951782567,
+            "pid": 717214,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis1-source.json",
+            "alive": true,
+            "seq": 420,
+            "at": 2336215.955158017,
+            "pid": 717216,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis2-source.json",
+            "alive": true,
+            "seq": 420,
+            "at": 2336215.957593488,
+            "pid": 717217,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          },
+          {
+            "machine": "borealis",
+            "source": "borealis3-source.json",
+            "alive": true,
+            "seq": 420,
+            "at": 2336215.959850432,
+            "pid": 717218,
+            "rows": 24,
+            "cols": 80,
+            "mode": {
+              "kind": "sparse",
+              "hz": 20
+            }
+          }
+        ]
+      },
+      "first_primary_transmission_after_restoration": {
+        "local": {
+          "seconds_from_restoration": 2.1297762393951416,
+          "epoch": 1794011262.868961,
+          "source": "10.203.1.1",
+          "source_port": 54262,
+          "target": "10.203.1.2",
+          "target_port": 2222,
+          "flags": "P.",
+          "sequence": [
+            526227343,
+            526227739
+          ],
+          "ack": 3058711478,
+          "bytes": 396,
+          "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227343:526227739, ack 3058711478, win 544, options [nop,nop,TS val 2433236849 ecr 523312169], length 396"
+        },
+        "atlas": {
+          "seconds_from_restoration": 2.1919002532958984,
+          "epoch": 1794011262.931085,
+          "source": "10.203.1.2",
+          "source_port": 2222,
+          "target": "10.203.1.1",
+          "target_port": 54262,
+          "flags": ".",
+          "sequence": [
+            3058712562,
+            3058714010
+          ],
+          "ack": 526227739,
+          "bytes": 1448,
+          "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [.], seq 3058712562:3058714010, ack 526227739, win 607, options [nop,nop,TS val 523317505 ecr 2433236849], length 1448"
+        }
+      },
+      "packets": {
+        "local": [
+          {
+            "seconds_from_restoration": -3.38349986076355,
+            "epoch": 1794011257.355685,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058704026,
+              3058704110
+            ],
+            "ack": 526226307,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058704026:3058704110, ack 526226307, win 607, options [nop,nop,TS val 523311869 ecr 2433231215], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.36392879486084,
+            "epoch": 1794011257.375256,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526226571,
+              526226711
+            ],
+            "ack": 3058704110,
+            "bytes": 140,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526226571:526226711, ack 3058704110, win 540, options [nop,nop,TS val 2433231355 ecr 523311869], length 140"
+          },
+          {
+            "seconds_from_restoration": -3.3571197986602783,
+            "epoch": 1794011257.382065,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058704110,
+              3058705194
+            ],
+            "ack": 526226307,
+            "bytes": 1084,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058704110:3058705194, ack 526226307, win 607, options [nop,nop,TS val 523311896 ecr 2433231215], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.354123830795288,
+            "epoch": 1794011257.385061,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526226711,
+              526226947
+            ],
+            "ack": 3058705194,
+            "bytes": 236,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526226711:526226947, ack 3058705194, win 540, options [nop,nop,TS val 2433231365 ecr 523311896], length 236"
+          },
+          {
+            "seconds_from_restoration": -3.33375883102417,
+            "epoch": 1794011257.405426,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058705194,
+              3058705278
+            ],
+            "ack": 526226439,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058705194:3058705278, ack 526226439, win 607, options [nop,nop,TS val 523311919 ecr 2433231264], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.3069567680358887,
+            "epoch": 1794011257.432228,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058705278,
+              3058706362
+            ],
+            "ack": 526226439,
+            "bytes": 1084,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058705278:3058706362, ack 526226439, win 607, options [nop,nop,TS val 523311946 ecr 2433231264], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.3069448471069336,
+            "epoch": 1794011257.43224,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058706362,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058706362, win 540, options [nop,nop,TS val 2433231412 ecr 523311919], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.3042819499969482,
+            "epoch": 1794011257.434903,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526226947,
+              526227079
+            ],
+            "ack": 3058706362,
+            "bytes": 132,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526226947:526227079, ack 3058706362, win 540, options [nop,nop,TS val 2433231414 ecr 523311919], length 132"
+          },
+          {
+            "seconds_from_restoration": -3.283911943435669,
+            "epoch": 1794011257.455273,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058706362,
+              3058706446
+            ],
+            "ack": 526226571,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058706362:3058706446, ack 526226571, win 607, options [nop,nop,TS val 523311969 ecr 2433231314], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.2570478916168213,
+            "epoch": 1794011257.482137,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058706446,
+              3058707530
+            ],
+            "ack": 526226571,
+            "bytes": 1084,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058706446:3058707530, ack 526226571, win 607, options [nop,nop,TS val 523311996 ecr 2433231314], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.257039785385132,
+            "epoch": 1794011257.482145,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058707530,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058707530, win 540, options [nop,nop,TS val 2433231462 ecr 523311969], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.254607915878296,
+            "epoch": 1794011257.484577,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227079,
+              526227211
+            ],
+            "ack": 3058707530,
+            "bytes": 132,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227079:526227211, ack 3058707530, win 540, options [nop,nop,TS val 2433231464 ecr 523311969], length 132"
+          },
+          {
+            "seconds_from_restoration": -3.234039783477783,
+            "epoch": 1794011257.505145,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": ".",
+            "sequence": null,
+            "ack": 526226947,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [.], ack 526226947, win 607, options [nop,nop,TS val 523312019 ecr 2433231355], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.2321038246154785,
+            "epoch": 1794011257.507081,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058707530,
+              3058707710
+            ],
+            "ack": 526226947,
+            "bytes": 180,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058707530:3058707710, ack 526226947, win 607, options [nop,nop,TS val 523312021 ecr 2433231355], length 180"
+          },
+          {
+            "seconds_from_restoration": -3.2319648265838623,
+            "epoch": 1794011257.50722,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058707710,
+              3058707794
+            ],
+            "ack": 526226947,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058707710:3058707794, ack 526226947, win 607, options [nop,nop,TS val 523312021 ecr 2433231355], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.231935739517212,
+            "epoch": 1794011257.507249,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058707794,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058707794, win 544, options [nop,nop,TS val 2433231487 ecr 523312021], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.2296698093414307,
+            "epoch": 1794011257.509515,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058707794,
+              3058707974
+            ],
+            "ack": 526226947,
+            "bytes": 180,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058707794:3058707974, ack 526226947, win 607, options [nop,nop,TS val 523312023 ecr 2433231355], length 180"
+          },
+          {
+            "seconds_from_restoration": -3.207202911376953,
+            "epoch": 1794011257.531982,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058707974,
+              3058709058
+            ],
+            "ack": 526226947,
+            "bytes": 1084,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058707974:3058709058, ack 526226947, win 607, options [nop,nop,TS val 523312045 ecr 2433231355], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.2071597576141357,
+            "epoch": 1794011257.532025,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058709058,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058709058, win 544, options [nop,nop,TS val 2433231512 ecr 523312023], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.204464912414551,
+            "epoch": 1794011257.53472,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227211,
+              526227343
+            ],
+            "ack": 3058709058,
+            "bytes": 132,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227211:526227343, ack 3058709058, win 544, options [nop,nop,TS val 2433231514 ecr 523312023], length 132"
+          },
+          {
+            "seconds_from_restoration": -3.1837399005889893,
+            "epoch": 1794011257.555445,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058709058,
+              3058709142
+            ],
+            "ack": 526227079,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058709058:3058709142, ack 526227079, win 607, options [nop,nop,TS val 523312069 ecr 2433231414], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.157259941101074,
+            "epoch": 1794011257.581925,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058709142,
+              3058710226
+            ],
+            "ack": 526227079,
+            "bytes": 1084,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058709142:3058710226, ack 526227079, win 607, options [nop,nop,TS val 523312095 ecr 2433231414], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.157209873199463,
+            "epoch": 1794011257.581975,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058710226,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058710226, win 544, options [nop,nop,TS val 2433231562 ecr 523312069], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.1547958850860596,
+            "epoch": 1794011257.584389,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227343,
+              526227475
+            ],
+            "ack": 3058710226,
+            "bytes": 132,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227343:526227475, ack 3058710226, win 544, options [nop,nop,TS val 2433231564 ecr 523312069], length 132"
+          },
+          {
+            "seconds_from_restoration": -3.134056806564331,
+            "epoch": 1794011257.605128,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058710226,
+              3058710310
+            ],
+            "ack": 526227211,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058710226:3058710310, ack 526227211, win 607, options [nop,nop,TS val 523312119 ecr 2433231464], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.1071107387542725,
+            "epoch": 1794011257.632074,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058710310,
+              3058711394
+            ],
+            "ack": 526227211,
+            "bytes": 1084,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058710310:3058711394, ack 526227211, win 607, options [nop,nop,TS val 523312146 ecr 2433231487], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.1070327758789062,
+            "epoch": 1794011257.632152,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058711394,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058711394, win 544, options [nop,nop,TS val 2433231612 ecr 523312119], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.1043899059295654,
+            "epoch": 1794011257.634795,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227475,
+              526227607
+            ],
+            "ack": 3058711394,
+            "bytes": 132,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227475:526227607, ack 3058711394, win 544, options [nop,nop,TS val 2433231614 ecr 523312119], length 132"
+          },
+          {
+            "seconds_from_restoration": -3.083986759185791,
+            "epoch": 1794011257.655198,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058711394,
+              3058711478
+            ],
+            "ack": 526227343,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058711394:3058711478, ack 526227343, win 607, options [nop,nop,TS val 523312169 ecr 2433231514], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.0366947650909424,
+            "epoch": 1794011257.70249,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227607,
+              526227739
+            ],
+            "ack": 3058711478,
+            "bytes": 132,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227607:526227739, ack 3058711478, win 544, options [nop,nop,TS val 2433231682 ecr 523312169], length 132"
+          },
+          {
+            "seconds_from_restoration": -2.830185890197754,
+            "epoch": 1794011257.908999,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227607,
+              526227739
+            ],
+            "ack": 3058711478,
+            "bytes": 132,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227607:526227739, ack 3058711478, win 544, options [nop,nop,TS val 2433231889 ecr 523312169], length 132"
+          },
+          {
+            "seconds_from_restoration": -2.5021989345550537,
+            "epoch": 1794011258.236986,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227343,
+              526227739
+            ],
+            "ack": 3058711478,
+            "bytes": 396,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227343:526227739, ack 3058711478, win 544, options [nop,nop,TS val 2433232217 ecr 523312169], length 396"
+          },
+          {
+            "seconds_from_restoration": -1.838223934173584,
+            "epoch": 1794011258.900961,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227343,
+              526227739
+            ],
+            "ack": 3058711478,
+            "bytes": 396,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227343:526227739, ack 3058711478, win 544, options [nop,nop,TS val 2433232881 ecr 523312169], length 396"
+          },
+          {
+            "seconds_from_restoration": -1.3518109321594238,
+            "epoch": 1794011259.387374,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "S",
+            "sequence": null,
+            "ack": null,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [S], seq 2059535458, win 64240, options [mss 1460,sackOK,TS val 2433233367 ecr 0,nop,wscale 7], length 0"
+          },
+          {
+            "seconds_from_restoration": -0.4942047595977783,
+            "epoch": 1794011260.24498,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227343,
+              526227739
+            ],
+            "ack": 3058711478,
+            "bytes": 396,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227343:526227739, ack 3058711478, win 544, options [nop,nop,TS val 2433234225 ecr 523312169], length 396"
+          },
+          {
+            "seconds_from_restoration": -0.3022029399871826,
+            "epoch": 1794011260.436982,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "S",
+            "sequence": null,
+            "ack": null,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [S], seq 2059535458, win 64240, options [mss 1460,sackOK,TS val 2433234417 ecr 0,nop,wscale 7], length 0"
+          },
+          {
+            "seconds_from_restoration": 0.7217981815338135,
+            "epoch": 1794011261.460983,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "S",
+            "sequence": null,
+            "ack": null,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [S], seq 2059535458, win 64240, options [mss 1460,sackOK,TS val 2433235441 ecr 0,nop,wscale 7], length 0"
+          },
+          {
+            "seconds_from_restoration": 0.8419461250305176,
+            "epoch": 1794011261.581131,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "S.",
+            "sequence": null,
+            "ack": 2059535459,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [S.], seq 2869993511, ack 2059535459, win 65160, options [mss 1460,sackOK,TS val 523316095 ecr 2433235441,nop,wscale 7], length 0"
+          },
+          {
+            "seconds_from_restoration": 0.841987133026123,
+            "epoch": 1794011261.581172,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869993512,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869993512, win 502, options [nop,nop,TS val 2433235561 ecr 523316095], length 0"
+          },
+          {
+            "seconds_from_restoration": 0.842177152633667,
+            "epoch": 1794011261.581362,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059535459,
+              2059535502
+            ],
+            "ack": 2869993512,
+            "bytes": 43,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059535459:2059535502, ack 2869993512, win 502, options [nop,nop,TS val 2433235561 ecr 523316095], length 43"
+          },
+          {
+            "seconds_from_restoration": 0.9622611999511719,
+            "epoch": 1794011261.701446,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2059535502,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [.], ack 2059535502, win 509, options [nop,nop,TS val 523316215 ecr 2433235561], length 0"
+          },
+          {
+            "seconds_from_restoration": 0.9706921577453613,
+            "epoch": 1794011261.709877,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869993512,
+              2869993555
+            ],
+            "ack": 2059535502,
+            "bytes": 43,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869993512:2869993555, ack 2059535502, win 509, options [nop,nop,TS val 523316223 ecr 2433235561], length 43"
+          },
+          {
+            "seconds_from_restoration": 0.9707212448120117,
+            "epoch": 1794011261.709906,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869993555,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869993555, win 502, options [nop,nop,TS val 2433235689 ecr 523316223], length 0"
+          },
+          {
+            "seconds_from_restoration": 0.9711711406707764,
+            "epoch": 1794011261.710356,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": [
+              2059535502,
+              2059536950
+            ],
+            "ack": 2869993555,
+            "bytes": 1448,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], seq 2059535502:2059536950, ack 2869993555, win 502, options [nop,nop,TS val 2433235690 ecr 523316223], length 1448"
+          },
+          {
+            "seconds_from_restoration": 0.9711780548095703,
+            "epoch": 1794011261.710363,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059536950,
+              2059537038
+            ],
+            "ack": 2869993555,
+            "bytes": 88,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059536950:2059537038, ack 2869993555, win 502, options [nop,nop,TS val 2433235690 ecr 523316223], length 88"
+          },
+          {
+            "seconds_from_restoration": 1.0908260345458984,
+            "epoch": 1794011261.830011,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869993555,
+              2869994627
+            ],
+            "ack": 2059535502,
+            "bytes": 1072,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869993555:2869994627, ack 2059535502, win 509, options [nop,nop,TS val 523316344 ecr 2433235689], length 1072"
+          },
+          {
+            "seconds_from_restoration": 1.0912621021270752,
+            "epoch": 1794011261.830447,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2059537038,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [.], ack 2059537038, win 532, options [nop,nop,TS val 523316344 ecr 2433235690], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.1317660808563232,
+            "epoch": 1794011261.870951,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869994627,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869994627, win 525, options [nop,nop,TS val 2433235851 ecr 523316344], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.1578600406646729,
+            "epoch": 1794011261.897045,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059537038,
+              2059538246
+            ],
+            "ack": 2869994627,
+            "bytes": 1208,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059537038:2059538246, ack 2869994627, win 525, options [nop,nop,TS val 2433235877 ecr 523316344], length 1208"
+          },
+          {
+            "seconds_from_restoration": 1.2902822494506836,
+            "epoch": 1794011262.029467,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": ".",
+            "sequence": [
+              2869994627,
+              2869996075
+            ],
+            "ack": 2059538246,
+            "bytes": 1448,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [.], seq 2869994627:2869996075, ack 2059538246, win 555, options [nop,nop,TS val 523316543 ecr 2433235877], length 1448"
+          },
+          {
+            "seconds_from_restoration": 1.2903070449829102,
+            "epoch": 1794011262.029492,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869996075,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869996075, win 548, options [nop,nop,TS val 2433236009 ecr 523316543], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.2903120517730713,
+            "epoch": 1794011262.029497,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996075,
+              2869996159
+            ],
+            "ack": 2059538246,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996075:2869996159, ack 2059538246, win 555, options [nop,nop,TS val 523316543 ecr 2433235877], length 84"
+          },
+          {
+            "seconds_from_restoration": 1.2903170585632324,
+            "epoch": 1794011262.029502,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869996159,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869996159, win 548, options [nop,nop,TS val 2433236009 ecr 523316543], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.3165900707244873,
+            "epoch": 1794011262.055775,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538246,
+              2059538330
+            ],
+            "ack": 2869996159,
+            "bytes": 84,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538246:2059538330, ack 2869996159, win 548, options [nop,nop,TS val 2433236035 ecr 523316543], length 84"
+          },
+          {
+            "seconds_from_restoration": 1.4768571853637695,
+            "epoch": 1794011262.216042,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2059538330,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [.], ack 2059538330, win 555, options [nop,nop,TS val 523316730 ecr 2433236035], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.476877212524414,
+            "epoch": 1794011262.216062,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538330,
+              2059538374
+            ],
+            "ack": 2869996159,
+            "bytes": 44,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538330:2059538374, ack 2869996159, win 548, options [nop,nop,TS val 2433236196 ecr 523316730], length 44"
+          },
+          {
+            "seconds_from_restoration": 1.59700608253479,
+            "epoch": 1794011262.336191,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2059538374,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [.], ack 2059538374, win 555, options [nop,nop,TS val 523316850 ecr 2433236196], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.5970542430877686,
+            "epoch": 1794011262.336239,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996159,
+              2869996203
+            ],
+            "ack": 2059538374,
+            "bytes": 44,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996159:2869996203, ack 2059538374, win 555, options [nop,nop,TS val 523316850 ecr 2433236196], length 44"
+          },
+          {
+            "seconds_from_restoration": 1.5971472263336182,
+            "epoch": 1794011262.336332,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538374,
+              2059538434
+            ],
+            "ack": 2869996203,
+            "bytes": 60,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538374:2059538434, ack 2869996203, win 548, options [nop,nop,TS val 2433236316 ecr 523316850], length 60"
+          },
+          {
+            "seconds_from_restoration": 1.7202050685882568,
+            "epoch": 1794011262.45939,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996203,
+              2869996459
+            ],
+            "ack": 2059538434,
+            "bytes": 256,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996203:2869996459, ack 2059538434, win 555, options [nop,nop,TS val 523316973 ecr 2433236316], length 256"
+          },
+          {
+            "seconds_from_restoration": 1.7203800678253174,
+            "epoch": 1794011262.459565,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538434,
+              2059538574
+            ],
+            "ack": 2869996459,
+            "bytes": 140,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538434:2059538574, ack 2869996459, win 571, options [nop,nop,TS val 2433236439 ecr 523316973], length 140"
+          },
+          {
+            "seconds_from_restoration": 1.840867042541504,
+            "epoch": 1794011262.580052,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996459,
+              2869996559
+            ],
+            "ack": 2059538574,
+            "bytes": 100,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996459:2869996559, ack 2059538574, win 577, options [nop,nop,TS val 523317094 ecr 2433236439], length 100"
+          },
+          {
+            "seconds_from_restoration": 1.842177152633667,
+            "epoch": 1794011262.581362,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538574,
+              2059538882
+            ],
+            "ack": 2869996559,
+            "bytes": 308,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538574:2059538882, ack 2869996559, win 571, options [nop,nop,TS val 2433236561 ecr 523317094], length 308"
+          },
+          {
+            "seconds_from_restoration": 1.9712300300598145,
+            "epoch": 1794011262.710415,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996559,
+              2869996587
+            ],
+            "ack": 2059538882,
+            "bytes": 28,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996559:2869996587, ack 2059538882, win 600, options [nop,nop,TS val 523317224 ecr 2433236561], length 28"
+          },
+          {
+            "seconds_from_restoration": 1.9715831279754639,
+            "epoch": 1794011262.710768,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538882,
+              2059539010
+            ],
+            "ack": 2869996587,
+            "bytes": 128,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538882:2059539010, ack 2869996587, win 571, options [nop,nop,TS val 2433236690 ecr 523317224], length 128"
+          },
+          {
+            "seconds_from_restoration": 2.091719150543213,
+            "epoch": 1794011262.830904,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996587,
+              2869996975
+            ],
+            "ack": 2059539010,
+            "bytes": 388,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996587:2869996975, ack 2059539010, win 607, options [nop,nop,TS val 523317344 ecr 2433236690], length 388"
+          },
+          {
+            "seconds_from_restoration": 2.1297762393951416,
+            "epoch": 1794011262.868961,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227343,
+              526227739
+            ],
+            "ack": 3058711478,
+            "bytes": 396,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227343:526227739, ack 3058711478, win 544, options [nop,nop,TS val 2433236849 ecr 523312169], length 396"
+          },
+          {
+            "seconds_from_restoration": 2.1317741870880127,
+            "epoch": 1794011262.870959,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869996975,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869996975, win 593, options [nop,nop,TS val 2433236851 ecr 523317344], length 0"
+          },
+          {
+            "seconds_from_restoration": 2.2518770694732666,
+            "epoch": 1794011262.991062,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996975,
+              2869997019
+            ],
+            "ack": 2059539010,
+            "bytes": 44,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996975:2869997019, ack 2059539010, win 607, options [nop,nop,TS val 523317505 ecr 2433236851], length 44"
+          },
+          {
+            "seconds_from_restoration": 2.25190806388855,
+            "epoch": 1794011262.991093,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869997019,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869997019, win 593, options [nop,nop,TS val 2433236971 ecr 523317505], length 0"
+          },
+          {
+            "seconds_from_restoration": 2.251944065093994,
+            "epoch": 1794011262.991129,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": ".",
+            "sequence": [
+              3058712562,
+              3058714010
+            ],
+            "ack": 526227739,
+            "bytes": 1448,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [.], seq 3058712562:3058714010, ack 526227739, win 607, options [nop,nop,TS val 523317505 ecr 2433236849], length 1448"
+          },
+          {
+            "seconds_from_restoration": 2.251958131790161,
+            "epoch": 1794011262.991143,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227739,
+              526228043
+            ],
+            "ack": 3058711478,
+            "bytes": 304,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227739:526228043, ack 3058711478, win 567, options [nop,nop,TS val 2433236971 ecr 523312169,nop,nop,sack 1 {3058712562:3058714010}], length 304"
+          },
+          {
+            "seconds_from_restoration": 2.2519640922546387,
+            "epoch": 1794011262.991149,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058714010,
+              3058714118
+            ],
+            "ack": 526227739,
+            "bytes": 108,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058714010:3058714118, ack 526227739, win 607, options [nop,nop,TS val 523317505 ecr 2433236849], length 108"
+          },
+          {
+            "seconds_from_restoration": 2.251972198486328,
+            "epoch": 1794011262.991157,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058711478,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058711478, win 590, options [nop,nop,TS val 2433236971 ecr 523312169,nop,nop,sack 1 {3058712562:3058714118}], length 0"
+          },
+          {
+            "seconds_from_restoration": 2.252021074295044,
+            "epoch": 1794011262.991206,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058714118,
+              3058714202
+            ],
+            "ack": 526227739,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058714118:3058714202, ack 526227739, win 607, options [nop,nop,TS val 523317505 ecr 2433236849], length 84"
+          },
+          {
+            "seconds_from_restoration": 2.252028226852417,
+            "epoch": 1794011262.991213,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058711478,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058711478, win 600, options [nop,nop,TS val 2433236971 ecr 523312169,nop,nop,sack 1 {3058712562:3058714202}], length 0"
+          },
+          {
+            "seconds_from_restoration": 2.252056121826172,
+            "epoch": 1794011262.991241,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058714202,
+              3058714286
+            ],
+            "ack": 526227739,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058714202:3058714286, ack 526227739, win 607, options [nop,nop,TS val 523317505 ecr 2433236849], length 84"
+          },
+          {
+            "seconds_from_restoration": 2.252061128616333,
+            "epoch": 1794011262.991246,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058711478,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058711478, win 600, options [nop,nop,TS val 2433236971 ecr 523312169,nop,nop,sack 1 {3058712562:3058714286}], length 0"
+          },
+          {
+            "seconds_from_restoration": 2.2521562576293945,
+            "epoch": 1794011262.991341,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059539010,
+              2059539254
+            ],
+            "ack": 2869997019,
+            "bytes": 244,
+            "header": "eno1np0 Out IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059539010:2059539254, ack 2869997019, win 593, options [nop,nop,TS val 2433236971 ecr 523317505], length 244"
+          },
+          {
+            "seconds_from_restoration": 2.2931711673736572,
+            "epoch": 1794011263.032356,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058714286,
+              3058715370
+            ],
+            "ack": 526227739,
+            "bytes": 1084,
+            "header": "eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058714286:3058715370, ack 526227739, win 607, options [nop,nop,TS val 523317546 ecr 2433236849], length 1084"
+          },
+          {
+            "seconds_from_restoration": 2.294365167617798,
+            "epoch": 1794011263.03355,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058711478,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058711478, win 600, options [nop,nop,TS val 2433237012 ecr 523312169,nop,nop,sack 1 {3058712562:3058715370}], length 0"
+          }
+        ],
+        "atlas": [
+          {
+            "seconds_from_restoration": -3.3942368030548096,
+            "epoch": 1794011257.344948,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526226307,
+              526226439
+            ],
+            "ack": 3058702858,
+            "bytes": 132,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526226307:526226439, ack 3058702858, win 540, options [nop,nop,TS val 2433231264 ecr 523311770], length 132"
+          },
+          {
+            "seconds_from_restoration": -3.393777847290039,
+            "epoch": 1794011257.345407,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058705194,
+              3058705278
+            ],
+            "ack": 526226439,
+            "bytes": 84,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058705194:3058705278, ack 526226439, win 607, options [nop,nop,TS val 523311919 ecr 2433231264], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.366990804672241,
+            "epoch": 1794011257.372194,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058705278,
+              3058706362
+            ],
+            "ack": 526226439,
+            "bytes": 1084,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058705278:3058706362, ack 526226439, win 607, options [nop,nop,TS val 523311946 ecr 2433231264], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.3471717834472656,
+            "epoch": 1794011257.392013,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058704026,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058704026, win 540, options [nop,nop,TS val 2433231312 ecr 523311819], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.3445067405700684,
+            "epoch": 1794011257.394678,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526226439,
+              526226571
+            ],
+            "ack": 3058704026,
+            "bytes": 132,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526226439:526226571, ack 3058704026, win 540, options [nop,nop,TS val 2433231314 ecr 523311819], length 132"
+          },
+          {
+            "seconds_from_restoration": -3.343930959701538,
+            "epoch": 1794011257.395254,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058706362,
+              3058706446
+            ],
+            "ack": 526226571,
+            "bytes": 84,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058706362:3058706446, ack 526226571, win 607, options [nop,nop,TS val 523311969 ecr 2433231314], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.3170647621154785,
+            "epoch": 1794011257.42212,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058706446,
+              3058707530
+            ],
+            "ack": 526226571,
+            "bytes": 1084,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058706446:3058707530, ack 526226571, win 607, options [nop,nop,TS val 523311996 ecr 2433231314], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.303903818130493,
+            "epoch": 1794011257.435281,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526226571,
+              526226711
+            ],
+            "ack": 3058704110,
+            "bytes": 140,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526226571:526226711, ack 3058704110, win 540, options [nop,nop,TS val 2433231355 ecr 523311869], length 140"
+          },
+          {
+            "seconds_from_restoration": -3.294099807739258,
+            "epoch": 1794011257.445085,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526226711,
+              526226947
+            ],
+            "ack": 3058705194,
+            "bytes": 236,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526226711:526226947, ack 3058705194, win 540, options [nop,nop,TS val 2433231365 ecr 523311896], length 236"
+          },
+          {
+            "seconds_from_restoration": -3.294057846069336,
+            "epoch": 1794011257.445127,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": ".",
+            "sequence": null,
+            "ack": 526226947,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [.], ack 526226947, win 607, options [nop,nop,TS val 523312019 ecr 2433231355], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.2921218872070312,
+            "epoch": 1794011257.447063,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058707530,
+              3058707710
+            ],
+            "ack": 526226947,
+            "bytes": 180,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058707530:3058707710, ack 526226947, win 607, options [nop,nop,TS val 523312021 ecr 2433231355], length 180"
+          },
+          {
+            "seconds_from_restoration": -3.2919788360595703,
+            "epoch": 1794011257.447206,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058707710,
+              3058707794
+            ],
+            "ack": 526226947,
+            "bytes": 84,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058707710:3058707794, ack 526226947, win 607, options [nop,nop,TS val 523312021 ecr 2433231355], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.289684772491455,
+            "epoch": 1794011257.4495,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058707794,
+              3058707974
+            ],
+            "ack": 526226947,
+            "bytes": 180,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058707794:3058707974, ack 526226947, win 607, options [nop,nop,TS val 523312023 ecr 2433231355], length 180"
+          },
+          {
+            "seconds_from_restoration": -3.267251968383789,
+            "epoch": 1794011257.471933,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058707974,
+              3058709058
+            ],
+            "ack": 526226947,
+            "bytes": 1084,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058707974:3058709058, ack 526226947, win 607, options [nop,nop,TS val 523312045 ecr 2433231355], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.2469258308410645,
+            "epoch": 1794011257.492259,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058706362,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058706362, win 540, options [nop,nop,TS val 2433231412 ecr 523311919], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.2442569732666016,
+            "epoch": 1794011257.494928,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526226947,
+              526227079
+            ],
+            "ack": 3058706362,
+            "bytes": 132,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526226947:526227079, ack 3058706362, win 540, options [nop,nop,TS val 2433231414 ecr 523311919], length 132"
+          },
+          {
+            "seconds_from_restoration": -3.2437639236450195,
+            "epoch": 1794011257.495421,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058709058,
+              3058709142
+            ],
+            "ack": 526227079,
+            "bytes": 84,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058709058:3058709142, ack 526227079, win 607, options [nop,nop,TS val 523312069 ecr 2433231414], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.2172818183898926,
+            "epoch": 1794011257.521903,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058709142,
+              3058710226
+            ],
+            "ack": 526227079,
+            "bytes": 1084,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058709142:3058710226, ack 526227079, win 607, options [nop,nop,TS val 523312095 ecr 2433231414], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.197016954421997,
+            "epoch": 1794011257.542168,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058707530,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058707530, win 540, options [nop,nop,TS val 2433231462 ecr 523311969], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.1945817470550537,
+            "epoch": 1794011257.544603,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227079,
+              526227211
+            ],
+            "ack": 3058707530,
+            "bytes": 132,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227079:526227211, ack 3058707530, win 540, options [nop,nop,TS val 2433231464 ecr 523311969], length 132"
+          },
+          {
+            "seconds_from_restoration": -3.194077968597412,
+            "epoch": 1794011257.545107,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058710226,
+              3058710310
+            ],
+            "ack": 526227211,
+            "bytes": 84,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058710226:3058710310, ack 526227211, win 607, options [nop,nop,TS val 523312119 ecr 2433231464], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.1719138622283936,
+            "epoch": 1794011257.567271,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058707794,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058707794, win 544, options [nop,nop,TS val 2433231487 ecr 523312021], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.167156934738159,
+            "epoch": 1794011257.572028,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058710310,
+              3058711394
+            ],
+            "ack": 526227211,
+            "bytes": 1084,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058710310:3058711394, ack 526227211, win 607, options [nop,nop,TS val 523312146 ecr 2433231487], length 1084"
+          },
+          {
+            "seconds_from_restoration": -3.1471378803253174,
+            "epoch": 1794011257.592047,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058709058,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058709058, win 544, options [nop,nop,TS val 2433231512 ecr 523312023], length 0"
+          },
+          {
+            "seconds_from_restoration": -3.1444427967071533,
+            "epoch": 1794011257.594742,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227211,
+              526227343
+            ],
+            "ack": 3058709058,
+            "bytes": 132,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227211:526227343, ack 3058709058, win 544, options [nop,nop,TS val 2433231514 ecr 523312023], length 132"
+          },
+          {
+            "seconds_from_restoration": -3.1440298557281494,
+            "epoch": 1794011257.595155,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058711394,
+              3058711478
+            ],
+            "ack": 526227343,
+            "bytes": 84,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058711394:3058711478, ack 526227343, win 607, options [nop,nop,TS val 523312169 ecr 2433231514], length 84"
+          },
+          {
+            "seconds_from_restoration": -3.1171658039093018,
+            "epoch": 1794011257.622019,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058711478,
+              3058712562
+            ],
+            "ack": 526227343,
+            "bytes": 1084,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058711478:3058712562, ack 526227343, win 607, options [nop,nop,TS val 523312196 ecr 2433231514], length 1084"
+          },
+          {
+            "seconds_from_restoration": -2.901221752166748,
+            "epoch": 1794011257.837963,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058711478,
+              3058712562
+            ],
+            "ack": 526227343,
+            "bytes": 1084,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058711478:3058712562, ack 526227343, win 607, options [nop,nop,TS val 523312412 ecr 2433231514], length 1084"
+          },
+          {
+            "seconds_from_restoration": -2.5581939220428467,
+            "epoch": 1794011258.180991,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058709058,
+              3058710310
+            ],
+            "ack": 526227343,
+            "bytes": 1252,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058709058:3058710310, ack 526227343, win 607, options [nop,nop,TS val 523312755 ecr 2433231514], length 1252"
+          },
+          {
+            "seconds_from_restoration": -1.8382227420806885,
+            "epoch": 1794011258.900962,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058709058,
+              3058710310
+            ],
+            "ack": 526227343,
+            "bytes": 1252,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058709058:3058710310, ack 526227343, win 607, options [nop,nop,TS val 523313475 ecr 2433231514], length 1252"
+          },
+          {
+            "seconds_from_restoration": -0.43019986152648926,
+            "epoch": 1794011260.308985,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058709058,
+              3058710310
+            ],
+            "ack": 526227343,
+            "bytes": 1252,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058709058:3058710310, ack 526227343, win 607, options [nop,nop,TS val 523314883 ecr 2433231514], length 1252"
+          },
+          {
+            "seconds_from_restoration": 0.781865119934082,
+            "epoch": 1794011261.52105,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "S",
+            "sequence": null,
+            "ack": null,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [S], seq 2059535458, win 64240, options [mss 1460,sackOK,TS val 2433235441 ecr 0,nop,wscale 7], length 0"
+          },
+          {
+            "seconds_from_restoration": 0.78190016746521,
+            "epoch": 1794011261.521085,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "S.",
+            "sequence": null,
+            "ack": 2059535459,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [S.], seq 2869993511, ack 2059535459, win 65160, options [mss 1460,sackOK,TS val 523316095 ecr 2433235441,nop,wscale 7], length 0"
+          },
+          {
+            "seconds_from_restoration": 0.902036190032959,
+            "epoch": 1794011261.641221,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869993512,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869993512, win 502, options [nop,nop,TS val 2433235561 ecr 523316095], length 0"
+          },
+          {
+            "seconds_from_restoration": 0.9021961688995361,
+            "epoch": 1794011261.641381,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059535459,
+              2059535502
+            ],
+            "ack": 2869993512,
+            "bytes": 43,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059535459:2059535502, ack 2869993512, win 502, options [nop,nop,TS val 2433235561 ecr 523316095], length 43"
+          },
+          {
+            "seconds_from_restoration": 0.9022090435028076,
+            "epoch": 1794011261.641394,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2059535502,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [.], ack 2059535502, win 509, options [nop,nop,TS val 523316215 ecr 2433235561], length 0"
+          },
+          {
+            "seconds_from_restoration": 0.9106521606445312,
+            "epoch": 1794011261.649837,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869993512,
+              2869993555
+            ],
+            "ack": 2059535502,
+            "bytes": 43,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869993512:2869993555, ack 2059535502, win 509, options [nop,nop,TS val 523316223 ecr 2433235561], length 43"
+          },
+          {
+            "seconds_from_restoration": 1.030778169631958,
+            "epoch": 1794011261.769963,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869993555,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869993555, win 502, options [nop,nop,TS val 2433235689 ecr 523316223], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.0307972431182861,
+            "epoch": 1794011261.769982,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869993555,
+              2869994627
+            ],
+            "ack": 2059535502,
+            "bytes": 1072,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869993555:2869994627, ack 2059535502, win 509, options [nop,nop,TS val 523316344 ecr 2433235689], length 1072"
+          },
+          {
+            "seconds_from_restoration": 1.0312180519104004,
+            "epoch": 1794011261.770403,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": [
+              2059535502,
+              2059536950
+            ],
+            "ack": 2869993555,
+            "bytes": 1448,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], seq 2059535502:2059536950, ack 2869993555, win 502, options [nop,nop,TS val 2433235690 ecr 523316223], length 1448"
+          },
+          {
+            "seconds_from_restoration": 1.031238079071045,
+            "epoch": 1794011261.770423,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059536950,
+              2059537038
+            ],
+            "ack": 2869993555,
+            "bytes": 88,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059536950:2059537038, ack 2869993555, win 502, options [nop,nop,TS val 2433235690 ecr 523316223], length 88"
+          },
+          {
+            "seconds_from_restoration": 1.0312471389770508,
+            "epoch": 1794011261.770432,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2059537038,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [.], ack 2059537038, win 532, options [nop,nop,TS val 523316344 ecr 2433235690], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.1917941570281982,
+            "epoch": 1794011261.930979,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869994627,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869994627, win 525, options [nop,nop,TS val 2433235851 ecr 523316344], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.217879056930542,
+            "epoch": 1794011261.957064,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059537038,
+              2059538246
+            ],
+            "ack": 2869994627,
+            "bytes": 1208,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059537038:2059538246, ack 2869994627, win 525, options [nop,nop,TS val 2433235877 ecr 523316344], length 1208"
+          },
+          {
+            "seconds_from_restoration": 1.2302391529083252,
+            "epoch": 1794011261.969424,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": ".",
+            "sequence": [
+              2869994627,
+              2869996075
+            ],
+            "ack": 2059538246,
+            "bytes": 1448,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [.], seq 2869994627:2869996075, ack 2059538246, win 555, options [nop,nop,TS val 523316543 ecr 2433235877], length 1448"
+          },
+          {
+            "seconds_from_restoration": 1.2302422523498535,
+            "epoch": 1794011261.969427,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996075,
+              2869996159
+            ],
+            "ack": 2059538246,
+            "bytes": 84,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996075:2869996159, ack 2059538246, win 555, options [nop,nop,TS val 523316543 ecr 2433235877], length 84"
+          },
+          {
+            "seconds_from_restoration": 1.3507781028747559,
+            "epoch": 1794011262.089963,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869996075,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869996075, win 548, options [nop,nop,TS val 2433236009 ecr 523316543], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.350795030593872,
+            "epoch": 1794011262.08998,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869996159,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869996159, win 548, options [nop,nop,TS val 2433236009 ecr 523316543], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.3766472339630127,
+            "epoch": 1794011262.115832,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538246,
+              2059538330
+            ],
+            "ack": 2869996159,
+            "bytes": 84,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538246:2059538330, ack 2869996159, win 548, options [nop,nop,TS val 2433236035 ecr 523316543], length 84"
+          },
+          {
+            "seconds_from_restoration": 1.4167912006378174,
+            "epoch": 1794011262.155976,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2059538330,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [.], ack 2059538330, win 555, options [nop,nop,TS val 523316730 ecr 2433236035], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.5369300842285156,
+            "epoch": 1794011262.276115,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538330,
+              2059538374
+            ],
+            "ack": 2869996159,
+            "bytes": 44,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538330:2059538374, ack 2869996159, win 548, options [nop,nop,TS val 2433236196 ecr 523316730], length 44"
+          },
+          {
+            "seconds_from_restoration": 1.536957025527954,
+            "epoch": 1794011262.276142,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2059538374,
+            "bytes": 0,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [.], ack 2059538374, win 555, options [nop,nop,TS val 523316850 ecr 2433236196], length 0"
+          },
+          {
+            "seconds_from_restoration": 1.5370402336120605,
+            "epoch": 1794011262.276225,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996159,
+              2869996203
+            ],
+            "ack": 2059538374,
+            "bytes": 44,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996159:2869996203, ack 2059538374, win 555, options [nop,nop,TS val 523316850 ecr 2433236196], length 44"
+          },
+          {
+            "seconds_from_restoration": 1.657203197479248,
+            "epoch": 1794011262.396388,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538374,
+              2059538434
+            ],
+            "ack": 2869996203,
+            "bytes": 60,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538374:2059538434, ack 2869996203, win 548, options [nop,nop,TS val 2433236316 ecr 523316850], length 60"
+          },
+          {
+            "seconds_from_restoration": 1.66015625,
+            "epoch": 1794011262.399341,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996203,
+              2869996459
+            ],
+            "ack": 2059538434,
+            "bytes": 256,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996203:2869996459, ack 2059538434, win 555, options [nop,nop,TS val 523316973 ecr 2433236316], length 256"
+          },
+          {
+            "seconds_from_restoration": 1.780433177947998,
+            "epoch": 1794011262.519618,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538434,
+              2059538574
+            ],
+            "ack": 2869996459,
+            "bytes": 140,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538434:2059538574, ack 2869996459, win 571, options [nop,nop,TS val 2433236439 ecr 523316973], length 140"
+          },
+          {
+            "seconds_from_restoration": 1.780839204788208,
+            "epoch": 1794011262.520024,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996459,
+              2869996559
+            ],
+            "ack": 2059538574,
+            "bytes": 100,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996459:2869996559, ack 2059538574, win 577, options [nop,nop,TS val 523317094 ecr 2433236439], length 100"
+          },
+          {
+            "seconds_from_restoration": 1.902942180633545,
+            "epoch": 1794011262.642127,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538574,
+              2059538882
+            ],
+            "ack": 2869996559,
+            "bytes": 308,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538574:2059538882, ack 2869996559, win 571, options [nop,nop,TS val 2433236561 ecr 523317094], length 308"
+          },
+          {
+            "seconds_from_restoration": 1.911177158355713,
+            "epoch": 1794011262.650362,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996559,
+              2869996587
+            ],
+            "ack": 2059538882,
+            "bytes": 28,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996559:2869996587, ack 2059538882, win 600, options [nop,nop,TS val 523317224 ecr 2433236561], length 28"
+          },
+          {
+            "seconds_from_restoration": 2.0316390991210938,
+            "epoch": 1794011262.770824,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059538882,
+              2059539010
+            ],
+            "ack": 2869996587,
+            "bytes": 128,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059538882:2059539010, ack 2869996587, win 571, options [nop,nop,TS val 2433236690 ecr 523317224], length 128"
+          },
+          {
+            "seconds_from_restoration": 2.0316591262817383,
+            "epoch": 1794011262.770844,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996587,
+              2869996975
+            ],
+            "ack": 2059539010,
+            "bytes": 388,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996587:2869996975, ack 2059539010, win 607, options [nop,nop,TS val 523317344 ecr 2433236690], length 388"
+          },
+          {
+            "seconds_from_restoration": 2.189819097518921,
+            "epoch": 1794011262.929004,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227343,
+              526227739
+            ],
+            "ack": 3058711478,
+            "bytes": 396,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227343:526227739, ack 3058711478, win 544, options [nop,nop,TS val 2433236849 ecr 523312169], length 396"
+          },
+          {
+            "seconds_from_restoration": 2.1918060779571533,
+            "epoch": 1794011262.930991,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869996975,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869996975, win 593, options [nop,nop,TS val 2433236851 ecr 523317344], length 0"
+          },
+          {
+            "seconds_from_restoration": 2.1918232440948486,
+            "epoch": 1794011262.931008,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869996975,
+              2869997019
+            ],
+            "ack": 2059539010,
+            "bytes": 44,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869996975:2869997019, ack 2059539010, win 607, options [nop,nop,TS val 523317505 ecr 2433236851], length 44"
+          },
+          {
+            "seconds_from_restoration": 2.1919002532958984,
+            "epoch": 1794011262.931085,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": ".",
+            "sequence": [
+              3058712562,
+              3058714010
+            ],
+            "ack": 526227739,
+            "bytes": 1448,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [.], seq 3058712562:3058714010, ack 526227739, win 607, options [nop,nop,TS val 523317505 ecr 2433236849], length 1448"
+          },
+          {
+            "seconds_from_restoration": 2.1919052600860596,
+            "epoch": 1794011262.93109,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058714010,
+              3058714118
+            ],
+            "ack": 526227739,
+            "bytes": 108,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058714010:3058714118, ack 526227739, win 607, options [nop,nop,TS val 523317505 ecr 2433236849], length 108"
+          },
+          {
+            "seconds_from_restoration": 2.192007064819336,
+            "epoch": 1794011262.931192,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058714118,
+              3058714202
+            ],
+            "ack": 526227739,
+            "bytes": 84,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058714118:3058714202, ack 526227739, win 607, options [nop,nop,TS val 523317505 ecr 2433236849], length 84"
+          },
+          {
+            "seconds_from_restoration": 2.192045211791992,
+            "epoch": 1794011262.93123,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058714202,
+              3058714286
+            ],
+            "ack": 526227739,
+            "bytes": 84,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058714202:3058714286, ack 526227739, win 607, options [nop,nop,TS val 523317505 ecr 2433236849], length 84"
+          },
+          {
+            "seconds_from_restoration": 2.2331180572509766,
+            "epoch": 1794011262.972303,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058714286,
+              3058715370
+            ],
+            "ack": 526227739,
+            "bytes": 1084,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058714286:3058715370, ack 526227739, win 607, options [nop,nop,TS val 523317546 ecr 2433236849], length 1084"
+          },
+          {
+            "seconds_from_restoration": 2.3119542598724365,
+            "epoch": 1794011263.051139,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 2869997019,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [.], ack 2869997019, win 593, options [nop,nop,TS val 2433236971 ecr 523317505], length 0"
+          },
+          {
+            "seconds_from_restoration": 2.311988115310669,
+            "epoch": 1794011263.051173,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              526227739,
+              526228043
+            ],
+            "ack": 3058711478,
+            "bytes": 304,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [P.], seq 526227739:526228043, ack 3058711478, win 567, options [nop,nop,TS val 2433236971 ecr 523312169,nop,nop,sack 1 {3058712562:3058714010}], length 304"
+          },
+          {
+            "seconds_from_restoration": 2.3120040893554688,
+            "epoch": 1794011263.051189,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 54262,
+            "flags": "P.",
+            "sequence": [
+              3058711478,
+              3058712562
+            ],
+            "ack": 526227739,
+            "bytes": 1084,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.54262: Flags [P.], seq 3058711478:3058712562, ack 526227739, win 607, options [nop,nop,TS val 523317625 ecr 2433236971], length 1084"
+          },
+          {
+            "seconds_from_restoration": 2.312016248703003,
+            "epoch": 1794011263.051201,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058711478,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058711478, win 590, options [nop,nop,TS val 2433236971 ecr 523312169,nop,nop,sack 1 {3058712562:3058714118}], length 0"
+          },
+          {
+            "seconds_from_restoration": 2.3120410442352295,
+            "epoch": 1794011263.051226,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058711478,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058711478, win 600, options [nop,nop,TS val 2433236971 ecr 523312169,nop,nop,sack 1 {3058712562:3058714202}], length 0"
+          },
+          {
+            "seconds_from_restoration": 2.312073230743408,
+            "epoch": 1794011263.051258,
+            "source": "10.203.1.1",
+            "source_port": 54262,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": ".",
+            "sequence": null,
+            "ack": 3058711478,
+            "bytes": 0,
+            "header": "eno1np0 In  IP 10.203.1.1.54262 > 10.203.1.2.2222: Flags [.], ack 3058711478, win 600, options [nop,nop,TS val 2433236971 ecr 523312169,nop,nop,sack 1 {3058712562:3058714286}], length 0"
+          },
+          {
+            "seconds_from_restoration": 2.312197208404541,
+            "epoch": 1794011263.051382,
+            "source": "10.203.1.1",
+            "source_port": 59046,
+            "target": "10.203.1.2",
+            "target_port": 2222,
+            "flags": "P.",
+            "sequence": [
+              2059539010,
+              2059539254
+            ],
+            "ack": 2869997019,
+            "bytes": 244,
+            "header": "eno1np0 In  IP 10.203.1.1.59046 > 10.203.1.2.2222: Flags [P.], seq 2059539010:2059539254, ack 2869997019, win 593, options [nop,nop,TS val 2433236971 ecr 523317505], length 244"
+          },
+          {
+            "seconds_from_restoration": 2.3136072158813477,
+            "epoch": 1794011263.052792,
+            "source": "10.203.1.2",
+            "source_port": 2222,
+            "target": "10.203.1.1",
+            "target_port": 59046,
+            "flags": "P.",
+            "sequence": [
+              2869997019,
+              2869997099
+            ],
+            "ack": 2059539254,
+            "bytes": 80,
+            "header": "eno1np0 Out IP 10.203.1.2.2222 > 10.203.1.1.59046: Flags [P.], seq 2869997019:2869997099, ack 2059539254, win 607, options [nop,nop,TS val 523317626 ecr 2433236971], length 80"
+          }
+        ]
+      }
+    }
+  ]
+}

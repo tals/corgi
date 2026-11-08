@@ -1,0 +1,57 @@
+{
+  "labs": 90,
+  "scenario_arm_groups": 108,
+  "measured_scenario_results": 324,
+  "including_setup_attaches": 402,
+  "repetitions_per_group": 3,
+  "audit_checks": {
+    "main": 4254,
+    "fast": 734
+  },
+  "stream_inputs": {
+    "sent": 780,
+    "independently_received": 780,
+    "duplicate_receipts": 0,
+    "visible_in_sample_window": 733
+  },
+  "recovery_timeouts": 0,
+  "unexpected_codec_errors": 0,
+  "sleep_remote_pid_continuity_all_trials": true,
+  "sleep_pending_input_received_once_all_trials": true,
+  "outage_producer_continuity_all_trials": true,
+  "unaffected_machine_input_success_all_trials": true,
+  "checks": [
+    {
+      "command": "bun test src",
+      "exit": 0,
+      "passed": 3375,
+      "skipped": 1,
+      "failed": 0,
+      "seconds": 67.24,
+      "log": "dist/zstd-e2e-unit-tests.log"
+    },
+    {
+      "command": "bun typecheck.ts",
+      "exit": 0,
+      "log": "dist/zstd-e2e-typecheck.log"
+    },
+    {
+      "command": "TypeScript 6.0.3 strict --noEmit on codec_bridge.ts (ESNext, Preserve, Bundler, bun-types,node)",
+      "exit": 0
+    },
+    {
+      "command": "Pinned Prettier 3.9.9 --check codec_bridge.ts",
+      "exit": 0
+    },
+    {
+      "command": "python3 -m py_compile codec_run.py codec_matrix.py codec_report.py render-zstd-e2e-report.py",
+      "exit": 0
+    }
+  ],
+  "application_diff": "",
+  "remaining_network_namespaces": "",
+  "log_sha256": {
+    "dist/zstd-e2e-unit-tests.log": "22249a660be3c72dd2b0a0a10528662517944ea3a6a47813c277c35602cbb777",
+    "dist/zstd-e2e-typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

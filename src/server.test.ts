@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { Server } from "./server";
 import * as agentModels from "./agent_models";
@@ -6,12 +9,14 @@ import { Launch, Pane } from "./runtime";
 import { Terminal } from "./pane/terminal";
 import { Workspace } from "./workspace";
 import * as handoff from "./persist/handoff";
+import * as handoffRollback from "./persist/handoff_rollback";
 import * as json from "./json";
 import * as protocol from "./protocol";
 import * as session from "./session";
 import * as worktreeAdd from "./worktree_add";
 import { n } from "./native_bridge";
 import * as native_ffi from "./native_ffi";
+import { Link } from "./link";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -422,10 +427,22 @@ test("a subscriber that leaves out output still does after a handoff", () => {
     const original = source.server.addClient(-1, false);
     original.subscribed = true;
     original.subscribed_output = false;
+    const websocket = {
+      ready: true,
+      closing: false,
+      input: Buffer.from([0x80]).toString("base64"),
+      fragment: Buffer.from("half a message").toString("base64"),
+    };
+    original.restoreWebSocket(websocket);
+    original.queue({ type: "viewer.wake" });
     const saved = json.parse(json.stringify(handoff.captureManifest(source.server, original)));
     handoff.restoreMetadata(target.server, saved);
     const restored = handoff.restoreClient(target.server, saved.clients[0]);
     expect(restored).toMatchObject({ subscribed: true, subscribed_output: false });
+    expect(restored.savedWebSocket()).toEqual(websocket);
+    expect(restored.output).toEqual(original.output);
+    // The preserved output is already framed; restoring must not wrap it again.
+    expect(restored.output[0]).toBe(0x82);
   } finally {
     source.dispose();
     target.dispose();
@@ -721,5 +738,208 @@ test("startup cancellation survives the reporter connection's live handoff", asy
       for (const client of f.server.clients) client.close();
       f.dispose();
     }
+  }
+});
+
+test("a numbered command sent again over a link gets its reply without running twice", async () => {
+  const { server, dispose } = fixture();
+  // The new workspace is saved; keep it out of the user's state.
+  const state = mkdtempSync(join(tmpdir(), "corgi-link-state-")),
+    env = process.env.CORGI_ENV_DIR;
+  process.env.CORGI_ENV_DIR = state;
+  try {
+    const cl = server.addClient(-1, false),
+      queued = spyOn(cl, "queue");
+    await server.request(cl, { op: "link.open", protocol: protocol.version });
+    const link = cl.link!;
+    const create = {
+      op: "session.command",
+      protocol: protocol.version,
+      command: { "workspace.create": { name: "b", cwd: "/tmp" } },
+    };
+    const before = server.runtime.workspaces.items.length;
+    await (server as any).once(cl, link, 1n, { ...create, request_id: 10 });
+    await (server as any).once(cl, link, 1n, { ...create, request_id: 20 });
+    const replies = queued.mock.calls.map(([value]) => value) as any[];
+    expect(server.runtime.workspaces.items.length).toBe(before + 1);
+    expect(replies[2]).toEqual({ ...replies[1], request_id: 20 });
+    expect(replies[1].request_id).toBe(10);
+    expect(replies[1].ok).toBe(true);
+  } finally {
+    await (server as any).workspaceWrites;
+    if (env === undefined) delete process.env.CORGI_ENV_DIR;
+    else process.env.CORGI_ENV_DIR = env;
+    dispose();
+    rmSync(state, { recursive: true, force: true });
+  }
+});
+
+test("resuming a link brings its viewer back and takes it from a connection that still held it", async () => {
+  const { server, dispose } = fixture();
+  try {
+    const old = server.addClient(-1, false),
+      next = server.addClient(-1, false),
+      replies: any[] = [];
+    spyOn(old, "queue").mockImplementation(() => {});
+    spyOn(next, "queue").mockImplementation(value => void replies.push(value));
+    await server.request(old, { op: "link.open", protocol: protocol.version });
+    Object.assign(old, { viewer: true, viewer_id: 5, active_seq: 2, next_control: 4n, last_control: 1n });
+    old.controls = [{ seq: 3n, kind: "focus", id: 1 }];
+    await server.request(next, { op: "link.resume", protocol: protocol.version, link: old.link!.id });
+    expect(replies[0]).toEqual({ ok: true, link: next.link!.id, viewer: true });
+    expect(old.dead).toBe(true);
+    expect([next.viewer, next.viewer_id, next.next_control, next.last_control]).toEqual([true, 5, 4n, 1n]);
+    expect(next.controls).toEqual([{ seq: 3n, kind: "focus", id: 1 }]);
+    await expect(server.request(next, { op: "link.resume", protocol: protocol.version, link: "gone" })).rejects.toThrow(
+      "NoLink",
+    );
+  } finally {
+    dispose();
+  }
+});
+
+test("a link no connection comes back for is dropped after its grace", async () => {
+  const { server, dispose } = fixture();
+  try {
+    const cl = server.addClient(-1, false);
+    spyOn(cl, "queue").mockImplementation(() => {});
+    await server.request(cl, { op: "link.open", protocol: protocol.version });
+    const id = cl.link!.id;
+    cl.close();
+    expect(server.links.get(id)?.detached_at).not.toBeNull();
+    const detached = server.links.get(id)!.detached_at!;
+    (server as any).expireLinks(detached + 60_000);
+    expect(server.links.has(id)).toBe(true);
+    (server as any).expireLinks(detached + 11 * 60_000);
+    expect(server.links.has(id)).toBe(false);
+  } finally {
+    dispose();
+  }
+});
+
+test("deferred checkout requests cannot record a synthetic replay success", async () => {
+  const { server, dispose } = fixture();
+  const cl = server.addClient(-1, false),
+    queued = spyOn(cl, "queue");
+  try {
+    await server.request(cl, { op: "link.open", protocol: protocol.version });
+    const request = {
+      op: "worktree.add",
+      protocol: protocol.version,
+      workspace: 1,
+      path: "/not-created",
+      branch: "topic",
+      base: "main",
+    };
+    expect(protocol.once("worktree.add")).toBe(false);
+    await (server as any).once(cl, cl.link!, 1n, request);
+    await (server as any).once(cl, cl.link!, 1n, request);
+    expect(queued.mock.calls.slice(1).map(([value]) => value)).toEqual([
+      { err: "UnnumberedOperation" },
+      { err: "UnnumberedOperation" },
+    ]);
+  } finally {
+    cl.close();
+    dispose();
+  }
+});
+
+test("handoff drops compression histories and retains the viewer link for a fresh stream", () => {
+  const { server, dispose } = fixture();
+  const [fd, peer] = native_ffi.pair();
+  const client = server.addClient(fd, false),
+    link = new Link();
+  server.links.set(link.id, link);
+  client.link = link;
+  client.viewer = true;
+  client.viewer_id = 7;
+  client.compress();
+  try {
+    server.pause();
+    expect(client.dead).toBe(true);
+    expect(link.detached_at).not.toBeNull();
+    expect(link.viewer?.viewer_id).toBe(7);
+    const saved = handoff.captureManifest(server, client);
+    expect(saved.clients).toHaveLength(0);
+    const restored = fixture();
+    try {
+      expect(restored.server.instance).not.toBe(server.instance);
+      handoff.restoreMetadata(restored.server, saved);
+      expect(restored.server.instance).toBe(server.instance);
+      expect(restored.server.links.get(link.id)?.viewer?.viewer_id).toBe(7);
+    } finally {
+      restored.dispose();
+    }
+  } finally {
+    client.close();
+    n.probe_close(peer);
+    dispose();
+  }
+});
+
+test("handoff can retain its compressed requester without copying its codec or changing rollback state", () => {
+  const { server, dispose } = fixture();
+  const [fd, peer] = native_ffi.pair();
+  const client = server.addClient(fd, false),
+    link = new Link();
+  server.links.set(link.id, link);
+  client.link = link;
+  client.viewer = true;
+  client.viewer_id = 7;
+  client.compress();
+  try {
+    server.pause(client);
+    expect(client.dead).toBe(false);
+    expect(client.link).toBe(link);
+    expect(link.detached_at).toBeNull();
+    expect(link.viewer).toBeNull();
+    const saved = handoff.captureManifest(server, client);
+    expect(saved.clients).toHaveLength(0);
+    expect(saved.requester).toBe(-1);
+    expect(saved.links[0].viewer?.viewer_id).toBe(7);
+    expect(saved.links[0].detached_at).not.toBeNull();
+    expect(link.detached_at).toBeNull();
+    expect(link.viewer).toBeNull();
+  } finally {
+    client.close();
+    n.probe_close(peer);
+    dispose();
+  }
+});
+test("format-6 rollback excludes WS bytes and links without changing the live snapshot", () => {
+  const { server, dispose } = fixture();
+  const requester = server.addClient(-1, false),
+    client = server.addClient(-2, false),
+    raw = server.addClient(-3, false);
+  const link = new Link();
+  client.link = link;
+  server.links.set(link.id, link);
+  client.restoreWebSocket({ ready: true, closing: false, input: "gg==", fragment: null });
+  client.output = Buffer.from([0x82, 0]);
+  raw.input = Buffer.from('{"op":');
+  raw.output = Buffer.from('{"ok":true}\n');
+  try {
+    const saved = handoff.captureManifest(server, requester),
+      before = json.stringify(saved);
+    const older = handoffRollback.downgrade(saved);
+    expect(older.version).toBe(6);
+    expect(older.clients.map(client => client.fd)).toEqual([-1, -3]);
+    expect(older.clients.every(client => !("websocket" in client))).toBe(true);
+    expect(older.clients[1].input).toBe(raw.input.toString("base64"));
+    expect(older.clients[1].output).toBe(raw.output.toString("base64"));
+    expect(older.links).toEqual([]);
+    expect(json.stringify(saved)).toBe(before);
+    expect(() => handoffRollback.downgrade({ ...saved, version: 8 })).toThrow("UnsupportedStateVersion");
+    expect(() => handoffRollback.downgrade({ ...saved, runtime: { ...saved.runtime, version: 7 } })).toThrow(
+      "UnsupportedStateVersion",
+    );
+    expect(() => handoffRollback.downgrade({ ...saved, requester: client.fd })).toThrow("InvalidRollbackRequester");
+    expect(handoffRollback.supported(Error("UnsupportedStateVersion"))).toBe(true);
+    expect(handoffRollback.supported(Error("InvalidCheckpoint"))).toBe(false);
+  } finally {
+    requester.close();
+    client.close();
+    raw.close();
+    dispose();
   }
 });

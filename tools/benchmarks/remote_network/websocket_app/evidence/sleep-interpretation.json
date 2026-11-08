@@ -1,0 +1,421 @@
+{
+  "current_and_prior_traced_trials": [
+    {
+      "path": "dist/websocket-app-network/sleep/herdr-1",
+      "usable": 13.026856963057071,
+      "fresh": 12.644686022773385,
+      "actual_sleep": 180.35490589495748,
+      "write_before_freeze": 0.9802505453117192,
+      "pending_receipts": [
+        {
+          "at": 2440117.196220651,
+          "token": "SLEEP_PENDING",
+          "pid": 1830438
+        }
+      ],
+      "freeze_start": 2440118.115701937,
+      "wake": 2440298.470609182,
+      "trace": false,
+      "capture": false,
+      "resource_keys": [
+        "at",
+        "processes"
+      ],
+      "binary_sha": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "harness": {
+        "run.py": "af325b4686537b0f6f8f1ade8af7276c2d7ff3126b921b835300049e31e6d93a",
+        "freeze_audit.py": "66247a46ba16d0b3792ca6b888dd427d799f338a411bd6a890ab2ce33fcd8b39",
+        "adaptive_run.py": "915b3ce0d615ae4585cdaab0b3c1d67ef30aa85e13674adc3b88fb8389a13664"
+      },
+      "old_atlas_ssh_lifetime": [
+        {
+          "pid": 1852175,
+          "last_seen_after_wake": 7.736203908920288,
+          "command": "/usr/bin/ssh -F /tmp/cne-1824360/local/home/.ssh/config -C -F /tmp/cne-1824360/local/tmp/herdr-ssh-1847279-1/config -S /tmp/hssh-1000/71d5976d5d7317ff0f691a42-%C -o ControlMaster=auto -o ControlPersist=600 -o BatchMode=yes -o NumberOfPasswordPrompts=0 -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -T atlas printf '\n%s\n' 'herdr-remote-output-ready:1'\nexec /tmp/cne-1824360/atlas/bin/herdr remote-client-bridge --idle-timeout-v1 "
+        }
+      ],
+      "pending_receipt_count": 1,
+      "pending_received_before_freeze": true
+    },
+    {
+      "path": "dist/websocket-app-network/sleep/herdr-2",
+      "usable": 13.420478329062462,
+      "fresh": 13.045792285818607,
+      "actual_sleep": 180.1979336310178,
+      "write_before_freeze": 0.5748929409310222,
+      "pending_receipts": [
+        {
+          "at": 2440332.64632752,
+          "token": "SLEEP_PENDING",
+          "pid": 1972898
+        }
+      ],
+      "freeze_start": 2440332.906316294,
+      "wake": 2440513.104250975,
+      "trace": false,
+      "capture": false,
+      "resource_keys": [
+        "at",
+        "processes"
+      ],
+      "binary_sha": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "harness": {
+        "run.py": "af325b4686537b0f6f8f1ade8af7276c2d7ff3126b921b835300049e31e6d93a",
+        "freeze_audit.py": "66247a46ba16d0b3792ca6b888dd427d799f338a411bd6a890ab2ce33fcd8b39",
+        "adaptive_run.py": "915b3ce0d615ae4585cdaab0b3c1d67ef30aa85e13674adc3b88fb8389a13664"
+      },
+      "old_atlas_ssh_lifetime": [
+        {
+          "pid": 1979155,
+          "last_seen_after_wake": 8.64527350384742,
+          "command": "/usr/bin/ssh -F /tmp/cne-1971120/local/home/.ssh/config -C -F /tmp/cne-1971120/local/tmp/herdr-ssh-1977704-1/config -S /tmp/hssh-1000/e5c12a60ddf0c89f5895d3b0-%C -o ControlMaster=auto -o ControlPersist=600 -o BatchMode=yes -o NumberOfPasswordPrompts=0 -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -T atlas printf '\n%s\n' 'herdr-remote-output-ready:1'\nexec /tmp/cne-1971120/atlas/bin/herdr remote-client-bridge --idle-timeout-v1 "
+        }
+      ],
+      "pending_receipt_count": 1,
+      "pending_received_before_freeze": true
+    },
+    {
+      "path": "dist/websocket-app-network/sleep/herdr-3",
+      "usable": 13.740565391723067,
+      "fresh": 13.353143747895956,
+      "actual_sleep": 180.14455579407513,
+      "write_before_freeze": 0.5278834300115705,
+      "pending_receipts": [
+        {
+          "at": 2440546.739874238,
+          "token": "SLEEP_PENDING",
+          "pid": 2049669
+        }
+      ],
+      "freeze_start": 2440547.206845311,
+      "wake": 2440727.351401815,
+      "trace": false,
+      "capture": false,
+      "resource_keys": [
+        "at",
+        "processes"
+      ],
+      "binary_sha": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "harness": {
+        "run.py": "af325b4686537b0f6f8f1ade8af7276c2d7ff3126b921b835300049e31e6d93a",
+        "freeze_audit.py": "66247a46ba16d0b3792ca6b888dd427d799f338a411bd6a890ab2ce33fcd8b39",
+        "adaptive_run.py": "915b3ce0d615ae4585cdaab0b3c1d67ef30aa85e13674adc3b88fb8389a13664"
+      },
+      "old_atlas_ssh_lifetime": [
+        {
+          "pid": 2053419,
+          "last_seen_after_wake": 8.630197175778449,
+          "command": "/usr/bin/ssh -F /tmp/cne-2048931/local/home/.ssh/config -C -F /tmp/cne-2048931/local/tmp/herdr-ssh-2052364-1/config -S /tmp/hssh-1000/755fb8de2ee5fcea29f305fe-%C -o ControlMaster=auto -o ControlPersist=600 -o BatchMode=yes -o NumberOfPasswordPrompts=0 -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -T atlas printf '\n%s\n' 'herdr-remote-output-ready:1'\nexec /tmp/cne-2048931/atlas/bin/herdr remote-client-bridge --idle-timeout-v1 "
+        }
+      ],
+      "pending_receipt_count": 1,
+      "pending_received_before_freeze": true
+    },
+    {
+      "path": "dist/herdr-freeze-audit-v2-20261108/original-1",
+      "usable": 47.13023557513952,
+      "fresh": 46.621246120892465,
+      "actual_sleep": 180.24897303478792,
+      "write_before_freeze": 0.651499021332711,
+      "pending_receipts": [
+        {
+          "at": 2431109.256022148,
+          "token": "SLEEP_PENDING",
+          "pid": 84034
+        }
+      ],
+      "freeze_start": 2431109.846739665,
+      "wake": 2431290.09571388,
+      "trace": true,
+      "capture": true,
+      "resource_keys": [
+        "at",
+        "processes"
+      ],
+      "binary_sha": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "harness": {
+        "run.py": "67b0c55eb1b02677dfd3fafaf35a40b6e0c930c07f368d03e4bc7565ee3ad18a",
+        "freeze_audit.py": "66247a46ba16d0b3792ca6b888dd427d799f338a411bd6a890ab2ce33fcd8b39",
+        "adaptive_run.py": null
+      },
+      "tcp_near_wake": {
+        "path": "dist/herdr-freeze-audit-v2-20261108/original-1/tcp.jsonl",
+        "after_wake": -0.12094450602307916,
+        "atlas": [
+          [
+            "ESTAB 0      952       10.203.1.1:59852   10.203.1.2:2222 users:((\"ssh\",pid=91356,fd=4))",
+            "\t cubic wscale:7,7 rto:41344 backoff:7 rtt:122.919/4.22 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:1 ssthresh:14 bytes_sent:16771 bytes_retrans:8300 bytes_acked:7648 bytes_received:48495 segs_out:126 segs_in:123 data_segs_out:70 data_segs_in:106 send 94241bps lastsnd:3422 lastrcv:181047 lastack:181097 pacing_rate 3958096bps delivery_rate 932744bps delivered:48 app_limited busy:184684ms unacked:1 retrans:1/11 lost:1 rcv_rtt:120 rcv_space:14480 rcv_ssthresh:77678 notsent:128 minrtt:120.037 snd_wnd:77696"
+          ]
+        ]
+      }
+    },
+    {
+      "path": "dist/herdr-freeze-audit-v2-20261108/original-2",
+      "usable": 13.348917768802494,
+      "fresh": 12.97251022187993,
+      "actual_sleep": 180.2165355621837,
+      "write_before_freeze": 0.6317277657799423,
+      "pending_receipts": [
+        {
+          "at": 2431109.190943578,
+          "token": "SLEEP_PENDING",
+          "pid": 84507
+        }
+      ],
+      "freeze_start": 2431109.761911751,
+      "wake": 2431289.978448913,
+      "trace": true,
+      "capture": true,
+      "resource_keys": [
+        "at",
+        "processes"
+      ],
+      "binary_sha": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "harness": {
+        "run.py": "67b0c55eb1b02677dfd3fafaf35a40b6e0c930c07f368d03e4bc7565ee3ad18a",
+        "freeze_audit.py": "66247a46ba16d0b3792ca6b888dd427d799f338a411bd6a890ab2ce33fcd8b39",
+        "adaptive_run.py": null
+      },
+      "tcp_near_wake": {
+        "path": "dist/herdr-freeze-audit-v2-20261108/original-2/tcp.jsonl",
+        "after_wake": -0.3646039990708232,
+        "atlas": [
+          [
+            "ESTAB 0      264       10.203.1.1:59924   10.203.1.2:2222 users:((\"ssh\",pid=91417,fd=4))",
+            "\t cubic wscale:7,7 rto:20864 backoff:6 rtt:125.466/5.549 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:1 ssthresh:7 bytes_sent:10659 bytes_retrans:3532 bytes_acked:6864 bytes_received:47751 segs_out:113 segs_in:116 data_segs_out:54 data_segs_in:103 send 92328bps lastsnd:12259 lastrcv:180719 lastack:180769 pacing_rate 1846544bps delivery_rate 192984bps delivered:39 app_limited busy:184290ms unacked:1 retrans:1/14 lost:1 rcv_rtt:120 rcv_space:14480 rcv_ssthresh:77683 minrtt:120.047 snd_wnd:77696"
+          ]
+        ]
+      }
+    },
+    {
+      "path": "dist/herdr-freeze-audit-v2-20261108/original-3",
+      "usable": 47.13862558687106,
+      "fresh": 46.62801146320999,
+      "actual_sleep": 180.21923518227413,
+      "write_before_freeze": 0.631050021853298,
+      "pending_receipts": [
+        {
+          "at": 2431109.296774762,
+          "token": "SLEEP_PENDING",
+          "pid": 84372
+        }
+      ],
+      "freeze_start": 2431109.867040591,
+      "wake": 2431290.086276623,
+      "trace": true,
+      "capture": true,
+      "resource_keys": [
+        "at",
+        "processes"
+      ],
+      "binary_sha": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "harness": {
+        "run.py": "67b0c55eb1b02677dfd3fafaf35a40b6e0c930c07f368d03e4bc7565ee3ad18a",
+        "freeze_audit.py": "66247a46ba16d0b3792ca6b888dd427d799f338a411bd6a890ab2ce33fcd8b39",
+        "adaptive_run.py": null
+      },
+      "tcp_near_wake": {
+        "path": "dist/herdr-freeze-audit-v2-20261108/original-3/tcp.jsonl",
+        "after_wake": 0.9873168519698083,
+        "atlas": [
+          [
+            "ESTAB 0      392       10.203.1.1:59930   10.203.1.2:2222 users:((\"ssh\",pid=91489,fd=4))",
+            "\t cubic wscale:7,7 rto:41728 backoff:7 rtt:125.973/7.111 ato:40 mss:1448 pmtu:1500 rcvmss:1448 advmss:1448 cwnd:1 ssthresh:7 bytes_sent:9875 bytes_retrans:2748 bytes_acked:6864 bytes_received:47715 segs_out:118 segs_in:114 data_segs_out:51 data_segs_in:101 send 91956bps lastsnd:4469 lastrcv:182044 lastack:182094 pacing_rate 1839112bps delivery_rate 194496bps delivered:39 app_limited busy:185610ms unacked:1 retrans:1/11 lost:1 rcv_rtt:120 rcv_space:14480 rcv_ssthresh:77683 notsent:128 minrtt:120.039 snd_wnd:77696"
+          ]
+        ]
+      }
+    }
+  ],
+  "prior_standard_trials": [
+    {
+      "path": "dist/adaptive-accepted-20261108/sleep/herdr-1",
+      "usable": 47.00160041404888,
+      "binary_sha": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "harness": {
+        "run.py": "af325b4686537b0f6f8f1ade8af7276c2d7ff3126b921b835300049e31e6d93a",
+        "freeze_audit.py": "66247a46ba16d0b3792ca6b888dd427d799f338a411bd6a890ab2ce33fcd8b39",
+        "adaptive_run.py": "915b3ce0d615ae4585cdaab0b3c1d67ef30aa85e13674adc3b88fb8389a13664"
+      }
+    },
+    {
+      "path": "dist/adaptive-accepted-20261108/sleep/herdr-2",
+      "usable": 44.78384973062202,
+      "binary_sha": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "harness": {
+        "run.py": "af325b4686537b0f6f8f1ade8af7276c2d7ff3126b921b835300049e31e6d93a",
+        "freeze_audit.py": "66247a46ba16d0b3792ca6b888dd427d799f338a411bd6a890ab2ce33fcd8b39",
+        "adaptive_run.py": "915b3ce0d615ae4585cdaab0b3c1d67ef30aa85e13674adc3b88fb8389a13664"
+      }
+    },
+    {
+      "path": "dist/adaptive-accepted-20261108/sleep/herdr-3",
+      "usable": 13.47080208081752,
+      "binary_sha": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "harness": {
+        "run.py": "af325b4686537b0f6f8f1ade8af7276c2d7ff3126b921b835300049e31e6d93a",
+        "freeze_audit.py": "66247a46ba16d0b3792ca6b888dd427d799f338a411bd6a890ab2ce33fcd8b39",
+        "adaptive_run.py": "915b3ce0d615ae4585cdaab0b3c1d67ef30aa85e13674adc3b88fb8389a13664"
+      }
+    }
+  ],
+  "prior_packet_trace": [
+    {
+      "trial": "dist/herdr-freeze-audit-v2-20261108/original-1",
+      "old_port": 59852,
+      "after_wake_packets": [
+        {
+          "after_wake": 41.929532051086426,
+          "packet": "1794106379.533185 eno1np0 Out IP 10.203.1.1.59852 > 10.203.1.2.2222: Flags [P.], seq 7648:8472, ack 48496, win 607, options [nop,nop,TS val 2528353393 ecr 618211246], length 824"
+        },
+        {
+          "after_wake": 42.049647092819214,
+          "packet": "1794106379.653300 eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59852: Flags [R], seq 3855965815, win 0, length 0"
+        }
+      ]
+    },
+    {
+      "trial": "dist/herdr-freeze-audit-v2-20261108/original-2",
+      "old_port": 59924,
+      "after_wake_packets": [
+        {
+          "after_wake": 8.76681637763977,
+          "packet": "1794106346.253204 eno1np0 Out IP 10.203.1.1.59924 > 10.203.1.2.2222: Flags [P.], seq 6864:7128, ack 47752, win 607, options [nop,nop,TS val 2528320113 ecr 618211195], length 264"
+        },
+        {
+          "after_wake": 8.886982202529907,
+          "packet": "1794106346.373370 eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59924: Flags [R], seq 2166001526, win 0, length 0"
+        }
+      ]
+    },
+    {
+      "trial": "dist/herdr-freeze-audit-v2-20261108/original-3",
+      "old_port": 59930,
+      "after_wake_packets": [
+        {
+          "after_wake": 41.93896150588989,
+          "packet": "1794106379.533177 eno1np0 Out IP 10.203.1.1.59930 > 10.203.1.2.2222: Flags [P.], seq 6864:7128, ack 47716, win 607, options [nop,nop,TS val 2528353393 ecr 618211296], length 264"
+        },
+        {
+          "after_wake": 42.059088706970215,
+          "packet": "1794106379.653304 eno1np0 In  IP 10.203.1.2.2222 > 10.203.1.1.59930: Flags [R], seq 1209616913, win 0, length 0"
+        }
+      ]
+    }
+  ],
+  "qdisc_root_replace_probe": {
+    "kernel": "6.8.0-146-generic",
+    "root_command": [
+      "qdisc",
+      "replace",
+      "dev",
+      "audit0",
+      "root",
+      "handle",
+      "1:",
+      "tbf",
+      "rate",
+      "100gbit",
+      "burst",
+      "1600",
+      "limit",
+      "96000"
+    ],
+    "before": [
+      {
+        "kind": "tbf",
+        "handle": "1:",
+        "root": true,
+        "refcnt": 2,
+        "options": {
+          "rate": 12500000000,
+          "burst": 0,
+          "lat": 7
+        },
+        "bytes": 0,
+        "packets": 0,
+        "drops": 0,
+        "overlimits": 0,
+        "requeues": 0,
+        "backlog": 0,
+        "qlen": 0
+      },
+      {
+        "kind": "netem",
+        "handle": "10:",
+        "parent": "1:1",
+        "options": {
+          "limit": 64,
+          "delay": {
+            "delay": 0.06,
+            "jitter": 0,
+            "correlation": 0
+          },
+          "loss-random": {
+            "loss": 1,
+            "correlation": 0
+          },
+          "ecn": false,
+          "gap": 0
+        },
+        "bytes": 0,
+        "packets": 0,
+        "drops": 0,
+        "overlimits": 0,
+        "requeues": 0,
+        "backlog": 0,
+        "qlen": 0
+      }
+    ],
+    "after_root_replace_before_any_netem_command": [
+      {
+        "kind": "tbf",
+        "handle": "1:",
+        "root": true,
+        "refcnt": 2,
+        "options": {
+          "rate": 12500000000,
+          "burst": 0,
+          "lat": 7
+        },
+        "bytes": 0,
+        "packets": 0,
+        "drops": 0,
+        "overlimits": 0,
+        "requeues": 0,
+        "backlog": 0,
+        "qlen": 0
+      },
+      {
+        "kind": "netem",
+        "handle": "10:",
+        "parent": "1:1",
+        "options": {
+          "limit": 64,
+          "delay": {
+            "delay": 0.06,
+            "jitter": 0,
+            "correlation": 0
+          },
+          "loss-random": {
+            "loss": 1,
+            "correlation": 0
+          },
+          "ecn": false,
+          "gap": 0
+        },
+        "bytes": 0,
+        "packets": 0,
+        "drops": 0,
+        "overlimits": 0,
+        "requeues": 0,
+        "backlog": 0,
+        "qlen": 0
+      }
+    ]
+  },
+  "limits": [
+    "Current runs do not retain TCP socket snapshots or packet captures; no claim that each new trial retained an unacknowledged TCP segment at wake.",
+    "The qdisc probe used the exact root command on an isolated dummy interface and showed the child netem loss rule survived; it does not reconstruct every packet in the benchmark.",
+    "The current13-second result is consistent with the previously traced fast recovery branch; the exact current timer cause is not proven."
+  ]
+}

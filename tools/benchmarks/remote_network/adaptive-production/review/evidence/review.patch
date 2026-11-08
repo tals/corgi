@@ -1,0 +1,1366 @@
+diff --git a/HACKING.md b/HACKING.md
+index bb85adef..ea95c7c9 100644
+--- a/HACKING.md
++++ b/HACKING.md
+@@ -395,11 +395,14 @@ the viewer then requests a full base. New peers opt in; older viewers still get
+ full frames, and a new viewer uses the original stream with older daemons.
+ Runtime/viewer protocol 4 and saved-format versions are unchanged because the
+ new operation and optional fields are negotiated and no cache is persisted.
+-Remote viewers request live-history zstd level 3 in the existing `hello` exchange.
+-The plain hello reply opts in; all subsequent bytes in both directions use fresh
+-zstd histories with a 1 MiB window. Messages flush immediately without ending the
+-history. The native SSH bridge still relays bytes. Local connections stay plain,
+-and older peers that omit the optional hello field stay plain. Runtime/viewer and
++Remote viewers offer `accept_encoding: ["zstd"]` in the existing plaintext `hello`.
++The daemon selects `content_encoding: "zstd"` in its plaintext reply; omission
++keeps the connection plain. Unknown offers are ignored, and clients reject an
++unsupported or unoffered selection. Only the first request may negotiate, and it
++must finish before another request is sent. The reply's newline ends plaintext:
++all subsequent bytes in both directions use fresh live-history zstd level 3 with
++a 1 MiB window. Messages flush immediately without ending the history. The native
++SSH bridge still relays bytes. Local connections stay plain. Runtime/viewer and
+ saved-format versions do not change. SSH compression is disabled on these
+ attachments, which have a separate master namespace from compressed CLI sessions.
+ `wire.compress` records raw and emitted bytes and encoding duration.
+diff --git a/src/core_schema.test.ts b/src/core_schema.test.ts
+index 3ebf7bef..ff774ce0 100644
+--- a/src/core_schema.test.ts
++++ b/src/core_schema.test.ts
+@@ -172,7 +172,7 @@ test("the runtime wire matches protocol.version", () => {
+   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
+   expect(protocol.management_version).toBe(1);
+   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
+-    "c4bf363baaaea23c552cb76bd3235b4a05338d82c5939ccf4ec524b9b671d218",
++    "c14e97dd5f042567ed63e414d43a8a3b632800864224d60143ea85cc8bff870e",
+   );
+   const { server, client, dispose } = fixture();
+   try {
+diff --git a/src/fixtures/protocol.schema b/src/fixtures/protocol.schema
+index accc8af1..5141d23c 100644
+--- a/src/fixtures/protocol.schema
++++ b/src/fixtures/protocol.schema
+@@ -1,8 +1,8 @@
+ $.envelope.request_id: optional
+ $.envelope.request_id?: u64
+ $.requests: one of
+-$.requests|hello.compression: optional
+-$.requests|hello.compression?: enum none zstd
++$.requests|hello.accept_encoding: optional
++$.requests|hello.accept_encoding?[]: string
+ $.requests|session.command.command: one of
+ $.requests|session.command.command|layout.dock.workspace: u32
+ $.requests|session.command.command|layout.dock.viewer: u32
+@@ -924,8 +924,8 @@ $.replies.hello.build_id: string
+ $.replies.hello.executable: string
+ $.replies.hello.release_version: string
+ $.replies.hello.update_abi: string
+-$.replies.hello.compression: optional
+-$.replies.hello.compression?: enum zstd
++$.replies.hello.content_encoding: optional
++$.replies.hello.content_encoding?: enum zstd
+ $.replies.session.command.result.pane: u32
+ $.replies.session.command.result.tab: u32
+ $.replies.session.command.result.workspace: u32
+diff --git a/src/machine_connection.test.ts b/src/machine_connection.test.ts
+index fc9d9760..b8c470c9 100644
+--- a/src/machine_connection.test.ts
++++ b/src/machine_connection.test.ts
+@@ -482,3 +482,48 @@ test("a spare that answers during reconnect takes over and resumes the same link
+     await daemon.close();
+   }
+ });
++
++test("planned reconnect bounds input already queued and releases a full hold without spreading arguments", async () => {
++  for (const bytes of [64 * 1024, 256 * 1024]) {
++    const endpoint = new Endpoint(null, "/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
++    try {
++      endpoint.enqueue(new Uint8Array(bytes).fill(120));
++      Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
++      const held = Reflect.get(endpoint, "handoff");
++      expect(held.input.length).toBe(bytes === 64 * 1024 ? bytes : 0);
++      expect(Reflect.get(endpoint, "input")).toEqual([]);
++      if (bytes > 64 * 1024) {
++        expect(endpoint.error).toBe("Input queue full; unsent input discarded");
++        endpoint.enqueue(Uint8Array.of(121));
++      }
++      endpoint.generation++;
++      endpoint.ready = true;
++      Reflect.set(endpoint, "resumed", true);
++      Reflect.get(endpoint, "pumpUi").call(endpoint);
++      expect(Reflect.get(endpoint, "handoff")).toBeNull();
++      expect(Reflect.get(endpoint, "input")).toEqual(bytes === 64 * 1024 ? Array(bytes).fill(120) : [121]);
++    } finally {
++      await endpoint.close();
++    }
++  }
++});
++
++test("planned reconnect input is discarded when selection changes or the hold expires", async () => {
++  for (const change of ["selection", "deadline"] as const) {
++    const endpoint = new Endpoint(null, "/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
++    try {
++      endpoint.enqueue(Uint8Array.of(120));
++      Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
++      if (change === "selection") endpoint.deactivate();
++      else Reflect.get(endpoint, "handoff").until = 0;
++      endpoint.generation++;
++      endpoint.ready = true;
++      Reflect.set(endpoint, "resumed", true);
++      Reflect.get(endpoint, "pumpUi").call(endpoint);
++      expect(Reflect.get(endpoint, "handoff")).toBeNull();
++      expect(Reflect.get(endpoint, "input")).toEqual([]);
++    } finally {
++      await endpoint.close();
++    }
++  }
++});
+diff --git a/src/machine_connection.ts b/src/machine_connection.ts
+index c0e47c76..bd960efd 100644
+--- a/src/machine_connection.ts
++++ b/src/machine_connection.ts
+@@ -29,6 +29,7 @@ interface Numbered {
+ }
+ /** Requests waiting on a machine's replies, at most. */
+ const numbered_limit = 256;
++const handoff_input_limit = 64 * 1024;
+ 
+ export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" | "incompatible" | "attention";
+ export const stalled_ms = 1000;
+@@ -239,7 +240,8 @@ export class Endpoint {
+   }
+   enqueue(bytes: Uint8Array): void {
+     if (this.handoff) {
+-      if (this.handoff.input.length + bytes.length <= 64 * 1024) this.handoff.input.push(...bytes);
++      if (this.handoff.input.length + bytes.length <= handoff_input_limit)
++        for (const byte of bytes) this.handoff.input.push(byte);
+       else this.clearInput();
+       this.wake();
+       return;
+@@ -274,7 +276,7 @@ export class Endpoint {
+       )
+         this.clearInput();
+       else if (this.ready && this.resumed && this.generation > held.generation) {
+-        this.input.push(...held.input);
++        this.input = held.input;
+         this.handoff = null;
+       } else return;
+     }
+@@ -527,6 +529,25 @@ export class Endpoint {
+   woke(): void {
+     if (this.profile && (this.status === "online" || this.status === "stalled")) this.suspect = true;
+   }
++  private holdHandoffInput(): void {
++    const input = this.input;
++    this.input = [];
++    if (input.length > handoff_input_limit) {
++      this.clearInput();
++      this.error = "Input queue full; unsent input discarded";
++    }
++    this.handoff = {
++      instance: this.instance,
++      selection: this.selection,
++      navigation: this.navigation_revision,
++      pane: this.view().focused()?.id ?? null,
++      generation: this.generation,
++      until: performance.now() + startup_ms,
++      input: input.length <= handoff_input_limit ? input : [],
++    };
++    this.ready = this.fresh = false;
++    this.wake();
++  }
+   private async connect(): Promise<void> {
+     const previous = this.instance;
+     const generation = ++this.generation;
+@@ -568,17 +589,7 @@ export class Endpoint {
+       if (this.connection !== conn) return;
+       if (event.type === "viewer.reconnect" && this.link) {
+         this.trace("remote.connection", "handoff");
+-        this.handoff = {
+-          instance: this.instance,
+-          selection: this.selection,
+-          navigation: this.navigation_revision,
+-          pane: this.view().focused()?.id ?? null,
+-          generation: this.generation,
+-          until: performance.now() + startup_ms,
+-          input: this.input.splice(0),
+-        };
+-        this.ready = this.fresh = false;
+-        this.wake();
++        this.holdHandoffInput();
+       }
+       if (event.type === "uninstalled" && !this.profile) {
+         this.uninstalled = true;
+diff --git a/src/machine_stream.test.ts b/src/machine_stream.test.ts
+index 9eea22a8..dd31a4b7 100644
+--- a/src/machine_stream.test.ts
++++ b/src/machine_stream.test.ts
+@@ -6,6 +6,7 @@ import * as protocol from "./protocol";
+ import * as json from "./json";
+ import { Terminal } from "./pane/terminal";
+ import * as surface from "./pane/surface";
++import { Channel } from "./wire_compression";
+ 
+ function frame(hash = 1): protocol.Reply<"viewer.sync"> {
+   return {
+@@ -286,3 +287,100 @@ test("a coalesced RPC reply and subsequent push are applied in wire order", asyn
+     f.close();
+   }
+ });
++
++test("writes triggered by the last frames cannot interrupt decoding after a TCP reset", async () => {
++  let encoder: Channel | null = null;
++  const server = createServer(socket => {
++    let input = "",
++      compressed = false;
++    const read = (bytes: Buffer) => {
++      input += bytes.toString();
++      for (;;) {
++        const end = input.indexOf("\n");
++        if (end < 0) return;
++        const request = JSON.parse(input.slice(0, end));
++        input = input.slice(end + 1);
++        if (request.op === "hello") {
++          socket.write(
++            JSON.stringify({ type: "hello", content_encoding: "zstd", request_id: request.request_id }) + "\n",
++          );
++          encoder = new Channel(
++            bytes => socket.write(bytes),
++            read,
++            () => socket.destroy(),
++          );
++          compressed = true;
++        } else if (request.op === "viewer.stream") {
++          // The decoder emits the first frame before it finishes the larger second frame.
++          const messages = [
++            {
++              type: "viewer.stream",
++              viewer_protocol: protocol.viewer_version,
++              sequence: request.sequence,
++              frame: 1,
++              view: frame(1),
++              request_id: request.request_id,
++            },
++            {
++              type: "viewer.frame",
++              sequence: request.sequence,
++              frame: 2,
++              view: frame(2),
++              padding: "x".repeat(1024 * 1024),
++            },
++            { type: "viewer.reconnect" },
++          ];
++          encoder!.encode(Buffer.from(messages.map(value => JSON.stringify(value) + "\n").join("")), () =>
++            socket.resetAndDestroy(),
++          );
++        }
++      }
++    };
++    socket.on("data", bytes => (compressed ? encoder!.decode(Buffer.from(bytes)) : read(Buffer.from(bytes))));
++    socket.on("error", () => {});
++  });
++  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
++  const address = server.address();
++  if (!address || typeof address === "string") throw Error("NoAddress");
++  const connection = new Connection(createConnection(address.port, "127.0.0.1"), {
++    compression: true,
++    timeout_ms: 1000,
++  });
++  const events: string[] = [];
++  let offered = false,
++    started = 0;
++  connection.onEvent(event => events.push(event.type));
++  const stream = new Stream(
++    connection,
++    () => {
++      try {
++        stream.check();
++        if (connection.draining && stream.fresh && !offered) {
++          offered = true;
++          stream.send(async () => {
++            started++;
++            await connection.call("ping");
++          });
++        }
++      } catch {
++        events.push("closed");
++        connection.close();
++      }
++    },
++    true,
++  );
++  try {
++    await connection.call("hello");
++    const closed = new Promise<void>(resolve => connection.onClose(resolve));
++    stream.configure({ interests: [] }, 1);
++    await closed;
++    expect(offered).toBe(true);
++    expect(events).toEqual(["viewer.stream", "viewer.frame", "viewer.reconnect", "closed"]);
++    expect(stream.take()?.frame.session_hash).toBe(2);
++    expect(started).toBe(0);
++  } finally {
++    connection.close();
++    (encoder as Channel | null)?.close();
++    await new Promise<void>(resolve => server.close(() => resolve()));
++  }
++});
+diff --git a/src/machine_stream.ts b/src/machine_stream.ts
+index 5ea6b6aa..b3ce738a 100644
+--- a/src/machine_stream.ts
++++ b/src/machine_stream.ts
+@@ -28,7 +28,7 @@ export class Stream {
+     private readonly changed: () => void = () => {},
+     private readonly incremental = false,
+   ) {
+-    connection.socket.once("close", changed);
++    connection.onClose(changed);
+     connection.onEvent(value => {
+       try {
+         if (
+@@ -124,10 +124,11 @@ export class Stream {
+   }
+   check(): void {
+     if (this.failure) throw this.failure;
+-    if (this.connection.socket.destroyed) throw Error("ConnectionClosed");
++    if (this.connection.disconnected) throw Error("ConnectionClosed");
+     if (this.age() >= (this.connection.timeout_ms || 10_000)) throw Error("RequestTimedOut");
+   }
+   send(start: () => Promise<void>, bytes = 0): void {
++    if (this.connection.draining) return;
+     if (this.bytes + bytes > 1024 * 1024 || this.writes.size >= 64) throw Error("InputBackpressure");
+     this.bytes += bytes;
+     const task = start();
+@@ -148,6 +149,7 @@ export class Stream {
+     return this.pending ? null : this.next;
+   }
+   private async receipt(sequence: number, active = false): Promise<void> {
++    if (this.connection.draining) return;
+     const reply = await this.connection.call("viewer.receipt", { sequence, frame: this.received, active });
+     if (sequence !== this.sequence) return;
+     this.last = performance.now();
+@@ -160,6 +162,7 @@ export class Stream {
+   }
+   configure(request: RequestInput<"viewer.sync">, selection: number): void {
+     this.check();
++    if (this.connection.draining) return;
+     const key = json.stringify({
+       ...request,
+       selection,
+diff --git a/src/peer.test.ts b/src/peer.test.ts
+index 7194583e..5789fb2a 100644
+--- a/src/peer.test.ts
++++ b/src/peer.test.ts
+@@ -116,5 +116,5 @@ test("compression negotiation cannot reinterpret a pipelined or established plai
+     cl.queue({ ok: true });
+     if (ready.length === 2) cl.close();
+   });
+-  expect(ready).toEqual([true, false]);
++  expect(ready).toEqual([false, false]);
+ });
+diff --git a/src/peer.ts b/src/peer.ts
+index 07bc37f4..4a6da657 100644
+--- a/src/peer.ts
++++ b/src/peer.ts
+@@ -103,7 +103,7 @@ export class Client {
+     return this.codec !== null;
+   }
+   get canCompress(): boolean {
+-    return !this.codec && this.http === "no" && this.lines === 1 && this.pending.length === 0;
++    return !this.codec && this.http === "no" && this.lines === 1 && this.pending.length === 0 && !this.input.length;
+   }
+   get queued(): number {
+     return this.output.length - this.sent + (this.codec?.pending ?? 0);
+diff --git a/src/persist/handoff.ts b/src/persist/handoff.ts
+index 143edb0f..601e1ab0 100644
+--- a/src/persist/handoff.ts
++++ b/src/persist/handoff.ts
+@@ -84,14 +84,28 @@ export function captureManifest(server: Server, requester: Client, request_id: n
+     terminal_abi,
+     listener: server.listener,
+     instance: server.instance,
+-    requester: requester.fd,
++    requester: requester.compressed ? -1 : requester.fd,
+     request_id,
+     runtime: checkpoint.capture(server.runtime, true),
+     summaries: server.summaries?.capture() ?? null,
+     usage: server.usage?.capture() ?? null,
+     // A one-shot HTTP request is not handed over; its sender sees the close.
+-    clients: server.clients.filter(client => client.http === "no").map(captureClient),
+-    links: [...server.links.values()].map(l => l.capture()),
++    clients: server.clients.filter(client => client.http === "no" && !client.compressed).map(captureClient),
++    links: [...server.links.values()].map(l => {
++      const saved = l.capture();
++      const client = server.clients.find(client => client.compressed && client.link === l);
++      if (client) saved.detached_at = Date.now();
++      if (client?.viewer)
++        saved.viewer = {
++          viewer_id: client.viewer_id,
++          active_seq: client.active_seq,
++          view_workspace: client.view_workspace,
++          controls: [...client.controls],
++          next_control: client.next_control,
++          last_control: client.last_control,
++        };
++      return saved;
++    }),
+     theme: server.theme,
+     preferred_workspace: server.preferred_workspace,
+     default_folder_pending: server.default_folder_pending,
+@@ -132,6 +146,13 @@ async function line(control: AsyncFD, limit = 1024): Promise<string> {
+   }
+   throw Error("ReloadCandidateFailed");
+ }
++async function finishCompressed(client: Client, response: unknown): Promise<void> {
++  client.queue(response);
++  client.resume();
++  const until = performance.now() + 1000;
++  while (!client.dead && client.queued && performance.now() < until) await Bun.sleep(1);
++  client.close();
++}
+ function descriptors(manifest: any): { fds: number[]; state: any } {
+   const state = json.clone(manifest),
+     fds: number[] = [],
+@@ -185,17 +206,25 @@ export async function replace(
+   }
+   await observers.pause(server);
+   await Promise.all(server.clients.map(client => client.prepareHandoff()));
+-  server.pause();
++  server.pause(requester);
+   breadcrumbs.record("reloading");
+   const fds = new Int32Array(2);
+   let stateFD = -1,
+     controlFD = -1,
+     childFD = -1,
++    relayFD = -1,
++    relay: Client | undefined,
+     loop: ReadyLoop | undefined,
+     candidate: Bun.Subprocess | undefined,
++    failure: unknown,
+     timeout: ReturnType<typeof setTimeout> | undefined;
+   try {
+-    const manifest = captureManifest(server, requester, request_id);
++    if (requester.compressed) {
++      if (n.probe_pair(ptr(fds))) throw Error("SocketPairFailed");
++      relay = server.addClient(fds[0], false);
++      relayFD = fds[1];
++    }
++    const manifest = captureManifest(server, relay ?? requester, request_id);
+     const transfer = descriptors(manifest),
+       bytes = Buffer.from(json.stringify(transfer.state));
+     if (bytes.length > 256 * 1024 * 1024) throw Error("CheckpointTooLarge");
+@@ -257,19 +286,41 @@ export async function replace(
+       throw Error("ReloadCandidateFailed");
+     }
+     await control.write(Buffer.from("commit\n"));
++    if (relay) {
++      // The candidate sends its ordinary reply only after commit. The old
++      // process retains the codec just long enough to relay that reply.
++      try {
++        const response = await Promise.race([
++          line(new AsyncFD(loop, relayFD)),
++          new Promise<never>((_, reject) => {
++            timeout = setTimeout(() => reject(Error("ReloadReplyTimedOut")), 15000);
++          }),
++        ]);
++        clearTimeout(timeout);
++        await finishCompressed(requester, json.parse(response));
++      } catch {
++        // Commit is irreversible; a vanished requester cannot roll it back.
++      }
++    }
+     // Destructors would kill processes and unlink the inherited listener.
+     process.exit(0);
+   } catch (error) {
+     candidate?.kill("SIGKILL");
+     if (candidate) await candidate.exited;
+-    throw error;
++    if (!requester.compressed) throw error;
++    failure = error;
+   } finally {
+     clearTimeout(timeout);
+     loop?.close();
+-    for (const fd of [stateFD, controlFD, childFD]) if (fd >= 0) n.probe_close(fd);
++    relay?.close();
++    for (const fd of [stateFD, controlFD, childFD, relayFD]) if (fd >= 0) n.probe_close(fd);
+     server.resume();
+     observers.unpause(server);
+   }
++  await finishCompressed(requester, {
++    err: failure instanceof Error ? failure.message : String(failure),
++    ...(request_id === null ? {} : { request_id }),
++  });
+ }
+ export async function importAndRun(
+   socket: string,
+diff --git a/src/protocol.test.ts b/src/protocol.test.ts
+index 7759a045..e2737965 100644
+--- a/src/protocol.test.ts
++++ b/src/protocol.test.ts
+@@ -71,10 +71,13 @@ test("every op decodes a sample request", () => {
+     expect(() => protocol.decode(op, samples[op])).not.toThrow();
+   }
+ });
+-test("hello compression is optional and accepts only the negotiated codecs", () => {
+-  expect(protocol.decode("hello", {}).compression).toBe("none");
+-  expect(protocol.decode("hello", { compression: "zstd" }).compression).toBe("zstd");
+-  expect(() => protocol.decode("hello", { compression: "gzip" })).toThrow("InvalidEnumTag");
++test("hello offers optional encodings and tolerates names a peer does not support", () => {
++  expect(protocol.decode("hello", {}).accept_encoding).toEqual([]);
++  expect(protocol.decode("hello", { accept_encoding: ["future", "zstd"] }).accept_encoding).toEqual(["future", "zstd"]);
++  expect(() => protocol.decode("hello", { accept_encoding: "zstd" })).toThrow("UnexpectedToken");
++  expect(() => protocol.decode("hello", { accept_encoding: [1] })).toThrow("UnexpectedToken");
++  expect(protocol.encoding("zstd")).toBe("zstd");
++  expect(protocol.encoding("future")).toBeNull();
+ });
+ test("a client's envelope writes what the hand-written requests did", () => {
+   for (const [op, payload, expected] of [
+diff --git a/src/protocol.ts b/src/protocol.ts
+index 1396808a..5bd72b3d 100644
+--- a/src/protocol.ts
++++ b/src/protocol.ts
+@@ -70,6 +70,11 @@ export interface View<Session = unknown, Resources = unknown> {
+ export const version = 4;
+ export const management_version = 1;
+ export const viewer_version = 4;
++export const encodings = ["zstd"] as const;
++export type Encoding = (typeof encodings)[number];
++export function encoding(value: unknown): Encoding | null {
++  return encodings.find(encoding => encoding === value) ?? null;
++}
+ export type Op = (typeof operations)[number];
+ type PaneDestination = { new_tab: string } | { beside: Normalized<typeof structures.beside> };
+ type TabDestination = { workspace: number } | { before: number } | { after: number };
+@@ -660,7 +665,7 @@ const structures = {
+ } as const satisfies Record<string, Fields>;
+ const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
+ const requests = {
+-  hello: { compression: ["none|zstd", "none"] },
++  hello: { accept_encoding: ["[]string", []] },
+   /** `output: false` leaves out pushes for terminal output alone, as a status display wants. */
+   "session.subscribe": { output: ["bool", true] },
+   "launcher.catalog": { workspace: ["u32", 0], cwd: ["string", ""] },
+@@ -848,7 +853,7 @@ export interface ReplyPayloads {
+     update_abi: string;
+     viewer_protocol?: number;
+     instance?: string;
+-    compression?: "zstd";
++    content_encoding?: Encoding;
+   };
+   ping: Ok & { pid: number };
+   "link.open": Ok & { link: string };
+diff --git a/src/rpc.ts b/src/rpc.ts
+index c5d723d9..afdf69bb 100644
+--- a/src/rpc.ts
++++ b/src/rpc.ts
+@@ -8,6 +8,7 @@ import type { Stats } from "./connection_stats";
+ interface Pending {
+   resolve: (value: unknown) => void;
+   reject: (error: Error) => void;
++  encoding?: string[];
+ }
+ export interface ConnectionInit {
+   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
+@@ -26,12 +27,21 @@ export class Connection {
+   private codec: wire_compression.Channel | null = null;
+   private readonly compression: boolean;
+   private negotiating = false;
++  private started = false;
+   private closed: Error | null = null;
++  private ending: Error | null = null;
+   private listeners = new Set<(event: protocol.Event) => void>();
++  private closedListeners = new Set<() => void>();
+   private readonly timeout: number | (() => number);
+   get timeout_ms(): number {
+     return typeof this.timeout === "function" ? this.timeout() : this.timeout;
+   }
++  get draining(): boolean {
++    return this.ending !== null && this.closed === null;
++  }
++  get disconnected(): boolean {
++    return this.closed !== null;
++  }
+   private readonly stats?: Stats;
+   private readonly trace?: telemetry.Details;
+   constructor(target: string | Socket, options: ConnectionInit | number = {}) {
+@@ -47,12 +57,15 @@ export class Connection {
+       this.stats?.traffic("received", chunk.length);
+       this.read(chunk);
+     });
+-    this.socket.on("error", error => this.fail(error));
+-    this.socket.on("close", () => {
+-      // EOF can follow compressed bytes before the asynchronous decoder emits their last message.
+-      if (this.codec) void this.codec.drainInput().then(() => this.fail(Error("ConnectionClosed")));
+-      else this.fail(Error("ConnectionClosed"));
+-    });
++    this.socket.on("error", error => this.finish(error));
++    this.socket.on("close", () => this.finish(Error("ConnectionClosed")));
++  }
++  private finish(error: Error): void {
++    if (this.closed || this.ending) return;
++    this.ending = error;
++    // EOF and resets can follow bytes before the asynchronous decoder emits their last message.
++    if (this.codec) void this.codec.drainInput().then(() => this.fail(error));
++    else this.fail(error);
+   }
+   private read(chunk: Buffer, decoded = false): void {
+     if (this.closed) return;
+@@ -89,6 +102,7 @@ export class Connection {
+     }
+   }
+   private write(bytes: Buffer): void {
++    if (this.closed || this.ending) return;
+     if (this.socket.writableLength + bytes.length > 4 * 1024 * 1024) {
+       this.fail(Error("RequestBackpressure"));
+       return;
+@@ -103,6 +117,8 @@ export class Connection {
+     for (const p of this.pending.values()) p.reject(error);
+     this.pending.clear();
+     this.socket.destroy();
++    for (const listener of this.closedListeners) listener();
++    this.closedListeners.clear();
+   }
+   private receive(value: unknown): void {
+     const message = json.object(value);
+@@ -123,10 +139,16 @@ export class Connection {
+     }
+     const pending = this.pending.get(id);
+     if (!pending) throw Error("UnexpectedReply");
++    const selected = protocol.encoding(message.content_encoding);
++    if (
++      message.content_encoding !== undefined &&
++      (message.type !== "hello" || !selected || !pending.encoding?.includes(selected) || this.codec)
++    )
++      throw Error("InvalidEncodingNegotiation");
+     this.pending.delete(id);
+-    if (this.negotiating && message.type === "hello") {
++    if (pending.encoding) {
+       this.negotiating = false;
+-      if (message.compression === "zstd")
++      if (selected === "zstd")
+         this.codec = new wire_compression.Channel(
+           bytes => this.write(bytes),
+           bytes => this.read(bytes, true),
+@@ -146,21 +168,37 @@ export class Connection {
+       this.listeners.delete(listener);
+     };
+   }
++  /** Socket EOF and errors notify after decoding all received bytes; close() aborts immediately. */
++  onClose(listener: () => void): () => void {
++    if (this.closed) {
++      queueMicrotask(listener);
++      return () => {};
++    }
++    this.closedListeners.add(listener);
++    return () => {
++      this.closedListeners.delete(listener);
++    };
++  }
+   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>> {
+     // Replies are raw operation-specific JSON. Consumers normalize their model.
+     return this.rawRequest(protocol.envelope(op, args[0])) as Promise<protocol.Response<K>>;
+   }
+   async rawRequest(value: unknown): Promise<unknown> {
+-    if (this.closed) throw this.closed;
++    const closed = this.closed ?? this.ending;
++    if (closed) throw closed;
+     const message = json.object(value);
+     if (this.negotiating) throw Error("CompressionNegotiating");
+-    if (message.op === "hello" && (this.compression || message.compression === "zstd") && !this.codec) {
+-      if (this.pending.size) throw Error("RequestInFlight");
+-      message.compression = "zstd";
+-      this.negotiating = true;
++    let encoding: string[] | undefined;
++    if (message.op === "hello") {
++      if (this.compression && !this.started && message.accept_encoding === undefined)
++        message.accept_encoding = [...protocol.encodings];
++      encoding = protocol.decode("hello", message).accept_encoding;
++      if (encoding.length && this.started) throw Error("InvalidEncodingNegotiation");
++      this.negotiating = encoding.length > 0;
+     }
+     if (!this.requestIds && this.pending.size) throw Error("RequestInFlight");
+     if (this.pending.size >= 128) throw Error("RequestBackpressure");
++    this.started = true;
+     const id = this.requestIds ? this.next++ : 0;
+     return new Promise((resolve, reject) => {
+       const timeout = this.timeout_ms;
+@@ -185,6 +223,7 @@ export class Connection {
+         if (timer) clearTimeout(timer);
+       };
+       this.pending.set(id, {
++        encoding,
+         resolve: value => {
+           done(false);
+           resolve(value);
+diff --git a/src/server.test.ts b/src/server.test.ts
+index 0396c419..2228fed1 100644
+--- a/src/server.test.ts
++++ b/src/server.test.ts
+@@ -863,3 +863,33 @@ test("handoff drops compression histories and retains the viewer link for a fres
+     dispose();
+   }
+ });
++
++test("handoff can retain its compressed requester without copying its codec or changing rollback state", () => {
++  const { server, dispose } = fixture();
++  const [fd, peer] = native_ffi.pair();
++  const client = server.addClient(fd, false),
++    link = new Link();
++  server.links.set(link.id, link);
++  client.link = link;
++  client.viewer = true;
++  client.viewer_id = 7;
++  client.compress();
++  try {
++    server.pause(client);
++    expect(client.dead).toBe(false);
++    expect(client.link).toBe(link);
++    expect(link.detached_at).toBeNull();
++    expect(link.viewer).toBeNull();
++    const saved = handoff.captureManifest(server, client);
++    expect(saved.clients).toHaveLength(0);
++    expect(saved.requester).toBe(-1);
++    expect(saved.links[0].viewer?.viewer_id).toBe(7);
++    expect(saved.links[0].detached_at).not.toBeNull();
++    expect(link.detached_at).toBeNull();
++    expect(link.viewer).toBeNull();
++  } finally {
++    client.close();
++    n.probe_close(peer);
++    dispose();
++  }
++});
+diff --git a/src/server.ts b/src/server.ts
+index 84687db7..8440266e 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -347,14 +347,14 @@ export class Server {
+       this.runtime.sessions.some(s => s.urgent())
+     );
+   }
+-  pause(): void {
++  pause(requester?: Client): void {
+     this.frozen = true;
+     clearInterval(this.timer);
+     this.registration?.close();
+     this.registration = undefined;
+     for (const c of this.clients) {
+       // Compression histories cannot be handed to another process. Links resume on a fresh stream.
+-      if (c.compressed) c.close();
++      if (c.compressed && c !== requester) c.close();
+       else c.pause();
+     }
+     // Queue cancellation before handoff captures output; paused clients keep later input queued.
+@@ -658,8 +658,9 @@ export class Server {
+     if (!["onboarding.copy", "onboarding.handoff"].includes(op)) importer.admit(this, op);
+     switch (request.op) {
+       case "hello": {
+-        const compress =
+-          request.payload.compression === "zstd" && cl.canCompress && v.runtime_protocol === protocol.version;
++        const encoding = protocol.encodings.find(encoding => request.payload.accept_encoding.includes(encoding));
++        if (encoding && !cl.canCompress) throw Error("InvalidEncodingNegotiation");
++        const compress = encoding && v.runtime_protocol === protocol.version;
+         cl.protocol_version = v.runtime_protocol === protocol.version ? protocol.version : null;
+         reply.send({
+           type: "hello",
+@@ -672,7 +673,7 @@ export class Server {
+           update_abi: updates.abi,
+           viewer_protocol: protocol.viewer_version,
+           instance: this.instance,
+-          ...(compress ? { compression: "zstd" } : {}),
++          ...(compress ? { content_encoding: encoding } : {}),
+         });
+         if (compress) cl.compress();
+         return;
+diff --git a/src/viewer_stream.test.ts b/src/viewer_stream.test.ts
+index 4ea7fb8d..7454312b 100644
+--- a/src/viewer_stream.test.ts
++++ b/src/viewer_stream.test.ts
+@@ -161,6 +161,41 @@ test("compressed wire accounting admits dense high-RTT frames while raw memory s
+     terminal.destroy();
+   }
+ });
++test("raw and encoded byte budgets independently stop a large learned window", () => {
++  for (const [characters, wire, maximum] of [
++    [30000, 200, 23],
++    [7000, 12000, 43],
++  ]) {
++    let now = 0;
++    const output = new Frames(() => now),
++      terminal = Terminal.create(80, 24),
++      large = view(terminal);
++    large.session = { large: "界".repeat(characters) } as unknown as View["session"];
++    try {
++      for (let i = 0; i < 64; i++) {
++        const frame = output.offer(large)!;
++        output.encoded(frame.frame, wire);
++        now += 1000;
++        output.acknowledge(frame.frame);
++      }
++      let last = 0n,
++        count = 0;
++      for (;;) {
++        const frame = output.offer(large);
++        if (!frame) break;
++        output.encoded(frame.frame, wire);
++        last = frame.frame;
++        count++;
++        expect(count).toBeLessThan(64);
++      }
++      expect(count).toBe(maximum);
++      output.acknowledge(last);
++      expect(output.offer(large)).not.toBeNull();
++    } finally {
++      terminal.destroy();
++    }
++  }
++});
+ test("row patches preserve Unicode, hyperlinks, cursor, scrollback and modes", () => {
+   const terminal = Terminal.create(40, 5);
+   try {
+@@ -215,3 +250,131 @@ for (const rtt of [300, 600])
+       terminal.destroy();
+     }
+   });
++
++interface Path {
++  duration: number;
++  rtt: number;
++  bytes_per_ms: number;
++  hz: number;
++  sparse?: boolean;
++}
++/** A FIFO bottleneck; receipts include both propagation directions and serialization. */
++function network(paths: Path[]) {
++  let now = 0,
++    departure = 0,
++    next = 0,
++    last_visible = 0,
++    last_receipt = 0,
++    latest = 0;
++  const output = new Frames(() => now);
++  const receipts: { at: number; frame: bigint }[] = [],
++    arriving: { at: number; source: number; probe: boolean }[] = [],
++    displayed: { at: number; source: number }[] = [],
++    ages: { at: number; age: number }[] = [],
++    probes: number[] = [],
++    flights: number[] = [];
++  for (const path of paths) {
++    flights.push(receipts.length);
++    const end = now + path.duration;
++    for (; now < end; now++) {
++      while (arriving[0]?.at <= now) {
++        const frame = arriving.shift()!;
++        if (frame.probe) continue;
++        latest = frame.source;
++        displayed.push(frame);
++      }
++      while (receipts[0]?.at <= now) output.acknowledge(receipts.shift()!.frame);
++      if (now % 10 === 0) ages.push({ at: now, age: now - latest });
++      if (now < next) continue;
++      next += 1000 / path.hz;
++      const current: View = {
++        type: "view",
++        viewer_protocol: protocol.viewer_version,
++        session: { text: "x".repeat(path.sparse ? 200 : 6000), tick: now } as unknown as View["session"],
++        session_hash: 1n,
++        resources: null,
++        resources_hash: 1n,
++        surfaces: [],
++        controls: [],
++        bell_seq: 0n,
++        bell_kind: "none",
++        viewer: 1,
++        detach: false,
++      };
++      const frame = output.offer(current);
++      if (!frame) continue;
++      const bytes = frame.probe ? 40 : path.sparse ? 100 : 1700;
++      if (frame.probe) probes.push(now);
++      output.encoded(frame.frame, bytes);
++      departure = Math.max(now, departure) + bytes / path.bytes_per_ms;
++      last_visible = Math.max(last_visible, departure + path.rtt / 2);
++      last_receipt = Math.max(last_receipt, departure + path.rtt);
++      arriving.push({ at: last_visible, source: now, probe: frame.probe });
++      receipts.push({ at: last_receipt, frame: frame.frame });
++    }
++  }
++  return {
++    probes,
++    flights,
++    displayed,
++    measure(start: number, end: number) {
++      const held = ages
++        .filter(a => a.at >= start && a.at < end)
++        .map(a => a.age)
++        .sort((a, b) => a - b);
++      return {
++        fps: displayed.filter(frame => frame.at >= start && frame.at < end).length / ((end - start) / 1000),
++        p95: held[Math.floor(held.length * 0.95)],
++        max: held.at(-1)!,
++      };
++    },
++  };
++}
++
++test("a stable constrained path does not repeatedly drain to rediscover the same RTT", () => {
++  const run = network([
++    { duration: 5000, rtt: 120, bytes_per_ms: 125, hz: 20, sparse: true },
++    { duration: 30000, rtt: 600, bytes_per_ms: 8, hz: 20 },
++  ]);
++  const steady = run.measure(15000, 35000);
++  expect(steady.fps).toBeGreaterThanOrEqual(2.8);
++  expect(steady.p95).toBeLessThan(1600);
++  expect(run.probes.filter(at => at >= 10000)).toHaveLength(0);
++});
++
++test("RTT changes during continuous flight still recover the source cadence", () => {
++  const run = network([
++    { duration: 5000, rtt: 120, bytes_per_ms: 125, hz: 60 },
++    { duration: 15000, rtt: 600, bytes_per_ms: 125, hz: 60 },
++    { duration: 10000, rtt: 300, bytes_per_ms: 125, hz: 60 },
++  ]);
++  expect(run.flights[1]).toBeGreaterThan(0);
++  expect(run.flights[2]).toBeGreaterThan(0);
++  expect(run.measure(15000, 20000).fps).toBeGreaterThanOrEqual(59);
++  expect(run.measure(25000, 30000).fps).toBeGreaterThanOrEqual(59);
++  expect(run.measure(25000, 30000).p95).toBeLessThan(250);
++});
++
++test("a faster dense source fills a healthy high-RTT path after sparse traffic", () => {
++  const run = network([
++    { duration: 5000, rtt: 300, bytes_per_ms: 125, hz: 20, sparse: true },
++    { duration: 15000, rtt: 300, bytes_per_ms: 125, hz: 60 },
++  ]);
++  const steady = run.measure(15000, 20000);
++  expect(steady.fps).toBeGreaterThanOrEqual(59);
++  expect(steady.p95).toBeLessThan(250);
++});
++
++for (const rtt of [120, 600])
++  test(`a capacity collapse at ${rtt} ms RTT bounds old work and recovers after the cap lifts`, () => {
++    const run = network([
++      { duration: 5000, rtt, bytes_per_ms: 125, hz: 20 },
++      { duration: 20000, rtt, bytes_per_ms: 8, hz: 20 },
++      { duration: 15000, rtt, bytes_per_ms: 125, hz: 20 },
++    ]);
++    expect(run.measure(5000, 25000).max).toBeLessThan(4500);
++    const fresh = run.displayed.find(frame => frame.source >= 25000 && frame.at - frame.source < rtt / 2 + 250);
++    expect(fresh).toBeDefined();
++    expect(fresh!.at - 25000).toBeLessThan(2000);
++    expect(run.measure(35000, 40000).fps).toBeGreaterThanOrEqual(19);
++  });
+diff --git a/src/viewer_stream.ts b/src/viewer_stream.ts
+index b86f03b3..cf926b14 100644
+--- a/src/viewer_stream.ts
++++ b/src/viewer_stream.ts
+@@ -9,6 +9,7 @@ interface Pending {
+   bytes: number;
+   at: number;
+   probe: boolean;
++  first: boolean;
+ }
+ /** Bound accepted work across the codec, socket and network; coalesce before admission. */
+ export class Frames {
+@@ -72,7 +73,7 @@ export class Frames {
+       this.last = view;
+     }
+     const frame = ++this.sent;
+-    this.pending.set(frame, { raw, bytes, at: this.now(), probe });
++    this.pending.set(frame, { raw, bytes, at: this.now(), probe, first: this.pending.size === 0 });
+     this.bytes += bytes;
+     this.raw += raw;
+     return { frame, view: encoded, probe };
+@@ -130,8 +131,14 @@ export class Frames {
+         this.slots = this.congested ? Math.max(1, Math.floor(this.slots / 2)) : Math.min(this.target, this.slots + 1);
+         this.adjust = now + Math.max(100, this.baseline);
+       }
+-      // A low delivery estimate must not explain away a changed propagation delay.
+-      if (elapsed > this.baseline + Math.max(50, this.baseline / 4) && now - this.probeAt >= 3000) this.draining = true;
++      // Older frames can explain queue delay. Probe an empty-flight sample, or
++      // a delivery estimate too low to distinguish serialization from a new RTT.
++      if (
++        elapsed > this.baseline + Math.max(50, this.baseline / 4) &&
++        now - this.probeAt >= 3000 &&
++        (serialization > this.baseline || (received.first && this.congested))
++      )
++        this.draining = true;
+     }
+     if (previous !== this.slots || now - this.reported >= 1000 || received.probe) {
+       this.reported = now;
+diff --git a/src/wire_compression.test.ts b/src/wire_compression.test.ts
+index 72c7a8f0..a704f939 100644
+--- a/src/wire_compression.test.ts
++++ b/src/wire_compression.test.ts
+@@ -1,9 +1,13 @@
+ import { expect, test } from "bun:test";
+ import { Channel } from "./wire_compression";
+ import { Connection } from "./rpc";
++import { Stream } from "./machine_stream";
+ import { Client } from "./peer";
++import { Server } from "./server";
++import * as protocol from "./protocol";
+ import { ReadyLoop, n, ptr, READ } from "./native_bridge";
+ import { mkdtempSync, rmSync } from "node:fs";
++import { createServer, createConnection } from "node:net";
+ 
+ async function until(check: () => boolean): Promise<void> {
+   const end = performance.now() + 3000;
+@@ -91,6 +95,72 @@ test("EOF waits for the last compressed message to be decoded", async () => {
+     receiver.close();
+   }
+ });
++test("a TCP reset preserves a complete compressed reply and the final reconnect notice", async () => {
++  let encoder: Channel | null = null;
++  const server = createServer(socket => {
++    let input = "",
++      compressed = false,
++      answered = false;
++    const read = (bytes: Buffer) => {
++      input += bytes.toString();
++      for (;;) {
++        const end = input.indexOf("\n");
++        if (end < 0) return;
++        const request = JSON.parse(input.slice(0, end));
++        input = input.slice(end + 1);
++        if (request.op === "hello") {
++          socket.write(
++            JSON.stringify({ type: "hello", content_encoding: "zstd", request_id: request.request_id }) + "\n",
++          );
++          encoder = new Channel(
++            bytes => socket.write(bytes),
++            read,
++            () => socket.destroy(),
++          );
++          compressed = true;
++        } else if (!answered) {
++          answered = true;
++          const reply =
++            JSON.stringify({ ok: true, padding: "x".repeat(1024 * 1024), request_id: request.request_id }) + "\n";
++          encoder!.encode(Buffer.from(reply + '{"type":"viewer.reconnect"}\n'), () => socket.resetAndDestroy());
++        }
++      }
++    };
++    socket.on("data", bytes => (compressed ? encoder!.decode(Buffer.from(bytes)) : read(Buffer.from(bytes))));
++    socket.on("error", () => {});
++  });
++
++  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
++  const address = server.address();
++  if (!address || typeof address === "string") throw Error("NoAddress");
++  const conn = new Connection(createConnection(address.port, "127.0.0.1"), {
++    compression: true,
++    timeout_ms: 1000,
++  });
++  const events: string[] = [];
++  conn.onEvent(event => events.push(event.type));
++  const stream = new Stream(conn, () => {
++    events.push("closed");
++    try {
++      stream.check();
++    } catch {
++      conn.close();
++    }
++  });
++  try {
++    await conn.call("hello");
++    const first: Promise<unknown> = conn.call("ping"),
++      pending = conn.call("ping").catch(error => error);
++    expect(await first).toEqual({ ok: true, padding: "x".repeat(1024 * 1024) });
++    expect((await pending).code).toBe("ECONNRESET");
++    expect(events).toEqual(["viewer.reconnect", "closed"]);
++    await expect(conn.call("ping")).rejects.toThrow("ECONNRESET");
++  } finally {
++    conn.close();
++    (encoder as Channel | null)?.close();
++    await new Promise<void>(resolve => server.close(() => resolve()));
++  }
++});
+ for (const supported of [false, true])
+   test(`RPC negotiates compression=${supported} in hello without another round trip`, async () => {
+     const loop = new ReadyLoop(),
+@@ -109,9 +179,13 @@ for (const supported of [false, true])
+           const value = cl.take();
+           seen.push(value.op);
+           if (value.op === "hello") {
+-            expect(value.compression).toBe("zstd");
++            expect(value.accept_encoding).toEqual(["zstd"]);
+             expect(cl.canCompress).toBe(true);
+-            cl.queue({ type: "hello", request_id: value.request_id, ...(supported ? { compression: "zstd" } : {}) });
++            cl.queue({
++              type: "hello",
++              request_id: value.request_id,
++              ...(supported ? { content_encoding: "zstd" } : {}),
++            });
+             if (supported) cl.compress();
+           } else cl.queue({ ok: true, pid: 123, request_id: value.request_id });
+           cl.done();
+@@ -136,3 +210,178 @@ for (const supported of [false, true])
+       rmSync(directory, { recursive: true, force: true });
+     }
+   });
++
++function daemon() {
++  const loop = new ReadyLoop(),
++    directory = mkdtempSync("/tmp/corgi-encoding-test-"),
++    path = directory + "/s",
++    server = new Server(path, process.execPath, "0".repeat(64));
++  const listener = n.probe_listen(ptr(Buffer.from(path + "\0")));
++  const registration = loop.watch(listener, () => {
++    const fd = n.probe_accept(listener);
++    if (fd >= 0) server.addClient(fd);
++  });
++  registration.arm(READ);
++  return {
++    path,
++    server,
++    close() {
++      for (const client of [...server.clients]) client.close();
++      server.runtime.destroy();
++      Reflect.get(server, "loop").close();
++      registration.close();
++      n.probe_close(listener);
++      loop.close();
++      rmSync(directory, { recursive: true, force: true });
++    },
++  };
++}
++for (const offer of [undefined, [], ["future"], ["future", "zstd"]])
++  test(`daemon selects only a supported offered encoding: ${JSON.stringify(offer)}`, async () => {
++    const fixture = daemon(),
++      conn = new Connection(fixture.path, { timeout_ms: 2000 });
++    try {
++      const hello = await conn.call("hello", offer === undefined ? {} : { accept_encoding: offer });
++      const selected = offer?.includes("zstd") ? "zstd" : undefined;
++      expect(hello.content_encoding).toBe(selected);
++      expect(fixture.server.clients[0].compressed).toBe(selected !== undefined);
++      expect((await conn.call("ping")).ok).toBe(true);
++    } finally {
++      conn.close();
++      fixture.close();
++    }
++  });
++test("the RPC client forbids requests during negotiation and encoding offers after its first request", async () => {
++  const fixture = daemon(),
++    conn = new Connection(fixture.path, { compression: true, timeout_ms: 2000 });
++  try {
++    const hello = conn.call("hello");
++    await expect(conn.call("ping")).rejects.toThrow("CompressionNegotiating");
++    expect((await hello).content_encoding).toBe("zstd");
++    await expect(conn.call("hello", { accept_encoding: ["zstd"] })).rejects.toThrow("InvalidEncodingNegotiation");
++    expect((await conn.call("ping")).ok).toBe(true);
++  } finally {
++    conn.close();
++    fixture.close();
++  }
++  const plainFixture = daemon(),
++    plain = new Connection(plainFixture.path, { timeout_ms: 2000 });
++  try {
++    await plain.call("ping");
++    await expect(plain.call("hello", { accept_encoding: ["zstd"] })).rejects.toThrow("InvalidEncodingNegotiation");
++    expect((await plain.call("ping")).ok).toBe(true);
++  } finally {
++    plain.close();
++    plainFixture.close();
++  }
++});
++for (const offer of [undefined, ["future"], ["zstd"]])
++  for (const selected of ["zstd", "future", null]) {
++    if (selected === "zstd" && offer?.includes(selected)) continue;
++    test(`RPC rejects an unsupported or unoffered selection ${JSON.stringify(offer)} → ${selected}`, async () => {
++      const server = createServer(socket => {
++        socket.once("data", bytes => {
++          const request = JSON.parse(bytes.toString());
++          socket.write(
++            JSON.stringify({ type: "hello", content_encoding: selected, request_id: request.request_id }) + "\n",
++          );
++        });
++      });
++      await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
++      const address = server.address();
++      if (!address || typeof address === "string") throw Error("NoAddress");
++      const conn = new Connection(createConnection(address.port, "127.0.0.1"), { timeout_ms: 2000 });
++      try {
++        await expect(conn.call("hello", offer === undefined ? {} : { accept_encoding: offer })).rejects.toThrow(
++          "InvalidEncodingNegotiation",
++        );
++        expect(conn.disconnected).toBe(true);
++      } finally {
++        conn.close();
++        await new Promise<void>(resolve => server.close(() => resolve()));
++      }
++    });
++  }
++for (const fragmented of [false, true])
++  test(`hello ends at its plaintext newline when compressed bytes are ${fragmented ? "fragmented" : "coalesced"}`, async () => {
++    let encoder: Channel | null = null;
++    const requests: unknown[] = [];
++    const server = createServer(socket => {
++      socket.once("data", bytes => {
++        const request = JSON.parse(bytes.toString());
++        requests.push(request);
++        const plain = Buffer.from(
++          JSON.stringify({ type: "hello", content_encoding: "zstd", request_id: request.request_id }) + "\n",
++        );
++        const wire: Buffer[] = [];
++        encoder = new Channel(
++          bytes => wire.push(bytes),
++          () => {},
++          () => socket.destroy(),
++        );
++        encoder.encode(Buffer.from('{"type":"viewer.reconnect"}\n'), () => {
++          const compressed = Buffer.concat(wire);
++          const parts = fragmented
++            ? [
++                plain.subarray(0, 7),
++                plain.subarray(7, -1),
++                Buffer.concat([plain.subarray(-1), compressed.subarray(0, 3)]),
++                compressed.subarray(3),
++              ]
++            : [Buffer.concat([plain, compressed])];
++          void (async () => {
++            for (const part of parts) {
++              socket.write(part);
++              await Bun.sleep(5);
++            }
++          })();
++        });
++      });
++    });
++    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
++    const address = server.address();
++    if (!address || typeof address === "string") throw Error("NoAddress");
++    const conn = new Connection(createConnection(address.port, "127.0.0.1"), { compression: true, timeout_ms: 2000 });
++    const events: string[] = [];
++    conn.onEvent(event => events.push(event.type));
++    try {
++      expect((await conn.call("hello")).content_encoding).toBe("zstd");
++      await until(() => events.length > 0);
++      expect(events).toEqual(["viewer.reconnect"]);
++      expect(requests).toHaveLength(1);
++    } finally {
++      conn.close();
++      (encoder as Channel | null)?.close();
++      await new Promise<void>(resolve => server.close(() => resolve()));
++    }
++  });
++for (const mode of ["pipelined", "partial", "late"] as const)
++  test(`daemon refuses a ${mode} encoding switch`, async () => {
++    const fixture = daemon(),
++      socket = createConnection(fixture.path),
++      replies: Record<string, unknown>[] = [];
++    let input = "";
++    socket.on("data", bytes => {
++      input += bytes.toString();
++      for (;;) {
++        const end = input.indexOf("\n");
++        if (end < 0) return;
++        replies.push(JSON.parse(input.slice(0, end)));
++        input = input.slice(end + 1);
++      }
++    });
++    const hello = JSON.stringify(protocol.envelope("hello", { accept_encoding: ["zstd"] })) + "\n";
++    try {
++      if (mode === "late") {
++        socket.write('{"op":"ping"}\n');
++        await until(() => replies.length === 1);
++        socket.write(hello);
++      } else socket.write(hello + (mode === "pipelined" ? '{"op":"ping"}\n' : '{"op":'));
++      await until(() => replies.length === (mode === "partial" ? 1 : 2));
++      expect(replies[mode === "late" ? 1 : 0]).toEqual({ err: "InvalidEncodingNegotiation" });
++      expect(fixture.server.clients[0].compressed).toBe(false);
++    } finally {
++      socket.destroy();
++      fixture.close();
++    }
++  });
+diff --git a/tests/reloads.test.ts b/tests/reloads.test.ts
+index 61b6c0a2..708d4a85 100644
+--- a/tests/reloads.test.ts
++++ b/tests/reloads.test.ts
+@@ -14,6 +14,7 @@ import { JsonSocket, EXE, quote, registerCase, run, shellJoin, sleep, versioned,
+ import * as protocol from "../src/protocol";
+ import { byProvider } from "../src/providers";
+ import { Runtime } from "./runtime";
++import { Connection } from "../src/rpc";
+ import { Viewer } from "./viewer_client";
+ import { CodexObserver, write_codex_terminal } from "./provider_sim";
+ 
+@@ -278,6 +279,79 @@ libc.symbols.lseek(fd, 0n, 0);
+     await a.input("printf 'STILL_%s\\n' HERE\r");
+     await this.until(async () => (await this.screen(first)).includes("STILL_HERE"));
+   }
++  async test_compressed_reload_returns_the_committed_reply_and_rejects_later_requests() {
++    const pane = await this.new(),
++      before = await this.session(),
++      connection = new Connection(this.path, { compression: true, timeout_ms: 10000 });
++    try {
++      const hello = await connection.call("hello");
++      this.assertEqual(hello.content_encoding, "zstd");
++      const { link } = await connection.call("link.open");
++      await connection.call("viewer.open");
++      const results = await Promise.allSettled([
++        connection.call("server.reload", { executable: EXE }),
++        connection.call("ping"),
++      ]);
++      this.assertEqual(results[0].status, "fulfilled");
++      if (results[0].status !== "fulfilled") throw results[0].reason;
++      this.assertEqual(results[1].status, "rejected");
++      const after = await this.session();
++      this.assertEqual(results[0].value.server_pid, after.server_pid);
++      this.assertNotEqual(after.server_pid, before.server_pid);
++      this.assertEqual(
++        after.panes.find((p: any) => p.id === pane).pid,
++        before.panes.find((p: any) => p.id === pane).pid,
++      );
++      const check = new Connection(this.path, { timeout_ms: 3000 });
++      try {
++        this.assertEqual((await check.call("hello")).instance, hello.instance);
++        this.assertTrue((await check.call("link.resume", { link })).viewer);
++      } finally {
++        check.close();
++      }
++    } finally {
++      connection.close();
++    }
++  }
++  async test_compressed_reload_reports_rejection_without_committing_or_replaying_input() {
++    const pane = await this.new(),
++      before = await this.session();
++    for (const executable of ["/does/not/exist", "/usr/bin/false"]) {
++      const connection = new Connection(this.path, { compression: true, timeout_ms: 10000 });
++      try {
++        const hello = await connection.call("hello");
++        this.assertEqual(hello.content_encoding, "zstd");
++        const { link } = await connection.call("link.open");
++        await connection.call("viewer.open");
++        const [reload, input] = await Promise.allSettled([
++          connection.request("server.reload", { executable }),
++          connection.call("session.command", {
++            command: { "pane.input": { target: pane, data: "MUST_NOT_RUN\r" } },
++          }),
++        ]);
++        this.assertEqual(reload.status, "fulfilled");
++        if (reload.status !== "fulfilled") throw reload.reason;
++        this.assertEqual(reload.value, { err: "ReloadCandidateFailed" });
++        this.assertEqual(input.status, "rejected");
++        const after = await this.session();
++        this.assertEqual(after.server_pid, before.server_pid);
++        this.assertEqual(after.panes[0].pid, before.panes[0].pid);
++        this.assertNotIn("MUST_NOT_RUN", await this.screen(pane));
++        const check = new Connection(this.path, { timeout_ms: 3000 });
++        try {
++          this.assertEqual((await check.call("hello")).instance, hello.instance);
++          this.assertTrue((await check.call("link.resume", { link })).viewer);
++        } finally {
++          check.close();
++        }
++      } finally {
++        connection.close();
++      }
++    }
++    await this.reload();
++    await this.command("pane.input", { target: pane, data: "printf 'RETRY_%s\\n' WORKED\r" });
++    await this.until(async () => (await this.screen(pane)).includes("RETRY_WORKED"));
++  }
+   async test_v2_migration_preserves_processes_viewers_and_inference_counts() {
+     const first = await this.new(),
+       viewer = await Viewer.create(this);

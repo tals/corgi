@@ -71,6 +71,14 @@ test("every op decodes a sample request", () => {
     expect(() => protocol.decode(op, samples[op])).not.toThrow();
   }
 });
+test("hello offers optional encodings and tolerates names a peer does not support", () => {
+  expect(protocol.decode("hello", {}).accept_encoding).toEqual([]);
+  expect(protocol.decode("hello", { accept_encoding: ["future", "zstd"] }).accept_encoding).toEqual(["future", "zstd"]);
+  expect(() => protocol.decode("hello", { accept_encoding: "zstd" })).toThrow("UnexpectedToken");
+  expect(() => protocol.decode("hello", { accept_encoding: [1] })).toThrow("UnexpectedToken");
+  expect(protocol.encoding("zstd")).toBe("zstd");
+  expect(protocol.encoding("future")).toBeNull();
+});
 test("a client's envelope writes what the hand-written requests did", () => {
   for (const [op, payload, expected] of [
     ["hello", {}, { op: "hello", protocol: protocol.management_version, runtime_protocol: protocol.version }],

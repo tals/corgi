@@ -9,6 +9,7 @@ import { Theme } from "../theme";
 import * as checkpoint from "./checkpoint";
 import * as recovery from "./recovery";
 import * as migrations from "./migrations";
+import * as rollback from "./handoff_rollback";
 import * as json from "../json";
 import { Worker as SummaryWorker } from "../activity/worker";
 import { Worker as UsageWorker } from "../usage/worker";
@@ -16,6 +17,7 @@ import * as build_id from "../build_id";
 import * as setup from "../inference/setup";
 import * as breadcrumbs from "../breadcrumbs";
 import * as observers from "../observer_service";
+import { Link } from "../link";
 
 export const terminal_abi = 0xa826bd22ebcdbe60n;
 export const update_abi = `1-${terminal_abi.toString(16)}`;
@@ -35,6 +37,7 @@ const savedFields = [
   "subscribed_output",
   "startup_wait",
   "watching",
+  "stream_data",
   "watch_viewer",
   "launch_preview",
   "headless_start",
@@ -50,14 +53,17 @@ function captureClient(client: Client) {
     fd: client.fd,
     input: client.savedInput().toString("base64"),
     output: client.output.subarray(client.sent).toString("base64"),
+    websocket: client.savedWebSocket(),
+    link: client.link?.id ?? null,
     ...Object.fromEntries(savedFields.map(key => [key, client[key]])),
   };
 }
 export function restoreClient(server: Server, value: unknown): Client {
-  const { fd, input, output, ...fields } = json.object(value),
+  const { fd, input, output, link, websocket, ...fields } = json.object(value),
     client = server.addClient(fd, false);
   checkpoint.hydrate(client, fields);
   client.startup_wait = startup.decode([fields.startup_wait])[0] ?? null;
+  client.link = typeof link === "string" ? (server.links.get(link) ?? null) : null;
   if (client.snapshot_revision !== null) client.snapshot_revision = BigInt(client.snapshot_revision);
   for (const control of client.controls) control.seq = BigInt(control.seq);
   for (const interest of client.interests) {
@@ -70,6 +76,7 @@ export function restoreClient(server: Server, value: unknown): Client {
     client.launch_preview.history_epoch = BigInt(client.launch_preview.history_epoch);
     client.launch_preview.history_sent = BigInt(client.launch_preview.history_sent);
   }
+  if (websocket) client.restoreWebSocket(websocket);
   client.restoreInput(Buffer.from(input, "base64"));
   client.output = Buffer.from(output, "base64");
   return client;
@@ -80,13 +87,29 @@ export function captureManifest(server: Server, requester: Client, request_id: n
     update_abi,
     terminal_abi,
     listener: server.listener,
-    requester: requester.fd,
+    instance: server.instance,
+    requester: requester.compressed ? -1 : requester.fd,
     request_id,
     runtime: checkpoint.capture(server.runtime, true),
     summaries: server.summaries?.capture() ?? null,
     usage: server.usage?.capture() ?? null,
     // A one-shot HTTP request is not handed over; its sender sees the close.
-    clients: server.clients.filter(client => client.http === "no").map(captureClient),
+    clients: server.clients.filter(client => client.http === "no" && !client.compressed).map(captureClient),
+    links: [...server.links.values()].map(l => {
+      const saved = l.capture();
+      const client = server.clients.find(client => client.compressed && client.link === l);
+      if (client) saved.detached_at = Date.now();
+      if (client?.viewer)
+        saved.viewer = {
+          viewer_id: client.viewer_id,
+          active_seq: client.active_seq,
+          view_workspace: client.view_workspace,
+          controls: [...client.controls],
+          next_control: client.next_control,
+          last_control: client.last_control,
+        };
+      return saved;
+    }),
     theme: server.theme,
     preferred_workspace: server.preferred_workspace,
     default_folder_pending: server.default_folder_pending,
@@ -99,6 +122,7 @@ export function captureManifest(server: Server, requester: Client, request_id: n
 }
 export function restoreMetadata(server: Server, value: unknown): void {
   const saved = json.object(value);
+  if (typeof saved.instance === "string") Object.assign(server, { instance: saved.instance });
   for (const key of [
     "preferred_workspace",
     "default_folder_pending",
@@ -109,6 +133,10 @@ export function restoreMetadata(server: Server, value: unknown): void {
   ] as const)
     if (saved[key] !== undefined) Object.assign(server, { [key]: saved[key] });
   if (saved.bell_seq !== undefined) server.bell_seq = BigInt(saved.bell_seq);
+  for (const l of saved.links ?? []) {
+    const restored = Link.restore(l);
+    server.links.set(restored.id, restored);
+  }
 }
 async function line(control: AsyncFD, limit = 1024): Promise<string> {
   const bytes = Buffer.alloc(limit);
@@ -121,6 +149,14 @@ async function line(control: AsyncFD, limit = 1024): Promise<string> {
     if (end >= 0 && end < used) return bytes.toString("utf8", 0, end);
   }
   throw Error("ReloadCandidateFailed");
+}
+async function finishRequester(client: Client, response: unknown, rolledBack = false): Promise<void> {
+  client.queue(response);
+  client.resume();
+  const until = performance.now() + 1000;
+  while (!client.dead && client.queued && performance.now() < until) await Bun.sleep(1);
+  if (rolledBack) await client.rolledBack();
+  else client.close();
 }
 function descriptors(manifest: any): { fds: number[]; state: any } {
   const state = json.clone(manifest),
@@ -149,6 +185,7 @@ export async function replace(
   requester: Client,
   executable: string,
   request_id: number | null = null,
+  legacy = false,
 ): Promise<void> {
   if (!isAbsolute(executable)) throw Error("InvalidExecutable");
   await server.flushWorkspaceWrites();
@@ -174,17 +211,28 @@ export async function replace(
     await Bun.sleep(5);
   }
   await observers.pause(server);
-  server.pause();
+  await Promise.all(server.clients.map(client => client.prepareHandoff()));
+  server.pause(requester, true);
   breadcrumbs.record("reloading");
   const fds = new Int32Array(2);
   let stateFD = -1,
     controlFD = -1,
     childFD = -1,
+    relayFD = -1,
+    relay: Client | undefined,
     loop: ReadyLoop | undefined,
     candidate: Bun.Subprocess | undefined,
+    failure: unknown,
+    retry = false,
     timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const manifest = captureManifest(server, requester, request_id);
+    if (requester.http !== "no" || requester.compressed || (legacy && requester.savedWebSocket())) {
+      if (n.probe_pair(ptr(fds))) throw Error("SocketPairFailed");
+      relay = server.addClient(fds[0], false);
+      relayFD = fds[1];
+    }
+    const captured = captureManifest(server, relay ?? requester, request_id),
+      manifest = legacy ? rollback.downgrade(captured) : captured;
     const transfer = descriptors(manifest),
       bytes = Buffer.from(json.stringify(transfer.state));
     if (bytes.length > 256 * 1024 * 1024) throw Error("CheckpointTooLarge");
@@ -246,19 +294,52 @@ export async function replace(
       throw Error("ReloadCandidateFailed");
     }
     await control.write(Buffer.from("commit\n"));
+    if (relay) {
+      // The candidate sends its ordinary reply only after commit. The old
+      // process retains HTTP framing or the codec long enough to relay it.
+      try {
+        const response = await Promise.race([
+          line(new AsyncFD(loop, relayFD)),
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => reject(Error("ReloadReplyTimedOut")), 15000);
+          }),
+        ]);
+        clearTimeout(timeout);
+        await finishRequester(requester, json.parse(response), legacy);
+      } catch {
+        // Commit is irreversible; a vanished requester cannot roll it back.
+      }
+    }
+    if (legacy)
+      await Promise.allSettled(
+        server.clients.filter(client => client !== requester).map(client => client.rolledBack()),
+      );
     // Destructors would kill processes and unlink the inherited listener.
     process.exit(0);
   } catch (error) {
     candidate?.kill("SIGKILL");
     if (candidate) await candidate.exited;
-    throw error;
+    if (!legacy && rollback.supported(error)) retry = true;
+    else {
+      if (!requester.compressed) throw error;
+      failure = error;
+    }
   } finally {
     clearTimeout(timeout);
     loop?.close();
-    for (const fd of [stateFD, controlFD, childFD]) if (fd >= 0) n.probe_close(fd);
+    relay?.close();
+    for (const fd of [stateFD, controlFD, childFD, relayFD]) if (fd >= 0) n.probe_close(fd);
+    // Peers already received a reconnect notice; a failed candidate must let them start fresh too.
+    if (!retry)
+      for (const client of server.clients.filter(client => client.compressed && client !== requester)) client.close();
     server.resume();
     observers.unpause(server);
   }
+  if (retry) return replace(server, requester, executable, request_id, true);
+  await finishRequester(requester, {
+    err: failure instanceof Error ? failure.message : String(failure),
+    ...(request_id === null ? {} : { request_id }),
+  });
 }
 export async function importAndRun(
   socket: string,

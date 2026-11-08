@@ -1,0 +1,591 @@
+[
+  {
+    "key": [
+      "stream-600-low",
+      "after",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.41331067215651274,
+        "min": 0.408192987088114,
+        "max": 0.42645903769880533,
+        "p95": 0.4251442011445761
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.928620280697942,
+        "min": 2.9226650479249656,
+        "max": 2.936912032775581,
+        "p95": 2.936082857567817
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 3.119225449860096,
+        "min": 3.096680630929768,
+        "max": 3.120729373767972,
+        "p95": 3.1205789813771845
+      }
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "after",
+      "stream",
+      "dense",
+      "64kbit",
+      600,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.44387085223570466,
+        "min": 0.3348874682560563,
+        "max": 0.6381935551762581,
+        "p95": 0.6187612848822027
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 54.04179239476301,
+        "min": 53.99340015207982,
+        "max": 55.477885586556546,
+        "p95": 55.33427626737719
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 1.0599639927968383,
+        "min": 1.0501202819868922,
+        "max": 1.2122360267676413,
+        "p95": 1.197008823370561
+      },
+      "fps": {
+        "n": 3,
+        "median": 3.399988152065933,
+        "min": 3.2999908468288,
+        "max": 3.466655786907711,
+        "p95": 3.459989023423533
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 1.5836540767922997,
+        "min": 1.1255728797987103,
+        "max": 3.6257842825725675,
+        "p95": 3.4215712619945404
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 1.083654078654945,
+        "min": 0.9757143957540393,
+        "max": 2.3757618204690516,
+        "p95": 2.2465510462876406
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.2303377829513525,
+        "min": 0.22365101016921352,
+        "max": 0.23312480890400397,
+        "p95": 0.2328461063087388
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 426.48046875,
+        "min": 422.24609375,
+        "max": 428.32421875,
+        "p95": 428.13984375
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 62.54675712306731,
+        "min": 62.47069634639434,
+        "max": 63.99168661890965,
+        "p95": 63.847193669325414
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 8.5138010323531,
+        "min": 8.428903951631332,
+        "max": 8.553356970987489,
+        "p95": 8.549401377124049
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "before",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4121083300560713,
+        "min": 0.40255760308355093,
+        "max": 0.4145314199849963,
+        "p95": 0.4142891109921038
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.91881121089682,
+        "min": 2.9077485371381044,
+        "max": 2.9381897831335664,
+        "p95": 2.936251925909892
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 3.091528959106654,
+        "min": 3.082388048991561,
+        "max": 3.1127578341402113,
+        "p95": 3.1106349466368557
+      }
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "before",
+      "stream",
+      "dense",
+      "64kbit",
+      600,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.5001500654034317,
+        "min": 0.4587483978830278,
+        "max": 0.6337596019729972,
+        "p95": 0.6203986483160406
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 52.78493669634045,
+        "min": 47.81488142716607,
+        "max": 58.58435455170904,
+        "p95": 58.00441276617218
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 2.6686350288800895,
+        "min": 2.6469236528500915,
+        "max": 2.7663991905283183,
+        "p95": 2.7566227743634952
+      },
+      "fps": {
+        "n": 3,
+        "median": 0.9999963017162116,
+        "min": 0.8999958539805449,
+        "max": 1.0666612881362112,
+        "p95": 1.0599947894942112
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 11.30045404471457,
+        "min": 6.142912414390594,
+        "max": 20.242111887782812,
+        "p95": 19.347946103475987
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 10.000428965315223,
+        "min": 4.642912419978529,
+        "max": 18.742111893370748,
+        "p95": 17.867943600565194
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.2071298706268712,
+        "min": 0.18871840121628278,
+        "max": 0.20800025887482887,
+        "p95": 0.2079132200500331
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 413.04296875,
+        "min": 403.109375,
+        "max": 417.3828125,
+        "p95": 416.948828125
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 4,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 59.72025753935257,
+        "min": 54.48545373697419,
+        "max": 65.48005281421423,
+        "p95": 64.90407328672806
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 6.895698262505191,
+        "min": 6.670572309808119,
+        "max": 6.935320843012118,
+        "p95": 6.931358584961425
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 4,
+        "min": 3,
+        "max": 5,
+        "p95": 4.9
+      }
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "control",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.40846892911940813,
+        "min": 0.4083891329355538,
+        "max": 0.4148554909043014,
+        "p95": 0.41421683472581206
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.919272609986365,
+        "min": 2.912779939826578,
+        "max": 2.9425348839722574,
+        "p95": 2.940208656573668
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 3.104080834891647,
+        "min": 3.1033055768348277,
+        "max": 3.1369682089425623,
+        "p95": 3.1336794715374707
+      }
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "control",
+      "stream",
+      "dense",
+      "64kbit",
+      600,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.4640265037305653,
+        "min": 0.3405897682532668,
+        "max": 0.47147305496037006,
+        "p95": 0.47072839983738957
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 55.69633299186033,
+        "min": 52.87515849780943,
+        "max": 56.95616688100106,
+        "p95": 56.83018349208699
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 1.186121363658458,
+        "min": 1.1653135996311903,
+        "max": 1.215313711669296,
+        "p95": 1.2123944768682122
+      },
+      "fps": {
+        "n": 3,
+        "median": 3.4333167111576315,
+        "min": 3.2333186636159597,
+        "max": 3.499988535107416,
+        "p95": 3.4933213527124374
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 3.5126564549282193,
+        "min": 3.1444257237017155,
+        "max": 3.588288285303861,
+        "p95": 3.580725102266297
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 2.3126655030064285,
+        "min": 1.9445017175748944,
+        "max": 2.338257955852896,
+        "p95": 2.3356987105682494
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.21261977914713323,
+        "min": 0.2097843749510243,
+        "max": 0.2397939552060426,
+        "p95": 0.23707653760015165
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 418.453125,
+        "min": 408.81640625,
+        "max": 421.265625,
+        "p95": 420.984375
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 66.84326477230242,
+        "min": 63.74357611876741,
+        "max": 68.69842215863764,
+        "p95": 68.51290642000411
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 11.146931780442085,
+        "min": 10.86841762095798,
+        "max": 11.742255277636586,
+        "p95": 11.682722927917135
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/control-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "herdr",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.2921915170736611,
+        "min": 0.28111097821965814,
+        "max": 0.2932959827594459,
+        "p95": 0.2931855361908674
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 3.9400094551965594,
+        "min": 3.934184815734625,
+        "max": 3.942620526999235,
+        "p95": 3.9423594198189678
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 4.320613956078887,
+        "min": 4.308802938554436,
+        "max": 4.452325416263193,
+        "p95": 4.439154270244762
+      }
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "herdr",
+      "stream",
+      "dense",
+      "64kbit",
+      600,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 12.055417594034225,
+        "min": 9.005638431292027,
+        "max": 23.542613128665835,
+        "p95": 22.393893575202675
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 63.92995817135656,
+        "min": 63.79733062594909,
+        "max": 64.20691025355143,
+        "p95": 64.17921504533194
+      },
+      "fps": {
+        "n": 3,
+        "median": 1.0333298766361285,
+        "min": 0.9999961684139107,
+        "max": 1.1666626184750084,
+        "p95": 1.1533293442911203
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 32.29326108889654,
+        "min": 32.10243904823437,
+        "max": 32.337269756477326,
+        "p95": 32.33286888971925
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 30.79326109448448,
+        "min": 30.60243905382231,
+        "max": 30.98732719803229,
+        "p95": 30.967920587677508
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.05395662906408397,
+        "min": 0.04626468993902473,
+        "max": 0.05410824288888646,
+        "p95": 0.05409308150640621
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 64.125,
+        "min": 64.125,
+        "max": 70.125,
+        "p95": 69.525
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 68.082544896399,
+        "min": 67.70688758903925,
+        "max": 68.42715498611003,
+        "p95": 68.39269397713892
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 3.909556963090165,
+        "min": 3.875634642847575,
+        "max": 4.497196814753458,
+        "p95": 4.4384328295871285
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "p95": 0.0
+      }
+    },
+    "evidence": [
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-1/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-2/results.json",
+      "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-four-core/stream-600-low/herdr-3/results.json"
+    ]
+  }
+]

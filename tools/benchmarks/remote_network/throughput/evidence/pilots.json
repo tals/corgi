@@ -1,0 +1,2319 @@
+{
+  "fixed": {
+    "plan": {
+      "before": "dist/corgi-outage-after",
+      "after": "dist/corgi-throughput-pilot",
+      "herdr": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "output": "dist/remote-throughput-pilot",
+      "repeats": 1,
+      "cpu_sets": "32-39;48-55;64-71",
+      "cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+      "suite": "stream",
+      "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+      "stream_rtt": 120,
+      "stream_seconds": 30
+    },
+    "groups": [
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          null,
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/before-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.08724860288202763,
+          "min": 0.08724860288202763,
+          "max": 0.08724860288202763,
+          "p95": 0.08724860288202763
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 16.13327035462647,
+          "min": 16.13327035462647,
+          "max": 16.13327035462647,
+          "p95": 16.13327035462647
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.09694970678538084,
+          "min": 0.09694970678538084,
+          "max": 0.09694970678538084,
+          "p95": 0.09694970678538084
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.14689382538199425,
+          "min": 0.14689382538199425,
+          "max": 0.14689382538199425,
+          "p95": 0.14689382538199425
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.1471244841814041,
+          "min": 0.1471244841814041,
+          "max": 0.1471244841814041,
+          "p95": 0.1471244841814041
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.19205360393971205,
+          "min": 0.16829859325662255,
+          "max": 0.23396357102319598,
+          "p95": 0.2267058502882719
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 520.5058794199068,
+          "min": 520.5058794199068,
+          "max": 520.5058794199068,
+          "p95": 520.5058794199068
+        },
+        "failures": [],
+        "label": "before"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "1mbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/before-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.0758097879588604,
+          "min": 0.0758097879588604,
+          "max": 0.0758097879588604,
+          "p95": 0.0758097879588604
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 13.966614106054985,
+          "min": 13.966614106054985,
+          "max": 13.966614106054985,
+          "p95": 13.966614106054985
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.1512219444848597,
+          "min": 0.1512219444848597,
+          "max": 0.1512219444848597,
+          "p95": 0.1512219444848597
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.2012398368678987,
+          "min": 0.2012398368678987,
+          "max": 0.2012398368678987,
+          "p95": 0.2012398368678987
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.20146954292431474,
+          "min": 0.20146954292431474,
+          "max": 0.20146954292431474,
+          "p95": 0.20146954292431474
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.22380196675658226,
+          "min": 0.1880572149530053,
+          "max": 0.2757563879713416,
+          "p95": 0.26574784237891436
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 450.407903725209,
+          "min": 450.407903725209,
+          "max": 450.407903725209,
+          "p95": 450.407903725209
+        },
+        "failures": [],
+        "label": "before"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "256kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/before-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.11197140021249652,
+          "min": 0.11197140021249652,
+          "max": 0.11197140021249652,
+          "p95": 0.11197140021249652
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 7.866640400007734,
+          "min": 7.866640400007734,
+          "max": 7.866640400007734,
+          "p95": 7.866640400007734
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.25789819890633225,
+          "min": 0.25789819890633225,
+          "max": 0.25789819890633225,
+          "p95": 0.25789819890633225
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.35766322491690516,
+          "min": 0.35766322491690516,
+          "max": 0.35766322491690516,
+          "p95": 0.35766322491690516
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.3579529970884323,
+          "min": 0.3579529970884323,
+          "max": 0.3579529970884323,
+          "p95": 0.3579529970884323
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.3800764251500368,
+          "min": 0.315375957172364,
+          "max": 0.4290262861177325,
+          "p95": 0.42390776593238116
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 256.06809762295177,
+          "min": 256.06809762295177,
+          "max": 256.06809762295177,
+          "p95": 256.06809762295177
+        },
+        "failures": [],
+        "label": "before"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/before-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.2079310161061585,
+          "min": 0.2079310161061585,
+          "max": 0.2079310161061585,
+          "p95": 0.2079310161061585
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 1.8666610897623224,
+          "min": 1.8666610897623224,
+          "max": 1.8666610897623224,
+          "p95": 1.8666610897623224
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p95": 0.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 1.2756019365042448,
+          "min": 1.2756019365042448,
+          "max": 1.2756019365042448,
+          "p95": 1.2756019365042448
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 1.5255498522892594,
+          "min": 1.5255498522892594,
+          "max": 1.5255498522892594,
+          "p95": 1.5255498522892594
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 1.625524959526956,
+          "min": 1.625524959526956,
+          "max": 1.625524959526956,
+          "p95": 1.625524959526956
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 1.4192947931587696,
+          "min": 1.1634367909282446,
+          "max": 1.5486075868830085,
+          "p95": 1.5298838835209607
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 63.93286718137678,
+          "min": 63.93286718137678,
+          "max": 63.93286718137678,
+          "p95": 63.93286718137678
+        },
+        "failures": [],
+        "label": "before"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "sparse",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/before-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.15396500192582607,
+          "min": 0.15396500192582607,
+          "max": 0.15396500192582607,
+          "p95": 0.15396500192582607
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 6.433318444269295,
+          "min": 6.433318444269295,
+          "max": 6.433318444269295,
+          "p95": 6.433318444269295
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.30948419301164726,
+          "min": 0.30948419301164726,
+          "max": 0.30948419301164726,
+          "p95": 0.30948419301164726
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.5025908434763551,
+          "min": 0.5025908434763551,
+          "max": 0.5025908434763551,
+          "p95": 0.5025908434763551
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.6025895746424794,
+          "min": 0.6025895746424794,
+          "max": 0.6025895746424794,
+          "p95": 0.6025895746424794
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.6526178983040154,
+          "min": 0.6526178983040154,
+          "max": 0.6526178983040154,
+          "p95": 0.6526178983040154
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.6500374940223992,
+          "min": 0.5660330289974809,
+          "max": 0.7166680190712214,
+          "p95": 0.7070968998596072
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 64.07104103380658,
+          "min": 64.07104103380658,
+          "max": 64.07104103380658,
+          "p95": 64.07104103380658
+        },
+        "failures": [],
+        "label": "before"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          null,
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/after-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.10078719584271312,
+          "min": 0.10078719584271312,
+          "max": 0.10078719584271312,
+          "p95": 0.10078719584271312
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 19.999887543121005,
+          "min": 19.999887543121005,
+          "max": 19.999887543121005,
+          "p95": 19.999887543121005
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.08031563553959131,
+          "min": 0.08031563553959131,
+          "max": 0.08031563553959131,
+          "p95": 0.08031563553959131
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.13020703196525574,
+          "min": 0.13020703196525574,
+          "max": 0.13020703196525574,
+          "p95": 0.13020703196525574
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.13054324500262737,
+          "min": 0.13054324500262737,
+          "max": 0.13054324500262737,
+          "p95": 0.13054324500262737
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.18235815269872546,
+          "min": 0.18203542986884713,
+          "max": 0.19643799681216478,
+          "p95": 0.193664525821805
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 663.622595110509,
+          "min": 663.622595110509,
+          "max": 663.622595110509,
+          "p95": 663.622595110509
+        },
+        "failures": [],
+        "label": "after"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "1mbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/after-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.09630513098090887,
+          "min": 0.09630513098090887,
+          "max": 0.09630513098090887,
+          "p95": 0.09630513098090887
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 19.999935575657986,
+          "min": 19.999935575657986,
+          "max": 19.999935575657986,
+          "p95": 19.999935575657986
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.1274930047802627,
+          "min": 0.1274930047802627,
+          "max": 0.1274930047802627,
+          "p95": 0.1274930047802627
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.1276820646598935,
+          "min": 0.1276820646598935,
+          "max": 0.1276820646598935,
+          "p95": 0.1276820646598935
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.17750787362456322,
+          "min": 0.17750787362456322,
+          "max": 0.17750787362456322,
+          "p95": 0.17750787362456322
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.2040170286782086,
+          "min": 0.1540020750835538,
+          "max": 0.22199392784386873,
+          "p95": 0.21844586580991746
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 656.1701241461807,
+          "min": 656.1701241461807,
+          "max": 656.1701241461807,
+          "p95": 656.1701241461807
+        },
+        "failures": [],
+        "label": "after"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "256kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/after-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.11344265192747116,
+          "min": 0.11344265192747116,
+          "max": 0.11344265192747116,
+          "p95": 0.11344265192747116
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 7.899969463396576,
+          "min": 7.899969463396576,
+          "max": 7.899969463396576,
+          "p95": 7.899969463396576
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.38833481073379517,
+          "min": 0.38833481073379517,
+          "max": 0.38833481073379517,
+          "p95": 0.38833481073379517
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.48826122656464577,
+          "min": 0.48826122656464577,
+          "max": 0.48826122656464577,
+          "p95": 0.48826122656464577
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.48853125562891364,
+          "min": 0.48853125562891364,
+          "max": 0.48853125562891364,
+          "p95": 0.48853125562891364
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.4998521078377962,
+          "min": 0.45828253915533423,
+          "max": 0.5543595738708973,
+          "p95": 0.5524536302313209
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 256.0740026653229,
+          "min": 256.0740026653229,
+          "max": 256.0740026653229,
+          "p95": 256.0740026653229
+        },
+        "failures": [],
+        "label": "after"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/after-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.13197134574875236,
+          "min": 0.13197134574875236,
+          "max": 0.13197134574875236,
+          "p95": 0.13197134574875236
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 1.8999930690497293,
+          "min": 1.8999930690497293,
+          "max": 1.8999930690497293,
+          "p95": 1.8999930690497293
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p95": 0.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 1.799720721784979,
+          "min": 1.799720721784979,
+          "max": 1.799720721784979,
+          "p95": 1.799720721784979
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 2.0497192684561014,
+          "min": 2.0497192684561014,
+          "max": 2.0497192684561014,
+          "p95": 2.0497192684561014
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 2.1498508458025753,
+          "min": 2.1498508458025753,
+          "max": 2.1498508458025753,
+          "p95": 2.1498508458025753
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 1.9023484229110181,
+          "min": 1.602841954678297,
+          "max": 2.137819427996874,
+          "p95": 2.1102443607524037
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 63.97558081764787,
+          "min": 63.97558081764787,
+          "max": 63.97558081764787,
+          "p95": 63.97558081764787
+        },
+        "failures": [],
+        "label": "after"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "sparse",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/after-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.1530618374235928,
+          "min": 0.1530618374235928,
+          "max": 0.1530618374235928,
+          "p95": 0.1530618374235928
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 6.366647133535822,
+          "min": 6.366647133535822,
+          "max": 6.366647133535822,
+          "p95": 6.366647133535822
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.4525790349417637,
+          "min": 0.4525790349417637,
+          "max": 0.4525790349417637,
+          "p95": 0.4525790349417637
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.527838327921927,
+          "min": 0.527838327921927,
+          "max": 0.527838327921927,
+          "p95": 0.527838327921927
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.6278541958890855,
+          "min": 0.6278541958890855,
+          "max": 0.6278541958890855,
+          "p95": 0.6278541958890855
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.6778602818958461,
+          "min": 0.6778602818958461,
+          "max": 0.6778602818958461,
+          "p95": 0.6778602818958461
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.6110393609851599,
+          "min": 0.5694623342715204,
+          "max": 0.7534928866662085,
+          "p95": 0.7309968738816678
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 63.78357680901829,
+          "min": 63.78357680901829,
+          "max": 63.78357680901829,
+          "p95": 63.78357680901829
+        },
+        "failures": [],
+        "label": "after"
+      },
+      {
+        "key": [
+          "herdr",
+          "default",
+          "stream",
+          "dense",
+          null,
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/herdr-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.08633902622386813,
+          "min": 0.08633902622386813,
+          "max": 0.08633902622386813,
+          "p95": 0.08633902622386813
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 19.999925234944964,
+          "min": 19.999925234944964,
+          "max": 19.999925234944964,
+          "p95": 19.999925234944964
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.10101650189608335,
+          "min": 0.10101650189608335,
+          "max": 0.10101650189608335,
+          "p95": 0.10101650189608335
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.10121757397428155,
+          "min": 0.10121757397428155,
+          "max": 0.10121757397428155,
+          "p95": 0.10121757397428155
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.10128753120079637,
+          "min": 0.10128753120079637,
+          "max": 0.10128753120079637,
+          "p95": 0.10128753120079637
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.16319550713524222,
+          "min": 0.1589773679152131,
+          "max": 0.16343506705015898,
+          "p95": 0.16340179061517118
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 844.2017271506077,
+          "min": 844.2017271506077,
+          "max": 844.2017271506077,
+          "p95": 844.2017271506077
+        },
+        "failures": [],
+        "label": "herdr"
+      },
+      {
+        "key": [
+          "herdr",
+          "default",
+          "stream",
+          "dense",
+          "1mbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/herdr-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.0860180975869298,
+          "min": 0.0860180975869298,
+          "max": 0.0860180975869298,
+          "p95": 0.0860180975869298
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 19.999889548546598,
+          "min": 19.999889548546598,
+          "max": 19.999889548546598,
+          "p95": 19.999889548546598
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.13703404227271676,
+          "min": 0.13703404227271676,
+          "max": 0.13703404227271676,
+          "p95": 0.13703404227271676
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.13724395586177707,
+          "min": 0.13724395586177707,
+          "max": 0.13724395586177707,
+          "p95": 0.13724395586177707
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.1373024475760758,
+          "min": 0.1373024475760758,
+          "max": 0.1373024475760758,
+          "p95": 0.1373024475760758
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.15674422774463892,
+          "min": 0.15622795186936855,
+          "max": 0.16637099906802177,
+          "p95": 0.16454770704731345
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 843.803221460742,
+          "min": 843.803221460742,
+          "max": 843.803221460742,
+          "p95": 843.803221460742
+        },
+        "failures": [],
+        "label": "herdr"
+      },
+      {
+        "key": [
+          "herdr",
+          "default",
+          "stream",
+          "dense",
+          "256kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/herdr-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 1.0983674125745893,
+          "min": 1.0983674125745893,
+          "max": 1.0983674125745893,
+          "p95": 1.0983674125745893
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 5.699984631114169,
+          "min": 5.699984631114169,
+          "max": 5.699984631114169,
+          "p95": 5.699984631114169
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p95": 0.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 13.341976004187018,
+          "min": 13.341976004187018,
+          "max": 13.341976004187018,
+          "p95": 13.341976004187018
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 21.591949061490595,
+          "min": 21.591949061490595,
+          "max": 21.591949061490595,
+          "p95": 21.591949061490595
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 23.09194905590266,
+          "min": 23.09194905590266,
+          "max": 23.09194905590266,
+          "p95": 23.09194905590266
+        },
+        "input_visible": 2,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 2,
+          "median": 16.257794054457918,
+          "min": 12.034873155876994,
+          "max": 20.48071495303884,
+          "p95": 20.05842286318075
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 255.02680266043845,
+          "min": 255.02680266043845,
+          "max": 255.02680266043845,
+          "p95": 255.02680266043845
+        },
+        "failures": [],
+        "label": "herdr"
+      },
+      {
+        "key": [
+          "herdr",
+          "default",
+          "stream",
+          "dense",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/herdr-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.7491759667173028,
+          "min": 0.7491759667173028,
+          "max": 0.7491759667173028,
+          "p95": 0.7491759667173028
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 1.0999959657287413,
+          "min": 1.0999959657287413,
+          "max": 1.0999959657287413,
+          "p95": 1.0999959657287413
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p95": 0.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 17.691021046135575,
+          "min": 17.691021046135575,
+          "max": 17.691021046135575,
+          "p95": 17.691021046135575
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 30.94084228295833,
+          "min": 30.94084228295833,
+          "max": 30.94084228295833,
+          "p95": 30.94084228295833
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 32.190837919246405,
+          "min": 32.190837919246405,
+          "max": 32.190837919246405,
+          "p95": 32.190837919246405
+        },
+        "input_visible": 0,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 0,
+          "median": null,
+          "min": null,
+          "max": null,
+          "p95": null
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 63.86921559101251,
+          "min": 63.86921559101251,
+          "max": 63.86921559101251,
+          "p95": 63.86921559101251
+        },
+        "failures": [],
+        "label": "herdr"
+      },
+      {
+        "key": [
+          "herdr",
+          "default",
+          "stream",
+          "sparse",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-pilot/herdr-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.15167944598942995,
+          "min": 0.15167944598942995,
+          "max": 0.15167944598942995,
+          "p95": 0.15167944598942995
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 13.99995263210071,
+          "min": 13.99995263210071,
+          "max": 13.99995263210071,
+          "p95": 13.99995263210071
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.0066555740432612314,
+          "min": 0.0066555740432612314,
+          "max": 0.0066555740432612314,
+          "p95": 0.0066555740432612314
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 2.4937714003026485,
+          "min": 2.4937714003026485,
+          "max": 2.4937714003026485,
+          "p95": 2.4937714003026485
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 7.243791085667908,
+          "min": 7.243791085667908,
+          "max": 7.243791085667908,
+          "p95": 7.243791085667908
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 7.643708046525717,
+          "min": 7.643708046525717,
+          "max": 7.643708046525717,
+          "p95": 7.643708046525717
+        },
+        "input_visible": 4,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 4,
+          "median": 2.040679852711037,
+          "min": 0.8115117680281401,
+          "max": 3.422172768972814,
+          "p95": 3.284021438332274
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 64.11372123858415,
+          "min": 64.11372123858415,
+          "max": 64.11372123858415,
+          "p95": 64.11372123858415
+        },
+        "failures": [],
+        "label": "herdr"
+      }
+    ],
+    "pooled_with_final": false
+  },
+  "adaptive": {
+    "plan": {
+      "before": "dist/corgi-outage-after",
+      "after": "dist/corgi-throughput-adaptive-pilot",
+      "herdr": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "output": "dist/remote-throughput-adaptive-pilot",
+      "repeats": 1,
+      "cpu_sets": "32-39;48-55;64-71",
+      "cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+      "suite": "stream",
+      "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+      "stream_rtt": 120,
+      "stream_seconds": 30,
+      "fault_kind": "sparse"
+    },
+    "groups": [
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          null,
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/before-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.12764907581731677,
+          "min": 0.12764907581731677,
+          "max": 0.12764907581731677,
+          "p95": 0.12764907581731677
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 16.166607458666533,
+          "min": 16.166607458666533,
+          "max": 16.166607458666533,
+          "p95": 16.166607458666533
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.11427288595587015,
+          "min": 0.11427288595587015,
+          "max": 0.11427288595587015,
+          "p95": 0.11427288595587015
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.1642925813794136,
+          "min": 0.1642925813794136,
+          "max": 0.1642925813794136,
+          "p95": 0.1642925813794136
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.16457311296835542,
+          "min": 0.16457311296835542,
+          "max": 0.16457311296835542,
+          "p95": 0.16457311296835542
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.18832089891657233,
+          "min": 0.17970467498525977,
+          "max": 0.21653328789398074,
+          "p95": 0.21157750757411123
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 521.5550619933978,
+          "min": 521.5550619933978,
+          "max": 521.5550619933978,
+          "p95": 521.5550619933978
+        },
+        "failures": [],
+        "label": "before"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "1mbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/before-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.11753396317362785,
+          "min": 0.11753396317362785,
+          "max": 0.11753396317362785,
+          "p95": 0.11753396317362785
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 13.966617077590222,
+          "min": 13.966617077590222,
+          "max": 13.966617077590222,
+          "p95": 13.966617077590222
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.12292740121483803,
+          "min": 0.12292740121483803,
+          "max": 0.12292740121483803,
+          "p95": 0.12292740121483803
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.17292686831206083,
+          "min": 0.17292686831206083,
+          "max": 0.17292686831206083,
+          "p95": 0.17292686831206083
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.2231019246391952,
+          "min": 0.2231019246391952,
+          "max": 0.2231019246391952,
+          "p95": 0.2231019246391952
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.21954758698120713,
+          "min": 0.2128884857520461,
+          "max": 0.22575908293947577,
+          "p95": 0.22557785417884588
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 451.86978665989466,
+          "min": 451.86978665989466,
+          "max": 451.86978665989466,
+          "p95": 451.86978665989466
+        },
+        "failures": [],
+        "label": "before"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "256kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/before-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.12290843715891242,
+          "min": 0.12290843715891242,
+          "max": 0.12290843715891242,
+          "p95": 0.12290843715891242
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 7.866637944702618,
+          "min": 7.866637944702618,
+          "max": 7.866637944702618,
+          "p95": 7.866637944702618
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.30260004149749875,
+          "min": 0.30260004149749875,
+          "max": 0.30260004149749875,
+          "p95": 0.30260004149749875
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.3526967391371727,
+          "min": 0.3526967391371727,
+          "max": 0.3526967391371727,
+          "p95": 0.3526967391371727
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.3530055773444474,
+          "min": 0.3530055773444474,
+          "max": 0.3530055773444474,
+          "p95": 0.3530055773444474
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.38603263115510345,
+          "min": 0.32775123277679086,
+          "max": 0.42291481606662273,
+          "p95": 0.42006103564053776
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 255.73748755007045,
+          "min": 255.73748755007045,
+          "max": 255.73748755007045,
+          "p95": 255.73748755007045
+        },
+        "failures": [],
+        "label": "before"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/before-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.11651640012860298,
+          "min": 0.11651640012860298,
+          "max": 0.11651640012860298,
+          "p95": 0.11651640012860298
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 1.899994220994916,
+          "min": 1.899994220994916,
+          "max": 1.899994220994916,
+          "p95": 1.899994220994916
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p95": 0.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 1.2660200227983296,
+          "min": 1.2660200227983296,
+          "max": 1.2660200227983296,
+          "p95": 1.2660200227983296
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 1.5159878944978118,
+          "min": 1.5159878944978118,
+          "max": 1.5159878944978118,
+          "p95": 1.5159878944978118
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 1.616187778301537,
+          "min": 1.616187778301537,
+          "max": 1.616187778301537,
+          "p95": 1.616187778301537
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 1.44274039613083,
+          "min": 1.2637407169677317,
+          "max": 1.6726404409855604,
+          "p95": 1.6288909268565475
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 64.00793550772609,
+          "min": 64.00793550772609,
+          "max": 64.00793550772609,
+          "p95": 64.00793550772609
+        },
+        "failures": [],
+        "label": "before"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "sparse",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/before-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.08037568023428321,
+          "min": 0.08037568023428321,
+          "max": 0.08037568023428321,
+          "p95": 0.08037568023428321
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 6.399976907654478,
+          "min": 6.399976907654478,
+          "max": 6.399976907654478,
+          "p95": 6.399976907654478
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.5207986688851913,
+          "min": 0.5207986688851913,
+          "max": 0.5207986688851913,
+          "p95": 0.5207986688851913
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.48948292015120387,
+          "min": 0.48948292015120387,
+          "max": 0.48948292015120387,
+          "p95": 0.48948292015120387
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.5894726859405637,
+          "min": 0.5894726859405637,
+          "max": 0.5894726859405637,
+          "p95": 0.5894726859405637
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.6394804492592812,
+          "min": 0.6394804492592812,
+          "max": 0.6394804492592812,
+          "p95": 0.6394804492592812
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.5982489250600338,
+          "min": 0.5729542057961226,
+          "max": 0.6905012549832463,
+          "p95": 0.6801145492121577
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 63.98237606518823,
+          "min": 63.98237606518823,
+          "max": 63.98237606518823,
+          "p95": 63.98237606518823
+        },
+        "failures": [],
+        "label": "before"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          null,
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/after-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.09316346701234579,
+          "min": 0.09316346701234579,
+          "max": 0.09316346701234579,
+          "p95": 0.09316346701234579
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 19.999926409023583,
+          "min": 19.999926409023583,
+          "max": 19.999926409023583,
+          "p95": 19.999926409023583
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.08939670911058784,
+          "min": 0.08939670911058784,
+          "max": 0.08939670911058784,
+          "p95": 0.08939670911058784
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.08959418581798673,
+          "min": 0.08959418581798673,
+          "max": 0.08959418581798673,
+          "p95": 0.08959418581798673
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.13942918926477432,
+          "min": 0.13942918926477432,
+          "max": 0.13942918926477432,
+          "p95": 0.13942918926477432
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.17358949314802885,
+          "min": 0.17299979086965322,
+          "max": 0.17901555309072137,
+          "p95": 0.1779817720875144
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 663.7338692263158,
+          "min": 663.7338692263158,
+          "max": 663.7338692263158,
+          "p95": 663.7338692263158
+        },
+        "failures": [],
+        "label": "after"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "1mbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/after-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.0925667081028223,
+          "min": 0.0925667081028223,
+          "max": 0.0925667081028223,
+          "p95": 0.0925667081028223
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 19.99992133366463,
+          "min": 19.99992133366463,
+          "max": 19.99992133366463,
+          "p95": 19.99992133366463
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.12016436690464616,
+          "min": 0.12016436690464616,
+          "max": 0.12016436690464616,
+          "p95": 0.12016436690464616
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.17013998236507177,
+          "min": 0.17013998236507177,
+          "max": 0.17013998236507177,
+          "p95": 0.17013998236507177
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.17035536281764507,
+          "min": 0.17035536281764507,
+          "max": 0.17035536281764507,
+          "p95": 0.17035536281764507
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.16154355695471168,
+          "min": 0.16109498031437397,
+          "max": 0.22040749806910753,
+          "p95": 0.20864483648911117
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 656.1975418501984,
+          "min": 656.1975418501984,
+          "max": 656.1975418501984,
+          "p95": 656.1975418501984
+        },
+        "failures": [],
+        "label": "after"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "256kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/after-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.12889593234285712,
+          "min": 0.12889593234285712,
+          "max": 0.12889593234285712,
+          "p95": 0.12889593234285712
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 7.899971613594816,
+          "min": 7.899971613594816,
+          "max": 7.899971613594816,
+          "p95": 7.899971613594816
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.27286034682765603,
+          "min": 0.27286034682765603,
+          "max": 0.27286034682765603,
+          "p95": 0.27286034682765603
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.3230287409387529,
+          "min": 0.3230287409387529,
+          "max": 0.3230287409387529,
+          "p95": 0.3230287409387529
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.3730471250601113,
+          "min": 0.3730471250601113,
+          "max": 0.3730471250601113,
+          "p95": 0.3730471250601113
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.3954844670370221,
+          "min": 0.3413413339294493,
+          "max": 0.4349388601258397,
+          "p95": 0.42756211925297977
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 256.27789723154785,
+          "min": 256.27789723154785,
+          "max": 256.27789723154785,
+          "p95": 256.27789723154785
+        },
+        "failures": [],
+        "label": "after"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "dense",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/after-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.2738773301243782,
+          "min": 0.2738773301243782,
+          "max": 0.2738773301243782,
+          "p95": 0.2738773301243782
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 1.899994891223575,
+          "min": 1.899994891223575,
+          "max": 1.899994891223575,
+          "p95": 1.899994891223575
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p95": 0.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 1.264939927496016,
+          "min": 1.264939927496016,
+          "max": 1.264939927496016,
+          "p95": 1.264939927496016
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 1.5149336168542504,
+          "min": 1.5149336168542504,
+          "max": 1.5149336168542504,
+          "p95": 1.5149336168542504
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 1.6149449544027448,
+          "min": 1.6149449544027448,
+          "max": 1.6149449544027448,
+          "p95": 1.6149449544027448
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 1.4421616969630122,
+          "min": 1.2156719542108476,
+          "max": 1.629734080284834,
+          "p95": 1.5969996850006283
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 64.06182111257283,
+          "min": 64.06182111257283,
+          "max": 64.06182111257283,
+          "p95": 64.06182111257283
+        },
+        "failures": [],
+        "label": "after"
+      },
+      {
+        "key": [
+          "corgi",
+          "default",
+          "stream",
+          "sparse",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/after-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.22056573908776045,
+          "min": 0.22056573908776045,
+          "max": 0.22056573908776045,
+          "p95": 0.22056573908776045
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 6.399974107449699,
+          "min": 6.399974107449699,
+          "max": 6.399974107449699,
+          "p95": 6.399974107449699
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.30782029950083195,
+          "min": 0.30782029950083195,
+          "max": 0.30782029950083195,
+          "p95": 0.30782029950083195
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.5126481256447732,
+          "min": 0.5126481256447732,
+          "max": 0.5126481256447732,
+          "p95": 0.5126481256447732
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.6126502151601017,
+          "min": 0.6126502151601017,
+          "max": 0.6126502151601017,
+          "p95": 0.6126502151601017
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.712711535859853,
+          "min": 0.712711535859853,
+          "max": 0.712711535859853,
+          "p95": 0.712711535859853
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.6386268339119852,
+          "min": 0.5757110808044672,
+          "max": 0.7462628958746791,
+          "p95": 0.7342815929092467
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 64.275340006249,
+          "min": 64.275340006249,
+          "max": 64.275340006249,
+          "p95": 64.275340006249
+        },
+        "failures": [],
+        "label": "after"
+      },
+      {
+        "key": [
+          "herdr",
+          "default",
+          "stream",
+          "dense",
+          null,
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/herdr-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.08919805334880948,
+          "min": 0.08919805334880948,
+          "max": 0.08919805334880948,
+          "p95": 0.08919805334880948
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 19.999942786223944,
+          "min": 19.999942786223944,
+          "max": 19.999942786223944,
+          "p95": 19.999942786223944
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.10826854081824422,
+          "min": 0.10826854081824422,
+          "max": 0.10826854081824422,
+          "p95": 0.10826854081824422
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.10847144108265638,
+          "min": 0.10847144108265638,
+          "max": 0.10847144108265638,
+          "p95": 0.10847144108265638
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.1085839350707829,
+          "min": 0.1085839350707829,
+          "max": 0.1085839350707829,
+          "p95": 0.1085839350707829
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.15623999806120992,
+          "min": 0.15585085796192288,
+          "max": 0.16079681599512696,
+          "p95": 0.1599410875700414
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 843.5728045341156,
+          "min": 843.5728045341156,
+          "max": 843.5728045341156,
+          "p95": 843.5728045341156
+        },
+        "failures": [],
+        "label": "herdr"
+      },
+      {
+        "key": [
+          "herdr",
+          "default",
+          "stream",
+          "dense",
+          "1mbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/herdr-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.10642061987891793,
+          "min": 0.10642061987891793,
+          "max": 0.10642061987891793,
+          "p95": 0.10642061987891793
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 19.99990689518432,
+          "min": 19.99990689518432,
+          "max": 19.99990689518432,
+          "p95": 19.99990689518432
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "p95": 1.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 0.14281682576984167,
+          "min": 0.14281682576984167,
+          "max": 0.14281682576984167,
+          "p95": 0.14281682576984167
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 0.143054170999676,
+          "min": 0.143054170999676,
+          "max": 0.143054170999676,
+          "p95": 0.143054170999676
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 0.14311819011345506,
+          "min": 0.14311819011345506,
+          "max": 0.14311819011345506,
+          "p95": 0.14311819011345506
+        },
+        "input_visible": 5,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 5,
+          "median": 0.19982770597562194,
+          "min": 0.19591857679188251,
+          "max": 0.20116812270134687,
+          "p95": 0.20101355910301208
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 843.9884422554791,
+          "min": 843.9884422554791,
+          "max": 843.9884422554791,
+          "p95": 843.9884422554791
+        },
+        "failures": [],
+        "label": "herdr"
+      },
+      {
+        "key": [
+          "herdr",
+          "default",
+          "stream",
+          "dense",
+          "256kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/herdr-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.8521198299713433,
+          "min": 0.8521198299713433,
+          "max": 0.8521198299713433,
+          "p95": 0.8521198299713433
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 5.666648845854898,
+          "min": 5.666648845854898,
+          "max": 5.666648845854898,
+          "p95": 5.666648845854898
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p95": 0.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 14.179623883217573,
+          "min": 14.179623883217573,
+          "max": 14.179623883217573,
+          "p95": 14.179623883217573
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 21.429661565925926,
+          "min": 21.429661565925926,
+          "max": 21.429661565925926,
+          "p95": 21.429661565925926
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 22.52966926852241,
+          "min": 22.52966926852241,
+          "max": 22.52966926852241,
+          "p95": 22.52966926852241
+        },
+        "input_visible": 2,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 2,
+          "median": 16.60499415360391,
+          "min": 15.232093736995012,
+          "max": 17.97789457021281,
+          "p95": 17.84060452855192
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 256.4762070866759,
+          "min": 256.4762070866759,
+          "max": 256.4762070866759,
+          "p95": 256.4762070866759
+        },
+        "failures": [],
+        "label": "herdr"
+      },
+      {
+        "key": [
+          "herdr",
+          "default",
+          "stream",
+          "dense",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/herdr-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 1.138085458893329,
+          "min": 1.138085458893329,
+          "max": 1.138085458893329,
+          "p95": 1.138085458893329
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 1.1333301010882153,
+          "min": 1.1333301010882153,
+          "max": 1.1333301010882153,
+          "p95": 1.1333301010882153
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p95": 0.0
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 17.68734966404736,
+          "min": 17.68734966404736,
+          "max": 17.68734966404736,
+          "p95": 17.68734966404736
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 30.63734109001234,
+          "min": 30.63734109001234,
+          "max": 30.63734109001234,
+          "p95": 30.63734109001234
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 32.137341084424406,
+          "min": 32.137341084424406,
+          "max": 32.137341084424406,
+          "p95": 32.137341084424406
+        },
+        "input_visible": 0,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 0,
+          "median": null,
+          "min": null,
+          "max": null,
+          "p95": null
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 64.1534991749258,
+          "min": 64.1534991749258,
+          "max": 64.1534991749258,
+          "p95": 64.1534991749258
+        },
+        "failures": [],
+        "label": "herdr"
+      },
+      {
+        "key": [
+          "herdr",
+          "default",
+          "stream",
+          "sparse",
+          "64kbit",
+          null,
+          120
+        ],
+        "trials": 1,
+        "evidence": [
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-adaptive-pilot/herdr-1/results.json"
+        ],
+        "catchup_seconds": {
+          "n": 1,
+          "median": 0.141243739053607,
+          "min": 0.141243739053607,
+          "max": 0.141243739053607,
+          "p95": 0.141243739053607
+        },
+        "frames_per_second": {
+          "n": 1,
+          "median": 14.199897554315255,
+          "min": 14.199897554315255,
+          "max": 14.199897554315255,
+          "p95": 14.199897554315255
+        },
+        "fresh_fraction_under_500ms": {
+          "n": 1,
+          "median": 0.004991680532445923,
+          "min": 0.004991680532445923,
+          "max": 0.004991680532445923,
+          "p95": 0.004991680532445923
+        },
+        "held_age_median": {
+          "n": 1,
+          "median": 2.40212763287127,
+          "min": 2.40212763287127,
+          "max": 2.40212763287127,
+          "p95": 2.40212763287127
+        },
+        "held_age_p95": {
+          "n": 1,
+          "median": 7.152121108490974,
+          "min": 7.152121108490974,
+          "max": 7.152121108490974,
+          "p95": 7.152121108490974
+        },
+        "held_age_max": {
+          "n": 1,
+          "median": 7.552090922370553,
+          "min": 7.552090922370553,
+          "max": 7.552090922370553,
+          "p95": 7.552090922370553
+        },
+        "input_visible": 4,
+        "input_sent": 5,
+        "input_received": 5,
+        "input_latency": {
+          "n": 4,
+          "median": 1.9507699434179813,
+          "min": 0.7864654171280563,
+          "max": 3.293152674101293,
+          "p95": 3.1592035541078074
+        },
+        "tx_kbit_s": {
+          "n": 1,
+          "median": 63.82387153092906,
+          "min": 63.82387153092906,
+          "max": 63.82387153092906,
+          "p95": 63.82387153092906
+        },
+        "failures": [],
+        "label": "herdr"
+      }
+    ],
+    "pooled_with_final": false
+  }
+}
