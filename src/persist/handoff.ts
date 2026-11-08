@@ -83,6 +83,7 @@ export function captureManifest(server: Server, requester: Client, request_id: n
     update_abi,
     terminal_abi,
     listener: server.listener,
+    instance: server.instance,
     requester: requester.fd,
     request_id,
     runtime: checkpoint.capture(server.runtime, true),
@@ -103,6 +104,7 @@ export function captureManifest(server: Server, requester: Client, request_id: n
 }
 export function restoreMetadata(server: Server, value: unknown): void {
   const saved = json.object(value);
+  if (typeof saved.instance === "string") Object.assign(server, { instance: saved.instance });
   for (const key of [
     "preferred_workspace",
     "default_folder_pending",
@@ -182,6 +184,7 @@ export async function replace(
     await Bun.sleep(5);
   }
   await observers.pause(server);
+  await Promise.all(server.clients.map(client => client.prepareHandoff()));
   server.pause();
   breadcrumbs.record("reloading");
   const fds = new Int32Array(2);

@@ -352,7 +352,11 @@ export class Server {
     clearInterval(this.timer);
     this.registration?.close();
     this.registration = undefined;
-    for (const c of this.clients) c.pause();
+    for (const c of this.clients) {
+      // Compression histories cannot be handed to another process. Links resume on a fresh stream.
+      if (c.compressed) c.close();
+      else c.pause();
+    }
     // Queue cancellation before handoff captures output; paused clients keep later input queued.
     for (const cancel of this.modelReads.values()) cancel();
     for (const p of this.runtime.panes) p.terminal.pause();
@@ -653,7 +657,9 @@ export class Server {
     const request = protocol.decoded(op, v);
     if (!["onboarding.copy", "onboarding.handoff"].includes(op)) importer.admit(this, op);
     switch (request.op) {
-      case "hello":
+      case "hello": {
+        const compress =
+          request.payload.compression === "zstd" && cl.canCompress && v.runtime_protocol === protocol.version;
         cl.protocol_version = v.runtime_protocol === protocol.version ? protocol.version : null;
         reply.send({
           type: "hello",
@@ -666,8 +672,11 @@ export class Server {
           update_abi: updates.abi,
           viewer_protocol: protocol.viewer_version,
           instance: this.instance,
+          ...(compress ? { compression: "zstd" } : {}),
         });
+        if (compress) cl.compress();
         return;
+      }
       case "ping":
         reply.send({ ok: true, pid: process.pid });
         return;

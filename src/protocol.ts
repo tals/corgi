@@ -660,6 +660,7 @@ const structures = {
 } as const satisfies Record<string, Fields>;
 const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
 const requests = {
+  hello: { compression: ["none|zstd", "none"] },
   /** `output: false` leaves out pushes for terminal output alone, as a status display wants. */
   "session.subscribe": { output: ["bool", true] },
   "launcher.catalog": { workspace: ["u32", 0], cwd: ["string", ""] },
@@ -847,6 +848,7 @@ export interface ReplyPayloads {
     update_abi: string;
     viewer_protocol?: number;
     instance?: string;
+    compression?: "zstd";
   };
   ping: Ok & { pid: number };
   "link.open": Ok & { link: string };
@@ -948,6 +950,7 @@ export type Event =
   | Reply<"viewer.stream">
   | { type: "viewer.frame"; sequence: number; frame?: Wire<bigint>; view: Reply<"viewer.sync"> }
   | { type: "viewer.wake" }
+  | { type: "viewer.reconnect" }
   /** The installation the daemon runs from was deleted, as `omarchy plugin remove` does; it's stopping. */
   | { type: "uninstalled" }
   | Wire<SessionSnapshot>
@@ -958,6 +961,7 @@ export const event_types = [
   "viewer.stream",
   "viewer.frame",
   "viewer.wake",
+  "viewer.reconnect",
   "uninstalled",
   "session",
   "agent.preview",

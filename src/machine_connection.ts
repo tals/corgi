@@ -109,6 +109,15 @@ export class Endpoint {
   private opened = false;
   private connected = false;
   private input: number[] = [];
+  private handoff: {
+    instance: string;
+    selection: number;
+    navigation: number;
+    pane: number | null;
+    generation: number;
+    until: number;
+    input: number[];
+  } | null = null;
   private ui_task: Promise<void> | null = null;
   private resource_detail: number | null = null;
   private bell = { seq: 0n };
@@ -229,6 +238,12 @@ export class Endpoint {
     this.onChange();
   }
   enqueue(bytes: Uint8Array): void {
+    if (this.handoff) {
+      if (this.handoff.input.length + bytes.length <= 64 * 1024) this.handoff.input.push(...bytes);
+      else this.clearInput();
+      this.wake();
+      return;
+    }
     if (this.input.length + bytes.length > 1024 * 1024) {
       this.error = "Input queue full; unsent input discarded";
       this.clearInput();
@@ -248,6 +263,21 @@ export class Endpoint {
   /** UI work never waits behind a connection's snapshot or attachment. */
   private pumpUi(): void {
     if (this.ui_task || !this.shown || this.stopped) return;
+    if (this.handoff) {
+      const held = this.handoff;
+      if (
+        held.instance !== this.instance ||
+        held.selection !== this.selection ||
+        held.navigation !== this.navigation_revision ||
+        held.pane !== (this.view().focused()?.id ?? null) ||
+        performance.now() > held.until
+      )
+        this.clearInput();
+      else if (this.ready && this.resumed && this.generation > held.generation) {
+        this.input.push(...held.input);
+        this.handoff = null;
+      } else return;
+    }
     const view = this.view(),
       selection = this.selection,
       dirty = view.dirty;
@@ -273,6 +303,7 @@ export class Endpoint {
   }
   retry(): void {
     if (this.stopped) return;
+    this.handoff = null;
     this.interruption++;
     this.disconnect();
     this.fresh_connection = this.issue === "error";
@@ -283,6 +314,7 @@ export class Endpoint {
   }
   pause(): void {
     if (this.stopped) return;
+    this.handoff = null;
     this.interruption++;
     this.disconnect();
     // Paused, nothing sends them again.
@@ -454,6 +486,7 @@ export class Endpoint {
       await tunnel.open();
       let established = false;
       conn = new Connection(tunnel.socket, {
+        compression: true,
         timeout_ms: () => (established ? this.stats.timeoutMs : Math.min(startup_ms, this.stats.timeoutMs)),
         stats: this.stats,
         trace: { machine: this.name, generation: this.generation, path: "race" },
@@ -521,6 +554,7 @@ export class Endpoint {
       const socket = this.tunnel?.socket ?? this.local;
       let established = false;
       conn = this.connection = new Connection(socket, {
+        compression: this.profile !== null,
         timeout_ms: () => (this.profile ? (established ? this.stats.timeoutMs : startup_ms) : 10000),
         stats: this.stats,
         trace: { machine: this.name, generation, path: "primary" },
@@ -532,6 +566,20 @@ export class Endpoint {
     this.trace("remote.connection", "hello");
     conn.onEvent(event => {
       if (this.connection !== conn) return;
+      if (event.type === "viewer.reconnect" && this.link) {
+        this.trace("remote.connection", "handoff");
+        this.handoff = {
+          instance: this.instance,
+          selection: this.selection,
+          navigation: this.navigation_revision,
+          pane: this.view().focused()?.id ?? null,
+          generation: this.generation,
+          until: performance.now() + startup_ms,
+          input: this.input.splice(0),
+        };
+        this.ready = this.fresh = false;
+        this.wake();
+      }
       if (event.type === "uninstalled" && !this.profile) {
         this.uninstalled = true;
         this.onChange();
@@ -554,14 +602,18 @@ export class Endpoint {
       this.workspaces_instance = this.instance;
       this.updated = 0;
     }
-    this.resumed = hello.capabilities.includes("link.resume") && (await this.relink(conn, same));
+    const linking = hello.capabilities.includes("link.resume") ? this.relink(conn, same) : Promise.resolve(false);
+    const snapshotRequest = () => conn.call("session.snapshot", { resources: this.host.prefs.resources.enabled });
+    // A snapshot must follow replayed mutations. Otherwise it can share the link's round trip.
+    const [resumed, snapshot] = await Promise.all([
+      linking,
+      this.numbered.length ? linking.then(snapshotRequest) : snapshotRequest(),
+    ]);
+    this.resumed = resumed;
     this.trace("remote.connection", "linked", { resumed: Number(this.resumed) });
     this.current(generation);
-    // A resumed viewer keeps what its connection agreed with the daemon.
     if (!this.resumed) view.resetConnection(this.machine);
-    const snapshot = await conn.call("session.snapshot", { resources: this.host.prefs.resources.enabled });
     this.trace("remote.connection", "snapshot");
-    this.current(generation);
     view.receiveSnapshot(snapshot, this.machine);
     this.machine.runtime.receiveResources(snapshot.resources);
   }
@@ -827,7 +879,8 @@ export class Endpoint {
     });
     return changed;
   }
-  private clearInput(): void {
+  private clearInput(keepHandoff = false): void {
+    if (!keepHandoff) this.handoff = null;
     this.input_epoch++;
     this.cancellation.abort();
     this.cancellation = new AbortController();
@@ -869,7 +922,7 @@ export class Endpoint {
     this.opened = false;
     this.acknowledging = false;
     this.fresh = false;
-    this.clearInput();
+    this.clearInput(!this.stopped);
   }
   async close(): Promise<void> {
     this.stopped = true;

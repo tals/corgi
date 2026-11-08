@@ -73,6 +73,7 @@ export const names = [
   "native.other",
   "wire.encode",
   "wire.decode",
+  "wire.compress",
   "terminal.feed",
   "terminal.snapshot",
   "pty.drain",

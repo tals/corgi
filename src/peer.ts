@@ -2,6 +2,7 @@ import type { Wait as StartupWait } from "./startup";
 import * as telemetry from "./telemetry";
 import { n, ptr, ReadyLoop, READ, WRITE } from "./native_bridge";
 import * as json from "./json";
+import * as wire_compression from "./wire_compression";
 import type { Control } from "./protocol";
 import type { Interest } from "./viewer_protocol";
 import type { Subscription } from "./launch_service";
@@ -97,6 +98,32 @@ export class Client {
     this.paused = !start;
     if (start) this.resume();
   }
+  private codec: wire_compression.Channel | null = null;
+  get compressed(): boolean {
+    return this.codec !== null;
+  }
+  get canCompress(): boolean {
+    return !this.codec && this.http === "no" && this.lines === 1 && this.pending.length === 0;
+  }
+  get queued(): number {
+    return this.output.length - this.sent + (this.codec?.pending ?? 0);
+  }
+  compress(): void {
+    if (this.codec || this.http !== "no") throw Error("InvalidCompressionState");
+    this.codec = new wire_compression.Channel(
+      bytes => this.write(bytes),
+      bytes => this.receiveBytes(bytes),
+      () => this.close(),
+    );
+  }
+  async prepareHandoff(): Promise<void> {
+    if (!this.compressed || !this.viewer) return;
+    this.cancelFrame();
+    this.stream = null;
+    this.queue({ type: "viewer.reconnect" });
+    const until = performance.now() + 1000;
+    while (!this.dead && this.queued && performance.now() < until) await Bun.sleep(1);
+  }
   queue(value: unknown): void {
     if (this.dead) return;
     if (this.http === "replied") return;
@@ -115,6 +142,21 @@ export class Client {
     const encode_started = telemetry.begin();
     const bytes = Buffer.from(json.stringify(value) + "\n");
     telemetry.end("wire.encode", encode_started, bytes.length);
+    const delivery = this.stream?.delivery;
+    const frame =
+      value && typeof value === "object" && "frame" in value && typeof value.frame === "bigint" ? value.frame : null;
+    if (this.codec)
+      this.codec.encode(bytes, count => {
+        if (frame !== null) delivery?.encoded(frame, count);
+        this.armFrame();
+      });
+    else {
+      this.write(bytes);
+      if (frame !== null) delivery?.encoded(frame, bytes.length);
+    }
+  }
+  private write(bytes: Buffer): void {
+    if (this.dead) return;
     if (this.output.length - this.sent + bytes.length > 4 * 1024 * 1024) {
       this.close();
       return;
@@ -137,7 +179,7 @@ export class Client {
     this.frame_timer = this.frame_pending = null;
   }
   private armFrame(): void {
-    if (this.paused || this.dead || this.output.length || this.frame_timer !== null || !this.frame_pending) return;
+    if (this.paused || this.dead || this.queued || this.frame_timer !== null || !this.frame_pending) return;
     this.frame_timer = setTimeout(
       () => {
         const send = this.frame_pending;
@@ -172,41 +214,51 @@ export class Client {
     for (let i = 0; i < 8 && !this.dead; i++) {
       const count = n.probe_read(this.fd, ptr(this.scratch), this.scratch.length);
       if (count > 0) {
-        this.input = Buffer.concat([this.input, this.scratch.subarray(0, count)]);
-        if (this.input.length > 4 * 1024 * 1024) {
-          this.close();
-          return;
-        }
-        if (
-          this.http === "no" &&
-          this.lines === 0 &&
-          this.input.length >= 5 &&
-          this.input.subarray(0, 5).toString() === "POST "
-        )
-          this.http = "request";
-        if (this.http !== "no") {
-          this.readHttp();
-          continue;
-        }
-        for (;;) {
-          const end = this.input.indexOf(10);
-          if (end < 0) break;
-          const line = this.input.subarray(0, end).toString();
-          this.input = Buffer.from(this.input.subarray(end + 1));
-          this.lines++;
-          try {
-            this.touched = Date.now();
-            this.pending.push(json.parse(line));
-            this.dispatch();
-          } catch {
-            this.queue({ err: "InvalidJson" });
-          }
-        }
+        const bytes = Buffer.from(this.scratch.subarray(0, count));
+        if (this.codec) this.codec.decode(bytes);
+        else this.receiveBytes(bytes);
       } else if (count === -4) continue;
       else if (count === -11 || count === -35) break;
       else {
         this.close();
         return;
+      }
+    }
+  }
+  private receiveBytes(bytes: Buffer): void {
+    if (this.dead) return;
+    this.input = Buffer.concat([this.input, bytes]);
+    if (this.input.length > 4 * 1024 * 1024) {
+      this.close();
+      return;
+    }
+    if (
+      this.http === "no" &&
+      this.lines === 0 &&
+      this.input.length >= 5 &&
+      this.input.subarray(0, 5).toString() === "POST "
+    )
+      this.http = "request";
+    if (this.http !== "no") {
+      this.readHttp();
+      return;
+    }
+    for (;;) {
+      const end = this.input.indexOf(10);
+      if (end < 0) break;
+      const line = this.input.subarray(0, end).toString();
+      this.input = Buffer.from(this.input.subarray(end + 1));
+      this.lines++;
+      try {
+        if (this.pending.length >= 512) {
+          this.close();
+          return;
+        }
+        this.touched = Date.now();
+        this.pending.push(json.parse(line));
+        this.dispatch();
+      } catch {
+        this.queue({ err: "InvalidJson" });
       }
     }
   }
@@ -280,6 +332,7 @@ export class Client {
   close(): void {
     if (this.dead) return;
     this.dead = true;
+    this.codec?.close();
     this.pause();
     n.probe_close(this.fd);
     this.disconnected();

@@ -71,6 +71,11 @@ test("every op decodes a sample request", () => {
     expect(() => protocol.decode(op, samples[op])).not.toThrow();
   }
 });
+test("hello compression is optional and accepts only the negotiated codecs", () => {
+  expect(protocol.decode("hello", {}).compression).toBe("none");
+  expect(protocol.decode("hello", { compression: "zstd" }).compression).toBe("zstd");
+  expect(() => protocol.decode("hello", { compression: "gzip" })).toThrow("InvalidEnumTag");
+});
 test("a client's envelope writes what the hand-written requests did", () => {
   for (const [op, payload, expected] of [
     ["hello", {}, { op: "hello", protocol: protocol.management_version, runtime_protocol: protocol.version }],

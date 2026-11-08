@@ -242,7 +242,7 @@ export function publish(s: Server, cl: Client, wake: bigint, now = Date.now()): 
   if (!stream || cl.dead || !cl.viewer) return;
   if (stream.delivery && !stream.delivery.available) return;
   if (stream.wake === wake && now - stream.sent < 250) return;
-  if (cl.output.length || now - stream.sent < 16) {
+  if (cl.queued || now - stream.sent < 16) {
     cl.deferFrame(stream.sent + 16, () => {
       if (cl.stream === stream) publish(s, cl, wake);
     });
@@ -251,7 +251,8 @@ export function publish(s: Server, cl: Client, wake: bigint, now = Date.now()): 
   const view = capture(s, cl, stream.session_hash, stream.resources_hash);
   const encoded = stream.delivery?.offer(view);
   if (stream.delivery && !encoded) return;
-  remember(cl, view, wake, now);
+  if (encoded?.probe) stream.sent = now;
+  else remember(cl, view, wake, now);
   cl.queue({
     type: "viewer.frame",
     sequence: stream.sequence,

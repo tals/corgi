@@ -1392,6 +1392,10 @@ process.stdin.on("data", chunk => {
     );
     this.assertEqual((await this.remote!.command("pane.read", { target: 1 })).text.split("AFTER_RELOAD").length - 1, 1);
   }
+  async test_typing_after_a_remote_reload_waits_for_the_same_viewer_on_a_slow_link() {
+    this.network!.latency_ms = 120;
+    await this.test_remote_reload_rebuilds_the_stream_without_replacing_its_panes();
+  }
   async test_short_network_hiccup_shows_stall_discards_input_and_recovers_on_the_same_connection() {
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
     await this.startViewer();

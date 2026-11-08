@@ -3,6 +3,7 @@ import * as errors from "./errors";
 import * as json from "./json";
 import * as telemetry from "./telemetry";
 import * as protocol from "./protocol";
+import * as wire_compression from "./wire_compression";
 import type { Stats } from "./connection_stats";
 interface Pending {
   resolve: (value: unknown) => void;
@@ -11,6 +12,7 @@ interface Pending {
 export interface ConnectionInit {
   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
   requestIds?: boolean;
+  compression?: boolean;
   stats?: Stats;
   trace?: telemetry.Details;
   timeout_ms?: number | (() => number);
@@ -20,7 +22,10 @@ export class Connection {
   private readonly requestIds: boolean;
   private pending = new Map<number, Pending>();
   private next = 1;
-  private buffer = "";
+  private buffer: Buffer = Buffer.alloc(0);
+  private codec: wire_compression.Channel | null = null;
+  private readonly compression: boolean;
+  private negotiating = false;
   private closed: Error | null = null;
   private listeners = new Set<(event: protocol.Event) => void>();
   private readonly timeout: number | (() => number);
@@ -32,43 +37,69 @@ export class Connection {
   constructor(target: string | Socket, options: ConnectionInit | number = {}) {
     const init = typeof options === "number" ? { timeout_ms: options } : options;
     this.stats = init.stats;
+    this.compression = init.compression ?? false;
     this.trace = init.trace;
     if (this.stats) this.stats.connections++;
     this.timeout = init.timeout_ms ?? 0;
     this.requestIds = init.requestIds ?? true;
     this.socket = typeof target === "string" ? createSocket(target) : target;
-    this.socket.setEncoding("utf8");
-    this.socket.on("data", chunk => {
-      this.stats?.traffic("received", Buffer.byteLength(chunk));
-      this.buffer += chunk;
-      if (Buffer.byteLength(this.buffer) > 64 * 1024 * 1024) {
-        this.fail(Error("MessageTooLarge"));
-        this.socket.destroy();
-        return;
-      }
-      for (;;) {
-        const newline = this.buffer.indexOf("\n");
-        if (newline < 0) break;
-        const line = this.buffer.slice(0, newline);
-        this.buffer = this.buffer.slice(newline + 1);
-        if (!line) continue;
-        try {
-          const decode_started = telemetry.begin();
-          const message = json.parse(line);
-          telemetry.end("wire.decode", decode_started, telemetry.enabled ? Buffer.byteLength(line) : 0);
-          this.receive(message);
-        } catch (error) {
-          this.fail(error as Error);
-          return;
-        }
-      }
+    this.socket.on("data", (chunk: Buffer) => {
+      this.stats?.traffic("received", chunk.length);
+      this.read(chunk);
     });
     this.socket.on("error", error => this.fail(error));
-    this.socket.on("close", () => this.fail(Error("ConnectionClosed")));
+    this.socket.on("close", () => {
+      // EOF can follow compressed bytes before the asynchronous decoder emits their last message.
+      if (this.codec) void this.codec.drainInput().then(() => this.fail(Error("ConnectionClosed")));
+      else this.fail(Error("ConnectionClosed"));
+    });
+  }
+  private read(chunk: Buffer, decoded = false): void {
+    if (this.closed) return;
+    if (this.codec && !decoded) {
+      this.codec.decode(chunk);
+      return;
+    }
+    this.buffer = Buffer.concat([this.buffer, chunk]);
+    if (this.buffer.length > 64 * 1024 * 1024) {
+      this.fail(Error("MessageTooLarge"));
+      return;
+    }
+    for (;;) {
+      const newline = this.buffer.indexOf(10);
+      if (newline < 0) break;
+      const line = this.buffer.subarray(0, newline);
+      this.buffer = Buffer.from(this.buffer.subarray(newline + 1));
+      if (!line.length) continue;
+      try {
+        const started = telemetry.begin();
+        const message = json.parse(line.toString());
+        telemetry.end("wire.decode", started, line.length);
+        this.receive(message);
+      } catch (error) {
+        this.fail(error as Error);
+        return;
+      }
+      if (!decoded && this.codec) {
+        const rest = this.buffer;
+        this.buffer = Buffer.alloc(0);
+        if (rest.length) this.codec.decode(rest);
+        return;
+      }
+    }
+  }
+  private write(bytes: Buffer): void {
+    if (this.socket.writableLength + bytes.length > 4 * 1024 * 1024) {
+      this.fail(Error("RequestBackpressure"));
+      return;
+    }
+    this.stats?.traffic("sent", bytes.length);
+    this.socket.write(bytes);
   }
   private fail(error: Error) {
     if (this.closed) return;
     this.closed = error;
+    this.codec?.close();
     for (const p of this.pending.values()) p.reject(error);
     this.pending.clear();
     this.socket.destroy();
@@ -93,6 +124,15 @@ export class Connection {
     const pending = this.pending.get(id);
     if (!pending) throw Error("UnexpectedReply");
     this.pending.delete(id);
+    if (this.negotiating && message.type === "hello") {
+      this.negotiating = false;
+      if (message.compression === "zstd")
+        this.codec = new wire_compression.Channel(
+          bytes => this.write(bytes),
+          bytes => this.read(bytes, true),
+          error => this.fail(error),
+        );
+    }
     if (!this.requestIds) {
       pending.resolve(message);
       return;
@@ -113,6 +153,12 @@ export class Connection {
   async rawRequest(value: unknown): Promise<unknown> {
     if (this.closed) throw this.closed;
     const message = json.object(value);
+    if (this.negotiating) throw Error("CompressionNegotiating");
+    if (message.op === "hello" && (this.compression || message.compression === "zstd") && !this.codec) {
+      if (this.pending.size) throw Error("RequestInFlight");
+      message.compression = "zstd";
+      this.negotiating = true;
+    }
     if (!this.requestIds && this.pending.size) throw Error("RequestInFlight");
     if (this.pending.size >= 128) throw Error("RequestBackpressure");
     const id = this.requestIds ? this.next++ : 0;
@@ -149,9 +195,9 @@ export class Connection {
         },
       });
       try {
-        const bytes = json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n";
-        this.stats?.traffic("sent", Buffer.byteLength(bytes));
-        this.socket.write(bytes);
+        const bytes = Buffer.from(json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n");
+        if (this.codec) this.codec.encode(bytes);
+        else this.write(bytes);
       } catch (error) {
         this.fail(error as Error);
       }

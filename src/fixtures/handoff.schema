@@ -4,6 +4,8 @@ $.update_abi: optional
 $.update_abi?: string
 $.terminal_abi: u64
 $.listener: i32
+$.instance: optional
+$.instance?: string
 $.requester: i32
 $.request_id: optional
 $.request_id?: u64

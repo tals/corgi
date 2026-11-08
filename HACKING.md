@@ -375,12 +375,16 @@ capability and the defaulted `viewer.stream.incremental` flag. A stream sends
 full surfaces initially, then changed rows against the preceding sent surface.
 The receiver checks the base stamp and reconstructs every delta before it
 coalesces frames for display. Cumulative receipts bound outstanding render data
-to three frames and initially 16 KiB of encoded JSON. The byte budget grows to
-32 KiB while receipt round trips stay within 50 ms of the fastest receipt on
-that stream, and returns to 16 KiB when they slow down. The frame limit stays
-at three; an oversized snapshot travels alone. `remote.stream.window` telemetry
-records budget changes and receipt timings. This is a bounded delay heuristic,
-not a bandwidth estimate; a new stream starts learning again.
+with adaptive frame and wire-byte allowances. The frame target covers the receipt
+round trip at the 16 ms publication cadence, capped at 64 frames. Startup grows
+cautiously; queue delay reduces the allowance. Delivered bytes and receipt spacing
+estimate the byte budget using a two-second peak delivery window, with a separate
+2 MiB raw-data limit. This prevents application-limited gaps from reinforcing an
+undersized window. A single oversized
+snapshot can still make progress. A small frame sent after draining outstanding
+frames refreshes the RTT baseline without retaining a congested queue as the
+baseline. `remote.stream.window` records pending frames, raw/wire bytes, budget,
+receipt/baseline times, delivery rate and probes. A new stream starts learning again.
 While blocked, the daemon captures the latest screen after a receipt, without
 queuing intermediate screens. These receipts confirm transport decoding, not
 display or agent activity; `pane.acknowledge` still follows presentation.
@@ -391,7 +395,24 @@ the viewer then requests a full base. New peers opt in; older viewers still get
 full frames, and a new viewer uses the original stream with older daemons.
 Runtime/viewer protocol 4 and saved-format versions are unchanged because the
 new operation and optional fields are negotiated and no cache is persisted.
-Remote SSH connections enable compression for terminal text and metadata.
+Remote viewers request live-history zstd level 3 in the existing `hello` exchange.
+The plain hello reply opts in; all subsequent bytes in both directions use fresh
+zstd histories with a 1 MiB window. Messages flush immediately without ending the
+history. The native SSH bridge still relays bytes. Local connections stay plain,
+and older peers that omit the optional hello field stay plain. Runtime/viewer and
+saved-format versions do not change. SSH compression is disabled on these
+attachments, which have a separate master namespace from compressed CLI sessions.
+`wire.compress` records raw and emitted bytes and encoding duration.
+
+Compression queues are bounded, and codec failure closes the connection. Histories
+are never replayed across a new transport. During daemon handoff, compressed sockets
+close after a planned-reconnect notice. The handoff preserves the daemon's instance
+identity, viewer links and numbered mutation receipts. The viewer briefly holds up
+to 64 KiB of typing until that same viewer resumes; changing machine, focus or
+navigation cancels the held input. Unplanned outages retain their input-discard
+behavior. Plain local sockets retain the existing in-place handoff. No zstd context
+is serialized. Older handoffs without the optional instance field receive a fresh
+identity as before.
 
 Each viewer keeps two daemon connections in `viewer_connection.ts`. The control
 connection owns the viewer, commands, pane input, metadata and launcher/history

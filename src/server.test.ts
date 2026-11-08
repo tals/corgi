@@ -15,6 +15,7 @@ import * as session from "./session";
 import * as worktreeAdd from "./worktree_add";
 import { n } from "./native_bridge";
 import * as native_ffi from "./native_ffi";
+import { Link } from "./link";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -826,6 +827,39 @@ test("deferred checkout requests cannot record a synthetic replay success", asyn
     ]);
   } finally {
     cl.close();
+    dispose();
+  }
+});
+
+test("handoff drops compression histories and retains the viewer link for a fresh stream", () => {
+  const { server, dispose } = fixture();
+  const [fd, peer] = native_ffi.pair();
+  const client = server.addClient(fd, false),
+    link = new Link();
+  server.links.set(link.id, link);
+  client.link = link;
+  client.viewer = true;
+  client.viewer_id = 7;
+  client.compress();
+  try {
+    server.pause();
+    expect(client.dead).toBe(true);
+    expect(link.detached_at).not.toBeNull();
+    expect(link.viewer?.viewer_id).toBe(7);
+    const saved = handoff.captureManifest(server, client);
+    expect(saved.clients).toHaveLength(0);
+    const restored = fixture();
+    try {
+      expect(restored.server.instance).not.toBe(server.instance);
+      handoff.restoreMetadata(restored.server, saved);
+      expect(restored.server.instance).toBe(server.instance);
+      expect(restored.server.links.get(link.id)?.viewer?.viewer_id).toBe(7);
+    } finally {
+      restored.dispose();
+    }
+  } finally {
+    client.close();
+    n.probe_close(peer);
     dispose();
   }
 });

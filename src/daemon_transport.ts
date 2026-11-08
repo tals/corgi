@@ -89,7 +89,7 @@ export class Remote {
     let child: ChildProcess;
     try {
       child = this.spawn([
-        ...ssh.args(this.profile.target, false, this.fresh),
+        ...ssh.args(this.profile.target, false, this.fresh, false),
         ssh.command(this.profile.bridge!, [this.profile.socket]),
       ]);
     } catch (error) {
@@ -157,7 +157,7 @@ export class Remote {
   }
   /** Older saved profiles retain forwarding until machine setup discovers a native bridge. */
   private async forward(): Promise<void> {
-    const args = ssh.args(this.profile.target, false, true);
+    const args = ssh.args(this.profile.target, false, true, false);
     args.unshift(
       "-N",
       "-o",

@@ -103,7 +103,7 @@ test("large updates exhaust the byte budget before the frame slots", () => {
     terminal.destroy();
   }
 });
-test("slow receipts restore the small window, then fresh receipts can reopen it", () => {
+test("a drained small probe relearns propagation without losing the latest screen", () => {
   let now = 0;
   const output = new Frames(() => now),
     terminal = Terminal.create(80, 24);
@@ -111,26 +111,52 @@ test("slow receipts restore the small window, then fresh receipts can reopen it"
     const first = output.offer(view(terminal))!;
     now = 120;
     output.acknowledge(first.frame);
-    const large = view(terminal);
-    large.session = { large: "界".repeat(4_000) } as unknown as View["session"];
-    const second = output.offer(large)!;
-    const third = output.offer(large)!;
-    expect(third).not.toBeNull();
-    now += 400;
+    terminal.feed("before path change");
+    const second = output.offer(view(terminal))!;
+    now += 300;
     output.acknowledge(second.frame);
-    expect(output.offer(large)).toBeNull();
-    // An already acknowledged frame must not change the learned delay or budget.
+    terminal.feed("\rlatest after change");
+    const probe = output.offer(view(terminal))!;
+    expect(probe.probe).toBe(true);
+    expect(probe.view.surfaces).toHaveLength(0);
+    expect(probe.view.patches).toHaveLength(0);
+    expect(output.available).toBe(false);
+    now += 300;
+    output.acknowledge(probe.frame);
+    const latest = output.offer(view(terminal))!;
+    const before = surface.apply(first.view.surfaces[0], second.view.patches![0]);
+    expect(surface.apply(before, latest.view.patches![0])).toEqual(view(terminal).surfaces[0]);
+    // A healthy 300 ms path accommodates more than three outstanding frames.
+    for (let i = 0; i < 3; i++) {
+      terminal.feed(String(i));
+      expect(output.offer(view(terminal))).not.toBeNull();
+    }
+  } finally {
+    terminal.destroy();
+  }
+});
+test("compressed wire accounting admits dense high-RTT frames while raw memory stays bounded", () => {
+  let now = 0;
+  const output = new Frames(() => now),
+    terminal = Terminal.create(80, 24);
+  try {
+    const first = output.offer(view(terminal))!;
+    output.encoded(first.frame, 200);
+    now = 600;
     output.acknowledge(first.frame);
-    expect(output.offer(large)).toBeNull();
-    output.acknowledge(third.frame);
-    const fourth = output.offer(large)!;
-    expect(fourth).not.toBeNull();
-    expect(output.offer(large)).toBeNull();
-    now += 120;
-    output.acknowledge(fourth.frame);
-    expect(output.offer(large)).not.toBeNull();
-    expect(output.offer(large)).not.toBeNull();
-    expect(output.offer(large)).toBeNull();
+    const large = view(terminal);
+    large.session = { large: "界".repeat(20000) } as unknown as View["session"];
+    let accepted = 0;
+    for (let i = 0; i < 100; i++) {
+      const sent = output.offer(large);
+      if (!sent) break;
+      output.encoded(sent.frame, 200);
+      accepted++;
+    }
+    expect(accepted).toBeGreaterThan(3);
+    expect(accepted).toBeLessThan(36);
+    output.acknowledge(BigInt(accepted + 1));
+    expect(output.available).toBe(true);
   } finally {
     terminal.destroy();
   }
@@ -158,3 +184,34 @@ test("row patches preserve Unicode, hyperlinks, cursor, scrollback and modes", (
     terminal.destroy();
   }
 });
+
+for (const rtt of [300, 600])
+  test(`a sparse-to-dense RTT step to ${rtt} ms cannot trap the delivery estimate`, () => {
+    let now = 0,
+      departure = 0;
+    const output = new Frames(() => now),
+      terminal = Terminal.create(80, 24);
+    const receipts: { at: number; frame: bigint; probe: boolean }[] = [];
+    let received = 0;
+    try {
+      for (now = 0; now < 20000; now++) {
+        while (receipts[0]?.at <= now) {
+          const receipt = receipts.shift()!;
+          output.acknowledge(receipt.frame);
+          if (now >= 15000 && !receipt.probe) received++;
+        }
+        if (now % 50) continue;
+        const current = view(terminal);
+        current.session = { text: "x".repeat(now < 5000 ? 200 : 6000), tick: now } as unknown as View["session"];
+        const frame = output.offer(current);
+        if (!frame) continue;
+        const bytes = frame.probe ? 40 : now < 5000 ? 100 : 1700;
+        output.encoded(frame.frame, bytes);
+        departure = Math.max(now, departure) + bytes / 125; // 1 Mbit/s, with a FIFO bottleneck.
+        receipts.push({ at: departure + (now < 5000 ? 120 : rtt), frame: frame.frame, probe: frame.probe });
+      }
+      expect(received / 5).toBeGreaterThanOrEqual(19);
+    } finally {
+      terminal.destroy();
+    }
+  });
