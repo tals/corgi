@@ -348,10 +348,13 @@ export class Selection {
       if (current) return;
     }
     const old = this.tabs.slice(),
-      active = this.active;
-    let selected = this.count ? old[active].id : 0;
-    if (selected && m.tabIndex(selected) === null) {
-      selected = 0;
+      active = this.active,
+      was = this.count ? old[active] : null;
+    let selected = was?.id ?? 0;
+    if (was && m.tabIndex(selected) === null) {
+      // A tab that's gone leads to the one its focused pane went to.
+      const moved = m.tabForPane(was.focus);
+      selected = moved === null ? 0 : m.tabs[moved].id;
       for (let i = active - 1; i >= 0 && !selected; i--) if (m.tabIndex(old[i].id) !== null) selected = old[i].id;
       for (let i = active + 1; i < this.count && !selected; i++)
         if (m.tabIndex(old[i].id) !== null) selected = old[i].id;
@@ -361,7 +364,9 @@ export class Selection {
     this.tabs = m.tabs.slice(0, m.count).map((t, i) => {
       if (t.id === selected) this.active = i;
       const s = old.find(s => s.id === t.id);
-      return s && m.contains(t.root, s.focus) ? s : { id: t.id, focus: m.firstPane(t.root), zoom: false };
+      if (s && m.contains(t.root, s.focus)) return s;
+      const focus = t.id === selected && was && m.contains(t.root, was.focus) ? was.focus : m.firstPane(t.root);
+      return { id: t.id, focus, zoom: false };
     });
   }
   focus(m: Model, id: PaneId) {

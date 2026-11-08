@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { Model, Selection, View, Rect, max_panes } from "./layout";
+import { Model, Selection, Tab, View, Rect, max_panes } from "./layout";
 test("nested split close preserves stable identities and collapses tree", () => {
   const m = new Model(),
     a = m.newTab(""),
@@ -58,6 +58,21 @@ test("selection survives reordered tabs and closed neighbor", () => {
   s.reconcile(m);
   expect(s.tab().focus).toBe(a);
   expect(m.tabForPane(c)).toBe(0);
+});
+test("selection follows its focused pane when its tab is replaced", () => {
+  const m = new Model(),
+    a = m.newTab(""),
+    b = m.newTab(""),
+    s = new Selection();
+  s.reconcile(m);
+  s.focus(m, b);
+  // The same pane comes back in a tab with another id, as a daemon's may.
+  const tab = m.tabs[1];
+  m.tabs[1] = new Tab(tab.id + 100, tab.root);
+  s.reconcile(m);
+  expect(s.active).toBe(1);
+  expect(s.tab().focus).toBe(b);
+  expect(s.tabs[0].focus).toBe(a);
 });
 test("selection notices a closed focused pane even when the tab order and count stay the same", () => {
   const model = new Model(),

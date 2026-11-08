@@ -1,4 +1,23 @@
+import type { Model } from "./layout";
 export type Target = { pane: number } | { headless: number };
+/** A workspace's agents as its orders place them: its panes tab by tab, then
+ * its headless agents. `panes` may hold other workspaces' panes. */
+export function live(
+  model: Model,
+  panes: readonly { id: number }[],
+  headless: readonly { id: number }[],
+  out: Target[] = [],
+): Target[] {
+  out.length = 0;
+  const tabs: Target[][] = Array.from({ length: model.count }, () => []);
+  for (const p of panes) {
+    const tab = model.tabForPane(p.id);
+    if (tab !== null) tabs[tab].push({ pane: p.id });
+  }
+  for (const targets of tabs) out.push(...targets);
+  for (const s of headless) out.push({ headless: s.id });
+  return out;
+}
 /** An agent's key in per-agent maps: `pane:N` or `headless:N`. */
 export function key(target: Target): string {
   return "pane" in target ? `pane:${target.pane}` : `headless:${target.headless}`;

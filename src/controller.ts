@@ -104,6 +104,7 @@ import type { Preferences } from "./preferences";
 import { Host } from "./host";
 import { Drag as AgentDrag } from "./agent_drag";
 import * as docking from "./docking";
+import * as optimistic from "./optimistic";
 import { Drag as TabDrag } from "./docking_drag";
 import { Drag as WorkspaceDrag } from "./workspace_drag";
 import { double_click_ms, milliTimestamp, microTimestamp } from "./clock";
@@ -958,6 +959,28 @@ export class Controller {
   private command(command: CommandInput): void {
     this.later(lane => this.edit(command, lane));
   }
+  /** Sends `command`, showing its result at once where optimistic.ts can.
+   * The guess stands until a snapshot taken after the reply; a refusal
+   * shows the last snapshot without it. `then` takes the result. */
+  private optimistic(command: CommandInput, then?: (result: { pane: number }) => void): void {
+    const machine = this.machine,
+      edit = optimistic.edit(command),
+      forget = edit ? machine.runtime.assume(edit) : () => {};
+    this.dirty = true;
+    this.later(async lane => {
+      let answered = false;
+      try {
+        const result = await this.execute(command, lane, () => (answered = true));
+        then?.(result);
+      } catch (error) {
+        forget();
+        if (edit && !answered && machine.runtime.snapshot) this.receiveSnapshot(machine.runtime.snapshot, machine);
+        throw error;
+      } finally {
+        forget();
+      }
+    });
+  }
   private moveTab(id: number, gap: number): void {
     const operation = navigation.moveTab(this.model(), id, gap);
     if (operation) this.command(operation);
@@ -1660,14 +1683,9 @@ export class Controller {
       this.dirty = true;
       return;
     }
-    const here = this.here();
-    this.later(async lane => {
-      await this.refresh();
-      if (!here() || !drag.valid(this.sidebarView([]), this.workspaceIds()) || !drag.drop) return;
-      const target = this.rowOf(source)!;
-      const before = drag.drop.index >= drag.ids.length ? target.id : this.rowOf(drag.ids[drag.drop.index])!.id;
-      await this.edit({ "workspace.move": { target: target.id, before } }, lane);
-    });
+    const target = this.rowOf(source)!,
+      before = drag.drop.index >= drag.ids.length ? target.id : this.rowOf(drag.ids[drag.drop.index])!.id;
+    this.optimistic({ "workspace.move": { target: target.id, before } });
   }
   cancelWorkspaceDrag(): boolean {
     if (!this.workspace_drag) return false;
@@ -7533,11 +7551,13 @@ export class Controller {
     this.dock_history.delete(id);
     return { revision: this.model().revision, undo: 0, redo: 0 };
   }
-  private async commitDock(): Promise<void> {
+  private commitDock(): void {
     const drag = this.input_state.tab_drag;
     if (!drag || !this.validTabDrag(drag) || !drag.plan || !drag.drop) return this.cancelDock();
     const history = this.dockingHistory(),
-      workspace = this.current().id;
+      workspace = this.current().id,
+      focus = drag.plan.focus,
+      here = this.here();
     const command: CommandInput = {
       "layout.dock": {
         workspace,
@@ -7551,12 +7571,14 @@ export class Controller {
         rows: drag.area.h,
       },
     };
-    // Consume the gesture before awaiting the daemon; no release can repeat it.
+    // Consume the gesture; no release can repeat it.
     this.cancelDock();
-    const result = await this.execute(command, () => {
+    this.optimistic(command, result => {
       this.dock_history.set(workspace, { revision: drag.revision + 1n, undo: Math.min(32, history.undo + 1), redo: 0 });
+      // A new shell's id is the daemon's to give.
+      if (here() && this.pane(focus) === null) this.focusPane(result.pane);
     });
-    this.focusPane(result.pane);
+    this.focusPane(focus);
     this.nav().tab().zoom = false;
   }
   private async restoreDock(direction: "undo" | "redo"): Promise<void> {
@@ -8037,33 +8059,23 @@ export class Controller {
       if (release && (button & 3) === 0) {
         this.agent_drag = null;
         this.ui_mouse_down = false;
-        const here = this.here();
-        if (drag.dragging && !drag.cancelled)
-          this.later(async lane => {
-            await this.refresh();
-            if (!here()) return;
-            const live = this.sidebarEntries();
-            drag.update(this.sidebarView(live), this.current().id, x, y, milliTimestamp());
-            if (!drag.drop || !sidebar.isAgent(drag.target)) return;
-            // Pins and section order belong to a workspace; above another's row,
-            // the agent goes last in its own.
-            const at = drag.before(),
-              other = at === null ? null : sidebar.orderTarget(live[at]),
-              before = other && this.agentWorkspace(other) === drag.workspace ? other : null,
-              place = { workspace: drag.workspace, target: drag.target, before };
-            this.sidebar_rows.discard();
-            await this.edit(
-              drag.action === "move"
-                ? { "agent.move": place }
-                : drag.action === "place"
-                  ? { "agent.place": place }
-                  : { "agent.pin": { ...place, pinned: true } },
-              lane,
-            );
-            if (!here()) return;
-            if (drag.action === "place") this.agent_since.move(agentKey(drag.target), before ? agentKey(before) : null);
-            this.sidebar_rows.discard();
-          });
+        if (drag.dragging && !drag.cancelled && drag.drop && sidebar.isAgent(drag.target)) {
+          // Pins and section order belong to a workspace; above another's row,
+          // the agent goes last in its own.
+          const at = drag.before(),
+            other = at === null ? null : sidebar.orderTarget(live[at]),
+            before = other && this.agentWorkspace(other) === drag.workspace ? other : null,
+            place = { workspace: drag.workspace, target: drag.target, before };
+          this.optimistic(
+            drag.action === "move"
+              ? { "agent.move": place }
+              : drag.action === "place"
+                ? { "agent.place": place }
+                : { "agent.pin": { ...place, pinned: true } },
+          );
+          if (drag.action === "place") this.agent_since.move(agentKey(place.target), before ? agentKey(before) : null);
+          this.sidebar_rows.place();
+        }
       }
       this.dirty = true;
       return;

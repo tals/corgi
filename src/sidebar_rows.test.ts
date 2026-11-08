@@ -177,6 +177,20 @@ test("a row reordered within its group glides there, and rows it passes step asi
   expect(shown[1].moved).toBeNull();
   expect(shown.map(e => e.slide)).toEqual([0, -2, -2]);
 });
+test("rows the user dropped land without gliding; a later move glides again", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    [a, b, c] = [entry(1), entry(2), entry(3)];
+  rows.update(1, [a, b, c], out, 0);
+  rows.place();
+  let shown = rows.update(1, [c, a, b], out, 10);
+  expect(shown.map(paneOf)).toEqual([3, 1, 2]);
+  expect(shown.map(e => e.moved)).toEqual([null, null, null]);
+  expect(shown.map(e => e.slide)).toEqual([0, 0, 0]);
+  expect(rows.moving(10)).toBe(false);
+  shown = rows.update(1, [a, b, c], out, 20);
+  expect(shown[2].moved).toEqual({ from: 0, ms: 0 });
+});
 test("a row pushed one row or less just lands", () => {
   const rows = new State(),
     out: Entry[] = [],
