@@ -1,8 +1,9 @@
 //! What "Jump to attention" goes to: the pane that has waited longest for
 //! input, then the one that finished longest ago, then a headless session in
 //! that order. A blocked agent waits until answered, even after a visit
-//! acknowledged it, matching the sidebar's count. The focused pane yields to
-//! any other candidate of the same kind so repeated jumps move on.
+//! acknowledged it, matching the sidebar's count. Repeated jumps cycle: from a
+//! focused candidate, the jump goes to the next older-to-newer candidate of the
+//! same kind and wraps around, so every waiting pane is reached.
 
 import type { Attention } from "./agents";
 
@@ -16,13 +17,14 @@ export function pick<S extends Session>(
   state: { panes: readonly Pane[]; sessions: readonly S[] },
   focused: number | null = null,
 ): { pane: number } | { session: S } | null {
-  // Not focused before focused, then oldest first.
-  const before = (p: Pane, best: Pane) =>
-    p.id === focused || best.id === focused ? best.id === focused : p.agent.changed_at < best.agent.changed_at;
   for (const matches of [waits, finished]) {
-    let best: Pane | null = null;
-    for (const p of state.panes) if (matches(p.agent) && (best === null || before(p, best))) best = p;
-    if (best) return { pane: best.id };
+    const candidates = state.panes
+      .filter(p => matches(p.agent))
+      .sort((a, b) => a.agent.changed_at - b.agent.changed_at || a.id - b.id);
+    if (candidates.length === 0) continue;
+    // The one after the focused pane, oldest first when nothing of this kind is focused.
+    const at = candidates.findIndex(p => p.id === focused);
+    return { pane: candidates[(at + 1) % candidates.length]!.id };
   }
   for (const matches of [waits, finished])
     for (const session of state.sessions) if (matches(session)) return { session };
