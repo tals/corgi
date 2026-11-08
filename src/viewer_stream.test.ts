@@ -161,6 +161,41 @@ test("compressed wire accounting admits dense high-RTT frames while raw memory s
     terminal.destroy();
   }
 });
+test("raw and encoded byte budgets independently stop a large learned window", () => {
+  for (const [characters, wire, maximum] of [
+    [30000, 200, 23],
+    [7000, 12000, 43],
+  ]) {
+    let now = 0;
+    const output = new Frames(() => now),
+      terminal = Terminal.create(80, 24),
+      large = view(terminal);
+    large.session = { large: "界".repeat(characters) } as unknown as View["session"];
+    try {
+      for (let i = 0; i < 64; i++) {
+        const frame = output.offer(large)!;
+        output.encoded(frame.frame, wire);
+        now += 1000;
+        output.acknowledge(frame.frame);
+      }
+      let last = 0n,
+        count = 0;
+      for (;;) {
+        const frame = output.offer(large);
+        if (!frame) break;
+        output.encoded(frame.frame, wire);
+        last = frame.frame;
+        count++;
+        expect(count).toBeLessThan(64);
+      }
+      expect(count).toBe(maximum);
+      output.acknowledge(last);
+      expect(output.offer(large)).not.toBeNull();
+    } finally {
+      terminal.destroy();
+    }
+  }
+});
 test("row patches preserve Unicode, hyperlinks, cursor, scrollback and modes", () => {
   const terminal = Terminal.create(40, 5);
   try {
@@ -214,4 +249,132 @@ for (const rtt of [300, 600])
     } finally {
       terminal.destroy();
     }
+  });
+
+interface Path {
+  duration: number;
+  rtt: number;
+  bytes_per_ms: number;
+  hz: number;
+  sparse?: boolean;
+}
+/** A FIFO bottleneck; receipts include both propagation directions and serialization. */
+function network(paths: Path[]) {
+  let now = 0,
+    departure = 0,
+    next = 0,
+    last_visible = 0,
+    last_receipt = 0,
+    latest = 0;
+  const output = new Frames(() => now);
+  const receipts: { at: number; frame: bigint }[] = [],
+    arriving: { at: number; source: number; probe: boolean }[] = [],
+    displayed: { at: number; source: number }[] = [],
+    ages: { at: number; age: number }[] = [],
+    probes: number[] = [],
+    flights: number[] = [];
+  for (const path of paths) {
+    flights.push(receipts.length);
+    const end = now + path.duration;
+    for (; now < end; now++) {
+      while (arriving[0]?.at <= now) {
+        const frame = arriving.shift()!;
+        if (frame.probe) continue;
+        latest = frame.source;
+        displayed.push(frame);
+      }
+      while (receipts[0]?.at <= now) output.acknowledge(receipts.shift()!.frame);
+      if (now % 10 === 0) ages.push({ at: now, age: now - latest });
+      if (now < next) continue;
+      next += 1000 / path.hz;
+      const current: View = {
+        type: "view",
+        viewer_protocol: protocol.viewer_version,
+        session: { text: "x".repeat(path.sparse ? 200 : 6000), tick: now } as unknown as View["session"],
+        session_hash: 1n,
+        resources: null,
+        resources_hash: 1n,
+        surfaces: [],
+        controls: [],
+        bell_seq: 0n,
+        bell_kind: "none",
+        viewer: 1,
+        detach: false,
+      };
+      const frame = output.offer(current);
+      if (!frame) continue;
+      const bytes = frame.probe ? 40 : path.sparse ? 100 : 1700;
+      if (frame.probe) probes.push(now);
+      output.encoded(frame.frame, bytes);
+      departure = Math.max(now, departure) + bytes / path.bytes_per_ms;
+      last_visible = Math.max(last_visible, departure + path.rtt / 2);
+      last_receipt = Math.max(last_receipt, departure + path.rtt);
+      arriving.push({ at: last_visible, source: now, probe: frame.probe });
+      receipts.push({ at: last_receipt, frame: frame.frame });
+    }
+  }
+  return {
+    probes,
+    flights,
+    displayed,
+    measure(start: number, end: number) {
+      const held = ages
+        .filter(a => a.at >= start && a.at < end)
+        .map(a => a.age)
+        .sort((a, b) => a - b);
+      return {
+        fps: displayed.filter(frame => frame.at >= start && frame.at < end).length / ((end - start) / 1000),
+        p95: held[Math.floor(held.length * 0.95)],
+        max: held.at(-1)!,
+      };
+    },
+  };
+}
+
+test("a stable constrained path does not repeatedly drain to rediscover the same RTT", () => {
+  const run = network([
+    { duration: 5000, rtt: 120, bytes_per_ms: 125, hz: 20, sparse: true },
+    { duration: 30000, rtt: 600, bytes_per_ms: 8, hz: 20 },
+  ]);
+  const steady = run.measure(15000, 35000);
+  expect(steady.fps).toBeGreaterThanOrEqual(2.8);
+  expect(steady.p95).toBeLessThan(1600);
+  expect(run.probes.filter(at => at >= 10000)).toHaveLength(0);
+});
+
+test("RTT changes during continuous flight still recover the source cadence", () => {
+  const run = network([
+    { duration: 5000, rtt: 120, bytes_per_ms: 125, hz: 60 },
+    { duration: 15000, rtt: 600, bytes_per_ms: 125, hz: 60 },
+    { duration: 10000, rtt: 300, bytes_per_ms: 125, hz: 60 },
+  ]);
+  expect(run.flights[1]).toBeGreaterThan(0);
+  expect(run.flights[2]).toBeGreaterThan(0);
+  expect(run.measure(15000, 20000).fps).toBeGreaterThanOrEqual(59);
+  expect(run.measure(25000, 30000).fps).toBeGreaterThanOrEqual(59);
+  expect(run.measure(25000, 30000).p95).toBeLessThan(250);
+});
+
+test("a faster dense source fills a healthy high-RTT path after sparse traffic", () => {
+  const run = network([
+    { duration: 5000, rtt: 300, bytes_per_ms: 125, hz: 20, sparse: true },
+    { duration: 15000, rtt: 300, bytes_per_ms: 125, hz: 60 },
+  ]);
+  const steady = run.measure(15000, 20000);
+  expect(steady.fps).toBeGreaterThanOrEqual(59);
+  expect(steady.p95).toBeLessThan(250);
+});
+
+for (const rtt of [120, 600])
+  test(`a capacity collapse at ${rtt} ms RTT bounds old work and recovers after the cap lifts`, () => {
+    const run = network([
+      { duration: 5000, rtt, bytes_per_ms: 125, hz: 20 },
+      { duration: 20000, rtt, bytes_per_ms: 8, hz: 20 },
+      { duration: 15000, rtt, bytes_per_ms: 125, hz: 20 },
+    ]);
+    expect(run.measure(5000, 25000).max).toBeLessThan(4500);
+    const fresh = run.displayed.find(frame => frame.source >= 25000 && frame.at - frame.source < rtt / 2 + 250);
+    expect(fresh).toBeDefined();
+    expect(fresh!.at - 25000).toBeLessThan(2000);
+    expect(run.measure(35000, 40000).fps).toBeGreaterThanOrEqual(19);
   });

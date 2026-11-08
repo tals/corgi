@@ -28,7 +28,7 @@ export class Stream {
     private readonly changed: () => void = () => {},
     private readonly incremental = false,
   ) {
-    connection.socket.once("close", changed);
+    connection.onClose(changed);
     connection.onEvent(value => {
       try {
         if (
@@ -124,10 +124,11 @@ export class Stream {
   }
   check(): void {
     if (this.failure) throw this.failure;
-    if (this.connection.socket.destroyed) throw Error("ConnectionClosed");
+    if (this.connection.disconnected) throw Error("ConnectionClosed");
     if (this.age() >= (this.connection.timeout_ms || 10_000)) throw Error("RequestTimedOut");
   }
   send(start: () => Promise<void>, bytes = 0): void {
+    if (this.connection.draining) return;
     if (this.bytes + bytes > 1024 * 1024 || this.writes.size >= 64) throw Error("InputBackpressure");
     this.bytes += bytes;
     const task = start();
@@ -148,6 +149,7 @@ export class Stream {
     return this.pending ? null : this.next;
   }
   private async receipt(sequence: number, active = false): Promise<void> {
+    if (this.connection.draining) return;
     const reply = await this.connection.call("viewer.receipt", { sequence, frame: this.received, active });
     if (sequence !== this.sequence) return;
     this.last = performance.now();
@@ -160,6 +162,7 @@ export class Stream {
   }
   configure(request: RequestInput<"viewer.sync">, selection: number): void {
     this.check();
+    if (this.connection.draining) return;
     const key = json.stringify({
       ...request,
       selection,

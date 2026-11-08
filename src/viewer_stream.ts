@@ -9,6 +9,7 @@ interface Pending {
   bytes: number;
   at: number;
   probe: boolean;
+  first: boolean;
 }
 /** Bound accepted work across the codec, socket and network; coalesce before admission. */
 export class Frames {
@@ -72,7 +73,7 @@ export class Frames {
       this.last = view;
     }
     const frame = ++this.sent;
-    this.pending.set(frame, { raw, bytes, at: this.now(), probe });
+    this.pending.set(frame, { raw, bytes, at: this.now(), probe, first: this.pending.size === 0 });
     this.bytes += bytes;
     this.raw += raw;
     return { frame, view: encoded, probe };
@@ -130,8 +131,14 @@ export class Frames {
         this.slots = this.congested ? Math.max(1, Math.floor(this.slots / 2)) : Math.min(this.target, this.slots + 1);
         this.adjust = now + Math.max(100, this.baseline);
       }
-      // A low delivery estimate must not explain away a changed propagation delay.
-      if (elapsed > this.baseline + Math.max(50, this.baseline / 4) && now - this.probeAt >= 3000) this.draining = true;
+      // Older frames can explain queue delay. Probe an empty-flight sample, or
+      // a delivery estimate too low to distinguish serialization from a new RTT.
+      if (
+        elapsed > this.baseline + Math.max(50, this.baseline / 4) &&
+        now - this.probeAt >= 3000 &&
+        (serialization > this.baseline || (received.first && this.congested))
+      )
+        this.draining = true;
     }
     if (previous !== this.slots || now - this.reported >= 1000 || received.probe) {
       this.reported = now;

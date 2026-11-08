@@ -29,6 +29,7 @@ interface Numbered {
 }
 /** Requests waiting on a machine's replies, at most. */
 const numbered_limit = 256;
+const handoff_input_limit = 64 * 1024;
 
 export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" | "incompatible" | "attention";
 export const stalled_ms = 1000;
@@ -239,7 +240,8 @@ export class Endpoint {
   }
   enqueue(bytes: Uint8Array): void {
     if (this.handoff) {
-      if (this.handoff.input.length + bytes.length <= 64 * 1024) this.handoff.input.push(...bytes);
+      if (this.handoff.input.length + bytes.length <= handoff_input_limit)
+        for (const byte of bytes) this.handoff.input.push(byte);
       else this.clearInput();
       this.wake();
       return;
@@ -274,7 +276,7 @@ export class Endpoint {
       )
         this.clearInput();
       else if (this.ready && this.resumed && this.generation > held.generation) {
-        this.input.push(...held.input);
+        this.input = held.input;
         this.handoff = null;
       } else return;
     }
@@ -527,6 +529,25 @@ export class Endpoint {
   woke(): void {
     if (this.profile && (this.status === "online" || this.status === "stalled")) this.suspect = true;
   }
+  private holdHandoffInput(): void {
+    const input = this.input;
+    this.input = [];
+    if (input.length > handoff_input_limit) {
+      this.clearInput();
+      this.error = "Input queue full; unsent input discarded";
+    }
+    this.handoff = {
+      instance: this.instance,
+      selection: this.selection,
+      navigation: this.navigation_revision,
+      pane: this.view().focused()?.id ?? null,
+      generation: this.generation,
+      until: performance.now() + startup_ms,
+      input: input.length <= handoff_input_limit ? input : [],
+    };
+    this.ready = this.fresh = false;
+    this.wake();
+  }
   private async connect(): Promise<void> {
     const previous = this.instance;
     const generation = ++this.generation;
@@ -568,17 +589,7 @@ export class Endpoint {
       if (this.connection !== conn) return;
       if (event.type === "viewer.reconnect" && this.link) {
         this.trace("remote.connection", "handoff");
-        this.handoff = {
-          instance: this.instance,
-          selection: this.selection,
-          navigation: this.navigation_revision,
-          pane: this.view().focused()?.id ?? null,
-          generation: this.generation,
-          until: performance.now() + startup_ms,
-          input: this.input.splice(0),
-        };
-        this.ready = this.fresh = false;
-        this.wake();
+        this.holdHandoffInput();
       }
       if (event.type === "uninstalled" && !this.profile) {
         this.uninstalled = true;

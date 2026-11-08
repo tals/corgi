@@ -70,6 +70,11 @@ export interface View<Session = unknown, Resources = unknown> {
 export const version = 4;
 export const management_version = 1;
 export const viewer_version = 4;
+export const encodings = ["zstd"] as const;
+export type Encoding = (typeof encodings)[number];
+export function encoding(value: unknown): Encoding | null {
+  return encodings.find(encoding => encoding === value) ?? null;
+}
 export type Op = (typeof operations)[number];
 type PaneDestination = { new_tab: string } | { beside: Normalized<typeof structures.beside> };
 type TabDestination = { workspace: number } | { before: number } | { after: number };
@@ -660,7 +665,7 @@ const structures = {
 } as const satisfies Record<string, Fields>;
 const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
 const requests = {
-  hello: { compression: ["none|zstd", "none"] },
+  hello: { accept_encoding: ["[]string", []] },
   /** `output: false` leaves out pushes for terminal output alone, as a status display wants. */
   "session.subscribe": { output: ["bool", true] },
   "launcher.catalog": { workspace: ["u32", 0], cwd: ["string", ""] },
@@ -848,7 +853,7 @@ export interface ReplyPayloads {
     update_abi: string;
     viewer_protocol?: number;
     instance?: string;
-    compression?: "zstd";
+    content_encoding?: Encoding;
   };
   ping: Ok & { pid: number };
   "link.open": Ok & { link: string };

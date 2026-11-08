@@ -395,11 +395,14 @@ the viewer then requests a full base. New peers opt in; older viewers still get
 full frames, and a new viewer uses the original stream with older daemons.
 Runtime/viewer protocol 4 and saved-format versions are unchanged because the
 new operation and optional fields are negotiated and no cache is persisted.
-Remote viewers request live-history zstd level 3 in the existing `hello` exchange.
-The plain hello reply opts in; all subsequent bytes in both directions use fresh
-zstd histories with a 1 MiB window. Messages flush immediately without ending the
-history. The native SSH bridge still relays bytes. Local connections stay plain,
-and older peers that omit the optional hello field stay plain. Runtime/viewer and
+Remote viewers offer `accept_encoding: ["zstd"]` in the existing plaintext `hello`.
+The daemon selects `content_encoding: "zstd"` in its plaintext reply; omission
+keeps the connection plain. Unknown offers are ignored, and clients reject an
+unsupported or unoffered selection. Only the first request may negotiate, and it
+must finish before another request is sent. The reply's newline ends plaintext:
+all subsequent bytes in both directions use fresh live-history zstd level 3 with
+a 1 MiB window. Messages flush immediately without ending the history. The native
+SSH bridge still relays bytes. Local connections stay plain. Runtime/viewer and
 saved-format versions do not change. SSH compression is disabled on these
 attachments, which have a separate master namespace from compressed CLI sessions.
 `wire.compress` records raw and emitted bytes and encoding duration.

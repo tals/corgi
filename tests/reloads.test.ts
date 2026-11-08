@@ -14,6 +14,7 @@ import { JsonSocket, EXE, quote, registerCase, run, shellJoin, sleep, versioned,
 import * as protocol from "../src/protocol";
 import { byProvider } from "../src/providers";
 import { Runtime } from "./runtime";
+import { Connection } from "../src/rpc";
 import { Viewer } from "./viewer_client";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
 
@@ -277,6 +278,79 @@ libc.symbols.lseek(fd, 0n, 0);
     await this.reload();
     await a.input("printf 'STILL_%s\\n' HERE\r");
     await this.until(async () => (await this.screen(first)).includes("STILL_HERE"));
+  }
+  async test_compressed_reload_returns_the_committed_reply_and_rejects_later_requests() {
+    const pane = await this.new(),
+      before = await this.session(),
+      connection = new Connection(this.path, { compression: true, timeout_ms: 10000 });
+    try {
+      const hello = await connection.call("hello");
+      this.assertEqual(hello.content_encoding, "zstd");
+      const { link } = await connection.call("link.open");
+      await connection.call("viewer.open");
+      const results = await Promise.allSettled([
+        connection.call("server.reload", { executable: EXE }),
+        connection.call("ping"),
+      ]);
+      this.assertEqual(results[0].status, "fulfilled");
+      if (results[0].status !== "fulfilled") throw results[0].reason;
+      this.assertEqual(results[1].status, "rejected");
+      const after = await this.session();
+      this.assertEqual(results[0].value.server_pid, after.server_pid);
+      this.assertNotEqual(after.server_pid, before.server_pid);
+      this.assertEqual(
+        after.panes.find((p: any) => p.id === pane).pid,
+        before.panes.find((p: any) => p.id === pane).pid,
+      );
+      const check = new Connection(this.path, { timeout_ms: 3000 });
+      try {
+        this.assertEqual((await check.call("hello")).instance, hello.instance);
+        this.assertTrue((await check.call("link.resume", { link })).viewer);
+      } finally {
+        check.close();
+      }
+    } finally {
+      connection.close();
+    }
+  }
+  async test_compressed_reload_reports_rejection_without_committing_or_replaying_input() {
+    const pane = await this.new(),
+      before = await this.session();
+    for (const executable of ["/does/not/exist", "/usr/bin/false"]) {
+      const connection = new Connection(this.path, { compression: true, timeout_ms: 10000 });
+      try {
+        const hello = await connection.call("hello");
+        this.assertEqual(hello.content_encoding, "zstd");
+        const { link } = await connection.call("link.open");
+        await connection.call("viewer.open");
+        const [reload, input] = await Promise.allSettled([
+          connection.request("server.reload", { executable }),
+          connection.call("session.command", {
+            command: { "pane.input": { target: pane, data: "MUST_NOT_RUN\r" } },
+          }),
+        ]);
+        this.assertEqual(reload.status, "fulfilled");
+        if (reload.status !== "fulfilled") throw reload.reason;
+        this.assertEqual(reload.value, { err: "ReloadCandidateFailed" });
+        this.assertEqual(input.status, "rejected");
+        const after = await this.session();
+        this.assertEqual(after.server_pid, before.server_pid);
+        this.assertEqual(after.panes[0].pid, before.panes[0].pid);
+        this.assertNotIn("MUST_NOT_RUN", await this.screen(pane));
+        const check = new Connection(this.path, { timeout_ms: 3000 });
+        try {
+          this.assertEqual((await check.call("hello")).instance, hello.instance);
+          this.assertTrue((await check.call("link.resume", { link })).viewer);
+        } finally {
+          check.close();
+        }
+      } finally {
+        connection.close();
+      }
+    }
+    await this.reload();
+    await this.command("pane.input", { target: pane, data: "printf 'RETRY_%s\\n' WORKED\r" });
+    await this.until(async () => (await this.screen(pane)).includes("RETRY_WORKED"));
   }
   async test_v2_migration_preserves_processes_viewers_and_inference_counts() {
     const first = await this.new(),

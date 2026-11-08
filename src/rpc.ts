@@ -8,6 +8,7 @@ import type { Stats } from "./connection_stats";
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
+  encoding?: string[];
 }
 export interface ConnectionInit {
   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
@@ -26,11 +27,20 @@ export class Connection {
   private codec: wire_compression.Channel | null = null;
   private readonly compression: boolean;
   private negotiating = false;
+  private started = false;
   private closed: Error | null = null;
+  private ending: Error | null = null;
   private listeners = new Set<(event: protocol.Event) => void>();
+  private closedListeners = new Set<() => void>();
   private readonly timeout: number | (() => number);
   get timeout_ms(): number {
     return typeof this.timeout === "function" ? this.timeout() : this.timeout;
+  }
+  get draining(): boolean {
+    return this.ending !== null && this.closed === null;
+  }
+  get disconnected(): boolean {
+    return this.closed !== null;
   }
   private readonly stats?: Stats;
   private readonly trace?: telemetry.Details;
@@ -47,12 +57,15 @@ export class Connection {
       this.stats?.traffic("received", chunk.length);
       this.read(chunk);
     });
-    this.socket.on("error", error => this.fail(error));
-    this.socket.on("close", () => {
-      // EOF can follow compressed bytes before the asynchronous decoder emits their last message.
-      if (this.codec) void this.codec.drainInput().then(() => this.fail(Error("ConnectionClosed")));
-      else this.fail(Error("ConnectionClosed"));
-    });
+    this.socket.on("error", error => this.finish(error));
+    this.socket.on("close", () => this.finish(Error("ConnectionClosed")));
+  }
+  private finish(error: Error): void {
+    if (this.closed || this.ending) return;
+    this.ending = error;
+    // EOF and resets can follow bytes before the asynchronous decoder emits their last message.
+    if (this.codec) void this.codec.drainInput().then(() => this.fail(error));
+    else this.fail(error);
   }
   private read(chunk: Buffer, decoded = false): void {
     if (this.closed) return;
@@ -89,6 +102,7 @@ export class Connection {
     }
   }
   private write(bytes: Buffer): void {
+    if (this.closed || this.ending) return;
     if (this.socket.writableLength + bytes.length > 4 * 1024 * 1024) {
       this.fail(Error("RequestBackpressure"));
       return;
@@ -103,6 +117,8 @@ export class Connection {
     for (const p of this.pending.values()) p.reject(error);
     this.pending.clear();
     this.socket.destroy();
+    for (const listener of this.closedListeners) listener();
+    this.closedListeners.clear();
   }
   private receive(value: unknown): void {
     const message = json.object(value);
@@ -123,10 +139,16 @@ export class Connection {
     }
     const pending = this.pending.get(id);
     if (!pending) throw Error("UnexpectedReply");
+    const selected = protocol.encoding(message.content_encoding);
+    if (
+      message.content_encoding !== undefined &&
+      (message.type !== "hello" || !selected || !pending.encoding?.includes(selected) || this.codec)
+    )
+      throw Error("InvalidEncodingNegotiation");
     this.pending.delete(id);
-    if (this.negotiating && message.type === "hello") {
+    if (pending.encoding) {
       this.negotiating = false;
-      if (message.compression === "zstd")
+      if (selected === "zstd")
         this.codec = new wire_compression.Channel(
           bytes => this.write(bytes),
           bytes => this.read(bytes, true),
@@ -146,21 +168,37 @@ export class Connection {
       this.listeners.delete(listener);
     };
   }
+  /** Socket EOF and errors notify after decoding all received bytes; close() aborts immediately. */
+  onClose(listener: () => void): () => void {
+    if (this.closed) {
+      queueMicrotask(listener);
+      return () => {};
+    }
+    this.closedListeners.add(listener);
+    return () => {
+      this.closedListeners.delete(listener);
+    };
+  }
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>> {
     // Replies are raw operation-specific JSON. Consumers normalize their model.
     return this.rawRequest(protocol.envelope(op, args[0])) as Promise<protocol.Response<K>>;
   }
   async rawRequest(value: unknown): Promise<unknown> {
-    if (this.closed) throw this.closed;
+    const closed = this.closed ?? this.ending;
+    if (closed) throw closed;
     const message = json.object(value);
     if (this.negotiating) throw Error("CompressionNegotiating");
-    if (message.op === "hello" && (this.compression || message.compression === "zstd") && !this.codec) {
-      if (this.pending.size) throw Error("RequestInFlight");
-      message.compression = "zstd";
-      this.negotiating = true;
+    let encoding: string[] | undefined;
+    if (message.op === "hello") {
+      if (this.compression && !this.started && message.accept_encoding === undefined)
+        message.accept_encoding = [...protocol.encodings];
+      encoding = protocol.decode("hello", message).accept_encoding;
+      if (encoding.length && this.started) throw Error("InvalidEncodingNegotiation");
+      this.negotiating = encoding.length > 0;
     }
     if (!this.requestIds && this.pending.size) throw Error("RequestInFlight");
     if (this.pending.size >= 128) throw Error("RequestBackpressure");
+    this.started = true;
     const id = this.requestIds ? this.next++ : 0;
     return new Promise((resolve, reject) => {
       const timeout = this.timeout_ms;
@@ -185,6 +223,7 @@ export class Connection {
         if (timer) clearTimeout(timer);
       };
       this.pending.set(id, {
+        encoding,
         resolve: value => {
           done(false);
           resolve(value);

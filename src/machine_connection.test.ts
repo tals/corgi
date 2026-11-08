@@ -482,3 +482,48 @@ test("a spare that answers during reconnect takes over and resumes the same link
     await daemon.close();
   }
 });
+
+test("planned reconnect bounds input already queued and releases a full hold without spreading arguments", async () => {
+  for (const bytes of [64 * 1024, 256 * 1024]) {
+    const endpoint = new Endpoint(null, "/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
+    try {
+      endpoint.enqueue(new Uint8Array(bytes).fill(120));
+      Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
+      const held = Reflect.get(endpoint, "handoff");
+      expect(held.input.length).toBe(bytes === 64 * 1024 ? bytes : 0);
+      expect(Reflect.get(endpoint, "input")).toEqual([]);
+      if (bytes > 64 * 1024) {
+        expect(endpoint.error).toBe("Input queue full; unsent input discarded");
+        endpoint.enqueue(Uint8Array.of(121));
+      }
+      endpoint.generation++;
+      endpoint.ready = true;
+      Reflect.set(endpoint, "resumed", true);
+      Reflect.get(endpoint, "pumpUi").call(endpoint);
+      expect(Reflect.get(endpoint, "handoff")).toBeNull();
+      expect(Reflect.get(endpoint, "input")).toEqual(bytes === 64 * 1024 ? Array(bytes).fill(120) : [121]);
+    } finally {
+      await endpoint.close();
+    }
+  }
+});
+
+test("planned reconnect input is discarded when selection changes or the hold expires", async () => {
+  for (const change of ["selection", "deadline"] as const) {
+    const endpoint = new Endpoint(null, "/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
+    try {
+      endpoint.enqueue(Uint8Array.of(120));
+      Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
+      if (change === "selection") endpoint.deactivate();
+      else Reflect.get(endpoint, "handoff").until = 0;
+      endpoint.generation++;
+      endpoint.ready = true;
+      Reflect.set(endpoint, "resumed", true);
+      Reflect.get(endpoint, "pumpUi").call(endpoint);
+      expect(Reflect.get(endpoint, "handoff")).toBeNull();
+      expect(Reflect.get(endpoint, "input")).toEqual([]);
+    } finally {
+      await endpoint.close();
+    }
+  }
+});

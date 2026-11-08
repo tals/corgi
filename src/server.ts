@@ -347,14 +347,14 @@ export class Server {
       this.runtime.sessions.some(s => s.urgent())
     );
   }
-  pause(): void {
+  pause(requester?: Client): void {
     this.frozen = true;
     clearInterval(this.timer);
     this.registration?.close();
     this.registration = undefined;
     for (const c of this.clients) {
       // Compression histories cannot be handed to another process. Links resume on a fresh stream.
-      if (c.compressed) c.close();
+      if (c.compressed && c !== requester) c.close();
       else c.pause();
     }
     // Queue cancellation before handoff captures output; paused clients keep later input queued.
@@ -658,8 +658,9 @@ export class Server {
     if (!["onboarding.copy", "onboarding.handoff"].includes(op)) importer.admit(this, op);
     switch (request.op) {
       case "hello": {
-        const compress =
-          request.payload.compression === "zstd" && cl.canCompress && v.runtime_protocol === protocol.version;
+        const encoding = protocol.encodings.find(encoding => request.payload.accept_encoding.includes(encoding));
+        if (encoding && !cl.canCompress) throw Error("InvalidEncodingNegotiation");
+        const compress = encoding && v.runtime_protocol === protocol.version;
         cl.protocol_version = v.runtime_protocol === protocol.version ? protocol.version : null;
         reply.send({
           type: "hello",
@@ -672,7 +673,7 @@ export class Server {
           update_abi: updates.abi,
           viewer_protocol: protocol.viewer_version,
           instance: this.instance,
-          ...(compress ? { compression: "zstd" } : {}),
+          ...(compress ? { content_encoding: encoding } : {}),
         });
         if (compress) cl.compress();
         return;

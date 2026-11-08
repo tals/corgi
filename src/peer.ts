@@ -103,7 +103,7 @@ export class Client {
     return this.codec !== null;
   }
   get canCompress(): boolean {
-    return !this.codec && this.http === "no" && this.lines === 1 && this.pending.length === 0;
+    return !this.codec && this.http === "no" && this.lines === 1 && this.pending.length === 0 && !this.input.length;
   }
   get queued(): number {
     return this.output.length - this.sent + (this.codec?.pending ?? 0);

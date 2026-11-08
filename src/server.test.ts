@@ -863,3 +863,33 @@ test("handoff drops compression histories and retains the viewer link for a fres
     dispose();
   }
 });
+
+test("handoff can retain its compressed requester without copying its codec or changing rollback state", () => {
+  const { server, dispose } = fixture();
+  const [fd, peer] = native_ffi.pair();
+  const client = server.addClient(fd, false),
+    link = new Link();
+  server.links.set(link.id, link);
+  client.link = link;
+  client.viewer = true;
+  client.viewer_id = 7;
+  client.compress();
+  try {
+    server.pause(client);
+    expect(client.dead).toBe(false);
+    expect(client.link).toBe(link);
+    expect(link.detached_at).toBeNull();
+    expect(link.viewer).toBeNull();
+    const saved = handoff.captureManifest(server, client);
+    expect(saved.clients).toHaveLength(0);
+    expect(saved.requester).toBe(-1);
+    expect(saved.links[0].viewer?.viewer_id).toBe(7);
+    expect(saved.links[0].detached_at).not.toBeNull();
+    expect(link.detached_at).toBeNull();
+    expect(link.viewer).toBeNull();
+  } finally {
+    client.close();
+    n.probe_close(peer);
+    dispose();
+  }
+});

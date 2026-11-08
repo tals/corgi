@@ -84,14 +84,28 @@ export function captureManifest(server: Server, requester: Client, request_id: n
     terminal_abi,
     listener: server.listener,
     instance: server.instance,
-    requester: requester.fd,
+    requester: requester.compressed ? -1 : requester.fd,
     request_id,
     runtime: checkpoint.capture(server.runtime, true),
     summaries: server.summaries?.capture() ?? null,
     usage: server.usage?.capture() ?? null,
     // A one-shot HTTP request is not handed over; its sender sees the close.
-    clients: server.clients.filter(client => client.http === "no").map(captureClient),
-    links: [...server.links.values()].map(l => l.capture()),
+    clients: server.clients.filter(client => client.http === "no" && !client.compressed).map(captureClient),
+    links: [...server.links.values()].map(l => {
+      const saved = l.capture();
+      const client = server.clients.find(client => client.compressed && client.link === l);
+      if (client) saved.detached_at = Date.now();
+      if (client?.viewer)
+        saved.viewer = {
+          viewer_id: client.viewer_id,
+          active_seq: client.active_seq,
+          view_workspace: client.view_workspace,
+          controls: [...client.controls],
+          next_control: client.next_control,
+          last_control: client.last_control,
+        };
+      return saved;
+    }),
     theme: server.theme,
     preferred_workspace: server.preferred_workspace,
     default_folder_pending: server.default_folder_pending,
@@ -131,6 +145,13 @@ async function line(control: AsyncFD, limit = 1024): Promise<string> {
     if (end >= 0 && end < used) return bytes.toString("utf8", 0, end);
   }
   throw Error("ReloadCandidateFailed");
+}
+async function finishCompressed(client: Client, response: unknown): Promise<void> {
+  client.queue(response);
+  client.resume();
+  const until = performance.now() + 1000;
+  while (!client.dead && client.queued && performance.now() < until) await Bun.sleep(1);
+  client.close();
 }
 function descriptors(manifest: any): { fds: number[]; state: any } {
   const state = json.clone(manifest),
@@ -185,17 +206,25 @@ export async function replace(
   }
   await observers.pause(server);
   await Promise.all(server.clients.map(client => client.prepareHandoff()));
-  server.pause();
+  server.pause(requester);
   breadcrumbs.record("reloading");
   const fds = new Int32Array(2);
   let stateFD = -1,
     controlFD = -1,
     childFD = -1,
+    relayFD = -1,
+    relay: Client | undefined,
     loop: ReadyLoop | undefined,
     candidate: Bun.Subprocess | undefined,
+    failure: unknown,
     timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const manifest = captureManifest(server, requester, request_id);
+    if (requester.compressed) {
+      if (n.probe_pair(ptr(fds))) throw Error("SocketPairFailed");
+      relay = server.addClient(fds[0], false);
+      relayFD = fds[1];
+    }
+    const manifest = captureManifest(server, relay ?? requester, request_id);
     const transfer = descriptors(manifest),
       bytes = Buffer.from(json.stringify(transfer.state));
     if (bytes.length > 256 * 1024 * 1024) throw Error("CheckpointTooLarge");
@@ -257,19 +286,41 @@ export async function replace(
       throw Error("ReloadCandidateFailed");
     }
     await control.write(Buffer.from("commit\n"));
+    if (relay) {
+      // The candidate sends its ordinary reply only after commit. The old
+      // process retains the codec just long enough to relay that reply.
+      try {
+        const response = await Promise.race([
+          line(new AsyncFD(loop, relayFD)),
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => reject(Error("ReloadReplyTimedOut")), 15000);
+          }),
+        ]);
+        clearTimeout(timeout);
+        await finishCompressed(requester, json.parse(response));
+      } catch {
+        // Commit is irreversible; a vanished requester cannot roll it back.
+      }
+    }
     // Destructors would kill processes and unlink the inherited listener.
     process.exit(0);
   } catch (error) {
     candidate?.kill("SIGKILL");
     if (candidate) await candidate.exited;
-    throw error;
+    if (!requester.compressed) throw error;
+    failure = error;
   } finally {
     clearTimeout(timeout);
     loop?.close();
-    for (const fd of [stateFD, controlFD, childFD]) if (fd >= 0) n.probe_close(fd);
+    relay?.close();
+    for (const fd of [stateFD, controlFD, childFD, relayFD]) if (fd >= 0) n.probe_close(fd);
     server.resume();
     observers.unpause(server);
   }
+  await finishCompressed(requester, {
+    err: failure instanceof Error ? failure.message : String(failure),
+    ...(request_id === null ? {} : { request_id }),
+  });
 }
 export async function importAndRun(
   socket: string,

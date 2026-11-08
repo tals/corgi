@@ -116,5 +116,5 @@ test("compression negotiation cannot reinterpret a pipelined or established plai
     cl.queue({ ok: true });
     if (ready.length === 2) cl.close();
   });
-  expect(ready).toEqual([true, false]);
+  expect(ready).toEqual([false, false]);
 });
