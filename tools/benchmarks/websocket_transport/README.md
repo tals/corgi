@@ -51,8 +51,12 @@ also works over WS.
   reconnecting. WS framing contributes to the adaptive render-byte allowance.
 - [Handoff](../../../src/persist/handoff.ts) keeps uncompressed connections alive,
   including subscriptions and queued replies. Format **7** migrates format 6;
-  older candidates reject the new format. Compressed connections retain the
-  existing planned reconnect and input handling.
+  older candidates reject the new format. A bounded
+  [rollback adapter](../../../src/persist/handoff_rollback.ts) retries format 6
+  without WS connections. The old daemon must validate and commit before WS
+  viewers/subscriptions are told to reattach with the selected older binary;
+  running programs and raw connections survive. Compressed connections retain
+  the existing planned reconnect and input handling on ordinary reloads.
 
 WS carries the existing JSON-lines byte stream, so its headers are additional to
 the newline: 2/4/10 bytes per server frame and 6/8/14 per client frame. Those are
@@ -114,3 +118,7 @@ timing-sensitive result, not a claim of an entirely clean broad integration run.
 [Environment and source hashes](evidence/manifest.json) identify the measured
 implementation. The report does not establish new end-to-end remote or Herdr
 performance numbers; it measures the local transport change and queue isolation.
+
+The [rollback follow-up](evidence/rollback.json) records the real old-binary
+upgrade/rollback and failure-path checks. This adapter changes handoff behavior;
+the transport benchmark above remains the measurement of its original commit.

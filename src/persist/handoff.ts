@@ -9,6 +9,7 @@ import { Theme } from "../theme";
 import * as checkpoint from "./checkpoint";
 import * as recovery from "./recovery";
 import * as migrations from "./migrations";
+import * as rollback from "./handoff_rollback";
 import * as json from "../json";
 import { Worker as SummaryWorker } from "../activity/worker";
 import { Worker as UsageWorker } from "../usage/worker";
@@ -148,12 +149,13 @@ async function line(control: AsyncFD, limit = 1024): Promise<string> {
   }
   throw Error("ReloadCandidateFailed");
 }
-async function finishCompressed(client: Client, response: unknown): Promise<void> {
+async function finishRequester(client: Client, response: unknown, rolledBack = false): Promise<void> {
   client.queue(response);
   client.resume();
   const until = performance.now() + 1000;
   while (!client.dead && client.queued && performance.now() < until) await Bun.sleep(1);
-  client.close();
+  if (rolledBack) await client.rolledBack();
+  else client.close();
 }
 function descriptors(manifest: any): { fds: number[]; state: any } {
   const state = json.clone(manifest),
@@ -182,6 +184,7 @@ export async function replace(
   requester: Client,
   executable: string,
   request_id: number | null = null,
+  legacy = false,
 ): Promise<void> {
   if (!isAbsolute(executable)) throw Error("InvalidExecutable");
   await server.flushWorkspaceWrites();
@@ -208,7 +211,7 @@ export async function replace(
   }
   await observers.pause(server);
   await Promise.all(server.clients.map(client => client.prepareHandoff()));
-  server.pause(requester);
+  server.pause(requester, true);
   breadcrumbs.record("reloading");
   const fds = new Int32Array(2);
   let stateFD = -1,
@@ -219,14 +222,16 @@ export async function replace(
     loop: ReadyLoop | undefined,
     candidate: Bun.Subprocess | undefined,
     failure: unknown,
+    retry = false,
     timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    if (requester.compressed) {
+    if (requester.compressed || (legacy && requester.savedWebSocket())) {
       if (n.probe_pair(ptr(fds))) throw Error("SocketPairFailed");
       relay = server.addClient(fds[0], false);
       relayFD = fds[1];
     }
-    const manifest = captureManifest(server, relay ?? requester, request_id);
+    const captured = captureManifest(server, relay ?? requester, request_id),
+      manifest = legacy ? rollback.downgrade(captured) : captured;
     const transfer = descriptors(manifest),
       bytes = Buffer.from(json.stringify(transfer.state));
     if (bytes.length > 256 * 1024 * 1024) throw Error("CheckpointTooLarge");
@@ -299,27 +304,38 @@ export async function replace(
           }),
         ]);
         clearTimeout(timeout);
-        await finishCompressed(requester, json.parse(response));
+        await finishRequester(requester, json.parse(response), legacy);
       } catch {
         // Commit is irreversible; a vanished requester cannot roll it back.
       }
     }
+    if (legacy)
+      await Promise.allSettled(
+        server.clients.filter(client => client !== requester).map(client => client.rolledBack()),
+      );
     // Destructors would kill processes and unlink the inherited listener.
     process.exit(0);
   } catch (error) {
     candidate?.kill("SIGKILL");
     if (candidate) await candidate.exited;
-    if (!requester.compressed) throw error;
-    failure = error;
+    if (!legacy && rollback.supported(error)) retry = true;
+    else {
+      if (!requester.compressed) throw error;
+      failure = error;
+    }
   } finally {
     clearTimeout(timeout);
     loop?.close();
     relay?.close();
     for (const fd of [stateFD, controlFD, childFD, relayFD]) if (fd >= 0) n.probe_close(fd);
+    // Peers already received a reconnect notice; a failed candidate must let them start fresh too.
+    if (!retry)
+      for (const client of server.clients.filter(client => client.compressed && client !== requester)) client.close();
     server.resume();
     observers.unpause(server);
   }
-  await finishCompressed(requester, {
+  if (retry) return replace(server, requester, executable, request_id, true);
+  await finishRequester(requester, {
     err: failure instanceof Error ? failure.message : String(failure),
     ...(request_id === null ? {} : { request_id }),
   });

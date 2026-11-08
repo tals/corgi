@@ -347,14 +347,14 @@ export class Server {
       this.runtime.sessions.some(s => s.urgent())
     );
   }
-  pause(requester?: Client): void {
+  pause(requester?: Client, retainCompressed = false): void {
     this.frozen = true;
     clearInterval(this.timer);
     this.registration?.close();
     this.registration = undefined;
     for (const c of this.clients) {
       // Compression histories cannot be handed to another process. Links resume on a fresh stream.
-      if (c.compressed && c !== requester) c.close();
+      if (c.compressed && c !== requester && !retainCompressed) c.close();
       else c.pause();
     }
     // Queue cancellation before handoff captures output; paused clients keep later input queued.

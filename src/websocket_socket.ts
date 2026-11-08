@@ -56,7 +56,8 @@ export class Socket extends Duplex {
       if (ready) ready(error);
       else this.destroy(error);
     };
-    ws.onclose = () => {
+    ws.onclose = event => {
+      if (event.code === wire_websocket.rolled_back) return this.destroy(Error("ServerRolledBack"));
       const ready = this.opening;
       this.opening = null;
       if (ready) ready(Error("WebSocketConnectFailed"));

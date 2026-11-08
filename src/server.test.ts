@@ -9,6 +9,7 @@ import { Launch, Pane } from "./runtime";
 import { Terminal } from "./pane/terminal";
 import { Workspace } from "./workspace";
 import * as handoff from "./persist/handoff";
+import * as handoffRollback from "./persist/handoff_rollback";
 import * as json from "./json";
 import * as protocol from "./protocol";
 import * as session from "./session";
@@ -902,6 +903,43 @@ test("handoff can retain its compressed requester without copying its codec or c
   } finally {
     client.close();
     n.probe_close(peer);
+    dispose();
+  }
+});
+test("format-6 rollback excludes WS bytes and links without changing the live snapshot", () => {
+  const { server, dispose } = fixture();
+  const requester = server.addClient(-1, false),
+    client = server.addClient(-2, false),
+    raw = server.addClient(-3, false);
+  const link = new Link();
+  client.link = link;
+  server.links.set(link.id, link);
+  client.restoreWebSocket({ ready: true, closing: false, input: "gg==", fragment: null });
+  client.output = Buffer.from([0x82, 0]);
+  raw.input = Buffer.from('{"op":');
+  raw.output = Buffer.from('{"ok":true}\n');
+  try {
+    const saved = handoff.captureManifest(server, requester),
+      before = json.stringify(saved);
+    const older = handoffRollback.downgrade(saved);
+    expect(older.version).toBe(6);
+    expect(older.clients.map(client => client.fd)).toEqual([-1, -3]);
+    expect(older.clients.every(client => !("websocket" in client))).toBe(true);
+    expect(older.clients[1].input).toBe(raw.input.toString("base64"));
+    expect(older.clients[1].output).toBe(raw.output.toString("base64"));
+    expect(older.links).toEqual([]);
+    expect(json.stringify(saved)).toBe(before);
+    expect(() => handoffRollback.downgrade({ ...saved, version: 8 })).toThrow("UnsupportedStateVersion");
+    expect(() => handoffRollback.downgrade({ ...saved, runtime: { ...saved.runtime, version: 7 } })).toThrow(
+      "UnsupportedStateVersion",
+    );
+    expect(() => handoffRollback.downgrade({ ...saved, requester: client.fd })).toThrow("InvalidRollbackRequester");
+    expect(handoffRollback.supported(Error("UnsupportedStateVersion"))).toBe(true);
+    expect(handoffRollback.supported(Error("InvalidCheckpoint"))).toBe(false);
+  } finally {
+    requester.close();
+    client.close();
+    raw.close();
     dispose();
   }
 });

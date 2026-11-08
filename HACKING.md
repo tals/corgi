@@ -420,6 +420,14 @@ behavior. Uncompressed WS connections retain the existing in-place handoff: the 
 descriptor, unsent framed output, and partial WS header/message move together.
 Handoff format 7 records the parser state; format 6 migrates with no WS parser.
 Older candidates reject format 7 rather than interpreting framed bytes as JSON.
+If that rejection is specifically `UnsupportedStateVersion`,
+`persist/handoff_rollback.ts` allows one retry using format 6 with WS clients
+removed. This only applies while handoff/checkpoint versions are 7/6; other
+state or ABI failures retain the current daemon. Raw clients and running
+processes survive. After the candidate validates and commits, WS clients receive
+close code 4000 and ask the user to reattach with the selected Corgi version.
+Compression histories and WS connections are never passed to the older daemon.
+There is no automatic mutation replay or transport fallback in the viewer.
 No zstd context is serialized. Older handoffs without the optional instance field
 receive a fresh identity as before.
 

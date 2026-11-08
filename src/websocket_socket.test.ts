@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as rpc from "./rpc";
 import * as websocket from "./wire_websocket";
+import { Stream } from "./machine_stream";
 
 test.each(["plain", "with space", "with#hash", "with%percent", "with?query", "with:colon", "日本語"])(
   "native WS preserves filesystem path %s and its final reply before EOF",
@@ -42,6 +43,37 @@ test("closing before WebSocket opens settles pending RPC and releases its socket
   await expect(pending).rejects.toThrow("ConnectionClosed");
   await Bun.sleep(10);
   expect(conn.socket.destroyed).toBe(true);
+});
+test("rollback close preserves the final reply and reaches an idle machine stream", async () => {
+  const directory = fs.mkdtempSync("/tmp/corgi-ws-rollback-"),
+    path = directory + "/s";
+  const server = Bun.serve({
+    unix: path,
+    fetch(req, server) {
+      if (server.upgrade(req, { headers: { "Sec-WebSocket-Protocol": websocket.protocol } })) return;
+      return new Response(null, { status: 400 });
+    },
+    websocket: {
+      message(ws, bytes) {
+        const value = JSON.parse(bytes.toString());
+        ws.send(Buffer.from(JSON.stringify({ request_id: value.request_id, ok: true, pid: 7 }) + "\n"));
+        ws.close(websocket.rolled_back);
+      },
+    },
+  });
+  const connection = new rpc.Connection(path, { timeout_ms: 1000 }),
+    stream = new Stream(connection);
+  try {
+    const closed = new Promise<void>(resolve => connection.onClose(resolve));
+    expect(await connection.call("ping")).toEqual({ ok: true, pid: 7 });
+    await closed;
+    expect(connection.failure?.message).toBe("ServerRolledBack");
+    expect(() => stream.check()).toThrow("ServerRolledBack");
+  } finally {
+    connection.close();
+    await server.stop(true);
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 test("failed WebSocket connect preserves errno and removes its path alias", async () => {
   const directory = fs.mkdtempSync("/tmp/corgi-ws-absent-");

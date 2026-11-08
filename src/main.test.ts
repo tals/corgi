@@ -33,6 +33,11 @@ test("runtime protocol errors are distinct from viewer incompatibility", () => {
     `management protocol ${protocol.management_version}`,
   );
 });
+test("rollback explains how to reattach without restarting programs", () => {
+  const message = failure(["attach"], Error("ServerRolledBack"));
+  expect(message).toContain("Reattach using the selected Corgi version");
+  expect(message).toContain("running shells and agents were preserved");
+});
 test("a busy reload says what it waits for", () => {
   const busy = errors.fromReply({ err: "ReloadBusy", busy: { op: "worktree.add", path: "/src/feature" } });
   expect(failure(["reload"], busy)).toBe(

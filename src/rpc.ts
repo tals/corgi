@@ -46,6 +46,9 @@ export class Connection {
   get disconnected(): boolean {
     return this.closed !== null;
   }
+  get failure(): Error | null {
+    return this.closed;
+  }
   private readonly stats?: Stats;
   private readonly trace?: telemetry.Details;
   constructor(target: string | Duplex, options: ConnectionInit | number = {}) {

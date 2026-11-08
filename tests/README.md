@@ -80,6 +80,14 @@ daemon, discovering its runtime protocol through management hello. The old
 binary need not be test-enabled. Both checks preserve a live shell's PID and
 verify it still accepts input after handoff.
 
+`CORGI_OLD_EXE=/path/to/pre-ws/corgi bun integration.ts rollback --jobs 1`
+checks live rollback to a format-6 daemon: shell PID/input continuity, the WS
+requester's committed reply, rejection of later queued input, and a clear exit
+for an attached viewer and CLI subscription. It also returns to the new build
+and reattaches. Without the old binary, the rejected-candidate test still runs.
+Use a test-enabled old binary to also run the signed updater's upgrade/rollback
+case in `updates`.
+
 `--check` parses and bundles the suites without executing them; it is not a
 replacement for running the tests. The former smoke suite is split into
 `smoke`, `smoke_input`, and `smoke_terminal`. Scenarios retain their original

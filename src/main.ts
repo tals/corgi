@@ -646,6 +646,8 @@ export function failure(args: string[], error: unknown): string {
     case "IncompatibleViewerProtocol":
     case "UnsupportedViewerProtocol":
       return `corgi: this viewer is incompatible with the server (requires viewer protocol ${protocol.viewer_version}). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n`;
+    case "ServerRolledBack":
+      return "corgi: the server rolled back to a version without WebSocket support. Reattach using the selected Corgi version; running shells and agents were preserved.\n";
     case "UnsupportedProtocol":
       return `corgi: this client uses runtime protocol ${protocol.version}, which the server does not support. Reload the server using this Corgi version, or use a matching client.\n`;
     case "UnsupportedManagementProtocol":

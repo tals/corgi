@@ -3,6 +3,8 @@ import * as buffer from "node:buffer";
 import * as json from "./json";
 
 export const protocol = "corgi-stream-v1";
+/** The daemon committed a rollback to a version without this transport. */
+export const rolled_back = 4000;
 export const capacity = 4 * 1024 * 1024;
 const header_limit = 16384;
 const guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";

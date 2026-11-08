@@ -436,14 +436,17 @@ export class Endpoint {
       })
       .catch(error => {
         if (this.stopped || interruption !== this.interruption) return;
-        if (!this.profile && incompatible(error)) this.fatal = Error("IncompatibleViewerProtocol");
+        if (!this.profile && incompatible(error))
+          this.fatal = Error(errors.is(error, "ServerRolledBack") ? "ServerRolledBack" : "IncompatibleViewerProtocol");
         this.error = errors.name(error) ?? "ConnectionFailed";
         this.trace("remote.connection", "failed", { error: this.error });
         const diagnostic = this.tunnel?.diagnostic();
         this.issue = ssh.failure(diagnostic ?? "");
         if (diagnostic) this.error += ` · ${diagnostic}`;
         this.status =
-          errors.is(error, "IncompatibleRemoteCorgi") || errors.is(error, "IncompatibleViewerProtocol")
+          errors.is(error, "IncompatibleRemoteCorgi") ||
+          errors.is(error, "IncompatibleViewerProtocol") ||
+          errors.is(error, "ServerRolledBack")
             ? "incompatible"
             : this.issue === "error"
               ? "offline"
@@ -956,6 +959,7 @@ function show(view: Controller, at: Focus): void {
 function incompatible(error: unknown): boolean {
   switch (errors.name(error)) {
     case "IncompatibleViewerProtocol":
+    case "ServerRolledBack":
     case "UnsupportedViewerProtocol":
     case "UnsupportedProtocol":
     case "ProtocolRequired":

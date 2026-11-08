@@ -1,0 +1,24 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/88 finished · 0 running
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/reloads.test.ts:
+(pass) Reloads > test_compressed_reload_reports_rejection_without_committing_or_replaying_input [1836.69ms]
+(pass) Reloads > test_compressed_reload_returns_the_committed_reply_and_rejects_later_requests [1665.88ms]
+
+tests/remote.test.ts:
+(pass) SSH machines > test_remote_reload_rebuilds_the_stream_without_replacing_its_panes [5497.26ms]
+Testing · 3% · 3/88 finished · 1 running
+(pass) SSH machines > test_typing_after_a_remote_reload_waits_for_the_same_viewer_on_a_slow_link [10876.94ms]
+
+tests/updates.test.ts:
+(pass) explicit update preserves real pane PID and supports rollback [6966.73ms]
+Testing · 5% · 5/88 finished · 1 running
+(pass) background download stages without activating, next start works offline [4489.87ms]
+
+ 6 pass
+ 82 filtered out
+ 0 fail
+ 9 expect() calls
+Ran 6 tests across 3 files. [33.76s]
+Cleanup · 6% · 6/88 finished · 0 running

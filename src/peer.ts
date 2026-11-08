@@ -102,6 +102,7 @@ export class Client {
   }
   private codec: wire_compression.Channel | null = null;
   private websocket: wire_websocket.Server | null = null;
+  private waiting_for_close = false;
   private compressed_overhead = 0;
   savedWebSocket(): wire_websocket.State | null {
     return this.websocket?.save() ?? null;
@@ -144,6 +145,16 @@ export class Client {
     this.queue({ type: "viewer.reconnect" });
     const until = performance.now() + 1000;
     while (!this.dead && this.queued && performance.now() < until) await Bun.sleep(1);
+  }
+  async rolledBack(): Promise<void> {
+    if (!this.websocket || this.dead) return;
+    // Let the peer read and acknowledge Close before dropping a socket with unread receipts.
+    this.waiting_for_close = true;
+    this.websocket.fail(wire_websocket.rolled_back);
+    this.resume();
+    const until = performance.now() + 1000;
+    while (!this.dead && performance.now() < until) await Bun.sleep(1);
+    this.close();
   }
   queue(value: unknown): void {
     if (this.dead) return;
@@ -235,7 +246,7 @@ export class Client {
     if (this.output.length > 0 && this.sent === this.output.length) {
       this.output = Buffer.alloc(0);
       this.sent = 0;
-      if (this.http === "replied" || this.websocket?.closing) this.close();
+      if (this.http === "replied" || (this.websocket?.closing && !this.waiting_for_close)) this.close();
       else this.drained(this);
       this.armFrame();
     }

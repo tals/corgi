@@ -1,0 +1,15 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/5 finished · 0 running · <1m left
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/rollback.test.ts:
+(pass) Rollback > test_WS_requester_gets_the_commit_reply_without_replaying_later_input [1792.19ms]
+(pass) Rollback > test_compressed_WS_requester_gets_the_commit_reply_without_replaying_later_input [1764.03ms]
+(pass) Rollback > test_live_rollback_preserves_shells_and_explains_viewer_and_subscription_disconnects [3151.60ms]
+(pass) Rollback > test_older_formats_are_not_retried_beyond_format_6 [1389.76ms]
+(pass) Rollback > test_rejected_format_6_keeps_the_daemon_and_WS_clients_alive [1385.56ms]
+
+ 5 pass
+ 0 fail
+Ran 5 tests across 1 file. [9.58s]
+Cleanup · 100% · 5/5 finished · 0 running

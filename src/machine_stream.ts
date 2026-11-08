@@ -124,7 +124,7 @@ export class Stream {
   }
   check(): void {
     if (this.failure) throw this.failure;
-    if (this.connection.disconnected) throw Error("ConnectionClosed");
+    if (this.connection.failure) throw this.connection.failure;
     if (this.age() >= (this.connection.timeout_ms || 10_000)) throw Error("RequestTimedOut");
   }
   send(start: () => Promise<void>, bytes = 0): void {
