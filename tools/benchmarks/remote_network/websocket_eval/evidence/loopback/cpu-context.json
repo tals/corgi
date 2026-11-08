@@ -1,0 +1,17 @@
+{
+  "started_at_utc": "2026-11-08T05:35:10.652453+00:00",
+  "reason": "Repeat the same 280 loopback cells after the task-coordinated 120-lab E2E matrix and sandbox reruns completed, avoiding their SMT contention. No added scenarios.",
+  "endpoint_cpus": [
+    176,
+    177
+  ],
+  "proxy_cpu": 178,
+  "smt_siblings": {
+    "176": "48,176",
+    "177": "49,177",
+    "178": "50,178"
+  },
+  "other_task_benchmarks": "No concurrent task-coordinated CPU benchmark. Root audit/publication pinned to CPU 0/1. Shared host background workloads are not controlled.",
+  "prior_loaded_run_retained": "dist/websocket-eval-loaded-loopback",
+  "previous_run_context": "Disjoint logical CPUs from E2E matrix but sibling threads 48-50 overlapped its affinity."
+}

@@ -1,0 +1,36 @@
+{
+  "raw": {
+    "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-app-builds-final/corgi-raw",
+    "sha256": "45382816ff95bc8688ace4ad10ae3b425b6adfa9db3525fabe2c592e8f3e9f4f",
+    "patch_sha256": "032451b6df5f048d272b20be9ceb08d48204c62c02d60c5124161786ca541786",
+    "build": {
+      "builtAt": "2026-11-08T05:11:28.992Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "b0e3482848dad6c1cd107d3b4c36ac4371c5c684-dirty",
+      "sha256": "45382816ff95bc8688ace4ad10ae3b425b6adfa9db3525fabe2c592e8f3e9f4f",
+      "sourceSHA256": "17b038ad5c97bbe769b4ae6924d2dd9ec2905f1982c7d40c878858df3342f2b2",
+      "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+      "inputsSHA256": "0e7782045456d45ff6fe31807d177cd3a6befebfac0086054d2e51faa6a9adf9"
+    }
+  },
+  "websocket": {
+    "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-app-builds-final/corgi-websocket",
+    "sha256": "b42cd21901dc924bffab73684eaaef76ea938831dc3ae8461d22b34ed7887aa2",
+    "patch_sha256": "2b621cf2951ce6d6bbe2fe7daaf304553126867fa43e5d21552dbeeb30a4e277",
+    "build": {
+      "builtAt": "2026-11-08T05:11:29.838Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "b0e3482848dad6c1cd107d3b4c36ac4371c5c684-dirty",
+      "sha256": "b42cd21901dc924bffab73684eaaef76ea938831dc3ae8461d22b34ed7887aa2",
+      "sourceSHA256": "5f190beab3d3b0a6b52c4c26c78717b230a3a8f67b09f2e89db88c3281d818e3",
+      "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+      "inputsSHA256": "adb7f759ee967d1487b6866fcb8c09d93338b684401b583cf8bc251c59090255"
+    }
+  }
+}

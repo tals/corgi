@@ -1,0 +1,40 @@
+{
+  "trials": 316,
+  "runs": [
+    {
+      "name": "loopback",
+      "bun": "1.4.4",
+      "trials": 280
+    },
+    {
+      "name": "shaped",
+      "bun": "1.4.4",
+      "trials": 36
+    }
+  ],
+  "source_sha256": {
+    "endpoint.ts": "a5ab88218de6c5755770304d50399d13ea2a0bd9e559b8af5b9e3a008e0375a6",
+    "proxy.ts": "f0ac07a0c063c4706c560998d517862b8f77ef98322e4bcbfa94324994609168",
+    "common.ts": "07dcca5ae6df66a38d2d1231665cfc911d502b51e3a95cd8c357c4d4e8a02a4c",
+    "run.ts": "9d417d7977f2b70d950c494b3789f5dc4a6fb06d118fc16458904888100b7bd5"
+  },
+  "exact_payload_verification": true,
+  "identical_zstd_downstream_payload_in_tcp_and_websocket": true,
+  "nonnegative_cross_process_delays": true,
+  "clock": "Linux libc clock_gettime(CLOCK_MONOTONIC), one shared kernel epoch",
+  "final_ack_encoding_drained_before_client_cpu_stop": true,
+  "source_files_match_recorded_sha256": true,
+  "captured_wire_byte_counts": {
+    "sparse": {
+      "available": true,
+      "messages": 246,
+      "original_byte_count_mismatches": 0
+    },
+    "dense": {
+      "available": true,
+      "messages": 246,
+      "original_byte_count_mismatches": 0
+    }
+  },
+  "production_channel_sha256": "a7dc079867bdf8dcfc0f29cf7c018f9900bf7dd879f5f9332fd789594957b25a"
+}

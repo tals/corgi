@@ -1,0 +1,225 @@
+[
+  {
+    "label": "tcp-identity",
+    "url": "ws://127.0.0.1:33469/rpc",
+    "bun": "1.4.4",
+    "clientMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "ping": "function",
+      "pong": "function"
+    },
+    "extensions": "",
+    "protocol": "",
+    "exact": true,
+    "rawBytes": 33644,
+    "compressedChunkBytes": [],
+    "requestExtensions": null,
+    "requestProtocol": null,
+    "serverMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "getBufferedAmount": "function"
+    },
+    "closeCode": 1006
+  },
+  {
+    "label": "tcp-deflate-shared",
+    "url": "ws://127.0.0.1:42525/rpc",
+    "bun": "1.4.4",
+    "clientMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "ping": "function",
+      "pong": "function"
+    },
+    "extensions": "permessage-deflate; server_no_context_takeover; client_no_context_takeover",
+    "protocol": "",
+    "exact": true,
+    "rawBytes": 33644,
+    "compressedChunkBytes": [],
+    "requestExtensions": "permessage-deflate; client_max_window_bits",
+    "requestProtocol": null,
+    "serverMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "getBufferedAmount": "function"
+    },
+    "closeCode": 1006
+  },
+  {
+    "label": "tcp-deflate-history",
+    "url": "ws://127.0.0.1:40355/rpc",
+    "bun": "1.4.4",
+    "clientMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "ping": "function",
+      "pong": "function"
+    },
+    "extensions": "permessage-deflate",
+    "protocol": "",
+    "exact": true,
+    "rawBytes": 33644,
+    "compressedChunkBytes": [],
+    "requestExtensions": "permessage-deflate; client_max_window_bits",
+    "requestProtocol": null,
+    "serverMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "getBufferedAmount": "function"
+    },
+    "closeCode": 1006
+  },
+  {
+    "label": "custom-zstd-offer-header-ignored",
+    "url": "ws://127.0.0.1:41257/rpc",
+    "bun": "1.4.4",
+    "clientMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "ping": "function",
+      "pong": "function"
+    },
+    "extensions": "",
+    "protocol": "",
+    "exact": true,
+    "rawBytes": 33644,
+    "compressedChunkBytes": [],
+    "requestExtensions": null,
+    "requestProtocol": null,
+    "serverMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "getBufferedAmount": "function"
+    },
+    "closeCode": 1006
+  },
+  {
+    "label": "custom-zstd-selection-header-ignored",
+    "url": "ws://127.0.0.1:34325/rpc",
+    "bun": "1.4.4",
+    "clientMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "ping": "function",
+      "pong": "function"
+    },
+    "extensions": "",
+    "protocol": "",
+    "exact": true,
+    "rawBytes": 33644,
+    "compressedChunkBytes": [],
+    "requestExtensions": null,
+    "requestProtocol": null,
+    "serverMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "getBufferedAmount": "function"
+    },
+    "closeCode": 1006
+  },
+  {
+    "label": "tcp-zstd-binary-subprotocol",
+    "url": "ws://127.0.0.1:43941/rpc",
+    "bun": "1.4.4",
+    "clientMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "ping": "function",
+      "pong": "function"
+    },
+    "extensions": "",
+    "protocol": "corgi.zstd.v1",
+    "exact": true,
+    "rawBytes": 33644,
+    "compressedChunkBytes": [
+      78,
+      15
+    ],
+    "requestExtensions": null,
+    "requestProtocol": "corgi.zstd.v1",
+    "serverMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "getBufferedAmount": "function"
+    },
+    "closeCode": 1006
+  },
+  {
+    "label": "unix-identity",
+    "url": "ws+unix:///tmp/corgi-ws-capability-PUqu9W/s:/rpc",
+    "bun": "1.4.4",
+    "clientMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "ping": "function",
+      "pong": "function"
+    },
+    "extensions": "",
+    "protocol": "",
+    "exact": true,
+    "rawBytes": 33644,
+    "compressedChunkBytes": [],
+    "requestExtensions": null,
+    "requestProtocol": null,
+    "serverMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "getBufferedAmount": "function"
+    },
+    "closeCode": 1006
+  },
+  {
+    "label": "unix-zstd-binary-subprotocol",
+    "url": "ws+unix:///tmp/corgi-ws-capability-lHQ1zC/s:/rpc",
+    "bun": "1.4.4",
+    "clientMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "ping": "function",
+      "pong": "function"
+    },
+    "extensions": "",
+    "protocol": "corgi.zstd.v1",
+    "exact": true,
+    "rawBytes": 33644,
+    "compressedChunkBytes": [
+      78,
+      15
+    ],
+    "requestExtensions": null,
+    "requestProtocol": "corgi.zstd.v1",
+    "serverMethods": {
+      "pause": "function",
+      "resume": "function",
+      "terminate": "function",
+      "getBufferedAmount": "function"
+    },
+    "closeCode": 1006
+  },
+  {
+    "label": "server-backpressure",
+    "sent": 253,
+    "queued": 5,
+    "dropped": 1,
+    "maximumBuffered": 74924,
+    "drains": 1,
+    "received": 258
+  }
+]
