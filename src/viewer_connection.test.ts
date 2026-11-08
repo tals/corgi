@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { createServer, type Socket } from "node:net";
+import { createServer, type Socket } from "./fixtures/websocket_server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

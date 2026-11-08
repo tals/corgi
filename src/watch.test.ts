@@ -1,5 +1,5 @@
 import { afterEach, expect, setSystemTime, test } from "bun:test";
-import { createServer, type Server as SocketServer, type Socket } from "node:net";
+import { createServer, type Server as SocketServer, type Socket } from "./fixtures/websocket_server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -578,7 +578,7 @@ test("a daemon that hangs up on the subscription gets the grace period before it
 test("a socket that can't be opened for another reason ends the watch", async () => {
   const w = watching(join(folder(), "x".repeat(300)));
   for (let i = 0; i < 100 && w.failed() === null; i++) await Bun.sleep(10);
-  expect((w.failed() as any)?.code).toBe("EINVAL");
+  expect((w.failed() as any)?.code).toBe("ENAMETOOLONG");
   expect(w.lines).toEqual([]);
 });
 

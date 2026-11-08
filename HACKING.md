@@ -395,15 +395,18 @@ the viewer then requests a full base. New peers opt in; older viewers still get
 full frames, and a new viewer uses the original stream with older daemons.
 Runtime/viewer protocol 4 and saved-format versions are unchanged because the
 new operation and optional fields are negotiated and no cache is persisted.
-Remote viewers offer `accept_encoding: ["zstd"]` in the existing plaintext `hello`.
+Persistent RPC connections use WebSocket over the daemon's existing Unix socket.
+The HTTP upgrade selects `corgi-stream-v1`; binary messages carry the RPC byte
+stream. Native WS deflate is disabled. Remote viewers offer
+`accept_encoding: ["zstd"]` in the initial, uncompressed `hello`.
 The daemon selects `content_encoding: "zstd"` in its plaintext reply; omission
 keeps the connection plain. Unknown offers are ignored, and clients reject an
 unsupported or unoffered selection. Only the first request may negotiate, and it
 must finish before another request is sent. The reply's newline ends plaintext:
-all subsequent bytes in both directions use fresh live-history zstd level 3 with
-a 1 MiB window. Messages flush immediately without ending the history. The native
-SSH bridge still relays bytes. Local connections stay plain. Runtime/viewer and
-saved-format versions do not change. SSH compression is disabled on these
+subsequent WS payload bytes in both directions use fresh live-history zstd level 3
+with a 1 MiB window. Messages flush immediately without ending the history. The
+native SSH bridge still relays bytes. Local WS connections stay uncompressed.
+Runtime/viewer versions do not change. SSH compression is disabled on these
 attachments, which have a separate master namespace from compressed CLI sessions.
 `wire.compress` records raw and emitted bytes and encoding duration.
 
@@ -413,29 +416,40 @@ close after a planned-reconnect notice. The handoff preserves the daemon's insta
 identity, viewer links and numbered mutation receipts. The viewer briefly holds up
 to 64 KiB of typing until that same viewer resumes; changing machine, focus or
 navigation cancels the held input. Unplanned outages retain their input-discard
-behavior. Plain local sockets retain the existing in-place handoff. No zstd context
-is serialized. Older handoffs without the optional instance field receive a fresh
-identity as before.
+behavior. Uncompressed WS connections retain the existing in-place handoff: the file
+descriptor, unsent framed output, and partial WS header/message move together.
+Handoff format 7 records the parser state; format 6 migrates with no WS parser.
+Older candidates reject format 7 rather than interpreting framed bytes as JSON.
+No zstd context is serialized. Older handoffs without the optional instance field
+receive a fresh identity as before.
 
-Each viewer keeps two daemon connections in `viewer_connection.ts`. The control
-connection owns the viewer, commands, pane input, metadata and launcher/history
-subscriptions. The data connection carries surfaces, images, searches and wake
-notifications. Both use `rpc.Connection`, which delivers untagged subscription
-events separately from correlated replies. Changing folders replaces the launcher
-subscription on the control connection and keeps the history subscription.
+Transport composition lives below viewer policy. `websocket_socket.ts` adapts
+Bun's native WS client to a bounded Duplex without extra relay sockets.
+`wire_websocket.ts` handles server framing on the daemon's native descriptor,
+including fragmentation, masking, ping/close and serializable parser state.
+Keeping the descriptor lets a local connection survive process handoff, which
+Bun's opaque server WS object cannot provide. `wire_compression.ts` is the
+optional history codec; `rpc.ts` retains correlation and subscription handling.
+`rpc.Connection` accepts a Duplex or opens a WS from a Unix path. A remote path
+is the socket exposed by `daemon_transport.ts`; SSH still only relays bytes.
+Server render-byte allowances include WS framing overhead.
 
-The control connection sends `viewer.sync` with `surfaces: false`; after it updates
-the viewer's interests, `viewer.surfaces` reads the corresponding frames on the
-data connection. `viewer.watch` associates that connection with the existing viewer,
-so pane sizing, focus and activity still belong to one viewer. If a watch is refused
-or the data connection closes, content reads use the control connection until a
-later sync attaches the data connection again. Interrupted content reads retry on
-control; commands are never replayed. Surface receipts and frame diffs keep their
-existing behavior.
-The new operation and defaulted `surfaces` flag are additive: runtime protocol 4
-and viewer protocol 3 are unchanged, and older callers still receive surfaces from
-`viewer.sync`. Handoff already saves
-both connections and their association; no saved-format change or migration is needed.
+The active machine viewer uses one primary connection per machine for commands,
+metadata and streamed pane content. This also applies to its local machine.
+`viewer_connection.ts`, the older pull-viewer wrapper, still composes two
+connections: control owns commands, input and metadata; data carries surfaces,
+images, searches and wake notifications. Both now use WS. Its tests retain
+independent control progress and data-connection fallback. The transport modules
+do not impose either topology. A remote split would additionally need the stream
+and link ownership rules to bind the two connections safely; sharing an SSH
+master still means sharing its underlying TCP connection.
+
+CLI subscriptions use their own persistent uncompressed WS. HTTP POST hooks,
+raw management/bootstrap requests, diagnostic probes, and unversioned legacy
+controls still work at the same Unix socket path. Each accepted connection has
+its own queue. There is no extra public endpoint or TCP listener. The local
+transport comparison and reproduction commands are in
+[the WS report](tools/benchmarks/websocket_transport/README.md).
 
 The id is optional, so a script can speak plain JSON lines or HTTP `POST`.
 Requests without one are answered in the order they were sent; a slow request

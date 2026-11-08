@@ -57,7 +57,7 @@ export function paneId(value: string): number {
 }
 /** Any reply, even an error, means a daemon owns the socket. */
 async function reachable(path: string): Promise<boolean> {
-  const connection = new rpc.Connection(path, { requestIds: false });
+  const connection = new rpc.Connection(path, { transport: "stream", requestIds: false });
   try {
     await connection.request("hello");
     return true;
@@ -474,7 +474,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "rpc": {
       if (args.length !== 2) throw Error("Usage");
       // Sent as typed, so it reaches any daemon version.
-      const connection = new rpc.Connection(path, { requestIds: false });
+      const connection = new rpc.Connection(path, { transport: "stream", requestIds: false });
       try {
         process.stdout.write(json.stringify(await connection.rawRequest(json.parse(args[1]))) + "\n");
       } finally {

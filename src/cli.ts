@@ -1004,7 +1004,9 @@ export async function run(path: string, args: string[], agent = false, connectio
   }
   const caller = Number(process.env.CORGI_PANE) || 0,
     inv = await parse(args, caller);
-  const conn = connection ?? new Connection(path, { requestIds: false });
+  // These unversioned controls also target daemons from before WebSockets.
+  const transport = inv.action === "focus" || inv.action === "workspace.switch" ? "stream" : "websocket";
+  const conn = connection ?? new Connection(path, { requestIds: false, transport });
   const reading = inv.json ? null : inv.command?.["pane.read"],
     lines = reading?.lines;
   if (reading) reading.lines = Math.min(lines + 1, 10000);

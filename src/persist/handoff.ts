@@ -51,12 +51,13 @@ function captureClient(client: Client) {
     fd: client.fd,
     input: client.savedInput().toString("base64"),
     output: client.output.subarray(client.sent).toString("base64"),
+    websocket: client.savedWebSocket(),
     link: client.link?.id ?? null,
     ...Object.fromEntries(savedFields.map(key => [key, client[key]])),
   };
 }
 export function restoreClient(server: Server, value: unknown): Client {
-  const { fd, input, output, link, ...fields } = json.object(value),
+  const { fd, input, output, link, websocket, ...fields } = json.object(value),
     client = server.addClient(fd, false);
   checkpoint.hydrate(client, fields);
   client.startup_wait = startup.decode([fields.startup_wait])[0] ?? null;
@@ -73,6 +74,7 @@ export function restoreClient(server: Server, value: unknown): Client {
     client.launch_preview.history_epoch = BigInt(client.launch_preview.history_epoch);
     client.launch_preview.history_sent = BigInt(client.launch_preview.history_sent);
   }
+  if (websocket) client.restoreWebSocket(websocket);
   client.restoreInput(Buffer.from(input, "base64"));
   client.output = Buffer.from(output, "base64");
   return client;

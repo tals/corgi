@@ -215,6 +215,12 @@ $.usage?[].checklist?.items[].group: custom bounded_text.BoundedText(160)
 $.usage?[].checklist?.partial: bool
 $.usage?[].checklist?.at: i64
 $.clients[].fd: i32
+$.clients[].websocket: optional
+$.clients[].websocket?.ready: bool
+$.clients[].websocket?.closing: bool
+$.clients[].websocket?.input: string
+$.clients[].websocket?.fragment: optional
+$.clients[].websocket?.fragment?: string
 $.clients[].input: string
 $.clients[].output: string
 $.clients[].viewer: bool

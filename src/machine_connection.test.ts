@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import { createServer } from "./fixtures/websocket_server";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Endpoint } from "./machine_connection";

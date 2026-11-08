@@ -1,0 +1,102 @@
+{
+  "bun": "1.4.4",
+  "platform": "linux",
+  "cpu": "AMD EPYC 7C13 64-Core Processor",
+  "cores": [
+    "176",
+    "177"
+  ],
+  "trials": 5,
+  "results": [
+    {
+      "trial": 0,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "isolation",
+      "hold_ms": 250,
+      "results": [
+        {
+          "connections": 1,
+          "ping_ms": 262.871121
+        },
+        {
+          "connections": 2,
+          "ping_ms": 10.627524999999991
+        }
+      ],
+      "validated": true
+    },
+    {
+      "trial": 1,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "isolation",
+      "hold_ms": 250,
+      "results": [
+        {
+          "connections": 1,
+          "ping_ms": 262.325216
+        },
+        {
+          "connections": 2,
+          "ping_ms": 11.98743399999995
+        }
+      ],
+      "validated": true
+    },
+    {
+      "trial": 2,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "isolation",
+      "hold_ms": 250,
+      "results": [
+        {
+          "connections": 1,
+          "ping_ms": 261.303708
+        },
+        {
+          "connections": 2,
+          "ping_ms": 10.622946000000013
+        }
+      ],
+      "validated": true
+    },
+    {
+      "trial": 3,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "isolation",
+      "hold_ms": 250,
+      "results": [
+        {
+          "connections": 1,
+          "ping_ms": 261.535214
+        },
+        {
+          "connections": 2,
+          "ping_ms": 8.380430999999987
+        }
+      ],
+      "validated": true
+    },
+    {
+      "trial": 4,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "isolation",
+      "hold_ms": 250,
+      "results": [
+        {
+          "connections": 1,
+          "ping_ms": 262.347779
+        },
+        {
+          "connections": 2,
+          "ping_ms": 10.889442000000031
+        }
+      ],
+      "validated": true
+    }
+  ]
+}

@@ -3,6 +3,8 @@ import * as telemetry from "./telemetry";
 import { n, ptr, ReadyLoop, READ, WRITE } from "./native_bridge";
 import * as json from "./json";
 import * as wire_compression from "./wire_compression";
+import * as wire_websocket from "./wire_websocket";
+import * as errors from "./errors";
 import type { Control } from "./protocol";
 import type { Interest } from "./viewer_protocol";
 import type { Subscription } from "./launch_service";
@@ -99,11 +101,30 @@ export class Client {
     if (start) this.resume();
   }
   private codec: wire_compression.Channel | null = null;
+  private websocket: wire_websocket.Server | null = null;
+  private compressed_overhead = 0;
+  savedWebSocket(): wire_websocket.State | null {
+    return this.websocket?.save() ?? null;
+  }
+  restoreWebSocket(value: unknown): void {
+    this.websocket = new wire_websocket.Server(
+      bytes => this.writeRaw(bytes),
+      bytes => this.decode(bytes),
+      wire_websocket.state(value),
+    );
+  }
   get compressed(): boolean {
     return this.codec !== null;
   }
   get canCompress(): boolean {
-    return !this.codec && this.http === "no" && this.lines === 1 && this.pending.length === 0 && !this.input.length;
+    return (
+      !this.codec &&
+      this.http === "no" &&
+      this.lines === 1 &&
+      this.pending.length === 0 &&
+      !this.input.length &&
+      (!this.websocket || this.websocket.idle)
+    );
   }
   get queued(): number {
     return this.output.length - this.sent + (this.codec?.pending ?? 0);
@@ -147,15 +168,24 @@ export class Client {
       value && typeof value === "object" && "frame" in value && typeof value.frame === "bigint" ? value.frame : null;
     if (this.codec)
       this.codec.encode(bytes, count => {
-        if (frame !== null) delivery?.encoded(frame, count);
+        const wire_bytes = count + this.compressed_overhead;
+        this.compressed_overhead = 0;
+        if (frame !== null) delivery?.encoded(frame, wire_bytes);
         this.armFrame();
       });
     else {
-      this.write(bytes);
-      if (frame !== null) delivery?.encoded(frame, bytes.length);
+      const wire_bytes = this.write(bytes);
+      if (frame !== null) delivery?.encoded(frame, wire_bytes);
     }
   }
-  private write(bytes: Buffer): void {
+  private write(bytes: Buffer): number {
+    if (this.websocket?.closing) return 0;
+    const framed = this.websocket ? wire_websocket.frame(bytes) : bytes;
+    if (this.codec) this.compressed_overhead += framed.length - bytes.length;
+    this.writeRaw(framed);
+    return framed.length;
+  }
+  private writeRaw(bytes: Buffer): void {
     if (this.dead) return;
     if (this.output.length - this.sent + bytes.length > 4 * 1024 * 1024) {
       this.close();
@@ -205,7 +235,7 @@ export class Client {
     if (this.output.length > 0 && this.sent === this.output.length) {
       this.output = Buffer.alloc(0);
       this.sent = 0;
-      if (this.http === "replied") this.close();
+      if (this.http === "replied" || this.websocket?.closing) this.close();
       else this.drained(this);
       this.armFrame();
     }
@@ -215,8 +245,14 @@ export class Client {
       const count = n.probe_read(this.fd, ptr(this.scratch), this.scratch.length);
       if (count > 0) {
         const bytes = Buffer.from(this.scratch.subarray(0, count));
-        if (this.codec) this.codec.decode(bytes);
-        else this.receiveBytes(bytes);
+        try {
+          if (this.websocket) this.websocket.receive(bytes);
+          else this.decode(bytes);
+        } catch (error) {
+          this.websocket?.fail(errors.is(error, "MessageTooLarge") ? 1009 : 1002);
+          if (!this.websocket?.closing) this.close();
+          return;
+        }
       } else if (count === -4) continue;
       else if (count === -11 || count === -35) break;
       else {
@@ -225,11 +261,22 @@ export class Client {
       }
     }
   }
+  private decode(bytes: Buffer): void {
+    if (this.codec) this.codec.decode(bytes);
+    else this.receiveBytes(bytes);
+  }
   private receiveBytes(bytes: Buffer): void {
     if (this.dead) return;
     this.input = Buffer.concat([this.input, bytes]);
     if (this.input.length > 4 * 1024 * 1024) {
       this.close();
+      return;
+    }
+    if (!this.websocket && !this.lines && this.http === "no" && this.input.subarray(0, 4).toString() === "GET ") {
+      const input = this.input;
+      this.input = Buffer.alloc(0);
+      this.restoreWebSocket({ ready: false, closing: false, input: "", fragment: null });
+      this.websocket!.receive(input);
       return;
     }
     if (

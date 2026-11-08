@@ -17,7 +17,7 @@ import * as rpc from "./rpc";
 import * as os from "./os";
 
 async function hello(socket: string) {
-  const connection = new rpc.Connection(socket, { requestIds: false, timeout_ms: 10_000 });
+  const connection = new rpc.Connection(socket, { transport: "stream", requestIds: false, timeout_ms: 10_000 });
   try {
     return await connection.call("hello");
   } catch (error) {
@@ -62,7 +62,7 @@ export async function install(
       if (live && live.update_abi !== incoming.update_abi) throw Error("UpdateRequiresSessionRestart");
       if (await updates.check(socket, target, live)) throw Error("UpdateCheckFailed");
       if (live) {
-        const connection = new rpc.Connection(socket, { requestIds: false, timeout_ms: 45_000 });
+        const connection = new rpc.Connection(socket, { transport: "stream", requestIds: false, timeout_ms: 45_000 });
         try {
           await connection.call("server.reload", { executable: target });
         } catch (error) {
@@ -106,7 +106,7 @@ export async function install(
     renameSync(stage, canonical);
     replaced = true;
     if (live) {
-      const connection = new rpc.Connection(socket, { requestIds: false, timeout_ms: 45_000 });
+      const connection = new rpc.Connection(socket, { transport: "stream", requestIds: false, timeout_ms: 45_000 });
       try {
         await connection.call("server.reload", { executable: canonical });
       } catch (error) {

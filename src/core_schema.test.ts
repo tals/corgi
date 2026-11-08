@@ -275,10 +275,10 @@ test("the viewer wire matches viewer_version.version", async () => {
 });
 
 test("saved handoff format matches its version", async () => {
-  expect(handoff_version).toBe(6);
+  expect(handoff_version).toBe(7);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "64010b512bd7929253836bfa48f55cec1660b8084961cb7f95783559c4ab75f7",
+    "817e4785eaaedf38e4685314fdcb5f36e305e637e889bc338183b09c5cc44218",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();

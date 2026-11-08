@@ -1,0 +1,12 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/2 finished · 0 running · <1m left
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/reload_compatibility.test.ts:
+(pass) ReloadCompatibility > test_dev_upgrades_old_protocol_and_attaches [2365.40ms]
+(pass) ReloadCompatibility > test_explicit_reload_upgrades_old_protocol [2211.96ms]
+
+ 2 pass
+ 0 fail
+Ran 2 tests across 1 file. [4.67s]
+Cleanup · 100% · 2/2 finished · 0 running

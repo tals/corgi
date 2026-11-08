@@ -426,10 +426,22 @@ test("a subscriber that leaves out output still does after a handoff", () => {
     const original = source.server.addClient(-1, false);
     original.subscribed = true;
     original.subscribed_output = false;
+    const websocket = {
+      ready: true,
+      closing: false,
+      input: Buffer.from([0x80]).toString("base64"),
+      fragment: Buffer.from("half a message").toString("base64"),
+    };
+    original.restoreWebSocket(websocket);
+    original.queue({ type: "viewer.wake" });
     const saved = json.parse(json.stringify(handoff.captureManifest(source.server, original)));
     handoff.restoreMetadata(target.server, saved);
     const restored = handoff.restoreClient(target.server, saved.clients[0]);
     expect(restored).toMatchObject({ subscribed: true, subscribed_output: false });
+    expect(restored.savedWebSocket()).toEqual(websocket);
+    expect(restored.output).toEqual(original.output);
+    // The preserved output is already framed; restoring must not wrap it again.
+    expect(restored.output[0]).toBe(0x82);
   } finally {
     source.dispose();
     target.dispose();

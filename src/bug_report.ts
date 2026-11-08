@@ -156,7 +156,7 @@ export async function collect(
       let connection: rpc.Connection | null = null;
       try {
         // Each query has its own connection; older daemons answer without ids.
-        connection = new rpc.Connection(socket, { requestIds: false });
+        connection = new rpc.Connection(socket, { transport: "stream", requestIds: false });
         const reply = await within(connection.call(op), timeout_ms);
         if (reply === null)
           slow[({ hello: "daemon", "session.list": "sessions", bugreport: "report" } as const)[op]] = true;

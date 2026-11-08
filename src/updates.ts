@@ -330,7 +330,7 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
   }
 }
 async function hello(socket: string): Promise<any | null> {
-  const connection = new rpc.Connection(socket, { requestIds: false, timeout_ms: 10_000 });
+  const connection = new rpc.Connection(socket, { transport: "stream", requestIds: false, timeout_ms: 10_000 });
   try {
     return await connection.call("hello");
   } catch (error) {
@@ -458,7 +458,7 @@ const recheck_ms = 3600000;
  * it advertised: one from another release may speak another. */
 export async function save(socket: string, h: { protocol?: number }) {
   // Untagged: a runtime before protocol 4 answers without the request id.
-  const conn = new rpc.Connection(socket, { requestIds: false, timeout_ms: 30_000 });
+  const conn = new rpc.Connection(socket, { transport: "stream", requestIds: false, timeout_ms: 30_000 });
   try {
     const reply: any = await conn.rawRequest({ op: "recovery.save", protocol: h.protocol });
     if (reply && "err" in reply) throw Error(reply.err);

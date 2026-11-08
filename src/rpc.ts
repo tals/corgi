@@ -1,9 +1,11 @@
-import { createConnection as createSocket, type Socket } from "node:net";
+import { createConnection as createSocket } from "node:net";
+import type { Duplex } from "node:stream";
 import * as errors from "./errors";
 import * as json from "./json";
 import * as telemetry from "./telemetry";
 import * as protocol from "./protocol";
 import * as wire_compression from "./wire_compression";
+import * as websocket_socket from "./websocket_socket";
 import type { Stats } from "./connection_stats";
 interface Pending {
   resolve: (value: unknown) => void;
@@ -11,6 +13,8 @@ interface Pending {
   encoding?: string[];
 }
 export interface ConnectionInit {
+  /** Management probes can still reach installations predating WebSocket support. */
+  transport?: "websocket" | "stream";
   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
   requestIds?: boolean;
   compression?: boolean;
@@ -19,7 +23,7 @@ export interface ConnectionInit {
   timeout_ms?: number | (() => number);
 }
 export class Connection {
-  readonly socket: Socket;
+  readonly socket: Duplex;
   private readonly requestIds: boolean;
   private pending = new Map<number, Pending>();
   private next = 1;
@@ -44,7 +48,7 @@ export class Connection {
   }
   private readonly stats?: Stats;
   private readonly trace?: telemetry.Details;
-  constructor(target: string | Socket, options: ConnectionInit | number = {}) {
+  constructor(target: string | Duplex, options: ConnectionInit | number = {}) {
     const init = typeof options === "number" ? { timeout_ms: options } : options;
     this.stats = init.stats;
     this.compression = init.compression ?? false;
@@ -52,7 +56,12 @@ export class Connection {
     if (this.stats) this.stats.connections++;
     this.timeout = init.timeout_ms ?? 0;
     this.requestIds = init.requestIds ?? true;
-    this.socket = typeof target === "string" ? createSocket(target) : target;
+    this.socket =
+      typeof target !== "string"
+        ? target
+        : init.transport === "stream"
+          ? createSocket(target)
+          : new websocket_socket.Socket(target);
     this.socket.on("data", (chunk: Buffer) => {
       this.stats?.traffic("received", chunk.length);
       this.read(chunk);
@@ -259,7 +268,8 @@ export async function request<K extends protocol.Op>(
 ): Promise<protocol.Reply<K>> {
   // Management and unversioned requests also reach daemons without correlation.
   const check = protocol.check(op);
-  const conn = new Connection(path, { requestIds: check === "runtime" || check === "viewer" });
+  const runtime = check === "runtime" || check === "viewer";
+  const conn = new Connection(path, { requestIds: runtime, transport: runtime ? "websocket" : "stream" });
   try {
     return await conn.call(op, ...args);
   } finally {

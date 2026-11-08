@@ -1,0 +1,1012 @@
+{
+  "bun": "1.4.4",
+  "platform": "linux",
+  "cpu": "AMD EPYC 7C13 64-Core Processor",
+  "cores": [
+    "176",
+    "177"
+  ],
+  "trials": 5,
+  "results": [
+    {
+      "trial": 0,
+      "transport": "stream",
+      "corpus": "sparse",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.0153009999995,
+      "messages_per_second": 60.24959052682228,
+      "startup_ms": {
+        "min": 0.25693699999999353,
+        "p50": 0.5449659999999881,
+        "p95": 1.5274340000000137,
+        "max": 1.5633239999999944
+      },
+      "latency_ms": {
+        "min": 0.16118399999999156,
+        "p50": 0.4551930000000084,
+        "p95": 0.5436349999999948,
+        "max": 1.285596000000055
+      },
+      "client_cpu_us": 85596,
+      "server_cpu_us": 74311,
+      "combined_cpu_us_per_message": 650.0284552845528,
+      "validated": true
+    },
+    {
+      "trial": 0,
+      "transport": "websocket",
+      "corpus": "sparse",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.2476810000003,
+      "messages_per_second": 60.24616168758928,
+      "startup_ms": {
+        "min": 0.31917900000000543,
+        "p50": 0.613457000000011,
+        "p95": 1.2637650000000065,
+        "max": 1.372168000000002
+      },
+      "latency_ms": {
+        "min": 0.148444000000012,
+        "p50": 0.4476529999997183,
+        "p95": 0.708761000000095,
+        "max": 2.6773460000001705
+      },
+      "client_cpu_us": 90967,
+      "server_cpu_us": 81357,
+      "combined_cpu_us_per_message": 700.5040650406504,
+      "validated": true
+    },
+    {
+      "trial": 0,
+      "transport": "stream",
+      "corpus": "sparse",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 118.07036100000002,
+      "messages_per_second": 20835.034120036267,
+      "startup_ms": {
+        "min": 0.2042550000000034,
+        "p50": 0.4368120000000033,
+        "p95": 1.3008269999999982,
+        "max": 1.5008319999999884
+      },
+      "latency_ms": {
+        "min": 0.09971299999997996,
+        "p50": 0.38572100000001797,
+        "p95": 1.4558210000000145,
+        "max": 2.71223599999999
+      },
+      "client_cpu_us": 115186,
+      "server_cpu_us": 68260,
+      "combined_cpu_us_per_message": 74.57154471544716,
+      "validated": true
+    },
+    {
+      "trial": 0,
+      "transport": "websocket",
+      "corpus": "sparse",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 129.896806,
+      "messages_per_second": 18938.10999479079,
+      "startup_ms": {
+        "min": 0.33274000000000115,
+        "p50": 0.6432179999999903,
+        "p95": 1.1838340000000045,
+        "max": 1.6631969999999967
+      },
+      "latency_ms": {
+        "min": 0.09516200000001618,
+        "p50": 0.34145999999998367,
+        "p95": 1.6493870000000186,
+        "max": 4.476576000000023
+      },
+      "client_cpu_us": 120736,
+      "server_cpu_us": 82323,
+      "combined_cpu_us_per_message": 82.54430894308943,
+      "validated": true
+    },
+    {
+      "trial": 0,
+      "transport": "stream",
+      "corpus": "dense",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.5051259999996,
+      "messages_per_second": 60.242363462139075,
+      "startup_ms": {
+        "min": 0.1951750000000061,
+        "p50": 0.4298730000000006,
+        "p95": 1.1321020000000033,
+        "max": 1.1803830000000062
+      },
+      "latency_ms": {
+        "min": 0.21820600000000923,
+        "p50": 0.5517359999998916,
+        "p95": 0.7441109999999753,
+        "max": 2.371957000000066
+      },
+      "client_cpu_us": 105095,
+      "server_cpu_us": 82866,
+      "combined_cpu_us_per_message": 764.069105691057,
+      "validated": true
+    },
+    {
+      "trial": 0,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.6375230000003,
+      "messages_per_second": 60.240410323999264,
+      "startup_ms": {
+        "min": 0.3086579999999941,
+        "p50": 0.613236999999998,
+        "p95": 1.3801789999999983,
+        "max": 2.44199900000001
+      },
+      "latency_ms": {
+        "min": 0.21065600000000018,
+        "p50": 0.38049099999989267,
+        "p95": 0.6698880000001282,
+        "max": 2.0359480000001895
+      },
+      "client_cpu_us": 92885,
+      "server_cpu_us": 79432,
+      "combined_cpu_us_per_message": 700.4756097560976,
+      "validated": true
+    },
+    {
+      "trial": 0,
+      "transport": "stream",
+      "corpus": "dense",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 194.79435900000001,
+      "messages_per_second": 12628.702456419694,
+      "startup_ms": {
+        "min": 0.19776600000000144,
+        "p50": 0.3948610000000059,
+        "p95": 1.0722399999999936,
+        "max": 1.5961359999999871
+      },
+      "latency_ms": {
+        "min": 0.12156299999998055,
+        "p50": 0.7492310000000089,
+        "p95": 2.171650999999997,
+        "max": 4.569960000000009
+      },
+      "client_cpu_us": 190542,
+      "server_cpu_us": 102811,
+      "combined_cpu_us_per_message": 119.24918699186992,
+      "validated": true
+    },
+    {
+      "trial": 0,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 184.261392,
+      "messages_per_second": 13350.599240018766,
+      "startup_ms": {
+        "min": 0.33414999999999395,
+        "p50": 0.6311680000000024,
+        "p95": 1.5171729999999997,
+        "max": 1.840931999999981
+      },
+      "latency_ms": {
+        "min": 0.0982829999999808,
+        "p50": 0.5744969999999796,
+        "p95": 1.7730599999999868,
+        "max": 4.0255240000000185
+      },
+      "client_cpu_us": 180182,
+      "server_cpu_us": 115535,
+      "combined_cpu_us_per_message": 120.21016260162601,
+      "validated": true
+    },
+    {
+      "trial": 1,
+      "transport": "websocket",
+      "corpus": "sparse",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.322485,
+      "messages_per_second": 60.24505801431943,
+      "startup_ms": {
+        "min": 0.3184889999999996,
+        "p50": 0.6296069999999929,
+        "p95": 1.435510999999991,
+        "max": 1.4365410000000054
+      },
+      "latency_ms": {
+        "min": 0.1561839999999961,
+        "p50": 0.43481199999996534,
+        "p95": 0.5924769999996897,
+        "max": 1.7932909999999538
+      },
+      "client_cpu_us": 86407,
+      "server_cpu_us": 77453,
+      "combined_cpu_us_per_message": 666.0975609756098,
+      "validated": true
+    },
+    {
+      "trial": 1,
+      "transport": "stream",
+      "corpus": "sparse",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4082.6723279999997,
+      "messages_per_second": 60.25465191337295,
+      "startup_ms": {
+        "min": 0.2067260000000033,
+        "p50": 0.4340920000000068,
+        "p95": 1.315927000000002,
+        "max": 1.9487260000000077
+      },
+      "latency_ms": {
+        "min": 0.15658499999995001,
+        "p50": 0.3140290000001187,
+        "p95": 0.5573160000000144,
+        "max": 2.474909999999909
+      },
+      "client_cpu_us": 77991,
+      "server_cpu_us": 63545,
+      "combined_cpu_us_per_message": 575.349593495935,
+      "validated": true
+    },
+    {
+      "trial": 1,
+      "transport": "websocket",
+      "corpus": "sparse",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 141.15991499999998,
+      "messages_per_second": 17427.043647624756,
+      "startup_ms": {
+        "min": 0.38873099999999283,
+        "p50": 0.7133699999999976,
+        "p95": 1.5346139999999906,
+        "max": 2.155490999999998
+      },
+      "latency_ms": {
+        "min": 0.09748299999995425,
+        "p50": 0.392421000000013,
+        "p95": 1.4646319999999946,
+        "max": 4.880227999999988
+      },
+      "client_cpu_us": 129261,
+      "server_cpu_us": 108447,
+      "combined_cpu_us_per_message": 96.62926829268292,
+      "validated": true
+    },
+    {
+      "trial": 1,
+      "transport": "stream",
+      "corpus": "sparse",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 118.24660600000001,
+      "messages_per_second": 20803.979777652137,
+      "startup_ms": {
+        "min": 0.19409499999999014,
+        "p50": 0.4966150000000056,
+        "p95": 1.085361000000006,
+        "max": 1.1347319999999996
+      },
+      "latency_ms": {
+        "min": 0.09896299999999769,
+        "p50": 0.386620999999991,
+        "p95": 1.4149400000000014,
+        "max": 2.375327999999996
+      },
+      "client_cpu_us": 114660,
+      "server_cpu_us": 66614,
+      "combined_cpu_us_per_message": 73.68861788617886,
+      "validated": true
+    },
+    {
+      "trial": 1,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4082.9229199999995,
+      "messages_per_second": 60.25095374565632,
+      "startup_ms": {
+        "min": 0.3070590000000095,
+        "p50": 0.6507780000000025,
+        "p95": 1.1795040000000085,
+        "max": 1.5928050000000127
+      },
+      "latency_ms": {
+        "min": 0.20281599999998434,
+        "p50": 0.5520559999999932,
+        "p95": 0.7755220000003646,
+        "max": 2.365646999999967
+      },
+      "client_cpu_us": 104981,
+      "server_cpu_us": 91218,
+      "combined_cpu_us_per_message": 797.5569105691056,
+      "validated": true
+    },
+    {
+      "trial": 1,
+      "transport": "stream",
+      "corpus": "dense",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.6286089999994,
+      "messages_per_second": 60.240541820535576,
+      "startup_ms": {
+        "min": 0.21336600000000772,
+        "p50": 0.4810540000000003,
+        "p95": 1.1310519999999968,
+        "max": 1.7251890000000003
+      },
+      "latency_ms": {
+        "min": 0.21325600000000122,
+        "p50": 0.3879509999997026,
+        "p95": 0.7019700000000739,
+        "max": 3.563151000000289
+      },
+      "client_cpu_us": 95992,
+      "server_cpu_us": 71703,
+      "combined_cpu_us_per_message": 681.6869918699186,
+      "validated": true
+    },
+    {
+      "trial": 1,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 211.41641700000002,
+      "messages_per_second": 11635.804044489127,
+      "startup_ms": {
+        "min": 0.32078899999999066,
+        "p50": 0.6552890000000104,
+        "p95": 1.2024739999999952,
+        "max": 1.6750879999999881
+      },
+      "latency_ms": {
+        "min": 0.10499299999997902,
+        "p50": 0.6256379999999808,
+        "p95": 2.0484280000000012,
+        "max": 4.776445999999993
+      },
+      "client_cpu_us": 195289,
+      "server_cpu_us": 119060,
+      "combined_cpu_us_per_message": 127.78414634146341,
+      "validated": true
+    },
+    {
+      "trial": 1,
+      "transport": "stream",
+      "corpus": "dense",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 197.428339,
+      "messages_per_second": 12460.217274076342,
+      "startup_ms": {
+        "min": 0.20278599999997482,
+        "p50": 0.48220399999999586,
+        "p95": 0.9244159999999937,
+        "max": 0.9722170000000006
+      },
+      "latency_ms": {
+        "min": 0.11418300000002546,
+        "p50": 0.7100599999999986,
+        "p95": 2.06964899999997,
+        "max": 4.242890999999986
+      },
+      "client_cpu_us": 190989,
+      "server_cpu_us": 110736,
+      "combined_cpu_us_per_message": 122.65243902439025,
+      "validated": true
+    },
+    {
+      "trial": 2,
+      "transport": "stream",
+      "corpus": "sparse",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4082.95209,
+      "messages_per_second": 60.250523292326946,
+      "startup_ms": {
+        "min": 0.25294700000000603,
+        "p50": 0.4323219999999992,
+        "p95": 1.0239290000000096,
+        "max": 1.1230719999999934
+      },
+      "latency_ms": {
+        "min": 0.15968500000008135,
+        "p50": 0.2916979999999967,
+        "p95": 0.5134840000000622,
+        "max": 1.709327999999914
+      },
+      "client_cpu_us": 77270,
+      "server_cpu_us": 60351,
+      "combined_cpu_us_per_message": 559.4349593495934,
+      "validated": true
+    },
+    {
+      "trial": 2,
+      "transport": "websocket",
+      "corpus": "sparse",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.3854299999994,
+      "messages_per_second": 60.24412934245103,
+      "startup_ms": {
+        "min": 0.3219890000000021,
+        "p50": 0.6109869999999944,
+        "p95": 1.2420550000000077,
+        "max": 1.3495879999999971
+      },
+      "latency_ms": {
+        "min": 0.1538240000000144,
+        "p50": 0.4160119999996823,
+        "p95": 0.572367000000213,
+        "max": 2.7195469999999204
+      },
+      "client_cpu_us": 92413,
+      "server_cpu_us": 76780,
+      "combined_cpu_us_per_message": 687.7764227642276,
+      "validated": true
+    },
+    {
+      "trial": 2,
+      "transport": "stream",
+      "corpus": "sparse",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 117.13583299999999,
+      "messages_per_second": 21001.259281606854,
+      "startup_ms": {
+        "min": 0.2017449999999883,
+        "p50": 0.44661299999999926,
+        "p95": 1.0898710000000023,
+        "max": 1.1467330000000118
+      },
+      "latency_ms": {
+        "min": 0.09894300000001977,
+        "p50": 0.374779999999987,
+        "p95": 1.259775999999988,
+        "max": 2.7253069999999866
+      },
+      "client_cpu_us": 113898,
+      "server_cpu_us": 67450,
+      "combined_cpu_us_per_message": 73.71869918699187,
+      "validated": true
+    },
+    {
+      "trial": 2,
+      "transport": "websocket",
+      "corpus": "sparse",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 127.210149,
+      "messages_per_second": 19338.07969991451,
+      "startup_ms": {
+        "min": 0.3201790000000102,
+        "p50": 0.5795759999999888,
+        "p95": 1.421360000000007,
+        "max": 1.6319270000000046
+      },
+      "latency_ms": {
+        "min": 0.09626299999999333,
+        "p50": 0.34085999999999217,
+        "p95": 1.6538869999999974,
+        "max": 4.032414999999986
+      },
+      "client_cpu_us": 119708,
+      "server_cpu_us": 79620,
+      "combined_cpu_us_per_message": 81.02764227642277,
+      "validated": true
+    },
+    {
+      "trial": 2,
+      "transport": "stream",
+      "corpus": "dense",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.5057650000003,
+      "messages_per_second": 60.242354035221986,
+      "startup_ms": {
+        "min": 0.19665600000000438,
+        "p50": 0.4353619999999978,
+        "p95": 0.9363859999999988,
+        "max": 1.0620699999999914
+      },
+      "latency_ms": {
+        "min": 0.2003660000000025,
+        "p50": 0.5119240000001355,
+        "p95": 0.6592679999998836,
+        "max": 2.001967000000036
+      },
+      "client_cpu_us": 107162,
+      "server_cpu_us": 81262,
+      "combined_cpu_us_per_message": 765.9512195121952,
+      "validated": true
+    },
+    {
+      "trial": 2,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.2305039999997,
+      "messages_per_second": 60.24641512621302,
+      "startup_ms": {
+        "min": 0.3052679999999981,
+        "p50": 0.6017170000000078,
+        "p95": 1.358819000000011,
+        "max": 1.385119000000003
+      },
+      "latency_ms": {
+        "min": 0.17112500000030195,
+        "p50": 0.5902470000000903,
+        "p95": 0.9116460000000188,
+        "max": 3.2524720000001253
+      },
+      "client_cpu_us": 117154,
+      "server_cpu_us": 96954,
+      "combined_cpu_us_per_message": 870.3577235772358,
+      "validated": true
+    },
+    {
+      "trial": 2,
+      "transport": "stream",
+      "corpus": "dense",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 189.699194,
+      "messages_per_second": 12967.899062343933,
+      "startup_ms": {
+        "min": 0.19488599999999678,
+        "p50": 0.44856300000000715,
+        "p95": 1.118312000000003,
+        "max": 1.279826
+      },
+      "latency_ms": {
+        "min": 0.1103130000000192,
+        "p50": 0.7293010000000208,
+        "p95": 2.045507999999984,
+        "max": 4.951611000000014
+      },
+      "client_cpu_us": 186028,
+      "server_cpu_us": 103762,
+      "combined_cpu_us_per_message": 117.80081300813008,
+      "validated": true
+    },
+    {
+      "trial": 2,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 194.363077,
+      "messages_per_second": 12656.724919003005,
+      "startup_ms": {
+        "min": 0.32125899999999774,
+        "p50": 0.6221780000000052,
+        "p95": 1.3977099999999893,
+        "max": 1.7319889999999987
+      },
+      "latency_ms": {
+        "min": 0.10094299999997247,
+        "p50": 0.5907569999999964,
+        "p95": 1.869923,
+        "max": 4.828126999999995
+      },
+      "client_cpu_us": 186420,
+      "server_cpu_us": 117596,
+      "combined_cpu_us_per_message": 123.58373983739837,
+      "validated": true
+    },
+    {
+      "trial": 3,
+      "transport": "websocket",
+      "corpus": "sparse",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.523578,
+      "messages_per_second": 60.24209124818723,
+      "startup_ms": {
+        "min": 0.3221190000000007,
+        "p50": 0.5309249999999963,
+        "p95": 1.2033040000000028,
+        "max": 1.6800769999999972
+      },
+      "latency_ms": {
+        "min": 0.166893999999985,
+        "p50": 0.39862099999999145,
+        "p95": 0.6159279999999967,
+        "max": 2.745078000000035
+      },
+      "client_cpu_us": 87231,
+      "server_cpu_us": 76654,
+      "combined_cpu_us_per_message": 666.19918699187,
+      "validated": true
+    },
+    {
+      "trial": 3,
+      "transport": "stream",
+      "corpus": "sparse",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.283687,
+      "messages_per_second": 60.245630442771635,
+      "startup_ms": {
+        "min": 0.20970599999999706,
+        "p50": 0.5225949999999955,
+        "p95": 1.0582899999999995,
+        "max": 1.294206999999986
+      },
+      "latency_ms": {
+        "min": 0.13962399999999775,
+        "p50": 0.3273799999997209,
+        "p95": 0.5496259999999893,
+        "max": 2.4481700000001183
+      },
+      "client_cpu_us": 84262,
+      "server_cpu_us": 67027,
+      "combined_cpu_us_per_message": 614.9959349593496,
+      "validated": true
+    },
+    {
+      "trial": 3,
+      "transport": "websocket",
+      "corpus": "sparse",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 127.26336,
+      "messages_per_second": 19329.994116138376,
+      "startup_ms": {
+        "min": 0.31470899999999347,
+        "p50": 0.5846459999999922,
+        "p95": 1.2210149999999942,
+        "max": 1.3077470000000062
+      },
+      "latency_ms": {
+        "min": 0.09417299999998363,
+        "p50": 0.34254000000001383,
+        "p95": 1.6270059999999944,
+        "max": 3.328784999999982
+      },
+      "client_cpu_us": 121205,
+      "server_cpu_us": 80821,
+      "combined_cpu_us_per_message": 82.12439024390244,
+      "validated": true
+    },
+    {
+      "trial": 3,
+      "transport": "stream",
+      "corpus": "sparse",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 116.10767200000001,
+      "messages_per_second": 21187.23041833101,
+      "startup_ms": {
+        "min": 0.16628400000000454,
+        "p50": 0.41012100000000373,
+        "p95": 1.0698199999999929,
+        "max": 1.081511000000006
+      },
+      "latency_ms": {
+        "min": 0.08237200000002076,
+        "p50": 0.3697509999999795,
+        "p95": 1.4807519999999954,
+        "max": 2.507731000000007
+      },
+      "client_cpu_us": 113330,
+      "server_cpu_us": 69121,
+      "combined_cpu_us_per_message": 74.16707317073171,
+      "validated": true
+    },
+    {
+      "trial": 3,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.752898,
+      "messages_per_second": 60.23870839993218,
+      "startup_ms": {
+        "min": 0.3198289999999986,
+        "p50": 0.7241609999999952,
+        "p95": 1.460152000000022,
+        "max": 1.7073989999999952
+      },
+      "latency_ms": {
+        "min": 0.22763600000001816,
+        "p50": 0.6116969999998219,
+        "p95": 0.904645999999957,
+        "max": 2.7334779999998773
+      },
+      "client_cpu_us": 119628,
+      "server_cpu_us": 100705,
+      "combined_cpu_us_per_message": 895.6626016260162,
+      "validated": true
+    },
+    {
+      "trial": 3,
+      "transport": "stream",
+      "corpus": "dense",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.418224,
+      "messages_per_second": 60.24364552084146,
+      "startup_ms": {
+        "min": 0.19728499999999372,
+        "p50": 0.3671199999999999,
+        "p95": 0.8980860000000064,
+        "max": 1.642906999999994
+      },
+      "latency_ms": {
+        "min": 0.21685600000000704,
+        "p50": 0.547635999999784,
+        "p95": 0.8250640000001113,
+        "max": 2.316536000000042
+      },
+      "client_cpu_us": 107509,
+      "server_cpu_us": 79661,
+      "combined_cpu_us_per_message": 760.8536585365854,
+      "validated": true
+    },
+    {
+      "trial": 3,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 192.65233199999997,
+      "messages_per_second": 12769.11612987898,
+      "startup_ms": {
+        "min": 0.31718899999999906,
+        "p50": 0.6843499999999949,
+        "p95": 1.1497030000000024,
+        "max": 1.1985640000000046
+      },
+      "latency_ms": {
+        "min": 0.11400299999996832,
+        "p50": 0.5799269999999979,
+        "p95": 1.817781999999994,
+        "max": 5.406215000000003
+      },
+      "client_cpu_us": 187240,
+      "server_cpu_us": 114205,
+      "combined_cpu_us_per_message": 122.53861788617886,
+      "validated": true
+    },
+    {
+      "trial": 3,
+      "transport": "stream",
+      "corpus": "dense",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 190.95531400000002,
+      "messages_per_second": 12882.59513950997,
+      "startup_ms": {
+        "min": 0.20013599999998632,
+        "p50": 0.39690100000001394,
+        "p95": 0.9166260000000079,
+        "max": 1.0179790000000253
+      },
+      "latency_ms": {
+        "min": 0.12033400000001393,
+        "p50": 0.760031999999967,
+        "p95": 2.011216999999988,
+        "max": 3.567831999999953
+      },
+      "client_cpu_us": 188624,
+      "server_cpu_us": 98558,
+      "combined_cpu_us_per_message": 116.74065040650406,
+      "validated": true
+    },
+    {
+      "trial": 4,
+      "transport": "stream",
+      "corpus": "sparse",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4082.7667279999996,
+      "messages_per_second": 60.25325873087698,
+      "startup_ms": {
+        "min": 0.20471599999999057,
+        "p50": 0.408771999999999,
+        "p95": 0.8195340000000044,
+        "max": 0.9499969999999962
+      },
+      "latency_ms": {
+        "min": 0.15789399999999887,
+        "p50": 0.4357129999998506,
+        "p95": 0.5469060000000354,
+        "max": 2.0146970000000692
+      },
+      "client_cpu_us": 87259,
+      "server_cpu_us": 72109,
+      "combined_cpu_us_per_message": 647.8373983739838,
+      "validated": true
+    },
+    {
+      "trial": 4,
+      "transport": "websocket",
+      "corpus": "sparse",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4082.9699160000005,
+      "messages_per_second": 60.250260242182,
+      "startup_ms": {
+        "min": 0.3473690000000005,
+        "p50": 0.6811889999999892,
+        "p95": 1.2298059999999964,
+        "max": 1.5733749999999986
+      },
+      "latency_ms": {
+        "min": 0.16464400000000978,
+        "p50": 0.3748910000001615,
+        "p95": 0.6350679999999329,
+        "max": 2.326637000000005
+      },
+      "client_cpu_us": 87468,
+      "server_cpu_us": 74478,
+      "combined_cpu_us_per_message": 658.3170731707318,
+      "validated": true
+    },
+    {
+      "trial": 4,
+      "transport": "stream",
+      "corpus": "sparse",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 118.51133899999999,
+      "messages_per_second": 20757.507431419708,
+      "startup_ms": {
+        "min": 0.1976360000000028,
+        "p50": 0.5216039999999964,
+        "p95": 1.0577710000000025,
+        "max": 1.2803170000000108
+      },
+      "latency_ms": {
+        "min": 0.08736199999998462,
+        "p50": 0.38516100000001074,
+        "p95": 1.5496249999999918,
+        "max": 2.540132
+      },
+      "client_cpu_us": 115869,
+      "server_cpu_us": 67808,
+      "combined_cpu_us_per_message": 74.66544715447155,
+      "validated": true
+    },
+    {
+      "trial": 4,
+      "transport": "websocket",
+      "corpus": "sparse",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 125.76885699999997,
+      "messages_per_second": 19559.69115629317,
+      "startup_ms": {
+        "min": 0.3222200000000015,
+        "p50": 0.5848759999999942,
+        "p95": 1.2250950000000103,
+        "max": 1.655887000000007
+      },
+      "latency_ms": {
+        "min": 0.0967820000000188,
+        "p50": 0.3368600000000015,
+        "p95": 1.415801000000016,
+        "max": 3.7193870000000118
+      },
+      "client_cpu_us": 119359,
+      "server_cpu_us": 79732,
+      "combined_cpu_us_per_message": 80.93130081300814,
+      "validated": true
+    },
+    {
+      "trial": 4,
+      "transport": "stream",
+      "corpus": "dense",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4082.9387309999997,
+      "messages_per_second": 60.25072042649763,
+      "startup_ms": {
+        "min": 0.20059600000000444,
+        "p50": 0.3629800000000074,
+        "p95": 0.8586349999999925,
+        "max": 1.1297929999999923
+      },
+      "latency_ms": {
+        "min": 0.20267599999999675,
+        "p50": 0.3821499999999105,
+        "p95": 0.6400979999998526,
+        "max": 1.7265300000000252
+      },
+      "client_cpu_us": 90577,
+      "server_cpu_us": 72680,
+      "combined_cpu_us_per_message": 663.6463414634146,
+      "validated": true
+    },
+    {
+      "trial": 4,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "paced",
+      "messages": 246,
+      "elapsed_ms": 4083.2409920000005,
+      "messages_per_second": 60.246260380411066,
+      "startup_ms": {
+        "min": 0.3063489999999973,
+        "p50": 0.6018170000000111,
+        "p95": 1.167283000000026,
+        "max": 1.658266999999995
+      },
+      "latency_ms": {
+        "min": 0.24515700000000606,
+        "p50": 0.5466859999996814,
+        "p95": 0.7775429999999801,
+        "max": 2.700847000000067
+      },
+      "client_cpu_us": 111937,
+      "server_cpu_us": 90573,
+      "combined_cpu_us_per_message": 823.2113821138212,
+      "validated": true
+    },
+    {
+      "trial": 4,
+      "transport": "stream",
+      "corpus": "dense",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 184.78164999999998,
+      "messages_per_second": 13313.010247500226,
+      "startup_ms": {
+        "min": 0.19595499999999788,
+        "p50": 0.4721440000000001,
+        "p95": 1.1232519999999937,
+        "max": 1.2061649999999986
+      },
+      "latency_ms": {
+        "min": 0.1059630000000027,
+        "p50": 0.7055400000000418,
+        "p95": 2.1051610000000096,
+        "max": 4.445426999999995
+      },
+      "client_cpu_us": 181766,
+      "server_cpu_us": 99553,
+      "combined_cpu_us_per_message": 114.35731707317073,
+      "validated": true
+    },
+    {
+      "trial": 4,
+      "transport": "websocket",
+      "corpus": "dense",
+      "scenario": "saturated",
+      "messages": 2460,
+      "elapsed_ms": 184.74902000000003,
+      "messages_per_second": 13315.361564570137,
+      "startup_ms": {
+        "min": 0.3133489999999881,
+        "p50": 0.6385290000000055,
+        "p95": 1.4489910000000066,
+        "max": 1.744259999999997
+      },
+      "latency_ms": {
+        "min": 0.10409299999997756,
+        "p50": 0.5615060000000085,
+        "p95": 1.7440300000000093,
+        "max": 4.134779000000009
+      },
+      "client_cpu_us": 178537,
+      "server_cpu_us": 111691,
+      "combined_cpu_us_per_message": 117.97886178861789,
+      "validated": true
+    }
+  ]
+}

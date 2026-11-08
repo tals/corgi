@@ -1,0 +1,64 @@
+{
+  "checks": [
+    {
+      "command": "bun test ./src",
+      "exit_code": 0,
+      "passed": 3460,
+      "skipped": 1,
+      "failed": 0,
+      "log": "unit.txt.gz",
+      "note": "The skip is opt-in live inference. Final implementation, including special-character Unix paths."
+    },
+    {
+      "command": "bun typecheck.ts",
+      "exit_code": 0,
+      "log": "typecheck.txt"
+    },
+    {
+      "command": "bun build.ts --no-native",
+      "exit_code": 0,
+      "log": "build-production.txt"
+    },
+    {
+      "command": "bun build.ts --test --no-native",
+      "exit_code": 0,
+      "log": "build-tests.txt"
+    },
+    {
+      "command": "bun integration.ts rpc reloads viewers remote --jobs 1",
+      "exit_code": 1,
+      "passed": 102,
+      "skipped": 1,
+      "failed": 6,
+      "errors": 1,
+      "log": "integration-initial.txt",
+      "note": "Earlier implementation. Exposed old-daemon probe compatibility and a synthetic migration dropping WS state; these were fixed. One SSH prediction test failed its immediate-preview timing assertion and passed alone, without a code fix. All 43 other SSH tests and all non-skipped viewer tests passed here."
+    },
+    {
+      "command": "bun integration.ts rpc reloads --jobs 1",
+      "exit_code": 0,
+      "passed": 31,
+      "failed": 0,
+      "log": "rpc-reloads.txt",
+      "note": "Final implementation; all RPC and reload cases, including fixes for initial-run failures and preserving original WS subscription/viewer sockets across reload."
+    },
+    {
+      "command": "CORGI_OLD_EXE=dist/corgi-reviewed bun integration.ts reload_compatibility --jobs 1",
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0,
+      "log": "compatibility.txt",
+      "note": "After bootstrap compatibility fixes, before final Unix-path escaping fix. Both upgrades preserve running shells and input."
+    },
+    {
+      "command": "bun integration.ts remote --jobs 1 -- --test-name-pattern no_echo_acknowledgement",
+      "exit_code": 0,
+      "passed": 1,
+      "filtered": 43,
+      "failed": 0,
+      "log": "prediction-retry.txt",
+      "note": "Isolated retry of the initial timing failure; no code change targeted this failure. Before the final Unix-path escaping fix."
+    }
+  ],
+  "scope": "No claim that the full broad integration run passed. Focused final reruns cover the failures fixed in this change; the initial broad run and timing-sensitive retry are retained."
+}
