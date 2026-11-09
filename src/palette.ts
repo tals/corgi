@@ -129,9 +129,13 @@ export function dist(a: Rgb, b: Rgb): number {
  * 0: `bg` blended toward `text`, so lighter on dark and darker on light. Full
  * strength stays at 60% of the way to `selected`, keeping selected and hovered
  * rows apart from it. Any tint above 0 moves at least one unit, on the
- * channel farthest from `text`, so the tint never steps back toward `bg`. */
+ * channel farthest from `text`, so the tint never steps back toward `bg`.
+ * Null as well when the theme leaves the background to a terminal that did not
+ * report its colors: `bg` is then only a guess, and a tint from it could paint
+ * a dark band on a light terminal. */
 export function sectionTint(value: number): Rgb | null {
   if (!(value > 0)) return null;
+  if (terminal === null && !paints(current)) return null;
   const span = dist(colors.bg, colors.text);
   const cap = span === 0 ? 0.02 : Math.min(0.25, Math.max(0.02, (0.6 * dist(colors.bg, colors.selected)) / span));
   const tinted = blend(colors.bg, colors.text, (Math.min(value, 100) / 100) * cap);
