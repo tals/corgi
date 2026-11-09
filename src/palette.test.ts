@@ -117,6 +117,8 @@ test("the workspace section tint leans toward text, short of the selected tint, 
         use(theme, host);
         const where = `${theme} on ${host === null ? "no host" : host === day ? "day" : "night"}`;
         expect(sectionTint(0), where).toBeNull();
+        // A background left to a terminal of unknown colors has no tint (below).
+        if (host === null && painted() === null) continue;
         const bg = [...colors.bg] as Rgb;
         const dark = luminance(bg) < luminance(colors.text);
         for (const value of [5, 50, 100]) {
@@ -157,6 +159,25 @@ test("the workspace section tint leans toward text, short of the selected tint, 
   // Both directions are exercised: Animal Style on a light terminal darkens.
   expect(lighter).toBeGreaterThan(0);
   expect(darker).toBeGreaterThan(0);
+});
+test("the workspace section tint stays off on a terminal background of unknown colors", () => {
+  const day = { foreground: [74, 69, 67] as Rgb, background: [247, 247, 247] as Rgb, ansi: Array(16).fill(null) };
+  try {
+    // Animal Style leaves bg to the terminal; without its colors, `bg` is
+    // Corgi's dark guess, and a tint from it would be a dark band on a light terminal.
+    use("animal_style", null);
+    expect(painted()).toBeNull();
+    for (const value of [1, 50, 100]) expect(sectionTint(value), `at ${value}`).toBeNull();
+    // Corgi paints its own background then, so its tint stays.
+    use("corgi", null);
+    expect(painted()).not.toBeNull();
+    expect(sectionTint(100)).not.toBeNull();
+    // Once the terminal reports its colors, the tint follows them again.
+    use("animal_style", day);
+    expect(sectionTint(100)).not.toBeNull();
+  } finally {
+    use(undefined, null);
+  }
 });
 test("termhtml's corgi theme matches the palette", () => {
   expect(readFileSync(resolve(import.meta.dir, "../termhtml/index.html"), "utf8")).toContain(termhtmlTheme());
