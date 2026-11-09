@@ -18,6 +18,7 @@ import {
 import { dirname, join } from "node:path";
 import * as build_id from "./build_id";
 import * as config from "./build_config";
+import * as customBuild from "./custom_build";
 import * as discovery from "./discovery";
 import * as errors from "./errors";
 import * as km from "./keymap";
@@ -33,6 +34,7 @@ import { shellStatus } from "./launch/command";
 import { Provider, adapter } from "./providers";
 import type { Rgb } from "./palette";
 import type { Status } from "./corgi_setup";
+import type { Identity } from "./custom_build";
 import type { Pty, Snapshot, Tmux } from "./terminal_info";
 
 export const issues_url = "https://github.com/tals/corgi/issues/new";
@@ -745,11 +747,12 @@ export interface Row {
   depth: number;
   local: boolean;
 }
-export function rows(r: Report, s: Settings): Row[] {
+export function rows(r: Report, s: Settings, id: Identity = customBuild.current): Row[] {
   const out: Row[] = [],
     add = (label: string, value: string, depth = 0, local = false) => out.push({ label, value, depth, local }),
     d = r.daemon;
   add("Corgi", r.corgi);
+  for (const line of customBuild.lines(id)) add("", line, 1);
   if (d)
     add(
       "Daemon",
@@ -925,8 +928,8 @@ function terminalRows(t: Terminal, add: (label: string, value: string, depth?: n
 }
 /** The report as a Markdown list, which reads the same in a terminal and an
  * issue; `issue` leaves out the local rows. */
-export function text(r: Report, s: Settings, issue = false): string {
-  const shown = rows(r, s).filter(row => !issue || !row.local);
+export function text(r: Report, s: Settings, issue = false, id: Identity = customBuild.current): string {
+  const shown = rows(r, s, id).filter(row => !issue || !row.local);
   return (
     shown
       .map(

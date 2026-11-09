@@ -5,3 +5,5 @@ export const builtAt = "";
 export const updateURL = "";
 export const updatePublicKey = "";
 export const sentryDSN = "";
+/** Where a development build's commit lives; empty for a release. */
+export const buildRepository = "";
