@@ -1,4 +1,99 @@
 import * as i18n from "./i18n";
+import * as config from "./build_config";
+import * as releaseLabel from "./release_label";
+import { displayWidth } from "./text";
+
+/** A command, an example of its arguments, and what it does or its subcommands. */
+type Row = [command: string, example: string, about: string];
+const commandWidth = 13,
+  exampleWidth = 21;
+
+/** `corgi --help`: the common commands by group, styled like Bun's on a
+ * terminal. `corgi help --all` prints the full reference. */
+export function overview(
+  rich: boolean,
+  version = config.releaseVersion,
+  release = releaseLabel.of(config.releaseVersion, config.releaseCommit, config.builtAt),
+): string {
+  const sgr = (code: string, text: string) => (rich && text ? `\x1b[${code}m${text}\x1b[0m` : text),
+    bold = (text: string) => sgr("1", text),
+    dim = (text: string) => sgr("2", text),
+    link = (url: string, text: string) => (rich ? `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\` : text);
+  const groups: [string, Row[]][] = [
+    [
+      i18n.t`Start`,
+      [
+        ["corgi", "", i18n.t`Start Corgi or attach to it`],
+        ["open", "~/src/app", i18n.t`Show a folder's workspace, or add one`],
+        ["keys", "tmux", i18n.t`List shortcuts; Ctrl+B opens the menu`],
+      ],
+    ],
+    [
+      i18n.t`Layout`,
+      [
+        ["list", "[--json]", i18n.t`Workspaces, tabs, panes and agents`],
+        ["workspace", "new api [--cwd DIR]", "new, edit, switch, archive, close"],
+        ["tab", "new [--name logs]", "new, rename, move, merge, close"],
+        ["pane", "split 3 --right", "split, move, resize, read, send, keys, close"],
+      ],
+    ],
+    [
+      i18n.t`Agents`,
+      [
+        ["message", '4 "keep going"', i18n.t`Prompt an agent through its own channel`],
+        ["launcher", "edit claude", "list, hide, show, move, edit, clone, add"],
+        ["history", "[--limit 20]", i18n.t`Past conversations, newest first`],
+        ["grep", '[-i] "flaky test"', i18n.t`Search conversation text`],
+        ["resume", "claude <session>", i18n.t`Reopen a past conversation`],
+      ],
+    ],
+    [
+      i18n.t`Setup`,
+      [
+        ["account", "add claude work", "list, add, login, remove"],
+        ["integration", "install claude", "status, install, uninstall"],
+        ["update", "[--check]", i18n.t`Download and apply an update`],
+      ],
+    ],
+  ];
+  const name = bold("Corgi"),
+    short = releaseLabel.short(release),
+    time = releaseLabel.time(release),
+    commit = short && link(releaseLabel.url(release), short) + (release.dirty ? "-dirty" : ""),
+    build = commit && time ? i18n.t`Build ${commit} built on ${time}` : commit && i18n.t`Build ${commit}`,
+    details = bold("corgi <command> --help"),
+    all = bold("corgi help --all");
+  const lines = [
+    `${i18n.t`${name} is a small Ghostty-powered agent terminal.`} ${dim(`(${version})`)}`,
+    `${i18n.t`Happy helper for your terminal.`} ${dim(build)}`.trimEnd(),
+    "",
+    `${bold(i18n.t`Usage:`)} ${bold("corgi [command]")} ${sgr("36", "[...flags]")} ${bold("[...args]")}`,
+    "",
+  ];
+  for (const [title, rows] of groups) {
+    lines.push(bold(title));
+    for (const [command, example, about] of rows)
+      lines.push(
+        "  " +
+          sgr("1;32", command) +
+          " ".repeat(commandWidth - command.length) +
+          dim(example) +
+          " ".repeat(exampleWidth - example.length) +
+          about,
+      );
+    lines.push("");
+  }
+  const column = 2 + commandWidth + exampleWidth,
+    footer = (label: string, color: string, url: string) =>
+      label + " ".repeat(Math.max(2, column - displayWidth(label))) + sgr(color, url);
+  lines.push(
+    i18n.t`${details} for details · ${all} for everything`,
+    "",
+    footer(i18n.t`Learn more about Corgi:`, "35", "https://corgi.computer"),
+    footer(i18n.t`Join our Discord community:`, "34", "https://discord.gg/8v6eNAKuT"),
+  );
+  return lines.join("\n") + "\n";
+}
 
 export function commands(): string {
   return [
@@ -111,7 +206,8 @@ export function main(): string {
     i18n.t`  corgi bugreport [--full]      details for a bug report, and a link to file it`,
     i18n.t`  corgi licenses                Corgi's license and the software it includes`,
     i18n.t`  corgi help [COMMAND ...]      show help for a command or group`,
-    i18n.t`  corgi --help                  list all commands (also -h)`,
+    i18n.t`  corgi help --all              list every command`,
+    i18n.t`  corgi --help                  list common commands (also -h)`,
     i18n.t`  corgi --version               print the version and commit`,
     "",
     i18n.t`Keys: Ctrl+B opens a clickable command menu; \`corgi keys\` lists every shortcut.`,

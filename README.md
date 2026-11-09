@@ -57,7 +57,8 @@ corgi message 3 'run the tests'
 corgi pane read 3 --lines 50
 ```
 
-`corgi --help` lists the commands; `corgi --skill` prints instructions for agents.
+`corgi --help` lists the common commands and `corgi help --all` every one;
+`corgi --skill` prints instructions for agents.
 
 ## Uninstall
 

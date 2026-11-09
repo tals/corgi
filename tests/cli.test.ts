@@ -144,7 +144,7 @@ class AgentCli extends Runtime {
       await run([EXE, ...args], {
         env: { ...this.env, CORGI_SOCKET: this.temp.name + "/absent.sock" },
       });
-    this.assertIn("Otherwise run: corgi --skill", await this.run_cli("--help"));
+    this.assertIn("Otherwise run: corgi --skill", await this.run_cli("help", "--all"));
     this.assertEqual(
       await this.cli(["pane", "split", "current", "--right"], {
         error: "NoCallerPane",

@@ -32,7 +32,8 @@ corgi — a small Ghostty-powered agent terminal
   corgi bugreport [--full]      details for a bug report, and a link to file it
   corgi licenses                Corgi's license and the software it includes
   corgi help [COMMAND ...]      show help for a command or group
-  corgi --help                  list all commands (also -h)
+  corgi help --all              list every command
+  corgi --help                  list common commands (also -h)
   corgi --version               print the version and commit
 
 Keys: Ctrl+B opens a clickable command menu; `corgi keys` lists every shortcut.

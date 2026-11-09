@@ -449,7 +449,8 @@ that sets `AI_AGENT`) runs these commands through a pipe, `pane read` trims
 line ends, shortens rules and collapses blank runs. `--agent` and `--no-agent`
 force it either way, as does `CORGI_AGENT_MODE=1` or `0`.
 
-`corgi --help` always lists all commands. Use `corgi pane read --help` or
+`corgi --help` lists the common commands, and `corgi help --all` all of them;
+agent mode prints the full list either way. Use `corgi pane read --help` or
 `corgi help pane read` for a command's syntax, or `corgi --skill` for the
 [bundled scripting guide](../assets/corgi-skill.md).
 [Agent internals](agents.md) covers hooks and headless provider sessions.

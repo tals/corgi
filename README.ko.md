@@ -58,7 +58,7 @@ corgi message 3 'run the tests'
 corgi pane read 3 --lines 50
 ```
 
-`corgi --help`는 명령어 목록을, `corgi --skill`은 에이전트용 사용 지침을 출력합니다.
+`corgi --help`는 자주 쓰는 명령어를, `corgi help --all`은 모든 명령어를, `corgi --skill`은 에이전트용 사용 지침을 출력합니다.
 
 ## 제거
 
