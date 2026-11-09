@@ -127,7 +127,9 @@ process.stdin.on("data", () => process.stdout.write("\\x1b_Ga=d,d=I,i=730140,q=2
     // A late direct measurement enables every raster feature without leaking into pane input.
     pty.write("\x1b[6;18;9t");
     await pty.waitFor("\x1b_Ga=t,t=d,f=100,s=27,v=27,i=730031");
-    await pty.waitFor(`\x1b[0;38;2;${PALETTE.accent};48;2;${PALETTE.selected}m▌`);
+    // The focused row's bar, with its colors in one SGR or, from a cell diff, two.
+    const bar = new RegExp(String.raw`\x1b\[(0;)?38;2;${PALETTE.accent}(;|m\x1b\[)48;2;${PALETTE.selected}m▌`);
+    await pty.waitFor(output => bar.test(output));
     const placement = "\x1b_Ga=p,i=730031,p=1,z=1,C=1,q=";
     this.assertNotIn(placement, pty.output);
     // Simulate iTerm2's final-chunk acknowledgement, then its reordered

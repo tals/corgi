@@ -213,7 +213,8 @@ export async function run(
   };
   probe.clipboard.folder = join(dirname(local), "paste");
   probe.clipboard.start(Date.now());
-  probe.badge = new corgiBadge.State();
+  // The badge's picture is made in the background; it wakes the loop to upload it.
+  probe.badge = new corgiBadge.State(notify);
   viewer.writeAll(corgiBadge.query);
   for (const input of parser.feed(Uint8Array.from(initial))) accept(input);
   stdin.listen(feed);

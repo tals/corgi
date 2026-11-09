@@ -75,8 +75,15 @@ class ReplyProxy {
         if (id !== null) pending.delete(id);
         let replacement: object | null = null;
         if (op === "viewer.open") replacement = this.open_reply;
-        if (op === "viewer.sync" || op === "viewer.stream") {
-          replacement = this.sync_reply;
+        // A viewer with a data connection configures its stream on this one,
+        // and while nothing changes, only sends receipts.
+        if (
+          op === "viewer.sync" ||
+          op === "viewer.stream" ||
+          op === "viewer.stream.configure" ||
+          op === "viewer.receipt"
+        ) {
+          if (op !== "viewer.receipt") replacement = this.sync_reply;
           this.synced = true;
           if (this.uninstall_on_sync) {
             this.uninstall_on_sync = false;
