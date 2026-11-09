@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { Terminal } from "./terminal";
-import { capture, view } from "./surface";
+import { capture, view, type Surface } from "./surface";
 import * as viewer_native from "../viewer_native";
 const links = (t: Terminal) => t.native({ op: "links" }) as { uri: string; start: number; end: number }[];
 test("named hyperlinks survive capture and a second terminal render without leaking", () => {
@@ -236,7 +236,7 @@ test("the reported PR URL survives wrapping at different pane widths and reaches
     }
   }
 });
-test("surfaces carry the program's cursor shape, and an older daemon's mean the host's own", () => {
+test("surfaces carry the program's cursor shape, and a missing or unknown one is the host's own", () => {
   const t = Terminal.create(8, 2);
   try {
     expect(t.surface(1).surface.cursor_style).toBe("default");
@@ -244,8 +244,8 @@ test("surfaces carry the program's cursor shape, and an older daemon's mean the 
     const native = t.surface(1);
     expect(native.surface).toMatchObject({ cursor: null, cursor_style: "steady_bar" });
     const { cursor_style: _, ...older } = native.surface;
-    expect(view({ ...native, surface: older }).surface.cursor_style).toBe("default");
-    expect(view({ ...native, surface: { ...older, cursor_style: "spinning" } }).surface.cursor_style).toBe("default");
+    for (const surface of [older, { ...older, cursor_style: "spinning" }])
+      expect(view({ ...native, surface: surface as Surface }).surface.cursor_style).toBe("default");
   } finally {
     t.destroy();
   }

@@ -30,7 +30,7 @@ const cursor_styles = [
   "steady_bar",
 ] as const;
 export type CursorStyle = (typeof cursor_styles)[number];
-/** The shape a daemon sent; one that sends none leaves the host's own. */
+/** The shape a daemon sent. A missing or unknown one is the host's own. */
 export function cursorStyle(value: unknown): CursorStyle {
   return cursor_styles.find(style => style === value) ?? "default";
 }
@@ -123,11 +123,8 @@ export function stamp(t: Terminal, offset: number | null = null): Stamp {
 type NativeView = Omit<View, "stamp"> & {
   stamp: { identity: string; revision: string; offset: number | null };
 };
-/** A surface as a daemon sends it. XXX: Remove for next protocol bump. An
- * older daemon sends no cursor style. */
-type Sent<T> = Omit<T, "surface"> & { surface: Omit<Surface, "cursor_style"> & { cursor_style?: string } };
 
-export function view(value: Sent<Wire<View>> | Sent<NativeView>): View {
+export function view(value: Wire<View> | NativeView): View {
   return {
     ...value,
     surface: value.surface && { ...value.surface, cursor_style: cursorStyle(value.surface.cursor_style) },
