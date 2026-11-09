@@ -302,7 +302,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[""," copy ",""]': (v0, v1) => `${v0} 副本 ${v1}`,
     '[""," exists already"]': v0 => `${v0} 已存在`,
     '[""," is ",", not a folder"]': (v0, v1) => `${v0} 是${v1}，不是文件夹`,
-    '[""," is a small Ghostty-powered agent terminal."]': v0 => `${v0} 是基于 Ghostty 的小巧智能体终端。`,
     '[""," is checked out already"]': v0 => `${v0} 已被检出`,
     '[""," · "," worktree"]': (v0, v1) => `${v0} · ${v1} 个工作树`,
     '[""," · "," worktrees"]': (v0, v1) => `${v0} · ${v1} 个工作树`,
@@ -1715,7 +1714,6 @@ ${v1} 使用该账号。
     '[""," copy ",""]': (v0, v1) => `${v0}のコピー${v1}`,
     '[""," exists already"]': v0 => `${v0}はすでに存在します`,
     '[""," is ",", not a folder"]': (v0, v1) => `${v0}は${v1}です。フォルダーではありません`,
-    '[""," is a small Ghostty-powered agent terminal."]': v0 => `${v0}はGhosttyを使った小さなエージェント用端末です。`,
     '[""," is checked out already"]': v0 => `${v0}はすでにチェックアウトされています`,
     '[""," · "," worktree"]': (v0, v1) => `${v0} · ${v1}ワークツリー`,
     '[""," · "," worktrees"]': (v0, v1) => `${v0} · ${v1}ワークツリー`,
@@ -3156,7 +3154,6 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[""," copy ",""]': (v0, v1) => `${v0} 복사본 ${v1}`,
     '[""," exists already"]': v0 => `${v0}이(가) 이미 있습니다`,
     '[""," is ",", not a folder"]': (v0, v1) => `${v0}: 폴더가 아닌 ${v1}입니다`,
-    '[""," is a small Ghostty-powered agent terminal."]': v0 => `${v0}는 Ghostty 기반의 작은 에이전트 터미널입니다.`,
     '[""," is checked out already"]': v0 => `${v0}이(가) 이미 체크아웃되어 있습니다`,
     '[""," · "," worktree"]': (v0, v1) => `${v0} · 작업 트리 ${v1}개`,
     '[""," · "," worktrees"]': (v0, v1) => `${v0} · 작업 트리 ${v1}개`,
@@ -4922,8 +4919,6 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[""," copy ",""]': (v0, v1) => `${v0} — копия ${v1}`,
     '[""," exists already"]': v0 => `${v0} уже существует`,
     '[""," is ",", not a folder"]': (v0, v1) => `${v0} — ${v1}, а не папка`,
-    '[""," is a small Ghostty-powered agent terminal."]': v0 =>
-      `${v0} — небольшой терминал для агентов на базе Ghostty.`,
     '[""," is checked out already"]': v0 => `${v0} уже открыта в рабочем дереве`,
     '[""," · "," worktree"]': (v0, v1) => {
       switch (plural("ru", Number(v1))) {

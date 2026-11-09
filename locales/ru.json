@@ -435,7 +435,6 @@
   "${name} copy ${number}": "${name} — копия ${number}",
   "${name} exists already": "${name} уже существует",
   "${name} is ${type}, not a folder": "${name} — ${type}, а не папка",
-  "${name} is a small Ghostty-powered agent terminal.": "${name} — небольшой терминал для агентов на базе Ghostty.",
   "${name} is checked out already": "${name} уже открыта в рабочем дереве",
   "${name} · ${count} worktree": {
     "plural": "count",

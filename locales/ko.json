@@ -235,7 +235,6 @@
   "${name} copy ${number}": "${name} 복사본 ${number}",
   "${name} exists already": "${name}이(가) 이미 있습니다",
   "${name} is ${type}, not a folder": "${name}: 폴더가 아닌 ${type}입니다",
-  "${name} is a small Ghostty-powered agent terminal.": "${name}는 Ghostty 기반의 작은 에이전트 터미널입니다.",
   "${name} is checked out already": "${name}이(가) 이미 체크아웃되어 있습니다",
   "${name} · ${count} worktree": "${name} · 작업 트리 ${count}개",
   "${name} · ${count} worktrees": "${name} · 작업 트리 ${count}개",

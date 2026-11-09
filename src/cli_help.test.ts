@@ -26,13 +26,13 @@ test("the overview fits 80 columns and is plain off a terminal", () => {
         "3bda17b229cdb2981bbebaca28bdc89d59f62591-dirty",
         "2026-11-08T09:15:44Z",
       ),
-      plain = cli_help.overview(false, "0.1.0-dev", release);
+      plain = cli_help.overview(false, release);
     expect(plain).not.toContain("\x1b");
     expect(plain).toContain("Build 3bda17b-dirty built on ");
     expect(plain).toContain("corgi help --all");
     expect(plain).toContain("https://discord.gg/8v6eNAKuT");
     for (const line of plain.split("\n")) expect(displayWidth(line)).toBeLessThanOrEqual(80);
-    const rich = cli_help.overview(true, "0.1.0-dev", release);
+    const rich = cli_help.overview(true, release);
     expect(rich).toContain(
       "\x1b]8;;https://github.com/tals/corgi/commit/3bda17b229cdb2981bbebaca28bdc89d59f62591\x1b\\3bda17b",
     );
@@ -43,7 +43,7 @@ test("the overview fits 80 columns and is plain off a terminal", () => {
 });
 
 test("the overview leaves out a build it doesn't know", () => {
-  const overview = cli_help.overview(false, "0.1.0-dev", releaseLabel.of("0.1.0-dev", "bun-port"));
+  const overview = cli_help.overview(false, releaseLabel.of("0.1.0-dev", "bun-port"));
   expect(overview).not.toContain("Build");
-  expect(overview.split("\n")[1]).toBe(i18n.t`Happy helper for your terminal.`);
+  expect(overview.split("\n")[0]).toBe(i18n.t`Happy helper for your terminal.`);
 });

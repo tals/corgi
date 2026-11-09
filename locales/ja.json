@@ -235,7 +235,6 @@
   "${name} copy ${number}": "${name}のコピー${number}",
   "${name} exists already": "${name}はすでに存在します",
   "${name} is ${type}, not a folder": "${name}は${type}です。フォルダーではありません",
-  "${name} is a small Ghostty-powered agent terminal.": "${name}はGhosttyを使った小さなエージェント用端末です。",
   "${name} is checked out already": "${name}はすでにチェックアウトされています",
   "${name} · ${count} worktree": "${name} · ${count}ワークツリー",
   "${name} · ${count} worktrees": "${name} · ${count}ワークツリー",

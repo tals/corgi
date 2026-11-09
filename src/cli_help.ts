@@ -12,7 +12,6 @@ const commandWidth = 13,
  * terminal. `corgi help --all` prints the full reference. */
 export function overview(
   rich: boolean,
-  version = config.releaseVersion,
   release = releaseLabel.of(config.releaseVersion, config.releaseCommit, config.builtAt),
 ): string {
   const sgr = (code: string, text: string) => (rich && text ? `\x1b[${code}m${text}\x1b[0m` : text),
@@ -56,15 +55,13 @@ export function overview(
       ],
     ],
   ];
-  const name = bold("Corgi"),
-    short = releaseLabel.short(release),
+  const short = releaseLabel.short(release),
     time = releaseLabel.time(release),
     commit = short && link(releaseLabel.url(release), short) + (release.dirty ? "-dirty" : ""),
     build = commit && time ? i18n.t`Build ${commit} built on ${time}` : commit && i18n.t`Build ${commit}`,
     details = bold("corgi <command> --help"),
     all = bold("corgi help --all");
   const lines = [
-    `${i18n.t`${name} is a small Ghostty-powered agent terminal.`} ${dim(`(${version})`)}`,
     `${i18n.t`Happy helper for your terminal.`} ${dim(build)}`.trimEnd(),
     "",
     `${bold(i18n.t`Usage:`)} ${bold("corgi [command]")} ${sgr("36", "[...flags]")} ${bold("[...args]")}`,

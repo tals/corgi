@@ -235,7 +235,6 @@
   "${name} copy ${number}": "${name} 副本 ${number}",
   "${name} exists already": "${name} 已存在",
   "${name} is ${type}, not a folder": "${name} 是${type}，不是文件夹",
-  "${name} is a small Ghostty-powered agent terminal.": "${name} 是基于 Ghostty 的小巧智能体终端。",
   "${name} is checked out already": "${name} 已被检出",
   "${name} · ${count} worktree": "${name} · ${count} 个工作树",
   "${name} · ${count} worktrees": "${name} · ${count} 个工作树",
