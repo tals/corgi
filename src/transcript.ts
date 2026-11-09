@@ -80,6 +80,8 @@ export class Tail {
       if (!this.discard && this.partial.length + segment.length > record_limit) {
         this.partial = Buffer.alloc(0);
         this.discard = true;
+        // A record too large to read may show the turn went on.
+        this.settling_at = 0;
       }
       if (!this.discard) this.partial = Buffer.concat([this.partial, segment]);
       if (complete) {
@@ -97,6 +99,8 @@ export class Tail {
   }
   /** Ends the turn once a record that settles it has stood `settle_ms`. */
   settled(now: number): Outcome | null {
+    // A record still being written may show the turn went on.
+    if (this.partial.length || this.discard) return null;
     return this.settling_at && now - this.settling_at >= settle_ms ? "completed" : null;
   }
   close() {
