@@ -2,7 +2,7 @@
 //! speech model and the speech filter, and says whether voice is ready.
 import { createWriteStream, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { dirname } from "node:path";
 import * as models from "./models";
 import * as discovery from "../discovery";
@@ -45,11 +45,12 @@ async function hasVad(binary: string): Promise<boolean> {
     return false;
   }
 }
-/** Downloads `entry` to the cache through `<file>.part`, checking its size
- * and SHA-256 before it takes the file's name. */
+/** Downloads `entry` to the cache through a `.part` file of its own, checking
+ * its size and SHA-256 before it takes the file's name. Each run writes its own
+ * `.part`, so concurrent setups never truncate, rename or delete another's. */
 export async function download(entry: models.Entry, progress: (bytes: number) => void): Promise<void> {
   const file = models.fileOf(entry),
-    part = file + ".part";
+    part = `${file}.${process.pid}-${randomBytes(4).toString("hex")}.part`;
   mkdirSync(dirname(file), { recursive: true });
   try {
     const reply = await fetch(entry.url);
@@ -68,7 +69,7 @@ export async function download(entry: models.Entry, progress: (bytes: number) =>
           yield chunk;
         }
       },
-      createWriteStream(part, { mode: 0o644 }),
+      createWriteStream(part, { mode: 0o644, flags: "wx" }),
     );
     if (bytes !== entry.bytes || hash.digest("hex") !== entry.sha256) throw Error("ChecksumMismatch");
     renameSync(part, file);

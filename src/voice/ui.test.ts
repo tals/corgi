@@ -470,6 +470,15 @@ test("the device picker lists microphones and switches to one", async () => {
   expect(ui.picker).toBeNull();
 });
 
+test("the device picker starts on the microphone given by its ID", async () => {
+  const { ui, calls } = setup({ device: "0" });
+  ui.input("d");
+  await Bun.sleep(0);
+  expect(screen(ui.draw(80, 20), 80, 20).join("\n")).toContain("❯ Studio Microphone");
+  ui.input("\r");
+  expect(calls.switched.map(d => d.id)).toEqual(["0"]);
+});
+
 test("the device picker scrolls to keep the chosen microphone in view", async () => {
   const devices = Array.from({ length: 12 }, (_, i) => ({ id: String(i), label: `Mic ${i}`, default: i === 0 }));
   const { ui, calls } = setup({ listDevices: async () => ({ devices }) });

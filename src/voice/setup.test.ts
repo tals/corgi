@@ -1,5 +1,14 @@
 import { test, expect, afterEach, beforeEach } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -43,6 +52,11 @@ function entry(name: "base.en" | "filter", content: string, sha256?: string): mo
     sha256: sha256 ?? createHash("sha256").update(data).digest("hex"),
   };
 }
+/** The `.part` files left next to `entry`'s file. */
+const parts = (entry: models.Entry) => {
+  const cache = dirname(models.fileOf(entry));
+  return existsSync(cache) ? readdirSync(cache).filter(name => name.endsWith(".part")) : [];
+};
 async function report(entries: { model: models.Entry; filter: models.Entry }, path = `${fixtures}:${bun}`) {
   let out = "";
   const code = await setup.run({ model: "base.en" }, { write: text => (out += text), entries, path });
@@ -59,7 +73,7 @@ test("missing files are downloaded, verified and renamed into place", async () =
   expect(out).toContain("100%");
   expect(out).toContain("Voice is ready");
   expect(readFileSync(models.fileOf(entries.model), "utf8")).toBe("model bytes");
-  expect(existsSync(models.fileOf(entries.model) + ".part")).toBe(false);
+  expect(parts(entries.model)).toEqual([]);
   expect(requests).toEqual(["base.en", "filter"]);
   // A second run has nothing to fetch.
   const again = await report(entries);
@@ -74,7 +88,7 @@ test("a download that does not match its checksum is deleted", async () => {
   expect(code).toBe(1);
   expect(out).toContain("[failed] model base.en: the download did not match its checksum");
   expect(existsSync(models.fileOf(entries.model))).toBe(false);
-  expect(existsSync(models.fileOf(entries.model) + ".part")).toBe(false);
+  expect(parts(entries.model)).toEqual([]);
   expect(out).toContain("[ok] speech filter");
 });
 
@@ -90,7 +104,7 @@ test("a download that cannot be written fails instead of hanging", async () => {
   } finally {
     chmodSync(cache, 0o755);
   }
-  expect(existsSync(models.fileOf(entries.model) + ".part")).toBe(false);
+  expect(parts(entries.model)).toEqual([]);
 });
 
 test("missing tools are reported with how to install them", async () => {
