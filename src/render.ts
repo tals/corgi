@@ -7,6 +7,7 @@ import * as docking from "./docking";
 import * as dockingGrip from "./docking_grip";
 import type { DockDrop } from "./protocol";
 import * as composition from "./composition";
+import type { CursorStyle } from "./pane/surface";
 import { Style, keycap } from "./palette";
 import { Rect, View as LayoutView, cleanLabel, type Axis, type Border } from "./layout";
 import * as sidebar from "./sidebar";
@@ -1124,12 +1125,14 @@ export function frame(
   // The prefix bar covers the area's last row.
   const cursor_rows = area.y + area.h - (u.prefix && area.h > 0 ? 1 : 0);
   const pane_cursor_owned = model.count > 0 && !u.copy_mode && !u.link_tooltip && !u.review_focused && noOverlay(u);
-  let pane_cursor: composition.Cursor = null;
+  let pane_cursor: composition.Cursor = null,
+    cursor_style: CursorStyle = "default";
   if (pane_cursor_owned) {
     for (const place of view.placements(area)) {
       if (place.id !== view.selection.tabs[view.selection.active].focus || place.rect.h === 0) continue;
       const p = panes.find(pane => pane.id === place.id && pane.restoring.length === 0);
       if (!p) continue;
+      cursor_style = p.terminal.cursorStyle();
       const cursor = p.terminal.cursor();
       if (cursor && cursor.x < place.rect.w && cursor.y < place.rect.h && place.rect.y + cursor.y < cursor_rows) {
         pane_cursor = { x: place.rect.x + cursor.x, y: place.rect.y + cursor.y };
@@ -1359,8 +1362,9 @@ export function frame(
   if (pane_cursor_owned) {
     if (retained?.panes.length) {
       retained.cursor = pane_cursor;
+      retained.cursor_style = cursor_style;
       retained.cursor_at = w.s.length;
-    } else w.write(composition.cursorBytes(pane_cursor));
+    } else w.write(composition.cursorBytes(pane_cursor, cursor_style));
   } else if (retained?.panes.length) retained.reusable = false;
   // Include the shape in each complete frame so reconnects and overlay changes
   // cannot leave the host pointer stuck on a previously hovered link.

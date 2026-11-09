@@ -236,6 +236,20 @@ test("the reported PR URL survives wrapping at different pane widths and reaches
     }
   }
 });
+test("surfaces carry the program's cursor shape, and an older daemon's mean the host's own", () => {
+  const t = Terminal.create(8, 2);
+  try {
+    expect(t.surface(1).surface.cursor_style).toBe("default");
+    t.feed("\x1b[6 q\x1b[?25l");
+    const native = t.surface(1);
+    expect(native.surface).toMatchObject({ cursor: null, cursor_style: "steady_bar" });
+    const { cursor_style: _, ...older } = native.surface;
+    expect(view({ ...native, surface: older }).surface.cursor_style).toBe("default");
+    expect(view({ ...native, surface: { ...older, cursor_style: "spinning" } }).surface.cursor_style).toBe("default");
+  } finally {
+    t.destroy();
+  }
+});
 test("native surfaces and links expose exact bigint identities and numeric viewports", () => {
   const t = Terminal.create(32, 3);
   try {

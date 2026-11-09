@@ -19,12 +19,33 @@ export interface ImagePlacement {
   source_height: number;
   z: number;
 }
+/** DECSCUSR's cursor shapes, each at its `Ps`. `default` is the host's own cursor. */
+const cursor_styles = [
+  "default",
+  "blinking_block",
+  "steady_block",
+  "blinking_underline",
+  "steady_underline",
+  "blinking_bar",
+  "steady_bar",
+] as const;
+export type CursorStyle = (typeof cursor_styles)[number];
+/** The shape a daemon sent; one that sends none leaves the host's own. */
+export function cursorStyle(value: unknown): CursorStyle {
+  return cursor_styles.find(style => style === value) ?? "default";
+}
+/** The `Ps` that selects `style` with `CSI Ps SP q`. */
+export function decscusr(style: CursorStyle): number {
+  return cursor_styles.indexOf(style);
+}
 export interface Surface {
   pane: number;
   cols: number;
   rows: number;
   lines: string[];
   cursor: { x: number; y: number } | null;
+  /** The shape the program asked for, kept while the cursor is hidden. */
+  cursor_style: CursorStyle;
   images?: ImagePlacement[];
 }
 export interface Modes {
@@ -102,10 +123,13 @@ export function stamp(t: Terminal, offset: number | null = null): Stamp {
 type NativeView = Omit<View, "stamp"> & {
   stamp: { identity: string; revision: string; offset: number | null };
 };
+/** A surface as a daemon sends it; an older one has no cursor style. */
+type Sent<T> = Omit<T, "surface"> & { surface: Omit<Surface, "cursor_style"> & { cursor_style?: string } };
 
-export function view(value: Wire<View> | NativeView): View {
+export function view(value: Sent<Wire<View>> | Sent<NativeView>): View {
   return {
     ...value,
+    surface: value.surface && { ...value.surface, cursor_style: cursorStyle(value.surface.cursor_style) },
     stamp: {
       ...value.stamp,
       identity: BigInt(value.stamp.identity),

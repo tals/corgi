@@ -246,6 +246,41 @@ test("cursor position and visibility stay outside chrome and survive prefixed fu
   }
 });
 
+test("the focused pane's cursor shape reaches the host when it changes", () => {
+  const f = fixture(false);
+  const shapes = (bytes: string) => [...bytes.matchAll(/\x1b\[(\d) q/g)].map(match => match[1]);
+  const program = (control: string) => {
+    f.sources[0].feed(control);
+    f.panes[0].terminal.receive(f.sources[0].surface(f.panes[0].id));
+  };
+  try {
+    f.update(0, "shape");
+    // A new differ hands the host its own shape.
+    expect(shapes(f.present(f.compose()))).toEqual(["0"]);
+    program("\x1b[6 q");
+    const bar = f.compose();
+    expect(bar.frame.cursor_style).toBe("steady_bar");
+    expect(same(f.compose().frame, bar.frame)).toBe(true);
+    const compose = spyOn(n, "frame_diff_compose");
+    try {
+      expect(shapes(f.present(bar))).toEqual(["6"]);
+      expect(compose).toHaveBeenCalled();
+    } finally {
+      compose.mockRestore();
+    }
+    program("\x1b[?25l");
+    expect(shapes(f.present(f.compose()))).toEqual([]);
+    program("\x1b[?25h\x1b[5 q");
+    expect(shapes(f.present(f.compose()))).toEqual(["5"]);
+    // The review panel takes the keyboard and its caret is the host's own.
+    const review = f.compose({ review_width: 8, review_focused: true });
+    expect(review.frame.cursor_style).toBe("default");
+    expect(shapes(f.differ.diff(review.frame).toString())).toEqual(["0"]);
+  } finally {
+    f.close();
+  }
+});
+
 test("a review-owned cursor remains in chrome and uses complete-frame fallback", () => {
   const f = fixture(false);
   try {
@@ -516,8 +551,8 @@ test("a rejected retained batch retries with fresh chrome", () => {
       original = n.frame_diff_compose,
       modes: number[] = [];
     const reject = ((...args: Parameters<typeof original>) => {
-      modes.push(Number(args[9]));
-      return args[9] === 1 ? -2 : original(...args);
+      modes.push(Number(args[10]));
+      return args[10] === 1 ? -2 : original(...args);
     }) as typeof original;
     const batch = spyOn(n, "frame_diff_compose").mockImplementation(reject),
       replay = spyOn(n, "frame_diff_diff");

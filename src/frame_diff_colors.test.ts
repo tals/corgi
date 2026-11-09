@@ -61,7 +61,7 @@ test("retained pane defaults match native row rendering across emoji wraps and r
       source.feed("\x1b[2;1H🐕");
       pane.receive(source.surface(1));
       present(frame());
-      expect(compose.mock.calls.at(-1)![9]).toBe(1);
+      expect(compose.mock.calls.at(-1)![10]).toBe(1);
       expect(replay).not.toHaveBeenCalled();
 
       // Cover palette, inverse and background-only cells in the native source,
@@ -70,7 +70,7 @@ test("retained pane defaults match native row rendering across emoji wraps and r
       pane.render_dirty = true;
       pane.updateRender();
       present(frame());
-      expect(compose.mock.calls.at(-1)![9]).toBe(1);
+      expect(compose.mock.calls.at(-1)![10]).toBe(1);
       expect(replay).not.toHaveBeenCalled();
 
       const fallback = frame();
@@ -78,7 +78,7 @@ test("retained pane defaults match native row rendering across emoji wraps and r
       present(fallback);
       expect(replay).toHaveBeenCalledTimes(1);
       present(frame());
-      expect(compose.mock.calls.at(-1)![9]).toBe(0);
+      expect(compose.mock.calls.at(-1)![10]).toBe(0);
     }
   } finally {
     compose.mockRestore();

@@ -201,10 +201,11 @@ test("row patches preserve Unicode, hyperlinks, cursor, scrollback and modes", (
   try {
     terminal.feed("old\r\nkeep");
     const before = surface.captureView(1, terminal);
-    terminal.feed("\x1b[H\x1b]8;;https://example.com\x1b\\界é\x1b]8;;\x1b\\\x1b[?2004h\x1b[3;4H");
+    terminal.feed("\x1b[H\x1b]8;;https://example.com\x1b\\界é\x1b]8;;\x1b\\\x1b[?2004h\x1b[3;4H\x1b[6 q");
     const after = surface.captureView(1, terminal),
       patch = surface.difference(before, after)!;
     expect(patch.surface.lines.length).toBeLessThan(before.surface.lines.length);
+    expect(patch.surface.cursor_style).toBe("steady_bar");
     expect(surface.apply(before, patch)).toEqual(after);
     expect(() => surface.apply(after, patch)).toThrow("InvalidSurfaceBase");
     expect(() =>

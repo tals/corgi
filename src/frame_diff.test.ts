@@ -8,6 +8,8 @@ const render = (d: Differ, frame: string) => d.diff(frame).toString();
 const picture = (row: number, col: number, id = 1) => `\x1b[${row};${col}H\x1b_Ga=p,i=${id},p=1,C=1,q=2\x1b\\`;
 const canvas = "\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[Junchanged text\x1b[2;1Hsecond line";
 const done = "\x1b[1;1H\x1b[?2026l";
+/** A new differ's first frame hands the host its own cursor shape. */
+const own_shape = "\x1b[0 q";
 
 test("external image writes replay unchanged placements without repainting text", () => {
   const d = Differ.create(30, 8),
@@ -135,7 +137,7 @@ test("cursor-moving images, unknown APCs and incomplete uploads keep full frames
     try {
       for (const row of [3, 4]) {
         const frame = canvas + `\x1b[${row};2H` + image;
-        expect(render(d, frame)).toBe(frame);
+        expect(render(d, frame)).toBe(frame + (row === 3 ? own_shape : ""));
       }
       const safe = canvas + picture(5, 5) + done;
       expect(render(d, safe)).toBe(safe);
@@ -151,7 +153,7 @@ test("clears, screen switches and scrolling retain their ordering with images", 
     try {
       for (const row of [3, 4]) {
         const frame = canvas + picture(row, 5) + reset + done;
-        expect(render(d, frame)).toBe(frame);
+        expect(render(d, frame)).toBe(frame + (row === 3 ? own_shape : ""));
       }
     } finally {
       d.destroy();
@@ -230,7 +232,7 @@ test("style deltas reproduce full rendering for every pair of colors and attribu
 test("a frame that changes one cell writes that cell", () => {
   const d = Differ.create(20, 4);
   const first = "\x1b[?1003h\x1b[?2026h\x1b[H\x1b[Jhello\x1b[2;1H\x1b[31mworld\x1b[0m\x1b[?2026l";
-  expect(render(d, first)).toBe(first);
+  expect(render(d, first)).toBe(first + own_shape);
   expect(render(d, first)).toBe("");
   expect(render(d, "\x1b[?1003h\x1b[?2026h\x1b[H\x1b[Jhello\x1b[2;1H\x1b[31mwOrld\x1b[0m\x1b[?2026l")).toBe(
     "\x1b[?2026h\x1b[?25l\x1b[2;2H\x1b[0m\x1b[38;5;1mO\x1b[0m\x1b[2;6H\x1b[?25h\x1b[?2026l",
@@ -240,13 +242,13 @@ test("a frame that changes one cell writes that cell", () => {
 
 test("a changed control sends the whole frame", () => {
   const d = Differ.create(20, 4);
-  for (const frame of [
+  for (const [i, frame] of [
     "\x1b[H\x1b[Jtext\x1b]22;default\x1b\\",
     "\x1b[H\x1b[Jtext\x1b]22;pointer\x1b\\",
     "\x1b[H\x1b[J\x1b[2;3H\x1b_Ga=p,i=1\x1b\\text",
     "\x1b[H\x1b[J\x1b[3;3H\x1b_Ga=p,i=1\x1b\\text",
-  ])
-    expect(render(d, frame)).toBe(frame);
+  ].entries())
+    expect(render(d, frame)).toBe(frame + (i === 0 ? own_shape : ""));
   d.destroy();
 });
 
