@@ -5334,8 +5334,8 @@ test("a split waiting on a slow daemon leaves input free and takes focus only wh
 });
 
 /** One workspace with panes 1 and 2, over a daemon whose commands wait until
- * the test lets them go; snapshots answer at once. */
-function slowDaemon() {
+ * the test lets them go, then give `reply`; snapshots answer at once. */
+function slowDaemon(reply: (command: any) => object = () => ({ ok: true, result: { pane: 2 } })) {
   const snapshot = {
     workspaces: [
       {
@@ -5370,7 +5370,7 @@ function slowDaemon() {
       if (op === "session.snapshot") return snapshot;
       commands.push(fields.command);
       await new Promise<void>(resolve => replies.push(resolve));
-      return { ok: true, result: { pane: 2 } };
+      return reply(fields.command);
     }).request,
   });
   s.receiveSnapshot(snapshot);
@@ -5469,6 +5469,102 @@ test("keys typed right after a split on a slow daemon wait for it and land in th
     expect(s.focused()?.id).toBe(2);
     expect(pending(2)).toBe("ls");
     expect(pending(1)).toBe("");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a pane still opening has the keyboard and no pane shows focus until it arrives", async () => {
+  const { s, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02vls"));
+    expect(s.openingFocus()).not.toBeNull();
+    expect(s.pane(1).terminal.pending).toEqual([]);
+    await answer();
+    expect(s.openingFocus()).toBeNull();
+    expect(s.focused()?.id).toBe(2);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("Corgi's keys run at once while a pane opens", async () => {
+  const { s, commands } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02v\x02q"));
+    expect(Object.keys(commands[0])).toEqual(["pane.split"]);
+    expect(s.input_state.attached).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("focus chosen while a pane opens takes the keyboard back; what was typed before still reaches the pane", async () => {
+  const { s, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02vab"));
+    // Choosing the pane that had focus counts, though focus stays put.
+    s.focusPane(1);
+    await s.input(bytes("cd"));
+    await answer();
+    const pending = (id: number) => Buffer.from(s.pane(id).terminal.pending).toString();
+    expect(s.focused()?.id).toBe(1);
+    expect(pending(1)).toBe("cd");
+    expect(pending(2)).toBe("ab");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("closing a pane still opening closes it as it arrives, and other pane actions wait for it", async () => {
+  const { s, commands, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02v\x02v"));
+    expect(commands.filter(c => "pane.split" in c)).toHaveLength(1);
+    expect(s.message).toBe(" The new pane is still opening");
+    await s.input(bytes("\x02xls"));
+    await answer();
+    expect(commands.at(-1)).toEqual({ "pane.close": { target: 2 } });
+    expect(Buffer.from(s.pane(1).terminal.pending).toString()).toBe("ls");
+    expect(s.pane(2).terminal.pending).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a pane that fails to open drops what was typed for it and says why", async () => {
+  const { s, answer } = slowDaemon(() => ({ err: "TooManyPanes" }));
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02vls"));
+    await answer();
+    expect(s.message).toBe("TooManyPanes");
+    expect(s.focused()?.id).toBe(1);
+    expect(s.runtime.panes.flatMap((p: any) => p.terminal.pending)).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a launcher shortcut the daemon refuses says so instead of ending the viewer", async () => {
+  const { s, answer } = slowDaemon(() => ({ err: "NoWorkspace" }));
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    s.openLauncher(true);
+    await s.input(bytes("t"));
+    expect(s.agent_launcher).toBeNull();
+    await answer();
+    expect(s.message).toBe("NoWorkspace");
   } finally {
     viewer.close(s);
   }

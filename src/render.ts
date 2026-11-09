@@ -218,6 +218,8 @@ export interface Ui {
   startup_waits: StartupWait[];
   startup_card: startupCard.State | null;
   sync_notice: syncNotice.State | null;
+  /** A pane an action is opening has the keyboard: no pane shows focus. */
+  pane_opening: boolean;
   git_hover: number | null;
   /** Panes whose grips showed last frame. */
   grip_hover: readonly number[];
@@ -321,6 +323,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     startup_waits: [],
     startup_card: null,
     sync_notice: null,
+    pane_opening: false,
     git_hover: null,
     grip_hover: [],
     git_card: null,
@@ -1065,7 +1068,7 @@ export function frame(
       p.dormant;
     if (u.supports_kitty_graphics) pictured.push({ pane: p, rect: r, hidden });
   }
-  drawDividers(w, view, area, !u.sidebar_focus);
+  drawDividers(w, view, area, !u.sidebar_focus && !u.pane_opening);
   const sync_at = u.sync_notice ? syncNotice.locate(view, area) : null;
   if (sync_at) {
     w.write(syncNotice.draw(u.sync_notice!, sync_at));
@@ -1158,7 +1161,8 @@ export function frame(
   }
   // The prefix bar covers the area's last row.
   const cursor_rows = area.y + area.h - (u.prefix && area.h > 0 ? 1 : 0);
-  const pane_cursor_owned = model.count > 0 && !u.copy_mode && !u.link_tooltip && !u.review_focused && noOverlay(u);
+  const pane_cursor_owned =
+    model.count > 0 && !u.copy_mode && !u.link_tooltip && !u.review_focused && !u.pane_opening && noOverlay(u);
   let pane_cursor: composition.Cursor = null,
     cursor_style: CursorStyle = "default";
   if (pane_cursor_owned) {

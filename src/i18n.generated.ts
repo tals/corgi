@@ -215,9 +215,12 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Startup waits (",") "]': v0 => ` 启动等待（${v0}） `,
     '[" Summaries and link names: ",""]': v0 => ` 摘要与链接名称：${v0}`,
     '[" Summaries and link names: "," (not saved for next start)"]': v0 => ` 摘要与链接名称：${v0}（下次启动不保留）`,
+    '[" The new pane is still opening"]': () => ` 新窗格仍在打开`,
     '[" Theme "]': () => ` 主题 `,
     '[" This agent can\'t be renamed from outside"]': () => ` 无法从外部重命名此智能体`,
     '[" This agent has no conversation yet"]': () => ` 此智能体尚无对话`,
+    '[" Too much typed for a pane still opening; the rest was dropped"]': () =>
+      ` 为仍在打开的窗格输入的内容过多；其余部分已丢弃`,
     '[" Use prefix"]': () => ` 使用前缀键`,
     '[" Welcome to Corgi "]': () => ` 欢迎使用 Corgi `,
     '[" Worktree "]': () => ` 工作树 `,
@@ -1631,9 +1634,12 @@ ${v1} 使用该账号。
     '[" Summaries and link names: ",""]': v0 => ` 要約とリンク名：${v0}`,
     '[" Summaries and link names: "," (not saved for next start)"]': v0 =>
       ` 要約とリンク名：${v0}（次回起動時には引き継ぎません）`,
+    '[" The new pane is still opening"]': () => ` 新しいペインはまだ開いています`,
     '[" Theme "]': () => ` テーマ `,
     '[" This agent can\'t be renamed from outside"]': () => ` このエージェントの名前は外部から変更できません`,
     '[" This agent has no conversation yet"]': () => ` このエージェントにはまだ会話がありません`,
+    '[" Too much typed for a pane still opening; the rest was dropped"]': () =>
+      ` 開いている途中のペインへの入力が多すぎるため、残りは破棄されました`,
     '[" Use prefix"]': () => ` プレフィックスを使用`,
     '[" Welcome to Corgi "]': () => ` Corgiへようこそ `,
     '[" Worktree "]': () => ` ワークツリー `,
@@ -3074,9 +3080,12 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Summaries and link names: ",""]': v0 => ` 요약 및 링크 이름: ${v0}`,
     '[" Summaries and link names: "," (not saved for next start)"]': v0 =>
       ` 요약 및 링크 이름: ${v0} (다음 시작에는 유지되지 않음)`,
+    '[" The new pane is still opening"]': () => ` 새 창이 아직 열리는 중입니다`,
     '[" Theme "]': () => ` 테마 `,
     '[" This agent can\'t be renamed from outside"]': () => ` 이 에이전트는 외부에서 이름을 변경할 수 없습니다`,
     '[" This agent has no conversation yet"]': () => ` 이 에이전트에는 아직 대화가 없습니다`,
+    '[" Too much typed for a pane still opening; the rest was dropped"]': () =>
+      ` 아직 열리는 창에 입력한 내용이 너무 많아 나머지는 버렸습니다`,
     '[" Use prefix"]': () => ` 접두 키 사용`,
     '[" Welcome to Corgi "]': () => ` Corgi에 오신 것을 환영합니다 `,
     '[" Worktree "]': () => ` 작업 트리 `,
@@ -4546,9 +4555,12 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Summaries and link names: ",""]': v0 => ` Описания и названия ссылок: ${v0}`,
     '[" Summaries and link names: "," (not saved for next start)"]': v0 =>
       ` Описания и названия ссылок: ${v0} (не сохранено для следующего запуска)`,
+    '[" The new pane is still opening"]': () => ` Новая панель ещё открывается`,
     '[" Theme "]': () => ` Тема `,
     '[" This agent can\'t be renamed from outside"]': () => ` Этого агента нельзя переименовать извне`,
     '[" This agent has no conversation yet"]': () => ` У этого агента пока нет диалога`,
+    '[" Too much typed for a pane still opening; the rest was dropped"]': () =>
+      ` Слишком много ввода для открывающейся панели; остальное отброшено`,
     '[" Use prefix"]': () => ` Через префикс`,
     '[" Welcome to Corgi "]': () => ` Добро пожаловать в Corgi `,
     '[" Worktree "]': () => ` Рабочее дерево `,
