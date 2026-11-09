@@ -3,6 +3,7 @@ import { Connection } from "./viewer_connection";
 import { run, writeAll, Stdin } from "./viewer";
 import { runTest } from "./viewer_test";
 import * as terminal_info from "./terminal_info";
+import * as terminalOutput from "./terminal_output";
 import * as keyboard from "./keyboard";
 import * as hostBackground from "./host_background";
 import * as crash from "./crash";
@@ -12,29 +13,35 @@ import * as i18n from "./i18n";
 let keyboard_enabled = false;
 let cursor_blink_saved = false;
 let restore = false;
-export function cleanup(): void {
-  if (!restore) return;
+let pending_reset: string | null = null;
+function cleanup(): string {
+  if (!restore) return "";
+  if (pending_reset !== null) return pending_reset;
   try {
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
   } catch {}
-  try {
-    if (keyboard_enabled) {
-      writeAll(keyboard.disable);
-      keyboard_enabled = false;
-    }
-    writeAll(
-      hostBackground.release() +
-        "\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1004l\x1b[?2031l\x1b[?5522l\x1b[?2004l\x1b[?1049l\x1b]22;default\x1b\\",
-    );
-    if (cursor_blink_saved) {
-      writeAll("\x1b[?12r");
-      cursor_blink_saved = false;
-    }
-  } catch {}
+  pending_reset =
+    (keyboard_enabled ? keyboard.disable : "") +
+    hostBackground.release() +
+    "\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1004l\x1b[?2031l\x1b[?5522l\x1b[?2004l\x1b[?1049l\x1b]22;default\x1b\\" +
+    (cursor_blink_saved ? "\x1b[?12r" : "");
+  keyboard_enabled = cursor_blink_saved = false;
+  return pending_reset;
+}
+function restored(): void {
   restore = false;
+  pending_reset = null;
+}
+function emergencyCleanup(): void {
+  try {
+    const reset = cleanup();
+    if (reset) terminalOutput.emergency(reset);
+  } catch {}
+  restored();
+  terminalOutput.stop();
 }
 function signalHandler(): void {
-  cleanup();
+  emergencyCleanup();
   process.exit(0);
 }
 /** A crash gives the terminal back before its error prints, which the
@@ -42,7 +49,7 @@ function signalHandler(): void {
  * after the monitor but a rejection before any handler, and loses its stack
  * when one is thrown again, so a rejection prints here. */
 function rejected(reason: unknown): void {
-  cleanup();
+  emergencyCleanup();
   crash.notePanic(reason);
   console.error(reason);
   process.exit(1);
@@ -74,9 +81,10 @@ async function attachOnce(path: string, start_onboarding: boolean, folder: strin
   restore = true;
   process.on("SIGTERM", signalHandler);
   process.on("SIGHUP", signalHandler);
-  process.on("uncaughtExceptionMonitor", cleanup);
+  process.on("uncaughtExceptionMonitor", emergencyCleanup);
   process.on("unhandledRejection", rejected);
   const stdin = new Stdin();
+  const output = terminalOutput.start();
   try {
     process.stdin.setRawMode(true);
     const input: number[] = [];
@@ -104,12 +112,17 @@ async function attachOnce(path: string, start_onboarding: boolean, folder: strin
     return await run(conn, path, probe, input, start_onboarding, stdin, folder);
   } finally {
     stdin.close();
-    cleanup();
-    process.off("SIGTERM", signalHandler);
-    process.off("SIGHUP", signalHandler);
-    process.off("uncaughtExceptionMonitor", cleanup);
-    process.off("unhandledRejection", rejected);
-    conn.close();
+    try {
+      await output.finish(cleanup());
+    } finally {
+      restored();
+      terminalOutput.stop();
+      process.off("SIGTERM", signalHandler);
+      process.off("SIGHUP", signalHandler);
+      process.off("uncaughtExceptionMonitor", emergencyCleanup);
+      process.off("unhandledRejection", rejected);
+      conn.close();
+    }
   }
 }
 export async function test(path: string): Promise<void> {

@@ -788,6 +788,12 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     delete this.env.CORGI_CURSOR_BLINK;
     await this.checkRealClientExit("\x02q", 1);
   }
+  async test_real_client_restores_terminal_on_signal() {
+    delete this.env.CORGI_CURSOR_BLINK;
+    await this.checkRealClientExit(async pty => {
+      pty.proc.kill("SIGTERM");
+    }, 1);
+  }
   async test_real_client_can_keep_host_cursor_blink() {
     this.env.CORGI_CURSOR_BLINK = "1";
     await this.checkRealClientExit("\x02q", 1);

@@ -621,7 +621,9 @@ for (const request_id of [undefined, 41])
         const saved = handoff.captureManifest(source.server, cl),
           restored = handoff.restoreClient(target.server, saved.clients[0]);
         expect(restored.output.toString()).toBe(JSON.stringify({ err: "Cancelled", request_id }) + "\n");
-        expect(restored.pending.map(r => r.op)).toEqual(["ping"]);
+        expect(restored.savedInput().toString()).toBe(
+          JSON.stringify({ op: "ping", protocol: protocol.version }) + "\n",
+        );
         if (failure) pending.reject(Error("LateFailure"));
         else pending.resolve([{ id: "late", name: "Late" }]);
         await pending.promise.catch(() => {});

@@ -656,7 +656,7 @@ const requests = {
     resources: ["bool", true],
     resources_hash: ["?u64", null],
   },
-  "viewer.surfaces": {},
+  "viewer.surfaces": { chunked: ["bool", false], cursor: ["?string", null] },
   "viewer.search": { pane: "u32", needle: "string", skip: ["u64", 0] },
   "viewer.pick": {
     pane: "u32",
@@ -810,7 +810,7 @@ export interface ReplyPayloads {
   "session.subscribe": SessionSnapshot;
   "viewer.open": Ok & Opened;
   "viewer.sync": View<ViewerSnapshot, import("./trackers/resources").Snapshot>;
-  "viewer.surfaces": Ok & { surfaces: SurfaceView[] };
+  "viewer.surfaces": Ok & { surfaces: SurfaceView[]; chunk?: import("./surface_transfer").Chunk };
   "viewer.search": Ok & {
     offset: bigint | null;
     match?: { x: number; y: number; end_x: number; end_y: number } | null;

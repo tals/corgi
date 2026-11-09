@@ -429,6 +429,7 @@ export class Server {
     }
   }
   private async collectNow(): Promise<void> {
+    viewer.expireSurfaces(this, Date.now());
     if (Date.now() - this.installChecked >= 1000) {
       this.installChecked = Date.now();
       if (this.install === undefined)
@@ -649,7 +650,7 @@ export class Server {
         await viewer.sync(this, cl, request.payload, reply);
         return;
       case "viewer.surfaces":
-        viewer.surfaces(this, cl, reply);
+        viewer.surfaces(this, cl, reply, request.payload);
         return;
       case "viewer.search":
         await viewer.search(this, cl, request.payload, reply);
@@ -929,6 +930,7 @@ export class Server {
    * meanwhile. A request without an id holds them, so its replies stay in order.
    * Reload refuses while `busy` work runs, saying which, and answers the rest with `Reloading`. */
   private defer(cl: Client, reply: Reply, busy: protocol.Busy | null, work: () => Promise<object>): void {
+    const releaseAdmission = cl.retain();
     let held = reply.id === null;
     cl.held ||= held;
     const release = () => {
@@ -959,6 +961,7 @@ export class Server {
       .finally(() => {
         this.deferred.delete(pending);
         release();
+        releaseAdmission();
       });
   }
   /** Its installation at `root` was deleted: viewers see the corgi leave, the
