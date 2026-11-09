@@ -270,6 +270,36 @@ test("Claude keeps a teammate restored from before a reload working beside a new
   expect(r.find("claude", "asleeper-a4d6")!.state.state).toBe("working");
   expect(parent.state.subagents).toEqual({ running: 2, blocked: 0, waiting: true });
 });
+test("Claude keeps a teammate's launch a teammate while many others wait for a pane", () => {
+  const r = new Registry(),
+    parent = r.get("claude", "s"),
+    launch = (id: string) =>
+      adapter("claude").hook({
+        session_id: "s",
+        hook_event_name: "PostToolUse",
+        tool_name: "Agent",
+        tool_input: { name: "sleeper", description: "Sleep then report" },
+        tool_response: { status: "teammate_spawned", agentId: id, name: "sleeper" },
+      })!;
+  parent.pid = process.pid;
+  // Its launch waits for a pane while more launches than a Stop can list come in.
+  const held = launch("asleeper-a4d6");
+  for (let i = 0; i < 40; i++) launch(`aother-${i}`);
+  r.observeHook(parent, held, 1n, false, 1000);
+  r.observeHook(
+    parent,
+    adapter("claude").hook({
+      session_id: "s",
+      hook_event_name: "Stop",
+      background_tasks: [{ id: "te2dh1366", type: "teammate", status: "running" }],
+    })!,
+    2n,
+    false,
+    2000,
+  );
+  expect(r.find("claude", "asleeper-a4d6")!.state.state).toBe("working");
+  expect(parent.state.subagents).toEqual({ running: 1, blocked: 0, waiting: true });
+});
 
 function hook(kind: string, session: string, extra: any = {}) {
   return {

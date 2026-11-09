@@ -66,9 +66,10 @@ export function shells(value: any, monitors: ReadonlySet<string>) {
 export function wakeup(crons: any) {
   return Array.isArray(crons) && crons.some(c => field(c, "recurring") === false);
 }
-/** The agent ids the Agent tool spawned as teammates whose launch no parent
- * has adopted yet. */
-const spawned = new Set<string>();
+/** The decoded hooks in which the Agent tool spawned a teammate. A hook can
+ * wait for a pane after it is decoded, so the mark stays with the hook itself
+ * and goes when the hook does. */
+const spawned = new WeakSet<object>();
 /** Adds what Claude's tool results tell to a decoded hook: a teammate the
  * Agent tool spawned, as the subagent it launched, and the task a Monitor
  * started. */
@@ -80,11 +81,7 @@ export function decoded<
   if (str(response, "status") === "teammate_spawned") {
     hook.subagent = str(response, "agentId");
     hook.subagent_type = str(response, "name");
-    if (hook.subagent && Buffer.byteLength(hook.subagent) <= 96) {
-      // A launch no parent took makes room for the newest one.
-      if (spawned.size === capacity) spawned.delete(spawned.values().next().value!);
-      spawned.add(hook.subagent);
-    }
+    spawned.add(hook);
   }
   if (hook.tool === "Monitor") hook.wake_task = str(response, "taskId");
   return hook;
@@ -168,7 +165,7 @@ function follow(registry: Registry, parent: Actor, found: Children, teammates: n
  * and a pause while a Monitor or a wakeup can wake it. */
 export function applied(registry: Registry, actor: Actor, event: any, seq: bigint, now: number) {
   if (event.subagent && Buffer.byteLength(event.subagent) <= 96) {
-    const teammate = spawned.delete(event.subagent);
+    const teammate = spawned.has(event);
     const known = registry.find(actor.provider(), event.subagent);
     if (
       known?.state.state !== "working" &&
