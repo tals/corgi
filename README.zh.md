@@ -55,7 +55,7 @@ corgi message 3 'run the tests'
 corgi pane read 3 --lines 50
 ```
 
-`corgi --help` 列出可用命令；`corgi --skill` 输出供智能体使用的操作说明。
+`corgi --help` 列出常用命令，`corgi help --all` 列出全部命令；`corgi --skill` 输出供智能体使用的操作说明。
 
 ## 卸载
 

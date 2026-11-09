@@ -45,7 +45,7 @@ class Languages extends Runtime {
       "ja",
     );
     const human = await run([EXE, "--help", "--no-agent"], { env: this.env });
-    this.assertIn("Ghosttyを使った小さなエージェント用端末", human.stdout);
+    this.assertIn("ターミナルのごきげんな相棒", human.stdout);
     const machine = await run([EXE, "--help", "--agent"], { env: this.env });
     this.assertNotIn("Ghosttyを使った", machine.stdout);
     this.assertIn("corgi workspace new NAME", machine.stdout);

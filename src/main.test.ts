@@ -112,7 +112,7 @@ test("--help prints help instead of running the command", async () => {
     for (const [args, expected] of [
       [["shutdown", "--help"], "corgi shutdown"],
       [["reload", "-h"], "corgi reload"],
-      [["--no-agent", "-h"], "corgi shutdown"],
+      [["--no-agent", "-h"], "corgi help --all"],
       [["agent", "--help"], "corgi agent"],
       [["serve", "--help"], "corgi shutdown"],
       [["--skill", "--help"], "corgi --skill"],
@@ -282,16 +282,25 @@ test("account command values preserve agent mode flags", async () => {
     process.exitCode = previousExit;
   }
 });
-test("agent mode does not hide commands from root help", async () => {
+test("root help lists every command for agents and with --all", async () => {
   const output = spyOn(process.stdout, "write").mockReturnValue(true);
   try {
-    for (const args of [["--help"], ["--agent", "--help"], ["--no-agent", "--help"]]) {
+    for (const args of [
+      ["--agent", "--help"],
+      ["--no-agent", "help", "--all"],
+      ["--no-agent", "--help", "--all"],
+    ]) {
       output.mockClear();
       await run(args);
       const text = String(output.mock.calls[0]?.[0]);
       expect(text).toContain("corgi pane read");
       expect(text).toContain("corgi shutdown");
     }
+    output.mockClear();
+    await run(["--no-agent", "--help"]);
+    const overview = String(output.mock.calls[0]?.[0]);
+    expect(overview).toContain("corgi help --all");
+    expect(overview).not.toContain("corgi shutdown");
   } finally {
     output.mockRestore();
   }

@@ -14,8 +14,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["  SKIP if a Corgi skill is already in your context. Otherwise run: corgi --skill"]': () =>
       `  如果上下文中已有 Corgi 技能，请跳过。否则运行：corgi --skill`,
     '["  corgi                         start / attach"]': () => `  corgi                         启动 / 连接`,
-    '["  corgi --help                  list all commands (also -h)"]': () =>
-      `  corgi --help                  列出全部命令（也可用 -h）`,
+    '["  corgi --help                  list common commands (also -h)"]': () =>
+      `  corgi --help                  列出常用命令（也可用 -h）`,
     '["  corgi --no-update             attach without activating a staged update"]': () =>
       `  corgi --no-update             连接时不启用待应用的更新`,
     '["  corgi --skill                      print bundled agent instructions"]': () =>
@@ -46,6 +46,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
       `  corgi headless send PROVIDER SESSION JSON   发送提示、回答或中断`,
     '["  corgi headless stop PROVIDER SESSION        stop headless session"]': () =>
       `  corgi headless stop PROVIDER SESSION        停止后台会话`,
+    '["  corgi help --all              list every command"]': () => `  corgi help --all              列出全部命令`,
     '["  corgi help [COMMAND ...]      show help for a command or group"]': () =>
       `  corgi help [COMMAND ...]      查看命令或命令组的帮助`,
     '["  corgi history [--limit N] [--json]  past conversations, newest first"]': () =>
@@ -281,6 +282,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[""," worktree"]': v0 => `${v0} 个工作树`,
     '[""," worktrees"]': v0 => `${v0} 个工作树`,
     '[""," d"]': v0 => `${v0}天`,
+    '[""," for details · "," for everything"]': (v0, v1) => `${v0} 查看详情 · ${v1} 查看全部`,
     '["","/"," done"]': (v0, v1) => `已完成 ${v0}/${v1}`,
     '["","/","+ done"]': (v0, v1) => `已完成 ${v0}/${v1}+`,
     '[""," Down"]': v0 => `${v0} 向下`,
@@ -411,6 +413,8 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Branch names can\'t have spaces, .., or ~^:?*[\\\\"]': () => `分支名不能含空格、.. 或 ~^:?*[\\`,
     '["Brief failed"]': () => `摘要生成失败`,
     '["Bring your work along"]': () => `把工作一起带过来`,
+    '["Build ",""]': v0 => `构建 ${v0}`,
+    '["Build "," built on ",""]': (v0, v1) => `构建 ${v0}（${v1}）`,
     '["Build: "]': () => `构建版本：`,
     '["Builds"]': () => `构建`,
     '["By activity"]': () => `按活动排序`,
@@ -541,6 +545,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Discovering…"]': () => `正在检测…`,
     '["Done"]': () => `完成`,
     '["Down"]': () => `下`,
+    '["Download and apply an update"]': () => `下载并应用更新`,
     '["Download: "]': () => `下载：`,
     '["Drop an agent here"]': () => `将智能体拖到这里`,
     '["Duplicate variable: ",""]': v0 => `重复变量：${v0}`,
@@ -607,6 +612,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Half page"]': () => `半页`,
     '["Handing off to Corgi"]': () => `正在由 Corgi 接管`,
     '["Handoff processes"]': () => `接管进程`,
+    '["Happy helper for your terminal."]': () => `你终端里的快乐小助手。`,
     '["Help needs 32 × 12"]': () => `帮助需要 32 × 12`,
     '["Hibernate pane"]': () => `休眠窗格`,
     '["Hibernated"]': () => `已休眠`,
@@ -638,6 +644,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
       `viewer.json 无效；文件修复前将使用默认设置。`,
     '["It runs in a background session, outside any pane"]': () => `此进程在后台会话中运行，不在任何窗格内`,
     '["Its diff starts collapsed. Enter loads it."]': () => `差异默认折叠。按 Enter 加载。`,
+    '["Join our Discord community:"]': () => `加入我们的 Discord 社区：`,
     '["Jump to attention"]': () => `跳转到待处理事项`,
     '["Jump to who needs you"]': () => `跳转到需要你的智能体`,
     '["Keep"]': () => `保留`,
@@ -659,12 +666,15 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Last visited agent"]': () => `上次访问的智能体`,
     '["Last visited tab"]': () => `上次访问的标签页`,
     '["Last visited workspace"]': () => `上次访问的工作区`,
+    '["Layout"]': () => `布局`,
     '["Layout changes preserve processes and do not select another pane in a viewer."]': () =>
       `更改布局会保留进程，且不会切换客户端中的选中窗格。`,
+    '["Learn more about Corgi:"]': () => `了解 Corgi：`,
     '["Leave"]': () => `离开`,
     '["Limits"]': () => `额度`,
     '["Links · Esc to close"]': () => `链接 · Esc 关闭`,
     '["List"]': () => `列表`,
+    '["List shortcuts; Ctrl+B opens the menu"]': () => `列出快捷键；Ctrl+B 打开菜单`,
     '["List, diff"]': () => `列表、差异`,
     '["Live handoff unavailable for this session; turn it off to copy."]': () =>
       `此会话不支持进程接管；关闭接管即可复制。`,
@@ -797,6 +807,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["PROCESS"]': () => `进程`,
     '["Page"]': () => `翻页`,
     '["Partial process coverage"]': () => `仅覆盖部分进程`,
+    '["Past conversations, newest first"]': () => `历史对话，最新的在前`,
     '["Paste (host terminal)"]': () => `粘贴（宿主终端）`,
     '["Paste a command…"]': () => `粘贴命令…`,
     '["Paste copied text"]': () => `粘贴已复制的文本`,
@@ -830,6 +841,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Process information unavailable"]': () => `进程信息不可用`,
     '["Process list may be incomplete"]': () => `进程列表可能不完整`,
     '["Processes"]': () => `进程`,
+    '["Prompt an agent through its own channel"]': () => `通过智能体自己的通道发送提示`,
     '["Push failed"]': () => `推送失败`,
     '["Reading branches…"]': () => `正在读取分支…`,
     '["Reading default account…"]': () => `正在读取默认账号…`,
@@ -859,6 +871,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Rename tab"]': () => `重命名标签页`,
     '["Rename workspace"]': () => `重命名工作区`,
     '["Reopen"]': () => `重新打开`,
+    '["Reopen a past conversation"]': () => `重新打开历史对话`,
     '["Reopen directly"]': () => `直接重开`,
     '["Reopen last closed agent"]': () => `重开最近关闭的智能体`,
     '["Reopen tab"]': () => `重开标签页`,
@@ -900,6 +913,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Scroll / copy"]': () => `滚动 / 复制`,
     '["Scroll / copy mode"]': () => `滚动 / 复制模式`,
     '["Search"]': () => `搜索`,
+    '["Search conversation text"]': () => `搜索对话文本`,
     '["Search models"]': () => `搜索模型`,
     '["Search models, agents and accounts"]': () => `搜索模型、代理和账户`,
     '["Select"]': () => `选择`,
@@ -930,6 +944,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
       `快捷键已重载。请重载 Ghostty 以更新菜单快捷键。`,
     '["Shortcuts reloaded; could not update the Ghostty integration."]': () => `快捷键已重载；无法更新 Ghostty 集成。`,
     '["Show"]': () => `显示`,
+    '["Show a folder\'s workspace, or add one"]': () => `显示文件夹的工作区，没有则新建`,
     '["Show less"]': () => `收起`,
     '["Show resources"]': () => `显示资源`,
     '["Show startup waits"]': () => `显示启动等待`,
@@ -952,6 +967,8 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Star"]': () => `收藏`,
     '["Star / unstar agent"]': () => `收藏 / 取消收藏智能体`,
     '["Star / unstar headless agent"]': () => `收藏 / 取消收藏后台智能体`,
+    '["Start"]': () => `开始`,
+    '["Start Corgi or attach to it"]': () => `启动 Corgi 或连接到它`,
     '["Starting"]': () => `正在启动`,
     '["Starting session"]': () => `正在启动会话`,
     '["Startup waits: enlarge terminal · Esc to close"]': () => `启动等待：请放大终端 · Esc 关闭`,
@@ -1104,6 +1121,7 @@ ${v1} 使用该账号。
     '["Window"]': () => `时间窗口`,
     '["Working"]': () => `工作中`,
     '["Workspace only · opens a new shell"]': () => `仅工作区 · 打开新 Shell`,
+    '["Workspaces, tabs, panes and agents"]': () => `工作区、标签页、窗格和智能体`,
     '["Worktree briefs"]': () => `工作树摘要`,
     '["Worktree folder"]': () => `工作树文件夹`,
     '["Worktrees: enlarge terminal · Esc to close"]': () => `工作树：请扩大终端 · Esc 关闭`,
@@ -1398,8 +1416,8 @@ ${v1} 使用该账号。
     '["  SKIP if a Corgi skill is already in your context. Otherwise run: corgi --skill"]': () =>
       `  Corgiスキルをすでに読み込んでいる場合は不要です。それ以外は実行：corgi --skill`,
     '["  corgi                         start / attach"]': () => `  corgi                         起動 / 接続`,
-    '["  corgi --help                  list all commands (also -h)"]': () =>
-      `  corgi --help                  すべてのコマンドを表示（-hも可）`,
+    '["  corgi --help                  list common commands (also -h)"]': () =>
+      `  corgi --help                  よく使うコマンドを表示（-hも可）`,
     '["  corgi --no-update             attach without activating a staged update"]': () =>
       `  corgi --no-update             準備済みの更新を適用せずに接続`,
     '["  corgi --skill                      print bundled agent instructions"]': () =>
@@ -1430,6 +1448,8 @@ ${v1} 使用该账号。
       `  corgi headless send PROVIDER SESSION JSON   プロンプト、回答、割り込みを送信`,
     '["  corgi headless stop PROVIDER SESSION        stop headless session"]': () =>
       `  corgi headless stop PROVIDER SESSION        ヘッドレスセッションを停止`,
+    '["  corgi help --all              list every command"]': () =>
+      `  corgi help --all              すべてのコマンドを表示`,
     '["  corgi help [COMMAND ...]      show help for a command or group"]': () =>
       `  corgi help [COMMAND ...]      コマンドやグループのヘルプを表示`,
     '["  corgi history [--limit N] [--json]  past conversations, newest first"]': () =>
@@ -1674,6 +1694,7 @@ ${v1} 使用该账号。
     '[""," worktree"]': v0 => `${v0}ワークツリー`,
     '[""," worktrees"]': v0 => `${v0}ワークツリー`,
     '[""," d"]': v0 => `${v0}日`,
+    '[""," for details · "," for everything"]': (v0, v1) => `詳細は ${v0} · すべては ${v1}`,
     '["","/"," done"]': (v0, v1) => `${v0}/${v1}完了`,
     '["","/","+ done"]': (v0, v1) => `${v0}/${v1}+完了`,
     '[""," Down"]': v0 => `${v0} 下へ`,
@@ -1810,6 +1831,8 @@ ${v1} 使用该账号。
     '["Branch names can\'t have spaces, .., or ~^:?*[\\\\"]': () => `ブランチ名に空白、..、~^:?*[\\ は使えません`,
     '["Brief failed"]': () => `要約に失敗`,
     '["Bring your work along"]': () => `作業を引き継ぐ`,
+    '["Build ",""]': v0 => `ビルド ${v0}`,
+    '["Build "," built on ",""]': (v0, v1) => `ビルド ${v0}（${v1}）`,
     '["Build: "]': () => `ビルド：`,
     '["Builds"]': () => `ビルド`,
     '["By activity"]': () => `状態別`,
@@ -1947,6 +1970,7 @@ ${v1} 使用该账号。
     '["Discovering…"]': () => `検出中…`,
     '["Done"]': () => `完了`,
     '["Down"]': () => `下`,
+    '["Download and apply an update"]': () => `更新をダウンロードして適用`,
     '["Download: "]': () => `ダウンロード：`,
     '["Drop an agent here"]': () => `ここにエージェントをドロップ`,
     '["Duplicate variable: ",""]': v0 => `変数が重複しています：${v0}`,
@@ -2013,6 +2037,7 @@ ${v1} 使用该账号。
     '["Half page"]': () => `半ページ`,
     '["Handing off to Corgi"]': () => `Corgiに引き継ぎ中`,
     '["Handoff processes"]': () => `プロセスを引き継ぐ`,
+    '["Happy helper for your terminal."]': () => `ターミナルのごきげんな相棒。`,
     '["Help needs 32 × 12"]': () => `ヘルプには32 × 12以上必要です`,
     '["Hibernate pane"]': () => `ペインを休止`,
     '["Hibernated"]': () => `休止中`,
@@ -2046,6 +2071,7 @@ ${v1} 使用该账号。
     '["It runs in a background session, outside any pane"]': () =>
       `ペインを使わず、バックグラウンドセッションで動作します`,
     '["Its diff starts collapsed. Enter loads it."]': () => `差分は折りたたまれています。Enterで読み込みます。`,
+    '["Join our Discord community:"]': () => `Discordコミュニティに参加：`,
     '["Jump to attention"]': () => `要確認の項目へ移動`,
     '["Jump to who needs you"]': () => `対応待ちのエージェントへ`,
     '["Keep"]': () => `維持`,
@@ -2068,12 +2094,15 @@ ${v1} 使用该账号。
     '["Last visited agent"]': () => `直前のエージェント`,
     '["Last visited tab"]': () => `直前のタブ`,
     '["Last visited workspace"]': () => `直前のワークスペース`,
+    '["Layout"]': () => `レイアウト`,
     '["Layout changes preserve processes and do not select another pane in a viewer."]': () =>
       `レイアウトを変更してもプロセスは維持され、ビューアーの選択ペインも変わりません。`,
+    '["Learn more about Corgi:"]': () => `Corgiについて詳しく：`,
     '["Leave"]': () => `戻る・閉じる`,
     '["Limits"]': () => `上限`,
     '["Links · Esc to close"]': () => `リンク · Escで閉じる`,
     '["List"]': () => `一覧`,
+    '["List shortcuts; Ctrl+B opens the menu"]': () => `ショートカット一覧。Ctrl+Bでメニュー`,
     '["List, diff"]': () => `一覧・差分`,
     '["Live handoff unavailable for this session; turn it off to copy."]': () =>
       `このセッションは実行中の引き継ぎに非対応です。オフにするとコピーできます。`,
@@ -2209,6 +2238,7 @@ ${v1} 使用该账号。
     '["PROCESS"]': () => `プロセス`,
     '["Page"]': () => `ページ`,
     '["Partial process coverage"]': () => `一部のプロセスのみ取得`,
+    '["Past conversations, newest first"]': () => `過去の会話を新しい順に表示`,
     '["Paste (host terminal)"]': () => `貼り付け（端末本体）`,
     '["Paste a command…"]': () => `コマンドを貼り付け…`,
     '["Paste copied text"]': () => `コピーしたテキストを貼り付け`,
@@ -2243,6 +2273,7 @@ ${v1} 使用该账号。
     '["Process information unavailable"]': () => `プロセス情報を取得できません`,
     '["Process list may be incomplete"]': () => `プロセス一覧が不完全な可能性があります`,
     '["Processes"]': () => `プロセス`,
+    '["Prompt an agent through its own channel"]': () => `エージェント自身のチャネルでプロンプト`,
     '["Push failed"]': () => `プッシュ失敗`,
     '["Reading branches…"]': () => `ブランチを読み込み中…`,
     '["Reading default account…"]': () => `既定のアカウントを読み込み中…`,
@@ -2273,6 +2304,7 @@ ${v1} 使用该账号。
     '["Rename tab"]': () => `タブ名を変更`,
     '["Rename workspace"]': () => `ワークスペース名を変更`,
     '["Reopen"]': () => `開き直す`,
+    '["Reopen a past conversation"]': () => `過去の会話をもう一度開く`,
     '["Reopen directly"]': () => `直接開き直す`,
     '["Reopen last closed agent"]': () => `最後に閉じたエージェントを再開`,
     '["Reopen tab"]': () => `タブを開き直す`,
@@ -2316,6 +2348,7 @@ ${v1} 使用该账号。
     '["Scroll / copy"]': () => `スクロール / コピー`,
     '["Scroll / copy mode"]': () => `スクロール・コピーモード`,
     '["Search"]': () => `検索`,
+    '["Search conversation text"]': () => `会話の本文を検索`,
     '["Search models"]': () => `モデルを検索`,
     '["Search models, agents and accounts"]': () => `モデル、エージェント、アカウントを検索`,
     '["Select"]': () => `選択`,
@@ -2348,6 +2381,7 @@ ${v1} 使用该账号。
     '["Shortcuts reloaded; could not update the Ghostty integration."]': () =>
       `ショートカットを再読み込みしましたが、Ghostty連携を更新できませんでした。`,
     '["Show"]': () => `表示`,
+    '["Show a folder\'s workspace, or add one"]': () => `フォルダーのワークスペースを表示`,
     '["Show less"]': () => `折りたたむ`,
     '["Show resources"]': () => `リソースを表示`,
     '["Show startup waits"]': () => `起動待ちを表示`,
@@ -2370,6 +2404,8 @@ ${v1} 使用该账号。
     '["Star"]': () => `スター`,
     '["Star / unstar agent"]': () => `エージェントのスター切り替え`,
     '["Star / unstar headless agent"]': () => `ヘッドレスエージェントのスター切り替え`,
+    '["Start"]': () => `起動`,
+    '["Start Corgi or attach to it"]': () => `Corgiを起動、または接続`,
     '["Starting"]': () => `起動中`,
     '["Starting session"]': () => `セッションを開始中`,
     '["Startup waits: enlarge terminal · Esc to close"]': () => `起動待ち：端末を広げてください · Esc で閉じる`,
@@ -2525,6 +2561,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["Window"]': () => `期間`,
     '["Working"]': () => `作業中`,
     '["Workspace only · opens a new shell"]': () => `ワークスペースのみ · 新しいシェルを開く`,
+    '["Workspaces, tabs, panes and agents"]': () => `ワークスペース、タブ、ペイン、エージェント`,
     '["Worktree briefs"]': () => `ワークツリー要約`,
     '["Worktree folder"]': () => `ワークツリーフォルダー`,
     '["Worktrees: enlarge terminal · Esc to close"]': () => `ワークツリー：端末を広げてください · Escで閉じる`,
@@ -2820,8 +2857,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["  SKIP if a Corgi skill is already in your context. Otherwise run: corgi --skill"]': () =>
       `  컨텍스트에 이미 Corgi 스킬이 있으면 건너뛰세요. 없다면 실행: corgi --skill`,
     '["  corgi                         start / attach"]': () => `  corgi                         시작 / 연결`,
-    '["  corgi --help                  list all commands (also -h)"]': () =>
-      `  corgi --help                  모든 명령 표시(-h도 가능)`,
+    '["  corgi --help                  list common commands (also -h)"]': () =>
+      `  corgi --help                  자주 쓰는 명령 표시(-h도 가능)`,
     '["  corgi --no-update             attach without activating a staged update"]': () =>
       `  corgi --no-update             준비된 업데이트를 적용하지 않고 연결`,
     '["  corgi --skill                      print bundled agent instructions"]': () =>
@@ -2852,6 +2889,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
       `  corgi headless send PROVIDER SESSION JSON   프롬프트, 응답 또는 중단`,
     '["  corgi headless stop PROVIDER SESSION        stop headless session"]': () =>
       `  corgi headless stop PROVIDER SESSION        백그라운드 세션 중지`,
+    '["  corgi help --all              list every command"]': () => `  corgi help --all              모든 명령 표시`,
     '["  corgi help [COMMAND ...]      show help for a command or group"]': () =>
       `  corgi help [COMMAND ...]      명령 또는 명령 그룹의 도움말`,
     '["  corgi history [--limit N] [--json]  past conversations, newest first"]': () =>
@@ -3094,6 +3132,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[""," worktree"]': v0 => `작업 트리 ${v0}개`,
     '[""," worktrees"]': v0 => `작업 트리 ${v0}개`,
     '[""," d"]': v0 => `${v0}일`,
+    '[""," for details · "," for everything"]': (v0, v1) => `자세히: ${v0} · 전체: ${v1}`,
     '["","/"," done"]': (v0, v1) => `${v0}/${v1} 완료`,
     '["","/","+ done"]': (v0, v1) => `${v0}/${v1}+ 완료`,
     '[""," Down"]': v0 => `${v0} 아래`,
@@ -3232,6 +3271,8 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
       `브랜치 이름에는 공백, .., ~^:?*[\\를 넣을 수 없습니다`,
     '["Brief failed"]': () => `요약 실패`,
     '["Bring your work along"]': () => `하던 작업을 가져오세요`,
+    '["Build ",""]': v0 => `빌드 ${v0}`,
+    '["Build "," built on ",""]': (v0, v1) => `빌드 ${v0} (${v1})`,
     '["Build: "]': () => `빌드: `,
     '["Builds"]': () => `빌드`,
     '["By activity"]': () => `활동순`,
@@ -3368,6 +3409,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Discovering…"]': () => `검색 중…`,
     '["Done"]': () => `완료`,
     '["Down"]': () => `아래`,
+    '["Download and apply an update"]': () => `업데이트 다운로드 후 적용`,
     '["Download: "]': () => `다운로드: `,
     '["Drop an agent here"]': () => `에이전트를 여기로 끌어오세요`,
     '["Duplicate variable: ",""]': v0 => `중복 변수: ${v0}`,
@@ -3434,6 +3476,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Half page"]': () => `반 페이지`,
     '["Handing off to Corgi"]': () => `Corgi로 인계 중`,
     '["Handoff processes"]': () => `프로세스 인계`,
+    '["Happy helper for your terminal."]': () => `터미널의 즐거운 도우미.`,
     '["Help needs 32 × 12"]': () => `도움말에는 32 × 12 필요`,
     '["Hibernate pane"]': () => `창 최대 절전 모드`,
     '["Hibernated"]': () => `최대 절전 모드`,
@@ -3466,6 +3509,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
       `viewer.json이 올바르지 않아 파일을 수정할 때까지 기본 설정을 사용합니다.`,
     '["It runs in a background session, outside any pane"]': () => `패널이 아닌 백그라운드 세션에서 실행 중입니다`,
     '["Its diff starts collapsed. Enter loads it."]': () => `차이는 접힌 상태로 시작합니다. Enter로 불러오세요.`,
+    '["Join our Discord community:"]': () => `Discord 커뮤니티 참여:`,
     '["Jump to attention"]': () => `확인할 항목으로 이동`,
     '["Jump to who needs you"]': () => `응답이 필요한 에이전트로 이동`,
     '["Keep"]': () => `유지`,
@@ -3488,12 +3532,15 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Last visited agent"]': () => `직전 에이전트`,
     '["Last visited tab"]': () => `직전 탭`,
     '["Last visited workspace"]': () => `직전 작업 공간`,
+    '["Layout"]': () => `레이아웃`,
     '["Layout changes preserve processes and do not select another pane in a viewer."]': () =>
       `레이아웃을 변경해도 프로세스를 유지하며 클라이언트의 선택된 패널은 바뀌지 않습니다.`,
+    '["Learn more about Corgi:"]': () => `Corgi 더 알아보기:`,
     '["Leave"]': () => `나가기`,
     '["Limits"]': () => `한도`,
     '["Links · Esc to close"]': () => `링크 · Esc 닫기`,
     '["List"]': () => `목록`,
+    '["List shortcuts; Ctrl+B opens the menu"]': () => `단축키 목록, Ctrl+B로 메뉴 열기`,
     '["List, diff"]': () => `목록, 차이`,
     '["Live handoff unavailable for this session; turn it off to copy."]': () =>
       `이 세션은 실행 중인 프로세스를 인계할 수 없습니다. 인계를 끄면 복사합니다.`,
@@ -3627,6 +3674,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["PROCESS"]': () => `프로세스`,
     '["Page"]': () => `페이지`,
     '["Partial process coverage"]': () => `일부 프로세스만 포함`,
+    '["Past conversations, newest first"]': () => `이전 대화를 최신순으로 표시`,
     '["Paste (host terminal)"]': () => `붙여넣기(호스트 터미널)`,
     '["Paste a command…"]': () => `명령 붙여넣기…`,
     '["Paste copied text"]': () => `복사한 텍스트 붙여넣기`,
@@ -3661,6 +3709,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Process information unavailable"]': () => `프로세스 정보를 사용할 수 없습니다`,
     '["Process list may be incomplete"]': () => `프로세스 목록이 불완전할 수 있습니다`,
     '["Processes"]': () => `프로세스`,
+    '["Prompt an agent through its own channel"]': () => `에이전트 자체 채널로 프롬프트 보내기`,
     '["Push failed"]': () => `푸시 실패`,
     '["Reading branches…"]': () => `브랜치 불러오는 중…`,
     '["Reading default account…"]': () => `기본 계정 확인 중…`,
@@ -3690,6 +3739,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Rename tab"]': () => `탭 이름 변경`,
     '["Rename workspace"]': () => `작업 공간 이름 변경`,
     '["Reopen"]': () => `다시 열기`,
+    '["Reopen a past conversation"]': () => `이전 대화 다시 열기`,
     '["Reopen directly"]': () => `직접 다시 열기`,
     '["Reopen last closed agent"]': () => `마지막으로 닫은 에이전트 열기`,
     '["Reopen tab"]': () => `탭 다시 열기`,
@@ -3733,6 +3783,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Scroll / copy"]': () => `스크롤 / 복사`,
     '["Scroll / copy mode"]': () => `스크롤 / 복사 모드`,
     '["Search"]': () => `검색`,
+    '["Search conversation text"]': () => `대화 본문 검색`,
     '["Search models"]': () => `모델 검색`,
     '["Search models, agents and accounts"]': () => `모델, 에이전트, 계정 검색`,
     '["Select"]': () => `선택`,
@@ -3765,6 +3816,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Shortcuts reloaded; could not update the Ghostty integration."]': () =>
       `단축키를 다시 불러왔지만 Ghostty 연동은 갱신하지 못했습니다.`,
     '["Show"]': () => `표시`,
+    '["Show a folder\'s workspace, or add one"]': () => `폴더의 작업 공간 표시, 없으면 생성`,
     '["Show less"]': () => `접기`,
     '["Show resources"]': () => `리소스 표시`,
     '["Show startup waits"]': () => `시작 대기 표시`,
@@ -3787,6 +3839,8 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Star"]': () => `즐겨찾기`,
     '["Star / unstar agent"]': () => `에이전트 즐겨찾기 / 해제`,
     '["Star / unstar headless agent"]': () => `백그라운드 에이전트 즐겨찾기 / 해제`,
+    '["Start"]': () => `시작`,
+    '["Start Corgi or attach to it"]': () => `Corgi 시작 또는 연결`,
     '["Starting"]': () => `시작 중`,
     '["Starting session"]': () => `세션 시작 중`,
     '["Startup waits: enlarge terminal · Esc to close"]': () => `시작 대기: 터미널을 확대하세요 · Esc 닫기`,
@@ -3943,6 +3997,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["Window"]': () => `기간`,
     '["Working"]': () => `작업 중`,
     '["Workspace only · opens a new shell"]': () => `작업 공간만 · 새 셸 열기`,
+    '["Workspaces, tabs, panes and agents"]': () => `작업 공간, 탭, 패널, 에이전트`,
     '["Worktree briefs"]': () => `작업 트리 요약`,
     '["Worktree folder"]': () => `작업 트리 폴더`,
     '["Worktrees: enlarge terminal · Esc to close"]': () => `작업 트리: 터미널을 늘려 주세요 · Esc 닫기`,
@@ -4239,8 +4294,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       `  ПРОПУСТИТЕ, если навык Corgi уже есть в контексте. Иначе выполните: corgi --skill`,
     '["  corgi                         start / attach"]': () =>
       `  corgi                         запустить / подключиться`,
-    '["  corgi --help                  list all commands (also -h)"]': () =>
-      `  corgi --help                  список всех команд (также -h)`,
+    '["  corgi --help                  list common commands (also -h)"]': () =>
+      `  corgi --help                  основные команды (также -h)`,
     '["  corgi --no-update             attach without activating a staged update"]': () =>
       `  corgi --no-update             подключиться без применения подготовленного обновления`,
     '["  corgi --skill                      print bundled agent instructions"]': () =>
@@ -4271,6 +4326,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       `  corgi headless send PROVIDER SESSION JSON   запрос, ответ или прерывание`,
     '["  corgi headless stop PROVIDER SESSION        stop headless session"]': () =>
       `  corgi headless stop PROVIDER SESSION        остановить фоновый сеанс`,
+    '["  corgi help --all              list every command"]': () =>
+      `  corgi help --all              список всех команд`,
     '["  corgi help [COMMAND ...]      show help for a command or group"]': () =>
       `  corgi help [COMMAND ...]      справка по команде или группе`,
     '["  corgi history [--limit N] [--json]  past conversations, newest first"]': () =>
@@ -4842,6 +4899,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       }
     },
     '[""," d"]': v0 => `${v0} дн.`,
+    '[""," for details · "," for everything"]': (v0, v1) => `${v0} — подробности · ${v1} — все команды`,
     '["","/"," done"]': (v0, v1) => `готово ${v0}/${v1}`,
     '["","/","+ done"]': (v0, v1) => `готово ${v0}/${v1}+`,
     '[""," Down"]': v0 => `${v0} Вниз`,
@@ -5031,6 +5089,8 @@ profile/ID, имя копии или command/N — как в выводе launch
       `В имени ветки нельзя использовать пробелы, .. и ~^:?*[\\`,
     '["Brief failed"]': () => `Не удалось составить описание`,
     '["Bring your work along"]': () => `Перенесите свою работу`,
+    '["Build ",""]': v0 => `Сборка ${v0}`,
+    '["Build "," built on ",""]': (v0, v1) => `Сборка ${v0} от ${v1}`,
     '["Build: "]': () => `Сборка: `,
     '["Builds"]': () => `Сборки`,
     '["By activity"]': () => `По активности`,
@@ -5196,6 +5256,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Discovering…"]': () => `Поиск…`,
     '["Done"]': () => `Готово`,
     '["Down"]': () => `Вниз`,
+    '["Download and apply an update"]': () => `Скачать и применить обновление`,
     '["Download: "]': () => `Скачать: `,
     '["Drop an agent here"]': () => `Перетащите агента сюда`,
     '["Duplicate variable: ",""]': v0 => `Повторяющаяся переменная: ${v0}`,
@@ -5263,6 +5324,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Half page"]': () => `Полстраницы`,
     '["Handing off to Corgi"]': () => `Передача в Corgi`,
     '["Handoff processes"]': () => `Передать процессы`,
+    '["Happy helper for your terminal."]': () => `Весёлый помощник для вашего терминала.`,
     '["Help needs 32 × 12"]': () => `Для справки нужно окно 32 × 12`,
     '["Hibernate pane"]': () => `Перевести панель в спящий режим`,
     '["Hibernated"]': () => `В спящем режиме`,
@@ -5295,6 +5357,7 @@ profile/ID, имя копии или command/N — как в выводе launch
       `Ошибка в viewer.json; до исправления файла используются настройки по умолчанию.`,
     '["It runs in a background session, outside any pane"]': () => `Работает в фоновом сеансе, вне панелей`,
     '["Its diff starts collapsed. Enter loads it."]': () => `Изменения изначально свёрнуты. Enter загружает их.`,
+    '["Join our Discord community:"]': () => `Наше сообщество в Discord:`,
     '["Jump to attention"]': () => `Перейти к требующему внимания`,
     '["Jump to who needs you"]': () => `Перейти к тому, кому вы нужны`,
     '["Keep"]': () => `Оставить`,
@@ -5317,12 +5380,15 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Last visited agent"]': () => `Последний выбранный агент`,
     '["Last visited tab"]': () => `Последняя выбранная вкладка`,
     '["Last visited workspace"]': () => `Последнее выбранное пространство`,
+    '["Layout"]': () => `Расположение`,
     '["Layout changes preserve processes and do not select another pane in a viewer."]': () =>
       `Изменение расположения сохраняет процессы и не переключает панель клиента.`,
+    '["Learn more about Corgi:"]': () => `Подробнее о Corgi:`,
     '["Leave"]': () => `Выйти`,
     '["Limits"]': () => `Лимиты`,
     '["Links · Esc to close"]': () => `Ссылки · Esc закрыть`,
     '["List"]': () => `Список`,
+    '["List shortcuts; Ctrl+B opens the menu"]': () => `Сочетания клавиш; Ctrl+B — меню`,
     '["List, diff"]': () => `Список, изменения`,
     '["Live handoff unavailable for this session; turn it off to copy."]': () =>
       `Передача процессов для этого сеанса недоступна; отключите её для копирования.`,
@@ -5458,6 +5524,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["PROCESS"]': () => `ПРОЦЕСС`,
     '["Page"]': () => `Страница`,
     '["Partial process coverage"]': () => `Неполные данные о процессах`,
+    '["Past conversations, newest first"]': () => `Прошлые диалоги, сначала новые`,
     '["Paste (host terminal)"]': () => `Вставить (терминал)`,
     '["Paste a command…"]': () => `Вставьте команду…`,
     '["Paste copied text"]': () => `Вставить скопированный текст`,
@@ -5493,6 +5560,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Process information unavailable"]': () => `Информация о процессах недоступна`,
     '["Process list may be incomplete"]': () => `Список процессов может быть неполным`,
     '["Processes"]': () => `Процессы`,
+    '["Prompt an agent through its own channel"]': () => `Запрос через собственный канал агента`,
     '["Push failed"]': () => `Не удалось отправить`,
     '["Reading branches…"]': () => `Чтение веток…`,
     '["Reading default account…"]': () => `Чтение основного аккаунта…`,
@@ -5523,6 +5591,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Rename tab"]': () => `Переименовать вкладку`,
     '["Rename workspace"]': () => `Переименовать пространство`,
     '["Reopen"]': () => `Открыть снова`,
+    '["Reopen a past conversation"]': () => `Снова открыть прошлый диалог`,
     '["Reopen directly"]': () => `Открыть снова напрямую`,
     '["Reopen last closed agent"]': () => `Открыть последнего закрытого агента`,
     '["Reopen tab"]': () => `Открыть вкладку снова`,
@@ -5566,6 +5635,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Scroll / copy"]': () => `Прокрутка / копирование`,
     '["Scroll / copy mode"]': () => `Режим прокрутки / копирования`,
     '["Search"]': () => `Поиск`,
+    '["Search conversation text"]': () => `Поиск по тексту диалогов`,
     '["Search models"]': () => `Поиск моделей`,
     '["Search models, agents and accounts"]': () => `Поиск моделей, агентов и аккаунтов`,
     '["Select"]': () => `Выбрать`,
@@ -5622,6 +5692,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Shortcuts reloaded; could not update the Ghostty integration."]': () =>
       `Сочетания перечитаны; не удалось обновить интеграцию с Ghostty.`,
     '["Show"]': () => `Показать`,
+    '["Show a folder\'s workspace, or add one"]': () => `Пространство папки; создать, если нет`,
     '["Show less"]': () => `Свернуть`,
     '["Show resources"]': () => `Показать ресурсы`,
     '["Show startup waits"]': () => `Показать ожидающие запуски`,
@@ -5644,6 +5715,8 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Star"]': () => `В избранное`,
     '["Star / unstar agent"]': () => `Добавить / убрать агента из избранного`,
     '["Star / unstar headless agent"]': () => `Добавить / убрать фонового агента из избранного`,
+    '["Start"]': () => `Запуск`,
+    '["Start Corgi or attach to it"]': () => `Запустить Corgi или подключиться`,
     '["Starting"]': () => `Запуск`,
     '["Starting session"]': () => `Запуск сеанса`,
     '["Startup waits: enlarge terminal · Esc to close"]': () => `Ожидание запуска: увеличьте терминал · Esc — закрыть`,
@@ -5800,6 +5873,7 @@ ${v1}, чтобы использовать этот аккаунт.
     '["Window"]': () => `Период`,
     '["Working"]': () => `Работает`,
     '["Workspace only · opens a new shell"]': () => `Только пространство · открывает новую оболочку`,
+    '["Workspaces, tabs, panes and agents"]': () => `Пространства, вкладки, панели, агенты`,
     '["Worktree briefs"]': () => `Описания рабочих деревьев`,
     '["Worktree folder"]': () => `Папка рабочего дерева`,
     '["Worktrees: enlarge terminal · Esc to close"]': () => `Рабочие деревья: увеличьте терминал · Esc закрыть`,

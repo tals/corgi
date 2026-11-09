@@ -29,17 +29,26 @@ export function of(version: string, commit: string, built_at = ""): Label {
 export function short(l: Label): string {
   return l.commit.slice(0, 7);
 }
+/** The commit's page; "" when unknown. */
+export function url(l: Label): string {
+  return l.commit.length > 0 ? `https://github.com/tals/corgi/commit/${l.commit}` : "";
+}
+/** "2026-09-25 18:30", the local build time; "" when unknown. */
+export function time(l: Label): string {
+  if (l.built_ms === null) return "";
+  const d = new Date(l.built_ms),
+    two = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
 /** "2026-09-25 18:30 · ", "be82c7b" and "-dirty": the local build time, the
  * short commit and its mark, each "" when unknown. */
 export function parts(l: Label): [string, string, string] {
-  let built = "";
-  if (l.built_ms !== null) {
-    const d = new Date(l.built_ms),
-      two = (n: number) => String(n).padStart(2, "0");
-    built = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
-    if (l.commit.length > 0) built += " · ";
-  }
-  return [built, short(l), l.commit.length > 0 && l.dirty ? "-dirty" : ""];
+  const built = time(l);
+  return [
+    built && l.commit.length > 0 ? built + " · " : built,
+    short(l),
+    l.commit.length > 0 && l.dirty ? "-dirty" : "",
+  ];
 }
 /** "2026-09-25 18:30 · be82c7b". */
 export function text(l: Label): string {

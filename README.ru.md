@@ -58,7 +58,7 @@ corgi message 3 'run the tests'
 corgi pane read 3 --lines 50
 ```
 
-`corgi --help` выводит список команд, а `corgi --skill` — инструкции для агентов.
+`corgi --help` выводит основные команды, `corgi help --all` — все команды, а `corgi --skill` — инструкции для агентов.
 
 ## Удаление
 

@@ -369,8 +369,6 @@ const list_w = 26;
 /** A pointer that reached the row this recently and drifts a column right is
  * still sliding down the list, not turning toward the options. */
 const aim_settle_ms = 100;
-/** The source of a commit the top border names. */
-const commit_url = "https://github.com/tals/corgi/commit/";
 const spaceship_rows = 8;
 const acknowledgements = () =>
   [
@@ -1073,7 +1071,7 @@ export class Menu implements LinkSource {
       const spot = this.releaseAt(l);
       if (spot === null || x < spot.link || x >= spot.link + displayWidth(releaseLabel.short(this.release)))
         return null;
-      return { url: commit_url + this.release.commit };
+      return { url: releaseLabel.url(this.release) };
     }
     if (this.item === "agents" && this.agents && !(l.single && this.focus === "list")) {
       const area = managerArea(l);
@@ -1197,7 +1195,7 @@ export class Menu implements LinkSource {
     const [built, commit, mark] = releaseLabel.parts(this.release);
     w.write(at(spot.x, l.b.y) + panel + " " + buildPrefix() + built);
     if (commit.length > 0)
-      w.write(`${hint_key}\x1b]8;;${commit_url}${this.release.commit}\x1b\\\x1b[4m${commit}\x1b[24m\x1b]8;;\x1b\\`);
+      w.write(`${hint_key}\x1b]8;;${releaseLabel.url(this.release)}\x1b\\\x1b[4m${commit}\x1b[24m\x1b]8;;\x1b\\`);
     w.write(panel + mark + " ");
   }
   private drawList(w: Writer, x: number, y: number, width: number, body: number, s: Status, prefs: Preferences) {

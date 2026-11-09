@@ -202,6 +202,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     const humanHelp = agent ? help : cli_help.main().replace("\n\n\n\n", `\n\n${actionNames}\n\n`);
     const commandHelp = agent ? cli.help : cli.localizedHelp();
     const topic = (command === "help" ? args.slice(1) : args).filter(arg => arg !== "--help" && arg !== "-h");
+    // Agents get the full reference; people get the overview, which points to it.
+    const reference = humanHelp + "\n" + commandHelp;
     switch (topic[0]) {
       case "account": {
         const account = await import("./account_command");
@@ -213,12 +215,13 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         process.stdout.write(agent ? integration.help : integration.localizedHelp());
         break;
       }
+      case "--all":
+        process.stdout.write(reference);
+        break;
       default:
-        process.stdout.write(
-          topic.length
-            ? cli.helpFor(cli.handles(topic) ? commandHelp : humanHelp, topic, agent)
-            : humanHelp + "\n" + commandHelp,
-        );
+        if (topic.length) process.stdout.write(cli.helpFor(cli.handles(topic) ? commandHelp : humanHelp, topic, agent));
+        else if (agent) process.stdout.write(reference);
+        else process.stdout.write(cli_help.overview(process.stdout.isTTY === true && !process.env.NO_COLOR));
         if (topic[0] === "action") process.stdout.write("\n" + actionNames + "\n");
         break;
     }

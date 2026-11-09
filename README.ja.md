@@ -58,7 +58,7 @@ corgi message 3 'run the tests'
 corgi pane read 3 --lines 50
 ```
 
-`corgi --help` でコマンド一覧を、`corgi --skill` でエージェント向けの操作手順を表示できます。
+`corgi --help` でよく使うコマンドを、`corgi help --all` で全コマンドを、`corgi --skill` でエージェント向けの操作手順を表示できます。
 
 ## アンインストール
 
