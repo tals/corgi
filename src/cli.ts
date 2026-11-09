@@ -949,7 +949,7 @@ export function read(text: string, lines: number, agent = false): string {
 }
 /** Whether prompt chat `chat` keeps memory. One that ended, or a Corgi
  * that doesn't answer, can't say it doesn't. */
-async function keepsMemory(daemon: rpc_http.Client, chat: number): Promise<boolean> {
+async function keepsMemory(daemon: rpc_http.Daemon, chat: number): Promise<boolean> {
   try {
     const reply: any = await daemon.call("headless.list");
     return (reply.sessions ?? []).find((s: any) => s?.id === chat)?.persist !== false;
@@ -959,7 +959,7 @@ async function keepsMemory(daemon: rpc_http.Client, chat: number): Promise<boole
 }
 /** Runs a control command and prints its reply in words, or with `--json` as
  * the daemon sent it. */
-export async function run(daemon: rpc_http.Client, args: string[], agent = false): Promise<void> {
+export async function run(daemon: rpc_http.Daemon, args: string[], agent = false): Promise<void> {
   const group = args[0];
   if (group === "grep") {
     await (await import("./grep_command")).run(args.slice(1), daemon);

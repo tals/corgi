@@ -43,6 +43,19 @@ function rejected(reason: unknown): void {
 export async function attach(path: string, folder: string | null = null): Promise<void> {
   return attachMode(path, "local", { folder });
 }
+/** Opens on `selected`, another machine's daemon or the local one. */
+export async function attachMachines(
+  path: string,
+  selected = "local",
+  folder: string | null = null,
+  start_local?: () => Promise<void>,
+): Promise<void> {
+  return attachMode(path, selected, { folder, start_local });
+}
+/** The local viewer alone, without the saved machines. */
+export async function attachLocal(path: string): Promise<void> {
+  return attachMode(path, "local", { machines: false });
+}
 export async function onboard(path: string): Promise<void> {
   return attachMode(path, "local", { onboarding: true });
 }

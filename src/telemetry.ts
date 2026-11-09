@@ -5,6 +5,8 @@ import { isMainThread, threadId } from "node:worker_threads";
 
 export const names = [
   "remote.connection",
+  "remote.race",
+  "remote.transport",
   "remote.rpc",
   "remote.stream.window",
   "daemon.collect",

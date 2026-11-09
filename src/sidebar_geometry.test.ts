@@ -109,3 +109,34 @@ test("controller pane geometry agrees with its complete sidebar without construc
     view.runtime.destroy();
   }
 });
+
+test("machine headers share geometry with workspace hits, drops and scrolling", () => {
+  const machines = ["local", "local", "work", "local", "work"];
+  const view = View.init(100, 50, true, 0, 0, 24).withWorkspaces(5, 0, machines);
+  expect(machines.map((_, i) => view.workspaceY(i))).toEqual([3, 6, 10, 14, 18]);
+  for (let i = 0; i < machines.length; i++) {
+    const y = view.workspaceY(i);
+    expect(view.hit(3, y)).toEqual({ tag: "workspace", workspace: i });
+    expect(view.workspaceAt(y + 2, 2)).toBe(i);
+    if (view.workspaceHeader(i)) expect(view.hit(3, y - 1)).toEqual({ tag: "none" });
+    expect(view.workspaceDrop(3, y)?.index).toBe(i);
+  }
+  const scrolled = View.init(100, 24, true, 0, 0, 24).withWorkspaces(5, 1, machines);
+  expect(scrolled.workspaceHeader(1)).toBe(true);
+  expect(scrolled.workspaceY(1)).toBe(3);
+  expect(scrolled.hit(3, 3)).toEqual({ tag: "workspace", workspace: 1 });
+});
+
+test("workspace reveal and scroll limits account for each machine header", () => {
+  const machines = ["local", "local", "local", "work", "local", "work", "work"];
+  for (const rows of [13, 16, 24, 30, 50]) {
+    const view = View.init(100, rows, true, 0, 0, 24).withWorkspaces(machines.length, 0, machines);
+    const end = view.withWorkspaces(machines.length, 999, machines);
+    expect(end.workspace_offset + end.workspaceCapacity()).toBe(machines.length);
+    for (let i = 0; i < machines.length; i++) {
+      const shown = view.withWorkspaces(machines.length, view.workspaceReveal(i), machines);
+      expect(i).toBeGreaterThanOrEqual(shown.workspace_offset);
+      expect(i).toBeLessThan(shown.workspace_offset + shown.workspaceCapacity());
+    }
+  }
+});

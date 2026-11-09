@@ -85,6 +85,13 @@ function once(socket: string, value: unknown, limit_ms: number, signal?: AbortSi
     request.end(body);
   });
 }
+/** A daemon to ask: over HTTP, or over a connection a command already has
+ * open, as one to another machine. `socket` is where it listens here. */
+export interface Daemon {
+  readonly socket: string;
+  call<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Reply<K>>;
+  request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
+}
 /** The daemon at `socket`, asked over HTTP: each request is its own POST. */
 export class Client {
   constructor(readonly socket: string) {}

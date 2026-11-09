@@ -716,3 +716,48 @@ test("updates remove releases two behind, except one another runtime runs", asyn
     await exec([bin, "shutdown"], secondEnv, false);
   }
 }, 120_000);
+
+// Setup installs this build over release 1.0.0, which must speak its protocol.
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "machine setup activates the canonical installation and preserves live shells",
+  async () => {
+    await cli(["start"]);
+    const session = await rpc({ op: "session.snapshot" });
+    await rpc({
+      op: "session.command",
+      command: { "pane.create": { workspace: session.workspaces[0].id, cwd: home, command: "exec /bin/sh" } },
+    });
+    const before = await rpc({ op: "session.snapshot" });
+    const old = join(root, "releases/1.0.0/corgi");
+    const expected = sha(await readFile(old));
+    const manifest = join(home, "incoming.json");
+    await writeFile(manifest, manifests.get("1.0.1")!);
+    const result = await exec([fixture("1.0.1"), "__machine-install", old, expected, manifest]);
+    expect(JSON.parse(result.out).executable).toBe(await realpath(join(root, "releases/1.0.1/corgi")));
+    expect((await readFile(join(root, "current"), "utf8")).trim()).toBe("1.0.1");
+    expect((await rpc({ op: "session.snapshot" })).panes[0].pid).toBe(before.panes[0].pid);
+    expect((await rpc({ op: "hello" })).executable).toBe(await realpath(join(root, "releases/1.0.1/corgi")));
+  },
+  30_000,
+);
+
+test("machine setup refuses an installation changed since discovery", async () => {
+  const old = join(root, "releases/1.0.0/corgi");
+  const manifest = join(home, "incoming.json");
+  await writeFile(manifest, manifests.get("1.0.1")!);
+  const result = await exec([fixture("1.0.1"), "__machine-install", old, "0".repeat(64), manifest], env, false);
+  expect(result.code).not.toBe(0);
+  expect(result.err).toContain("InstallationChanged");
+  expect((await readFile(join(root, "current"), "utf8")).trim()).toBe("1.0.0");
+});
+
+test("machine setup bootstraps a single standalone command and refuses wrappers", async () => {
+  const destination = join(home, "standalone/corgi");
+  const result = await exec([EXE, "__machine-install", destination, "", ""]);
+  expect(JSON.parse(result.out).executable).toBe(destination);
+  expect(sha(await readFile(destination))).toBe(sha(await readFile(EXE)));
+  await writeFile(destination, "#!/bin/sh\nexit 0\n");
+  const refused = await exec([EXE, "__machine-install", destination, sha(await readFile(destination)), ""], env, false);
+  expect(refused.err).toContain("CannotReplaceCorgiWrapper");
+  expect(await readFile(destination, "utf8")).toBe("#!/bin/sh\nexit 0\n");
+});

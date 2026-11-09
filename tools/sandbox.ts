@@ -24,6 +24,8 @@ export interface World {
   seed(s: Sandbox): void;
   /** Opens the workspaces and tabs on a runtime that has none. */
   arrange(s: Sandbox): void | Promise<void>;
+  /** Stops owned services before the runtime and its world are removed. */
+  shutdown?(s: Sandbox): void | Promise<void>;
   /** What to try, printed before the viewer attaches; `table` lays out keys. */
   intro(s: Sandbox): string[];
 }
@@ -47,7 +49,7 @@ export async function open(name: string, root: string, exe: string, fresh: boole
   const s = new Sandbox(name, ((await import(file)) as { world: World }).world, root, exe);
   console.error(`corgi: sandbox ${name} (${s.dir})`);
   if (fresh) {
-    s.shutdown();
+    await s.shutdown();
     rmSync(s.dir, { recursive: true, force: true });
   }
   s.prepareHome();
@@ -202,7 +204,8 @@ export class Sandbox {
   running(): boolean {
     return spawnSync(this.exe, ["ping"], { env: this.env, stdio: "ignore" }).status === 0;
   }
-  shutdown(): void {
+  async shutdown(): Promise<void> {
+    await this.world.shutdown?.(this);
     if (existsSync(this.env.CORGI_SOCKET) && this.running())
       spawnSync(this.exe, ["shutdown"], { env: this.env, stdio: "ignore" });
   }
@@ -213,7 +216,10 @@ export class Sandbox {
     mkdirSync(join(this.dir, "run"), { recursive: true, mode: 0o700 });
     chmodSync(join(this.dir, "run"), 0o700);
     for (const name of ["claude", "codex"]) {
-      writeFileSync(join(this.home, "bin", name), `#!${process.execPath}\n${agent}`);
+      writeFileSync(
+        join(this.home, "bin", name),
+        `#!${process.execPath}\nimport { Editor, Parser } from ${JSON.stringify(join(this.root, "tools/sandbox_input.ts"))};\n${agent}`,
+      );
       chmodSync(join(this.home, "bin", name), 0o700);
     }
     writeFileSync(
@@ -350,6 +356,8 @@ const option = flag => {
 };
 const task = option('--sandbox-name');
 const initial = option('--sandbox-state');
+const interval = Number(option('--sandbox-interval')) || 0;
+let progress = null;
 if (task && provider === 'claude')
   appendFileSync(transcript, JSON.stringify({ type: 'custom-title', sessionId: session, customTitle: task }) + '\n');
 let turn = 0;
@@ -362,12 +370,46 @@ function event(name) {
     ? { type: 'event_msg', timestamp: new Date().toISOString(), payload: { type: 'task_complete', turn_id: String(turn) } }
     : { type: 'system', subtype: 'turn_duration', sessionId: session, timestamp: new Date().toISOString() }) + '\n');
 }
-const out = s => process.stdout.write(s);
-const title = t => out('\x1b]2;' + t + '\x07');
-let line = '', pasted = '', pasting = false, busy = false;
-function prompt() { out('\r\x1b[2K› ' + (pasted ? '\x1b[33m[Pasted text #1 +' + pasted.split('\n').length + ' lines]\x1b[0m ' : '') + line); }
+const input = new Editor(), parser = new Parser();
+let history = '', ready = false, initializing = false;
+const raw = s => process.stdout.write(s);
+const out = s => {
+  if (!ready) return raw(s);
+  history = (history + s.replace(/\x1b\[2K/g, '').replace(/\r/g, '')).slice(-65536);
+  prompt();
+};
+const title = t => raw('\x1b]2;' + t + '\x07');
+let line = '', pasted = '', busy = false;
+function prompt() {
+  if (!ready || initializing) return;
+  const cols = process.stdout.columns || 80, rows = process.stdout.rows || 24;
+  const layout = input.layout(Math.max(8, cols - (provider === 'claude' ? 4 : 3)), provider);
+  const height = Math.min(layout.lines.length, Math.max(1, rows - 5));
+  const skip = Math.max(0, layout.y - height + 1);
+  const transcriptRows = history.trimEnd().split('\n');
+  const top = provider === 'claude' ? rows - height - 2 : Math.min(transcriptRows.length + 2, rows - height - 3);
+  const screen = Array.from({length: rows}, () => '');
+  const visible = transcriptRows.slice(-Math.max(0, top - 2));
+  for (let y = 0; y < visible.length; y++) screen[y] = visible[y];
+  if (provider === 'claude') {
+    screen[top - 1] = '─'.repeat(cols);
+    screen[top + height] = '─'.repeat(cols);
+  }
+  for (let y = 0; y < height; y++) screen[top + y] = (y === 0 ? (provider === 'claude' ? '❯\u00a0' : '› ') : '  ') + layout.lines[skip + y];
+  screen[top + height + 1] = (pasted ? '[Pasted text #1 +' + pasted.split('\n').length + ' lines] · ' : '') + 'shortcuts: Shift+Enter newline · Enter send';
+  let output = '\x1b[?2026h\x1b[?25l\x1b[H';
+  for (let y = 0; y < rows; y++) {
+    let row = '';
+    for (const character of screen[y]) { if (Bun.stringWidth(row + character) > cols) break; row += character; }
+    output += '\x1b[' + (y+1) + ';1H\x1b[2K' + row;
+  }
+  output += '\x1b[' + (top + layout.y - skip + 1) + ';' + (layout.x + 3) + 'H\x1b[?25h\x1b[?2026l';
+  raw(output);
+}
 function begin() {
-  out('\x1b[2J\x1b[H\x1b[?2004h');
+  raw('\x1b[2J\x1b[H\x1b[?2004h');
+  ready = true;
+  initializing = true;
   title('✳ Ready');
   event('SessionStart');
   out(provider + ' · a fake agent in a Corgi sandbox (' + process.cwd().split('/').pop() + ')\r\n');
@@ -375,16 +417,24 @@ function begin() {
   if (initial) {
     event('UserPromptSubmit');
     out('› ' + task + '\r\n\r\n');
-    for (let i = 0; i < 24; i++)
+    for (let i = 0; i < (interval ? 3 : 24); i++)
       out('  ' + (i + 1) + '. ' + ['Inspecting the existing implementation', 'Following the affected call sites', 'Checking the behavior against tests'][i % 3] + '\r\n');
     if (initial === 'working') {
       title('⠋ Working');
       out('\r\nWorking on: ' + task + '\r\n');
+      if (interval) {
+        let step = 0;
+        progress = setInterval(() => {
+          out('\r\x1b[2K  ' + ++step + '. ' + ['Inspecting a worker', 'Checking a test case', 'Verifying recovery'][step % 3] + '\r\n');
+          prompt();
+        }, Math.max(1, interval) * 1000);
+      }
     } else {
       event('Stop');
       out('\r\nFinished: ' + task + '\r\nReady for review.\r\n');
     }
   }
+  initializing = false;
   prompt();
 }
 // Its first run in a folder no one signed in to: how, then a link.
@@ -400,16 +450,15 @@ function signinScreen() {
   else
     out(" Browser didn't open? Use the url below to sign in (c to copy)\r\n\r\nhttps://claude.com/cai/oauth/authorize?code=true&sandbox=1\r\n\r\n (In this sandbox any word is a code: it signs in as word@example.com.)\r\n Paste code here if prompted > " + line);
 }
-function signinKeys(s) {
-  for (const ch of s) {
-    if (ch === '\r' || ch === '\n') {
-      if (signing === 'method') signing = 'code';
-      else { signIn(line.trim()); signing = null; line = ''; return begin(); }
-    } else if (ch === '\x03') process.exit(0);
-    else if (ch === '\x7f') line = line.slice(0, -1);
-    else if (ch >= ' ' && ch !== '\x1b') line += ch;
-    signinScreen();
-  }
+function signinKeys(data) {
+  const result = input.key(data);
+  line = input.text;
+  if (result === 'submit') {
+    if (signing === 'method') { signing = 'code'; input.clear(); line = ''; }
+    else { signIn(line.trim()); signing = null; input.clear(); line = ''; return begin(); }
+  } else if (result === 'exit') process.exit(0);
+  signinScreen();
+  if (line.length > input.caret) raw('\x1b[' + (line.length - input.caret) + 'D');
 }
 if (signing) signinScreen();
 else begin();
@@ -432,12 +481,13 @@ function address(text) {
   return done;
 }
 function submit() {
-  const text = pasted, command = line.trim();
-  line = ''; pasted = '';
+  const text = pasted, command = input.text.trim();
+  history += '› ' + input.text + '\n';
+  input.clear(); line = ''; pasted = '';
   out('\r\n');
-  if (command === 'exit') { event('SessionEnd'); out('\x1b[?2004l'); process.exit(0); }
+  if (command === 'exit') { event('SessionEnd'); raw('\x1b[?2004l'); process.exit(0); }
   if (command === 'block') { event('PermissionRequest'); title('Action Required'); out('Needs input: type stop to answer.\r\n'); return prompt(); }
-  if (command === 'stop') { event('Stop'); title('✳ Ready'); return prompt(); }
+  if (command === 'stop') { clearInterval(progress); event('Stop'); title('✳ Ready'); return prompt(); }
   if (!text && !command) return prompt();
   event('UserPromptSubmit');
   title('⠋ Working');
@@ -455,29 +505,18 @@ function submit() {
 }
 process.stdin.setRawMode(true);
 process.stdin.on('data', data => {
-  let s = data.toString('utf8');
-  if (signing) return signinKeys(s.replace(/\x1b\[20[01]~/g, ''));
-  while (s.length) {
-    if (pasting) {
-      const end = s.indexOf('\x1b[201~');
-      pasted += (end < 0 ? s : s.slice(0, end)).replace(/\r/g, '\n');
-      if (end < 0) return;
-      s = s.slice(end + 6);
-      pasting = false;
-      prompt();
+  for (const packet of parser.read(data)) {
+    if (packet.kind === 'paste') {
+      if (signing) { input.insert(packet.data); line = input.text; signinScreen(); }
+      else { pasted += packet.data.replace(/\r/g, '\n'); prompt(); }
       continue;
     }
-    const start = s.indexOf('\x1b[200~');
-    const typed = start < 0 ? s : s.slice(0, start);
-    for (const ch of typed) {
-      if (ch === '\r' || ch === '\n') { if (!busy) submit(); }
-      else if (ch === '\x03') { event('SessionEnd'); process.exit(0); }
-      else if (ch === '\x7f') { if (line) line = line.slice(0, -1); else pasted = ''; prompt(); }
-      else if (ch >= ' ' && ch !== '\x1b') { line += ch; prompt(); }
-    }
-    if (start < 0) return;
-    s = s.slice(start + 6);
-    pasting = true;
+    if (signing) { signinKeys(packet.data); continue; }
+    const result = input.key(packet.data);
+    if (result === 'exit') { event('SessionEnd'); raw('\x1b[?2004l'); process.exit(0); }
+    if (result === 'submit') { if (!busy) submit(); }
+    else prompt();
   }
 });
+process.on('SIGWINCH', () => signing ? signinScreen() : prompt());
 `;

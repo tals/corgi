@@ -6,6 +6,7 @@
 import { Connection } from "./rpc";
 import type { Stats } from "./connection_stats";
 import type * as telemetry from "./telemetry";
+import type * as imageUpload from "./image_upload";
 import * as errors from "./errors";
 import * as protocol from "./protocol";
 
@@ -17,10 +18,14 @@ export interface Path {
   open(kind: Kind, stats: Stats, trace: telemetry.Details): Promise<{ connection: Connection; hello: Hello }>;
   /** How long without a frame counts as stalled. */
   stallMs(stats: Stats): number;
+  /** Whether a quiet connection gets a fresh path tried beside it. */
+  readonly races: boolean;
   /** Where the daemon listens for HTTP here, if anywhere. */
   readonly socket: string | null;
   /** Where the machine's new panes open. */
   readonly home: string;
+  /** A pasted image's path on the machine, once it's there. */
+  readonly upload: Upload | null;
   /** What `error` means here, and what to show for it. */
   diagnose(error: unknown): { issue: Issue; detail: string };
   /** What an unfinished `open` is waiting on, in words. */
@@ -28,8 +33,16 @@ export interface Path {
   close(): void;
 }
 export type Hello = protocol.Reply<"hello">;
-/** Makes a path. */
-export type Factory = () => Path;
+export type Upload = (
+  path: string,
+  mime: string,
+  instance: string,
+  signal: AbortSignal,
+  progress?: imageUpload.Progress,
+) => Promise<string>;
+/** Makes a path. `fresh` asks for one that shares nothing with paths before
+ * it; `race` for one tried beside a quiet connection, which gives up sooner. */
+export type Factory = (fresh: boolean, race: boolean) => Path;
 
 /** A connection gone this long without an answer counts as stalled. */
 export const stalled_ms = 1000;
@@ -40,8 +53,10 @@ export function local(socket: string, start?: () => Promise<void>): Factory {
   return () => {
     const opened: Connection[] = [];
     return {
+      races: false,
       socket,
       home: process.cwd(),
+      upload: null,
       async open(_kind, stats, trace) {
         if (!started) {
           await start!();

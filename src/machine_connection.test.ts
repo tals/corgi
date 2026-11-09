@@ -1,3 +1,4 @@
+import { sshEndpoint } from "./ssh_path";
 import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "./fixtures/websocket_server";
@@ -322,70 +323,7 @@ test("a lost connection is retried at once, then after 1, 2, 4, 8 and at most 15
 /** The error a socket nothing listens on gives. */
 const refused = () => Object.assign(Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
 
-test("a daemon that hangs rather than goes ends the viewer under its own name", async () => {
-  const clock = spyOn(performance, "now").mockReturnValue(1000);
-  const endpoint = localEndpoint("/tmp/corgi-gone-test/control.sock", new Probe(), new Host());
-  Reflect.set(endpoint, "connected", true);
-  const step = spyOn(endpoint as any, "step").mockRejectedValue(Error("RequestTimedOut"));
-  try {
-    for (const at of [1000, 7000]) {
-      clock.mockReturnValue(at);
-      Reflect.set(endpoint, "next", 0);
-      endpoint.pump(true);
-      await Reflect.get(endpoint, "task");
-    }
-    expect(endpoint.fatal?.message).toBe("RequestTimedOut");
-  } finally {
-    step.mockRestore();
-    clock.mockRestore();
-    await endpoint.close();
-  }
-});
-
-test("this computer's daemon gone for good ends the viewer; one reloading, or a remote one, is waited for", async () => {
-  const clock = spyOn(performance, "now").mockReturnValue(1000);
-  const fail = async (endpoint: Endpoint, at: number) => {
-    clock.mockReturnValue(at);
-    Reflect.set(endpoint, "next", 0);
-    endpoint.pump(true);
-    await Reflect.get(endpoint, "task");
-  };
-  const local = localEndpoint("/tmp/corgi-gone-test/control.sock", new Probe(), new Host());
-  const reloading = localEndpoint("/tmp/corgi-gone-test/control.sock", new Probe(), new Host());
-  const remote = new Endpoint(
-    "work",
-    true,
-    ["work"],
-    () => ({ ...Reflect.get(local, "sample"), diagnose: () => ({ issue: "error", detail: "" }) }),
-    new Probe(),
-    new Host(),
-  );
-  const steps = [local, reloading, remote].map(endpoint => {
-    Reflect.set(endpoint, "connected", true);
-    return spyOn(endpoint as any, "step").mockRejectedValue(refused());
-  });
-  steps[1].mockRejectedValueOnce(Error("ServerReloading"));
-  try {
-    for (const at of [1000, 3000]) for (const endpoint of [local, reloading, remote]) await fail(endpoint, at);
-    expect(local.fatal).toBeNull();
-    for (const endpoint of [local, reloading, remote]) await fail(endpoint, 6500);
-    expect(local.fatal?.message).toBe("ConnectionClosed");
-    expect((local.fatal?.cause as { code?: string }).code).toBe("ECONNREFUSED");
-    // A reload it announced may keep the daemon away a while longer.
-    expect(reloading.fatal).toBeNull();
-    await fail(reloading, 32_000);
-    await fail(reloading, 40_000);
-    expect(reloading.fatal?.message).toBe("ConnectionClosed");
-    await fail(remote, 60_000);
-    expect(remote.fatal).toBeNull();
-  } finally {
-    for (const step of steps) step.mockRestore();
-    clock.mockRestore();
-    for (const endpoint of [local, reloading, remote]) await endpoint.close();
-  }
-});
-
-test("this computer's daemon shutting down ends the viewer at once; a retry after a pause starts its wait again", async () => {
+test("this computer's daemon shutting down ends the viewer at once; one gone or hung is tried until it answers", async () => {
   const clock = spyOn(performance, "now").mockReturnValue(1000);
   const fail = async (endpoint: Endpoint, at: number) => {
     clock.mockReturnValue(at);
@@ -394,25 +332,28 @@ test("this computer's daemon shutting down ends the viewer at once; a retry afte
     await Reflect.get(endpoint, "task");
   };
   const stopping = localEndpoint("/tmp/corgi-gone-test/control.sock", new Probe(), new Host());
-  const paused = localEndpoint("/tmp/corgi-gone-test/control.sock", new Probe(), new Host());
-  const steps = [stopping, paused].map(endpoint => {
+  const gone = localEndpoint("/tmp/corgi-gone-test/control.sock", new Probe(), new Host());
+  const hung = localEndpoint("/tmp/corgi-gone-test/control.sock", new Probe(), new Host());
+  const steps = [stopping, gone, hung].map(endpoint => {
     Reflect.set(endpoint, "connected", true);
-    return spyOn(endpoint as any, "step").mockRejectedValue(Error("ConnectionRefused"));
+    return spyOn(endpoint as any, "step").mockRejectedValue(refused());
   });
   steps[0].mockRejectedValueOnce(Error("ServerShutdown"));
+  steps[2].mockRejectedValue(Error("RequestTimedOut"));
   try {
     await fail(stopping, 1000);
     expect(stopping.detached).toBe(true);
     expect(stopping.fatal).toBeNull();
-    await fail(paused, 1000);
-    paused.pause();
-    paused.retry();
-    await fail(paused, 120_000);
-    expect(paused.fatal).toBeNull();
+    for (const endpoint of [gone, hung]) {
+      for (const at of [1000, 6500, 60_000, 600_000]) await fail(endpoint, at);
+      expect(endpoint.status).toBe("offline");
+      expect(endpoint.fatal).toBeNull();
+      expect(endpoint.detached).toBe(false);
+    }
   } finally {
     for (const step of steps) step.mockRestore();
     clock.mockRestore();
-    for (const endpoint of [stopping, paused]) await endpoint.close();
+    for (const endpoint of [stopping, gone, hung]) await endpoint.close();
   }
 });
 
@@ -484,20 +425,125 @@ test("cached identity does not describe the first connection as a reconnect", as
   try {
     endpoint.instance = "cached-daemon";
     expect(endpoint.description()).toBe("Connecting…");
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "connecting", seconds: 0, color: "warm" });
     Reflect.set(endpoint, "retries", 1);
     expect(endpoint.description()).toBe("Connecting…");
     Reflect.set(endpoint, "task", Promise.resolve());
     Reflect.set(endpoint, "task_started", 1000);
     expect(endpoint.description(5000)).toBe("Connecting… 4s");
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "connecting", seconds: 4, color: "warm" });
+    expect(endpoint.headerStatus(6000)?.seconds).toBe(5);
     Reflect.set(endpoint, "connected", true);
     expect(endpoint.description(5000)).toBe("Reconnecting… 4s");
+    expect(endpoint.headerStatus(5000)?.label).toBe("reconnecting");
     endpoint.status = "stalled";
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "stalled", seconds: 4, color: "warm" });
     endpoint.status = "offline";
     Reflect.set(endpoint, "next", 8000);
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "retry in", seconds: 3, color: "hot" });
+    expect(endpoint.headerStatus(6000)?.seconds).toBe(2);
+    expect(endpoint.headerStatus(9000)?.seconds).toBe(0);
     endpoint.status = "paused";
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "paused", seconds: null, color: "muted" });
     endpoint.status = "online";
+    expect(endpoint.headerStatus(5000)).toBeNull();
   } finally {
     await endpoint.close();
+  }
+});
+
+const recoveryProfile = {
+  name: "test-recovery",
+  target: "unused",
+  executable: "/unused",
+  socket: "/unused",
+  home: "/tmp",
+  bridge: "/unused",
+};
+
+test("a primary timeout preserves the spare handshake, while pause cancels it", async () => {
+  const endpoint = sshEndpoint(recoveryProfile, new Probe(), new Host());
+  const close = { calls: 0 };
+  const probe = { close: () => close.calls++ };
+  const step = spyOn(endpoint as any, "step").mockRejectedValue(Error("RequestTimedOut"));
+  Reflect.set(endpoint, "probe_path", probe);
+  Reflect.set(endpoint, "racing", true);
+  try {
+    endpoint.pump(false);
+    await Reflect.get(endpoint, "task");
+    expect(endpoint.status).toBe("offline");
+    expect(close.calls).toBe(0);
+    expect(Reflect.get(endpoint, "probe_path")).toBe(probe);
+    expect(Reflect.get(endpoint, "racing")).toBe(true);
+    endpoint.pause();
+    expect(close.calls).toBe(1);
+    expect(Reflect.get(endpoint, "racing")).toBe(false);
+  } finally {
+    await endpoint.close();
+    step.mockRestore();
+  }
+});
+
+test("a hung reconnect gets a spare dial without racing a first connection", async () => {
+  const endpoint = sshEndpoint(recoveryProfile, new Probe(), new Host());
+  const clock = spyOn(performance, "now").mockReturnValue(1000);
+  let finish!: (value: boolean) => void;
+  const step = spyOn(endpoint as any, "step").mockImplementation(
+    () => new Promise<boolean>(resolve => (finish = resolve)),
+  );
+  const race = spyOn(endpoint as any, "race").mockResolvedValue(undefined);
+  Reflect.set(endpoint, "link", "saved-link");
+  try {
+    endpoint.pump(false);
+    clock.mockReturnValue(10000);
+    endpoint.pump(false);
+    expect(race).not.toHaveBeenCalled();
+    Reflect.set(endpoint, "connected", true);
+    endpoint.stats.traffic("received", 1, 1000);
+    // A newly failed dial must not restart the silence clock for recovery.
+    Reflect.set(endpoint, "task_started", 9999);
+    endpoint.pump(false);
+    expect(race).toHaveBeenCalledTimes(1);
+    Reflect.set(endpoint, "raced_at", 10000);
+    clock.mockReturnValue(13999);
+    endpoint.pump(false);
+    expect(race).toHaveBeenCalledTimes(1);
+    clock.mockReturnValue(14000);
+    endpoint.pump(false);
+    expect(race).toHaveBeenCalledTimes(2);
+    // Control replies cannot hide a hung data-lane handshake.
+    Reflect.set(endpoint, "raced_at", 14000);
+    clock.mockReturnValue(18000);
+    endpoint.stats.traffic("received", 1, 18000);
+    Reflect.set(endpoint, "data", { age: () => 9000, close() {} });
+    endpoint.pump(false);
+    expect(race).toHaveBeenCalledTimes(3);
+    Reflect.set(endpoint, "data", null);
+  } finally {
+    finish(false);
+    await Reflect.get(endpoint, "task");
+    await endpoint.close();
+    clock.mockRestore();
+    step.mockRestore();
+    race.mockRestore();
+  }
+});
+
+test("a spare that answers during reconnect takes over and resumes the same link", async () => {
+  const daemon = await flakyDaemon();
+  const endpoint = daemon.endpoint;
+  try {
+    await daemon.connect();
+    endpoint.status = "connecting";
+    const generation = endpoint.generation;
+    await Reflect.get(endpoint, "race").call(endpoint, performance.now());
+    expect(endpoint.generation).toBeGreaterThan(generation);
+    expect(Reflect.get(endpoint, "dialed")).not.toBeNull();
+    await daemon.connect();
+    expect(daemon.seen.filter(request => request.op === "link.resume")).toHaveLength(1);
+    expect(endpoint.instance).toBe("first");
+  } finally {
+    await daemon.close();
   }
 });
 

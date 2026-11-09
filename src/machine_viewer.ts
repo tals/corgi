@@ -1,7 +1,14 @@
+import { Notice as MachineNotice } from "./machine_diagnostics";
+import { Menu as ConnectivityMenu } from "./connectivity_menu";
+import { Hover as ConnectionHover } from "./connectivity_card";
 import * as composition from "./composition";
 import { dirname, join } from "node:path";
 import { Endpoint, localEndpoint, quiet_ms } from "./machine_connection";
 import { Parser, type Input } from "./machine_input";
+import * as machines from "./machines";
+import { sshEndpoint } from "./ssh_path";
+import * as sidebar from "./sidebar";
+import { Workspaces } from "./machine_sidebar";
 import * as viewer from "./viewer";
 import * as keyboard from "./keyboard";
 import * as corgiBadge from "./corgi_badge";
@@ -23,6 +30,8 @@ import { Controller } from "./controller";
 import type { Focus } from "./machine";
 import type { State as SyncNotice } from "./sync_notice";
 
+/** A gap between frames this long means the computer slept. */
+const slept_ms = 5000;
 /** With no input or change on screen this long, the viewer idles. */
 const idle_after_ms = 1000;
 /** A machine this long behind says so over the focused pane. */
@@ -34,6 +43,8 @@ export interface Options {
   start_local?: () => Promise<void>;
   /** Opens on onboarding's welcome. */
   onboarding?: boolean;
+  /** Shows the saved machines beside the local one. */
+  machines?: boolean;
 }
 /** One view shows every machine. Each machine's connection runs on its own,
  * and choosing a workspace on another machine switches the view to it.
@@ -50,7 +61,10 @@ export async function run(
   const host = attach(preferences.load(), probe);
   // Sign-in asks which agents are there; mise answers for its shims meanwhile.
   void discovery.ready();
-  const endpoints = [localEndpoint(local, probe, host, options.start_local)];
+  const endpoints = [
+    localEndpoint(local, probe, host, options.start_local),
+    ...(options.machines === false ? [] : machines.read()).map(profile => sshEndpoint(profile, probe, host)),
+  ];
   let active = endpoints.find(e => e.name === selected);
   if (!active) throw Error("UnknownMachine");
   // Typing waits in the panes it's meant for until their machine catches
@@ -71,7 +85,9 @@ export async function run(
       shown.status === "online"
         ? shown.error || `Syncing… ${Math.floor((now - behind.since) / 1000)}s`
         : shown.description();
-    const hints = unreachable(shown) ? ["Ctrl+R retry", ...(shown.status === "paused" ? [] : ["Ctrl+X pause"])] : [];
+    const hints = unreachable(shown)
+      ? ["Ctrl+R retry", ...(shown.status === "paused" ? [] : ["Ctrl+X pause"]), "! details"]
+      : [];
     if (!shown.reached) hints.push("Ctrl+C quit");
     return {
       status: `${shown.name}: ${status}${keys ? ` · ${keys} ${keys === 1 ? "key" : "keys"} waiting` : ""}`,
@@ -90,8 +106,24 @@ export async function run(
   }
   view.switchMachine(active.machine);
   let quit = false;
+  let navigation_mouse = false;
+  const size = viewer.dimensions();
+  let side = sidebar.View.init(size.cols, size.rows, true, 0, 0, host.prefs.sidebar_split).withWidth(
+    host.prefs.sidebar_width,
+  );
+  side.resources = host.prefs.resources;
+  const workspaces = new Workspaces(endpoints, view);
+  const connectivity = new ConnectivityMenu(endpoints);
+  const connection_hover = new ConnectionHover();
+  const diagnostic = new MachineNotice();
+  view.onConnectivity = () => {
+    connectivity.toggle(endpoints.indexOf(active!));
+    wake.notify();
+  };
   /** Selects locally; the endpoint brings its data up to date independently. */
   const choose = (endpoint: Endpoint, focus: Focus | null) => {
+    connection_hover.clear();
+    view.connection_card = null;
     // Keys not yet routed came after the switch; they follow it.
     const typed = endpoint === active ? new Uint8Array() : active!.takeInput();
     active!.deactivate();
@@ -113,6 +145,19 @@ export async function run(
   const clipboard: { owner: { endpoint: Endpoint; generation: number; epoch: number } | null } = {
     owner: null,
   };
+  const show = () => {
+    workspaces.show();
+    if (workspaces.open) active!.deactivate();
+  };
+  const close = () => {
+    workspaces.open = false;
+    active!.activate();
+  };
+  const filter = () => {
+    workspaces.selectFilter();
+    active!.activate();
+  };
+  view.onMachines = show;
   // Something to draw: input, a machine's news, or a task that finished.
   let changed = true;
   const notify = () => {
@@ -142,7 +187,7 @@ export async function run(
       view.clearEffects();
     };
     endpoint.onClipboard = async view => {
-      if (!clipboard.owner && endpoint === active && endpoint.ready) {
+      if (!clipboard.owner && endpoint === active && !workspaces.open && endpoint.ready) {
         const listing = probe.clipboard.takeEvent();
         if (listing !== null) {
           clipboard.owner = { endpoint, generation: endpoint.generation, epoch: endpoint.input_epoch };
@@ -176,21 +221,149 @@ export async function run(
     const key = keyboard.decode(value);
     const codepoint = key?.codepoint ?? (input.bytes.length === 1 ? input.bytes[0] : null);
     const cp = key?.mods.ctrl && codepoint !== null && codepoint >= 64 && codepoint < 128 ? codepoint & 31 : codepoint;
+    if (diagnostic.open) {
+      if (!input.paste) {
+        const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(value);
+        if (mouse) {
+          if (mouse[4] === "M" && (mouse[1] === "64" || mouse[1] === "65"))
+            diagnostic.scroll(mouse[1] === "64" ? -3 : 3);
+          else if (mouse[4] === "M" && mouse[1] === "0") diagnostic.close();
+        } else diagnostic.key(value, cp);
+      }
+      return;
+    }
+    const hover_mouse = !input.paste && /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(value);
+    if (hover_mouse && !workspaces.open && !connectivity.open && !view.overlayOpen() && !view.copy_mode) {
+      const x = Number(hover_mouse[2]) - 1,
+        y = Number(hover_mouse[3]) - 1;
+      const header = sidebar.machineHeaderAt(side, x, y);
+      if (header && hover_mouse[1] === "0" && hover_mouse[4] === "M") {
+        const endpoint = endpoints.find(e => e.name === header.machine);
+        if (endpoint) {
+          if (sidebar.machineDiagnosticAt(side, view.workspaceRows(), x, y)) diagnostic.show(endpoint);
+          else view.toggleMachine(endpoint.machine);
+          connection_hover.clear();
+          view.connection_card = null;
+          navigation_mouse = true;
+          return;
+        }
+      }
+      const inside = connection_hover.card?.rect.contains(x, y) ?? false;
+      if (hover_mouse[1] === "35" && hover_mouse[4] === "M" && !view.ui_mouse_down) {
+        const header = sidebar.machineHeaderAt(side, x, y);
+        connection_hover.move(header, x, y, performance.now());
+        if (header || inside) {
+          view.pointer = { x, y };
+          view.link_tooltip.cancel();
+          return;
+        }
+      } else {
+        connection_hover.clear();
+        view.connection_card = null;
+        if (inside) return;
+      }
+    } else {
+      connection_hover.clear();
+      view.connection_card = null;
+    }
+    if (connectivity.open) {
+      if (!input.paste) {
+        const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(value);
+        if (mouse) connectivity.mouse(Number(mouse[2]) - 1, Number(mouse[3]) - 1, Number(mouse[1]), mouse[4] === "M");
+        else connectivity.key(value, cp);
+      }
+      return;
+    }
     if (!input.paste && cp === 27 && view.cancelWorkspaceDrag()) return;
     if (input.paste) {
-      if (value === "\x1b[200~") paste_owner = { endpoint: active!, epoch: active!.input_epoch };
-      if (paste_owner && paste_owner.endpoint === active && paste_owner.epoch === active!.input_epoch)
+      if (value === "\x1b[200~")
+        paste_owner = !workspaces.open ? { endpoint: active!, epoch: active!.input_epoch } : null;
+      if (
+        paste_owner &&
+        paste_owner.endpoint === active &&
+        paste_owner.epoch === active!.input_epoch &&
+        !workspaces.open
+      )
         active!.enqueue(input.bytes);
       else paste_owner = null;
       if (value === "\x1b[201~") paste_owner = null;
       return;
     }
-    const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(value);
-    if (
-      mouse &&
-      view.workspaceDragInput(Number(mouse[2]) - 1, Number(mouse[3]) - 1, Number(mouse[1]), mouse[4] !== "M")
-    )
+    if (endpoints.length > 1 && (value === "\x1d" || (key?.codepoint === 93 && key.mods.ctrl))) {
+      if (workspaces.open) close();
+      else show();
       return;
+    }
+    const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(value);
+    if (mouse) {
+      const button = Number(mouse[1]),
+        x = Number(mouse[2]) - 1,
+        y = Number(mouse[3]) - 1;
+      const pressed = mouse[4] === "M";
+      if (navigation_mouse) {
+        if (!pressed) navigation_mouse = false;
+        return;
+      }
+      if (workspaces.open) {
+        if (pressed) {
+          if (button === 64 || button === 65) workspaces.move(button === 64 ? -1 : 1);
+          else if (button === 0 || button === 32 || button === 35) {
+            const index = workspaces.hit(side, x, y);
+            if (index !== null) workspaces.cursor = index;
+            if (button === 0) {
+              if (index !== null) filter();
+              else close();
+              navigation_mouse = true;
+            }
+          }
+        }
+        return;
+      }
+      if (!workspaces.open && view.workspaceDragInput(x, y, button, !pressed)) return;
+    }
+    if (workspaces.open) {
+      if (value === "!") {
+        const endpoint = endpoints[workspaces.cursor - 1];
+        if (endpoint) diagnostic.show(endpoint);
+        return;
+      }
+      switch (cp) {
+        case 27:
+          close();
+          return;
+        case 3:
+          quit = true;
+          return;
+        case 13:
+          filter();
+          return;
+        case 57352:
+        case 16:
+          workspaces.move(-1);
+          return;
+        case 57353:
+        case 14:
+          workspaces.move(1);
+          return;
+        case 6:
+          workspaces.collapse();
+          return;
+        case 18:
+          workspaces.retry();
+          return;
+        case 24:
+          workspaces.pause();
+          return;
+      }
+      if (!key?.mods.ctrl && !key?.mods.alt && codepoint !== null && codepoint >= 32 && codepoint < 127) {
+        const index = endpoints.findIndex(endpoint =>
+          endpoint.name.toLowerCase().startsWith(String.fromCodePoint(codepoint).toLowerCase()),
+        );
+        if (index >= 0) workspaces.cursor = index + 1;
+        else if (codepoint === 97) workspaces.cursor = 0;
+      }
+      return;
+    }
     // With nothing on screen yet, Ctrl+C leaves; after that it's the agent's.
     if (cp === 3 && !active!.reached) {
       quit = true;
@@ -198,6 +371,10 @@ export async function run(
     }
     // The notice's keys are Corgi's only while keys can't reach a pane at all.
     if (behind?.shown && behind.endpoint === active && !mouse && unreachable(active!)) {
+      if (value === "!") {
+        diagnostic.show(active!);
+        return;
+      }
       if (cp === 18) {
         active!.retry();
         return;
@@ -220,8 +397,7 @@ export async function run(
   viewer.writeAll(corgiBadge.query);
   for (const input of parser.feed(Uint8Array.from(initial))) accept(input);
   stdin.listen(feed);
-  const size = viewer.dimensions(),
-    probed_at = Date.now();
+  const probed_at = Date.now();
   viewer.writeAll(probe.size.update(size.pty) + probe.measure(size.rows, probed_at));
   let resized = false;
   const onResize = () => {
@@ -230,6 +406,8 @@ export async function run(
   };
   process.on("SIGWINCH", onResize);
   const terminal_sent = new Map<Endpoint, number>();
+  // The loop wakes every frame; a far longer gap means the computer slept.
+  let ticked = Date.now();
   let active_at = Date.now();
   let scroll_saved = 0;
   let next_draw = 0;
@@ -238,10 +416,13 @@ export async function run(
   try {
     while (!quit && !stdin.ended) {
       const now = Date.now();
+      connectivity.tick();
       if (now - scroll_saved >= scroll_save_ms) {
         view.saveAgentScroll();
         scroll_saved = now;
       }
+      if (now - ticked > slept_ms) for (const endpoint of endpoints) endpoint.woke();
+      ticked = now;
       probe.clipboard.tick(now);
       if (
         clipboard.owner &&
@@ -284,7 +465,7 @@ export async function run(
         for (const endpoint of endpoints) endpoint.theme(probe.theme);
       }
       if (host.observe(probe, cell) || recolored) view.dirty = true;
-      active.watchResources(view.resourceWorkspace(active.machine));
+      workspaces.watchResources();
       const idle = now - active_at >= idle_after_ms;
       for (const endpoint of endpoints) endpoint.pump(endpoint === active, idle);
       if (endpoints[0].fatal) throw endpoints[0].fatal;
@@ -293,18 +474,49 @@ export async function run(
       if (active.detached || endpoints[0].detached || !view.input_state.attached) break;
       // Idle with nothing new, the screen is as it was; it's drawn only now
       // and then, for what changes with time alone.
-      if (changed || !idle || view.dirty || held || Date.now() >= next_draw || Date.now() >= noticeDue()) {
+      if (
+        changed ||
+        !idle ||
+        view.dirty ||
+        workspaces.open ||
+        connectivity.open ||
+        held ||
+        Date.now() >= next_draw ||
+        Date.now() >= noticeDue() ||
+        performance.now() >= connection_hover.due()
+      ) {
         changed = false;
         next_draw = Date.now() + quiet_ms;
         let frame: composition.Output;
+        view.hide_connection_signals = workspaces.open || connectivity.open;
         view.width = cols;
         view.height = height;
+        side = view.sidebarView([]);
+        if (workspaces.open || connectivity.open || view.overlayOpen() || view.copy_mode || view.ui_mouse_down)
+          connection_hover.clear();
+        if (connection_hover.machine && view.pointer)
+          connection_hover.move(
+            sidebar.machineHeaderAt(side, view.pointer.x, view.pointer.y),
+            view.pointer.x,
+            view.pointer.y,
+            performance.now(),
+          );
+        view.connection_card = connection_hover.update(
+          endpoints.find(endpoint => endpoint.name === connection_hover.machine) ?? null,
+          cols,
+          height,
+          performance.now(),
+        );
         view.sync_notice = syncNotice(Date.now());
         frame = active.render();
+        if (workspaces.open) frame = (typeof frame === "string" ? frame : frame.text()) + workspaces.draw(side);
+        if (connectivity.open)
+          frame = (typeof frame === "string" ? frame : frame.text()) + connectivity.draw(cols, height);
+        if (diagnostic.open) frame = (typeof frame === "string" ? frame : frame.text()) + diagnostic.draw(cols, height);
         // Unreachable, the screen changes only with the notice's countdown:
         // that's no reason to draw at full rate.
         const moved = !composition.same(frame, previous) && active.status === "online";
-        if (view.dirty || moved || view.overlayOpen()) active_at = Date.now();
+        if (view.dirty || moved || view.overlayOpen() || workspaces.open) active_at = Date.now();
         view.dirty = false;
         if (viewer.ready(probe)) {
           // A painted theme colors the terminal's margins too.
@@ -315,13 +527,15 @@ export async function run(
           differ = viewer.present(differ, frame, cols, height, probe.pacer);
           previous = frame;
         }
-        if (composition.same(frame, previous)) active.presented();
+        if (!workspaces.open && !connectivity.open && composition.same(frame, previous)) active.presented();
         held = !composition.same(frame, previous);
       }
       // Idle, it sleeps until a machine is due; input and replies wake it.
       const due = Math.min(...endpoints.map(endpoint => endpoint.due())) - performance.now();
       await wake.wait(
-        now - active_at < idle_after_ms ? 16 : Math.max(1, Math.min(quiet_ms, due, noticeDue() - Date.now())),
+        now - active_at < idle_after_ms
+          ? 16
+          : Math.max(1, Math.min(quiet_ms, due, connection_hover.due() - performance.now(), noticeDue() - Date.now())),
       );
     }
     if (endpoints[0].uninstalled) {
@@ -340,7 +554,7 @@ export async function run(
     while (probe.pacer.unanswered() && !stdin.ended && Date.now() < until) await wake.wait(until - Date.now());
     stdin.close();
     await Promise.all(endpoints.map(endpoint => endpoint.close()));
-    viewer.writeAll(view.images.clear() + view.tab_icons.clear());
+    viewer.writeAll(view.images.clear() + view.tab_icons.clear() + view.signal_bars.clear());
     viewer.close(view);
     differ?.destroy();
     if (probe.badge.uploaded) viewer.writeAll(corgiBadge.remove);

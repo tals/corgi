@@ -99,7 +99,7 @@ function real(dir: string): string {
 /** A Corgi workspace: its folder, and the worktree checkouts of its repository. */
 type Workspace = { id: number; name: string; cwd: string; worktrees: string[] };
 /** The workspaces of the Corgi `daemon`; null when it isn't running. */
-async function corgi(daemon: rpc_http.Client): Promise<Workspace[] | null> {
+async function corgi(daemon: rpc_http.Daemon): Promise<Workspace[] | null> {
   try {
     const list: any = await daemon.call("session.list");
     return (list.result?.workspaces ?? []).flatMap((w: any) =>
@@ -224,7 +224,7 @@ Tool tags distinguish calls from result text; only calls prove invocation.
 Exit codes/status refer to that tool call. Missing outcomes stay unrecorded.
 Exit: 0 matches, 1 no matches, 2 error. --help for help; --skill for examples.
 `;
-async function main(raw: string[], daemon: rpc_http.Client) {
+async function main(raw: string[], daemon: rpc_http.Daemon) {
   const started = performance.now();
   if (!raw.length || (raw.length === 1 && raw[0] === "help")) {
     console.log(usage);
@@ -488,7 +488,7 @@ async function main(raw: string[], daemon: rpc_http.Client) {
   process.exitCode = matches.length ? 0 : 1;
 }
 
-export async function run(raw: string[], daemon: rpc_http.Client): Promise<void> {
+export async function run(raw: string[], daemon: rpc_http.Daemon): Promise<void> {
   try {
     await main(raw, daemon);
   } catch (error) {

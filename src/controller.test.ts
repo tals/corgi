@@ -1,4 +1,5 @@
 import { Machine } from "./machine";
+import type { Progress as ImageProgress } from "./image_upload";
 import * as protocol from "./protocol";
 import { transport } from "./fixtures/transport";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
@@ -5132,6 +5133,37 @@ test("a remembered name prefills the next rename until Escape, success or the pa
   }
 });
 
+test("switching machines shows the other's data and closes what named the old one's ids", () => {
+  const s = controller();
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a", "/b"));
+  s.receiveSnapshot(folders("/w"), other);
+  const chosen: [string, number | null][] = [];
+  s.onMachine = (machine: Machine, focus: any) => void chosen.push([machine.name, focus?.workspace ?? null]);
+  try {
+    const rows = s.workspaceRows();
+    expect(rows.map((row: any) => row.name)).toEqual(["/a", "/b", "/w"]);
+    s.selectRow(rows[2].id);
+    expect(chosen).toEqual([["work", 1]]);
+    s.tab_menu = new TabMenu({ tab: 1, anchor_x: 0 });
+    s.switchMachine(other);
+    expect(s.tab_menu).toBeNull();
+    expect(s.runtime).toBe(other.runtime);
+    expect(s.connection).toBe(other.connection);
+    // Row ids don't change with the machine shown.
+    expect(s.workspaceRows().map((row: any) => row.id)).toEqual(rows.map((row: any) => row.id));
+    s.selectRow(rows[0].id);
+    expect(chosen).toEqual([
+      ["work", 1],
+      ["local", 1],
+    ]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 test("a remote machine's launcher lists the agents saved on that computer, not this one's", async () => {
   const opus = {
     agent: "profile/opus",
@@ -5190,6 +5222,114 @@ test("a remote machine's launcher lists the agents saved on that computer, not t
     local.mockRestore();
     viewer.close(s);
     other.runtime.destroy();
+  }
+});
+
+test("all agents lists each online machine's under its name, and its rows switch to it", () => {
+  const s = controller();
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  let online = true;
+  other.presence = () => ({
+    online,
+    link_quality: null,
+    connecting: false,
+    connection_status: null,
+    description: "",
+    cached: [],
+    seen: true,
+    stale: false,
+  });
+  s.adopt(other);
+  const agents = (...cwds: string[]) => {
+    const snapshot = folders(...cwds);
+    for (const p of snapshot.panes) p.agent.provider = "codex" as any;
+    return snapshot;
+  };
+  s.receiveSnapshot(agents("/a"));
+  s.receiveSnapshot(agents("/w", "/x"), other);
+  s.host.prefs.agents = "all";
+  const chosen: [string, unknown][] = [];
+  s.onMachine = (machine: Machine, focus: unknown) => void chosen.push([machine.name, focus]);
+  try {
+    const entries = s.agentEntries();
+    const names = entries.map((e: any) => ("group" in e.target ? `${e.name} ${e.group.machine}` : e.target.pane));
+    // The shown machine's rows keep their ids; another's are set apart.
+    const away = 2 * 2 ** 32;
+    expect(names).toEqual(["/a local", 1, "/w work", away + 1, "/x work", away + 2]);
+    s.selectAgent(entries[3].target);
+    expect(chosen).toEqual([["work", { pane: 1 }]]);
+    // Folding another machine's group keeps to that machine.
+    s.selectAgent(entries[2].target);
+    expect(other.folded_groups).toEqual([1]);
+    expect(s.folded_groups).toEqual([]);
+    expect(s.agentEntries()).toHaveLength(5);
+    online = false;
+    expect(s.agentEntries()).toHaveLength(2);
+    online = true;
+    s.machine_filter = s.machine;
+    expect(s.agentEntries()).toHaveLength(2);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("remote image progress covers preparation, receipts and failure without leaking into a later paste", async () => {
+  let report!: ImageProgress;
+  let resolve!: (path: string) => void;
+  let reject!: (error: Error) => void;
+  const s = new Controller({
+    ...transport(async () => {
+      throw Error("UnexpectedRequest");
+    }),
+    image: (_path, _mime, progress) => {
+      report = progress!;
+      return new Promise<string>((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+    },
+  });
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.host.clipboard = new hostClipboard.State();
+  try {
+    await s.pasteEvent("image/png");
+    expect(s.paste_progress?.phase).toBe("preparing");
+    const first = s.pasteResult({ path: "/tmp/image.png" });
+    report(512, 1024);
+    expect(s.paste_progress?.phase).toBe("uploading");
+    expect(s.paste_progress?.received).toBe(512);
+    resolve("/remote/image.png");
+    await first;
+    expect(s.paste_progress?.phase).toBe("done");
+    expect(s.runtime.panes[0].terminal.pending.length).toBeGreaterThan(0);
+    // The pane takes another paste once the path has gone to the daemon.
+    s.runtime.panes[0].terminal.pending = [];
+
+    s.host.clipboard.reading = null;
+    await s.pasteEvent("image/png");
+    const failed = s.pasteResult({ path: "/tmp/image.png" });
+    reject(Error("ImageUploadFailed"));
+    // The paste is a task: its failure is told, not thrown at the viewer.
+    await failed;
+    expect(s.message).toBe("ImageUploadFailed");
+    expect(s.paste_progress?.phase).toBe("failed");
+
+    s.host.clipboard.reading = null;
+    await s.pasteEvent("image/png");
+    const canceled = s.pasteResult({ path: "/tmp/image.png" });
+    s.paste_progress = null;
+    s.host.clipboard.reading = null;
+    await s.pasteEvent("image/png");
+    report(1024, 1024);
+    reject(Error("StaleConnection"));
+    await canceled;
+    const current = () => s.paste_progress;
+    expect(current()?.phase).toBe("preparing");
+    expect(current()?.received).toBe(0);
+  } finally {
+    viewer.close(s);
   }
 });
 
@@ -6224,6 +6364,46 @@ test("switching machines during an awaited key discards the old batch's tail", a
   } finally {
     pending.resolve();
     other.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
+test("remote workspace renaming uses its row below the machine header and keeps failed names on their machine", () => {
+  const s = controller(),
+    local = s.machine,
+    remote = new Machine(
+      transport(async () => pair()),
+      "work",
+      true,
+    );
+  s.height = 60;
+  s.receiveSnapshot(pair());
+  s.adopt(remote);
+  s.receiveSnapshot(pair(), remote);
+  try {
+    local.remembered_names.set(1, "local draft");
+    s.switchMachine(remote);
+    expect(s.remembered_names.size).toBe(0);
+    s.remembered_names.set(1, "remote draft");
+    expect(s.beginInlineRename({ workspace: 1 })).toBe(true);
+    const rows = s.workspaceRows(),
+      target = { workspace: s.rowKey(1, remote) },
+      view = s.sidebarView(s.sidebarEntries()),
+      rect = view.fieldRect(target, rows);
+    expect(view.rename?.target).toEqual(target);
+    expect(view.hit(rect!.x, rect!.y)).toEqual({
+      tag: "workspace",
+      workspace: rows.findIndex((row: sidebar.WorkspaceEntry) => row.id === target.workspace),
+    });
+    expect(s.frame()).toContain("/a");
+    expect(s.inline_rename?.target).toEqual({ workspace: 1 });
+    s.switchMachine(local);
+    expect(s.inline_rename).toBeNull();
+    expect(s.remembered_names.get(1)).toBe("local draft");
+    expect(remote.remembered_names.get(1)).toBe("remote draft");
+  } finally {
+    s.switchMachine(local);
+    remote.runtime.destroy();
     viewer.close(s);
   }
 });

@@ -32,6 +32,7 @@ import {
   type Removal,
   type Snapshot as Worktrees,
 } from "./worktrees";
+import type { Progress as ImageProgress } from "./image_upload";
 
 export interface Transport {
   /** The daemon over HTTP, for a request that may outlast this connection. */
@@ -42,6 +43,7 @@ export interface Transport {
   /** Whether the daemon sends this viewer `viewer.wake`. */
   watches?(): boolean;
   remote?: boolean;
+  image?: (path: string, mime: string, progress?: ImageProgress) => Promise<string>;
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
 }
 /** An RPC call that throws the daemon's error name, as Zig's `call` does. */

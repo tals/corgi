@@ -63,6 +63,43 @@ itself. Older viewers must reconnect with the matching binary. The CLI and
 session commands share the same lifecycle operations; see
 [hibernation and archiving](docs/workspaces.md#hibernate-panes-and-archive-workspaces).
 
+Remote daemon connectivity lives in `daemon_transport.ts`, separate from RPC,
+session resume, and the controller's asynchronous task queues. Machine setup
+records the bundled `corgi-remote-bridge` executable's path. SSH invokes that
+native helper directly: attachments do not start Bun on the remote host. The
+helper relays stdin/stdout to the daemon's Unix socket with bounded independent
+buffers. A local socket adapter preserves the interface used by RPC and preview
+clients. Old saved profiles without a bridge path retain dedicated SSH socket forwarding;
+remove and add the machine again to discover the helper.
+
+Normal stdio attachments and CLI commands share a private Corgi OpenSSH master,
+with ten minutes of idle persistence. Bulk image uploads, explicit machine
+checks, manual retries, and recovery probes use independent connections. Closing
+an attachment closes its channel, not the shared master. A stalled remote shows
+its age and pauses input. Successful application round trips adapt the stall
+budget (4–30 seconds); a fresh connection is tested after twice that budget,
+before the old path times out. Initial SSH/hello has a separate 30-second budget. Retry and pause cancel both ordinary startup and recovery probes. Application
+health, replay, and fresh-screen fencing remain in `machine_connection.ts`; the
+render loop never awaits a remote request or SSH teardown.
+
+The optional `bridge` path is additive in the version 1 machine catalog and
+remote-info response. Runtime/viewer protocols and checkpoint/handoff formats
+are unchanged; the bridge forwards their existing bytes.
+
+Machine add/check reconcile builds before connecting. Setup installs into an
+existing canonical executable or, when absent, `~/.local/bin/corgi`. Managed
+installations keep their launcher and release history. Signed releases are fetched
+at the exact version using the local installation's update trust; development
+builds use binary/source identity and Git ancestry, never build timestamps.
+Cross-platform development setup requires a matching `dist/corgi-<target>` and
+its build metadata. Divergent development builds stop with an explicit error.
+When the remote is newer, setup upgrades the local installation and re-executes
+it to finish the command. State preflight and live handoff preserve running
+shells; setup refuses incompatible handoffs instead of restarting agents.
+Transfers and RPCs have deadlines. Upgrade work runs only in setup commands,
+not in the viewer's reconnect or render path. `__update-info` gains additive
+build metadata; wire and persisted-state versions do not change.
+
 Pane surfaces carry Kitty image placements; `viewer.image` transfers decoded
 pixels in bounded chunks. [pane_images.ts](src/pane_images.ts) gives each viewer
 its own image ids, clips pictures to their panes and frees images that leave
@@ -394,8 +431,19 @@ across reloads. A path (`machine_path.ts`) opens the endpoint's connections.
 viewer link with `viewer.data`. Commands, input, receipts and unsolicited
 `viewer.controls` stay on control. `viewer.stream.configure` sends frames,
 including streamed metadata, on data; surface, image, search and pick replies
-use data too. Older peers without these operations keep the single-connection
-stream.
+use data too. Local traffic stays uncompressed; remote traffic uses zstd on
+both connections. Older peers without these operations keep the
+single-connection stream.
+
+The data SSH lane has a separate ControlMaster namespace, so it cannot block
+control in a shared SSH/TCP queue. Both handshakes start together, including a
+previously attached machine reconnecting in the background. The data lane checks
+the daemon identity before binding to its viewer link. Its pending handshake has
+its own progress clock, so healthy control traffic cannot hide a stuck data dial.
+The physical link and daemon event loop remain
+shared: this is queue isolation, not a network QoS guarantee. Adaptive frame
+admission still bounds outstanding pane work. Publishing yields to the event
+loop before capturing a new frame, and a descriptor flush writes at most 64 KiB.
 
 `viewer.stream` pushes `viewer.frame`s every 16 ms at most instead of answering
 `viewer.sync` polls. With `incremental`, a stream sends full surfaces first, then
@@ -481,13 +529,25 @@ the time and scope; polling jobs keep their own `Failure` to suppress repeats.
 the daemon starts. Activity-summary records include exact
 model inputs and outputs, so inspect and redact before sharing logs.
 
-Viewer connection traces use the existing opt-in recorder. Start a viewer with
+Remote recovery traces use the existing opt-in recorder. Start a viewer with
 `CORGI_TELEMETRY_DIR=/tmp/corgi-trace CORGI_TELEMETRY_TRACE=1
 CORGI_TELEMETRY_FILTER=remote.` and send its PID `SIGUSR2` to flush. The filter
 keeps the bounded timeline focused while all aggregate counters still run.
-`remote.connection` and `remote.rpc` record machine name, connection
-generation, recovery phases and RPC operation/duration/outcome. They contain no
-input bytes or request bodies. Nothing is recorded unless telemetry is enabled.
+`remote.connection`, `remote.race`, `remote.transport`, and `remote.rpc` record
+machine name, connection generation, recovery phases, SSH child IDs and RPC
+operation/duration/outcome. They contain no input bytes, request bodies or SSH
+credentials. Trace timestamps use epoch microseconds for comparison with
+external fault events. Nothing is recorded unless telemetry is enabled.
+
+A silent remote gets a spare SSH connection beside its existing one. Primary
+request timeouts retain that spare; it can win while the endpoint reconnects or
+waits to retry. Previously connected endpoints continue probing during a hung
+reconnect, measuring silence from received traffic rather than each new dial.
+Only one spare is active. The initial race waits for two latency-adaptive stall
+budgets; during reconnect, spare attempts are spaced by one stall budget. Spare
+handshakes use the learned request timeout capped at 30 s.
+Initial connections keep their original startup budget. Successful recovery
+still resumes the numbered link, and pause, retry and close cancel both paths.
 
 Use `corgi integration status` for hook installation/trust and `corgi which codex`
 or `corgi which claude` for executable discovery. `corgi rpc` can inspect a
