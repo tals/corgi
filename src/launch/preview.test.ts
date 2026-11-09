@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync,
 import type { FSWatcher } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { Option, Worker, active_every, idle_every } from "./preview";
+import { OneAtATime, Option, Worker, active_every, idle_every } from "./preview";
 import { Info, Window } from "../usage/account";
 import { Provider, Text, byProvider } from "../providers";
 import * as accounts from "../accounts";
@@ -11,6 +11,7 @@ import * as discovery from "../discovery";
 import * as limitHistory from "../usage/limits";
 import * as profiles from "../agent_profiles";
 import * as visibility from "./visibility";
+import type { Launcher } from "../providers/adapter";
 
 const bin = (p: Provider) => `CORGI_${p.toUpperCase()}_BIN`;
 /** The providers these tests find installed. */
@@ -154,7 +155,7 @@ test("account availability stays scoped to each workspace through background ref
   }
 });
 
-test("a slow sampling round lets queued workspace previews finish before sampling again", async () => {
+test("a workspace preview queued during a slow sampling round doesn't wait for it", async () => {
   const worker = new Worker(),
     second = join(root, "second"),
     fresh = join(root, "fresh"),
@@ -190,6 +191,11 @@ test("a slow sampling round lets queued workspace previews finish before samplin
     worker.sample(idle_every);
     const pending = worker.pump();
     expect(worker.preview(fresh).pending).toBe(true);
+    // The round waits on `root`; the new folder's preview finishes meanwhile.
+    for (let i = 0; i < 50 && worker.preview(fresh).pending; i++) await turn();
+    expect(worker.preview(fresh).pending).toBe(false);
+    expect(worker.preview(fresh).options.pi.model.text()).toBe(fresh);
+    // No second round starts while one is under way.
     setSystemTime(new Date(start + 20_000));
     worker.sample(idle_every);
     first_done.resolve();
@@ -197,11 +203,8 @@ test("a slow sampling round lets queued workspace previews finish before samplin
     setSystemTime(new Date(start + 40_000));
     worker.sample(active_every);
     second_done.resolve();
-    await turn();
-    expect(check.mock.calls.map(([cwd]) => cwd)).toEqual([root, second, fresh]);
-    expect(worker.preview(fresh).pending).toBe(false);
-    expect(worker.preview(fresh).options.pi.model.text()).toBe(fresh);
     await pending;
+    expect(check.mock.calls.map(([cwd]) => cwd)).toEqual([root, fresh, second]);
     // Sampling waits a full interval from completion, even after a long round.
     check.mockResolvedValue();
     worker.sample(active_every);
@@ -219,6 +222,151 @@ test("a slow sampling round lets queued workspace previews finish before samplin
     await worker.stop();
     check.mockRestore();
     setSystemTime();
+  }
+});
+
+test("a round and a folder's preview never ask one launcher two things at once", async () => {
+  listed(["work"]);
+  const worker = new Worker(),
+    other = join(root, "other"),
+    held = Promise.withResolvers<void>(),
+    check = spyOn(discovery, "check").mockResolvedValue(),
+    launchers = new Map<string, Launcher>(),
+    asking = new Map<string, number>();
+  let most = 0,
+    holding = false;
+  const ask = async <T>(key: string, value: T, wait: boolean) => {
+    const now = (asking.get(key) ?? 0) + 1;
+    asking.set(key, now);
+    most = Math.max(most, now);
+    if (wait) await held.promise;
+    asking.set(key, asking.get(key)! - 1);
+    return value;
+  };
+  worker.launcher = async (p, account = "") => {
+    const key = p + "\0" + account;
+    if (!launchers.has(key))
+      launchers.set(
+        key,
+        new OneAtATime({
+          account: () => {
+            // The first read of the saved account waits until the folder's preview asks too.
+            const wait = !holding && account !== "";
+            if (wait) holding = true;
+            return ask(key, new Info(), wait);
+          },
+          model: cwd => ask(key, { model: cwd, source: "workspace" }, false),
+          close() {},
+        }),
+      );
+    return launchers.get(key)!;
+  };
+  try {
+    worker.sample(idle_every);
+    const pending = worker.pump();
+    for (let i = 0; i < 50 && !holding; i++) await turn();
+    expect(holding).toBe(true);
+    worker.preview(other);
+    for (let i = 0; i < 20; i++) await turn();
+    held.resolve();
+    await pending;
+    await worker.pump();
+    expect(most).toBe(1);
+    expect(worker.preview(other).pending).toBe(false);
+  } finally {
+    held.resolve();
+    await worker.stop();
+    check.mockRestore();
+  }
+});
+
+test("a launcher another folder no longer reads closes after the read under way", async () => {
+  const worker = new Worker(),
+    held = Promise.withResolvers<void>(),
+    events: string[] = [];
+  const launcher: Launcher = {
+    account: async () => {
+      await held.promise;
+      events.push("read");
+      return new Info();
+    },
+    model: async cwd => ({ model: cwd, source: "workspace" }),
+    close: () => void events.push("closed"),
+  };
+  const opened = new OneAtATime(launcher);
+  worker.launchers.set("codex\0", Promise.resolve(opened));
+  try {
+    const reading = opened.account(worker.quit, 0);
+    Reflect.get(worker, "close").call(worker, () => true);
+    await turn();
+    expect(events).toEqual([]);
+    expect(worker.launchers.size).toBe(0);
+    held.resolve();
+    await reading;
+    await turn();
+    expect(events).toEqual(["read", "closed"]);
+  } finally {
+    held.resolve();
+    await worker.stop();
+  }
+});
+
+test("the launchers a worker opens take one call at a time, and start nothing once closed", async () => {
+  const worker = new Worker(),
+    events: string[] = [];
+  try {
+    expect(await worker.launcher("claude")).toBeInstanceOf(OneAtATime);
+    const closed = new OneAtATime({
+      account: async () => (events.push("account"), new Info()),
+      model: async cwd => (events.push("model"), { model: cwd, source: "workspace" }),
+      close: () => void events.push("closed"),
+    });
+    await closed.close();
+    expect((await closed.account(worker.quit, 0)).signed_in).toBeNull();
+    expect(await closed.model(root, worker.quit)).toEqual({ model: "", source: "" });
+    expect(events).toEqual(["closed"]);
+  } finally {
+    await worker.stop();
+  }
+});
+
+test("a fresh reading asked for while one is under way comes after it", async () => {
+  const worker = new Worker(),
+    held = Promise.withResolvers<void>(),
+    check = spyOn(discovery, "check").mockResolvedValue();
+  let reads = 0,
+    holding = false;
+  worker.launcher = async p =>
+    new OneAtATime({
+      account: async () => {
+        if (p !== "claude") return new Info();
+        reads++;
+        if (!holding) {
+          holding = true;
+          await held.promise;
+        }
+        return new Info();
+      },
+      model: async cwd => ({ model: cwd, source: "workspace" }),
+      close() {},
+    });
+  try {
+    // A round's read is under way when a viewer asks this folder for a fresh one.
+    worker.sample(idle_every);
+    const pending = worker.pump();
+    for (let i = 0; i < 50 && !holding; i++) await turn();
+    expect(holding).toBe(true);
+    worker.preview(process.cwd(), true);
+    for (let i = 0; i < 20; i++) await turn();
+    expect(reads).toBe(1);
+    held.resolve();
+    await pending;
+    await worker.pump();
+    expect(reads).toBe(2);
+  } finally {
+    held.resolve();
+    await worker.stop();
+    check.mockRestore();
   }
 });
 
