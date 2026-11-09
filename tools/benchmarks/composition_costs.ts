@@ -14,7 +14,7 @@ import { stringify } from "../../src/json";
 import { nativeRoot } from "../../src/native_paths";
 import * as palette from "../../src/palette";
 import { Terminal } from "../../src/pane/terminal";
-import type { View as SurfaceView } from "../../src/pane/surface";
+import { decscusr, type View as SurfaceView } from "../../src/pane/surface";
 import * as render from "../../src/render";
 import * as sidebar from "../../src/sidebar";
 import { displayWidth } from "../../src/text";
@@ -54,7 +54,7 @@ function fullLibrary(path: string) {
 function composedLibrary(path: string) {
   return dlopen(path, {
     frame_diff_compose: {
-      args: ["ptr", "ptr", "usize", "ptr", "ptr", "usize", "u16", "u16", "bool", "u8"],
+      args: ["ptr", "ptr", "usize", "ptr", "ptr", "usize", "u16", "u16", "bool", "u8", "u8"],
       returns: FFIType.i64_fast,
     },
     frame_diff_timing_enable: { args: ["ptr", "bool"], returns: "void" },
@@ -231,6 +231,7 @@ class Host {
             cursor?.x ?? 0,
             cursor?.y ?? 0,
             cursor !== null,
+            decscusr(input.frame.cursor_style),
             reuseChrome ? 1 : 0,
           ),
         )

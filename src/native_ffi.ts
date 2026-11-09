@@ -27,7 +27,7 @@ const term = dlopen(`${nativeRoot}/lib/libcorgi_term.${suffix}`, {
   frame_diff_free: { args: ["ptr"], returns: "void" },
   frame_diff_diff: { args: ["ptr", "ptr", "usize"], returns: FFIType.i64_fast },
   frame_diff_compose: {
-    args: ["ptr", "ptr", "usize", "ptr", "ptr", "usize", "u16", "u16", "bool", "u8"],
+    args: ["ptr", "ptr", "usize", "ptr", "ptr", "usize", "u16", "u16", "bool", "u8", "u8"],
     returns: FFIType.i64_fast,
   },
   frame_diff_stats: { args: ["ptr", "ptr"], returns: "void" },

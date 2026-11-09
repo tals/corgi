@@ -774,28 +774,26 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     this.assertIn("\x1b[<u", collected);
     this.assertLess(collected.indexOf("\x1b[<u"), collected.indexOf("\x1b[?1049l"));
     this.assertIn("\x1b[?1049l", collected);
-    if (this.env.CORGI_CURSOR_BLINK === "1") {
-      for (const mode of ["\x1b[?12s", "\x1b[?12l", "\x1b[?12r"]) this.assertNotIn(mode, collected);
-    } else {
-      this.assertEqual(collected.split("\x1b[?12s\x1b[?12l").length - 1, 1);
-      this.assertLess(collected.indexOf("\x1b[?12l"), collected.indexOf("\x1b[?2026h"));
-      this.assertEqual(collected.split("\x1b[?12r").length - 1, 1);
-      this.assertLess(collected.indexOf("\x1b[?1049l"), collected.indexOf("\x1b[?12r"));
-    }
+    // The host keeps its own blinking, and gets its own cursor shape back.
+    for (const mode of ["\x1b[?12s", "\x1b[?12l", "\x1b[?12r"]) this.assertNotIn(mode, collected);
+    this.assertLess(collected.lastIndexOf("\x1b[?1049l"), collected.lastIndexOf("\x1b[0 q"));
     this.assertEqual(await pty.settings(), before);
     this.assertEqual((await this.panes()).length, remainingPanes);
     return collected;
   }
   async test_real_client_restores_terminal_on_detach() {
-    delete this.env.CORGI_CURSOR_BLINK;
     await this.checkRealClientExit("\x02q", 1);
   }
-  async test_real_client_can_keep_host_cursor_blink() {
-    this.env.CORGI_CURSOR_BLINK = "1";
-    await this.checkRealClientExit("\x02q", 1);
+  async test_real_client_passes_the_pane_cursor_shape_to_the_host() {
+    const pane = (await this.open_pane({ command: "printf '\\033[6 qBAR_CURSOR'; sleep 30" })).pane;
+    await this.until(async () =>
+      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("BAR_CURSOR"),
+    );
+    const output = await this.checkRealClientExit("\x02q", 1);
+    this.assertIn("\x1b[6 q", output);
+    this.assertLess(output.indexOf("\x1b[6 q"), output.lastIndexOf("\x1b[0 q"));
   }
-  async test_real_client_steady_cursor_still_honors_hidden_cursor() {
-    delete this.env.CORGI_CURSOR_BLINK;
+  async test_real_client_honors_hidden_cursor() {
     const pane = (
       await this.open_pane({
         command: "printf '\\033[?25lCURSOR_HIDDEN'; sleep 30",

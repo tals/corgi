@@ -298,6 +298,7 @@ export class Terminal {
       changed.length > 0 ||
       previous?.surface.cursor?.x !== frame.cursor?.x ||
       previous?.surface.cursor?.y !== frame.cursor?.y ||
+      previous?.surface.cursor_style !== frame.cursor_style ||
       (previous?.surface.images?.length ?? 0) > 0 ||
       (frame.images?.length ?? 0) > 0;
     viewerNative.receiveFrame(inner.handle, view, changed);
@@ -332,6 +333,10 @@ export class Terminal {
   /** The render state's cursor in the viewport, when visible. */
   cursor(): { x: number; y: number } | null {
     return viewerNative.cursor(this.handle, true);
+  }
+  /** The cursor shape its program asked for. */
+  cursorStyle(): surface.CursorStyle {
+    return this.installed?.surface.cursor_style ?? "default";
   }
   /** The render state's cursor in the viewport, shown or not. */
   caret(): { x: number; y: number } | null {

@@ -5,6 +5,7 @@
 import type { Pointer } from "bun:ffi";
 import { n, ptr } from "./native_ffi";
 import * as composition from "./composition";
+import * as surface from "./pane/surface";
 import * as telemetry from "./telemetry";
 
 export class Differ {
@@ -64,6 +65,7 @@ export class Differ {
               frame.cursor?.x ?? 0,
               frame.cursor?.y ?? 0,
               frame.cursor !== null,
+              surface.decscusr(frame.cursor_style),
               retained ? 1 : 0,
             ),
           );

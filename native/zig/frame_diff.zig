@@ -4,6 +4,7 @@
 const std = @import("std");
 const vt = @import("ghostty-vt");
 const os = @import("os.zig");
+const cursor_style = @import("cursor_style.zig");
 const a = os.allocator;
 
 pub const Differ = struct {
@@ -23,13 +24,16 @@ pub const Differ = struct {
     has_images: bool = false,
     image_fallback: bool = false,
     cursor: Cursor = .{},
+    /// A new differ can't know the shape an earlier one left, so it says one.
+    shape_sent: bool = false,
     stale: bool = true,
     chrome_valid: bool = false,
     timing: ?*Timing = null,
     damaged_rows: u64 = 0,
     compared_cells: u64 = 0,
 
-    pub const Cursor = struct { x: u16 = 0, y: u16 = 0, visible: bool = false };
+    pub const Cursor = struct { x: u16 = 0, y: u16 = 0, visible: bool = false, style: CursorStyle = .default };
+    pub const CursorStyle = cursor_style.Style;
     pub const ChromeMode = enum(u8) { full, reuse };
     pub const Pane = struct {
         state: *const vt.RenderState,
@@ -288,15 +292,22 @@ pub const Differ = struct {
         }
         const emitting = d.stamp();
         defer d.record(.emit_ns, emitting);
-        if (whole) |frame| return out.writeAll(frame);
-        if (!started and !images_changed and std.meta.eql(cursor, d.cursor)) return;
+        if (whole) |frame| {
+            try out.writeAll(frame);
+            return d.writeShape(out, cursor);
+        }
+        if (!started and !images_changed and d.shape_sent and std.meta.eql(cursor, d.cursor)) return;
         try begin(out, &started);
         if (paint.open != null) try out.writeAll("\x1b]8;;\x1b\\");
         if (paint.style != null) try out.writeAll("\x1b[0m");
         if (images_changed) try out.writeAll(image_bytes);
         try out.print("\x1b[{d};{d}H", .{ cursor.y + 1, cursor.x + 1 });
+        try d.writeShape(out, cursor);
         if (cursor.visible) try out.writeAll("\x1b[?25h");
         try out.writeAll("\x1b[?2026l");
+    }
+    fn writeShape(d: *const Differ, out: *std.Io.Writer, cursor: Cursor) !void {
+        if (!d.shape_sent or d.cursor.style != cursor.style) try out.print("\x1b[{d} q", .{@intFromEnum(cursor.style)});
     }
     fn emitRow(d: *Differ, out: *std.Io.Writer, paint: *Paint, row: usize) !void {
         const cells = d.scratch.cells;
@@ -321,11 +332,18 @@ pub const Differ = struct {
         const stale = d.stale;
         d.invalidate();
         d.resetDamage();
+        // A frame that names no shape shows the host's own.
+        d.vt.setCursorStyle(.default);
         var parsed = try d.parse(frame);
         defer parsed.images.deinit();
         for (0..d.rows) |row| try d.addDamage(row, 0, d.cols);
         const screen = d.vt.screens.active;
-        const cursor: Cursor = .{ .x = @intCast(screen.cursor.x), .y = @intCast(screen.cursor.y), .visible = d.vt.modes.get(.cursor_visible) };
+        const cursor: Cursor = .{
+            .x = @intCast(screen.cursor.x),
+            .y = @intCast(screen.cursor.y),
+            .visible = d.vt.modes.get(.cursor_visible),
+            .style = cursor_style.of(&d.vt),
+        };
         const whole = stale or parsed.controls != d.controls or parsed.image_fallback or d.image_fallback;
         try d.present(out, &.{}, cursor, parsed.images.written(), d.images_stale or parsed.image_hash != d.images, if (whole) frame else null);
         d.commit(&parsed, cursor);
@@ -396,6 +414,7 @@ pub const Differ = struct {
         for (d.receipts.items[panes.len..]) |*receipt| receipt.valid = false;
         if (parsed) |*value| d.commit(value, cursor) else {
             d.cursor = cursor;
+            d.shape_sent = true;
             d.stale = false;
         }
         d.chrome_valid = true;
@@ -462,6 +481,7 @@ pub const Differ = struct {
         d.has_images = parsed.images.written().len > 0;
         d.image_fallback = parsed.image_fallback;
         d.cursor = cursor;
+        d.shape_sent = true;
         d.stale = false;
     }
     inline fn cellStyle(cells: anytype, col: usize, colors: ?*const vt.RenderState) vt.Style {
@@ -670,7 +690,8 @@ fn scan(bytes: []const u8) Sequence {
                 'J' => if (std.mem.eql(u8, params, "2") or std.mem.eql(u8, params, "3")) .reset else .cells,
                 // Scrolling can move image anchors along with the text.
                 'S', 'T', 'L', 'M' => .reset,
-                'q' => .control,
+                // So is its shape (DECSCUSR).
+                'q' => if (std.mem.endsWith(u8, params, " ") and isDigits(params[0 .. params.len - 1])) .cells else .control,
                 else => .cells,
             };
             return .{ .len = end + 1, .kind = kind };
@@ -678,6 +699,11 @@ fn scan(bytes: []const u8) Sequence {
         'c', 'D', 'E', 'M' => return .{ .len = 2, .kind = .reset },
         else => return .{ .len = 2, .kind = .cells },
     }
+}
+
+fn isDigits(bytes: []const u8) bool {
+    for (bytes) |byte| if (!std.ascii.isDigit(byte)) return false;
+    return true;
 }
 
 fn render(d: *Differ, frame: []const u8) ![]u8 {
@@ -833,7 +859,7 @@ test "a frame that changes one cell writes that cell" {
     const first = "\x1b[?1003h\x1b[?2026h\x1b[H\x1b[Jhello\x1b[2;1H\x1b[31mworld\x1b[0m\x1b[?2026l";
     const whole = try render(d, first);
     defer std.testing.allocator.free(whole);
-    try std.testing.expectEqualStrings(first, whole);
+    try std.testing.expectEqualStrings(first ++ "\x1b[0 q", whole);
     const same = try render(d, first);
     defer std.testing.allocator.free(same);
     try std.testing.expectEqualStrings("", same);
@@ -851,10 +877,31 @@ test "a changed control sends the whole frame" {
         "\x1b[H\x1b[J\x1b[2;3H\x1b_Ga=p,i=1\x1b\\text",
         "\x1b[H\x1b[J\x1b[3;3H\x1b_Ga=p,i=1\x1b\\text",
     };
-    for (frames) |frame| {
+    inline for (frames, 0..) |frame, i| {
         const out = try render(d, frame);
         defer std.testing.allocator.free(out);
-        try std.testing.expectEqualStrings(frame, out);
+        try std.testing.expectEqualStrings(frame ++ if (i == 0) "\x1b[0 q" else "", out);
+    }
+}
+
+test "the cursor's shape is written when it changes and kept while hidden" {
+    const d = try Differ.create(20, 4);
+    defer d.destroy();
+    for ([_][2][]const u8{
+        // A new differ says the host's own shape once.
+        .{ "\x1b[H\x1b[J$ \x1b[1;3H\x1b[?25h", "\x1b[H\x1b[J$ \x1b[1;3H\x1b[?25h\x1b[0 q" },
+        .{ "\x1b[H\x1b[J$ \x1b[6 q\x1b[1;3H\x1b[?25h", "\x1b[?2026h\x1b[?25l\x1b[1;3H\x1b[6 q\x1b[?25h\x1b[?2026l" },
+        .{ "\x1b[H\x1b[J$ \x1b[6 q\x1b[1;3H\x1b[?25h", "" },
+        .{ "\x1b[H\x1b[J$ \x1b[6 q\x1b[1;3H\x1b[?25l", "\x1b[?2026h\x1b[?25l\x1b[1;3H\x1b[?2026l" },
+        .{ "\x1b[H\x1b[J$ \x1b[5 q\x1b[1;3H\x1b[?25h", "\x1b[?2026h\x1b[?25l\x1b[1;3H\x1b[5 q\x1b[?25h\x1b[?2026l" },
+        // A frame that names none returns the host to its own.
+        .{ "\x1b[H\x1b[J$ \x1b[1;3H\x1b[?25h", "\x1b[?2026h\x1b[?25l\x1b[1;3H\x1b[0 q\x1b[?25h\x1b[?2026l" },
+        // A whole frame carries a changed shape too.
+        .{ "\x1b[H\x1b[J$ \x1b]22;pointer\x1b\\\x1b[2 q\x1b[1;3H\x1b[?25h", "\x1b[H\x1b[J$ \x1b]22;pointer\x1b\\\x1b[2 q\x1b[1;3H\x1b[?25h\x1b[2 q" },
+    }) |case| {
+        const out = try render(d, case[0]);
+        defer std.testing.allocator.free(out);
+        try std.testing.expectEqualStrings(case[1], out);
     }
 }
 

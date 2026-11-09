@@ -1,6 +1,7 @@
 import type { Terminal } from "./mirror";
 import type { Rect } from "./layout";
 import type { Writer } from "./text";
+import * as surface from "./pane/surface";
 
 export interface Pane {
   terminal: Terminal;
@@ -14,8 +15,10 @@ export interface Pane {
 }
 
 export type Cursor = { x: number; y: number } | null;
-export function cursorBytes(cursor: Cursor): string {
-  return cursor ? `\x1b[${cursor.y + 1};${cursor.x + 1}H\x1b[?25h` : "\x1b[?25l";
+/** A frame that names no shape shows the host's own. */
+export function cursorBytes(cursor: Cursor, style: surface.CursorStyle = "default"): string {
+  const shape = style === "default" ? "" : `\x1b[${surface.decscusr(style)} q`;
+  return shape + (cursor ? `\x1b[${cursor.y + 1};${cursor.x + 1}H\x1b[?25h` : "\x1b[?25l");
 }
 
 /** TypeScript owns the drawing order; pane cells stay in their native surface. */
@@ -23,6 +26,7 @@ export class Frame {
   chrome = "";
   panes: Pane[] = [];
   cursor: Cursor = null;
+  cursor_style: surface.CursorStyle = "default";
   /** Insertion after pane content, before the final pointer shape and sync close. */
   cursor_at: number | null = null;
   reusable = true;
@@ -60,7 +64,10 @@ export class Frame {
     }
     if (this.cursor_at !== null)
       return (
-        result + this.chrome.slice(from, this.cursor_at) + cursorBytes(this.cursor) + this.chrome.slice(this.cursor_at)
+        result +
+        this.chrome.slice(from, this.cursor_at) +
+        cursorBytes(this.cursor, this.cursor_style) +
+        this.chrome.slice(this.cursor_at)
       );
     return result + this.chrome.slice(from);
   }
@@ -97,6 +104,7 @@ export function same(left: Output, right: Output): boolean {
     right.matches(left) &&
     right.cursor?.x === left.cursor?.x &&
     right.cursor?.y === left.cursor?.y &&
+    right.cursor_style === left.cursor_style &&
     right.panes.every((p, i) => p.revision === left.panes[i].revision)
   );
 }

@@ -233,7 +233,13 @@ test("agent tab names preserve Unicode and clip by cells without shifting the ne
   const id = m.newTab("");
   m.newTab("next");
   selection.reconcile(m);
-  const terminal = { updateRender() {}, hyperlinks: () => [], cursor: () => null, rows: () => "" };
+  const terminal = {
+    updateRender() {},
+    hyperlinks: () => [],
+    cursor: () => null,
+    cursorStyle: () => "default",
+    rows: () => "",
+  };
   const pane = {
     id,
     label: "",
@@ -272,7 +278,13 @@ test("a tab wears its program's mark after its number, once the host holds it, a
   m.newTab("");
   m.newTab("");
   selection.reconcile(m);
-  const terminal = { updateRender() {}, hyperlinks: () => [], cursor: () => null, rows: () => "" };
+  const terminal = {
+    updateRender() {},
+    hyperlinks: () => [],
+    cursor: () => null,
+    cursorStyle: () => "default",
+    rows: () => "",
+  };
   const pane = (id: number, command: string, brand: Pane["brand"]) =>
     ({ id, label: "", cwd: "/w/corgi", command, brand, agent: agent(), restoring: "", terminal }) as unknown as Pane;
   const panes = [pane(m.firstPane(m.tabs[0].root), "node", "node"), pane(m.firstPane(m.tabs[1].root), "htop", null)];
@@ -738,6 +750,7 @@ test("the launcher dims the panes behind it", () => {
       updateRender() {},
       hyperlinks: () => [],
       cursor: () => null,
+      cursorStyle: () => "default",
       rows: (_id: number, x: number, y: number, _w: number, _h: number, dimmed: boolean) =>
         `\x1b[${y + 1};${x + 1}H${dimmed ? "dimmed" : "plain"}`,
     },
@@ -929,6 +942,7 @@ test("the prompt draws over dimmed panes, with no pane cursor, and places brand 
       updateRender() {},
       hyperlinks: () => [],
       cursor: () => ({ x: 0, y: 0 }),
+      cursorStyle: () => "default",
       rows: (_id: number, x: number, y: number, _w: number, _h: number, dimmed: boolean) =>
         `\x1b[${y + 1};${x + 1}H${dimmed ? "dimmed" : "plain"}`,
     },

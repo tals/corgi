@@ -8,6 +8,7 @@ const graphics = @import("graphics.zig");
 const surface_rows = @import("surface_rows.zig");
 const detection = @import("../detection.zig");
 const BoundedText = @import("../bounded_text.zig").BoundedText;
+const cursor_style = @import("../cursor_style.zig");
 
 /// The host's default colors and its configurable ANSI palette. Applications
 /// still own their OSC overrides; changing the host only changes defaults.
@@ -32,6 +33,8 @@ pub const Terminal = struct {
     surface_rows: surface_rows.Cache = .init(a),
     /// The screen row at the top of the last completed render.
     render_top: usize = 0,
+    /// The cursor shape of the last completed render.
+    render_cursor_style: cursor_style.Style = .default,
     fd: c_int = -1,
     pid: c_int = -1,
     /// A handoff candidate holds duplicates of fds and pids the source daemon
@@ -613,6 +616,7 @@ pub const Terminal = struct {
         const foreground = t.render.colors.foreground;
         const background = t.render.colors.background;
         try t.render.update(a, &t.vt);
+        t.render_cursor_style = cursor_style.of(&t.vt);
         const pages = &t.vt.screens.active.pages;
         if (pages.pointFromPin(.screen, pages.getTopLeft(.viewport))) |point| t.render_top = point.screen.y;
         // Reverse-video mode updates these defaults without marking rows dirty.

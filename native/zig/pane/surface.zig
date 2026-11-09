@@ -3,6 +3,7 @@ const terminal = @import("terminal.zig");
 const vt = terminal.vt;
 const hyperlink = @import("hyperlinks.zig");
 const graphics = @import("graphics.zig");
+const cursor_style = @import("../cursor_style.zig");
 
 /// The daemon's id for a pane, which link ids carry.
 pub const PaneId = enum(u32) { _ };
@@ -13,6 +14,8 @@ pub const Surface = struct {
     rows: u16,
     lines: []const []const u8,
     cursor: ?struct { x: u16, y: u16 },
+    /// The shape the program asked for, kept while the cursor is hidden.
+    cursor_style: cursor_style.Style = .default,
     images: []const graphics.Placement = &.{},
 };
 
@@ -46,6 +49,7 @@ pub fn capture(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Terminal) 
         .lines = lines,
         .images = try allocator.dupe(graphics.Placement, t.graphics.placements.items),
         .cursor = if (state.cursor.visible) if (state.cursor.viewport) |pos| .{ .x = pos.x, .y = pos.y } else null else null,
+        .cursor_style = t.render_cursor_style,
     };
 }
 
@@ -225,6 +229,33 @@ pub fn modes(t: *const terminal.Terminal) Modes {
         .mouse_format = t.vt.flags.mouse_format,
         .paste_events = t.vt.modes.get(.kitty_paste_events),
     };
+}
+
+test "capture carries the cursor shape the program selected" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const t = try terminal.Terminal.create(10, 2);
+    defer t.destroy();
+    try std.testing.expectEqual(cursor_style.Style.default, (try capture(arena.allocator(), @enumFromInt(1), t)).cursor_style);
+    for ([_]struct { []const u8, cursor_style.Style }{
+        .{ "\x1b[6 q", .steady_bar },
+        .{ "\x1b[?12h", .blinking_bar },
+        .{ "\x1b[?25l", .blinking_bar },
+        .{ "\x1b[3 q", .blinking_underline },
+        .{ "\x1b[2 q", .steady_block },
+        .{ "\x1b[0 q", .default },
+        .{ "\x1b[?12h", .default },
+    }) |case| {
+        t.feed(case[0]);
+        try std.testing.expectEqual(case[1], (try capture(arena.allocator(), @enumFromInt(1), t)).cursor_style);
+    }
+    // A synchronized redraw's shape waits for its cells.
+    t.feed("\x1b[?2026h\x1b[6 q");
+    try std.testing.expectEqual(cursor_style.Style.default, (try capture(arena.allocator(), @enumFromInt(1), t)).cursor_style);
+    t.feed("\x1b[?2026l");
+    try std.testing.expectEqual(cursor_style.Style.steady_bar, (try capture(arena.allocator(), @enumFromInt(1), t)).cursor_style);
+    const json = try std.json.Stringify.valueAlloc(arena.allocator(), Surface{ .pane = @enumFromInt(1), .cols = 1, .rows = 0, .lines = &.{}, .cursor = null, .cursor_style = .steady_bar }, .{});
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"cursor_style\":\"steady_bar\"") != null);
 }
 
 test "named hyperlinks survive capture and a second terminal render without leaking" {
