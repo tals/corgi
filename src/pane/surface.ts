@@ -123,7 +123,8 @@ export function stamp(t: Terminal, offset: number | null = null): Stamp {
 type NativeView = Omit<View, "stamp"> & {
   stamp: { identity: string; revision: string; offset: number | null };
 };
-/** A surface as a daemon sends it; an older one has no cursor style. */
+/** A surface as a daemon sends it. XXX: Remove for next protocol bump. An
+ * older daemon sends no cursor style. */
 type Sent<T> = Omit<T, "surface"> & { surface: Omit<Surface, "cursor_style"> & { cursor_style?: string } };
 
 export function view(value: Sent<Wire<View>> | Sent<NativeView>): View {
