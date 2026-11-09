@@ -1267,6 +1267,9 @@ export class Server {
         if (text.byteLength(request.payload.text) > 4096) throw Error("Usage");
         const target = this.runtime.voice.target(this.liveViewers(), new Set(this.runtime.panes.map(p => p.id))),
           p = this.runtime.pane(target.pane)!;
+        // Nothing reads a sleeping or exited pane's input, so the words would be lost.
+        if (p.dormant) throw Error("PaneAsleep");
+        if (p.terminal.exited) throw Error("PaneExited");
         // No control character survives, so dictation never ends a paste or submits.
         const said = request.payload.text.replace(/[\x00-\x1f\x7f-\x9f]/g, " "),
           // An utterance right after another in this pane joins it with a space.

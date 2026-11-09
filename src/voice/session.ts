@@ -35,6 +35,10 @@ export function reason(error: unknown): string {
       return "no focused pane";
     case "VoicePane":
       return "focused pane is the voice pane";
+    case "PaneAsleep":
+      return "focused pane is asleep";
+    case "PaneExited":
+      return "focused pane has exited";
     case "Timeout":
       return "timed out";
     case "NotConnected":

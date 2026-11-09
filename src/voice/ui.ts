@@ -308,6 +308,9 @@ export class VoiceUi {
   /** The help overlay, and how far it is scrolled when it does not fit. */
   help: { scroll: number } | null = null;
   device: string;
+  /** The microphone recording: null for the system default, else the ID or
+   * name it was started with (`--device 1` or `--device "USB Mic"`). */
+  private deviceId: string | null;
   /** What a click does, and where, from the last frame: the note and the mode
    * mute or unmute, an option opens its menu or switches. */
   private hits: { y: number; x: number; width: number; act: () => void }[] = [];
@@ -319,6 +322,7 @@ export class VoiceUi {
     this.timing = { ...opts.timing };
     this.filter = opts.filter;
     this.device = opts.device;
+    this.deviceId = opts.device === "(default)" ? null : opts.device;
   }
   /** The frame for a `cols` × `rows` screen, from a clear one. */
   draw(cols: number, rows: number): string {
@@ -644,7 +648,9 @@ export class VoiceUi {
         Object.assign(picker, { devices, notice, loading: false });
         picker.choice = Math.max(
           0,
-          devices.findIndex(d => (this.device === "(default)" ? d.default : d.label === this.device)),
+          devices.findIndex(d =>
+            this.deviceId === null ? d.default : d.id === this.deviceId || d.label === this.deviceId,
+          ),
         );
       },
       () => Object.assign(picker, { loading: false, notice: "Could not list microphones" }),
@@ -660,6 +666,7 @@ export class VoiceUi {
       const device = p.devices[p.choice];
       this.picker = null;
       this.device = device.default ? "(default)" : device.label;
+      this.deviceId = device.default ? null : device.id;
       this.opts.switchDevice(device);
     }
   }
