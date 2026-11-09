@@ -3,7 +3,7 @@ import { Agent, Text, toolActivity, type Presence } from "./agents";
 import { State } from "./observation";
 import { Hooks } from "./providers/common";
 import * as codex from "./providers/codex";
-import { Tail, completion, settle_ms } from "./transcript";
+import { Tail, completion, record_limit, settle_ms } from "./transcript";
 import * as worktrees from "./worktrees";
 test("late receipts cannot read newer completions", () => {
   const s = new State();
@@ -148,6 +148,22 @@ test("a Claude Stop hook summary older than the Stop hook does not end the turn"
   const { a, summary } = claudeStop("1970-01-01T00:00:00.500Z"),
     t = new Tail();
   t.ingest(a, summary, 10_000);
+  expect(t.settled(10_000 + 10 * settle_ms)).toBeNull();
+});
+test("a Claude Stop hook summary waits for a record still being written", () => {
+  const { a, summary, record } = claudeStop(),
+    t = new Tail();
+  const next = record({ type: "system", subtype: "informational" });
+  t.ingest(a, summary + next.slice(0, 10), 10_000);
+  expect(t.settled(10_000 + 10 * settle_ms)).toBeNull();
+  t.ingest(a, next.slice(10), 10_001);
+  expect(t.settled(10_000 + 10 * settle_ms)).toBe("completed");
+});
+test("a record too large to read after a Claude Stop hook summary keeps the turn open", () => {
+  const { a, summary, record } = claudeStop(),
+    t = new Tail();
+  t.ingest(a, summary, 10_000);
+  t.ingest(a, record({ type: "assistant", message: { content: "x".repeat(record_limit) } }), 10_001);
   expect(t.settled(10_000 + 10 * settle_ms)).toBeNull();
 });
 test("closing a tail forgets the Stop hook summary it saw", () => {
