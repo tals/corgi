@@ -1296,41 +1296,6 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     this.assertEqual(recovered.usage_error, "");
     this.assertEqual(this.metadataRequests().filter(r => r.kind === "start").length, 2);
   }
-  async test_claude_enterprise_monthly_spend_survives_reload() {
-    writeFileSync(
-      join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"),
-      JSON.stringify({
-        subscriptionType: "enterprise",
-        rate_limits: {
-          five_hour: null,
-          seven_day: null,
-          extra_usage: {
-            is_enabled: true,
-            used_credits: 59,
-            monthly_limit: 1000000,
-            currency: "USD",
-            decimal_places: 2,
-          },
-        },
-      }),
-    );
-    const first = await this.directoryPreview("enterprise");
-    this.assertEqual(first.plan, "Enterprise");
-    this.assertEqual(first.limits, { metered: {} });
-    this.assertEqual(first.spend.used_minor, 59);
-    this.assertEqual(first.spend.limit_minor, 1000000);
-    const reset = new Date(first.spend.reset_at * 1000);
-    this.assertEqual([reset.getUTCDate(), reset.getUTCHours(), reset.getUTCMinutes()], [1, 0, 0]);
-    await this.rpc({ op: "server.reload", executable: EXE });
-    const restored = await this.directoryPreview("enterprise-reloaded");
-    this.assertEqual(restored.spend, first.spend);
-    this.assertEqual(this.metadataRequests().filter(r => r.kind === "get_usage").length, 1);
-    const view = await Viewer.create(this, 150, 30);
-    await this.openLauncher(view);
-    await this.until(async () =>
-      screen_text((await view.poll()).data, 150, 30).some(row => /mo\s+─+\s+<1%.*\$0\.59 \/ \$10k/.test(row)),
-    );
-  }
   async test_codex_monthly_credit_limit_shows_as_spend() {
     const reset = Math.floor(Date.now() / 1000) + 10 * 86400;
     writeFileSync(
@@ -1663,6 +1628,50 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
 }
 
 registerCase("agent launcher", Launcher, { timeout: 120_000 });
+
+/** Signed in to Claude Enterprise from the start: the daemon reads the
+ * account as it starts, and keeps that read for a minute. */
+class EnterpriseLauncher extends Launcher {
+  async configure() {
+    await super.configure();
+    writeFileSync(
+      join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"),
+      JSON.stringify({
+        subscriptionType: "enterprise",
+        rate_limits: {
+          five_hour: null,
+          seven_day: null,
+          extra_usage: {
+            is_enabled: true,
+            used_credits: 59,
+            monthly_limit: 1000000,
+            currency: "USD",
+            decimal_places: 2,
+          },
+        },
+      }),
+    );
+  }
+  async test_claude_enterprise_monthly_spend_survives_reload() {
+    const first = await this.directoryPreview("enterprise");
+    this.assertEqual(first.plan, "Enterprise");
+    this.assertEqual(first.limits, { metered: {} });
+    this.assertEqual(first.spend.used_minor, 59);
+    this.assertEqual(first.spend.limit_minor, 1000000);
+    const reset = new Date(first.spend.reset_at * 1000);
+    this.assertEqual([reset.getUTCDate(), reset.getUTCHours(), reset.getUTCMinutes()], [1, 0, 0]);
+    await this.rpc({ op: "server.reload", executable: EXE });
+    const restored = await this.directoryPreview("enterprise-reloaded");
+    this.assertEqual(restored.spend, first.spend);
+    this.assertEqual(this.metadataRequests().filter(r => r.kind === "get_usage").length, 1);
+    const view = await Viewer.create(this, 150, 30);
+    await this.openLauncher(view);
+    await this.until(async () =>
+      screen_text((await view.poll()).data, 150, 30).some(row => /mo\s+─+\s+<1%.*\$0\.59 \/ \$10k/.test(row)),
+    );
+  }
+}
+registerCase("claude enterprise launcher", EnterpriseLauncher, { inherited: false, timeout: 120_000 });
 
 /** Omarchy's agents: mise shims for tools mise installs the first time each runs. */
 class LazyShims extends Launcher {
