@@ -718,6 +718,12 @@ export class Endpoint {
         const snapshot_epoch = machine.runtime.snapshot_epoch;
         const attached = await viewer.receive(view, reply, this.bell, visible, machine);
         this.current(generation);
+        if (machine.waiting_controls.length) {
+          // Tried again each step, until the session shows what they name.
+          const seen = new Set(machine.waiting_controls.map(c => c.seq));
+          this.controls = [...machine.waiting_controls, ...this.controls.filter(c => !seen.has(c.seq))];
+          machine.waiting_controls = [];
+        }
         if (machine.runtime.snapshot_epoch !== snapshot_epoch + (reply.session ? 1 : 0)) stream.reset();
         if (!attached) {
           // A replaced local daemon has the viewer run its build; a remote

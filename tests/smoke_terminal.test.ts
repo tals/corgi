@@ -789,7 +789,11 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     await this.until(async () =>
       (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("BAR_CURSOR"),
     );
-    const output = await this.checkRealClientExit("\x02q", 1);
+    // The sidebar can show before the pane's first frame; detach once the pane has drawn.
+    const output = await this.checkRealClientExit(async pty => {
+      await pty.waitFor("BAR_CURSOR", 4000);
+      pty.write("\x02q");
+    }, 1);
     this.assertIn("\x1b[6 q", output);
     this.assertLess(output.indexOf("\x1b[6 q"), output.lastIndexOf("\x1b[0 q"));
   }

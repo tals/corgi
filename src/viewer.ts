@@ -192,6 +192,18 @@ export function syncRequest(
     resources_hash: machine.runtime.resources_hash,
   };
 }
+/** How long a control waits for the session that shows what it names. */
+const control_wait_ms = 2000;
+function arrived(machine: Machine, control: protocol.Wire<protocol.Control>): boolean {
+  switch (control.kind) {
+    case "focus":
+      return machine.runtime.workspaces.owner(control.id!) !== null;
+    case "workspace":
+      return machine.runtime.workspaces.index(control.id!) !== null;
+    default:
+      return true;
+  }
+}
 /** Takes a reply from `machine`'s daemon. A machine in the background takes
  * its data; its controls wait, unacknowledged, until it's shown. */
 export async function receive(
@@ -207,9 +219,21 @@ export async function receive(
   if (reply.resources) machine.runtime.receiveResources(reply.resources);
   machine.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
   machine.viewer_id = reply.viewer ?? 0;
-  for (const control of shown ? (reply.controls ?? []) : []) {
+  const controls = shown ? (reply.controls ?? []) : [];
+  for (const [i, control] of controls.entries()) {
     const seq = BigInt(control.seq);
     if (seq <= machine.last_control) continue;
+    // Controls and session updates can take different connections: one may
+    // name a pane before the session that has it. It and those after it wait.
+    if (!arrived(machine, control)) {
+      const now = performance.now();
+      machine.waiting_since ??= now;
+      if (now - machine.waiting_since < control_wait_ms) {
+        machine.waiting_controls = controls.slice(i);
+        break;
+      }
+    }
+    machine.waiting_since = null;
     try {
       if (control.kind === "focus" || control.kind === "workspace") {
         if (control.kind === "focus") view.focusPane(control.id!);

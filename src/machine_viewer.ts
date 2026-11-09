@@ -123,8 +123,16 @@ export async function run(
     endpoint.onChange = notify;
     endpoint.onEffects = view => {
       for (const effect of view.effects) {
-        if ("write_terminal" in effect) viewer.writeAll(effect.write_terminal);
-        else if (!view.remote_links) {
+        if ("write_terminal" in effect) {
+          viewer.writeAll(effect.write_terminal);
+          // Graphics commands move the host's images under the differ: draw it all again.
+          if (effect.write_terminal.includes("\x1b_G")) {
+            differ?.invalidateImages();
+            previous = "";
+            view.dirty = true;
+            notify();
+          }
+        } else if (!view.remote_links) {
           try {
             openers.open(effect.open_url);
           } catch {}

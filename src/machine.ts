@@ -9,6 +9,7 @@ import type { Target as OrderTarget } from "./agent_order";
 import type { Provider } from "./providers";
 import type { Profile } from "./agent_profiles";
 import { Tasks } from "./tasks";
+import type * as protocol from "./protocol";
 import type { WorkspaceEntry } from "./sidebar";
 import * as worktreeAgents from "./worktree_agents";
 
@@ -59,6 +60,10 @@ export class Machine {
   /** This viewer's id on the daemon, and the last control taken from it. */
   viewer_id = 0;
   last_control = 0n;
+  /** Controls that came before the session showing what they name, from the
+   * first; and since when the first has waited. */
+  waiting_controls: protocol.Wire<protocol.Control[]> = [];
+  waiting_since: number | null = null;
   /** Links point at the daemon's machine, so they're shown, not opened here. */
   remote_links = false;
   /** Workspace ids whose group is folded in the grouped "All" list. */
@@ -102,6 +107,8 @@ export class Machine {
     this.navigation = new Navigation();
     this.viewer_id = 0;
     this.last_control = 0n;
+    this.waiting_controls = [];
+    this.waiting_since = null;
     this.folded_groups = [];
     this.worktree_agents = new worktreeAgents.State();
     this.marked_unread.clear();

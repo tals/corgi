@@ -201,3 +201,43 @@ test("rendering and navigation wait to subscribe until viewer attachment complet
     viewer.close(view);
   }
 });
+
+test("a focus control that comes before the session showing its pane waits for it", async () => {
+  const endpoint = localEndpoint("/tmp/corgi-control-wait-test/control.sock", new Probe(), new Host());
+  const view = new Controller(endpoint.machine);
+  endpoint.controller = view;
+  const machine = endpoint.machine;
+  const reply = (session: object | null, controls: protocol.Wire<protocol.Control[]>) =>
+    ({
+      type: "view",
+      viewer_protocol: protocol.viewer_version,
+      session,
+      session_hash: 0n,
+      resources: null,
+      resources_hash: 0n,
+      surfaces: [],
+      controls,
+      viewer: 1,
+      bell_seq: 0n,
+      bell_kind: "none",
+      detach: false,
+    }) as unknown as protocol.Reply<"viewer.sync">;
+  const two = snapshot();
+  two.workspaces = two.workspaces.slice(0, 2);
+  two.panes = two.panes.filter(p => p.id < 30);
+  try {
+    await viewer.receive(view, reply(two, []), { seq: 0n }, false, machine);
+    const focus = [{ seq: 1, kind: "focus", id: 31 }] as protocol.Wire<protocol.Control[]>;
+    await viewer.receive(view, reply(null, focus), { seq: 0n }, false, machine);
+    expect(machine.waiting_controls).toEqual(focus);
+    expect(machine.last_control).toBe(0n);
+    expect(view.message).toBe("");
+    machine.waiting_controls = [];
+    await viewer.receive(view, reply(snapshot(), focus), { seq: 0n }, false, machine);
+    expect(machine.waiting_controls).toEqual([]);
+    expect(machine.last_control).toBe(1n);
+    expect(view.focused()?.id).toBe(31);
+  } finally {
+    await endpoint.close();
+  }
+});
