@@ -153,8 +153,7 @@ export type Effect = { write_terminal: string } | { open_url: string };
 type HoverMenu = "launcher" | "scope";
 /** A paste goes to the text field that owned the keyboard when it began, or
  * to the focused pane when none did. */
-type Paste =
-  { pane: number } | "opening" | "launcher" | "setup" | "picker" | "name" | "review" | "signin" | "prompt" | "discard";
+type Paste = { pane: number } | "launcher" | "setup" | "picker" | "name" | "review" | "signin" | "prompt" | "discard";
 /** Where keys go when no menu or dialog takes them: the focused pane, the
  * sidebar's cursor, or the review panel. */
 type Keyboard = "pane" | "review" | { sidebar: sidebarFocus.State };
@@ -834,41 +833,36 @@ export class Controller {
     make: (lane: tasks.Lane) => Promise<number | null>,
     shown: (pane: number) => void = pane => this.showCreated(pane),
   ): void {
-    const value = new Opening(this.next_opening--),
-      entry = { value, here: this.here(true), revision: this.navigation.revision };
+    const value = new Opening(this.next_opening--, this.machine),
+      entry = { value, here: this.here(), revision: this.navigation.revision };
     this.opening = entry;
+    // Copy mode reads keys for the focused pane, which is now one not there yet.
+    this.copy_mode = false;
     this.dirty = true;
     this.later(async lane => {
-      let pane: number | null = null;
+      let pane: number | null = null,
+        kept = false;
       try {
         pane = await make(lane);
       } finally {
-        const kept = this.openingFocus() === value;
+        kept = this.openingFocus() === value;
         if (this.opening === entry) this.opening = null;
         this.dirty = true;
-        if (pane !== null) this.opened(value, pane, kept, shown);
       }
+      if (pane === null) return;
+      // The pane is on the machine it opened on, whichever one is shown now.
+      if (value.closing) return this.edit({ "pane.close": { target: pane } }, lane);
+      const p = value.machine.runtime.pane(pane);
+      if (!p) return;
+      if (kept) shown(pane);
+      const keys = value.take();
+      if (!keys.length) return;
+      if (value.machine === this.machine) this.sendInput(p.terminal, keys);
+      else p.terminal.send(keys);
     });
   }
-  /** `value` became `pane`: what was typed for it goes there. */
-  private opened(value: Opening, pane: number, kept: boolean, shown: (pane: number) => void): void {
-    if (value.closing) return this.close(pane);
-    const p = this.pane(pane);
-    if (!p) return;
-    if (kept) shown(pane);
-    for (const chunk of value.take()) {
-      if ("keys" in chunk) {
-        this.sendInput(p.terminal, chunk.keys);
-        continue;
-      }
-      const bracketed = p.terminal.bracketedPaste();
-      if (bracketed) this.sendInput(p.terminal, "\x1b[200~");
-      this.sendInput(p.terminal, chunk.paste);
-      if (bracketed) this.sendInput(p.terminal, "\x1b[201~");
-    }
-  }
   /** The pane an action is opening, while it has the keyboard: until focus
-   * moves, or the user leaves the tab it opens from. */
+   * moves, or the user leaves the workspace it opens in. */
   private openingFocus(): Opening | null {
     const o = this.opening;
     return o && o.revision === this.navigation.revision && o.here() ? o.value : null;
@@ -3576,12 +3570,9 @@ export class Controller {
       }
       case "paste":
         if (this.clipboard !== null) {
-          const opening = this.openingFocus(),
-            p = opening ? null : this.focused();
-          if (opening) {
-            opening.pasteStart();
-            opening.paste(Buffer.from(this.clipboard));
-          } else if (p) {
+          // A pane still opening takes no pastes.
+          const p = this.openingFocus() ? null : this.focused();
+          if (p) {
             const bracketed = p.terminal.bracketedPaste();
             if (bracketed) this.sendInput(p.terminal, "\x1b[200~");
             this.sendInput(p.terminal, this.clipboard);
@@ -3893,16 +3884,11 @@ export class Controller {
   /** Starts `provider`'s agent in `account`, "" its default. */
   private async launchAgent(provider: Provider | null, account = "", message = ""): Promise<void> {
     if (!this.current().id) return this.beginWorkspace(null);
-    const machine = this.machine,
-      workspace = this.current().id;
-    const last = this.lastAgent();
-    const dir = await this.launcherDir();
-    if (dir === null || this.machine !== machine) return;
-    if (byteLength(dir) > 4096) throw Error("NameTooLong");
-    this.closeMenu();
-    this.rememberLauncherRow(workspace, Row.of(provider ?? last, account));
-    this.open(
-      async lane => {
+    const workspace = this.current().id,
+      row = Row.of(provider ?? this.lastAgent(), account);
+    this.rememberLauncherRow(workspace, row);
+    this.launchIn(
+      async (dir, lane) => {
         try {
           // An older daemon refuses fields it doesn't know, so the default sends none.
           const created = await this.execute(
@@ -3926,7 +3912,6 @@ export class Controller {
   /** Starts what launcher row `row` names. A pane it opens has the keyboard
    * at once; this returns once it's asked for, not made. */
   private async launchRow(row: LauncherRow): Promise<void> {
-    const machine = this.machine;
     const launch = this.agent_launcher;
     if (launch) {
       if (launch.managing) return;
@@ -3936,32 +3921,54 @@ export class Controller {
       const profile = Row.profile(row),
         index = Row.custom(row),
         workspace = launch.workspace;
-      if (profile || index !== null) {
-        const dir = await this.launcherDir();
-        if (dir === null || this.machine !== machine) return;
-        const command: CommandInput = profile
-          ? { "agent.profile.create": { workspace, cwd: dir, id: profile } }
-          : { "agent.command.create": { workspace, cwd: dir, index: index! } };
-        this.closeMenu();
-        this.open(
-          async lane => {
+      if (profile || index !== null)
+        return this.launchIn(
+          async (dir, lane) => {
+            const command: CommandInput = profile
+              ? { "agent.profile.create": { workspace, cwd: dir, id: profile } }
+              : { "agent.command.create": { workspace, cwd: dir, index: index! } };
             const created = await this.execute(command, lane);
             if (profile) this.rememberLauncherRow(workspace, row);
             return created.pane;
           },
           pane => this.showLaunched(pane),
         );
-        return;
-      }
     }
     const agent = Row.launch(row);
     if (agent) return this.launchAgent(agent.provider, agent.account);
-    const dir = await this.launcherDir();
-    if (dir === null || this.machine !== machine) return;
-    if (byteLength(dir) > 4096) throw Error("NameTooLong");
-    this.closeMenu();
-    this.copy_mode = false;
-    this.open(lane => this.create(null, dir, null, "", undefined, lane, false));
+    this.launchIn(
+      (dir, lane) => this.create(null, dir, null, "", undefined, lane, false),
+      pane => this.showCreated(pane),
+    );
+  }
+  /** Opens a pane from the launcher, in the folder it's set to; `make` asks
+   * the daemon for it there. The launcher closes and the pane takes the
+   * keyboard at once. A worktree the launcher plans is added first, without
+   * holding up input: the pane then takes the keyboard only if the launcher
+   * is still open, and otherwise opens behind what the user went on to. */
+  private launchIn(
+    make: (dir: string, lane: tasks.Lane) => Promise<number | null>,
+    shown: (pane: number) => void,
+  ): void {
+    const now = this.launcherDirNow();
+    if (now !== null) {
+      if (byteLength(now) > 4096) throw Error("NameTooLong");
+      this.closeMenu();
+      return this.open(lane => make(now, lane), shown);
+    }
+    const machine = this.machine,
+      launch = this.agent_launcher;
+    this.later(async lane => {
+      const dir = await this.launcherDir();
+      if (dir === null) return;
+      if (byteLength(dir) > 4096) throw Error("NameTooLong");
+      if (this.machine !== machine || this.agent_launcher !== launch) {
+        await make(dir, lane);
+        return;
+      }
+      this.closeMenu();
+      this.open(next => make(dir, next), shown);
+    });
   }
   /** The launcher's model, also used by settings' Manage agents section. */
   private launcherModel(): LauncherMenu | null {
@@ -4459,12 +4466,19 @@ export class Controller {
   }
   /** Where the launcher starts what it launches. A new worktree named there
    * is added first; null when Git refused it, with the reason in its form. */
-  private async launcherDir(): Promise<string | null> {
+  /** The folder a launch runs in, when it's known now: null while the
+   * launcher plans a worktree that must be added first. */
+  private launcherDirNow(): string | null {
     const launch = this.agent_launcher;
     if (!launch) return this.launcherCwd();
-    const c = launch.worktree,
-      planned = c.planned;
-    if (!planned) return launch.cwd;
+    return launch.worktree.planned ? null : launch.cwd;
+  }
+  private async launcherDir(): Promise<string | null> {
+    const now = this.launcherDirNow();
+    if (now !== null) return now;
+    const launch = this.agent_launcher!,
+      c = launch.worktree,
+      planned = c.planned!;
     if (c.adding) return null;
     const fields = { workspace: launch.workspace, path: planned.path, branch: planned.branch, base: planned.base };
     c.adding = true;
@@ -6148,7 +6162,10 @@ export class Controller {
             this.expandResume(true);
             break;
           case 121:
-            if (!launch.managing) await this.toggleLauncherYolo(launch.selected);
+            if (!launch.managing) {
+              const row = launch.selected;
+              this.later(() => this.toggleLauncherYolo(row));
+            }
             break;
           case 117:
             await this.trackLauncherUsage(launch.selected);
@@ -6420,8 +6437,8 @@ export class Controller {
       }
       return;
     }
-    if (byte === 27 && this.retryPending()) return this.perform({ name: "cancel-retry" });
     if (this.typeOpening([byte])) return;
+    if (byte === 27 && this.retryPending()) return this.perform({ name: "cancel-retry" });
     const p = this.focused();
     if (p) {
       this.sendInput(p.terminal, [byte]);
@@ -6454,7 +6471,8 @@ export class Controller {
     if (this.editingName()) return "name";
     if (this.reviewKeys() && this.review.typing) return "review";
     if (this.hasMenu() || this.reviewKeys()) return "discard";
-    if (this.openingFocus()) return "opening";
+    // A pane still opening takes no pastes.
+    if (this.openingFocus()) return "discard";
     const p = this.focused();
     return p ? { pane: p.id } : "discard";
   }
@@ -6715,10 +6733,6 @@ export class Controller {
       case "prompt":
         for (const byte of bytes) this.prompt.pasteByte(byte);
         break;
-      case "opening":
-        // A paste that outlasts the opening is dropped with it.
-        this.opening?.value.paste(bytes);
-        break;
       case "discard":
         break;
     }
@@ -6950,14 +6964,14 @@ export class Controller {
                 bindings.lookup(this.prefs.bindings(), false, legacy[0], {}) !== null))
           ) {
             seq = legacy;
+          } else if (this.openingFocus()) {
+            // A pane still opening hasn't asked for any encoding yet.
+            seq = legacy;
           } else if (legacy.length === 1 && legacy[0] === 27 && this.retryPending()) {
             // The pane would get Esc in its own encoding, past `key`.
             await this.perform({ name: "cancel-retry" });
             used += len;
             continue;
-          } else if (this.openingFocus()) {
-            // A pane still opening hasn't asked for any encoding yet.
-            seq = legacy;
           } else {
             const p = this.focused();
             if (p) seq = Array.from(Buffer.from(viewerNative.encodeKey(p.terminal.handle, key_event)));
@@ -6992,13 +7006,11 @@ export class Controller {
         // The markers reach only an application that asked for them.
         const p = this.pastePane();
         if (cl.paste === "signin") await this.signin?.input(text);
-        else if (cl.paste === "opening" && parsed_key === "paste_start") this.opening?.value.pasteStart();
         else if (p && p.terminal.bracketedPaste()) this.sendInput(p.terminal, seq);
         if (parsed_key === "paste_end") cl.paste = null;
       } else if (cl.paste !== null) {
         const p = this.pastePane();
         if (cl.paste === "signin") await this.signin?.input(text);
-        else if (cl.paste === "opening") this.opening?.value.paste(seq);
         else if (p) this.sendInput(p.terminal, seq);
       } else if (parsed_key === "focus_in") {
         cl.watched = true;
@@ -7955,7 +7967,7 @@ export class Controller {
         const hit = side.hit(x, y).tag;
         const yolo = this.agent_launcher.yoloHit(this.width, this.height, side, x, y);
         const usage = yolo === null ? this.agent_launcher.usageHit(this.width, this.height, side, x, y) : null;
-        if (yolo !== null) await this.toggleLauncherYolo(yolo);
+        if (yolo !== null) this.later(() => this.toggleLauncherYolo(yolo));
         else if (usage !== null) await this.trackLauncherUsage(usage);
         else if (hit === "agent_new") await this.launchAgent(null);
         else if (hit === "agent_options") this.agent_launcher.pinned = true;
@@ -8373,7 +8385,8 @@ export class Controller {
         this.dirty = true;
         return;
       }
-      this.focusPane(p.id);
+      // The wheel scrolls the pane under it but leaves the keyboard with a pane still opening.
+      if ((button & 64) === 0 || !this.openingFocus()) this.focusPane(p.id);
       this.dirty = true;
       // A double-click picks the word, even on a link, and a triple-click
       // or later press the line, unless the app takes the clicks; with
@@ -8716,8 +8729,7 @@ export class Controller {
       !(cl.paste !== null && keys.paste_end.startsWith(latin1(cl.keybuf))) &&
       Date.now() - cl.escape_at > (cl.paste !== null || cl.keybuf.length === 1 ? 40 : 1000)
     ) {
-      if (cl.paste === "opening") this.opening?.value.paste(cl.keybuf);
-      else if (cl.paste !== null) {
+      if (cl.paste !== null) {
         const p = this.pastePane();
         if (p) this.sendInput(p.terminal, cl.keybuf);
       } else if (cl.keybuf.length === 1 && cl.keybuf[0] === 27) await this.key(27);
