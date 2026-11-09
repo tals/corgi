@@ -1620,9 +1620,9 @@ export class View {
       const ghost = v.dragged_workspace === v.workspace_offset + index;
       const tinted = ws.active || ghost;
       const hovered = !tinted && v.workspace_hover === v.workspace_offset + index;
-      // On a tinted section, faint text would drop below the styleguide's
-      // contrast, so the row's dim text takes muted as on the active row.
-      const lifted = tinted || palette.sectionTint(v.workspace_tint) !== null;
+      // On a tinted section or a hovered row, faint text would drop below the
+      // styleguide's contrast, so the row's dim text takes muted as on the active row.
+      const lifted = tinted || hovered || palette.sectionTint(v.workspace_tint) !== null;
       const style = tinted ? active_name : hovered ? hover : plain;
       const meta = tinted ? active_meta : hovered ? hover : plain;
       // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
