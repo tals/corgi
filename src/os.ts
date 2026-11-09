@@ -378,16 +378,17 @@ export function privateDirectory(parent: string) {
   try {
     stat = lstat(parent);
   } catch {
-    mkdirSync(parent, { recursive: true });
+    // Created ancestors are private too; one may later be another file's parent.
+    mkdirSync(parent, { recursive: true, mode: 0o700 });
     chmodSync(parent, 0o700);
     try {
       stat = lstat(parent);
     } catch {
-      throw Error("UnsafeSocketDirectory");
+      throw Error("UnsafeDirectory");
     }
   }
   if (stat.uid !== (process.getuid?.() ?? userInfo().uid) || !stat.isDir() || (stat.mode & 0o077) !== 0)
-    throw Error("UnsafeSocketDirectory");
+    throw Error("UnsafeDirectory");
 }
 export function unixAddress(path: string) {
   if (Buffer.byteLength(path) >= (process.platform === "darwin" ? 104 : 108) || path.includes("\0"))

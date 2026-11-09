@@ -1,47 +1,25 @@
+import type { State as ClipboardState } from "./host_clipboard";
+import * as composition from "./composition";
+import * as telemetry from "./telemetry";
 //! Each invocation owns its UI, local selections, and input parser. The daemon
 //! sends shared session organization and terminal surfaces, never Corgi frames.
 //! Mirrors viewer.zig.
-import * as telemetry from "./telemetry";
 import * as docking from "./docking";
-import * as dockingGrip from "./docking_grip";
 import { max_panes } from "./layout";
 import { dirname, join } from "node:path";
 import { Controller } from "./controller";
-import { call, unread, acknowledge, type Transport } from "./mirror";
+import type { Machine } from "./machine";
+import { call, unread, acknowledge } from "./mirror";
 import { parse as parseAction } from "./action";
-import * as corgiBadge from "./corgi_badge";
 import * as terminal_info from "./terminal_info";
-import * as linkThumbnail from "./link_thumbnail";
-import * as rowGlide from "./row_glide";
-import * as discovery from "./discovery";
 import { Differ } from "./frame_diff";
-import * as composition from "./composition";
 import * as framePacing from "./frame_pacing";
-import { Openers } from "./url_opener";
 import * as sound from "./sound";
 import { sshViewer } from "./trackers/ports";
-import * as palette from "./palette";
-import * as hostBackground from "./host_background";
-import * as corgiAnimation from "./corgi_animation";
 import type { Reply, RequestInput } from "./protocol";
-import type { State as ClipboardState } from "./host_clipboard";
+import * as protocol from "./protocol";
 import { n, ptr } from "./native_ffi";
 export { Controller as View };
-
-/** How often a viewer syncs while the daemon reports nothing new. Under a
- * second, so the daemon keeps counting the viewer as watching. */
-const quiet_sync_ms = 500;
-/** How long after input or a change on screen frames keep their full rate.
- * After that a still screen is drawn only as often as the viewer syncs. */
-const idle_after_ms = 1000;
-/** How long a pane's output pauses before its frame counts as finished. */
-const settle_ms = 2;
-/** The shortest gap between frames drawn at a pane's own pace (120 fps). */
-const pane_frame_ms = 8;
-/** How often a pane that never pauses, such as a flood of output, is drawn. */
-const flood_frame_ms = 33;
-/** How often a viewer saves its agent list's scroll for the next viewer to start from. */
-const scroll_save_ms = 1000;
 
 export async function open(
   view: Controller,
@@ -56,17 +34,19 @@ export async function openMode(
   theme: RequestInput<"viewer.open">["theme"],
   start_onboarding: boolean,
 ): Promise<bigint> {
-  view.remote_links = sshViewer();
+  const machine = view.machine,
+    navigation = machine.navigation;
   view.start_folder = cwd;
-  // OSC 22 uses X11 names in iTerm2, CSS names in Ghostty/Kitty. Read the
-  // attaching viewer's environment: one daemon can serve both terminals.
-  view.iterm2_pointer = process.env.TERM_PROGRAM === "iTerm.app";
-  view.branch_glyphs = branchGlyphs(process.env.TERM ?? "") || branchGlyphs(process.env.TERM_PROGRAM ?? "");
-  view.loadPreferences();
+  view.remote_links = !!view.connection.remote || sshViewer();
+  view.offerOnboarding();
+  if (view.connection.remote && view.onboarding) {
+    view.onboarding.close();
+    view.onboarding = null;
+  }
   if (start_onboarding) view.openOnboarding("welcome");
   let opened: Reply<"viewer.open">;
   try {
-    opened = await call(view.connection, "viewer.open", {
+    opened = await call(machine.connection, "viewer.open", {
       cwd,
       theme,
       onboarding: view.onboarding !== null,
@@ -75,10 +55,17 @@ export async function openMode(
   } catch (error) {
     throw incompatible(error as Error);
   }
-  view.navigation.workspace_id = opened.workspace;
-  view.input_state.attached = true;
-  await view.refresh();
-  if (opened.focus && view.runtime.workspaces.owner(opened.focus)) view.focusPane(opened.focus, false);
+  if (machine.navigation === navigation && navigation.revision === 0) navigation.workspace_id = opened.workspace;
+  if (view.machine === machine) view.input_state.attached = true;
+  await view.refresh(machine);
+  if (view.machine !== machine) return BigInt(opened.bell_seq ?? 0n);
+  if (
+    machine.navigation === navigation &&
+    navigation.revision === 0 &&
+    opened.focus &&
+    view.runtime.workspaces.owner(opened.focus)
+  )
+    view.focusPane(opened.focus);
   view.restoreAgentScroll();
   view.launch_previews.connect(view.connection);
   view.launch_previews.changedEvent = () => {
@@ -113,514 +100,208 @@ export function releaseUninterested(view: Controller, interests: readonly { pane
       pane.terminal.release();
 }
 
-export async function sync(view: Controller, bell: { seq: bigint }, play_sound: boolean): Promise<boolean> {
-  const telemetry_started = telemetry.begin();
+export async function sync(
+  view: Controller,
+  bell: { seq: bigint },
+  play_sound: boolean,
+  visible = true,
+): Promise<boolean> {
   view.sweepPickState();
-  try {
-    for (const p of view.runtime.panes) {
-      const held = view.selection?.pane === p.id || view.gesture?.pane === p.id;
-      if (p.terminal.holding_selection && !held) p.terminal.clearSelection();
-      if (p.terminal.pending.length > 0) await p.terminal.flush();
-    }
-    const interests: RequestInput<"viewer.sync">["interests"] = [];
-    for (const place of view.layoutView().placements(view.area())) {
-      const p = view.runtime.pane(place.id);
-      if (!p) continue;
-      interests.push({
-        pane: place.id,
-        cols: Math.max(1, place.rect.w),
-        rows: Math.max(1, place.rect.h),
-        offset: p.terminal.offset,
-        known: p.terminal.known,
-        cell: view.cell_pixels,
-      });
-    }
-    // A ghost needs its agent's screen, sized as entering will size it.
-    const ghost = view.previewGhost();
-    if (ghost && !interests.some(interest => interest.pane === ghost.pane.id))
-      interests.push({
-        pane: ghost.pane.id,
-        cols: Math.max(1, ghost.rect.w),
-        rows: Math.max(1, ghost.rect.h),
-        offset: ghost.pane.terminal.offset,
-        known: ghost.pane.terminal.known,
-        cell: view.cell_pixels,
-      });
-    const dock = view.dockingPreview();
-    if (dock?.plan && dock.drop?.kind !== "tab") {
-      for (const place of docking.view(dock.plan).placements(view.area())) {
-        if (interests.length >= max_panes) break;
-        if (
-          !dock.plan.moved.includes(place.id) ||
-          place.id === dock.plan.shell ||
-          interests.some(i => i.pane === place.id)
-        )
-          continue;
-        const p = view.runtime.pane(place.id);
-        if (p)
-          interests.push({
-            pane: p.id,
-            // Crop the live screen into the ghost; resize its process on commit.
-            cols: p.terminal.inner.cols,
-            rows: p.terminal.inner.rows,
-            offset: p.terminal.offset,
-            known: p.terminal.known,
-            cell: view.cell_pixels,
-          });
-      }
-    }
-    releaseUninterested(view, interests);
-    let reply: Reply<"viewer.sync">;
-    try {
-      reply = await call(view.connection, "viewer.sync", {
-        interests,
-        session_hash: view.runtime.snapshot_hash,
-        focus: view.focused()?.id ?? null,
-        watched: view.input_state.watched,
-        workspace: view.current().id,
-        ack: view.input_state.last_control,
-        active: view.input_state.active,
-        resource_detail: view.resourceDetail(),
-        worktree_detail: view.worktreeDetailWanted(),
-        resources: view.prefs.resources.enabled,
-        resources_hash: view.runtime.resources_hash,
-      });
-    } catch (error) {
-      throw incompatible(error as Error);
-    }
-    view.input_state.active = false;
-    if (reply.session) {
-      const session_started = telemetry.begin();
-      view.receiveSnapshot(reply.session);
-      telemetry.end("viewer.session", session_started);
-    }
-    view.runtime.snapshot_hash = reply.session_hash == null ? null : BigInt(reply.session_hash);
-    if (reply.resources) {
-      const resources_started = telemetry.begin();
-      view.runtime.receiveResources(reply.resources);
-      view.dirty = true;
-      telemetry.end("viewer.resources", resources_started);
-    }
-    view.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
-    view.input_state.viewer_id = reply.viewer ?? 0;
-    for (const control of reply.controls ?? []) {
-      const seq = BigInt(control.seq);
-      if (seq <= view.input_state.last_control) continue;
-      try {
-        if (control.kind === "focus" || control.kind === "workspace") {
-          if (control.kind === "focus") view.focusPane(control.id!);
-          else view.switchWorkspace(control.id!);
-          // Someone sent this viewer somewhere, often the prompt's model: show it.
-          if (view.prompt.open) view.prompt.hide();
-        } else {
-          const act = parseAction(control.name!, control.value ?? "");
-          if (act.name === "relaunch") {
-            view.executable = String(act.value);
-            return false;
-          }
-          await view.perform(act);
-        }
-      } catch (error) {
-        view.notice((error as Error).message);
-      }
-      view.input_state.last_control = seq;
-    }
-    for (const frame of reply.surfaces ?? []) {
-      const p = view.runtime.pane(frame.surface.pane);
-      const surface_started = telemetry.begin();
-      if (p) p.terminal.receive(frame);
-      telemetry.end("viewer.surface", surface_started);
-    }
-    if (reply.bell_seq !== undefined) {
-      const seq = BigInt(reply.bell_seq);
-      if (seq !== bell.seq) {
-        bell.seq = seq;
-        view.last_bell_kind = reply.bell_kind ?? "none";
-        if (play_sound && !view.muted) sound.play(view.last_bell_kind);
-      }
-    }
-    // Corgi's own sound, set apart from the agents'.
-    if (view.prompt_chime) {
-      if (play_sound && !view.muted) sound.playCorgi(view.prompt_chime === "needs_input");
-      view.prompt_chime = null;
-    }
-    return view.input_state.attached;
-  } finally {
-    telemetry.end("viewer.sync", telemetry_started);
+  for (const p of view.runtime.panes) {
+    if (p.terminal.holding_selection && view.selection?.pane !== p.id && view.gesture?.pane !== p.id)
+      p.terminal.clearSelection();
+    if (p.terminal.pending.length > 0) await p.terminal.flush();
   }
+  let reply: Reply<"viewer.sync">;
+  try {
+    reply = await call(view.connection, "viewer.sync", syncRequest(view, visible));
+  } catch (error) {
+    throw incompatible(error as Error);
+  }
+  view.input_state.active = false;
+  return receive(view, reply, bell, play_sound);
+}
+/** What `machine`'s viewer asks its daemon for. Only the machine shown has
+ * panes in view; one in the background keeps its session current. */
+export function syncRequest(
+  view: Controller,
+  visible = true,
+  machine: Machine = view.machine,
+): RequestInput<"viewer.sync"> {
+  visible &&= machine === view.machine;
+  const interests: RequestInput<"viewer.sync">["interests"] = [];
+  for (const place of visible ? view.layoutView().placements(view.area()) : []) {
+    const p = view.runtime.pane(place.id);
+    if (!p) continue;
+    interests.push({
+      pane: place.id,
+      cols: Math.max(1, place.rect.w),
+      rows: Math.max(1, place.rect.h),
+      offset: p.terminal.offset,
+      known: p.terminal.known,
+      cell: view.cell_pixels,
+    });
+  }
+  // A ghost needs its agent's screen, sized as entering will size it.
+  const ghost = visible ? view.previewGhost() : null;
+  if (ghost && !interests.some(interest => interest.pane === ghost.pane.id))
+    interests.push({
+      pane: ghost.pane.id,
+      cols: Math.max(1, ghost.rect.w),
+      rows: Math.max(1, ghost.rect.h),
+      offset: ghost.pane.terminal.offset,
+      known: ghost.pane.terminal.known,
+      cell: view.cell_pixels,
+    });
+  const dock = visible ? view.dockingPreview() : null;
+  if (dock?.plan && dock.drop?.kind !== "tab") {
+    for (const place of docking.view(dock.plan).placements(view.area())) {
+      if (interests.length >= max_panes) break;
+      if (
+        !dock.plan.moved.includes(place.id) ||
+        place.id === dock.plan.shell ||
+        interests.some(i => i.pane === place.id)
+      )
+        continue;
+      const p = view.runtime.pane(place.id);
+      if (p)
+        interests.push({
+          pane: p.id,
+          // Crop the live screen into the ghost; resize its process on commit.
+          cols: p.terminal.inner.cols,
+          rows: p.terminal.inner.rows,
+          offset: p.terminal.offset,
+          known: p.terminal.known,
+          cell: view.cell_pixels,
+        });
+    }
+  }
+  if (visible) releaseUninterested(view, interests);
+  else for (const pane of machine.runtime.panes) pane.terminal.release();
+  return {
+    interests,
+    session_hash: machine.runtime.snapshot_hash,
+    focus: visible ? (view.focused()?.id ?? null) : null,
+    watched: visible && view.input_state.watched,
+    workspace: machine.navigation.current(machine.runtime.workspaces).id,
+    ack: machine.last_control,
+    active: visible && view.input_state.active,
+    resource_detail: visible ? view.resourceWorkspace() : null,
+    worktree_detail: visible ? view.worktreeDetailWanted() : null,
+    resources: view.host.prefs.resources.enabled,
+    resources_hash: machine.runtime.resources_hash,
+  };
+}
+/** Takes a reply from `machine`'s daemon. A machine in the background takes
+ * its data; its controls wait, unacknowledged, until it's shown. */
+export async function receive(
+  view: Controller,
+  reply: Reply<"viewer.sync">,
+  bell: { seq: bigint },
+  play_sound: boolean,
+  machine: Machine = view.machine,
+): Promise<boolean> {
+  const shown = machine === view.machine;
+  if (reply.session) view.receiveSnapshot(reply.session, machine);
+  machine.runtime.snapshot_hash = reply.session_hash == null ? null : BigInt(reply.session_hash);
+  if (reply.resources) machine.runtime.receiveResources(reply.resources);
+  machine.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
+  machine.viewer_id = reply.viewer ?? 0;
+  for (const control of shown ? (reply.controls ?? []) : []) {
+    const seq = BigInt(control.seq);
+    if (seq <= machine.last_control) continue;
+    try {
+      if (control.kind === "focus" || control.kind === "workspace") {
+        if (control.kind === "focus") view.focusPane(control.id!);
+        else view.switchWorkspace(control.id!);
+        if (view.prompt.open) view.prompt.hide();
+      } else {
+        const act = parseAction(control.name!, control.value ?? "");
+        if (act.name === "relaunch") {
+          view.executable = String(act.value);
+          return false;
+        }
+        await view.perform(act);
+      }
+    } catch (error) {
+      view.notice((error as Error).message);
+    }
+    machine.last_control = seq;
+  }
+  for (const frame of reply.surfaces ?? []) {
+    const p = machine.runtime.pane(frame.surface.pane);
+    if (p) p.terminal.receive(frame);
+  }
+  if (reply.bell_seq !== undefined) {
+    const seq = BigInt(reply.bell_seq);
+    if (seq !== bell.seq) {
+      bell.seq = seq;
+      if (shown) view.last_bell_kind = reply.bell_kind ?? "none";
+      if (play_sound && !view.muted) sound.play(reply.bell_kind ?? "none");
+    }
+  }
+  if (shown && view.prompt_chime) {
+    if (play_sound && !view.muted) sound.playCorgi(view.prompt_chime === "needs_input");
+    view.prompt_chime = null;
+  }
+  return !shown || view.input_state.attached;
 }
 // Called only after the frame has been written. Receipts refer to the
 // snapshot displayed, never whatever completion happens to be latest remotely.
 export async function presented(view: Controller): Promise<void> {
-  const started = telemetry.begin();
-  try {
-    if (!view.input_state.watched || view.coversPanes()) return;
-    const shown = new Set<number>();
-    for (const place of view.layoutView().placements(view.area())) {
-      const p = view.runtime.pane(place.id);
-      if (!p) continue;
-      shown.add(p.id);
-      const focused = view.focused()?.id === p.id;
-      const had_focus = view.marked_unread.get(p.id);
-      if (had_focus !== undefined) {
-        if (had_focus || !focused) {
-          view.marked_unread.set(p.id, focused);
-          continue;
-        }
-        view.marked_unread.delete(p.id);
+  if (!view.input_state.watched || view.coversPanes()) return;
+  const shown = new Set<number>();
+  for (const place of view.layoutView().placements(view.area())) {
+    const p = view.runtime.pane(place.id);
+    if (!p) continue;
+    shown.add(p.id);
+    const focused = view.focused()?.id === p.id;
+    const had_focus = view.marked_unread.get(p.id);
+    if (had_focus !== undefined) {
+      if (had_focus || !focused) {
+        view.marked_unread.set(p.id, focused);
+        continue;
       }
-      if (!unread(p.agent.observation) && (p.agent.attention === "none" || !focused)) continue;
-      await call(view.connection, "pane.acknowledge", {
-        pane: p.id,
-        binding: p.binding,
-        conversation: p.agent.conversation,
-        session: p.agent.session,
-        through: p.agent.observation.completed,
-        attention_at: focused ? p.agent.changed_at : -1,
-      });
-      acknowledge(p.agent.observation, p.agent.observation.completed);
-      if (focused || p.agent.attention !== "needs_input") p.agent.attention = "none";
-      view.dirty = true;
+      view.marked_unread.delete(p.id);
     }
-    for (const id of view.marked_unread.keys()) if (!shown.has(id)) view.marked_unread.delete(id);
-  } finally {
-    telemetry.end("viewer.acknowledge", started);
+    if (!unread(p.agent.observation) && (p.agent.attention === "none" || !focused)) continue;
+    await call(view.connection, "pane.acknowledge", {
+      pane: p.id,
+      binding: p.binding,
+      conversation: p.agent.conversation,
+      session: p.agent.session,
+      through: p.agent.observation.completed,
+      attention_at: focused ? p.agent.changed_at : -1,
+    });
+    acknowledge(p.agent.observation, p.agent.observation.completed);
+    if (focused || p.agent.attention !== "needs_input") p.agent.attention = "none";
   }
+  for (const id of view.marked_unread.keys()) if (!shown.has(id)) view.marked_unread.delete(id);
 }
 
-/** Waits for the first of stdin, the daemon's data connection, the host
- * taking output or answering a frame, or a timeout, as viewer.zig polls them. */
-class Poll {
-  private wake: (() => void) | null = null;
-  stdin = false;
-  woken = false;
-  notify(kind: "stdin" | "waker" | "host"): void {
-    if (kind === "stdin") this.stdin = true;
-    else this.woken = true;
-    this.wake?.();
-  }
-  async wait(ms: number, held: boolean): Promise<void> {
-    if (this.stdin || this.woken) return;
-    await new Promise<void>(resolve => {
-      const timer = setTimeout(done, ms);
-      const check = held ? setInterval(() => writable() && done(), 2) : null;
-      this.wake = done;
-      function done() {
-        clearTimeout(timer);
-        if (check) clearInterval(check);
-        resolve();
-      }
-    });
-    this.wake = null;
-  }
-}
-
-export function waitTime(view: Controller, active: boolean, nextFrame: number, paneDue: number): number {
-  const now = Date.now(),
-    due = Math.min(Math.max(1, nextFrame - now), Math.max(1, paneDue - now));
-  return active ? Math.min(16, view.frameDelay(), due) : due;
-}
-
-export async function run(
-  connection: Transport,
-  socket: string,
-  probe: terminal_info.Probe,
-  input: number[],
-  start_onboarding: boolean,
-  stdin: Stdin,
-  folder: string | null = null,
-): Promise<string | null> {
-  const view = new Controller(connection);
-  // Sign-in asks which agents are there; mise answers for its shims meanwhile.
-  void discovery.ready();
-  try {
-    const bell = { seq: await openMode(view, folder ?? process.cwd(), probe.theme, start_onboarding) };
-    if (folder !== null)
-      try {
-        await view.perform({ name: "open", value: folder });
-      } catch (error) {
-        view.notice((error as Error).message);
-      }
-    // Pasted images are saved beside the socket, on the daemon's machine.
-    probe.clipboard.folder = join(dirname(socket) || ".", "paste");
-    view.host_clipboard = probe.clipboard;
-    view.host_pacer = probe.pacer;
-    view.terminal_colors = probe.colors();
-    probe.clipboard.start(Date.now());
-    const openers = new Openers();
-    let previous: composition.Output = "";
-    let host: Differ | null = null;
-    // The host has not taken the last output yet (a slow SSH link): later
-    // frames wait, and the next one written carries all their changes.
-    let held = false;
-    let settling = false;
-    probe.badge = new corgiBadge.State(() => view.wake?.());
-    probe.size = new terminal_info.Size();
-    writeAll(corgiBadge.query);
-    // Measure the host terminal once on attachment.
-    const probed_at = Date.now(),
-      initial_size = dimensions();
-    writeAll(probe.size.update(initial_size.pty) + probe.measure(initial_size.rows, probed_at));
-    let terminal_sent = false;
-    // What the daemon said changed since the last sync: when it first and
-    // last said so, and whether to draw it at once.
-    let woken: { first: number; last: number; prompt: boolean } | null = null;
-    let synced = 0;
-    let next_sync = 0;
-    let typed = false;
-    let uninstalled = false;
-    let active_at = Date.now();
-    let scroll_saved = 0;
-    // A change is drawn once its output pauses, at the pane's own pace up to
-    // pane_frame_ms; output that never pauses is drawn every flood_frame_ms.
-    const wakeDue = (): number => {
-      if (woken === null) return Infinity;
-      if (woken.prompt) return 0;
-      return Math.max(Math.min(woken.last + settle_ms, woken.first + flood_frame_ms), synced + pane_frame_ms);
-    };
-    const poll = new Poll();
-    const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
-    view.wake = () => poll.notify("host");
-    const unwatch = connection.onEvent?.(event => {
-      if (event.type === "uninstalled") {
-        uninstalled = true;
-        poll.notify("waker");
-        return;
-      }
-      if (event.type !== "viewer.wake") return;
-      const at = Date.now(),
-        due = wakeDue();
-      // Typing's echo, or a change on an idle screen, is drawn now.
-      const prompt = typed || at - active_at >= idle_after_ms || woken?.prompt === true;
-      woken = { first: woken?.first ?? at, last: at, prompt };
-      typed = false;
-      if (wakeDue() < due) poll.notify("waker");
-    });
-    let resized = false;
-    const onResize = () => {
-      resized = true;
-      poll.notify("host");
-    };
-    process.on("SIGWINCH", onResize);
-    stdin.listen(bytes => {
-      const parsed = probe.feed(bytes, Date.now());
-      for (const byte of parsed) input.push(byte);
-      if (parsed.length === 0 && framePacing.onlyAnswers(bytes)) {
-        // The answer already updated the pacer. Only a held frame or exit waits for it.
-        if (held || settling) poll.notify("host");
-        else telemetry.count("viewer.pacer.quiet_answer");
-      } else poll.notify("stdin");
-    });
-    try {
-      while (view.input_state.attached) {
-        const prepare_started = telemetry.begin();
-        for (const reply of probe.graphics.splice(0)) view.graphicsReply(reply);
-        openers.reap();
-        for (const byte of probe.expire(Date.now())) input.push(byte);
-        const clipboard = answerClipboard(view, probe.clipboard);
-        if (clipboard) await clipboard;
-        const size = dimensions();
-        const query = probe.size.update(size.pty, resized);
-        resized = false;
-        if (query) writeAll(query);
-        const cell = probe.size.pixels(size.pty),
-          graphics = probe.badge.supports_kitty_graphics && cell !== null;
-        const images = probe.badge.upload(Date.now(), graphics ? cell : null);
-        if (images.length > 0) writeAll(images);
-        const badge_mode = probe.badge.mode();
-        if (view.supports_kitty_graphics && !graphics) {
-          writeAll(rowGlide.hide + linkThumbnail.hide);
-        }
-        if (view.corgi_badge !== badge_mode || view.supports_kitty_graphics !== graphics) {
-          view.corgi_badge = badge_mode;
-          view.supports_kitty_graphics = graphics;
-          view.dirty = true;
-        }
-        if (probe.scheme_changed) {
-          probe.scheme_changed = false;
-          // Its own background, not the one Corgi moved it to.
-          writeAll(hostBackground.release() + probe.query());
-        }
-        if (probe.changed) {
-          await call(connection, "theme", { theme: probe.theme });
-          probe.changed = false;
-          view.terminal_colors = probe.colors();
-          view.dirty = true;
-        }
-        const cell_changed = view.cell_pixels?.width !== cell?.width || view.cell_pixels?.height !== cell?.height;
-        view.cell_pixels = cell;
-        // Sent once the answers and the first image upload have settled.
-        if (
-          !terminal_sent &&
-          probe.info.status === "done" &&
-          (badge_mode === "image" || Date.now() - probed_at > 3000)
-        ) {
-          terminal_sent = true;
-          void publishTerminal(view, connection, probe).catch(() => {});
-        }
-        // Over SSH, TERM may not name the terminal; XTVERSION does.
-        if (branchGlyphs(probe.clipboard.terminal.text())) view.branch_glyphs = true;
-        if (view.width !== size.cols || view.height !== size.rows || cell_changed) {
-          view.width = size.cols;
-          view.height = size.rows;
-          view.input_state.active = true;
-          view.dirty = true;
-        }
-        try {
-          await takeInput(input, decoder, chunk => view.input(chunk));
-        } catch (error) {
-          view.notice((error as Error).message);
-        }
-        telemetry.end("viewer.prepare", prepare_started);
-        const maintenance_started = telemetry.begin();
-        await view.expireInput();
-        telemetry.end("viewer.maintenance", maintenance_started);
-        const now = Date.now();
-        if (now - scroll_saved >= scroll_save_ms) {
-          view.saveAgentScroll();
-          scroll_saved = now;
-        }
-        // Frames keep their clock for animations, and a change waits for
-        // its due time; the daemon is asked only when it said something
-        // changed, or often enough that it still counts this viewer as watching.
-        const pane_due = woken !== null && now >= wakeDue();
-        if (view.dirty || now >= next_sync || pane_due || (held && ready(probe))) {
-          if (!connection.watches?.() || view.dirty || pane_due || now - synced >= quiet_sync_ms) {
-            // A wake during the sync may be past what it brings: keep it.
-            woken = null;
-            synced = now;
-            if (!(await sync(view, bell, true))) return view.executable.length > 0 ? view.executable : null;
-          }
-          const compose_started = telemetry.begin();
-          const frame = view.compose();
-          telemetry.end("viewer.compose", compose_started);
-          const compare_started = telemetry.begin();
-          const changed = !composition.same(previous, frame);
-          telemetry.end("viewer.compare", compare_started);
-          if (changed || view.overlayOpen()) active_at = now;
-          next_sync = Date.now() + (now - active_at < idle_after_ms ? view.frameDelay() : quiet_sync_ms);
-          view.dirty = false;
-          held = changed && !ready(probe);
-          if (!held) {
-            const backdrop = hostBackground.follow(palette.painted());
-            if (backdrop) writeAll(backdrop);
-            if (changed) host = present(host, frame, view.width, view.height, probe.pacer);
-            previous = frame;
-            await presented(view);
-          }
-        }
-        for (const effect of view.effects) {
-          if ("open_url" in effect) {
-            if (!view.remote_links)
-              try {
-                openers.open(effect.open_url);
-              } catch (error) {
-                view.notice((error as Error).message);
-              }
-          } else {
-            writeAll(effect.write_terminal);
-            if (effect.write_terminal.includes("\x1b_G")) {
-              host?.invalidateImages();
-              previous = "";
-              view.dirty = true;
-            }
-          }
-        }
-        view.clearEffects();
-        // The host's answer wakes a viewer waiting on it; only a full terminal is polled.
-        const clock = waitTime(view, Date.now() - active_at < idle_after_ms, next_sync, wakeDue());
-        const wait_started = telemetry.begin();
-        await poll.wait(clock, held && !probe.pacer.waiting(Date.now()));
-        telemetry.end("viewer.wait", wait_started);
-        // Input reaches the daemon with a frame's sync, so send it now, and
-        // show the first change after it (its echo) without waiting a frame.
-        if (poll.stdin) {
-          typed = true;
-          next_sync = 0;
-          active_at = Date.now();
-        }
-        poll.stdin = false;
-        poll.woken = false;
-        if (uninstalled) break;
-        if (stdin.ended) return null;
-      }
-      return null;
-    } finally {
-      try {
-        if (uninstalled) {
-          if (probe.badge.uploaded) writeAll(corgiBadge.remove);
-          writeAll(view.images.clear() + view.tab_icons.clear());
-          await farewell(view.width, view.height);
-          throw Error("Uninstalled");
-        }
-      } finally {
-        settling = true;
-        process.off("SIGWINCH", onResize);
-        view.saveAgentScroll();
-        // The last frame's answer would otherwise reach the shell as typing.
-        const until = Date.now() + framePacing.settle_ms;
-        while (probe.pacer.unanswered() && !stdin.ended && Date.now() < until) {
-          poll.stdin = poll.woken = false;
-          await poll.wait(until - Date.now(), false);
-        }
-        stdin.close();
-        unwatch?.();
-        host?.destroy();
-        if (probe.badge.uploaded) writeAll(corgiBadge.remove);
-        if (view.thumbnails.sent !== null) writeAll(linkThumbnail.remove);
-        writeAll(view.images.clear());
-        writeAll(view.tab_icons.clear());
-        if (view.supports_kitty_graphics) writeAll(dockingGrip.clear);
-        if (view.moonlander) {
-          writeAll(view.moonlander.close());
-          view.moonlander = null;
-        }
-      }
-    }
-  } finally {
-    close(view);
-  }
-}
-/** The corgi walking off to The Farm once the installation it ran from is gone. */
-async function farewell(width: number, height: number): Promise<void> {
-  const scene = new corgiAnimation.Farewell(width, height);
-  writeAll("\x1b[0m\x1b[2J\x1b[?25l");
-  for (let step = 0; step < scene.ticks; step++) {
-    writeAll(
-      scene
-        .rows(step)
-        .map((row, i) => `\x1b[${scene.top + i};1H${row}`)
-        .join("") + "\x1b[0m",
-    );
-    await Bun.sleep(corgiAnimation.farewell_tick_ms);
-  }
-}
 /** Writes what the host needs to show `frame`, diffed against what it shows,
  * and asks the host to answer once it has drawn it. */
-function present(
+export function present(
   host: Differ | null,
   frame: composition.Output,
   cols: number,
   rows: number,
   pacer: framePacing.Pacer,
 ): Differ {
-  const telemetry_started = telemetry.begin();
-  try {
-    if (host && (host.cols !== cols || host.rows !== rows)) {
-      host.destroy();
-      host = null;
-    }
-    const differ = host ?? Differ.create(cols, rows);
-    const out = differ.diff(frame);
-    if (out.length > 0) writeAll(Buffer.concat([out, Buffer.from(pacer.stamp(Date.now()))]));
-    return differ;
-  } finally {
-    telemetry.end("viewer.present", telemetry_started);
+  if (host && (host.cols !== cols || host.rows !== rows)) {
+    host.destroy();
+    host = null;
   }
+  const differ = host ?? Differ.create(cols, rows);
+  const started = telemetry.begin();
+  const out = differ.diff(frame);
+  telemetry.end("viewer.present", started);
+  if (out.length > 0) writeAll(Buffer.concat([out, Buffer.from(pacer.stamp(Date.now()))]));
+  return differ;
 }
 /** Whether the host takes a frame now: its terminal has room, and over a
  * slow link it has drawn the frames before. */
-function ready(probe: terminal_info.Probe): boolean {
+export function ready(probe: terminal_info.Probe): boolean {
   return !probe.pacer.waiting(Date.now()) && writable();
 }
 /** Whether the terminal takes output now. Linux reports no output queue for
@@ -642,40 +323,17 @@ export function writeAll(data: string | Uint8Array): void {
 }
 /** Hands the host clipboard's paste and what a read brought to the view,
  * and writes the requests both make. */
-export function answerClipboard(view: ClipboardView, clipboard: ClipboardState): Promise<void> | void {
-  clipboard.tick(Date.now());
-  const listing = clipboard.takeEvent();
-  if (listing !== null || clipboard.result !== null) return deliverClipboard(view, clipboard, listing);
-  flushClipboard(clipboard);
-}
-type ClipboardView = Pick<Controller, "pasteEvent" | "pasteResult" | "notice">;
-async function deliverClipboard(view: ClipboardView, clipboard: ClipboardState, listing: string | null): Promise<void> {
-  if (listing !== null)
-    try {
-      await view.pasteEvent(listing);
-    } catch (error) {
-      view.notice((error as Error).message);
-    }
-  const result = clipboard.takeResult();
-  if (result)
-    try {
-      await view.pasteResult(result);
-    } catch (error) {
-      view.notice((error as Error).message);
-    }
-  flushClipboard(clipboard);
-}
-function flushClipboard(clipboard: ClipboardState): void {
-  const out = clipboard.takeOutput();
-  if (out.length > 0) writeAll(out);
-}
 /** Publish terminal measurements for the UI and other clients to read. */
-async function publishTerminal(view: Controller, connection: Transport, probe: terminal_info.Probe): Promise<void> {
+export async function publishTerminal(
+  view: Controller,
+  connection: import("./mirror").Transport,
+  probe: terminal_info.Probe,
+): Promise<void> {
   const terminal = await probe.snapshot({ source: "viewer", ...dimensions(), used: view.cell_pixels });
   view.host_terminal = terminal;
   await call(connection, "viewer.terminal", { terminal });
 }
-function dimensions(): {
+export function dimensions(): {
   cols: number;
   rows: number;
   /** The window size as the PTY said it, before any of it was used; null when it couldn't say. */
@@ -689,12 +347,6 @@ function dimensions(): {
     rows: rows === 0 ? 30 : Math.min(Math.max(rows, 4), 200),
     pty,
   };
-}
-/** Whether a terminal by this name draws Kitty's branch drawing characters:
- * Ghostty and Kitty do. */
-function branchGlyphs(name: string): boolean {
-  const lower = name.toLowerCase();
-  return lower.includes("ghostty") || lower.includes("kitty");
 }
 /** Hands `input` to `handle` as whole characters. `decoder` keeps a
  * character split across reads until the rest arrives and turns an invalid
@@ -727,6 +379,10 @@ export class Stdin {
     process.stdin.on("error", this.onEnd);
     process.stdin.resume();
   }
+  /** Ends input as if the terminal had closed. */
+  end(): void {
+    this.onEnd();
+  }
   listen(handler: (bytes: Uint8Array) => void): void {
     this.handler = handler;
     for (const chunk of this.queued.splice(0)) handler(chunk);
@@ -753,4 +409,38 @@ export class Stdin {
     process.stdin.off("error", this.onEnd);
     process.stdin.pause();
   }
+}
+
+export function answerClipboard(view: ClipboardView, clipboard: ClipboardState): Promise<void> | void {
+  clipboard.tick(Date.now());
+  const listing = clipboard.takeEvent();
+  if (listing !== null || clipboard.result !== null) return deliverClipboard(view, clipboard, listing);
+  flushClipboard(clipboard);
+}
+type ClipboardView = Pick<Controller, "pasteEvent" | "pasteResult" | "notice">;
+async function deliverClipboard(view: ClipboardView, clipboard: ClipboardState, listing: string | null): Promise<void> {
+  if (listing !== null)
+    try {
+      await view.pasteEvent(listing);
+    } catch (error) {
+      view.notice((error as Error).message);
+    }
+  const result = clipboard.takeResult();
+  if (result)
+    try {
+      await view.pasteResult(result);
+    } catch (error) {
+      view.notice((error as Error).message);
+    }
+  flushClipboard(clipboard);
+}
+function flushClipboard(clipboard: ClipboardState): void {
+  const out = clipboard.takeOutput();
+  if (out.length > 0) writeAll(out);
+}
+
+export function waitTime(view: Controller, active: boolean, nextFrame: number, paneDue: number): number {
+  const now = Date.now(),
+    due = Math.min(Math.max(1, nextFrame - now), Math.max(1, paneDue - now));
+  return active ? Math.min(16, view.frameDelay(), due) : due;
 }

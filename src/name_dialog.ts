@@ -118,6 +118,8 @@ export class Dialog {
   /** What's typed: its text, caret and selection, edited as every text box is. */
   area = new TextArea("", false);
   failed = false;
+  /** Saved, and the daemon hasn't answered yet; another Enter waits for it. */
+  saving = false;
   overflow = false;
   /** Whether the fork card's hero draws the host's branch glyphs. */
   branch_glyphs = false;

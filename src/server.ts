@@ -660,8 +660,12 @@ export class Server {
         account: inference?.account ?? "",
         file: settings.path(this.socket),
       }) || tracked;
-    if (viewers.length) this.resource_readings = viewers.some(c => c.resources);
-    if (this.resource_readings && (viewers.length || this.runtime.panes.length || this.runtime.sessions.length))
+    const resource_clients = this.clients.filter(c => !c.dead && (c.viewer || c.resource_observer));
+    if (resource_clients.length) this.resource_readings = resource_clients.some(c => c.resources);
+    if (
+      this.resource_readings &&
+      (resource_clients.length || this.runtime.panes.length || this.runtime.sessions.length)
+    )
       tracked =
         this.runtime.resources.tick(
           this.runtime,
@@ -885,6 +889,10 @@ export class Server {
         reply.send({ ok: true, result: session.snapshot(this.runtime), viewers: viewer.viewers(this) });
         return;
       case "session.snapshot":
+        if (request.payload.resources !== null) {
+          cl.resource_observer = true;
+          cl.resources = request.payload.resources;
+        }
         reply.send(session.snapshot(this.runtime));
         return;
       case "session.subscribe":

@@ -144,7 +144,15 @@ function linkViewer(output = url, host: "pane" | "signin" = "pane") {
     signin.resize(s.width, s.height);
     signin.child.feed(output);
     s.signin = signin;
-  } else s.runtime.pane(1)!.terminal.inner.feed(output);
+  } else {
+    const source = new Terminal(100, 29);
+    try {
+      source.feed(output);
+      s.runtime.pane(1)!.terminal.receive(source.surface(1));
+    } finally {
+      source.destroy();
+    }
+  }
   s.frame();
   return s;
 }

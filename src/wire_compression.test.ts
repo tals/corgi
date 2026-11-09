@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import * as wire_compression from "./wire_compression";
 import * as rpc from "./rpc";
 import * as peer from "./peer";
+import * as machine_stream from "./machine_stream";
 import { Server } from "./server";
 import * as socket_server from "./socket_server";
 import * as websocket_socket from "./websocket_socket";
@@ -139,7 +140,14 @@ test("a TCP reset preserves a complete compressed reply and the final reconnect 
   });
   const events: string[] = [];
   conn.onEvent(event => events.push(event.type));
-  conn.onClose(() => events.push("closed"));
+  const stream = new machine_stream.Stream(conn, () => {
+    events.push("closed");
+    try {
+      stream.check();
+    } catch {
+      conn.close();
+    }
+  });
   try {
     await conn.call("hello");
     const first: Promise<unknown> = conn.call("ping"),

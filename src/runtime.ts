@@ -694,17 +694,20 @@ export class Runtime {
     const owner = this.workspaces.owner(id);
     if (!owner) throw Error("NoPane");
     const tab = owner.model.tabForPane(id)!,
-      previous = owner.model.tabs[tab];
-    owner.model.close(id);
-    owner.model.revision = BigInt.asUintN(64, owner.model.revision + 1n);
-    const tab_index = tab + Number(owner.model.tabIndex(previous.id) !== null),
-      i = this.panes.findIndex(p => p.id === id);
-    if (i >= 0) {
-      const p = this.panes[i];
+      previous = owner.model.tabs[tab],
+      i = this.panes.findIndex(p => p.id === id),
+      p = this.panes[i];
+    // Draining emits changes synchronously; a viewer can capture a snapshot.
+    if (p) {
       p.dropGhost();
       p.refreshCwd();
       p.terminal.read();
       p.terminal.reap();
+    }
+    owner.model.close(id);
+    owner.model.revision = BigInt.asUintN(64, owner.model.revision + 1n);
+    const tab_index = tab + Number(owner.model.tabIndex(previous.id) !== null);
+    if (p) {
       if (!p.detection.claim) p.resume_hint.observe(p.agent());
       const running = (p.dormant || !p.terminal.exited) && p.attachment.actor !== null;
       this.stopShell(p.terminal);

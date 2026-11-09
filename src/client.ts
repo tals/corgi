@@ -1,6 +1,7 @@
 //! Attaching a terminal to the daemon. Mirrors client.zig.
 import { Connection } from "./viewer_connection";
-import { run, writeAll, Stdin } from "./viewer";
+import { writeAll, Stdin } from "./viewer";
+import { run, type Options } from "./machine_viewer";
 import { runTest } from "./viewer_test";
 import * as terminal_info from "./terminal_info";
 import * as keyboard from "./keyboard";
@@ -28,10 +29,6 @@ export function cleanup(): void {
   } catch {}
   restore = false;
 }
-function signalHandler(): void {
-  cleanup();
-  process.exit(0);
-}
 /** A crash gives the terminal back before its error prints, which the
  * viewer's own screen would otherwise swallow. Bun prints a thrown error
  * after the monitor but a rejection before any handler, and loses its stack
@@ -44,15 +41,15 @@ function rejected(reason: unknown): void {
 }
 /** Opens on the workspace for `folder` when one is given. */
 export async function attach(path: string, folder: string | null = null): Promise<void> {
-  return attachMode(path, false, folder);
+  return attachMode(path, "local", { folder });
 }
 export async function onboard(path: string): Promise<void> {
-  return attachMode(path, true);
+  return attachMode(path, "local", { onboarding: true });
 }
-async function attachMode(path: string, start_onboarding: boolean, folder: string | null = null): Promise<void> {
+async function attachMode(path: string, selected: string, options: Options): Promise<void> {
   let executable: string | null;
   try {
-    executable = await attachOnce(path, start_onboarding, folder);
+    executable = await attachOnce(path, selected, options);
   } catch (error) {
     if (!errors.is(error, "Uninstalled")) throw error;
     console.log(i18n.t`Corgi was uninstalled.`);
@@ -63,15 +60,16 @@ async function attachMode(path: string, start_onboarding: boolean, folder: strin
     throw Error("ExecFailed");
   }
 }
-async function attachOnce(path: string, start_onboarding: boolean, folder: string | null): Promise<string | null> {
+async function attachOnce(path: string, selected: string, options: Options): Promise<string | null> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw Error("TerminalRequired");
-  const conn = new Connection(path);
   restore = true;
-  process.on("SIGTERM", signalHandler);
-  process.on("SIGHUP", signalHandler);
   process.on("uncaughtExceptionMonitor", cleanup);
   process.on("unhandledRejection", rejected);
   const stdin = new Stdin();
+  // The loop closes its connections on the way out.
+  const stop = () => stdin.end();
+  process.on("SIGTERM", stop);
+  process.on("SIGHUP", stop);
   try {
     process.stdin.setRawMode(true);
     const input: number[] = [];
@@ -90,20 +88,20 @@ async function attachOnce(path: string, start_onboarding: boolean, folder: strin
     // Mode 2031: the terminal says when it switches themes, and the viewer asks for its colors again.
     writeAll("\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?1004h\x1b[?2004h\x1b[?2031h" + keyboard.enable);
     keyboard_enabled = true;
-    return await run(conn, path, probe, input, start_onboarding, stdin, folder);
+    return await run(path, selected, probe, input, stdin, options);
   } finally {
     stdin.close();
     cleanup();
-    process.off("SIGTERM", signalHandler);
-    process.off("SIGHUP", signalHandler);
     process.off("uncaughtExceptionMonitor", cleanup);
     process.off("unhandledRejection", rejected);
-    conn.close();
+    process.off("SIGTERM", stop);
+    process.off("SIGHUP", stop);
   }
 }
 export async function test(path: string): Promise<void> {
   const conn = new Connection(path);
   try {
+    // The test viewer reconnects through reloads, as a machine's endpoint does.
     await runTest(conn, process.cwd());
   } catch (error) {
     // Tests read why a viewer gave up, where the name alone says too little.

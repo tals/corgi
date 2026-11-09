@@ -503,8 +503,13 @@ test("one retained pane among multiple visible panes never freezes the other pan
     expect(first.panes).toHaveLength(1);
     f.at(20);
     const other = f.view.runtime.panes[1].terminal;
-    other.inner.feed("SECOND PANE CHANGED");
-    other.render_dirty = true;
+    const source = new Terminal(72, 29);
+    try {
+      source.feed("SECOND PANE CHANGED");
+      other.receive(source.surface(2));
+    } finally {
+      source.destroy();
+    }
     const next = retained(f.compose());
     expect(next.chrome).toContain("SECOND PANE CHANGED");
   } finally {

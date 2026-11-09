@@ -165,6 +165,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Keep at least one workspace active"]': () => ` 请保留至少一个活动工作区`,
     '[" Keyboard shortcuts "]': () => ` 键盘快捷键 `,
     '[" Keys "]': () => ` 按键 `,
+    '[" Manage accounts and launch options on the remote machine"]': () => ` 在远程机器上管理账户和启动选项`,
     '[" Names are one line of up to 80 characters"]': () => ` 名称须为单行，最多 80 个字符`,
     '[" New agent  in  "]': () => ` 新建智能体  位置  `,
     '[" New panes start in ",""]': v0 => ` 新窗格将使用 ${v0}`,
@@ -207,6 +208,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Shortcuts: "," · prefix ",". Reload Ghostty: Cmd+Shift+,"]': (v0, v1) =>
       ` 快捷键：${v0} · 前缀键 ${v1}。请按 Cmd+Shift+, 重载 Ghostty`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () => ` 快捷键：cmux。请按 Cmd+Shift+, 重载 Ghostty`,
+    '[" Sign in on the remote machine"]': () => ` 请在远程机器上登录`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () => ` 智能链接已关闭：Corgi 不会连接窗格中的端口`,
     '[" Smart Links on"]': () => ` 智能链接已开启`,
     '[" Split "]': () => ` 分屏 `,
@@ -678,6 +680,8 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["List, diff"]': () => `列表、差异`,
     '["Live handoff unavailable for this session; turn it off to copy."]': () =>
       `此会话不支持进程接管；关闭接管即可复制。`,
+    '["Loading pane…"]': () => `正在加载窗格…`,
+    '["Loading tabs…"]': () => `正在加载标签页…`,
     '["Looking for running sessions…"]': () => `正在查找运行中的会话…`,
     '["MATCHING SHORTCUTS"]': () => `匹配的快捷键`,
     '["MODIFIER"]': () => `修饰键`,
@@ -1572,6 +1576,8 @@ ${v1} 使用该账号。
     '[" Keep at least one workspace active"]': () => ` 少なくとも1つのワークスペースを有効にしてください`,
     '[" Keyboard shortcuts "]': () => ` キーボードショートカット `,
     '[" Keys "]': () => ` キー `,
+    '[" Manage accounts and launch options on the remote machine"]': () =>
+      ` リモートマシンでアカウントと起動オプションを管理してください`,
     '[" Names are one line of up to 80 characters"]': () => ` 名前は80文字以内の1行で入力してください`,
     '[" New agent  in  "]': () => ` 新しいエージェント · `,
     '[" New panes start in ",""]': v0 => ` 新しいペインでは${v0}を起動します`,
@@ -1616,6 +1622,7 @@ ${v1} 使用该账号。
       ` ショートカット：${v0} · プレフィックス ${v1}。Cmd+Shift+,でGhosttyを再読み込み`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` ショートカット：cmux。Cmd+Shift+,でGhosttyを再読み込み`,
+    '[" Sign in on the remote machine"]': () => ` リモートマシンでサインインしてください`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () =>
       ` スマートリンクはオフです。ペインのポートには接続しません`,
     '[" Smart Links on"]': () => ` スマートリンクはオンです`,
@@ -2106,6 +2113,8 @@ ${v1} 使用该账号。
     '["List, diff"]': () => `一覧・差分`,
     '["Live handoff unavailable for this session; turn it off to copy."]': () =>
       `このセッションは実行中の引き継ぎに非対応です。オフにするとコピーできます。`,
+    '["Loading pane…"]': () => `ペインを読み込み中…`,
+    '["Loading tabs…"]': () => `タブを読み込み中…`,
     '["Looking for running sessions…"]': () => `実行中のセッションを検索中…`,
     '["MATCHING SHORTCUTS"]': () => `一致するショートカット`,
     '["MODIFIER"]': () => `修飾キー`,
@@ -3012,6 +3021,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Keep at least one workspace active"]': () => ` 작업 공간을 하나 이상 활성 상태로 유지하세요`,
     '[" Keyboard shortcuts "]': () => ` 키보드 단축키 `,
     '[" Keys "]': () => ` 키 `,
+    '[" Manage accounts and launch options on the remote machine"]': () =>
+      ` 원격 컴퓨터에서 계정과 실행 옵션을 관리하세요`,
     '[" Names are one line of up to 80 characters"]': () => ` 이름은 한 줄로 80자까지 입력할 수 있습니다`,
     '[" New agent  in  "]': () => ` 새 에이전트  위치  `,
     '[" New panes start in ",""]': v0 => ` 새 패널은 ${v0} 셸로 시작합니다`,
@@ -3054,6 +3065,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Shortcuts: "," · prefix ",". Reload Ghostty: Cmd+Shift+,"]': (v0, v1) =>
       ` 단축키: ${v0} · 접두 키 ${v1}. Cmd+Shift+,로 Ghostty 다시 불러오기`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () => ` 단축키: cmux. Cmd+Shift+,로 Ghostty 다시 불러오기`,
+    '[" Sign in on the remote machine"]': () => ` 원격 컴퓨터에서 로그인하세요`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () =>
       ` 스마트 링크 꺼짐: Corgi가 패널의 포트에 연결하지 않습니다`,
     '[" Smart Links on"]': () => ` 스마트 링크 켜짐`,
@@ -3544,6 +3556,8 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["List, diff"]': () => `목록, 차이`,
     '["Live handoff unavailable for this session; turn it off to copy."]': () =>
       `이 세션은 실행 중인 프로세스를 인계할 수 없습니다. 인계를 끄면 복사합니다.`,
+    '["Loading pane…"]': () => `창 불러오는 중…`,
+    '["Loading tabs…"]': () => `탭 불러오는 중…`,
     '["Looking for running sessions…"]': () => `실행 중인 세션 찾는 중…`,
     '["MATCHING SHORTCUTS"]': () => `일치하는 단축키`,
     '["MODIFIER"]': () => `보조 키`,
@@ -4452,6 +4466,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Keep at least one workspace active"]': () => ` Оставьте хотя бы одно рабочее пространство активным`,
     '[" Keyboard shortcuts "]': () => ` Сочетания клавиш `,
     '[" Keys "]': () => ` Клавиши `,
+    '[" Manage accounts and launch options on the remote machine"]': () =>
+      ` Управляйте аккаунтами и параметрами запуска на удалённом компьютере`,
     '[" Names are one line of up to 80 characters"]': () =>
       ` Имя должно занимать одну строку и не превышать 80 символов`,
     '[" New agent  in  "]': () => ` Новый агент в  `,
@@ -4521,6 +4537,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Shortcuts: "," · prefix ",". Reload Ghostty: Cmd+Shift+,"]': (v0, v1) =>
       ` Сочетания: ${v0} · префикс ${v1}. Перезагрузите Ghostty: Cmd+Shift+,`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () => ` Сочетания: cmux. Перезагрузите Ghostty: Cmd+Shift+,`,
+    '[" Sign in on the remote machine"]': () => ` Войдите в аккаунт на удалённом компьютере`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () =>
       ` Умные ссылки выключены: Corgi не будет подключаться к портам панелей`,
     '[" Smart Links on"]': () => ` Умные ссылки включены`,
@@ -5392,6 +5409,8 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["List, diff"]': () => `Список, изменения`,
     '["Live handoff unavailable for this session; turn it off to copy."]': () =>
       `Передача процессов для этого сеанса недоступна; отключите её для копирования.`,
+    '["Loading pane…"]': () => `Загрузка панели…`,
+    '["Loading tabs…"]': () => `Загрузка вкладок…`,
     '["Looking for running sessions…"]': () => `Поиск запущенных сеансов…`,
     '["MATCHING SHORTCUTS"]': () => `ПОДХОДЯЩИЕ СОЧЕТАНИЯ`,
     '["MODIFIER"]': () => `МОДИФИКАТОР`,

@@ -41,6 +41,7 @@ export interface Transport {
   onResume?(listener: () => void): () => void;
   /** Whether the daemon sends this viewer `viewer.wake`. */
   watches?(): boolean;
+  remote?: boolean;
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
 }
 /** An RPC call that throws the daemon's error name, as Zig's `call` does. */
@@ -91,8 +92,10 @@ export class Terminal {
   images: surface.ImagePlacement[] = [];
   render_dirty = true;
   render_revision = 0;
-  /** Bytes for the program, sent with the next sync. */
+  /** Bytes for the program, sent once its machine is reachable. */
   pending: number[] = [];
+  /** Keys sent and not yet answered. */
+  private sending = 0;
   private links: Link[] | null = null;
   private installed: surface.View | null = null;
   private changed_rows = new Uint16Array(0);
@@ -124,6 +127,9 @@ export class Terminal {
       native.destroy();
       throw error;
     }
+  }
+  get loaded(): boolean {
+    return this.installed !== null;
   }
   get inner(): NativeTerminal {
     return this.ensure();
@@ -259,12 +265,22 @@ export class Terminal {
   async flush(): Promise<void> {
     if (this.pending.length === 0) return;
     const data = Buffer.from(this.pending).toString();
+    // Over a link the input lands once, even across a reconnect; without one
+    // its delivery is uncertain after a disconnect, so it's never sent again.
+    const keys = keyCount(this.pending);
+    this.pending = [];
+    this.sending += keys;
     try {
       await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
     } catch (error) {
       if (!errors.is(error, "NoPane")) throw error;
+    } finally {
+      this.sending -= keys;
     }
-    this.pending = [];
+  }
+  /** Keys typed here that the program hasn't been given yet. */
+  waiting(): number {
+    return keyCount(this.pending) + this.sending;
   }
   receive(value: protocol.Reply<"viewer.sync">["surfaces"][number]): void {
     if (this.closed) throw Error("TerminalClosed");
@@ -590,6 +606,8 @@ function headless(value: any): Headless {
   };
 }
 export class Workspaces {
+  /** A daemon snapshot has confirmed this catalog, including removals. */
+  loaded = false;
   items: Workspace[] = [];
   /** What stands for the current workspace once every one is closed: no
    * tabs, and no folder for anything to start in. */
@@ -607,6 +625,7 @@ export class Runtime {
   startup_waits: startup.Wait[] = [];
   snapshot: any = null;
   snapshot_hash: bigint | null = null;
+  snapshot_epoch = 0;
   workspaces = new Workspaces();
   panes: Pane[] = [];
   /** Headless agents, besides the Corgi prompt's. */
@@ -650,6 +669,7 @@ export class Runtime {
     this.resources = resources.fromJSON(value);
   }
   receive(conn: Transport, value: any): void {
+    this.snapshot_epoch++;
     // Own the decoded snapshot. Metadata is used directly; only terminal
     // surfaces and interaction state survive independently between snapshots.
     const snapshot = value;
@@ -694,6 +714,7 @@ export class Runtime {
     this.snapshot_hash = null;
     this.panes = panes;
     this.workspaces.items = parsed;
+    this.workspaces.loaded = true;
     const sessions: Headless[] = (snapshot.headless_sessions ?? [])
       .filter((s: any) => Provider.parse(s?.provider))
       .map(headless);
@@ -741,4 +762,17 @@ function account(value: any): Account[] {
   const provider = Provider.parse(value?.provider);
   if (!provider || typeof value.account !== "string" || !value.account || typeof value.name !== "string") return [];
   return [{ provider, account: value.account, name: value.name, managed: value.managed === true }];
+}
+/** Keys in typed bytes: each character or escape sequence is one. */
+export function keyCount(bytes: number[]): number {
+  let keys = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    // UTF-8 continuation bytes belong to the character before.
+    if ((bytes[i] & 0xc0) === 0x80) continue;
+    keys++;
+    if (bytes[i] !== 0x1b || (bytes[i + 1] !== 0x5b && bytes[i + 1] !== 0x4f)) continue;
+    i += 2;
+    while (i < bytes.length && (bytes[i] < 0x40 || bytes[i] > 0x7e)) i++;
+  }
+  return keys;
 }
