@@ -32,6 +32,7 @@ import * as framePacing from "./frame_pacing";
 import * as config from "./build_config";
 import * as releaseLabel from "./release_label";
 import * as bugReport from "./bug_report";
+import * as rpc_http from "./rpc_http";
 import type { Snapshot as TerminalSnapshot } from "./terminal_info";
 import type { Source as LinkSource } from "./link_tooltip";
 import type { Link as DrawnLink } from "./pane/hyperlinks";
@@ -1047,10 +1048,10 @@ export class Menu implements LinkSource {
   private gatherReport(s: Status, prefs: Preferences): void {
     if (this.gathering || this.report !== null) return;
     this.gathering = true;
-    const socket = os.socketPath();
+    const daemon = new rpc_http.Client(os.socketPath());
     // The report and its full copy arrive together, so the link changes once.
-    void bugReport.collect(socket, this.host_terminal).then(async report => {
-      this.full_path = await bugReport.writeFull(report, reportSettings(s, prefs), socket);
+    void bugReport.collect(daemon, this.host_terminal).then(async report => {
+      this.full_path = await bugReport.writeFull(report, reportSettings(s, prefs), daemon.socket);
       this.report = report;
       this.changed();
     });

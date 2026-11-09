@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { EXE, JsonSocket, sleep, tempDir, versioned } from "./support";
+import { EXE, sleep, tempDir, versioned } from "./support";
+import * as rpc from "../src/rpc";
 
 const removePrefixes = [
   "CORGI_",
@@ -79,13 +80,11 @@ export class ImportFixture {
 
   async exchange(path: string, message: Record<string, unknown>, timeoutMs = 3000): Promise<any> {
     if (!path.startsWith(this.root + "/")) throw new Error(`socket outside test fixture: ${path}`);
-    const end = Date.now() + timeoutMs;
-    const client = await JsonSocket.connect(path, timeoutMs);
+    const connection = new rpc.Connection(path, { timeout_ms: timeoutMs });
     try {
-      client.send(message);
-      return await client.read(Math.max(0, end - Date.now()));
+      return await connection.rawRequest(message);
     } finally {
-      client.close();
+      connection.close();
     }
   }
 

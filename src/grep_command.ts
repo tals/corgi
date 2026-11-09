@@ -7,7 +7,7 @@ import * as grep from "./conversation_grep";
 import * as cacheIndex from "./conversation_grep_cache";
 import * as output from "./conversation_grep_output";
 import { Provider } from "./providers";
-import { Connection } from "./rpc";
+import type * as rpc_http from "./rpc_http";
 import type { Match, Options } from "./conversation_grep";
 import type { State as SearchProgress } from "./prompt_search";
 
@@ -98,11 +98,10 @@ function real(dir: string): string {
 }
 /** A Corgi workspace: its folder, and the worktree checkouts of its repository. */
 type Workspace = { id: number; name: string; cwd: string; worktrees: string[] };
-/** The workspaces of the Corgi at `socket`; null when it isn't running. */
-async function corgi(socket: string): Promise<Workspace[] | null> {
-  const conn = new Connection(socket, { requestIds: false });
+/** The workspaces of the Corgi `daemon`; null when it isn't running. */
+async function corgi(daemon: rpc_http.Client): Promise<Workspace[] | null> {
   try {
-    const list: any = await conn.call("session.list");
+    const list: any = await daemon.call("session.list");
     return (list.result?.workspaces ?? []).flatMap((w: any) =>
       Number.isSafeInteger(w?.id) && typeof w.cwd === "string"
         ? [
@@ -121,8 +120,6 @@ async function corgi(socket: string): Promise<Workspace[] | null> {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ECONNREFUSED") return null;
     throw error;
-  } finally {
-    conn.close();
   }
 }
 /** Where a search looks: `root` and the folders under it ('*' for all), and other folders besides. */
@@ -227,7 +224,7 @@ Tool tags distinguish calls from result text; only calls prove invocation.
 Exit codes/status refer to that tool call. Missing outcomes stay unrecorded.
 Exit: 0 matches, 1 no matches, 2 error. --help for help; --skill for examples.
 `;
-async function main(raw: string[], socket: string) {
+async function main(raw: string[], daemon: rpc_http.Client) {
   const started = performance.now();
   if (!raw.length || (raw.length === 1 && raw[0] === "help")) {
     console.log(usage);
@@ -382,7 +379,7 @@ async function main(raw: string[], socket: string) {
     workspace = "*";
   }
   const needsCorgi = workspace === undefined || (workspace !== "*" && !pathLike(workspace));
-  const where = workspaceScope(workspace, needsCorgi ? await corgi(socket) : null);
+  const where = workspaceScope(workspace, needsCorgi ? await corgi(daemon) : null);
   options.workspace = display.workspace = where.root;
   options.folders = where.folders;
   if (display.onlyMatching) options.context = options.before = options.after = 0;
@@ -390,7 +387,7 @@ async function main(raw: string[], socket: string) {
   // where its tools run in someone else's.
   if (chat || (process.env.CORGI_SOCKET && process.env.CORGI_HEADLESS_ID)) {
     const { Reporter } = await import("./prompt_search_report");
-    reporter = chat ? new Reporter(process.env.CORGI_SOCKET || socket, chat) : Reporter.here();
+    reporter = chat ? new Reporter(process.env.CORGI_SOCKET || daemon.socket, chat) : Reporter.here();
   }
   if (reporter) {
     progress = {
@@ -491,9 +488,9 @@ async function main(raw: string[], socket: string) {
   process.exitCode = matches.length ? 0 : 1;
 }
 
-export async function run(raw: string[], socket: string): Promise<void> {
+export async function run(raw: string[], daemon: rpc_http.Client): Promise<void> {
   try {
-    await main(raw, socket);
+    await main(raw, daemon);
   } catch (error) {
     await publish({ phase: "failed", error: String(error) });
     console.error(String(error));

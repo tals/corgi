@@ -19,7 +19,7 @@ import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { atomicWrite } from "./os";
 import { flock } from "./native_bridge";
-import * as rpc from "./rpc";
+import * as rpc_http from "./rpc_http";
 import { path as recoveryPath } from "./persist/recovery";
 import { testBuild } from "./build_assets";
 import * as config from "./build_config";
@@ -114,6 +114,32 @@ export function managed(rel: Release, exe: string): string | null {
   if (read(root, "current") === null) return null;
   privateDirectory(root);
   return root;
+}
+/** XXX: Remove for next protocol bump. Whether an updater is activating a
+ * release of the install `exe` belongs to now: one holds its activation lock
+ * until it has named a release current, or given up. */
+export function activating(exe: string): boolean {
+  const root = managed(release(exe), exe);
+  if (root === null) return false;
+  let fd: number;
+  try {
+    fd = openSync(join(root, "activation.lock"), "a", 0o600);
+  } catch {
+    return false;
+  }
+  try {
+    if (!flock(fd)) return true;
+    flock(fd, false);
+    return false;
+  } finally {
+    closeSync(fd);
+  }
+}
+/** XXX: Remove for next protocol bump. Reads which release the install `exe`
+ * belongs to names current; null for a build no install manages. */
+export function currentOf(exe: string): (() => string | null) | null {
+  const root = managed(release(exe), exe);
+  return root === null ? null : () => read(root, "current");
 }
 /** The Omarchy plugin folder that installed the Corgi at `root`, as its
  * installer recorded it, or null. Corgi removes itself when that folder goes. */
@@ -316,18 +342,30 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
     unlock();
   }
 }
-async function hello(socket: string): Promise<any | null> {
+/** The daemon's `hello`, or null with none running; `finishing_ms` is how
+ * long to wait out an update an older build started. */
+async function hello(daemon: rpc_http.Client, finishing_ms?: number): Promise<any | null> {
   try {
-    return await rpc.request(socket, "hello");
+    const reply = await daemon.discover(10_000, undefined, finishing_ms);
+    if ("err" in reply) throw errors.fromReply(reply);
+    return reply;
   } catch (error) {
     if (["ENOENT", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException).code ?? "")) return null;
     throw error;
   }
 }
 /** Pane commands follow their runtime even when another socket changes the install's current release. */
-export async function route(socket: string, exe: string, args: string[]) {
+export async function route(daemon: rpc_http.Client, exe: string, args: string[]) {
   if (args[0]?.startsWith("__") || !managed(release(exe), exe)) return;
-  const target = (await hello(socket))?.executable;
+  let target: unknown;
+  try {
+    target = (await hello(daemon, 0))?.executable;
+  } catch (error) {
+    // XXX: Remove for next protocol bump. A daemon finishing an update an
+    // older build started is a release that answers commands meanwhile.
+    if (errors.is(error, "UpdateIncomplete")) return;
+    throw error;
+  }
   if (typeof target === "string" && target && target !== exe)
     process.execve!(target, [target, ...args], { ...process.env, CORGI_APP_EXE: target } as Record<string, string>);
 }
@@ -412,15 +450,18 @@ function recordError(root: string, error: unknown) {
     write(root, "last-error", error instanceof Error ? error.message : String(error));
   } catch {}
 }
-async function activate(root: string, socket: string, v: string, target: string, live: boolean) {
+async function activate(root: string, daemon: rpc_http.Client, v: string, target: string, live: boolean) {
   if (live)
     try {
-      await rpc.reload(socket, target);
+      await daemon.reload(target);
     } catch (error) {
-      if ((await hello(socket))?.executable !== target) throw error;
+      if ((await hello(daemon))?.executable !== target) throw error;
     }
   else {
-    const p = Bun.spawn([target, "__update-start"], {
+    // `--http`: this updater checks the daemon in over HTTP. An older release
+    // ignores it; keep passing it while one that reads a bare `__update-start`
+    // as an older build's can still be started.
+    const p = Bun.spawn([target, "__update-start", "--http"], {
       env: { ...process.env, CORGI_APP_EXE: target },
       stdin: "ignore",
       stdout: "ignore",
@@ -428,7 +469,7 @@ async function activate(root: string, socket: string, v: string, target: string,
     });
     if (await p.exited) throw Error("UpdateSubprocessFailed");
   }
-  const h = await hello(socket);
+  const h = await hello(daemon);
   if (!h) throw Error("UpdateRuntimeNotReady");
   if (h.executable !== target) throw Error("UpdateRuntimeChanged");
   switchCurrent(root, v);
@@ -440,34 +481,28 @@ const interactive = () => !!process.stdin.isTTY && !!process.stderr.isTTY && pro
 const recheck_ms = 3600000;
 /** Has the runtime that said `h` save its session, in the runtime protocol
  * it advertised: one from another release may speak another. */
-export async function save(socket: string, h: { protocol?: number }) {
-  // Untagged: a runtime before protocol 4 answers without the request id.
-  const conn = new rpc.Connection(socket, { requestIds: false });
-  try {
-    const reply: any = await conn.rawRequest({ op: "recovery.save", protocol: h.protocol });
-    if (reply && "err" in reply) throw Error(reply.err);
-  } finally {
-    conn.close();
-  }
+export async function save(daemon: rpc_http.Client, h: { protocol?: number }) {
+  const reply = json.object(await daemon.post({ op: "recovery.save", protocol: h.protocol }, 30_000));
+  if (typeof reply.err === "string") throw errors.fromReply({ ...reply, err: reply.err });
 }
 const check_ms = 30000;
 /** Has `target` load the state it would be handed, saved fresh when a
  * runtime runs. Only a release without the check is let through; one that
  * crashes, takes too long or answers something else has failed it. */
 export async function check(
-  socket: string,
+  daemon: rpc_http.Client,
   target: string,
   h: { protocol?: number } | null,
   limit_ms = check_ms,
 ): Promise<Failure | null> {
   if (h)
     try {
-      await save(socket, h);
+      await save(daemon, h);
     } catch {
       // The runtime saves on its own too; the check reads the last of those.
     }
   let timed_out = false;
-  const p = Bun.spawn([target, "__update-check", socket, recoveryPath(socket)], {
+  const p = Bun.spawn([target, "__update-check", daemon.socket, recoveryPath(daemon.socket)], {
       env: { ...process.env, CORGI_APP_EXE: target },
       stdin: "ignore",
       stdout: "pipe",
@@ -523,7 +558,7 @@ function turnedDown(root: string): Turned | null {
  * shown once per release; the record of it goes only once the release takes over. */
 async function vetted(
   root: string,
-  socket: string,
+  daemon: rpc_http.Client,
   current: string,
   candidate: string,
   target: string,
@@ -532,7 +567,7 @@ async function vetted(
 ) {
   const last = turnedDown(root);
   if (last?.version === candidate && !explicit && Date.now() - last.at < recheck_ms) return false;
-  const failure = await check(socket, target, h);
+  const failure = await check(daemon, target, h);
   if (!failure) return true;
   await refuse(root, current, candidate, failure, !!h, explicit);
   return false;
@@ -552,9 +587,9 @@ async function refuse(
   write(root, "check-failed", json.stringify({ version: candidate, at: Date.now(), shown: shown || show }));
   if (show) await (await import("./state_report")).show({ kind: "turned_down", current, candidate, running }, failure);
 }
-async function confirmRestart(socket: string): Promise<boolean | null> {
+async function confirmRestart(daemon: rpc_http.Client): Promise<boolean | null> {
   if (!interactive()) return null;
-  await rpc.request(socket, "session.snapshot");
+  await daemon.call("session.snapshot");
   process.stderr.write(
     "\n /ᐠ•ᴥ•ᐟ\\  An update is ready, but this session could not be moved safely.\n\nRestarting will stop ALL shells and agents in this runtime and disconnect\nits other viewers. Saved layout and output can be restored; running processes\nwill not survive.\n\nEnter / Esc: keep working     r: restart and update… ",
   );
@@ -588,14 +623,14 @@ async function confirmRestart(socket: string): Promise<boolean | null> {
 async function select(
   rel: Release,
   root: string,
-  socket: string,
+  daemon: rpc_http.Client,
   allow: boolean,
   explicit: boolean,
   rollback: boolean,
 ): Promise<string> {
   const unlock = await lock(root, "activation.lock", explicit);
   try {
-    let h = await hello(socket);
+    let h = await hello(daemon);
     const current = read(root, "current");
     if (current === null) throw Error("MissingInstalledVersion");
     if (h && !h.executable) throw Error("RuntimeDoesNotSupportUpdates");
@@ -615,16 +650,16 @@ async function select(
     if (m.version !== candidate) throw Error("WrongReleaseManifest");
     verifyFile(target, own(m));
     if (h && !(h.server_pid > 0)) throw Error("UpdateRuntimeChanged");
-    const deferred = h ? `deferred-${Bun.hash.wyhash(socket, 0n).toString(16)}-${h.server_pid}` : null;
+    const deferred = h ? `deferred-${Bun.hash.wyhash(daemon.socket, 0n).toString(16)}-${h.server_pid}` : null;
     if (!explicit && deferred && read(root, deferred) === candidate) return old;
-    if (!(await vetted(root, socket, current, candidate, target, h, explicit))) {
+    if (!(await vetted(root, daemon, current, candidate, target, h, explicit))) {
       if (explicit) throw Error("UpdateCheckFailed");
       return old;
     }
     let safe = !h || h.update_abi === m.update_abi;
     if (safe) {
       try {
-        await activate(root, socket, candidate, target, !!h);
+        await activate(root, daemon, candidate, target, !!h);
       } catch (error) {
         recordError(root, error);
         // The runtime is still running; restarting would hand the same state to a cold start.
@@ -657,26 +692,27 @@ async function select(
         if (rollback) write(root, "suppressed", current);
         return target;
       }
-      h = await hello(socket);
+      h = await hello(daemon);
       if (h?.executable === target) return target;
     }
-    const decision = h ? await confirmRestart(socket) : null;
+    const decision = h ? await confirmRestart(daemon) : null;
     if (decision) {
-      const fresh = await hello(socket);
+      const fresh = await hello(daemon);
       if (!fresh || fresh.server_pid !== h.server_pid) throw Error("UpdateRuntimeChanged");
-      await save(socket, h);
-      copyFileSync(recoveryPath(socket), recoveryPath(socket) + ".before-update");
-      await rpc.request(socket, "shutdown");
+      await save(daemon, h);
+      copyFileSync(recoveryPath(daemon.socket), recoveryPath(daemon.socket) + ".before-update");
+      await daemon.call("shutdown");
       let stopped = false;
       for (let i = 0; i < 100; i++) {
-        if (!(await hello(socket))) {
+        // A runtime on its way out may take a connection and drop it.
+        if (!(await hello(daemon).catch(() => null))) {
           stopped = true;
           break;
         }
         await Bun.sleep(50);
       }
       if (!stopped) throw Error("RuntimeDidNotStop");
-      await activate(root, socket, candidate, target, false);
+      await activate(root, daemon, candidate, target, false);
       if (rollback) write(root, "suppressed", current);
       return target;
     }
@@ -693,16 +729,18 @@ async function select(
   }
 }
 /** Reruns `args` with the selected release; its first word is the command. */
-export async function startup(socket: string, exe: string, args: string[], skip = false) {
+export async function startup(daemon: rpc_http.Client, exe: string, args: string[], skip = false) {
   const rel = release(exe),
     root = managed(rel, exe);
   if (!root) return;
   let target: string;
   try {
-    target = await select(rel, root, socket, !skip && !existsSync(join(root, "auto-off")), false, false);
+    target = await select(rel, root, daemon, !skip && !existsSync(join(root, "auto-off")), false, false);
   } catch (error) {
     recordError(root, error);
-    target = (await hello(socket))?.executable ?? exe;
+    // XXX: Remove for next protocol bump. Asking again would wait as long again.
+    if (errors.is(error, "UpdateIncomplete")) throw error;
+    target = (await hello(daemon))?.executable ?? exe;
   }
   if (target !== exe)
     process.execve!(target, [target, args[0], "--update-routed", ...args.slice(1)], {
@@ -722,7 +760,7 @@ export function state(root: string): string[] {
     }),
   ];
 }
-export async function command(args: string[], socket: string, exe: string) {
+export async function command(args: string[], daemon: rpc_http.Client, exe: string) {
   const rel = release(exe),
     root = managed(rel, exe);
   if (!root) {
@@ -733,13 +771,13 @@ export async function command(args: string[], socket: string, exe: string) {
     if (args[1] === "off") write(root, "auto-off", "off");
     else if (args[1] === "on") {
       remove(root, "auto-off");
-      background(socket, exe);
+      background(daemon, exe);
     } else throw Error("Usage");
     return;
   }
   if (args.length === 1 && args[0] === "status") {
     for (const line of state(root)) console.error(line);
-    const h = await hello(socket);
+    const h = await hello(daemon);
     if (h) console.error(`running: ${h.release_version}`);
     return;
   }
@@ -749,28 +787,28 @@ export async function command(args: string[], socket: string, exe: string) {
   if (!rollback) await feed(rel, root, args.length === 0 || args[0] === "--download-only", true);
   if (args.length === 1 && !rollback) return;
   if (rollback && !existsSync(join(root, "previous"))) throw Error("NoPreviousRelease");
-  await select(rel, root, socket, true, true, rollback);
+  await select(rel, root, daemon, true, true, rollback);
   console.log("Corgi is ready.");
 }
-export function background(socket: string, exe: string) {
+export function background(daemon: rpc_http.Client, exe: string) {
   const root = managed(release(exe), exe);
   if (!root || existsSync(join(root, "auto-off"))) return;
-  spawn(exe, ["__update-worker", socket], {
+  spawn(exe, ["__update-worker", daemon.socket], {
     env: { ...process.env, CORGI_APP_EXE: exe },
     stdio: "ignore",
     detached: true,
   }).unref();
 }
-async function worker(exe: string, socket: string) {
+async function worker(exe: string, daemon: rpc_http.Client) {
   const rel = release(exe),
     root = managed(rel, exe);
   if (!root) return;
-  const unlock = await lock(root, `worker-${Bun.hash.wyhash(socket, 0n).toString(16)}.lock`, false);
+  const unlock = await lock(root, `worker-${Bun.hash.wyhash(daemon.socket, 0n).toString(16)}.lock`, false);
   if (!unlock) return;
   try {
     let next = 0;
     while (!existsSync(join(root, "auto-off"))) {
-      if (!(await hello(socket))) return;
+      if (!(await hello(daemon))) return;
       const now = Date.now();
       if (now >= next) {
         try {
@@ -782,7 +820,7 @@ async function worker(exe: string, socket: string) {
       }
       const wake = Date.now() + 30000;
       while (Date.now() < wake) {
-        if (existsSync(join(root, "auto-off")) || !existsSync(socket)) return;
+        if (existsSync(join(root, "auto-off")) || !existsSync(daemon.socket)) return;
         await Bun.sleep(250);
       }
     }
@@ -840,7 +878,7 @@ export async function internal(args: string[], exe: string): Promise<boolean> {
     }
     case "__update-worker":
       if (args.length !== 2) return false;
-      await worker(exe, args[1]);
+      await worker(exe, new rpc_http.Client(args[1]));
       return true;
     case "__install":
       if (args.length !== 3) return false;

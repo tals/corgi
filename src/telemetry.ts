@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { isMainThread, threadId } from "node:worker_threads";
 
 export const names = [
+  "remote.stream.window",
   "daemon.collect",
   "daemon.import",
   "daemon.observers",
@@ -58,22 +59,29 @@ export const names = [
   "native.other",
   "wire.encode",
   "wire.decode",
+  "wire.compress",
   "terminal.feed",
   "terminal.snapshot",
   "pty.drain",
 ] as const;
 export type Name = (typeof names)[number];
 const ids = Object.fromEntries(names.map((name, id) => [name, id])) as Record<Name, number>;
+export type Details = Record<string, number | string>;
 
 export class Recorder {
   private totals = new Float64Array(names.length * 4);
   private events: Float64Array;
   private written = 0;
-  constructor(readonly capacity = 0) {
+  private details: (Details | undefined)[];
+  constructor(
+    readonly capacity = 0,
+    private readonly filter: (name: Name) => boolean = () => true,
+  ) {
     if (!Number.isInteger(capacity) || capacity < 0) throw Error("InvalidTelemetryCapacity");
     this.events = new Float64Array(capacity * 3);
+    this.details = new Array(capacity);
   }
-  record(name: Name, start: number, end: number, bytes = 0) {
+  record(name: Name, start: number, end: number, bytes = 0, details?: Details) {
     const id = ids[name],
       index = id * 4,
       duration = Math.max(0, end - start);
@@ -81,11 +89,12 @@ export class Recorder {
     this.totals[index + 1] += duration;
     this.totals[index + 2] = Math.max(this.totals[index + 2], duration);
     this.totals[index + 3] += bytes;
-    if (this.capacity) {
+    if (this.capacity && this.filter(name)) {
       const event = (this.written++ % this.capacity) * 3;
       this.events[event] = id;
       this.events[event + 1] = start;
       this.events[event + 2] = duration;
+      this.details[event / 3] = details;
     }
   }
   snapshot() {
@@ -106,6 +115,7 @@ export class Recorder {
         tid: threadId,
         ts: (performance.timeOrigin + this.events[offset + 1]) * 1000,
         dur: this.events[offset + 2] * 1000,
+        ...(this.details[offset / 3] ? { args: this.details[offset / 3] } : {}),
       });
     }
     return { metrics, traceEvents, dropped_events: Math.max(0, this.written - this.capacity) };
@@ -114,7 +124,13 @@ export class Recorder {
 
 const directory = process.env.CORGI_TELEMETRY_DIR;
 export const enabled = !!directory;
-const recorder = enabled ? new Recorder(process.env.CORGI_TELEMETRY_TRACE ? 65536 : 0) : null;
+const prefixes = process.env.CORGI_TELEMETRY_FILTER?.split(",").filter(Boolean);
+const recorder = enabled
+  ? new Recorder(
+      process.env.CORGI_TELEMETRY_TRACE ? 65536 : 0,
+      name => !prefixes?.length || prefixes.some(prefix => name.startsWith(prefix)),
+    )
+  : null;
 type Worker = { postMessage(message: { telemetry: true }): void };
 const workers = new Set<WeakRef<Worker>>();
 export function attach(worker: Worker): void {
@@ -126,14 +142,19 @@ export function detach(worker: Worker | null): void {
 export function begin(): number {
   return enabled ? performance.now() : 0;
 }
-export function end(name: Name, start: number, bytes = 0): void {
-  if (recorder) recorder.record(name, start, performance.now(), bytes);
+export function end(name: Name, start: number, bytes = 0, details?: Details): void {
+  if (recorder) recorder.record(name, start, performance.now(), bytes, details);
 }
 export function count(name: Name): void {
   if (recorder) {
     const now = performance.now();
     recorder.record(name, now, now);
   }
+}
+export function event(name: Name, details: Details): void {
+  if (!recorder) return;
+  const now = performance.now();
+  recorder.record(name, now, now, 0, details);
 }
 export function native(request: object, start: number, bytes: number): void {
   if (!recorder) return;

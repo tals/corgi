@@ -8,6 +8,7 @@ import { call, type Transport } from "./mirror";
 export class Stream {
   private connection: Transport | null = null;
   private unsubscribe: (() => void) | null = null;
+  private unresume: (() => void) | null = null;
   private subscribed = false;
   private subscribing = false;
   private history_asked = false;
@@ -30,10 +31,19 @@ export class Stream {
           this.changedEvent();
         }
       }) ?? null;
+    // The daemon a reload starts has no subscription; the next poll asks again.
+    this.unresume =
+      connection.onResume?.(() => {
+        this.subscribed = false;
+        this.history_asked = false;
+        this.retry_at = 0;
+      }) ?? null;
   }
   disconnect() {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.unresume?.();
+    this.unresume = null;
     this.connection = null;
     this.subscribed = false;
     this.history_asked = false;

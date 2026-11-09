@@ -10,10 +10,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { JsonSocket, EXE, quote, registerCase, run, shellJoin, sleep, versioned, writeExecutable } from "./support";
+import { EXE, lines, quote, registerCase, run, shellJoin, sleep, versioned, writeExecutable } from "./support";
+import * as websocket_socket from "../src/websocket_socket";
 import * as protocol from "../src/protocol";
 import { byProvider } from "../src/providers";
 import { Runtime } from "./runtime";
+import * as rpc from "../src/rpc";
 import { Viewer } from "./viewer_client";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
 
@@ -119,27 +121,85 @@ class Reloads extends Runtime {
   reload(exe = EXE) {
     return this.rpc({ op: "server.reload", executable: exe });
   }
+  async test_a_viewer_stream_resumes_its_link_and_data_connection_after_a_reload() {
+    const pane = await this.new("cat"),
+      screens: string[] = [];
+    const connect = () => {
+      const data = new rpc.Connection(this.path, { timeout_ms: 10000 });
+      data.onEvent(event => {
+        if (event.type === "viewer.frame")
+          for (const view of event.view.surfaces) screens.push(view.surface.lines.join("\n"));
+      });
+      return { control: new rpc.Connection(this.path, { timeout_ms: 10000 }), data };
+    };
+    let { control, data } = connect();
+    const configure = (sequence: number) =>
+      control.call("viewer.stream.configure", { sequence, interests: [{ pane, cols: 80, rows: 24 }] });
+    try {
+      const before = await control.call("hello");
+      const { link } = await control.call("link.open");
+      await control.call("viewer.open", { cwd: this.temp.name });
+      await data.call("viewer.data", { link });
+      await configure(1);
+      await this.until(() => screens.length > 0);
+      this.assertTrue((await this.reload()).ok);
+      // Both connections close with the old daemon; the link brings the viewer back.
+      await this.until(() => control.disconnected && data.disconnected);
+      this.assertEqual(control.failure?.message, "ServerReloading");
+      ({ control, data } = connect());
+      this.assertNotEqual((await control.call("hello")).server_pid, before.server_pid);
+      this.assertTrue((await control.call("link.resume", { link })).viewer);
+      await data.call("viewer.data", { link });
+      await configure(2);
+      await this.command("pane.input", { target: pane, data: "AFTER_SPLIT_HANDOFF\r" });
+      await this.until(() => screens.some(screen => screen.includes("AFTER_SPLIT_HANDOFF")));
+    } finally {
+      control.close();
+      data.close();
+    }
+  }
+  async test_http_discovery_and_reload_reply_survive_handoff() {
+    const before = await this.http.discover();
+    this.assertEqual("err" in before ? null : before.transports, protocol.transports);
+    const pane = await this.new(),
+      pid = (await this.session()).panes.find((p: any) => p.id === pane).pid;
+    const reply = await this.http.call("server.reload", { executable: EXE });
+    this.assertTrue(reply.ok);
+    const after = await this.http.call("hello");
+    this.assertEqual(reply.server_pid, after.server_pid);
+    this.assertNotEqual(after.server_pid, "err" in before ? null : before.server_pid);
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === pane).pid, pid);
+  }
+  async test_http_failed_reload_keeps_the_daemon_and_reports_rejection() {
+    const before = await this.http.call("hello");
+    const response = await this.http.request("server.reload", { executable: "/nonexistent-corgi" });
+    this.assertEqual(response, { err: "ReloadCandidateFailed" });
+    this.assertEqual((await this.http.call("hello")).server_pid, before.server_pid);
+  }
   async test_management_version_is_strict_and_independent_of_runtime() {
     const pane = await this.new(),
       before = await this.session();
-    const socket = await JsonSocket.connect(this.path);
+    const socket = new websocket_socket.Socket(this.path),
+      replies = lines(socket);
+    // One untagged request at a time, written as is.
+    const request = async (value: unknown) => {
+      socket.write(JSON.stringify(value) + "\n");
+      return JSON.parse(await replies.next());
+    };
     try {
-      await socket.request(versioned({ op: "hello" }));
+      await request(versioned({ op: "hello" }));
       for (const op of ["hello", "server.reload"]) {
         for (const version of [0, 2, 999, -1, "1", undefined]) {
-          const reply = await socket.request({ op, protocol: version, executable: EXE });
+          const reply = await request({ op, protocol: version, executable: EXE });
           this.assertEqual(reply.err, version === undefined ? "ProtocolRequired" : "UnsupportedManagementProtocol");
         }
       }
       this.assertEqual((await this.session()).server_pid, before.server_pid);
-      this.assertEqual(
-        (await socket.request(versioned({ op: "hello", runtime_protocol: 999 }))).protocol,
-        protocol.version,
-      );
-      this.assertEqual((await socket.request({ op: "session.snapshot" })).err, "ProtocolRequired");
-      this.assertEqual((await socket.request(versioned({ op: "server.reload", executable: EXE }))).ok, true);
+      this.assertEqual((await request(versioned({ op: "hello", runtime_protocol: 999 }))).protocol, protocol.version);
+      this.assertEqual((await request({ op: "session.snapshot" })).err, "ProtocolRequired");
+      this.assertEqual((await request(versioned({ op: "server.reload", executable: EXE }))).ok, true);
     } finally {
-      socket.close();
+      socket.destroy();
     }
     const after = await this.session();
     this.assertNotEqual(after.server_pid, before.server_pid);
@@ -278,6 +338,73 @@ libc.symbols.lseek(fd, 0n, 0);
     await a.input("printf 'STILL_%s\\n' HERE\r");
     await this.until(async () => (await this.screen(first)).includes("STILL_HERE"));
   }
+  async test_compressed_reload_returns_the_committed_reply_and_rejects_later_requests() {
+    const pane = await this.new(),
+      before = await this.session(),
+      connection = new rpc.Connection(this.path, { compression: true, timeout_ms: 10000 });
+    try {
+      const hello = await connection.call("hello");
+      this.assertEqual(hello.content_encoding, "zstd");
+      const { link } = await connection.call("link.open");
+      await connection.call("viewer.open");
+      const results = await Promise.allSettled([
+        connection.call("server.reload", { executable: EXE }),
+        connection.call("ping"),
+      ]);
+      this.assertEqual(results[0].status, "fulfilled");
+      if (results[0].status !== "fulfilled") throw results[0].reason;
+      this.assertEqual(results[1].status, "rejected");
+      const after = await this.session();
+      this.assertEqual(results[0].value.server_pid, after.server_pid);
+      this.assertNotEqual(after.server_pid, before.server_pid);
+      this.assertEqual(
+        after.panes.find((p: any) => p.id === pane).pid,
+        before.panes.find((p: any) => p.id === pane).pid,
+      );
+      const check = new rpc.Connection(this.path, { timeout_ms: 3000 });
+      try {
+        this.assertEqual((await check.call("hello")).instance, hello.instance);
+        this.assertTrue((await check.call("link.resume", { link })).viewer);
+      } finally {
+        check.close();
+      }
+    } finally {
+      connection.close();
+    }
+  }
+  async test_a_failed_reload_keeps_compressed_connections_and_runs_held_input_once() {
+    const pane = await this.new(),
+      before = await this.session();
+    for (const [i, executable] of ["/does/not/exist", "/usr/bin/false"].entries()) {
+      const connection = new rpc.Connection(this.path, { compression: true, timeout_ms: 10000 });
+      try {
+        const hello = await connection.call("hello");
+        this.assertEqual(hello.content_encoding, "zstd");
+        await connection.call("link.open");
+        await connection.call("viewer.open");
+        const [reload, input] = await Promise.all([
+          connection.request("server.reload", { executable }),
+          connection.call("session.command", {
+            command: { "pane.input": { target: pane, data: `printf 'HELD_%s\\n' ${i}\r` } },
+          }),
+        ]);
+        this.assertEqual(reload, { err: "ReloadCandidateFailed" });
+        this.assertTrue(input.ok);
+        this.assertFalse(connection.disconnected);
+        this.assertEqual((await connection.call("hello")).instance, hello.instance);
+        const after = await this.session();
+        this.assertEqual(after.server_pid, before.server_pid);
+        this.assertEqual(after.panes[0].pid, before.panes[0].pid);
+        await this.until(async () => (await this.screen(pane)).includes(`HELD_${i}`));
+        this.assertEqual((await this.screen(pane)).split(`HELD_${i}`).length, 2);
+      } finally {
+        connection.close();
+      }
+    }
+    await this.reload();
+    await this.command("pane.input", { target: pane, data: "printf 'RETRY_%s\\n' WORKED\r" });
+    await this.until(async () => (await this.screen(pane)).includes("RETRY_WORKED"));
+  }
   async test_v2_migration_preserves_processes_viewers_and_inference_counts() {
     const first = await this.new(),
       viewer = await Viewer.create(this);
@@ -360,19 +487,23 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     this.assertEqual((await this.session()).panes[0].id, first);
     await this.until(async () => (await this.screen(first)).includes("MIGRATION_HISTORY"));
   }
-  async test_fragmented_rpc_and_paste_survive() {
+  async test_a_reload_closes_a_fragmented_request_and_a_paste_survives() {
     const first = await this.new(),
       a = await Viewer.create(this);
     await a.input("\x1b[200~printf PASTE_");
-    const client = await JsonSocket.connect(this.path);
+    const client = new websocket_socket.Socket(this.path),
+      replies = lines(client);
     try {
-      client.socket.write('{"op":"session.snap');
+      client.write('{"op":"session.snap');
       await sleep(0.05);
       await this.reload();
-      client.socket.write(`shot","protocol":${protocol.version}}\n`);
-      this.assertEqual((await client.read()).type, "session");
+      // The old daemon never read a whole request; the connection closes for its client to reconnect.
+      await replies.next().then(
+        line => this.fail(`unexpected reply ${line}`),
+        error => this.assertEqual(error.message, "ServerReloading"),
+      );
     } finally {
-      client.close();
+      client.destroy();
     }
     await a.input("SURVIVED\\n\x1b[201~\r");
     await this.until(async () => (await this.screen(first)).includes("PASTE_SURVIVED"));
@@ -392,11 +523,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     const before = await this.rpc({ op: "headless.events", provider: "codex", session });
     const pid = (await this.rpc({ op: "headless.list" })).sessions[0].pid;
     await this.reload();
-    await this.reload(
-      this.candidate(
-        "for (const s of m.runtime.sessions) delete s.session; for (const c of m.clients) delete c.headless_start",
-      ),
-    );
+    await this.reload(this.candidate("for (const s of m.runtime.sessions) delete s.session"));
     this.assertEqual(
       (await this.rpc({ op: "headless.events", provider: "codex", session })).pending_requests,
       before.pending_requests,
@@ -678,28 +805,32 @@ process.stdin.resume();
     this.assertIn("# Recovered saved output; new shell.", await this.screen(first));
     this.assertEqual((await this.session()).panes[0].cwd, realpathSync(this.temp.name));
   }
-  async test_pipelined_requests_remain_ordered_across_handoff() {
+  async test_a_reload_answers_its_requester_and_closes_requests_held_behind_it() {
     await this.new();
     const before = (await this.session()).server_pid;
-    const client = await JsonSocket.connect(this.path);
+    const client = new websocket_socket.Socket(this.path),
+      replies = lines(client);
     try {
-      client.socket.write(
+      client.write(
         JSON.stringify(versioned({ op: "server.reload", executable: EXE })) +
           "\n" +
           JSON.stringify(versioned({ op: "session.snapshot" })) +
           "\n",
       );
-      const first = await client.read(),
-        second = await client.read();
-      this.assertTrue(first.ok);
-      this.assertNotEqual(first.server_pid, before);
-      this.assertEqual(second.type, "session");
-      this.assertEqual(first.server_pid, second.server_pid);
+      const reloaded = JSON.parse(await replies.next(10000));
+      this.assertTrue(reloaded.ok);
+      this.assertNotEqual(reloaded.server_pid, before);
+      // The snapshot waited for the reload and closes with the old daemon; it never ran there.
+      await replies.next().then(
+        line => this.fail(`unexpected reply ${line}`),
+        error => this.assertEqual(error.message, "ServerReloading"),
+      );
+      this.assertEqual((await this.session()).server_pid, reloaded.server_pid);
     } finally {
-      client.close();
+      client.destroy();
     }
   }
-  async test_headless_partial_initialization_and_deferred_request_survive() {
+  async test_a_reload_waits_for_a_headless_start_to_answer() {
     const gate = join(this.temp.name, "headless-gate"),
       provider = join(this.temp.name, "provider");
     writeExecutable(
@@ -732,36 +863,46 @@ process.stdin.on('data', data => {
 process.stdin.resume();
 `,
     );
-    const cancelled = await JsonSocket.connect(this.path);
-    cancelled.send(versioned({ op: "headless.start", prompt: "ping", provider: "codex", cwd: this.temp.name }));
+    const cancelled = new websocket_socket.Socket(this.path);
+    cancelled.write(
+      JSON.stringify(versioned({ op: "headless.start", prompt: "ping", provider: "codex", cwd: this.temp.name })) +
+        "\n",
+    );
     await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions.length === 1);
-    cancelled.close();
+    cancelled.destroy();
     await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions.length === 0);
-    const client = await JsonSocket.connect(this.path);
+    const client = new websocket_socket.Socket(this.path),
+      replies = lines(client);
     try {
-      client.send(
-        versioned({ op: "headless.start", prompt: "ping", provider: "codex", cwd: this.temp.name, request_id: 41 }),
+      client.write(
+        JSON.stringify(
+          versioned({ op: "headless.start", prompt: "ping", provider: "codex", cwd: this.temp.name, request_id: 41 }),
+        ) + "\n",
       );
-      client.send({ op: "ping", request_id: 42 });
       await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions.length === 1);
       const starting = (await this.rpc({ op: "headless.list" })).sessions[0];
       this.assertEqual(starting.session, null);
-      this.assertTrue((await this.rpc({ op: "ping" })).ok);
-      await this.reload();
+      // The start's reply goes back on its connection, which a reload can't
+      // move; the reload waits for it.
+      const refused = await this.raw_rpc({ op: "server.reload", executable: EXE });
+      this.assertEqual(refused.err, "ReloadBusy");
+      this.assertEqual(refused.busy, { op: "headless.start", provider: "codex" });
       writeFileSync(gate, "");
-      const started = await client.read();
-      this.assertEqual(started, { ok: true, provider: "codex", session: "t", request_id: 41 });
-      const pong = await client.read();
-      this.assertTrue(pong.ok);
-      this.assertEqual(pong.request_id, 42);
+      this.assertEqual(JSON.parse(await replies.next()), {
+        ok: true,
+        provider: "codex",
+        session: "t",
+        request_id: 41,
+      });
+      await this.reload();
       this.assertEqual(starting.pid, (await this.rpc({ op: "headless.list" })).sessions[0].pid);
       await this.until(async () =>
-        (await this.rpc({ op: "headless.events", provider: "codex", session: started.session })).events.some(
+        (await this.rpc({ op: "headless.events", provider: "codex", session: "t" })).events.some(
           (e: any) => e.event.kind === "turn" && e.event.turn === "deferred-survived",
         ),
       );
     } finally {
-      client.close();
+      client.destroy();
     }
   }
   async test_removed_attachment_cannot_create_a_shell_or_block_reload() {

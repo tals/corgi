@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { createServer, type Socket } from "node:net";
+import { createServer, type Socket } from "./fixtures/websocket_server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -313,3 +313,47 @@ test.each(["watch", "idle", "surfaces", "image"] as const)(
     }
   },
 );
+
+test("closing a viewer while it reconnects after a reload rejects the commands it held to send again", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-viewer-close-")),
+    path = join(dir, "rpc.sock"),
+    sockets: Socket[] = [],
+    reconnecting = Promise.withResolvers<void>();
+  let reloaded = false;
+  const server = createServer(socket => {
+    sockets.push(socket);
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("data", chunk => {
+      buffer += chunk;
+      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+        const q = json.parse(buffer.slice(0, end));
+        buffer = buffer.slice(end + 1);
+        // The new daemon takes the connection but hasn't answered yet.
+        if (reloaded) reconnecting.resolve();
+        else if (q.op === "link.open")
+          socket.write(json.stringify({ request_id: q.request_id, ok: true, link: "kept" }) + "\n");
+        else if (q.op === "session.command") {
+          reloaded = true;
+          socket.close(1012, "reloading");
+        } else socket.write(json.stringify({ request_id: q.request_id, ok: true }) + "\n");
+      }
+    });
+  });
+  await new Promise<void>(resolve => server.listen(path, resolve));
+  const connection = new Connection(path);
+  try {
+    const outcome = connection.request("session.command", { command: { "pane.close": { target: 1 } } } as never).then(
+      () => "answered",
+      (error: Error) => error.message,
+    );
+    await reconnecting.promise;
+    connection.close();
+    expect(await Promise.race([outcome, Bun.sleep(1000).then(() => "still waiting")])).toBe("ConnectionClosed");
+  } finally {
+    connection.close();
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

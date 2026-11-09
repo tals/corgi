@@ -107,7 +107,6 @@ test("both link popover labels keep the right border aligned and stay inside the
 const url = "https://example.com/docs";
 function linkViewer(output = url, host: "pane" | "signin" = "pane") {
   const s = new Controller({
-    socket: "",
     request: transport(async () => {
       throw Error("UnexpectedRequest");
     }).request,
@@ -479,6 +478,7 @@ test("setup's issue link shows the link card, which copies it", async () => {
     overrides: [],
     logs: { server: "/tmp/server.log", crashes: 0 },
     warnings: [],
+    hook_trouble: null,
     inference: null,
   };
   s.corgi_setup = setup;

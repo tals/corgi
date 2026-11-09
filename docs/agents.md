@@ -41,7 +41,8 @@ Headless approvals retain their original conversation and transport ownership.
 `corgi headless start PROVIDER PROMPT` sends the first prompt and waits for
 the provider's session ID. Later `send`, `events` and `stop` commands take
 `PROVIDER SESSION`; Corgi does not return another numeric session ID.
-Startup stays asynchronous and its pending reply survives live handoff.
+Startup stays asynchronous; a live reload waits until a pending start has
+its session ID, since the reply goes back on the starter's connection.
 The numeric transport handles in snapshots and saved state are internal
 bookkeeping for viewer selection and ordering. See [CONTEXT.md](../CONTEXT.md).
 

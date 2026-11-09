@@ -122,6 +122,7 @@ function report(over: Partial<bugReport.Report> = {}): bugReport.Report {
     overrides: [],
     logs: { server: "/home/me/.local/state/corgi/server.log", crashes: 0 },
     warnings: ["warning(hooks): hook from pane 9 dropped (×3)"],
+    hook_trouble: null,
     inference: null,
     ...over,
   };
@@ -673,4 +674,11 @@ test("outside Corgi the report's samples go on the cursor's line, and any row's 
   expect(answers(p.info).widths[0].got).toBe(2);
   expect(answers(p.info).cell).toEqual({ width: 9, height: 18 });
   expect(answers(p.info).keyboard).toBe(0);
+});
+
+test("the last time a hook gave up on Corgi shows in the report", () => {
+  const trouble = "2026-11-08T21:40:00Z pid 7: claude PreToolUse: no reply after 2003 ms; hooks skip Corgi for 30 s";
+  const shown = withHome("/home/me", () => bugReport.text(report({ hook_trouble: trouble }), settings, true));
+  expect(shown).toContain(`- Hook trouble: ${trouble}`);
+  expect(withHome("/home/me", () => bugReport.text(report(), settings, true))).not.toContain("Hook trouble");
 });

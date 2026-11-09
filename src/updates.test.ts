@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import * as rpc_http from "./rpc_http";
 import { createServer } from "node:net";
 import {
   version,
@@ -278,7 +279,8 @@ test("a release only passes the pre-update check with a result, or without the c
       writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o700 });
       return path;
     },
-    run = (target: string, limit_ms?: number) => check(join(dir, "none.sock"), target, null, limit_ms);
+    run = (target: string, limit_ms?: number) =>
+      check(new rpc_http.Client(join(dir, "none.sock")), target, null, limit_ms);
   try {
     expect(await run(script("passes", `echo '{"ok":true}'`))).toBeNull();
     expect(await run(script("legacy-error", "echo 'corgi: UnknownCommand' >&2; exit 1"))).toBeNull();
@@ -300,23 +302,22 @@ test("a release only passes the pre-update check with a result, or without the c
   }
 });
 
-test("an older runtime saves its session for the update check", async () => {
+test("a runtime from another release saves its session in the protocol it speaks", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-save-")),
     socket = join(dir, "corgi.sock"),
     asked: any[] = [];
-  // A runtime before protocol 4 ignores request ids and answers untagged.
-  const server = createServer(peer =>
-    peer.on("data", chunk => {
-      asked.push(JSON.parse(chunk.toString()));
-      peer.write(JSON.stringify({ ok: true, path: join(dir, "recovery") }) + "\n");
-    }),
-  );
-  await new Promise<void>(resolve => server.listen(socket, resolve));
+  const server = Bun.serve({
+    unix: socket,
+    async fetch(request) {
+      asked.push(await request.json());
+      return Response.json({ ok: true, path: join(dir, "recovery") });
+    },
+  });
   try {
-    await save(socket, { protocol: 3 });
+    await save(new rpc_http.Client(socket), { protocol: 3 });
     expect(asked).toEqual([{ op: "recovery.save", protocol: 3 }]);
   } finally {
-    await new Promise(resolve => server.close(resolve));
+    await server.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -23,7 +23,8 @@ import * as errors from "./errors";
 import * as km from "./keymap";
 import * as palette from "./palette";
 import * as preferences from "./preferences";
-import * as rpc from "./rpc";
+import type * as rpc_http from "./rpc_http";
+import * as protocol from "./protocol";
 import * as settingsFile from "./settings";
 import * as shellPicker from "./shell_picker";
 import * as subprocess from "./subprocess";
@@ -132,6 +133,8 @@ export interface Report {
   overrides: string[];
   logs: { server: string; crashes: number };
   warnings: string[];
+  /** The last time a hook gave up on the daemon, from hooks.log; null if none did. */
+  hook_trouble: string | null;
   /** Clever Corgi as the daemon last published it; null without one. */
   inference: Status | null;
 }
@@ -145,26 +148,22 @@ export interface Settings {
 /** Everything the report says. The daemon adds what it knows when it runs;
  * `terminal` is the reporting viewer's own, else the last-used viewer's. */
 export async function collect(
-  socket: string,
+  daemon: rpc_http.Client,
   terminal: Snapshot | null,
   progress: (step: string) => void = () => {},
 ): Promise<Report> {
   // A stuck daemon gets its connection closed, which would otherwise keep
   // the CLI from exiting once the report is printed.
-  const slow = { daemon: false, sessions: false, report: false },
+  const socket = daemon.socket,
+    slow = { daemon: false, sessions: false, report: false },
     ask = async (op: "hello" | "session.list" | "bugreport"): Promise<any> => {
-      let connection: rpc.Connection | null = null;
       try {
-        // Each query has its own connection; older daemons answer without ids.
-        connection = new rpc.Connection(socket, { requestIds: false });
-        const reply = await within(connection.call(op), timeout_ms);
-        if (reply === null)
+        const reply = await daemon.post(protocol.envelope(op), timeout_ms);
+        return typeof reply === "object" && reply && "err" in reply ? null : reply;
+      } catch (error) {
+        if (errors.is(error, "RequestTimedOut"))
           slow[({ hello: "daemon", "session.list": "sessions", bugreport: "report" } as const)[op]] = true;
-        return reply;
-      } catch {
         return null;
-      } finally {
-        connection?.close();
       }
     },
     exe = build_id.self();
@@ -210,6 +209,11 @@ export async function collect(
     overrides: overrides(process.env, settingsFile.read(settingsFile.path(socket))),
     logs: { server: join(dirname(socket), "server.log"), crashes: crashes() },
     warnings: warnings(tail(join(dirname(socket), "server.log"))),
+    hook_trouble:
+      tail(join(dirname(socket), "hooks.log"), 1024)
+        .trimEnd()
+        .split("\n")
+        .at(-1) || null,
     inference: snapshot ? (await import("./corgi_setup")).status(snapshot.inference) : null,
   };
 }
@@ -814,6 +818,7 @@ export function rows(r: Report, s: Settings): Row[] {
   add("Logs", `${tilde(r.logs.server)}${r.logs.crashes ? `, ${count(r.logs.crashes, "crash report")} pending` : ""}`);
   const late = timeouts(r);
   if (late.length) add("Timed out", late.join(", "));
+  if (r.hook_trouble) add("Hook trouble", r.hook_trouble);
   if (r.warnings.length) {
     add("Recent warnings", "", 0, true);
     for (const w of r.warnings) add("", w, 1, true);
@@ -1129,11 +1134,11 @@ export async function writeFull(r: Report, s: Settings, socket: string, asked = 
  * the daemon has the last-used viewer's. Without a daemon, the shell comes
  * from settings and the model is unknown. `asked` (--full) writes the full
  * report even for a terminal that looks fine. */
-export async function command(socket: string, asked = false): Promise<string> {
+export async function command(daemon: rpc_http.Client, asked = false): Promise<string> {
   // A plain line on stderr per step, so piped output stays the report alone.
   const progress = (step: string) => process.stderr.write(`${step}...\n`);
   if (canAsk()) progress("Asking this terminal");
-  const report = await collect(socket, await here(), progress),
+  const report = await collect(daemon, await here(), progress),
     prefs = preferences.load(),
     settings: Settings = {
       theme: theme(prefs.theme, automatic(report.terminal?.colors ?? null)),
@@ -1145,7 +1150,7 @@ export async function command(socket: string, asked = false): Promise<string> {
           : "unknown (Corgi isn't running)",
     };
   if (asked || flagged(report.terminal)) progress("Writing the full report");
-  const attached = await writeFull(report, settings, socket, asked),
+  const attached = await writeFull(report, settings, daemon.socket, asked),
     tty = process.stdout.isTTY === true;
   return (
     "\n" +

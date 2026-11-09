@@ -37,7 +37,6 @@ const mouse = (button: number, x: number, y: number) => Buffer.from(`\x1b[<${but
 
 test("hovering the push card shows a row's review dimmed, and Enter opens it", async () => {
   const s = new Controller({
-    socket: "",
     request: transport(async () => {
       throw Error("UnexpectedRequest");
     }).request,

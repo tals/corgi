@@ -199,7 +199,7 @@ export async function run(path: string, write: (line: string) => void, o: Option
 /** What a failed connection says about the daemon: none is listening, it hung
  * up on us (a restart or handoff), or something else is wrong. */
 function lost(error: unknown): "absent" | "dropped" | null {
-  if (errors.is(error, "ConnectionClosed")) return "dropped";
+  if (errors.is(error, "ConnectionClosed") || errors.is(error, "ServerReloading")) return "dropped";
   const code = error instanceof Error && "code" in error ? error.code : null;
   if (code === "ENOENT" || code === "ECONNREFUSED") return "absent";
   return code === "ECONNRESET" || code === "EPIPE" ? "dropped" : null;
@@ -258,6 +258,7 @@ async function follow(
   // Freshness and preferences keep the viewer's quiet 500 ms cadence.
   const refresh = subscribed && failure === null ? setInterval(() => show(), 500) : null;
   await closed;
+  if (connection.failure && lost(connection.failure) === null) failure ??= connection.failure;
   if (refresh !== null) clearInterval(refresh);
   signal?.removeEventListener("abort", stop);
   runtime.destroy();

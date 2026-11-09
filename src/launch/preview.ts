@@ -111,11 +111,58 @@ function loginOf(provider: Provider, account: string) {
   const id = accounts.identity(provider, account)?.id;
   return id ? `login:${id}` : `folder:${account}`;
 }
+/** An account's launcher, taking one call at a time: a background round and a
+ * folder's preview can both read it, and an account reader isn't safe to
+ * enter twice. Closing waits for the calls already made, and a call after it
+ * starts nothing. */
+export class OneAtATime implements Launcher {
+  private free: Promise<void> = Promise.resolve();
+  private closed = false;
+  constructor(private readonly launcher: Launcher) {}
+  async account(quit: Quit, max_age: number, cwd?: string) {
+    const done = await this.turn();
+    try {
+      return this.closed ? new Info() : await this.launcher.account(quit, max_age, cwd);
+    } finally {
+      done();
+    }
+  }
+  async model(cwd: string, quit: Quit) {
+    const done = await this.turn();
+    try {
+      return this.closed ? { model: "", source: "" } : await this.launcher.model(cwd, quit);
+    } finally {
+      done();
+    }
+  }
+  watches() {
+    return this.launcher.watches?.() ?? [];
+  }
+  async close() {
+    const done = await this.turn();
+    try {
+      this.closed = true;
+      this.launcher.close();
+    } finally {
+      done();
+    }
+  }
+  /** Waits for the calls before this one; call what it returns when this one ends. */
+  private async turn(): Promise<() => void> {
+    const before = this.free,
+      { promise, resolve } = Promise.withResolvers<void>();
+    this.free = promise;
+    await before;
+    return resolve;
+  }
+}
 export class Worker {
   quit = Quit.init();
   stopping = false;
   running = false;
   private pending: Promise<void> | null = null;
+  /** The round of account reads under way, beside the jobs. */
+  private rounding: Promise<void> | null = null;
   jobs: {
     cwd: string;
     preview: Preview;
@@ -157,7 +204,7 @@ export class Worker {
     for (const watcher of this.watching.values()) watcher.close();
     this.watching.clear();
     if (this.settle) clearTimeout(this.settle);
-    await this.pending;
+    await Promise.all([this.pending, this.rounding]);
   }
   /** Watches the files `launcher` reads. A file can be replaced rather than
    * written in place, so its folder is watched. */
@@ -230,9 +277,14 @@ export class Worker {
   launcher(p: Provider, account = "") {
     const key = p + "\0" + account;
     let launcher = this.launchers.get(key);
-    if (!launcher) this.launchers.set(key, (launcher = adapter(p).launcher?.(account) ?? Promise.resolve(null)));
+    if (!launcher) this.launchers.set(key, (launcher = this.open(p, account)));
     return launcher;
+  } /** `p`'s launcher for `account`, taking one call at a time. */
+  private async open(p: Provider, account: string): Promise<Launcher | null> {
+    const launcher = await adapter(p).launcher?.(account);
+    return launcher ? new OneAtATime(launcher) : null;
   }
+
   preview(cwd: string, refresh = false) {
     return this.request(cwd, false, refresh);
   }
@@ -368,32 +420,39 @@ export class Worker {
       })),
     });
   }
+  /** Starts what's due, and settles once it's done. A round runs beside the
+   * jobs: a subscriber's read shares the round's reads of its accounts rather
+   * than waiting on all of them, one of which may hang. */
   pump(): Promise<void> {
     if (this.stopping) return Promise.resolve();
-    if (this.pending) return this.pending;
-    const pending = this.drain();
-    this.pending = pending;
-    void pending
-      .finally(() => {
-        if (this.pending === pending) this.pending = null;
-      })
-      .catch(() => {});
-    return pending;
+    if (this.sampling && !this.rounding) {
+      const rounding = this.round().finally(() => {
+        this.sampling = false;
+        this.checked = Date.now();
+        if (this.rounding === rounding) this.rounding = null;
+      });
+      this.rounding = rounding;
+      void rounding.catch(() => {});
+    }
+    if (!this.pending) {
+      const pending = this.drain();
+      this.pending = pending;
+      void pending
+        .finally(() => {
+          if (this.pending !== pending) return;
+          this.pending = null;
+          // A job queued while the drain was finishing hasn't run.
+          if (this.jobs.some(job => job.queued)) void this.pump();
+        })
+        .catch(() => {});
+    }
+    return Promise.all([this.pending, this.rounding]).then(() => {});
   }
   private async drain() {
     this.running = true;
     try {
       for (;;) {
         if (this.stopping) break;
-        if (this.sampling) {
-          try {
-            await this.round();
-          } finally {
-            this.sampling = false;
-            this.checked = Date.now();
-          }
-          continue;
-        }
         const job = this.jobs.find(job => job.queued);
         if (!job) break;
         await this.run(job);
@@ -550,6 +609,8 @@ export class Worker {
       this.logins.set(key, login);
     }
     const directory = (login.cwd = cwd);
+    // A fresh reading asked for since the one under way began comes after it.
+    if (login.reading && login.stale) return this.again(login.reading, { provider, id, folders }, cwd);
     if (login.reading) return login.reading;
     if (Date.now() - login.read_at < this.every * 1000 && folders.every(f => login.infos.has(f)))
       return Promise.resolve();
@@ -588,6 +649,11 @@ export class Worker {
     })().finally(() => (login.reading = null));
     login.reading = reading;
     return reading;
+  }
+  /** Reads `group` again once `reading`, which began before someone asked for a fresh one, ends. */
+  private async again(reading: Promise<void>, group: Group, cwd: string): Promise<void> {
+    await reading;
+    return this.read(group, cwd);
   }
   /** `base` with what `account`'s folder read, or when that has no fresh
    * usage, the reading another folder signed in to the same account got. */

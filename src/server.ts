@@ -8,21 +8,21 @@ import { Quit as ModelQuit } from "./subprocess";
 import * as telemetry from "./telemetry";
 import type { Worker as SummaryWorker } from "./activity/worker";
 import type { Worker as UsageWorker } from "./usage/worker";
-import { chmodSync, existsSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, watch, type FSWatcher } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, isAbsolute, join } from "node:path";
 import { Runtime } from "./runtime";
 import * as agentEffort from "./agent_effort";
 import { Store, Workspace } from "./workspace";
-import { Client, Reply } from "./peer";
-import { n, ReadyLoop, READ } from "./native_bridge";
+import { Client, Reply, type Transport } from "./peer";
+import { ReadyLoop } from "./native_bridge";
 import { closeReadiness } from "./pane/terminal";
 import { Theme } from "./theme";
 import * as protocol from "./protocol";
 import * as session from "./session";
 import * as viewer from "./viewer_protocol";
 import * as clock from "./clock";
-import { SocketPath, listen, running } from "./os";
+import { SocketPath, listen as bindSocket, running } from "./os";
 import * as json from "./json";
 import * as recovery from "./persist/recovery";
 import * as launch from "./launch_service";
@@ -36,11 +36,18 @@ import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import { testBuild } from "./build_assets";
 import * as agentRetry from "./agent_retry";
+import * as link from "./link";
+import * as socket_server from "./socket_server";
+import * as legacy_socket from "./legacy_socket";
+import * as start_lock from "./start_lock";
 export class Server {
+  readonly instance = crypto.randomUUID();
   summaries: SummaryWorker | null = null;
   usage: UsageWorker | null = null;
   runtime = new Runtime();
   clients: Client[] = [];
+  /** Links by id, carried by a connection or waiting for one to resume them. */
+  links = new Map<string, link.Link>();
   theme = new Theme();
   started_at = Date.now();
   next_viewer = 1;
@@ -54,10 +61,34 @@ export class Server {
   last_bell = 0;
   resource_readings = true;
   dirty = true;
-  listener = -1;
+  /** Started by a handoff, with the old daemon's state. */
+  imported = false;
+  /** A handoff committed: the candidate owns the session, and this process only lets go. */
+  handed_off = false;
+  /** Called once the daemon answers on its socket. */
+  listened: (() => void) | null = null;
+  /** The start lock a handoff passed on, let go once this daemon listens. */
+  start_lock = -1;
+  /** XXX: Remove for next protocol bump. The listener a JSON-lines daemon handed over. */
+  older_listener = -1;
+  /** XXX: Remove for next protocol bump. An older build's updater checks this
+   * daemon in with JSON lines before it names this release current. */
+  older_updater = false;
+  private legacy: legacy_socket.Listener | null = null;
+  /** XXX: Remove for next protocol bump. Connections in JSON lines: older builds. */
+  private older_clients = new WeakSet<Client>();
+  /** XXX: Remove for next protocol bump. Ends the older updater's window now. */
+  private endOlderWindow: (() => void) | null = null;
+  /** Settles once Bun's server has the socket. */
+  private swapped: Promise<void> = Promise.resolve();
+  /** After a reload commits, where each HTTP request goes. */
+  relay: ((client: Client) => void) | null = null;
+  /** After a reload commits, told of each client that goes away. */
+  closing: ((client: Client) => void) | null = null;
   private socketPath: SocketPath | null = null;
+  private listening: socket_server.Server | null = null;
+  private bound: socket_server.Bound | null = null;
   private loop = new ReadyLoop();
-  private registration?: ReturnType<ReadyLoop["watch"]>;
   private jobs: Promise<void> = Promise.resolve();
   private modelReads = new Map<Client, () => void>();
   /** Deferred replies, each with whether it changes state and how to answer it early. */
@@ -191,7 +222,7 @@ export class Server {
         pane.terminal.on("ioError", error => console.error("terminal:", error));
       }
   }
-  private wakeSeq(id: number): bigint {
+  wakeSeq(id: number): bigint {
     let seq = this.runtime.shown + this.bell_seq;
     for (const c of this.clients)
       if (c.viewer && c.viewer_id === id) {
@@ -204,7 +235,7 @@ export class Server {
     return BigInt.asUintN(64, seq);
   }
   private wakeViewer(c: Client): void {
-    if (!c.watching || c.dead || c.output.length > 0) return;
+    if (!c.watching || c.stream_data || c.dead || c.queued > 0) return;
     const next = this.wakeSeq(c.watch_viewer);
     if (c.woken !== next) {
       c.woken = next;
@@ -212,12 +243,14 @@ export class Server {
     }
   }
   private wakeViewers(): void {
+    for (const c of this.clients) if (c.stream) viewer.publish(this, c, this.wakeSeq(c.viewer_id));
     for (const c of this.clients) this.wakeViewer(c);
   }
-  private publish(): void {
+  /** Sends what changed; whether it woke the viewers. */
+  private publish(): boolean {
     const telemetry_started = telemetry.begin();
     try {
-      if (this.subscribedRevision === this.runtime.revision && !this.dirty) return;
+      if (this.subscribedRevision === this.runtime.revision && !this.dirty) return false;
       if (this.subscribedRevision !== this.runtime.revision) {
         const shown = this.subscribedShown !== this.runtime.shown,
           subscribers = this.clients.filter(c => c.subscribed && !c.dead && (shown || c.subscribed_output));
@@ -234,6 +267,7 @@ export class Server {
       }
       this.wakeViewers();
       this.dirty = false;
+      return true;
     } finally {
       telemetry.end("daemon.publish", telemetry_started);
     }
@@ -251,7 +285,7 @@ export class Server {
     this.runtime.auto_retry = settings.autoRetry(settings.path(this.socket));
     try {
       let selected: number | null = null;
-      const handoff = this.listener >= 0;
+      const handoff = this.imported;
       if (!handoff) {
         // Saved state with every workspace closed stays that way.
         let saved = false;
@@ -274,10 +308,7 @@ export class Server {
         this.default_folder_pending = !saved && !this.runtime.workspaces.items.length;
         if (this.default_folder_pending) await this.runtime.workspaces.add("", process.cwd());
         this.preferred_workspace = selected ?? this.runtime.workspaces.items[0]?.id ?? Workspace.Id.none;
-        this.listener = listen(this.socket);
-        chmodSync(this.socket, 0o600);
-        this.socketPath = SocketPath.claim(this.socket);
-      } else this.socketPath = SocketPath.claim(this.socket);
+      }
       // Setup asks which agents are there, so mise answers for its shims first.
       await discovery.ready();
       // A handoff to a newer Corgi may hook more events than the old one did.
@@ -285,19 +316,17 @@ export class Server {
       this.bindPanes();
       observers.start(this);
       for (const p of this.runtime.panes) if (p.terminal.imported) p.terminal.adopt(p.terminal.fd, p.terminal.pid);
-      for (const c of this.clients) c.resume();
       // Before anyone can connect, so a plugin removed after the daemon answers is seen.
       this.watchInstall();
+      this.listen();
       this.startLoop();
       process.on("SIGTERM", () => void this.shutdown());
       process.on("SIGINT", () => void this.shutdown());
       await this.saveWorkspaces();
     } catch (error) {
       clearInterval(this.timer);
-      this.registration?.close();
       for (const c of [...this.clients]) c.close();
-      if (this.listener >= 0) n.probe_close(this.listener);
-      this.listener = -1;
+      void this.listening?.stop(true);
       this.runtime.destroy();
       this.loop.close();
       closeReadiness();
@@ -308,13 +337,120 @@ export class Server {
   private enqueue(work: () => Promise<void>): void {
     this.jobs = this.jobs.then(work).catch(error => console.error("daemon job:", error));
   }
+  /** `older`: its connections speak JSON lines. */
+  private accept(older = false): socket_server.Accept {
+    // Connections stay open, so they're few; HTTP requests come and go.
+    const count = (http: boolean) => this.clients.reduce((n, c) => n + (c.http === http ? 1 : 0), 0);
+    return {
+      connection: transport => {
+        if (count(false) >= 32) return null;
+        const client = this.addClient(transport, this.accepting);
+        if (older) this.older_clients.add(client);
+        return client;
+      },
+      request: (value, respond) => {
+        if (count(true) >= 256) return null;
+        const client = this.addClient(null, this.accepting, respond);
+        client.request(value);
+        this.relay?.(client);
+        return client;
+      },
+    };
+  }
+  private listen(): void {
+    // XXX: Remove for next protocol bump. Until an older build's updater has
+    // made this release current, or the install moved on, a listener that also
+    // speaks JSON lines answers: the one an older daemon handed over, or one
+    // bound for it. An older build's reload that no updater holds the
+    // install's activation lock for, such as `corgi reload`, has no update to
+    // finish; nor does one into a build no install manages.
+    const older = this.older_updater && updates.activating(this.executable);
+    if (older && this.older_listener < 0) this.older_listener = bindOlder(this.socket);
+    if (this.older_listener >= 0) {
+      this.legacy = new legacy_socket.Listener(
+        this.older_listener,
+        this.loop,
+        this.accept(true),
+        () => this.endOlderWindow !== null,
+      );
+      this.older_listener = -1;
+      this.socketPath = SocketPath.claim(this.socket);
+    }
+    if (this.legacy && older) {
+      // It answers; a new client's `hello` hears the update isn't done.
+      this.releaseStartLock();
+      const ended = new Promise<void>(resolve => (this.endOlderWindow = resolve));
+      this.listened?.();
+      this.swapped = Promise.race([updated(this.executable, () => this.stopped), ended])
+        .catch(error => console.error("warning: older updater window:", error))
+        .then(() => this.serve());
+      return;
+    }
+    this.serve();
+    this.listened?.();
+  }
+  /** Bun's server takes the socket, and anyone waiting on the start lock goes on. */
+  private serve(): void {
+    this.endOlderWindow = null;
+    // A daemon that handed off has no socket to take: the candidate has it.
+    if (this.stopped || this.handed_off) return;
+    try {
+      const bound = this.bound ?? socket_server.bind(this.socket, this.accept());
+      this.bound = null;
+      this.listening = bound.publish();
+      this.legacy?.close();
+      this.legacy = null;
+      this.socketPath = SocketPath.claim(this.socket);
+    } catch (error) {
+      // Without an older listener to keep answering, the daemon can't run.
+      if (!this.legacy) throw error;
+      // It keeps answering HTTP; WebSockets can't connect.
+      console.error("error: socket:", error);
+    }
+    this.releaseStartLock();
+    resumeHooks(this.socket);
+  }
+  /** Lets anyone waiting on the start lock go on, after long enough for a
+   * sender whose connection a swap reset to see it held. */
+  private releaseStartLock(): void {
+    const lock = this.start_lock;
+    this.start_lock = -1;
+    if (lock >= 0) setTimeout(() => start_lock.release(lock), 100);
+  }
+  /** Binds Bun's server beside the socket ahead of listening, so a reload
+   * that can't bind fails before it commits. */
+  bind(): void {
+    this.bound = socket_server.bind(this.socket, this.accept());
+  }
+  /** XXX: Remove for next protocol bump. Whether `client` is an older build,
+   * which checks a daemon it reloads in with JSON lines. */
+  older(client: Client): boolean {
+    return this.older_clients.has(client);
+  }
+  /** Lets go of a server bound for a reload that didn't commit. */
+  unbind(): void {
+    this.bound?.abandon();
+    this.bound = null;
+  }
+  /** Stops taking connections; open ones carry on. */
+  stopListening(): void {
+    void this.listening?.stop();
+    // XXX: Remove for next protocol bump. An older build's reload left its window open.
+    this.legacy?.close();
+    this.legacy = null;
+    this.unbind();
+  }
+  /** Ends an older updater's window, if one is open, and settles once
+   * Bun's server has the socket, as a reload waits for. */
+  serving(): Promise<void> {
+    this.endOlderWindow?.();
+    return this.swapped;
+  }
+  /** Whether a reply or a closing connection hasn't left yet. */
+  answering(): boolean {
+    return (this.listening?.pendingRequests ?? 0) > 0 || (this.listening?.pendingWebSockets ?? 0) > 0;
+  }
   private startLoop(): void {
-    n.probe_nonblock(this.listener);
-    this.registration = this.loop.watch(this.listener, () => {
-      this.accept();
-      this.registration?.arm(READ);
-    });
-    this.registration.arm(READ);
     this.timer = setInterval(() => {
       if (this.collecting || this.frozen) return;
       const now = performance.now();
@@ -342,31 +478,49 @@ export class Server {
       this.runtime.sessions.some(s => s.urgent())
     );
   }
+  /** Whether a new request starts at once: not while a reload gets ready. */
+  private get accepting(): boolean {
+    return !this.frozen && !this.holding;
+  }
+  private holding = false;
+  /** Holds requests that haven't started while a reload gets ready, so the
+   * new daemon gets them; a reload that doesn't happen lets them go. */
+  hold(): void {
+    this.holding = true;
+    for (const c of this.clients) c.pause();
+  }
+  /** Lets held requests go, when a reload stopped before it paused. */
+  release(): void {
+    this.holding = false;
+    if (!this.frozen) for (const c of this.clients) c.resume();
+  }
+  /** Holds every request, for a handoff: connections stay open and queue them. */
   pause(): void {
     this.frozen = true;
     clearInterval(this.timer);
-    this.registration?.close();
-    this.registration = undefined;
     for (const c of this.clients) c.pause();
-    // Queue cancellation before handoff captures output; paused clients keep later input queued.
+    // Queue cancellation before handoff captures output.
     for (const cancel of this.modelReads.values()) cancel();
     for (const p of this.runtime.panes) p.terminal.pause();
     for (const s of this.runtime.sessions) s.pause();
   }
   resume(): void {
     this.frozen = false;
+    this.holding = false;
     for (const c of this.clients) c.resume();
     for (const p of this.runtime.panes) p.terminal.resume();
     for (const s of this.runtime.sessions) s.resume();
     this.startLoop();
   }
-  addClient(fd: number, start = true): Client {
-    const client = new Client(
-      fd,
-      this.loop,
+  /** A client on `transport`, or with `respond` for one HTTP request; neither
+   * for one with no connection. */
+  addClient(transport: Transport | null, start = true, respond: ((value: unknown) => void) | null = null): Client {
+    const client: Client = new Client(
+      transport,
       cl => {
         // A hook sender may close as soon as it has written, as `corgi hook`
-        // does; the event it sent still applies. Other requests die with their client.
+        // does; the event it sent still applies. Other requests die with their
+        // client; a numbered one comes again over the link once it's resumed.
         this.enqueue(async () => {
           if (cl.dead && cl.pending[0]?.op !== "hook") return;
           const v = cl.take();
@@ -374,7 +528,9 @@ export class Server {
           let reply = new Reply(cl);
           try {
             reply = new Reply(cl, protocol.requestId(v));
-            deferred = (await this.request(cl, v, reply)) === "deferred";
+            const seq = numbered(v, "seq");
+            if (seq !== null && cl.link) await this.once(cl, cl.link, seq, v, reply);
+            else deferred = (await this.request(cl, v, reply)) === "deferred";
           } catch (error) {
             const err = error instanceof Error ? error.message : String(error);
             // An invalid id is echoed as sent, so its client can still match the error.
@@ -388,6 +544,9 @@ export class Server {
         });
       },
       () => {
+        this.closing?.(client);
+        if (this.handed_off) return;
+        if (client.viewer) viewer.data(this, client)?.close();
         this.modelReads.get(client)?.();
         if (client.headless_start) {
           const session = this.runtime.sessions.find(s => s.id === client.headless_start!.id);
@@ -398,23 +557,17 @@ export class Server {
           }
           client.headless_start = null;
         }
+        this.detachLink(client);
         this.clients = this.clients.filter(c => !c.dead);
         this.dirty = true;
         void viewer.resize(this);
       },
       start,
       cl => this.wakeViewer(cl),
+      respond,
     );
     this.clients.push(client);
     return client;
-  }
-  private accept(): void {
-    for (;;) {
-      const fd = n.probe_accept(this.listener);
-      if (fd < 0) break;
-      if (this.clients.length >= 32) n.probe_close(fd);
-      else this.addClient(fd);
-    }
   }
   private collectStartups(): void {
     startup.collect(this.runtime, this.clients);
@@ -520,6 +673,7 @@ export class Server {
     this.flushBell(now);
     const launcher_started = telemetry.begin();
     launch.sample(this);
+    this.expireLinks(now);
     for (const c of this.clients) launch.publish(this, c);
     telemetry.end("daemon.launcher", launcher_started);
     if (this.savedDurable !== this.runtime.durable) {
@@ -533,7 +687,84 @@ export class Server {
         this.durableAt = 0;
       }
     }
-    this.publish();
+    // Streams pace their own frames, so they hear every tick.
+    if (!this.publish()) this.wakeViewers();
+  }
+  /** Runs numbered request `seq` once. Sent again, it gets the reply it had. */
+  private async once(
+    cl: Client,
+    carried: link.Link,
+    seq: bigint,
+    v: unknown,
+    reply = new Reply(cl, protocol.requestId(v)),
+  ): Promise<void> {
+    const answered = numbered(v, "answered");
+    if (answered !== null) carried.confirm(answered);
+    const pending = carried.pending.get(seq);
+    if (pending) {
+      void pending.then(value => reply.send(value));
+      return;
+    }
+    const admitted = carried.admit(seq);
+    if (!admitted.run) return reply.send(admitted.reply as object);
+    let finish!: (value: object) => void;
+    const result = new Promise<object>(resolve => {
+      finish = resolve;
+    });
+    carried.pending.set(seq, result);
+    let sent = false;
+    const recorded = new Reply(cl, reply.id, value => {
+      if (sent) return;
+      sent = true;
+      carried.record(seq, value);
+      carried.pending.delete(seq);
+      finish(value);
+      reply.send(value);
+    });
+    try {
+      const op = protocol.parse(v);
+      if (op === null || !protocol.once(op)) throw Error("UnnumberedOperation");
+      await this.request(cl, v, recorded);
+    } catch (error) {
+      recorded.send({ err: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  /** Keeps a closed connection's link, with the viewer it carried, for a
+   * client to resume. */
+  private detachLink(cl: Client): void {
+    const carried = cl.link;
+    if (!carried) return;
+    cl.link = null;
+    if (cl.viewer) carried.viewer = link.viewerOf(cl);
+    carried.detached_at = Date.now();
+  }
+  /** Gives `cl` the link `id`, taking it from a connection that still holds
+   * it, which a client resuming has given up on. */
+  private resumeLink(cl: Client, id: string): boolean {
+    const carried = this.links.get(id);
+    if (!carried) throw Error("NoLink");
+    if (cl.link || cl.viewer) throw Error("AlreadyAttached");
+    for (const other of this.clients)
+      if (other !== cl && other.link === carried) {
+        this.detachLink(other);
+        other.close();
+      }
+    cl.link = carried;
+    carried.detached_at = null;
+    const viewer = carried.viewer;
+    carried.viewer = null;
+    if (!viewer) return false;
+    cl.viewer = true;
+    cl.protocol_version = protocol.version;
+    Object.assign(cl, viewer);
+    return true;
+  }
+  /** Drops links no client came back for. */
+  private expireLinks(now: number): void {
+    const detached = [...this.links.values()].filter(l => l.detached_at !== null);
+    detached.sort((a, b) => a.detached_at! - b.detached_at!);
+    for (const [i, l] of detached.entries())
+      if (now - l.detached_at! > link.grace_ms || detached.length - i > link.detached_limit) this.links.delete(l.id);
   }
   async request(
     cl: Client,
@@ -554,21 +785,41 @@ export class Server {
     const request = protocol.decoded(op, v);
     if (!["onboarding.copy", "onboarding.handoff"].includes(op)) importer.admit(this, op);
     switch (request.op) {
-      case "hello":
+      case "hello": {
+        const encoding = protocol.encodings.find(encoding => request.payload.accept_encoding.includes(encoding));
+        if (encoding && !cl.canCompress) throw Error("InvalidEncodingNegotiation");
+        const compress = encoding && v.runtime_protocol === protocol.version;
         cl.protocol_version = v.runtime_protocol === protocol.version ? protocol.version : null;
         reply.send({
           type: "hello",
           protocol: protocol.version,
           capabilities: protocol.capabilities,
+          transports: protocol.transports,
           server_pid: process.pid,
           build_id: this.build_id,
           executable: this.executable,
           release_version: updates.release(this.executable).version,
           update_abi: updates.abi,
+          viewer_protocol: protocol.viewer_version,
+          instance: this.instance,
+          ...(compress ? { content_encoding: encoding } : {}),
         });
+        if (compress) cl.compress();
         return;
+      }
       case "ping":
         reply.send({ ok: true, pid: process.pid });
+        return;
+      case "link.open": {
+        if (cl.link) throw Error("AlreadyAttached");
+        const opened = new link.Link();
+        this.links.set(opened.id, opened);
+        cl.link = opened;
+        reply.ok({ link: opened.id });
+        return;
+      }
+      case "link.resume":
+        reply.ok({ link: request.payload.link, viewer: this.resumeLink(cl, request.payload.link) });
         return;
       case "shutdown":
         reply.send({ ok: true });
@@ -650,6 +901,20 @@ export class Server {
         return;
       case "viewer.surfaces":
         viewer.surfaces(this, cl, reply);
+        return;
+      case "viewer.stream": {
+        reply.send(await viewer.start(this, cl, request.payload));
+        return;
+      }
+      case "viewer.data":
+        reply.ok({ viewer: viewer.bindData(this, cl, request.payload.link) });
+        return;
+      case "viewer.stream.configure":
+        await viewer.configure(this, cl, request.payload);
+        reply.ok({ viewer_protocol: protocol.viewer_version });
+        return;
+      case "viewer.receipt":
+        reply.ok({ stream: viewer.receipt(this, cl, request.payload) });
         return;
       case "viewer.search":
         await viewer.search(this, cl, request.payload, reply);
@@ -771,7 +1036,13 @@ export class Server {
         return;
       case "server.reload": {
         if (!isAbsolute(request.payload.executable ?? "")) throw Error("InvalidExecutable");
-        const busy = [...this.deferred.values()].find(d => d.busy)?.busy;
+        // A start's reply waits for the provider's session; its connection can't move.
+        const starting = this.clients
+          .map(c => c.headless_start && this.runtime.sessions.find(s => s.id === c.headless_start!.id))
+          .find(s => !!s);
+        const busy =
+          [...this.deferred.values()].find(d => d.busy)?.busy ??
+          (starting ? ({ op: "headless.start", provider: starting.provider } as const) : undefined);
         if (busy) {
           reply.send({ err: "ReloadBusy", busy });
           return;
@@ -1013,7 +1284,7 @@ export class Server {
   private async uninstalled(root: string): Promise<void> {
     if (this.stopped || this.uninstalling) return;
     this.uninstalling = true;
-    for (const c of this.clients) if (c.watching && !c.dead) c.queue({ type: "uninstalled" });
+    for (const c of this.clients) if ((c.watching || c.stream) && !c.dead) c.queue({ type: "uninstalled" });
     updates.forget(root);
     // Long enough for viewers to hear it before their connections close.
     await Bun.sleep(300);
@@ -1024,7 +1295,17 @@ export class Server {
     this.stopped = true;
     clearInterval(this.timer);
     this.pluginWatch?.close();
-    this.registration?.close();
+    // Nothing new connects, and the path goes so pollers see it gone; replies
+    // already on their way, such as the one to `shutdown`, still leave.
+    void this.listening?.stop();
+    this.legacy?.close();
+    this.legacy = null;
+    // One bound for an older updater's window never takes the socket now.
+    this.unbind();
+    this.endOlderWindow?.();
+    this.socketPath?.release();
+    if (this.start_lock >= 0) start_lock.release(this.start_lock);
+    this.start_lock = -1;
     try {
       await recovery.save(this.runtime, this.socket);
     } catch (error) {
@@ -1033,12 +1314,62 @@ export class Server {
     await launch.stop(this);
     observers.stop(this);
     importer.stop(this);
-    for (const cl of [...this.clients]) cl.close();
-    if (this.listener >= 0) n.probe_close(this.listener);
-    this.listener = -1;
+    // A request still waiting hears why it won't be answered.
+    for (const cl of [...this.clients])
+      if (cl.http) cl.queue({ err: "ServerShutdown" });
+      else cl.close();
+    const until = performance.now() + 1000;
+    while (this.answering() && performance.now() < until) await Bun.sleep(5);
+    void this.listening?.stop(true);
     this.runtime.destroy();
     this.loop.close();
     closeReadiness();
     this.socketPath?.release();
   }
+}
+/** XXX: Remove for next protocol bump. Settles once the release the install
+ * `exe` belongs to names current changes, as an older updater changes it to
+ * this one after it checks in, however long that takes: until then, the older
+ * build the install runs can still find this one. */
+async function updated(exe: string, stopped: () => boolean): Promise<void> {
+  const current = updates.currentOf(exe),
+    named = current?.(),
+    version = updates.release(exe).version;
+  while (current && named !== version && !stopped() && current() === named) await Bun.sleep(100);
+}
+/** Lets hooks that gave up on Corgi try again, and says in server.log if
+ * they had been skipping it. hooks.backoff holds `STRIKES UNTIL_US`. */
+function resumeHooks(socket: string): void {
+  const backoff = join(dirname(socket), "hooks.backoff");
+  let skipped = false;
+  try {
+    skipped = Number(readFileSync(backoff, "utf8").split(/\s+/)[1]) > 0;
+  } catch {
+    return;
+  }
+  rmSync(backoff, { force: true });
+  if (!skipped) return;
+  let last = "";
+  try {
+    last =
+      readFileSync(join(dirname(socket), "hooks.log"), "utf8")
+        .trimEnd()
+        .split("\n")
+        .at(-1) ?? "";
+  } catch {}
+  console.error(`warning(hooks): hooks skipped Corgi for a while; last: ${last}`);
+}
+/** XXX: Remove for next protocol bump. A listener on `socket` for an older updater. */
+function bindOlder(socket: string): number {
+  const bound = join(dirname(socket), `.o${process.pid}`);
+  rmSync(bound, { force: true });
+  const fd = bindSocket(bound);
+  renameSync(bound, socket);
+  return fd;
+}
+/** A request's number in `field`, when its client numbered it. */
+function numbered(value: unknown, field: "seq" | "answered"): bigint | null {
+  const n = value && typeof value === "object" ? (value as Record<string, unknown>)[field] : undefined;
+  if (typeof n === "bigint") return n > 0n ? n : null;
+  return typeof n === "number" && Number.isSafeInteger(n) && n > 0 ? BigInt(n) : null;
 }

@@ -116,6 +116,10 @@ export async function test(path: string): Promise<void> {
   const conn = new Connection(path);
   try {
     await runTest(conn, process.cwd());
+  } catch (error) {
+    // Tests read why a viewer gave up, where the name alone says too little.
+    if (error instanceof Error && error.cause !== undefined) process.stderr.write(`cause: ${String(error.cause)}\n`);
+    throw error;
   } finally {
     conn.close();
   }

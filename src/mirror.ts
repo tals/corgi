@@ -2,6 +2,7 @@
 //! surfaces. These terminals are framebuffers: no child process or PTY is
 //! created here. Mirrors mirror.zig.
 import * as startup from "./startup";
+import type * as rpc_http from "./rpc_http";
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import * as viewerNative from "./viewer_native";
 import { Model, max_workspaces } from "./layout";
@@ -33,8 +34,11 @@ import {
 } from "./worktrees";
 
 export interface Transport {
-  socket?: string;
+  /** The daemon over HTTP, for a request that may outlast this connection. */
+  daemon?: rpc_http.Client;
   onEvent?(listener: (event: protocol.Event) => void): () => void;
+  /** Called when the viewer is back after a reload, with none of its subscriptions. */
+  onResume?(listener: () => void): () => void;
   /** Whether the daemon sends this viewer `viewer.wake`. */
   watches?(): boolean;
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;

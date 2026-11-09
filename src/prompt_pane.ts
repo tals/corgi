@@ -17,6 +17,7 @@ import * as launcherResume from "./launcher_resume";
 import * as os from "./os";
 import * as preferences from "./preferences";
 import * as rpc from "./rpc";
+import * as rpc_http from "./rpc_http";
 import type * as protocol from "./protocol";
 import { Provider } from "./providers";
 import { Memory } from "./prompt_memory";
@@ -212,6 +213,8 @@ export async function run(argv: string[]): Promise<void> {
     return;
   }
   const socket = process.env.CORGI_SOCKET || os.socketPath(),
+    // Starts go over HTTP: one may outlast the connection.
+    http = new rpc_http.Client(socket),
     pane = Number(process.env.CORGI_PANE) || null,
     handed = readHandoff(args.handoff);
   let conn = new rpc.Connection(socket);
@@ -220,7 +223,7 @@ export async function run(argv: string[]): Promise<void> {
       return await conn.call(op as protocol.Op, payload as never);
     } catch (error) {
       // A daemon that reloaded hangs up: the next call dials again.
-      if (["ConnectionClosed", "EPIPE", "ECONNRESET"].includes(errors.name(error) ?? "")) {
+      if (["ConnectionClosed", "ServerReloading", "EPIPE", "ECONNRESET"].includes(errors.name(error) ?? "")) {
         conn.close();
         conn = new rpc.Connection(socket);
       }
@@ -230,7 +233,7 @@ export async function run(argv: string[]): Promise<void> {
   const daemon: Daemon = {
     call,
     start: async payload => {
-      const reply: any = await rpc.request(socket, "headless.start", payload as never),
+      const reply: any = await http.call("headless.start", payload as never),
         provider = Provider.parse(reply.provider);
       if (!provider || typeof reply.session !== "string") throw Error("InvalidReply");
       return { provider, session: reply.session };

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import {
   deadline,
   EXE,
-  JsonSocket,
+  lines,
   Pty,
   ROOT,
   TestCase,
@@ -18,6 +18,7 @@ import {
   writeExecutable,
 } from "./support";
 import { FAKE, PALETTE, Runtime } from "./runtime";
+import * as websocket_socket from "../src/websocket_socket";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
 
 const file = (path: string) => readFileSync(path, "utf8");
@@ -481,10 +482,10 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     this.assertEqual((await this.panes())[0].attention, "none");
   }
   async test_slow_and_malformed_clients_do_not_block_runtime() {
-    const bad = await JsonSocket.connect(this.path);
-    bad.socket.write("{incomplete");
+    const bad = new websocket_socket.Socket(this.path);
+    bad.write("{incomplete");
     this.assertTrue((await this.rpc({ op: "ping" })).ok);
-    bad.close();
+    bad.destroy();
     const pane = (
       await this.open_pane({
         cwd: this.temp.name,
@@ -496,10 +497,11 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     await this.until(async () =>
       (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("OUT"),
     );
-    const malformed = await JsonSocket.connect(this.path);
-    malformed.socket.write("[]\n");
-    this.assertIn("UnknownOperation", JSON.stringify(await malformed.read()));
-    malformed.close();
+    const malformed = new websocket_socket.Socket(this.path),
+      replies = lines(malformed);
+    malformed.write("[]\n");
+    this.assertIn("UnknownOperation", await replies.next());
+    malformed.destroy();
     this.assertTrue((await this.rpc({ op: "ping" })).ok);
   }
   async test_hook_binary_silent_and_configuration_valid() {

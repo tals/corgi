@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { join } from "node:path";
 import { Connection } from "../src/rpc";
-import type * as protocol from "../src/protocol";
+import * as protocol from "../src/protocol";
 import { Runtime } from "./runtime";
-import { EXE, JsonSocket, deadline, registerCase, run, versioned, writeExecutable } from "./support";
+import { EXE, deadline, lines, registerCase, run, versioned, writeExecutable } from "./support";
+import * as viewer_connection from "../src/viewer_connection";
+import * as websocket_socket from "../src/websocket_socket";
 
 class Rpc extends Runtime {
   private gate!: string;
@@ -54,62 +55,67 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
     rmSync(join(this.gate, "armed"), { force: true });
     writeFileSync(join(this.gate, "release"), fail ? "fail" : "ok");
   }
+  async test_a_reload_closes_subscriptions_and_a_viewer_resumes_its_link() {
+    const viewer = new viewer_connection.Connection(this.path),
+      subscriber = new Connection(this.path);
+    try {
+      await viewer.request("viewer.open", { cwd: this.temp.name });
+      await subscriber.call("session.subscribe", { output: false });
+      const before: any = await viewer.request("viewer.sync", { interests: [] });
+      await this.rpc({ op: "server.reload", executable: EXE });
+      await this.until(() => subscriber.disconnected);
+      this.assertEqual(subscriber.failure?.message, "ServerReloading");
+      const after: any = await viewer.request("viewer.sync", { interests: [] });
+      this.assertEqual(after.viewer, before.viewer);
+      this.assertEqual((await this.rpc({ op: "viewer.list" })).viewers.length, 1);
+    } finally {
+      viewer.close();
+      subscriber.close();
+    }
+  }
   async test_bugreport_keeps_diagnostics_from_an_older_daemon() {
-    const path = join(this.temp.name, "legacy.sock");
-    const server = createServer(socket => {
-      let buffer = "";
-      socket.setEncoding("utf8");
-      socket.on("data", chunk => {
-        buffer += chunk;
-        if (!buffer.includes("\n")) return;
-        const query = JSON.parse(buffer.trim());
-        // Protocol 3 ignores request ids and replies without them.
+    const path = join(this.temp.name, "older.sock");
+    // An older daemon answers HTTP in its own runtime protocol.
+    const server = Bun.serve({
+      unix: path,
+      async fetch(request) {
+        const query = await request.json();
         switch (query.op) {
           case "hello":
-            socket.end(JSON.stringify({ type: "hello", protocol: 3, server_pid: 7 }) + "\n");
-            break;
+            return Response.json({ type: "hello", protocol: protocol.version - 1, server_pid: 7 });
           case "bugreport":
-            socket.end(
-              JSON.stringify({
-                ok: true,
-                uptime_ms: 192 * 60000,
-                viewers: [{ id: 2, terminal: { name: "Legacy Terminal", cols: 100, rows: 30 } }],
-              }) + "\n",
-            );
-            break;
+            return Response.json({
+              ok: true,
+              uptime_ms: 192 * 60000,
+              viewers: [{ id: 2, terminal: { name: "Older Terminal", cols: 100, rows: 30 } }],
+            });
           default:
-            socket.end('{"err":"UnsupportedProtocol"}\n');
+            return Response.json({ err: "UnsupportedProtocol" }, { status: 400 });
         }
-      });
+      },
     });
-    await new Promise<void>(resolve => server.listen(path, resolve));
     try {
       const result = await run([EXE, "bugreport", "--full"], {
         env: { ...this.env, CORGI_SOCKET: path },
         cwd: this.temp.name,
       });
       this.assertIn("pid 7, up 3h 12m", result.stdout);
-      this.assertIn("Legacy Terminal", result.stdout);
+      this.assertIn("Older Terminal", result.stdout);
       this.assertIn("from viewer 2", result.stdout);
     } finally {
-      await new Promise<void>(resolve => server.close(() => resolve()));
+      await server.stop(true);
     }
   }
   async test_unversioned_cli_controls_accept_older_daemon_replies() {
-    const path = join(this.temp.name, "legacy.sock"),
+    const path = join(this.temp.name, "older.sock"),
       requests: object[] = [];
-    const server = createServer(socket => {
-      let buffer = "";
-      socket.setEncoding("utf8");
-      socket.on("data", chunk => {
-        buffer += chunk;
-        if (!buffer.includes("\n")) return;
-        requests.push(JSON.parse(buffer.trim()));
-        // Older daemons ignore request ids and reply without them.
-        socket.end('{"ok":true}\n');
-      });
+    const server = Bun.serve({
+      unix: path,
+      async fetch(request) {
+        requests.push(await request.json());
+        return Response.json({ ok: true });
+      },
     });
-    await new Promise<void>(resolve => server.listen(path, resolve));
     try {
       for (const args of [
         ["focus", "3", "--viewer", "9"],
@@ -126,7 +132,7 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
         { op: "workspace.switch", workspace: 2 },
       ]);
     } finally {
-      await new Promise<void>(resolve => server.close(() => resolve()));
+      await server.stop(true);
     }
   }
   async test_shared_rpc_keeps_branch_replies_errors_and_viewer_sync_separate() {
@@ -186,8 +192,8 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
       conn.close();
     }
   }
-  async test_reload_drops_pending_git_then_preserves_correlated_and_pipelined_replies() {
-    const conn = new Connection(this.path);
+  async test_reload_cancels_pending_git_and_closes_requests_held_behind_it() {
+    let conn = new Connection(this.path);
     try {
       const before = await conn.call("ping");
       this.arm("branches");
@@ -196,40 +202,50 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
       this.assertTrue((await conn.call("server.reload", { executable: EXE })).ok);
       this.assertEqual(await branches, { err: "Reloading" });
       this.release();
-      const [reloaded, ping] = await Promise.all([conn.call("server.reload", { executable: EXE }), conn.call("ping")]);
-      this.assertTrue(reloaded.ok);
-      this.assertNotEqual(ping.pid, before.pid);
-      this.assertEqual((await conn.call("ping")).pid, ping.pid);
+      await this.until(() => conn.disconnected);
+      conn = new Connection(this.path);
+      const [reloaded, ping] = await Promise.allSettled([
+        conn.call("server.reload", { executable: EXE }),
+        conn.call("ping"),
+      ]);
+      if (reloaded.status !== "fulfilled") throw reloaded.reason;
+      this.assertNotEqual(reloaded.value.server_pid, before.pid);
+      // The ping waited behind the reload and closed with the old daemon.
+      this.assertEqual(ping.status === "rejected" && ping.reason.message, "ServerReloading");
+      conn = new Connection(this.path);
+      this.assertEqual((await conn.call("ping")).pid, reloaded.value.server_pid);
     } finally {
       this.release();
       conn.close();
     }
   }
   async test_failed_reload_releases_an_untagged_branch_request() {
-    const socket = await JsonSocket.connect(this.path);
+    const socket = new websocket_socket.Socket(this.path),
+      replies = lines(socket);
     try {
       this.arm("branches");
-      socket.send(versioned({ op: "git.branches", workspace: 1 }));
-      socket.send({ op: "ping" });
+      socket.write(JSON.stringify(versioned({ op: "git.branches", workspace: 1 })) + "\n");
+      socket.write('{"op":"ping"}\n');
       await this.until(() => existsSync(join(this.gate, "started")));
       const reloaded = await this.raw_rpc({
         op: "server.reload",
         executable: join(this.temp.name, "missing-corgi"),
       });
       this.assertEqual(reloaded.err, "ReloadCandidateFailed");
-      this.assertEqual(await socket.read(), { err: "Reloading" });
-      this.assertTrue((await socket.read(1000)).ok);
+      this.assertEqual(JSON.parse(await replies.next()), { err: "Reloading" });
+      this.assertTrue(JSON.parse(await replies.next(1000)).ok);
     } finally {
       this.release();
-      socket.close();
+      socket.destroy();
     }
   }
   async test_requests_without_ids_reply_in_order() {
-    const socket = await JsonSocket.connect(this.path);
+    const socket = new websocket_socket.Socket(this.path),
+      replies = lines(socket);
     try {
       this.arm("branches");
-      socket.send(versioned({ op: "git.branches", workspace: 1 }));
-      socket.send({ op: "ping" });
+      socket.write(JSON.stringify(versioned({ op: "git.branches", workspace: 1 })) + "\n");
+      socket.write('{"op":"ping"}\n');
       await this.until(() => existsSync(join(this.gate, "started")));
       const other = new Connection(this.path);
       try {
@@ -238,13 +254,13 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
         other.close();
       }
       this.release();
-      const branches = await socket.read(8000);
+      const branches = JSON.parse(await replies.next(8000));
       this.assertFalse("request_id" in branches);
       this.assertTrue(branches.branches.some((branch: { name: string }) => branch.name === "main"));
-      this.assertTrue((await socket.read()).ok);
+      this.assertTrue(JSON.parse(await replies.next()).ok);
     } finally {
       this.release();
-      socket.close();
+      socket.destroy();
     }
   }
   async test_followed_history_replies_before_its_events() {

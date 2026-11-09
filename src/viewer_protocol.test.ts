@@ -14,16 +14,22 @@ import {
   copy,
   action,
   viewers,
+  publish,
+  remember,
   open,
   sync,
   surfaces,
   image,
+  start,
+  receipt,
 } from "./viewer_protocol";
 import { Pane, Ghost } from "./runtime";
 import { Terminal } from "./pane/terminal";
+import * as viewer_stream from "./viewer_stream";
 import { Snapshot, Work, Process } from "./trackers/resources";
 import { Workspace } from "./workspace";
 import { version, compatible, require as requireVersion } from "./viewer_version";
+import * as client_socket from "./fixtures/client_socket";
 const servers: Server[] = [];
 afterEach(() => {
   for (const server of servers) {
@@ -37,8 +43,8 @@ function fixture() {
   servers.push(server);
   return server;
 }
-function peer(server: Server, id = 1) {
-  const client = server.addClient(-1, false);
+function peer(server: Server, id = 1, socket: client_socket.Recorder | null = null) {
+  const client = server.addClient(socket, socket !== null);
   client.viewer = true;
   client.viewer_id = id;
   client.view_workspace = 1;
@@ -47,6 +53,110 @@ function peer(server: Server, id = 1) {
   client.interests = [{ pane: 1, cols: 80, rows: 24 }];
   return client;
 }
+
+function scheduledViewer() {
+  const server = fixture(),
+    socket = new client_socket.Recorder(),
+    client = peer(server, 1, socket);
+  let now = 100,
+    next = 0;
+  const timers = new Map<number, { at: number; run: () => void }>();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, ms: number) => {
+    const id = ++next;
+    timers.set(id, { at: now + ms, run });
+    return id;
+  }) as typeof setTimeout);
+  const cancel = spyOn(globalThis, "clearTimeout").mockImplementation(id => {
+    timers.delete(Number(id));
+  });
+  const output: any[] = [];
+  const queue = spyOn(client, "queue").mockImplementation(value => {
+    output.push(value);
+  });
+  client.stream = { sequence: 1, sent: now, wake: 0n, session_hash: null, resources_hash: null };
+  return {
+    server,
+    client,
+    socket,
+    timers,
+    output,
+    advance(to: number) {
+      now = to;
+      for (const [id, task] of timers)
+        if (task.at <= now) {
+          timers.delete(id);
+          task.run();
+        }
+    },
+    close() {
+      client.close();
+      queue.mockRestore();
+      timer.mockRestore();
+      cancel.mockRestore();
+      clock.mockRestore();
+    },
+  };
+}
+
+test("a throttled stream sends its latest frame at the deadline without a maintenance tick", () => {
+  const f = scheduledViewer();
+  try {
+    f.advance(110);
+    publish(f.server, f.client, 1n);
+    f.advance(115);
+    publish(f.server, f.client, 2n);
+    expect(f.timers.size).toBe(1);
+    expect([...f.timers.values()][0].at).toBe(116);
+    expect(f.output).toHaveLength(0);
+    f.advance(116);
+    expect(f.output).toHaveLength(1);
+    expect(f.client.stream?.wake).toBe(2n);
+    expect(f.timers.size).toBe(0);
+    publish(f.server, f.client, 2n);
+    expect(f.timers.size).toBe(0);
+  } finally {
+    f.close();
+  }
+});
+
+test("a blocked stream retains one latest frame and resumes when output drains", () => {
+  const f = scheduledViewer();
+  try {
+    f.socket.buffered = 13;
+    publish(f.server, f.client, 1n);
+    f.advance(150);
+    publish(f.server, f.client, 2n);
+    expect(f.timers.size).toBe(0);
+    expect(f.output).toHaveLength(0);
+    f.socket.buffered = 0;
+    f.client.flushed();
+    expect(f.timers.size).toBe(1);
+    f.advance(150);
+    expect(f.output).toHaveLength(1);
+    expect(f.client.stream?.wake).toBe(2n);
+  } finally {
+    f.close();
+  }
+});
+
+test("stream reconfiguration and client pause cancel deferred frames", () => {
+  const f = scheduledViewer();
+  try {
+    publish(f.server, f.client, 1n);
+    expect(f.timers.size).toBe(1);
+    remember(f.client, { session_hash: 0n, resources_hash: 0n, surfaces: [] } as any, 1n);
+    expect(f.timers.size).toBe(0);
+    publish(f.server, f.client, 2n);
+    expect(f.timers.size).toBe(1);
+    f.client.pause();
+    f.advance(200);
+    expect(f.output).toHaveLength(0);
+    expect(f.timers.size).toBe(0);
+  } finally {
+    f.close();
+  }
+});
 test("a viewer reads the view the daemon writes", () => {
   const written: WireView<{ revision: number }> = {
     type: "view",
@@ -78,6 +188,22 @@ test("viewer wire version checked on every exchange", () => {
   expect(compatible({ viewer_protocol: version })).toBe(true);
   for (const value of [null, version, {}, { viewer_protocol: String(version) }, { viewer_protocol: version - 1 }])
     expect(() => requireVersion(value)).toThrow("IncompatibleViewerProtocol");
+});
+test("incremental streams are opt-in and missing handoff state asks for a fresh base", async () => {
+  const server = fixture(),
+    client = peer(server);
+  const request = protocol.decode("viewer.stream", { sequence: 1, interests: [] });
+  const legacy = await start(server, client, request);
+  expect(legacy.frame).toBeUndefined();
+  expect(legacy.view.patches).toBeUndefined();
+  expect(client.stream?.delivery).toBeUndefined();
+  const next = await start(server, client, { ...request, incremental: true, sequence: 2 });
+  expect(next.frame).toBe(1n);
+  expect(next.view.patches).toEqual([]);
+  expect(receipt(server, client, { sequence: 1, frame: 99n, active: false })).toBe(false);
+  expect(receipt(server, client, { sequence: 2, frame: 1n, active: false })).toBe(true);
+  client.stream = null;
+  expect(receipt(server, client, { sequence: 2, frame: 1n, active: false })).toBe(false);
 });
 test("interest bounds and repeated pane validation match daemon", () => {
   expect(() => validateInterests([{ pane: 1, cols: 500, rows: 200 }])).not.toThrow();
@@ -253,6 +379,9 @@ test("surface modes follow the live terminal while a restored ghost supplies its
   view = (sent.mock.calls.at(-1)![0] as WireView).surfaces[0];
   expect(view.modes.bracketed_paste).toBe(true);
   expect(view.surface.lines.join("")).toContain("RESTORED");
+  client.interests[0].known = view.stamp;
+  surfaces(s, client);
+  expect(sent.mock.calls.at(-1)![0]).toEqual({ ok: true, surfaces: [] });
 });
 test("the data connection reads its viewer's surfaces and receipts without becoming a viewer", async () => {
   const s = fixture(),
@@ -263,7 +392,7 @@ test("the data connection reads its viewer's surfaces and receipts without becom
   s.runtime.panes.push(pane);
   pane.terminal.feed("pane output");
   const control = peer(s),
-    data = s.addClient(-1, false),
+    data = s.addClient(null, false),
     metadata = spyOn(control, "queue").mockImplementation(() => {}),
     content = spyOn(data, "queue").mockImplementation(() => {});
   expect(() => surfaces(s, data)).toThrow("NotAttached");
@@ -298,7 +427,7 @@ test("a fresh daemon's starter gives way to onboarding, and waits for any other 
       servers.push(s);
       await s.runtime.workspaces.add("", "/");
       await before(s);
-      const client = s.addClient(-1, false),
+      const client = s.addClient(null, false),
         reply = spyOn(client, "queue").mockImplementation(() => {});
       spyOn(s, "execute").mockImplementation(async () => ({}) as any);
       await open(s, client, protocol.decode("viewer.open", fields));
@@ -352,8 +481,27 @@ test("a new viewer opens on the pane last used in the preferred workspace", asyn
   expect(ws.focus).toBe(second);
   await use(idle, first);
   expect(ws.focus).toBe(second);
-  const next = s.addClient(-1, false),
+  const next = s.addClient(null, false),
     reply = spyOn(next, "queue").mockImplementation(() => {});
   await open(s, next, protocol.decode("viewer.open", {}));
   expect(reply.mock.calls[0][0]).toMatchObject({ workspace: 1, focus: second });
+});
+test("a stream forgets the screens of panes its viewer stopped watching", async () => {
+  const s = fixture(),
+    ws = new Workspace(1, "/tmp");
+  s.runtime.workspaces.items.push(ws);
+  const panes = [ws.model.newTab("one"), ws.model.newTab("two")];
+  for (const id of panes) s.runtime.panes.push(new Pane(id, new Terminal(80, 24), "/tmp"));
+  const client = peer(s),
+    interests = panes.map(pane => ({ pane, cols: 80, rows: 24 }));
+  spyOn(client, "queue").mockImplementation(() => {});
+  await start(
+    s,
+    client,
+    protocol.decode("viewer.stream", { sequence: 1, incremental: true, workspace: 1, focus: panes[0], interests }),
+  );
+  const retained = () => [...(Reflect.get(client.stream!.delivery!, "retained") as Map<number, unknown>).keys()];
+  expect(retained()).toEqual(panes);
+  await sync(s, client, protocol.decode("viewer.sync", { workspace: 1, focus: panes[0], interests: [interests[0]] }));
+  expect(retained()).toEqual([panes[0]]);
 });

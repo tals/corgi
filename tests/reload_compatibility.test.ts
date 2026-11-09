@@ -8,24 +8,32 @@ class ReloadCompatibility extends Runtime {
     await run([process.env.CORGI_OLD_EXE!, "start"], { env: this.env });
   }
   async upgrade(command: "dev" | "reload") {
-    const oldProtocol = (await this.rpc({ op: "hello", protocol: 1 })).protocol;
+    const discovered = await this.http.discover();
+    if ("err" in discovered) throw Error(discovered.err);
+    const oldProtocol = discovered.protocol;
     this.assertGreaterEqual(oldProtocol, 1);
     this.assertLessEqual(oldProtocol, protocol.version);
-    const old = await this.rpc({ op: "session.snapshot", protocol: oldProtocol });
+    // An older daemon answers HTTP in its own protocol, but no WebSocket.
+    const older = (value: object): Promise<any> => this.http.post({ protocol: oldProtocol, ...value });
+    const old = await older({ op: "session.snapshot" });
     const pane = (
-      await this.rpc({
+      await older({
         op: "session.command",
-        protocol: oldProtocol,
         command: { "pane.create": { workspace: old.workspaces[0].id, command: "exec /bin/sh" } },
       })
     ).result.pane;
-    const before = await this.rpc({ op: "session.snapshot", protocol: oldProtocol });
+    const before = await older({ op: "session.snapshot" });
     if (command === "dev") {
       this.pty = await Pty.spawn([EXE, "dev"], { env: this.env, cols: 80, rows: 24 });
       this.proc = this.pty.proc;
-      await this.until(async () => (await this.rpc({ op: "viewer.list" })).viewers.length > 0);
+      // The older daemon drops a request that arrives during its handoff.
+      await this.until(async () => {
+        const reply = await this.http.request("viewer.list").catch(() => null);
+        return !!reply && "viewers" in reply && reply.viewers.length > 0;
+      });
     } else await this.run_cli("reload");
     this.assertEqual((await this.rpc({ op: "hello", protocol: 1 })).protocol, protocol.version);
+    this.assertEqual((await this.http.call("hello")).transports, protocol.transports);
     const after = await this.session();
     this.assertNotEqual(after.server_pid, before.server_pid);
     this.assertEqual(after.panes.find((p: any) => p.id === pane).pid, before.panes.find((p: any) => p.id === pane).pid);

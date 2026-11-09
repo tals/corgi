@@ -1,18 +1,8 @@
 /** Real viewer launch controls and read-only agent previews. */
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  registerCase,
-  writeExecutable,
-  shellJoin,
-  quote,
-  sleep,
-  run,
-  EXE,
-  ROOT,
-  JsonSocket,
-  versioned,
-} from "./support";
+import { registerCase, writeExecutable, shellJoin, quote, sleep, run, EXE, ROOT, Events, versioned } from "./support";
+import * as rpc from "../src/rpc";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { byProvider } from "../src/providers";
@@ -866,13 +856,17 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     this.assertNotIn("New agent", (await view.poll()).data);
     this.assertFalse(existsSync(this.launches));
   }
-  async test_subscription_pushes_updates_and_survives_idle_reload() {
-    const client = await JsonSocket.connect(this.path);
+  async test_subscription_pushes_updates_and_resubscribes_after_reload() {
+    let connection = new rpc.Connection(this.path, { timeout_ms: 12000 }),
+      events = new Events(connection);
+    const subscribe = async (cwd: string) => {
+      let preview: any = await connection.rawRequest(versioned({ op: "agent.subscribe", workspace: this.ws, cwd }));
+      this.assertEqual(preview.type, "agent.preview");
+      while (preview.preview.pending) preview = await events.next(12000);
+      return preview;
+    };
     try {
-      client.send(versioned({ op: "agent.subscribe", workspace: this.ws, cwd: this.launchDir }));
-      let initial = await client.read(12000);
-      this.assertEqual(initial.type, "agent.preview");
-      while (initial.preview.pending) initial = await client.read(12000);
+      const initial = await subscribe(this.launchDir);
       this.assertEqual(initial.cwd, this.launchDir);
       this.assertEqual(initial.preview.options.claude.model, "opus");
       await sleep(5.2);
@@ -880,24 +874,19 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       mkdirSync(join(this.launchDir, ".claude"));
       writeFileSync(settings, JSON.stringify({ model: "sonnet" }));
       await this.rpc({ op: "server.reload", executable: EXE });
-      let update = await client.read(12000);
-      while (update.preview.pending) {
-        this.assertEqual(
-          update.preview.options.claude.model,
-          update.preview.options.claude.pending ? "opus" : "sonnet",
-        );
-        update = await client.read(12000);
-      }
-      this.assertEqual(update.preview.options.claude.model, "sonnet");
+      // A reload closes the subscription; the client subscribes again to the new daemon.
+      await this.until(() => connection.disconnected);
+      this.assertEqual(connection.failure?.message, "ServerReloading");
+      connection = new rpc.Connection(this.path, { timeout_ms: 12000 });
+      events = new Events(connection);
+      this.assertEqual((await subscribe(this.launchDir)).preview.options.claude.model, "sonnet");
       const other = join(this.temp.name, "other");
       mkdirSync(other);
-      client.send(versioned({ op: "agent.subscribe", workspace: this.ws, cwd: other }));
-      update = await client.read(12000);
-      while (update.preview.pending) update = await client.read(12000);
-      this.assertEqual(update.cwd, other);
-      this.assertEqual(update.preview.options.claude.model, "opus");
+      const moved = await subscribe(other);
+      this.assertEqual(moved.cwd, other);
+      this.assertEqual(moved.preview.options.claude.model, "opus");
     } finally {
-      client.close();
+      connection.close();
     }
   }
   async test_pending_accounts_show_discovery_and_publish_independently() {
@@ -915,17 +904,19 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       return { provider: "claude", dir, name, managed: false };
     });
     writeFileSync(join(this.env.XDG_STATE_HOME!, "corgi", "accounts.json"), JSON.stringify({ accounts: saved }));
-    const client = await JsonSocket.connect(this.path);
+    const client = new rpc.Connection(this.path, { timeout_ms: 12000 }),
+      events = new Events(client);
     try {
-      client.send(versioned({ op: "agent.subscribe", workspace: this.ws, cwd: this.launchDir }));
-      let message = await client.read(12000);
+      let message: any = await client.rawRequest(
+        versioned({ op: "agent.subscribe", workspace: this.ws, cwd: this.launchDir }),
+      );
       this.assertEqual(
         message.preview.accounts.map((a: any) => a.name),
         ["slow", "fast"],
       );
       this.assertTrue(message.preview.accounts.every((a: any) => a.option.pending));
       while (message.preview.accounts.find((a: any) => a.name === "fast").option.pending)
-        message = await client.read(12000);
+        message = await events.next(12000);
       this.assertTrue(message.preview.pending);
       this.assertTrue(message.preview.accounts.find((a: any) => a.name === "slow").option.pending);
       this.assertEqual(message.preview.accounts.find((a: any) => a.name === "fast").option.account, "fast@example.com");
@@ -1305,41 +1296,6 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     this.assertEqual(recovered.usage_error, "");
     this.assertEqual(this.metadataRequests().filter(r => r.kind === "start").length, 2);
   }
-  async test_claude_enterprise_monthly_spend_survives_reload() {
-    writeFileSync(
-      join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"),
-      JSON.stringify({
-        subscriptionType: "enterprise",
-        rate_limits: {
-          five_hour: null,
-          seven_day: null,
-          extra_usage: {
-            is_enabled: true,
-            used_credits: 59,
-            monthly_limit: 1000000,
-            currency: "USD",
-            decimal_places: 2,
-          },
-        },
-      }),
-    );
-    const first = await this.directoryPreview("enterprise");
-    this.assertEqual(first.plan, "Enterprise");
-    this.assertEqual(first.limits, { metered: {} });
-    this.assertEqual(first.spend.used_minor, 59);
-    this.assertEqual(first.spend.limit_minor, 1000000);
-    const reset = new Date(first.spend.reset_at * 1000);
-    this.assertEqual([reset.getUTCDate(), reset.getUTCHours(), reset.getUTCMinutes()], [1, 0, 0]);
-    await this.rpc({ op: "server.reload", executable: EXE });
-    const restored = await this.directoryPreview("enterprise-reloaded");
-    this.assertEqual(restored.spend, first.spend);
-    this.assertEqual(this.metadataRequests().filter(r => r.kind === "get_usage").length, 1);
-    const view = await Viewer.create(this, 150, 30);
-    await this.openLauncher(view);
-    await this.until(async () =>
-      screen_text((await view.poll()).data, 150, 30).some(row => /mo\s+─+\s+<1%.*\$0\.59 \/ \$10k/.test(row)),
-    );
-  }
   async test_codex_monthly_credit_limit_shows_as_spend() {
     const reset = Math.floor(Date.now() / 1000) + 10 * 86400;
     writeFileSync(
@@ -1672,6 +1628,50 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
 }
 
 registerCase("agent launcher", Launcher, { timeout: 120_000 });
+
+/** Signed in to Claude Enterprise from the start: the daemon reads the
+ * account as it starts, and keeps that read for a minute. */
+class EnterpriseLauncher extends Launcher {
+  async configure() {
+    await super.configure();
+    writeFileSync(
+      join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"),
+      JSON.stringify({
+        subscriptionType: "enterprise",
+        rate_limits: {
+          five_hour: null,
+          seven_day: null,
+          extra_usage: {
+            is_enabled: true,
+            used_credits: 59,
+            monthly_limit: 1000000,
+            currency: "USD",
+            decimal_places: 2,
+          },
+        },
+      }),
+    );
+  }
+  async test_claude_enterprise_monthly_spend_survives_reload() {
+    const first = await this.directoryPreview("enterprise");
+    this.assertEqual(first.plan, "Enterprise");
+    this.assertEqual(first.limits, { metered: {} });
+    this.assertEqual(first.spend.used_minor, 59);
+    this.assertEqual(first.spend.limit_minor, 1000000);
+    const reset = new Date(first.spend.reset_at * 1000);
+    this.assertEqual([reset.getUTCDate(), reset.getUTCHours(), reset.getUTCMinutes()], [1, 0, 0]);
+    await this.rpc({ op: "server.reload", executable: EXE });
+    const restored = await this.directoryPreview("enterprise-reloaded");
+    this.assertEqual(restored.spend, first.spend);
+    this.assertEqual(this.metadataRequests().filter(r => r.kind === "get_usage").length, 1);
+    const view = await Viewer.create(this, 150, 30);
+    await this.openLauncher(view);
+    await this.until(async () =>
+      screen_text((await view.poll()).data, 150, 30).some(row => /mo\s+─+\s+<1%.*\$0\.59 \/ \$10k/.test(row)),
+    );
+  }
+}
+registerCase("claude enterprise launcher", EnterpriseLauncher, { inherited: false, timeout: 120_000 });
 
 /** Omarchy's agents: mise shims for tools mise installs the first time each runs. */
 class LazyShims extends Launcher {

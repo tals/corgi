@@ -11,7 +11,8 @@ import {
 import { join } from "node:path";
 import { Viewers } from "./viewers";
 import { PALETTE, screen_text, layout_tree } from "./runtime";
-import { EXE, JsonSocket, quote, registerCase, shellJoin, sleep, versioned, writeExecutable } from "./support";
+import { EXE, quote, registerCase, shellJoin, sleep, versioned, writeExecutable } from "./support";
+import * as rpc from "../src/rpc";
 
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
 
@@ -1222,9 +1223,10 @@ process.stdin.resume();
   async test_delivered_controls_remain_pending_until_acknowledged() {
     const first = await this.new(),
       second = await this.new();
-    const client = await JsonSocket.connect(this.path);
+    const client = new rpc.Connection(this.path);
     try {
-      const call = (request: { op: string; [field: string]: unknown }) => client.request(versioned(request));
+      const call = (request: { op: string; [field: string]: unknown }): Promise<any> =>
+        client.rawRequest(versioned(request));
       await call({ op: "viewer.open", cwd: this.temp.name });
       await call({
         op: "viewer.sync",
