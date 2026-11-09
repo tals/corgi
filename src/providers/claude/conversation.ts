@@ -1,13 +1,18 @@
 //! What Claude Code's hooks tell beyond its lifecycle: the background shells
-//! and subagents a Stop lists, subagents and teammates it launches, and the
-//! pause while a Monitor or a wakeup can wake it.
+//! and subagents a Stop lists, subagents it launches, and the pause while a
+//! Monitor or a wakeup can wake it.
+//!
+//! Claude Code also runs agents as "teammates", which a message can start
+//! again after they idle. Corgi follows them as subagents like any other: the
+//! bookkeeping their different hooks need stays in this file.
 import path from "node:path";
 import { field, str, Text } from "../common";
 import { Children, Inventory, Shells, capacity } from "../../activity/background_tasks";
 import type { Actor, Registry } from "../../conversations";
 import { running } from "./process";
 import { subagentTranscript } from "./index";
-/** A Stop's background task that still runs, as a shell, a subagent or a teammate. */
+/** A Stop's background task that still runs, as a shell, a subagent, or a
+ * subagent Claude runs as a teammate. */
 function task(item: any) {
   if (["completed", "failed", "killed"].includes(str(item, "status"))) return null;
   const t = str(item, "type");
@@ -61,8 +66,12 @@ export function shells(value: any, monitors: ReadonlySet<string>) {
 export function wakeup(crons: any) {
   return Array.isArray(crons) && crons.some(c => field(c, "recurring") === false);
 }
-/** Adds what Claude's tool results tell to a decoded hook: the teammate the
- * Agent tool spawned, and the task a Monitor started. */
+/** The agent ids the Agent tool spawned as teammates whose launch no parent
+ * has adopted yet. */
+const spawned = new Set<string>();
+/** Adds what Claude's tool results tell to a decoded hook: a teammate the
+ * Agent tool spawned, as the subagent it launched, and the task a Monitor
+ * started. */
 export function decoded<
   T extends { kind: string; tool: string; subagent: string; subagent_type: string; wake_task: string },
 >(hook: T | null, v: unknown): T | null {
@@ -71,7 +80,11 @@ export function decoded<
   if (str(response, "status") === "teammate_spawned") {
     hook.subagent = str(response, "agentId");
     hook.subagent_type = str(response, "name");
-    Object.assign(hook, { teammate: true });
+    if (hook.subagent && Buffer.byteLength(hook.subagent) <= 96) {
+      // A launch no parent took makes room for the newest one.
+      if (spawned.size === capacity) spawned.delete(spawned.values().next().value!);
+      spawned.add(hook.subagent);
+    }
   }
   if (hook.tool === "Monitor") hook.wake_task = str(response, "taskId");
   return hook;
@@ -106,7 +119,7 @@ export function hooked(actor: Actor, event: any, now: number) {
     monitors.delete(actor);
   }
 }
-/** Takes a subagent or teammate the parent launched or listed as its child. */
+/** Takes a subagent the parent launched or listed as its child. */
 function adopt(
   registry: Registry,
   parent: Actor,
@@ -155,6 +168,7 @@ function follow(registry: Registry, parent: Actor, found: Children, teammates: n
  * and a pause while a Monitor or a wakeup can wake it. */
 export function applied(registry: Registry, actor: Actor, event: any, seq: bigint, now: number) {
   if (event.subagent && Buffer.byteLength(event.subagent) <= 96) {
+    const teammate = spawned.delete(event.subagent);
     const known = registry.find(actor.provider(), event.subagent);
     if (
       known?.state.state !== "working" &&
@@ -166,7 +180,7 @@ export function applied(registry: Registry, actor: Actor, event: any, seq: bigin
           description: new Text(event.description),
           agent_type: new Text(event.subagent_type),
         },
-        event.teammate === true,
+        teammate,
         now,
       )
     ) {
@@ -191,7 +205,7 @@ export function applied(registry: Registry, actor: Actor, event: any, seq: bigin
 export function child(registry: Registry, parent: Actor, event: any, now: number) {
   const known = registry.find(parent.provider(), event.subagent);
   if (event.kind === "subagent_stop") {
-    // A teammate idles until a message starts it again.
+    // A subagent idles until a message starts it again, as Claude's teammates do.
     if (known?.parent === parent.id && known.state.state !== "idle") {
       known.state.state = "idle";
       known.observed_at = now;
