@@ -5858,6 +5858,24 @@ test("a terminal launched while its worktree is added opens in the workspace it 
   }
 });
 
+test("pastes waiting for a pane's input leave only the last, by every way a paste comes", async () => {
+  const { s } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    const pending = () => Buffer.from(s.pane(1).terminal.pending).toString();
+    await s.input(bytes("\x1b[200~one\x1b[201~x\x1b[200~two\x1b[201~"));
+    expect(pending()).toBe("xtwo");
+    s.clipboard = "three";
+    await s.perform({ name: "paste" });
+    expect(pending()).toBe("xthree");
+    s.pasteText({ pane: 1 }, "four");
+    expect(pending()).toBe("xfour");
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("a delayed command refreshes its owning machine after the viewer switches", async () => {
   const pending = Promise.withResolvers<unknown>();
   let reads = 0;

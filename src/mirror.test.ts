@@ -547,3 +547,31 @@ test("a pointer move still waiting gives way to the next; keys, presses and othe
     pane.destroy();
   }
 });
+
+test("only the last paste waits: a newer one replaces it, keys around it stay, and one on its way stays sent", () => {
+  const pane = new mirror.Terminal(
+    transport(async () => ({})),
+    1,
+    32,
+    3,
+  );
+  const text = () => Buffer.from(pane.pending).toString();
+  const paste = (value: string) => {
+    pane.pasteStart();
+    pane.send(value);
+    pane.pasteEnd();
+  };
+  try {
+    pane.send("a");
+    paste("one");
+    pane.send("b");
+    paste("two");
+    expect(text()).toBe("abtwo");
+    // Sent, a paste is no longer waiting, and the next one leaves it be.
+    pane.pending = [];
+    paste("three");
+    expect(text()).toBe("three");
+  } finally {
+    pane.destroy();
+  }
+});

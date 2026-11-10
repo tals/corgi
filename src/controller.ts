@@ -3577,9 +3577,11 @@ export class Controller {
           const p = this.openingFocus() ? null : this.focused();
           if (p) {
             const bracketed = p.terminal.bracketedPaste();
+            p.terminal.pasteStart();
             if (bracketed) this.sendInput(p.terminal, "\x1b[200~");
             this.sendInput(p.terminal, this.clipboard);
             if (bracketed) this.sendInput(p.terminal, "\x1b[201~");
+            p.terminal.pasteEnd();
           }
         }
         break;
@@ -6630,7 +6632,9 @@ export class Controller {
     if (typeof target === "object") {
       const p = this.pane(target.pane);
       if (!p) return this.notice(i18n.t`The pane closed before the paste arrived`);
+      p.terminal.pasteStart();
       this.sendInput(p.terminal, viewerNative.encodePaste(text, p.terminal.bracketedPaste()));
+      p.terminal.pasteEnd();
     } else if (target === "prompt") {
       this.prompt.paste(viewerNative.encodePaste(text, true, 1).toString());
     } else {
@@ -7034,9 +7038,13 @@ export class Controller {
         }
         // The markers reach only an application that asked for them.
         const p = this.pastePane();
+        if (parsed_key === "paste_start") p?.terminal.pasteStart();
         if (cl.paste === "signin") await this.signin?.input(text);
         else if (p && p.terminal.bracketedPaste()) this.sendInput(p.terminal, seq);
-        if (parsed_key === "paste_end") cl.paste = null;
+        if (parsed_key === "paste_end") {
+          p?.terminal.pasteEnd();
+          cl.paste = null;
+        }
       } else if (cl.paste !== null) {
         const p = this.pastePane();
         if (cl.paste === "signin") await this.signin?.input(text);

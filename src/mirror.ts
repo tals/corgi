@@ -97,6 +97,9 @@ export class Terminal {
   /** The pointer move that ends `pending`, while it does: where it starts,
    * its button code, and the buffer and length it was left at. */
   private motion: { at: number; code: number; buffer: number[]; end: number } | null = null;
+  /** The last paste put in `pending`: where it starts, and once it's whole,
+   * where it ends; while it waits there, a newer paste replaces it. */
+  private paste: { buffer: number[]; at: number; end: number | null } | null = null;
   /** Keys sent and not yet answered. */
   private sending = 0;
   private links: Link[] | null = null;
@@ -265,6 +268,21 @@ export class Terminal {
     if (this.pending.length + data.length > 1024 * 1024) throw Error("InputBackpressure");
     this.motion = null;
     for (const byte of data) this.pending.push(byte);
+  }
+  /** Starts a paste. One still waiting whole gives way to it: only the last
+   * paste goes once the pane's input can move again, while what was typed
+   * around it stays. A paste already on its way isn't taken back. */
+  pasteStart(): void {
+    const last = this.paste;
+    if (last && last.buffer === this.pending && last.end !== null && last.end <= this.pending.length) {
+      this.pending.splice(last.at, last.end - last.at);
+      this.motion = null;
+    }
+    this.paste = { buffer: this.pending, at: this.pending.length, end: null };
+  }
+  /** Ends the paste `pasteStart` began. */
+  pasteEnd(): void {
+    if (this.paste?.buffer === this.pending && this.paste.end === null) this.paste.end = this.pending.length;
   }
   /** A pointer move with button code `code`. A program wants where the
    * pointer is, not each cell it crossed while its input waited: a move
