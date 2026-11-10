@@ -101,7 +101,14 @@ export async function manage(args: string[]): Promise<void> {
         bridge: info.bridge,
       };
       await check(refreshed, true);
-      await machines.edit(profiles => profiles.map(p => (p.name === old.name ? refreshed : p)));
+      await machines.edit(profiles =>
+        profiles.map(p => {
+          if (p.name !== old.name) return p;
+          // Removed and added again for another host meanwhile, it isn't the one checked.
+          if (p.target !== old.target || p.socket !== old.socket) throw Error("MachineChanged");
+          return refreshed;
+        }),
+      );
       process.stdout.write(json.stringify({ ok: true, machine: args[1] }) + "\n");
       return;
     }
