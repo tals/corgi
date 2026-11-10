@@ -7219,13 +7219,17 @@ export class Controller {
         used += len;
       }
     } catch (error) {
-      // What failed ends its batch: the rest is dropped rather than read
-      // again with the next input, and a paste it was in is closed.
-      if (cl === this.input_state) {
-        this.pastePane()?.terminal.pasteAbort();
-        cl.paste = null;
-        cl.keybuf = [];
-      }
+      if (cl !== this.input_state) throw error;
+      // What failed ends its batch rather than being read again with the
+      // next input. In a paste, the rest of the paste is dropped up to its
+      // end, here or in input still to come, and never read as typing;
+      // what follows its end is read as usual.
+      const pasting = cl.paste !== null,
+        end = pasting ? indexOfBytes(cl.keybuf, keys.paste_end, used) : -1;
+      this.pastePane()?.terminal.pasteAbort();
+      cl.paste = pasting && end < 0 ? "discard" : null;
+      cl.keybuf = end < 0 ? [] : cl.keybuf.slice(end + keys.paste_end.length);
+      if (cl.keybuf.length) await this.input(new Uint8Array(0), current);
       throw error;
     }
     if (cl !== this.input_state || machine !== this.machine || !current()) return;
@@ -10043,6 +10047,10 @@ function removalReason(err: string | null): string {
 }
 const preview_changed = i18n.t`The commits to push changed. Review them and push again.`;
 /** Input held for a task, at most; the same bound pane input has. */
+/** Where `marker`, an ASCII sequence, first appears in `bytes` from `from`, or -1. */
+function indexOfBytes(bytes: number[], marker: string, from: number): number {
+  return Buffer.from(bytes).indexOf(marker, from, "latin1");
+}
 /** Shows `row`'s YOLO as `enabled` in `launch`. */
 function showYolo(launch: LauncherMenu, row: LauncherRow, enabled: boolean): void {
   const id = Row.profile(row);

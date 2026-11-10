@@ -595,23 +595,63 @@ test("a pane takes one paste at a time: another is refused while it arrives, wai
   }
 });
 
-test("a paste that lost its end is closed by the next from the terminal, and frees the pane once sent", async () => {
+test("a paste that lost its end is closed by the next from the terminal, which then goes", async () => {
   const pane = new mirror.Terminal(
     transport(async () => ({ ok: true })),
     1,
     32,
     3,
   );
+  const text = () => Buffer.from(pane.pending).toString();
   try {
     expect(pane.pasteStart()).toBe(true);
     pane.send("par");
-    // Its end never comes. Other pastes wait; the terminal's next closes it.
+    // Its end never comes. Other pastes wait; the terminal's next closes it,
+    // and since none of it had gone, it goes not at all.
     expect(pane.pasteStart()).toBe(false);
+    expect(pane.pasteStart(true)).toBe(true);
+    pane.send("next");
+    pane.pasteEnd();
+    expect(text()).toBe("next");
+    // Once part of it has gone, what's left of it still waits to go first.
+    pane.pending = [];
+    expect(pane.pasteStart()).toBe(true);
+    pane.send("a");
+    const sent = pane.flush();
+    pane.send("b");
     expect(pane.pasteStart(true)).toBe(false);
-    expect(pane.pasting()).toBe(true);
+    await sent;
     await pane.flush();
     expect(pane.pasteStart(true)).toBe(true);
     pane.pasteEnd();
+  } finally {
+    pane.destroy();
+  }
+});
+
+test("a paste cut short goes not at all unless part of it has already gone", async () => {
+  const pane = new mirror.Terminal(
+    transport(async () => ({ ok: true })),
+    1,
+    32,
+    3,
+  );
+  const text = () => Buffer.from(pane.pending).toString();
+  try {
+    pane.send("x");
+    pane.pasteStart();
+    pane.send("abc");
+    pane.pasteAbort();
+    expect(text()).toBe("x");
+    expect(pane.pasting()).toBe(false);
+    pane.pending = [];
+    pane.pasteStart();
+    pane.send("ab");
+    await pane.flush();
+    pane.send("c");
+    pane.pasteAbort();
+    // Its start has gone; what's left of it follows.
+    expect(text()).toBe("c");
   } finally {
     pane.destroy();
   }

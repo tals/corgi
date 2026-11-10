@@ -104,6 +104,8 @@ export class Terminal {
   private paste_in: number[] | null = null;
   private paste_at = 0;
   private paste_sending = 0;
+  /** Part of the open paste has already gone. */
+  private paste_split = false;
   /** Keys sent and not yet answered. */
   private sending = 0;
   private links: Link[] | null = null;
@@ -288,6 +290,7 @@ export class Terminal {
     this.paste_open = true;
     this.paste_in = this.pending;
     this.paste_at = this.pending.length;
+    this.paste_split = false;
     return true;
   }
   /** Ends the paste `pasteStart` began. */
@@ -297,14 +300,15 @@ export class Terminal {
     // An empty paste, or one already sent whole, leaves nothing waiting.
     if (this.paste_in !== this.pending || this.pending.length === this.paste_at) this.paste_in = null;
   }
-  /** Ends a paste cut short. A program that asked for bracketed pastes is
-   * sent the end marker, so it isn't left in the middle of one. */
+  /** Ends a paste cut short. One that hasn't begun to go goes not at all;
+   * once part of it has, a program that asked for bracketed pastes is sent
+   * the end marker, so it isn't left in the middle of one. */
   pasteAbort(): void {
     if (!this.paste_open) return;
-    if (this.bracketedPaste()) {
-      this.motion = null;
-      for (const byte of Buffer.from("\x1b[201~")) this.pending.push(byte);
-    }
+    this.motion = null;
+    if (this.paste_split) {
+      if (this.bracketedPaste()) for (const byte of Buffer.from("\x1b[201~")) this.pending.push(byte);
+    } else if (this.paste_in === this.pending) this.pending.length = this.paste_at;
     this.pasteEnd();
   }
   /** Counts a paste sent apart from `pending`, as `pane.paste` is, as on
@@ -343,6 +347,7 @@ export class Terminal {
       // The rest of a paste still arriving waits in the next buffer.
       this.paste_in = this.paste_open ? this.pending : null;
       this.paste_at = 0;
+      this.paste_split ||= this.paste_open;
     }
     this.sending += keys;
     try {

@@ -5957,29 +5957,35 @@ test("a paste cut off by an input reset, or failing part-way, never leaves its p
     s.input_state.attached = true;
     s.focusPane(1);
     const terminal = s.pane(1).terminal,
-      sent = async () => {
-        const flushed = terminal.flush();
-        await answer();
-        await flushed;
-      };
-    // Its end never comes: the viewer gave up the input it was in.
-    await s.input(bytes("\x1b[200~par"));
+      text = () => Buffer.from(terminal.pending).toString();
+    // Its end never comes: the viewer gave up the input it was in, and the
+    // paste, none of which had gone, goes not at all.
+    await s.input(bytes("x\x1b[200~par"));
     s.cancelInput();
-    await sent();
+    expect(text()).toBe("x");
     expect(terminal.pasting()).toBe(false);
+    terminal.pending = [];
     // Too big to fit, a paste goes whole or not at all, and ends either way.
     s.clipboard = "x".repeat(1024 * 1024 + 1);
     await expect(s.perform({ name: "paste" })).rejects.toThrow("InputBackpressure");
     expect(terminal.pending).toEqual([]);
     expect(terminal.pasting()).toBe(false);
-    // Failing in the middle of a batch, the batch ends and isn't read again.
-    terminal.pending = new Array(1024 * 1024 - 2).fill(97);
+    // Failing part-way, the rest of the paste is dropped up to its end, and
+    // what follows is read as usual.
+    const full = new Array(1024 * 1024 - 2).fill(97);
+    terminal.pending = [...full];
     await expect(s.input(bytes("\x1b[200~four\x1b[201~ls"))).rejects.toThrow("InputBackpressure");
-    expect(s.input_state.keybuf).toEqual([]);
+    expect(text().slice(full.length)).toBe("ls");
     expect(s.input_state.paste).toBeNull();
+    // When its end comes in later input, what comes before it is never typed.
+    terminal.pending = [...full, 97];
+    await expect(s.input(bytes("\x1b[200~fo"))).rejects.toThrow("InputBackpressure");
     terminal.pending = [];
-    await s.input(bytes("\x1b[200~five\x1b[201~"));
-    expect(Buffer.from(terminal.pending).toString()).toBe("five");
+    await s.input(bytes("ur\nrm -rf x\x1b[201~ls"));
+    expect(text()).toBe("ls");
+    await answer();
+    s.pasteText({ pane: 1 }, "five");
+    expect(text()).toBe("lsfive");
   } finally {
     viewer.close(s);
   }
