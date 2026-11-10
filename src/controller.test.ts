@@ -3433,6 +3433,95 @@ test("a double-click on an agent row renames it in place, with the dialog's outc
   }
 });
 
+test("a double-click anywhere along the row's name line renames, not only on the name", async () => {
+  const { s, sent, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await press(at.x + at.width - 1, at.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    expect(sent).toEqual([probe(2)]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a double-click along a workspace row's name line renames it; the message line below does not", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ workspace: 1 });
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await press(at.x, at.message_y);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    await press(at.x + at.width - 1, at.y);
+    expect(s.inline_rename?.target).toEqual({ workspace: 1 });
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a double-click on a workspace row's Git columns, past the link bound, does not rename", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ workspace: 1 });
+  const entries = s.workspaceEntries();
+  const columns = sidebar.linkRange(s.sidebarView(s.sidebarEntries()), entries[0], entries).start;
+  try {
+    setSystemTime(new Date(1000));
+    await press(columns, at.y);
+    await press(columns, at.y);
+    expect(s.inline_rename).toBeNull();
+    // The name line left of them still renames after them.
+    await press(at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ workspace: 1 });
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a press on the sidebar's border between name-line presses starts the double-click over", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const border = s.sidebarView(s.sidebarEntries()).width - 1;
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await press(border, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a press on the name line right of the open field keeps the field, and its edits", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await press(at.x + at.width, at.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    await s.input(bytes("X"));
+    // The columns past the field, still on its name line, are the field's too.
+    await press(at.x + at.width, at.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    expect(s.inline_rename?.field.raw()).toBe("agent 2X");
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
 test("a character bound to an action types into the rename field", async () => {
   const { s, sent, twice } = renaming();
   const bound = spyOn(s.prefs, "bindings").mockReturnValue([
@@ -3450,25 +3539,40 @@ test("a character bound to an action types into the rename field", async () => {
   }
 });
 
-test("moving the free pointer off the cell or turning the wheel between presses opens no field", async () => {
+test("unheld motion along the name line keeps the double-click", async () => {
   const { s, sent, rect, press } = renaming();
   const at = rect({ agent: 2 });
   const report = (button: number, x: number, y: number) => s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M`));
   try {
     setSystemTime(new Date(1000));
     await press(at.x, at.y);
+    // Unheld motion along the name line keeps the double-click.
     await report(35, at.x + 1, at.y);
-    await report(35, at.x, at.y);
-    await press(at.x, at.y);
-    expect(s.inline_rename).toBeNull();
-    await report(65, at.x, at.y);
-    await press(at.x, at.y);
-    expect(s.inline_rename).toBeNull();
-    // Unheld motion within the cell keeps it.
     await report(35, at.x, at.y);
     await press(at.x, at.y);
     expect(s.inline_rename?.target).toEqual({ agent: 2 });
     expect(sent).toEqual([probe(2)]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("unheld motion off the name line ends the double-click", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const report = (button: number, x: number, y: number) => s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M`));
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await report(35, at.x, at.y + 1);
+    await report(35, at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    // The wheel starts it over as well.
+    await report(65, at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -4136,7 +4240,7 @@ test("a drag keeps one pick out and copies the answer for where it ended", async
   }
 });
 
-test("only a double-click on the name renames, not one elsewhere on the row", async () => {
+test("a double-click on the name line renames, not one on the row's other lines", async () => {
   const snapshot = pair();
   snapshot.panes[2].agent.observation = { completed: 2, read: 0 };
   const { s, sent, rect, press } = renaming(undefined, snapshot);
@@ -4151,17 +4255,18 @@ test("only a double-click on the name renames, not one elsewhere on the row", as
     const badge = view.unreadRange(ws).start,
       name = rect({ workspace: 2 });
     expect(view.unreadHit(ws, badge, name.y + 1)).toBe(true);
+    // The unread mark on the message line jumps instead of renaming.
     await twice(badge, name.y + 1);
-    await twice(name.x + displayWidth(ws.name), name.y);
     expect([s.current().id, s.inline_rename]).toEqual([2, null]);
-    await twice(name.x + displayWidth(ws.name) - 1, name.y);
+    // Anywhere along the name line renames, past the name's text too.
+    await twice(name.x + displayWidth(ws.name), name.y);
     expect(s.inline_rename?.target).toEqual({ workspace: 2 });
     await s.input(bytes("\x1b[27u"));
     const agent = rect({ agent: 3 });
+    // The agent row's second line only selects.
     await twice(agent.x, agent.y + 1);
-    await twice(agent.x + displayWidth("agent 3"), agent.y);
     expect([s.focused().id, s.inline_rename, sent]).toEqual([3, null, []]);
-    await twice(agent.x + displayWidth("agent 3") - 1, agent.y);
+    await twice(agent.x + displayWidth("agent 3"), agent.y);
     expect(s.inline_rename?.target).toEqual({ agent: 3 });
   } finally {
     setSystemTime();
@@ -4789,8 +4894,9 @@ test("a drag between two presses is no double-click, and still reorders", async 
     await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<0;${moved.x + 1};${moved.y + 1}m`));
     expect(s.inline_rename?.target).toEqual({ agent: 1 });
     await s.key(27);
-    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<32;${moved.x + 2};${moved.y + 1}M`));
-    await s.input(bytes(`\x1b[<0;${moved.x + 2};${moved.y + 1}m`));
+    // Held motion off the name line ends the double-click.
+    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<32;${moved.x + 1};${moved.y + 2}M`));
+    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 2}m`));
     await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<0;${moved.x + 1};${moved.y + 1}m`));
     expect(s.inline_rename).toBeNull();
   } finally {

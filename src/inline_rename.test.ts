@@ -14,85 +14,80 @@ test("same target: kind and id", () => {
 
 test("a second press on the same row within the window is a double-click", () => {
   const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(true);
-  expect(h.press({ agent: 1 }, 2000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 2000 + double_click_ms - 1, 3, 4)).toBe(true);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(true);
+  expect(h.press({ agent: 1 }, 2000, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 2000 + double_click_ms - 1, 4)).toBe(true);
 });
 
 test("a press at the window's edge starts over", () => {
   const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1000 + double_click_ms, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1000 + double_click_ms, 4)).toBe(false);
 });
 
 test("a press on another row is no double-click", () => {
   const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 2 }, 1001, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  expect(h.press({ agent: 2 }, 1001, 4)).toBe(false);
   h.reset();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ workspace: 1 }, 1001, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  expect(h.press({ workspace: 1 }, 1001, 4)).toBe(false);
 });
 
 test("a drag after the press ends the double-click", () => {
   const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
   h.move();
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1001, 4)).toBe(false);
 });
 
-test("the pointer leaving the pressed cell ends the double-click", () => {
+test("the pointer leaving the pressed line ends the double-click", () => {
   const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  h.motion(4, 4);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(false);
-  h.reset();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  h.motion(3, 5);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  h.motion(5);
+  expect(h.press({ agent: 1 }, 1001, 4)).toBe(false);
 });
 
-test("a second press on another cell of the same row starts over", () => {
+test("a second press elsewhere on the same line is a double-click", () => {
   const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1001, 5, 4)).toBe(false);
-  // It counts as the first press of a new double-click there.
-  expect(h.press({ agent: 1 }, 1002, 5, 4)).toBe(true);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1001, 4)).toBe(true);
 });
 
-test("motion within the pressed cell keeps the double-click", () => {
+test("motion along the pressed line keeps the double-click", () => {
   const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  h.motion(3, 4);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(true);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  h.motion(4);
+  h.motion(4);
+  expect(h.press({ agent: 1 }, 1001, 4)).toBe(true);
 });
 
 test("motion before any press is nothing", () => {
   const h = new ClickHistory();
-  h.motion(9, 9);
+  h.motion(9);
   expect(h.moved).toBe(false);
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(true);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1001, 4)).toBe(true);
 });
 
 test("a third press right after a double-click starts a new sequence", () => {
   const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(true);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1001, 4)).toBe(true);
   expect(h.target).toBe(null);
-  expect(h.press({ agent: 1 }, 1002, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1003, 3, 4)).toBe(true);
+  expect(h.press({ agent: 1 }, 1002, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1003, 4)).toBe(true);
 });
 
 test("reset forgets the press", () => {
   const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
   h.move();
   h.reset();
   expect(h.target).toBe(null);
   expect(h.moved).toBe(false);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1001, 4)).toBe(false);
 });
 
 test("an open field keeps the name, with the caret at its end and nothing selected", () => {

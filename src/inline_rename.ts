@@ -13,25 +13,25 @@ export function sameRenameTarget(a: RenameTarget, b: RenameTarget): boolean {
 /** How soon a second press on the same row counts as a double-click. */
 export const double_click_ms = 500;
 
-/** The last left press on a sidebar row, until the next one tells whether it
- * was the second of a double-click. */
+/** The last left press on a sidebar row's name line, until the next one
+ * tells whether it was the second of a double-click. */
 export class ClickHistory {
   target: RenameTarget | null = null;
   at = 0;
-  x = 0;
   y = 0;
-  /** The pointer left the pressed cell, or a drag started, since the press. */
+  /** The pointer left the pressed line, or a drag started, since the press. */
   moved = false;
 
-  /** Records a press; true when it completes a double-click on the first
-   * press's cell, after which the next press starts over. */
-  press(target: RenameTarget, now: number, x: number, y: number): boolean {
+  /** Records a press on `target`'s name line; true when it completes a
+   * double-click on the first press's line, after which the next press
+   * starts over. The presses can land anywhere along the line, so only
+   * its row tells them apart. */
+  press(target: RenameTarget, now: number, y: number): boolean {
     if (
       this.target !== null &&
       sameRenameTarget(this.target, target) &&
       now - this.at < double_click_ms &&
       !this.moved &&
-      x === this.x &&
       y === this.y
     ) {
       this.reset();
@@ -39,15 +39,14 @@ export class ClickHistory {
     }
     this.target = target;
     this.at = now;
-    this.x = x;
     this.y = y;
     this.moved = false;
     return false;
   }
-  /** The pointer, held or not, is at `x`, `y`: another cell than the press ends the double-click. */
-  motion(x: number, y: number): void {
+  /** The pointer, held or not, is on another line: that ends the double-click. */
+  motion(y: number): void {
     if (this.target === null) return;
-    if (x !== this.x || y !== this.y) this.moved = true;
+    if (y !== this.y) this.moved = true;
   }
   /** A drag started. */
   move(): void {
@@ -56,7 +55,6 @@ export class ClickHistory {
   reset(): void {
     this.target = null;
     this.at = 0;
-    this.x = 0;
     this.y = 0;
     this.moved = false;
   }
