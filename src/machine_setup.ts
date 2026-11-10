@@ -7,26 +7,58 @@ import * as buildId from "./build_id";
 import * as updates from "./updates";
 import * as ssh from "./ssh";
 import * as os from "./os";
+import type { FileSink, Subprocess } from "bun";
 
 const quote = os.shellQuote;
-/** How long a setup step may take; copying a build takes as long as the link
- * needs, as SSH's keepalives end one that has gone dead. */
+/** How long a setup step may take. */
 const step_ms = 180_000;
 /** An install waits for an update check and for the daemon to reload. */
 const install_ms = 600_000;
-async function run(command: string[], input?: Blob, limit: number | null = step_ms): Promise<string> {
-  const child = Bun.spawn(command, { stdin: input ?? "ignore", stdout: "pipe", stderr: "inherit" });
-  let timedOut = false;
-  const timer =
-    limit === null
-      ? undefined
-      : setTimeout(() => {
-          timedOut = true;
-          child.kill("SIGKILL");
-        }, limit);
+/** A build copy takes as long as the link needs, but not this long without
+ * moving a byte, as when the other end's disk hangs. */
+const stalled_ms = 120_000;
+/** How long a step may take in all, or, for a copy, without progress. */
+type Limit = { total: number } | { idle: number };
+/** Writes `input` to a command as it takes it, saying so after each piece. */
+async function feed(sink: FileSink, input: Blob, moved: () => void): Promise<void> {
+  for await (const chunk of input.stream()) {
+    sink.write(chunk);
+    await sink.flush();
+    moved();
+  }
+  await sink.end();
+}
+/** Kills `child` past `limit`; progress puts off an idle limit. */
+function deadline(child: Pick<Subprocess, "kill">, limit: Limit) {
+  let timer: ReturnType<typeof setTimeout> | undefined,
+    expired = false;
+  const arm = (ms: number) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      expired = true;
+      child.kill("SIGKILL");
+    }, ms);
+  };
+  arm("idle" in limit ? limit.idle : limit.total);
+  return {
+    moved: () => {
+      if ("idle" in limit) arm(limit.idle);
+    },
+    get expired() {
+      return expired;
+    },
+    clear: () => clearTimeout(timer),
+  };
+}
+export async function run(command: string[], input?: Blob, limit: Limit = { total: step_ms }): Promise<string> {
+  const child = Bun.spawn(command, { stdin: input ? "pipe" : "ignore", stdout: "pipe", stderr: "inherit" });
+  const timer = deadline(child, limit);
+  // A command that stops reading fails on its own; its exit says so.
+  if (input) void feed(child.stdin as FileSink, input, timer.moved).catch(() => {});
   try {
     let output = "";
     for await (const chunk of child.stdout) {
+      timer.moved();
       output += Buffer.from(chunk).toString();
       if (Buffer.byteLength(output) > 128 * 1024) {
         child.kill("SIGKILL");
@@ -34,14 +66,14 @@ async function run(command: string[], input?: Blob, limit: number | null = step_
       }
     }
     const code = await child.exited;
-    if (timedOut) throw Error("MachineSetupTimedOut");
+    if (timer.expired) throw Error("MachineSetupTimedOut");
     if (code) throw Error("MachineSetupCommandFailed");
     return output;
   } finally {
-    clearTimeout(timer);
+    timer.clear();
   }
 }
-function remote(host: string, script: string, input?: Blob, fresh = false, limit: number | null = step_ms) {
+function remote(host: string, script: string, input?: Blob, fresh = false, limit: Limit = { total: step_ms }) {
   return run(["ssh", ...ssh.args(host, true, fresh), ssh.shell(script)], input, limit);
 }
 function lastJSON(output: string): unknown {
@@ -189,17 +221,20 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
           stdout: "pipe",
           stderr: "inherit",
         });
-        const writer = Bun.file(file).writer();
+        const writer = Bun.file(file).writer(),
+          timer = deadline(child, { idle: stalled_ms });
         let size = 0;
         try {
           for await (const chunk of child.stdout) {
+            timer.moved();
             size += chunk.length;
             if (size > 256 * 1024 * 1024) throw Error("ArtifactTooLarge");
             writer.write(chunk);
           }
           await writer.end();
-          if (await child.exited) throw Error("ArtifactDownloadFailed");
+          if (await child.exited) throw Error(timer.expired ? "MachineSetupTimedOut" : "ArtifactDownloadFailed");
         } finally {
+          timer.clear();
           child.kill();
           await writer.end();
         }
@@ -217,7 +252,7 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
             existsSync(join(directory, "manifest.json")) ? join(directory, "manifest.json") : "",
           ],
           undefined,
-          install_ms,
+          { total: install_ms },
         ),
       ) as { executable: string };
       rmSync(directory, { recursive: true, force: true });
@@ -251,7 +286,7 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
         `set -eu; cat > ${quote(staging + "/corgi")}; chmod 700 ${quote(staging + "/corgi")}`,
         Bun.file(file),
         false,
-        null,
+        { idle: stalled_ms },
       );
       const manifest = join(directory, "manifest.json");
       if (existsSync(manifest)) await remote(host, `cat > ${quote(staging + "/manifest.json")}`, Bun.file(manifest));
@@ -264,7 +299,7 @@ if command -v sha256sum >/dev/null; then actual=$(sha256sum ${quote(staging + "/
 ${installed?.socket ? "CORGI_SOCKET=" + quote(installed.socket) + " " : ""}${ssh.command(staging + "/corgi", ["__machine-install", executable, expected, existsSync(manifest) ? staging + "/manifest.json" : ""])}`,
           undefined,
           false,
-          install_ms,
+          { total: install_ms },
         ),
       ) as { executable: string };
       executable = result.executable;
