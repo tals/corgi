@@ -475,6 +475,34 @@ test("cached identity does not describe the first connection as a reconnect", as
   }
 });
 
+test("an SSH machine that failed counts down to its retry, its details a click away", async () => {
+  const endpoint = new Endpoint(
+    "work",
+    true,
+    ["work"],
+    machine_path.local("/tmp/corgi-status-remote/control.sock"),
+    new Probe(),
+    new Host(),
+  );
+  try {
+    endpoint.status = "offline";
+    endpoint.error = "ConnectionClosed";
+    Reflect.set(endpoint, "next", 8000);
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "retry in", seconds: 3, color: "hot", diagnostic: true });
+    endpoint.status = "connecting";
+    expect(endpoint.headerStatus(5000)).toMatchObject({ label: "connecting", diagnostic: true });
+    // Access it can't fix by retrying says so.
+    endpoint.status = "attention";
+    Reflect.set(endpoint, "issue", "auth");
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "! auth", seconds: null, color: "hot", diagnostic: true });
+    endpoint.status = "online";
+    endpoint.error = "";
+    expect(endpoint.headerStatus(5000)).toBeNull();
+  } finally {
+    await endpoint.close();
+  }
+});
+
 const recoveryProfile = {
   name: "test-recovery",
   target: "unused",

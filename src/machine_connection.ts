@@ -367,11 +367,14 @@ export class Endpoint {
     this.error = "";
   }
   headerStatus(now = performance.now()): WorkspaceEntry["connection_status"] {
-    if (this.error && this.remote)
-      return { label: this.issue === "auth" ? "! auth" : "! error", seconds: null, color: "hot", diagnostic: true };
+    const status = this.connectionStatus(now);
+    // An SSH machine's failure opens its details from the header, whatever comes next.
+    return status && this.remote && this.error ? { ...status, diagnostic: true } : status;
+  }
+  private connectionStatus(now: number): WorkspaceEntry["connection_status"] {
     switch (this.status) {
       case "attention":
-        return { label: "! error", seconds: null, color: "hot" };
+        return { label: this.remote && this.issue === "auth" ? "! auth" : "! error", seconds: null, color: "hot" };
       case "connecting":
         return {
           label: this.connected ? i18n.t`reconnecting` : i18n.t`connecting`,
@@ -387,7 +390,7 @@ export class Endpoint {
       case "incompatible":
         return { label: i18n.t`incompatible`, seconds: null, color: "hot" };
       case "online":
-        return null;
+        return this.remote && this.error ? { label: "! error", seconds: null, color: "hot" } : null;
     }
   }
   description(now = performance.now()): string {

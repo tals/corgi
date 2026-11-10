@@ -59,9 +59,10 @@ stays in the dropdown through outages so these controls remain available.
 Local-only Corgi has the same header as before, with no machine dropdown, and
 Ctrl+] goes to the pane.
 
-Failed connections show **! auth** for authentication problems or **! error** for
-other failures. Click the badge, or press **!** on a machine in the dropdown,
-to read the diagnostic and a suggested command. The notice stays open until
+A machine that needs you shows **! auth** for authentication problems or
+**! error** for others, such as a changed host key; one that will retry on its
+own counts down to the retry instead. Click that status, or press **!** on a
+machine in the dropdown, to read the diagnostic and a suggested command. The notice stays open until
 dismissed; use arrow keys or the mouse wheel to read long diagnostics.
 `corgi machine status NAME` checks reachability without changing the installation.
 `corgi machine reconnect NAME` opens normal SSH authentication, then verifies the
