@@ -559,9 +559,10 @@ export class Endpoint {
     this.racing = true;
     this.raced_at = now;
     this.trace("remote.race", "start");
-    // After a sleep the old connection reads online until it's heard from again.
-    const suspected = this.suspect,
-      heard = this.stream?.heard ?? 0;
+    // After a sleep the old connection reads online until it's heard from
+    // again. A machine not shown has no stream to hear it by: it keeps its own.
+    const stream = this.suspect ? this.stream : null,
+      heard = stream?.heard ?? 0;
     this.suspect = false;
     let conn: Connection | null = null;
     try {
@@ -578,7 +579,7 @@ export class Endpoint {
         this.status !== "stalled" &&
         this.status !== "connecting" &&
         this.status !== "offline" &&
-        !(suspected && (this.stream?.heard ?? 0) <= heard);
+        !(stream !== null && this.stream === stream && stream.heard <= heard);
       if (interruption !== this.interruption || this.stopped || answered) throw Error("RaceLost");
       if (machine_path.compatible(hello) !== this.instance) throw Error("RaceLost");
       // The old connection is let go; the next connect resumes the link here.

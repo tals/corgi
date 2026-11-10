@@ -353,6 +353,23 @@ test("after a sleep, a fresh connection takes over unless the old one is heard f
       await endpoint.close();
     }
   }
+  // A machine not shown has no stream to hear from: its connection stays.
+  const endpoint = new Endpoint(
+    "work",
+    true,
+    ["work"],
+    machine_path.local("/tmp/corgi-race-hidden.sock"),
+    new Probe(),
+    new Host(),
+  );
+  try {
+    endpoint.status = "online";
+    endpoint.woke();
+    await Reflect.get(endpoint, "race").call(endpoint, performance.now());
+    expect(Reflect.get(endpoint, "dialed")).toBeNull();
+  } finally {
+    await endpoint.close();
+  }
 });
 
 test("an SSH machine shut down on purpose isn't started again until the user retries", async () => {
