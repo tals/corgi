@@ -505,11 +505,13 @@ class Remote extends Runtime {
       }
     }
     this.assertIn("Loading pane…", this.text());
-    // Still behind a second later, it says so over the pane.
-    await this.until(() => this.text().includes("Ctrl+R retry"), 3);
+    // Still behind a second later, it says so over the pane; only behind, it
+    // offers no keys, which stay the pane's.
+    await this.until(() => this.text().includes("⟳ work: "), 3);
+    this.assertFalse(this.text().includes("Ctrl+R retry"));
     await this.until(() => {
       this.assertIn("▌SLOW_WORKSPACE", this.text());
-      return !this.text().includes("Ctrl+R retry");
+      return !this.text().includes("⟳ work: ");
     }, 25);
     this.assertIn("PREFETCHED_TAB", this.text());
   }
@@ -1012,7 +1014,7 @@ process.stdin.on("data", chunk => {
       this.clickWorkspace("REMOTE");
       // Stalled, retrying or offline: input waits either way.
       await this.until(() => screen().includes("Ctrl+R retry"), 12);
-      this.terminal.write("OFFLINE_SHOULD_NOT_RUN\r\x1d");
+      this.terminal.write("TYPED_WHILE_OFFLINE\r\x1d");
       await this.until(() => screen().includes("All workspaces"), 2);
       this.terminal.write("\x1d");
     } finally {
@@ -1025,7 +1027,12 @@ process.stdin.on("data", chunk => {
       async () => (await this.remote!.command("pane.read", { target: 1 })).text.includes("AFTER_RECONNECT"),
       5,
     );
-    this.assertFalse((await this.remote!.command("pane.read", { target: 1 })).text.includes("OFFLINE_SHOULD_NOT_RUN"));
+    // Typing waits in its pane through the outage, then goes once, as the line typed after it does.
+    await this.remote!.until(async () => {
+      const typed = (await this.remote!.command("pane.read", { target: 1 })).text,
+        count = (marker: string) => typed.split(marker).length - 1;
+      return count("TYPED_WHILE_OFFLINE") > 0 && count("TYPED_WHILE_OFFLINE") === count("AFTER_RECONNECT");
+    }, 5);
   }
   async test_shared_master_and_failed_recovery_handshake_keep_navigation_responsive() {
     await this.command("pane.create", { workspace: 1, command: "stty -echo; cat" });

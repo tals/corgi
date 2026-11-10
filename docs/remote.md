@@ -145,9 +145,11 @@ comes, Corgi says so: the request may have run, so check before trying again.
 
 A machine still behind a second after a switch, a stall or a reconnect says so
 on the focused pane's top rows: **work: Syncing… 2s · 3 keys waiting**, or the
-stall, countdown or error instead. While that notice shows, **Ctrl+R** cancels
+stall, countdown or error instead. While that notice shows for a machine with no
+live connection, stalled, reconnecting or down, **Ctrl+R** cancels
 the current request or SSH handshake and starts a new attempt immediately,
-**Ctrl+X** pauses retries, and **!** shows details. **Ctrl+C** still goes to the
+**Ctrl+X** pauses retries, and **!** shows details. A machine only behind, still
+connected and catching up, offers no keys: they go to the pane. **Ctrl+C** still goes to the
 agent, except before the machine has first come online, when it detaches the
 viewer. These controls also work in the machine dropdown, which remains
 responsive during an outage. Without the notice those keys keep their normal
