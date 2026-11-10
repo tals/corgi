@@ -114,7 +114,7 @@ test("a request written while the socket is closing for a reload fails as the re
   }
 });
 
-test("a daemon shutting down closes with going away, which says so", async () => {
+test("a daemon shutting down closes with its own code, which says so", async () => {
   const directory = fs.mkdtempSync("/tmp/corgi-ws-closing-"),
     path = directory + "/s";
   let daemon: Bun.ServerWebSocket<undefined> | null = null;
@@ -142,7 +142,7 @@ test("a daemon shutting down closes with going away, which says so", async () =>
     Object.defineProperty(ws, "readyState", { configurable: true, value: WebSocket.CLOSING });
     const pending = connection.call("ping").catch(error => error);
     await Bun.sleep(10);
-    daemon!.close(websocket.going_away);
+    daemon!.close(websocket.shutting_down);
     expect((await pending).message).toBe("ServerShutdown");
     expect(connection.failure?.message).toBe("ServerShutdown");
   } finally {

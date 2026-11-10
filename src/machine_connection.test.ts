@@ -319,6 +319,29 @@ test("a lost connection is retried at once, then after 1, 2, 4, 8 and at most 15
   }
 });
 
+/** The error a socket nothing listens on gives. */
+const refused = () => Object.assign(Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+
+test("a daemon that hangs rather than goes ends the viewer under its own name", async () => {
+  const clock = spyOn(performance, "now").mockReturnValue(1000);
+  const endpoint = localEndpoint("/tmp/corgi-gone-test/control.sock", new Probe(), new Host());
+  Reflect.set(endpoint, "connected", true);
+  const step = spyOn(endpoint as any, "step").mockRejectedValue(Error("RequestTimedOut"));
+  try {
+    for (const at of [1000, 7000]) {
+      clock.mockReturnValue(at);
+      Reflect.set(endpoint, "next", 0);
+      endpoint.pump(true);
+      await Reflect.get(endpoint, "task");
+    }
+    expect(endpoint.fatal?.message).toBe("RequestTimedOut");
+  } finally {
+    step.mockRestore();
+    clock.mockRestore();
+    await endpoint.close();
+  }
+});
+
 test("this computer's daemon gone for good ends the viewer; one reloading, or a remote one, is waited for", async () => {
   const clock = spyOn(performance, "now").mockReturnValue(1000);
   const fail = async (endpoint: Endpoint, at: number) => {
@@ -339,7 +362,7 @@ test("this computer's daemon gone for good ends the viewer; one reloading, or a 
   );
   const steps = [local, reloading, remote].map(endpoint => {
     Reflect.set(endpoint, "connected", true);
-    return spyOn(endpoint as any, "step").mockRejectedValue(Error("ConnectionRefused"));
+    return spyOn(endpoint as any, "step").mockRejectedValue(refused());
   });
   steps[1].mockRejectedValueOnce(Error("ServerReloading"));
   try {
@@ -347,6 +370,7 @@ test("this computer's daemon gone for good ends the viewer; one reloading, or a 
     expect(local.fatal).toBeNull();
     for (const endpoint of [local, reloading, remote]) await fail(endpoint, 6500);
     expect(local.fatal?.message).toBe("ConnectionClosed");
+    expect((local.fatal?.cause as { code?: string }).code).toBe("ECONNREFUSED");
     // A reload it announced may keep the daemon away a while longer.
     expect(reloading.fatal).toBeNull();
     await fail(reloading, 32_000);

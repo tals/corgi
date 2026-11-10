@@ -455,8 +455,13 @@ export class Endpoint {
         if (!this.remote && this.connected && this.status === "offline") {
           const now = performance.now();
           this.unreachable_since ??= now;
+          // Gone, it's said plainly; anything else keeps its own name.
           if (now >= this.reload_until && now - this.unreachable_since >= gone_ms)
-            this.fatal ??= Error("ConnectionClosed");
+            this.fatal ??= errors.unreachable(error)
+              ? Error("ConnectionClosed", { cause: error })
+              : error instanceof Error
+                ? error
+                : Error(this.error);
         }
       })
       .finally(() => {

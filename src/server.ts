@@ -1324,10 +1324,11 @@ export class Server {
     observers.stop(this);
     importer.stop(this);
     // A request still waiting hears why it won't be answered, and a viewer
-    // that there's nothing to reconnect to.
+    // that there's nothing to reconnect to, unless a reload has handed over
+    // to the daemon it should follow.
     for (const cl of [...this.clients])
       if (cl.http) cl.queue({ err: "ServerShutdown" });
-      else cl.close(wire_websocket.going_away);
+      else cl.close(this.handed_off ? wire_websocket.reloading : wire_websocket.shutting_down);
     const until = performance.now() + 1000;
     while (this.answering() && performance.now() < until) await Bun.sleep(5);
     void this.listening?.stop(true);
