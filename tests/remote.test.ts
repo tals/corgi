@@ -2,7 +2,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync, realpathSync } from "n
 import { userInfo } from "node:os";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Runtime, EXE, PALETTE } from "./runtime";
 import { registerCase, run, quote, writeExecutable, deadline } from "./support";
 import { Terminal } from "../src/pane/terminal";
@@ -846,7 +846,8 @@ class Remote extends Runtime {
     const paste = await this.imageClipboard();
     await this.until(() => this.text().includes("PASTE_READY"));
     this.network!.bytes_per_second = 256 * 1024;
-    const png = Buffer.alloc(1024 * 1024, 42);
+    // Random, as a real image's bytes are: SSH compression makes one repeated byte arrive at once.
+    const png = randomBytes(1024 * 1024);
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
     const saved = await paste("progress", png);
     const samples: number[] = [];
