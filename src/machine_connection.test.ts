@@ -269,7 +269,7 @@ test("a retry after a pause opens a fresh link, so the numbers it dropped leave 
     // Its number is taken, it's never answered, and pausing drops it.
     while (!daemon.seen.some(r => r.op === "session.command")) await Bun.sleep(1);
     daemon.endpoint.pause();
-    expect(await dropped).toBe("StaleConnection");
+    expect(await dropped).toBe("ReplyLost");
     daemon.endpoint.retry();
     await daemon.connect();
     expect(await daemon.endpoint.machine.connection.request("session.command", command)).toMatchObject({ ok: true });
@@ -296,7 +296,7 @@ test("a command in flight when its daemon is replaced fails, since it may have r
     daemon.disconnect();
     daemon.replace();
     await daemon.connect();
-    expect(await outcome).toBe("StaleConnection");
+    expect(await outcome).toBe("ReplyLost");
   } finally {
     await daemon.close();
   }

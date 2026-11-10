@@ -5274,10 +5274,11 @@ test("all agents lists each online machine's under its name, and its rows switch
   }
 });
 
-test("a remote paste the daemon couldn't take is typed into the pane instead", async () => {
+test("a remote paste that never reached the daemon is typed into the pane instead, and one that may have isn't", async () => {
+  let failure = "StaleConnection";
   const s = new Controller({
     ...transport(async op => {
-      if (op === "pane.paste") throw Error("StaleConnection");
+      if (op === "pane.paste") throw Error(failure);
       throw Error("UnexpectedRequest");
     }),
     image: async () => "/remote/image.png",
@@ -5292,6 +5293,12 @@ test("a remote paste the daemon couldn't take is typed into the pane instead", a
     expect(Buffer.from(terminal.pending).toString()).toContain("kept");
     expect(terminal.pasting()).toBe(true);
     terminal.pending = [];
+    // Sent before the connection went, it may have run: typing it could paste it twice.
+    failure = "ReplyLost";
+    Reflect.set(s, "paste_target", { pane: s.runtime.panes[0].id });
+    await s.pasteResult({ relay: { text: "once", image: null } });
+    expect(s.message).toContain("Connection lost before the reply");
+    expect(terminal.pending).toEqual([]);
     // An image that never reached the machine has no path there to type.
     s.connection.image = async () => {
       throw Error("ImageUploadFailed");

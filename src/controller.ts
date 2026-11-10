@@ -6747,9 +6747,11 @@ export class Controller {
     if (target === null) return Promise.resolve();
     this.paste_target = null;
     const progress = this.paste_progress;
-    // A pane's id means another pane once a different machine is shown.
+    // A pane's id means another pane once a different machine, or another
+    // daemon on this one, is shown.
     const machine = this.machine,
-      shown = () => this.machine === machine;
+      runtime = machine.runtime,
+      shown = () => this.machine === machine && machine.runtime === runtime;
     return this.tasks.run(async lane => {
       try {
         if ("text" in result) this.pasteClipboardText(target, result.text);
@@ -6758,8 +6760,10 @@ export class Controller {
           if (!mime) this.notice(hostClipboard.Failure.message("unsupported_image"));
           else {
             const path = await this.uploadImage(result.path, mime, progress);
-            if (target === "prompt") this.promptImage(path);
-            else if (shown()) this.pasteText(target, path);
+            if (shown()) {
+              if (target === "prompt") this.promptImage(path);
+              else this.pasteText(target, path);
+            }
           }
         } else if ("relay" in result) await this.relayPaste(target, result.relay, progress, lane, shown);
         else this.notice(hostClipboard.Failure.message(result.failed));
@@ -6827,7 +6831,10 @@ export class Controller {
           image: relayed.image ? { mime: relayed.image.mime, path: relayed.image.path } : null,
         });
         pasted = reply.pasted;
-      } catch {}
+      } catch (error) {
+        // Typed instead only if it never went: one that may have run isn't sent twice.
+        if (lost(error) && !errors.is(error, "StaleConnection")) throw error;
+      }
     } finally {
       sent?.();
     }
@@ -10291,6 +10298,7 @@ const machine_stride = 2 ** 32;
 function lost(error: unknown): boolean {
   switch (errors.name(error)) {
     case "StaleConnection":
+    case "ReplyLost":
     case "ConnectionClosed":
     case "ServerShutdown":
     case "RequestTimedOut":

@@ -747,11 +747,12 @@ export class Endpoint {
       () => {},
     );
   }
-  /** Fails the numbered requests `lost` picks, which can't be sent again. */
+  /** Fails the numbered requests `lost` picks, which can't be sent again:
+   * one that went out may have run, so says so. */
   private settleNumbered(lost: (request: Numbered) => boolean): void {
     const kept: Numbered[] = [];
     for (const request of this.numbered)
-      if (lost(request)) request.reject(Error("StaleConnection"));
+      if (lost(request)) request.reject(Error(request.seq === null ? "StaleConnection" : "ReplyLost"));
       else kept.push(request);
     this.numbered = kept;
   }
