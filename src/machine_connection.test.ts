@@ -323,6 +323,38 @@ test("a lost connection is retried at once, then after 1, 2, 4, 8 and at most 15
   }
 });
 
+test("after a sleep, a fresh connection takes over unless the old one is heard from first", async () => {
+  for (const heard of [false, true]) {
+    const hello = { protocol: protocol.version, viewer_protocol: protocol.viewer_version, instance: "daemon" };
+    const answering: machine_path.Factory = () => ({
+      races: true,
+      socket: null,
+      home: "/",
+      upload: null,
+      open: async () => ({ connection: { close() {} } as any, hello: hello as any }),
+      stallMs: () => 4000,
+      diagnose: () => ({ issue: "error", detail: "" }),
+      progress: () => "",
+      close() {},
+    });
+    const endpoint = new Endpoint("work", true, ["work"], answering, new Probe(), new Host());
+    const stream = { heard: 1000 };
+    try {
+      endpoint.instance = "daemon";
+      endpoint.status = "online";
+      Reflect.set(endpoint, "stream", stream);
+      endpoint.woke();
+      const race = Reflect.get(endpoint, "race").call(endpoint, performance.now());
+      // The old connection still reads online, as a suspended clock leaves it.
+      if (heard) stream.heard = 2000;
+      await race;
+      expect(Reflect.get(endpoint, "dialed") !== null).toBe(!heard);
+    } finally {
+      await endpoint.close();
+    }
+  }
+});
+
 test("typing into an SSH machine that's backing off waits for its next dial", async () => {
   const endpoint = new Endpoint(
     "work",

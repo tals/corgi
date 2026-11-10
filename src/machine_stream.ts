@@ -135,6 +135,10 @@ export class Stream {
   get fresh(): boolean {
     return this.confirmed;
   }
+  /** When the daemon was last heard from on this stream. */
+  get heard(): number {
+    return this.last;
+  }
   age(now = performance.now()): number {
     const oldest = Math.max(Math.min(...this.writes.values()), this.answered);
     return now - Math.min(this.last, oldest);
