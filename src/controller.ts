@@ -6795,11 +6795,13 @@ export class Controller {
           if (!mime) this.notice(hostClipboard.Failure.message("unsupported_image"));
           else {
             // The prompt's image goes to the machine its conversation runs on,
-            // and only while the prompt is still that machine's.
+            // and only to that conversation: one changed meanwhile doesn't get it.
             if (target === "prompt") {
               const owner = this.promptMachine(),
+                session = this.prompt.conversation.session,
                 path = await this.uploadImage(result.path, mime, progress, owner);
-              if (this.promptMachine() === owner) this.promptImage(path);
+              if (this.promptMachine() === owner && this.prompt.conversation.session === session)
+                this.promptImage(path);
             } else {
               const path = await this.uploadImage(result.path, mime, progress);
               if (shown()) this.pasteText(target, path);

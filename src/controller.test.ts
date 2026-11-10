@@ -5221,6 +5221,14 @@ test("an image pasted into the prompt goes to the machine its conversation runs 
     s.prompt.conversation.session = "";
     await pasting;
     expect(attached).toHaveBeenCalledTimes(1);
+    // Nor does another conversation on the same machine.
+    Reflect.get(s, "prompt_sessions").set("codex:t", other);
+    s.prompt.conversation.session = "s";
+    Reflect.set(s, "paste_target", "prompt");
+    const replaced = s.pasteResult({ path: "/tmp/image.png" });
+    s.prompt.conversation.session = "t";
+    await replaced;
+    expect(attached).toHaveBeenCalledTimes(1);
   } finally {
     attached.mockRestore();
     viewer.close(s);
