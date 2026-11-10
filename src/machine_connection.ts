@@ -38,6 +38,10 @@ export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" 
 export const quiet_ms = 500;
 /** A remote machine silent this long gets a second connection beside the first. */
 export const race_ms = 4000;
+/** The longest a failing connection waits before trying again. */
+const max_retry_ms = 15_000;
+/** An outage this long is no blip: fresh dials beside it slow to the retries' pace. */
+const long_outage_ms = 120_000;
 export class Endpoint {
   readonly stats = new Stats();
   get stallMs(): number {
@@ -434,11 +438,13 @@ export class Endpoint {
     const quiet = this.healthAge(now);
     this.stats.progress(quiet, this.stallMs);
     // Failed dials are not progress: keep probing from the last received byte.
-    const recovering =
-      this.connected &&
-      (this.status === "connecting" || this.status === "offline") &&
-      Math.max(now - (this.stats.lastReceived ?? this.task_started), this.data?.age(now) ?? 0) >= this.raceMs;
-    const due = !this.racing && now - this.raced_at >= (recovering ? this.stallMs : this.raceMs);
+    const silent = Math.max(now - (this.stats.lastReceived ?? this.task_started), this.data?.age(now) ?? 0),
+      recovering =
+        this.connected && (this.status === "connecting" || this.status === "offline") && silent >= this.raceMs,
+      // Early in an outage a fresh dial goes every few seconds; a long one
+      // gets one as often as retries go, rather than an SSH start every 4 s.
+      every = recovering ? (silent < long_outage_ms ? this.stallMs : max_retry_ms) : this.raceMs;
+    const due = !this.racing && now - this.raced_at >= every;
     if (
       this.sample.races &&
       this.link &&
@@ -508,7 +514,8 @@ export class Endpoint {
         // The first retry goes at once; later ones back off to 15 s.
         if (this.status === "offline")
           this.next =
-            performance.now() + (this.retries <= 1 ? 0 : Math.min(15_000, 500 * 2 ** Math.min(this.retries - 1, 5)));
+            performance.now() +
+            (this.retries <= 1 ? 0 : Math.min(max_retry_ms, 500 * 2 ** Math.min(this.retries - 1, 5)));
         // A step that changed nothing on screen leaves an idle viewer asleep.
         if (changed || this.status !== status) this.onChange();
       });

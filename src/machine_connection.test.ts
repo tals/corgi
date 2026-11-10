@@ -529,6 +529,37 @@ test("a hung reconnect gets a spare dial without racing a first connection", asy
   }
 });
 
+test("a long outage gets fresh dials at the retries' pace, not every few seconds", async () => {
+  const endpoint = sshEndpoint(recoveryProfile, new Probe(), new Host());
+  const clock = spyOn(performance, "now").mockReturnValue(1000);
+  let finish!: (value: boolean) => void;
+  const step = spyOn(endpoint as any, "step").mockImplementation(
+    () => new Promise<boolean>(resolve => (finish = resolve)),
+  );
+  const race = spyOn(endpoint as any, "race").mockResolvedValue(undefined);
+  Reflect.set(endpoint, "link", "saved-link");
+  try {
+    endpoint.pump(false);
+    Reflect.set(endpoint, "connected", true);
+    endpoint.stats.traffic("received", 1, 1000);
+    // Two minutes in, the last dial was 10 s ago: too soon.
+    Reflect.set(endpoint, "raced_at", 190_000);
+    clock.mockReturnValue(200_000);
+    endpoint.pump(false);
+    expect(race).not.toHaveBeenCalled();
+    clock.mockReturnValue(205_000);
+    endpoint.pump(false);
+    expect(race).toHaveBeenCalledTimes(1);
+  } finally {
+    finish(false);
+    await Reflect.get(endpoint, "task");
+    await endpoint.close();
+    clock.mockRestore();
+    step.mockRestore();
+    race.mockRestore();
+  }
+});
+
 test("a spare that answers during reconnect takes over and resumes the same link", async () => {
   const daemon = await flakyDaemon();
   const endpoint = daemon.endpoint;
