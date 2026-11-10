@@ -61,3 +61,19 @@ test("incompatible diagnostics suggest a read-only status check", () => {
     terminal.destroy();
   }
 });
+
+test("with no problem to show, details don't open and the key stays the pane's", () => {
+  const endpoint = sshEndpoint(
+    { name: "work", target: "work", executable: "/corgi", socket: "/socket", home: "/home" },
+    new Probe(),
+    new Host(),
+  );
+  endpoint.status = "paused";
+  endpoint.error = "";
+  const notice = new Notice();
+  expect(notice.show(endpoint)).toBe(false);
+  expect(notice.open).toBe(false);
+  endpoint.error = "Connection refused";
+  expect(notice.show(endpoint)).toBe(true);
+  expect(notice.open).toBe(true);
+});

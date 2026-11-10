@@ -11,8 +11,9 @@ export class Notice {
   get open(): boolean {
     return this.message !== null;
   }
-  show(endpoint: Endpoint): void {
-    if (!endpoint.error) return;
+  /** Opens `endpoint`'s problem; false when it has none to show. */
+  show(endpoint: Endpoint): boolean {
+    if (!endpoint.error) return false;
     const command = endpoint.issue === "auth" || endpoint.issue === "host-key" ? "reconnect" : "status";
     this.message = [
       `${endpoint.name} · ${endpoint.issue === "auth" ? "Authentication required" : "Connection problem"}`,
@@ -24,6 +25,7 @@ export class Notice {
       ...(endpoint.issue === "host-key" ? ["Verify the host fingerprint before approving its key."] : []),
     ];
     this.offset = 0;
+    return true;
   }
   close(): void {
     this.message = null;

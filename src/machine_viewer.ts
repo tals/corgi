@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { Endpoint, localEndpoint, quiet_ms } from "./machine_connection";
 import { Parser, type Input } from "./machine_input";
 import * as machines from "./machines";
+import * as errors from "./errors";
 import { sshEndpoint } from "./ssh_path";
 import * as sidebar from "./sidebar";
 import { Workspaces } from "./machine_sidebar";
@@ -64,9 +65,19 @@ export async function run(
   const host = attach(preferences.load(), probe);
   // Sign-in asks which agents are there; mise answers for its shims meanwhile.
   void discovery.ready();
+  // A catalog that can't be read leaves this machine's work usable.
+  let saved: machines.Profile[] = [],
+    unreadable: unknown = null;
+  if (options.machines !== false)
+    try {
+      saved = machines.read();
+    } catch (error) {
+      if (selected !== "local") throw error;
+      unreadable = error;
+    }
   const endpoints = [
     localEndpoint(local, probe, host, options.start_local, options.local_running),
-    ...(options.machines === false ? [] : machines.read()).map(profile => sshEndpoint(profile, probe, host)),
+    ...saved.map(profile => sshEndpoint(profile, probe, host)),
   ];
   let active = endpoints.find(e => e.name === selected);
   if (!active) throw Error("UnknownMachine");
@@ -89,7 +100,7 @@ export async function run(
         ? shown.error || `Syncing… ${Math.floor((now - behind.since) / 1000)}s`
         : shown.description();
     const hints = unreachable(shown)
-      ? ["Ctrl+R retry", ...(shown.status === "paused" ? [] : ["Ctrl+X pause"]), "! details"]
+      ? ["Ctrl+R retry", ...(shown.status === "paused" ? [] : ["Ctrl+X pause"]), ...(shown.error ? ["! details"] : [])]
       : [];
     if (!shown.reached) hints.push("Ctrl+C quit");
     return {
@@ -108,6 +119,8 @@ export async function run(
     endpoint.controller = view;
   }
   view.switchMachine(active.machine);
+  if (unreadable)
+    view.notice(`Saved machines not loaded (${errors.name(unreadable) ?? "error"}); see corgi machine list`);
   let quit = false;
   let navigation_mouse = false;
   const size = viewer.dimensions();
@@ -292,6 +305,7 @@ export async function run(
       if (value === "\x1b[201~") paste_owner = null;
       return;
     }
+    // Ahead of the machine's own keys, so a machine that never answered can't hold it.
     if (endpoints.length > 1 && (value === "\x1d" || (key?.codepoint === 93 && key.mods.ctrl))) {
       if (workspaces.open) close();
       else show();
@@ -374,10 +388,7 @@ export async function run(
     }
     // The notice's keys are Corgi's only while keys can't reach a pane at all.
     if (behind?.shown && behind.endpoint === active && !mouse && unreachable(active!)) {
-      if (value === "!") {
-        diagnostic.show(active!);
-        return;
-      }
+      if (value === "!" && diagnostic.show(active!)) return;
       if (cp === 18) {
         active!.retry();
         return;
