@@ -639,6 +639,22 @@ test("typing into an idle viewer goes at once, not at the idle step's pace", asy
   }
 });
 
+test("keys held through a reload still go after a retry or a pause", async () => {
+  for (const action of ["retry", "pause"] as const) {
+    const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
+    try {
+      endpoint.enqueue(Uint8Array.of(97));
+      Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
+      endpoint.enqueue(Uint8Array.of(98));
+      endpoint[action]();
+      expect(Reflect.get(endpoint, "handoff")).toBeNull();
+      expect(Reflect.get(endpoint, "input")).toEqual([97, 98]);
+    } finally {
+      await endpoint.close();
+    }
+  }
+});
+
 test("planned reconnect input is discarded when selection changes or the hold expires", async () => {
   for (const change of ["selection", "deadline"] as const) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());

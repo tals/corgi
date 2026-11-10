@@ -578,10 +578,7 @@ export async function run(
 }
 /** Whether `endpoint`'s daemon can't be reached at all, as opposed to being
  * behind or coming back after a reload: keys can't reach its panes then. */
-export function unreachable(endpoint: Pick<Endpoint, "status" | "failing" | "remote">): boolean {
-  // Without a live link an SSH machine takes no keys until one comes back,
-  // which retrying may hurry; a local daemon away a moment will answer them.
-  if (endpoint.remote) return endpoint.status !== "online";
+export function unreachable(endpoint: Pick<Endpoint, "status" | "failing">): boolean {
   switch (endpoint.status) {
     case "offline":
     case "paused":

@@ -1150,7 +1150,8 @@ process.stdin.on("data", chunk => {
     const started = performance.now();
     await this.until(() => this.text().includes("Connection stalled"), 6);
     this.assertTrue(performance.now() - started < 6000);
-    this.assertIn("Ctrl+R retry", this.text());
+    // A stall leaves Ctrl+R to the pane, as a shell's history search.
+    this.assertNotIn("Ctrl+R retry", this.text());
     this.assertIn("BEFORE_HICCUP", this.text());
     this.terminal!.write("HELD_DURING_HICCUP\r\x1d");
     await this.until(() => this.text().includes("All workspaces"), 1);
@@ -1195,7 +1196,7 @@ process.stdin.on("data", chunk => {
       }
       if (fault !== "cut") {
         await this.until(() => this.text().includes("Connection stalled"), 6);
-        this.assertIn("Ctrl+R retry", this.text());
+        this.assertNotIn("Ctrl+R retry", this.text());
         const held = `HELD_WHILE_STALLED_${index}`;
         markers.push(held);
         this.terminal!.write(held + "\r");
@@ -1324,7 +1325,6 @@ process.stdin.on("data", chunk => {
     this.terminal!.write("HELD_THROUGH_BLACKHOLE\r");
     // A second connection is tried beside the silent one, and again once it times out.
     await this.until(() => this.network!.accepted > connections, 12);
-    this.assertIn("Ctrl+R retry", this.text());
     this.network!.set("healthy");
     await this.online(undefined, 12);
     await this.sendRemote("AUTOMATICALLY_RECOVERED");
@@ -1338,19 +1338,28 @@ process.stdin.on("data", chunk => {
     await this.online();
     this.network!.set("blackhole");
     await this.until(() => this.text().includes("Connection stalled"), 6);
+    // Stalled, the machine still has its keys; the dropdown retries and pauses.
+    const dropdown = async (keys: string) => {
+      this.terminal!.write("\x1d");
+      await this.until(() => this.text().includes("All workspaces"), 1);
+      this.terminal!.write("w" + keys + "\x1b");
+      // Closed before anything else is typed, so the Escape isn't read as Alt.
+      await this.until(() => !this.text().includes("All workspaces"), 1);
+    };
     const stalled = this.network!.accepted;
-    this.terminal!.write("\x12");
+    await dropdown("\x12");
     await this.until(() => this.network!.accepted > stalled, 2);
-    this.terminal!.write("\x18");
+    await dropdown("\x18");
     await this.until(() => this.text().includes("Paused · automatic retries stopped"), 1);
+    // Paused, it can't be reached: the notice takes them.
     const connections = this.network!.accepted;
     this.terminal!.write("\x12");
     await this.until(() => this.network!.accepted > connections, 2);
     await this.until(() => this.text().includes("Reconnecting"), 1);
     const attempt = this.network!.accepted;
-    this.terminal!.write("\x12");
+    await dropdown("\x12");
     await this.until(() => this.network!.accepted > attempt, 2);
-    this.terminal!.write("\x18");
+    await dropdown("\x18");
     await this.until(() => this.text().includes("Paused · automatic retries stopped"), 1);
     const paused = this.network!.accepted;
     this.network!.set("healthy");

@@ -342,7 +342,7 @@ export class Endpoint {
   }
   retry(): void {
     if (this.stopped) return;
-    this.handoff = null;
+    this.releaseHandoff();
     this.interruption++;
     this.disconnect();
     this.fresh_connection = this.issue === "error";
@@ -353,7 +353,7 @@ export class Endpoint {
   }
   pause(): void {
     if (this.stopped) return;
-    this.handoff = null;
+    this.releaseHandoff();
     this.interruption++;
     this.disconnect();
     // Paused, nothing sends them again, and the link they were numbered on
@@ -593,6 +593,12 @@ export class Endpoint {
   /** The computer slept: a remote machine's connection may be gone. */
   woke(): void {
     if (this.sample.races && (this.status === "online" || this.status === "stalled")) this.suspect = true;
+  }
+  /** Keys held for a reload go on as typed: a retry or a pause ends the
+   * wait, not them. */
+  private releaseHandoff(): void {
+    if (this.handoff) this.input = this.handoff.input.concat(this.input);
+    this.handoff = null;
   }
   private holdHandoffInput(): void {
     const input = this.input;

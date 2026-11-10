@@ -147,15 +147,15 @@ comes, Corgi says so: the request may have run, so check before trying again.
 
 A machine still behind a second after a switch, a stall or a reconnect says so
 on the focused pane's top rows: **work: Syncing… 2s · 3 keys waiting**, or the
-stall, countdown or error instead. While that notice shows for a machine with no
-live connection, stalled, reconnecting or down, **Ctrl+R** cancels
-the current request or SSH handshake and starts a new attempt immediately,
-**Ctrl+X** pauses retries, and **!** shows details. A machine only behind, still
-connected and catching up, offers no keys: they go to the pane. **Ctrl+C** still goes to the
-agent, except before the machine has first come online, when it detaches the
-viewer. These controls also work in the machine dropdown, which remains
-responsive during an outage. Without the notice those keys keep their normal
-meaning; open the dropdown with **Ctrl+]** to manage connections there.
+stall, countdown or error instead. Once the machine can't be reached (down,
+paused or failing to reconnect), **Ctrl+R** cancels the current request or SSH
+handshake and starts a new attempt immediately, **Ctrl+X** pauses retries, and
+**!** shows details. While it's only stalled or reloading, those keys wait in
+the pane like the rest, so a shell's history search doesn't tear down a slow
+link. **Ctrl+C** still goes to the agent, except before the machine has first
+come online, when it detaches the viewer. These controls also work in the
+machine dropdown, which remains responsive during an outage: open it with
+**Ctrl+]** to manage connections there.
 
 Each connection carries a link the daemon keeps for ten minutes after the
 connection goes, as EternalTerminal keeps a session. Typing and actions already
