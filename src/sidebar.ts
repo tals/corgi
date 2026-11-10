@@ -1186,33 +1186,26 @@ export class View {
     if (y >= end) return null;
     return { x: 4, y, width: v.nameRoom(v.entries[index]), message_y: y + 1 < end ? y + 1 : y - 1 };
   }
-  /** Whether `x`, `y` lands on `target`'s name line, anywhere along it:
-   * the row's line that draws the name, rather than the row's other lines
-   * or another row. The workspace line's port link and Git figures keep
-   * their own clicks and don't count; nor does the sidebar's border column
-   * or anything past it, where a press closes an open field instead: the
-   * caller while one is open doesn't go through `hit` first. */
+  /** Whether `x`, `y` lands in `target`'s name columns, where its rename
+   * field opens: not the row's other lines, the workspace line's port link
+   * and Git figures, an agent's context figure and notes, or the border. */
   onNameLine(target: RenameTarget, workspaces: WorkspaceEntry[], x: number, y: number): boolean {
     const rect = this.fieldRect(target, workspaces);
-    if (rect === null || y !== rect.y || x < rect.x) return false;
-    if ("workspace" in target) {
-      const ws = workspaces.find(ws => ws.id === target.workspace);
-      if (!ws) return false;
-      return x < linkRange(this, ws, workspaces).start;
-    }
-    return x < this.sidebarWidth() - 1;
+    return rect !== null && y === rect.y && x >= rect.x && x < rect.x + rect.width;
   }
   /** The columns an agent row's name has, before its context figure and notes. */
   nameRoom(e: Entry): number {
     return sat(this.width - 6, nameRight(e, contextFigure(e, false, colors.bg)));
   }
   /** Shows the terminal caret in the rename field, as `searchCursor` does
-   * for the search; nothing while no renamed row is on screen. */
+   * for the search; nothing while no renamed row is on screen, or while
+   * the whole name is selected, which shows as the highlight instead. */
   renameCursor(w: Writer, workspaces: WorkspaceEntry[]): void {
     const state = this.rename;
     if (state === null) return;
     const rect = this.fieldRect(state.target, workspaces);
     if (rect === null) return;
+    if (state.field.len > 0 && state.field.selected) return;
     const column = writeField(new Writer(), state.field, NameView.scroll(state.field, rect.width), rect.width, "");
     w.write(`\x1b[0m${w.cup(rect.y + 1, rect.x + column + 1)}\x1b[?25h`);
   }

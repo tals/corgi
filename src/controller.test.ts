@@ -3420,10 +3420,11 @@ test("a double-click on an agent row renames it in place, with the dialog's outc
     expect(s.inline_rename.target).toEqual({ agent: 2 });
     expect(s.inline_rename.field.raw()).toBe("agent 2");
     expect(s.inline_rename.field.cursor).toBe(s.inline_rename.field.len);
-    expect(s.inline_rename.field.selection()).toBeNull();
+    expect(s.inline_rename.field.selected).toBe(true);
     expect(sent).toEqual([probe(2)]);
     expect(s.frame()).toContain("agent 2");
-    await s.input(bytes("\x03Fix API\r"));
+    // The name starts selected, so typing replaces it.
+    await s.input(bytes("Fix API\r"));
     expect(sent.at(-1)).toEqual({ "agent.rename": { target: 2, name: "Fix API" } });
     expect(s.inline_rename).toBeNull();
     expect(typed).toEqual([]);
@@ -3433,7 +3434,7 @@ test("a double-click on an agent row renames it in place, with the dialog's outc
   }
 });
 
-test("a double-click anywhere along the row's name line renames, not only on the name", async () => {
+test("a double-click anywhere in the field's columns renames, not only on the name", async () => {
   const { s, sent, rect, press } = renaming();
   const at = rect({ agent: 2 });
   try {
@@ -3503,19 +3504,22 @@ test("a press on the sidebar's border between name-line presses starts the doubl
   }
 });
 
-test("a press on the name line right of the open field keeps the field, and its edits", async () => {
+test("the name line right of the field neither opens a rename nor keeps one", async () => {
   const { s, rect, press } = renaming();
   const at = rect({ agent: 2 });
   try {
     setSystemTime(new Date(1000));
+    await press(at.x + at.width, at.y);
+    await press(at.x + at.width, at.y);
+    expect(s.inline_rename).toBeNull();
+    setSystemTime(new Date(2000));
     await press(at.x, at.y);
-    await press(at.x + at.width, at.y);
+    await press(at.x + at.width - 1, at.y);
     expect(s.inline_rename?.target).toEqual({ agent: 2 });
-    await s.input(bytes("X"));
-    // The columns past the field, still on its name line, are the field's too.
-    await press(at.x + at.width, at.y);
+    await press(at.x + at.width - 1, at.y);
     expect(s.inline_rename?.target).toEqual({ agent: 2 });
-    expect(s.inline_rename?.field.raw()).toBe("agent 2X");
+    await press(at.x + at.width, at.y);
+    expect(s.inline_rename).toBeNull();
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -3683,7 +3687,7 @@ test("a character bound to an action types into the rename field", async () => {
     setSystemTime(new Date(1000));
     await twice({ agent: 2 });
     await s.input(bytes("é"));
-    expect([s.inline_rename?.field.raw(), s.name_dialog, sent]).toEqual(["agent 2é", null, [probe(2)]]);
+    expect([s.inline_rename?.field.raw(), s.name_dialog, sent]).toEqual(["é", null, [probe(2)]]);
   } finally {
     bound.mockRestore();
     setSystemTime();
@@ -3824,6 +3828,8 @@ test("the open field takes every key: nothing reaches the pane and no binding ru
     setSystemTime(new Date(1000));
     await twice({ agent: 1 });
     const count = s.model().count;
+    // Right keeps the selected name, with the caret at its end.
+    await s.input(bytes("\x1b[C"));
     await s.input(bytes("\x02c"));
     expect(s.prefix).toBe(false);
     expect(s.model().count).toBe(count);
@@ -4283,7 +4289,7 @@ test("Kitty-encoded keys go to the open field, not to the pane or a binding", as
     // "x", then Ctrl-B and c as the prefix and its new-tab key.
     await s.input(bytes("\x1b[120u\x1b[98;5u\x1b[99u"));
     expect(s.model().count).toBe(count);
-    expect(s.inline_rename.field.raw()).toBe("agent 1xc");
+    expect(s.inline_rename.field.raw()).toBe("xc");
     expect(sent).toEqual([probe(1)]);
     expect(typed).toEqual([]);
   } finally {
@@ -5886,7 +5892,7 @@ test("input past 80 bytes is refused and says so until the next edit", async () 
   try {
     setSystemTime(new Date(1000));
     await twice({ agent: 1 });
-    await s.input(bytes("a".repeat(73)));
+    await s.input(bytes("a".repeat(80)));
     expect(s.inline_rename.field.len).toBe(80);
     expect(s.inline_rename.message).toBeNull();
     await s.input(bytes("a"));

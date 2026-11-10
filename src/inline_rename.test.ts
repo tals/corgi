@@ -103,7 +103,7 @@ test("reset forgets the press", () => {
   expect(h.press({ agent: 1 }, 1001, 4)).toBe(false);
 });
 
-test("an open field keeps the name, with the caret at its end and nothing selected", () => {
+test("an open field holds the name wholly selected, with the caret at its end", () => {
   const r = InlineRename.open({ agent: 7 }, "review the diff", "claude");
   expect(r.target).toEqual({ agent: 7 });
   expect(r.fallback).toBe("claude");
@@ -112,34 +112,52 @@ test("an open field keeps the name, with the caret at its end and nothing select
   expect(r.drawer).toBe(false);
   expect(r.field.raw()).toBe("review the diff");
   expect(r.field.cursor).toBe(r.field.len);
-  expect(r.field.selection()).toBe(null);
+  expect(r.field.selected).toBe(true);
+  expect(r.field.selection()).toEqual([0, r.field.len]);
+});
+
+test("typing in a fresh field replaces the name", () => {
+  const r = InlineRename.open({ agent: 7 }, "review the diff", "claude");
+  r.field.typeByte(c("x"));
+  expect(r.field.raw()).toBe("x");
   expect(r.field.selected).toBe(false);
-  // Typing adds to the name rather than replacing it.
+});
+
+test("Right keeps the name and puts the caret at its end", () => {
+  const r = InlineRename.open({ agent: 7 }, "review the diff", "claude");
+  r.field.area.move("right");
+  expect(r.field.selection()).toBe(null);
+  expect(r.field.cursor).toBe(r.field.len);
   r.field.typeByte(c("!"));
   expect(r.field.raw()).toBe("review the diff!");
 });
 
-test("an open field on an empty name has nothing selected either", () => {
+test("an open field on an empty name takes typing at the start", () => {
   const r = InlineRename.open({ workspace: 3 }, "", "corgi");
   expect(r.field.raw()).toBe("");
   expect(r.field.cursor).toBe(0);
-  expect(r.field.selected).toBe(false);
   expect(r.field.selection()).toBe(null);
+  r.field.typeByte(c("w"));
+  expect(r.field.raw()).toBe("w");
 });
 
-test("the caret stands after a multi-byte name's last character", () => {
+test("a multi-byte name is selected whole, by bytes", () => {
   const r = InlineRename.open({ agent: 7 }, "café", "claude");
   expect(r.field.len).toBe(5);
   expect(r.field.cursor).toBe(5);
+  expect(r.field.selection()).toEqual([0, 5]);
+  r.field.area.move("right");
   r.field.typeByte(c("s"));
   expect(r.field.raw()).toBe("cafés");
 });
 
 test("a workspace field keeps UTF-8, as an agent field does", () => {
   const ws = InlineRename.open({ workspace: 3 }, "home", "corgi");
+  ws.field.area.move("right");
   for (const byte of Buffer.from("é")) ws.field.typeByte(byte);
   expect(ws.field.raw()).toBe("homeé");
   const agent = InlineRename.open({ agent: 7 }, "caf", "claude");
+  agent.field.area.move("right");
   for (const byte of Buffer.from("é")) agent.field.typeByte(byte);
   expect(agent.field.raw()).toBe("café");
 });
