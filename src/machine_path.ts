@@ -42,7 +42,9 @@ export type Upload = (
 ) => Promise<string>;
 /** Makes a path. `fresh` asks for one that shares nothing with paths before
  * it; `race` for one tried beside a quiet connection, which gives up sooner. */
-export type Factory = (fresh: boolean, race: boolean) => Path;
+/** A path, `fresh` without a shared SSH master, for a `race` beside a
+ * silent one; with `start`, it starts a daemon that isn't running. */
+export type Factory = (fresh: boolean, race: boolean, start?: boolean) => Path;
 
 /** A connection gone this long without an answer counts as stalled. */
 export const stalled_ms = 1000;

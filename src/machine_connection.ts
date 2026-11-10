@@ -107,6 +107,8 @@ export class Endpoint {
   } | null = null;
   /** The machine may have gone while the computer slept: race at once. */
   private suspect = false;
+  /** The daemon was shut down on purpose: connecting doesn't start it again. */
+  private shut_down = false;
   private fresh_connection = false;
   private probe_path: machine_path.Path | null = null;
   private seq = 0n;
@@ -344,6 +346,7 @@ export class Endpoint {
   }
   retry(): void {
     if (this.stopped) return;
+    this.shut_down = false;
     this.releaseHandoff();
     this.interruption++;
     this.disconnect();
@@ -499,6 +502,8 @@ export class Endpoint {
           this.onChange();
           return;
         }
+        // An SSH machine's is left stopped until the user retries.
+        if (errors.is(error, "ServerShutdown")) this.shut_down = true;
         const { issue, detail } = this.path?.diagnose(error) ?? { issue: "error", detail: "" };
         if (issue === "fatal")
           this.fatal = Error(errors.is(error, "ServerRolledBack") ? "ServerRolledBack" : "IncompatibleViewerProtocol");
@@ -543,7 +548,7 @@ export class Endpoint {
    * Over a link either can: nothing in flight is lost or run twice. */
   private async race(now: number): Promise<void> {
     const interruption = this.interruption,
-      path = this.newPath(true, true),
+      path = this.newPath(true, true, !this.shut_down),
       // Its data connection is dialed alongside, so a race that wins needn't
       // set up another SSH connection before the panes come back.
       data =
@@ -634,7 +639,7 @@ export class Endpoint {
     let conn: Connection, hello: machine_path.Hello;
     const dialed = this.dialed;
     this.dialed = null;
-    const path = (this.path = dialed?.path ?? this.newPath(this.fresh_connection, false));
+    const path = (this.path = dialed?.path ?? this.newPath(this.fresh_connection, false, !this.shut_down));
     if (dialed?.data) this.data = dialed.data;
     this.fresh_connection = false;
     // Setting up a remote connection can take many round trips. Open both
@@ -1004,6 +1009,8 @@ export class Endpoint {
     }
     this.retries = 0;
     this.connected = true;
+    // Started again since, it's started again should it stop.
+    this.shut_down = false;
     this.workspaces = view.workspaceEntries(machine);
     this.workspaces_instance = this.instance;
     this.updated = Date.now();

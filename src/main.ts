@@ -211,12 +211,15 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     return;
   }
   if (args[0] === "__remote-bridge") {
-    // For a viewer whose saved bridge an update or a reboot took away.
-    if (args.length !== 2 || !args[1].startsWith("/")) throw Error("Usage");
-    if (args[1] === path) await ensureServer(daemon);
+    // For a viewer whose saved bridge an update or a reboot took away, or
+    // that found no daemon; `--running` leaves one that isn't stopped.
+    const running = args[1] === "--running",
+      socket = args[running ? 2 : 1];
+    if (args.length !== (running ? 3 : 2) || !socket?.startsWith("/")) throw Error("Usage");
+    if (!running && socket === path) await ensureServer(daemon);
     const { nativeRoot } = await import("./native_paths");
     const bridge = nativeRoot + "/bin/corgi-remote-bridge";
-    process.execve!(bridge, [bridge, args[1]], process.env as Record<string, string>);
+    process.execve!(bridge, [bridge, socket], process.env as Record<string, string>);
   }
   if (args[0] === "__remote-image") {
     if (args.length !== 4 || !args[1].startsWith("/")) throw Error("Usage");

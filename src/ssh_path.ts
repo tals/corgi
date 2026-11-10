@@ -11,7 +11,7 @@ import type { Probe } from "./terminal_info";
 import type { Host } from "./host";
 
 export function sshPath(profile: Profile): machine_path.Factory {
-  return (fresh, race) => {
+  return (fresh, race, start = false) => {
     const tunnels: Remote[] = [],
       opened: Connection[] = [];
     let control: Remote | null = null;
@@ -25,7 +25,7 @@ export function sshPath(profile: Profile): machine_path.Factory {
       async open(kind, stats, trace) {
         // A race gives up sooner than a first connection, which may wait on a login.
         const patience = () => (race ? Math.min(startup_ms, stats.timeoutMs) : startup_ms);
-        const tunnel = new Remote(profile, fresh, patience(), kind);
+        const tunnel = new Remote(profile, fresh, patience(), kind, start);
         tunnels.push(tunnel);
         if (kind === "control") control = tunnel;
         await tunnel.open();

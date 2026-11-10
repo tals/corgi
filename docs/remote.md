@@ -175,7 +175,11 @@ by an outage finishes after it. Keys meant for a daemon that has since been
 replaced are never sent to the new one. A daemon incarnation identifies which
 cached selections can be restored.
 Pausing or detaching closes only the viewer's connections; remote agents keep
-running. Background retries never install, upgrade or restart a remote daemon.
+running. Background retries never install or upgrade a remote daemon. A viewer
+reaching a machine whose daemon isn't running starts it, as after a crash or a
+reboot, unless it was shut down on purpose: that one stays stopped until you
+retry. `corgi machine status`, remote commands and `list --all-machines` never
+start one.
 
 Workspace names, activity counts and the last resource readings are cached locally
 in private files. Reopening shows these cards dimmed with **retrying**

@@ -355,6 +355,41 @@ test("after a sleep, a fresh connection takes over unless the old one is heard f
   }
 });
 
+test("an SSH machine shut down on purpose isn't started again until the user retries", async () => {
+  const starts: (boolean | undefined)[] = [];
+  const hung: machine_path.Factory = (_fresh, _race, start) => {
+    starts.push(start);
+    return {
+      races: true,
+      socket: null,
+      home: "/",
+      upload: null,
+      open: () => new Promise(() => {}),
+      stallMs: () => 4000,
+      diagnose: () => ({ issue: "error", detail: "" }),
+      progress: () => "",
+      close() {},
+    };
+  };
+  const endpoint = new Endpoint("work", true, ["work"], hung, new Probe(), new Host());
+  const step = spyOn(endpoint as any, "step").mockRejectedValue(Error("ServerShutdown"));
+  try {
+    endpoint.pump(true);
+    await Reflect.get(endpoint, "task");
+    expect(endpoint.status).toBe("offline");
+    step.mockRestore();
+    starts.length = 0;
+    void Reflect.get(endpoint, "race").call(endpoint, performance.now());
+    endpoint.retry();
+    void Reflect.get(endpoint, "race").call(endpoint, performance.now());
+    expect(starts).toEqual([false, true]);
+  } finally {
+    step.mockRestore();
+    Reflect.set(endpoint, "task", null);
+    await endpoint.close();
+  }
+});
+
 test("typing into an SSH machine that's backing off waits for its next dial", async () => {
   const endpoint = new Endpoint(
     "work",

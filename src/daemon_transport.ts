@@ -51,11 +51,14 @@ export class Remote {
   private started = false;
   private stderr = "";
   private bridge_ready = false;
+  /** With `start`, a daemon that isn't running is started; only a viewer
+   * reaching the machine asks that. */
   constructor(
     readonly profile: Profile,
     private readonly fresh = false,
     private readonly timeoutMs = startup_ms,
     private readonly lane: "control" | "data" = "control",
+    private readonly start = false,
   ) {}
   async open(): Promise<void> {
     if (this.stopped || this.started) throw Error("TransportClosed");
@@ -91,7 +94,7 @@ export class Remote {
     try {
       child = this.spawn([
         ...ssh.args(this.profile.target, false, this.fresh, this.lane),
-        ssh.bridge(this.profile.executable, this.profile.bridge!, this.profile.socket),
+        ssh.bridge(this.profile.executable, this.profile.bridge!, this.profile.socket, this.start),
       ]);
     } catch (error) {
       this.stderr = error instanceof Error ? error.message : "SSH startup failed";

@@ -70,21 +70,24 @@ export function command(executable: string, args: string[]): string {
 }
 
 /** Runs the machine's native bridge to `socket`. The Corgi there takes over
- * when the bridge finds no daemon listening (exit 3), which it starts, or
- * when an update or a reboot took the saved bridge away. The bridge lives
- * under a shared temporary folder, so it runs only from a native-files
- * folder the user there owns, as Corgi there loads them (native_paths.ts). */
-export function bridge(executable: string, bridge: string, socket: string): string {
+ * when an update or a reboot took the saved bridge away, and with `start`,
+ * when the bridge finds no daemon listening (exit 3): then it starts one.
+ * The bridge lives under a shared temporary folder, so it runs only from a
+ * native-files folder the user there owns, as Corgi there loads them
+ * (native_paths.ts). */
+export function bridge(executable: string, bridge: string, socket: string, start: boolean): string {
   for (const value of [executable, bridge])
     if (!value || /[\x00-\x1f\x7f]/.test(value)) throw Error("InvalidRemoteExecutable");
   const env = "env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER ",
     // ROOT/bin/corgi-remote-bridge, with ROOT in the user's own folder.
     folder = dirname(dirname(dirname(bridge))),
-    [path, owned, program, target] = [bridge, folder, executable, socket].map(os.shellQuote);
+    [path, owned, program, target] = [bridge, folder, executable, socket].map(os.shellQuote),
+    usable = `[ -O ${owned} ] && [ ! -L ${owned} ] && [ -x ${path} ]`;
   return shell(
-    `if [ -O ${owned} ] && [ ! -L ${owned} ] && [ -x ${path} ]; then ` +
-      `${env}${path} ${target}; status=$?; [ "$status" -eq 3 ] || exit "$status"; fi; ` +
-      `exec ${env}${program} __remote-bridge ${target}`,
+    start
+      ? `if ${usable}; then ${env}${path} ${target}; status=$?; [ "$status" -eq 3 ] || exit "$status"; fi; ` +
+          `exec ${env}${program} __remote-bridge ${target}`
+      : `if ${usable}; then exec ${env}${path} ${target}; fi; exec ${env}${program} __remote-bridge --running ${target}`,
   );
 }
 

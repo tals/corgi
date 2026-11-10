@@ -70,8 +70,11 @@ test("a bridge an update or a reboot took away, someone else's, or one finding n
     mkdirSync(dirname(bridge), { recursive: true });
     writeFileSync(bridge, '#!/bin/sh\necho "bridge $*"\n', { mode: 0o700 });
     writeFileSync(corgi, '#!/bin/sh\necho "corgi $*"\n', { mode: 0o700 });
+    let start = true;
     const run = async (saved: string) => {
-      const child = Bun.spawn(["/bin/sh", "-c", ssh.bridge(corgi, saved, "/run/corgi.sock")], { stdout: "pipe" });
+      const child = Bun.spawn(["/bin/sh", "-c", ssh.bridge(corgi, saved, "/run/corgi.sock", start)], {
+        stdout: "pipe",
+      });
       return (await new Response(child.stdout).text()).trim();
     };
     expect(await run(bridge)).toBe("bridge /run/corgi.sock");
@@ -84,6 +87,11 @@ test("a bridge an update or a reboot took away, someone else's, or one finding n
     expect(await run("/usr/bin/env")).toBe("corgi __remote-bridge /run/corgi.sock");
     symlinkSync(dir + "/native", dir + "/link");
     expect(await run(dir + "/link/hash/bin/corgi-remote-bridge")).toBe("corgi __remote-bridge /run/corgi.sock");
+    // Asked not to start one, as after a deliberate shutdown: nothing listening stays so.
+    start = false;
+    expect(await run(idle)).toBe("");
+    expect(await run(bridge)).toBe("bridge /run/corgi.sock");
+    expect(await run(dir + "/gone")).toBe("corgi __remote-bridge --running /run/corgi.sock");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
