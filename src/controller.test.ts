@@ -5873,19 +5873,26 @@ test("a terminal launched while its worktree is added opens in the workspace it 
   }
 });
 
-test("pastes waiting for a pane's input leave only the last, by every way a paste comes", async () => {
-  const { s } = slowDaemon();
+test("a pane takes one paste at a time by every way a paste comes, says so, and typing still goes", async () => {
+  const { s, answer } = slowDaemon();
   try {
     s.input_state.attached = true;
     s.focusPane(1);
-    const pending = () => Buffer.from(s.pane(1).terminal.pending).toString();
-    await s.input(bytes("\x1b[200~one\x1b[201~x\x1b[200~two\x1b[201~"));
-    expect(pending()).toBe("xtwo");
+    const terminal = s.pane(1).terminal,
+      pending = () => Buffer.from(terminal.pending).toString();
+    await s.input(bytes("\x1b[200~one\x1b[201~x\x1b[200~two\x1b[201~y"));
+    expect(pending()).toBe("onexy");
+    expect(s.message).toBe(" Still sending the last paste; paste again once it lands");
     s.clipboard = "three";
     await s.perform({ name: "paste" });
-    expect(pending()).toBe("xthree");
     s.pasteText({ pane: 1 }, "four");
-    expect(pending()).toBe("xfour");
+    expect(pending()).toBe("onexy");
+    // Once the daemon has it, the next paste goes.
+    const sent = terminal.flush();
+    await answer();
+    await sent;
+    s.pasteText({ pane: 1 }, "five");
+    expect(pending()).toBe("five");
   } finally {
     viewer.close(s);
   }

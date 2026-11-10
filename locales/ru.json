@@ -161,6 +161,7 @@
   " Smart Links on": " Умные ссылки включены",
   " Split ": " Разделить ",
   " Startup waits (${count}) ": " Ожидание запуска (${count}) ",
+  " Still sending the last paste; paste again once it lands": " Предыдущая вставка ещё отправляется; вставьте снова, когда она дойдёт",
   " Summaries and link names: ${label}": " Описания и названия ссылок: ${label}",
   " Summaries and link names: ${label} (not saved for next start)": " Описания и названия ссылок: ${label} (не сохранено для следующего запуска)",
   " The new pane is still opening": " Новая панель ещё открывается",

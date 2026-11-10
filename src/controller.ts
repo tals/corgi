@@ -3577,7 +3577,10 @@ export class Controller {
           const p = this.openingFocus() ? null : this.focused();
           if (p) {
             const bracketed = p.terminal.bracketedPaste();
-            p.terminal.pasteStart();
+            if (!p.terminal.pasteStart()) {
+              this.pasteRefused();
+              break;
+            }
             if (bracketed) this.sendInput(p.terminal, "\x1b[200~");
             this.sendInput(p.terminal, this.clipboard);
             if (bracketed) this.sendInput(p.terminal, "\x1b[201~");
@@ -6553,6 +6556,7 @@ export class Controller {
     this.closePasteCard();
     const target = this.pasteTarget();
     if (target === "discard") return;
+    if (typeof target === "object" && this.pane(target.pane)?.terminal.pasting()) return this.pasteRefused();
     // A program that takes paste events gets the clipboard itself.
     const types = hostClipboard.relayTypes(listing);
     if (typeof target === "object" && types.length > 0) {
@@ -6614,17 +6618,30 @@ export class Controller {
   /** Has the daemon offer the clipboard in the program's own paste event,
    * or pastes it as text or an image's path when the daemon can't. */
   private async relayPaste(target: Paste, relayed: hostClipboard.Relay, lane: tasks.Lane): Promise<void> {
-    const encoded = relayed.text !== null ? Buffer.from(relayed.text).toString("base64") : null;
+    const encoded = relayed.text !== null ? Buffer.from(relayed.text).toString("base64") : null,
+      p = typeof target === "object" ? this.pane(target.pane) : null;
+    if (p?.terminal.pasting()) return this.pasteRefused();
+    // The pane takes no other paste until the daemon answers this one.
+    const sent = p?.terminal.pasteOut();
+    let pasted = false;
     try {
       const reply = await lane.call("pane.paste", {
         pane: typeof target === "object" ? target.pane : 0,
         text: encoded,
         image: relayed.image ? { mime: relayed.image.mime, path: relayed.image.path } : null,
       });
-      if (reply.pasted) return;
-    } catch {}
+      pasted = reply.pasted;
+    } catch {
+    } finally {
+      sent?.();
+    }
+    if (pasted) return;
     if (relayed.text !== null) return this.pasteClipboardText(target, relayed.text);
     if (relayed.image) return this.pasteText(target, relayed.image.path);
+  }
+  /** A paste a pane refused, since its last is still on its way. */
+  private pasteRefused(): void {
+    this.notice(i18n.t` Still sending the last paste; paste again once it lands`);
   }
   /** Pastes `text` as the host terminal would have: control characters
    * become spaces, and a pane gets it bracketed if it asked to be. */
@@ -6634,7 +6651,7 @@ export class Controller {
     if (typeof target === "object") {
       const p = this.pane(target.pane);
       if (!p) return this.notice(i18n.t`The pane closed before the paste arrived`);
-      p.terminal.pasteStart();
+      if (!p.terminal.pasteStart()) return this.pasteRefused();
       this.sendInput(p.terminal, viewerNative.encodePaste(text, p.terminal.bracketedPaste()));
       p.terminal.pasteEnd();
     } else if (target === "prompt") {
@@ -7032,7 +7049,14 @@ export class Controller {
       }
       const again = cl.paste === null ? bindings.repeatSequence(this.prefs.bindings(), text) : null;
       if (parsed_key === "paste_start" || parsed_key === "paste_end") {
-        if (parsed_key === "paste_start") cl.paste = this.pasteTarget();
+        if (parsed_key === "paste_start") {
+          cl.paste = this.pasteTarget();
+          const target = this.pastePane();
+          if (target && !target.terminal.pasteStart()) {
+            cl.paste = "discard";
+            this.pasteRefused();
+          }
+        }
         if (cl.paste === "prompt") {
           if (parsed_key === "paste_start") this.prompt.pasteStart();
           else this.prompt.pasteEnd();
@@ -7040,7 +7064,6 @@ export class Controller {
         }
         // The markers reach only an application that asked for them.
         const p = this.pastePane();
-        if (parsed_key === "paste_start") p?.terminal.pasteStart();
         if (cl.paste === "signin") await this.signin?.input(text);
         else if (p && p.terminal.bracketedPaste()) this.sendInput(p.terminal, seq);
         if (parsed_key === "paste_end") {

@@ -213,6 +213,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Smart Links on"]': () => ` 智能链接已开启`,
     '[" Split "]': () => ` 分屏 `,
     '[" Startup waits (",") "]': v0 => ` 启动等待（${v0}） `,
+    '[" Still sending the last paste; paste again once it lands"]': () => ` 上一次粘贴仍在发送中；送达后再粘贴`,
     '[" Summaries and link names: ",""]': v0 => ` 摘要与链接名称：${v0}`,
     '[" Summaries and link names: "," (not saved for next start)"]': v0 => ` 摘要与链接名称：${v0}（下次启动不保留）`,
     '[" The new pane is still opening"]': () => ` 新窗格仍在打开`,
@@ -1631,6 +1632,8 @@ ${v1} 使用该账号。
     '[" Smart Links on"]': () => ` スマートリンクはオンです`,
     '[" Split "]': () => ` 分割 `,
     '[" Startup waits (",") "]': v0 => ` 起動待ち（${v0}） `,
+    '[" Still sending the last paste; paste again once it lands"]': () =>
+      ` 前回の貼り付けをまだ送信中です。届いてから貼り付け直してください`,
     '[" Summaries and link names: ",""]': v0 => ` 要約とリンク名：${v0}`,
     '[" Summaries and link names: "," (not saved for next start)"]': v0 =>
       ` 要約とリンク名：${v0}（次回起動時には引き継ぎません）`,
@@ -3077,6 +3080,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Smart Links on"]': () => ` 스마트 링크 켜짐`,
     '[" Split "]': () => ` 분할 `,
     '[" Startup waits (",") "]': v0 => ` 시작 대기 (${v0}) `,
+    '[" Still sending the last paste; paste again once it lands"]': () =>
+      ` 이전 붙여넣기를 아직 보내는 중입니다. 도착한 뒤 다시 붙여넣으세요`,
     '[" Summaries and link names: ",""]': v0 => ` 요약 및 링크 이름: ${v0}`,
     '[" Summaries and link names: "," (not saved for next start)"]': v0 =>
       ` 요약 및 링크 이름: ${v0} (다음 시작에는 유지되지 않음)`,
@@ -4552,6 +4557,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Smart Links on"]': () => ` Умные ссылки включены`,
     '[" Split "]': () => ` Разделить `,
     '[" Startup waits (",") "]': v0 => ` Ожидание запуска (${v0}) `,
+    '[" Still sending the last paste; paste again once it lands"]': () =>
+      ` Предыдущая вставка ещё отправляется; вставьте снова, когда она дойдёт`,
     '[" Summaries and link names: ",""]': v0 => ` Описания и названия ссылок: ${v0}`,
     '[" Summaries and link names: "," (not saved for next start)"]': v0 =>
       ` Описания и названия ссылок: ${v0} (не сохранено для следующего запуска)`,

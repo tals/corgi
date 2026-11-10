@@ -145,6 +145,7 @@
   " Smart Links on": " スマートリンクはオンです",
   " Split ": " 分割 ",
   " Startup waits (${count}) ": " 起動待ち（${count}） ",
+  " Still sending the last paste; paste again once it lands": " 前回の貼り付けをまだ送信中です。届いてから貼り付け直してください",
   " Summaries and link names: ${label}": " 要約とリンク名：${label}",
   " Summaries and link names: ${label} (not saved for next start)": " 要約とリンク名：${label}（次回起動時には引き継ぎません）",
   " The new pane is still opening": " 新しいペインはまだ開いています",

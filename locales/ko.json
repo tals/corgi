@@ -145,6 +145,7 @@
   " Smart Links on": " 스마트 링크 켜짐",
   " Split ": " 분할 ",
   " Startup waits (${count}) ": " 시작 대기 (${count}) ",
+  " Still sending the last paste; paste again once it lands": " 이전 붙여넣기를 아직 보내는 중입니다. 도착한 뒤 다시 붙여넣으세요",
   " Summaries and link names: ${label}": " 요약 및 링크 이름: ${label}",
   " Summaries and link names: ${label} (not saved for next start)": " 요약 및 링크 이름: ${label} (다음 시작에는 유지되지 않음)",
   " The new pane is still opening": " 새 창이 아직 열리는 중입니다",

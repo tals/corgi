@@ -548,29 +548,48 @@ test("a hover still waiting gives way to the next; keys, presses and other modif
   }
 });
 
-test("only the last paste waits: a newer one replaces it, keys around it stay, and one on its way stays sent", () => {
+test("a pane takes one paste at a time: another is refused while it arrives, waits or goes unanswered", async () => {
+  let answer!: () => void;
   const pane = new mirror.Terminal(
-    transport(async () => ({})),
+    transport(async () => {
+      await new Promise<void>(resolve => (answer = resolve));
+      return { ok: true };
+    }),
     1,
     32,
     3,
   );
   const text = () => Buffer.from(pane.pending).toString();
-  const paste = (value: string) => {
-    pane.pasteStart();
-    pane.send(value);
-    pane.pasteEnd();
-  };
   try {
-    pane.send("a");
-    paste("one");
-    pane.send("b");
-    paste("two");
-    expect(text()).toBe("abtwo");
-    // Sent, a paste is no longer waiting, and the next one leaves it be.
-    pane.pending = [];
-    paste("three");
-    expect(text()).toBe("three");
+    expect(pane.pasteStart()).toBe(true);
+    pane.send("on");
+    // Sent while it's still arriving, the rest of it waits behind.
+    const first = pane.flush();
+    pane.send("e");
+    pane.pasteEnd();
+    pane.send("\r");
+    // Keys go in; another paste doesn't.
+    expect(pane.pasteStart()).toBe(false);
+    pane.send("x");
+    expect(text()).toBe("e\rx");
+    answer();
+    await first;
+    expect(pane.pasteStart()).toBe(false);
+    const rest = pane.flush();
+    expect(pane.pasting()).toBe(true);
+    answer();
+    await rest;
+    expect(pane.pasting()).toBe(false);
+    // An empty paste leaves nothing on its way.
+    expect(pane.pasteStart()).toBe(true);
+    pane.pasteEnd();
+    expect(pane.pasting()).toBe(false);
+    // One a program takes as an event counts until it's answered.
+    const done = pane.pasteOut();
+    expect(pane.pasteStart()).toBe(false);
+    done();
+    expect(pane.pasteStart()).toBe(true);
+    pane.pasteEnd();
   } finally {
     pane.destroy();
   }

@@ -97,9 +97,13 @@ export class Terminal {
   /** The pointer move that ends `pending`, while it does: where it starts,
    * its button code, and the buffer and length it was left at. */
   private motion: { at: number; code: number; buffer: number[]; end: number } | null = null;
-  /** The last paste put in `pending`: where it starts, and once it's whole,
-   * where it ends; while it waits there, a newer paste replaces it. */
-  private paste: { buffer: number[]; at: number; end: number | null } | null = null;
+  /** The paste on its way, if any: open while it arrives, `paste_in` the
+   * buffer holding it while it waits there (from `paste_at`), and how many
+   * sends carrying it are unanswered. See `pasting`. */
+  private paste_open = false;
+  private paste_in: number[] | null = null;
+  private paste_at = 0;
+  private paste_sending = 0;
   /** Keys sent and not yet answered. */
   private sending = 0;
   private links: Link[] | null = null;
@@ -269,20 +273,37 @@ export class Terminal {
     this.motion = null;
     for (const byte of data) this.pending.push(byte);
   }
-  /** Starts a paste. One still waiting whole gives way to it: only the last
-   * paste goes once the pane's input can move again, while what was typed
-   * around it stays. A paste already on its way isn't taken back. */
-  pasteStart(): void {
-    const last = this.paste;
-    if (last && last.buffer === this.pending && last.end !== null && last.end <= this.pending.length) {
-      this.pending.splice(last.at, last.end - last.at);
-      this.motion = null;
-    }
-    this.paste = { buffer: this.pending, at: this.pending.length, end: null };
+  /** Whether a paste is on its way: arriving, waiting to be sent, or sent
+   * and unanswered. A pane takes one paste at a time, so what waits for a
+   * slow daemon stays small and plain to see. */
+  pasting(): boolean {
+    return this.paste_open || this.paste_in === this.pending || this.paste_sending > 0;
+  }
+  /** Starts a paste; false, and the caller drops it, while one is on its way. */
+  pasteStart(): boolean {
+    if (this.pasting()) return false;
+    this.paste_open = true;
+    this.paste_in = this.pending;
+    this.paste_at = this.pending.length;
+    return true;
   }
   /** Ends the paste `pasteStart` began. */
   pasteEnd(): void {
-    if (this.paste?.buffer === this.pending && this.paste.end === null) this.paste.end = this.pending.length;
+    if (!this.paste_open) return;
+    this.paste_open = false;
+    // An empty paste, or one already sent whole, leaves nothing waiting.
+    if (this.paste_in !== this.pending || this.pending.length === this.paste_at) this.paste_in = null;
+  }
+  /** Counts a paste sent apart from `pending`, as `pane.paste` is, as on
+   * its way until the returned function runs. */
+  pasteOut(): () => void {
+    this.paste_sending++;
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      this.paste_sending--;
+    };
   }
   /** A hover, with button code `code`. A program wants where the pointer
    * is, not each cell it crossed while its input waited: a hover still
@@ -301,8 +322,15 @@ export class Terminal {
     const data = Buffer.from(this.pending).toString();
     // Over a link the input lands once, even across a reconnect; without one
     // its delivery is uncertain after a disconnect, so it's never sent again.
-    const keys = keyCount(this.pending);
+    const keys = keyCount(this.pending),
+      carried = this.paste_in === this.pending;
     this.pending = [];
+    if (carried) {
+      this.paste_sending++;
+      // The rest of a paste still arriving waits in the next buffer.
+      this.paste_in = this.paste_open ? this.pending : null;
+      this.paste_at = 0;
+    }
     this.sending += keys;
     try {
       await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
@@ -310,6 +338,7 @@ export class Terminal {
       if (!errors.is(error, "NoPane")) throw error;
     } finally {
       this.sending -= keys;
+      if (carried) this.paste_sending--;
     }
   }
   /** Keys typed here that the program hasn't been given yet. */
