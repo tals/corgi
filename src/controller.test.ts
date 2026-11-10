@@ -5306,6 +5306,35 @@ test("a remote paste the daemon couldn't take is typed into the pane instead", a
   }
 });
 
+test("a paste whose machine is no longer shown isn't typed into the shown one's pane", async () => {
+  let refuse!: (error: Error) => void;
+  const s = new Controller(
+    transport(async op => {
+      if (op === "pane.paste") return new Promise((_, reject) => (refuse = reject));
+      throw Error("UnexpectedRequest");
+    }),
+  );
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(folders("/w"), other);
+  s.input_state.attached = true;
+  s.host.clipboard = new hostClipboard.State();
+  try {
+    const id = s.runtime.panes[0].id;
+    expect(other.runtime.pane(id)).not.toBeNull();
+    Reflect.set(s, "paste_target", { pane: id });
+    const pasting = s.pasteResult({ relay: { text: "kept", image: null } });
+    s.switchMachine(other);
+    refuse(Error("StaleConnection"));
+    await pasting;
+    expect(other.runtime.pane(id)!.terminal.pending).toEqual([]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 test("remote image progress covers preparation, receipts and failure without leaking into a later paste", async () => {
   let report!: ImageProgress;
   let resolve!: (path: string) => void;

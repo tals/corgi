@@ -6741,6 +6741,9 @@ export class Controller {
     if (target === null) return Promise.resolve();
     this.paste_target = null;
     const progress = this.paste_progress;
+    // A pane's id means another pane once a different machine is shown.
+    const machine = this.machine,
+      shown = () => this.machine === machine;
     return this.tasks.run(async lane => {
       try {
         if ("text" in result) this.pasteClipboardText(target, result.text);
@@ -6750,14 +6753,14 @@ export class Controller {
           else {
             const path = await this.uploadImage(result.path, mime, progress);
             if (target === "prompt") this.promptImage(path);
-            else this.pasteText(target, path);
+            else if (shown()) this.pasteText(target, path);
           }
-        } else if ("relay" in result) await this.relayPaste(target, result.relay, progress, lane);
+        } else if ("relay" in result) await this.relayPaste(target, result.relay, progress, lane, shown);
         else this.notice(hostClipboard.Failure.message(result.failed));
         if (progress && this.paste_progress === progress) {
           if ("failed" in result) progress.finish(false);
           else if ("path" in result || ("relay" in result && result.relay.image))
-            progress.finish(this.pane(progress.pane) !== null);
+            progress.finish(shown() && this.pane(progress.pane) !== null);
           else this.paste_progress = null;
         }
       } catch (error) {
@@ -6796,6 +6799,7 @@ export class Controller {
     relayed: hostClipboard.Relay,
     progress: pasteProgress.State | null,
     lane: tasks.Lane,
+    shown: () => boolean,
   ): Promise<void> {
     const p = typeof target === "object" ? this.pane(target.pane) : null;
     if (p?.terminal.pasting()) return this.pasteRefused();
@@ -6821,7 +6825,7 @@ export class Controller {
     } finally {
       sent?.();
     }
-    if (pasted) return;
+    if (pasted || !shown()) return;
     if (relayed.text !== null) return this.pasteClipboardText(target, relayed.text);
     if (relayed.image) return this.pasteText(target, relayed.image.path);
   }
