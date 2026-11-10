@@ -644,8 +644,14 @@ export class Endpoint {
         generation,
         path: "primary",
       }));
+      // A race may have won meanwhile: this one is left closed, not current.
+      try {
+        this.current(generation);
+      } catch (error) {
+        conn.close();
+        throw error;
+      }
       this.connection = conn;
-      this.current(generation);
     }
     this.trace("remote.connection", "hello");
     conn.onEvent(event => {
