@@ -5214,6 +5214,12 @@ test("an image pasted into the prompt goes to the machine its conversation runs 
     await s.pasteResult({ path: "/tmp/image.png" });
     expect(uploaded).toEqual(["/tmp/image.png"]);
     expect(attached.mock.calls.map(c => c[0])).toEqual(["/remote/image.png"]);
+    // A new chat meanwhile starts here, where work's path means nothing.
+    Reflect.set(s, "paste_target", "prompt");
+    const pasting = s.pasteResult({ path: "/tmp/image.png" });
+    s.prompt.conversation.session = "";
+    await pasting;
+    expect(attached).toHaveBeenCalledTimes(1);
   } finally {
     attached.mockRestore();
     viewer.close(s);

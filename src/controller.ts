@@ -6787,10 +6787,13 @@ export class Controller {
           const mime = hostClipboard.imageType(result.path);
           if (!mime) this.notice(hostClipboard.Failure.message("unsupported_image"));
           else {
-            // The prompt's image goes to the machine its conversation runs on.
-            if (target === "prompt")
-              this.promptImage(await this.uploadImage(result.path, mime, progress, this.promptMachine()));
-            else {
+            // The prompt's image goes to the machine its conversation runs on,
+            // and only while the prompt is still that machine's.
+            if (target === "prompt") {
+              const owner = this.promptMachine(),
+                path = await this.uploadImage(result.path, mime, progress, owner);
+              if (this.promptMachine() === owner) this.promptImage(path);
+            } else {
               const path = await this.uploadImage(result.path, mime, progress);
               if (shown()) this.pasteText(target, path);
             }
