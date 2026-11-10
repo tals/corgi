@@ -5454,6 +5454,21 @@ test("a paste whose machine is no longer shown isn't typed into the shown one's 
   }
 });
 
+test("a remote image paste the clipboard never brought leaves no progress behind", () => {
+  const s = new Controller({ ...transport(async () => ({})), image: async () => "/remote/image.png" });
+  s.receiveSnapshot(folders("/a"));
+  try {
+    Reflect.get(s, "expectPaste").call(s, { pane: s.runtime.panes[0].id }, true);
+    expect(s.paste_progress).not.toBeNull();
+    // A reconnect or a switch dropped the clipboard read.
+    s.pasteDropped();
+    expect(s.paste_progress).toBeNull();
+    expect(Reflect.get(s, "paste_target")).toBeNull();
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("remote image progress covers preparation, receipts and failure without leaking into a later paste", async () => {
   let report!: ImageProgress;
   let resolve!: (path: string) => void;

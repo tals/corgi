@@ -6762,6 +6762,13 @@ export class Controller {
     if (progress && this.paste_progress === progress) progress.phase = "attaching";
     return result;
   }
+  /** The paste the host clipboard was asked for won't come: its connection
+   * or the input it was typed into went first. Its progress goes with it. */
+  pasteDropped(): void {
+    this.paste_target = null;
+    this.paste_progress = null;
+    this.dirty = true;
+  }
   /** Pastes what the host clipboard brought, uploading an image first. The
    * viewer doesn't wait; the promise settles once the paste is done. */
   pasteResult(result: hostClipboard.Result): Promise<void> {

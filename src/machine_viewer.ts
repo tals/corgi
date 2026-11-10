@@ -443,7 +443,10 @@ export async function run(
         (clipboard.owner.generation !== clipboard.owner.endpoint.generation ||
           clipboard.owner.epoch !== clipboard.owner.endpoint.input_epoch)
       ) {
-        if (probe.clipboard.takeResult() || !probe.clipboard.reading) clipboard.owner = null;
+        if (probe.clipboard.takeResult() || !probe.clipboard.reading) {
+          clipboard.owner = null;
+          view.pasteDropped();
+        }
       }
       for (const input of parser.feed(probe.expire(now))) accept(input);
       for (const input of parser.expire(now)) accept(input);
