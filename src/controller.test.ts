@@ -5190,6 +5190,40 @@ test("the prompt's conversation stays on the machine it started on when another 
   }
 });
 
+test("a prompt conversation resumed after a reload stays on its machine when another is shown", async () => {
+  const asked: [string, string][] = [];
+  const daemon = (name: string) =>
+    transport(async (op: string) => {
+      asked.push([name, op]);
+      return op === "viewer.list" ? { viewers: [{}] } : { events: [] };
+    });
+  const s = new Controller(daemon("here"));
+  const other = new Machine({ request: daemon("work").request }, "work", true);
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(
+    {
+      ...folders("/w"),
+      headless_sessions: [
+        { id: 7, workspace: 1, provider: "claude", corgi: true, session: "left", pane: null, state: "idle" },
+      ],
+    },
+    other,
+  );
+  try {
+    s.switchMachine(other);
+    await Reflect.get(s, "resumePrompt").call(s);
+    expect(s.prompt.conversation.session).toBe("left");
+    s.switchMachine(s.machines[0]);
+    asked.length = 0;
+    await Reflect.get(s, "promptDaemon").call(s).call("headless.events", { session: "left" });
+    expect(asked).toEqual([["work", "headless.events"]]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 test("a remote machine's checkouts aren't read with this computer's git", () => {
   const s = controller();
   const other = new Machine({ request: transport(async () => ({})).request }, "work", true);

@@ -5673,14 +5673,17 @@ export class Controller {
    * or, as the only viewer, the newest one a viewer left behind. Never one a
    * Corgi pane holds, nor another live viewer's. */
   private async resumePrompt(): Promise<void> {
-    const left = this.runtime.corgi_sessions.filter(s => !s.exited && s.session && s.pane === null),
+    // The sessions are the shown machine's: it goes on there, whichever is shown later.
+    const machine = this.machine,
+      left = machine.runtime.corgi_sessions.filter(s => !s.exited && s.session && s.pane === null),
       mine = process.env[prompt_session_env];
     let pick = mine ? left.find(s => `${s.provider}:${s.session}` === mine) : undefined;
     if (!mine && left.length) {
-      const reply = await call(this.connection, "viewer.list", {}).catch(() => null);
+      const reply = await call(machine.connection, "viewer.list", {}).catch(() => null);
       if (reply?.viewers.length === 1) pick = left.at(-1);
     }
     if (pick && !this.prompt.conversation.session) {
+      this.prompt_machine = machine;
       this.prompt.attach(pick);
       this.dirty = true;
     }
