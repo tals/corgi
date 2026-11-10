@@ -1527,7 +1527,7 @@ export class View {
       if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
       const start = v.corgi_badge === "none" ? 1 : 5;
       w.write(`${w.cup(1, start + 1)}\x1b[1m` + fg("strong"));
-      writeEllipsis(w, "workspaces", sat(scope.x - start, 1));
+      writeEllipsis(w, i18n.t`workspaces`, sat(scope.x - start, 1));
       w.write(`${w.cup(1, scope.x + 1)}\x1b[22m` + fg("muted"));
       writeEllipsis(w, v.workspace_scope, sat(scope.w, 2));
       w.write(" ▾");
