@@ -127,6 +127,7 @@
   " Resize panes": " Размер панелей",
   " Resource readings are off: turn them on in Corgi setup → Resources": " Сбор данных о ресурсах выключен: включите его в Настройка Corgi → Ресурсы",
   " Retry !": " Повторить !",
+  " Review changes on the remote machine": " Просматривайте изменения на удалённом компьютере",
   " Review needs a wider window": " Для просмотра изменений нужно более широкое окно",
   " Save · Ctrl+S ": " Сохранить · Ctrl+S ",
   " Search ${count} agent": {

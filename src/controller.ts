@@ -639,7 +639,7 @@ export class Controller {
       const menu = this.tab_menu,
         cwd = menu ? this.menuCheckout(menu) : null;
       if (!menu || cwd === null) return;
-      menu.setDetail("review", this.review_summaries.get(cwd));
+      menu.setDetail("review", this.summary(cwd));
       this.dirty = true;
       this.wake();
     };
@@ -663,6 +663,7 @@ export class Controller {
     this.closeMachineUi();
     this.cancelInput();
     this.machine = machine;
+    if (!this.reviewable && this.review.open) this.closeReview();
     this.selected_pane = null;
     this.wake_pending = this.unarchive_pending = null;
     this.agent_since = new agentSections.Since();
@@ -2310,7 +2311,8 @@ export class Controller {
     });
     // Review changes says what it would show: the line read ahead, checked
     // again now, or placeholder bars until git answers.
-    this.review_summaries.ask(this.agentFolder(p));
+    if (this.reviewable) this.review_summaries.ask(this.agentFolder(p));
+    else opened.off.add("review");
     if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
     // The menu opens once the daemon answers, unless another click or Esc came first.
     this.menu_pending = opened;
@@ -2328,7 +2330,7 @@ export class Controller {
         }
       if (this.menu_pending !== opened || this.tab_menu !== null || !here()) return;
       this.menu_pending = null;
-      opened.setDetail("review", this.review_summaries.get(this.agentFolder(p)));
+      opened.setDetail("review", this.summary(this.agentFolder(p)));
       opened.highlightFirst();
       this.tab_menu = opened;
       this.dirty = true;
@@ -2360,8 +2362,9 @@ export class Controller {
       anchor_x: x,
       anchor_y: y,
     });
-    this.review_summaries.ask(selection.path);
-    opened.setDetail("review", this.review_summaries.get(selection.path));
+    if (this.reviewable) this.review_summaries.ask(selection.path);
+    else opened.off.add("review");
+    opened.setDetail("review", this.summary(selection.path));
     const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
     const main = ws?.worktrees?.entries.find(e => e.primary)?.path ?? ws?.cwd ?? "";
     opened.setDetail("copy-path", [[worktreeTooltip.displayPath(selection.path, main), "faint"]]);
@@ -10026,6 +10029,7 @@ export class Controller {
    * the pointer for a moment.
    * A turn starting or ending marks its checkout to be read again. */
   private readAhead(entries: sidebar.Entry[]): void {
+    if (!this.reviewable) return;
     const now = Date.now();
     let turned = false;
     for (const p of this.runtime.panes) {
@@ -10079,8 +10083,17 @@ export class Controller {
     const cwd = p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd;
     return worktreeAgents.folder(this.runtime.workspaces.owner(p.id)?.worktrees ?? null, { pane: p.id }, cwd);
   }
+  /** This computer's git reads the review panel's and the menus' checkouts,
+   * so a remote machine's, which are on another computer, aren't read. */
+  private get reviewable(): boolean {
+    return !this.machine.remote;
+  }
+  /** The menus' line for `cwd`'s changes, read ahead. */
+  private summary(cwd: string): ReturnType<typeof this.review_summaries.get> {
+    return this.reviewable ? this.review_summaries.get(cwd) : null;
+  }
   private reviewTarget(p = this.focused()): panel.Target | null {
-    if (!p) return null;
+    if (!p || !this.reviewable) return null;
     const agent = p.agent;
     return {
       pane: p.id,
@@ -10102,6 +10115,7 @@ export class Controller {
     this.closeReview();
   }
   private openReview(): void {
+    if (!this.reviewable) return this.notice(i18n.t` Review changes on the remote machine`);
     this.review.follow(this.reviewTarget());
     this.review.show();
     if (this.sidebarView([]).panel === 0) {

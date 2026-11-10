@@ -5164,6 +5164,27 @@ test("switching machines shows the other's data and closes what named the old on
   }
 });
 
+test("a remote machine's checkouts aren't read with this computer's git", () => {
+  const s = controller();
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(folders("/a"), other);
+  try {
+    // This computer has /a too: its changes aren't the remote agent's.
+    const wanted = spyOn(s.review_summaries, "want");
+    s.switchMachine(other);
+    Reflect.get(s, "openReview").call(s);
+    expect(s.review.open).toBe(false);
+    expect(s.message).toContain("Review changes on the remote machine");
+    Reflect.get(s, "readAhead").call(s, s.sidebarEntries());
+    expect(wanted).not.toHaveBeenCalled();
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 test("a remote machine's launcher lists the agents saved on that computer, not this one's", async () => {
   const opus = {
     agent: "profile/opus",

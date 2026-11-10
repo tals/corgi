@@ -194,6 +194,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Resource readings are off: turn them on in Corgi setup → Resources"]': () =>
       ` 资源监测已关闭：可在 Corgi 设置 → 资源中开启`,
     '[" Retry !"]': () => ` 重试 !`,
+    '[" Review changes on the remote machine"]': () => ` 请在远程机器上审查更改`,
     '[" Review needs a wider window"]': () => ` 请加宽窗口以查看代码审查`,
     '[" Save · Ctrl+S "]': () => ` 保存 · Ctrl+S `,
     '[" Search "," agent"]': v0 => ` 搜索 ${v0} 个智能体`,
@@ -1618,6 +1619,7 @@ ${v1} 使用该账号。
     '[" Resource readings are off: turn them on in Corgi setup → Resources"]': () =>
       ` リソース表示はオフです。Corgi設定 → リソースで有効にできます`,
     '[" Retry !"]': () => ` 再試行 !`,
+    '[" Review changes on the remote machine"]': () => ` リモートマシンで変更をレビューしてください`,
     '[" Review needs a wider window"]': () => ` レビューにはウィンドウを広げてください`,
     '[" Save · Ctrl+S "]': () => ` 保存 · Ctrl+S `,
     '[" Search "," agent"]': v0 => ` ${v0}エージェントを検索`,
@@ -3074,6 +3076,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Resource readings are off: turn them on in Corgi setup → Resources"]': () =>
       ` 리소스 표시가 꺼져 있습니다: Corgi 설정 → 리소스에서 켜세요`,
     '[" Retry !"]': () => ` 재시도 !`,
+    '[" Review changes on the remote machine"]': () => ` 원격 컴퓨터에서 변경 사항을 리뷰하세요`,
     '[" Review needs a wider window"]': () => ` 리뷰하려면 창을 넓혀 주세요`,
     '[" Save · Ctrl+S "]': () => ` 저장 · Ctrl+S `,
     '[" Search "," agent"]': v0 => ` 에이전트 ${v0}개 검색`,
@@ -4532,6 +4535,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Resource readings are off: turn them on in Corgi setup → Resources"]': () =>
       ` Сбор данных о ресурсах выключен: включите его в Настройка Corgi → Ресурсы`,
     '[" Retry !"]': () => ` Повторить !`,
+    '[" Review changes on the remote machine"]': () => ` Просматривайте изменения на удалённом компьютере`,
     '[" Review needs a wider window"]': () => ` Для просмотра изменений нужно более широкое окно`,
     '[" Save · Ctrl+S "]': () => ` Сохранить · Ctrl+S `,
     '[" Search "," agent"]': v0 => {

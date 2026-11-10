@@ -127,6 +127,7 @@
   " Resize panes": " ペインのサイズ変更",
   " Resource readings are off: turn them on in Corgi setup → Resources": " リソース表示はオフです。Corgi設定 → リソースで有効にできます",
   " Retry !": " 再試行 !",
+  " Review changes on the remote machine": " リモートマシンで変更をレビューしてください",
   " Review needs a wider window": " レビューにはウィンドウを広げてください",
   " Save · Ctrl+S ": " 保存 · Ctrl+S ",
   " Search ${count} agent": " ${count}エージェントを検索",

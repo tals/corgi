@@ -127,6 +127,7 @@
   " Resize panes": " 调整窗格大小",
   " Resource readings are off: turn them on in Corgi setup → Resources": " 资源监测已关闭：可在 Corgi 设置 → 资源中开启",
   " Retry !": " 重试 !",
+  " Review changes on the remote machine": " 请在远程机器上审查更改",
   " Review needs a wider window": " 请加宽窗口以查看代码审查",
   " Save · Ctrl+S ": " 保存 · Ctrl+S ",
   " Search ${count} agent": " 搜索 ${count} 个智能体",

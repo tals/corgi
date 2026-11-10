@@ -127,6 +127,7 @@
   " Resize panes": " 패널 크기 조절",
   " Resource readings are off: turn them on in Corgi setup → Resources": " 리소스 표시가 꺼져 있습니다: Corgi 설정 → 리소스에서 켜세요",
   " Retry !": " 재시도 !",
+  " Review changes on the remote machine": " 원격 컴퓨터에서 변경 사항을 리뷰하세요",
   " Review needs a wider window": " 리뷰하려면 창을 넓혀 주세요",
   " Save · Ctrl+S ": " 저장 · Ctrl+S ",
   " Search ${count} agent": " 에이전트 ${count}개 검색",
