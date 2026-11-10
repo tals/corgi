@@ -450,6 +450,9 @@ export class Controller {
    * `openingFocus`. */
   private opening: { value: Opening; here: () => boolean; revision: number } | null = null;
   private next_opening = -1;
+  /** YOLO values the launcher shows before the daemon has them: the value
+   * last asked for on `machine`, and how many requests are still out. */
+  private yolo_pending = new Map<LauncherRow, { machine: Machine; enabled: boolean; out: number }>();
   port_menu: sidebar.PortMenu | null = null;
   /** Activity sections folded to their header; done starts so. */
   folded_sections = new Set<Section>(["done"]);
@@ -3936,8 +3939,11 @@ export class Controller {
     }
     const agent = Row.launch(row);
     if (agent) return this.launchAgent(agent.provider, agent.account);
+    // The workspace it was asked for, though a planned worktree may make it wait.
+    const workspace = launch?.workspace ?? this.current().id;
     this.launchIn(
-      (dir, lane) => this.create(null, dir, null, "", undefined, lane, false),
+      async (dir, lane) =>
+        (await this.execute({ "pane.create": { workspace, cwd: dir, command: null, title: "" } }, lane)).pane,
       pane => this.showCreated(pane),
     );
   }
@@ -4720,34 +4726,56 @@ export class Controller {
     this.dirty = true;
   }
   /** Toggles YOLO for a provider's or an account's row. */
-  private async toggleLauncherYolo(row: LauncherRow): Promise<void> {
-    const profile = Row.profile(row);
-    if (profile) {
-      const value = this.launcherProfiles().find(p => p.id === profile);
-      if (value) {
-        await this.execute({ "agent.launcher.configure": { row, yolo: !value.yolo } });
-        // A remote machine's list is read again only as a launcher opens.
-        if (this.machine.remote) value.yolo = !value.yolo;
-        if (this.agent_launcher) this.agent_launcher.profiles = this.launcherProfiles();
-      }
-      this.dirty = true;
-      return;
-    }
-    const target = Row.launch(row);
-    if (!target || adapter(target.provider).bypass === false) return;
-    const { provider, account } = target,
-      list = this.runtime.account_yolo,
-      enabled = account ? !list.includes(account) : !this.runtime.agent_yolo[provider];
-    // An older daemon refuses fields it doesn't know, so the default sends none.
-    await this.execute({ "agent.yolo": { provider, enabled, ...(account ? { account } : {}) } });
-    const launch = this.agent_launcher;
-    if (launch) {
-      if (account) launch.account_yolo = toggled(list, account, enabled);
-      else launch.yolo[provider] = enabled;
+  /** Flips `row`'s YOLO on screen at once and sends the value shown, so a
+   * quick second press flips it back rather than repeat the first. The
+   * launcher keeps showing it until the daemon has the last one. */
+  private toggleLauncherYolo(row: LauncherRow): void {
+    const launch = this.launcherModel();
+    if (!launch) return;
+    const id = Row.profile(row),
+      target = id ? null : Row.launch(row);
+    if (id ? !launch.profileOf(row) : !target || adapter(target.provider).bypass === false) return;
+    const enabled = !launch.yoloOf(row),
+      machine = this.machine,
+      before = this.yolo_pending.get(row),
+      pending = { machine, enabled, out: (before?.machine === machine ? before.out : 0) + 1 };
+    this.yolo_pending.set(row, pending);
+    showYolo(launch, row, enabled);
+    if (target) {
       launch.selected = row;
       launch.pinned = true;
     }
     this.dirty = true;
+    // An older daemon refuses fields it doesn't know, so the default sends none.
+    const command: CommandInput = target
+      ? { "agent.yolo": { provider: target.provider, enabled, ...(target.account ? { account: target.account } : {}) } }
+      : { "agent.launcher.configure": { row, yolo: enabled } };
+    this.later(async lane => {
+      let sent = false;
+      try {
+        await this.execute(command, lane);
+        sent = true;
+        // A remote machine's list is read again only as a launcher opens.
+        if (id && machine.remote) for (const p of machine.profiles.list) if (p.id === id) p.yolo = enabled;
+      } finally {
+        if (this.yolo_pending.get(row) === pending && --pending.out === 0) {
+          this.yolo_pending.delete(row);
+          const shown = this.launcherModel();
+          // Refused, the launcher shows what the daemon has again.
+          if (shown && !sent && this.machine === machine) this.syncLauncherYolo(shown);
+        }
+        this.dirty = true;
+      }
+    });
+  }
+  /** The launcher's YOLO values as the daemon last said, with those still on
+   * their way to it over them. */
+  private syncLauncherYolo(launch: LauncherMenu): void {
+    launch.yolo = { ...this.runtime.agent_yolo };
+    launch.account_yolo = this.runtime.account_yolo;
+    launch.profiles = this.launcherProfiles();
+    for (const [row, { machine, enabled }] of this.yolo_pending)
+      if (machine === this.machine) showYolo(launch, row, enabled);
   }
   /** Shows or hides a provider's or an account's row in the picker. */
   private async setLauncherShown(target: agentLauncher.Launch, shown: boolean): Promise<void> {
@@ -4941,17 +4969,15 @@ export class Controller {
     const hit = this.pointer ? side.hit(this.pointer.x, this.pointer.y).tag : "none";
     const on_button = hit === "agent_new" || hit === "agent_options";
     if (launch) {
-      launch.yolo = { ...this.runtime.agent_yolo };
       launch.hidden = { ...this.runtime.agent_hidden };
       launch.added = [...this.runtime.launcher_added];
-      launch.account_yolo = this.runtime.account_yolo;
       launch.account_hidden = this.runtime.account_hidden;
       const i = this.runtime.workspaces.index(launch.workspace);
       if (i !== null) {
         launch.workspace_hidden = this.runtime.workspaces.items[i].launcher_hidden;
         launch.workspace_order = this.runtime.workspaces.items[i].launcher_order;
       }
-      launch.profiles = this.launcherProfiles();
+      this.syncLauncherYolo(launch);
       launch.commands = this.runtime.agent_commands;
       launch.accounts = this.runtime.accounts;
       if (!this.machine.remote && launch.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
@@ -6164,7 +6190,7 @@ export class Controller {
           case 121:
             if (!launch.managing) {
               const row = launch.selected;
-              this.later(() => this.toggleLauncherYolo(row));
+              this.toggleLauncherYolo(row);
             }
             break;
           case 117:
@@ -7967,7 +7993,7 @@ export class Controller {
         const hit = side.hit(x, y).tag;
         const yolo = this.agent_launcher.yoloHit(this.width, this.height, side, x, y);
         const usage = yolo === null ? this.agent_launcher.usageHit(this.width, this.height, side, x, y) : null;
-        if (yolo !== null) this.later(() => this.toggleLauncherYolo(yolo));
+        if (yolo !== null) this.toggleLauncherYolo(yolo);
         else if (usage !== null) await this.trackLauncherUsage(usage);
         else if (hit === "agent_new") await this.launchAgent(null);
         else if (hit === "agent_options") this.agent_launcher.pinned = true;
@@ -9959,6 +9985,18 @@ function removalReason(err: string | null): string {
 }
 const preview_changed = i18n.t`The commits to push changed. Review them and push again.`;
 /** Input held for a task, at most; the same bound pane input has. */
+/** Shows `row`'s YOLO as `enabled` in `launch`. */
+function showYolo(launch: LauncherMenu, row: LauncherRow, enabled: boolean): void {
+  const id = Row.profile(row);
+  if (id) {
+    launch.profiles = launch.profiles.map(p => (p.id === id ? { ...p, yolo: enabled } : p));
+    return;
+  }
+  const target = Row.launch(row);
+  if (!target) return;
+  if (target.account) launch.account_yolo = toggled(launch.account_yolo, target.account, enabled);
+  else launch.yolo = { ...launch.yolo, [target.provider]: enabled };
+}
 /** Whether `name` acts on the focused pane, which a pane still opening
  * stands in for. */
 function onFocusedPane(name: string): boolean {

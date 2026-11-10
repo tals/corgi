@@ -784,7 +784,10 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     return collected;
   }
   async test_real_client_restores_terminal_on_detach() {
-    await this.checkRealClientExit("\x02q", 1);
+    const output = await this.checkRealClientExit("\x02q", 1);
+    // Corgi's theme paints the terminal's margins, and gives them back on detach.
+    this.assertIn("\x1b]11;#", output);
+    this.assertLess(output.indexOf("\x1b]11;#"), output.lastIndexOf("\x1b]111\x1b\\"));
   }
   async test_real_client_passes_the_pane_cursor_shape_to_the_host() {
     const pane = (await this.open_pane({ command: "printf '\\033[6 qBAR_CURSOR'; sleep 30" })).pane;

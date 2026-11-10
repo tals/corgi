@@ -5791,6 +5791,68 @@ test("the first agent launched in an empty workspace is shown once it opens", as
   }
 });
 
+test("YOLO flips at once, holds through a refresh until the daemon has it, and a quick second press turns it back", async () => {
+  const { s, sent } = withWork();
+  try {
+    s.toggleLauncherYolo(work);
+    expect(s.agent_launcher.yoloOf(work)).toBe(true);
+    // The launcher's refresh from what the daemon last said keeps the value on its way.
+    s.syncLauncherYolo(s.agent_launcher);
+    expect(s.agent_launcher.yoloOf(work)).toBe(true);
+    s.toggleLauncherYolo(work);
+    expect(s.agent_launcher.yoloOf(work)).toBe(false);
+    await s.settle();
+    expect(sent.filter(c => "agent.yolo" in c).map(c => c["agent.yolo"].enabled)).toEqual([true, false]);
+    expect(s.agent_launcher.yoloOf(work)).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a YOLO change the daemon refuses goes back to what it has", async () => {
+  const { s } = recording(folders("/src/app"), c => ("agent.yolo" in c ? "Busy" : undefined));
+  try {
+    s.openLauncher(true);
+    s.toggleLauncherYolo("claude");
+    expect(s.agent_launcher.yoloOf("claude")).toBe(true);
+    await s.settle();
+    expect(s.agent_launcher.yoloOf("claude")).toBe(false);
+    expect(s.message).toBe("Busy");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a terminal launched while its worktree is added opens in the workspace it was asked for", async () => {
+  let added!: () => void;
+  const commands: any[] = [];
+  const s: any = new Controller({
+    request: transport(async (op, fields: any) => {
+      if (op === "worktree.add") await new Promise<void>(resolve => (added = resolve));
+      if (op !== "session.command") return pair();
+      commands.push(fields.command);
+      return { ok: true, result: { pane: 1 } };
+    }).request,
+  });
+  s.receiveSnapshot(pair());
+  s.input_state.attached = true;
+  try {
+    s.switchWorkspace(1);
+    s.openLauncher(true);
+    s.agent_launcher.worktree.planned = { branch: "b", base: "main", base_name: "main", path: "/a/b" };
+    await s.input(bytes("t"));
+    // Input carries on while Git adds the worktree.
+    s.closeMenu();
+    s.switchWorkspace(2);
+    added();
+    await s.settle();
+    expect(commands).toEqual([{ "pane.create": { workspace: 1, cwd: "/a/b", command: null, title: "" } }]);
+    expect(s.current().id).toBe(2);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("a delayed command refreshes its owning machine after the viewer switches", async () => {
   const pending = Promise.withResolvers<unknown>();
   let reads = 0;

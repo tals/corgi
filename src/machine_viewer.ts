@@ -8,6 +8,7 @@ import * as corgiBadge from "./corgi_badge";
 import * as rowGlide from "./row_glide";
 import * as linkThumbnail from "./link_thumbnail";
 import * as hostBackground from "./host_background";
+import * as palette from "./palette";
 import * as framePacing from "./frame_pacing";
 import * as preferences from "./preferences";
 import * as discovery from "./discovery";
@@ -299,6 +300,11 @@ export async function run(
         view.sync_notice = syncNotice(Date.now());
         frame = active.render();
         if (view.dirty || !composition.same(frame, previous) || view.overlayOpen()) active_at = Date.now();
+        if (viewer.ready(probe)) {
+          // A painted theme colors the terminal's margins too.
+          const backdrop = hostBackground.follow(palette.painted());
+          if (backdrop) viewer.writeAll(backdrop);
+        }
         if (!composition.same(frame, previous) && viewer.ready(probe)) {
           differ = viewer.present(differ, frame, cols, height, probe.pacer);
           previous = frame;
