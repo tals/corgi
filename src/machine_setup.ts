@@ -9,13 +9,21 @@ import * as ssh from "./ssh";
 import * as os from "./os";
 
 const quote = os.shellQuote;
-async function run(command: string[], input?: Blob, limit = 180_000): Promise<string> {
+/** How long a setup step may take; copying a build takes as long as the link
+ * needs, as SSH's keepalives end one that has gone dead. */
+const step_ms = 180_000;
+/** An install waits for an update check and for the daemon to reload. */
+const install_ms = 600_000;
+async function run(command: string[], input?: Blob, limit: number | null = step_ms): Promise<string> {
   const child = Bun.spawn(command, { stdin: input ?? "ignore", stdout: "pipe", stderr: "inherit" });
   let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    child.kill("SIGKILL");
-  }, limit);
+  const timer =
+    limit === null
+      ? undefined
+      : setTimeout(() => {
+          timedOut = true;
+          child.kill("SIGKILL");
+        }, limit);
   try {
     let output = "";
     for await (const chunk of child.stdout) {
@@ -33,8 +41,8 @@ async function run(command: string[], input?: Blob, limit = 180_000): Promise<st
     clearTimeout(timer);
   }
 }
-function remote(host: string, script: string, input?: Blob, fresh = false) {
-  return run(["ssh", ...ssh.args(host, true, fresh), ssh.shell(script)], input);
+function remote(host: string, script: string, input?: Blob, fresh = false, limit: number | null = step_ms) {
+  return run(["ssh", ...ssh.args(host, true, fresh), ssh.shell(script)], input, limit);
 }
 function lastJSON(output: string): unknown {
   return JSON.parse(output.trim().split("\n").at(-1) ?? "");
@@ -181,7 +189,6 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
           stdout: "pipe",
           stderr: "inherit",
         });
-        const timer = setTimeout(() => child.kill("SIGKILL"), 180_000);
         const writer = Bun.file(file).writer();
         let size = 0;
         try {
@@ -193,7 +200,6 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
           await writer.end();
           if (await child.exited) throw Error("ArtifactDownloadFailed");
         } finally {
-          clearTimeout(timer);
           child.kill();
           await writer.end();
         }
@@ -202,13 +208,17 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
         chmodSync(file, 0o700);
       } else file = await artifact(local, { ...installed!, target: local.target }, directory);
       const result = lastJSON(
-        await run([
-          file,
-          "__machine-install",
-          local.executable,
-          local.build_id,
-          existsSync(join(directory, "manifest.json")) ? join(directory, "manifest.json") : "",
-        ]),
+        await run(
+          [
+            file,
+            "__machine-install",
+            local.executable,
+            local.build_id,
+            existsSync(join(directory, "manifest.json")) ? join(directory, "manifest.json") : "",
+          ],
+          undefined,
+          install_ms,
+        ),
       ) as { executable: string };
       rmSync(directory, { recursive: true, force: true });
       process.execve!(result.executable, [result.executable, "machine", ...retryArgs], process.env);
@@ -240,6 +250,8 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
         host,
         `set -eu; cat > ${quote(staging + "/corgi")}; chmod 700 ${quote(staging + "/corgi")}`,
         Bun.file(file),
+        false,
+        null,
       );
       const manifest = join(directory, "manifest.json");
       if (existsSync(manifest)) await remote(host, `cat > ${quote(staging + "/manifest.json")}`, Bun.file(manifest));
@@ -250,6 +262,9 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
 if command -v sha256sum >/dev/null; then actual=$(sha256sum ${quote(staging + "/corgi")}); else actual=$(shasum -a 256 ${quote(staging + "/corgi")}); fi
 [ "\${actual%% *}" = ${quote(hash)} ] || exit 1
 ${installed?.socket ? "CORGI_SOCKET=" + quote(installed.socket) + " " : ""}${ssh.command(staging + "/corgi", ["__machine-install", executable, expected, existsSync(manifest) ? staging + "/manifest.json" : ""])}`,
+          undefined,
+          false,
+          install_ms,
         ),
       ) as { executable: string };
       executable = result.executable;
