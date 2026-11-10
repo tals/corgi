@@ -5814,6 +5814,21 @@ test("YOLO flips at once, holds through a refresh until the daemon has it, and a
   }
 });
 
+test("a launcher reopened while a YOLO change is on its way shows it, so the next press turns it back", async () => {
+  const { s, sent } = withWork();
+  try {
+    s.toggleLauncherYolo(work);
+    s.closeMenu();
+    s.openLauncher(true);
+    expect(s.agent_launcher.yoloOf(work)).toBe(true);
+    s.toggleLauncherYolo(work);
+    await s.settle();
+    expect(sent.filter(c => "agent.yolo" in c).map(c => c["agent.yolo"].enabled)).toEqual([true, false]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("a YOLO change the daemon refuses goes back to what it has", async () => {
   const { s } = recording(folders("/src/app"), c => ("agent.yolo" in c ? "Busy" : undefined));
   try {

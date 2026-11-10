@@ -4904,6 +4904,8 @@ export class Controller {
     launch.workspace_cwd = byteLength(this.current().cwd) <= 10 * 1024 ? this.current().cwd : "";
     launch.worktrees = this.current().worktrees ?? null;
     launch.worktree_folder = this.prefs.worktree_folder;
+    // A YOLO change still on its way shows in a launcher opened meanwhile.
+    this.syncLauncherYolo(launch);
     return launch;
   }
   private async newAgentShortcut(): Promise<void> {
