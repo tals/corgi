@@ -209,6 +209,8 @@ class Remote extends Runtime {
       listed.machines.find((p: { name: string }) => p.name === "work").executable,
       realpathSync(destination),
     );
+    // The shells survived a handoff to the installed binary, not the absence of one.
+    this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).executable, realpathSync(destination));
   }
   async tearDown() {
     try {
