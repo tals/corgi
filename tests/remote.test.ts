@@ -410,7 +410,8 @@ class Remote extends Runtime {
         this.text()
           .split("\n")
           .findIndex(row => row.includes(`${name}_WORKSPACE`)) + 2;
-      await this.until(() => /C \d+%/.test(this.text().split("\n")[y]));
+      // "C 0%" beside a GPU reading, "CPU 0%" on a host without one.
+      await this.until(() => /\bC(PU)? \d+%/.test(this.text().split("\n")[y]));
       this.terminal!.write(`\x1b[<35;5;${y + 1}M`);
       await this.until(() => this.screen!.surface(0).surface.lines[y].includes(`38;2;${PALETTE.text}`));
       await this.until(() => this.text().includes("TOP PROCESSES"));
