@@ -39,6 +39,15 @@ function remote(host: string, script: string, input?: Blob, fresh = false) {
 function lastJSON(output: string): unknown {
   return JSON.parse(output.trim().split("\n").at(-1) ?? "");
 }
+/** A yes at the terminal; without one, no. */
+async function confirm(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return false;
+  process.stderr.write(`${question} [y/N] `);
+  process.stdin.resume();
+  const answer = await new Promise<string>(resolve => process.stdin.once("data", data => resolve(String(data))));
+  process.stdin.pause();
+  return /^y(es)?$/i.test(answer.trim());
+}
 async function ancestor(older: string, newer: string): Promise<boolean> {
   const child = Bun.spawn(["git", "merge-base", "--is-ancestor", older, newer], {
     stdin: "ignore",
@@ -153,6 +162,11 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
       process.stderr.write(`Remote Corgi ${installed!.version} is newer; upgrading this installation first…\n`);
       let file: string;
       if (!build.released(installed!.version) && installed!.target === local.target && installed!.build_id) {
+        // Its build runs here as this user, and only releases are checked
+        // against their publisher: the user decides whether to trust it.
+        const version = installed!.version.replace(/[\x00-\x1f\x7f]/g, "");
+        if (!(await confirm(`Install the development build ${version} from ${host} on this computer?`)))
+          throw Error("RemoteBuildDeclined");
         file = join(directory, "corgi");
         const child = Bun.spawn(["ssh", ...ssh.args(host, true, true), "cat " + quote(installed!.executable)], {
           stdin: "ignore",

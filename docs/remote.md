@@ -24,7 +24,9 @@ older installation to the newer build, preserving the canonical Corgi executable
 and using live daemon handoff to keep shells running. When Corgi is missing,
 setup installs it at `~/.local/bin/corgi`. `--executable` selects a different
 existing installation. Incompatible handoffs and divergent development builds
-stop with an explicit error instead of restarting sessions. See HACKING.md for
+stop with an explicit error instead of restarting sessions. When the remote has
+the newer development build, setup asks before installing it on this computer;
+releases are checked against their publisher and need no answer. See HACKING.md for
 cross-platform development artifacts and release verification.
 
 With saved profiles, `corgi` starts locally and connects to the other machines
