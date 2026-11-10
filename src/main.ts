@@ -73,7 +73,15 @@ async function reachable(daemon: rpc_http.Client, wait = true, finished = false)
     throw error;
   }
 }
-export async function ensureServer(daemon: rpc_http.Client, exe = executable, serve: string[] = []): Promise<void> {
+/** Starts this computer's daemon unless it answers. A failed start prints
+ * the end of its log, unless `quiet`: a full-screen viewer's terminal has no
+ * room for it. */
+export async function ensureServer(
+  daemon: rpc_http.Client,
+  exe = executable,
+  serve: string[] = [],
+  quiet = false,
+): Promise<void> {
   const path = daemon.socket;
   // A pane's daemon is running by definition. Starting one from inside it
   // would unlink the live socket and orphan every pane, and the new daemon
@@ -122,9 +130,10 @@ export async function ensureServer(daemon: rpc_http.Client, exe = executable, se
       if (await answers()) return;
       await Bun.sleep(20);
     }
-    try {
-      process.stderr.write(readFileSync(log, "utf8").slice(-8192));
-    } catch {}
+    if (!quiet)
+      try {
+        process.stderr.write(readFileSync(log, "utf8").slice(-8192));
+      } catch {}
     throw Error("ServerStartFailed");
   } finally {
     flock(guard, false);
@@ -270,7 +279,9 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       if (process.env.CORGI_PANE) throw Error("NestedCorgi");
       if ((command === "open" && args.length !== 2) || (command === "attach" && args.length > 1)) throw Error("Usage");
       const client = await import("./client");
-      await client.attachMachines(path, selected, command === "open" ? args[1] : null, () => ensureServer(daemon));
+      await client.attachMachines(path, selected, command === "open" ? args[1] : null, () =>
+        ensureServer(daemon, executable, [], true),
+      );
     } else {
       const remote = await import("./machine_cli");
       if (!remote.remoteCommand(args)) throw Error("UnsupportedRemoteCommand");
@@ -423,7 +434,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       const client = await import("./client");
       // `--machine local` is the local viewer alone.
       // A daemon that dies under the viewer is started again.
-      const restart = () => ensureServer(daemon);
+      const restart = () => ensureServer(daemon, executable, [], true);
       if (selected === "local") await client.attachLocal(path, restart);
       else await client.attach(path, null, restart);
       return;
@@ -448,7 +459,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         console.error("crash reports are off:", error);
       }
       const client = await import("./client");
-      await client.attach(path, folder, () => ensureServer(daemon));
+      await client.attach(path, folder, () => ensureServer(daemon, executable, [], true));
       return;
     }
     case "onboard": {
@@ -466,7 +477,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         console.error("crash reports are off:", error);
       }
       const client = await import("./client");
-      await client.onboard(path, () => ensureServer(daemon));
+      await client.onboard(path, () => ensureServer(daemon, executable, [], true));
       return;
     }
     case "__viewer-test": {
