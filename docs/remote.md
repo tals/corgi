@@ -204,6 +204,9 @@ sessions and handoffs are unchanged; no data migration is needed.
 `session.snapshot` accepts an optional `resources` boolean to keep background
 sampling subscribed for that connection. Older daemons ignore the field; use a
 matching build on each host for continuous background readings.
+`viewer.stream` and `viewer.stream.configure` accept an optional `heartbeat_ms`,
+how often a stream with nothing new still sends a frame (default 250). A viewer
+over SSH asks for 1000; older daemons ignore the field and send one every 250 ms.
 `link.open` and `link.resume` are new operations, so `hello` lists them; numbered
 requests add `seq` and `answered` fields that older daemons ignore. A viewer uses
 links only with a daemon that lists them, and otherwise behaves as before. Handoffs

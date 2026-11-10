@@ -25,11 +25,14 @@ export class Stream {
   private confirmed = false;
   private retained = new Map<number, surface.View>();
   private received = 0n;
+  /** `heartbeat_ms` is how often a quiet daemon shows it's alive; the
+   * viewer asks again no more often than that, nor than every 500 ms. */
   constructor(
     private readonly connection: Connection,
     private readonly changed: () => void = () => {},
     private readonly incremental = false,
     private readonly data = connection,
+    private readonly heartbeat_ms = 250,
   ) {
     connection.onClose(changed);
     if (data !== connection) data.onClose(changed);
@@ -213,6 +216,7 @@ export class Stream {
               ...request,
               sequence,
               incremental: this.incremental,
+              heartbeat_ms: this.heartbeat_ms,
             })
             .then(reply => {
               viewerVersion.require(reply);
@@ -225,7 +229,7 @@ export class Stream {
       })
       .finally(() => {
         this.pending = false;
-        this.next = performance.now() + 500;
+        this.next = performance.now() + Math.max(500, this.heartbeat_ms);
       });
   }
 }

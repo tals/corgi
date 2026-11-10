@@ -840,6 +840,9 @@ export class Endpoint {
         },
         this.incremental,
         data,
+        // Over SSH a link is stalled after 4 s or more: a frame a second shows
+        // it's alive. Each costs a round trip on the wire.
+        this.remote ? 1000 : 250,
       );
       visible &&= this.shown && selection === this.selection;
       if (visible && this.folder !== null) {

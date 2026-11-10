@@ -238,6 +238,7 @@ export async function start(s: Server, cl: Client, q: Request<"viewer.stream">, 
     resources_hash: null,
     sent: 0,
     wake: 0n,
+    heartbeat: Math.min(5000, Math.max(250, q.heartbeat_ms)),
     delivery: q.incremental ? new viewer_stream.Frames() : undefined,
   };
   const encoded = cl.stream.delivery?.offer(view);
@@ -271,7 +272,7 @@ export function publish(s: Server, cl: Client, wake: bigint, now = Date.now(), s
   const output = stream.separate ? data(s, cl) : cl;
   if (!output) return;
   if (stream.delivery && !stream.delivery.available) return;
-  if (stream.wake === wake && now - stream.sent < 250) return;
+  if (stream.wake === wake && now - stream.sent < stream.heartbeat) return;
   if (output.queued || now - stream.sent < 16 || (stream.separate && !scheduled)) {
     output.deferFrame(stream.sent + 16, () => {
       if (cl.stream === stream) publish(s, cl, wake, Date.now(), true);
