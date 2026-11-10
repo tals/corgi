@@ -5804,6 +5804,11 @@ test("YOLO flips at once, holds through a refresh until the daemon has it, and a
     await s.settle();
     expect(sent.filter(c => "agent.yolo" in c).map(c => c["agent.yolo"].enabled)).toEqual([true, false]);
     expect(s.agent_launcher.yoloOf(work)).toBe(false);
+    // Once both are answered, the launcher shows what the daemon says again.
+    expect(s.yolo_pending.size).toBe(0);
+    s.runtime.account_yolo = ["/accounts/work"];
+    s.syncLauncherYolo(s.agent_launcher);
+    expect(s.agent_launcher.yoloOf(work)).toBe(true);
   } finally {
     viewer.close(s);
   }

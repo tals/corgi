@@ -4738,7 +4738,10 @@ export class Controller {
     const enabled = !launch.yoloOf(row),
       machine = this.machine,
       before = this.yolo_pending.get(row),
-      pending = { machine, enabled, out: (before?.machine === machine ? before.out : 0) + 1 };
+      // Presses on one row share a count, so the last reply ends the wait.
+      pending = before?.machine === machine ? before : { machine, enabled, out: 0 };
+    pending.enabled = enabled;
+    pending.out++;
     this.yolo_pending.set(row, pending);
     showYolo(launch, row, enabled);
     if (target) {
