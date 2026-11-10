@@ -6012,7 +6012,24 @@ test("through the viewer's routing, a workspace name's double-click renames and 
   }
 });
 
-test("closing a workspace settles on the one shown next, unless the user went elsewhere meanwhile", async () => {
+test("a press after a drag on a workspace's name starts no rename", async () => {
+  const { s, rect } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    const at = rect({ workspace: 2 });
+    expect(s.workspaceDragInput(at.x, at.y, 0, false)).toBe(true);
+    expect(s.workspaceDragInput(at.x + 1, at.y, 32, false)).toBe(true);
+    expect(s.workspaceDragInput(at.x, at.y, 32, false)).toBe(true);
+    expect(s.workspaceDragInput(at.x, at.y, 0, true)).toBe(true);
+    expect(s.workspaceDragInput(at.x, at.y, 0, false)).toBe(true);
+    expect(s.inline_rename).toBeNull();
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("closing the workspace shown settles on the next, unless the user went elsewhere; closing another leaves the view", async () => {
   for (const moved of [false, true]) {
     let closed = false,
       release!: () => void;
@@ -6039,6 +6056,19 @@ test("closing a workspace settles on the one shown next, unless the user went el
     } finally {
       viewer.close(s);
     }
+  }
+  const s: any = new Controller({
+    request: transport(async op => (op === "session.snapshot" ? pair() : { ok: true, result: {} })).request,
+  });
+  try {
+    s.receiveSnapshot(pair());
+    s.switchWorkspace(1);
+    const settle = spyOn(s, "switchWorkspace");
+    s.closeWorkspace(2, false);
+    await s.settle();
+    expect(settle).not.toHaveBeenCalled();
+  } finally {
+    viewer.close(s);
   }
 });
 

@@ -223,7 +223,11 @@ export async function run(argv: string[]): Promise<void> {
       return await conn.call(op as protocol.Op, payload as never);
     } catch (error) {
       // A daemon that reloaded hangs up: the next call dials again.
-      if (["ConnectionClosed", "ServerReloading", "EPIPE", "ECONNRESET"].includes(errors.name(error) ?? "")) {
+      if (
+        ["ConnectionClosed", "ServerReloading", "ServerShutdown", "EPIPE", "ECONNRESET"].includes(
+          errors.name(error) ?? "",
+        )
+      ) {
         conn.close();
         conn = new rpc.Connection(socket);
       }

@@ -4,6 +4,8 @@
 export const protocol = "corgi-stream-v1";
 /** The daemon handed off to a newer process: reconnect and resume the link. */
 export const reloading = 1012;
+/** The daemon is shutting down: nothing comes back to reconnect to. */
+export const going_away = 1001;
 /** Too many clients; try again later. */
 export const try_again = 1013;
 /** Text messages: the stream is bytes. */

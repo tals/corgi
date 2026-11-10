@@ -197,9 +197,10 @@ export async function run(path: string, write: (line: string) => void, o: Option
   }
 }
 /** What a failed connection says about the daemon: none is listening, it hung
- * up on us (a restart or handoff), or something else is wrong. */
+ * up on us (a restart, shutdown or handoff), or something else is wrong. */
 function lost(error: unknown): "absent" | "dropped" | null {
-  if (errors.is(error, "ConnectionClosed") || errors.is(error, "ServerReloading")) return "dropped";
+  if (errors.is(error, "ConnectionClosed") || errors.is(error, "ServerReloading") || errors.is(error, "ServerShutdown"))
+    return "dropped";
   const code = error instanceof Error && "code" in error ? error.code : null;
   if (code === "ENOENT" || code === "ECONNREFUSED") return "absent";
   return code === "ECONNRESET" || code === "EPIPE" ? "dropped" : null;

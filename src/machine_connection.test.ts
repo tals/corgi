@@ -346,18 +346,49 @@ test("this computer's daemon gone for good ends the viewer; one reloading, or a 
     for (const at of [1000, 3000]) for (const endpoint of [local, reloading, remote]) await fail(endpoint, at);
     expect(local.fatal).toBeNull();
     for (const endpoint of [local, reloading, remote]) await fail(endpoint, 6500);
-    expect(local.fatal?.message).toBe("ConnectionRefused");
+    expect(local.fatal?.message).toBe("ConnectionClosed");
     // A reload it announced may keep the daemon away a while longer.
     expect(reloading.fatal).toBeNull();
     await fail(reloading, 32_000);
     await fail(reloading, 40_000);
-    expect(reloading.fatal?.message).toBe("ConnectionRefused");
+    expect(reloading.fatal?.message).toBe("ConnectionClosed");
     await fail(remote, 60_000);
     expect(remote.fatal).toBeNull();
   } finally {
     for (const step of steps) step.mockRestore();
     clock.mockRestore();
     for (const endpoint of [local, reloading, remote]) await endpoint.close();
+  }
+});
+
+test("this computer's daemon shutting down ends the viewer at once; a retry after a pause starts its wait again", async () => {
+  const clock = spyOn(performance, "now").mockReturnValue(1000);
+  const fail = async (endpoint: Endpoint, at: number) => {
+    clock.mockReturnValue(at);
+    Reflect.set(endpoint, "next", 0);
+    endpoint.pump(true);
+    await Reflect.get(endpoint, "task");
+  };
+  const stopping = localEndpoint("/tmp/corgi-gone-test/control.sock", new Probe(), new Host());
+  const paused = localEndpoint("/tmp/corgi-gone-test/control.sock", new Probe(), new Host());
+  const steps = [stopping, paused].map(endpoint => {
+    Reflect.set(endpoint, "connected", true);
+    return spyOn(endpoint as any, "step").mockRejectedValue(Error("ConnectionRefused"));
+  });
+  steps[0].mockRejectedValueOnce(Error("ServerShutdown"));
+  try {
+    await fail(stopping, 1000);
+    expect(stopping.detached).toBe(true);
+    expect(stopping.fatal).toBeNull();
+    await fail(paused, 1000);
+    paused.pause();
+    paused.retry();
+    await fail(paused, 120_000);
+    expect(paused.fatal).toBeNull();
+  } finally {
+    for (const step of steps) step.mockRestore();
+    clock.mockRestore();
+    for (const endpoint of [stopping, paused]) await endpoint.close();
   }
 });
 

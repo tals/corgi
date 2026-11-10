@@ -6,6 +6,7 @@ import * as discovery from "./discovery";
 import * as agentModels from "./agent_models";
 import { Quit as ModelQuit } from "./subprocess";
 import * as telemetry from "./telemetry";
+import * as wire_websocket from "./wire_websocket";
 import type { Worker as SummaryWorker } from "./activity/worker";
 import type { Worker as UsageWorker } from "./usage/worker";
 import { existsSync, readFileSync, renameSync, rmSync, watch, type FSWatcher } from "node:fs";
@@ -1322,10 +1323,11 @@ export class Server {
     await launch.stop(this);
     observers.stop(this);
     importer.stop(this);
-    // A request still waiting hears why it won't be answered.
+    // A request still waiting hears why it won't be answered, and a viewer
+    // that there's nothing to reconnect to.
     for (const cl of [...this.clients])
       if (cl.http) cl.queue({ err: "ServerShutdown" });
-      else cl.close();
+      else cl.close(wire_websocket.going_away);
     const until = performance.now() + 1000;
     while (this.answering() && performance.now() < until) await Bun.sleep(5);
     void this.listening?.stop(true);

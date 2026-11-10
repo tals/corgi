@@ -986,12 +986,14 @@ export class Controller {
   private closeWorkspace(id: number, close_contents: boolean): void {
     if (this.runtime.workspaces.index(id) === null) throw Error("NoWorkspace");
     const machine = this.machine,
-      revision = this.navigation.revision;
+      revision = this.navigation.revision,
+      shown = this.current().id === id;
     this.later(async lane => {
       await this.edit({ "workspace.close": { target: id, close_contents } }, lane);
-      // Unless the user went elsewhere meanwhile, settle on the workspace
-      // shown now; closing the last one leaves the button to create another.
-      if (this.machine !== machine || this.navigation.revision !== revision) return;
+      // Closing the workspace shown, unless the user went elsewhere meanwhile,
+      // settles on the one shown now; closing the last leaves the button to
+      // create another. Closing another leaves the view as it is.
+      if (!shown || this.machine !== machine || this.navigation.revision !== revision) return;
       if (this.current().id) this.switchWorkspace(this.current().id);
       else this.closeMenu();
     });
@@ -1600,13 +1602,18 @@ export class Controller {
       return true;
     }
     const drag = this.workspace_drag;
-    if (button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
+    // A press that becomes a drag is no click: the next press starts a new series.
+    if (button === 32 && (x !== drag.start_x || y !== drag.start_y)) {
+      drag.dragging = true;
+      this.clicks.reset();
+    }
     if (!release && (button === 64 || button === 65) && drag.valid(side, ids)) {
       this.workspace_offset = Math.max(
         0,
         Math.min(sat(ids.length, side.workspaceCapacity()), side.workspace_offset + (button === 64 ? -1 : 1)),
       );
       drag.dragging = true;
+      this.clicks.reset();
     }
     drag.update(this.sidebarView([]), this.workspaceIds(), x, y);
     if (release && (button & 3) === 0) {
@@ -10100,6 +10107,7 @@ function lost(error: unknown): boolean {
   switch (errors.name(error)) {
     case "StaleConnection":
     case "ConnectionClosed":
+    case "ServerShutdown":
     case "RequestTimedOut":
       return true;
     default:

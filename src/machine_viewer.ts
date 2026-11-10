@@ -289,7 +289,8 @@ export async function run(
       for (const endpoint of endpoints) endpoint.pump(endpoint === active, idle);
       if (endpoints[0].fatal) throw endpoints[0].fatal;
       if (endpoints[0].uninstalled) break;
-      if (active.detached || !view.input_state.attached) break;
+      // This computer's daemon going away ends the viewer, whichever machine is shown.
+      if (active.detached || endpoints[0].detached || !view.input_state.attached) break;
       // Idle with nothing new, the screen is as it was; it's drawn only now
       // and then, for what changes with time alone.
       if (changed || !idle || view.dirty || held || Date.now() >= next_draw || Date.now() >= noticeDue()) {
@@ -348,14 +349,17 @@ export async function run(
   }
 }
 /** Whether `endpoint`'s daemon can't be reached at all, as opposed to being
- * behind or reconnecting: keys can't reach its panes then. */
-function unreachable(endpoint: Endpoint): boolean {
+ * behind or coming back after a reload: keys can't reach its panes then. */
+export function unreachable(endpoint: Pick<Endpoint, "status" | "failing">): boolean {
   switch (endpoint.status) {
     case "offline":
     case "paused":
     case "attention":
     case "incompatible":
       return true;
+    case "connecting":
+      // Trying again after failing, it still can't be reached.
+      return endpoint.failing;
     default:
       return false;
   }

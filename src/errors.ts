@@ -13,10 +13,10 @@ export function fromReply(reply: { err: string; [field: string]: unknown }): Err
 export function reply(error: unknown): object | null {
   return error instanceof Error && "reply" in error && typeof error.reply === "object" ? error.reply : null;
 }
-/** No daemon is there to answer, or it went away: its connection closed or
- * the socket failed. */
+/** No daemon is there to answer, or it went away: its connection closed,
+ * it shut down, or the socket failed. */
 export function unreachable(error: unknown): boolean {
-  return is(error, "ConnectionClosed") || (error instanceof Error && "code" in error);
+  return is(error, "ConnectionClosed") || is(error, "ServerShutdown") || (error instanceof Error && "code" in error);
 }
 /** The failure's name, or null when something other than an Error was thrown. */
 export function name(error: unknown): string | null {

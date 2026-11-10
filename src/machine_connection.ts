@@ -185,6 +185,10 @@ export class Endpoint {
   get reached(): boolean {
     return this.connected;
   }
+  /** Its last attempts to reach the daemon failed: a step now is another try. */
+  get failing(): boolean {
+    return this.retries > 0;
+  }
   activate(): void {
     this.navigation_revision = this.machine.navigation.revision;
     this.selection++;
@@ -316,6 +320,7 @@ export class Endpoint {
     if (this.stopped) return;
     this.handoff = null;
     this.interruption++;
+    this.unreachable_since = null;
     this.disconnect();
     this.status = "connecting";
     this.error = "";
@@ -326,6 +331,7 @@ export class Endpoint {
     if (this.stopped) return;
     this.handoff = null;
     this.interruption++;
+    this.unreachable_since = null;
     this.disconnect();
     // Paused, nothing sends them again, and the link they were numbered on
     // goes with them: a retry opens a fresh one, numbered from the start,
@@ -421,6 +427,12 @@ export class Endpoint {
           this.next = 0;
           return;
         }
+        // This computer's daemon shut down on purpose: the viewer ends, as on a detach.
+        if (!this.remote && errors.is(error, "ServerShutdown")) {
+          this.detached = true;
+          this.onChange();
+          return;
+        }
         const { issue, detail } = this.path?.diagnose(error) ?? { issue: "error", detail: "" };
         if (issue === "fatal")
           this.fatal = Error(errors.is(error, "ServerRolledBack") ? "ServerRolledBack" : "IncompatibleViewerProtocol");
@@ -444,7 +456,7 @@ export class Endpoint {
           const now = performance.now();
           this.unreachable_since ??= now;
           if (now >= this.reload_until && now - this.unreachable_since >= gone_ms)
-            this.fatal ??= error instanceof Error ? error : Error(this.error);
+            this.fatal ??= Error("ConnectionClosed");
         }
       })
       .finally(() => {
