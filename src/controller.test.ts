@@ -3522,6 +3522,56 @@ test("a press on the name line right of the open field keeps the field, and its 
   }
 });
 
+test("a press past the sidebar on the field's line closes the rename; the border resizes", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const side = s.sidebarView(s.sidebarEntries());
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    // A terminal pane on the field's screen line takes the press and closes the field.
+    await press(side.width + 2, at.y);
+    expect(s.inline_rename).toBeNull();
+    // The row still renames by double-click afterwards.
+    await press(at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    // The border column resizes the sidebar rather than keeping the field.
+    await s.input(bytes(`\x1b[<0;${side.width};${at.y + 1}M`));
+    expect(s.inline_rename).toBeNull();
+    expect(s.sidebar_drag).toBe("width");
+    await s.input(bytes(`\x1b[<0;${side.width};${at.y + 1}m`));
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a held drag along the row between the presses starts the double-click over", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const report = (button: number, x: number, y: number) => s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M`));
+  try {
+    setSystemTime(new Date(1000));
+    // The first press stays held: sideways motion drags the row, which ends
+    // the double-click even back on the line it started from.
+    await report(0, at.x, at.y);
+    await report(32, at.x + 1, at.y);
+    await report(32, at.x, at.y);
+    await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}m`));
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    // Without the drag, the same presses still rename.
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
 test("a character bound to an action types into the rename field", async () => {
   const { s, sent, twice } = renaming();
   const bound = spyOn(s.prefs, "bindings").mockReturnValue([

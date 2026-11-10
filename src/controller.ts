@@ -8142,7 +8142,11 @@ export class Controller {
         drag.dragging = true;
         this.clicks.move();
       }
-      if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
+      // A drag breaks the rename double-click, as motion off the line does.
+      if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) {
+        drag.dragging = true;
+        this.clicks.move();
+      }
       if (!release && button === 35) drag.cancelled = true;
       drag.update(side, this.current().id, x, y, milliTimestamp());
       if (release && (button & 3) === 0) {
@@ -8186,7 +8190,10 @@ export class Controller {
         drag.dragging = true;
         this.clicks.move();
       }
-      if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
+      if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) {
+        drag.dragging = true;
+        this.clicks.move();
+      }
       drag.update(side, ids, x, y);
       if (release && (button & 3) === 0) {
         this.workspace_drag = null;

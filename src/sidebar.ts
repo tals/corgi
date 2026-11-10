@@ -1189,8 +1189,9 @@ export class View {
   /** Whether `x`, `y` lands on `target`'s name line, anywhere along it:
    * the row's line that draws the name, rather than the row's other lines
    * or another row. The workspace line's port link and Git figures keep
-   * their own clicks and don't count; `hit` already keeps presses past an
-   * agent line's right end from reaching this. */
+   * their own clicks and don't count; nor does the sidebar's border column
+   * or anything past it, where a press closes an open field instead: the
+   * caller while one is open doesn't go through `hit` first. */
   onNameLine(target: RenameTarget, workspaces: WorkspaceEntry[], x: number, y: number): boolean {
     const rect = this.fieldRect(target, workspaces);
     if (rect === null || y !== rect.y || x < rect.x) return false;
@@ -1199,7 +1200,7 @@ export class View {
       if (!ws) return false;
       return x < linkRange(this, ws, workspaces).start;
     }
-    return true;
+    return x < this.sidebarWidth() - 1;
   }
   /** The columns an agent row's name has, before its context figure and notes. */
   nameRoom(e: Entry): number {
