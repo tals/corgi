@@ -284,10 +284,10 @@ export class Terminal {
   pasteEnd(): void {
     if (this.paste?.buffer === this.pending && this.paste.end === null) this.paste.end = this.pending.length;
   }
-  /** A pointer move with button code `code`. A program wants where the
-   * pointer is, not each cell it crossed while its input waited: a move
-   * still waiting with nothing after it gives way to this one. Keys,
-   * presses and releases are never dropped. */
+  /** A hover, with button code `code`. A program wants where the pointer
+   * is, not each cell it crossed while its input waited: a hover still
+   * waiting with nothing after it gives way to this one. Everything else
+   * goes through `send` and is never dropped. */
   move(bytes: string, code: number): void {
     const last = this.motion;
     if (last && last.code === code && last.buffer === this.pending && last.end === this.pending.length)

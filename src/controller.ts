@@ -10054,8 +10054,9 @@ function gitPushMessage(err: string): string {
  * chose. Points outside `rect` reach the app only while a button is held. */
 function sendMouse(term: Terminal, rect: Rect, button: number, x: number, y: number, release: boolean): void {
   const report = viewerNative.encodeMouse(term.handle, button, x - rect.x, y - rect.y, release);
-  // A move (bit 32), not a wheel turn (bit 64): only where it ends matters.
-  if (!release && (button & 32) !== 0 && (button & 64) === 0) term.move(report, button);
+  // Only a hover, with no button held (extra buttons set bit 128), may give
+  // way to the next: a drag's every point stays, as do presses and the wheel.
+  if (!release && isHover(button) && (button & 128) === 0) term.move(report, button);
   else term.send(report);
 }
 /** What the prompt calls a pane: its label, its agent, or what runs in it. */

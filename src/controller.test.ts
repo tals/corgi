@@ -5891,6 +5891,59 @@ test("pastes waiting for a pane's input leave only the last, by every way a past
   }
 });
 
+test("while a pane's input waits, only hovers give way: clicks, drags and the wheel reach it whole", async () => {
+  const s: any = new Controller(transport(async () => ({ ok: true })));
+  s.width = 100;
+  s.height = 30;
+  s.sidebar_open = false;
+  s.input_state.attached = true;
+  s.receiveSnapshot({
+    workspaces: [
+      {
+        id: 1,
+        name: "one",
+        cwd: "/tmp",
+        model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 },
+      },
+    ],
+    panes: [
+      {
+        id: 1,
+        workspace: 1,
+        tab: 1,
+        cols: 100,
+        rows: 29,
+        agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
+      },
+    ],
+    conversations: [],
+    headless_sessions: [],
+  });
+  const source = new NativeTerminal(100, 29);
+  try {
+    // A program that tracks every motion, reported as SGR.
+    source.feed("\x1b[?1003h\x1b[?1006h");
+    s.runtime.pane(1).terminal.receive(source.surface(1));
+    s.frame();
+    const place = s.layoutView().placements(s.area())[0].rect;
+    const at = (button: number, x: number, release = false) =>
+      `\x1b[<${button};${place.x + x + 1};${place.y + 3}${release ? "m" : "M"}`;
+    const reports = () =>
+      [
+        ...Buffer.from(s.runtime.pane(1).terminal.pending)
+          .toString()
+          .matchAll(/\x1b\[<(\d+);(\d+);\d+([Mm])/g),
+      ].map(([, button, x, kind]) => `${button}@${Number(x) - 1}${kind}`);
+    await s.input(bytes(at(35, 1) + at(35, 2) + at(35, 3)));
+    expect(reports()).toEqual(["35@3M"]);
+    await s.input(bytes(at(0, 3) + at(32, 4) + at(32, 5) + at(32, 6) + at(0, 6, true) + at(64, 6) + at(64, 6)));
+    expect(reports()).toEqual(["35@3M", "0@3M", "32@4M", "32@5M", "32@6M", "0@6m", "64@6M", "64@6M"]);
+  } finally {
+    source.destroy();
+    viewer.close(s);
+  }
+});
+
 test("a delayed command refreshes its owning machine after the viewer switches", async () => {
   const pending = Promise.withResolvers<unknown>();
   let reads = 0;
