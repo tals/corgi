@@ -681,9 +681,10 @@ for (const table of Object.values(tables))
   table.push(
     { key: 122, mods: { ctrl: true }, prefixed: true, action: { name: "undo-layout" } },
     { key: 121, mods: { ctrl: true }, prefixed: true, action: { name: "redo-layout" } },
+    ...machineBindings,
   );
 export function table(preset: Source): readonly Binding[] {
-  return typeof preset === "string" ? [...tables[preset], ...machineBindings] : preset;
+  return typeof preset === "string" ? tables[preset] : preset;
 }
 function sameMods(a: Mods, b: Mods): boolean {
   return ["shift", "alt", "ctrl", "super"].every(k => !!a[k as keyof Mods] === !!b[k as keyof Mods]);
