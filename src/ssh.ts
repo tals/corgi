@@ -67,6 +67,16 @@ export function command(executable: string, args: string[]): string {
   return shell(script);
 }
 
+/** Runs the machine's native bridge to `socket`. An update and a reboot can
+ * take the saved bridge away; then the Corgi there runs its own. */
+export function bridge(executable: string, bridge: string, socket: string): string {
+  for (const value of [executable, bridge])
+    if (!value || /[\x00-\x1f\x7f]/.test(value)) throw Error("InvalidRemoteExecutable");
+  const run = "exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER ",
+    [path, program, target] = [bridge, executable, socket].map(os.shellQuote);
+  return shell(`if [ -x ${path} ]; then ${run}${path} ${target}; else ${run}${program} __remote-bridge ${target}; fi`);
+}
+
 /** Double quoting survives both POSIX login shells and fish before sh parses the script. */
 export function shell(script: string): string {
   return 'sh -c "' + script.replace(/[\\$"`]/g, "\\$&") + '"';

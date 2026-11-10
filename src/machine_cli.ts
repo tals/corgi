@@ -1,5 +1,6 @@
 import { Remote, startup_ms } from "./daemon_transport";
 import { nativeRoot } from "./native_paths";
+import * as currentRelease from "./current_release";
 import { homedir } from "node:os";
 import * as machines from "./machines";
 import * as setup from "./machine_setup";
@@ -131,7 +132,8 @@ export function remoteInfo(executable: string): machines.Info {
     remote_protocol: machines.remote_protocol,
     protocol: protocol.version,
     viewer_protocol: protocol.viewer_version,
-    executable,
+    // The launcher an update keeps, not this release, which a later one prunes.
+    executable: currentRelease.path(executable),
     socket: os.socketPath(),
     home: homedir(),
     bridge: nativeRoot + "/bin/corgi-remote-bridge",

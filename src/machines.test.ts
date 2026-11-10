@@ -61,6 +61,24 @@ test("remote commands keep shell metacharacters literal and remove inherited pan
   expect(await env.exited).toBe(0);
 });
 
+test("a bridge an update or a reboot took away is asked of the Corgi there", async () => {
+  const dir = mkdtempSync("/tmp/corgi-bridge-");
+  try {
+    const bridge = dir + "/bridge",
+      corgi = dir + "/corgi";
+    writeFileSync(bridge, '#!/bin/sh\necho "bridge $*"\n', { mode: 0o700 });
+    writeFileSync(corgi, '#!/bin/sh\necho "corgi $*"\n', { mode: 0o700 });
+    const run = async (saved: string) => {
+      const child = Bun.spawn(["/bin/sh", "-c", ssh.bridge(corgi, saved, "/run/corgi.sock")], { stdout: "pipe" });
+      return (await new Response(child.stdout).text()).trim();
+    };
+    expect(await run(bridge)).toBe("bridge /run/corgi.sock");
+    expect(await run(dir + "/gone")).toBe("corgi __remote-bridge /run/corgi.sock");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("remote discovery refuses a mismatched viewer and missing incarnation", () => {
   const info = {
     remote_protocol: 1,

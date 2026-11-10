@@ -56,6 +56,7 @@ export function sshPath(profile: Profile): machine_path.Factory {
 }
 /** The endpoint for an SSH machine. */
 export function sshEndpoint(profile: Profile, probe: Probe, host: Host): Endpoint {
-  const identity = [profile.name, profile.target, profile.executable, profile.socket, profile.home];
+  // Not the executable: an upgrade moves it, and the machine is the same.
+  const identity = [profile.name, profile.target, profile.socket, profile.home];
   return new Endpoint(profile.name, true, identity, sshPath(profile), probe, host);
 }

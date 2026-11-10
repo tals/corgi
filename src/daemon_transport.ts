@@ -91,7 +91,7 @@ export class Remote {
     try {
       child = this.spawn([
         ...ssh.args(this.profile.target, false, this.fresh, false, this.lane),
-        ssh.command(this.profile.bridge!, [this.profile.socket]),
+        ssh.bridge(this.profile.executable, this.profile.bridge!, this.profile.socket),
       ]);
     } catch (error) {
       this.stderr = error instanceof Error ? error.message : "SSH startup failed";
