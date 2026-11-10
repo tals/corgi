@@ -1295,12 +1295,13 @@ export class Controller {
       this.archived_offset,
       this.sidebar_focus !== null && "archived" in this.sidebar_focus.cursor,
     );
+    const rows = this.workspaceRows();
     view = view
       .withWorkspaces(
-        this.workspaceRows().length,
+        rows.length,
         this.workspace_offset,
-        this.workspaceRows().map(row => row.machine),
-        this.workspaceRows().map(row => row.collapsed),
+        rows.map(row => row.machine),
+        rows.map(row => row.collapsed),
       )
       .withEntries(entries)
       .withRename(this.renameState());
@@ -6744,12 +6745,13 @@ export class Controller {
       try {
         if ("text" in result) this.pasteClipboardText(target, result.text);
         else if ("path" in result) {
-          const mime = (
-            { png: "image/png", jpg: "image/jpeg", gif: "image/gif", webp: "image/webp" } as Record<string, string>
-          )[result.path.split(".").at(-1)!];
-          const path = await this.uploadImage(result.path, mime, progress);
-          if (target === "prompt") this.promptImage(path);
-          else this.pasteText(target, path);
+          const mime = hostClipboard.imageType(result.path);
+          if (!mime) this.notice(hostClipboard.Failure.message("unsupported_image"));
+          else {
+            const path = await this.uploadImage(result.path, mime, progress);
+            if (target === "prompt") this.promptImage(path);
+            else this.pasteText(target, path);
+          }
         } else if ("relay" in result) await this.relayPaste(target, result.relay, progress, lane);
         else this.notice(hostClipboard.Failure.message(result.failed));
         if (progress && this.paste_progress === progress) {
@@ -6801,20 +6803,21 @@ export class Controller {
     const sent = p?.terminal.pasteOut();
     let pasted = false;
     try {
+      // An image goes to its machine first; one that didn't get there can't be pasted.
       if (relayed.image && this.connection.image)
         relayed = {
           ...relayed,
           image: { ...relayed.image, path: await this.uploadImage(relayed.image.path, relayed.image.mime, progress) },
         };
       const encoded = relayed.text !== null ? Buffer.from(relayed.text).toString("base64") : null;
-      const reply = await lane.call("pane.paste", {
-        pane: typeof target === "object" ? target.pane : 0,
-        text: encoded,
-        image: relayed.image ? { mime: relayed.image.mime, path: relayed.image.path } : null,
-      });
-      pasted = reply.pasted;
-    } catch (error) {
-      if (this.connection.image) throw error;
+      try {
+        const reply = await lane.call("pane.paste", {
+          pane: typeof target === "object" ? target.pane : 0,
+          text: encoded,
+          image: relayed.image ? { mime: relayed.image.mime, path: relayed.image.path } : null,
+        });
+        pasted = reply.pasted;
+      } catch {}
     } finally {
       sent?.();
     }

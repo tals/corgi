@@ -5274,6 +5274,38 @@ test("all agents lists each online machine's under its name, and its rows switch
   }
 });
 
+test("a remote paste the daemon couldn't take is typed into the pane instead", async () => {
+  const s = new Controller({
+    ...transport(async op => {
+      if (op === "pane.paste") throw Error("StaleConnection");
+      throw Error("UnexpectedRequest");
+    }),
+    image: async () => "/remote/image.png",
+  });
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.host.clipboard = new hostClipboard.State();
+  try {
+    const terminal = s.runtime.panes[0].terminal;
+    Reflect.set(s, "paste_target", { pane: s.runtime.panes[0].id });
+    await s.pasteResult({ relay: { text: "kept", image: null } });
+    expect(Buffer.from(terminal.pending).toString()).toContain("kept");
+    expect(terminal.pasting()).toBe(true);
+    terminal.pending = [];
+    // An image that never reached the machine has no path there to type.
+    s.connection.image = async () => {
+      throw Error("ImageUploadFailed");
+    };
+    Reflect.set(s, "paste_target", { pane: s.runtime.panes[0].id });
+    await s.pasteResult({ relay: { text: null, image: { mime: "image/png", path: "/tmp/image.png" } } });
+    expect(s.message).toBe("ImageUploadFailed");
+    expect(terminal.pending).toEqual([]);
+    expect(terminal.pasting()).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("remote image progress covers preparation, receipts and failure without leaking into a later paste", async () => {
   let report!: ImageProgress;
   let resolve!: (path: string) => void;
