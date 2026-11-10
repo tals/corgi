@@ -8,6 +8,7 @@ import { Endpoint, localEndpoint } from "./machine_connection";
 import { Probe } from "./terminal_info";
 import { Host } from "./host";
 import * as protocol from "./protocol";
+import * as machine_path from "./machine_path";
 
 test("endpoint completion wakes presentation without pumping continuously", async () => {
   const endpoint = localEndpoint("/tmp/corgi-scheduling-test/control.sock", new Probe(), new Host());
@@ -148,7 +149,7 @@ test("a machine keeps its data across reconnects to its daemon but not the daemo
 
 /** A daemon that keeps links, and drops the connection the first time it gets
  * a command, after running it, the way a network fails between the two. */
-async function flakyDaemon() {
+async function flakyDaemon(remote = false) {
   const dir = mkdtempSync(join(tmpdir(), "corgi-link-"));
   const path = join(dir, "control.sock");
   const seen: { op: string; seq?: number }[] = [];
@@ -221,7 +222,9 @@ async function flakyDaemon() {
     });
   });
   await new Promise<void>(resolve => server.listen(path, resolve));
-  const endpoint = localEndpoint(path, new Probe(), new Host());
+  const endpoint = remote
+    ? new Endpoint("work", true, ["work"], machine_path.local(path), new Probe(), new Host())
+    : localEndpoint(path, new Probe(), new Host());
   return {
     endpoint,
     seen,
@@ -573,6 +576,22 @@ test("a spare that answers during reconnect takes over and resumes the same link
     await daemon.connect();
     expect(daemon.seen.filter(request => request.op === "link.resume")).toHaveLength(1);
     expect(endpoint.instance).toBe("first");
+  } finally {
+    await daemon.close();
+  }
+});
+
+test("a spare that takes over brings its own data connection, already dialed", async () => {
+  const daemon = await flakyDaemon(true);
+  const endpoint = daemon.endpoint;
+  try {
+    await daemon.connect();
+    endpoint.status = "connecting";
+    await Reflect.get(endpoint, "race").call(endpoint, performance.now());
+    const dialed = Reflect.get(endpoint, "dialed");
+    expect(dialed?.data).toBeTruthy();
+    await daemon.connect();
+    expect(Reflect.get(endpoint, "data")).toBe(dialed.data);
   } finally {
     await daemon.close();
   }

@@ -99,7 +99,12 @@ export class Endpoint {
   /** When the last race began; races come at most every `race_ms`. */
   private raced_at = -Infinity;
   /** The path that won a race, for the next connect to carry on over. */
-  private dialed: { path: machine_path.Path; conn: Connection; hello: machine_path.Hello } | null = null;
+  private dialed: {
+    path: machine_path.Path;
+    conn: Connection;
+    hello: machine_path.Hello;
+    data: viewer_data.Connection | null;
+  } | null = null;
   /** The machine may have gone while the computer slept: race at once. */
   private suspect = false;
   private fresh_connection = false;
@@ -533,7 +538,13 @@ export class Endpoint {
    * Over a link either can: nothing in flight is lost or run twice. */
   private async race(now: number): Promise<void> {
     const interruption = this.interruption,
-      path = this.newPath(true, true);
+      path = this.newPath(true, true),
+      // Its data connection is dialed alongside, so a race that wins needn't
+      // set up another SSH connection before the panes come back.
+      data =
+        this.remote && this.shown
+          ? new viewer_data.Connection(path, this.stats, { machine: this.name, path: "race" })
+          : null;
     this.probe_path = path;
     this.racing = true;
     this.raced_at = now;
@@ -562,7 +573,7 @@ export class Endpoint {
       this.interruption++;
       this.probe_path = null;
       this.disconnect();
-      this.dialed = { path, conn, hello };
+      this.dialed = { path, conn, hello, data };
       this.status = "connecting";
       this.next = 0;
       this.retries = 0;
@@ -570,6 +581,7 @@ export class Endpoint {
     } catch (error) {
       this.trace("remote.race", "failed", { error: errors.name(error) ?? "ConnectionFailed" });
       conn?.close();
+      data?.close();
       path.close();
     } finally {
       if (this.probe_path === path) {
@@ -609,6 +621,7 @@ export class Endpoint {
     const dialed = this.dialed;
     this.dialed = null;
     const path = (this.path = dialed?.path ?? this.newPath(this.fresh_connection, false));
+    if (dialed?.data) this.data = dialed.data;
     this.fresh_connection = false;
     // Setting up a remote connection can take many round trips. Open both
     // connections together; bind the data one only after the control one
@@ -1028,6 +1041,7 @@ export class Endpoint {
     this.checked = null;
     // A won race not yet taken up goes with the rest.
     this.dialed?.conn.close();
+    this.dialed?.data?.close();
     this.dialed?.path.close();
     this.dialed = null;
     // Numbered requests wait for the link to be resumed.
