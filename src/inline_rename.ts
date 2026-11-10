@@ -91,13 +91,12 @@ export class InlineRename {
     this.field = field;
     this.fallback = fallback;
   }
-  /** A field on `target` holding `text`, with the caret at its end and
-   * nothing selected: typing adds to the name rather than replacing it. */
+  /** A field on `target` holding `text`, wholly selected as a Finder
+   * rename is: typing replaces the name, and Right keeps it with the caret
+   * at its end. */
   static open(target: RenameTarget, text: string, fallback: string): InlineRename {
     const id = viewerRef.parts(target).id;
     const field = Dialog.init(viewerRef.isPane(target) ? { agent: id } : { workspace_name: id }, text);
-    field.selected = false;
-    field.position(field.len);
     return new InlineRename(target, field, fallback);
   }
   /** The text changed: a notice about the last try no longer applies. */

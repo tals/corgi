@@ -3631,10 +3631,11 @@ test("a double-click on an agent row renames it in place, with the dialog's outc
     expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
     expect(s.inline_rename.field.raw()).toBe("agent 2");
     expect(s.inline_rename.field.cursor).toBe(s.inline_rename.field.len);
-    expect(s.inline_rename.field.selection()).toBeNull();
+    expect(s.inline_rename.field.selected).toBe(true);
     expect(sent).toEqual([probe(2)]);
     expect(s.frame()).toContain("agent 2");
-    await s.input(bytes("\x03Fix API\r"));
+    // The name starts selected, so typing replaces it.
+    await s.input(bytes("Fix API\r"));
     expect(sent.at(-1)).toEqual({ "agent.rename": { target: 2, name: "Fix API" } });
     expect(s.inline_rename).toBeNull();
     expect(typed).toEqual([]);
@@ -3644,7 +3645,7 @@ test("a double-click on an agent row renames it in place, with the dialog's outc
   }
 });
 
-test("a double-click anywhere along the row's name line renames, not only on the name", async () => {
+test("a double-click anywhere in the field's columns renames, not only on the name", async () => {
   const { s, sent, rect, press } = renaming();
   const at = rect({ agent: 2 });
   try {
@@ -3714,19 +3715,22 @@ test("a press on the sidebar's border between name-line presses starts the doubl
   }
 });
 
-test("a press on the name line right of the open field keeps the field, and its edits", async () => {
+test("the name line right of the field neither opens a rename nor keeps one", async () => {
   const { s, rect, press } = renaming();
   const at = rect({ agent: 2 });
   try {
     setSystemTime(new Date(1000));
+    await press(at.x + at.width, at.y);
+    await press(at.x + at.width, at.y);
+    expect(s.inline_rename).toBeNull();
+    setSystemTime(new Date(2000));
     await press(at.x, at.y);
-    await press(at.x + at.width, at.y);
+    await press(at.x + at.width - 1, at.y);
     expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
-    await s.input(bytes("X"));
-    // The columns past the field, still on its name line, are the field's too.
-    await press(at.x + at.width, at.y);
+    await press(at.x + at.width - 1, at.y);
     expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
-    expect(s.inline_rename?.field.raw()).toBe("agent 2X");
+    await press(at.x + at.width, at.y);
+    expect(s.inline_rename).toBeNull();
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -4012,12 +4016,14 @@ test("presses in copy mode don't count a click series", async () => {
   }
 });
 
+// The name opens selected: Right keeps it with the caret at its end, and
+// typing without it replaces the name.
 test.each([
-  ["the prefix and its new-tab key", "\x02c", "agent 1c"],
-  ["arrows", "\x1b[Dx", "agent x1"],
-  ["a paste", "\x1b[200~a\nb\x1b[201~", "agent 1ab"],
-  ["Kitty-encoded text, prefix and new-tab key", "\x1b[120u\x1b[98;5u\x1b[99u", "agent 1xc"],
-  ["a character bound to an action", "é", "agent 1é"],
+  ["the prefix and its new-tab key", "\x1b[C\x02c", "agent 1c"],
+  ["arrows", "\x1b[C\x1b[Dx", "agent x1"],
+  ["a paste", "\x1b[C\x1b[200~a\nb\x1b[201~", "agent 1ab"],
+  ["Kitty-encoded text, prefix and new-tab key", "\x1b[120u\x1b[98;5u\x1b[99u", "xc"],
+  ["a character bound to an action", "é", "é"],
 ])("the open field takes %s: nothing reaches the pane and no binding runs", async (_, input, raw) => {
   const { s, sent, typed, twice } = renaming();
   const defaults = s.prefs.bindings(),
@@ -5941,7 +5947,7 @@ test("input past 80 bytes is refused and says so until the next edit", async () 
   try {
     setSystemTime(new Date(1000));
     await twice({ agent: 1 });
-    await s.input(bytes("a".repeat(73)));
+    await s.input(bytes("a".repeat(80)));
     expect(s.inline_rename.field.len).toBe(80);
     expect(s.inline_rename.message).toBeNull();
     await s.input(bytes("a"));

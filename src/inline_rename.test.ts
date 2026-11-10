@@ -81,7 +81,7 @@ test("reset forgets the press", () => {
   expect(h.press(viewerRef.pane(0, 1), 1002, 4)).toBe(true);
 });
 
-test("an open field keeps the name, with the caret after its last character and nothing selected", () => {
+test("an open field holds the name wholly selected, with the caret at its end", () => {
   const r = InlineRename.open(viewerRef.pane(0, 7), "café", "claude");
   expect(r.target).toEqual(viewerRef.pane(0, 7));
   expect(r.fallback).toBe("claude");
@@ -91,14 +91,22 @@ test("an open field keeps the name, with the caret after its last character and 
   expect(r.field.raw()).toBe("café");
   expect(r.field.len).toBe(5);
   expect(r.field.cursor).toBe(5);
+  expect(r.field.selected).toBe(true);
+  // A multi-byte name is selected whole, by bytes.
+  expect(r.field.selection()).toEqual([0, 5]);
+  // Right keeps the name and puts the caret at its end.
+  r.field.area.move("right");
   expect(r.field.selection()).toBe(null);
-  expect(r.field.selected).toBe(false);
-  // Typing adds to the name rather than replacing it.
+  expect(r.field.cursor).toBe(5);
   for (const byte of Buffer.from("é")) r.field.typeByte(byte);
   expect(r.field.raw()).toBe("caféé");
+  // Typing in a fresh field replaces the name.
+  const fresh = InlineRename.open(viewerRef.pane(0, 7), "review the diff", "claude");
+  fresh.field.typeByte(c("x"));
+  expect(fresh.field.raw()).toBe("x");
+  expect(fresh.field.selected).toBe(false);
   const empty = InlineRename.open(viewerRef.workspace(0, 3), "", "corgi");
   expect(empty.field.cursor).toBe(0);
-  expect(empty.field.selected).toBe(false);
   expect(empty.field.selection()).toBe(null);
   // A workspace's field keeps UTF-8, as an agent's does.
   for (const byte of Buffer.from("é")) empty.field.typeByte(byte);
