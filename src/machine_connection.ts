@@ -320,8 +320,11 @@ export class Endpoint {
     this.handoff = null;
     this.interruption++;
     this.disconnect();
-    // Paused, nothing sends them again.
+    // Paused, nothing sends them again, and the link they were numbered on
+    // goes with them: a retry opens a fresh one, numbered from the start,
+    // rather than leave the daemon waiting for numbers that will never come.
     this.settleNumbered(() => true);
+    this.link = null;
     this.status = "paused";
     this.error = "";
   }

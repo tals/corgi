@@ -253,6 +253,30 @@ test("a command whose reply a dropped connection lost is sent again with its num
   }
 });
 
+test("a retry after a pause opens a fresh link, so the numbers it dropped leave no gap", async () => {
+  const daemon = await flakyDaemon();
+  const command = { command: { "pane.close": { target: 1 } } } as const;
+  try {
+    await daemon.connect();
+    const dropped = daemon.endpoint.machine.connection.request("session.command", command).then(
+      () => "answered",
+      (error: Error) => error.message,
+    );
+    // Its number is taken, it's never answered, and pausing drops it.
+    while (!daemon.seen.some(r => r.op === "session.command")) await Bun.sleep(1);
+    daemon.endpoint.pause();
+    expect(await dropped).toBe("StaleConnection");
+    daemon.endpoint.retry();
+    await daemon.connect();
+    expect(await daemon.endpoint.machine.connection.request("session.command", command)).toMatchObject({ ok: true });
+    const after = daemon.seen.slice(daemon.seen.findIndex(r => r.op === "session.command") + 1);
+    expect(after.map(r => r.op)).not.toContain("link.resume");
+    expect(after.filter(r => r.op === "session.command").map(r => r.seq)).toEqual([1]);
+  } finally {
+    await daemon.close();
+  }
+});
+
 test("a command in flight when its daemon is replaced fails, since it may have run", async () => {
   const daemon = await flakyDaemon();
   try {
