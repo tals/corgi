@@ -173,7 +173,8 @@ export async function run(
     workspaces.selectFilter();
     active!.activate();
   };
-  view.onMachines = show;
+  // With no SSH machine there's no dropdown: the controller says how to add one.
+  view.onMachines = workspaces.visible ? show : null;
   // Something to draw: input, a machine's news, or a task that finished.
   let changed = true;
   const notify = () => {
@@ -348,8 +349,10 @@ export async function run(
         case 27:
           close();
           return;
+        // As in a pane: it leaves only before anything has come up.
         case 3:
-          quit = true;
+          if (active!.reached) close();
+          else quit = true;
           return;
         case 13:
           filter();
