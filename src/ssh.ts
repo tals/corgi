@@ -71,20 +71,22 @@ export function command(executable: string, args: string[]): string {
   return shell(script);
 }
 
-/** Runs the machine's native bridge to `socket`. An update and a reboot can
- * take the saved bridge away; then the Corgi there runs its own. The bridge
- * lives under a shared temporary folder, so it runs only from a native-files
+/** Runs the machine's native bridge to `socket`. The Corgi there takes over
+ * when the bridge finds no daemon listening (exit 3), which it starts, or
+ * when an update or a reboot took the saved bridge away. The bridge lives
+ * under a shared temporary folder, so it runs only from a native-files
  * folder the user there owns, as Corgi there loads them (native_paths.ts). */
 export function bridge(executable: string, bridge: string, socket: string): string {
   for (const value of [executable, bridge])
     if (!value || /[\x00-\x1f\x7f]/.test(value)) throw Error("InvalidRemoteExecutable");
-  const run = "exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER ",
+  const env = "env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER ",
     // ROOT/bin/corgi-remote-bridge, with ROOT in the user's own folder.
     folder = dirname(dirname(dirname(bridge))),
     [path, owned, program, target] = [bridge, folder, executable, socket].map(os.shellQuote);
   return shell(
-    `if [ -O ${owned} ] && [ ! -L ${owned} ] && [ -x ${path} ]; then ${run}${path} ${target}; ` +
-      `else ${run}${program} __remote-bridge ${target}; fi`,
+    `if [ -O ${owned} ] && [ ! -L ${owned} ] && [ -x ${path} ]; then ` +
+      `${env}${path} ${target}; status=$?; [ "$status" -eq 3 ] || exit "$status"; fi; ` +
+      `exec ${env}${program} __remote-bridge ${target}`,
   );
 }
 

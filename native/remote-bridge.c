@@ -55,6 +55,8 @@ int main(int argc, char **argv) {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0 || nonblocking(fd) < 0) goto failure;
     if (connect(fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        // Nothing listening: the caller starts the daemon and tries again.
+        if (errno == ENOENT || errno == ECONNREFUSED) { close(fd); return 3; }
         if (errno != EINPROGRESS) goto failure;
         struct pollfd pending = { .fd = fd, .events = POLLOUT };
         if (poll(&pending, 1, 10000) <= 0) { errno = ETIMEDOUT; goto failure; }

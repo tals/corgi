@@ -62,7 +62,7 @@ test("remote commands keep shell metacharacters literal and remove inherited pan
   expect(await env.exited).toBe(0);
 });
 
-test("a bridge an update or a reboot took away, or someone else's, is asked of the Corgi there", async () => {
+test("a bridge an update or a reboot took away, someone else's, or one finding no daemon, is asked of the Corgi there", async () => {
   const dir = mkdtempSync("/tmp/corgi-bridge-");
   try {
     const bridge = dir + "/native/hash/bin/corgi-remote-bridge",
@@ -76,6 +76,10 @@ test("a bridge an update or a reboot took away, or someone else's, is asked of t
     };
     expect(await run(bridge)).toBe("bridge /run/corgi.sock");
     expect(await run(dir + "/gone")).toBe("corgi __remote-bridge /run/corgi.sock");
+    // No daemon listening: the Corgi there starts it.
+    const idle = dir + "/native/hash/bin/idle";
+    writeFileSync(idle, "#!/bin/sh\nexit 3\n", { mode: 0o700 });
+    expect(await run(idle)).toBe("corgi __remote-bridge /run/corgi.sock");
     // Another user's folder in /tmp, as one made after a reboot cleared it.
     expect(await run("/usr/bin/env")).toBe("corgi __remote-bridge /run/corgi.sock");
     symlinkSync(dir + "/native", dir + "/link");
