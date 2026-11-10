@@ -232,6 +232,8 @@ export interface Ui {
   /** The push card, shown or held open, with the row whose review shows dimmed. */
   git_card: gitTooltip.State | null;
   worktree_card: worktreeTooltip.State | null;
+  /** The sidebar row of a shown machine's workspace, which the cards name by its own id. */
+  row_key: (id: number) => number;
   /** The worktree browsed in the overview, or the checkout the launcher
    * starts agents in, whose rows stay lit while the rest of the agent list dims. */
   worktree_spotlight: sidebar.Spotlight | null;
@@ -338,6 +340,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     grip_hover: [],
     git_card: null,
     worktree_card: null,
+    row_key: id => id,
     worktree_spotlight: null,
     agent_launcher: null,
     corgi_setup: null,
@@ -915,7 +918,7 @@ export function frame(
         : null;
   const git_ws =
     u.git_card && u.agent_launcher === null && u.corgi_setup === null
-      ? (u.workspaces.find(ws => ws.id === u.git_card!.workspace) ?? null)
+      ? (u.workspaces.find(ws => u.git_card!.workspace !== null && ws.id === u.row_key(u.git_card!.workspace)) ?? null)
       : null;
   const git_rect = git_ws
     ? gitTooltip.geometry(git_ws, width, height, u.git_card!.anchor.x, u.git_card!.anchor.y)
@@ -1224,7 +1227,8 @@ export function frame(
     if (at) w.write(pasteProgress.draw(u.paste_progress, at));
   }
   if (u.worktree_card) {
-    const ws = u.workspaces.find(ws => ws.id === u.worktree_card!.workspace);
+    const id = u.worktree_card.workspace,
+      ws = id === null ? undefined : u.workspaces.find(ws => ws.id === u.row_key(id));
     if (ws) {
       const badge = sidebar.worktreeBadge(side, u.workspaces, ws.id),
         now = milliTimestamp(),

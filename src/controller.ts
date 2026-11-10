@@ -710,6 +710,12 @@ export class Controller {
     const machine = this.machines[Math.floor(key / machine_stride)];
     return machine ? { machine, id: key % machine_stride } : null;
   }
+  /** The shown machine's workspace on a sidebar row, by its own id: the
+   * cards that read it name it so. Null for another machine's row. */
+  private shownRow(row: sidebar.WorkspaceEntry | null): sidebar.WorkspaceEntry | null {
+    const owner = row && this.rowOf(row.id);
+    return row && owner?.machine === this.machine ? { ...row, id: owner.id } : null;
+  }
   /** Shows the workspace a sidebar row names, on its own machine. */
   selectRow(key: number): void {
     const row = this.rowOf(key);
@@ -8504,7 +8510,7 @@ export class Controller {
             // first already selected it, so this one neither selects nor drags.
             // An agent that takes no rename gets a plain press instead.
             const name = "pane" in target && !this.away(target) ? { agent: target.pane } : null;
-            if (button === 0 && name && side.onName(name, this.workspaceEntries(), x, y)) {
+            if (button === 0 && name && side.onName(name, this.workspaceRows(), x, y)) {
               if (this.clicks.press(name, milliTimestamp(), x, y)) this.doubleClickAgent(name.agent);
             } else this.clicks.reset();
             this.selectAgent(target);
@@ -9457,7 +9463,8 @@ export class Controller {
     return (
       rect.contains(x, y) ||
       (y === at.y && x >= at.x && x < rect.x + rect.w) ||
-      sidebar.gitActionWorkspace(this.sidebarView([]), this.workspaceEntries(), this.git_hover, x, y)?.id === ws.id
+      this.shownRow(sidebar.gitActionWorkspace(this.sidebarView([]), this.workspaceRows(), this.git_hover, x, y))
+        ?.id === ws.id
     );
   }
   private gitHoverContains(x: number, y: number): boolean {
@@ -9681,12 +9688,8 @@ export class Controller {
         }
         if (corgiBadge.hit(this.corgi_badge, this.sidebarView([]).width, pointer.x, pointer.y))
           target = { usage: true };
-        const git = sidebar.gitActionWorkspace(
-          this.sidebarView([]),
-          this.workspaceEntries(),
-          this.git_hover,
-          pointer.x,
-          pointer.y,
+        const git = this.shownRow(
+          sidebar.gitActionWorkspace(this.sidebarView([]), this.workspaceRows(), this.git_hover, pointer.x, pointer.y),
         );
         if (git) {
           target = { git: git.id };
@@ -9697,7 +9700,9 @@ export class Controller {
             this.git_card.anchor = { x: pointer.x, y: pointer.y };
           }
         }
-        const worktree = sidebar.worktreeAt(this.sidebarView([]), this.workspaceEntries(), pointer.x, pointer.y);
+        const worktree = this.shownRow(
+          sidebar.worktreeAt(this.sidebarView([]), this.workspaceRows(), pointer.x, pointer.y),
+        );
         if (
           worktree &&
           worktreeTooltip.geometry(
@@ -9870,6 +9875,7 @@ export class Controller {
         grip_hover: this.grip_hover,
         git_card: (tooltip_ready || this.git_card.pinned) && git_ws ? this.git_card : null,
         worktree_card: this.worktreeCard(),
+        row_key: id => this.rowKey(id),
         worktree_spotlight: this.spotlight(),
         message:
           this.agent_picker && (this.width < 40 || this.height < 13)

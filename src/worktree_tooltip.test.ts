@@ -1,6 +1,7 @@
 import { transport } from "./fixtures/transport";
 import { expect, test } from "bun:test";
 import { Controller } from "./controller";
+import { Machine } from "./machine";
 import { worktreeSnapshot } from "./mirror";
 import { State, between, columnsFor, displayPath, draw, geometry, listing, sortAt } from "./worktree_tooltip";
 import * as worktreeRemoval from "./worktree_removal";
@@ -1007,4 +1008,31 @@ test("callout geometry keeps the agent pane and source badge uncovered", () => {
   expect(rect.x).toBeGreaterThan(side.width);
   expect(rect.contains(badge.x, badge.y)).toBe(false);
   expect(rect.h).toBe(10);
+});
+test("a remote machine's overview shows its own workspace, not this computer's with the same id", () => {
+  const view = new Controller(transport(async () => ({})));
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  view.adopt(other);
+  const workspace = (name: string, cwd: string, data?: Snapshot) => ({
+    workspaces: [
+      { id: 1, name, cwd, worktrees: data, model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0 }], revision: 0 } },
+    ],
+    panes: [{ id: 1, workspace: 1, tab: 1, cols: 80, rows: 24, cwd }],
+  });
+  view.width = 140;
+  view.height = 30;
+  view.receiveSnapshot(workspace("here", "/here"));
+  view.receiveSnapshot(workspace("repo", "/repo", snapshot(2)), other);
+  view.switchMachine(other);
+  view.input_state.attached = true;
+  view.worktree_card.workspace = 1;
+  view.worktree_card.pinned = true;
+  const terminal = new Terminal(140, 30);
+  try {
+    terminal.feed(view.frame());
+    expect(terminal.text()).toContain("topic-1");
+  } finally {
+    terminal.destroy();
+    view.runtime.destroy();
+  }
 });
