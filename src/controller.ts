@@ -1601,11 +1601,10 @@ export class Controller {
         connection_status: presence.connection_status,
       }));
     });
-    const order = new Map(this.prefs.workspace_order.map((key, i) => [key, i]));
-    rows.sort(
-      (a, b) =>
-        (order.get(this.workspaceOrderKey(a.id)) ?? Infinity) - (order.get(this.workspaceOrderKey(b.id)) ?? Infinity),
-    );
+    // Each row's place is looked up once, not on every comparison.
+    const order = new Map(this.prefs.workspace_order.map((key, i) => [key, i])),
+      place = new Map(rows.map(row => [row.id, order.get(this.workspaceOrderKey(row.id)) ?? Infinity]));
+    rows.sort((a, b) => place.get(a.id)! - place.get(b.id)!);
     if (all || expanded) return rows;
     const folded = new Set<Machine>();
     return rows.flatMap(row => {
