@@ -95,7 +95,8 @@ are not offered for remote sessions.
 
 ## Authentication and permissions
 
-OpenSSH authenticates both the host and the user. Adding a machine uses normal
+OpenSSH authenticates both the host and the user; Corgi needs OpenSSH 7.6 or
+newer on this computer. Adding a machine uses normal
 SSH prompts and host-key confirmation. Background tunnels use `BatchMode=yes`
 and `StrictHostKeyChecking=yes`: they never ask for a password, accept an unknown
 host, or ignore a changed host key. They require an SSH key, an agent, or another

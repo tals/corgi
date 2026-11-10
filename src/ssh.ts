@@ -48,8 +48,6 @@ export function args(
     "-o",
     "RemoteCommand=none",
     "-o",
-    "ForkAfterAuthentication=no",
-    "-o",
     "ConnectTimeout=30",
     "-o",
     "ServerAliveInterval=10",
