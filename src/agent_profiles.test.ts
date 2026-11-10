@@ -70,3 +70,28 @@ test("explicit model overrides flags; Auto passes no model and preserves CLI con
     Launch.in("pi", "", false, { flags: "--provider old --model old", env: [], model: "openai/new" }).typed(),
   ).toBe("pi --model openai/new");
 });
+
+test("a daemon's catalog gives its saved agents, checked as the file's are", () => {
+  const opus = {
+    agent: "profile/opus",
+    row: "profile:opus",
+    label: "Opus",
+    launcher: true,
+    provider: "claude",
+    account: "",
+    name: "Opus",
+    options: { flags: "", env: [], model: "claude-opus-5-5" },
+    yolo: true,
+  };
+  expect(
+    profiles.fromCatalog([
+      { ...opus, agent: "claude", row: "claude", name: "" },
+      opus,
+      { ...opus, name: "Again" },
+      { ...opus, row: "profile:Bad Id" },
+      { ...opus, row: "profile:sonnet", options: { flags: 1, env: [] } },
+      null,
+    ]),
+  ).toEqual([{ id: "opus", provider: "claude", account: "", name: "Opus", options: opus.options, yolo: true }]);
+  expect(profiles.fromCatalog(undefined)).toEqual([]);
+});

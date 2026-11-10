@@ -1,3 +1,4 @@
+import { Machine } from "./machine";
 import * as protocol from "./protocol";
 import { transport } from "./fixtures/transport";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
@@ -17,6 +18,7 @@ import { Menu as LauncherMenu } from "./agent_launcher";
 import * as agentManager from "./agent_manager";
 import * as agentModels from "./agent_models";
 import * as accounts from "./accounts";
+import * as agentProfiles from "./agent_profiles";
 import * as signin from "./signin";
 import * as signinExit from "./signin_exit";
 import { Terminal as NativeTerminal } from "./pane/terminal";
@@ -583,6 +585,7 @@ for (const archived of [false, true])
     s.start_folder = "/src/next";
     try {
       await s.perform({ name: "close-workspace" });
+      await s.tasks.idle();
       expect(sent).toEqual([{ "workspace.close": { target: 1, close_contents: true } }]);
       expect([s.runtime.workspaces.items.length, s.current().id, s.model().count]).toEqual([archived ? 1 : 0, 0, 0]);
       expect(s.frame()).toContain("Create workspace");
@@ -807,7 +810,7 @@ test("keys stay on the name while the folder field doesn't fit", async () => {
 test("a paste read from the host clipboard goes where a paste would", async () => {
   const clipboard = Object.assign(new hostClipboard.State(), { support: "on" });
   const s = controller();
-  s.host_clipboard = clipboard;
+  s.host.clipboard = clipboard;
   s.name_dialog = Dialog.init({ rename: 1 }, "");
   // Text is read for the dialog; an image has nowhere to go.
   await s.pasteEvent("image/png text/plain");
@@ -830,7 +833,7 @@ test("an image pasted into the prompt becomes a chip, from the terminal or this 
   const s = controller();
   s.receiveSnapshot(folders("/a"));
   s.input_state.attached = true;
-  s.host_clipboard = clipboard;
+  s.host.clipboard = clipboard;
   const read = spyOn(promptAttach, "clipboardImage").mockResolvedValue("/tmp/paste/a.png"),
     dir = mkdtempSync(join(tmpdir(), "corgi-drop-"));
   try {
@@ -955,6 +958,7 @@ test.each([false, true])("a failed fallback terminal keeps the empty launcher at
       { command: { "pane.create": { workspace: 1, cwd: "/workspace", command: null, title: "" } } },
     ]);
     expect(s.agent_launcher?.pinned).toBe(true);
+    await s.tasks.idle();
     expect(s.message).toBe("ShellNotFound");
     expect(await viewer.sync(s, { seq: 0n }, false)).toBe(true);
   } finally {
@@ -1055,6 +1059,7 @@ test("Copy details stays available before the session is identified", async () =
   try {
     expect(s.pane(1).agent.session).toBe("");
     await s.openAgentMenu(1, 0, 0);
+    await s.tasks.idle();
     expect(s.tab_menu.off.has("copy-details")).toBe(false);
     expect(breadcrumbs(s.pane(1))).toBe("harness: Claude Code\nsession: agent 1");
   } finally {
@@ -1091,6 +1096,7 @@ test("an agent marked unread stays unread in view until focus moves onto it", as
     s.focusPane(1);
     s.tab_menu = new TabMenu({ tab: 2, agent: true, anchor_x: 0 });
     await s.tabMenuAction("mark-unread");
+    await s.tasks.idle();
     expect(sent.at(-1)).toEqual(["pane.mark_unread", { pane: 2, binding: 0n, conversation: 0, session: "" }]);
     s.receiveSnapshot(marked(2));
     expect(await acknowledged()).toEqual([]);
@@ -1099,6 +1105,7 @@ test("an agent marked unread stays unread in view until focus moves onto it", as
     // Marked while focused, it waits for focus to leave and come back.
     s.tab_menu = new TabMenu({ tab: 2, agent: true, anchor_x: 0 });
     await s.tabMenuAction("mark-unread");
+    await s.tasks.idle();
     s.receiveSnapshot(marked(2));
     expect(await acknowledged()).toEqual([]);
     s.focusPane(1);
@@ -1108,6 +1115,7 @@ test("an agent marked unread stays unread in view until focus moves onto it", as
     // Out of view, the mark is let go; showing the pane again reads it.
     s.tab_menu = new TabMenu({ tab: 1, agent: true, anchor_x: 0 });
     await s.tabMenuAction("mark-unread");
+    await s.tasks.idle();
     s.receiveSnapshot(marked(1));
     s.switchWorkspace(2);
     await acknowledged();
@@ -1167,6 +1175,7 @@ test("change folder works in a terminal too short for the folder list", async ()
     await s.tabMenuAction("change-folder");
     expect(s.frame()).toContain("Change folder");
     await s.input(bytes("\tnext\r"));
+    await s.settle();
     expect(commands).toEqual([{ "workspace.edit": { target: 1, name: "next", cwd: join(root, "app/next") } }]);
   } finally {
     viewer.close(s);
@@ -1216,6 +1225,7 @@ test("change folder browses from the workspace's folder and moves it there", asy
     await s.input(bytes("next"));
     expect(d.name()).toBe("next");
     await s.input(bytes("\r"));
+    await s.settle();
     expect(commands).toEqual([{ "workspace.edit": { target: 1, name: "next", cwd: join(root, "app/next") } }]);
     expect(s.name_dialog).toBeNull();
     // A name of its own stays.
@@ -1236,6 +1246,7 @@ test("open shows the workspace already on that folder", async () => {
   s.receiveSnapshot(folders("/a", "/b"));
   try {
     await s.perform({ name: "open", value: "/b" });
+    await s.tasks.idle();
     expect(s.current().id).toBe(2);
     await expect(s.perform({ name: "open", value: "b" })).rejects.toThrow("InvalidDirectory");
   } finally {
@@ -1286,6 +1297,7 @@ test("open adds a workspace for a folder no workspace is on", async () => {
   s.receiveSnapshot(snapshot);
   try {
     await s.perform({ name: "open", value: "/b" });
+    await s.tasks.idle();
     expect(commands).toEqual([{ "workspace.create": { name: "", cwd: "/b" } }]);
     expect(s.current().id).toBe(2);
   } finally {
@@ -1384,6 +1396,7 @@ test("dropping an opened ready agent keeps its new position", async () => {
     expect(from).toBeDefined();
     expect(to).toBeDefined();
     await s.input(bytes(mouse(0, from) + mouse(32, to) + mouse(0, to, true)));
+    await s.settle();
     expect(sent).toContainEqual({ "agent.place": { workspace: 1, target: { pane: 2 }, before: { pane: 1 } } });
     expect(ready()).toEqual([{ pane: 2 }, { pane: 1 }]);
     expect(s.focused().id).toBe(2);
@@ -2317,12 +2330,15 @@ test("space in Manage hides a row in the current workspace's picker only", async
 test("an account's row has a YOLO and launcher membership of its own, apart from its provider's", async () => {
   const { s, sent } = withWork();
   s.agent_launcher.selected = work;
+  // The toggle shows once the daemon has it; input doesn't wait for it.
   await s.key("y".charCodeAt(0));
+  await s.settle();
   expect(sent.at(-1)).toEqual({ "agent.yolo": { provider: "claude", enabled: true, account: "/accounts/work" } });
   expect([s.agent_launcher.yoloOf(work), s.agent_launcher.yoloOf("claude")]).toEqual([true, false]);
   s.agent_launcher.selected = "claude";
   // An older daemon refuses an account, so the default's row sends none.
   await s.key("y".charCodeAt(0));
+  await s.settle();
   expect(sent.at(-1)).toEqual({ "agent.yolo": { provider: "claude", enabled: true } });
   await s.input(bytes("\x1b[C"));
   s.agent_launcher.manager.at = agentManager.agentKey("claude", "/accounts/work");
@@ -3344,6 +3360,13 @@ test("put away, Corgi sounds its own when it answers or needs you, once, and not
  * their field's cell, and whose pane input lands in `typed`. */
 function renaming(fail?: (command: any) => string | undefined, snapshot: any = pair()) {
   const { s, sent } = recording(snapshot, fail);
+  for (const method of ["input", "key"]) {
+    const run = s[method].bind(s);
+    s[method] = async (...args: any[]) => {
+      await run(...args);
+      await s.settle();
+    };
+  }
   const typed: string[] = [];
   s.sendInput = (_term: any, data: any) => typed.push(Buffer.from(data).toString());
   const rect = (target: any) => s.sidebarView(s.sidebarEntries()).fieldRect(target, s.workspaceEntries());
@@ -3540,7 +3563,8 @@ function picking() {
   const s: any = new Controller({
     request: transport(async (op, fields) => {
       // A sync sees nothing new, and focus changes are accepted.
-      if (op === "viewer.sync" || op === "session.command") return { ok: true, viewer_protocol: 4 };
+      if (op === "viewer.sync") return { ok: true, viewer_protocol: 4 };
+      if (op === "session.command") return { ok: true, result: protocol.emptyResult() };
       if (op !== "viewer.pick") throw Error("UnexpectedRequest");
       asks.push(fields);
       return { ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: reply.shown, copy: "hello" };
@@ -4645,6 +4669,7 @@ test("the field closes when its row scrolls out of the agent list", async () => 
     const at = s.sidebarView(s.sidebarEntries()).fieldRect({ agent: 10 }, s.workspaceEntries());
     for (let i = 0; i < 2; i++)
       await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}M\x1b[<0;${at.x + 1};${at.y + 1}m`));
+    await s.settle();
     expect(s.inline_rename?.target).toEqual({ agent: 10 });
     const view = s.sidebarView(s.sidebarEntries());
     for (let i = 0; i < 3; i++) await s.input(bytes(`\x1b[<65;3;${view.middle() + 4}M`));
@@ -5009,6 +5034,46 @@ test.each([
   }
 });
 
+test("an agent's review reads the checkout the list puts it under", () => {
+  const checkout = (path: string, branch: string, primary: boolean) => ({
+    path,
+    head: "4f1c2a9e0b",
+    branch: `refs/heads/${branch}`,
+    primary,
+    bare: false,
+    detached: false,
+    locked: null,
+    prunable: null,
+    available: true,
+    comparison: null,
+    changes: null,
+    stale: false,
+  });
+  const snapshot = folders("/src/app");
+  Object.assign(snapshot.panes[0], {
+    cwd: "/src/app",
+    agent: { ...snapshot.panes[0].agent, provider: "codex", cwd: "/src/app" },
+  });
+  Object.assign(snapshot.workspaces[0], {
+    worktrees: {
+      common_dir: "/src/app/.git",
+      base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
+      entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
+      agents: [],
+      stale: false,
+    },
+  });
+  const s: any = new Controller({ request: transport(async () => snapshot).request });
+  s.receiveSnapshot(snapshot);
+  expect(s.reviewTarget().cwd).toBe("/src/app");
+  // Started on main but writing in topic, it's listed under topic.
+  (snapshot.workspaces[0] as any).worktrees.agents = [
+    { target: { pane: 1 }, path: "/src/app-topic", source: "write", stale: false },
+  ];
+  s.receiveSnapshot(snapshot);
+  expect(s.reviewTarget().cwd).toBe("/src/app-topic");
+});
+
 test("a rename that can't reach the daemon says so, for a workspace or an agent", async () => {
   const { s, twice } = renaming();
   const edit = spyOn(s, "edit").mockRejectedValue(Object.assign(Error("write EPIPE"), { code: "EPIPE" }));
@@ -5064,6 +5129,67 @@ test("a remembered name prefills the next rename until Escape, success or the pa
   } finally {
     setSystemTime();
     viewer.close(s);
+  }
+});
+
+test("a remote machine's launcher lists the agents saved on that computer, not this one's", async () => {
+  const opus = {
+    agent: "profile/opus",
+    row: "profile:opus",
+    label: "Opus",
+    launcher: true,
+    provider: "claude",
+    account: "",
+    name: "Opus",
+    options: { flags: "", env: [], model: "claude-opus-5-5" },
+    yolo: false,
+  };
+  const local = spyOn(agentProfiles, "list").mockReturnValue([
+    { id: "here", provider: "codex", account: "", name: "Here", options: { flags: "", env: [] }, yolo: false },
+  ]);
+  const asked: unknown[] = [],
+    sent: unknown[] = [];
+  const s = controller();
+  const other = new Machine(
+    {
+      request: transport(async (op, fields: any) => {
+        if (op === "launcher.catalog") {
+          asked.push(fields);
+          return { agents: [opus] };
+        }
+        if (op === "session.snapshot") return folders("/w");
+        if (op !== "session.command") throw Error("UnexpectedRequest");
+        sent.push(fields.command);
+        return { result: {} };
+      }).request,
+    },
+    "work",
+    true,
+  );
+  s.adopt(other);
+  s.receiveSnapshot(folders("/w"), other);
+  s.switchMachine(other);
+  try {
+    s.openLauncher(true);
+    expect(s.agent_launcher.profiles).toEqual([]);
+    await other.tasks.idle();
+    await s.pollLauncher(false);
+    expect(asked).toEqual([{ workspace: 1, cwd: "/w" }]);
+    expect(s.agent_launcher.profiles.map((p: agentProfiles.Profile) => p.name)).toEqual(["Opus"]);
+    expect(s.agent_launcher.shown("profile:opus")).toBe(true);
+    // Read once it's shown, then again only as a launcher opens.
+    await s.pollLauncher(false);
+    await other.tasks.idle();
+    expect(asked).toHaveLength(1);
+    s.agent_launcher.selected = "profile:opus";
+    await s.key("y".charCodeAt(0));
+    await other.tasks.idle();
+    expect(sent.at(-1)).toEqual({ "agent.launcher.configure": { row: "profile:opus", yolo: true } });
+    expect(s.agent_launcher.yoloOf("profile:opus")).toBe(true);
+  } finally {
+    local.mockRestore();
+    viewer.close(s);
+    other.runtime.destroy();
   }
 });
 
@@ -5127,6 +5253,158 @@ test("Escape while a save is in flight closes the field; the late failure neithe
   }
 });
 
+test("Copy ID names the harness, session, id and paths, leaving out what isn't known", () => {
+  const pane = (label: string, fields: object) => ({ label, cwd: "/repo/sub", agent: agent(fields) }) as Pane;
+  const claude = pane("", {
+    provider: "claude",
+    name: "fix sidebar hover",
+    session: "0b8e1c2a",
+    cwd: "/repo",
+    transcript: "/home/u/.claude/projects/-repo/0b8e1c2a.jsonl",
+  });
+  expect(breadcrumbs(claude)).toBe(
+    [
+      "harness: Claude Code",
+      "session: fix sidebar hover",
+      "id: 0b8e1c2a",
+      "cwd: /repo",
+      "transcript: /home/u/.claude/projects/-repo/0b8e1c2a.jsonl",
+    ].join("\n"),
+  );
+  // A pane's own name wins; the pane's folder stands in for the agent's.
+  expect(breadcrumbs(pane("review", { provider: "codex", name: "thread", session: "019a" }))).toBe(
+    ["harness: Codex", "session: review", "id: 019a", "cwd: /repo/sub"].join("\n"),
+  );
+});
+
+test("a split waiting on a slow daemon leaves input free and takes focus only where it opened", async () => {
+  const workspace = (id: number, panes: number[]) => ({
+    id,
+    name: `ws${id}`,
+    cwd: "/tmp",
+    model: {
+      nodes: panes.map(pane => ({ pane })),
+      tabs: panes.map((_, i) => ({ id: id * 10 + i, root: i, title: "" })),
+      revision: 0,
+    },
+  });
+  const pane = (id: number, ws: number, tab: number) => ({
+    id,
+    workspace: ws,
+    tab,
+    cols: 80,
+    rows: 24,
+    agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
+  });
+  const before = {
+    workspaces: [workspace(1, [1]), workspace(2, [2])],
+    panes: [pane(1, 1, 10), pane(2, 2, 20)],
+    conversations: [],
+    headless_sessions: [],
+  };
+  const after = {
+    ...before,
+    workspaces: [workspace(1, [1, 3]), workspace(2, [2])],
+    panes: [...before.panes, pane(3, 1, 11)],
+  };
+  for (const moved of [true, false]) {
+    let release!: () => void;
+    const commands: unknown[] = [];
+    const s: any = new Controller({
+      request: transport(async (op, fields: any) => {
+        if (op === "session.snapshot") return after;
+        commands.push(fields.command);
+        await new Promise<void>(resolve => (release = resolve));
+        return { ok: true, result: { pane: 3 } };
+      }).request,
+    });
+    try {
+      s.receiveSnapshot(before);
+      s.switchWorkspace(1);
+      await s.perform({ name: "split", value: "right" });
+      expect(commands).toHaveLength(1);
+      // The reply hasn't come; the viewer still takes input.
+      if (moved) s.switchWorkspace(2);
+      expect(s.current().id).toBe(moved ? 2 : 1);
+      release();
+      await s.tasks.idle();
+      expect(s.current().id).toBe(moved ? 2 : 1);
+      expect(s.focused()?.id).toBe(moved ? 2 : 3);
+    } finally {
+      viewer.close(s);
+    }
+  }
+});
+
+/** One workspace with panes 1 and 2, over a daemon whose commands wait until
+ * the test lets them go, then give `reply`; snapshots answer at once. */
+function slowDaemon(reply: (command: any) => object = () => ({ ok: true, result: { pane: 2 } })) {
+  const snapshot = {
+    workspaces: [
+      {
+        id: 1,
+        name: "one",
+        cwd: "/tmp",
+        model: {
+          nodes: [{ pane: 1 }, { pane: 2 }],
+          tabs: [
+            { id: 10, root: 0, title: "" },
+            { id: 11, root: 1, title: "" },
+          ],
+          revision: 4,
+        },
+      },
+    ],
+    panes: [1, 2].map(id => ({
+      id,
+      workspace: 1,
+      tab: id === 1 ? 10 : 11,
+      cols: 80,
+      rows: 24,
+      agent: { provider: "codex", attention: "none", observation: { completed: 0, read: 0 } },
+    })),
+    conversations: [],
+    headless_sessions: [],
+  };
+  const commands: any[] = [];
+  const replies: (() => void)[] = [];
+  const s: any = new Controller({
+    request: transport(async (op, fields: any) => {
+      if (op === "session.snapshot") return snapshot;
+      commands.push(fields.command);
+      await new Promise<void>(resolve => replies.push(resolve));
+      return reply(fields.command);
+    }).request,
+  });
+  s.receiveSnapshot(snapshot);
+  /** Lets every reply go, including ones for requests the replies lead to. */
+  const answer = async () => {
+    let idle = false;
+    void s.tasks.idle().then(() => (idle = true));
+    while (!idle) {
+      while (replies.length) replies.shift()!();
+      await Bun.sleep(0);
+    }
+  };
+  return { s, commands, answer };
+}
+
+test("a name saved on a slow daemon waits for it, and a second Enter doesn't fork twice", async () => {
+  const { s, commands, answer } = slowDaemon();
+  try {
+    s.name_dialog = Dialog.init({ fork: 1 }, "copy");
+    s.finishName(true);
+    s.finishName(true);
+    expect(commands).toEqual([{ "agent.fork": { target: 1, name: "copy" } }]);
+    expect(s.name_dialog).not.toBeNull();
+    await answer();
+    expect(s.name_dialog).toBeNull();
+    expect(commands).toHaveLength(1);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("a full input box still opens the field on a double-click and keeps Rename in the menu", async () => {
   const busy = (c: any) => (c["agent.rename"]?.name === undefined ? "AgentBusy" : undefined);
   const { s, twice } = renaming(busy);
@@ -5136,6 +5414,7 @@ test("a full input box still opens the field on a double-click and keeps Rename 
     expect(s.inline_rename?.target).toEqual({ agent: 1 });
     s.closeInlineRename();
     await s.openAgentMenu(1, 0, 0);
+    await s.settle();
     expect(s.tab_menu?.off.has("rename")).toBe(false);
   } finally {
     setSystemTime();
@@ -5144,8 +5423,873 @@ test("a full input box still opens the field on a double-click and keeps Rename 
   const { s: refused } = renaming(c => (c["agent.rename"]?.name === undefined ? "RenameUnavailable" : undefined));
   try {
     await refused.openAgentMenu(1, 0, 0);
+    await refused.settle();
     expect(refused.tab_menu?.off.has("rename")).toBe(true);
   } finally {
     viewer.close(refused);
+  }
+});
+
+test("a divider dragged over a slow daemon sends the latest ratio once the last one lands", async () => {
+  const { s, commands, answer } = slowDaemon();
+  try {
+    const drag = { cancelled: false };
+    for (const ratio of [0.3, 0.4, 0.5]) s.resizeSplit(drag, { target: 1, other: 2, ratio });
+    expect(commands).toEqual([{ "split.ratio": { target: 1, other: 2, ratio: 0.3, expected: 4n } }]);
+    await answer();
+    expect(commands.map(c => c["split.ratio"].ratio)).toEqual([0.3, 0.5]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("an agent menu opens once the daemon says what it allows, unless Esc came first", async () => {
+  for (const escaped of [false, true]) {
+    const { s, answer } = slowDaemon();
+    try {
+      s.openAgentMenu(1, 0, 0);
+      expect(s.tab_menu).toBeNull();
+      if (escaped) s.closeMenu();
+      await answer();
+      expect(s.tab_menu !== null).toBe(!escaped);
+    } finally {
+      viewer.close(s);
+    }
+  }
+});
+
+test("keys typed right after a split on a slow daemon wait for it and land in the new pane", async () => {
+  const { s, commands, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02vls"));
+    expect(Object.keys(commands[0])).toEqual(["pane.split"]);
+    const pending = (id: number) => Buffer.from(s.pane(id).terminal.pending).toString();
+    expect(pending(1)).toBe("");
+    await answer();
+    await s.settle();
+    expect(s.focused()?.id).toBe(2);
+    expect(pending(2)).toBe("ls");
+    expect(pending(1)).toBe("");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a pane still opening has the keyboard and no pane shows focus until it arrives", async () => {
+  const { s, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02vls"));
+    expect(s.openingFocus()).not.toBeNull();
+    expect(s.pane(1).terminal.pending).toEqual([]);
+    await answer();
+    expect(s.openingFocus()).toBeNull();
+    expect(s.focused()?.id).toBe(2);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("Corgi's keys run at once while a pane opens", async () => {
+  const { s, commands } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02v\x02q"));
+    expect(Object.keys(commands[0])).toEqual(["pane.split"]);
+    expect(s.input_state.attached).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("focus chosen while a pane opens takes the keyboard back; what was typed before still reaches the pane", async () => {
+  const { s, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02vab"));
+    // Choosing the pane that had focus counts, though focus stays put.
+    s.focusPane(1);
+    await s.input(bytes("cd"));
+    await answer();
+    const pending = (id: number) => Buffer.from(s.pane(id).terminal.pending).toString();
+    expect(s.focused()?.id).toBe(1);
+    expect(pending(1)).toBe("cd");
+    expect(pending(2)).toBe("ab");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("closing a pane still opening closes it as it arrives, and other pane actions wait for it", async () => {
+  const { s, commands, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02v\x02v"));
+    expect(commands.filter(c => "pane.split" in c)).toHaveLength(1);
+    expect(s.message).toBe(" The new pane is still opening");
+    await s.input(bytes("\x02xls"));
+    await answer();
+    expect(commands.at(-1)).toEqual({ "pane.close": { target: 2 } });
+    expect(Buffer.from(s.pane(1).terminal.pending).toString()).toBe("ls");
+    expect(s.pane(2).terminal.pending).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a pane that fails to open drops what was typed for it and says why", async () => {
+  const { s, answer } = slowDaemon(() => ({ err: "TooManyPanes" }));
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02vls"));
+    await answer();
+    expect(s.message).toBe("TooManyPanes");
+    expect(s.focused()?.id).toBe(1);
+    expect(s.runtime.panes.flatMap((p: any) => p.terminal.pending)).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a launcher shortcut the daemon refuses says so instead of ending the viewer", async () => {
+  const { s, answer } = slowDaemon(() => ({ err: "NoWorkspace" }));
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    s.openLauncher(true);
+    await s.input(bytes("t"));
+    expect(s.agent_launcher).toBeNull();
+    await answer();
+    expect(s.message).toBe("NoWorkspace");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+/** One tab with panes 1 and 2 side by side. A split of pane 1 answers pane 3,
+ * which snapshots show only once the daemon has made it. */
+function splittingDaemon() {
+  const pane = (id: number) => ({
+    id,
+    workspace: 1,
+    tab: 10,
+    cols: 40,
+    rows: 24,
+    agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
+  });
+  const workspace = (nodes: object[], revision: number) => ({
+    id: 1,
+    name: "one",
+    cwd: "/tmp",
+    model: { nodes, tabs: [{ id: 10, root: 0, title: "" }], revision },
+  });
+  const side = (first: number, second: number) => ({ split: { axis: "horizontal", first, second, ratio: 500 } });
+  const before = {
+    workspaces: [workspace([side(1, 2), { pane: 1 }, { pane: 2 }], 1)],
+    panes: [pane(1), pane(2)],
+    conversations: [],
+    headless_sessions: [],
+  };
+  const after = {
+    ...before,
+    workspaces: [workspace([side(1, 2), side(3, 4), { pane: 2 }, { pane: 1 }, { pane: 3 }], 2)],
+    panes: [pane(1), pane(2), pane(3)],
+  };
+  let made = false;
+  const replies: (() => void)[] = [];
+  const s: any = new Controller({
+    request: transport(async op => {
+      if (op === "session.snapshot") return made ? after : before;
+      await new Promise<void>(resolve => replies.push(resolve));
+      made = true;
+      return { ok: true, result: { pane: 3 } };
+    }).request,
+  });
+  s.receiveSnapshot(before);
+  s.input_state.attached = true;
+  s.width = 120;
+  s.height = 40;
+  s.focusPane(1);
+  const answer = async () => {
+    while (replies.length) replies.shift()!();
+    await s.tasks.idle();
+  };
+  return { s, answer };
+}
+
+test("a pane that appears only once the daemon makes it takes focus and what was typed, and shows focus then", async () => {
+  const { s, answer } = splittingDaemon();
+  try {
+    expect(s.frame()).toContain(render.divider_focused);
+    await s.input(bytes("\x02vls"));
+    // Nothing on screen claims the keyboard while the pane is on its way.
+    expect(s.frame()).not.toContain(render.divider_focused);
+    await answer();
+    expect(s.focused()?.id).toBe(3);
+    expect(Buffer.from(s.pane(3).terminal.pending).toString()).toBe("ls");
+    expect(s.pane(1).terminal.pending).toEqual([]);
+    expect(s.frame()).toContain(render.divider_focused);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a pane opening on one machine gets its keys and its close there, whichever machine is shown", async () => {
+  for (const close of [false, true]) {
+    const { s, commands, answer } = slowDaemon();
+    const home = s.machine,
+      sent: unknown[] = [];
+    const other = new Machine(
+      {
+        request: transport(async (op, fields: any) => {
+          if (op === "session.snapshot") return pair();
+          sent.push(fields.command);
+          return { ok: true, result: {} };
+        }).request,
+      },
+      "work",
+      true,
+    );
+    s.adopt(other);
+    s.receiveSnapshot(pair(), other);
+    try {
+      s.input_state.attached = true;
+      s.focusPane(1);
+      await s.input(bytes(close ? "\x02v\x02x" : "\x02vls"));
+      s.switchMachine(other);
+      await answer();
+      await other.tasks.idle();
+      expect(sent).toEqual([]);
+      expect(other.runtime.panes.flatMap(p => p.terminal.pending)).toEqual([]);
+      if (close) expect(commands.at(-1)).toEqual({ "pane.close": { target: 2 } });
+      else expect(Buffer.from(home.runtime.pane(2)!.terminal.pending).toString()).toBe("ls");
+    } finally {
+      home.runtime.destroy();
+      viewer.close(s);
+    }
+  }
+});
+
+test("a paste made while a pane opens is dropped, and typing still reaches the pane", async () => {
+  const { s, answer } = slowDaemon();
+  const clipboard = Object.assign(new hostClipboard.State(), { support: "on" });
+  s.host.clipboard = clipboard;
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02v\x1b[200~pasted\x1b[201~ls"));
+    await s.pasteEvent("text/plain");
+    expect(s.paste_target).toBeNull();
+    await answer();
+    expect(Buffer.from(s.pane(2).terminal.pending).toString()).toBe("ls");
+    expect(s.pane(1).terminal.pending).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("Esc typed for a pane opening reaches it, not the old pane's retry", async () => {
+  const { s, commands, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    const p = s.pane(1);
+    p.agent.state = "working";
+    p.agent.retry_at = Date.now() + 100_000;
+    await s.input(bytes("\x02v\x1b"));
+    // A lone Esc goes once the tick knows no sequence follows it.
+    s.input_state.escape_at = 0;
+    await s.expireInput();
+    await answer();
+    expect(commands.some(c => "retry.cancel" in c)).toBe(false);
+    expect(s.pane(2).terminal.pending).toEqual([27]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a wheel over the old pane scrolls it without taking the keyboard from a pane opening", async () => {
+  const { s, answer } = splittingDaemon();
+  try {
+    await s.input(bytes("\x02v"));
+    const place = s.layoutView().placements(s.area())[0];
+    await s.input(bytes(`\x1b[<65;${place.rect.x + 3};${place.rect.y + 3}M`));
+    await s.input(bytes("ls"));
+    await answer();
+    expect(Buffer.from(s.pane(3).terminal.pending).toString()).toBe("ls");
+    expect(s.pane(1).terminal.pending).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a split ends copy mode, so keys for the new pane aren't read as copy-mode commands", async () => {
+  const { s, answer } = splittingDaemon();
+  try {
+    s.copy_mode = true;
+    await s.input(bytes("\x02vls"));
+    expect(s.copy_mode).toBe(false);
+    await answer();
+    expect(Buffer.from(s.pane(3).terminal.pending).toString()).toBe("ls");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("the first agent launched in an empty workspace is shown once it opens", async () => {
+  const empty = {
+    workspaces: [{ id: 1, name: "one", cwd: "/tmp", model: { nodes: [], tabs: [], revision: 1 } }],
+    panes: [],
+    conversations: [],
+    headless_sessions: [],
+  };
+  const full = {
+    ...empty,
+    workspaces: [
+      {
+        id: 1,
+        name: "one",
+        cwd: "/tmp",
+        model: { nodes: [{ pane: 5 }], tabs: [{ id: 10, root: 0, title: "" }], revision: 2 },
+      },
+    ],
+    panes: [
+      {
+        id: 5,
+        workspace: 1,
+        tab: 10,
+        cols: 80,
+        rows: 24,
+        agent: { provider: "codex", attention: "none", observation: { completed: 0, read: 0 } },
+      },
+    ],
+  };
+  let made = false;
+  const s: any = new Controller({
+    request: transport(async op => {
+      if (op === "session.snapshot") return made ? full : empty;
+      made = true;
+      return { ok: true, result: { pane: 5 } };
+    }).request,
+  });
+  s.receiveSnapshot(empty);
+  try {
+    await s.launchAgent("codex", "", " Signed in");
+    await s.tasks.idle();
+    expect(s.launched).toBe(5);
+    expect(s.focused()?.id).toBe(5);
+    expect(s.message).toBe(" Signed in");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("YOLO flips at once, holds through a refresh until the daemon has it, and a quick second press turns it back", async () => {
+  const { s, sent } = withWork();
+  try {
+    s.toggleLauncherYolo(work);
+    expect(s.agent_launcher.yoloOf(work)).toBe(true);
+    // The launcher's refresh from what the daemon last said keeps the value on its way.
+    s.syncLauncherYolo(s.agent_launcher);
+    expect(s.agent_launcher.yoloOf(work)).toBe(true);
+    s.toggleLauncherYolo(work);
+    expect(s.agent_launcher.yoloOf(work)).toBe(false);
+    await s.settle();
+    expect(sent.filter(c => "agent.yolo" in c).map(c => c["agent.yolo"].enabled)).toEqual([true, false]);
+    expect(s.agent_launcher.yoloOf(work)).toBe(false);
+    // Once both are answered, the launcher shows what the daemon says again.
+    expect(s.yolo_pending.size).toBe(0);
+    s.runtime.account_yolo = ["/accounts/work"];
+    s.syncLauncherYolo(s.agent_launcher);
+    expect(s.agent_launcher.yoloOf(work)).toBe(true);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a launcher reopened while a YOLO change is on its way shows it, so the next press turns it back", async () => {
+  const { s, sent } = withWork();
+  try {
+    s.toggleLauncherYolo(work);
+    s.closeMenu();
+    s.openLauncher(true);
+    expect(s.agent_launcher.yoloOf(work)).toBe(true);
+    s.toggleLauncherYolo(work);
+    await s.settle();
+    expect(sent.filter(c => "agent.yolo" in c).map(c => c["agent.yolo"].enabled)).toEqual([true, false]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a YOLO change the daemon refuses goes back to what it has", async () => {
+  const { s } = recording(folders("/src/app"), c => ("agent.yolo" in c ? "Busy" : undefined));
+  try {
+    s.openLauncher(true);
+    s.toggleLauncherYolo("claude");
+    expect(s.agent_launcher.yoloOf("claude")).toBe(true);
+    await s.settle();
+    expect(s.agent_launcher.yoloOf("claude")).toBe(false);
+    expect(s.message).toBe("Busy");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a terminal launched while its worktree is added opens in the workspace it was asked for", async () => {
+  let added!: () => void;
+  const commands: any[] = [];
+  const s: any = new Controller({
+    request: transport(async (op, fields: any) => {
+      if (op === "worktree.add") await new Promise<void>(resolve => (added = resolve));
+      if (op !== "session.command") return pair();
+      commands.push(fields.command);
+      return { ok: true, result: { pane: 1 } };
+    }).request,
+  });
+  s.receiveSnapshot(pair());
+  s.input_state.attached = true;
+  try {
+    s.switchWorkspace(1);
+    s.openLauncher(true);
+    s.agent_launcher.worktree.planned = { branch: "b", base: "main", base_name: "main", path: "/a/b" };
+    await s.input(bytes("t"));
+    // Input carries on while Git adds the worktree.
+    s.closeMenu();
+    s.switchWorkspace(2);
+    added();
+    await s.settle();
+    expect(commands).toEqual([{ "pane.create": { workspace: 1, cwd: "/a/b", command: null, title: "" } }]);
+    expect(s.current().id).toBe(2);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a pane takes one paste at a time by every way a paste comes, says so, and typing still goes", async () => {
+  const { s, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    const terminal = s.pane(1).terminal,
+      pending = () => Buffer.from(terminal.pending).toString();
+    await s.input(bytes("\x1b[200~one\x1b[201~x\x1b[200~two\x1b[201~y"));
+    expect(pending()).toBe("onexy");
+    expect(s.message).toBe(" Still sending the last paste; paste again once it lands");
+    s.clipboard = "three";
+    await s.perform({ name: "paste" });
+    s.pasteText({ pane: 1 }, "four");
+    expect(pending()).toBe("onexy");
+    // Once the daemon has it, the next paste goes.
+    const sent = terminal.flush();
+    await answer();
+    await sent;
+    s.pasteText({ pane: 1 }, "five");
+    expect(pending()).toBe("five");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("while a pane's input waits, only hovers give way: clicks, drags and the wheel reach it whole", async () => {
+  const s: any = new Controller(transport(async () => ({ ok: true })));
+  s.width = 100;
+  s.height = 30;
+  s.sidebar_open = false;
+  s.input_state.attached = true;
+  s.receiveSnapshot({
+    workspaces: [
+      {
+        id: 1,
+        name: "one",
+        cwd: "/tmp",
+        model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 },
+      },
+    ],
+    panes: [
+      {
+        id: 1,
+        workspace: 1,
+        tab: 1,
+        cols: 100,
+        rows: 29,
+        agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
+      },
+    ],
+    conversations: [],
+    headless_sessions: [],
+  });
+  const source = new NativeTerminal(100, 29);
+  try {
+    // A program that tracks every motion, reported as SGR.
+    source.feed("\x1b[?1003h\x1b[?1006h");
+    s.runtime.pane(1).terminal.receive(source.surface(1));
+    s.frame();
+    const place = s.layoutView().placements(s.area())[0].rect;
+    const at = (button: number, x: number, release = false) =>
+      `\x1b[<${button};${place.x + x + 1};${place.y + 3}${release ? "m" : "M"}`;
+    const reports = () =>
+      [
+        ...Buffer.from(s.runtime.pane(1).terminal.pending)
+          .toString()
+          .matchAll(/\x1b\[<(\d+);(\d+);\d+([Mm])/g),
+      ].map(([, button, x, kind]) => `${button}@${Number(x) - 1}${kind}`);
+    await s.input(bytes(at(35, 1) + at(35, 2) + at(35, 3)));
+    expect(reports()).toEqual(["35@3M"]);
+    await s.input(bytes(at(0, 3) + at(32, 4) + at(32, 5) + at(32, 6) + at(0, 6, true) + at(64, 6) + at(64, 6)));
+    expect(reports()).toEqual(["35@3M", "0@3M", "32@4M", "32@5M", "32@6M", "0@6m", "64@6M", "64@6M"]);
+  } finally {
+    source.destroy();
+    viewer.close(s);
+  }
+});
+
+test("a paste cut off by an input reset, or failing part-way, never leaves its pane refusing pastes", async () => {
+  const { s, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    const terminal = s.pane(1).terminal,
+      text = () => Buffer.from(terminal.pending).toString();
+    // Its end never comes: the viewer gave up the input it was in, and the
+    // paste, none of which had gone, goes not at all.
+    await s.input(bytes("x\x1b[200~par"));
+    s.cancelInput();
+    expect(text()).toBe("x");
+    expect(terminal.pasting()).toBe(false);
+    terminal.pending = [];
+    // Too big to fit, a paste goes whole or not at all, and ends either way.
+    s.clipboard = "x".repeat(1024 * 1024 + 1);
+    await expect(s.perform({ name: "paste" })).rejects.toThrow("InputBackpressure");
+    expect(terminal.pending).toEqual([]);
+    expect(terminal.pasting()).toBe(false);
+    // Failing part-way, the rest of the paste is dropped up to its end, and
+    // what follows is read as usual.
+    const full = new Array(1024 * 1024 - 2).fill(97);
+    terminal.pending = [...full];
+    await expect(s.input(bytes("\x1b[200~four\x1b[201~ls"))).rejects.toThrow("InputBackpressure");
+    expect(text().slice(full.length)).toBe("ls");
+    expect(s.input_state.paste).toBeNull();
+    // When its end comes in later input, what comes before it is never typed.
+    terminal.pending = [...full, 97];
+    await expect(s.input(bytes("\x1b[200~fo"))).rejects.toThrow("InputBackpressure");
+    terminal.pending = [];
+    await s.input(bytes("ur\nrm -rf x\x1b[201~ls"));
+    expect(text()).toBe("ls");
+    await answer();
+    s.pasteText({ pane: 1 }, "five");
+    expect(text()).toBe("lsfive");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("through the viewer's routing, a workspace name's double-click renames and a click in its field stays there", async () => {
+  const { s, rect } = renaming();
+  // As the viewer routes a click: workspace drags first, the rest as input.
+  const click = async (x: number, y: number) => {
+    for (const release of [false, true])
+      if (!s.workspaceDragInput(x, y, 0, release))
+        await s.input(bytes(`\x1b[<0;${x + 1};${y + 1}${release ? "m" : "M"}`));
+  };
+  try {
+    setSystemTime(new Date(1000));
+    const at = rect({ workspace: 2 });
+    await click(at.x, at.y);
+    await click(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ workspace: 2 });
+    expect(s.workspaceDragInput(at.x + 1, at.y, 0, false)).toBe(false);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a press after a drag on a workspace's name starts no rename", async () => {
+  const { s, rect } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    const at = rect({ workspace: 2 });
+    expect(s.workspaceDragInput(at.x, at.y, 0, false)).toBe(true);
+    expect(s.workspaceDragInput(at.x + 1, at.y, 32, false)).toBe(true);
+    expect(s.workspaceDragInput(at.x, at.y, 32, false)).toBe(true);
+    expect(s.workspaceDragInput(at.x, at.y, 0, true)).toBe(true);
+    expect(s.workspaceDragInput(at.x, at.y, 0, false)).toBe(true);
+    expect(s.inline_rename).toBeNull();
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("closing the workspace shown settles on the next, unless the user went elsewhere; closing another leaves the view", async () => {
+  for (const moved of [false, true]) {
+    let closed = false,
+      release!: () => void;
+    const after = { ...pair(), workspaces: pair().workspaces.filter(w => w.id !== 1), panes: [pair().panes[2]] };
+    const s: any = new Controller({
+      request: transport(async op => {
+        if (op === "session.snapshot") return closed ? after : pair();
+        await new Promise<void>(resolve => (release = resolve));
+        closed = true;
+        return { ok: true, result: {} };
+      }).request,
+    });
+    try {
+      s.receiveSnapshot(pair());
+      s.switchWorkspace(1);
+      s.closeWorkspace(1, false);
+      if (moved) s.switchWorkspace(2);
+      const settle = spyOn(s, "switchWorkspace");
+      release();
+      await s.settle();
+      expect(s.current().id).toBe(2);
+      // The settling switch reveals and visits the workspace landed on.
+      expect(settle.mock.calls).toEqual(moved ? [] : [[2]]);
+    } finally {
+      viewer.close(s);
+    }
+  }
+  const s: any = new Controller({
+    request: transport(async op => (op === "session.snapshot" ? pair() : { ok: true, result: {} })).request,
+  });
+  try {
+    s.receiveSnapshot(pair());
+    s.switchWorkspace(1);
+    const settle = spyOn(s, "switchWorkspace");
+    s.closeWorkspace(2, false);
+    await s.settle();
+    expect(settle).not.toHaveBeenCalled();
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a delayed command refreshes its owning machine after the viewer switches", async () => {
+  const pending = Promise.withResolvers<unknown>();
+  let reads = 0;
+  const first = new Machine(
+    transport(async op => {
+      if (op === "session.command") return pending.promise;
+      if (op === "session.snapshot") {
+        reads++;
+        return folders("/updated");
+      }
+      throw Error("UnexpectedRequest");
+    }),
+  );
+  const second = new Machine(
+    transport(async () => {
+      throw Error("WrongMachine");
+    }),
+    "work",
+    true,
+  );
+  const s: any = new Controller(first);
+  s.adopt(second);
+  s.receiveSnapshot(folders("/local"));
+  s.receiveSnapshot(folders("/remote"), second);
+  try {
+    s.command({ "pane.rename": { target: 1, name: "renamed" } });
+    s.switchMachine(second);
+    pending.resolve({ ok: true, result: { pane: 1 } });
+    await first.tasks.idle();
+    expect(reads).toBe(1);
+    expect(first.runtime.workspaces.items[0].cwd).toBe("/updated");
+    expect(s.current().cwd).toBe("/remote");
+  } finally {
+    first.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
+test("activity sections keep same-numbered agents on different machines distinct", () => {
+  const s = controller();
+  const other = new Machine(
+    transport(async () => ({})),
+    "work",
+    true,
+  );
+  s.adopt(other);
+  const snapshot = (cwd: string) => {
+    const value = folders(cwd);
+    value.panes[0].agent.provider = "codex" as any;
+    return value;
+  };
+  s.receiveSnapshot(snapshot("/local"));
+  s.receiveSnapshot(snapshot("/remote"), other);
+  s.prefs.agents = "all";
+  s.prefs.agent_sort = "activity";
+  const chosen: unknown[] = [];
+  s.onMachine = (machine: Machine, focus: unknown) => chosen.push([machine.name, focus]);
+  try {
+    const agents = s.agentEntries().filter((e: sidebar.Entry) => sidebar.isAgent(e.target));
+    expect(agents.map((e: sidebar.Entry) => e.target)).toEqual([{ pane: 1 }, { pane: 2 * 2 ** 32 + 1 }]);
+    s.selectAgent(agents[1].target);
+    expect(chosen).toEqual([["work", { pane: 1 }]]);
+  } finally {
+    other.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
+test("remote sign-in never starts a local account process", () => {
+  const s: any = new Controller(
+    new Machine(
+      transport(async () => ({})),
+      "work",
+      true,
+    ),
+  );
+  let started = false;
+  s.openSignin(() => {
+    started = true;
+    throw Error("LocalSignin");
+  });
+  expect(started).toBe(false);
+  expect(s.message).toContain("remote machine");
+  viewer.close(s);
+});
+
+test("a remote resource card sends signals and pane navigation to its owner", async () => {
+  const s = controller(),
+    calls: unknown[] = [];
+  const other = new Machine(
+    transport(async (op, fields) => {
+      calls.push([op, fields]);
+      return { ok: true };
+    }),
+    "work",
+    true,
+  );
+  s.adopt(other);
+  s.receiveSnapshot(folders("/local"));
+  s.receiveSnapshot(folders("/remote"), other);
+  const process = { pid: 42, start: 7n, name: "cat", pane: 1, cpu: 0 };
+  const key = s.rowKey(1, other);
+  other.runtime.resources.workspaces = [{ id: 1, known: true, processes: [process] }] as any;
+  s.resource_card.update({ id: key, known: true, processes: [process] }, false);
+  s.resource_card.pin({ pid: 42, start: "7" });
+  const chosen: unknown[] = [];
+  s.onMachine = (machine: Machine, focus: unknown) => chosen.push([machine.name, focus]);
+  try {
+    expect(s.resourceDetail()).toBe(key);
+    await s.signalProcesses("term");
+    expect(calls).toEqual([]);
+    await s.signalProcesses("term");
+    expect(calls).toEqual([["process.signal", { workspace: 1, pid: 42, start: 7n, signal: "term" }]]);
+    await s.perform({ name: "resource-go" });
+    expect(chosen).toEqual([["work", { pane: 1 }]]);
+  } finally {
+    other.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
+test("switching machines during an awaited key discards the old batch's tail", async () => {
+  const s = controller(),
+    pending = Promise.withResolvers<void>();
+  const other = new Machine(
+    transport(async () => ({})),
+    "work",
+    true,
+  );
+  s.adopt(other);
+  s.receiveSnapshot(folders("/local"));
+  s.receiveSnapshot(folders("/remote"), other);
+  s.input_state.attached = true;
+  const sent: [string, number][] = [];
+  s.key = async (byte: number) => {
+    sent.push([s.machine.name, byte]);
+    if (byte === 97) await pending.promise;
+  };
+  try {
+    const batch = s.input(bytes("ab"));
+    s.switchMachine(other);
+    await s.input(bytes("c"));
+    pending.resolve();
+    await batch;
+    expect(sent).toEqual([
+      ["local", 97],
+      ["work", 99],
+    ]);
+    expect(s.input_state.keybuf).toEqual([]);
+  } finally {
+    pending.resolve();
+    other.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
+test.each(["probe", "save"])(
+  "a slow remote rename %s leaves input processing free and cannot change another machine",
+  async mode => {
+    const pending = Promise.withResolvers<void>(),
+      commands: unknown[] = [],
+      s = controller(),
+      local = s.machine,
+      remote = new Machine(
+        transport(async (op, fields: any) => {
+          if (op !== "session.command") return pair();
+          commands.push(fields.command);
+          await pending.promise;
+          return mode === "probe" ? { result: { pane: 1 } } : { err: "AgentBusy" };
+        }),
+        "work",
+        true,
+      );
+    s.receiveSnapshot(pair());
+    s.adopt(remote);
+    s.receiveSnapshot(pair(), remote);
+    s.input_state.attached = true;
+    try {
+      s.switchMachine(remote);
+      if (mode === "probe") {
+        const at = s.sidebarView(s.sidebarEntries()).fieldRect({ agent: 1 }, s.workspaceRows());
+        for (let i = 0; i < 2; i++)
+          await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}M\x1b[<0;${at.x + 1};${at.y + 1}m`));
+      } else {
+        expect(s.beginInlineRename({ agent: 1 })).toBe(true);
+        await s.input(bytes("\x03remote name\r"));
+        expect(s.inline_rename.saving).toBe(true);
+      }
+      expect(commands).toHaveLength(1);
+      s.switchMachine(local);
+      expect(s.inline_rename).toBeNull();
+      local.remembered_names.set(1, "local draft");
+      pending.resolve();
+      await remote.tasks.idle();
+      expect(s.machine).toBe(local);
+      expect(s.inline_rename).toBeNull();
+      expect(local.remembered_names.get(1)).toBe("local draft");
+      expect(remote.remembered_names.size).toBe(0);
+    } finally {
+      pending.resolve();
+      await remote.tasks.idle();
+      s.switchMachine(local);
+      remote.runtime.destroy();
+      viewer.close(s);
+    }
+  },
+);
+
+test("Escape cancels an agent rename probe before its slow reply opens the field", async () => {
+  const { s, commands, answer } = slowDaemon();
+  try {
+    s.doubleClickAgent(1);
+    expect(commands).toEqual([probe(1)]);
+    await s.key(27);
+    await answer();
+    expect(s.inline_rename).toBeNull();
+  } finally {
+    await answer();
+    viewer.close(s);
   }
 });

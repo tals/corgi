@@ -127,7 +127,9 @@ process.stdin.on("data", () => process.stdout.write("\\x1b_Ga=d,d=I,i=730140,q=2
     // A late direct measurement enables every raster feature without leaking into pane input.
     pty.write("\x1b[6;18;9t");
     await pty.waitFor("\x1b_Ga=t,t=d,f=100,s=27,v=27,i=730031");
-    await pty.waitFor(`\x1b[0;38;2;${PALETTE.accent};48;2;${PALETTE.selected}m▌`);
+    // The focused row's bar, with its colors in one SGR or, from a cell diff, two.
+    const bar = new RegExp(String.raw`\x1b\[(0;)?38;2;${PALETTE.accent}(;|m\x1b\[)48;2;${PALETTE.selected}m▌`);
+    await pty.waitFor(output => bar.test(output));
     const placement = "\x1b_Ga=p,i=730031,p=1,z=1,C=1,q=";
     this.assertNotIn(placement, pty.output);
     // Simulate iTerm2's final-chunk acknowledgement, then its reordered
@@ -782,14 +784,21 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     return collected;
   }
   async test_real_client_restores_terminal_on_detach() {
-    await this.checkRealClientExit("\x02q", 1);
+    const output = await this.checkRealClientExit("\x02q", 1);
+    // Corgi's theme paints the terminal's margins, and gives them back on detach.
+    this.assertIn("\x1b]11;#", output);
+    this.assertLess(output.indexOf("\x1b]11;#"), output.lastIndexOf("\x1b]111\x1b\\"));
   }
   async test_real_client_passes_the_pane_cursor_shape_to_the_host() {
     const pane = (await this.open_pane({ command: "printf '\\033[6 qBAR_CURSOR'; sleep 30" })).pane;
     await this.until(async () =>
       (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("BAR_CURSOR"),
     );
-    const output = await this.checkRealClientExit("\x02q", 1);
+    // The sidebar can show before the pane's first frame; detach once the pane has drawn.
+    const output = await this.checkRealClientExit(async pty => {
+      await pty.waitFor("BAR_CURSOR", 4000);
+      pty.write("\x02q");
+    }, 1);
     this.assertIn("\x1b[6 q", output);
     this.assertLess(output.indexOf("\x1b[6 q"), output.lastIndexOf("\x1b[0 q"));
   }

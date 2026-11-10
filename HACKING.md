@@ -387,6 +387,16 @@ so one sent again after a reconnect is answered from the reply it had. `answered
 confirms replies the client has. `link.resume` moves a link to a new connection,
 with the viewer it carried. Detached links last 10 minutes, at most 32 of them.
 
+The terminal viewer reaches its daemon through an endpoint
+(`machine_connection.ts`), which reconnects, resumes its link and holds typing
+across reloads. A path (`machine_path.ts`) opens the endpoint's connections.
+`viewer_data.ts` binds the pane-data connection to the control connection's
+viewer link with `viewer.data`. Commands, input, receipts and unsolicited
+`viewer.controls` stay on control. `viewer.stream.configure` sends frames,
+including streamed metadata, on data; surface, image, search and pick replies
+use data too. Older peers without these operations keep the single-connection
+stream.
+
 `viewer.stream` pushes `viewer.frame`s every 16 ms at most instead of answering
 `viewer.sync` polls. With `incremental`, a stream sends full surfaces first, then
 rows changed against the last surface sent, which the receiver checks against the
@@ -470,6 +480,14 @@ the time and scope; polling jobs keep their own `Failure` to suppress repeats.
 `CORGI_LOG_LEVEL` selects `debug`, `info` (the default), `warn` or `error` when
 the daemon starts. Activity-summary records include exact
 model inputs and outputs, so inspect and redact before sharing logs.
+
+Viewer connection traces use the existing opt-in recorder. Start a viewer with
+`CORGI_TELEMETRY_DIR=/tmp/corgi-trace CORGI_TELEMETRY_TRACE=1
+CORGI_TELEMETRY_FILTER=remote.` and send its PID `SIGUSR2` to flush. The filter
+keeps the bounded timeline focused while all aggregate counters still run.
+`remote.connection` and `remote.rpc` record machine name, connection
+generation, recovery phases and RPC operation/duration/outcome. They contain no
+input bytes or request bodies. Nothing is recorded unless telemetry is enabled.
 
 Use `corgi integration status` for hook installation/trust and `corgi which codex`
 or `corgi which claude` for executable discovery. `corgi rpc` can inspect a

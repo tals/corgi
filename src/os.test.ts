@@ -13,6 +13,7 @@ import {
   SocketPath,
   env,
   loginShell,
+  privateDirectory,
 } from "./os";
 
 test("the login shell comes from the account database, not SHELL", () => {
@@ -89,6 +90,16 @@ test("shell quoting protects arguments containing shell syntax", () => {
   expect(shellEscape(["tig", "bad\rcommand"])).toBeNull();
   expect(shellEscape(["tig", Buffer.from([98, 97, 100, 255, 99])])).toBeNull();
 });
+test("a private directory's created ancestors can hold private files too", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-private-"));
+  try {
+    privateDirectory(join(root, "remote/workspaces"));
+    expect(() => privateDirectory(join(root, "remote"))).not.toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("release leaves a successor's socket in place", () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-socket-")),
     path = join(root, "socket");

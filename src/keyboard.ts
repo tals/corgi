@@ -90,6 +90,8 @@ const tilde_keys: Record<number, number> = {
 // and application cursor mode determine their encoding, including lock bits.
 // Reject extensions we did not request instead of losing fields.
 export function decode(bytes: string): Key | null {
+  const modified = /^\x1b\[27;(\d+);(\d+)~$/.exec(bytes);
+  if (modified) return decode(`\x1b[${modified[2]};${modified[1]}u`);
   if (bytes === "\x1b[Z") return { codepoint: 9, mods: { shift: true } };
   if (bytes.length === 3 && bytes[0] === "\x1b" && (bytes[1] === "[" || bytes[1] === "O")) {
     if (bytes[2] === "R") return bytes[1] === "O" ? { codepoint: f1 + 2, mods: {} } : null;

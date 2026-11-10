@@ -7,6 +7,7 @@ import * as accounts from "./accounts";
 import * as options from "./agent_options";
 import * as os from "./os";
 import * as agentName from "./agent_name";
+import { Row } from "./launch/row";
 
 export type Profile = {
   id: string;
@@ -20,39 +21,52 @@ export const path = () => join(dirname(accounts.path()), "agents.json");
 export const validId = (id: string) => /^[a-z0-9-]{1,64}$/.test(id);
 export function list(): Profile[] {
   try {
-    const raw: unknown = JSON.parse(readFileSync(path(), "utf8"));
-    if (!Array.isArray(raw)) return [];
-    const seen = new Set<string>();
-    return raw.flatMap((entry): Profile[] => {
-      const provider = Provider.parse(entry?.provider),
-        settings = options.read(entry?.options);
-      if (
-        !provider ||
-        !settings ||
-        typeof entry.id !== "string" ||
-        !validId(entry.id) ||
-        seen.has(entry.id) ||
-        typeof entry.account !== "string" ||
-        (entry.account && !entry.account.startsWith("/")) ||
-        typeof entry.name !== "string" ||
-        !agentName.valid(entry.name)
-      )
-        return [];
-      seen.add(entry.id);
-      return [
-        {
-          id: entry.id,
-          provider,
-          account: entry.account,
-          name: entry.name,
-          options: settings,
-          yolo: entry.yolo === true,
-        },
-      ];
-    });
+    return parse(JSON.parse(readFileSync(path(), "utf8")));
   } catch {
     return [];
   }
+}
+/** The saved agents in a daemon's `launcher.catalog`, which another
+ * computer's launcher lists. */
+export function fromCatalog(agents: unknown): Profile[] {
+  if (!Array.isArray(agents)) return [];
+  return parse(
+    agents.flatMap(agent => {
+      const id = typeof agent?.row === "string" ? Row.profile(agent.row) : null;
+      return id ? [{ ...agent, id }] : [];
+    }),
+  );
+}
+function parse(raw: unknown): Profile[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw.flatMap((entry): Profile[] => {
+    const provider = Provider.parse(entry?.provider),
+      settings = options.read(entry?.options);
+    if (
+      !provider ||
+      !settings ||
+      typeof entry.id !== "string" ||
+      !validId(entry.id) ||
+      seen.has(entry.id) ||
+      typeof entry.account !== "string" ||
+      (entry.account && !entry.account.startsWith("/")) ||
+      typeof entry.name !== "string" ||
+      !agentName.valid(entry.name)
+    )
+      return [];
+    seen.add(entry.id);
+    return [
+      {
+        id: entry.id,
+        provider,
+        account: entry.account,
+        name: entry.name,
+        options: settings,
+        yolo: entry.yolo === true,
+      },
+    ];
+  });
 }
 export const find = (id: string) => list().find(p => p.id === id) ?? null;
 export function save(profile: Omit<Profile, "id"> & { id?: string }): Profile {

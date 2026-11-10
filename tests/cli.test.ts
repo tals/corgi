@@ -6,6 +6,10 @@ import { write_ordinary_agent } from "./provider_sim";
 import { Provider } from "../src/providers";
 
 class AgentCli extends Runtime {
+  async configure() {
+    // Start in the isolated directory so repository tracker updates cannot race CLI snapshots.
+    await run([EXE, "start"], { env: this.env, cwd: this.temp.name });
+  }
   async cli(args: any[], { caller, error, stdin }: { caller?: number; error?: string; stdin?: string } = {}) {
     const env = { ...this.env };
     delete env.CORGI_PANE;

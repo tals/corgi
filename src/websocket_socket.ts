@@ -77,6 +77,7 @@ export class Socket extends stream.Duplex {
       // XXX: Remove for next protocol bump.
       if (event.code === wire_websocket.rolled_back) return this.destroy(Error("ServerRolledBack"));
       if (event.code === wire_websocket.reloading) return this.destroy(Error("ServerReloading"));
+      if (event.code === wire_websocket.shutting_down) return this.destroy(Error("ServerShutdown"));
       const ready = this.opening;
       this.opening = null;
       this.releaseAlias();

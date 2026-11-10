@@ -5,6 +5,7 @@ import * as telemetry from "./telemetry";
 import * as protocol from "./protocol";
 import * as wire_compression from "./wire_compression";
 import * as websocket_socket from "./websocket_socket";
+import type { Stats } from "./connection_stats";
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -14,6 +15,8 @@ export interface ConnectionInit {
   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
   requestIds?: boolean;
   compression?: boolean;
+  stats?: Stats;
+  trace?: telemetry.Details;
   timeout_ms?: number | (() => number);
 }
 export class Connection {
@@ -47,13 +50,21 @@ export class Connection {
   get failure(): Error | null {
     return this.closed;
   }
+  private readonly stats?: Stats;
+  private readonly trace?: telemetry.Details;
   constructor(target: string | Duplex, options: ConnectionInit | number = {}) {
     const init = typeof options === "number" ? { timeout_ms: options } : options;
+    this.stats = init.stats;
     this.compression = init.compression ?? false;
+    this.trace = init.trace;
+    if (this.stats) this.stats.connections++;
     this.timeout = init.timeout_ms ?? 0;
     this.requestIds = init.requestIds ?? true;
     this.socket = typeof target === "string" ? new websocket_socket.Socket(target) : target;
-    this.socket.on("data", (chunk: Buffer) => this.read(chunk));
+    this.socket.on("data", (chunk: Buffer) => {
+      this.stats?.traffic("received", chunk.length);
+      this.read(chunk);
+    });
     this.socket.on("error", error => this.finish(error));
     this.socket.on("close", () => {
       const code = (this.socket as { closeCode?: number | null }).closeCode;
@@ -107,6 +118,7 @@ export class Connection {
       this.fail(Error("RequestBackpressure"));
       return;
     }
+    this.stats?.traffic("sent", bytes.length);
     this.socket.write(bytes);
   }
   private fail(error: Error) {
@@ -203,14 +215,33 @@ export class Connection {
     return new Promise((resolve, reject) => {
       const timeout = this.timeout_ms;
       const timer = timeout > 0 ? setTimeout(() => this.fail(Error("RequestTimedOut")), timeout) : null;
+      const started = performance.now();
+      if (this.stats) this.stats.pending++;
+      const done = (failed: boolean) => {
+        if (this.stats) {
+          this.stats.pending--;
+          const now = performance.now();
+          // Hello may include SSH authentication; it is not an established-path round trip.
+          this.stats.answer(now - started, failed, now, message.op !== "hello");
+        }
+        if (telemetry.enabled && this.trace)
+          telemetry.end("remote.rpc", started, 0, {
+            ...this.trace,
+            op: typeof message.op === "string" ? message.op : "unknown",
+            request: id,
+            failed: Number(failed),
+            timeout_ms: timeout,
+          });
+        if (timer) clearTimeout(timer);
+      };
       this.pending.set(id, {
         encoding,
         resolve: value => {
-          if (timer) clearTimeout(timer);
+          done(false);
           resolve(value);
         },
         reject: error => {
-          if (timer) clearTimeout(timer);
+          done(true);
           reject(error);
         },
       });

@@ -614,7 +614,7 @@ function agentView(r: Runtime, a: any, conversation: number) {
 }
 const text = (v: any) => v?.text?.() ?? (typeof v === "string" ? v : "");
 export function snapshot(r: Runtime) {
-  return build(r, false);
+  return { ...build(r, false), resources: r.resources.current };
 }
 export function viewerSnapshot(r: Runtime) {
   return build(r, true);

@@ -224,7 +224,173 @@ test("viewer scalars retain their bigint type after small and large wire replies
       await viewer.sync(view, bell, false);
       expect(view.runtime.snapshot_hash).toBe(value);
       expect(view.runtime.resources_hash).toBe(value);
-      expect(view.input_state.last_control).toBe(value);
+      expect(view.machine.last_control).toBe(value);
+      expect(bell.seq).toBe(value);
+      await viewer.sync(view, bell, false);
+      expect(requests.at(-1).fields.ack).toBe(value);
+      expect(requests.at(-1).fields.session_hash).toBe(value);
+    }
+    expect(view.runtime.panes[0].binding).toBe(1n);
+  } finally {
+    viewer.close(view);
+  }
+});
+
+test("mirrored observations keep exact completion counters", () => {
+  const small = mirror.agent({ observation: { completed: 1, read: 0 } });
+  expect(small.observation.completed).toBe(1n);
+  expect(mirror.unread(small.observation)).toBe(true);
+  const large = mirror.agent(
+    json.parse('{"observation":{"completed":18446744073709551615,"read":18446744073709551614}}'),
+  );
+  mirror.acknowledge(large.observation, large.observation.completed);
+  expect(large.observation.read).toBe(0xffffffffffffffffn);
+  expect(mirror.unread(large.observation)).toBe(false);
+});
+
+test("an account's YOLO and Show come from the snapshot, and an older daemon's has none", () => {
+  const runtime = new mirror.Runtime(),
+    workspaces = [{ id: 1, model: { nodes: [], tabs: [], revision: 0 } }];
+  try {
+    runtime.receive(null as any, {
+      workspaces,
+      account_yolo: ["/accounts/work", 3],
+      account_hidden: ["/accounts/side"],
+    });
+    expect([runtime.account_yolo, runtime.account_hidden]).toEqual([["/accounts/work"], ["/accounts/side"]]);
+    runtime.receive(null as any, { workspaces });
+    expect([runtime.account_yolo, runtime.account_hidden]).toEqual([[], []]);
+  } finally {
+    runtime.destroy();
+  }
+});
+
+test("terminal input with uncertain delivery is not replayed", async () => {
+  const calls: unknown[] = [];
+  const terminal = new mirror.Terminal(
+    transport(async (_op, fields) => {
+      calls.push(fields);
+      throw Error("ConnectionClosed");
+    }),
+    1,
+    80,
+    24,
+  );
+  try {
+    terminal.send(Buffer.from("destructive-command\n"));
+    await expect(terminal.flush()).rejects.toThrow("ConnectionClosed");
+    await terminal.flush();
+    expect(calls.length).toBe(1);
+    expect(terminal.pending).toEqual([]);
+  } finally {
+    terminal.destroy();
+  }
+});
+
+test("typing counts as waiting until its send is answered", async () => {
+  let answer = () => {};
+  const terminal = new mirror.Terminal(
+    transport(async () => {
+      await new Promise<void>(resolve => (answer = resolve));
+      return { result: {} };
+    }),
+    1,
+    80,
+    24,
+  );
+  try {
+    terminal.send("hé");
+    terminal.send("\x1b[A");
+    terminal.send("\x1b[200~pasted\x1b[201~");
+    // Two characters, one arrow, and a paste between its two markers.
+    expect(terminal.waiting()).toBe(2 + 1 + 8);
+    const sent = terminal.flush();
+    expect(terminal.pending).toEqual([]);
+    expect(terminal.waiting()).toBe(11);
+    answer();
+    await sent;
+    expect(terminal.waiting()).toBe(0);
+  } finally {
+    terminal.destroy();
+  }
+});
+
+test("an inactive viewer keeps resource telemetry without screen interests or read receipts", async () => {
+  let request: unknown;
+  const view = new Controller(
+    transport(async (_op, fields) => {
+      request = fields;
+      return {
+        type: "view",
+        viewer_protocol: protocol.viewer_version,
+        session: null,
+        resources: null,
+        controls: [],
+        surfaces: [],
+        detach: false,
+      };
+    }),
+  );
+  view.receiveSnapshot({
+    workspaces: [{ id: 1, model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 } }],
+    panes: [{ id: 1, cols: 80, rows: 24 }],
+  });
+  view.input_state.attached = true;
+  view.input_state.active = true;
+  try {
+    expect(await viewer.sync(view, { seq: 0n }, false, false)).toBe(true);
+    expect(request).toMatchObject({
+      interests: [],
+      focus: null,
+      watched: false,
+      active: false,
+      resources: true,
+      resource_detail: null,
+      worktree_detail: null,
+    });
+    view.host.prefs.resources.enabled = false;
+    await viewer.sync(view, { seq: 0n }, false, false);
+    expect(request).toMatchObject({ resources: false });
+  } finally {
+    viewer.close(view);
+  }
+});
+
+test("viewer scalars retain their bigint type after small and large wire replies", async () => {
+  let value = 1n;
+  const requests: any[] = [];
+  const view = new Controller(
+    transport(async (op, fields) => {
+      requests.push({ op, fields });
+      return json.parse(
+        json.stringify({
+          viewer_protocol: protocol.viewer_version,
+          session: null,
+          session_hash: value,
+          resources: null,
+          resources_hash: value,
+          viewer: 1,
+          controls: [{ seq: value, kind: "focus", id: 1 }],
+          surfaces: [],
+          bell_seq: value,
+          bell_kind: "none",
+          detach: false,
+        }),
+      );
+    }),
+  );
+  view.receiveSnapshot({
+    workspaces: [{ id: 1, model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 } }],
+    panes: [{ id: 1, cols: 80, rows: 24, binding: 1 }],
+  });
+  const bell = { seq: 0n };
+  try {
+    for (const next of [1n, 0xffffffffffffffffn]) {
+      value = next;
+      await viewer.sync(view, bell, false);
+      expect(view.runtime.snapshot_hash).toBe(value);
+      expect(view.runtime.resources_hash).toBe(value);
+      expect(view.machine.last_control).toBe(value);
       expect(bell.seq).toBe(value);
       await viewer.sync(view, bell, false);
       expect(requests.at(-1).fields.ack).toBe(value);
@@ -348,5 +514,145 @@ test("an account's YOLO and Show come from the snapshot, and an older daemon's h
     expect(runtime.launcher_added).toEqual([]);
   } finally {
     runtime.destroy();
+  }
+});
+
+test("a hover still waiting gives way to the next; keys, presses and other modifiers' hovers stay", () => {
+  const pane = new mirror.Terminal(
+    transport(async () => ({})),
+    1,
+    32,
+    3,
+  );
+  const text = () => Buffer.from(pane.pending).toString();
+  try {
+    pane.move("\x1b[<35;1;1M", 35);
+    pane.move("\x1b[<35;2;1M", 35);
+    pane.move("\x1b[<35;3;1M", 35);
+    expect(text()).toBe("\x1b[<35;3;1M");
+    // A key between two hovers keeps the one before it.
+    pane.send("a");
+    pane.move("\x1b[<35;4;1M", 35);
+    expect(text()).toBe("\x1b[<35;3;1Ma\x1b[<35;4;1M");
+    // Shift held is another code, and a press ends the run.
+    pane.move("\x1b[<39;5;1M", 39);
+    pane.send("\x1b[<0;5;1M");
+    pane.move("\x1b[<35;6;1M", 35);
+    expect(text()).toBe("\x1b[<35;3;1Ma\x1b[<35;4;1M\x1b[<39;5;1M\x1b[<0;5;1M\x1b[<35;6;1M");
+    // Once sent, a hover isn't taken back.
+    pane.pending = [];
+    pane.move("\x1b[<35;7;1M", 35);
+    expect(text()).toBe("\x1b[<35;7;1M");
+  } finally {
+    pane.destroy();
+  }
+});
+
+test("a pane takes one paste at a time: another is refused while it arrives, waits or goes unanswered", async () => {
+  let answer!: () => void;
+  const pane = new mirror.Terminal(
+    transport(async () => {
+      await new Promise<void>(resolve => (answer = resolve));
+      return { ok: true };
+    }),
+    1,
+    32,
+    3,
+  );
+  const text = () => Buffer.from(pane.pending).toString();
+  try {
+    expect(pane.pasteStart()).toBe(true);
+    pane.send("on");
+    // Sent while it's still arriving, the rest of it waits behind.
+    const first = pane.flush();
+    pane.send("e");
+    pane.pasteEnd();
+    pane.send("\r");
+    // Keys go in; another paste doesn't.
+    expect(pane.pasteStart()).toBe(false);
+    pane.send("x");
+    expect(text()).toBe("e\rx");
+    answer();
+    await first;
+    expect(pane.pasteStart()).toBe(false);
+    const rest = pane.flush();
+    expect(pane.pasting()).toBe(true);
+    answer();
+    await rest;
+    expect(pane.pasting()).toBe(false);
+    // An empty paste leaves nothing on its way.
+    expect(pane.pasteStart()).toBe(true);
+    pane.pasteEnd();
+    expect(pane.pasting()).toBe(false);
+    // One a program takes as an event counts until it's answered.
+    const done = pane.pasteOut();
+    expect(pane.pasteStart()).toBe(false);
+    done();
+    expect(pane.pasteStart()).toBe(true);
+    pane.pasteEnd();
+  } finally {
+    pane.destroy();
+  }
+});
+
+test("a paste that lost its end is closed by the next from the terminal, which then goes", async () => {
+  const pane = new mirror.Terminal(
+    transport(async () => ({ ok: true })),
+    1,
+    32,
+    3,
+  );
+  const text = () => Buffer.from(pane.pending).toString();
+  try {
+    expect(pane.pasteStart()).toBe(true);
+    pane.send("par");
+    // Its end never comes. Other pastes wait; the terminal's next closes it,
+    // and since none of it had gone, it goes not at all.
+    expect(pane.pasteStart()).toBe(false);
+    expect(pane.pasteStart(true)).toBe(true);
+    pane.send("next");
+    pane.pasteEnd();
+    expect(text()).toBe("next");
+    // Once part of it has gone, what's left of it still waits to go first.
+    pane.pending = [];
+    expect(pane.pasteStart()).toBe(true);
+    pane.send("a");
+    const sent = pane.flush();
+    pane.send("b");
+    expect(pane.pasteStart(true)).toBe(false);
+    await sent;
+    await pane.flush();
+    expect(pane.pasteStart(true)).toBe(true);
+    pane.pasteEnd();
+  } finally {
+    pane.destroy();
+  }
+});
+
+test("a paste cut short goes not at all unless part of it has already gone", async () => {
+  const pane = new mirror.Terminal(
+    transport(async () => ({ ok: true })),
+    1,
+    32,
+    3,
+  );
+  const text = () => Buffer.from(pane.pending).toString();
+  try {
+    pane.send("x");
+    pane.pasteStart();
+    pane.send("abc");
+    pane.pasteAbort();
+    expect(text()).toBe("x");
+    expect(pane.pasting()).toBe(false);
+    pane.pending = [];
+    pane.pasteStart();
+    pane.send("ab");
+    await pane.flush();
+    pane.send("c");
+    pane.pasteAbort();
+    // Its start has gone; what's left of it follows.
+    expect(text()).toBe("c");
+  } finally {
+    pane.destroy();
   }
 });

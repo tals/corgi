@@ -4,6 +4,10 @@
 export const protocol = "corgi-stream-v1";
 /** The daemon handed off to a newer process: reconnect and resume the link. */
 export const reloading = 1012;
+/** The daemon is shutting down: nothing comes back to reconnect to. Bun
+ * closes with 1001, going away, whenever a server stops with sockets open,
+ * so the daemon's own word for it is private. */
+export const shutting_down = 4001;
 /** Too many clients; try again later. */
 export const try_again = 1013;
 /** Text messages: the stream is bytes. */

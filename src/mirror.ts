@@ -41,6 +41,7 @@ export interface Transport {
   onResume?(listener: () => void): () => void;
   /** Whether the daemon sends this viewer `viewer.wake`. */
   watches?(): boolean;
+  remote?: boolean;
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
 }
 /** An RPC call that throws the daemon's error name, as Zig's `call` does. */
@@ -91,8 +92,22 @@ export class Terminal {
   images: surface.ImagePlacement[] = [];
   render_dirty = true;
   render_revision = 0;
-  /** Bytes for the program, sent with the next sync. */
+  /** Bytes for the program, sent once its machine is reachable. */
   pending: number[] = [];
+  /** The pointer move that ends `pending`, while it does: where it starts,
+   * its button code, and the buffer and length it was left at. */
+  private motion: { at: number; code: number; buffer: number[]; end: number } | null = null;
+  /** The paste on its way, if any: open while it arrives, `paste_in` the
+   * buffer holding it while it waits there (from `paste_at`), and how many
+   * sends carrying it are unanswered. See `pasting`. */
+  private paste_open = false;
+  private paste_in: number[] | null = null;
+  private paste_at = 0;
+  private paste_sending = 0;
+  /** Part of the open paste has already gone. */
+  private paste_split = false;
+  /** Keys sent and not yet answered. */
+  private sending = 0;
   private links: Link[] | null = null;
   private installed: surface.View | null = null;
   private changed_rows = new Uint16Array(0);
@@ -124,6 +139,9 @@ export class Terminal {
       native.destroy();
       throw error;
     }
+  }
+  get loaded(): boolean {
+    return this.installed !== null;
   }
   get inner(): NativeTerminal {
     return this.ensure();
@@ -254,17 +272,96 @@ export class Terminal {
   send(bytes: string | Uint8Array | number[]): void {
     const data = typeof bytes === "string" ? Buffer.from(bytes) : bytes;
     if (this.pending.length + data.length > 1024 * 1024) throw Error("InputBackpressure");
+    this.motion = null;
     for (const byte of data) this.pending.push(byte);
+  }
+  /** Whether a paste is on its way: arriving, waiting to be sent, or sent
+   * and unanswered. A pane takes one paste at a time, so what waits for a
+   * slow daemon stays small and plain to see. */
+  pasting(): boolean {
+    return this.paste_open || this.paste_in === this.pending || this.paste_sending > 0;
+  }
+  /** Starts a paste; false, and the caller drops it, while one is on its way.
+   * With `restart`, it's the host terminal's, which can't nest: one still
+   * open lost its end, and is closed first. */
+  pasteStart(restart = false): boolean {
+    if (restart && this.paste_open) this.pasteAbort();
+    if (this.pasting()) return false;
+    this.paste_open = true;
+    this.paste_in = this.pending;
+    this.paste_at = this.pending.length;
+    this.paste_split = false;
+    return true;
+  }
+  /** Ends the paste `pasteStart` began. */
+  pasteEnd(): void {
+    if (!this.paste_open) return;
+    this.paste_open = false;
+    // An empty paste, or one already sent whole, leaves nothing waiting.
+    if (this.paste_in !== this.pending || this.pending.length === this.paste_at) this.paste_in = null;
+  }
+  /** Ends a paste cut short. One that hasn't begun to go goes not at all;
+   * once part of it has, a program that asked for bracketed pastes is sent
+   * the end marker, so it isn't left in the middle of one. */
+  pasteAbort(): void {
+    if (!this.paste_open) return;
+    this.motion = null;
+    if (this.paste_split) {
+      if (this.bracketedPaste()) for (const byte of Buffer.from("\x1b[201~")) this.pending.push(byte);
+    } else if (this.paste_in === this.pending) this.pending.length = this.paste_at;
+    this.pasteEnd();
+  }
+  /** Counts a paste sent apart from `pending`, as `pane.paste` is, as on
+   * its way until the returned function runs. */
+  pasteOut(): () => void {
+    this.paste_sending++;
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      this.paste_sending--;
+    };
+  }
+  /** A hover, with button code `code`. A program wants where the pointer
+   * is, not each cell it crossed while its input waited: a hover still
+   * waiting with nothing after it gives way to this one. Everything else
+   * goes through `send` and is never dropped. */
+  move(bytes: string, code: number): void {
+    const last = this.motion;
+    if (last && last.code === code && last.buffer === this.pending && last.end === this.pending.length)
+      this.pending.length = last.at;
+    const at = this.pending.length;
+    this.send(bytes);
+    this.motion = { at, code, buffer: this.pending, end: this.pending.length };
   }
   async flush(): Promise<void> {
     if (this.pending.length === 0) return;
     const data = Buffer.from(this.pending).toString();
+    // Over a link the input lands once, even across a reconnect; without one
+    // its delivery is uncertain after a disconnect, so it's never sent again.
+    const keys = keyCount(this.pending),
+      carried = this.paste_in === this.pending;
+    this.pending = [];
+    if (carried) {
+      this.paste_sending++;
+      // The rest of a paste still arriving waits in the next buffer.
+      this.paste_in = this.paste_open ? this.pending : null;
+      this.paste_at = 0;
+      this.paste_split ||= this.paste_open;
+    }
+    this.sending += keys;
     try {
       await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
     } catch (error) {
       if (!errors.is(error, "NoPane")) throw error;
+    } finally {
+      this.sending -= keys;
+      if (carried) this.paste_sending--;
     }
-    this.pending = [];
+  }
+  /** Keys typed here that the program hasn't been given yet. */
+  waiting(): number {
+    return keyCount(this.pending) + this.sending;
   }
   receive(value: protocol.Reply<"viewer.sync">["surfaces"][number]): void {
     if (this.closed) throw Error("TerminalClosed");
@@ -590,6 +687,8 @@ function headless(value: any): Headless {
   };
 }
 export class Workspaces {
+  /** A daemon snapshot has confirmed this catalog, including removals. */
+  loaded = false;
   items: Workspace[] = [];
   /** What stands for the current workspace once every one is closed: no
    * tabs, and no folder for anything to start in. */
@@ -607,6 +706,7 @@ export class Runtime {
   startup_waits: startup.Wait[] = [];
   snapshot: any = null;
   snapshot_hash: bigint | null = null;
+  snapshot_epoch = 0;
   workspaces = new Workspaces();
   panes: Pane[] = [];
   /** Headless agents, besides the Corgi prompt's. */
@@ -650,6 +750,7 @@ export class Runtime {
     this.resources = resources.fromJSON(value);
   }
   receive(conn: Transport, value: any): void {
+    this.snapshot_epoch++;
     // Own the decoded snapshot. Metadata is used directly; only terminal
     // surfaces and interaction state survive independently between snapshots.
     const snapshot = value;
@@ -694,6 +795,7 @@ export class Runtime {
     this.snapshot_hash = null;
     this.panes = panes;
     this.workspaces.items = parsed;
+    this.workspaces.loaded = true;
     const sessions: Headless[] = (snapshot.headless_sessions ?? [])
       .filter((s: any) => Provider.parse(s?.provider))
       .map(headless);
@@ -741,4 +843,17 @@ function account(value: any): Account[] {
   const provider = Provider.parse(value?.provider);
   if (!provider || typeof value.account !== "string" || !value.account || typeof value.name !== "string") return [];
   return [{ provider, account: value.account, name: value.name, managed: value.managed === true }];
+}
+/** Keys in typed bytes: each character or escape sequence is one. */
+export function keyCount(bytes: number[]): number {
+  let keys = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    // UTF-8 continuation bytes belong to the character before.
+    if ((bytes[i] & 0xc0) === 0x80) continue;
+    keys++;
+    if (bytes[i] !== 0x1b || (bytes[i + 1] !== 0x5b && bytes[i + 1] !== 0x4f)) continue;
+    i += 2;
+    while (i < bytes.length && (bytes[i] < 0x40 || bytes[i] > 0x7e)) i++;
+  }
+  return keys;
 }

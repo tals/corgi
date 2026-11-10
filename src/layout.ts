@@ -19,6 +19,20 @@ export class Rect {
   contains(x: number, y: number) {
     return x >= this.x && y >= this.y && x < this.x + this.w && y < this.y + this.h;
   }
+  /** This rectangle without `hole`: the strips above and below it, then those beside it. */
+  cut(hole: Rect): Rect[] {
+    const top = Math.max(this.y, hole.y),
+      bottom = Math.min(this.y + this.h, hole.y + hole.h);
+    const left = Math.max(this.x, hole.x),
+      right = Math.min(this.x + this.w, hole.x + hole.w);
+    if (top >= bottom || left >= right) return [this];
+    return [
+      new Rect(this.x, this.y, this.w, top - this.y),
+      new Rect(this.x, bottom, this.w, this.y + this.h - bottom),
+      new Rect(this.x, top, left - this.x, bottom - top),
+      new Rect(right, top, this.x + this.w - right, bottom - top),
+    ].filter(piece => piece.w > 0 && piece.h > 0);
+  }
 }
 export type Split = {
   axis: Axis;

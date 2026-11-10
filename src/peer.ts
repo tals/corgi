@@ -74,6 +74,7 @@ export class Client {
   resource_detail: number | null = null;
   worktree_detail: number | null = null;
   resources = true;
+  resource_observer = false;
   dead = false;
   /** The link this connection carries, once the client opened or resumed one. */
   link: link.Link | null = null;
@@ -155,6 +156,9 @@ export class Client {
       return;
     }
     this.transport.send(bytes);
+  }
+  reply(_op: string, value: object): void {
+    this.queue({ ok: true, ...value });
   }
   deferFrame(deadline: number, send: () => void): void {
     this.frame_pending = send;

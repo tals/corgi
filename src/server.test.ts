@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import * as wire_websocket from "./wire_websocket";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, expect, setSystemTime, spyOn } from "bun:test";
@@ -791,6 +792,30 @@ test("a daemon that handed off never takes the socket back", async () => {
     server.runtime.destroy();
     Reflect.get(server, "loop").close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+test("shutdown tells a viewer there's nothing to reconnect to, unless a reload handed over, and a request why", async () => {
+  for (const handed_off of [false, true]) {
+    const directory = mkdtempSync(join(tmpdir(), "corgi-shutdown-")),
+      server = new Server(join(directory, "s"), "", "0".repeat(64)),
+      closed: (number | undefined)[] = [],
+      queued: object[] = [];
+    const client = (http: boolean) =>
+      ({
+        http,
+        dead: false,
+        close: (code?: number) => closed.push(code),
+        queue: (value: object) => queued.push(value),
+      }) as never;
+    try {
+      server.handed_off = handed_off;
+      server.clients.push(client(false), client(true));
+      await server.shutdown();
+      expect(closed).toEqual([handed_off ? wire_websocket.reloading : wire_websocket.shutting_down]);
+      expect(queued).toEqual([{ err: "ServerShutdown" }]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   }
 });
 test("shutdown stops a server a handoff bound that never took the socket", async () => {

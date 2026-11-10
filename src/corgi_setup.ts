@@ -1104,7 +1104,8 @@ export class Menu implements LinkSource {
     if (line?.tag === "intensity") return { intensity: this.intensityAt(l, x) };
     return line && (line.tag === "option" || line.tag === "art") ? { option: line.index } : null;
   }
-  draw(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number): void {
+  /** Draws the menu; the box it drew, which images stay out of. */
+  draw(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number): Rect | null {
     return this.drawAt(w, s, prefs, cols, rows, Date.now());
   }
   noteCopied(what: Copied, now = Date.now()): void {
@@ -1115,14 +1116,14 @@ export class Menu implements LinkSource {
   hyperlinks(): DrawnLink[] {
     return this.drawn_links;
   }
-  drawAt(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number, now_ms: number): void {
+  drawAt(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number, now_ms: number): Rect | null {
     this.drawn_links = [];
     const grown = this.grow.toward(this.growing(cols, rows) ? 1 : 0, now_ms),
       expanded = this.expand.toward(this.managing() ? 1 : 0, now_ms),
       l = layout(cols, rows, grown, expanded);
     if (!l) {
       this.rendered = null;
-      return;
+      return null;
     }
     this.rendered = { cols, rows, layout: l };
     const b = l.b,
@@ -1170,6 +1171,7 @@ export class Menu implements LinkSource {
         });
       else w.write(at(area.x + 2, area.y + 1) + text + i18n.t`Make the terminal taller to manage agents.`);
     }
+    return b;
   }
   /** The setting the options belong to, on the top border while the list is hidden. */
   private crumb(l: Layout): string | null {

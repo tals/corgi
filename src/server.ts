@@ -6,6 +6,7 @@ import * as discovery from "./discovery";
 import * as agentModels from "./agent_models";
 import { Quit as ModelQuit } from "./subprocess";
 import * as telemetry from "./telemetry";
+import * as wire_websocket from "./wire_websocket";
 import type { Worker as SummaryWorker } from "./activity/worker";
 import type { Worker as UsageWorker } from "./usage/worker";
 import { existsSync, readFileSync, renameSync, rmSync, watch, type FSWatcher } from "node:fs";
@@ -660,8 +661,12 @@ export class Server {
         account: inference?.account ?? "",
         file: settings.path(this.socket),
       }) || tracked;
-    if (viewers.length) this.resource_readings = viewers.some(c => c.resources);
-    if (this.resource_readings && (viewers.length || this.runtime.panes.length || this.runtime.sessions.length))
+    const resource_clients = this.clients.filter(c => !c.dead && (c.viewer || c.resource_observer));
+    if (resource_clients.length) this.resource_readings = resource_clients.some(c => c.resources);
+    if (
+      this.resource_readings &&
+      (resource_clients.length || this.runtime.panes.length || this.runtime.sessions.length)
+    )
       tracked =
         this.runtime.resources.tick(
           this.runtime,
@@ -885,6 +890,10 @@ export class Server {
         reply.send({ ok: true, result: session.snapshot(this.runtime), viewers: viewer.viewers(this) });
         return;
       case "session.snapshot":
+        if (request.payload.resources !== null) {
+          cl.resource_observer = true;
+          cl.resources = request.payload.resources;
+        }
         reply.send(session.snapshot(this.runtime));
         return;
       case "session.subscribe":
@@ -1314,10 +1323,12 @@ export class Server {
     await launch.stop(this);
     observers.stop(this);
     importer.stop(this);
-    // A request still waiting hears why it won't be answered.
+    // A request still waiting hears why it won't be answered, and a viewer
+    // that there's nothing to reconnect to, unless a reload has handed over
+    // to the daemon it should follow.
     for (const cl of [...this.clients])
       if (cl.http) cl.queue({ err: "ServerShutdown" });
-      else cl.close();
+      else cl.close(this.handed_off ? wire_websocket.reloading : wire_websocket.shutting_down);
     const until = performance.now() + 1000;
     while (this.answering() && performance.now() < until) await Bun.sleep(5);
     void this.listening?.stop(true);
