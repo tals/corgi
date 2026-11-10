@@ -4,10 +4,12 @@ import * as errors from "./errors";
 import * as protocol from "./protocol";
 import * as start_lock from "./start_lock";
 
-/** How long the daemon may take to answer `value`: a start waits 60 s for
- * the provider's session, after discovery and setup. */
+/** The longest the daemon may take to answer: a start waits 60 s for the
+ * provider's session, after discovery and setup. */
+export const longest_ms = 120_000;
+/** How long the daemon may take to answer `value`. */
 function limit(value: unknown): number {
-  return protocol.parse(value) === "headless.start" ? 120_000 : 45_000;
+  return protocol.parse(value) === "headless.start" ? longest_ms : 45_000;
 }
 /** One envelope, sent as is in a POST on the daemon's Unix socket; the reply comes back as is too.
  * While a daemon is starting or reloading, it waits for one for up to `wait_ms`. */

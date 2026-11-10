@@ -233,7 +233,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     delete process.env.CORGI_MACHINE;
     delete process.env.CORGI_PANE;
     const machines = await import("./machines");
-    const conn = new rpc.Connection(args[1], 10_000);
+    // One timeout fails the connection: it's the slowest request's, as the local CLI allows.
+    const conn = new rpc.Connection(args[1], rpc_http.longest_ms);
     try {
       machine_path.compatible(await conn.call("hello"));
       await remote.run(args[1], args.slice(2), conn);

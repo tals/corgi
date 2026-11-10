@@ -90,8 +90,9 @@ int main(int argc, char **argv) {
         int received = transfer(&download, fds[1].revents, fds[2].revents);
         if (sent < 0 || received < 0) goto failure;
         if (sent || received) activity = now();
-        // Reap abandoned SSH channels, including a peer stuck on a full pipe.
-        if (now() - activity >= 60) { errno = ETIMEDOUT; goto failure; }
+        // Reap abandoned SSH channels, including a peer stuck on a full pipe;
+        // a request may wait up to 120 s for its reply, as an agent's start does.
+        if (now() - activity >= 180) { errno = ETIMEDOUT; goto failure; }
     }
 failure:
     perror("corgi: remote bridge");

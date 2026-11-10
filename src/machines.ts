@@ -181,22 +181,30 @@ export async function image(
   child.stderr!.resume();
   child.stdin!.on("error", () => {});
   child.stdin!.end(bytes);
-  const code = await exited(child, 30_000);
+  // A slow link takes as long as it takes, while receipts keep arriving.
+  const code = await exited(child, 30_000, child.stdout!);
   if (failure) throw failure;
   if (code !== 0) throw Error("ImageUploadFailed");
   return receipts.finish();
 }
-function exited(child: ChildProcess, timeout?: number): Promise<number> {
+/** `child`'s exit code. With a `timeout`, it's killed after that long, or
+ * after that long without output on `activity` when one is given. */
+function exited(child: ChildProcess, timeout?: number, activity?: NodeJS.ReadableStream): Promise<number> {
   return new Promise((resolve, reject) => {
-    const timer =
-      timeout === undefined
-        ? null
-        : setTimeout(() => {
-            child.kill();
-            reject(Error("RemoteTimedOut"));
-          }, timeout);
+    const expire = () =>
+      setTimeout(() => {
+        child.kill();
+        reject(Error("RemoteTimedOut"));
+      }, timeout);
+    let timer = timeout === undefined ? null : expire();
+    activity?.on("data", () => {
+      if (!timer) return;
+      clearTimeout(timer);
+      timer = expire();
+    });
     const done = () => {
       if (timer) clearTimeout(timer);
+      timer = null;
     };
     child.once("error", error => {
       done();
