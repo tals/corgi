@@ -691,6 +691,12 @@ class Remote extends Runtime {
       ["local", "work"],
     );
     this.assertTrue(list.machines.every((m: any) => m.ok));
+    // A default machine doesn't narrow the list of every machine.
+    const defaulted = await run([EXE, "list", "--all-machines"], { env: { ...this.env, CORGI_MACHINE: "work" } });
+    this.assertEqual(
+      JSON.parse(defaulted.stdout).machines.map((m: any) => m.machine),
+      ["local", "work"],
+    );
     const caller = await run([EXE, "--machine", "work", "current", "--json"], {
       env: { ...this.env, CORGI_PANE: String(local.pane) },
       check: false,

@@ -243,6 +243,12 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     return;
   }
+  // Every machine's, whichever CORGI_MACHINE names.
+  if (args[0] === "list" && args[1] === "--all-machines" && args.length === 2) {
+    const remote = await import("./machine_cli");
+    await remote.all(path);
+    return;
+  }
   const accepts_machine =
     cli.handles(agent_mode.flags(args).args) ||
     ["attach", "open", "ping", "rpc", "action", "checkpoint", "shutdown"].includes(args[0] ?? "attach");
@@ -277,11 +283,6 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         : args;
       process.exitCode = await machines.execute(profile, command);
     }
-    return;
-  }
-  if (args[0] === "list" && args[1] === "--all-machines" && args.length === 2) {
-    const remote = await import("./machine_cli");
-    await remote.all(path);
     return;
   }
   if (args[0] === "__opencode2") {
