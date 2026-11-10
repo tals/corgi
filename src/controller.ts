@@ -5579,16 +5579,21 @@ export class Controller {
   }
   /** The daemon as the prompt calls it. A start holds its connection until
    * the session has an ID, so it takes one of its own. */
+  /** The machine the prompt's conversation runs on: the one shown when it
+   * started, whichever is shown since. */
+  private prompt_machine: Machine | null = null;
   private promptDaemon(): PromptDaemon {
     return {
-      call: (op, payload) => call(this.connection, op as Op, payload as never),
+      call: (op, payload) => call((this.prompt_machine ?? this.machine).connection, op as Op, payload as never),
       start: async payload => {
-        const daemon = this.connection.daemon,
+        const machine = this.machine,
+          daemon = machine.connection.daemon,
           reply = daemon
             ? await daemon.call("headless.start", payload as never)
-            : await call(this.connection, "headless.start", payload as never),
+            : await call(machine.connection, "headless.start", payload as never),
           provider = Provider.parse(reply.provider);
         if (!provider || typeof reply.session !== "string") throw Error("InvalidReply");
+        this.prompt_machine = machine;
         return { provider, session: reply.session };
       },
     };

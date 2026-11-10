@@ -5164,6 +5164,32 @@ test("switching machines shows the other's data and closes what named the old on
   }
 });
 
+test("the prompt's conversation stays on the machine it started on when another is shown", async () => {
+  const asked: [string, string][] = [];
+  const daemon = (name: string) =>
+    transport(async (op: string) => {
+      asked.push([name, op]);
+      return op === "headless.start" ? { provider: "codex", session: "s" } : { events: [] };
+    });
+  const s = new Controller(daemon("here"));
+  const other = new Machine({ request: daemon("work").request }, "work", true);
+  s.adopt(other);
+  try {
+    const prompt = Reflect.get(s, "promptDaemon").call(s);
+    s.switchMachine(other);
+    await prompt.start({});
+    s.switchMachine(s.machines[0]);
+    await prompt.call("headless.events", { session: "s" });
+    expect(asked).toEqual([
+      ["work", "headless.start"],
+      ["work", "headless.events"],
+    ]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 test("a remote machine's checkouts aren't read with this computer's git", () => {
   const s = controller();
   const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
