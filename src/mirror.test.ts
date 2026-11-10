@@ -594,3 +594,25 @@ test("a pane takes one paste at a time: another is refused while it arrives, wai
     pane.destroy();
   }
 });
+
+test("a paste that lost its end is closed by the next from the terminal, and frees the pane once sent", async () => {
+  const pane = new mirror.Terminal(
+    transport(async () => ({ ok: true })),
+    1,
+    32,
+    3,
+  );
+  try {
+    expect(pane.pasteStart()).toBe(true);
+    pane.send("par");
+    // Its end never comes. Other pastes wait; the terminal's next closes it.
+    expect(pane.pasteStart()).toBe(false);
+    expect(pane.pasteStart(true)).toBe(false);
+    expect(pane.pasting()).toBe(true);
+    await pane.flush();
+    expect(pane.pasteStart(true)).toBe(true);
+    pane.pasteEnd();
+  } finally {
+    pane.destroy();
+  }
+});

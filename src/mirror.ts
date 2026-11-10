@@ -279,8 +279,11 @@ export class Terminal {
   pasting(): boolean {
     return this.paste_open || this.paste_in === this.pending || this.paste_sending > 0;
   }
-  /** Starts a paste; false, and the caller drops it, while one is on its way. */
-  pasteStart(): boolean {
+  /** Starts a paste; false, and the caller drops it, while one is on its way.
+   * With `restart`, it's the host terminal's, which can't nest: one still
+   * open lost its end, and is closed first. */
+  pasteStart(restart = false): boolean {
+    if (restart && this.paste_open) this.pasteAbort();
     if (this.pasting()) return false;
     this.paste_open = true;
     this.paste_in = this.pending;
@@ -293,6 +296,16 @@ export class Terminal {
     this.paste_open = false;
     // An empty paste, or one already sent whole, leaves nothing waiting.
     if (this.paste_in !== this.pending || this.pending.length === this.paste_at) this.paste_in = null;
+  }
+  /** Ends a paste cut short. A program that asked for bracketed pastes is
+   * sent the end marker, so it isn't left in the middle of one. */
+  pasteAbort(): void {
+    if (!this.paste_open) return;
+    if (this.bracketedPaste()) {
+      this.motion = null;
+      for (const byte of Buffer.from("\x1b[201~")) this.pending.push(byte);
+    }
+    this.pasteEnd();
   }
   /** Counts a paste sent apart from `pending`, as `pane.paste` is, as on
    * its way until the returned function runs. */

@@ -5951,6 +5951,40 @@ test("while a pane's input waits, only hovers give way: clicks, drags and the wh
   }
 });
 
+test("a paste cut off by an input reset, or failing part-way, never leaves its pane refusing pastes", async () => {
+  const { s, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    const terminal = s.pane(1).terminal,
+      sent = async () => {
+        const flushed = terminal.flush();
+        await answer();
+        await flushed;
+      };
+    // Its end never comes: the viewer gave up the input it was in.
+    await s.input(bytes("\x1b[200~par"));
+    s.cancelInput();
+    await sent();
+    expect(terminal.pasting()).toBe(false);
+    // Too big to fit, a paste goes whole or not at all, and ends either way.
+    s.clipboard = "x".repeat(1024 * 1024 + 1);
+    await expect(s.perform({ name: "paste" })).rejects.toThrow("InputBackpressure");
+    expect(terminal.pending).toEqual([]);
+    expect(terminal.pasting()).toBe(false);
+    // Failing in the middle of a batch, the batch ends and isn't read again.
+    terminal.pending = new Array(1024 * 1024 - 2).fill(97);
+    await expect(s.input(bytes("\x1b[200~four\x1b[201~ls"))).rejects.toThrow("InputBackpressure");
+    expect(s.input_state.keybuf).toEqual([]);
+    expect(s.input_state.paste).toBeNull();
+    terminal.pending = [];
+    await s.input(bytes("\x1b[200~five\x1b[201~"));
+    expect(Buffer.from(terminal.pending).toString()).toBe("five");
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("a delayed command refreshes its owning machine after the viewer switches", async () => {
   const pending = Promise.withResolvers<unknown>();
   let reads = 0;

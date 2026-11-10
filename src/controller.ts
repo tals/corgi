@@ -1404,6 +1404,7 @@ export class Controller {
     machine.runtime.resources_hash = null;
     if (machine !== this.machine) return;
     this.launch_previews.disconnect();
+    this.pastePane()?.terminal.pasteAbort();
     this.input_state = Object.assign(new InputState(), { attached: this.input_state.attached });
     this.executable = "";
   }
@@ -3576,15 +3577,17 @@ export class Controller {
           // A pane still opening takes no pastes.
           const p = this.openingFocus() ? null : this.focused();
           if (p) {
-            const bracketed = p.terminal.bracketedPaste();
             if (!p.terminal.pasteStart()) {
               this.pasteRefused();
               break;
             }
-            if (bracketed) this.sendInput(p.terminal, "\x1b[200~");
-            this.sendInput(p.terminal, this.clipboard);
-            if (bracketed) this.sendInput(p.terminal, "\x1b[201~");
-            p.terminal.pasteEnd();
+            // One send, which fits whole or not at all, and a paste that always ends.
+            try {
+              const text = this.clipboard;
+              this.sendInput(p.terminal, p.terminal.bracketedPaste() ? `\x1b[200~${text}\x1b[201~` : text);
+            } finally {
+              p.terminal.pasteEnd();
+            }
           }
         }
         break;
@@ -6652,8 +6655,11 @@ export class Controller {
       const p = this.pane(target.pane);
       if (!p) return this.notice(i18n.t`The pane closed before the paste arrived`);
       if (!p.terminal.pasteStart()) return this.pasteRefused();
-      this.sendInput(p.terminal, viewerNative.encodePaste(text, p.terminal.bracketedPaste()));
-      p.terminal.pasteEnd();
+      try {
+        this.sendInput(p.terminal, viewerNative.encodePaste(text, p.terminal.bracketedPaste()));
+      } finally {
+        p.terminal.pasteEnd();
+      }
     } else if (target === "prompt") {
       this.prompt.paste(viewerNative.encodePaste(text, true, 1).toString());
     } else {
@@ -6792,6 +6798,8 @@ export class Controller {
   /** Invalidates a suspended input batch as well as keys not yet processed. */
   cancelInput(): void {
     const { attached, watched } = this.input_state;
+    // A paste cut off here would otherwise never end.
+    this.pastePane()?.terminal.pasteAbort();
     this.input_state = Object.assign(new InputState(), { attached, watched });
   }
   async input(data: Uint8Array, current = () => true): Promise<void> {
@@ -6800,411 +6808,425 @@ export class Controller {
     if (data.length > 0) cl.active = true;
     for (const byte of data) cl.keybuf.push(byte);
     let used = 0;
-    while (used < cl.keybuf.length) {
-      if (cl !== this.input_state || machine !== this.machine || !current()) return;
-      if (!cl.attached) {
-        cl.keybuf = [];
-        return;
-      }
-      const buf = cl.keybuf,
-        byte = buf[used];
-      if (byte !== 27) {
-        if (cl.paste !== null) {
-          let end = used + 1;
-          while (end < buf.length && buf[end] !== 27) end++;
-          this.closePasteCard();
-          this.link_tooltip.cancel();
-          this.dirty = true;
-          if (cl.paste !== "discard") await this.pasteBytes(cl.paste, buf.slice(used, end));
-          used = end;
-          continue;
+    try {
+      while (used < cl.keybuf.length) {
+        if (cl !== this.input_state || machine !== this.machine || !current()) return;
+        if (!cl.attached) {
+          cl.keybuf = [];
+          return;
         }
-        if (byte >= 128) {
-          const decoded = keyboard.textKey(buf.slice(used, used + 4));
-          if (decoded.length === 0) break;
-          if (decoded.key && (await this.helpKey(decoded.key))) {
-            used += decoded.length;
-            continue;
-          }
-          if (
-            decoded.key &&
-            ((this.signin && (await this.signinPrefix(decoded.key.codepoint, decoded.key))) ||
-              (!this.signin && (await this.setupPrefix(decoded.key))))
-          ) {
+        const buf = cl.keybuf,
+          byte = buf[used];
+        if (byte !== 27) {
+          if (cl.paste !== null) {
+            let end = used + 1;
+            while (end < buf.length && buf[end] !== 27) end++;
+            this.closePasteCard();
+            this.link_tooltip.cancel();
             this.dirty = true;
-            used += decoded.length;
+            if (cl.paste !== "discard") await this.pasteBytes(cl.paste, buf.slice(used, end));
+            used = end;
             continue;
           }
-          if (
-            decoded.key &&
-            !this.onboarding &&
-            !this.editingName() &&
-            !this.copy_mode &&
-            (this.prefix || !this.hasMenu())
-          ) {
-            const act = bindings.lookup(this.prefs.bindings(), this.prefix, decoded.key.codepoint, decoded.key.mods);
-            if (act) {
-              if (this.prefix) await this.runPrefixed(act, false);
-              else await this.perform(act);
+          if (byte >= 128) {
+            const decoded = keyboard.textKey(buf.slice(used, used + 4));
+            if (decoded.length === 0) break;
+            if (decoded.key && (await this.helpKey(decoded.key))) {
               used += decoded.length;
               continue;
             }
+            if (
+              decoded.key &&
+              ((this.signin && (await this.signinPrefix(decoded.key.codepoint, decoded.key))) ||
+                (!this.signin && (await this.setupPrefix(decoded.key))))
+            ) {
+              this.dirty = true;
+              used += decoded.length;
+              continue;
+            }
+            if (
+              decoded.key &&
+              !this.onboarding &&
+              !this.editingName() &&
+              !this.copy_mode &&
+              (this.prefix || !this.hasMenu())
+            ) {
+              const act = bindings.lookup(this.prefs.bindings(), this.prefix, decoded.key.codepoint, decoded.key.mods);
+              if (act) {
+                if (this.prefix) await this.runPrefixed(act, false);
+                else await this.perform(act);
+                used += decoded.length;
+                continue;
+              }
+            }
+            if (this.prefix) this.prefix = false;
+            else for (let i = used; i < used + decoded.length; i++) await this.key(buf[i], true);
+            used += decoded.length;
+            continue;
           }
-          if (this.prefix) this.prefix = false;
-          else for (let i = used; i < used + decoded.length; i++) await this.key(buf[i], true);
-          used += decoded.length;
-          continue;
-        }
-        this.closePasteCard();
-        this.pinWorktreeInput(String.fromCharCode(byte));
-        const opened = this.pinResourceInput(String.fromCharCode(byte)) || this.pinGitInput(String.fromCharCode(byte));
-        this.link_tooltip.cancel();
-        this.dirty = true;
-        if (opened) {
+          this.closePasteCard();
+          this.pinWorktreeInput(String.fromCharCode(byte));
+          const opened =
+            this.pinResourceInput(String.fromCharCode(byte)) || this.pinGitInput(String.fromCharCode(byte));
+          this.link_tooltip.cancel();
+          this.dirty = true;
+          if (opened) {
+            used += 1;
+            continue;
+          }
+          await this.key(byte);
           used += 1;
           continue;
         }
-        await this.key(byte);
-        used += 1;
-        continue;
-      }
-      if (buf.length - used < 2) {
-        this.pinWorktreeInput("\x1b");
-        this.link_tooltip.cancel();
-        this.dirty = true;
-        break;
-      }
-      if (
-        cl.paste === null &&
-        buf[used + 1] !== 0x5b &&
-        buf[used + 1] !== 0x4f &&
-        !this.help_visible &&
-        !this.corgi_setup?.after_prefix &&
-        !(this.signin && this.prefix) &&
-        (this.hasMenu() || this.editingName()) &&
-        !this.promptAlt(buf.slice(used, used + 2))
-      ) {
-        await this.key(27);
-        used += 1;
-        continue;
-      }
-      let len = 2;
-      if (buf[used + 1] === 0x5b || buf[used + 1] === 0x4f) {
-        while (len < buf.length - used && !(buf[used + len] >= 0x40 && buf[used + len] <= 0x7e)) len += 1;
-        if (len === buf.length - used) break;
-        len += 1;
-      }
-      let alt_key: keyboard.Key | null = null;
-      if (buf[used + 1] !== 0x5b && buf[used + 1] !== 0x4f) {
-        const decoded = keyboard.textKey(buf.slice(used + 1, used + 5));
-        if (decoded.length === 0) break;
-        len = 1 + decoded.length;
-        if (decoded.key)
-          alt_key = {
-            ...decoded.key,
-            mods: { alt: true, shift: decoded.key.codepoint >= 65 && decoded.key.codepoint <= 90 },
-          };
-      }
-      let seq: number[] = buf.slice(used, used + len);
-      if (this.paste_card !== null) {
-        const effect = this.cardInput(latin1(seq));
-        if (effect === "close") this.closePasteCard();
-        else if (effect === "dismiss") {
-          this.closePasteCard();
-          used += len;
-          continue;
-        } else if (effect === "capture") {
-          used += len;
+        if (buf.length - used < 2) {
+          this.pinWorktreeInput("\x1b");
+          this.link_tooltip.cancel();
+          this.dirty = true;
+          break;
+        }
+        if (
+          cl.paste === null &&
+          buf[used + 1] !== 0x5b &&
+          buf[used + 1] !== 0x4f &&
+          !this.help_visible &&
+          !this.corgi_setup?.after_prefix &&
+          !(this.signin && this.prefix) &&
+          (this.hasMenu() || this.editingName()) &&
+          !this.promptAlt(buf.slice(used, used + 2))
+        ) {
+          await this.key(27);
+          used += 1;
           continue;
         }
-      }
-      if (!latin1(seq).startsWith("\x1b[<")) {
-        this.endSigninExit();
-        this.pinWorktreeInput(latin1(seq));
-        const opened = this.pinResourceInput(latin1(seq)) || this.pinGitInput(latin1(seq));
-        this.link_tooltip.cancel();
-        this.dirty = true;
-        if (opened) {
-          used += len;
-          continue;
+        let len = 2;
+        if (buf[used + 1] === 0x5b || buf[used + 1] === 0x4f) {
+          while (len < buf.length - used && !(buf[used + len] >= 0x40 && buf[used + len] <= 0x7e)) len += 1;
+          if (len === buf.length - used) break;
+          len += 1;
         }
-      }
-      if (cl.paste === null) {
-        const key_event = keyboard.decode(latin1(seq)) ?? alt_key;
-        if (key_event && (await this.helpKey(key_event))) {
-          used += len;
-          continue;
+        let alt_key: keyboard.Key | null = null;
+        if (buf[used + 1] !== 0x5b && buf[used + 1] !== 0x4f) {
+          const decoded = keyboard.textKey(buf.slice(used + 1, used + 5));
+          if (decoded.length === 0) break;
+          len = 1 + decoded.length;
+          if (decoded.key)
+            alt_key = {
+              ...decoded.key,
+              mods: { alt: true, shift: decoded.key.codepoint >= 65 && decoded.key.codepoint <= 90 },
+            };
         }
-        if (key_event && this.signin) {
-          // Its agent gets keys as its terminal asked for them; the frame reads them plain.
-          const s = this.signin,
-            plain = viewerNative.encodeKey(null, key_event);
-          if (await this.signinPrefix(plain.length === 1 ? plain.charCodeAt(0) : key_event.codepoint, key_event)) {
+        let seq: number[] = buf.slice(used, used + len);
+        if (this.paste_card !== null) {
+          const effect = this.cardInput(latin1(seq));
+          if (effect === "close") this.closePasteCard();
+          else if (effect === "dismiss") {
+            this.closePasteCard();
+            used += len;
+            continue;
+          } else if (effect === "capture") {
+            used += len;
+            continue;
+          }
+        }
+        if (!latin1(seq).startsWith("\x1b[<")) {
+          this.endSigninExit();
+          this.pinWorktreeInput(latin1(seq));
+          const opened = this.pinResourceInput(latin1(seq)) || this.pinGitInput(latin1(seq));
+          this.link_tooltip.cancel();
+          this.dirty = true;
+          if (opened) {
+            used += len;
+            continue;
+          }
+        }
+        if (cl.paste === null) {
+          const key_event = keyboard.decode(latin1(seq)) ?? alt_key;
+          if (key_event && (await this.helpKey(key_event))) {
+            used += len;
+            continue;
+          }
+          if (key_event && this.signin) {
+            // Its agent gets keys as its terminal asked for them; the frame reads them plain.
+            const s = this.signin,
+              plain = viewerNative.encodeKey(null, key_event);
+            if (await this.signinPrefix(plain.length === 1 ? plain.charCodeAt(0) : key_event.codepoint, key_event)) {
+              this.dirty = true;
+              used += len;
+              continue;
+            }
+            if (s.typing && plain !== "\x03" && plain !== "\x11")
+              s.send(viewerNative.encodeKey(s.child!.handle, key_event));
+            else await s.input(plain);
             this.dirty = true;
             used += len;
             continue;
           }
-          if (s.typing && plain !== "\x03" && plain !== "\x11")
-            s.send(viewerNative.encodeKey(s.child!.handle, key_event));
-          else await s.input(plain);
-          this.dirty = true;
-          used += len;
-          continue;
-        }
-        if (key_event) {
-          if (await this.setupPrefix(key_event)) {
-            used += len;
-            continue;
-          }
-          // Ghostty passes its paste key on only when it had no text
-          // to paste. Over SSH it can't be pasted here: say why.
-          const pressed = hostClipboard.pasteKey(key_event);
-          // Ghostty passes its paste key on when there was no text: an image, perhaps.
-          if (pressed !== null && this.prompt.open && !this.prefix) {
-            await this.promptClipboardImage();
-            used += len;
-            continue;
-          }
-          if (pressed !== null && this.imageHint(pressed)) {
-            used += len;
-            continue;
-          }
-          const repeated = bindings.repeat(this.prefs.bindings(), key_event);
-          if (this.repeats(repeated)) {
-            await this.perform(repeated);
-            used += len;
-            continue;
-          }
-          if (repeated === null) this.repeat_until = 0;
-          // The prompt's own shortcut puts it away, as Prefix Space does.
-          if (
-            this.prompt.open &&
-            !this.prefix &&
-            bindings.chord(this.prefs.bindings(), false, key_event)?.name === "prompt"
-          ) {
-            await this.perform({ name: "prompt" });
-            used += len;
-            continue;
-          }
-          if (
-            this.onboarding === null &&
-            !this.editingName() &&
-            (this.prefix || (!this.hasMenu() && !this.copy_mode && !this.search_mode))
-          ) {
-            const act = bindings.chord(this.prefs.bindings(), this.prefix, key_event);
-            if (act) {
-              if (this.prefix) await this.runPrefixed(act, repeated !== null);
-              else await this.perform(act);
+          if (key_event) {
+            if (await this.setupPrefix(key_event)) {
+              used += len;
+              continue;
+            }
+            // Ghostty passes its paste key on only when it had no text
+            // to paste. Over SSH it can't be pasted here: say why.
+            const pressed = hostClipboard.pasteKey(key_event);
+            // Ghostty passes its paste key on when there was no text: an image, perhaps.
+            if (pressed !== null && this.prompt.open && !this.prefix) {
+              await this.promptClipboardImage();
+              used += len;
+              continue;
+            }
+            if (pressed !== null && this.imageHint(pressed)) {
+              used += len;
+              continue;
+            }
+            const repeated = bindings.repeat(this.prefs.bindings(), key_event);
+            if (this.repeats(repeated)) {
+              await this.perform(repeated);
+              used += len;
+              continue;
+            }
+            if (repeated === null) this.repeat_until = 0;
+            // The prompt's own shortcut puts it away, as Prefix Space does.
+            if (
+              this.prompt.open &&
+              !this.prefix &&
+              bindings.chord(this.prefs.bindings(), false, key_event)?.name === "prompt"
+            ) {
+              await this.perform({ name: "prompt" });
+              used += len;
+              continue;
+            }
+            if (
+              this.onboarding === null &&
+              !this.editingName() &&
+              (this.prefix || (!this.hasMenu() && !this.copy_mode && !this.search_mode))
+            ) {
+              const act = bindings.chord(this.prefs.bindings(), this.prefix, key_event);
+              if (act) {
+                if (this.prefix) await this.runPrefixed(act, repeated !== null);
+                else await this.perform(act);
+                used += len;
+                continue;
+              }
+            }
+            // Resolve Corgi shortcuts before encoding for the child. A
+            // Kitty Ctrl-B/Ctrl-T are otherwise invisible to the byte handlers.
+            const owned =
+              this.hasMenu() || this.editingName() || this.copy_mode || this.search_mode || this.reviewKeys();
+            // Corgi's own text boxes read some keys in sequences legacy encoding can't make.
+            const edit = owned ? keyboard.editSequence(key_event) : null;
+            const legacy = Array.from(
+              edit !== null ? Buffer.from(edit, "latin1") : Buffer.from(viewerNative.encodeKey(null, key_event)),
+            );
+            if (
+              owned ||
+              // With no workspace, Enter goes to the button that creates one.
+              !this.current().id ||
+              (legacy.length === 1 &&
+                (legacy[0] === keymap.prefixByte(this.prefs.prefix) ||
+                  bindings.lookup(this.prefs.bindings(), false, legacy[0], {}) !== null))
+            ) {
+              seq = legacy;
+            } else if (this.openingFocus()) {
+              // A pane still opening hasn't asked for any encoding yet.
+              seq = legacy;
+            } else if (legacy.length === 1 && legacy[0] === 27 && this.retryPending()) {
+              // The pane would get Esc in its own encoding, past `key`.
+              await this.perform({ name: "cancel-retry" });
+              used += len;
+              continue;
+            } else {
+              const p = this.focused();
+              if (p) seq = Array.from(Buffer.from(viewerNative.encodeKey(p.terminal.handle, key_event)));
+            }
+            if (seq.length === 0) {
+              used += len;
+              continue;
+            }
+            if (seq.length === 1) {
+              await this.key(seq[0]);
               used += len;
               continue;
             }
           }
-          // Resolve Corgi shortcuts before encoding for the child. A
-          // Kitty Ctrl-B/Ctrl-T are otherwise invisible to the byte handlers.
-          const owned = this.hasMenu() || this.editingName() || this.copy_mode || this.search_mode || this.reviewKeys();
-          // Corgi's own text boxes read some keys in sequences legacy encoding can't make.
-          const edit = owned ? keyboard.editSequence(key_event) : null;
-          const legacy = Array.from(
-            edit !== null ? Buffer.from(edit, "latin1") : Buffer.from(viewerNative.encodeKey(null, key_event)),
-          );
-          if (
-            owned ||
-            // With no workspace, Enter goes to the button that creates one.
-            !this.current().id ||
-            (legacy.length === 1 &&
-              (legacy[0] === keymap.prefixByte(this.prefs.prefix) ||
-                bindings.lookup(this.prefs.bindings(), false, legacy[0], {}) !== null))
-          ) {
-            seq = legacy;
-          } else if (this.openingFocus()) {
-            // A pane still opening hasn't asked for any encoding yet.
-            seq = legacy;
-          } else if (legacy.length === 1 && legacy[0] === 27 && this.retryPending()) {
-            // The pane would get Esc in its own encoding, past `key`.
-            await this.perform({ name: "cancel-retry" });
-            used += len;
-            continue;
-          } else {
-            const p = this.focused();
-            if (p) seq = Array.from(Buffer.from(viewerNative.encodeKey(p.terminal.handle, key_event)));
-          }
-          if (seq.length === 0) {
-            used += len;
-            continue;
-          }
-          if (seq.length === 1) {
-            await this.key(seq[0]);
-            used += len;
-            continue;
-          }
         }
-      }
-      const text = latin1(seq);
-      const parsed_key = keys.parse(text);
-      // Cmd+C and cmd+X copy a text box's selection, as Ghostty passes them on when it has none;
-      // cmd+X's cut and cmd+A's select all then go on to the box as its other edits do.
-      if (cl.paste === null && (parsed_key === "super_c" || parsed_key === "super_x")) {
-        const copied = this.textField()?.selectedText();
-        if (copied) this.copyText(copied);
-      }
-      const again = cl.paste === null ? bindings.repeatSequence(this.prefs.bindings(), text) : null;
-      if (parsed_key === "paste_start" || parsed_key === "paste_end") {
-        if (parsed_key === "paste_start") {
-          cl.paste = this.pasteTarget();
-          const target = this.pastePane();
-          if (target && !target.terminal.pasteStart()) {
-            cl.paste = "discard";
-            this.pasteRefused();
-          }
+        const text = latin1(seq);
+        const parsed_key = keys.parse(text);
+        // Cmd+C and cmd+X copy a text box's selection, as Ghostty passes them on when it has none;
+        // cmd+X's cut and cmd+A's select all then go on to the box as its other edits do.
+        if (cl.paste === null && (parsed_key === "super_c" || parsed_key === "super_x")) {
+          const copied = this.textField()?.selectedText();
+          if (copied) this.copyText(copied);
         }
-        if (cl.paste === "prompt") {
-          if (parsed_key === "paste_start") this.prompt.pasteStart();
-          else this.prompt.pasteEnd();
+        const again = cl.paste === null ? bindings.repeatSequence(this.prefs.bindings(), text) : null;
+        if (parsed_key === "paste_start" || parsed_key === "paste_end") {
+          if (parsed_key === "paste_start") {
+            cl.paste = this.pasteTarget();
+            const target = this.pastePane();
+            if (target && !target.terminal.pasteStart(true)) {
+              cl.paste = "discard";
+              this.pasteRefused();
+            }
+          }
+          if (cl.paste === "prompt") {
+            if (parsed_key === "paste_start") this.prompt.pasteStart();
+            else this.prompt.pasteEnd();
+            this.dirty = true;
+          }
+          // The markers reach only an application that asked for them.
+          const p = this.pastePane();
+          if (cl.paste === "signin") await this.signin?.input(text);
+          else if (p && p.terminal.bracketedPaste()) this.sendInput(p.terminal, seq);
+          if (parsed_key === "paste_end") {
+            p?.terminal.pasteEnd();
+            cl.paste = null;
+          }
+        } else if (cl.paste !== null) {
+          const p = this.pastePane();
+          if (cl.paste === "signin") await this.signin?.input(text);
+          else if (p) this.sendInput(p.terminal, seq);
+        } else if (parsed_key === "focus_in") {
+          cl.watched = true;
+        } else if (parsed_key === "focus_out") {
+          this.cancelDock();
+          cl.watched = false;
+          this.moonlander?.release();
+          if (this.agent_drag) this.agent_drag.cancelled = true;
+          this.pointer = null;
           this.dirty = true;
-        }
-        // The markers reach only an application that asked for them.
-        const p = this.pastePane();
-        if (cl.paste === "signin") await this.signin?.input(text);
-        else if (p && p.terminal.bracketedPaste()) this.sendInput(p.terminal, seq);
-        if (parsed_key === "paste_end") {
-          p?.terminal.pasteEnd();
-          cl.paste = null;
-        }
-      } else if (cl.paste !== null) {
-        const p = this.pastePane();
-        if (cl.paste === "signin") await this.signin?.input(text);
-        else if (p) this.sendInput(p.terminal, seq);
-      } else if (parsed_key === "focus_in") {
-        cl.watched = true;
-      } else if (parsed_key === "focus_out") {
-        this.cancelDock();
-        cl.watched = false;
-        this.moonlander?.release();
-        if (this.agent_drag) this.agent_drag.cancelled = true;
-        this.pointer = null;
-        this.dirty = true;
-      } else if (text.startsWith("\x1b[<")) await this.mouse(text);
-      else if (cl.tab_drag) {
-        this.cancelDock();
-      } else if (this.archive_dialog) {
-        const action = this.archive_dialog.key(parsed_key ?? text);
-        if (action) await this.perform(action);
-      } else if (this.moonlander) {
-        if (this.moonlander.sequence(text)) this.closeMoonlander();
-        this.dirty = true;
-      } else if (this.prompt.open && !this.prefix) await this.promptEffect(this.prompt.sequence(text));
-      else if (this.repeats(again)) await this.perform(again);
-      else if (this.worktree_card.pinned) {
-        if (parsed_key === "up") await this.perform({ name: "worktree-prev" });
-        else if (parsed_key === "down") await this.perform({ name: "worktree-next" });
-        else if (parsed_key === "delete") await this.perform({ name: "worktree-remove" });
-      } else if (this.startup_card) {
-        const act = this.startup_card.key(text);
-        if (act) await this.perform(act);
-      } else if (this.resource_card.pinned) {
-        const act = this.resourceKey(text);
-        if (act) await this.perform(act);
-      } else if (this.git_card.pinned) {
-        const act = this.gitKey(text);
-        if (act) await this.perform(act);
-      } else if (this.onboarding) {
-        const wizard = this.onboarding;
-        let done = false;
-        try {
-          done = await wizard.sequence(text, this.rpc());
-        } catch (error) {
-          wizard.fail(error as Error);
-        }
-        if (done) await this.finishOnboarding();
-        this.dirty = true;
-      } else if (this.prefix) {
-        const act = bindings.prefixedSequence(this.prefs.bindings(), text);
-        if (act) await this.runPrefixed(act, again !== null);
-        else if (this.help_visible) await this.helpResult(this.help.sequence(text));
-        this.dirty = true;
-      } else if (this.inline_rename) {
-        const open = this.inline_rename,
-          before = open.field.raw();
-        open.field.sequence(text);
-        this.inlineEdited(open, before);
-      } else if (this.sidebar_focus) {
-        if (parsed_key === "up" || parsed_key === "down" || parsed_key === "left" || parsed_key === "right")
-          await this.steerSidebar(parsed_key);
-      } else if (this.agent_picker) {
-        if (parsed_key === "up" || parsed_key === "shift_tab") this.moveAgentPicker(false);
-        else if (parsed_key === "down") this.moveAgentPicker(true);
-        else this.agent_picker.query.sequence(text);
-      } else if (this.corgi_setup) {
-        const setup = this.corgi_setup,
-          s = this.runtime.inference,
-          intensity = setup.intensityKey(parsed_key, this.prefs);
-        if (setup.managing()) {
-          const launch = setup.agents!;
-          await this.manageAction(launch.manager.sequence(text, launch.manageModel()));
-        } else if (intensity) await this.applySetup(intensity);
-        else if (setup.sequence(text)) {
-          // The worktree folder field took it.
-        } else if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.host.prefs);
-        else if (parsed_key === "down") setup.move(true, s, this.host.prefs);
-        else if (parsed_key === "right") setup.openOptions(s, this.host.prefs);
-        else if (parsed_key === "left") setup.back();
-        this.dirty = true;
-      } else if (this.agent_launcher) {
-        const launch = this.agent_launcher;
-        if (launch.worktree.mode === "open" && !launch.managing) {
-          const c = launch.worktree;
-          if (c.focus === "from" && parsed_key === "shift_tab") c.focus = "branch";
-          else if (c.focus === "from" && (parsed_key === "up" || parsed_key === "down"))
-            c.movePick(parsed_key === "up" ? -1 : 1);
-          else if (c.focus === "from") c.search(from => from.sequence(text));
-          else if (parsed_key === "up" || parsed_key === "down") c.move(launch.worktrees, parsed_key === "up" ? -1 : 1);
-          else if (parsed_key === "shift_tab") {
-            if (c.creating(launch.worktrees)) c.focusFrom();
-            else c.move(launch.worktrees, -1);
-          } else c.edit(field => field.sequence(text));
+        } else if (text.startsWith("\x1b[<")) await this.mouse(text);
+        else if (cl.tab_drag) {
+          this.cancelDock();
+        } else if (this.archive_dialog) {
+          const action = this.archive_dialog.key(parsed_key ?? text);
+          if (action) await this.perform(action);
+        } else if (this.moonlander) {
+          if (this.moonlander.sequence(text)) this.closeMoonlander();
           this.dirty = true;
-        } else if (launch.resume_view.focused && !launch.managing) {
-          launch.pinned = true;
-          if (parsed_key === "right" && !launch.resume_view.searching) await this.openManager();
-          else this.resumeSequence(text, parsed_key);
-        } else if (launch.managing) {
-          await this.manageAction(launch.manager.sequence(text, launch.manageModel()));
-        } else if (parsed_key === "right") {
-          await this.openManager();
-        } else if (parsed_key === "up") {
-          this.moveLauncher(false, false);
-        } else if (parsed_key === "down") {
-          this.moveLauncher(true, false);
-        } else if (text === "\x1b[H" || text === "\x1b[1~") {
-          this.selectLauncher(launch.first());
-        } else if (text === "\x1b[F" || text === "\x1b[4~") {
-          this.selectLauncher("terminal");
-        } else if (parsed_key === "shift_tab") {
-          this.moveLauncher(false, true);
-        } else if (!launch.pinned) {
-          this.closeMenu();
-          this.typeFocused(seq);
-        }
-      } else if (this.port_menu) {
-        if (parsed_key === "up") this.movePortMenu(false);
-        else if (parsed_key === "down") this.movePortMenu(true);
-      } else if (this.tab_menu) {
-        if (parsed_key === "up") this.moveTabMenu(false);
-        else if (parsed_key === "down") this.moveTabMenu(true);
-      } else if (this.menu() !== null) {
-        if (parsed_key === "page_up") this.pageMenu(false);
-        else if (parsed_key === "page_down") this.pageMenu(true);
-      } else if (this.name_dialog) {
-        this.fitNameDialog();
-        this.name_dialog.sequence(text);
-        this.dirty = true;
-      } else if (this.reviewKeys()) {
-        const named = parsed_key === null ? null : reviewNamed(parsed_key);
-        if (named) await this.reviewKey({ named });
-      } else if (this.copy_mode && parsed_key === "page_up") this.scroll(-20);
-      else if (this.copy_mode && parsed_key === "page_down") this.scroll(20);
-      else this.typeFocused(seq);
-      used += len;
+        } else if (this.prompt.open && !this.prefix) await this.promptEffect(this.prompt.sequence(text));
+        else if (this.repeats(again)) await this.perform(again);
+        else if (this.worktree_card.pinned) {
+          if (parsed_key === "up") await this.perform({ name: "worktree-prev" });
+          else if (parsed_key === "down") await this.perform({ name: "worktree-next" });
+          else if (parsed_key === "delete") await this.perform({ name: "worktree-remove" });
+        } else if (this.startup_card) {
+          const act = this.startup_card.key(text);
+          if (act) await this.perform(act);
+        } else if (this.resource_card.pinned) {
+          const act = this.resourceKey(text);
+          if (act) await this.perform(act);
+        } else if (this.git_card.pinned) {
+          const act = this.gitKey(text);
+          if (act) await this.perform(act);
+        } else if (this.onboarding) {
+          const wizard = this.onboarding;
+          let done = false;
+          try {
+            done = await wizard.sequence(text, this.rpc());
+          } catch (error) {
+            wizard.fail(error as Error);
+          }
+          if (done) await this.finishOnboarding();
+          this.dirty = true;
+        } else if (this.prefix) {
+          const act = bindings.prefixedSequence(this.prefs.bindings(), text);
+          if (act) await this.runPrefixed(act, again !== null);
+          else if (this.help_visible) await this.helpResult(this.help.sequence(text));
+          this.dirty = true;
+        } else if (this.inline_rename) {
+          const open = this.inline_rename,
+            before = open.field.raw();
+          open.field.sequence(text);
+          this.inlineEdited(open, before);
+        } else if (this.sidebar_focus) {
+          if (parsed_key === "up" || parsed_key === "down" || parsed_key === "left" || parsed_key === "right")
+            await this.steerSidebar(parsed_key);
+        } else if (this.agent_picker) {
+          if (parsed_key === "up" || parsed_key === "shift_tab") this.moveAgentPicker(false);
+          else if (parsed_key === "down") this.moveAgentPicker(true);
+          else this.agent_picker.query.sequence(text);
+        } else if (this.corgi_setup) {
+          const setup = this.corgi_setup,
+            s = this.runtime.inference,
+            intensity = setup.intensityKey(parsed_key, this.prefs);
+          if (setup.managing()) {
+            const launch = setup.agents!;
+            await this.manageAction(launch.manager.sequence(text, launch.manageModel()));
+          } else if (intensity) await this.applySetup(intensity);
+          else if (setup.sequence(text)) {
+            // The worktree folder field took it.
+          } else if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.host.prefs);
+          else if (parsed_key === "down") setup.move(true, s, this.host.prefs);
+          else if (parsed_key === "right") setup.openOptions(s, this.host.prefs);
+          else if (parsed_key === "left") setup.back();
+          this.dirty = true;
+        } else if (this.agent_launcher) {
+          const launch = this.agent_launcher;
+          if (launch.worktree.mode === "open" && !launch.managing) {
+            const c = launch.worktree;
+            if (c.focus === "from" && parsed_key === "shift_tab") c.focus = "branch";
+            else if (c.focus === "from" && (parsed_key === "up" || parsed_key === "down"))
+              c.movePick(parsed_key === "up" ? -1 : 1);
+            else if (c.focus === "from") c.search(from => from.sequence(text));
+            else if (parsed_key === "up" || parsed_key === "down")
+              c.move(launch.worktrees, parsed_key === "up" ? -1 : 1);
+            else if (parsed_key === "shift_tab") {
+              if (c.creating(launch.worktrees)) c.focusFrom();
+              else c.move(launch.worktrees, -1);
+            } else c.edit(field => field.sequence(text));
+            this.dirty = true;
+          } else if (launch.resume_view.focused && !launch.managing) {
+            launch.pinned = true;
+            if (parsed_key === "right" && !launch.resume_view.searching) await this.openManager();
+            else this.resumeSequence(text, parsed_key);
+          } else if (launch.managing) {
+            await this.manageAction(launch.manager.sequence(text, launch.manageModel()));
+          } else if (parsed_key === "right") {
+            await this.openManager();
+          } else if (parsed_key === "up") {
+            this.moveLauncher(false, false);
+          } else if (parsed_key === "down") {
+            this.moveLauncher(true, false);
+          } else if (text === "\x1b[H" || text === "\x1b[1~") {
+            this.selectLauncher(launch.first());
+          } else if (text === "\x1b[F" || text === "\x1b[4~") {
+            this.selectLauncher("terminal");
+          } else if (parsed_key === "shift_tab") {
+            this.moveLauncher(false, true);
+          } else if (!launch.pinned) {
+            this.closeMenu();
+            this.typeFocused(seq);
+          }
+        } else if (this.port_menu) {
+          if (parsed_key === "up") this.movePortMenu(false);
+          else if (parsed_key === "down") this.movePortMenu(true);
+        } else if (this.tab_menu) {
+          if (parsed_key === "up") this.moveTabMenu(false);
+          else if (parsed_key === "down") this.moveTabMenu(true);
+        } else if (this.menu() !== null) {
+          if (parsed_key === "page_up") this.pageMenu(false);
+          else if (parsed_key === "page_down") this.pageMenu(true);
+        } else if (this.name_dialog) {
+          this.fitNameDialog();
+          this.name_dialog.sequence(text);
+          this.dirty = true;
+        } else if (this.reviewKeys()) {
+          const named = parsed_key === null ? null : reviewNamed(parsed_key);
+          if (named) await this.reviewKey({ named });
+        } else if (this.copy_mode && parsed_key === "page_up") this.scroll(-20);
+        else if (this.copy_mode && parsed_key === "page_down") this.scroll(20);
+        else this.typeFocused(seq);
+        used += len;
+      }
+    } catch (error) {
+      // What failed ends its batch: the rest is dropped rather than read
+      // again with the next input, and a paste it was in is closed.
+      if (cl === this.input_state) {
+        this.pastePane()?.terminal.pasteAbort();
+        cl.paste = null;
+        cl.keybuf = [];
+      }
+      throw error;
     }
     if (cl !== this.input_state || machine !== this.machine || !current()) return;
     cl.keybuf = cl.keybuf.slice(used);
