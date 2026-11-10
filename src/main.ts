@@ -255,8 +255,9 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     return;
   }
-  // Every machine's, whichever CORGI_MACHINE names.
-  if (args[0] === "list" && args[1] === "--all-machines" && args.length === 2) {
+  // Every machine's, whichever CORGI_MACHINE names; it's JSON either way.
+  const listing = agent_mode.flags(args).args.filter(arg => arg !== "--json");
+  if (listing[0] === "list" && listing[1] === "--all-machines" && listing.length === 2) {
     const remote = await import("./machine_cli");
     await remote.all(path);
     return;

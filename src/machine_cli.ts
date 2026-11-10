@@ -169,6 +169,8 @@ export async function run(path: string, args: string[], conn: Connection): Promi
     return;
   }
   let reply: unknown;
+  // Replies print as JSON here, so the local CLI's --json changes nothing.
+  if (args[0] !== "rpc") args = args.filter(arg => arg !== "--json");
   switch (args[0]) {
     case "ping":
     case "shutdown":
@@ -183,10 +185,19 @@ export async function run(path: string, args: string[], conn: Connection): Promi
       if (args.length !== 2) throw Error("Usage");
       reply = await conn.rawRequest(json.parse(args[1]));
       break;
-    case "action":
-      if (args.length < 2 || args.length > 3) throw Error("Usage");
-      reply = await conn.call("action", { name: args[1], value: args[2] ?? "" });
+    case "action": {
+      // A trailing `--viewer ID` picks the viewer, as the local CLI reads it.
+      const viewer = args.length >= 4 && args.at(-2) === "--viewer" ? Number(args.at(-1)) : null,
+        rest = viewer === null ? args : args.slice(0, -2);
+      if (rest.length < 2 || rest.length > 3 || (viewer !== null && !(Number.isInteger(viewer) && viewer > 0)))
+        throw Error("Usage");
+      reply = await conn.call("action", {
+        name: rest[1],
+        value: rest[2] ?? "",
+        ...(viewer === null ? {} : { viewer }),
+      });
       break;
+    }
     default:
       throw Error("UnsupportedRemoteCommand");
   }
