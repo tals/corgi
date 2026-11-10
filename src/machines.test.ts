@@ -1,6 +1,7 @@
 import * as machine_path from "./machine_path";
 import { test, expect } from "bun:test";
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import * as ssh from "./ssh";
 import * as machines from "./machines";
 import * as protocol from "./protocol";
@@ -61,11 +62,12 @@ test("remote commands keep shell metacharacters literal and remove inherited pan
   expect(await env.exited).toBe(0);
 });
 
-test("a bridge an update or a reboot took away is asked of the Corgi there", async () => {
+test("a bridge an update or a reboot took away, or someone else's, is asked of the Corgi there", async () => {
   const dir = mkdtempSync("/tmp/corgi-bridge-");
   try {
-    const bridge = dir + "/bridge",
+    const bridge = dir + "/native/hash/bin/corgi-remote-bridge",
       corgi = dir + "/corgi";
+    mkdirSync(dirname(bridge), { recursive: true });
     writeFileSync(bridge, '#!/bin/sh\necho "bridge $*"\n', { mode: 0o700 });
     writeFileSync(corgi, '#!/bin/sh\necho "corgi $*"\n', { mode: 0o700 });
     const run = async (saved: string) => {
@@ -74,6 +76,10 @@ test("a bridge an update or a reboot took away is asked of the Corgi there", asy
     };
     expect(await run(bridge)).toBe("bridge /run/corgi.sock");
     expect(await run(dir + "/gone")).toBe("corgi __remote-bridge /run/corgi.sock");
+    // Another user's folder in /tmp, as one made after a reboot cleared it.
+    expect(await run("/usr/bin/env")).toBe("corgi __remote-bridge /run/corgi.sock");
+    symlinkSync(dir + "/native", dir + "/link");
+    expect(await run(dir + "/link/hash/bin/corgi-remote-bridge")).toBe("corgi __remote-bridge /run/corgi.sock");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

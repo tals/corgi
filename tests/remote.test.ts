@@ -747,7 +747,7 @@ class Remote extends Runtime {
       wrapper,
       readFileSync(wrapper, "utf8").replace(
         "#!/bin/sh\n",
-        `#!/bin/sh\ncase " $* " in *" -L "*) exit 99;; esac\nprintf '%s\\n' "$*" >> ${quote(log)}\n`,
+        `#!/bin/sh\nfor arg in "$@"; do [ "$arg" = -L ] && exit 99; done\nprintf '%s\\n' "$*" >> ${quote(log)}\n`,
       ),
     );
     const connections = this.network!.accepted;
