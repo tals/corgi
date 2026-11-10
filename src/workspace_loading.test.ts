@@ -241,3 +241,58 @@ test("a focus control that comes before the session showing its pane waits for i
     await endpoint.close();
   }
 });
+
+test("a focus control waits past any time limit while the daemon says its pane is there, and goes once it says it's gone", async () => {
+  let there = true;
+  const machine = new Machine(
+    transport(async op => {
+      const full = snapshot();
+      if (op === "session.snapshot" && !there) full.panes = full.panes.filter(p => p.id !== 31);
+      return full;
+    }),
+  );
+  const view = new Controller(machine);
+  const reply = (session: object | null, controls: protocol.Wire<protocol.Control[]>) =>
+    ({
+      type: "view",
+      viewer_protocol: protocol.viewer_version,
+      session,
+      session_hash: 0n,
+      resources: null,
+      resources_hash: 0n,
+      surfaces: [],
+      controls,
+      viewer: 1,
+      bell_seq: 0n,
+      bell_kind: "none",
+      detach: false,
+    }) as unknown as protocol.Reply<"viewer.sync">;
+  // A session from before pane 31's workspace was made.
+  const without = snapshot();
+  without.workspaces = without.workspaces.slice(0, 2);
+  without.panes = without.panes.filter(p => p.id < 30);
+  const focus = [{ seq: 1, kind: "focus", id: 31 }] as protocol.Wire<protocol.Control[]>;
+  const clock = spyOn(performance, "now").mockReturnValue(1000);
+  const receive = async () => {
+    await viewer.receive(view, reply(null, focus), { seq: 0n }, false, machine);
+    await Bun.sleep(0);
+  };
+  try {
+    await viewer.receive(view, reply(without, []), { seq: 0n }, false, machine);
+    await receive();
+    expect(machine.control_check?.state).toBe("there");
+    // Long past the old two seconds, the session that shows it may still come.
+    clock.mockReturnValue(10_000);
+    there = false;
+    await receive();
+    expect(machine.control_check?.state).toBe("gone");
+    expect(machine.last_control).toBe(0n);
+    await receive();
+    expect(machine.last_control).toBe(1n);
+    expect(machine.waiting_controls).toEqual([]);
+    expect(view.message).toBe("");
+  } finally {
+    clock.mockRestore();
+    viewer.close(view);
+  }
+});

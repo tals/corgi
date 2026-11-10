@@ -8,7 +8,7 @@ import * as docking from "./docking";
 import { max_panes } from "./layout";
 import { dirname, join } from "node:path";
 import { Controller } from "./controller";
-import type { Machine } from "./machine";
+import type { Machine, ControlCheck } from "./machine";
 import { call, unread, acknowledge } from "./mirror";
 import { parse as parseAction } from "./action";
 import * as terminal_info from "./terminal_info";
@@ -192,8 +192,9 @@ export function syncRequest(
     resources_hash: machine.runtime.resources_hash,
   };
 }
-/** How long a control waits for the session that shows what it names. */
-const control_wait_ms = 2000;
+/** How often a waiting control asks again whether what it names is there,
+ * which it may stop being while it waits. */
+const control_check_ms = 1000;
 function arrived(machine: Machine, control: protocol.Wire<protocol.Control>): boolean {
   switch (control.kind) {
     case "focus":
@@ -203,6 +204,34 @@ function arrived(machine: Machine, control: protocol.Wire<protocol.Control>): bo
     default:
       return true;
   }
+}
+/** Asks `machine`'s daemon whether what `control` names is there. The answer
+ * comes over the connection the control came on, after it, so it's no older
+ * than the control; the session it brings is only read, since one still on
+ * its way over the other connection may be older and would undo it. */
+async function checkControl(
+  view: Controller,
+  machine: Machine,
+  control: protocol.Wire<protocol.Control>,
+  seq: bigint,
+): Promise<void> {
+  const check: ControlCheck = { seq, state: "asking", at: performance.now() };
+  machine.control_check = check;
+  let there: boolean;
+  try {
+    const session = await call(machine.connection, "session.snapshot", {});
+    there =
+      control.kind === "focus"
+        ? session.panes.some(p => p.id === control.id)
+        : session.workspaces.some(w => w.id === control.id);
+  } catch {
+    // Unanswered, it asks again a moment later.
+    check.state = "there";
+    return;
+  }
+  if (machine.control_check !== check) return;
+  check.state = there ? "there" : "gone";
+  view.wake();
 }
 /** Takes a reply from `machine`'s daemon. A machine in the background takes
  * its data; its controls wait, unacknowledged, until it's shown. */
@@ -220,20 +249,28 @@ export async function receive(
   machine.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
   machine.viewer_id = reply.viewer ?? 0;
   const controls = shown ? (reply.controls ?? []) : [];
+  // What still waits is decided afresh from the controls this reply brings.
+  if (shown) machine.waiting_controls = [];
   for (const [i, control] of controls.entries()) {
     const seq = BigInt(control.seq);
     if (seq <= machine.last_control) continue;
     // Controls and session updates can take different connections: one may
-    // name a pane before the session that has it. It and those after it wait.
+    // name a pane before the session that has it. It and those after it wait
+    // for that session, unless the daemon says what it names is gone.
     if (!arrived(machine, control)) {
-      const now = performance.now();
-      machine.waiting_since ??= now;
-      if (now - machine.waiting_since < control_wait_ms) {
+      const check = machine.control_check?.seq === seq ? machine.control_check : null;
+      if (check?.state !== "gone") {
         machine.waiting_controls = controls.slice(i);
+        if (!check || (check.state !== "asking" && performance.now() - check.at >= control_check_ms))
+          void checkControl(view, machine, control, seq);
         break;
       }
+      // Gone: it's taken, with nothing left to do.
+      machine.control_check = null;
+      machine.last_control = seq;
+      continue;
     }
-    machine.waiting_since = null;
+    machine.control_check = null;
     try {
       if (control.kind === "focus" || control.kind === "workspace") {
         if (control.kind === "focus") view.focusPane(control.id!);

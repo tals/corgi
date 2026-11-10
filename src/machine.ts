@@ -19,6 +19,13 @@ export interface Stopped {
   session: string;
   at: number;
 }
+/** Whether what waiting control `seq` names is there, as the daemon said
+ * when asked at `at`, in `performance.now()` time. */
+export interface ControlCheck {
+  seq: bigint;
+  state: "asking" | "there" | "gone";
+  at: number;
+}
 /** Where to go on a machine once it's shown: a workspace, or an agent. */
 export type Focus = { workspace: number } | OrderTarget;
 /** How a machine's connection stands, as its sidebar rows say. */
@@ -61,9 +68,10 @@ export class Machine {
   viewer_id = 0;
   last_control = 0n;
   /** Controls that came before the session showing what they name, from the
-   * first; and since when the first has waited. */
+   * first; and what the daemon said, asked after the first came, of whether
+   * what it names is there. */
   waiting_controls: protocol.Wire<protocol.Control[]> = [];
-  waiting_since: number | null = null;
+  control_check: ControlCheck | null = null;
   /** Links point at the daemon's machine, so they're shown, not opened here. */
   remote_links = false;
   /** Workspace ids whose group is folded in the grouped "All" list. */
@@ -108,7 +116,7 @@ export class Machine {
     this.viewer_id = 0;
     this.last_control = 0n;
     this.waiting_controls = [];
-    this.waiting_since = null;
+    this.control_check = null;
     this.folded_groups = [];
     this.worktree_agents = new worktreeAgents.State();
     this.marked_unread.clear();
