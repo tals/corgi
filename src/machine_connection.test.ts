@@ -603,6 +603,23 @@ test("planned reconnect bounds input already queued and releases a full hold wit
   }
 });
 
+test("typing into an idle viewer goes at once, not at the idle step's pace", async () => {
+  const endpoint = localEndpoint("/tmp/corgi-idle-input/control.sock", new Probe(), new Host());
+  try {
+    const view = Reflect.get(endpoint, "view").call(endpoint);
+    view.input_state.attached = true;
+    Reflect.set(endpoint, "settled", true);
+    endpoint.enqueue(Uint8Array.of(120));
+    // An idle step ran meanwhile and put the next one half a second off.
+    Reflect.set(endpoint, "next", performance.now() + 500);
+    Reflect.get(endpoint, "pumpUi").call(endpoint);
+    await Reflect.get(endpoint, "ui_task");
+    expect(Reflect.get(endpoint, "next")).toBe(0);
+  } finally {
+    await endpoint.close();
+  }
+});
+
 test("planned reconnect input is discarded when selection changes or the hold expires", async () => {
   for (const change of ["selection", "deadline"] as const) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());

@@ -323,7 +323,10 @@ export class Endpoint {
         if (current()) view.notice(errors.name(error) ?? "ActionFailed");
       } finally {
         this.ui_task = null;
-        if (current() && (input.length || (!dirty && view.dirty))) this.onChange();
+        // Typing waits in its pane for the next step, which an idle viewer
+        // paces at `quiet_ms`: it goes now.
+        if (current() && input.length) this.wake();
+        else if (current() && !dirty && view.dirty) this.onChange();
       }
     })();
   }
