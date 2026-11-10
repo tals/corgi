@@ -12,7 +12,7 @@ import type { Probe } from "./terminal_info";
 import type { Host } from "./host";
 import type { WorkspaceEntry } from "./sidebar";
 import { Cache, metadata } from "./machine_cache";
-import { Stream } from "./machine_stream";
+import { Stream, input_chunk } from "./machine_stream";
 import * as viewer_data from "./viewer_data";
 import * as protocol from "./protocol";
 import * as rpc_http from "./rpc_http";
@@ -949,9 +949,10 @@ export class Endpoint {
       for (const pane of machine.runtime.panes) {
         const held = visible && view.selection !== null && view.selection.pane === pane.id;
         if (pane.terminal.holding_selection && !held) pane.terminal.clearSelection();
-        // Without room, typing waits in the pane and goes as one write once some lands.
-        if (pane.terminal.pending.length && this.status === "online" && stream.room(pane.terminal.pending.length))
-          stream.send(() => pane.terminal.flush(), pane.terminal.pending.length);
+        // Without room, typing waits in the pane and goes once some lands.
+        const bytes = Math.min(pane.terminal.pending.length, input_chunk);
+        if (bytes && this.status === "online" && stream.room(bytes))
+          stream.send(() => pane.terminal.flush(input_chunk), bytes);
       }
       stream.configure(
         { ...viewer.syncRequest(view, visible, machine), resource_detail: this.resource_detail },

@@ -336,19 +336,28 @@ export class Terminal {
     this.send(bytes);
     this.motion = { at, code, buffer: this.pending, end: this.pending.length };
   }
-  async flush(): Promise<void> {
+  /** Sends what's pending, at most `limit` bytes of it, cut between
+   * characters; the rest waits for the next flush. */
+  async flush(limit = Infinity): Promise<void> {
     if (this.pending.length === 0) return;
-    const data = Buffer.from(this.pending).toString();
+    let end = Math.min(this.pending.length, limit);
+    while (end > 0 && end < this.pending.length && (this.pending[end] & 0xc0) === 0x80) end--;
+    if (end === 0) end = this.pending.length;
+    const sent = end === this.pending.length ? this.pending : this.pending.slice(0, end),
+      data = Buffer.from(sent).toString();
     // Over a link the input lands once, even across a reconnect; without one
     // its delivery is uncertain after a disconnect, so it's never sent again.
-    const keys = keyCount(this.pending),
-      carried = this.paste_in === this.pending;
-    this.pending = [];
+    const keys = keyCount(sent),
+      waiting = this.paste_in === this.pending,
+      carried = waiting && end > this.paste_at;
+    this.pending = this.pending.slice(end);
+    if (waiting) {
+      // The rest of the paste, and any still arriving, waits in the next buffer.
+      this.paste_in = this.paste_open || this.pending.length > 0 ? this.pending : null;
+      this.paste_at = Math.max(0, this.paste_at - end);
+    }
     if (carried) {
       this.paste_sending++;
-      // The rest of a paste still arriving waits in the next buffer.
-      this.paste_in = this.paste_open ? this.pending : null;
-      this.paste_at = 0;
       this.paste_split ||= this.paste_open;
     }
     this.sending += keys;
