@@ -3572,6 +3572,108 @@ test("a held drag along the row between the presses starts the double-click over
   }
 });
 
+test("a held drag of a workspace row between the presses starts the double-click over", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ workspace: 1 });
+  const report = (button: number, x: number, y: number) => s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M`));
+  try {
+    setSystemTime(new Date(1000));
+    await report(0, at.x, at.y);
+    expect(s.workspace_drag).not.toBeNull();
+    await report(32, at.x + 1, at.y);
+    await report(32, at.x, at.y);
+    await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}m`));
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ workspace: 1 });
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("unheld motion off the name line and back starts the double-click over", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const pane = s.sidebarView(s.sidebarEntries()).width + 2;
+  const hover = (x: number) => s.input(bytes(`\x1b[<35;${x + 1};${at.y + 1}M`));
+  try {
+    setSystemTime(new Date(1000));
+    // Along the line the double-click holds.
+    await press(at.x, at.y);
+    await hover(at.x + at.width - 1);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    await s.input(bytes("\x1b[27u"));
+    // Into the terminal on the same screen line and back, it doesn't.
+    await press(at.x, at.y);
+    await hover(pane);
+    await hover(at.x);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a press on a workspace's port link or Git figure between name-line presses starts the double-click over", async () => {
+  const snapshot: any = pair();
+  snapshot.workspaces[0].git_ahead = 2;
+  snapshot.ports = {
+    workspaces: [
+      {
+        id: 1,
+        background: 0,
+        endpoints: [
+          {
+            label: "",
+            label_pending: false,
+            pid: 12,
+            pane: 1,
+            name: "web",
+            transport: "tcp",
+            bind_address: "127.0.0.1",
+            port: 3000,
+            ipv6: false,
+            interfaces: [],
+            scheme: "http",
+            http_status: 200,
+            probed_at: 0,
+          },
+        ],
+      },
+    ],
+  };
+  const { s, rect, press } = renaming(undefined, snapshot);
+  const at = rect({ workspace: 1 });
+  const side = s.sidebarView(s.sidebarEntries()),
+    entries = s.workspaceEntries();
+  const port = sidebar.linkRange(side, entries[0], entries).start,
+    git = side.width - 3;
+  try {
+    expect(sidebar.portWorkspace(side, entries, port, at.y)?.id).toBe(1);
+    expect(sidebar.gitActionWorkspace(side, entries, null, git, at.y)?.id).toBe(1);
+    setSystemTime(new Date(1000));
+    for (const between of [port, git]) {
+      await press(at.x, at.y);
+      await press(between, at.y);
+      await press(at.x, at.y);
+      expect(s.inline_rename).toBeNull();
+      setSystemTime(new Date(Date.now() + 2000));
+    }
+    await press(at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ workspace: 1 });
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
 test("a character bound to an action types into the rename field", async () => {
   const { s, sent, twice } = renaming();
   const bound = spyOn(s.prefs, "bindings").mockReturnValue([

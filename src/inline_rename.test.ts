@@ -42,33 +42,44 @@ test("a drag after the press ends the double-click", () => {
   expect(h.press({ agent: 1 }, 1001, 4)).toBe(false);
 });
 
-test("the pointer leaving the pressed line ends the double-click", () => {
+test("a press on another line of the same row is no double-click", () => {
   const h = new ClickHistory();
   expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
-  h.motion(5);
+  expect(h.press({ agent: 1 }, 1001, 5)).toBe(false);
+});
+
+test("two presses in a row make a double-click; another press between them starts over", () => {
+  const h = new ClickHistory();
+  h.pressed();
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  h.pressed();
+  expect(h.press({ agent: 1 }, 1001, 4)).toBe(true);
+  h.pressed();
+  expect(h.press({ agent: 1 }, 1002, 4)).toBe(false);
+  // A press routed elsewhere, such as the message line or a port link.
+  h.pressed();
+  h.pressed();
+  expect(h.press({ agent: 1 }, 1003, 4)).toBe(false);
+  h.pressed();
+  expect(h.press({ agent: 1 }, 1004, 4)).toBe(true);
+});
+
+test("a press is pending until the window closes, the pointer leaves, or a second press", () => {
+  const h = new ClickHistory();
+  expect(h.pending(1000)).toBe(null);
+  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
+  expect(h.pending(1000 + double_click_ms - 1)).toEqual({ agent: 1 });
+  expect(h.pending(1000 + double_click_ms)).toBe(null);
+  h.move();
+  expect(h.pending(1001)).toBe(null);
   expect(h.press({ agent: 1 }, 1001, 4)).toBe(false);
-});
-
-test("a second press elsewhere on the same line is a double-click", () => {
-  const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1001, 4)).toBe(true);
-});
-
-test("motion along the pressed line keeps the double-click", () => {
-  const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
-  h.motion(4);
-  h.motion(4);
-  expect(h.press({ agent: 1 }, 1001, 4)).toBe(true);
-});
-
-test("motion before any press is nothing", () => {
-  const h = new ClickHistory();
-  h.motion(9);
-  expect(h.moved).toBe(false);
-  expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1001, 4)).toBe(true);
+  expect(h.press({ agent: 1 }, 1002, 4)).toBe(true);
+  expect(h.pending(1002)).toBe(null);
+  // A press routed elsewhere leaves nothing a second one could complete.
+  h.pressed();
+  expect(h.press({ agent: 1 }, 1003, 4)).toBe(false);
+  h.pressed();
+  expect(h.pending(1004)).toBe(null);
 });
 
 test("a third press right after a double-click starts a new sequence", () => {
@@ -84,9 +95,11 @@ test("reset forgets the press", () => {
   const h = new ClickHistory();
   expect(h.press({ agent: 1 }, 1000, 4)).toBe(false);
   h.move();
+  h.pressed();
   h.reset();
   expect(h.target).toBe(null);
   expect(h.moved).toBe(false);
+  expect(h.unclaimed).toBe(false);
   expect(h.press({ agent: 1 }, 1001, 4)).toBe(false);
 });
 

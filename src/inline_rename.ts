@@ -19,14 +19,26 @@ export class ClickHistory {
   target: RenameTarget | null = null;
   at = 0;
   y = 0;
-  /** The pointer left the pressed line, or a drag started, since the press. */
+  /** The pointer left the pressed line, a drag started, or another press
+   * came, since the press. Another press shows in `unclaimed` first and
+   * becomes `moved` when the next one comes. */
   moved = false;
+  /** A left press came that `press` hasn't taken. */
+  unclaimed = false;
 
+  /** Every left press, before it is routed: one the last didn't hand to
+   * `press` ends the double-click, so only two presses in a row on the
+   * name line make one. */
+  pressed(): void {
+    if (this.unclaimed) this.moved = true;
+    this.unclaimed = true;
+  }
   /** Records a press on `target`'s name line; true when it completes a
    * double-click on the first press's line, after which the next press
    * starts over. The presses can land anywhere along the line, so only
    * its row tells them apart. */
   press(target: RenameTarget, now: number, y: number): boolean {
+    this.unclaimed = false;
     if (
       this.target !== null &&
       sameRenameTarget(this.target, target) &&
@@ -43,12 +55,14 @@ export class ClickHistory {
     this.moved = false;
     return false;
   }
-  /** The pointer, held or not, is on another line: that ends the double-click. */
-  motion(y: number): void {
-    if (this.target === null) return;
-    if (y !== this.y) this.moved = true;
+  /** The press a second one could still complete at `now`, so motion
+   * off its name line has something to end. */
+  pending(now: number): RenameTarget | null {
+    return this.target !== null && !this.moved && !this.unclaimed && now - this.at < double_click_ms
+      ? this.target
+      : null;
   }
-  /** A drag started. */
+  /** The pointer left the pressed name line, or a drag started. */
   move(): void {
     this.moved = true;
   }
@@ -57,6 +71,7 @@ export class ClickHistory {
     this.at = 0;
     this.y = 0;
     this.moved = false;
+    this.unclaimed = false;
   }
 }
 
