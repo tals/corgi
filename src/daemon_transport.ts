@@ -162,6 +162,8 @@ export class Remote {
   private async forward(): Promise<void> {
     // Its own connection, carrying what Corgi already compresses.
     const args = ssh.args(this.profile.target, false, true, "data");
+    // Clearing forwardings would clear this one too.
+    args[args.indexOf("ClearAllForwardings=yes")] = "ClearAllForwardings=no";
     args.unshift(
       "-N",
       "-o",

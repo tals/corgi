@@ -112,7 +112,8 @@ and bulk uploads bypass it, so a stalled master cannot trap recovery. Each
 bridge direction has a bounded buffer and can progress independently.
 Older profiles without a bridge path use SSH Unix-socket forwarding and require
 `AllowStreamLocalForwarding`; re-add the machine to discover its bridge.
-Agent forwarding, X11 forwarding and SSH `LocalCommand` are disabled.
+Agent forwarding, X11 forwarding, the SSH config's port and socket forwardings
+and SSH `LocalCommand` are disabled.
 
 Profiles live in `remote/machines.json` under Corgi's state directory, inside a
 private directory. They contain names, SSH targets and remote paths. The daemon's

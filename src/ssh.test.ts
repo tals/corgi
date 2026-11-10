@@ -10,6 +10,7 @@ test("pane data and control cannot share an SSH master, while each lane reuses i
   expect(socket(control)).toBe(socket(ssh.args("example", true)));
   expect(socket(data)).toBe(socket(ssh.args("example", false, false, "data")));
   expect(control).toContain("Compression=yes");
+  expect(control).toContain("ClearAllForwardings=yes");
   expect(data).toContain("Compression=no");
   for (const lane of ["control", "data"] as const) {
     const fresh = ssh.args("example", false, true, lane);

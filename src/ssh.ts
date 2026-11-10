@@ -39,6 +39,10 @@ export function args(
     "ForwardAgent=no",
     "-o",
     "ForwardX11=no",
+    // Forwardings from the user's own SSH config, an agent socket among them,
+    // would stay open for as long as the viewer runs.
+    "-o",
+    "ClearAllForwardings=yes",
     "-o",
     "PermitLocalCommand=no",
     "-o",
