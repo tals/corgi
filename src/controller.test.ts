@@ -5179,7 +5179,7 @@ test("the prompt's conversation stays on the machine it started on when another 
     s.switchMachine(other);
     s.prompt.conversation.session = (await prompt.start({})).session;
     s.switchMachine(s.machines[0]);
-    await prompt.call("headless.events", { session: "s" });
+    await prompt.call("headless.events", { provider: "codex", session: "s" });
     expect(asked).toEqual([
       ["work", "headless.start"],
       ["work", "headless.events"],
@@ -5208,7 +5208,8 @@ test("an image pasted into the prompt goes to the machine its conversation runs 
   const attached = spyOn(s.prompt, "attachImage").mockImplementation(() => {});
   try {
     // A conversation running on work, with this computer shown.
-    Reflect.set(s, "prompt_machine", other);
+    Reflect.get(s, "prompt_sessions").set("codex:s", other);
+    s.prompt.conversation.provider = "codex";
     s.prompt.conversation.session = "s";
     Reflect.set(s, "paste_target", "prompt");
     await s.pasteResult({ path: "/tmp/image.png" });
@@ -5222,6 +5223,32 @@ test("an image pasted into the prompt goes to the machine its conversation runs 
     expect(attached).toHaveBeenCalledTimes(1);
   } finally {
     attached.mockRestore();
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("clearing a prompt conversation stops it on its own machine, whichever is shown", async () => {
+  const asked: [string, string][] = [];
+  const daemon = (name: string) =>
+    transport(async (op: string) => {
+      asked.push([name, op]);
+      return op === "headless.start" ? { provider: "codex", session: "s" } : { events: [], next_seq: 1 };
+    });
+  const s = new Controller(daemon("here"));
+  const other = new Machine({ request: daemon("work").request }, "work", true);
+  s.adopt(other);
+  try {
+    s.switchMachine(other);
+    const conversation = s.prompt.conversation;
+    conversation.session = (await Reflect.get(s, "promptDaemon").call(s).start({})).session;
+    conversation.attach({ provider: "codex", account: "", persist: false } as any, "s", false);
+    s.switchMachine(s.machines[0]);
+    asked.length = 0;
+    // As /new does: the session is let go before its last calls.
+    await conversation.reset(null);
+    expect(asked.filter(([, op]) => op === "headless.stop")).toEqual([["work", "headless.stop"]]);
+  } finally {
     viewer.close(s);
     other.runtime.destroy();
   }
@@ -5253,7 +5280,7 @@ test("a prompt conversation resumed after a reload stays on its machine when ano
     expect(s.prompt.conversation.session).toBe("left");
     s.switchMachine(s.machines[0]);
     asked.length = 0;
-    await Reflect.get(s, "promptDaemon").call(s).call("headless.events", { session: "left" });
+    await Reflect.get(s, "promptDaemon").call(s).call("headless.events", { provider: "claude", session: "left" });
     expect(asked).toEqual([["work", "headless.events"]]);
   } finally {
     viewer.close(s);

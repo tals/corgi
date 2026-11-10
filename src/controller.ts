@@ -5576,18 +5576,25 @@ export class Controller {
     for (const p of shells.slice(0, 24)) lines.push(`- ${clean(paneName(p))} (pane ${p.id}) in ${p.cwd || ws.cwd}`);
     return lines.join("\n");
   }
-  /** The daemon as the prompt calls it. A start holds its connection until
-   * the session has an ID, so it takes one of its own. */
-  /** The machine the prompt's conversation runs on: the one shown when it
-   * started, whichever is shown since. */
-  private prompt_machine: Machine | null = null;
+  /** The machine each of the prompt's sessions runs on, by provider and
+   * session: where it started, or was found when resumed, whichever machine
+   * is shown since. A session's last calls, once the prompt has let it go,
+   * still go there. */
+  private prompt_sessions = new Map<string, Machine>();
   /** Where the prompt's conversation runs, or, with none, would start now. */
   private promptMachine(): Machine {
-    return (this.prompt.conversation.session && this.prompt_machine) || this.machine;
+    const { provider, session } = this.prompt.conversation;
+    return (session && this.prompt_sessions.get(`${provider}:${session}`)) || this.machine;
   }
+  /** The daemon as the prompt calls it. A start holds its connection until
+   * the session has an ID, so it takes one of its own. */
   private promptDaemon(): PromptDaemon {
     return {
-      call: (op, payload) => call(this.promptMachine().connection, op as Op, payload as never),
+      call: (op, payload) => {
+        const { provider, session } = payload as { provider?: unknown; session?: unknown },
+          machine = this.prompt_sessions.get(`${provider}:${session}`) ?? this.machine;
+        return call(machine.connection, op as Op, payload as never);
+      },
       start: async payload => {
         const machine = this.machine,
           daemon = machine.connection.daemon,
@@ -5596,7 +5603,7 @@ export class Controller {
             : await call(machine.connection, "headless.start", payload as never),
           provider = Provider.parse(reply.provider);
         if (!provider || typeof reply.session !== "string") throw Error("InvalidReply");
-        this.prompt_machine = machine;
+        this.prompt_sessions.set(`${provider}:${reply.session}`, machine);
         return { provider, session: reply.session };
       },
     };
@@ -5686,7 +5693,7 @@ export class Controller {
       if (reply?.viewers.length === 1) pick = left.at(-1);
     }
     if (pick && !this.prompt.conversation.session) {
-      this.prompt_machine = machine;
+      this.prompt_sessions.set(`${pick.provider}:${pick.session}`, machine);
       this.prompt.attach(pick);
       this.dirty = true;
     }
