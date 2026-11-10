@@ -90,7 +90,7 @@ export class Remote {
     let child: ChildProcess;
     try {
       child = this.spawn([
-        ...ssh.args(this.profile.target, false, this.fresh, false, this.lane),
+        ...ssh.args(this.profile.target, false, this.fresh, this.lane),
         ssh.bridge(this.profile.executable, this.profile.bridge!, this.profile.socket),
       ]);
     } catch (error) {
@@ -160,7 +160,8 @@ export class Remote {
   }
   /** Older saved profiles retain forwarding until machine setup discovers a native bridge. */
   private async forward(): Promise<void> {
-    const args = ssh.args(this.profile.target, false, true, false);
+    // Its own connection, carrying what Corgi already compresses.
+    const args = ssh.args(this.profile.target, false, true, "data");
     args.unshift(
       "-N",
       "-o",
