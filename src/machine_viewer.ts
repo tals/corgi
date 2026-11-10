@@ -71,7 +71,7 @@ export async function run(
       shown.status === "online"
         ? shown.error || `Syncing… ${Math.floor((now - behind.since) / 1000)}s`
         : shown.description();
-    const hints = ["Ctrl+R retry", ...(shown.status === "paused" ? [] : ["Ctrl+X pause"])];
+    const hints = unreachable(shown) ? ["Ctrl+R retry", ...(shown.status === "paused" ? [] : ["Ctrl+X pause"])] : [];
     if (!shown.reached) hints.push("Ctrl+C quit");
     return {
       status: `${shown.name}: ${status}${keys ? ` · ${keys} ${keys === 1 ? "key" : "keys"} waiting` : ""}`,
@@ -196,7 +196,8 @@ export async function run(
       quit = true;
       return;
     }
-    if (behind?.shown && behind.endpoint === active && !mouse) {
+    // The notice's keys are Corgi's only while keys can't reach a pane at all.
+    if (behind?.shown && behind.endpoint === active && !mouse && unreachable(active!)) {
       if (cp === 18) {
         active!.retry();
         return;
@@ -299,7 +300,11 @@ export async function run(
         view.height = height;
         view.sync_notice = syncNotice(Date.now());
         frame = active.render();
-        if (view.dirty || !composition.same(frame, previous) || view.overlayOpen()) active_at = Date.now();
+        // Unreachable, the screen changes only with the notice's countdown:
+        // that's no reason to draw at full rate.
+        const moved = !composition.same(frame, previous) && active.status === "online";
+        if (view.dirty || moved || view.overlayOpen()) active_at = Date.now();
+        view.dirty = false;
         if (viewer.ready(probe)) {
           // A painted theme colors the terminal's margins too.
           const backdrop = hostBackground.follow(palette.painted());
@@ -340,6 +345,19 @@ export async function run(
     if (probe.badge.uploaded) viewer.writeAll(corgiBadge.remove);
     if (view.thumbnails.sent !== null) viewer.writeAll(linkThumbnail.remove);
     if (host.supports_kitty_graphics) viewer.writeAll(dockingGrip.clear);
+  }
+}
+/** Whether `endpoint`'s daemon can't be reached at all, as opposed to being
+ * behind or reconnecting: keys can't reach its panes then. */
+function unreachable(endpoint: Endpoint): boolean {
+  switch (endpoint.status) {
+    case "offline":
+    case "paused":
+    case "attention":
+    case "incompatible":
+      return true;
+    default:
+      return false;
   }
 }
 /** The corgi walking off to The Farm once the installation it ran from is gone. */

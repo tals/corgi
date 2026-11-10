@@ -985,13 +985,15 @@ export class Controller {
   }
   private closeWorkspace(id: number, close_contents: boolean): void {
     if (this.runtime.workspaces.index(id) === null) throw Error("NoWorkspace");
+    const machine = this.machine,
+      revision = this.navigation.revision;
     this.later(async lane => {
       await this.edit({ "workspace.close": { target: id, close_contents } }, lane);
-      // Still on the closed workspace: settle on the neighbour shown instead.
-      if (this.navigation.workspace_id === id) {
-        if (this.current().id) this.switchWorkspace(this.current().id);
-        else this.closeMenu();
-      }
+      // Unless the user went elsewhere meanwhile, settle on the workspace
+      // shown now; closing the last one leaves the button to create another.
+      if (this.machine !== machine || this.navigation.revision !== revision) return;
+      if (this.current().id) this.switchWorkspace(this.current().id);
+      else this.closeMenu();
     });
   }
   private revealWorkspace(index = this.workspaceIds().indexOf(this.rowKey(this.current().id))): void {
@@ -1565,7 +1567,8 @@ export class Controller {
     const side = this.sidebarView([]),
       ids = this.workspaceIds();
     if (!this.workspace_drag) {
-      if (!this.workspaceNavigation() || this.copy_mode || this.overlayOpen()) return false;
+      // A rename field open takes its own clicks.
+      if (!this.workspaceNavigation() || this.copy_mode || this.overlayOpen() || this.inline_rename) return false;
       const rows = this.workspaceRows();
       if (sidebar.portWorkspace(side, rows, x, y) || sidebar.gitActionWorkspace(side, rows, this.git_hover, x, y))
         return false;
@@ -1577,6 +1580,16 @@ export class Controller {
         y !== 2 + (hit.workspace - side.workspace_offset) * side.workspaceRows()
       )
         return false;
+      const row = rows[hit.workspace];
+      // The unread mark jumps to the first unread agent, as any click does.
+      if (side.unreadHit(row, x, y)) return false;
+      // Only presses on the name make the double-click that renames.
+      const workspace = this.rowOf(row.id)!.id;
+      if (!side.onName({ workspace: row.id }, rows, x, y)) this.clicks.reset();
+      else if (this.clicks.press({ workspace }, milliTimestamp(), x, y)) {
+        this.beginInlineRename({ workspace });
+        return true;
+      }
       const key = ids[hit.workspace];
       this.selectRow(key);
       const after = this.sidebarView([]),

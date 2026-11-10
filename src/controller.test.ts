@@ -5991,6 +5991,57 @@ test("a paste cut off by an input reset, or failing part-way, never leaves its p
   }
 });
 
+test("through the viewer's routing, a workspace name's double-click renames and a click in its field stays there", async () => {
+  const { s, rect } = renaming();
+  // As the viewer routes a click: workspace drags first, the rest as input.
+  const click = async (x: number, y: number) => {
+    for (const release of [false, true])
+      if (!s.workspaceDragInput(x, y, 0, release))
+        await s.input(bytes(`\x1b[<0;${x + 1};${y + 1}${release ? "m" : "M"}`));
+  };
+  try {
+    setSystemTime(new Date(1000));
+    const at = rect({ workspace: 2 });
+    await click(at.x, at.y);
+    await click(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ workspace: 2 });
+    expect(s.workspaceDragInput(at.x + 1, at.y, 0, false)).toBe(false);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("closing a workspace settles on the one shown next, unless the user went elsewhere meanwhile", async () => {
+  for (const moved of [false, true]) {
+    let closed = false,
+      release!: () => void;
+    const after = { ...pair(), workspaces: pair().workspaces.filter(w => w.id !== 1), panes: [pair().panes[2]] };
+    const s: any = new Controller({
+      request: transport(async op => {
+        if (op === "session.snapshot") return closed ? after : pair();
+        await new Promise<void>(resolve => (release = resolve));
+        closed = true;
+        return { ok: true, result: {} };
+      }).request,
+    });
+    try {
+      s.receiveSnapshot(pair());
+      s.switchWorkspace(1);
+      s.closeWorkspace(1, false);
+      if (moved) s.switchWorkspace(2);
+      const settle = spyOn(s, "switchWorkspace");
+      release();
+      await s.settle();
+      expect(s.current().id).toBe(2);
+      // The settling switch reveals and visits the workspace landed on.
+      expect(settle.mock.calls).toEqual(moved ? [] : [[2]]);
+    } finally {
+      viewer.close(s);
+    }
+  }
+});
+
 test("a delayed command refreshes its owning machine after the viewer switches", async () => {
   const pending = Promise.withResolvers<unknown>();
   let reads = 0;

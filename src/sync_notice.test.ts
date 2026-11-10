@@ -37,3 +37,9 @@ test("a one-row pane shows the status alone, clipped to its width", () => {
     screen.destroy();
   }
 });
+
+test("with no keys to offer, the notice takes one row", () => {
+  const drawn = draw({ status: "local: Syncing… 2s", keys: "" }, new Rect(0, 0, 20, 2));
+  expect(drawn).toContain("\x1b[1;1H");
+  expect(drawn).not.toContain("\x1b[2;1H");
+});

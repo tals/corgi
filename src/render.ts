@@ -1069,7 +1069,7 @@ export function frame(
     if (u.supports_kitty_graphics) pictured.push({ pane: p, rect: r, hidden });
   }
   drawDividers(w, view, area, !u.sidebar_focus && !u.pane_opening);
-  const sync_at = u.sync_notice ? syncNotice.locate(view, area) : null;
+  const sync_at = u.sync_notice ? syncNotice.locate(view, area, u.sync_notice.keys ? 2 : 1) : null;
   if (sync_at) {
     w.write(syncNotice.draw(u.sync_notice!, sync_at));
     cover(sync_at);

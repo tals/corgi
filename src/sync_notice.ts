@@ -10,22 +10,21 @@ export interface State {
   keys: string;
 }
 
-/** The focused pane's top two rows, or the panes' area's without one. */
-export function locate(view: View, area: Rect): Rect | null {
+/** The focused pane's top `rows` rows, or the panes' area's without one. */
+export function locate(view: View, area: Rect, rows = 2): Rect | null {
   let rect = area;
   if (view.model.count) {
     const focus = view.selection.tabs[view.selection.active].focus;
     rect = view.placements(area).find(spot => spot.id === focus)?.rect ?? area;
   }
   if (rect.w < 8 || rect.h < 1) return null;
-  return new Rect(rect.x, rect.y, rect.w, Math.min(2, rect.h));
+  return new Rect(rect.x, rect.y, rect.w, Math.min(rows, rect.h));
 }
 
 export function draw(state: State, at: Rect): string {
-  const rows = [
-    new palette.Style({ fg: "warm", bg: "surface", bold: true }).sgr() + fit(` ⟳ ${state.status}`, at.w),
-    new palette.Style({ fg: "muted", bg: "surface" }).sgr() + fit(`   ${state.keys}`, at.w),
-  ];
+  const rows = [new palette.Style({ fg: "warm", bg: "surface", bold: true }).sgr() + fit(` ⟳ ${state.status}`, at.w)];
+  // With no keys to offer, it takes one row.
+  if (state.keys) rows.push(new palette.Style({ fg: "muted", bg: "surface" }).sgr() + fit(`   ${state.keys}`, at.w));
   return rows
     .slice(0, at.h)
     .map((row, i) => `\x1b[${at.y + i + 1};${at.x + 1}H${row}`)

@@ -32,6 +32,9 @@ const numbered_limit = 256;
 const handoff_input_limit = 64 * 1024;
 /** How long typing held across a reload waits for the same viewer. */
 const handoff_ms = 30_000;
+/** How long this computer's daemon may stay unreachable before the viewer
+ * gives up on it. */
+const gone_ms = 5000;
 
 export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" | "incompatible" | "attention";
 /** How often an idle viewer's machines are stepped. */
@@ -120,6 +123,10 @@ export class Endpoint {
   private navigation_revision = 0;
   private cancellation = new AbortController();
   private focus: { instance: string; at: Focus } | null = null;
+  /** Since when this computer's daemon, once reached, can't be; and until
+   * when a reload it announced may keep it away. See `gone_ms`. */
+  private unreachable_since: number | null = null;
+  private reload_until = 0;
   private cache: Cache;
   folder: string | null = null;
   onChange: () => void = () => {};
@@ -404,6 +411,7 @@ export class Endpoint {
         // A reload closes every connection; the same viewer comes back on
         // the new daemon, and typing waits for it.
         if (errors.is(error, "ServerReloading")) {
+          this.reload_until = performance.now() + handoff_ms;
           if (this.link && !this.handoff) {
             this.trace("remote.connection", "handoff");
             this.holdHandoffInput();
@@ -430,6 +438,14 @@ export class Endpoint {
               : "attention";
         this.disconnect(true);
         this.retries++;
+        // This computer's daemon gone, not reloading, ends the viewer, as it
+        // always did; a remote machine's is tried again until it answers.
+        if (!this.remote && this.connected && this.status === "offline") {
+          const now = performance.now();
+          this.unreachable_since ??= now;
+          if (now >= this.reload_until && now - this.unreachable_since >= gone_ms)
+            this.fatal ??= error instanceof Error ? error : Error(this.error);
+        }
       })
       .finally(() => {
         if (this.task !== task) return;
@@ -662,7 +678,9 @@ export class Endpoint {
         view.launch_previews.connect(machine.connection);
         view.updateLaunchPreview();
       } else {
-        this.bell.seq = await viewer.openMode(view, this.path!.home, this.probe.theme, this.onboarding);
+        // A viewer opened on a folder starts there, so the daemon's first
+        // workspace takes it rather than one more being made for it.
+        this.bell.seq = await viewer.openMode(view, this.folder ?? this.path!.home, this.probe.theme, this.onboarding);
         this.current(generation);
         this.onboarding = false;
       }
@@ -687,7 +705,11 @@ export class Endpoint {
       if (visible && this.folder !== null) {
         const folder = this.folder;
         this.folder = null;
-        await view.perform({ name: "open", value: folder });
+        try {
+          await view.perform({ name: "open", value: folder });
+        } catch (error) {
+          view.notice((error as Error).message);
+        }
         this.current(generation);
       }
     }
@@ -803,6 +825,7 @@ export class Endpoint {
       this.error = "";
     }
     this.retries = 0;
+    this.unreachable_since = null;
     this.connected = true;
     this.workspaces = view.workspaceEntries(machine);
     this.workspaces_instance = this.instance;
