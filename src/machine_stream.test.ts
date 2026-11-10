@@ -195,6 +195,30 @@ test("input and pushed output proceed while older input acknowledgements are wit
   }
 });
 
+test("input past the cap waits for room rather than failing, and the write that makes room wakes the viewer", async () => {
+  let wakes = 0;
+  const f = await fixture(() => wakes++);
+  const releases: (() => void)[] = [];
+  try {
+    // One write alone may be larger than the cap, so a big paste still goes.
+    expect(f.stream.room(2 * 1024 * 1024)).toBe(true);
+    for (let i = 0; i < 64; i++) f.stream.send(() => new Promise<void>(resolve => releases.push(resolve)), 1);
+    expect(f.stream.room(1)).toBe(false);
+    const before = wakes;
+    releases.shift()!();
+    await Bun.sleep(0);
+    expect(f.stream.room(1)).toBe(true);
+    expect(wakes).toBe(before + 1);
+    // Only a write that was turned away wakes it.
+    releases.shift()!();
+    await Bun.sleep(0);
+    expect(wakes).toBe(before + 1);
+  } finally {
+    for (const release of releases) release();
+    f.close();
+  }
+});
+
 test("frames and failures wake the viewer, but successful acknowledgements do not spin it", async () => {
   let wakes = 0;
   const f = await fixture(() => wakes++);

@@ -516,3 +516,34 @@ test("an account's YOLO and Show come from the snapshot, and an older daemon's h
     runtime.destroy();
   }
 });
+
+test("a pointer move still waiting gives way to the next; keys, presses and other buttons' moves stay", () => {
+  const pane = new mirror.Terminal(
+    transport(async () => ({})),
+    1,
+    32,
+    3,
+  );
+  const text = () => Buffer.from(pane.pending).toString();
+  try {
+    pane.move("\x1b[<35;1;1M", 35);
+    pane.move("\x1b[<35;2;1M", 35);
+    pane.move("\x1b[<35;3;1M", 35);
+    expect(text()).toBe("\x1b[<35;3;1M");
+    // A key between two moves keeps the one before it.
+    pane.send("a");
+    pane.move("\x1b[<35;4;1M", 35);
+    expect(text()).toBe("\x1b[<35;3;1Ma\x1b[<35;4;1M");
+    // A drag is another button's move, and a press ends the run.
+    pane.move("\x1b[<32;5;1M", 32);
+    pane.send("\x1b[<0;5;1m");
+    pane.move("\x1b[<32;6;1M", 32);
+    expect(text()).toBe("\x1b[<35;3;1Ma\x1b[<35;4;1M\x1b[<32;5;1M\x1b[<0;5;1m\x1b[<32;6;1M");
+    // Once sent, a move isn't taken back.
+    pane.pending = [];
+    pane.move("\x1b[<35;7;1M", 35);
+    expect(text()).toBe("\x1b[<35;7;1M");
+  } finally {
+    pane.destroy();
+  }
+});

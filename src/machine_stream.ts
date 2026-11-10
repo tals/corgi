@@ -19,6 +19,8 @@ export class Stream {
   private failure: Error | null = null;
   private bytes = 0;
   private writes = new Map<Promise<void>, number>();
+  /** A write was turned away for want of room; the next to land wakes the viewer. */
+  private refused = false;
   private last = performance.now();
   private confirmed = false;
   private retained = new Map<number, surface.View>();
@@ -130,9 +132,16 @@ export class Stream {
     if (this.data.failure) throw this.data.failure;
     if (this.age() >= (this.connection.timeout_ms || 10_000)) throw Error("RequestTimedOut");
   }
+  /** Whether a write of `bytes` may go now. Past 64 writes or 1 MiB out,
+   * it waits; one alone may be larger, so a big paste still goes. */
+  room(bytes = 0): boolean {
+    const room = this.writes.size < 64 && (this.writes.size === 0 || this.bytes + bytes <= 1024 * 1024);
+    if (!room) this.refused = true;
+    return room;
+  }
   send(start: () => Promise<void>, bytes = 0): void {
     if (this.connection.draining) return;
-    if (this.bytes + bytes > 1024 * 1024 || this.writes.size >= 64) throw Error("InputBackpressure");
+    if (!this.room(bytes)) throw Error("InputBackpressure");
     this.bytes += bytes;
     const task = start();
     this.writes.set(task, performance.now());
@@ -144,6 +153,9 @@ export class Stream {
       .finally(() => {
         this.bytes -= bytes;
         this.writes.delete(task);
+        if (!this.refused) return;
+        this.refused = false;
+        this.changed();
       });
   }
   /** When the next `configure` sends the request again, which keeps the

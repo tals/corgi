@@ -742,7 +742,7 @@ export class Endpoint {
         }
       }
       const snapshot_epoch = machine.runtime.snapshot_epoch;
-      if (visible && this.displayed && selection === this.selection && !this.acknowledging) {
+      if (visible && this.displayed && selection === this.selection && !this.acknowledging && stream.room()) {
         this.displayed = false;
         this.acknowledging = true;
         stream.send(async () => {
@@ -770,7 +770,8 @@ export class Endpoint {
       for (const pane of machine.runtime.panes) {
         const held = visible && view.selection !== null && view.selection.pane === pane.id;
         if (pane.terminal.holding_selection && !held) pane.terminal.clearSelection();
-        if (pane.terminal.pending.length && this.status === "online")
+        // Without room, typing waits in the pane and goes as one write once some lands.
+        if (pane.terminal.pending.length && this.status === "online" && stream.room(pane.terminal.pending.length))
           stream.send(() => pane.terminal.flush(), pane.terminal.pending.length);
       }
       stream.configure(

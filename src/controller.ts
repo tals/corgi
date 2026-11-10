@@ -10043,7 +10043,10 @@ function gitPushMessage(err: string): string {
 /** Re-encodes a host SGR report for the app in `rect`, in the protocol it
  * chose. Points outside `rect` reach the app only while a button is held. */
 function sendMouse(term: Terminal, rect: Rect, button: number, x: number, y: number, release: boolean): void {
-  term.send(viewerNative.encodeMouse(term.handle, button, x - rect.x, y - rect.y, release));
+  const report = viewerNative.encodeMouse(term.handle, button, x - rect.x, y - rect.y, release);
+  // A move (bit 32), not a wheel turn (bit 64): only where it ends matters.
+  if (!release && (button & 32) !== 0 && (button & 64) === 0) term.move(report, button);
+  else term.send(report);
 }
 /** What the prompt calls a pane: its label, its agent, or what runs in it. */
 function paneName(p: Pane): string {

@@ -94,6 +94,9 @@ export class Terminal {
   render_revision = 0;
   /** Bytes for the program, sent once its machine is reachable. */
   pending: number[] = [];
+  /** The pointer move that ends `pending`, while it does: where it starts,
+   * its button code, and the buffer and length it was left at. */
+  private motion: { at: number; code: number; buffer: number[]; end: number } | null = null;
   /** Keys sent and not yet answered. */
   private sending = 0;
   private links: Link[] | null = null;
@@ -260,7 +263,20 @@ export class Terminal {
   send(bytes: string | Uint8Array | number[]): void {
     const data = typeof bytes === "string" ? Buffer.from(bytes) : bytes;
     if (this.pending.length + data.length > 1024 * 1024) throw Error("InputBackpressure");
+    this.motion = null;
     for (const byte of data) this.pending.push(byte);
+  }
+  /** A pointer move with button code `code`. A program wants where the
+   * pointer is, not each cell it crossed while its input waited: a move
+   * still waiting with nothing after it gives way to this one. Keys,
+   * presses and releases are never dropped. */
+  move(bytes: string, code: number): void {
+    const last = this.motion;
+    if (last && last.code === code && last.buffer === this.pending && last.end === this.pending.length)
+      this.pending.length = last.at;
+    const at = this.pending.length;
+    this.send(bytes);
+    this.motion = { at, code, buffer: this.pending, end: this.pending.length };
   }
   async flush(): Promise<void> {
     if (this.pending.length === 0) return;
