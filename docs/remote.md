@@ -201,10 +201,12 @@ pastes upload the image directly over SSH and paste the resulting **remote** pat
 Uploads are limited to 32 MiB and validate the image format. Clipboard operations
 remain bound to the machine and pane that owned them when the paste began.
 
-The generic RPC protocol remains version 1 and the viewer protocol remains
-version 3. `hello` adds optional `viewer_protocol` and `instance` fields; remote
-clients require these fields. Existing local clients remain compatible. Saved
-sessions and handoffs are unchanged; no data migration is needed.
+A remote daemon must speak exactly this viewer's runtime and viewer protocols
+(`version` and `viewer_version` in `src/protocol.ts`), which setup ensures by
+matching the two builds; its `hello` must also carry `viewer_protocol` and
+`instance`. A mismatch shows as incompatible rather than retrying. Local
+clients are unaffected. Saved sessions and handoffs are unchanged; no data
+migration is needed.
 `session.snapshot` accepts an optional `resources` boolean to keep background
 sampling subscribed for that connection. Older daemons ignore the field; use a
 matching build on each host for continuous background readings.
@@ -277,7 +279,6 @@ Transport is currently native stdio over OpenSSH, with Unix-socket forwarding
 as a compatibility fallback; WebTransport negotiation
 and direct agent presentation remain future work described in `remote-access.md`.
 
-The current runtime and viewer protocols are both 4.
 The optional `input_receipt` result and `input_ack` surface fields are additive;
 older viewers ignore them. Receipts are ephemeral and do not change saved formats.
 Correlated request IDs belong to one connection; link sequence numbers survive
