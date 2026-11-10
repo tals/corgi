@@ -1040,8 +1040,14 @@ export class Endpoint {
   }
 }
 /** The endpoint for this machine's daemon on `socket`; `start` starts it if needed. */
-export function localEndpoint(socket: string, probe: Probe, host: Host, start?: () => Promise<void>): Endpoint {
-  return new Endpoint("local", false, [socket], machine_path.local(socket, start), probe, host);
+export function localEndpoint(
+  socket: string,
+  probe: Probe,
+  host: Host,
+  start?: () => Promise<void>,
+  running?: boolean,
+): Endpoint {
+  return new Endpoint("local", false, [socket], machine_path.local(socket, start, running), probe, host);
 }
 /** Goes where switching to the machine asked, if it's still there. */
 function show(view: Controller, at: Focus): void {

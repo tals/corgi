@@ -39,9 +39,14 @@ function rejected(reason: unknown): void {
   console.error(reason);
   process.exit(1);
 }
-/** Opens on the workspace for `folder` when one is given. */
-export async function attach(path: string, folder: string | null = null): Promise<void> {
-  return attachMode(path, "local", { folder });
+/** Opens on the workspace for `folder` when one is given. The local daemon
+ * is running; `start_local` starts it again if it goes. */
+export async function attach(
+  path: string,
+  folder: string | null = null,
+  start_local?: () => Promise<void>,
+): Promise<void> {
+  return attachMode(path, "local", { folder, start_local, local_running: true });
 }
 /** Opens on `selected`, another machine's daemon or the local one. */
 export async function attachMachines(
@@ -53,11 +58,11 @@ export async function attachMachines(
   return attachMode(path, selected, { folder, start_local });
 }
 /** The local viewer alone, without the saved machines. */
-export async function attachLocal(path: string): Promise<void> {
-  return attachMode(path, "local", { machines: false });
+export async function attachLocal(path: string, start_local?: () => Promise<void>): Promise<void> {
+  return attachMode(path, "local", { machines: false, start_local, local_running: true });
 }
-export async function onboard(path: string): Promise<void> {
-  return attachMode(path, "local", { onboarding: true });
+export async function onboard(path: string, start_local?: () => Promise<void>): Promise<void> {
+  return attachMode(path, "local", { onboarding: true, start_local, local_running: true });
 }
 async function attachMode(path: string, selected: string, options: Options): Promise<void> {
   let executable: string | null;

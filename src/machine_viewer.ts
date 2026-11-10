@@ -39,8 +39,11 @@ const behind_after_ms = 1000;
 const scroll_save_ms = 1000;
 export interface Options {
   folder?: string | null;
-  /** Starts the local daemon, when the viewer opens on another machine. */
+  /** Starts the local daemon: when the viewer opens on another machine, and
+   * whenever it's gone. */
   start_local?: () => Promise<void>;
+  /** The local daemon is already running, so `start_local` waits until it's gone. */
+  local_running?: boolean;
   /** Opens on onboarding's welcome. */
   onboarding?: boolean;
   /** Shows the saved machines beside the local one. */
@@ -62,7 +65,7 @@ export async function run(
   // Sign-in asks which agents are there; mise answers for its shims meanwhile.
   void discovery.ready();
   const endpoints = [
-    localEndpoint(local, probe, host, options.start_local),
+    localEndpoint(local, probe, host, options.start_local, options.local_running),
     ...(options.machines === false ? [] : machines.read()).map(profile => sshEndpoint(profile, probe, host)),
   ];
   let active = endpoints.find(e => e.name === selected);

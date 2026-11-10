@@ -412,8 +412,10 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       await (await import("./state_report")).showRepairs(path);
       const client = await import("./client");
       // `--machine local` is the local viewer alone.
-      if (selected === "local") await client.attachLocal(path);
-      else await client.attach(path);
+      // A daemon that dies under the viewer is started again.
+      const restart = () => ensureServer(daemon);
+      if (selected === "local") await client.attachLocal(path, restart);
+      else await client.attach(path, null, restart);
       return;
     }
     case "open": {
@@ -436,7 +438,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         console.error("crash reports are off:", error);
       }
       const client = await import("./client");
-      await client.attach(path, folder);
+      await client.attach(path, folder, () => ensureServer(daemon));
       return;
     }
     case "onboard": {
@@ -454,7 +456,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         console.error("crash reports are off:", error);
       }
       const client = await import("./client");
-      await client.onboard(path);
+      await client.onboard(path, () => ensureServer(daemon));
       return;
     }
     case "__viewer-test": {

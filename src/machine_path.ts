@@ -47,9 +47,11 @@ export type Factory = (fresh: boolean, race: boolean) => Path;
 /** A connection gone this long without an answer counts as stalled. */
 export const stalled_ms = 1000;
 
-/** This machine's daemon, on its socket. `start` starts it if it isn't running, once. */
-export function local(socket: string, start?: () => Promise<void>): Factory {
-  let started = !start;
+/** This machine's daemon, on its socket. `start` starts it before the first
+ * connection unless it's `running`, and again once a connection finds
+ * nothing listening, as after a crash. */
+export function local(socket: string, start?: () => Promise<void>, running = !start): Factory {
+  let started = running;
   return () => {
     const opened: Connection[] = [];
     return {
@@ -64,7 +66,12 @@ export function local(socket: string, start?: () => Promise<void>): Factory {
         }
         const connection = new Connection(socket, { timeout_ms: 10_000, stats, trace });
         opened.push(connection);
-        return { connection, hello: await connection.call("hello") };
+        try {
+          return { connection, hello: await connection.call("hello") };
+        } catch (error) {
+          if (start && gone(error)) started = false;
+          throw error;
+        }
       },
       stallMs: () => stalled_ms,
       diagnose: error => ({ issue: incompatible(error) ? "fatal" : "error", detail: "" }),
@@ -74,6 +81,11 @@ export function local(socket: string, start?: () => Promise<void>): Factory {
       },
     };
   };
+}
+/** Nothing listens on the socket: no daemon, rather than a busy or reloading one. */
+function gone(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code;
+  return code === "ENOENT" || code === "ECONNREFUSED";
 }
 /** The daemon's instance, when it speaks this viewer's protocols. */
 export function compatible(hello: Hello): string {
