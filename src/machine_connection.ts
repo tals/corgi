@@ -267,7 +267,9 @@ export class Endpoint {
     return this.view().machine === this.machine;
   }
   private wake(): void {
-    this.next = 0;
+    // Typing doesn't hurry an SSH machine's backed-off dial: each would be a
+    // handshake, and the keys wait in their pane meanwhile.
+    if (!(this.remote && this.status === "offline")) this.next = 0;
     this.onChange();
   }
   enqueue(bytes: Uint8Array): void {

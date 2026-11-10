@@ -323,6 +323,26 @@ test("a lost connection is retried at once, then after 1, 2, 4, 8 and at most 15
   }
 });
 
+test("typing into an SSH machine that's backing off waits for its next dial", async () => {
+  const endpoint = new Endpoint(
+    "work",
+    true,
+    ["work"],
+    machine_path.local("/tmp/corgi-retry-typing/control.sock"),
+    new Probe(),
+    new Host(),
+  );
+  try {
+    endpoint.status = "offline";
+    const next = performance.now() + 8000;
+    Reflect.set(endpoint, "next", next);
+    endpoint.enqueue(Uint8Array.of(120));
+    expect(Reflect.get(endpoint, "next")).toBe(next);
+  } finally {
+    await endpoint.close();
+  }
+});
+
 /** The error a socket nothing listens on gives. */
 const refused = () => Object.assign(Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
 
