@@ -15,23 +15,16 @@ test("a second press on the same name line within the window is a double-click, 
   expect(h.press(viewerRef.pane(0, 1), 2001, 4)).toBe(true);
 });
 
-test("another row, a drag or the pointer leaving the line ends the double-click", () => {
+test("another row or line, a drag or the pointer leaving the line ends the double-click", () => {
   const cases: [(h: ClickHistory) => void, RenameTarget, number, boolean][] = [
+    // A press elsewhere on the pressed line keeps the double-click.
     [() => {}, viewerRef.pane(0, 1), 4, true],
-    // Motion along the pressed line, or a press elsewhere on it, keeps the double-click.
-    [
-      h => {
-        h.motion(4);
-        h.motion(4);
-      },
-      viewerRef.pane(0, 1),
-      4,
-      true,
-    ],
     [() => {}, viewerRef.pane(0, 2), 4, false],
     [() => {}, viewerRef.workspace(0, 1), 4, false],
+    // Another line of the same row.
+    [() => {}, viewerRef.pane(0, 1), 5, false],
+    // A drag, or the pointer leaving the pressed line.
     [h => h.move(), viewerRef.pane(0, 1), 4, false],
-    [h => h.motion(5), viewerRef.pane(0, 1), 4, false],
   ];
   for (const [between, target, y, double] of cases) {
     const h = new ClickHistory();
@@ -41,15 +34,49 @@ test("another row, a drag or the pointer leaving the line ends the double-click"
   }
 });
 
-test("motion before a press and a reset leave nothing to double-click", () => {
+test("two presses in a row make a double-click; another press between them starts over", () => {
   const h = new ClickHistory();
-  h.motion(9);
-  expect(h.moved).toBe(false);
+  h.pressed();
+  expect(h.press(viewerRef.pane(0, 1), 1000, 4)).toBe(false);
+  h.pressed();
+  expect(h.press(viewerRef.pane(0, 1), 1001, 4)).toBe(true);
+  h.pressed();
+  expect(h.press(viewerRef.pane(0, 1), 1002, 4)).toBe(false);
+  // A press routed elsewhere, such as the message line or a port link.
+  h.pressed();
+  h.pressed();
+  expect(h.press(viewerRef.pane(0, 1), 1003, 4)).toBe(false);
+  h.pressed();
+  expect(h.press(viewerRef.pane(0, 1), 1004, 4)).toBe(true);
+});
+
+test("a press is pending until the window closes, the pointer leaves, or a second press", () => {
+  const h = new ClickHistory();
+  expect(h.pending(1000)).toBe(null);
+  expect(h.press(viewerRef.pane(0, 1), 1000, 4)).toBe(false);
+  expect(h.pending(1000 + double_click_ms - 1)).toEqual(viewerRef.pane(0, 1));
+  expect(h.pending(1000 + double_click_ms)).toBe(null);
+  h.move();
+  expect(h.pending(1001)).toBe(null);
+  expect(h.press(viewerRef.pane(0, 1), 1001, 4)).toBe(false);
+  expect(h.press(viewerRef.pane(0, 1), 1002, 4)).toBe(true);
+  expect(h.pending(1002)).toBe(null);
+  // A press routed elsewhere leaves nothing a second one could complete.
+  h.pressed();
+  expect(h.press(viewerRef.pane(0, 1), 1003, 4)).toBe(false);
+  h.pressed();
+  expect(h.pending(1004)).toBe(null);
+});
+
+test("reset forgets the press", () => {
+  const h = new ClickHistory();
   expect(h.press(viewerRef.pane(0, 1), 1000, 4)).toBe(false);
   h.move();
+  h.pressed();
   h.reset();
   expect(h.target).toBe(null);
   expect(h.moved).toBe(false);
+  expect(h.unclaimed).toBe(false);
   expect(h.press(viewerRef.pane(0, 1), 1001, 4)).toBe(false);
   expect(h.press(viewerRef.pane(0, 1), 1002, 4)).toBe(true);
 });
