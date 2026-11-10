@@ -5177,7 +5177,7 @@ test("the prompt's conversation stays on the machine it started on when another 
   try {
     const prompt = Reflect.get(s, "promptDaemon").call(s);
     s.switchMachine(other);
-    await prompt.start({});
+    s.prompt.conversation.session = (await prompt.start({})).session;
     s.switchMachine(s.machines[0]);
     await prompt.call("headless.events", { session: "s" });
     expect(asked).toEqual([
@@ -5185,6 +5185,37 @@ test("the prompt's conversation stays on the machine it started on when another 
       ["work", "headless.events"],
     ]);
   } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("an image pasted into the prompt goes to the machine its conversation runs on", async () => {
+  const s = controller();
+  const uploaded: string[] = [];
+  const other = new Machine(
+    {
+      ...transport(async () => ({})),
+      image: async (path: string) => {
+        uploaded.push(path);
+        return "/remote/image.png";
+      },
+    },
+    "work",
+    true,
+  );
+  s.adopt(other);
+  const attached = spyOn(s.prompt, "attachImage").mockImplementation(() => {});
+  try {
+    // A conversation running on work, with this computer shown.
+    Reflect.set(s, "prompt_machine", other);
+    s.prompt.conversation.session = "s";
+    Reflect.set(s, "paste_target", "prompt");
+    await s.pasteResult({ path: "/tmp/image.png" });
+    expect(uploaded).toEqual(["/tmp/image.png"]);
+    expect(attached.mock.calls.map(c => c[0])).toEqual(["/remote/image.png"]);
+  } finally {
+    attached.mockRestore();
     viewer.close(s);
     other.runtime.destroy();
   }

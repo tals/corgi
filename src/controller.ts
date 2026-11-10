@@ -5582,9 +5582,13 @@ export class Controller {
   /** The machine the prompt's conversation runs on: the one shown when it
    * started, whichever is shown since. */
   private prompt_machine: Machine | null = null;
+  /** Where the prompt's conversation runs, or, with none, would start now. */
+  private promptMachine(): Machine {
+    return (this.prompt.conversation.session && this.prompt_machine) || this.machine;
+  }
   private promptDaemon(): PromptDaemon {
     return {
-      call: (op, payload) => call((this.prompt_machine ?? this.machine).connection, op as Op, payload as never),
+      call: (op, payload) => call(this.promptMachine().connection, op as Op, payload as never),
       start: async payload => {
         const machine = this.machine,
           daemon = machine.connection.daemon,
@@ -6743,9 +6747,16 @@ export class Controller {
     this.paste_progress =
       this.connection.image && image && typeof target === "object" ? new pasteProgress.State(target.pane) : null;
   }
-  private async uploadImage(path: string, mime: string, progress: pasteProgress.State | null): Promise<string> {
-    if (!this.connection.image) return path;
-    const result = await this.connection.image(path, mime, (received, total) => {
+  /** `path` on `machine`, which a remote one needs sent to it first. */
+  private async uploadImage(
+    path: string,
+    mime: string,
+    progress: pasteProgress.State | null,
+    machine = this.machine,
+  ): Promise<string> {
+    const upload = machine.connection.image;
+    if (!upload) return path;
+    const result = await upload(path, mime, (received, total) => {
       if (progress && this.paste_progress === progress) progress.update(received, total);
     });
     if (progress && this.paste_progress === progress) progress.phase = "attaching";
@@ -6770,10 +6781,12 @@ export class Controller {
           const mime = hostClipboard.imageType(result.path);
           if (!mime) this.notice(hostClipboard.Failure.message("unsupported_image"));
           else {
-            const path = await this.uploadImage(result.path, mime, progress);
-            if (shown()) {
-              if (target === "prompt") this.promptImage(path);
-              else this.pasteText(target, path);
+            // The prompt's image goes to the machine its conversation runs on.
+            if (target === "prompt")
+              this.promptImage(await this.uploadImage(result.path, mime, progress, this.promptMachine()));
+            else {
+              const path = await this.uploadImage(result.path, mime, progress);
+              if (shown()) this.pasteText(target, path);
             }
           }
         } else if ("relay" in result) await this.relayPaste(target, result.relay, progress, lane, shown);
