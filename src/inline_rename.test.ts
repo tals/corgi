@@ -5,50 +5,53 @@ import { name_limit } from "./name_dialog";
 
 const c = (s: string) => s.charCodeAt(0);
 
-test("a second press on the same cell within the window is a double-click, and the next press starts over", () => {
+test("a second press on the same name line within the window is a double-click, and the next press starts over", () => {
   const h = new ClickHistory();
-  expect(h.press(viewerRef.pane(0, 1), 1000, 3, 4)).toBe(false);
-  expect(h.press(viewerRef.pane(0, 1), 1000 + double_click_ms, 3, 4)).toBe(false);
-  expect(h.press(viewerRef.pane(0, 1), 1000 + 2 * double_click_ms - 1, 3, 4)).toBe(true);
+  expect(h.press(viewerRef.pane(0, 1), 1000, 4)).toBe(false);
+  expect(h.press(viewerRef.pane(0, 1), 1000 + double_click_ms, 4)).toBe(false);
+  expect(h.press(viewerRef.pane(0, 1), 1000 + 2 * double_click_ms - 1, 4)).toBe(true);
   expect(h.target).toBe(null);
-  expect(h.press(viewerRef.pane(0, 1), 2000, 3, 4)).toBe(false);
-  expect(h.press(viewerRef.pane(0, 1), 2001, 3, 4)).toBe(true);
-  // A press on another cell is the first of a new double-click there.
-  expect(h.press(viewerRef.pane(0, 1), 3000, 3, 4)).toBe(false);
-  expect(h.press(viewerRef.pane(0, 1), 3001, 5, 4)).toBe(false);
-  expect(h.press(viewerRef.pane(0, 1), 3002, 5, 4)).toBe(true);
+  expect(h.press(viewerRef.pane(0, 1), 2000, 4)).toBe(false);
+  expect(h.press(viewerRef.pane(0, 1), 2001, 4)).toBe(true);
 });
 
-test("another row, another cell, a drag or the pointer leaving the cell ends the double-click", () => {
-  const cases: [(h: ClickHistory) => void, RenameTarget, number, number, boolean][] = [
-    [() => {}, viewerRef.pane(0, 1), 3, 4, true],
-    [h => h.motion(3, 4), viewerRef.pane(0, 1), 3, 4, true],
-    [() => {}, viewerRef.pane(0, 2), 3, 4, false],
-    [() => {}, viewerRef.workspace(0, 1), 3, 4, false],
-    [() => {}, viewerRef.pane(0, 1), 5, 4, false],
-    [h => h.move(), viewerRef.pane(0, 1), 3, 4, false],
-    [h => h.motion(4, 4), viewerRef.pane(0, 1), 3, 4, false],
-    [h => h.motion(3, 5), viewerRef.pane(0, 1), 3, 4, false],
+test("another row, a drag or the pointer leaving the line ends the double-click", () => {
+  const cases: [(h: ClickHistory) => void, RenameTarget, number, boolean][] = [
+    [() => {}, viewerRef.pane(0, 1), 4, true],
+    // Motion along the pressed line, or a press elsewhere on it, keeps the double-click.
+    [
+      h => {
+        h.motion(4);
+        h.motion(4);
+      },
+      viewerRef.pane(0, 1),
+      4,
+      true,
+    ],
+    [() => {}, viewerRef.pane(0, 2), 4, false],
+    [() => {}, viewerRef.workspace(0, 1), 4, false],
+    [h => h.move(), viewerRef.pane(0, 1), 4, false],
+    [h => h.motion(5), viewerRef.pane(0, 1), 4, false],
   ];
-  for (const [between, target, x, y, double] of cases) {
+  for (const [between, target, y, double] of cases) {
     const h = new ClickHistory();
-    expect(h.press(viewerRef.pane(0, 1), 1000, 3, 4)).toBe(false);
+    expect(h.press(viewerRef.pane(0, 1), 1000, 4)).toBe(false);
     between(h);
-    expect(h.press(target, 1001, x, y)).toBe(double);
+    expect(h.press(target, 1001, y)).toBe(double);
   }
 });
 
 test("motion before a press and a reset leave nothing to double-click", () => {
   const h = new ClickHistory();
-  h.motion(9, 9);
+  h.motion(9);
   expect(h.moved).toBe(false);
-  expect(h.press(viewerRef.pane(0, 1), 1000, 3, 4)).toBe(false);
+  expect(h.press(viewerRef.pane(0, 1), 1000, 4)).toBe(false);
   h.move();
   h.reset();
   expect(h.target).toBe(null);
   expect(h.moved).toBe(false);
-  expect(h.press(viewerRef.pane(0, 1), 1001, 3, 4)).toBe(false);
-  expect(h.press(viewerRef.pane(0, 1), 1002, 3, 4)).toBe(true);
+  expect(h.press(viewerRef.pane(0, 1), 1001, 4)).toBe(false);
+  expect(h.press(viewerRef.pane(0, 1), 1002, 4)).toBe(true);
 });
 
 test("an open field keeps the name, with the caret after its last character and nothing selected", () => {
@@ -89,7 +92,7 @@ test("an edit clears the message and the overflow", () => {
 
 test("equal pane numbers on different machines are different double-click targets", () => {
   const clicks = new ClickHistory();
-  expect(clicks.press(viewerRef.pane(1, 7), 1000, 3, 4)).toBe(false);
-  expect(clicks.press(viewerRef.pane(2, 7), 1100, 3, 4)).toBe(false);
-  expect(clicks.press(viewerRef.pane(2, 7), 1200, 3, 4)).toBe(true);
+  expect(clicks.press(viewerRef.pane(1, 7), 1000, 4)).toBe(false);
+  expect(clicks.press(viewerRef.pane(2, 7), 1100, 4)).toBe(false);
+  expect(clicks.press(viewerRef.pane(2, 7), 1200, 4)).toBe(true);
 });
