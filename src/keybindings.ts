@@ -36,6 +36,7 @@ function fail(message: string, ids: readonly string[] = []): never {
   throw new InvalidKeys(message, ids);
 }
 export function id(a: action.Action): string {
+  if (typeof a.value === "object") return fail("Viewer-local workspace references cannot be saved as shortcuts");
   return a.name === "tab" || a.name === "goto-workspace"
     ? a.name
     : a.name + (a.value === undefined || (targetless(a.name) && a.value === 0) ? "" : `:${a.value}`);

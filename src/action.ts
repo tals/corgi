@@ -1,5 +1,5 @@
 import * as i18n from "./i18n";
-import type * as viewerRef from "./viewer_ref";
+import * as viewerRef from "./viewer_ref";
 export type Direction = "left" | "right" | "up" | "down";
 interface Values {
   "void": undefined;
@@ -148,6 +148,14 @@ function parseValue(type: keyof Values, value: string): string | number | undefi
   if (!values.includes(value)) throw new Error("BadValue");
   return value;
 }
+export function same(a: Action, b: Action): boolean {
+  return (
+    a.name === b.name &&
+    (typeof a.value === "object" && typeof b.value === "object"
+      ? viewerRef.sameWorkspace(a.value, b.value)
+      : a.value === b.value)
+  );
+}
 export function needsPane(action: Action): boolean {
   return [
     "split",
@@ -253,4 +261,4 @@ export function title(action: Action): string {
   if (direction) return direction;
   return titles[action.name] ?? action.name.replaceAll("-", " ");
 }
-export const Action = { parse, needsPane, title };
+export const Action = { parse, same, needsPane, title };

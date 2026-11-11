@@ -1,24 +1,17 @@
-//! Viewer targets retain their owner independently of keyboard focus.
-//! Only the numeric id crosses that machine's daemon connection.
-import type { Machine } from "./machine";
+//! Data-only targets within one viewer process. The controller resolves the
+//! machine id; only the workspace or pane id crosses its daemon connection.
 
 export interface Workspace {
-  machine: Machine;
+  machine: number;
   workspace: number;
 }
 export interface Pane {
-  machine: Machine;
+  machine: number;
   pane: number;
 }
 export interface Worktree {
   owner: Workspace;
   path: string;
-}
-export function workspace(ref: Workspace | null) {
-  return ref?.machine.runtime.workspaces.items.find(ws => ws.id === ref.workspace) ?? null;
-}
-export function pane(ref: Pane) {
-  return ref.machine.runtime.pane(ref.pane);
 }
 export function sameWorkspace(a: Workspace | null | undefined, b: Workspace | null | undefined): boolean {
   return a?.machine === b?.machine && a?.workspace === b?.workspace;

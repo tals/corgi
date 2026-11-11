@@ -4,6 +4,13 @@ import * as bindings from "./bindings";
 import * as keys from "./keys";
 import type { Preset } from "./keymap";
 
+test("saved shortcuts reject viewer-local workspace references", () => {
+  for (const name of ["worktrees", "resources"] as const) {
+    expect(() => custom.id({ name, value: { machine: 2, workspace: 1 } })).toThrow(custom.InvalidKeys);
+    expect(custom.target(custom.id({ name, value: 1 }))).toEqual({ name, value: 1 });
+  }
+});
+
 test("every preset keeps its actions and repeat flags without overrides", () => {
   for (const preset of ["corgi", "tmux", "herdr", "cmux"] as Preset[]) {
     const compiled = custom.resolve(preset, {});

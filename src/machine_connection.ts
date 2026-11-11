@@ -748,7 +748,7 @@ export class Endpoint {
         view.closeMachineUi();
         // Its agents may have been updated: read their model lists again.
         view.model_cache.expire();
-      } else if (view.worktree_card.workspace?.machine === this.machine) view.worktree_card.clear();
+      } else if (view.worktree_card.workspace?.machine === this.machine.id) view.worktree_card.clear();
       this.machine.forget();
       this.workspaces = [];
       this.workspaces_instance = this.instance;
