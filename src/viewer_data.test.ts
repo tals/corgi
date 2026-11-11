@@ -1,9 +1,11 @@
+import { sshEndpoint } from "./ssh_path";
 import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { Server } from "./server";
 import { Connection } from "./rpc";
 import { Stream } from "./machine_stream";
 import { Endpoint, localEndpoint } from "./machine_connection";
+import { Remote } from "./daemon_transport";
 import { Host } from "./host";
 import { Probe } from "./terminal_info";
 import * as socket_server from "./socket_server";
@@ -127,6 +129,38 @@ test("the active machine endpoint opens both lanes and applies controls before a
     expect(endpoint.relaunch).toBe("/tmp/replacement");
   } finally {
     await endpoint.close();
+    await f.close();
+  }
+});
+
+test("remote lanes open together, including reconnects started while viewing another machine", async () => {
+  const f = fixture();
+  let opened = 0;
+  const open = spyOn(Remote.prototype, "open").mockImplementation(async function (this: Remote) {
+    Object.defineProperty(this, "socket", { value: f.path });
+    opened++;
+    await until(() => opened === 2);
+  });
+  const endpoint = sshEndpoint(
+    { name: "parallel", target: "unused", executable: "/corgi", socket: f.path, home: "/tmp" },
+    new Probe(),
+    new Host(),
+  );
+  try {
+    await Reflect.get(endpoint, "step").call(endpoint, true, 0);
+    expect(opened).toBe(2);
+    expect(f.server.clients.filter(c => c.viewer || c.stream_data)).toHaveLength(2);
+    await Reflect.get(f.server, "jobs");
+    Reflect.get(endpoint, "disconnect").call(endpoint);
+    opened = 0;
+    Object.defineProperty(endpoint, "shown", { value: false, configurable: true });
+    await Reflect.get(endpoint, "connect").call(endpoint);
+    expect(opened).toBe(2);
+  } finally {
+    await endpoint.close();
+    await Reflect.get(f.server, "jobs");
+    Reflect.deleteProperty(endpoint, "shown");
+    open.mockRestore();
     await f.close();
   }
 });

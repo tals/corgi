@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { createConnection, createServer, type Socket } from "node:net";
 import { Connection } from "./rpc";
-import { Stream } from "./machine_stream";
+import { Stream, input_chunk } from "./machine_stream";
 import * as protocol from "./protocol";
 import * as json from "./json";
 import { Terminal } from "./pane/terminal";
@@ -276,6 +276,28 @@ test("a reset rejects an old in-flight frame and requests a full replacement", a
     f.close();
   }
 });
+test("big input waits within a small window, and a write queued behind another is timed from its answer", async () => {
+  const f = await fixture();
+  const releases: (() => void)[] = [];
+  const clock = spyOn(performance, "now").mockReturnValue(1000);
+  try {
+    for (let i = 0; i < 2; i++) f.stream.send(() => new Promise<void>(resolve => releases.push(resolve)), input_chunk);
+    // Receipts queue behind input, and frames wait for them: little goes at once.
+    expect(f.stream.room(1)).toBe(false);
+    clock.mockReturnValue(3000);
+    releases.shift()!();
+    await Bun.sleep(0);
+    expect(f.stream.room(input_chunk)).toBe(true);
+    // A slow uplink answering piece after piece isn't a silent one.
+    Reflect.set(f.stream, "last", 6000);
+    expect(f.stream.age(6000)).toBe(3000);
+  } finally {
+    clock.mockRestore();
+    for (const release of releases) release();
+    f.close();
+  }
+});
+
 test("outstanding input is bounded without acknowledging or replaying unsent bytes", async () => {
   const f = await fixture();
   try {

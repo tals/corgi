@@ -5,6 +5,13 @@ import * as viewerVersion from "./viewer_version";
 import * as surface from "./pane/surface";
 
 type Frame = Reply<"viewer.sync">;
+/** The most input one write carries. A bigger paste goes in pieces, so a
+ * slow uplink answers each in time and a reconnect sends again only the
+ * pieces unanswered. */
+export const input_chunk = 16 * 1024;
+/** Input out at once. Receipts queue behind it on the connection, and the
+ * daemon holds frames until they come. */
+const input_window = 2 * input_chunk;
 /** One coalesced frame and bounded, independently acknowledged writes. No replay. */
 export class Stream {
   private frame: Frame | null = null;
@@ -19,17 +26,22 @@ export class Stream {
   private failure: Error | null = null;
   private bytes = 0;
   private writes = new Map<Promise<void>, number>();
+  /** When a write was last answered: one sent behind it couldn't be sooner. */
+  private answered = 0;
   /** A write was turned away for want of room; the next to land wakes the viewer. */
   private refused = false;
   private last = performance.now();
   private confirmed = false;
   private retained = new Map<number, surface.View>();
   private received = 0n;
+  /** `heartbeat_ms` is how often a quiet daemon shows it's alive; the
+   * viewer asks again no more often than that, nor than every 500 ms. */
   constructor(
     private readonly connection: Connection,
     private readonly changed: () => void = () => {},
     private readonly incremental = false,
     private readonly data = connection,
+    private readonly heartbeat_ms = 250,
   ) {
     connection.onClose(changed);
     if (data !== connection) data.onClose(changed);
@@ -123,8 +135,13 @@ export class Stream {
   get fresh(): boolean {
     return this.confirmed;
   }
+  /** When the daemon was last heard from on this stream. */
+  get heard(): number {
+    return this.last;
+  }
   age(now = performance.now()): number {
-    return now - Math.min(this.last, ...this.writes.values());
+    const oldest = Math.max(Math.min(...this.writes.values()), this.answered);
+    return now - Math.min(this.last, oldest);
   }
   check(): void {
     if (this.failure) throw this.failure;
@@ -132,10 +149,10 @@ export class Stream {
     if (this.data.failure) throw this.data.failure;
     if (this.age() >= (this.connection.timeout_ms || 10_000)) throw Error("RequestTimedOut");
   }
-  /** Whether a write of `bytes` may go now. Past 64 writes or 1 MiB out,
-   * it waits; one alone may be larger, so a big paste still goes. */
+  /** Whether a write of `bytes` may go now. Past 64 writes or `input_window`
+   * out, it waits; one alone may be larger. */
   room(bytes = 0): boolean {
-    const room = this.writes.size < 64 && (this.writes.size === 0 || this.bytes + bytes <= 1024 * 1024);
+    const room = this.writes.size < 64 && (this.writes.size === 0 || this.bytes + bytes <= input_window);
     if (!room) this.refused = true;
     return room;
   }
@@ -153,6 +170,7 @@ export class Stream {
       .finally(() => {
         this.bytes -= bytes;
         this.writes.delete(task);
+        this.answered = performance.now();
         if (!this.refused) return;
         this.refused = false;
         this.changed();
@@ -213,6 +231,7 @@ export class Stream {
               ...request,
               sequence,
               incremental: this.incremental,
+              heartbeat_ms: this.heartbeat_ms,
             })
             .then(reply => {
               viewerVersion.require(reply);
@@ -225,7 +244,7 @@ export class Stream {
       })
       .finally(() => {
         this.pending = false;
-        this.next = performance.now() + 500;
+        this.next = performance.now() + Math.max(500, this.heartbeat_ms);
       });
   }
 }

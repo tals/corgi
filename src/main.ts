@@ -1,8 +1,10 @@
 import * as protocol from "./protocol";
+import * as machine_path from "./machine_path";
 import { basename, dirname, resolve } from "node:path";
 import { mkdirSync, openSync, closeSync, readFileSync, unlinkSync } from "node:fs";
 import { spawn } from "node:child_process";
 import * as os from "./os";
+import * as rpc from "./rpc";
 import * as rpc_http from "./rpc_http";
 import * as start_lock from "./start_lock";
 import * as cli from "./cli";
@@ -71,7 +73,15 @@ async function reachable(daemon: rpc_http.Client, wait = true, finished = false)
     throw error;
   }
 }
-export async function ensureServer(daemon: rpc_http.Client, exe = executable, serve: string[] = []): Promise<void> {
+/** Starts this computer's daemon unless it answers. A failed start prints
+ * the end of its log, unless `quiet`: a full-screen viewer's terminal has no
+ * room for it. */
+export async function ensureServer(
+  daemon: rpc_http.Client,
+  exe = executable,
+  serve: string[] = [],
+  quiet = false,
+): Promise<void> {
   const path = daemon.socket;
   // A pane's daemon is running by definition. Starting one from inside it
   // would unlink the live socket and orphan every pane, and the new daemon
@@ -102,7 +112,7 @@ export async function ensureServer(daemon: rpc_http.Client, exe = executable, se
       child = spawn(exe, ["serve", ...serve], {
         detached: true,
         stdio: ["ignore", fd, fd],
-        env: { ...process.env, CORGI_APP_EXE: exe },
+        env: { ...process.env, CORGI_APP_EXE: exe, CORGI_MACHINE: undefined },
       });
       child.unref();
     } finally {
@@ -120,9 +130,10 @@ export async function ensureServer(daemon: rpc_http.Client, exe = executable, se
       if (await answers()) return;
       await Bun.sleep(20);
     }
-    try {
-      process.stderr.write(readFileSync(log, "utf8").slice(-8192));
-    } catch {}
+    if (!quiet)
+      try {
+        process.stderr.write(readFileSync(log, "utf8").slice(-8192));
+      } catch {}
     throw Error("ServerStartFailed");
   } finally {
     flock(guard, false);
@@ -185,6 +196,110 @@ function asksJson(args: string[]): boolean {
 }
 export async function run(args = process.argv.slice(2)): Promise<void> {
   localeHost.initialize(preferences.load().language);
+  const path = os.socketPath(),
+    daemon = new rpc_http.Client(path);
+  if (args[0] === "machine") {
+    const remote = await import("./machine_cli");
+    await remote.manage(args.slice(1));
+    return;
+  }
+  if (args[0] === "__remote-info") {
+    if (args.length !== 1) throw Error("Usage");
+    const remote = await import("./machine_cli");
+    await ensureServer(daemon);
+    process.stdout.write(json.stringify(remote.remoteInfo(executable)) + "\n");
+    return;
+  }
+  if (args[0] === "__remote-bridge") {
+    // For a viewer whose saved bridge an update or a reboot took away, or
+    // that found no daemon; `--running` leaves one that isn't stopped.
+    const running = args[1] === "--running",
+      socket = args[running ? 2 : 1];
+    if (args.length !== (running ? 3 : 2) || !socket?.startsWith("/")) throw Error("Usage");
+    if (!running && socket === path) await ensureServer(daemon);
+    const { nativeRoot } = await import("./native_paths");
+    const bridge = nativeRoot + "/bin/corgi-remote-bridge";
+    process.execve!(bridge, [bridge, socket], process.env as Record<string, string>);
+  }
+  if (args[0] === "__remote-image") {
+    if (args.length !== 4 || !args[1].startsWith("/")) throw Error("Usage");
+    const conn = new rpc.Connection(args[1], 10_000);
+    try {
+      if ((await conn.call("hello")).instance !== args[2]) throw Error("StaleConnection");
+      const upload = await import("./image_upload");
+      const bytes = await upload.receive(Bun.stdin.stream(), received => {
+        process.stdout.write(json.stringify({ received }) + "\n");
+      });
+      const clipboard = await import("./host_clipboard");
+      const path = clipboard.saveImage(dirname(args[1]) + "/paste", args[3], bytes, Date.now());
+      process.stdout.write(json.stringify({ path }) + "\n");
+    } finally {
+      conn.close();
+    }
+    return;
+  }
+  if (args[0] === "__remote-run") {
+    const remote = await import("./machine_cli");
+    if (!args[1]?.startsWith("/") || !remote.remoteCommand(args.slice(2))) throw Error("Usage");
+    process.env.CORGI_SOCKET = args[1];
+    delete process.env.CORGI_MACHINE;
+    delete process.env.CORGI_PANE;
+    const machines = await import("./machines");
+    // One timeout fails the connection: it's the slowest request's, as the local CLI allows.
+    const conn = new rpc.Connection(args[1], rpc_http.longest_ms);
+    try {
+      machine_path.compatible(await conn.call("hello"));
+      await remote.run(args[1], args.slice(2), conn);
+    } finally {
+      conn.close();
+    }
+    return;
+  }
+  // Every machine's, whichever CORGI_MACHINE names; it's JSON either way.
+  const listing = agent_mode.flags(args).args.filter(arg => arg !== "--json");
+  if (listing[0] === "list" && listing[1] === "--all-machines" && listing.length === 2) {
+    const remote = await import("./machine_cli");
+    await remote.all(path);
+    return;
+  }
+  const accepts_machine =
+    cli.handles(agent_mode.flags(args).args) ||
+    ["attach", "open", "ping", "rpc", "action", "checkpoint", "shutdown"].includes(args[0] ?? "attach");
+  const selected =
+    args[0] === "--machine"
+      ? args[1]
+      : process.env.CORGI_PANE || !accepts_machine
+        ? undefined
+        : process.env.CORGI_MACHINE;
+  if (args[0] === "--machine") {
+    if (!selected) throw Error("Usage");
+    args = args.slice(2);
+  }
+  if (selected && selected !== "local") {
+    const machines = await import("./machines");
+    const profile = machines.find(selected);
+    const command = args[0] ?? "attach";
+    if (command === "attach" || command === "open") {
+      if (process.env.CORGI_PANE) throw Error("NestedCorgi");
+      if ((command === "open" && args.length !== 2) || (command === "attach" && args.length > 1)) throw Error("Usage");
+      const client = await import("./client");
+      await client.attachMachines(path, selected, command === "open" ? args[1] : null, () =>
+        ensureServer(daemon, executable, [], true),
+      );
+    } else {
+      const remote = await import("./machine_cli");
+      if (!remote.remoteCommand(args)) throw Error("UnsupportedRemoteCommand");
+      const mode = agent_mode.flags(args);
+      const command = cli.handles(mode.args)
+        ? [
+            agent_mode.enabled(mode.flag, process.env, process.stdout.isTTY === true) ? "--agent" : "--no-agent",
+            ...mode.args,
+          ]
+        : args;
+      process.exitCode = await machines.execute(profile, command);
+    }
+    return;
+  }
   if (args[0] === "__opencode2") {
     await (await import("./providers/opencode2/worker")).run();
     return;
@@ -214,7 +329,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     const commandHelp = agent ? cli.help : cli.localizedHelp();
     const topic = (command === "help" ? args.slice(1) : args).filter(arg => arg !== "--help" && arg !== "-h");
     // Agents get the full reference; people get the overview, which points to it.
-    const reference = humanHelp + "\n" + commandHelp;
+    const reference = humanHelp + "\n" + commandHelp + (await import("./machine_cli")).help;
     switch (topic[0]) {
       case "account": {
         const account = await import("./account_command");
@@ -238,8 +353,6 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     return;
   }
-  const path = os.socketPath(),
-    daemon = new rpc_http.Client(path);
   if (
     !alias &&
     process.env.CORGI_PANE !== undefined &&
@@ -323,7 +436,11 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       updates.background(daemon, executable);
       await (await import("./state_report")).showRepairs(path);
       const client = await import("./client");
-      await client.attach(path);
+      // `--machine local` is the local viewer alone.
+      // A daemon that dies under the viewer is started again.
+      const restart = () => ensureServer(daemon, executable, [], true);
+      if (selected === "local") await client.attachLocal(path, restart);
+      else await client.attach(path, null, restart);
       return;
     }
     case "open": {
@@ -346,7 +463,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         console.error("crash reports are off:", error);
       }
       const client = await import("./client");
-      await client.attach(path, folder);
+      await client.attach(path, folder, () => ensureServer(daemon, executable, [], true));
       return;
     }
     case "onboard": {
@@ -364,7 +481,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         console.error("crash reports are off:", error);
       }
       const client = await import("./client");
-      await client.onboard(path);
+      await client.onboard(path, () => ensureServer(daemon, executable, [], true));
       return;
     }
     case "__viewer-test": {

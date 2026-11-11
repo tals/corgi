@@ -46,16 +46,25 @@ test("selection survives an unloaded catalog and resolves only against an author
   runtime.destroy();
 });
 
-test("a chosen workspace shows its tabs loading, then its panes, before metadata arrives", async () => {
+test("a selected cached workspace is highlighted immediately, before its metadata arrives", async () => {
   const endpoint = localEndpoint("/tmp/corgi-loading-test/control.sock", new Probe(), new Host());
   const view = new Controller(endpoint.machine);
   endpoint.controller = view;
   endpoint.workspaces = [1, 2, 3].map(id =>
     sidebar.workspaceEntry({ id, name: `workspace-${id}`, cwd: "/tmp", active: id === 1 }),
   );
+  // Include a second machine so the sidebar uses the cached catalog.
+  const local = localEndpoint("/tmp/corgi-loading-test/local.sock", new Probe(), new Host());
+  view.adopt(local.machine);
   try {
     endpoint.choose({ workspace: 3 }, endpoint.instance);
     expect(endpoint.machine.navigation.workspace_id).toBe(3);
+    expect(
+      view
+        .workspaceRows()
+        .filter(w => w.active)
+        .map(w => w.name),
+    ).toEqual(["workspace-3"]);
     const loading = endpoint.render();
     expect(typeof loading === "string" ? loading : loading.text()).toContain("Loading tabs…");
     view.receiveSnapshot(snapshot());
@@ -67,6 +76,7 @@ test("a chosen workspace shows its tabs loading, then its panes, before metadata
     expect(frame).not.toContain("No panes.");
   } finally {
     await endpoint.close();
+    await local.close();
   }
 });
 
@@ -84,8 +94,7 @@ test("workspace and tab input runs while a network update is unresolved, and she
     endpoint.pump(true);
     await Reflect.get(endpoint, "ui_task");
     const side = view.sidebarView([]);
-    const y = 2 + (2 - side.workspace_offset) * side.workspaceRows() + 1;
-    endpoint.enqueue(Buffer.from(`\x1b[<0;3;${y}M\x1b[<0;3;${y}m`));
+    endpoint.enqueue(Buffer.from(`\x1b[<0;3;${side.workspaceY(2) + 1}M\x1b[<0;3;${side.workspaceY(2) + 1}m`));
     endpoint.pump(true);
     await Reflect.get(endpoint, "ui_task");
     expect(view.current().id).toBe(3);

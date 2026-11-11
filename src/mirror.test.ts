@@ -548,6 +548,40 @@ test("a hover still waiting gives way to the next; keys, presses and other modif
   }
 });
 
+test("a big paste goes in pieces cut between characters, and is on its way until the last is answered", async () => {
+  const sent: string[] = [];
+  const answers: (() => void)[] = [];
+  const pane = new mirror.Terminal(
+    transport(async (_op, fields: any) => {
+      sent.push(fields.command["pane.input"].data);
+      await new Promise<void>(resolve => answers.push(resolve));
+      return { ok: true };
+    }),
+    1,
+    32,
+    3,
+  );
+  try {
+    expect(pane.pasteStart()).toBe(true);
+    pane.send("é".repeat(10));
+    pane.pasteEnd();
+    while (pane.pending.length) {
+      const piece = pane.flush(5);
+      // Two characters: a third would split.
+      expect(sent.at(-1)).toBe("éé");
+      expect(pane.pasting()).toBe(true);
+      expect(pane.pasteStart()).toBe(false);
+      await Bun.sleep(0);
+      answers.shift()!();
+      await piece;
+    }
+    expect(sent.join("")).toBe("é".repeat(10));
+    expect(pane.pasting()).toBe(false);
+  } finally {
+    pane.destroy();
+  }
+});
+
 test("a pane takes one paste at a time: another is refused while it arrives, waits or goes unanswered", async () => {
   let answer!: () => void;
   const pane = new mirror.Terminal(

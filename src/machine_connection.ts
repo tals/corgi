@@ -12,7 +12,7 @@ import type { Probe } from "./terminal_info";
 import type { Host } from "./host";
 import type { WorkspaceEntry } from "./sidebar";
 import { Cache, metadata } from "./machine_cache";
-import { Stream } from "./machine_stream";
+import { Stream, input_chunk } from "./machine_stream";
 import * as viewer_data from "./viewer_data";
 import * as protocol from "./protocol";
 import * as rpc_http from "./rpc_http";
@@ -32,17 +32,23 @@ const numbered_limit = 256;
 const handoff_input_limit = 64 * 1024;
 /** How long typing held across a reload waits for the same viewer. */
 const handoff_ms = 30_000;
-/** How long this computer's daemon may stay unreachable before the viewer
- * gives up on it. */
-const gone_ms = 5000;
 
 export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" | "incompatible" | "attention";
 /** How often an idle viewer's machines are stepped. */
 export const quiet_ms = 500;
+/** A remote machine silent this long gets a second connection beside the first. */
+export const race_ms = 4000;
+/** The longest a failing connection waits before trying again. */
+const max_retry_ms = 15_000;
+/** An outage this long is no blip: fresh dials beside it slow to the retries' pace. */
+const long_outage_ms = 120_000;
 export class Endpoint {
   readonly stats = new Stats();
   get stallMs(): number {
     return this.sample.stallMs(this.stats);
+  }
+  get raceMs(): number {
+    return Math.max(race_ms, this.stallMs * 2);
   }
   private healthAge(now: number): number {
     const control = now - Math.max(this.task_started, this.stats.lastReceived ?? this.task_started);
@@ -88,6 +94,23 @@ export class Endpoint {
   /** The link came back with the viewer it had: no new viewer opens. */
   private resumed = false;
   private numbered: Numbered[] = [];
+  /** A second connection is being dialed beside a silent one. */
+  private racing = false;
+  /** When the last race began; races come at most every `race_ms`. */
+  private raced_at = -Infinity;
+  /** The path that won a race, for the next connect to carry on over. */
+  private dialed: {
+    path: machine_path.Path;
+    conn: Connection;
+    hello: machine_path.Hello;
+    data: viewer_data.Connection | null;
+  } | null = null;
+  /** The machine may have gone while the computer slept: race at once. */
+  private suspect = false;
+  /** The daemon was shut down on purpose: connecting doesn't start it again. */
+  private shut_down = false;
+  private fresh_connection = false;
+  private probe_path: machine_path.Path | null = null;
   private seq = 0n;
   /** The highest numbered request answered; replies come in order. */
   private answered = 0n;
@@ -123,13 +146,10 @@ export class Endpoint {
   private navigation_revision = 0;
   private cancellation = new AbortController();
   private focus: { instance: string; at: Focus } | null = null;
-  /** Since when this computer's daemon, once reached, can't be; and until
-   * when a reload it announced may keep it away. See `gone_ms`. */
-  private unreachable_since: number | null = null;
-  private reload_until = 0;
   private cache: Cache;
   folder: string | null = null;
   onChange: () => void = () => {};
+  onMachines: () => void = () => {};
   onEffects: (view: Controller) => void = () => {};
   onClipboard: (view: Controller) => Promise<void> = async () => {};
   /** `name` is the machine's, "local" for this one; `remote` whether its
@@ -143,7 +163,7 @@ export class Endpoint {
     readonly probe: Probe,
     readonly host: Host,
   ) {
-    this.sample = newPath();
+    this.sample = newPath(false, false);
     this.machine = new Machine(this.transport(), this.name, remote);
     this.machine.order_scope = JSON.stringify(identity);
     // Links point at the daemon's machine: another one, or this one when the
@@ -151,7 +171,9 @@ export class Endpoint {
     this.machine.remote_links = remote || sshViewer();
     this.machine.presence = () => ({
       online: this.status === "online",
+      link_quality: remote ? (this.status === "online" ? this.stats.quality : 0) : null,
       connecting: this.status === "connecting" || this.status === "stalled" || this.status === "offline",
+      connection_status: this.headerStatus(),
       description: this.description(),
       cached: this.workspaces,
       seen: this.updated > 0,
@@ -169,7 +191,7 @@ export class Endpoint {
       }
     }
   }
-  private trace(name: "remote.connection", phase: string, details: telemetry.Details = {}): void {
+  private trace(name: "remote.connection" | "remote.race", phase: string, details: telemetry.Details = {}): void {
     if (telemetry.enabled)
       telemetry.event(name, {
         machine: this.name,
@@ -178,6 +200,7 @@ export class Endpoint {
         status: this.status,
         age_ms: this.healthAge(performance.now()),
         stall_ms: this.stallMs,
+        race_ms: this.raceMs,
         ...details,
       });
   }
@@ -246,7 +269,9 @@ export class Endpoint {
     return this.view().machine === this.machine;
   }
   private wake(): void {
-    this.next = 0;
+    // Typing doesn't hurry an SSH machine's backed-off dial: each would be a
+    // handshake, and the keys wait in their pane meanwhile.
+    if (!(this.remote && this.status === "offline")) this.next = 0;
     this.onChange();
   }
   enqueue(bytes: Uint8Array): void {
@@ -307,7 +332,10 @@ export class Endpoint {
         if (current()) view.notice(errors.name(error) ?? "ActionFailed");
       } finally {
         this.ui_task = null;
-        if (current() && (input.length || (!dirty && view.dirty))) this.onChange();
+        // Typing waits in its pane for the next step, which an idle viewer
+        // paces at `quiet_ms`: it goes now.
+        if (current() && input.length) this.wake();
+        else if (current() && !dirty && view.dirty) this.onChange();
       }
     })();
   }
@@ -318,10 +346,11 @@ export class Endpoint {
   }
   retry(): void {
     if (this.stopped) return;
-    this.handoff = null;
+    this.shut_down = false;
+    this.releaseHandoff();
     this.interruption++;
-    this.unreachable_since = null;
     this.disconnect();
+    this.fresh_connection = this.issue === "error";
     this.status = "connecting";
     this.error = "";
     this.next = 0;
@@ -329,9 +358,8 @@ export class Endpoint {
   }
   pause(): void {
     if (this.stopped) return;
-    this.handoff = null;
+    this.releaseHandoff();
     this.interruption++;
-    this.unreachable_since = null;
     this.disconnect();
     // Paused, nothing sends them again, and the link they were numbered on
     // goes with them: a retry opens a fresh one, numbered from the start,
@@ -341,6 +369,33 @@ export class Endpoint {
     this.status = "paused";
     this.error = "";
   }
+  headerStatus(now = performance.now()): WorkspaceEntry["connection_status"] {
+    const status = this.connectionStatus(now);
+    // An SSH machine's failure opens its details from the header, whatever comes next.
+    return status && this.remote && this.error ? { ...status, diagnostic: true } : status;
+  }
+  private connectionStatus(now: number): WorkspaceEntry["connection_status"] {
+    switch (this.status) {
+      case "attention":
+        return { label: this.remote && this.issue === "auth" ? "! auth" : "! error", seconds: null, color: "hot" };
+      case "connecting":
+        return {
+          label: this.connected ? i18n.t`reconnecting` : i18n.t`connecting`,
+          seconds: this.task ? Math.max(0, Math.floor((now - this.task_started) / 1000)) : 0,
+          color: "warm",
+        };
+      case "stalled":
+        return { label: i18n.t`stalled`, seconds: Math.max(1, Math.floor(this.healthAge(now) / 1000)), color: "warm" };
+      case "offline":
+        return { label: i18n.t`retry in`, seconds: Math.max(0, Math.ceil((this.next - now) / 1000)), color: "hot" };
+      case "paused":
+        return { label: i18n.t`paused`, seconds: null, color: "muted" };
+      case "incompatible":
+        return { label: i18n.t`incompatible`, seconds: null, color: "hot" };
+      case "online":
+        return this.remote && this.error ? { label: "! error", seconds: null, color: "hot" } : null;
+    }
+  }
   description(now = performance.now()): string {
     switch (this.status) {
       case "attention":
@@ -348,7 +403,7 @@ export class Endpoint {
       case "connecting":
         return `${this.connected ? "Reconnecting" : "Connecting"}…${this.task ? ` ${Math.max(0, Math.floor((now - this.task_started) / 1000))}s` : ""}${this.path?.progress() ? ` · ${this.path.progress()}` : ""}`;
       case "stalled":
-        return `Connection stalled (${Math.max(1, Math.floor((this.stream?.age(now) ?? now - this.task_started) / 1000))}s)`;
+        return `Connection stalled (${Math.max(1, Math.floor((this.stream?.age(now) ?? now - this.task_started) / 1000))}s)${this.racing ? " · trying a fresh SSH connection" : ""}`;
       case "offline":
         return `offline · ${this.error} · retry in ${Math.max(0, Math.ceil((this.next - now) / 1000))}s`;
       case "paused":
@@ -398,6 +453,21 @@ export class Endpoint {
     }
     const quiet = this.healthAge(now);
     this.stats.progress(quiet, this.stallMs);
+    // Failed dials are not progress: keep probing from the last received byte.
+    const silent = Math.max(now - (this.stats.lastReceived ?? this.task_started), this.data?.age(now) ?? 0),
+      recovering =
+        this.connected && (this.status === "connecting" || this.status === "offline") && silent >= this.raceMs,
+      // Early in an outage a fresh dial goes every few seconds; a long one
+      // gets one as often as retries go, rather than an SSH start every 4 s.
+      every = recovering ? (silent < long_outage_ms ? this.stallMs : max_retry_ms) : this.raceMs;
+    const due = !this.racing && now - this.raced_at >= every;
+    if (
+      this.sample.races &&
+      this.link &&
+      due &&
+      (this.suspect || recovering || (this.status === "stalled" && quiet >= this.raceMs))
+    )
+      void this.race(now);
     if (this.task) return;
     if (now < this.due()) return;
     // Completion wakes presentation, but only new work bypasses this cadence.
@@ -417,7 +487,6 @@ export class Endpoint {
         // A reload closes every connection; the same viewer comes back on
         // the new daemon, and typing waits for it.
         if (errors.is(error, "ServerReloading")) {
-          this.reload_until = performance.now() + handoff_ms;
           if (this.link && !this.handoff) {
             this.trace("remote.connection", "handoff");
             this.holdHandoffInput();
@@ -433,6 +502,8 @@ export class Endpoint {
           this.onChange();
           return;
         }
+        // An SSH machine's is left stopped until the user retries.
+        if (errors.is(error, "ServerShutdown")) this.shut_down = true;
         const { issue, detail } = this.path?.diagnose(error) ?? { issue: "error", detail: "" };
         if (issue === "fatal")
           this.fatal = Error(errors.is(error, "ServerRolledBack") ? "ServerRolledBack" : "IncompatibleViewerProtocol");
@@ -448,21 +519,10 @@ export class Endpoint {
             : this.issue === "error"
               ? "offline"
               : "attention";
-        this.disconnect(true);
+        this.fresh_connection = this.issue === "error";
+        // A spare handshake can still answer after the primary has timed out.
+        this.disconnect(true, this.status === "offline");
         this.retries++;
-        // This computer's daemon gone, not reloading, ends the viewer, as it
-        // always did; a remote machine's is tried again until it answers.
-        if (!this.remote && this.connected && this.status === "offline") {
-          const now = performance.now();
-          this.unreachable_since ??= now;
-          // Gone, it's said plainly; anything else keeps its own name.
-          if (now >= this.reload_until && now - this.unreachable_since >= gone_ms)
-            this.fatal ??= errors.unreachable(error)
-              ? Error("ConnectionClosed", { cause: error })
-              : error instanceof Error
-                ? error
-                : Error(this.error);
-        }
       })
       .finally(() => {
         if (this.task !== task) return;
@@ -472,7 +532,8 @@ export class Endpoint {
         // The first retry goes at once; later ones back off to 15 s.
         if (this.status === "offline")
           this.next =
-            performance.now() + (this.retries <= 1 ? 0 : Math.min(15_000, 500 * 2 ** Math.min(this.retries - 1, 5)));
+            performance.now() +
+            (this.retries <= 1 ? 0 : Math.min(max_retry_ms, 500 * 2 ** Math.min(this.retries - 1, 5)));
         // A step that changed nothing on screen leaves an idle viewer asleep.
         if (changed || this.status !== status) this.onChange();
       });
@@ -485,6 +546,74 @@ export class Endpoint {
    * changed answers on the new one, which takes over; a daemon that's only
    * busy answers on neither until it's done, and the old one carries on.
    * Over a link either can: nothing in flight is lost or run twice. */
+  private async race(now: number): Promise<void> {
+    const interruption = this.interruption,
+      path = this.newPath(true, true, !this.shut_down),
+      // Its data connection is dialed alongside, so a race that wins needn't
+      // set up another SSH connection before the panes come back.
+      data =
+        this.remote && this.shown
+          ? new viewer_data.Connection(path, this.stats, { machine: this.name, path: "race" })
+          : null;
+    this.probe_path = path;
+    this.racing = true;
+    this.raced_at = now;
+    this.trace("remote.race", "start");
+    // After a sleep the old connection reads online until it's heard from
+    // again. A machine not shown has no stream to hear it by: it keeps its own.
+    const stream = this.suspect ? this.stream : null,
+      heard = stream?.heard ?? 0;
+    this.suspect = false;
+    let conn: Connection | null = null;
+    try {
+      const opened = await path.open("control", this.stats, {
+        machine: this.name,
+        generation: this.generation,
+        path: "race",
+      });
+      conn = opened.connection;
+      const hello = opened.hello;
+      this.trace("remote.race", "hello");
+      // The old connection answering again, or anything else moving on, wins.
+      const answered =
+        this.status !== "stalled" &&
+        this.status !== "connecting" &&
+        this.status !== "offline" &&
+        !(stream !== null && this.stream === stream && stream.heard <= heard);
+      if (interruption !== this.interruption || this.stopped || answered) throw Error("RaceLost");
+      if (machine_path.compatible(hello) !== this.instance) throw Error("RaceLost");
+      // The old connection is let go; the next connect resumes the link here.
+      this.trace("remote.race", "won");
+      this.interruption++;
+      this.probe_path = null;
+      this.disconnect();
+      this.dialed = { path, conn, hello, data };
+      this.status = "connecting";
+      this.next = 0;
+      this.retries = 0;
+      this.wake();
+    } catch (error) {
+      this.trace("remote.race", "failed", { error: errors.name(error) ?? "ConnectionFailed" });
+      conn?.close();
+      data?.close();
+      path.close();
+    } finally {
+      if (this.probe_path === path) {
+        this.probe_path = null;
+        this.racing = false;
+      }
+    }
+  }
+  /** The computer slept: a remote machine's connection may be gone. */
+  woke(): void {
+    if (this.sample.races && (this.status === "online" || this.status === "stalled")) this.suspect = true;
+  }
+  /** Keys held for a reload go on as typed: a retry or a pause ends the
+   * wait, not them. */
+  private releaseHandoff(): void {
+    if (this.handoff) this.input = this.handoff.input.concat(this.input);
+    this.handoff = null;
+  }
   private holdHandoffInput(): void {
     const input = this.input;
     this.input = [];
@@ -508,18 +637,34 @@ export class Endpoint {
     const previous = this.instance;
     const generation = ++this.generation;
     this.trace("remote.connection", "start");
-    const path = (this.path = this.newPath());
+    let conn: Connection, hello: machine_path.Hello;
+    const dialed = this.dialed;
+    this.dialed = null;
+    const path = (this.path = dialed?.path ?? this.newPath(this.fresh_connection, false, !this.shut_down));
+    if (dialed?.data) this.data = dialed.data;
+    this.fresh_connection = false;
     // Setting up a remote connection can take many round trips. Open both
     // connections together; bind the data one only after the control one
     // confirms support and the daemon's identity.
     if ((this.remote && this.shown) || (this.separate && this.machine.viewer_id !== 0)) this.openData();
-    const { connection: conn, hello } = await path.open("control", this.stats, {
-      machine: this.name,
-      generation,
-      path: "primary",
-    });
-    this.connection = conn;
-    this.current(generation);
+    if (dialed) {
+      conn = this.connection = dialed.conn;
+      hello = dialed.hello;
+    } else {
+      ({ connection: conn, hello } = await path.open("control", this.stats, {
+        machine: this.name,
+        generation,
+        path: "primary",
+      }));
+      // A race may have won meanwhile: this one is left closed, not current.
+      try {
+        this.current(generation);
+      } catch (error) {
+        conn.close();
+        throw error;
+      }
+      this.connection = conn;
+    }
     this.trace("remote.connection", "hello");
     conn.onEvent(event => {
       if (this.connection !== conn) return;
@@ -628,11 +773,12 @@ export class Endpoint {
       () => {},
     );
   }
-  /** Fails the numbered requests `lost` picks, which can't be sent again. */
+  /** Fails the numbered requests `lost` picks, which can't be sent again:
+   * one that went out may have run, so says so. */
   private settleNumbered(lost: (request: Numbered) => boolean): void {
     const kept: Numbered[] = [];
     for (const request of this.numbered)
-      if (lost(request)) request.reject(Error("StaleConnection"));
+      if (lost(request)) request.reject(Error(request.seq === null ? "StaleConnection" : "ReplyLost"));
       else kept.push(request);
     this.numbered = kept;
   }
@@ -661,6 +807,23 @@ export class Endpoint {
         };
       },
       remote: this.remote,
+      // A remote machine needs a pasted image's file sent to it.
+      image: this.remote
+        ? async (path, mime, progress) => {
+            const generation = this.generation,
+              epoch = this.input_epoch,
+              upload = this.path?.upload;
+            if (!this.checked || !upload) throw Error("StaleConnection");
+            const result = await upload(path, mime, this.instance, this.cancellation.signal, (received, total) => {
+              if (generation !== this.generation || epoch !== this.input_epoch || this.stopped) return;
+              progress?.(received, total);
+              this.wake();
+            });
+            this.current(generation);
+            if (epoch !== this.input_epoch) throw Error("StaleConnection");
+            return result;
+          }
+        : undefined,
       request: async (op, ...args) => {
         if (protocol.once(op)) {
           if (!this.checked || !this.machine.runtime.workspaces.loaded) throw Error("StaleConnection");
@@ -717,6 +880,9 @@ export class Endpoint {
         },
         this.incremental,
         data,
+        // Over SSH a link is stalled after 4 s or more: a frame a second shows
+        // it's alive. Each costs a round trip on the wire.
+        this.remote ? 1000 : 250,
       );
       visible &&= this.shown && selection === this.selection;
       if (visible && this.folder !== null) {
@@ -809,9 +975,10 @@ export class Endpoint {
       for (const pane of machine.runtime.panes) {
         const held = visible && view.selection !== null && view.selection.pane === pane.id;
         if (pane.terminal.holding_selection && !held) pane.terminal.clearSelection();
-        // Without room, typing waits in the pane and goes as one write once some lands.
-        if (pane.terminal.pending.length && this.status === "online" && stream.room(pane.terminal.pending.length))
-          stream.send(() => pane.terminal.flush(), pane.terminal.pending.length);
+        // Without room, typing waits in the pane and goes once some lands.
+        const bytes = Math.min(pane.terminal.pending.length, input_chunk);
+        if (bytes && this.status === "online" && stream.room(bytes))
+          stream.send(() => pane.terminal.flush(input_chunk), bytes);
       }
       stream.configure(
         { ...viewer.syncRequest(view, visible, machine), resource_detail: this.resource_detail },
@@ -842,8 +1009,9 @@ export class Endpoint {
       this.error = "";
     }
     this.retries = 0;
-    this.unreachable_since = null;
     this.connected = true;
+    // Started again since, it's started again should it stop.
+    this.shut_down = false;
     this.workspaces = view.workspaceEntries(machine);
     this.workspaces_instance = this.instance;
     this.updated = Date.now();
@@ -879,6 +1047,7 @@ export class Endpoint {
     const view = this.controller;
     view.cancelInput();
     view.paste_target = null;
+    view.paste_progress = null;
     view.prefix = false;
   }
   /** Starts the data connection on the current path, unless one is open. */
@@ -886,15 +1055,25 @@ export class Endpoint {
     if (!this.path) throw Error("StaleConnection");
     return (this.data ??= new viewer_data.Connection(this.path, this.stats, { machine: this.name, path: "data" }));
   }
-  private disconnect(keepTask = false): void {
+  private disconnect(keepTask = false, keepProbe = false): void {
     this.generation++;
     if (!keepTask) this.task = null;
+    if (!keepProbe) {
+      this.racing = false;
+      this.probe_path?.close();
+      this.probe_path = null;
+    }
     this.data?.close();
     this.data = null;
     this.controls = [];
     this.connection?.close();
     this.connection = null;
     this.checked = null;
+    // A won race not yet taken up goes with the rest.
+    this.dialed?.conn.close();
+    this.dialed?.data?.close();
+    this.dialed?.path.close();
+    this.dialed = null;
     // Numbered requests wait for the link to be resumed.
     this.linked = false;
     this.stream = null;
@@ -918,8 +1097,14 @@ export class Endpoint {
   }
 }
 /** The endpoint for this machine's daemon on `socket`; `start` starts it if needed. */
-export function localEndpoint(socket: string, probe: Probe, host: Host, start?: () => Promise<void>): Endpoint {
-  return new Endpoint("local", false, [socket], machine_path.local(socket, start), probe, host);
+export function localEndpoint(
+  socket: string,
+  probe: Probe,
+  host: Host,
+  start?: () => Promise<void>,
+  running?: boolean,
+): Endpoint {
+  return new Endpoint("local", false, [socket], machine_path.local(socket, start, running), probe, host);
 }
 /** Goes where switching to the machine asked, if it's still there. */
 function show(view: Controller, at: Focus): void {

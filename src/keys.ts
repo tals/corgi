@@ -42,6 +42,12 @@ const map: Record<string, string> = {
   "\u001b[3;5~": "ctrl_delete",
   "\u001b\u007f": "alt_backspace",
   "\u001b\r": "alt_enter",
+  "\u001b[27;2;13~": "alt_enter",
+  "\u001b[27;3;13~": "alt_enter",
+  "\u001b[13;2u": "alt_enter",
+  "\u001b[13;3u": "alt_enter",
+  "\u001b[106;5u": "ctrl_j",
+  "\u001b[27;5;106~": "ctrl_j",
   "\u001bb": "alt_b",
   "\u001bd": "alt_d",
   "\u001bf": "alt_f",
@@ -64,6 +70,7 @@ export type Key =
   | "alt_left"
   | "alt_right"
   | "ctrl_delete"
+  | "ctrl_j"
   | "ctrl_left"
   | "ctrl_right"
   | "delete"

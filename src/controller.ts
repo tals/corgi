@@ -84,7 +84,9 @@ import * as paneImages from "./pane_images";
 import * as tabIcons from "./tab_icons";
 import * as startupCard from "./startup_card";
 import * as resourceTooltip from "./resource_tooltip";
+import type { Card as ConnectionCard } from "./connectivity_card";
 import type { State as SyncNotice } from "./sync_notice";
+import * as signalBars from "./signal_bars";
 import * as gitTooltip from "./git_tooltip";
 import type { Signal } from "./trackers/resources";
 import * as worktreeTooltip from "./worktree_tooltip";
@@ -109,6 +111,7 @@ import * as ghosttyIntegration from "./ghostty_integration";
 import * as hostClipboard from "./host_clipboard";
 import * as framePacing from "./frame_pacing";
 import * as pasteCard from "./paste_card";
+import * as pasteProgress from "./paste_progress";
 import * as panel from "./review/panel";
 import * as summaries from "./review/summaries";
 import * as subagentTooltip from "./subagent_tooltip";
@@ -440,7 +443,10 @@ export class Controller {
     this.host.pacer = value;
   }
   /** Opens the machine dropdown, in a viewer that shows several machines. */
+  onMachines: (() => void) | null = null;
+  onConnectivity: (() => void) | null = null;
   paste_target: Paste | null = null;
+  paste_progress: pasteProgress.State | null = null;
   /** Why a paste brought no image, over the pane it was meant for. */
   paste_card: PasteCard | null = null;
   tab_menu: TabMenu | null = null;
@@ -503,8 +509,11 @@ export class Controller {
   startup_card: startupCard.State | null = null;
   private startup_second = 0;
   resource_card = new resourceTooltip.State();
+  connection_card: ConnectionCard | null = null;
   /** The shown machine hasn't caught up for a while. */
   sync_notice: SyncNotice | null = null;
+  signal_bars = new signalBars.Images();
+  hide_connection_signals = false;
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
   sidebar_drag: "width" | "split" | null = null;
@@ -590,6 +599,7 @@ export class Controller {
   /** Every machine this viewer shows, the current one among them. */
   machines: Machine[] = [];
   /** The machine whose workspaces the sidebar lists, or null for all. */
+  machine_filter: Machine | null = null;
   /** Shows another machine, on one of its workspaces or agents when given:
    * the loop that runs the machines' connections switches them. */
   onMachine: (machine: Machine, focus: Focus | null) => void = () => {};
@@ -629,7 +639,7 @@ export class Controller {
       const menu = this.tab_menu,
         cwd = menu ? this.menuCheckout(menu) : null;
       if (!menu || cwd === null) return;
-      menu.setDetail("review", this.review_summaries.get(cwd));
+      menu.setDetail("review", this.summary(cwd));
       this.dirty = true;
       this.wake();
     };
@@ -653,6 +663,7 @@ export class Controller {
     this.closeMachineUi();
     this.cancelInput();
     this.machine = machine;
+    if (!this.reviewable && this.review.open) this.closeReview();
     this.selected_pane = null;
     this.wake_pending = this.unarchive_pending = null;
     this.agent_since = new agentSections.Since();
@@ -700,10 +711,17 @@ export class Controller {
     const machine = this.machines[Math.floor(key / machine_stride)];
     return machine ? { machine, id: key % machine_stride } : null;
   }
+  /** The shown machine's workspace on a sidebar row, by its own id: the
+   * cards that read it name it so. Null for another machine's row. */
+  private shownRow(row: sidebar.WorkspaceEntry | null): sidebar.WorkspaceEntry | null {
+    const owner = row && this.rowOf(row.id);
+    return row && owner?.machine === this.machine ? { ...row, id: owner.id } : null;
+  }
   /** Shows the workspace a sidebar row names, on its own machine. */
   selectRow(key: number): void {
     const row = this.rowOf(key);
     if (!row) return;
+    row.machine.collapsed = false;
     if (this.stale(row.machine)) {
       this.leaveSidebar();
       this.onMachine(row.machine, null);
@@ -755,6 +773,10 @@ export class Controller {
   /** Whether rows name their machine: another machine has answered. */
   private machineLabels(): boolean {
     return this.machines.some(m => m.remote);
+  }
+  /** What the sidebar's machine filter says, while rows name machines. */
+  machineScope(): string {
+    return this.machineLabels() ? (this.machine_filter?.name ?? "all") : "";
   }
   get remote_links(): boolean {
     return this.machine.remote_links;
@@ -1001,9 +1023,7 @@ export class Controller {
   private revealWorkspace(index = this.workspaceIds().indexOf(this.rowKey(this.current().id))): void {
     if (index < 0) return;
     if (this.archived_expanded && this.sidebarView([]).workspaceCapacity() === 0) this.archived_expanded = false;
-    const capacity = this.sidebarView([]).workspaceCapacity();
-    if (index < this.workspace_offset) this.workspace_offset = index;
-    else if (index >= this.workspace_offset + capacity) this.workspace_offset = index + 1 - capacity;
+    this.workspace_offset = this.sidebarView([]).workspaceReveal(index);
   }
   /** Moves focus one step within the region that has the keyboard, and past
    * its edge on to the region beside it. */
@@ -1282,11 +1302,18 @@ export class Controller {
       this.archived_offset,
       this.sidebar_focus !== null && "archived" in this.sidebar_focus.cursor,
     );
+    const rows = this.workspaceRows();
     view = view
-      .withWorkspaces(this.workspaceRows().length, this.workspace_offset)
+      .withWorkspaces(
+        rows.length,
+        this.workspace_offset,
+        rows.map(row => row.machine),
+        rows.map(row => row.collapsed),
+      )
       .withEntries(entries)
       .withRename(this.renameState());
     view.scope_label = this.scopeLabel();
+    view.workspace_scope = this.machineScope();
     view.corgi_badge = this.host.corgi_badge;
     return view;
   }
@@ -1349,6 +1376,7 @@ export class Controller {
       if (existsSync(preferences.path()) && preferences.readExisting(preferences.path()) === null)
         this.notice(i18n.t`Invalid viewer.json; using default preferences until the file is repaired.`);
       this.closePreferences = keybindingFile.observe(preferences.path(), saved => {
+        if (saved) this.prefs.workspace_order = saved.workspace_order;
         if (saved && saved.language !== this.prefs.language) {
           this.prefs.language = saved.language;
           localeHost.initialize(saved.language);
@@ -1526,13 +1554,76 @@ export class Controller {
   private workspaceIds(): number[] {
     return this.workspaceRows().map(ws => ws.id);
   }
-  /** The sidebar's workspace rows, by row id; see `rowKey`. */
-  workspaceRows(): WorkspaceEntry[] {
-    return this.workspaceEntries();
+  /** The sidebar's workspace rows for every machine shown, by row id; see `key`. */
+  workspaceRows(all = false, expanded = false): WorkspaceEntry[] {
+    if (this.machines.length === 1) return this.workspaceEntries();
+    const labels = this.machineLabels();
+    const rows = this.machines.flatMap(machine => {
+      if (!all && this.machine_filter && this.machine_filter !== machine) return [];
+      const presence = machine.presence(),
+        rows =
+          machine.runtime.workspaces.loaded || machine.runtime.workspaces.items.length > 0
+            ? this.workspaceEntries(machine)
+            : presence.cached,
+        unavailable = presence.online ? "" : presence.description,
+        shown = machine === this.machine;
+      if (!rows.length)
+        return [
+          sidebar.workspaceEntry({
+            id: this.rowKey(0, machine),
+            name: machine.name,
+            cwd: "",
+            active: false,
+            machine: labels ? machine.name : "",
+            link_quality: presence.link_quality,
+            unavailable: unavailable || "Loading workspaces…",
+            connecting: presence.connecting,
+            connection_status: presence.connection_status,
+            external: !shown,
+          }),
+        ];
+      return rows.map(row => ({
+        ...row,
+        id: this.rowKey(row.id, machine),
+        // Ports are found by the row's id, so they take it too.
+        ports: {
+          ...row.ports,
+          workspaces: (row.ports?.workspaces ?? [])
+            .filter(w => w.id === row.id)
+            .map(w => ({ ...w, id: this.rowKey(w.id, machine) })),
+        },
+        active: shown && row.id === machine.navigation.workspace_id,
+        machine: labels ? machine.name : "",
+        link_quality: presence.link_quality,
+        external: !shown,
+        unavailable,
+        connecting: presence.connecting,
+        connection_status: presence.connection_status,
+      }));
+    });
+    // Each row's place is looked up once, not on every comparison.
+    const order = new Map(this.prefs.workspace_order.map((key, i) => [key, i])),
+      place = new Map(rows.map(row => [row.id, order.get(this.workspaceOrderKey(row.id)) ?? Infinity]));
+    rows.sort((a, b) => place.get(a.id)! - place.get(b.id)!);
+    if (all || expanded) return rows;
+    const folded = new Set<Machine>();
+    return rows.flatMap(row => {
+      const machine = this.rowOf(row.id)!.machine;
+      if (!machine.collapsed) return [row];
+      if (folded.has(machine)) return [];
+      folded.add(machine);
+      return [{ ...row, collapsed: true }];
+    });
+  }
+  toggleMachine(machine: Machine): void {
+    machine.collapsed = !machine.collapsed;
+    this.cancelWorkspaceDrag();
+    this.workspace_offset = this.sidebarView([]).workspace_offset;
+    this.dirty = true;
   }
   /** Keyboard cycling retains reconnecting rows, but skips machines needing intervention. */
   navigateWorkspace(forward: boolean): void {
-    const ids = this.workspaceRows()
+    const ids = this.workspaceRows(false, true)
       .filter(row => {
         const presence = this.rowOf(row.id)!.machine.presence();
         return presence.online || presence.connecting;
@@ -1544,9 +1635,31 @@ export class Controller {
       current < 0 ? (forward ? 0 : ids.length - 1) : (current + (forward ? 1 : ids.length - 1)) % ids.length;
     this.selectRow(ids[index]);
   }
+  private workspaceOrderKey(key: number): string {
+    const row = this.rowOf(key)!;
+    return JSON.stringify([row.machine.order_scope || row.machine.name, row.id]);
+  }
+  /** Global display order is viewer-owned; local-only order remains daemon-owned. */
   private dropWorkspace(drag: WorkspaceDrag): void {
     if (!drag.drop) return;
     const source = drag.ids[drag.source];
+    if (this.machines.length > 1) {
+      const rows = this.workspaceRows(true)
+        .map(row => row.id)
+        .filter(id => id !== source);
+      const before = drag.drop.index >= drag.ids.length ? null : drag.ids[drag.drop.index];
+      const at = before === null ? rows.length : rows.indexOf(before);
+      if (at < 0) return;
+      rows.splice(at, 0, source);
+      this.prefs.workspace_order = rows.map(id => this.workspaceOrderKey(id));
+      try {
+        preferences.update({ workspace_order: this.prefs.workspace_order });
+      } catch (error) {
+        this.notice((error as Error).message);
+      }
+      this.dirty = true;
+      return;
+    }
     const here = this.here();
     this.later(async lane => {
       await this.refresh();
@@ -1575,13 +1688,7 @@ export class Controller {
       if (sidebar.portWorkspace(side, rows, x, y) || sidebar.gitActionWorkspace(side, rows, this.git_hover, x, y))
         return false;
       const hit = side.hit(x, y);
-      if (
-        release ||
-        button !== 0 ||
-        hit.tag !== "workspace" ||
-        y !== 2 + (hit.workspace - side.workspace_offset) * side.workspaceRows()
-      )
-        return false;
+      if (release || button !== 0 || hit.tag !== "workspace" || y !== side.workspaceY(hit.workspace)) return false;
       const row = rows[hit.workspace];
       // The unread mark jumps to the first unread agent, as any click does.
       if (side.unreadHit(row, x, y)) return false;
@@ -1610,7 +1717,7 @@ export class Controller {
     if (!release && (button === 64 || button === 65) && drag.valid(side, ids)) {
       this.workspace_offset = Math.max(
         0,
-        Math.min(sat(ids.length, side.workspaceCapacity()), side.workspace_offset + (button === 64 ? -1 : 1)),
+        Math.min(side.workspaceMaxOffset(), side.workspace_offset + (button === 64 ? -1 : 1)),
       );
       drag.dragging = true;
       this.clicks.reset();
@@ -1720,7 +1827,12 @@ export class Controller {
     const sectioned = workspace === undefined && this.prefs.agentSort() === "activity";
     // A hand-sorted "All" groups agents under a header per workspace that has any.
     const grouped = workspace === undefined && !sectioned && this.prefs.agents === "all";
-    const machines = workspace !== undefined || this.prefs.agents !== "all" ? [this.machine] : this.machines;
+    const machines =
+      workspace !== undefined || this.prefs.agents !== "all"
+        ? [this.machine]
+        : this.machine_filter
+          ? [this.machine_filter]
+          : this.machines;
     const label = (id: number, checkout: string | null, all: boolean) => {
       const owner = this.agentOf(id);
       const name = this.checkoutLabel(owner.id, checkout, all, owner.machine);
@@ -1776,6 +1888,7 @@ export class Controller {
                 attention: total.attention,
                 folded,
                 current: here,
+                machine: this.machineLabels() ? machine.name : "",
               },
             }),
           );
@@ -2197,7 +2310,8 @@ export class Controller {
     });
     // Review changes says what it would show: the line read ahead, checked
     // again now, or placeholder bars until git answers.
-    this.review_summaries.ask(this.agentFolder(p));
+    if (this.reviewable) this.review_summaries.ask(this.agentFolder(p));
+    else opened.off.add("review");
     if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
     // The menu opens once the daemon answers, unless another click or Esc came first.
     this.menu_pending = opened;
@@ -2215,7 +2329,7 @@ export class Controller {
         }
       if (this.menu_pending !== opened || this.tab_menu !== null || !here()) return;
       this.menu_pending = null;
-      opened.setDetail("review", this.review_summaries.get(this.agentFolder(p)));
+      opened.setDetail("review", this.summary(this.agentFolder(p)));
       opened.highlightFirst();
       this.tab_menu = opened;
       this.dirty = true;
@@ -2247,8 +2361,9 @@ export class Controller {
       anchor_x: x,
       anchor_y: y,
     });
-    this.review_summaries.ask(selection.path);
-    opened.setDetail("review", this.review_summaries.get(selection.path));
+    if (this.reviewable) this.review_summaries.ask(selection.path);
+    else opened.off.add("review");
+    opened.setDetail("review", this.summary(selection.path));
     const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
     const main = ws?.worktrees?.entries.find(e => e.primary)?.path ?? ws?.cwd ?? "";
     opened.setDetail("copy-path", [[worktreeTooltip.displayPath(selection.path, main), "faint"]]);
@@ -2280,7 +2395,11 @@ export class Controller {
     this.revealWorkspace();
     const side = this.sidebarView([]),
       slot = this.workspaceIds().indexOf(this.rowKey(this.current().id)) - side.workspace_offset;
-    const menu = this.openWorkspaceMenu(this.current().id, 0, side.width > 0 ? 3 + slot * side.workspaceRows() : 1);
+    const menu = this.openWorkspaceMenu(
+      this.current().id,
+      0,
+      side.width > 0 ? side.workspaceY(slot + side.workspace_offset) + 1 : 1,
+    );
     const across = side.width > 0 ? side.width : this.width;
     menu.anchor_x = Math.floor(sat(across, menu.bounds(this.width, this.height).width) / 2);
   }
@@ -3138,6 +3257,14 @@ export class Controller {
         this.dirty = true;
         break;
       }
+      case "connectivity":
+        this.closeMenu();
+        this.onConnectivity?.();
+        break;
+      case "machines":
+        if (this.onMachines) this.onMachines();
+        else this.notice(i18n.t`Add a machine with corgi machine add NAME`);
+        break;
       case "worktrees": {
         const id = Number(act.value) || this.current().id;
         if (this.runtime.workspaces.index(id) === null) break;
@@ -5449,18 +5576,34 @@ export class Controller {
     for (const p of shells.slice(0, 24)) lines.push(`- ${clean(paneName(p))} (pane ${p.id}) in ${p.cwd || ws.cwd}`);
     return lines.join("\n");
   }
+  /** The machine each of the prompt's sessions runs on, by provider and
+   * session: where it started, or was found when resumed, whichever machine
+   * is shown since. A session's last calls, once the prompt has let it go,
+   * still go there. */
+  private prompt_sessions = new Map<string, Machine>();
+  /** Where the prompt's conversation runs, or, with none, would start now. */
+  private promptMachine(): Machine {
+    const { provider, session } = this.prompt.conversation;
+    return (session && this.prompt_sessions.get(`${provider}:${session}`)) || this.machine;
+  }
   /** The daemon as the prompt calls it. A start holds its connection until
    * the session has an ID, so it takes one of its own. */
   private promptDaemon(): PromptDaemon {
     return {
-      call: (op, payload) => call(this.connection, op as Op, payload as never),
+      call: (op, payload) => {
+        const { provider, session } = payload as { provider?: unknown; session?: unknown },
+          machine = this.prompt_sessions.get(`${provider}:${session}`) ?? this.machine;
+        return call(machine.connection, op as Op, payload as never);
+      },
       start: async payload => {
-        const daemon = this.connection.daemon,
+        const machine = this.machine,
+          daemon = machine.connection.daemon,
           reply = daemon
             ? await daemon.call("headless.start", payload as never)
-            : await call(this.connection, "headless.start", payload as never),
+            : await call(machine.connection, "headless.start", payload as never),
           provider = Provider.parse(reply.provider);
         if (!provider || typeof reply.session !== "string") throw Error("InvalidReply");
+        this.prompt_sessions.set(`${provider}:${reply.session}`, machine);
         return { provider, session: reply.session };
       },
     };
@@ -5540,14 +5683,17 @@ export class Controller {
    * or, as the only viewer, the newest one a viewer left behind. Never one a
    * Corgi pane holds, nor another live viewer's. */
   private async resumePrompt(): Promise<void> {
-    const left = this.runtime.corgi_sessions.filter(s => !s.exited && s.session && s.pane === null),
+    // The sessions are the shown machine's: it goes on there, whichever is shown later.
+    const machine = this.machine,
+      left = machine.runtime.corgi_sessions.filter(s => !s.exited && s.session && s.pane === null),
       mine = process.env[prompt_session_env];
     let pick = mine ? left.find(s => `${s.provider}:${s.session}` === mine) : undefined;
     if (!mine && left.length) {
-      const reply = await call(this.connection, "viewer.list", {}).catch(() => null);
+      const reply = await call(machine.connection, "viewer.list", {}).catch(() => null);
       if (reply?.viewers.length === 1) pick = left.at(-1);
     }
     if (pick && !this.prompt.conversation.session) {
+      this.prompt_sessions.set(`${pick.provider}:${pick.session}`, machine);
       this.prompt.attach(pick);
       this.dirty = true;
     }
@@ -6585,7 +6731,11 @@ export class Controller {
     if (typeof target === "object" && types.length > 0) {
       const p = this.pane(target.pane);
       if (p && p.terminal.pasteEvents()) {
-        if (clipboard.relay(types, Date.now())) this.expectPaste(target);
+        if (clipboard.relay(types, Date.now()))
+          this.expectPaste(
+            target,
+            types.some(type => type !== "text/plain"),
+          );
         else this.notice(hostClipboard.Failure.message("busy"));
         return;
       }
@@ -6594,25 +6744,81 @@ export class Controller {
     const choice = hostClipboard.choose(listing, typeof target === "object" || target === "prompt");
     if (choice === "nothing") return;
     if ("read" in choice) {
-      if (clipboard.request(choice.read, Date.now())) this.expectPaste(target);
+      if (clipboard.request(choice.read, Date.now())) this.expectPaste(target, choice.read !== "text/plain");
       else this.notice(hostClipboard.Failure.message("busy"));
     } else this.notice(hostClipboard.Failure.message(choice.refuse));
   }
-  private expectPaste(target: Paste): void {
+  private expectPaste(target: Paste, image: boolean): void {
     this.paste_target = target;
+    this.paste_progress =
+      this.connection.image && image && typeof target === "object" ? new pasteProgress.State(target.pane) : null;
   }
-  /** Pastes what the host clipboard brought. The viewer doesn't wait; the
-   * promise settles once the paste is done. */
+  /** `path` on `machine`, which a remote one needs sent to it first. */
+  private async uploadImage(
+    path: string,
+    mime: string,
+    progress: pasteProgress.State | null,
+    machine = this.machine,
+  ): Promise<string> {
+    const upload = machine.connection.image;
+    if (!upload) return path;
+    const result = await upload(path, mime, (received, total) => {
+      if (progress && this.paste_progress === progress) progress.update(received, total);
+    });
+    if (progress && this.paste_progress === progress) progress.phase = "attaching";
+    return result;
+  }
+  /** The paste the host clipboard was asked for won't come: its connection
+   * or the input it was typed into went first. Its progress goes with it. */
+  pasteDropped(): void {
+    this.paste_target = null;
+    this.paste_progress = null;
+    this.dirty = true;
+  }
+  /** Pastes what the host clipboard brought, uploading an image first. The
+   * viewer doesn't wait; the promise settles once the paste is done. */
   pasteResult(result: hostClipboard.Result): Promise<void> {
     const target = this.paste_target;
     if (target === null) return Promise.resolve();
     this.paste_target = null;
+    const progress = this.paste_progress;
+    // A pane's id means another pane once a different machine, or another
+    // daemon on this one, is shown.
+    const machine = this.machine,
+      runtime = machine.runtime,
+      shown = () => this.machine === machine && machine.runtime === runtime;
     return this.tasks.run(async lane => {
-      if ("text" in result) this.pasteClipboardText(target, result.text);
-      else if ("path" in result && target === "prompt") this.promptImage(result.path);
-      else if ("path" in result) this.pasteText(target, result.path);
-      else if ("relay" in result) await this.relayPaste(target, result.relay, lane);
-      else this.notice(hostClipboard.Failure.message(result.failed));
+      try {
+        if ("text" in result) this.pasteClipboardText(target, result.text);
+        else if ("path" in result) {
+          const mime = hostClipboard.imageType(result.path);
+          if (!mime) this.notice(hostClipboard.Failure.message("unsupported_image"));
+          else {
+            // The prompt's image goes to the machine its conversation runs on,
+            // and only to that conversation: one changed meanwhile doesn't get it.
+            if (target === "prompt") {
+              const owner = this.promptMachine(),
+                session = this.prompt.conversation.session,
+                path = await this.uploadImage(result.path, mime, progress, owner);
+              if (this.promptMachine() === owner && this.prompt.conversation.session === session)
+                this.promptImage(path);
+            } else {
+              const path = await this.uploadImage(result.path, mime, progress);
+              if (shown()) this.pasteText(target, path);
+            }
+          }
+        } else if ("relay" in result) await this.relayPaste(target, result.relay, progress, lane, shown);
+        else this.notice(hostClipboard.Failure.message(result.failed));
+        if (progress && this.paste_progress === progress) {
+          if ("failed" in result) progress.finish(false);
+          else if ("path" in result || ("relay" in result && result.relay.image))
+            progress.finish(shown() && this.pane(progress.pane) !== null);
+          else this.paste_progress = null;
+        }
+      } catch (error) {
+        if (progress && this.paste_progress === progress) progress.finish(false);
+        throw error;
+      }
     });
   }
   /** A pasted image becomes a chip on the prompt's next message. */
@@ -6640,25 +6846,41 @@ export class Controller {
   }
   /** Has the daemon offer the clipboard in the program's own paste event,
    * or pastes it as text or an image's path when the daemon can't. */
-  private async relayPaste(target: Paste, relayed: hostClipboard.Relay, lane: tasks.Lane): Promise<void> {
-    const encoded = relayed.text !== null ? Buffer.from(relayed.text).toString("base64") : null,
-      p = typeof target === "object" ? this.pane(target.pane) : null;
+  private async relayPaste(
+    target: Paste,
+    relayed: hostClipboard.Relay,
+    progress: pasteProgress.State | null,
+    lane: tasks.Lane,
+    shown: () => boolean,
+  ): Promise<void> {
+    const p = typeof target === "object" ? this.pane(target.pane) : null;
     if (p?.terminal.pasting()) return this.pasteRefused();
     // The pane takes no other paste until the daemon answers this one.
     const sent = p?.terminal.pasteOut();
     let pasted = false;
     try {
-      const reply = await lane.call("pane.paste", {
-        pane: typeof target === "object" ? target.pane : 0,
-        text: encoded,
-        image: relayed.image ? { mime: relayed.image.mime, path: relayed.image.path } : null,
-      });
-      pasted = reply.pasted;
-    } catch {
+      // An image goes to its machine first; one that didn't get there can't be pasted.
+      if (relayed.image && this.connection.image)
+        relayed = {
+          ...relayed,
+          image: { ...relayed.image, path: await this.uploadImage(relayed.image.path, relayed.image.mime, progress) },
+        };
+      const encoded = relayed.text !== null ? Buffer.from(relayed.text).toString("base64") : null;
+      try {
+        const reply = await lane.call("pane.paste", {
+          pane: typeof target === "object" ? target.pane : 0,
+          text: encoded,
+          image: relayed.image ? { mime: relayed.image.mime, path: relayed.image.path } : null,
+        });
+        pasted = reply.pasted;
+      } catch (error) {
+        // Typed instead only if it never went: one that may have run isn't sent twice.
+        if (lost(error) && !errors.is(error, "StaleConnection")) throw error;
+      }
     } finally {
       sent?.();
     }
-    if (pasted) return;
+    if (pasted || !shown()) return;
     if (relayed.text !== null) return this.pasteClipboardText(target, relayed.text);
     if (relayed.image) return this.pasteText(target, relayed.image.path);
   }
@@ -7854,7 +8076,7 @@ export class Controller {
         this.workspace_offset =
           button === 64
             ? sat(side.workspace_offset, 1)
-            : Math.min(side.workspace_offset + 1, sat(ids.length, side.workspaceCapacity()));
+            : Math.min(side.workspace_offset + 1, side.workspaceMaxOffset());
         side = this.sidebarView([]);
         drag.dragging = true;
         this.clicks.move();
@@ -8288,7 +8510,7 @@ export class Controller {
           this.workspace_offset =
             button === 64
               ? sat(side.workspace_offset, 1)
-              : Math.min(side.workspace_offset + 1, sat(this.workspaceIds().length, side.workspaceCapacity()));
+              : Math.min(side.workspace_offset + 1, side.workspaceMaxOffset());
         else this.agentOffset().set(button === 64 ? sat(side.offset, 1) : Math.min(side.offset + 1, side.maxOffset()));
         this.dirty = true;
       } else if (!release && (button === 0 || button === 2)) {
@@ -8337,7 +8559,7 @@ export class Controller {
             // first already selected it, so this one neither selects nor drags.
             // An agent that takes no rename gets a plain press instead.
             const name = "pane" in target && !this.away(target) ? { agent: target.pane } : null;
-            if (button === 0 && name && side.onName(name, this.workspaceEntries(), x, y)) {
+            if (button === 0 && name && side.onName(name, this.workspaceRows(), x, y)) {
               if (this.clicks.press(name, milliTimestamp(), x, y)) this.doubleClickAgent(name.agent);
             } else this.clicks.reset();
             this.selectAgent(target);
@@ -8369,6 +8591,9 @@ export class Controller {
           case "workspace_new":
             this.beginWorkspace(null);
             break;
+          case "workspace_scope":
+            this.onMachines?.();
+            break;
           case "agent_new":
             if (button === 0) await this.launchAgent(null);
             else this.openLauncher(true);
@@ -8385,6 +8610,10 @@ export class Controller {
           case "workspace": {
             const index = found.workspace;
             const row = this.workspaceRows()[index];
+            if (row.external) {
+              this.selectRow(row.id);
+              break;
+            }
             const workspace = this.rowOf(row.id)!.id;
             if (button === 2) {
               this.clicks.reset();
@@ -9210,7 +9439,7 @@ export class Controller {
     const id = this.link_tooltip.target.resource ?? null;
     if (id === null) return null;
     const row = this.workspaceRows().find(row => row.id === id);
-    if (!row) return null;
+    if (!row || row.unavailable) return null;
     const work = row.resources;
     if (work.cpu === null && work.memory === null && work.read === null && work.written === null) return null;
     return id;
@@ -9283,7 +9512,8 @@ export class Controller {
     return (
       rect.contains(x, y) ||
       (y === at.y && x >= at.x && x < rect.x + rect.w) ||
-      sidebar.gitActionWorkspace(this.sidebarView([]), this.workspaceEntries(), this.git_hover, x, y)?.id === ws.id
+      this.shownRow(sidebar.gitActionWorkspace(this.sidebarView([]), this.workspaceRows(), this.git_hover, x, y))
+        ?.id === ws.id
     );
   }
   private gitHoverContains(x: number, y: number): boolean {
@@ -9507,12 +9737,8 @@ export class Controller {
         }
         if (corgiBadge.hit(this.corgi_badge, this.sidebarView([]).width, pointer.x, pointer.y))
           target = { usage: true };
-        const git = sidebar.gitActionWorkspace(
-          this.sidebarView([]),
-          this.workspaceEntries(),
-          this.git_hover,
-          pointer.x,
-          pointer.y,
+        const git = this.shownRow(
+          sidebar.gitActionWorkspace(this.sidebarView([]), this.workspaceRows(), this.git_hover, pointer.x, pointer.y),
         );
         if (git) {
           target = { git: git.id };
@@ -9523,7 +9749,9 @@ export class Controller {
             this.git_card.anchor = { x: pointer.x, y: pointer.y };
           }
         }
-        const worktree = sidebar.worktreeAt(this.sidebarView([]), this.workspaceEntries(), pointer.x, pointer.y);
+        const worktree = this.shownRow(
+          sidebar.worktreeAt(this.sidebarView([]), this.workspaceRows(), pointer.x, pointer.y),
+        );
         if (
           worktree &&
           worktreeTooltip.geometry(
@@ -9559,10 +9787,11 @@ export class Controller {
     return typeof frame === "string" ? frame : frame.text();
   }
   compose(retain = true): composition.Output {
-    const hide = this.images.begin() + this.tab_icons.begin();
+    if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;
+    const hide = this.images.begin() + this.tab_icons.begin() + this.signal_bars.begin();
     const retained = retain ? new composition.Frame() : undefined;
     const frame = this.renderFrame(retained);
-    const writes = this.images.end() + this.tab_icons.end();
+    const writes = this.images.end() + this.tab_icons.end() + this.signal_bars.end();
     if (writes) this.queueEffect({ write_terminal: writes });
     const prefix = hide ? "\x1b[?2026h" + hide : "",
       suffix = hide ? "\x1b[?2026l" : "";
@@ -9687,12 +9916,15 @@ export class Controller {
         resources: readings,
         resource_hover: this.link_tooltip.target?.resource ?? null,
         resource_card: (tooltip_ready || this.resource_card.pinned) && detail !== null ? this.resource_card : null,
+        connection_card: this.connection_card,
         sync_notice: this.sync_notice,
         pane_opening: this.openingFocus() !== null,
+        signal_bars: this.supports_kitty_graphics && !this.hide_connection_signals ? this.signal_bars : null,
         git_hover: this.hoverIdle() ? this.git_hover : null,
         grip_hover: this.grip_hover,
         git_card: (tooltip_ready || this.git_card.pinned) && git_ws ? this.git_card : null,
         worktree_card: this.worktreeCard(),
+        row_key: id => this.rowKey(id),
         worktree_spotlight: this.spotlight(),
         message:
           this.agent_picker && (this.width < 40 || this.height < 13)
@@ -9714,9 +9946,11 @@ export class Controller {
         agent_launcher: this.agent_launcher,
         scope_menu: this.scope_menu,
         scope_label: this.scopeLabel(),
+        workspace_scope: this.machineScope(),
         corgi_setup: this.corgi_setup,
         paste_card: card && focused && focused.id === card.pane ? card.notice : null,
         paste_copied: card ? card.copied : false,
+        paste_progress: this.paste_progress,
         inference: this.runtime.inference,
         tab_drop_x: this.tabDropX(),
         docking: this.dockingPreview(),
@@ -9834,6 +10068,7 @@ export class Controller {
    * the pointer for a moment.
    * A turn starting or ending marks its checkout to be read again. */
   private readAhead(entries: sidebar.Entry[]): void {
+    if (!this.reviewable) return;
     const now = Date.now();
     let turned = false;
     for (const p of this.runtime.panes) {
@@ -9887,8 +10122,17 @@ export class Controller {
     const cwd = p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd;
     return worktreeAgents.folder(this.runtime.workspaces.owner(p.id)?.worktrees ?? null, { pane: p.id }, cwd);
   }
+  /** This computer's git reads the review panel's and the menus' checkouts,
+   * so a remote machine's, which are on another computer, aren't read. */
+  private get reviewable(): boolean {
+    return !this.machine.remote;
+  }
+  /** The menus' line for `cwd`'s changes, read ahead. */
+  private summary(cwd: string): ReturnType<typeof this.review_summaries.get> {
+    return this.reviewable ? this.review_summaries.get(cwd) : null;
+  }
   private reviewTarget(p = this.focused()): panel.Target | null {
-    if (!p) return null;
+    if (!p || !this.reviewable) return null;
     const agent = p.agent;
     return {
       pane: p.id,
@@ -9910,6 +10154,7 @@ export class Controller {
     this.closeReview();
   }
   private openReview(): void {
+    if (!this.reviewable) return this.notice(i18n.t` Review changes on the remote machine`);
     this.review.follow(this.reviewTarget());
     this.review.show();
     if (this.sidebarView([]).panel === 0) {
@@ -10106,6 +10351,7 @@ const machine_stride = 2 ** 32;
 function lost(error: unknown): boolean {
   switch (errors.name(error)) {
     case "StaleConnection":
+    case "ReplyLost":
     case "ConnectionClosed":
     case "ServerShutdown":
     case "RequestTimedOut":

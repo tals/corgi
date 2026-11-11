@@ -16,6 +16,12 @@ export type Source = Preset | readonly Binding[];
 /** How long a repeatable binding waits for its next press, like tmux's
  * `repeat-time` but twice its default. */
 export const repeat_ms = 1000;
+const machineBindings: Binding[] = [
+  { key: 126, mods: {}, prefixed: true, action: { name: "connectivity" } },
+  { key: 96, mods: { shift: true }, prefixed: true, action: { name: "connectivity" } },
+  { key: 77, mods: {}, prefixed: true, action: { name: "machines" } },
+  { key: 109, mods: { shift: true }, prefixed: true, action: { name: "machines" } },
+];
 const corgiPrefix: Binding[] = [
   { key: 99, mods: {}, prefixed: true, action: { name: "new" } },
   { key: 110, mods: {}, prefixed: true, action: { name: "next" } },
@@ -675,6 +681,7 @@ for (const table of Object.values(tables))
   table.push(
     { key: 122, mods: { ctrl: true }, prefixed: true, action: { name: "undo-layout" } },
     { key: 121, mods: { ctrl: true }, prefixed: true, action: { name: "redo-layout" } },
+    ...machineBindings,
   );
 export function table(preset: Source): readonly Binding[] {
   return typeof preset === "string" ? tables[preset] : preset;

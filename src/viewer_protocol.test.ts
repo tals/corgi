@@ -74,7 +74,7 @@ function scheduledViewer() {
   const queue = spyOn(client, "queue").mockImplementation(value => {
     output.push(value);
   });
-  client.stream = { sequence: 1, sent: now, wake: 0n, session_hash: null, resources_hash: null };
+  client.stream = { sequence: 1, sent: now, wake: 0n, session_hash: null, resources_hash: null, heartbeat: 250 };
   return {
     server,
     client,
@@ -98,6 +98,22 @@ function scheduledViewer() {
     },
   };
 }
+
+test("a quiet stream shows it's alive at the interval its viewer asked for", () => {
+  const f = scheduledViewer();
+  try {
+    f.client.stream!.heartbeat = 1000;
+    f.client.stream!.wake = 1n;
+    f.advance(600);
+    publish(f.server, f.client, 1n);
+    expect(f.output).toHaveLength(0);
+    f.advance(1100);
+    publish(f.server, f.client, 1n);
+    expect(f.output).toHaveLength(1);
+  } finally {
+    f.close();
+  }
+});
 
 test("a throttled stream sends its latest frame at the deadline without a maintenance tick", () => {
   const f = scheduledViewer();

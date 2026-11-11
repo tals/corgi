@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { Stats } from "./connection_stats";
+import { Menu } from "./connectivity_menu";
 import { Endpoint, localEndpoint } from "./machine_connection";
 import { Host } from "./host";
 import { Probe } from "./terminal_info";
@@ -15,6 +16,16 @@ test("connectivity history expires by time and never invents replies for a silen
   expect(stats.lastReceived).toBe(2000);
   expect(stats.recent(123000)).toHaveLength(1);
   expect(stats.recent(123000)[0].count).toBe(0);
+});
+
+test("connectivity popover fits short terminals and does not offer production faults", () => {
+  const endpoint = localEndpoint("/tmp/unused-connectivity.sock", new Probe(), new Host());
+  const menu = new Menu([endpoint], "");
+  menu.toggle(0);
+  expect(menu.draw(100, 38)).not.toContain("network policy");
+  for (const width of [1, 10, 40]) expect(() => menu.draw(width, 8)).not.toThrow();
+  menu.key("\x1b", 27);
+  expect(menu.open).toBe(false);
 });
 
 test("high latency expands health budgets without treating failures as successful latency samples", () => {

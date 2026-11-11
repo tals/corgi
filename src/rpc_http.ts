@@ -4,10 +4,12 @@ import * as errors from "./errors";
 import * as protocol from "./protocol";
 import * as start_lock from "./start_lock";
 
-/** How long the daemon may take to answer `value`: a start waits 60 s for
- * the provider's session, after discovery and setup. */
+/** The longest the daemon may take to answer: a start waits 60 s for the
+ * provider's session, after discovery and setup. */
+export const longest_ms = 120_000;
+/** How long the daemon may take to answer `value`. */
 function limit(value: unknown): number {
-  return protocol.parse(value) === "headless.start" ? 120_000 : 45_000;
+  return protocol.parse(value) === "headless.start" ? longest_ms : 45_000;
 }
 /** One envelope, sent as is in a POST on the daemon's Unix socket; the reply comes back as is too.
  * While a daemon is starting or reloading, it waits for one for up to `wait_ms`. */
@@ -84,6 +86,13 @@ function once(socket: string, value: unknown, limit_ms: number, signal?: AbortSi
     signal?.addEventListener("abort", () => finish(Error("Cancelled")), { once: true });
     request.end(body);
   });
+}
+/** A daemon to ask: over HTTP, or over a connection a command already has
+ * open, as one to another machine. `socket` is where it listens here. */
+export interface Daemon {
+  readonly socket: string;
+  call<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Reply<K>>;
+  request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
 }
 /** The daemon at `socket`, asked over HTTP: each request is its own POST. */
 export class Client {

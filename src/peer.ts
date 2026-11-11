@@ -57,6 +57,7 @@ export class Client {
     resources_hash: bigint | null;
     sent: number;
     wake: bigint;
+    heartbeat: number;
   } | null = null;
   watching = false;
   stream_data = false;

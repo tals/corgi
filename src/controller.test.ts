@@ -1,4 +1,5 @@
 import { Machine } from "./machine";
+import type { Progress as ImageProgress } from "./image_upload";
 import * as protocol from "./protocol";
 import { transport } from "./fixtures/transport";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
@@ -5132,6 +5133,190 @@ test("a remembered name prefills the next rename until Escape, success or the pa
   }
 });
 
+test("switching machines shows the other's data and closes what named the old one's ids", () => {
+  const s = controller();
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a", "/b"));
+  s.receiveSnapshot(folders("/w"), other);
+  const chosen: [string, number | null][] = [];
+  s.onMachine = (machine: Machine, focus: any) => void chosen.push([machine.name, focus?.workspace ?? null]);
+  try {
+    const rows = s.workspaceRows();
+    expect(rows.map((row: any) => row.name)).toEqual(["/a", "/b", "/w"]);
+    s.selectRow(rows[2].id);
+    expect(chosen).toEqual([["work", 1]]);
+    s.tab_menu = new TabMenu({ tab: 1, anchor_x: 0 });
+    s.switchMachine(other);
+    expect(s.tab_menu).toBeNull();
+    expect(s.runtime).toBe(other.runtime);
+    expect(s.connection).toBe(other.connection);
+    // Row ids don't change with the machine shown.
+    expect(s.workspaceRows().map((row: any) => row.id)).toEqual(rows.map((row: any) => row.id));
+    s.selectRow(rows[0].id);
+    expect(chosen).toEqual([
+      ["work", 1],
+      ["local", 1],
+    ]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("the prompt's conversation stays on the machine it started on when another is shown", async () => {
+  const asked: [string, string][] = [];
+  const daemon = (name: string) =>
+    transport(async (op: string) => {
+      asked.push([name, op]);
+      return op === "headless.start" ? { provider: "codex", session: "s" } : { events: [] };
+    });
+  const s = new Controller(daemon("here"));
+  const other = new Machine({ request: daemon("work").request }, "work", true);
+  s.adopt(other);
+  try {
+    const prompt = Reflect.get(s, "promptDaemon").call(s);
+    s.switchMachine(other);
+    s.prompt.conversation.session = (await prompt.start({})).session;
+    s.switchMachine(s.machines[0]);
+    await prompt.call("headless.events", { provider: "codex", session: "s" });
+    expect(asked).toEqual([
+      ["work", "headless.start"],
+      ["work", "headless.events"],
+    ]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("an image pasted into the prompt goes to the machine its conversation runs on", async () => {
+  const s = controller();
+  const uploaded: string[] = [];
+  const other = new Machine(
+    {
+      ...transport(async () => ({})),
+      image: async (path: string) => {
+        uploaded.push(path);
+        return "/remote/image.png";
+      },
+    },
+    "work",
+    true,
+  );
+  s.adopt(other);
+  const attached = spyOn(s.prompt, "attachImage").mockImplementation(() => {});
+  try {
+    // A conversation running on work, with this computer shown.
+    Reflect.get(s, "prompt_sessions").set("codex:s", other);
+    s.prompt.conversation.provider = "codex";
+    s.prompt.conversation.session = "s";
+    Reflect.set(s, "paste_target", "prompt");
+    await s.pasteResult({ path: "/tmp/image.png" });
+    expect(uploaded).toEqual(["/tmp/image.png"]);
+    expect(attached.mock.calls.map(c => c[0])).toEqual(["/remote/image.png"]);
+    // A new chat meanwhile starts here, where work's path means nothing.
+    Reflect.set(s, "paste_target", "prompt");
+    const pasting = s.pasteResult({ path: "/tmp/image.png" });
+    s.prompt.conversation.session = "";
+    await pasting;
+    expect(attached).toHaveBeenCalledTimes(1);
+    // Nor does another conversation on the same machine.
+    Reflect.get(s, "prompt_sessions").set("codex:t", other);
+    s.prompt.conversation.session = "s";
+    Reflect.set(s, "paste_target", "prompt");
+    const replaced = s.pasteResult({ path: "/tmp/image.png" });
+    s.prompt.conversation.session = "t";
+    await replaced;
+    expect(attached).toHaveBeenCalledTimes(1);
+  } finally {
+    attached.mockRestore();
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("clearing a prompt conversation stops it on its own machine, whichever is shown", async () => {
+  const asked: [string, string][] = [];
+  const daemon = (name: string) =>
+    transport(async (op: string) => {
+      asked.push([name, op]);
+      return op === "headless.start" ? { provider: "codex", session: "s" } : { events: [], next_seq: 1 };
+    });
+  const s = new Controller(daemon("here"));
+  const other = new Machine({ request: daemon("work").request }, "work", true);
+  s.adopt(other);
+  try {
+    s.switchMachine(other);
+    const conversation = s.prompt.conversation;
+    conversation.session = (await Reflect.get(s, "promptDaemon").call(s).start({})).session;
+    conversation.attach({ provider: "codex", account: "", persist: false } as any, "s", false);
+    s.switchMachine(s.machines[0]);
+    asked.length = 0;
+    // As /new does: the session is let go before its last calls.
+    await conversation.reset(null);
+    expect(asked.filter(([, op]) => op === "headless.stop")).toEqual([["work", "headless.stop"]]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("a prompt conversation resumed after a reload stays on its machine when another is shown", async () => {
+  const asked: [string, string][] = [];
+  const daemon = (name: string) =>
+    transport(async (op: string) => {
+      asked.push([name, op]);
+      return op === "viewer.list" ? { viewers: [{}] } : { events: [] };
+    });
+  const s = new Controller(daemon("here"));
+  const other = new Machine({ request: daemon("work").request }, "work", true);
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(
+    {
+      ...folders("/w"),
+      headless_sessions: [
+        { id: 7, workspace: 1, provider: "claude", corgi: true, session: "left", pane: null, state: "idle" },
+      ],
+    },
+    other,
+  );
+  try {
+    s.switchMachine(other);
+    await Reflect.get(s, "resumePrompt").call(s);
+    expect(s.prompt.conversation.session).toBe("left");
+    s.switchMachine(s.machines[0]);
+    asked.length = 0;
+    await Reflect.get(s, "promptDaemon").call(s).call("headless.events", { provider: "claude", session: "left" });
+    expect(asked).toEqual([["work", "headless.events"]]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("a remote machine's checkouts aren't read with this computer's git", () => {
+  const s = controller();
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(folders("/a"), other);
+  try {
+    // This computer has /a too: its changes aren't the remote agent's.
+    const wanted = spyOn(s.review_summaries, "want");
+    s.switchMachine(other);
+    Reflect.get(s, "openReview").call(s);
+    expect(s.review.open).toBe(false);
+    expect(s.message).toContain("Review changes on the remote machine");
+    Reflect.get(s, "readAhead").call(s, s.sidebarEntries());
+    expect(wanted).not.toHaveBeenCalled();
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 test("a remote machine's launcher lists the agents saved on that computer, not this one's", async () => {
   const opus = {
     agent: "profile/opus",
@@ -5190,6 +5375,197 @@ test("a remote machine's launcher lists the agents saved on that computer, not t
     local.mockRestore();
     viewer.close(s);
     other.runtime.destroy();
+  }
+});
+
+test("all agents lists each online machine's under its name, and its rows switch to it", () => {
+  const s = controller();
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  let online = true;
+  other.presence = () => ({
+    online,
+    link_quality: null,
+    connecting: false,
+    connection_status: null,
+    description: "",
+    cached: [],
+    seen: true,
+    stale: false,
+  });
+  s.adopt(other);
+  const agents = (...cwds: string[]) => {
+    const snapshot = folders(...cwds);
+    for (const p of snapshot.panes) p.agent.provider = "codex" as any;
+    return snapshot;
+  };
+  s.receiveSnapshot(agents("/a"));
+  s.receiveSnapshot(agents("/w", "/x"), other);
+  s.host.prefs.agents = "all";
+  const chosen: [string, unknown][] = [];
+  s.onMachine = (machine: Machine, focus: unknown) => void chosen.push([machine.name, focus]);
+  try {
+    const entries = s.agentEntries();
+    const names = entries.map((e: any) => ("group" in e.target ? `${e.name} ${e.group.machine}` : e.target.pane));
+    // The shown machine's rows keep their ids; another's are set apart.
+    const away = 2 * 2 ** 32;
+    expect(names).toEqual(["/a local", 1, "/w work", away + 1, "/x work", away + 2]);
+    s.selectAgent(entries[3].target);
+    expect(chosen).toEqual([["work", { pane: 1 }]]);
+    // Folding another machine's group keeps to that machine.
+    s.selectAgent(entries[2].target);
+    expect(other.folded_groups).toEqual([1]);
+    expect(s.folded_groups).toEqual([]);
+    expect(s.agentEntries()).toHaveLength(5);
+    online = false;
+    expect(s.agentEntries()).toHaveLength(2);
+    online = true;
+    s.machine_filter = s.machine;
+    expect(s.agentEntries()).toHaveLength(2);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("a remote paste that never reached the daemon is typed into the pane instead, and one that may have isn't", async () => {
+  let failure = "StaleConnection";
+  const s = new Controller({
+    ...transport(async op => {
+      if (op === "pane.paste") throw Error(failure);
+      throw Error("UnexpectedRequest");
+    }),
+    image: async () => "/remote/image.png",
+  });
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.host.clipboard = new hostClipboard.State();
+  try {
+    const terminal = s.runtime.panes[0].terminal;
+    Reflect.set(s, "paste_target", { pane: s.runtime.panes[0].id });
+    await s.pasteResult({ relay: { text: "kept", image: null } });
+    expect(Buffer.from(terminal.pending).toString()).toContain("kept");
+    expect(terminal.pasting()).toBe(true);
+    terminal.pending = [];
+    // Sent before the connection went, it may have run: typing it could paste it twice.
+    failure = "ReplyLost";
+    Reflect.set(s, "paste_target", { pane: s.runtime.panes[0].id });
+    await s.pasteResult({ relay: { text: "once", image: null } });
+    expect(s.message).toContain("Connection lost before the reply");
+    expect(terminal.pending).toEqual([]);
+    // An image that never reached the machine has no path there to type.
+    s.connection.image = async () => {
+      throw Error("ImageUploadFailed");
+    };
+    Reflect.set(s, "paste_target", { pane: s.runtime.panes[0].id });
+    await s.pasteResult({ relay: { text: null, image: { mime: "image/png", path: "/tmp/image.png" } } });
+    expect(s.message).toBe("ImageUploadFailed");
+    expect(terminal.pending).toEqual([]);
+    expect(terminal.pasting()).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a paste whose machine is no longer shown isn't typed into the shown one's pane", async () => {
+  let refuse!: (error: Error) => void;
+  const s = new Controller(
+    transport(async op => {
+      if (op === "pane.paste") return new Promise((_, reject) => (refuse = reject));
+      throw Error("UnexpectedRequest");
+    }),
+  );
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(folders("/w"), other);
+  s.input_state.attached = true;
+  s.host.clipboard = new hostClipboard.State();
+  try {
+    const id = s.runtime.panes[0].id;
+    expect(other.runtime.pane(id)).not.toBeNull();
+    Reflect.set(s, "paste_target", { pane: id });
+    const pasting = s.pasteResult({ relay: { text: "kept", image: null } });
+    s.switchMachine(other);
+    refuse(Error("StaleConnection"));
+    await pasting;
+    expect(other.runtime.pane(id)!.terminal.pending).toEqual([]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("a remote image paste the clipboard never brought leaves no progress behind", () => {
+  const s = new Controller({ ...transport(async () => ({})), image: async () => "/remote/image.png" });
+  s.receiveSnapshot(folders("/a"));
+  try {
+    Reflect.get(s, "expectPaste").call(s, { pane: s.runtime.panes[0].id }, true);
+    expect(s.paste_progress).not.toBeNull();
+    // A reconnect or a switch dropped the clipboard read.
+    s.pasteDropped();
+    expect(s.paste_progress).toBeNull();
+    expect(Reflect.get(s, "paste_target")).toBeNull();
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("remote image progress covers preparation, receipts and failure without leaking into a later paste", async () => {
+  let report!: ImageProgress;
+  let resolve!: (path: string) => void;
+  let reject!: (error: Error) => void;
+  const s = new Controller({
+    ...transport(async () => {
+      throw Error("UnexpectedRequest");
+    }),
+    image: (_path, _mime, progress) => {
+      report = progress!;
+      return new Promise<string>((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+    },
+  });
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.host.clipboard = new hostClipboard.State();
+  try {
+    await s.pasteEvent("image/png");
+    expect(s.paste_progress?.phase).toBe("preparing");
+    const first = s.pasteResult({ path: "/tmp/image.png" });
+    report(512, 1024);
+    expect(s.paste_progress?.phase).toBe("uploading");
+    expect(s.paste_progress?.received).toBe(512);
+    resolve("/remote/image.png");
+    await first;
+    expect(s.paste_progress?.phase).toBe("done");
+    expect(s.runtime.panes[0].terminal.pending.length).toBeGreaterThan(0);
+    // The pane takes another paste once the path has gone to the daemon.
+    s.runtime.panes[0].terminal.pending = [];
+
+    s.host.clipboard.reading = null;
+    await s.pasteEvent("image/png");
+    const failed = s.pasteResult({ path: "/tmp/image.png" });
+    reject(Error("ImageUploadFailed"));
+    // The paste is a task: its failure is told, not thrown at the viewer.
+    await failed;
+    expect(s.message).toBe("ImageUploadFailed");
+    expect(s.paste_progress?.phase).toBe("failed");
+
+    s.host.clipboard.reading = null;
+    await s.pasteEvent("image/png");
+    const canceled = s.pasteResult({ path: "/tmp/image.png" });
+    s.paste_progress = null;
+    s.host.clipboard.reading = null;
+    await s.pasteEvent("image/png");
+    report(1024, 1024);
+    reject(Error("StaleConnection"));
+    await canceled;
+    const current = () => s.paste_progress;
+    expect(current()?.phase).toBe("preparing");
+    expect(current()?.received).toBe(0);
+  } finally {
+    viewer.close(s);
   }
 });
 
@@ -6224,6 +6600,46 @@ test("switching machines during an awaited key discards the old batch's tail", a
   } finally {
     pending.resolve();
     other.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
+test("remote workspace renaming uses its row below the machine header and keeps failed names on their machine", () => {
+  const s = controller(),
+    local = s.machine,
+    remote = new Machine(
+      transport(async () => pair()),
+      "work",
+      true,
+    );
+  s.height = 60;
+  s.receiveSnapshot(pair());
+  s.adopt(remote);
+  s.receiveSnapshot(pair(), remote);
+  try {
+    local.remembered_names.set(1, "local draft");
+    s.switchMachine(remote);
+    expect(s.remembered_names.size).toBe(0);
+    s.remembered_names.set(1, "remote draft");
+    expect(s.beginInlineRename({ workspace: 1 })).toBe(true);
+    const rows = s.workspaceRows(),
+      target = { workspace: s.rowKey(1, remote) },
+      view = s.sidebarView(s.sidebarEntries()),
+      rect = view.fieldRect(target, rows);
+    expect(view.rename?.target).toEqual(target);
+    expect(view.hit(rect!.x, rect!.y)).toEqual({
+      tag: "workspace",
+      workspace: rows.findIndex((row: sidebar.WorkspaceEntry) => row.id === target.workspace),
+    });
+    expect(s.frame()).toContain("/a");
+    expect(s.inline_rename?.target).toEqual({ workspace: 1 });
+    s.switchMachine(local);
+    expect(s.inline_rename).toBeNull();
+    expect(s.remembered_names.get(1)).toBe("local draft");
+    expect(remote.remembered_names.get(1)).toBe("remote draft");
+  } finally {
+    s.switchMachine(local);
+    remote.runtime.destroy();
     viewer.close(s);
   }
 });
