@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { expect, test } from "bun:test";
 import {
   Accounts,
@@ -73,7 +74,7 @@ function convo(fields: Partial<Omit<Conversation, "agent">> & { agent: Agent }):
   return { ...conversation({}), ...fields, agent: { ...fields.agent, subagents: { ...fields.agent.subagents } } };
 }
 function entry(fields: Partial<sidebar.Entry>): sidebar.Entry {
-  return sidebar.entry({ target: { pane: 1 }, ...fields });
+  return sidebar.entry({ target: viewerRef.pane(0, 1), ...fields });
 }
 const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
 function render(fn: (w: Writer) => void): string {

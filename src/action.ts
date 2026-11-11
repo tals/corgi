@@ -9,11 +9,28 @@ interface Values {
   "Side": "left" | "right";
   "Split": "right" | "down";
   "Signal": "term" | "kill";
-  "Workspace": number | viewerRef.Workspace;
+  "Workspace": viewerRef.Workspace;
 }
 export type Action = {
-  [Name in keyof typeof specs]: { name: Name; value?: Values[(typeof specs)[Name]] };
+  [Name in keyof typeof specs]: { name: Name } & ((typeof specs)[Name] extends "Workspace"
+    ? { value: Values[(typeof specs)[Name]] }
+    : { value?: Values[(typeof specs)[Name]] });
 }[keyof typeof specs];
+/** Saved bindings and command text precede selection of a concrete target. */
+export type Template = {
+  [Name in keyof typeof specs]: {
+    name: Name;
+    value?: (typeof specs)[Name] extends "Workspace" ? number : Values[(typeof specs)[Name]];
+  };
+}[keyof typeof specs];
+export function bind(template: Template, selected: viewerRef.Workspace): Action {
+  if (specs[template.name] !== "Workspace") return template as Action;
+  const value = template.value as number | undefined;
+  return {
+    name: template.name,
+    value: value ? viewerRef.workspace(viewerRef.parts(selected).machine, value) : selected,
+  } as Action;
+}
 export const specs = {
   dock: "void",
   "cancel-dock": "void",
@@ -122,10 +139,10 @@ export const specs = {
   onboard: "void",
   relaunch: "[]const u8",
 } as const satisfies Record<string, keyof Values>;
-export function parse(name: string, value = ""): Action {
+export function parse(name: string, value = ""): Template {
   if (!Object.hasOwn(specs, name)) throw new Error("UnknownAction");
   const parsed = parseValue(specs[name as keyof typeof specs], value);
-  return (parsed === undefined ? { name } : { name, value: parsed }) as Action;
+  return (parsed === undefined ? { name } : { name, value: parsed }) as Template;
 }
 function parseValue(type: keyof Values, value: string): string | number | undefined {
   if (type === "void") return undefined;
@@ -148,15 +165,10 @@ function parseValue(type: keyof Values, value: string): string | number | undefi
   if (!values.includes(value)) throw new Error("BadValue");
   return value;
 }
-export function same(a: Action, b: Action): boolean {
-  return (
-    a.name === b.name &&
-    (typeof a.value === "object" && typeof b.value === "object"
-      ? viewerRef.sameWorkspace(a.value, b.value)
-      : a.value === b.value)
-  );
+export function same(a: Action | Template, b: Action | Template): boolean {
+  return a.name === b.name && a.value === b.value;
 }
-export function needsPane(action: Action): boolean {
+export function needsPane(action: Action | Template): boolean {
   return [
     "split",
     "zoom",
@@ -182,7 +194,7 @@ export function needsPane(action: Action): boolean {
     "paste",
   ].includes(action.name);
 }
-export function title(action: Action): string {
+export function title(action: Action | Template): string {
   if (action.name === "connectivity") return "Developer connectivity";
   const titles: Record<string, string> = {
     "undo-layout": i18n.t`Undo layout change`,

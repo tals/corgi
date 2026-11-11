@@ -47,6 +47,8 @@ export class State {
   pinned = false;
   anchor = 2;
   selected: string | null = null;
+  /** Enter waits here for history; closing or moving cancels it. */
+  pending_enter: (() => void) | null = null;
   /** How many conversations Enter would bring back for the browsed worktree. */
   asleep: { path: string; count: number } | null = null;
   /** Each worktree's live agents by state, counted as the sidebar's
@@ -67,6 +69,7 @@ export class State {
     this.workspace = null;
     this.pinned = false;
     this.selected = null;
+    this.pending_enter = null;
     this.agents = null;
     this.briefs = null;
     this.writing.clear();
@@ -136,6 +139,7 @@ export class State {
   }
   select(path: string | null) {
     if (this.selected === path) return;
+    this.pending_enter = null;
     this.selected = path;
     // Moving off a locked worktree's note keeps it.
     this.removal.cancel(milliTimestamp());

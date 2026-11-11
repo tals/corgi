@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { test, expect } from "bun:test";
 import { Drag } from "./agent_drag";
 import { View, entry as sidebarEntry, type Entry, type Target } from "./sidebar";
@@ -11,16 +12,16 @@ const yOf = (view: View, index: number) => {
 test("dragging reorders stars and activity rows without changing their sections", () => {
   const entries = [
       row({ section: "starred" }, null),
-      row({ pane: 1 }, "starred"),
-      row({ pane: 2 }, "starred"),
+      row(viewerRef.pane(0, 1), "starred"),
+      row(viewerRef.pane(0, 2), "starred"),
       row({ section: "idle" }, null),
-      row({ pane: 3 }, "idle"),
-      row({ pane: 4 }, "idle"),
-      row({ headless: 1 }, "idle"),
+      row(viewerRef.pane(0, 3), "idle"),
+      row(viewerRef.pane(0, 4), "idle"),
+      row(viewerRef.headless(0, 1), "idle"),
     ],
     view = View.init(100, 36, true, 0, entries.length).withEntries(entries),
-    starred = Drag.init(view, 2, 5, yOf(view, 2), 1, 1, "activity"),
-    idle = Drag.init(view, 5, 5, yOf(view, 5), 1, 1, "activity");
+    starred = Drag.init(view, 2, 5, yOf(view, 2), viewerRef.workspace(0, 1), 1, "activity"),
+    idle = Drag.init(view, 5, 5, yOf(view, 5), viewerRef.workspace(0, 1), 1, "activity");
   starred.dragging = idle.dragging = true;
   starred.update(view, 1, 5, yOf(view, 0));
   expect(starred.action).toBe("starred");
@@ -42,9 +43,13 @@ test("dragging reorders stars and activity rows without changing their sections"
   expect(idle.valid(view, 1)).toBe(false);
 });
 test("with nothing starred, dropping on the first heading only reorders its section", () => {
-  const entries = [row({ section: "working" }, null), row({ pane: 1 }, "working"), row({ pane: 2 }, "working")],
+  const entries = [
+      row({ section: "working" }, null),
+      row(viewerRef.pane(0, 1), "working"),
+      row(viewerRef.pane(0, 2), "working"),
+    ],
     view = View.init(100, 30, true, 0, entries.length).withEntries(entries),
-    drag = Drag.init(view, 2, 5, yOf(view, 2), 1, 1, "activity");
+    drag = Drag.init(view, 2, 5, yOf(view, 2), viewerRef.workspace(0, 1), 1, "activity");
   drag.dragging = true;
   drag.update(view, 1, 5, yOf(view, 0));
   expect(drag.action).toBe("place");
@@ -55,19 +60,19 @@ test("with nothing starred, dropping on the first heading only reorders its sect
 test("hand-sorted, a drop respects grouped boundaries, scrolling, and stale rows", () => {
   const entry: Entry = sidebarEntry({
       name: "",
-      target: { pane: 1 },
+      target: viewerRef.pane(0, 1),
       provider: "claude",
       state: "idle",
       attention: "none",
     }),
     entries = Array.from({ length: 6 }, () => ({ ...entry }));
-  entries[0].target = { group: 1 };
-  entries[2].target = { pane: 2 };
-  entries[3].target = { group: 2 };
-  entries[4].target = { pane: 3 };
-  entries[5].target = { headless: 1 };
+  entries[0].target = { group: viewerRef.workspace(0, 1) };
+  entries[2].target = viewerRef.pane(0, 2);
+  entries[3].target = { group: viewerRef.workspace(0, 2) };
+  entries[4].target = viewerRef.pane(0, 3);
+  entries[5].target = viewerRef.headless(0, 1);
   const view = View.init(100, 30, true, 0, entries.length).withEntries(entries),
-    drag = Drag.init(view, 1, 5, 17, 1, 1);
+    drag = Drag.init(view, 1, 5, 17, viewerRef.workspace(0, 1), 1);
   drag.dragging = true;
   drag.update(view, 1, 5, 20);
   expect(drag.drop?.index).toBe(3);
@@ -84,13 +89,13 @@ test("hand-sorted, a drop respects grouped boundaries, scrolling, and stale rows
 test("by activity, an agent moves anywhere in its section, past worktree labels", () => {
   const entries = [
       row({ section: "idle" }, null),
-      row({ pane: 1 }, "idle"),
-      row({ section: "idle", workspace: 1, checkout: "/wt", run: 0 }, null),
-      row({ pane: 2 }, "idle"),
-      row({ pane: 3 }, "idle"),
+      row(viewerRef.pane(0, 1), "idle"),
+      row({ section: "idle", workspace: viewerRef.workspace(0, 1), checkout: "/wt", run: 0 }, null),
+      row(viewerRef.pane(0, 2), "idle"),
+      row(viewerRef.pane(0, 3), "idle"),
     ],
     view = View.init(100, 30, true, 0, entries.length).withEntries(entries),
-    drag = Drag.init(view, 4, 5, yOf(view, 4), 1, 1, "activity");
+    drag = Drag.init(view, 4, 5, yOf(view, 4), viewerRef.workspace(0, 1), 1, "activity");
   drag.dragging = true;
   // On the label, it lands above the agent under it.
   drag.update(view, 1, 5, yOf(view, 2));
@@ -104,16 +109,16 @@ test("by activity, an agent moves anywhere in its section, past worktree labels"
 test("a star dropped above itself or the star after it, past worktree labels, stays put", () => {
   const entries = [
       row({ section: "starred" }, null),
-      row({ section: "starred", workspace: 1, checkout: "/wt", run: 0 }, null),
-      row({ pane: 2 }, "starred"),
-      row({ section: "starred", workspace: 1, checkout: null, run: 0 }, null),
-      row({ pane: 1 }, "starred"),
+      row({ section: "starred", workspace: viewerRef.workspace(0, 1), checkout: "/wt", run: 0 }, null),
+      row(viewerRef.pane(0, 2), "starred"),
+      row({ section: "starred", workspace: viewerRef.workspace(0, 1), checkout: null, run: 0 }, null),
+      row(viewerRef.pane(0, 1), "starred"),
       row({ section: "idle" }, null),
-      row({ pane: 3 }, "idle"),
+      row(viewerRef.pane(0, 3), "idle"),
     ],
     view = View.init(100, 36, true, 0, entries.length).withEntries(entries),
-    first = Drag.init(view, 2, 5, yOf(view, 2), 1, 1, "activity"),
-    last = Drag.init(view, 4, 5, yOf(view, 4), 1, 1, "activity");
+    first = Drag.init(view, 2, 5, yOf(view, 2), viewerRef.workspace(0, 1), 1, "activity"),
+    last = Drag.init(view, 4, 5, yOf(view, 4), viewerRef.workspace(0, 1), 1, "activity");
   first.dragging = last.dragging = true;
   for (const at of [0, 1, 2, 3, 4]) {
     first.update(view, 1, 5, yOf(view, at));
@@ -135,33 +140,33 @@ test("a star dropped above itself or the star after it, past worktree labels, st
 test("in all, starred rows reorder only among their own workspace's stars", () => {
   const entries = [
       row({ section: "starred" }, null),
-      row({ section: "starred", workspace: 1, checkout: null, run: 0 }, null),
-      row({ pane: 1 }, "starred"),
-      row({ pane: 3 }, "starred"),
-      row({ section: "starred", workspace: 2, checkout: null, run: 0 }, null),
-      row({ pane: 2 }, "starred"),
+      row({ section: "starred", workspace: viewerRef.workspace(0, 1), checkout: null, run: 0 }, null),
+      row(viewerRef.pane(0, 1), "starred"),
+      row(viewerRef.pane(0, 3), "starred"),
+      row({ section: "starred", workspace: viewerRef.workspace(0, 2), checkout: null, run: 0 }, null),
+      row(viewerRef.pane(0, 2), "starred"),
       row({ section: "idle" }, null),
-      row({ section: "idle", workspace: 2, checkout: null, run: 0 }, null),
-      row({ pane: 4 }, "idle"),
+      row({ section: "idle", workspace: viewerRef.workspace(0, 2), checkout: null, run: 0 }, null),
+      row(viewerRef.pane(0, 4), "idle"),
     ],
     view = View.init(100, 44, true, 0, entries.length).withEntries(entries),
-    drag = Drag.init(view, 3, 5, yOf(view, 3), 1, 1, "activity");
+    drag = Drag.init(view, 3, 5, yOf(view, 3), viewerRef.workspace(0, 1), 1, "activity");
   drag.dragging = true;
   drag.update(view, 1, 5, yOf(view, 2));
   expect(drag.action).toBe("starred");
   expect(drag.before()).toBe(2);
   drag.update(view, 1, 5, yOf(view, 6));
   expect(drag.drop).toBeNull();
-  const idle = Drag.init(view, 8, 5, yOf(view, 8), 2, 2, "activity");
+  const idle = Drag.init(view, 8, 5, yOf(view, 8), viewerRef.workspace(0, 2), 2, "activity");
   idle.dragging = true;
   idle.update(view, 2, 5, yOf(view, 5));
   expect(idle.drop).toBeNull();
 });
 
 function scrolling(offset = 5, rows = 30, count = 20) {
-  const entries = Array.from({ length: count }, (_, pane) => row({ pane }, null)),
+  const entries = Array.from({ length: count }, (_, pane) => row(viewerRef.pane(0, pane), null)),
     view = View.init(100, rows, true, offset, count).withEntries(entries),
-    drag = Drag.init(view, view.offset + 1, 5, view.middle() + 4, 1, 1);
+    drag = Drag.init(view, view.offset + 1, 5, view.middle() + 4, viewerRef.workspace(0, 1), 1);
   drag.dragging = true;
   return { view, drag, entries };
 }
@@ -252,7 +257,7 @@ test("a click, cancellation, resize, or changed entries cannot keep drag scrolli
         view.rows += 1;
         break;
       case "entries":
-        entries[0].target = { pane: 100 };
+        entries[0].target = viewerRef.pane(0, 100);
         break;
       case "workspace":
         current = 2;

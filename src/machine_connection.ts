@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import * as telemetry from "./telemetry";
 import { Queue, pasting, type Input } from "./terminal_input";
 import { Stats } from "./connection_stats";
@@ -91,7 +92,7 @@ export class Endpoint {
   ready = false;
   input_epoch = 0;
   updated = 0;
-  workspaces: WorkspaceEntry[] = [];
+  workspaces: WorkspaceEntry<number>[] = [];
   private displayed = false;
   private acknowledging = false;
   /** This daemon as the viewer sees it. */
@@ -748,7 +749,11 @@ export class Endpoint {
         view.closeMachineUi();
         // Its agents may have been updated: read their model lists again.
         view.model_cache.expire();
-      } else if (view.worktree_card.workspace?.machine === this.machine.id) view.worktree_card.clear();
+      } else if (
+        view.worktree_card.workspace &&
+        viewerRef.parts(view.worktree_card.workspace).machine === this.machine.id
+      )
+        view.worktree_card.clear();
       this.machine.forget();
       this.workspaces = [];
       this.workspaces_instance = this.instance;
@@ -1166,7 +1171,9 @@ function show(view: Controller, at: Focus): void {
   if ("workspace" in at) {
     if (runtime.workspaces.index(at.workspace) !== null) view.switchWorkspace(at.workspace);
   } else if ("pane" in at ? runtime.workspaces.owner(at.pane) : runtime.sessions.some(s => s.id === at.headless))
-    view.selectAgent(at);
+    view.selectAgent(
+      "pane" in at ? viewerRef.pane(view.machine.id, at.pane) : viewerRef.headless(view.machine.id, at.headless),
+    );
 }
 /** Whether the daemon speaks another viewer protocol than this viewer. */
 function incompatible(error: unknown): boolean {

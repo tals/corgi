@@ -16,7 +16,7 @@ import { randomBytes } from "node:crypto";
 import * as keymap from "./keymap";
 import * as keys from "./keys";
 import * as bindings from "./bindings";
-import type { Action } from "./action";
+import type { Template as Action } from "./action";
 import type { Key } from "./keyboard";
 export type State = "unavailable" | "disabled" | "enabled" | "failed";
 export type Keys = { preset: keymap.Preset; prefix: keymap.Prefix; bindings?: readonly bindings.Binding[] };

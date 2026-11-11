@@ -1,5 +1,5 @@
 import { specs as actionSpecs, title as actionTitle, parse as parseAction, same as sameAction } from "./action";
-import type { Action } from "./action";
+import type { Template as Action } from "./action";
 import type { Preset } from "./keymap";
 import type { Mods, Key } from "./keyboard";
 import * as keys from "./keys";

@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { State, geometry, copyAt, draw, filePath } from "./link_tooltip";
 import type { Controller } from "./controller";
@@ -16,7 +17,12 @@ const source = { updateRender() {}, hyperlinks: () => [] };
 const pointed = { source, id: 1n, uri: "https://example.com", x: 5, y: 2 },
   retargeted = { ...pointed, uri: "https://other.example.com" };
 test.each([
-  ["resource card", { resource: 1 }, { resource: 2 }, { resource: 1 }],
+  [
+    "resource card",
+    { resource: viewerRef.workspace(1, 1) },
+    { resource: viewerRef.workspace(1, 2) },
+    { resource: viewerRef.workspace(1, 1) },
+  ],
   // The same URL in another pane is another link.
   ["link", { link: pointed }, { link: retargeted }, { link: { ...retargeted, source: { ...source } } }],
 ] as const)(
@@ -38,7 +44,7 @@ test.each([
 );
 test("tooltip waits for rest and requires fresh movement after interaction", () => {
   const s = new State(),
-    target = { git: 1 };
+    target = { git: viewerRef.workspace(1, 1) };
   expect(s.ready(target, 0)).toBe(false);
   s.move();
   expect(s.ready(target, 100)).toBe(false);
@@ -49,7 +55,7 @@ test("tooltip waits for rest and requires fresh movement after interaction", () 
   s.move();
   expect(s.ready(target, 2001)).toBe(false);
   expect(s.ready(target, 2501)).toBe(true);
-  expect(s.ready({ git: 2 }, 2502)).toBe(false);
+  expect(s.ready({ git: viewerRef.workspace(1, 2) }, 2502)).toBe(false);
   expect(s.ready(null, 4000)).toBe(false);
   expect(s.ready(target, 4001)).toBe(false);
 });
@@ -408,9 +414,9 @@ test("an arrow over the resource card selects its top row first, or else moves f
   } as any);
   const hover = () => {
     s.resource_card.release();
-    s.link_tooltip.target = { resource: 1 };
+    s.link_tooltip.target = { resource: s.workspaceRef(1) };
     s.link_tooltip.shown = true;
-    s.resource_card.update(s.runtime.resources.workspaces[0], true);
+    s.resource_card.update({ ...s.runtime.resources.workspaces[0], id: s.workspaceRef(1) }, true);
   };
   hover();
   await s.input(Buffer.from("\x1b[B"));

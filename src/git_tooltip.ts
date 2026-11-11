@@ -1,3 +1,4 @@
+import type * as viewerRef from "./viewer_ref";
 //! The push card: a workspace's unpushed commits beside its push label.
 //! Hovering a row shows its review dimmed; a click or Enter opens it.
 import { Rect } from "./layout";
@@ -47,7 +48,7 @@ export function review(ws: WorkspaceEntry, row: number): Review | null {
   return commit ? { scope: "commits", pick: commit.hash } : null;
 }
 export class State {
-  workspace: number | null = null;
+  workspace: viewerRef.Workspace | null = null;
   /** The cell the card opened beside, on the push label. */
   anchor = { x: 0, y: 0 };
   /** Held open for the keyboard. */

@@ -1,12 +1,15 @@
 //! A workspace's agent rows as the daemon's state builds them: the viewer's
 //! agent list and `corgi watch --json` start from the same rows.
+import * as agentOrder from "./agent_order";
 import * as startup from "./startup";
 import * as sidebar from "./sidebar";
 import * as mirror from "./mirror";
 import * as subagentTooltip from "./subagent_tooltip";
 
+export type Entry = sidebar.Entry<agentOrder.Target, number>;
+export type Listed = sidebar.Entry<agentOrder.Target | sidebar.Heading<number> | sidebar.Asleep, number>;
 export interface Row {
-  entry: sidebar.Entry;
+  entry: Entry;
   /** When the daemon says its state began, in ms. */
   start: number;
 }
@@ -19,8 +22,8 @@ export function sessions(runtime: mirror.Runtime): mirror.Headless[] {
 /** `ws`'s agents, panes by tab and then headless sessions, unsorted and
  * unfocused; the viewer marks its own focus. */
 export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: number): Row[] {
-  const starred = (target: sidebar.Target) => ws.pinned_agents.some(t => sidebar.sameTarget(t, target)),
-    starting = (target: sidebar.Target) => ws.starting_agents.some(t => sidebar.sameTarget(t, target));
+  const starred = (target: agentOrder.Target) => ws.pinned_agents.some(t => agentOrder.equal(t, target)),
+    starting = (target: agentOrder.Target) => ws.starting_agents.some(t => agentOrder.equal(t, target));
   const tabs: mirror.Pane[][] = Array.from({ length: ws.model.count }, () => []);
   for (const p of runtime.panes) {
     if (p.agent.provider === null) continue;
@@ -28,7 +31,7 @@ export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: numb
     if (tab !== null) tabs[tab].push(p);
   }
   const rows: Row[] = tabs.flat().map(p => ({
-    entry: sidebar.entry({
+    entry: sidebar.entry<agentOrder.Target, number>({
       conversation: p.agent.conversation,
       target: { pane: p.id },
       starred: starred({ pane: p.id }),
@@ -55,7 +58,7 @@ export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: numb
   }));
   for (const session of sessions(runtime)) {
     if (session.workspace !== ws.id) continue;
-    const entry = sidebar.entry({
+    const entry = sidebar.entry<agentOrder.Target, number>({
       target: { headless: session.id },
       starred: starred({ headless: session.id }),
       starting: starting({ headless: session.id }),
