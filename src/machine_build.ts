@@ -102,6 +102,23 @@ export async function compare(
   throw Error("UnorderedDevelopmentBuilds");
 }
 
+/** Which way setup copies a build, as `compare` says. Forced, this computer's
+ * build goes there unless the two already match, even when it's older or
+ * neither is newer. */
+export async function direction(
+  local: Build,
+  remote: Build,
+  ancestor: (older: string, newer: string) => Promise<boolean>,
+  force: boolean,
+): Promise<number> {
+  if (!force) return compare(local, remote, ancestor);
+  try {
+    return (await compare(local, remote, ancestor)) ? 1 : 0;
+  } catch {
+    return 1;
+  }
+}
+
 /** Installation slots stay readable by older updater binaries. This is not the build's release version. */
 export function slot(value: Build): string {
   return released(value.version) ? value.version : `0.0.${Number.parseInt(value.build_id.slice(0, 12), 16)}`;
