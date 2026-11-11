@@ -32,17 +32,18 @@ function tidy(line: string): string {
 }
 
 export class Screen {
-  /** Inline: the lines of the frame above the cursor, to move back over on
-   * the next draw, and the width they were drawn at. */
-  private shown = 0;
-  private shownCols = 0;
+  /** Inline: the width of each line of the frame above the cursor, to move
+   * back over on the next draw. */
+  private shown: number[] = [];
   private hidden = false;
   private paused = false;
   private done = false;
   /** Verbose: the old screen was pushed into the scrollback and a frame pinned. */
   private pinned = false;
-  /** Verbose: the rows the pinned frame takes. */
+  /** Verbose: the rows the pinned frame takes, and the terminal size it was
+   * drawn at. */
   private top = 0;
+  private painted = "";
   /** Verbose: the scroll region last set, and the terminal size it was set
    * at (a resize resets it). */
   private region = "";
@@ -94,7 +95,7 @@ export class Screen {
     this.paused = true;
     this.hidden = false;
     // The frame stays where it is; the next one goes below the question.
-    this.shown = 0;
+    this.shown = [];
     this.o.write((this.pinned ? at(this.next) : "") + term.cursor(true));
   }
 
@@ -138,35 +139,43 @@ export class Screen {
     return term.cursor(false);
   }
 
-  /** Moves up over the frame drawn last and clears from there. After a
-   * width change the old frame may have rewrapped into rows that can't be
-   * known, so it stays as it is and the new frame goes below it: erasing
-   * never reaches output that isn't the frame. */
+  /** Moves up over the frame drawn last and clears from there. A narrower
+   * terminal rewraps (reflows) the old frame's lines: each takes as many rows
+   * as its width needs at the new width, and a wider one keeps one row each. */
   private erase(): string {
-    const n = this.shownCols === this.o.cols() ? this.shown : 0;
-    this.shown = 0;
+    const cols = Math.max(1, this.o.cols()),
+      n = this.shown.reduce((rows, w) => rows + Math.max(1, Math.ceil(w / cols)), 0);
+    this.shown = [];
     return n ? `\x1b[${n}A${clearBelow}` : "";
   }
 
   private inline(lines: string[]): string {
     const frame = lines.slice(0, this.room()),
       out = this.erase() + this.hide() + frame.map(l => `${l}\n`).join("");
-    this.shown = frame.length;
-    this.shownCols = this.o.cols();
+    this.shown = frame.map(l => term.width(l));
     return out;
   }
 
   private pin(lines: string[]): string {
     const rows = this.o.rows(),
       frame = lines.slice(0, this.room());
-    let out = "";
+    const size = `${rows}x${this.o.cols()}`;
+    let out = "",
+      clear = this.top;
     if (!this.pinned) {
       // Push what was on screen into the scrollback, leaving it blank.
       out += "\n".repeat(rows);
       this.pinned = true;
+    } else if (size !== this.painted) {
+      // A resize rewrapped the frame and the log into rows that can't be known:
+      // clear them all, then draw the frame and the end of the log again.
+      clear = rows;
+      this.waiting = this.logged.slice(-Math.max(1, rows - frame.length));
+      this.next = frame.length + 1;
     }
+    this.painted = size;
     out += this.hide() + frame.map((l, i) => at(i + 1) + clearLine + l).join("");
-    for (let row = frame.length + 1; row <= this.top; row++) out += at(row) + clearLine;
+    for (let row = frame.length + 1; row <= clear; row++) out += at(row) + clearLine;
     this.top = frame.length;
     return out + this.margins() + this.flush();
   }

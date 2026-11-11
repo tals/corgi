@@ -2093,7 +2093,7 @@ test("a rebased branch whose tests fail alone keeps its old tip and gets a rebas
   expect(tip(w, "mine")).toBe(old);
   expect(backupOf(w, "mine")).toBeNull();
   expect(h.calls()).toBe(0);
-  expect(result.out).toContain("mine: failed: test fails on the rebased branch");
+  expect(result.out).toContain("mine: not rebased: test fails on the rebased branch");
   expect(result.err).toContain("test failed on mine; running it once more in case the failure is flaky");
   expect(handoffs(w)).toEqual(["mine.md"]);
   const handoff = read(join(latest(w), "handoffs", "mine.md"));
@@ -2341,7 +2341,7 @@ test("an in-worktree rebase whose checks fail puts the branch back where it was"
   configureOwn(w, ["busy"]);
   const result = await cb(w, "rebase", "--in-worktree");
   expect(result.code).toBe(0);
-  expect(result.out).toContain("busy: failed: typecheck fails on the rebased branch");
+  expect(result.out).toContain("busy: not rebased: typecheck fails on the rebased branch");
   expect(tip(w, "busy")).toBe(busy);
   expect(git(tree, "rev-parse", "HEAD")).toBe(busy);
   expect(git(tree, "status", "--porcelain")).toBe("");
@@ -2568,7 +2568,7 @@ test("an in-worktree check that fails keeps a commit made in the worktree during
   });
   const result = await cbWith(w, { ask: () => "n" }, "rebase", "--in-worktree");
   expect(result.code).toBe(0);
-  expect(result.out).toContain("busy: failed: test fails on the rebased branch");
+  expect(result.out).toContain("busy: not rebased: test fails on the rebased branch");
   expect(git(tree, "log", "-1", "--format=%s", "busy")).toBe("later");
   expect(git(tree, "rev-parse", "HEAD")).toBe(tip(w, "busy"));
 });
@@ -2587,7 +2587,7 @@ test("an in-worktree check that fails keeps uncommitted edits made during the ch
   expect(rebased).not.toBe(busy);
   expect(read(join(tree, "busy.txt"))).toBe("busy\nedited\nedited\n");
   expect(result.out).toContain(
-    `busy: failed: test fails on the rebased branch; busy stays at ${rebased.slice(0, 7)} in `,
+    `busy: not rebased: test fails on the rebased branch; busy stays at ${rebased.slice(0, 7)} in `,
   );
   expect(result.out).toContain(
     "which changed during the checks; its tip before the rebase is refs/custom-build/rebase-backup/busy",
@@ -2777,7 +2777,7 @@ test("a git rebase that fails before stopping is reported as failed, not as reba
   chmodSync(join(hooks, "pre-rebase"), 0o755);
   configureOwn(w, ["mine"]);
   const result = await cb(w, "rebase");
-  expect(result.out).toContain("mine: failed: git rebase failed");
+  expect(result.out).toContain("mine: not rebased: git rebase failed");
   expect(tip(w, "mine")).toBe(old);
   expect(backupOf(w, "mine")).toBeNull();
 });
@@ -2885,7 +2885,7 @@ test("a rebase the user aborted in the stopped worktree is reported as failed, n
   git(tree, "rebase", "--abort");
   const resumed = await cb(w, "continue");
   expect(resumed.code).toBe(0);
-  expect(resumed.out).toContain("stale: failed: the rebase did not complete");
+  expect(resumed.out).toContain("stale: not rebased: the rebase did not complete");
   expect(tip(w, "stale")).toBe(old);
 });
 

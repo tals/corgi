@@ -65,21 +65,50 @@ test("a frame taller than the terminal is cut", () => {
   expect(all()).not.toContain("line 23");
 });
 
-test("a resized terminal never erases more than the frame", () => {
+test("a narrower terminal erases the rows the old frame rewrapped into", () => {
   const { out, size, screen } = fake();
-  screen.draw(["x".repeat(70), "y"]);
+  screen.draw(["x".repeat(70), "\x1b[31my\x1b[0m", "z".repeat(80)]);
   size.cols = 40;
-  // The old frame may have rewrapped (or not): leave it and draw below.
-  screen.draw(["z"]);
-  expect(out[1]).not.toMatch(/\x1b\[\d+A/);
-  expect(out[1]).not.toContain("\x1b[0J");
-  expect(out[1]).toContain("z\n");
-  // At the same width again, it moves up exactly the frame's lines.
+  // 70 cells take 2 rows at 40 columns, the colored y 1, 80 cells 2.
   screen.draw(["w"]);
+  expect(out[1].slice(on.length).startsWith("\x1b[5A\x1b[0J")).toBe(true);
+  expect(out[1]).toContain("w\n");
+  // At the same width again, it moves up exactly the frame's lines.
+  screen.draw(["v"]);
   expect(out[2].slice(on.length).startsWith("\x1b[1A\x1b[0J")).toBe(true);
+});
+
+test("a wider or shorter terminal erases one row per line", () => {
+  const { out, size, screen } = fake({ cols: 40 });
+  screen.draw(["x".repeat(40), "y"]);
+  size.cols = 120;
+  screen.draw(["w"]);
+  expect(out[1].slice(on.length).startsWith("\x1b[2A\x1b[0J")).toBe(true);
   size.rows = 10;
   screen.draw(["v"]);
-  expect(out[3].slice(on.length).startsWith("\x1b[1A\x1b[0J")).toBe(true);
+  expect(out[2].slice(on.length).startsWith("\x1b[1A\x1b[0J")).toBe(true);
+});
+
+test("a resized terminal repaints a pinned frame and the end of its log", () => {
+  const { out, size, screen } = fake({ verbose: true, rows: 12 });
+  screen.draw(["1", "2"]);
+  screen.log(Array.from({ length: 20 }, (_, i) => `log ${i}`));
+  screen.draw(["1", "2"]);
+  // Same size: only the frame's rows are drawn.
+  expect(out.at(-1)).not.toContain("\x1b[12;1H\x1b[2K");
+  size.cols = 50;
+  screen.draw(["1", "2"]);
+  const w = out.at(-1) ?? "";
+  // Every row is cleared, the frame drawn, then the last 10 log lines below it.
+  for (let row = 3; row <= 12; row++) expect(w).toContain(`\x1b[${row};1H\x1b[2K`);
+  expect(w).toContain("\x1b[1;1H\x1b[2K1");
+  expect(w).toContain("\x1b[3;12r");
+  expect(w).toContain("\x1b[3;1H\x1b[2Klog 10\n");
+  expect(w).toContain("log 19\n");
+  expect(w).not.toContain("log 9\n");
+  // The repaint doesn't add to what the finish replays.
+  screen.finish(["done"]);
+  expect((out.at(-1) ?? "").split("log 19\n")).toHaveLength(2);
 });
 
 test("verbose pins the frame and scrolls the log below it", () => {
