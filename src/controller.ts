@@ -444,6 +444,8 @@ export class Controller {
   }
   /** Opens the machine dropdown, in a viewer that shows several machines. */
   onMachines: (() => void) | null = null;
+  /** Whether the shown machine can show typing before it echoes. */
+  instant_ready = false;
   onConnectivity: (() => void) | null = null;
   paste_target: Paste | null = null;
   paste_progress: pasteProgress.State | null = null;
@@ -3738,6 +3740,11 @@ export class Controller {
           }
         }
         break;
+      case "instant-typing":
+        if (act.value !== "auto" && act.value !== "off") throw Error("BadValue");
+        await this.applySetup({ kind: "instant_typing", mode: act.value });
+        this.notice(` Remote instant typing: ${act.value}`);
+        return;
       case "setup":
         this.openSetup();
         break;
@@ -4005,6 +4012,7 @@ export class Controller {
       this.selection = null;
       this.dirty = true;
     }
+    this.updateInstant();
     term.send(bytes);
   }
   private queueEffect(effect: Effect): void {
@@ -5831,6 +5839,21 @@ export class Controller {
     this.dirty = true;
     if (apply === null) return;
     switch (apply.kind) {
+      case "instant_typing":
+        this.host.prefs.instant_typing = apply.mode;
+        if (apply.dim !== undefined) this.host.prefs.dim_predictions = apply.dim;
+        // Turning it on or off drops every machine's previews.
+        for (const machine of this.machines) for (const pane of machine.runtime.panes) pane.terminal.resetPrediction();
+        this.updateInstant();
+        try {
+          preferences.update({
+            instant_typing: apply.mode,
+            ...(apply.dim === undefined ? {} : { dim_predictions: apply.dim }),
+          });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
       case "language":
         this.prefs.language = apply.language;
         localeHost.initialize(apply.language);
@@ -9782,12 +9805,34 @@ export class Controller {
     }
     return this.link_tooltip.ready(target, milliTimestamp());
   }
+  private updateInstant(): void {
+    const focus =
+      this.instant_ready &&
+      this.host.prefs.instant_typing === "auto" &&
+      !this.overlayOpen() &&
+      !this.copy_mode &&
+      !this.search_mode &&
+      this.input_state.paste === null &&
+      !this.reviewKeys() &&
+      !this.selection
+        ? this.focused()
+        : null;
+    for (const pane of this.runtime.panes) {
+      const eligible = pane === focus && !pane.dormant && !pane.restoring && pane.agent.attention !== "needs_input";
+      pane.terminal.instant(
+        eligible ? (pane.agent.provider ?? "terminal") : null,
+        `${pane.binding}:${pane.agent.conversation}:${pane.agent.session}`,
+        this.host.prefs.dim_predictions,
+      );
+    }
+  }
   frame(): string {
     const frame = this.compose(false);
     return typeof frame === "string" ? frame : frame.text();
   }
   compose(retain = true): composition.Output {
     if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;
+    this.updateInstant();
     const hide = this.images.begin() + this.tab_icons.begin() + this.signal_bars.begin();
     const retained = retain ? new composition.Frame() : undefined;
     const frame = this.renderFrame(retained);

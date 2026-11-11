@@ -156,6 +156,37 @@ test("a blocked stream retains one latest frame and resumes when output drains",
   }
 });
 
+test("a rejected stream frame keeps an input receipt pending until it is sent", () => {
+  const f = scheduledViewer();
+  const ws = new Workspace(1, "/tmp"),
+    pane = new Pane(1, new Terminal(80, 24), "/tmp"),
+    delivery = new viewer_stream.Frames();
+  ws.model.newTab("pane");
+  f.server.runtime.workspaces.items.push(ws);
+  f.server.runtime.panes.push(pane);
+  pane.terminal.feed("unchanged screen");
+  f.client.stream!.delivery = delivery;
+  try {
+    f.advance(120);
+    publish(f.server, f.client, 1n);
+    delivery.acknowledge(1n);
+    const ack = pane.terminal.input_ack.sent(0);
+    pane.terminal.input_ack.advance(50);
+    const offer = spyOn(delivery, "offer").mockReturnValueOnce(null);
+    f.advance(140);
+    publish(f.server, f.client, 2n);
+    expect(f.output).toHaveLength(1);
+    offer.mockRestore();
+    f.advance(160);
+    publish(f.server, f.client, 2n);
+    expect(f.output).toHaveLength(2);
+    const view = f.output[1].view;
+    expect([...view.surfaces, ...view.patches][0]?.input_ack).toEqual(ack);
+  } finally {
+    f.close();
+  }
+});
+
 test("stream reconfiguration and client pause cancel deferred frames", () => {
   const f = scheduledViewer();
   try {
@@ -431,6 +462,15 @@ test("the data connection reads its viewer's surfaces and receipts without becom
   control.interests[0].known = reply.surfaces[0].stamp;
   surfaces(s, data);
   expect(content.mock.calls[1][0]).toEqual({ ok: true, surfaces: [] });
+  const receipt = pane.terminal.input_ack.sent(0);
+  pane.terminal.input_ack.advance(50);
+  surfaces(s, data);
+  const acknowledged = (content.mock.calls[2][0] as protocol.ReplyPayloads["viewer.surfaces"]).surfaces[0];
+  expect(acknowledged.input_ack).toEqual(receipt);
+  expect(acknowledged.stamp).toEqual(reply.surfaces[0].stamp);
+  expect(acknowledged.surface.lines).toEqual(reply.surfaces[0].surface.lines);
+  surfaces(s, data);
+  expect(content.mock.calls[3][0]).toEqual({ ok: true, surfaces: [] });
   expect(() => image(s, data, { pane: 2, image: "1", offset: 0 })).toThrow("NoPane");
   control.dead = true;
   expect(() => surfaces(s, data)).toThrow("NoViewer");

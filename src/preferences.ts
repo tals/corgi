@@ -58,6 +58,8 @@ export class Preferences {
   prefix: Prefix = "ctrl_b";
   /** Action overrides; omitted actions inherit the selected preset. */
   keys: keybindings.Config = {};
+  instant_typing: "auto" | "off" = "auto";
+  dim_predictions = true;
   onboarding_complete = false;
   /** Unset follows this viewer's locale; CORGI_LANG overrides an explicit choice. */
   language: locale.Locale | undefined = undefined;
@@ -187,6 +189,7 @@ const enums = {
   agent_sort: ["activity", "manual"],
   preset: ["corgi", "tmux", "herdr", "cmux"],
   prefix: ["ctrl_b", "ctrl_a"],
+  instant_typing: ["auto", "off"],
 } as const;
 export function readExisting(file: string): Preferences | null {
   try {
@@ -204,7 +207,7 @@ export function readExisting(file: string): Preferences | null {
       if (!(values as readonly string[]).includes(d[key])) return null;
       (v as any)[key] = d[key];
     }
-    for (const key of ["onboarding_complete"] as const) {
+    for (const key of ["onboarding_complete", "dim_predictions"] as const) {
       if (!(key in d)) continue;
       if (typeof d[key] !== "boolean") return null;
       v[key] = d[key];

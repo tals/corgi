@@ -100,3 +100,6 @@ $.view.controls[].name: string
 $.view.controls[].value: string
 $.view.viewer: u32
 $.view.detach: bool
+$.view.surfaces[].input_ack: optional
+$.view.surfaces[].input_ack?.epoch: string
+$.view.surfaces[].input_ack?.sequence: u64

@@ -16,10 +16,18 @@ Each backend answers with a canned sandbox reply; the input boxes, key handling
 and rendering are the installed apps' own. Their helper owns the backend and
 Codex app server, and closes them with the tab. No real remote hosts are involved.
 
+To try Predictive Rendering, type a character in a shell, `cat`, or the fake
+agent's sign-in prompt and wait for its remote echo. Start with a nonblank ASCII
+character; further typing and ordinary editing within the learned line appear locally.
+Unsupported controls and mismatches reset this training. Confirmed echo can retrain on
+the same row. Setup → Remote → Predictive Rendering's **On (dim unacknowledged typing)**,
+the default, shades the preview gray until confirmed.
+
 Latency is one-way, so 1000 ms adds at least two seconds to authoritative echo.
 The fake agents have bounded multiline composers: arrows move the caret,
 Backspace/Delete edit around it, and Shift/Alt+Enter insert newlines. Their key
-parser handles split escape sequences and bracketed pastes.
+parser handles split escape sequences and bracketed pastes. Recognized composers
+can predict the first edit without the shell's echo-training step.
 
 **Prefix + ~** opens developer connectivity on any machine, including real ones.
 The split console lists machines under **Remote** on the left. Click a machine,

@@ -21,6 +21,7 @@ import * as agentMessage from "./agent_message";
 import * as dockingSession from "./docking_session";
 import { Row } from "./launch/row";
 import type { Provider } from "./providers";
+import type { InputReceipt } from "./pane/surface";
 export type Context = { socket: string; executable: string; theme: any };
 /** The account a request names for `provider`: "" for the default. */
 function named(provider: Provider, spelled: string) {
@@ -42,6 +43,7 @@ export type Result = {
   text?: string | null;
   delivery?: protocol.Delivery;
   queued?: boolean;
+  input_receipt?: InputReceipt;
 };
 export function location(r: Runtime, pane: number): protocol.Result {
   const ws = r.workspaces.owner(pane);
@@ -414,7 +416,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
       p.detection.observeInput(request.payload.data, Date.now() * 1000);
       if (p.typed(request.payload.data)) r.changed();
       await p.terminal.send(request.payload.data);
-      return location(r, request.payload.target);
+      return { ...location(r, request.payload.target), input_receipt: p.terminal.input_ack.receipt };
     }
     default:
       return arrangeInner(r, request);

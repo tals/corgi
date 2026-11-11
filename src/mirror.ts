@@ -33,6 +33,7 @@ import {
   type Snapshot as Worktrees,
 } from "./worktrees";
 import type { Progress as ImageProgress } from "./image_upload";
+import { Prediction, timeout_ms, type Target as PredictionTarget } from "./instant_input";
 
 export interface Transport {
   /** The daemon over HTTP, for a request that may outlast this connection. */
@@ -43,6 +44,7 @@ export interface Transport {
   /** Whether the daemon sends this viewer `viewer.wake`. */
   watches?(): boolean;
   remote?: boolean;
+  predictionMs?(): number;
   image?: (path: string, mime: string, progress?: ImageProgress) => Promise<string>;
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
 }
@@ -114,6 +116,10 @@ export class Terminal {
   private installed: surface.View | null = null;
   private changed_rows = new Uint16Array(0);
   private rendered: { key: string; rows: string } | null = null;
+  private prediction = new Prediction(() => this.conn.predictionMs?.() ?? timeout_ms);
+  private predicted: NativeTerminal | null = null;
+  private projected: surface.Surface | null = null;
+  private received: surface.View | null = null;
 
   constructor(
     public conn: Transport,
@@ -152,6 +158,7 @@ export class Terminal {
     return this.inner.handle;
   }
   hyperlinks(): Link[] {
+    if (this.prediction.surface()) return [];
     this.updateRender();
     return (this.links ??= this.inner.hyperlinks());
   }
@@ -177,6 +184,10 @@ export class Terminal {
   }
   destroy(): void {
     if (this.closed) return;
+    this.predicted?.destroy();
+    this.predicted = null;
+    this.projected = null;
+    this.received = null;
     this.closed = true;
     this.native?.destroy();
     this.native = null;
@@ -276,6 +287,7 @@ export class Terminal {
     if (this.pending.length + data.length > 1024 * 1024) throw Error("InputBackpressure");
     this.motion = null;
     for (const byte of data) this.pending.push(byte);
+    this.prediction.input(bytes);
   }
   /** Whether a paste is on its way: arriving, waiting to be sent, or sent
    * and unanswered. A pane takes one paste at a time, so what waits for a
@@ -360,9 +372,12 @@ export class Terminal {
       this.paste_sending++;
       this.paste_split ||= this.paste_open;
     }
+    const through = this.prediction.sequence;
     this.sending += keys;
     try {
-      await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
+      const reply = await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
+      if (reply.result?.input_receipt)
+        this.prediction.delivered(through, surface.inputReceipt(reply.result.input_receipt));
     } catch (error) {
       if (!errors.is(error, "NoPane")) throw error;
     } finally {
@@ -382,6 +397,8 @@ export class Terminal {
     const view = surface.view(value);
     const frame = view.surface;
     if (!frame || frame.cols === 0 || frame.rows === 0) return;
+    this.received = view;
+    this.prediction.receive(view);
     const previous = this.installed;
     let changed: Uint16Array | undefined;
     if (
@@ -440,7 +457,7 @@ export class Terminal {
   }
   /** The render state's cursor in the viewport, when visible. */
   cursor(): { x: number; y: number } | null {
-    return viewerNative.cursor(this.handle, true);
+    return viewerNative.cursor(this.displayHandle(), true);
   }
   /** The cursor shape its program asked for. */
   cursorStyle(): surface.CursorStyle {
@@ -451,11 +468,36 @@ export class Terminal {
     return viewerNative.cursor(this.handle, false);
   }
   rows(pane: number, x: number, y: number, w: number, h: number, dimmed: boolean, hovered: bigint | null): string {
+    if (this.predicting()) return viewerNative.rows(this.displayHandle(), pane, x, y, w, h, dimmed, hovered);
     this.updateRender();
     const key = `${pane}:${x}:${y}:${w}:${h}:${dimmed}:${hovered}`;
     if (this.rendered?.key !== key)
       this.rendered = { key, rows: viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered) };
     return this.rendered.rows;
+  }
+  predicting(): boolean {
+    return !!this.prediction.surface() && !this.holding_selection && !this.selection && this.atBottom();
+  }
+  instant(provider: PredictionTarget | null, context = "", dim = false): void {
+    this.prediction.configure(
+      this.conn.remote && this.atBottom() && !this.selection && !this.holding_selection ? provider : null,
+      context,
+      dim,
+    );
+  }
+  resetPrediction(): void {
+    this.prediction.reset();
+  }
+  private displayHandle() {
+    const frame = this.prediction.surface();
+    if (!frame || !this.received || this.holding_selection || this.selection || !this.atBottom()) return this.handle;
+    if (frame !== this.projected) {
+      this.predicted ??= NativeTerminal.create(frame.cols, frame.rows);
+      viewerNative.receiveFrame(this.predicted.handle, { ...this.received, surface: frame });
+      viewerNative.updateRender(this.predicted.handle);
+      this.projected = frame;
+    }
+    return this.predicted!.handle;
   }
 }
 

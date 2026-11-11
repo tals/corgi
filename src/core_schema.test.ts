@@ -170,7 +170,7 @@ test("the runtime wire matches protocol.version", () => {
   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
   expect(protocol.management_version).toBe(1);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "d60835ecd2c4a44066fb9ec971b6bf94227de49f90506c3203d83e34e57cfb6d",
+    "c14e97dd5f042567ed63e414d43a8a3b632800864224d60143ea85cc8bff870e",
   );
   const { server, client, dispose } = fixture();
   try {
@@ -235,7 +235,7 @@ test("every agent view a snapshot carries lists the same fields", () => {
 test("the viewer wire matches viewer_version.version", async () => {
   expect(protocol.viewer_version).toBe(4);
   expect(createHash("sha256").update(schemas.viewer).digest("hex")).toBe(
-    "02c529552ab0ee6562f3fcc15cb1a8cbfd55d73983b5a725035cea17361d60d9",
+    "651216e9633e81cd092e16947c51d77e9411ceb6e845be672d381205a857f04e",
   );
   const { server, client, dispose } = fixture();
   let view: any;
