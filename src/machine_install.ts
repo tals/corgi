@@ -66,8 +66,8 @@ export async function install(
         }
         if ((await hello(daemon))?.build_id !== incoming.build_id) throw Error("UpdateRuntimeChanged");
       }
-      os.atomicWrite(join(root, "previous"), current + "\n", 0o600);
-      os.atomicWrite(join(root, "current"), version + "\n", 0o600);
+      os.atomicWrite(join(root, "previous"), current, 0o600);
+      os.atomicWrite(join(root, "current"), version, 0o600);
       return target;
     } finally {
       unlock();

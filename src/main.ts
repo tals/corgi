@@ -418,7 +418,6 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "start":
       if (args[1] !== "--update-routed") await updates.startup(daemon, executable, ["start"]);
       await ensureServer(daemon);
-      updates.background(daemon, executable);
       return;
     case "__update-start":
       // XXX: Remove for next protocol bump. An older build's updater runs this
@@ -433,7 +432,6 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       if (args[1] !== "--update-routed")
         await updates.startup(daemon, executable, ["attach"], command === "--no-update");
       await ensureServer(daemon);
-      updates.background(daemon, executable);
       await (await import("./state_report")).showRepairs(path);
       const client = await import("./client");
       // `--machine local` is the local viewer alone.
@@ -455,7 +453,6 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       if (!process.stdin.isTTY || !process.stdout.isTTY) throw Error("TerminalRequired");
       if (!routed) await updates.startup(daemon, executable, ["open", folder]);
       await ensureServer(daemon);
-      updates.background(daemon, executable);
       await (await import("./state_report")).showRepairs(path);
       try {
         crash.init("viewer");

@@ -3,6 +3,7 @@ import {
   chmodSync,
   closeSync,
   copyFileSync,
+  createReadStream,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -14,8 +15,8 @@ import {
   rmSync,
   unlinkSync,
 } from "node:fs";
+import { open } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { atomicWrite } from "./os";
 import { flock } from "./native_bridge";
@@ -86,6 +87,9 @@ const read = (root: string, name: string): string | null => {
     throw error;
   }
 };
+type Pointer = "current" | "previous" | "staged" | "suppressed";
+/** The release a pointer file names. Machine setup used to end them with a newline. */
+const pointer = (root: string, name: Pointer): string | null => read(root, name)?.trim() ?? null;
 const write = (root: string, name: string, value: string) => atomicWrite(join(root, name), value);
 const remove = (root: string, name: string) => {
   try {
@@ -111,7 +115,7 @@ export function managed(rel: Release, exe: string): string | null {
   )
     return null;
   const root = dirname(dirname(dirname(exe)));
-  if (read(root, "current") === null) return null;
+  if (pointer(root, "current") === null) return null;
   privateDirectory(root);
   return root;
 }
@@ -139,7 +143,7 @@ export function activating(exe: string): boolean {
  * belongs to names current; null for a build no install manages. */
 export function currentOf(exe: string): (() => string | null) | null {
   const root = managed(release(exe), exe);
-  return root === null ? null : () => read(root, "current");
+  return root === null ? null : () => pointer(root, "current");
 }
 /** The Omarchy plugin folder that installed the Corgi at `root`, as its
  * installer recorded it, or null. Corgi removes itself when that folder goes. */
@@ -169,11 +173,12 @@ export function forget(root: string): void {
       unlinkSync(launcher);
   } catch {}
 }
-async function lock(root: string, name: string, wait: boolean): Promise<(() => void) | null> {
+async function lock(root: string, name: string, wait: boolean, signal?: AbortSignal): Promise<(() => void) | null> {
   const fd = openSync(join(root, name), "a", 0o600);
   while (!flock(fd)) {
-    if (!wait) {
+    if (!wait || signal?.aborted) {
       closeSync(fd);
+      if (signal?.aborted) throw signal.reason;
       return null;
     }
     await Bun.sleep(20);
@@ -246,35 +251,90 @@ function secure(rel: Release, url: string) {
   if (!url.startsWith("https://") && !(rel.test_mode && url.startsWith("http://127.0.0.1:")))
     throw Error("InsecureUpdateURL");
 }
-async function fetchBytes(rel: Release, url: string, limit: number): Promise<Buffer> {
+/** The body the feed serves at `url`, following redirects, in chunks of at most `limit` bytes in all. */
+async function* fetchChunks(
+  rel: Release,
+  url: string,
+  limit: number,
+  signal?: AbortSignal,
+): AsyncGenerator<Uint8Array> {
+  const timeout = AbortSignal.timeout(300000);
   for (let redirect = 0; redirect < 10; redirect++) {
     secure(rel, url);
-    const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(300000) });
+    const response = await fetch(url, {
+      redirect: "manual",
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    // A body that isn't read goes, rather than wait on its connection.
+    const skip = () => response.body?.cancel().catch(() => {});
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const next = response.headers.get("location");
+      await skip();
       if (!next) throw Error("UpdateSubprocessFailed");
       url = new URL(next, url).href;
       continue;
     }
-    if (!response.ok || !response.body) throw Error("UpdateSubprocessFailed");
-    if (Number(response.headers.get("content-length")) > limit) throw Error("FileTooBig");
-    const reader = response.body.getReader(),
-      chunks: Uint8Array[] = [];
+    if (!response.ok || !response.body) {
+      await skip();
+      throw Error("UpdateSubprocessFailed");
+    }
+    if (Number(response.headers.get("content-length")) > limit) {
+      await skip();
+      throw Error("FileTooBig");
+    }
+    const reader = response.body.getReader();
     let size = 0;
     try {
       for (;;) {
         const chunk = await reader.read();
-        if (chunk.done) break;
+        if (chunk.done) return;
         size += chunk.value.length;
         if (size > limit) throw Error("FileTooBig");
-        chunks.push(chunk.value);
+        yield chunk.value;
       }
     } finally {
       await reader.cancel();
     }
-    return Buffer.concat(chunks);
   }
   throw Error("UpdateSubprocessFailed");
+}
+async function fetchBytes(rel: Release, url: string, limit: number, signal?: AbortSignal): Promise<Buffer> {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of fetchChunks(rel, url, limit, signal)) chunks.push(chunk);
+  return Buffer.concat(chunks);
+}
+/** Writes release target `t` to `path` as it downloads, checking its size and
+ * hash on the way: a runtime never holds the binary in memory or reads it back. */
+async function downloadTo(rel: Release, t: Target, path: string, signal?: AbortSignal): Promise<void> {
+  const hash = createHash("sha256"),
+    file = await open(path, "w", 0o700);
+  let size = 0;
+  try {
+    for await (const chunk of fetchChunks(rel, t.url, t.size, signal)) {
+      hash.update(chunk);
+      size += chunk.length;
+      for (let offset = 0; offset < chunk.length;)
+        offset += (await file.write(chunk, offset, chunk.length - offset)).bytesWritten;
+    }
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+  if (size !== t.size || hash.digest("hex") !== t.sha256) throw Error("UpdateChecksumMismatch");
+}
+/** Whether `path` holds release target `t`, read a chunk at a time. */
+async function holds(path: string, t: Target): Promise<boolean> {
+  try {
+    const hash = createHash("sha256");
+    let size = 0;
+    for await (const chunk of createReadStream(path)) {
+      size += chunk.length;
+      hash.update(chunk);
+    }
+    return size === t.size && hash.digest("hex") === t.sha256;
+  } catch {
+    return false;
+  }
 }
 function verifyFile(path: string, t: Target): Buffer {
   const bytes = readFileSync(path);
@@ -295,62 +355,75 @@ export async function artifact(rel: Release, v: string, target: Platform, direct
   verifyFile(file, m.targets[target]!);
   return file;
 }
-async function feed(rel: Release, root: string, download: boolean, explicit: boolean): Promise<void> {
+/** Looks for a newer release, and downloads and stages it when asked; false
+ * when another download holds the lock and an automatic check gave way. */
+async function feed(
+  rel: Release,
+  root: string,
+  download: boolean,
+  explicit: boolean,
+  signal?: AbortSignal,
+): Promise<boolean> {
   const unlock = await lock(root, "download.lock", explicit);
-  if (!unlock) return;
+  if (!unlock) return false;
   try {
-    const bytes = (await fetchBytes(rel, `${rel.feed_url}/channels/${channel}.json`, 1024 * 1024)).toString(),
+    // What a download cut short by a crash or a handoff left.
+    remove(root, "download.tmp");
+    const channelUrl = `${rel.feed_url}/channels/${channel}.json`;
+    const bytes = (await fetchBytes(rel, channelUrl, 1024 * 1024, signal)).toString(),
       m = parse(rel, bytes),
-      current = read(root, "current");
+      current = pointer(root, "current");
     if (!current) throw Error("MissingInstalledVersion");
     if (compare(m.version, current) <= 0) {
       if (explicit) console.log("Corgi is up to date.");
-      return;
+      return true;
     }
-    const suppressed = read(root, "suppressed");
-    if (!explicit && suppressed && compare(m.version, suppressed) <= 0) return;
+    const suppressed = pointer(root, "suppressed");
+    if (!explicit && suppressed && compare(m.version, suppressed) <= 0) return true;
     // A stale feed doesn't take back a newer update, such as one the installer staged.
-    const staged = read(root, "staged");
-    if (staged && compare(m.version, staged) < 0) return;
+    const staged = pointer(root, "staged");
+    if (staged && compare(m.version, staged) < 0) return true;
     if (explicit) console.error(`Corgi ${m.version} is available.${download ? " Downloading…" : ""}`);
-    if (!download) return;
+    if (!download) return true;
     const dest = executable(root, m.version),
       dir = dirname(dest);
-    let binary: Buffer;
-    try {
-      binary = verifyFile(dest, own(m));
-    } catch {
-      binary = await fetchBytes(rel, own(m).url, own(m).size);
-    }
-    const unlockActivation = await lock(root, "activation.lock", true);
-    try {
-      // An install or activation may have overtaken the download.
-      const current = read(root, "current"),
-        staged = read(root, "staged");
-      if (current === null) throw Error("MissingInstalledVersion");
-      if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0)) {
-        privateDirectory(dir);
-        try {
-          verifyFile(dest, own(m));
-        } catch {
-          if (existsSync(dest)) throw Error("ExistingReleaseDiffers");
-          const partial = join(dir, "download.tmp");
-          try {
-            atomicWrite(partial, binary, 0o700);
-            verifyFile(partial, own(m));
-            renameSync(partial, dest);
-          } finally {
-            remove(dir, "download.tmp");
-          }
-        }
-        write(dir, "manifest.json", bytes);
-        write(root, "staged", m.version);
-      }
+    // Already staged; activation verifies it before it runs.
+    if (staged === m.version && existsSync(dest)) {
       remove(root, "last-error");
-      prune(root, true);
-    } finally {
-      unlockActivation?.();
+      return true;
     }
+    // A release kept for rollback needn't download again.
+    const present = await holds(dest, own(m));
+    // The download lock keeps this file to one download at a time.
+    const partial = join(root, "download.tmp");
+    try {
+      if (!present) await downloadTo(rel, own(m), partial, signal);
+      const unlockActivation = await lock(root, "activation.lock", true, signal);
+      try {
+        // An install or activation may have overtaken the download.
+        const current = pointer(root, "current"),
+          staged = pointer(root, "staged");
+        if (current === null) throw Error("MissingInstalledVersion");
+        if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0)) {
+          privateDirectory(dir);
+          if (!(await holds(dest, own(m)))) {
+            if (existsSync(dest)) throw Error("ExistingReleaseDiffers");
+            // Removed since it was checked: the next check downloads it again.
+            if (present) return true;
+            renameSync(partial, dest);
+          }
+          write(dir, "manifest.json", bytes);
+          write(root, "staged", m.version);
+        }
+        remove(root, "last-error");
+        prune(root, true);
+      } finally {
+        unlockActivation?.();
+      }
+    } finally {
+      remove(root, "download.tmp");
+    }
+    return true;
   } finally {
     unlock();
   }
@@ -383,14 +456,14 @@ export async function route(daemon: rpc_http.Client, exe: string, args: string[]
     process.execve!(target, [target, ...args], { ...process.env, CORGI_APP_EXE: target } as Record<string, string>);
 }
 function switchCurrent(root: string, v: string) {
-  const old = read(root, "current");
+  const old = pointer(root, "current");
   if (old === null) throw Error("MissingInstalledVersion");
   if (old !== v) {
     write(root, "previous", old);
     write(root, "current", v);
     prune(root);
   }
-  if (read(root, "staged") === v) remove(root, "staged");
+  if (pointer(root, "staged") === v) remove(root, "staged");
 }
 const runtimeLock = /^runtime-\d+\.lock$/;
 let holding: number | null = null;
@@ -438,8 +511,8 @@ export function prune(root: string, downloads = false) {
     const guard = openSync(join(root, "releases.lock"), "a", 0o600);
     try {
       if (!flock(guard)) return;
-      const current = read(root, "current"),
-        keep = [current, read(root, "previous"), read(root, "staged")],
+      const current = pointer(root, "current"),
+        keep = [current, pointer(root, "previous"), pointer(root, "staged")],
         dir = join(root, "releases");
       if (current === null) return;
       for (const v of readdirSync(dir))
@@ -459,6 +532,8 @@ export function prune(root: string, downloads = false) {
   } catch {}
 }
 function recordError(root: string, error: unknown) {
+  // An installation removed meanwhile stays removed.
+  if (!existsSync(join(root, "current"))) return;
   try {
     write(root, "last-error", error instanceof Error ? error.message : String(error));
   } catch {}
@@ -644,12 +719,12 @@ async function select(
   const unlock = await lock(root, "activation.lock", explicit);
   try {
     let h = await hello(daemon);
-    const current = read(root, "current");
+    const current = pointer(root, "current");
     if (current === null) throw Error("MissingInstalledVersion");
     if (h && !h.executable) throw Error("RuntimeDoesNotSupportUpdates");
     const old = h?.executable || executable(root, current);
     if (!allow || !unlock) return old;
-    const candidate = read(root, rollback ? "previous" : "staged") ?? (rollback ? null : current);
+    const candidate = pointer(root, rollback ? "previous" : "staged") ?? (rollback ? null : current);
     if (candidate === null) return old;
     if (!rollback && compare(candidate, current) < 0) return old;
     const target = executable(root, candidate);
@@ -767,10 +842,11 @@ export function state(root: string): string[] {
   return [
     `Automatic updates: ${existsSync(join(root, "auto-off")) ? "off" : "on"}`,
     ...(plugin ? [`Installed by the Omarchy plugin in ${plugin}; removing it removes Corgi`] : []),
-    ...["current", "staged", "previous", "suppressed", "last-error"].flatMap(name => {
-      const v = read(root, name);
+    ...(["current", "staged", "previous", "suppressed"] as const).flatMap(name => {
+      const v = pointer(root, name);
       return v === null ? [] : [`${name}: ${v}`];
     }),
+    ...[read(root, "last-error")].flatMap(v => (v === null ? [] : [`last-error: ${v}`])),
   ];
 }
 export async function command(args: string[], daemon: rpc_http.Client, exe: string) {
@@ -782,10 +858,8 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
   }
   if (args.length === 2 && args[0] === "auto") {
     if (args[1] === "off") write(root, "auto-off", "off");
-    else if (args[1] === "on") {
-      remove(root, "auto-off");
-      background(daemon, exe);
-    } else throw Error("Usage");
+    else if (args[1] === "on") remove(root, "auto-off");
+    else throw Error("Usage");
     return;
   }
   if (args.length === 1 && args[0] === "status") {
@@ -803,42 +877,19 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
   await select(rel, root, daemon, true, true, rollback);
   console.log("Corgi is ready.");
 }
-export function background(daemon: rpc_http.Client, exe: string) {
-  const root = managed(release(exe), exe);
-  if (!root || existsSync(join(root, "auto-off"))) return;
-  spawn(exe, ["__update-worker", daemon.socket], {
-    env: { ...process.env, CORGI_APP_EXE: exe },
-    stdio: "ignore",
-    detached: true,
-  }).unref();
-}
-async function worker(exe: string, daemon: rpc_http.Client) {
+/** Downloads a newer release for the next launch to activate, as a runtime
+ * running `exe` does about hourly while automatic updates are on; false when
+ * another download was under way. A failure is kept for `corgi update
+ * status`; one `signal` cut short isn't. */
+export async function background(exe: string, signal: AbortSignal): Promise<boolean> {
   const rel = release(exe),
     root = managed(rel, exe);
-  if (!root) return;
-  const unlock = await lock(root, `worker-${Bun.hash.wyhash(daemon.socket, 0n).toString(16)}.lock`, false);
-  if (!unlock) return;
+  if (!root || existsSync(join(root, "auto-off"))) return true;
   try {
-    let next = 0;
-    while (!existsSync(join(root, "auto-off"))) {
-      if (!(await hello(daemon))) return;
-      const now = Date.now();
-      if (now >= next) {
-        try {
-          await feed(rel, root, true, false);
-        } catch (error) {
-          recordError(root, error);
-        }
-        next = now + 3600000 + Math.random() * 300000;
-      }
-      const wake = Date.now() + 30000;
-      while (Date.now() < wake) {
-        if (existsSync(join(root, "auto-off")) || !existsSync(daemon.socket)) return;
-        await Bun.sleep(250);
-      }
-    }
-  } finally {
-    unlock();
+    return await feed(rel, root, true, false, signal);
+  } catch (error) {
+    if (!signal.aborted) recordError(root, error);
+    throw error;
   }
 }
 // The installer writes the launcher that runs the current release.
@@ -847,7 +898,7 @@ async function install(rel: Release, exe: string, root: string, manifest: string
   privateDirectory(root);
   const unlock = await lock(root, "activation.lock", true);
   try {
-    const current = read(root, "current");
+    const current = pointer(root, "current");
     if (current !== null && compare(rel.version, current) <= 0) throw Error("AlreadyInstalled");
     const bytes = readFileSync(manifest, "utf8"),
       m = parse(rel, bytes);
@@ -865,7 +916,7 @@ async function install(rel: Release, exe: string, root: string, manifest: string
     write(dir, "manifest.json", bytes);
     // Over an older installation it stages the release, as a background download would; the next launch activates it.
     if (current !== null) {
-      const staged = read(root, "staged");
+      const staged = pointer(root, "staged");
       if (staged === null || compare(staged, rel.version) < 0) write(root, "staged", rel.version);
       return;
     }
@@ -906,10 +957,6 @@ export async function internal(args: string[], exe: string): Promise<boolean> {
       console.log(json.stringify(await check.run(args[2], args[1], exe)));
       return true;
     }
-    case "__update-worker":
-      if (args.length !== 2) return false;
-      await worker(exe, new rpc_http.Client(args[1]));
-      return true;
     case "__install":
       if (args.length !== 3) return false;
       await install(release(exe), exe, args[1], args[2]);

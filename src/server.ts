@@ -35,6 +35,7 @@ import * as integration from "./integration";
 import * as observers from "./observer_service";
 import * as trackers from "./trackers";
 import * as updates from "./updates";
+import * as errors from "./errors";
 import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import { testBuild } from "./build_assets";
@@ -118,6 +119,11 @@ export class Server {
   /** The installation this daemon runs from, once looked up; deleting it uninstalls Corgi. */
   private install: string | null | undefined;
   private installChecked = 0;
+  /** When this daemon next looks for a newer release. */
+  private updateTimer: ReturnType<typeof setTimeout> | null = null;
+  private updateFailure = "";
+  /** Stops a check under way when the daemon stops. */
+  private readonly updateStop = new AbortController();
   private uninstalling = false;
   /** The folder holding the Omarchy plugin that installed this Corgi, watched
    * so that removing the plugin removes Corgi too. */
@@ -327,6 +333,7 @@ export class Server {
       this.watchInstall();
       this.listen();
       this.startLoop();
+      if (this.install) void this.checkForUpdates();
       process.on("SIGTERM", () => void this.shutdown());
       process.on("SIGINT", () => void this.shutdown());
       await this.saveWorkspaces();
@@ -1280,6 +1287,24 @@ export class Server {
         release();
       });
   }
+  /** Downloads a newer release for the next launch to activate: once the
+   * daemon starts, then about hourly. */
+  private async checkForUpdates(): Promise<void> {
+    const hourly = (testBuild && Number(process.env.CORGI_TEST_UPDATE_CHECK_MS)) || 3_600_000 + Math.random() * 300_000;
+    let wait = hourly;
+    try {
+      // Another runtime's download, or the daemon this one took over from
+      // on its way out, held the lock: look again soon.
+      if (!(await updates.background(this.executable, this.updateStop.signal))) wait = Math.min(hourly, 60_000);
+      this.updateFailure = "";
+    } catch (error) {
+      if (this.stopped) return;
+      const failure = errors.name(error) ?? String(error);
+      if (failure !== this.updateFailure) console.error("checking for updates:", failure);
+      this.updateFailure = failure;
+    }
+    if (!this.stopped) this.updateTimer = setTimeout(() => void this.checkForUpdates(), wait);
+  }
   /** Its installation at `root` was deleted: viewers see the corgi leave, the
    * launcher it left goes, and the runtime stops, keeping saved sessions. */
   private watchInstall(): void {
@@ -1342,6 +1367,9 @@ export class Server {
     if (this.stopped) return;
     this.stopped = true;
     clearInterval(this.timer);
+    // A download under way would keep this process, and its locks, alive.
+    if (this.updateTimer) clearTimeout(this.updateTimer);
+    this.updateStop.abort(Error("ServerShutdown"));
     this.signins.destroy();
     this.pluginWatch?.close();
     // Nothing new connects, and the path goes so pollers see it gone; replies

@@ -254,7 +254,7 @@ test.skipIf(!process.env.CORGI_OLD_EXE)(
   "with automatic updates on, the next start finishes an update an older updater left",
   async () => {
     const pid = await interruptedUpdate();
-    // Without the update worker `auto on` starts, which may hold the activation lock.
+    // Not `auto on`: an older release's starts its update worker, which may hold the activation lock.
     await rm(join(root, "auto-off"));
     await cli(["start"]);
     expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
@@ -453,6 +453,8 @@ test("reload from a pane uses the selected executable as its default target", as
   await exec([target, "shutdown"]);
 }, 30_000);
 test("background download stages without activating, next start works offline", async () => {
+  // The runtime's next check, not an hour away, sees automatic updates on.
+  env.CORGI_TEST_UPDATE_CHECK_MS = "200";
   await cli(["start"]);
   const old = await rpc({ op: "hello" });
   await cli(["update", "auto", "on"]);
@@ -492,7 +494,64 @@ test("signature and checksum failures leave installation and runtime untouched",
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
   expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
   expect(await Bun.file(join(root, "staged")).exists()).toBe(false);
+  expect(await Bun.file(join(root, "download.tmp")).exists()).toBe(false);
 }, 30_000);
+test("a runtime keeps looking for newer releases, also after an update", async () => {
+  const staged = () =>
+    Bun.file(join(root, "staged"))
+      .text()
+      .catch(() => "");
+  env.CORGI_TEST_UPDATE_CHECK_MS = "200";
+  await rm(join(root, "auto-off"));
+  await cli(["start"]);
+  await waitFor(async () => (await staged()) === "1.0.1");
+  // With CORGI_OLD_EXE, an older release hands over to this one.
+  await cli(["update"]);
+  expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
+  latest = "1.0.2";
+  await waitFor(async () => (await staged()) === "1.0.2");
+  expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
+}, 30_000);
+// CORGI_OLD_EXE makes 1.0.0, whose update worker downloads instead, the older release.
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a runtime that stops mid-download gives it up",
+  async () => {
+    let release = () => {};
+    const held = new Promise<void>(resolve => (release = resolve));
+    let asked = false;
+    beforeDownload = async () => {
+      asked = true;
+      await held;
+    };
+    try {
+      await rm(join(root, "auto-off"));
+      await cli(["start"]);
+      const pid = (await rpc({ op: "hello" })).server_pid;
+      await waitFor(async () => asked);
+      await cli(["shutdown"]);
+      // It exits rather than wait out the download, keeping its locks and file.
+      await waitFor(async () => {
+        try {
+          process.kill(pid, 0);
+          return false;
+        } catch {
+          return true;
+        }
+      });
+      const lock = openSync(join(root, "download.lock"), "a", 0o600);
+      try {
+        expect(flock(lock)).toBe(true);
+      } finally {
+        closeSync(lock);
+      }
+      expect(await Bun.file(join(root, "download.tmp")).exists()).toBe(false);
+      expect(await Bun.file(join(root, "last-error")).exists()).toBe(false);
+    } finally {
+      release();
+    }
+  },
+  30_000,
+);
 test("incompatible update defers noninteractively and keeps running executable", async () => {
   await cli(["start"]);
   const before = await rpc({ op: "hello" });
@@ -734,7 +793,8 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     await writeFile(manifest, manifests.get("1.0.1")!);
     const result = await exec([fixture("1.0.1"), "__machine-install", old, expected, manifest]);
     expect(JSON.parse(result.out).executable).toBe(await realpath(join(root, "releases/1.0.1/corgi")));
-    expect((await readFile(join(root, "current"), "utf8")).trim()).toBe("1.0.1");
+    expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
+    expect(await readFile(join(root, "previous"), "utf8")).toBe("1.0.0");
     expect((await rpc({ op: "session.snapshot" })).panes[0].pid).toBe(before.panes[0].pid);
     expect((await rpc({ op: "hello" })).executable).toBe(await realpath(join(root, "releases/1.0.1/corgi")));
   },
