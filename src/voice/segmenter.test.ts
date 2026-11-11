@@ -346,4 +346,9 @@ test("a segment's peak is the 90th-percentile level of its speech, without the k
     at,
     5,
   );
+  // One frame short of a tenth: the tenth's quietest frame is the softer speech.
+  expect(feed(concat(tone(0.18, 0.2), tone(1.82, 0.05), silence(3)), { pre_roll: 0 }).segments[0].peak).toBeCloseTo(
+    at,
+    5,
+  );
 });

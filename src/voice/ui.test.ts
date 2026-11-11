@@ -598,6 +598,17 @@ test("t starts a gauge: the corgi sniffs under the meter, a tick marks the loude
   expect(rows[4]).not.toContain("│");
 });
 
+test("the gauge's tick stays at the loudest level heard, not the level now", () => {
+  const { session, ui } = setup();
+  ui.input("t");
+  hum(session, 70.5, 1);
+  hum(session, 50.5, 2);
+  expect(session.gauge?.loudest).toBeCloseTo(level.rmsToPercent(level.rms(tone(0.02, level.percentToRms(70.5)))), 5);
+  const meter = screen(ui.draw(80, 20), 80, 20)[4];
+  // 70.5 is cell 14; the level, now 50.5, fills ten cells.
+  expect(meter.indexOf("│") - 10).toBe(14);
+});
+
 test("while a gauge listens only esc, q, ctrl+c, ? and m act", async () => {
   const { session, ui, calls } = setup();
   ui.input("t");
@@ -759,4 +770,18 @@ test("at the smallest size the gauge's countdown, corgi and result still show", 
   expect(rows.join("\n")).toContain("threshold 44 → 64");
   // Nothing past the last column.
   for (const row of screen(ui.draw(37, 20), 60, 20)) expect(row.slice(37).trim()).toBe("");
+});
+
+test("at the smallest window, 37 by 14 with a notice, the countdown and result show", () => {
+  const { session, ui } = setup({ notices: ["The speech filter is not installed"] });
+  ui.input("t");
+  hum(session, 61.5, 9.9);
+  let rows = screen(ui.draw(37, 14), 37, 14);
+  // The notice takes the first history row.
+  expect(rows[9]).toContain("The speech filter");
+  expect(rows[4]).toContain("T:1s");
+  hum(session, 61.5, 0.1);
+  rows = screen(ui.draw(37, 14), 37, 14);
+  expect(rows[4]).toMatch(/T:\d\d/);
+  expect(rows.join("\n")).toContain("threshold 44 → 64");
 });

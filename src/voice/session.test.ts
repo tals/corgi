@@ -3,7 +3,7 @@ import { VoiceSession } from "./session";
 import { Segmenter } from "./segmenter";
 import * as level from "./level";
 import { Events, type VoiceLink, type WatchRequest } from "./link";
-import { concat, shapes, silence, tone } from "../../tests/fixtures/voice/make_pcm";
+import { concat, music, shapes, silence, tone } from "../../tests/fixtures/voice/make_pcm";
 
 /** A link whose replies the test hands out. */
 class FakeLink implements VoiceLink {
@@ -61,6 +61,7 @@ function session(
     links?: (signal: AbortSignal) => Promise<VoiceLink>;
     timeout?: number;
     log?: (line: string) => void;
+    now?: () => number;
   } = {},
 ) {
   const link = opts.link ?? new FakeLink(),
@@ -70,7 +71,7 @@ function session(
       link: opts.links ?? (async () => link),
       transcriber: whisper,
       segmenter,
-      now: () => performance.now(),
+      now: opts.now ?? (() => performance.now()),
       deliverTimeoutMs: opts.timeout ?? 2000,
       retryMs: 20,
       log: opts.log,
@@ -604,36 +605,72 @@ test("an utterance cut at 30 s logs no post-roll, as none was applied", async ()
   );
 });
 
+/** Feeds 20 ms frames of `pcm`, moving `clock` along with them when given. */
+function play(s: VoiceSession, pcm: Int16Array, clock?: { t: number }) {
+  for (let at = 0; at < pcm.length; at += 320) {
+    if (clock) clock.t += 20;
+    s.frame(pcm.subarray(at, at + 320));
+  }
+}
 /** Feeds `seconds` of a tone at threshold-scale level `pct`, a frame at a time. */
-function hum(s: VoiceSession, pct: number, seconds = 10) {
-  const pcm = tone(seconds, level.percentToRms(pct));
-  for (let at = 0; at < pcm.length; at += 320) s.frame(pcm.subarray(at, at + 320));
+function hum(s: VoiceSession, pct: number, seconds = 10, clock?: { t: number }) {
+  play(s, tone(seconds, level.percentToRms(pct)), clock);
 }
 /** The level a tone at `pct` measures, frame by frame. */
 const measured = (pct: number) => level.rmsToPercent(level.rms(tone(0.02, level.percentToRms(pct))));
 
 test("a gauge listens 10 s, then sets the threshold just above the background", async () => {
   const lines: string[] = [],
-    { s, segmenter } = session([], { log: line => lines.push(line) });
+    clock = { t: 0 },
+    { s, segmenter, link } = session(["after the gauge"], { log: line => lines.push(line), now: () => clock.t });
   await s.connect();
   expect(s.startGauge()).toBeNull();
   expect(s.gauge).toEqual({ frames: [], loudest: 0, progress: 0 });
-  hum(s, 55.5, 5);
+  hum(s, 55.5, 5, clock);
   expect(s.gauge?.progress).toBe(0.5);
   expect(s.gauge?.loudest).toBeCloseTo(measured(55.5), 5);
-  hum(s, 55.5, 5);
+  hum(s, 55.5, 5, clock);
   expect(s.gauge).toBeNull();
   expect(segmenter.percent).toBe(58);
   expect(s.gauges).toHaveLength(1);
   expect(s.gauges[0]).toMatchObject({ old: 44, threshold: 58, outcome: "no_speech_to_compare" });
   expect(s.gauges[0].loudest).toBeCloseTo(measured(55.5), 5);
-  expect(s.gauges[0].took_ms).toBeGreaterThanOrEqual(0);
+  // Applied with the 500th frame, 10 s after the key press.
+  expect(s.gauges[0].took_ms).toBe(10000);
   expect(lines.filter(l => l.startsWith("gauge:"))).toEqual([
-    expect.stringMatching(/^gauge: threshold 44 → 58 loudest=55\.\d outcome=no_speech_to_compare took_ms=\d+$/),
+    expect.stringMatching(/^gauge: threshold 44 → 58 loudest=55\.\d outcome=no_speech_to_compare took_ms=10000$/),
   ]);
-  // The same hum now starts nothing.
-  hum(s, 55.5, 3);
+  // The same hum now starts nothing, and speech above the threshold is typed as before.
+  hum(s, 55.5, 3, clock);
   expect(s.history).toEqual([]);
+  speak(s);
+  await until(() => s.history[0]?.status === "delivered");
+  expect(link.calls.map(c => c.value)).toEqual(["after the gauge"]);
+  expect(s.muted).toBe(false);
+});
+
+test("a gauge replays with the timings in effect, not the defaults", async () => {
+  const { s, segmenter } = session([]);
+  await s.connect();
+  segmenter.setTiming("min_speech", 1);
+  s.startGauge();
+  play(s, music(10, 7));
+  // With the helper's 0.5 s silence alone this music gives 63, with the defaults 81.
+  expect(segmenter.percent).toBe(61);
+});
+
+test("quitting during a gauge ends it, with no row and the threshold as it was", async () => {
+  const lines: string[] = [],
+    { s, segmenter } = session([], { log: line => lines.push(line) });
+  await s.connect();
+  s.startGauge();
+  hum(s, 60, 4);
+  s.close();
+  expect(s.gauge).toBeNull();
+  // Frames that still come in finish no gauge.
+  hum(s, 60, 6);
+  expect([s.gauge, s.gauges, segmenter.percent]).toEqual([null, [], 44]);
+  expect(lines.filter(l => l.startsWith("gauge:"))).toEqual([]);
 });
 
 test("without a microphone a gauge does not start", async () => {
@@ -766,4 +803,18 @@ test("delivered utterances keep their peak, and a gauge above most of them warns
   s.startGauge();
   hum(s, 50.5);
   expect(s.gauges.at(-1)).toMatchObject({ outcome: "applied", threshold: 53 });
+});
+
+test("only delivered utterances count against a gauge's result", async () => {
+  const { s } = session(["loud words", "", ""]);
+  await s.connect();
+  speak(s);
+  // Two quiet ones, above 44 but under the music to come; Whisper hears nothing in them.
+  for (let i = 0; i < 2; i++) play(s, concat(tone(1.5, level.percentToRms(50.5)), silence(3)));
+  await until(() => s.history.filter(u => u.status === "dropped" && u.reason === "empty").length === 2);
+  expect(s.history.filter(u => u.status === "delivered")).toHaveLength(1);
+  s.startGauge();
+  hum(s, 55.5);
+  // Two of three peaks are under 58, but neither was delivered.
+  expect(s.gauges.at(-1)).toMatchObject({ outcome: "applied", threshold: 58 });
 });
