@@ -331,7 +331,13 @@ export class State {
         if (this.customizing) this.start(t.id, t.index);
         else {
           const e = this.entry(t.id);
-          return { name: "action", action: e.indexed ? { name: e.action.name, value: 1 } : e.action };
+          return {
+            name: "action",
+            action:
+              e.action.name === "tab" || e.action.name === "goto-workspace"
+                ? { name: e.action.name, value: 1 }
+                : e.action,
+          };
         }
         return null;
       }

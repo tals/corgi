@@ -90,6 +90,7 @@ import * as signalBars from "./signal_bars";
 import * as gitTooltip from "./git_tooltip";
 import type { Signal } from "./trackers/resources";
 import * as worktreeTooltip from "./worktree_tooltip";
+import * as viewerRef from "./viewer_ref";
 import * as worktreeAgents from "./worktree_agents";
 import * as agentSections from "./agent_sections";
 import * as agentRows from "./agent_rows";
@@ -517,7 +518,10 @@ export class Controller {
   git_aim: gitTooltip.Aim | null = null;
   worktree_card = new worktreeTooltip.State();
   /** The worktree the overview selects once the removed one is gone. */
-  private removal_next: string | null = null;
+  private removals = new Map<
+    worktreeRemoval.Hold,
+    { owner: viewerRef.Workspace; runtime: Machine["runtime"]; next: string | null }
+  >();
   startup_card: startupCard.State | null = null;
   private startup_second = 0;
   resource_card = new resourceTooltip.State();
@@ -610,6 +614,7 @@ export class Controller {
 
   /** Every machine this viewer shows, the current one among them. */
   machines: Machine[] = [];
+  private readonly machines_by_id = new Map<number, Machine>();
   /** The machine whose workspaces the sidebar lists, or null for all. */
   machine_filter: Machine | null = null;
   /** Shows another machine, on one of its workspaces or agents when given:
@@ -661,6 +666,7 @@ export class Controller {
   adopt(machine: Machine): void {
     if (this.machines.includes(machine)) return;
     this.machines.push(machine);
+    this.machines_by_id.set(machine.id, machine);
     machine.failed = error => this.taskFailed(error);
     // A finished task wakes the loop for what it changed.
     machine.settled = () => {
@@ -714,6 +720,19 @@ export class Controller {
     this.sidebar_rows.discard();
     this.launch_previews.disconnect();
     this.dirty = true;
+  }
+  workspaceRef(workspace: number, machine = this.machine): viewerRef.Workspace {
+    return { machine: machine.id, workspace };
+  }
+  private resolveWorkspace(ref: viewerRef.Workspace | null): { machine: Machine; workspace: Workspace } | null {
+    if (!ref) return null;
+    const machine = this.machines_by_id.get(ref.machine),
+      workspace = machine?.runtime.workspaces.items.find(ws => ws.id === ref.workspace);
+    return machine && workspace ? { machine, workspace } : null;
+  }
+  /** Numeric action arguments belong to the selected machine; refs keep their owner. */
+  private actionWorkspace(value: number | viewerRef.Workspace | undefined): viewerRef.Workspace {
+    return typeof value === "object" ? value : this.workspaceRef(value || this.current().id);
   }
   /** A sidebar row's id: a daemon's workspace id, set apart for each machine
    * so ids from different daemons never meet. The first machine's rows keep
@@ -1303,6 +1322,12 @@ export class Controller {
     this.repeat_until = again ? Date.now() + bindings.repeat_ms : 0;
     return again && !this.sidebar_focus && !this.reviewKeys();
   }
+  selectPane(ref: viewerRef.Pane): void {
+    const machine = this.machines_by_id.get(ref.machine);
+    if (!machine?.runtime.pane(ref.pane)) return;
+    if (machine !== this.machine) this.onMachine(machine, { pane: ref.pane });
+    else this.focusPane(ref.pane);
+  }
   focusPane(id: number, remember = true): void {
     const owner = this.runtime.workspaces.owner(id);
     if (!owner) throw Error("NoPane");
@@ -1866,7 +1891,7 @@ export class Controller {
       });
   }
   /** The agent list; `unfolded` keeps the agents of folded sections. */
-  agentEntries(workspace?: number, unfolded = false): Entry[] {
+  agentEntries(workspace?: number, unfolded = false, owner = this.machine): Entry[] {
     let entries: Entry[] = [];
     const focus = this.model().count > 0 ? this.nav().tab().focus : 0;
     // Activity sorting sections the sidebar's list; a single workspace's,
@@ -1876,7 +1901,7 @@ export class Controller {
     const grouped = workspace === undefined && !sectioned && this.prefs.agents === "all";
     const machines =
       workspace !== undefined || this.prefs.agents !== "all"
-        ? [this.machine]
+        ? [owner]
         : this.machine_filter
           ? [this.machine_filter]
           : this.machines;
@@ -1894,6 +1919,7 @@ export class Controller {
         shown = machine === this.machine;
       const totals = grouped ? this.workspaceEntries(machine) : [];
       const keyed = (entry: Entry): Entry => {
+        if (workspace !== undefined) return entry;
         const target = entry.target;
         const key = (id: number) => this.agentKey(id, machine);
         return {
@@ -2019,11 +2045,12 @@ export class Controller {
     }
     for (const entry of entries) {
       if (!sidebar.isAgent(entry.target)) continue;
-      const owner = this.agentTarget(entry.target);
-      const runtime = owner.machine.runtime;
+      const resolved =
+        workspace === undefined ? this.agentTarget(entry.target) : { machine: owner, target: entry.target };
+      const runtime = resolved.machine.runtime;
       const conversation = runtime.conversations.find(c => c.id === entry.conversation);
       if (conversation) entry.context = contextView(conversation.context);
-      if (owner.machine === this.machine && "pane" in entry.target)
+      if (resolved.machine === this.machine && "pane" in entry.target)
         entry.notes = this.review.noteCount(entry.target.pane);
     }
     return entries;
@@ -2106,6 +2133,7 @@ export class Controller {
       if ("worktree" in target) return this.toggleWorktree({ workspace: target.workspace, path: target.worktree });
       if (!sidebar.isAgent(away.target)) return;
       this.closeMenu();
+      if ("pane" in away.target) return this.selectPane({ machine: away.machine.id, pane: away.target.pane });
       return this.onMachine(away.machine, away.target);
     }
     if ("worktree" in target) return this.revealWorktree({ workspace: target.workspace, path: target.worktree }, true);
@@ -2453,38 +2481,47 @@ export class Controller {
   /** Follows the daemon's report on a removal under way: its progress, then
    * how it ended. Reports of an earlier removal are not this one's. */
   private followRemoval(): void {
-    const card = this.worktree_card,
-      hold = card.removal,
-      t = hold.target;
-    if (hold.phase !== "removing" || !t || !hold.job) return;
-    const report = this.runtime.workspaces.items.find(w => w.id === t.workspace)?.worktree_removal ?? null;
-    if (report?.id !== hold.job) return;
-    hold.report = report;
-    const now = milliTimestamp();
-    switch (report.phase) {
-      case "done":
-        hold.settle(now, null);
-        if (card.selected === t.path) card.select(this.removal_next);
-        break;
-      case "stopped":
-        hold.stopped(now);
-        break;
-      case "failed": {
-        const reason = removalReason(report.error),
-          name = t.name;
-        hold.settle(now, reason);
-        if (card.workspace !== t.workspace) this.notice(i18n.t` Couldn't remove ${name}: ${reason}`);
-        break;
+    const card = this.worktree_card;
+    for (const [hold, removal] of this.removals) {
+      const t = hold.target;
+      if (
+        hold.phase !== "removing" ||
+        !t ||
+        removal.runtime !== this.machines_by_id.get(removal.owner.machine)?.runtime
+      ) {
+        this.removals.delete(hold);
+        continue;
       }
-      default:
-        break;
+      const report = this.resolveWorkspace(removal.owner)?.workspace.worktree_removal ?? null;
+      if (!hold.job || report?.id !== hold.job) continue;
+      hold.report = report;
+      const now = milliTimestamp(),
+        shown = card.removal === hold && viewerRef.sameWorkspace(card.workspace, removal.owner);
+      switch (report.phase) {
+        case "done":
+          hold.settle(now, null);
+          if (shown && card.selected === t.path) card.select(removal.next);
+          break;
+        case "stopped":
+          hold.stopped(now);
+          break;
+        case "failed": {
+          const reason = removalReason(report.error),
+            name = t.name;
+          hold.settle(now, reason);
+          if (!shown) this.notice(i18n.t` Couldn't remove ${name}: ${reason}`);
+          break;
+        }
+        default:
+          break;
+      }
     }
   }
   /** The panes of the agents listed under a worktree, folded or not. */
-  private worktreePanes(selection: worktreeAgents.Selection): number[] {
-    const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace)?.worktrees;
+  private worktreePanes(selection: worktreeAgents.Selection, machine = this.machine): number[] {
+    const snapshot = machine.runtime.workspaces.items.find(ws => ws.id === selection.workspace)?.worktrees;
     if (!snapshot) return [];
-    return this.agentEntries(selection.workspace).flatMap(e =>
+    return this.agentEntries(selection.workspace, false, machine).flatMap(e =>
       "pane" in e.target && worktreeAgents.belongs(snapshot, selection.path, e) ? [e.target.pane] : [],
     );
   }
@@ -3313,15 +3350,7 @@ export class Controller {
         else this.notice(i18n.t`Add a machine with corgi machine add NAME`);
         break;
       case "worktrees": {
-        const id = Number(act.value) || this.current().id;
-        if (this.runtime.workspaces.index(id) === null) break;
-        this.closeMenu();
-        this.sidebar_open = true;
-        this.worktree_card.workspace = id;
-        this.worktree_card.pinned = true;
-        this.worktree_card.anchor =
-          sidebar.worktreeBadge(this.sidebarView([]), this.workspaceRows(), this.rowKey(id))?.y ?? 3;
-        this.dirty = true;
+        this.openWorktreeCard(this.actionWorkspace(act.value), true);
         break;
       }
       case "worktree-close":
@@ -3331,9 +3360,10 @@ export class Controller {
         this.dirty = true;
         break;
       case "resources": {
-        const id = Number(act.value) || this.current().id,
+        const owner = this.resolveWorkspace(this.actionWorkspace(act.value));
+        if (!owner) break;
+        const id = this.rowKey(owner.workspace.id, owner.machine),
           card = this.resource_card;
-        if (this.runtime.workspaces.index(id) === null) break;
         if (!this.prefs.resources.enabled) {
           this.notice(i18n.t` Resource readings are off: turn them on in Corgi setup → Resources`);
           break;
@@ -3417,13 +3447,13 @@ export class Controller {
       case "worktree-prev": {
         if (this.worktreeDetail() === null) break;
         this.worktree_card.pinned = true;
-        const ws = this.runtime.workspaces.items.find(w => w.id === this.worktree_card.workspace);
+        const ws = this.resolveWorkspace(this.worktree_card.workspace)?.workspace;
         this.worktree_card.move(ws?.worktrees ?? null, act.name === "worktree-next" ? 1 : -1);
         this.dirty = true;
         break;
       }
       case "worktree-select": {
-        const ws = this.runtime.workspaces.items.find(w => w.id === this.worktree_card.workspace);
+        const ws = this.resolveWorkspace(this.worktree_card.workspace)?.workspace;
         if (worktrees.linked(ws?.worktrees ?? null).some(entry => entry.path === act.value))
           this.worktree_card.select(String(act.value));
         this.dirty = true;
@@ -3431,20 +3461,21 @@ export class Controller {
       }
       case "worktree-enter": {
         const selection = this.browsingWorktree();
-        if (selection) this.enterWorktree(selection);
+        if (selection) this.enterWorktreeAt(selection);
         break;
       }
       case "worktree-review": {
         const selection = this.browsingWorktree();
-        if (selection) this.reviewWorktree(selection);
+        if (selection && this.selectWorktreeOwner(selection.owner))
+          this.reviewWorktree({ workspace: selection.owner.workspace, path: selection.path });
         break;
       }
       case "worktree-refresh": {
-        const id = this.worktreeDetail();
-        if (id === null) break;
-        this.later(async lane => {
+        const owner = this.resolveWorkspace(this.worktreeDetail());
+        if (!owner) break;
+        owner.machine.tasks.start(async lane => {
           try {
-            await lane.call("worktree.brief", { workspace: id });
+            await lane.call("worktree.brief", { workspace: owner.workspace.id });
           } catch (error) {
             if (lost(error)) throw error;
             this.notice(i18n.t` Worktree briefs: the runtime did not accept the refresh`);
@@ -3459,13 +3490,16 @@ export class Controller {
         if (this.worktreeDetail() === null) break;
         const card = this.worktree_card,
           confirming = act.name === "worktree-confirm",
-          ws = this.runtime.workspaces.items.find(w => w.id === card.workspace),
+          owner = card.workspace!,
+          resolved = this.resolveWorkspace(owner),
+          ws = resolved?.workspace,
           entries = card.entries(ws?.worktrees ?? null),
           index = confirming ? entries.findIndex(e => e.path === card.removal.target?.path) : card.index(entries),
           checkout = entries[index];
-        if (!ws || !checkout) break;
+        if (!resolved || !ws || !checkout) break;
         const selection = { workspace: ws.id, path: checkout.path },
-          panes = this.worktreePanes(selection);
+          machine = resolved.machine,
+          panes = this.worktreePanes(selection, machine);
         card.select(checkout.path);
         this.dirty = true;
         const target = confirming ? card.removal.target! : worktreeRemoval.target(ws.id, checkout, index, panes.length);
@@ -3476,10 +3510,16 @@ export class Controller {
         }
         if (!(confirming ? card.removal.confirm(now) : card.removal.press(now, target, card.removalEffect()))) break;
         const removal = card.removal,
-          held = removal.target;
+          held = removal.target,
+          pending = {
+            owner,
+            runtime: machine.runtime,
+            next: (entries[index + 1] ?? entries[index - 1])?.path ?? null,
+          };
+        this.removals.set(removal, pending);
         // Replies settle this removal only; a later hold has its own target.
         const ours = () => removal.target === held;
-        this.later(async lane => {
+        machine.tasks.start(async lane => {
           try {
             for (const id of panes) await this.edit({ "pane.close": { target: id } }, lane);
           } catch (error) {
@@ -3493,11 +3533,10 @@ export class Controller {
             const reply = await lane.call("worktree.remove", { ...selection, ...confirmed });
             if (!ours()) return;
             removal.job = Number(reply.removal) || 0;
-            this.removal_next = (entries[index + 1] ?? entries[index - 1])?.path ?? null;
             // A daemon that removes before it answers sends no removal to follow.
             if (!removal.job) {
               removal.settle(milliTimestamp(), null);
-              if (card.selected === selection.path) card.select(this.removal_next);
+              if (card.removal === removal && card.selected === selection.path) card.select(pending.next);
             }
           } catch (error) {
             if (lost(error)) throw error;
@@ -3520,8 +3559,9 @@ export class Controller {
         const t = this.worktree_card.removal.target;
         this.worktree_card.removal.cancel(milliTimestamp());
         this.dirty = true;
-        if (this.worktree_card.removal.phase !== "removing" || !t) break;
-        this.later(async lane => {
+        const owner = this.resolveWorkspace(this.worktree_card.workspace);
+        if (this.worktree_card.removal.phase !== "removing" || !t || !owner) break;
+        owner.machine.tasks.start(async lane => {
           try {
             await lane.call("worktree.stop", { workspace: t.workspace });
           } catch (error) {
@@ -7753,7 +7793,9 @@ export class Controller {
     if (this.startup_card) {
       const rect = startupCard.geometry(this.width, this.height, this.runtime.startup_waits.length);
       if (!release && button === 0) {
-        const act = rect ? this.startup_card.hit(rect, this.runtime.startup_waits, x, y) : { name: "startup-close" };
+        const act: Action | null = rect
+          ? this.startup_card.hit(rect, this.runtime.startup_waits, x, y)
+          : { name: "startup-close" };
         if (act) await this.perform(act);
       } else if (!release && (button === 64 || button === 65))
         await this.perform({ name: button === 65 ? "startup-next" : "startup-prev" });
@@ -7770,7 +7812,7 @@ export class Controller {
     if (this.archive_dialog) {
       this.pointer = { x, y };
       this.dirty = true;
-      const action =
+      const action: Action | null =
         button === 64 || button === 65
           ? { name: "archive-scroll", value: button === 64 ? "left" : "right" }
           : button === 0
@@ -7906,7 +7948,7 @@ export class Controller {
     const worktree_rect = this.worktreeRect();
     if (worktree_rect?.contains(x, y)) {
       this.pointer = { x, y };
-      const ws = this.runtime.workspaces.items.find(w => w.id === this.worktree_card.workspace);
+      const ws = this.resolveWorkspace(this.worktree_card.workspace)?.workspace;
       const path = this.worktree_card.hit(ws?.worktrees ?? null, worktree_rect, x, y);
       if (path && (button === 35 || button === 0)) await this.perform({ name: "worktree-select", value: path });
       if (!release && button === 0) {
@@ -8523,15 +8565,9 @@ export class Controller {
     const side = this.sidebarView(entries);
     const worktree_hit = sidebar.worktreeAt(side, this.workspaceRows(), x, y);
     const worktree_row = worktree_hit ? this.rowOf(worktree_hit.id) : null;
-    if (
-      !release &&
-      button === 0 &&
-      worktree_row?.machine === this.machine &&
-      !resource_workspace_press &&
-      !this.copy_mode
-    ) {
+    if (!release && button === 0 && worktree_row && !resource_workspace_press && !this.copy_mode) {
       this.ui_mouse_down = true;
-      await this.perform({ name: "worktrees", value: worktree_row.id });
+      await this.perform({ name: "worktrees", value: this.workspaceRef(worktree_row.id, worktree_row.machine) });
       return;
     }
     if (!release && button === 0 && side.width > 0 && x === side.width - 1) {
@@ -9114,8 +9150,8 @@ export class Controller {
     if (this.account_removals.size > 0) await this.finishAccountRemovals();
     if (!valid()) return;
     const removal = this.worktree_card.removal;
+    this.followRemoval();
     if (removal.phase !== "idle") {
-      this.followRemoval();
       removal.advance(milliTimestamp());
       if (removal.animating(milliTimestamp())) this.dirty = true;
     }
@@ -9164,27 +9200,57 @@ export class Controller {
   }
   /** The workspace whose worktrees' uncommitted files to scan: the overview's, or
    * the current one while the launcher lists its checkouts. */
-  worktreeDetailWanted(): number | null {
-    return this.worktreeDetail() ?? (this.agent_launcher?.worktree.mode === "open" ? this.current().id : null);
+  worktreeDetailWanted(machine = this.machine): number | null {
+    const owner = this.worktreeDetail();
+    if (owner?.machine === machine.id) return owner.workspace;
+    return machine === this.machine && this.agent_launcher?.worktree.mode === "open" ? this.current().id : null;
   }
-  worktreeDetail(): number | null {
-    const id = this.worktree_card.workspace;
-    if (id === null || (!this.worktree_card.pinned && !this.hoverIdle()) || this.runtime.workspaces.index(id) === null)
+  worktreeDetail(): viewerRef.Workspace | null {
+    const owner = this.worktree_card.workspace,
+      resolved = this.resolveWorkspace(owner);
+    if (!owner || (!this.worktree_card.pinned && !this.hoverIdle()) || !resolved || this.stale(resolved.machine))
       return null;
-    return this.worktree_card.pinned || (this.link_tooltip.shown && this.link_tooltip.target?.worktree === id)
-      ? id
+    return this.worktree_card.pinned ||
+      (this.link_tooltip.shown && viewerRef.sameWorkspace(this.link_tooltip.target?.worktree, owner))
+      ? owner
       : null;
   }
-  /** The open overview, with its worktrees' agents counted and briefs
-   * looked up for this frame. */
+  private openWorktreeCard(owner: viewerRef.Workspace, pinned: boolean): void {
+    const resolved = this.resolveWorkspace(owner);
+    if (!resolved || this.stale(resolved.machine)) return;
+    this.closeMenu();
+    this.sidebar_open = true;
+    this.setWorktreeOwner(owner);
+    this.worktree_card.pinned = pinned;
+    this.worktree_card.anchor =
+      sidebar.worktreeBadge(this.sidebarView([]), this.workspaceRows(), this.rowKey(owner.workspace, resolved.machine))
+        ?.y ?? 3;
+    this.dirty = true;
+  }
+  private setWorktreeOwner(owner: viewerRef.Workspace): void {
+    const card = this.worktree_card;
+    if (viewerRef.sameWorkspace(card.workspace, owner)) return;
+    card.clear();
+    card.removal =
+      [...this.removals].find(
+        ([, removal]) =>
+          removal.runtime === this.machines_by_id.get(owner.machine)?.runtime &&
+          viewerRef.sameWorkspace(removal.owner, owner),
+      )?.[0] ?? new worktreeRemoval.Hold();
+    card.workspace = owner;
+  }
+  /** The open overview reads only its owning machine's snapshot. */
   private worktreeCard(): worktreeTooltip.State | null {
-    const id = this.worktreeDetail();
-    if (id === null) return null;
-    const ws = this.runtime.workspaces.items.find(ws => ws.id === id),
-      snapshot = ws?.worktrees;
-    this.worktree_card.agents = snapshot ? worktreeAgents.counts(snapshot, this.agentEntries(id)) : null;
-    this.worktree_card.briefs =
-      ws && this.runtime.inference.uses.worktrees ? new Map(ws.worktree_briefs.map(b => [b.path, b])) : null;
+    const owner = this.resolveWorkspace(this.worktreeDetail());
+    if (!owner) return null;
+    const ws = owner.workspace,
+      snapshot = ws.worktrees;
+    this.worktree_card.agents = snapshot
+      ? worktreeAgents.counts(snapshot, this.agentEntries(ws.id, false, owner.machine))
+      : null;
+    this.worktree_card.briefs = owner.machine.runtime.inference.uses.worktrees
+      ? new Map(ws.worktree_briefs.map(b => [b.path, b]))
+      : null;
     return this.worktree_card;
   }
   /** A press on the resource card: a bar button, a row to select, or a heading to sort by. */
@@ -9346,19 +9412,22 @@ export class Controller {
       if (!session.exited && session.agent?.session) open.add(`${session.provider}:${session.agent.session}`);
     return open;
   }
-  private browsingWorktree(): worktreeAgents.Selection | null {
+  private browsingWorktree(): viewerRef.Worktree | null {
     const id = this.worktreeDetail();
     if (id === null || !this.worktreeRect()) return null;
-    const snapshot = this.runtime.workspaces.items.find(ws => ws.id === id)?.worktrees,
+    const snapshot = this.resolveWorkspace(id)?.workspace.worktrees,
       entries = this.worktree_card.entries(snapshot ?? null),
       checkout = entries[this.worktree_card.index(entries)];
     if (!checkout) return null;
-    return { workspace: id, path: checkout.path };
+    return { owner: id, path: checkout.path };
   }
   /** The checkout the agent list lights: the worktree browsed in the
    * overview, else where the launcher starts agents. */
   private spotlight(): sidebar.Spotlight | null {
-    return this.browsingWorktree() ?? this.agent_launcher?.spotlight() ?? null;
+    const selected = this.browsingWorktree();
+    if (selected?.owner.machine === this.machine.id)
+      return { workspace: selected.owner.workspace, path: selected.path };
+    return this.agent_launcher?.spotlight() ?? null;
   }
   private worktreeAgentContains(x: number, y: number): boolean {
     const side = this.sidebarView([]);
@@ -9367,6 +9436,16 @@ export class Controller {
   /** Keeps a browsed worktree in the agent list. One with no agents gets its
    * newest conversations back as hibernated agents, or, with none, the agent
    * picker there; otherwise its first agent takes focus. */
+  private selectWorktreeOwner(owner: viewerRef.Workspace): boolean {
+    const resolved = this.resolveWorkspace(owner);
+    if (!resolved || this.stale(resolved.machine)) return false;
+    if (resolved.machine !== this.machine) this.onMachine(resolved.machine, { workspace: owner.workspace });
+    return resolved.machine === this.machine;
+  }
+  private enterWorktreeAt(selection: viewerRef.Worktree): void {
+    if (this.selectWorktreeOwner(selection.owner))
+      this.enterWorktree({ workspace: selection.owner.workspace, path: selection.path });
+  }
   /** Shows a worktree's agents, bringing back asleep the ones it had, then
    * runs `then`, unless the user has gone elsewhere meanwhile. */
   private enterWorktree(selection: worktreeAgents.Selection, then: () => void = () => {}): void {
@@ -9488,10 +9567,10 @@ export class Controller {
       : this.agent_since.shown(agentKey(e.target as OrderTarget), agentSections.section(e), e.focused);
   }
   private worktreeRect(): Rect | null {
-    const id = this.worktreeDetail();
-    if (id === null) return null;
-    const ws = this.runtime.workspaces.items.find(w => w.id === id);
-    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceRows(), this.rowKey(id)),
+    const owner = this.resolveWorkspace(this.worktreeDetail());
+    if (!owner) return null;
+    const ws = owner.workspace;
+    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceRows(), this.rowKey(ws.id, owner.machine)),
       shown = worktreeTooltip.listing(ws?.worktrees ?? null, this.worktree_card);
     return worktreeTooltip.geometry(
       this.width,
@@ -9505,12 +9584,13 @@ export class Controller {
   }
   private worktreeHoverContains(x: number, y: number): boolean {
     const rect = this.worktreeRect();
-    if (!rect) return false;
+    const owner = this.resolveWorkspace(this.worktree_card.workspace);
+    if (!rect || !owner) return false;
     if (rect.contains(x, y)) return true;
     const badge = sidebar.worktreeBadge(
       this.sidebarView([]),
       this.workspaceRows(),
-      this.rowKey(this.worktree_card.workspace!),
+      this.rowKey(owner.workspace.id, owner.machine),
     );
     return badge !== null && worktreeTooltip.between(rect, badge, x, y);
   }
@@ -9837,9 +9917,7 @@ export class Controller {
             this.git_card.anchor = { x: pointer.x, y: pointer.y };
           }
         }
-        const worktree = this.shownRow(
-          sidebar.worktreeAt(this.sidebarView([]), this.workspaceRows(), pointer.x, pointer.y),
-        );
+        const worktree = sidebar.worktreeAt(this.sidebarView([]), this.workspaceRows(), pointer.x, pointer.y);
         if (
           worktree &&
           worktreeTooltip.geometry(
@@ -9850,8 +9928,10 @@ export class Controller {
             worktrees.linked(worktree.worktrees).length,
           )
         ) {
-          target = { worktree: worktree.id };
-          this.worktree_card.workspace = worktree.id;
+          const row = this.rowOf(worktree.id)!;
+          const owner = this.workspaceRef(row.id, row.machine);
+          target = { worktree: owner };
+          this.setWorktreeOwner(owner);
           this.worktree_card.anchor = pointer.y;
         }
         const entries = this.sidebarEntries();
@@ -10012,7 +10092,10 @@ export class Controller {
         grip_hover: this.grip_hover,
         git_card: (tooltip_ready || this.git_card.pinned) && git_ws ? this.git_card : null,
         worktree_card: this.worktreeCard(),
-        row_key: id => this.rowKey(id),
+        row_key: (id, machine_id = this.machine.id) => {
+          const machine = this.machines_by_id.get(machine_id);
+          return machine ? this.rowKey(id, machine) : null;
+        },
         worktree_spotlight: this.spotlight(),
         message:
           this.agent_picker && (this.width < 40 || this.height < 13)

@@ -1,3 +1,4 @@
+import type { Action } from "./action";
 import type * as workspaceArchive from "./workspace_archive";
 import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
@@ -232,8 +233,8 @@ export interface Ui {
   /** The push card, shown or held open, with the row whose review shows dimmed. */
   git_card: gitTooltip.State | null;
   worktree_card: worktreeTooltip.State | null;
-  /** The sidebar row of a shown machine's workspace, which the cards name by its own id. */
-  row_key: (id: number) => number;
+  /** The sidebar row for a workspace on the given machine, or the selected one. */
+  row_key: (id: number, machine?: number) => number | null;
   /** The worktree browsed in the overview, or the checkout the launcher
    * starts agents in, whose rows stay lit while the rest of the agent list dims. */
   worktree_spotlight: sidebar.Spotlight | null;
@@ -884,15 +885,15 @@ export function frame(
     else w.write(button.buffered());
   } else if (layout && model.count === 0 && !u.workspace_loading) {
     const prefix_key = keymap.prefixName(u.prefs.prefix);
-    const hint = (name: string, label: string) => {
+    const hint = (action: Action, label: string) => {
       const binding =
-        bindings.first(u.prefs.bindings(), { name }, true) ?? bindings.first(u.prefs.bindings(), { name }, false);
+        bindings.first(u.prefs.bindings(), action, true) ?? bindings.first(u.prefs.bindings(), action, false);
       return binding
         ? `${binding.prefixed ? prefix_key + " " : ""}${bindings.format(binding)}: ${label}`
-        : `corgi action ${name}: ${label}`;
+        : `corgi action ${action.name}: ${label}`;
     };
-    const newAgent = hint("new", i18n.t`agent picker`),
-      shortcuts = hint("help", i18n.t`shortcuts`);
+    const newAgent = hint({ name: "new" }, i18n.t`agent picker`),
+      shortcuts = hint({ name: "help" }, i18n.t`shortcuts`);
     const empty = i18n.t` No panes. ${newAgent} | ${shortcuts}`;
     w.write(`\x1b[2;${side.area().x + 1}H`);
     writeEllipsis(w, empty, side.area().w);
@@ -1228,7 +1229,7 @@ export function frame(
   }
   if (u.worktree_card) {
     const id = u.worktree_card.workspace,
-      ws = id === null ? undefined : u.workspaces.find(ws => ws.id === u.row_key(id));
+      ws = id === null ? undefined : u.workspaces.find(ws => ws.id === u.row_key(id.workspace, id.machine));
     if (ws) {
       const badge = sidebar.worktreeBadge(side, u.workspaces, ws.id),
         now = milliTimestamp(),

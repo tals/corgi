@@ -1,7 +1,20 @@
 import * as i18n from "./i18n";
+import * as viewerRef from "./viewer_ref";
 export type Direction = "left" | "right" | "up" | "down";
-export type Action = { name: string; value?: string | number };
-export const specs: Record<string, string> = {
+interface Values {
+  "void": undefined;
+  "usize": number;
+  "[]const u8": string;
+  "layout.Direction": Direction;
+  "Side": "left" | "right";
+  "Split": "right" | "down";
+  "Signal": "term" | "kill";
+  "Workspace": number | viewerRef.Workspace;
+}
+export type Action = {
+  [Name in keyof typeof specs]: { name: Name; value?: Values[(typeof specs)[Name]] };
+}[keyof typeof specs];
+export const specs = {
   dock: "void",
   "cancel-dock": "void",
   "undo-layout": "void",
@@ -23,7 +36,7 @@ export const specs: Record<string, string> = {
   "workspace-prev": "void",
   "last-workspace": "void",
   "choose-workspace": "void",
-  worktrees: "usize",
+  worktrees: "Workspace",
   "worktree-next": "void",
   "worktree-prev": "void",
   "worktree-close": "void",
@@ -43,7 +56,7 @@ export const specs: Record<string, string> = {
   "startup-go": "[]const u8",
   "startup-kill": "[]const u8",
   "startup-close": "void",
-  resources: "usize",
+  resources: "Workspace",
   "resource-next": "void",
   "resource-prev": "void",
   "resource-sort": "Side",
@@ -108,19 +121,22 @@ export const specs: Record<string, string> = {
   keybindings: "void",
   onboard: "void",
   relaunch: "[]const u8",
-};
+} as const satisfies Record<string, keyof Values>;
 export function parse(name: string, value = ""): Action {
-  const type = specs[name];
   if (!Object.hasOwn(specs, name)) throw new Error("UnknownAction");
-  if (type === "void") return { name };
-  if (type === "usize") {
-    if ((name === "worktrees" || name === "resources") && !value) return { name, value: 0 };
+  const parsed = parseValue(specs[name as keyof typeof specs], value);
+  return (parsed === undefined ? { name } : { name, value: parsed }) as Action;
+}
+function parseValue(type: keyof Values, value: string): string | number | undefined {
+  if (type === "void") return undefined;
+  if (type === "usize" || type === "Workspace") {
+    if (type === "Workspace" && !value) return 0;
     if (!/^\+?\d+$/.test(value)) throw new Error("BadValue");
     const number = Number(value);
     if (!Number.isSafeInteger(number)) throw new Error("BadValue");
-    return { name, value: number };
+    return number;
   }
-  if (type === "[]const u8") return { name, value };
+  if (type === "[]const u8") return value;
   const values =
     type === "layout.Direction"
       ? ["left", "down", "up", "right"]
@@ -130,7 +146,15 @@ export function parse(name: string, value = ""): Action {
   if (type === "Split") values.splice(0, 2, "right", "down");
   if (!value && (type === "Side" || type === "Split")) value = "right";
   if (!values.includes(value)) throw new Error("BadValue");
-  return { name, value };
+  return value;
+}
+export function same(a: Action, b: Action): boolean {
+  return (
+    a.name === b.name &&
+    (typeof a.value === "object" && typeof b.value === "object"
+      ? viewerRef.sameWorkspace(a.value, b.value)
+      : a.value === b.value)
+  );
 }
 export function needsPane(action: Action): boolean {
   return [
@@ -237,4 +261,4 @@ export function title(action: Action): string {
   if (direction) return direction;
   return titles[action.name] ?? action.name.replaceAll("-", " ");
 }
-export const Action = { parse, needsPane, title };
+export const Action = { parse, same, needsPane, title };

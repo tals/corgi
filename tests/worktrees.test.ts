@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { registerCase, run } from "./support";
+import { Connection } from "../src/rpc";
 
 class Worktrees extends Runtime {
   async git(cwd: string, ...args: string[]) {
@@ -89,6 +90,28 @@ class Worktrees extends Runtime {
     await a.advance(0.5);
     this.assertIn("Checkout history", (await a.poll()).data);
     this.assertNotIn("╭┄┄┄", a.state.data);
+  }
+  async test_background_snapshot_requests_details_without_opening_a_viewer() {
+    const before = await this.session(),
+      workspace = before.workspaces[0].id;
+    await this.command("workspace.edit", { target: workspace, cwd: this.temp.name });
+    writeFileSync(join(this.temp.name, ".worktrees/search/background-file"), "work\n");
+    const connection = new Connection(this.path, { timeout_ms: 10000 });
+    try {
+      await connection.call("session.snapshot", { worktree_detail: workspace });
+      await this.until(async () => {
+        const state = await this.session();
+        return (
+          state.workspaces[0].worktrees?.entries.find((entry: any) => entry.branch === "refs/heads/feat/search")
+            ?.changes?.untracked === 1
+        );
+      });
+      this.assertEqual((await this.rpc({ op: "viewer.list" })).viewers, []);
+      this.assertEqual((await this.session()).panes.length, before.panes.length);
+      await connection.call("session.snapshot", { worktree_detail: null });
+    } finally {
+      connection.close();
+    }
   }
 }
 registerCase("Worktrees", Worktrees);

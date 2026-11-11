@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { table, lookup, chord, find, prefixedSequence } from "./bindings";
+import { table, lookup, chord, find, first, prefixedSequence, type Binding } from "./bindings";
 import type { Preset } from "./keymap";
 test("no preset binds a key twice", () => {
   for (const preset of ["corgi", "tmux", "herdr", "cmux"] as Preset[]) {
@@ -45,6 +45,18 @@ test("each action shows its first binding", () => {
     expect(binding.prefixed).toBe(prefixed);
   }
   expect(find("tmux", { name: "resize-mode" })).toBeNull();
+});
+test("bindings match copied workspace targets by machine and workspace id", () => {
+  const binding: Binding = {
+    key: 119,
+    mods: {},
+    prefixed: true,
+    action: { name: "worktrees", value: { machine: 2, workspace: 1 } },
+  };
+  const action = structuredClone(binding.action);
+  expect(find([binding], action)).toBe(binding);
+  expect(first([binding], action, true)).toBe(binding);
+  expect(find([binding], { name: "worktrees", value: { machine: 3, workspace: 1 } })).toBeNull();
 });
 
 test("keys are spelled the way the help screen shows them", async () => {

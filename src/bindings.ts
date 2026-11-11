@@ -1,4 +1,4 @@
-import { specs as actionSpecs, title as actionTitle } from "./action";
+import { specs as actionSpecs, title as actionTitle, parse as parseAction, same as sameAction } from "./action";
 import type { Action } from "./action";
 import type { Preset } from "./keymap";
 import type { Mods, Key } from "./keyboard";
@@ -732,14 +732,10 @@ export function repeatSequence(preset: Source, seq: string): Action | null {
   return k ? repeat(preset, k) : null;
 }
 export function find(preset: Source, action: Action): Binding | null {
-  return table(preset).find(b => b.action.name === action.name && b.action.value === action.value) ?? null;
+  return table(preset).find(b => sameAction(b.action, action)) ?? null;
 }
 export function first(preset: Source, action: Action, prefixed: boolean): Binding | null {
-  return (
-    table(preset).find(
-      b => b.prefixed === prefixed && b.action.name === action.name && b.action.value === action.value,
-    ) ?? null
-  );
+  return table(preset).find(b => b.prefixed === prefixed && sameAction(b.action, action)) ?? null;
 }
 export function format(b: Binding): string {
   let text =
@@ -779,7 +775,7 @@ export function writeTable(presets?: Preset[]): string {
     const values =
       type === "void"
         ? [undefined]
-        : type === "usize"
+        : type === "usize" || type === "Workspace"
           ? [1]
           : type === "Split"
             ? ["right", "down"]
@@ -789,7 +785,7 @@ export function writeTable(presets?: Preset[]): string {
                 ? ["left", "down", "up", "right"]
                 : [];
     for (const value of values) {
-      const a: Action = { name, ...(value === undefined ? {} : { value }) };
+      const a = parseAction(name, value === undefined ? "" : String(value));
       if (selected.some(p => table(p).some(b => sameRow(b, a)))) actions.push(a);
     }
   }
@@ -828,6 +824,6 @@ export function writeTable(presets?: Preset[]): string {
 function sameRow(binding: Binding, action: Action) {
   return (
     binding.action.name === action.name &&
-    (["tab", "goto-workspace"].includes(action.name) || binding.action.value === action.value)
+    (["tab", "goto-workspace"].includes(action.name) || sameAction(binding.action, action))
   );
 }
