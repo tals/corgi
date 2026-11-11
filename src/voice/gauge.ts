@@ -16,9 +16,9 @@ function starts(frames: Int16Array[], timing: Timing, pct: number): boolean {
   for (const f of frames) if (s.push(f).length) return true;
   return s.counts;
 }
-/** The threshold one key step above the highest at which `frames` start an
- * utterance, never below the default 44 (or `old`, when that was lower).
- * Audio that starts one even at 100 is `too_loud`, and `old` stays. */
+/** The threshold one key step above the lowest at which `frames`, and every
+ * higher one, start no utterance, never below the default 44 (or `old`, when
+ * that was lower). Audio that starts one even at 100 is `too_loud`, and `old` stays. */
 export function choose(
   frames: Int16Array[],
   timing: Timing,
@@ -26,11 +26,13 @@ export function choose(
 ): { threshold: number; loudest: number; outcome: "applied" | "too_loud" } {
   let loudest = 0;
   for (const f of frames) loudest = Math.max(loudest, level.rmsToPercent(level.rms(f)));
-  let top = 100;
-  while (top >= 0 && !starts(frames, timing, top)) top--;
-  if (top === 100) return { threshold: old, loudest, outcome: "too_loud" };
-  // `top + 1` is the lowest that starts none, as does every one above it.
   const floor = Math.min(level.default_threshold, old);
+  // Nothing is loud above the loudest frame, and below `floor - 2` the floor
+  // wins anyway: a quiet room replays a few thresholds, not all 101.
+  let top = Math.min(100, Math.ceil(loudest));
+  while (top >= Math.max(0, floor - 2) && !starts(frames, timing, top)) top--;
+  if (top === 100) return { threshold: old, loudest, outcome: "too_loud" };
+  // From `top + 1` up nothing starts one, unless the scan stopped short, where the floor rules.
   return { threshold: Math.min(100, Math.max(floor, top + 1 + 2)), loudest, outcome: "applied" };
 }
 /** Whether earlier speech would still clear `threshold`: a warning when more

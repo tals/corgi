@@ -111,9 +111,10 @@ see when the utterance is about to end. `Target:` follows the focused pane as yo
 With music playing, press `t` and stay quiet for 10 seconds. The corgi
 sniffs along under the meter, a tick marks the loudest the music got, and
 `T:` counts down. Nothing is recorded meanwhile. Then the threshold moves to
-just above the music, two steps over the lowest value at which those 10
-seconds would start no utterance, and the history notes it, as in
-`threshold 44 → 58 (gauged)`. Like `+` and `-`, this lasts for the session.
+just above the music, one step (2) over the lowest value at which those 10
+seconds, and every higher value, would start no utterance, and the history
+notes it, as in `threshold 44 → 58 (gauged)`. Like `+` and `-`, this lasts
+for the session.
 
 The gauge never sets the threshold below 44, or below a lower threshold you
 already had, so gauging a quiet room brings it back to 44. If most of your

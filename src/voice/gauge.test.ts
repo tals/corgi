@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import * as gauge from "./gauge";
 import * as level from "./level";
 import { Segmenter, default_timing, type Timing } from "./segmenter";
-import { music, silence, tone } from "../../tests/fixtures/voice/make_pcm";
+import { concat, music, silence, tone } from "../../tests/fixtures/voice/make_pcm";
 
 /** `pcm` in 20 ms frames. */
 const framed = (pcm: Int16Array) =>
@@ -63,11 +63,42 @@ test("the replay follows the timings it is given", () => {
   expect(starts(frames, patient - 3, { ...default_timing, min_speech: 1 })).toBe(true);
 });
 
+test("the result clears every higher threshold, not only the first that starts nothing", () => {
+  // At 50 and below the click opens the utterance early, so the short note
+  // never resets the pause and it ends with too little speech: this audio
+  // starts utterances from 51 to 70 only.
+  const frames = framed(
+    concat(
+      silence(1),
+      tone(0.02, level.percentToRms(50.5)),
+      silence(0.2),
+      tone(0.06, level.percentToRms(70.5)),
+      silence(2.4),
+      tone(0.14, level.percentToRms(70.5)),
+      silence(3.5),
+    ),
+  );
+  expect([starts(frames, 50), starts(frames, 51), starts(frames, 70), starts(frames, 71)]).toEqual([
+    false,
+    true,
+    true,
+    false,
+  ]);
+  expect(gauge.choose(frames, default_timing, 44).threshold).toBe(73);
+});
+
 test("silence sets the default 44, or keeps a lower threshold", () => {
   const frames = framed(silence(10));
   expect(gauge.choose(frames, default_timing, 44)).toEqual({ threshold: 44, loudest: 0, outcome: "applied" });
   expect(gauge.choose(frames, default_timing, 30).threshold).toBe(30);
   expect(gauge.choose(frames, default_timing, 60).threshold).toBe(44);
+  // At the bottom of the scale, one key step above 0 still.
+  expect([0, 1].map(old => gauge.choose(frames, default_timing, old).threshold)).toEqual([2, 2]);
+});
+
+test("under a lower old threshold, music between it and 44 sets its own", () => {
+  const frames = framed(tone(10, level.percentToRms(35.5)));
+  expect(gauge.choose(frames, default_timing, 30).threshold).toBe(38);
 });
 
 test("audio that starts utterances even at 100 is too loud, and the threshold stays", () => {
