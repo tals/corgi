@@ -258,6 +258,7 @@ export class Endpoint {
   render(): Output {
     this.syncNavigation();
     const view = this.view();
+    view.instant_ready = this.remote && this.status !== "paused" && this.status !== "incompatible";
     return view.compose();
   }
   /** The view, made for this machine alone when none is shared. */
@@ -807,6 +808,8 @@ export class Endpoint {
         };
       },
       remote: this.remote,
+      // Typing held for a lost connection stays drawn until it catches up.
+      predictionMs: () => (this.status === "online" ? this.stats.predictionMs : 30_000),
       // A remote machine needs a pasted image's file sent to it.
       image: this.remote
         ? async (path, mime, progress) => {
@@ -1041,10 +1044,12 @@ export class Endpoint {
     this.interruptInput();
     for (const pane of this.machine.runtime.panes) {
       pane.terminal.pending = [];
+      pane.terminal.resetPrediction();
     }
     // Keys on their way belong to the machine shown.
     if (!this.controller || !this.shown) return;
     const view = this.controller;
+    view.instant_ready = false;
     view.cancelInput();
     view.paste_target = null;
     view.paste_progress = null;

@@ -5075,6 +5075,39 @@ test("an agent's review reads the checkout the list puts it under", () => {
   expect(s.reviewTarget().cwd).toBe("/src/app-topic");
 });
 
+test("the instant typing action persists and drops every machine's previews", async () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const s = controller();
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  const resets: string[] = [];
+  other.runtime.panes = [{ terminal: { resetPrediction: () => resets.push("work") } } as any];
+  try {
+    await s.perform({ name: "instant-typing", value: "off" });
+    expect(s.host.prefs.instant_typing).toBe("off");
+    expect(update).toHaveBeenLastCalledWith({ instant_typing: "off" });
+    await s.perform({ name: "instant-typing", value: "auto" });
+    expect(s.host.prefs.instant_typing).toBe("auto");
+    expect(resets).toEqual(["work", "work"]);
+    other.runtime.panes = [];
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
+test("the prediction shading setting persists without disabling prediction", async () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const s = controller();
+  try {
+    await s.applySetup({ kind: "instant_typing", mode: "auto", dim: false });
+    expect(s.host.prefs.dim_predictions).toBe(false);
+    expect(s.host.prefs.instant_typing).toBe("auto");
+    expect(update).toHaveBeenLastCalledWith({ instant_typing: "auto", dim_predictions: false });
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
 test("a rename that can't reach the daemon says so, for a workspace or an agent", async () => {
   const { s, twice } = renaming();
   const edit = spyOn(s, "edit").mockRejectedValue(Object.assign(Error("write EPIPE"), { code: "EPIPE" }));

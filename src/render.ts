@@ -620,6 +620,7 @@ function retainable(u: Ui, p: Pane, r: Rect, dim: boolean, hovered: bigint | nul
     hovered === null &&
     p.restoring.length === 0 &&
     !p.dormant &&
+    !p.terminal.predicting() &&
     !p.terminal.selection &&
     p.terminal.images.length === 0 &&
     r.w === p.terminal.inner.cols &&

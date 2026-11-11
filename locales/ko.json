@@ -732,6 +732,7 @@
   "Off": "끔",
   "Omarchy detected: installing Corgi as its bar plugin (--no-omarchy installs it on its own)": "Omarchy 감지: Corgi를 바 플러그인으로 설치합니다 (--no-omarchy는 단독 설치)",
   "On": "켬",
+  "On (dim unacknowledged typing)": "켜기 (확인되지 않은 입력 흐리게 표시)",
   "Onboarding": "시작 안내",
   "Open": "열기",
   "Open ": "열기 ",

@@ -7,6 +7,7 @@ import * as launch_command from "../launch/command";
 import * as current_release from "../current_release";
 import { Provider, adapter } from "../providers";
 import * as surface from "./surface";
+import { Acknowledgements } from "../input_ack";
 import type { Link } from "./hyperlinks";
 import { toBuffer, type Pointer } from "bun:ffi";
 import type { PickResult, PickUnit, Wire } from "../protocol";
@@ -48,6 +49,7 @@ export class Terminal extends EventEmitter {
   redrawing = false;
   /** When it last sent input to its program, in ms on the wall clock; 0 before any. */
   sent_at = 0;
+  readonly input_ack = new Acknowledgements();
   static create(cols: number, rows: number): Terminal {
     return new Terminal(cols, rows);
   }
@@ -254,12 +256,14 @@ export class Terminal extends EventEmitter {
       this.waiting = (tick & 2) !== 0;
     }
     this.arm();
-    return changed || dirty;
+    const acknowledged = this.input_ack.advance();
+    if (acknowledged) this.emit("change");
+    return changed || dirty || acknowledged;
   }
   /** Whether the daemon's tick has work here: output to follow up on, or
    * something waiting on time rather than output. */
   due(): boolean {
-    return this.dirty || this.waiting || this.redrawing;
+    return this.dirty || this.waiting || this.redrawing || this.input_ack.waiting;
   }
   send(bytes: Uint8Array | string): void {
     const data = typeof bytes === "string" ? Buffer.from(bytes) : bytes;
@@ -267,6 +271,7 @@ export class Terminal extends EventEmitter {
       const result = n.terminal_send(this.handle, ptr(data), data.length);
       if (result) throw Error(result === -2 ? "InputBackpressure" : "OutOfMemory");
       this.sent_at = Date.now();
+      this.input_ack.sent();
     }
     this.arm();
   }
