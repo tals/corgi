@@ -5,6 +5,7 @@ import * as wav from "./wav";
 import * as text from "./text";
 import * as level from "./level";
 import * as whisper from "./whisper";
+import * as gauge from "./gauge";
 import * as errors from "../errors";
 import { Failure } from "../failure";
 import { bounded, type Seen, type VoiceLink } from "./link";
@@ -28,6 +29,18 @@ export type Utterance = {
   pad?: number;
   /** Where Whisper heard the speech end, in seconds, when it says. */
   speech_end?: number;
+  /** Its speech's peak level, 0 to 100, which a gauge compares its result with. */
+  peak?: number;
+};
+/** A gauge that finished or failed: `old` and the `threshold` it left, the
+ * `loudest` level it heard, and how long it `took_ms` from the key press. */
+export type GaugeRow = {
+  at: number;
+  old: number;
+  threshold: number;
+  loudest: number;
+  outcome: gauge.Outcome;
+  took_ms: number;
 };
 /** Whisper: `pad` is the speech filter's padding for this utterance, in seconds. */
 export type Transcriber = {
@@ -87,6 +100,12 @@ export class VoiceSession {
    * off), and the title of the pane text would go to. */
   viewer = true;
   focus: string | null = null;
+  /** A gauge listening to the background: what it heard, the loudest level
+   * so far, and how far it is, 0 to 1. */
+  gauge: { frames: Int16Array[]; loudest: number; progress: number } | null = null;
+  /** Gauges that finished or failed; a cancelled one leaves none. */
+  gauges: GaugeRow[] = [];
+  private gauge_started = 0;
   private link: VoiceLink | null = null;
   private next_id = 1;
   private current: Utterance | null = null;
@@ -194,6 +213,8 @@ export class VoiceSession {
     this.level = level.rmsToPercent(level.rms(f));
     // Frames again after a microphone failure: it is back.
     if (this.mic) this.setAvailable(true, null);
+    // A gauge needs only the microphone: mute, the viewer, the link and the server don't stop it.
+    if (this.gauge) return this.listen(f);
     if (this.muted || !this.available || !this.viewer) {
       this.pause = 0;
       return;
@@ -211,6 +232,54 @@ export class VoiceSession {
       this.current = null;
       this.changed();
     }
+  }
+  /** Gauges the threshold against the background, or says why the microphone
+   * cannot. What is being said is dropped, as a mute drops it; what Whisper
+   * or the runtime already has goes on. */
+  startGauge(): MicProblem | null {
+    if (this.mic) return this.mic;
+    if (this.gauge) return null;
+    this.deps.segmenter.abort();
+    if (this.current) this.current.status = "dropped";
+    this.current = null;
+    this.pause = 0;
+    this.gauge = { frames: [], loudest: 0, progress: 0 };
+    this.gauge_started = this.deps.now();
+    this.changed();
+    return null;
+  }
+  /** Stops a gauge, leaving the threshold and no row. */
+  cancelGauge(): void {
+    if (!this.gauge) return;
+    this.gauge = null;
+    this.changed();
+  }
+  /** A gauge's frame; the last one sets the threshold. */
+  private listen(f: Int16Array): void {
+    const g = this.gauge!;
+    this.pause = 0;
+    g.frames.push(f);
+    g.loudest = Math.max(g.loudest, this.level);
+    g.progress = g.frames.length / gauge.listen_frames;
+    if (g.frames.length < gauge.listen_frames) return;
+    const segmenter = this.deps.segmenter,
+      old = segmenter.percent,
+      { threshold, loudest, outcome } = gauge.choose(g.frames, segmenter.timing, old);
+    if (outcome === "too_loud") return this.endGauge({ old, threshold, loudest, outcome });
+    segmenter.setThreshold(threshold);
+    const peaks = this.history.flatMap(u => (u.status === "delivered" && u.peak !== undefined ? [u.peak] : []));
+    this.endGauge({ old, threshold, loudest, outcome: gauge.warn(peaks, threshold) });
+  }
+  private endGauge(row: Omit<GaugeRow, "at" | "took_ms">): void {
+    const at = this.deps.now(),
+      took_ms = Math.round(at - this.gauge_started);
+    this.gauge = null;
+    this.gauges.push({ at, ...row, took_ms });
+    this.deps.log?.(
+      `gauge: threshold ${row.old} → ${row.threshold} loudest=${Math.round(row.loudest * 10) / 10}` +
+        ` outcome=${row.outcome} took_ms=${took_ms}`,
+    );
+    this.changed();
   }
   private utterance(status: UtteranceStatus): Utterance {
     const u: Utterance = {
@@ -232,6 +301,7 @@ export class VoiceSession {
     u.captured_at = segment.started_at;
     u.duration = segment.duration;
     u.cut = { post_roll: segment.post_roll, kept: segment.kept, dropped: segment.dropped, capped: segment.capped };
+    u.peak = segment.peak;
     // Speech this far behind Whisper or the runtime is not kept on top.
     if (this.pending >= max_backlog) return this.finish(u, "failed", "backlog");
     u.status = "transcribing";
@@ -373,6 +443,11 @@ export class VoiceSession {
     if (this.mic === next) return;
     const was = this.available;
     this.mic = next;
+    // A gauge that loses the microphone ends, and the threshold stays.
+    if (next && this.gauge) {
+      const old = this.deps.segmenter.percent;
+      this.endGauge({ old, threshold: old, loudest: this.gauge.loudest, outcome: "mic_failed" });
+    }
     this.availability(was);
   }
   private availability(was: boolean): void {
@@ -405,6 +480,7 @@ export class VoiceSession {
   }
   close(): void {
     this.link_state = "closed";
+    this.gauge = null;
     this.quit.abort();
     clearTimeout(this.retry);
     clearTimeout(this.resend);

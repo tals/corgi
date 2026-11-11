@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { VoiceSession } from "./session";
 import { Segmenter } from "./segmenter";
+import * as level from "./level";
 import { Events, type VoiceLink, type WatchRequest } from "./link";
 import { concat, shapes, silence, tone } from "../../tests/fixtures/voice/make_pcm";
 
@@ -601,4 +602,168 @@ test("an utterance cut at 30 s logs no post-roll, as none was applied", async ()
   expect(lines.find(l => l.startsWith("utterance 1:"))).toMatch(
     /^utterance 1: delivered duration=30s transcribe_ms=[\d.]+ deliver_ms=[\d.]+ capped kept=0\.2s dropped=0s pad=0\.5s$/,
   );
+});
+
+/** Feeds `seconds` of a tone at threshold-scale level `pct`, a frame at a time. */
+function hum(s: VoiceSession, pct: number, seconds = 10) {
+  const pcm = tone(seconds, level.percentToRms(pct));
+  for (let at = 0; at < pcm.length; at += 320) s.frame(pcm.subarray(at, at + 320));
+}
+/** The level a tone at `pct` measures, frame by frame. */
+const measured = (pct: number) => level.rmsToPercent(level.rms(tone(0.02, level.percentToRms(pct))));
+
+test("a gauge listens 10 s, then sets the threshold just above the background", async () => {
+  const lines: string[] = [],
+    { s, segmenter } = session([], { log: line => lines.push(line) });
+  await s.connect();
+  expect(s.startGauge()).toBeNull();
+  expect(s.gauge).toEqual({ frames: [], loudest: 0, progress: 0 });
+  hum(s, 55.5, 5);
+  expect(s.gauge?.progress).toBe(0.5);
+  expect(s.gauge?.loudest).toBeCloseTo(measured(55.5), 5);
+  hum(s, 55.5, 5);
+  expect(s.gauge).toBeNull();
+  expect(segmenter.percent).toBe(58);
+  expect(s.gauges).toHaveLength(1);
+  expect(s.gauges[0]).toMatchObject({ old: 44, threshold: 58, outcome: "no_speech_to_compare" });
+  expect(s.gauges[0].loudest).toBeCloseTo(measured(55.5), 5);
+  expect(s.gauges[0].took_ms).toBeGreaterThanOrEqual(0);
+  expect(lines.filter(l => l.startsWith("gauge:"))).toEqual([
+    expect.stringMatching(/^gauge: threshold 44 → 58 loudest=55\.\d outcome=no_speech_to_compare took_ms=\d+$/),
+  ]);
+  // The same hum now starts nothing.
+  hum(s, 55.5, 3);
+  expect(s.history).toEqual([]);
+});
+
+test("without a microphone a gauge does not start", async () => {
+  const { s } = session([]);
+  await s.connect();
+  s.setAvailable(false, "mic_busy");
+  expect(s.startGauge()).toBe("mic_busy");
+  expect(s.gauge).toBeNull();
+  // A crashed server is no reason: the gauge needs only the microphone.
+  const crashed = session([]);
+  await crashed.s.connect();
+  crashed.whisper.crash(3);
+  expect(crashed.s.startGauge()).toBeNull();
+});
+
+test("a gauge drops what is being said, but what Whisper has goes on to be typed", async () => {
+  const { s, whisper, link } = session(["first words", "lost"]);
+  let open!: () => void;
+  whisper.gate = new Promise(resolve => (open = resolve));
+  await s.connect();
+  speak(s);
+  expect(s.history[0].status).toBe("transcribing");
+  const pcm = shapes.speech();
+  for (let at = 0; at < 16000; at += 320) s.frame(pcm.subarray(at, at + 320));
+  expect(s.history[1].status).toBe("recording");
+  s.startGauge();
+  expect(s.history.map(u => u.status)).toEqual(["transcribing", "dropped"]);
+  // Speech during the gauge is background: nothing is recorded or sent.
+  speak(s);
+  expect(s.history).toHaveLength(2);
+  expect(s.pause).toBe(0);
+  open();
+  await until(() => s.history[0].status === "delivered");
+  expect(link.calls.map(c => c.value)).toEqual(["first words"]);
+  expect(whisper.requests).toBe(1);
+  expect(s.gauge).not.toBeNull();
+});
+
+test("mute, a missing viewer, a lost link or a crashed server do not stop a gauge", async () => {
+  const cases: [string, (t: ReturnType<typeof session>) => void][] = [
+    ["muted", t => t.s.setMuted(true)],
+    ["no viewer", t => t.link.events.emitViewer({ viewer: false, focus: null })],
+    ["link lost", t => t.link.events.emitClosed("runtime_gone")],
+    ["server crashed", t => t.whisper.crash(3)],
+  ];
+  for (const [name, upset] of cases) {
+    const t = session([]);
+    await t.s.connect();
+    upset(t);
+    expect(t.s.startGauge()).toBeNull();
+    hum(t.s, 60);
+    expect([name, t.s.gauges.map(g => g.threshold)]).toEqual([name, [Math.floor(measured(60)) + 3]]);
+    t.s.close();
+  }
+  // Mute changes from either side during a gauge leave it running, and mute stays.
+  const { s, link } = session([]);
+  await s.connect();
+  s.startGauge();
+  hum(s, 60, 2);
+  link.events.emitMuted(true);
+  s.setMuted(false);
+  s.setMuted(true);
+  expect(s.gauge?.progress).toBe(0.2);
+  hum(s, 60, 8);
+  expect(s.gauges).toHaveLength(1);
+  expect(s.muted).toBe(true);
+});
+
+test("a cancelled gauge leaves no row and the threshold as it was", async () => {
+  const lines: string[] = [],
+    { s, segmenter, link } = session(["after"], { log: line => lines.push(line) });
+  await s.connect();
+  s.startGauge();
+  hum(s, 70, 4);
+  s.cancelGauge();
+  expect([s.gauge, s.gauges, segmenter.percent]).toEqual([null, [], 44]);
+  expect(lines.filter(l => l.startsWith("gauge:"))).toEqual([]);
+  // Listening resumes.
+  speak(s);
+  await until(() => s.history[0]?.status === "delivered");
+  expect(link.calls.map(c => c.value)).toEqual(["after"]);
+});
+
+test("a microphone that fails mid-gauge ends it with a row, and the threshold stays", async () => {
+  const lines: string[] = [],
+    { s, segmenter } = session([], { log: line => lines.push(line) });
+  await s.connect();
+  s.startGauge();
+  hum(s, 70, 4);
+  s.setAvailable(false, "mic_denied");
+  expect(s.gauge).toBeNull();
+  expect(s.gauges).toEqual([expect.objectContaining({ old: 44, threshold: 44, outcome: "mic_failed" })]);
+  expect(segmenter.percent).toBe(44);
+  expect(lines).toContainEqual(
+    expect.stringMatching(/^gauge: threshold 44 → 44 loudest=70(\.\d)? outcome=mic_failed took_ms=\d+$/),
+  );
+  // Frames again: the microphone is back, and speech is heard as before.
+  hum(s, 0, 0.02);
+  expect(s.available).toBe(true);
+});
+
+test("music too loud to gauge leaves the threshold, and says so", async () => {
+  const lines: string[] = [],
+    { s, segmenter } = session([], { log: line => lines.push(line) });
+  await s.connect();
+  s.startGauge();
+  const loud = tone(10, 0.6);
+  for (let at = 0; at < loud.length; at += 320) s.frame(loud.subarray(at, at + 320));
+  expect(s.gauges).toEqual([expect.objectContaining({ old: 44, threshold: 44, loudest: 100, outcome: "too_loud" })]);
+  expect(segmenter.percent).toBe(44);
+  expect(lines).toContainEqual(
+    expect.stringMatching(/^gauge: threshold 44 → 44 loudest=100 outcome=too_loud took_ms=\d+$/),
+  );
+});
+
+test("delivered utterances keep their peak, and a gauge above most of them warns", async () => {
+  const { s, segmenter } = session(["one", "two", "three"]);
+  await s.connect();
+  for (let i = 0; i < 3; i++) speak(s);
+  await until(() => s.history.filter(u => u.status === "delivered").length === 3);
+  // shapes.speech() is a tone at RMS 0.1.
+  const peak = level.rmsToPercent(level.rms(tone(0.02, 0.1)));
+  for (const u of s.history) expect(u.peak).toBeCloseTo(peak, 5);
+  // Music as loud as that speech: applied, with the warning.
+  s.startGauge();
+  hum(s, peak);
+  expect(s.gauges.at(-1)).toMatchObject({ outcome: "applied_quiet_speech", threshold: Math.floor(peak) + 3 });
+  expect(segmenter.percent).toBe(Math.floor(peak) + 3);
+  // Music well under it: applied.
+  s.startGauge();
+  hum(s, 50.5);
+  expect(s.gauges.at(-1)).toMatchObject({ outcome: "applied", threshold: 53 });
 });

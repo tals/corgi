@@ -1,10 +1,13 @@
 import { test, expect } from "bun:test";
-import { VoiceUi, problem, clock, type Options } from "./ui";
-import { VoiceSession, type Utterance } from "./session";
+import { VoiceUi, problem, clock, gaugeRow, type Options } from "./ui";
+import { VoiceSession, type Utterance, type GaugeRow } from "./session";
 import { Segmenter, default_timing } from "./segmenter";
+import * as level from "./level";
 import type { Device } from "./capture";
 import * as palette from "../palette";
+import * as corgiAnimation from "../corgi_animation";
 import { Style } from "../palette";
+import { tone } from "../../tests/fixtures/voice/make_pcm";
 
 /** The text a frame leaves on a `cols` × `rows` screen. */
 function screen(frame: string, cols: number, rows: number): string[] {
@@ -563,4 +566,197 @@ test("m mutes and q or ctrl+c quits", () => {
   ui.input("q");
   ui.input("\x03");
   expect(calls.quit).toBe(2);
+});
+
+/** Feeds the session `seconds` of a tone at threshold-scale level `pct`, a frame at a time. */
+function hum(session: VoiceSession, pct: number, seconds: number) {
+  const pcm = tone(seconds, level.percentToRms(pct));
+  for (let at = 0; at < pcm.length; at += 320) session.frame(pcm.subarray(at, at + 320));
+}
+
+test("t starts a gauge: the corgi sniffs under the meter, a tick marks the loudest, T: counts down", () => {
+  const { session, ui } = setup();
+  ui.input("t");
+  expect(session.gauge).not.toBeNull();
+  let rows = screen(ui.draw(80, 20), 80, 20);
+  expect(rows[4]).toContain("T:10s");
+  // The meter starts at column 10; the corgi's nose is under its first cell.
+  expect(rows[5].slice(7, 13)).toBe(corgiAnimation.gaugeScene(20, 0, 0).sprite);
+  hum(session, 61.5, 2.5);
+  rows = screen(ui.draw(80, 20), 80, 20);
+  expect(rows[4]).toContain("T:8s");
+  // A quarter of the way, its sniff frame from the 125 frames heard.
+  const corgi = corgiAnimation.gaugeScene(20, 0.25, 2500);
+  expect(rows[5].slice(10 + corgi.x - 3, 10 + corgi.x + 3)).toBe(corgi.sprite);
+  // The marker stays at 44, cell 9; the tick marks 61.5, cell 12.
+  expect(rows[4][10 + 9]).toBe("┃");
+  expect(rows[4][10 + 12]).toBe("│");
+  hum(session, 61.5, 7.5);
+  expect(session.gauge).toBeNull();
+  rows = screen(ui.draw(80, 20), 80, 20);
+  expect(rows[5].trim()).toBe("");
+  expect(rows[4]).not.toContain("│");
+});
+
+test("while a gauge listens only esc, q, ctrl+c, ? and m act", async () => {
+  const { session, ui, calls } = setup();
+  ui.input("t");
+  const rows = screen(ui.draw(80, 20), 80, 20);
+  for (const ignored of ["+", "-", "\x1b[<64;10;3M", "d", "f", "j", "k", "t"]) ui.input(ignored);
+  // A click on an option opens no menu.
+  click(ui, rows, 6, "2.5 s");
+  click(ui, rows, 6, "filter");
+  await Bun.sleep(0);
+  expect([calls.thresholds, calls.filters, calls.quit, ui.picker, ui.menu]).toEqual([[], 0, 0, null, null]);
+  expect(session.gauge?.frames).toEqual([]);
+  // m, or a click on the note, mutes and unmutes; the gauge goes on.
+  ui.input("m");
+  expect(session.muted).toBe(true);
+  ui.input("\x1b[<0;2;1M");
+  expect(session.muted).toBe(false);
+  // With the help open, esc, q and ? close the help first.
+  for (const close of ["\x1b", "q", "?"]) {
+    ui.input("?");
+    expect(ui.help).not.toBeNull();
+    ui.input(close);
+    expect(ui.help).toBeNull();
+    expect(session.gauge).not.toBeNull();
+  }
+  // Without it, each cancels the gauge, and none quits.
+  for (const cancel of ["\x1b", "q", "\x03"]) {
+    ui.input("t");
+    expect(session.gauge).not.toBeNull();
+    ui.input(cancel);
+    expect(session.gauge).toBeNull();
+  }
+  expect([calls.quit, session.gauges, ui.threshold]).toEqual([0, [], 44]);
+});
+
+test("t without a microphone starts nothing; the problem is already on screen", () => {
+  const { session, ui } = setup();
+  session.setAvailable(false, "mic_missing");
+  ui.input("t");
+  expect(session.gauge).toBeNull();
+  const rows = screen(ui.draw(80, 20), 80, 20);
+  expect(rows[9]).toContain("No microphone found: press d");
+  expect(rows[19]).toContain(" q  quit");
+});
+
+test("the help lists the gauge right after the threshold", () => {
+  const { ui } = setup();
+  ui.input("?");
+  const rows = screen(ui.draw(80, 40), 80, 40).join("\n");
+  expect(rows).toContain("Press t and stay quiet for 10 s");
+  expect(rows).toContain("Esc cancels.");
+  expect(rows.indexOf("gauge")).toBeGreaterThan(rows.indexOf("threshold"));
+  expect(rows.indexOf("gauge")).toBeLessThan(rows.indexOf("silence"));
+});
+
+test("the footer has t gauge after the threshold keys, and esc cancel during a gauge", () => {
+  const { session, ui } = setup();
+  const footer = (cols = 100) => screen(ui.draw(cols, 20), cols, 20)[19];
+  expect(footer()).toContain(" + -  threshold   t  gauge   f  filter   d  device");
+  // At 80 columns it pushes d device off; a missing microphone still names d.
+  expect(footer(80)).toMatch(/ f {2}filter\s*$/);
+  session.setAvailable(false, "mic_missing");
+  expect(screen(ui.draw(80, 20), 80, 20)[9]).toContain("press d");
+  session.setAvailable(true, null);
+  ui.input("t");
+  const during = footer();
+  expect(during).toContain(" m  mute");
+  expect(during).toContain(" esc  cancel");
+  expect(during).toContain(" ?  help");
+  for (const gone of [" q ", "threshold", "gauge", "filter"]) expect(during).not.toContain(gone);
+  ui.input("\x1b");
+  expect(footer()).toContain(" q  quit");
+});
+
+test("a gauged threshold applies at once, and the marker glides there a cell every 50 ms", () => {
+  let now = 1000;
+  const { session, ui, calls } = setup({ now: () => now });
+  ui.input("t");
+  hum(session, 55.5, 10);
+  expect(session.gauges.map(g => g.threshold)).toEqual([58]);
+  const shown = () => {
+    const row = screen(ui.draw(80, 20), 80, 20)[4];
+    return [row.indexOf("┃") - 10, row.match(/T:(\d+)/)![1]];
+  };
+  // From 44 at cell 9 to 58 at cell 12, the number counting along.
+  expect(shown()).toEqual([9, "44"]);
+  expect(ui.threshold).toBe(58);
+  const steps: unknown[] = [];
+  for (let i = 0; i < 4; i++) {
+    now += 50;
+    steps.push(shown());
+  }
+  expect(steps).toEqual([
+    [10, "49"],
+    [11, "53"],
+    [12, "58"],
+    [12, "58"],
+  ]);
+  // The gauge sets the session's threshold itself; the UI saves nothing.
+  expect(calls.thresholds).toEqual([]);
+});
+
+test("+ right after a gauge's result starts from the new threshold", () => {
+  const { session, ui, calls } = setup();
+  ui.input("t");
+  hum(session, 55.5, 10);
+  ui.input("+");
+  expect(calls.thresholds).toEqual([60]);
+  expect(screen(ui.draw(80, 20), 80, 20)[4]).toContain("T:60");
+});
+
+test("gauge rows join the history by time, each saying what it did", () => {
+  const { session, ui } = setup();
+  session.history = [
+    { ...said(1, "delivered", "before"), captured_at: 0 },
+    { ...said(2, "delivered", "after"), captured_at: 2000 },
+  ];
+  session.gauges = [{ at: 1000, old: 44, threshold: 58, loudest: 55.4, outcome: "applied", took_ms: 10012 }];
+  const history = screen(ui.draw(80, 20), 80, 20)
+    .slice(9, 18)
+    .map(r => r.trim())
+    .filter(r => r);
+  expect(history).toEqual([
+    `✓ ${clock(0)} before`,
+    `┃ ${clock(1000)} threshold 44 → 58 (gauged)`,
+    `✓ ${clock(2000)} after`,
+  ]);
+  const row = (outcome: GaugeRow["outcome"], threshold = 58) =>
+      gaugeRow({ at: 0, old: 44, threshold, loudest: 55, outcome, took_ms: 0 }),
+    text = new Style({ fg: "text", bg: "bg" }).sgr(),
+    warm = new Style({ fg: "warm", bg: "bg" }).sgr(),
+    hot = new Style({ fg: "hot", bg: "bg" }).sgr();
+  expect(row("applied")).toMatchObject({ label: "threshold 44 → 58 (gauged)", style: text });
+  expect(row("applied_quiet_speech")).toMatchObject({
+    label: "threshold 44 → 58 (gauged; your speech was mostly quieter, turn the music down)",
+    style: warm,
+  });
+  expect(row("no_speech_to_compare")).toMatchObject({
+    label: "threshold 44 → 58 (gauged; no speech yet to compare)",
+    style: text,
+  });
+  expect(row("too_loud", 44)).toMatchObject({ label: "threshold stays 44 (music too loud to gauge)", style: warm });
+  expect(row("mic_failed", 44)).toMatchObject({
+    label: "threshold stays 44 (gauge stopped: microphone failed)",
+    style: hot,
+  });
+});
+
+test("at the smallest size the gauge's countdown, corgi and result still show", () => {
+  const { session, ui } = setup();
+  ui.input("t");
+  hum(session, 61.5, 9.9);
+  let rows = screen(ui.draw(37, 20), 37, 20);
+  expect(rows[4]).toContain("T:1s");
+  // At the last cell, the corgi still fits.
+  expect(rows[5]).toContain(corgiAnimation.gaugeScene(20, 0.99, 9900).sprite);
+  hum(session, 61.5, 0.1);
+  rows = screen(ui.draw(37, 20), 37, 20);
+  expect(rows[4]).toMatch(/T:\d\d/);
+  expect(rows.join("\n")).toContain("threshold 44 → 64");
+  // Nothing past the last column.
+  for (const row of screen(ui.draw(37, 20), 60, 20)) expect(row.slice(37).trim()).toBe("");
 });

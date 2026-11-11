@@ -1059,6 +1059,111 @@ export function writeUnearth(width: number, shown_ms: number, dig: Dig): string 
   }
   return out;
 }
+/** Voice mode's threshold gauge: the corgi sniffs along the level meter for
+ * 10 s while music plays, a tick marking the loudest it heard and `T:`
+ * counting down; then the threshold marker glides to its new place, a cell
+ * every 50 ms, with `T:` counting to the new value. */
+export const gauge_listen_ms = 10000,
+  gauge_glide_ms = 50,
+  /** The cell of the sniffing corgi's nose. */
+  gauge_nose = 3;
+const gauge_cells = 20,
+  /** Where the demo's threshold starts: voice's default. */
+  gauge_from = 44,
+  /** Two spaces and `T:10s` after the meter. */
+  gauge_tail = 7;
+/** The row the demo needs for the corgi beside the meter and the countdown. */
+export const gauge_width = gauge_cells + 6 + gauge_tail;
+/** The corgi `progress` of the way along a meter of `cells` cells, from the
+ * first at 0 to the last at 1, and its sniffing sprite `ms` in. */
+export function gaugeScene(cells: number, progress: number, ms: number): { x: number; sprite: string } {
+  return {
+    x: Math.round(Math.min(1, Math.max(0, progress)) * Math.max(0, cells - 1)),
+    sprite: frames.sniff[Math.floor(Math.max(0, ms) / 200) % frames.sniff.length],
+  };
+}
+/** The demo's music from `seed`, a level from 0 to 100 every 20 ms: a note
+ * every 12 frames, every fourth one accented, fading until the next. It runs
+ * on past the 10 s while the marker glides. */
+function gaugeMusic(seed: number): number[] {
+  const random = new Random(seed);
+  let note = 0;
+  return Array.from({ length: (gauge_listen_ms + gauge_cells * gauge_glide_ms) / 20 }, (_, n) => {
+    if (n % 12 === 0) note = 52 + random.int(12) + (n % 48 === 0 ? 8 : 0);
+    return Math.max(32, note - (n % 12) * 1.5) + random.float() * 3;
+  });
+}
+/** The loudest the demo's music gets while the gauge listens, and the
+ * threshold it sets: three above, never below where it started. */
+export function gaugeResult(seed: number): { loudest: number; threshold: number } {
+  const loudest = Math.max(...gaugeMusic(seed).slice(0, gauge_listen_ms / 20));
+  return { loudest, threshold: Math.min(100, Math.max(gauge_from, Math.floor(loudest) + 3)) };
+}
+/** The demo's meter on a `width`-column row: the corgi's room goes first, then meter cells. */
+const gaugeCells = (width: number) =>
+  Math.max(0, Math.min(gauge_cells, width - gauge_tail - (width >= gauge_width ? 6 : 0)));
+const gaugeCell = (cells: number, pct: number) => Math.max(0, Math.min(cells - 1, Math.round((pct / 100) * cells)));
+/** The gauge's listening and the marker's glide, in ms. */
+export function gaugeDuration(width: number, seed: number): number {
+  const cells = gaugeCells(width),
+    steps = Math.abs(gaugeCell(cells, gaugeResult(seed).threshold) - gaugeCell(cells, gauge_from));
+  return gauge_listen_ms + (steps + 1) * gauge_glide_ms;
+}
+/** The gauge `ms` in, on one row: the meter, with the corgi walking in front
+ * of it from its first cell to just past its last, and `T:`. A row too
+ * narrow for the corgi shows the rest, and one narrower still a shorter meter. */
+export function writeGauge(width: number, ms: number, seed: number): string {
+  const t = Math.max(0, ms),
+    music = gaugeMusic(seed),
+    cells = gaugeCells(width),
+    listening = t < gauge_listen_ms,
+    heard = music.slice(0, Math.floor(Math.min(gauge_listen_ms, t + 20) / 20)),
+    level = music[Math.min(music.length - 1, Math.floor(t / 20))],
+    result = gaugeResult(seed).threshold,
+    from = gaugeCell(cells, gauge_from),
+    to = gaugeCell(cells, result),
+    steps = Math.abs(to - from),
+    done = listening ? 0 : Math.min(steps, Math.floor((t - gauge_listen_ms) / gauge_glide_ms)),
+    marker = from + Math.sign(to - from) * done,
+    shown =
+      done === steps && !listening ? result : Math.round(gauge_from + ((result - gauge_from) * done) / (steps || 1)),
+    tick = listening ? Math.min(cells - 1, Math.floor((Math.max(...heard) / 100) * cells)) : -1,
+    stops = (["accent", "warm", "hot"] as const).map(name => palette.colors[name]),
+    row: { glyph: string; color: palette.Rgb; bold: boolean }[] = [];
+  for (let i = 0; i < cells; i++) {
+    const at = cells > 1 ? (i * 200) / (cells - 1) : 0,
+      stop = Math.min(1, Math.floor(at / 100)),
+      quarters = Math.min(4, Math.floor(Math.max(0, (level / 100) * cells - i) * 4));
+    if (i === marker) row.push({ glyph: "┃", color: palette.colors.warm, bold: true });
+    else if (i === tick) row.push({ glyph: "│", color: palette.colors.strong, bold: false });
+    else
+      row.push({
+        glyph: pile[quarters],
+        color: palette.mix(stops[stop], stops[stop + 1], at - stop * 100),
+        bold: false,
+      });
+  }
+  if (width >= gauge_width) {
+    // In front of the meter while it listens, then sitting beside it, wagging.
+    const sprite = listening
+        ? gaugeScene(cells + 1, t / gauge_listen_ms, t)
+        : { x: cells, sprite: frames.wag[Math.floor(t / 200) % frames.wag.length] },
+      dog = [...sprite.sprite];
+    for (let i = row.length; i < cells + 6; i++) row.push({ glyph: " ", color: palette.colors.muted, bold: false });
+    dog.forEach((glyph, i) => (row[sprite.x + i] = { glyph, color: palette.colors.muted, bold: false }));
+  }
+  const count = listening ? `${Math.ceil((gauge_listen_ms - t) / 1000)}s` : String(shown).padStart(2, "0");
+  for (const glyph of `  T:${count}`) row.push({ glyph, color: palette.colors.warm, bold: true });
+  let out = "",
+    color: palette.Rgb | null = null,
+    bold: boolean | null = null;
+  for (const cell of row.slice(0, Math.max(0, width))) {
+    if (bold !== cell.bold) out += (bold = cell.bold) ? "\x1b[1m" : "\x1b[22m";
+    if (color === null || color.some((v, i) => v !== cell.color[i])) out += palette.fgRgb((color = cell.color));
+    out += cell.glyph;
+  }
+  return out;
+}
 export type Mode = "awake" | "asleep" | "herding" | "content";
 export class Sleep {
   background = palette.colors.bg;
