@@ -1,3 +1,5 @@
+import * as signinService from "./signin_service";
+import * as accountService from "./account_service";
 import * as startup from "./startup_service";
 import * as archiveInventory from "./archive_inventory";
 import * as launcherConfig from "./launcher_config";
@@ -46,6 +48,10 @@ export class Server {
   summaries: SummaryWorker | null = null;
   usage: UsageWorker | null = null;
   runtime = new Runtime();
+  signins = new signinService.Sessions(() => {
+    this.runtime.changed();
+    this.dirty = true;
+  });
   clients: Client[] = [];
   /** Links by id, carried by a connection or waiting for one to resume them. */
   links = new Map<string, link.Link>();
@@ -326,6 +332,7 @@ export class Server {
       await this.saveWorkspaces();
     } catch (error) {
       clearInterval(this.timer);
+      this.signins.destroy();
       for (const c of [...this.clients]) c.close();
       void this.listening?.stop(true);
       this.runtime.destroy();
@@ -499,6 +506,7 @@ export class Server {
   pause(): void {
     this.frozen = true;
     clearInterval(this.timer);
+    this.signins.destroy();
     for (const c of this.clients) c.pause();
     // Queue cancellation before handoff captures output.
     for (const cancel of this.modelReads.values()) cancel();
@@ -574,6 +582,7 @@ export class Server {
     startup.collect(this.runtime, this.clients);
   }
   private async collect(): Promise<void> {
+    this.signins.expire();
     if (this.stopped || this.frozen) return;
     const telemetry_started = telemetry.begin();
     try {
@@ -848,16 +857,45 @@ export class Server {
           result: { ...protocol.emptyResult(), ...session.location(this.runtime, request.payload.pane) },
         });
         return;
+      case "account.signin.open": {
+        const q = request.payload;
+        if (!isAbsolute(q.cwd) || Buffer.byteLength(q.cwd) > 4096) throw Error("InvalidDirectory");
+        this.signins.open(q);
+        reply.ok({});
+        return;
+      }
+      case "account.signin.sync":
+        this.defer(cl, reply, null, async () => ({ state: await this.signins.sync(request.payload) }));
+        return;
+      case "account.signin.close":
+        this.signins.close(request.payload.id);
+        reply.ok({});
+        return;
+      case "account.restore":
+        reply.ok({ account: accountService.restore(this.runtime, request.payload.provider, request.payload.account) });
+        return;
+      case "account.remove":
+        this.defer(cl, reply, { op: "account.remove" }, async () => ({
+          deleted: await accountService.remove(this.runtime, request.payload.provider, request.payload.account),
+        }));
+        return;
       case "launcher.catalog": {
         const q = request.payload,
           cwd = q.cwd || (q.workspace ? this.runtime.getWorkspace(q.workspace).cwd : process.cwd());
         if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
+        if (!q.preview) {
+          reply.ok({ agents: launcherConfig.catalog(this.runtime), data: accountService.data(this.runtime) });
+          return;
+        }
         this.defer(cl, reply, null, async () => {
           const service = launch.service(this);
           service.follow(launch.removed(this.runtime));
           service.launch_previews.preview(cwd);
           await service.launch_previews.pump();
-          return { agents: launcherConfig.catalog(this.runtime, service.launch_previews.preview(cwd)) };
+          return {
+            agents: launcherConfig.catalog(this.runtime, service.launch_previews.preview(cwd)),
+            data: accountService.data(this.runtime),
+          };
         });
         return;
       }
@@ -1050,6 +1088,7 @@ export class Server {
           .map(c => c.headless_start && this.runtime.sessions.find(s => s.id === c.headless_start!.id))
           .find(s => !!s);
         const busy =
+          (this.signins.busy ? ({ op: "account.signin" } as const) : undefined) ??
           [...this.deferred.values()].find(d => d.busy)?.busy ??
           (starting ? ({ op: "headless.start", provider: starting.provider } as const) : undefined);
         if (busy) {
@@ -1303,6 +1342,7 @@ export class Server {
     if (this.stopped) return;
     this.stopped = true;
     clearInterval(this.timer);
+    this.signins.destroy();
     this.pluginWatch?.close();
     // Nothing new connects, and the path goes so pollers see it gone; replies
     // already on their way, such as the one to `shutdown`, still leave.

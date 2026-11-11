@@ -1,3 +1,4 @@
+import * as accountLock from "./account_lock";
 import * as protocol from "./protocol";
 import { Runtime, Launch } from "./runtime";
 import { Store } from "./workspace";
@@ -31,7 +32,9 @@ function named(provider: Provider, spelled: string) {
 /** The account a request names for `provider`, ready for an agent. */
 async function account(provider: Provider, spelled: string) {
   const account = named(provider, spelled);
+  accountLock.check(provider, account);
   if (account) await integration.prepare(provider, account);
+  accountLock.check(provider, account);
   return account;
 }
 export type Result = {
@@ -148,6 +151,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     case "agent.command.create": {
       const e = r.agent_commands[Number(request.payload.index)];
       if (!e?.command) throw Error("InvalidCommand");
+      if (e.semantics.provider) accountLock.check(e.semantics.provider, e.semantics.account);
       const pane = await r.create({
         ...spawnOptions(r, ctx, request.payload.workspace, null, request.payload.cwd ?? ""),
         command: e.text(),

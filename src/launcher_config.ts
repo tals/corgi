@@ -1,4 +1,5 @@
 //! Shared launcher configuration, addressed by stable rows rather than display labels.
+import * as accountLock from "./account_lock";
 import type { Runtime } from "./runtime";
 import { Provider, adapter } from "./providers";
 import { Row, hidden } from "./launch/row";
@@ -100,6 +101,7 @@ export type Edit = {
 export function configure(r: Runtime, q: Edit): Row {
   const agent = get(r, q.row);
   if (!agent.provider) throw Error("CustomCommandOptions");
+  accountLock.check(agent.provider, agent.account);
   const settings = { ...agent.options };
   if (q.model !== null) {
     delete settings.model;

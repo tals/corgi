@@ -1,0 +1,411 @@
+import { expect, spyOn, test } from "bun:test";
+import { Sessions, lease_ms } from "./signin_service";
+import { Signin } from "./signin";
+import { Signin as Client } from "./signin_client";
+import { Terminal } from "./pane/terminal";
+import * as protocol from "./protocol";
+import { transport } from "./fixtures/transport";
+
+const opening = () => ({
+  id: crypto.randomUUID(),
+  provider: "claude" as const,
+  account: "",
+  add: true,
+  cwd: "/remote",
+  cols: 80,
+  rows: 24,
+});
+const sync = (id: string, fields: object = {}) =>
+  protocol.decode("account.signin.sync", { id, cols: 80, rows: 24, ...fields });
+
+test.each(["cancel", "close", "expire"])(
+  "existing account remains locked until its cancelled provider exits: %s",
+  async end => {
+    const accounts = await import("./accounts"),
+      lock = await import("./account_lock");
+    const account = { provider: "claude" as const, name: "work", dir: "/isolated/existing-account", managed: true };
+    const exited = Promise.withResolvers<number>();
+    let flow!: Signin,
+      now = 0;
+    const find = spyOn(accounts, "find").mockReturnValue(account);
+    const open = spyOn(Signin.prototype, "open").mockImplementation(async function (this: Signin) {
+      flow = this;
+      this.child = new Terminal(78, 19);
+      Object.defineProperty(this.child, "child", { value: { exited: exited.promise, exitCode: null } });
+    });
+    const sessions = new Sessions(
+        () => {},
+        () => now,
+      ),
+      q = { ...opening(), add: false, account: account.dir };
+    try {
+      sessions.open(q);
+      flow.cancel();
+      expect((await sessions.sync(sync(q.id)))?.result).toBeNull();
+      if (end === "close") sessions.close(q.id);
+      if (end === "expire") {
+        now = lease_ms;
+        sessions.expire();
+      }
+      expect(sessions.busy).toBe(true);
+      expect(() => lock.check("claude", account.dir)).toThrow("AccountInUse");
+      expect(() => sessions.open({ ...q, id: crypto.randomUUID() })).toThrow("AccountInUse");
+      exited.resolve(0);
+      await Bun.sleep(0);
+      expect(sessions.busy).toBe(false);
+      expect(() => lock.check("claude", account.dir)).not.toThrow();
+      if (end === "cancel") expect((await sessions.sync(sync(q.id)))?.result?.status).toBe(1);
+    } finally {
+      exited.resolve(0);
+      await Bun.sleep(0);
+      sessions.destroy();
+      find.mockRestore();
+      open.mockRestore();
+    }
+  },
+);
+
+test("sign-in survives a lost reply, deduplicates input, and cleans up an expired viewer", async () => {
+  let now = 0;
+  const sessions = new Sessions(
+      () => {},
+      () => now,
+    ),
+    q = opening();
+  let flow!: Signin;
+  const open = spyOn(Signin.prototype, "open").mockImplementation(async function (this: Signin, cols, rows) {
+    flow = this;
+    this.resize(cols, rows);
+    this.child = new Terminal(cols - 2, rows - 5);
+    this.child.feed("Remote login https://example.com/auth");
+  });
+  const input = spyOn(Signin.prototype, "input").mockResolvedValue();
+  try {
+    sessions.open(q);
+    sessions.open(q);
+    expect(open).toHaveBeenCalledTimes(1);
+    const initial = await sessions.sync(sync(q.id));
+    expect(initial?.drawn.frame).toContain("Remote login");
+    expect(initial?.child?.surface.cols).toBe(78);
+    const typed = sync(q.id, { input_seq: 1, input: Buffer.from("code\r").toString("base64") });
+    await sessions.sync(typed);
+    await sessions.sync(typed);
+    expect(input).toHaveBeenCalledTimes(1);
+    expect(input.mock.calls[0][0]).toEqual(Buffer.from("code\r"));
+    now = lease_ms - 1;
+    sessions.expire();
+    expect(sessions.busy).toBe(true);
+    await sessions.sync(sync(q.id));
+    now += lease_ms;
+    sessions.expire();
+    expect(flow.over).toBe(true);
+    await Bun.sleep(0);
+    expect(sessions.busy).toBe(false);
+    await expect(sessions.sync(sync(q.id))).rejects.toThrow("SigninExpired");
+  } finally {
+    flow?.child?.destroy();
+    sessions.destroy();
+    open.mockRestore();
+    input.mockRestore();
+  }
+});
+
+test("the viewer retries the same input sequence after losing its acknowledgement", async () => {
+  const sessions = new Sessions(() => {});
+  let flow!: Signin,
+    drop = true;
+  const open = spyOn(Signin.prototype, "open").mockImplementation(async function (this: Signin) {
+    flow = this;
+  });
+  const input = spyOn(Signin.prototype, "input").mockResolvedValue();
+  const conn = transport(async (op, fields) => {
+    switch (op) {
+      case "account.signin.open":
+        sessions.open(protocol.decode(op, fields));
+        return { ok: true };
+      case "account.signin.sync": {
+        const q = protocol.decode(op, fields),
+          state = await sessions.sync(q);
+        if (q.input_seq === 1 && drop) {
+          drop = false;
+          throw Error("ReplyLost");
+        }
+        return { ok: true, state };
+      }
+      case "account.signin.close":
+        sessions.close(protocol.decode(op, fields).id);
+        return { ok: true };
+      default:
+        throw Error("UnexpectedRequest");
+    }
+  });
+  const done: unknown[] = [];
+  const client = new Client(() => conn, true, "claude", "", {
+    changed() {},
+    done: (...args) => {
+      done.push(args);
+    },
+  });
+  client.cwd = "/remote";
+  try {
+    await client.open(80, 24);
+    await client.input("hello");
+    await Bun.sleep(250);
+    expect(input).toHaveBeenCalledTimes(1);
+    flow.account = "/remote/account";
+    flow.close(0, true, "Account added");
+    await Bun.sleep(150);
+    expect(done).toEqual([[0, true, "Account added"]]);
+    expect(client.account).toBe("/remote/account");
+    expect(client.over).toBe(true);
+  } finally {
+    client.abandon();
+    sessions.destroy();
+    open.mockRestore();
+    input.mockRestore();
+  }
+});
+
+test("closing during provider discovery cannot stage an account after the viewer leaves", async () => {
+  const discovery = await import("./discovery"),
+    accounts = await import("./accounts");
+  const resolved = Promise.withResolvers<string>();
+  const resolve = spyOn(discovery, "resolve").mockReturnValue(resolved.promise);
+  const stage = spyOn(accounts, "stage").mockImplementation(() => {
+    throw Error("UnexpectedStage");
+  });
+  const s = new Signin(true, false, { changed() {}, done() {} });
+  s.provider = "claude";
+  try {
+    const pending = s.open(80, 24);
+    s.abandon();
+    resolved.resolve("/fake/claude");
+    await pending;
+    expect(stage).not.toHaveBeenCalled();
+    expect(s.child).toBeNull();
+  } finally {
+    s.abandon();
+    resolve.mockRestore();
+    stage.mockRestore();
+  }
+});
+
+test.each(["complete", "close", "expire", "close-error"])(
+  "a new account stays locked until integration setup settles: %s",
+  async end => {
+    const accounts = await import("./accounts"),
+      discovery = await import("./discovery"),
+      integration = await import("./integration"),
+      lock = await import("./account_lock");
+    const staged = {
+      provider: "claude" as const,
+      name: "work",
+      dir: "/isolated/new-account",
+      temp: "/isolated/staged",
+    };
+    const gate = Promise.withResolvers<void>();
+    let flow!: Signin;
+    const resolve = spyOn(discovery, "resolve").mockResolvedValue("/fake/claude"),
+      stage = spyOn(accounts, "stage").mockReturnValue(staged),
+      adopt = spyOn(accounts, "adopt").mockReturnValue({
+        provider: "claude",
+        name: "work",
+        dir: staged.dir,
+        managed: true,
+      }),
+      prepare = spyOn(integration, "prepare").mockReturnValue(gate.promise),
+      start = spyOn(Signin.prototype, "start").mockImplementation(async function (this: Signin) {
+        flow = this;
+        this.name = "work";
+      });
+    let now = 0;
+    const sessions = new Sessions(
+        () => {},
+        () => now,
+      ),
+      q = opening();
+    try {
+      sessions.open(q);
+      await Bun.sleep(0);
+      expect(() => lock.check("claude", staged.dir)).toThrow("AccountInUse");
+      const finishing = flow.finish();
+      for (let i = 0; i < 100 && !prepare.mock.calls.length; i++) await Bun.sleep(1);
+      expect(adopt).toHaveBeenCalledTimes(1);
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(() => lock.check("claude", staged.dir)).toThrow("AccountInUse");
+      if (end !== "complete") {
+        if (end === "expire") {
+          now = lease_ms;
+          sessions.expire();
+        } else sessions.close(q.id);
+        expect(flow.over).toBe(true);
+        await expect(sessions.sync(sync(q.id))).rejects.toThrow("SigninExpired");
+        expect(() => lock.check("claude", staged.dir)).toThrow("AccountInUse");
+      }
+      expect(sessions.busy).toBe(true);
+      if (end === "close-error") {
+        gate.reject(Error("SetupFailed"));
+        await expect(finishing).rejects.toThrow("SetupFailed");
+      } else {
+        gate.resolve();
+        await finishing;
+      }
+      await Bun.sleep(0);
+      expect(sessions.busy).toBe(false);
+      expect(() => lock.check("claude", staged.dir)).not.toThrow();
+    } finally {
+      gate.resolve();
+      sessions.destroy();
+      for (const mock of [resolve, stage, adopt, prepare, start]) mock.mockRestore();
+    }
+  },
+);
+
+test.each([
+  ["check", "complete"],
+  ["check", "close"],
+  ["check", "expire"],
+  ["logout", "complete"],
+  ["logout", "close"],
+  ["logout", "expire"],
+  ["check-error", "complete"],
+  ["check-error", "close"],
+  ["check-error", "expire"],
+  ["logout-error", "complete"],
+  ["logout-error", "close"],
+  ["logout-error", "expire"],
+])("discard holds the account through its %s after %s", async (phase, end) => {
+  const accounts = await import("./accounts"),
+    discovery = await import("./discovery"),
+    lock = await import("./account_lock");
+  const staged = {
+    provider: "claude" as const,
+    name: "work",
+    dir: "/isolated/discard-account",
+    temp: "/isolated/discard-staging",
+  };
+  const started = Promise.withResolvers<Signin>(),
+    blocked = Promise.withResolvers<void>(),
+    gate = Promise.withResolvers<void>();
+  const resolve = spyOn(discovery, "resolve").mockResolvedValue("/fake/claude"),
+    stage = spyOn(accounts, "stage").mockReturnValue(staged),
+    identity = spyOn(accounts, "identity").mockReturnValue(null),
+    unstage = spyOn(accounts, "unstage").mockImplementation(() => {}),
+    start = spyOn(Signin.prototype, "start").mockImplementation(async function (this: Signin) {
+      started.resolve(this);
+    }),
+    check = spyOn(Signin.prototype, "account_command").mockImplementation(async () => {
+      if (phase.startsWith("check")) {
+        blocked.resolve();
+        await gate.promise;
+        if (phase === "check-error") throw Error("CheckFailed");
+      }
+      return 0;
+    }),
+    logout = spyOn(Signin.prototype, "signOut").mockImplementation(async () => {
+      if (phase.startsWith("logout")) {
+        blocked.resolve();
+        await gate.promise;
+        if (phase === "logout-error") throw Error("LogoutFailed");
+      }
+    });
+  let now = 0,
+    pending: Promise<void> | undefined;
+  const sessions = new Sessions(
+      () => {},
+      () => now,
+    ),
+    q = opening();
+  try {
+    sessions.open(q);
+    const flow = await started.promise;
+    pending = flow.discard();
+    await blocked.promise;
+    expect(flow.discard()).toBe(pending);
+    if (end === "close") sessions.close(q.id);
+    if (end === "expire") {
+      now = lease_ms;
+      sessions.expire();
+    }
+    expect(sessions.busy).toBe(true);
+    expect(() => lock.check("claude", staged.dir)).toThrow("AccountInUse");
+    expect(unstage).not.toHaveBeenCalled();
+    gate.resolve();
+    await pending;
+    await Bun.sleep(0);
+    expect(logout).toHaveBeenCalledTimes(phase === "check-error" ? 0 : 1);
+    expect(unstage).toHaveBeenCalledTimes(1);
+    expect(unstage).toHaveBeenCalledWith(staged);
+    expect(sessions.busy).toBe(false);
+    expect(() => lock.check("claude", staged.dir)).not.toThrow();
+    if (end === "complete") expect((await sessions.sync(sync(q.id)))?.result?.status).toBe(1);
+  } finally {
+    gate.resolve();
+    await pending;
+    sessions.destroy();
+    for (const mock of [resolve, stage, identity, unstage, start, check, logout]) mock.mockRestore();
+  }
+});
+
+test("a successful login check cannot adopt an account once discard starts", async () => {
+  const accounts = await import("./accounts"),
+    integration = await import("./integration"),
+    claude = await import("./providers/claude/signin");
+  const checked = Promise.withResolvers<number>(),
+    loggingOut = Promise.withResolvers<void>(),
+    loggedOut = Promise.withResolvers<void>();
+  const staged = {
+    provider: "claude" as const,
+    name: "work",
+    dir: "/isolated/late-login",
+    temp: "/isolated/late-login-staging",
+  };
+  const completed: number[] = [];
+  const flow = new Signin(true, false, {
+    changed() {},
+    done(status) {
+      completed.push(status);
+    },
+  });
+  flow.provider = "claude";
+  flow.dir = staged.dir;
+  flow.staged = staged;
+  flow.compared = true;
+  flow.child = new Terminal(78, 19);
+  const identity = spyOn(accounts, "identity").mockReturnValue({ id: "work", email: "work@example.com" }),
+    ready = spyOn(claude.signin, "ready").mockReturnValue(true),
+    check = spyOn(flow, "account_command").mockReturnValue(checked.promise),
+    logout = spyOn(flow, "signOut").mockImplementation(async () => {
+      loggingOut.resolve();
+      await loggedOut.promise;
+    }),
+    adopt = spyOn(accounts, "adopt").mockReturnValue({
+      provider: "claude",
+      name: "work",
+      dir: staged.dir,
+      managed: true,
+    }),
+    prepare = spyOn(integration, "prepare").mockResolvedValue(),
+    unstage = spyOn(accounts, "unstage").mockImplementation(() => {});
+  let polling: Promise<void> | undefined, discarding: Promise<void> | undefined;
+  try {
+    polling = flow.poll();
+    discarding = flow.discard();
+    await loggingOut.promise;
+    checked.resolve(0);
+    await polling;
+    expect(adopt).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(completed).toEqual([]);
+    loggedOut.resolve();
+    await discarding;
+    expect(unstage).toHaveBeenCalledTimes(1);
+    expect(completed).toEqual([1]);
+  } finally {
+    checked.resolve(0);
+    loggedOut.resolve();
+    await Promise.allSettled([polling, discarding]);
+    flow.abandon();
+    for (const mock of [identity, ready, check, logout, adopt, prepare, unstage]) mock.mockRestore();
+  }
+});

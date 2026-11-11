@@ -31,7 +31,8 @@ class Accounts extends Runtime {
   first_run!: string;
   async configure() {
     const root = this.temp.name,
-      agent = write_ordinary_agent(join(root, "bin", "claude"));
+      agent = write_ordinary_agent(join(root, "bin", "claude")),
+      ordinary = write_ordinary_agent(join(root, "ordinary", "claude"));
     this.env.CORGI_CLAUDE_BIN = agent;
     const omarchy = join(this.env.XDG_STATE_HOME!, "omarchy", "agents", "accounts");
     this.work = join(omarchy, "claude", "work");
@@ -64,7 +65,7 @@ if ! grep -q hasCompletedOnboarding "$dir/.claude.json" 2>/dev/null; then
   printf '{"oauthAccount":{"emailAddress":"%s@example.com","accountUuid":"%s","organizationUuid":"org"},"hasCompletedOnboarding":true}' "$code" "$code" > "$dir/.claude.json"
   sleep 30
 fi
-exec ${quote(agent)} "$@"`,
+exec ${quote(ordinary)} "$@"`,
     );
   }
   async selectNewAccount(view: Viewer) {
@@ -217,7 +218,7 @@ exec ${quote(agent)} "$@"`,
   }
 
   async test_adding_an_account_in_the_viewer_opens_its_agent_and_confirms_it() {
-    this.env.CORGI_CLAUDE_BIN = this.first_run;
+    writeExecutable(this.env.CORGI_CLAUDE_BIN!, `#!/bin/sh\nexec ${quote(this.first_run)} "$@"\n`);
     writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
     const view = await Viewer.create(this, 160, 40);
     await view.input("\x02A");
@@ -273,7 +274,7 @@ exec ${quote(agent)} "$@"`,
     this.assertTrue(existsSync(join(this.env.CLAUDE_CONFIG_DIR!, ".claude.json")), "the default keeps its login");
   }
   async test_signin_link_hover_copies_the_wrapped_url_and_closes_with_signin() {
-    this.env.CORGI_CLAUDE_BIN = this.first_run;
+    writeExecutable(this.env.CORGI_CLAUDE_BIN!, `#!/bin/sh\nexec ${quote(this.first_run)} "$@"\n`);
     writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
     const view = await Viewer.create(this, 160, 40);
     await view.input("\x02A\x1b[C");
@@ -311,7 +312,7 @@ exec ${quote(agent)} "$@"`,
     this.assertEqual(this.listed(), []);
   }
   async test_cancelling_signin_returns_to_the_filtered_manager() {
-    this.env.CORGI_CLAUDE_BIN = this.first_run;
+    writeExecutable(this.env.CORGI_CLAUDE_BIN!, `#!/bin/sh\nexec ${quote(this.first_run)} "$@"\n`);
     writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
     const view = await Viewer.create(this, 160, 40);
     await view.input("\x02A");
@@ -441,9 +442,10 @@ exec ${quote(agent)} "$@"`,
     const view = await Viewer.create(this, 160, 40);
     let holding: Promise<void> | null = null;
     try {
-      await view.input("\x02A\x1b[C");
+      await view.input("\x02A");
+      await this.until(async () => (await view.poll()).data.includes("slow@example.com"));
+      await view.input("\x1b[C");
       await view.advance(0.3);
-      await this.until(async () => (await view.poll()).data.includes("slow"));
       await view.input("/slow\t");
       holding = (async () => {
         await view.input("\x7f");

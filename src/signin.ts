@@ -167,6 +167,8 @@ function keys(data: string): Key[] {
 
 /** Where a sign-in shows. */
 export interface Host {
+  /** A new account stays exclusive until this sign-in completes. */
+  staged?(provider: Provider, dir: string): void;
   /** Something in it changed, to draw again. */
   changed(): void;
   /** It's over: `start` opens the agent in its account; `message` confirms
@@ -195,6 +197,13 @@ export class Signin {
   checked = 0;
   compared = false;
   busy = false;
+  finishing: Promise<void> | null = null;
+  stopping: Promise<void> | null = null;
+  discarding: Promise<void> | null = null;
+  /** Work that can still use the account after its screen closes. */
+  get pending(): Promise<void>[] {
+    return [this.finishing, this.stopping, this.discarding].filter(p => p !== null);
+  }
   /** What it's doing that takes a moment, shown in place of its questions. */
   working: string | null = null;
   /** When the agent started, and whether its screen shows something yet. */
@@ -319,11 +328,13 @@ export class Signin {
         esc: 1,
       });
     }
+    if (this.over) return;
     if (!this.agent.includes("/")) this.agent = Bun.which(this.agent) ?? this.agent;
-    if (this.adding)
+    if (this.adding && !this.staged)
       try {
         this.staged = accounts.stage(this.provider!, this.name);
         this.dir = this.staged.dir;
+        this.host.staged?.(this.provider!, this.dir);
       } catch (error) {
         return this.ask({
           heading: `Corgi couldn't make the account. ${problem(error)}`,
@@ -364,10 +375,16 @@ export class Signin {
     this.stage = { kind: "signin" };
     this.changed();
   }
-  async stopChild() {
+  stopChild(): Promise<void> {
+    if (this.stopping) return this.stopping;
     const t = this.child;
     this.child = null;
-    if (!t) return;
+    if (!t) return Promise.resolve();
+    return (this.stopping = this.stopTerminal(t).finally(() => {
+      this.stopping = null;
+    }));
+  }
+  private async stopTerminal(t: Terminal) {
     t.removeAllListeners("exit");
     const pid = t.pid,
       exited = t.child?.exited;
@@ -377,6 +394,7 @@ export class Signin {
       try {
         process.kill(-pid, "SIGKILL");
       } catch {}
+    if (exited) await exited;
     t.destroy();
   }
   /** Runs one of the agent's account commands in the account; its status. */
@@ -466,17 +484,26 @@ export class Signin {
     this.changed();
   }
   /** The login worked out: the folder moves in and gets Corgi's hooks. */
-  async finish() {
+  finish(): Promise<void> {
+    if (this.over || this.discarding) return Promise.resolve();
+    return (this.finishing ??= this.finishAccount().finally(() => {
+      this.finishing = null;
+    }));
+  }
+  private async finishAccount() {
     this.busy = true;
     this.work(`Signed in. Setting up ${this.label}…`);
     await this.stopChild();
+    if (this.over) return;
     if (this.staged) {
       await stopInside([this.staged.dir, this.staged.temp]);
+      if (this.over) return;
       this.name = accounts.adopt(this.staged, this.name ?? accounts.suggest(this.provider!, this.who)).name;
       this.staged = null;
     }
     this.account = this.dir;
     await integration.prepare(this.provider!, this.dir, false, this.cwd);
+    if (this.over) return;
     this.busy = false;
     this.work(null);
     if (this.adding) return this.close(0, true, `Account added: ${this.label} / ${this.name}.`);
@@ -492,23 +519,34 @@ export class Signin {
     });
   }
   /** Deletes a new account that didn't work out, its login first. */
-  async discard() {
-    if (this.working) return;
+  discard(): Promise<void> {
+    if (this.discarding) return this.discarding;
+    if (this.over || this.working) return Promise.resolve();
+    return (this.discarding = this.discardAccount()
+      .catch(error => this.close(1, false, problem(error)))
+      .finally(() => {
+        this.discarding = null;
+      }));
+  }
+  private async discardAccount() {
     this.busy = true;
     this.work("Signing out and deleting the new folder…");
     await this.stopChild();
     const s = this.staged;
     if (s) {
-      if (accounts.identity(this.provider!, s.dir) || (await this.account_command(this.check, 10000)) === 0)
-        await this.signOut();
-      await stopInside([s.dir, s.temp]);
-      accounts.unstage(s);
-      this.staged = null;
+      try {
+        if (accounts.identity(this.provider!, s.dir) || (await this.account_command(this.check, 10000)) === 0)
+          await this.signOut();
+      } finally {
+        await stopInside([s.dir, s.temp]);
+        accounts.unstage(s);
+        this.staged = null;
+      }
     }
     this.close(1, false, `Cancelled: the new ${this.label} account wasn't added.`);
   }
-  /** Its host went away mid-way: what it started stops, and a new account
-   * goes, at once. */
+  /** Its host went away mid-way: stop what it started, leaving an active
+   * discard to finish deleting its own account. */
   abandon() {
     if (this.over) return;
     this.over = true;
@@ -516,7 +554,10 @@ export class Signin {
     try {
       if (this.child && this.child.pid > 0) process.kill(-this.child.pid, "SIGKILL");
     } catch {}
+    void this.stopChild();
+    if (this.discarding) return;
     const s = this.staged;
+    this.staged = null;
     if (s) {
       if (accounts.identity(this.provider!, s.dir)) {
         const logout = this.signin.logout;
@@ -725,6 +766,7 @@ export class Signin {
 }
 const keycap = (k: string) => `${palette.keycap} ${k} ${reset}`;
 const problems: Record<string, string> = {
+  AccountInUse: "Close the agent that runs in it first.",
   AccountHasProfiles: "Delete this account’s cloned configurations first.",
   AccountManagementUnsupported: "Manage this agent's login in the agent itself.",
   get InvalidAccountName() {
@@ -860,7 +902,7 @@ async function inTerminal(make: (host: Host) => Signin): Promise<number> {
         process.stdout.write(leave);
       } catch {}
       s.abandon();
-      process.exit(1);
+      void Promise.allSettled(s.pending).then(() => process.exit(1));
     });
   process.stdout.write(enter);
   await s.open(cols, rows);

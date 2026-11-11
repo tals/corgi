@@ -314,7 +314,7 @@ test("the sign-in copies the whole wrapped URL from a continuation row", async (
 
 test("sign-in selections and dialogs hide the link card and never target the pane behind them", async () => {
   const s = linkViewer(url, "signin");
-  const signin = s.signin!;
+  const signin = s.signin! as Signin;
   s.runtime.pane(1)!.terminal.inner.feed(url);
   s.runtime.pane(1)!.terminal.render_dirty = true;
   const show = async (now: number) => {

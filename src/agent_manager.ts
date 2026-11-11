@@ -87,6 +87,7 @@ export type Model = {
   /** A name for an account, from who signed in to it. */
   suggest(agent: Agent): string;
   options(agent: Agent): Options;
+  ready?(): boolean;
   order?: Row[];
   /** Whether Find agents is looking; null when the daemon can't look, so
    * there's no button. */
@@ -675,6 +676,7 @@ export class View {
   private act(item: Item, model: Model, now = milliTimestamp()): Action | null {
     switch (item.kind) {
       case "agent": {
+        if (!this.ready(model)) return null;
         this.transition.start(1, now);
         this.agent_form.open(item.agent, model.options(item.agent), model.suggest(item.agent));
         this.page = "agent";
@@ -738,7 +740,7 @@ export class View {
       this.form.name_customized = true;
       return;
     }
-    if (item.kind !== "agent") return;
+    if (item.kind !== "agent" || !this.ready(model)) return;
     const names = new Set(model.agents.map(a => a.name || adapter(a.provider).label)),
       base = item.agent.name || adapter(item.agent.provider).label;
     let name = copyName(base),
@@ -750,7 +752,13 @@ export class View {
     this.transition.start(1, milliTimestamp());
     this.page = "agent";
   }
-  private models(agent: Agent, model: Model, editing = false): Action {
+  private ready(model: Model): boolean {
+    if (model.ready?.() !== false) return true;
+    this.fail(i18n.t`Reading…`);
+    return false;
+  }
+  private models(agent: Agent, model: Model, editing = false): Action | null {
+    if (!editing && !this.ready(model)) return null;
     const options = editing ? this.agent_form.options() : model.options(agent);
     const view = new agentModels.Picker(options.model || "", options.effort);
     this.picker = { agent, view, editing };
