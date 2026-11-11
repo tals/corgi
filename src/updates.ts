@@ -3,6 +3,7 @@ import {
   chmodSync,
   closeSync,
   copyFileSync,
+  createReadStream,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -14,8 +15,8 @@ import {
   rmSync,
   unlinkSync,
 } from "node:fs";
+import { open } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { atomicWrite } from "./os";
 import { flock } from "./native_bridge";
@@ -246,7 +247,8 @@ function secure(rel: Release, url: string) {
   if (!url.startsWith("https://") && !(rel.test_mode && url.startsWith("http://127.0.0.1:")))
     throw Error("InsecureUpdateURL");
 }
-async function fetchBytes(rel: Release, url: string, limit: number): Promise<Buffer> {
+/** The body the feed serves at `url`, following redirects, in chunks of at most `limit` bytes in all. */
+async function* fetchChunks(rel: Release, url: string, limit: number): AsyncGenerator<Uint8Array> {
   for (let redirect = 0; redirect < 10; redirect++) {
     secure(rel, url);
     const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(300000) });
@@ -258,23 +260,59 @@ async function fetchBytes(rel: Release, url: string, limit: number): Promise<Buf
     }
     if (!response.ok || !response.body) throw Error("UpdateSubprocessFailed");
     if (Number(response.headers.get("content-length")) > limit) throw Error("FileTooBig");
-    const reader = response.body.getReader(),
-      chunks: Uint8Array[] = [];
+    const reader = response.body.getReader();
     let size = 0;
     try {
       for (;;) {
         const chunk = await reader.read();
-        if (chunk.done) break;
+        if (chunk.done) return;
         size += chunk.value.length;
         if (size > limit) throw Error("FileTooBig");
-        chunks.push(chunk.value);
+        yield chunk.value;
       }
     } finally {
       await reader.cancel();
     }
-    return Buffer.concat(chunks);
   }
   throw Error("UpdateSubprocessFailed");
+}
+async function fetchBytes(rel: Release, url: string, limit: number): Promise<Buffer> {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of fetchChunks(rel, url, limit)) chunks.push(chunk);
+  return Buffer.concat(chunks);
+}
+/** Writes release target `t` to `path` as it downloads, checking its size and
+ * hash on the way: a runtime never holds the binary in memory or reads it back. */
+async function downloadTo(rel: Release, t: Target, path: string): Promise<void> {
+  const hash = createHash("sha256"),
+    file = await open(path, "w", 0o700);
+  let size = 0;
+  try {
+    for await (const chunk of fetchChunks(rel, t.url, t.size)) {
+      hash.update(chunk);
+      size += chunk.length;
+      for (let offset = 0; offset < chunk.length;)
+        offset += (await file.write(chunk, offset, chunk.length - offset)).bytesWritten;
+    }
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+  if (size !== t.size || hash.digest("hex") !== t.sha256) throw Error("UpdateChecksumMismatch");
+}
+/** Whether `path` holds release target `t`, read a chunk at a time. */
+async function holds(path: string, t: Target): Promise<boolean> {
+  try {
+    const hash = createHash("sha256");
+    let size = 0;
+    for await (const chunk of createReadStream(path)) {
+      size += chunk.length;
+      hash.update(chunk);
+    }
+    return size === t.size && hash.digest("hex") === t.sha256;
+  } catch {
+    return false;
+  }
 }
 function verifyFile(path: string, t: Target): Buffer {
   const bytes = readFileSync(path);
@@ -316,40 +354,35 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
     if (!download) return;
     const dest = executable(root, m.version),
       dir = dirname(dest);
-    let binary: Buffer;
-    try {
-      binary = verifyFile(dest, own(m));
-    } catch {
-      binary = await fetchBytes(rel, own(m).url, own(m).size);
-    }
-    const unlockActivation = await lock(root, "activation.lock", true);
-    try {
-      // An install or activation may have overtaken the download.
-      const current = read(root, "current"),
-        staged = read(root, "staged");
-      if (current === null) throw Error("MissingInstalledVersion");
-      if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0)) {
-        privateDirectory(dir);
-        try {
-          verifyFile(dest, own(m));
-        } catch {
-          if (existsSync(dest)) throw Error("ExistingReleaseDiffers");
-          const partial = join(dir, "download.tmp");
-          try {
-            atomicWrite(partial, binary, 0o700);
-            verifyFile(partial, own(m));
-            renameSync(partial, dest);
-          } finally {
-            remove(dir, "download.tmp");
-          }
-        }
-        write(dir, "manifest.json", bytes);
-        write(root, "staged", m.version);
-      }
+    // Already downloaded; activation verifies it before it runs.
+    if (staged === m.version && existsSync(dest)) {
       remove(root, "last-error");
-      prune(root, true);
+      return;
+    }
+    // The download lock keeps this file to one download at a time.
+    const partial = join(root, "download.tmp");
+    try {
+      await downloadTo(rel, own(m), partial);
+      const unlockActivation = await lock(root, "activation.lock", true);
+      try {
+        // An install or activation may have overtaken the download.
+        const current = read(root, "current"),
+          staged = read(root, "staged");
+        if (current === null) throw Error("MissingInstalledVersion");
+        if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0)) {
+          privateDirectory(dir);
+          if (!existsSync(dest)) renameSync(partial, dest);
+          else if (!(await holds(dest, own(m)))) throw Error("ExistingReleaseDiffers");
+          write(dir, "manifest.json", bytes);
+          write(root, "staged", m.version);
+        }
+        remove(root, "last-error");
+        prune(root, true);
+      } finally {
+        unlockActivation?.();
+      }
     } finally {
-      unlockActivation?.();
+      remove(root, "download.tmp");
     }
   } finally {
     unlock();
@@ -782,10 +815,8 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
   }
   if (args.length === 2 && args[0] === "auto") {
     if (args[1] === "off") write(root, "auto-off", "off");
-    else if (args[1] === "on") {
-      remove(root, "auto-off");
-      background(daemon, exe);
-    } else throw Error("Usage");
+    else if (args[1] === "on") remove(root, "auto-off");
+    else throw Error("Usage");
     return;
   }
   if (args.length === 1 && args[0] === "status") {
@@ -803,42 +834,18 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
   await select(rel, root, daemon, true, true, rollback);
   console.log("Corgi is ready.");
 }
-export function background(daemon: rpc_http.Client, exe: string) {
-  const root = managed(release(exe), exe);
-  if (!root || existsSync(join(root, "auto-off"))) return;
-  spawn(exe, ["__update-worker", daemon.socket], {
-    env: { ...process.env, CORGI_APP_EXE: exe },
-    stdio: "ignore",
-    detached: true,
-  }).unref();
-}
-async function worker(exe: string, daemon: rpc_http.Client) {
+/** Downloads a newer release for the next launch to activate, as a runtime
+ * running `exe` does about hourly while automatic updates are on. A failure
+ * is kept for `corgi update status`. */
+export async function background(exe: string): Promise<void> {
   const rel = release(exe),
     root = managed(rel, exe);
-  if (!root) return;
-  const unlock = await lock(root, `worker-${Bun.hash.wyhash(daemon.socket, 0n).toString(16)}.lock`, false);
-  if (!unlock) return;
+  if (!root || existsSync(join(root, "auto-off"))) return;
   try {
-    let next = 0;
-    while (!existsSync(join(root, "auto-off"))) {
-      if (!(await hello(daemon))) return;
-      const now = Date.now();
-      if (now >= next) {
-        try {
-          await feed(rel, root, true, false);
-        } catch (error) {
-          recordError(root, error);
-        }
-        next = now + 3600000 + Math.random() * 300000;
-      }
-      const wake = Date.now() + 30000;
-      while (Date.now() < wake) {
-        if (existsSync(join(root, "auto-off")) || !existsSync(daemon.socket)) return;
-        await Bun.sleep(250);
-      }
-    }
-  } finally {
-    unlock();
+    await feed(rel, root, true, false);
+  } catch (error) {
+    recordError(root, error);
+    throw error;
   }
 }
 // The installer writes the launcher that runs the current release.
@@ -906,10 +913,6 @@ export async function internal(args: string[], exe: string): Promise<boolean> {
       console.log(json.stringify(await check.run(args[2], args[1], exe)));
       return true;
     }
-    case "__update-worker":
-      if (args.length !== 2) return false;
-      await worker(exe, new rpc_http.Client(args[1]));
-      return true;
     case "__install":
       if (args.length !== 3) return false;
       await install(release(exe), exe, args[1], args[2]);

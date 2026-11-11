@@ -492,6 +492,26 @@ test("signature and checksum failures leave installation and runtime untouched",
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
   expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
   expect(await Bun.file(join(root, "staged")).exists()).toBe(false);
+  expect(await Bun.file(join(root, "download.tmp")).exists()).toBe(false);
+}, 30_000);
+test("a runtime keeps looking for newer releases, also after an update", async () => {
+  const staged = () =>
+    Bun.file(join(root, "staged"))
+      .text()
+      .catch(() => "");
+  env.CORGI_TEST_UPDATE_CHECK_MS = "200";
+  await rm(join(root, "auto-off"));
+  await cli(["start"]);
+  await waitFor(async () => (await staged()) === "1.0.1");
+  // With CORGI_OLD_EXE, an older release hands over to this one.
+  await cli(["update"]);
+  expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
+  latest = "1.0.2";
+  await waitFor(async () => (await staged()) === "1.0.2");
+  expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
+  // Only an older release still runs a separate update worker.
+  if (!process.env.CORGI_OLD_EXE)
+    expect(Bun.spawnSync(["pgrep", "-f", `__update-worker ${socket}`]).stdout.toString()).toBe("");
 }, 30_000);
 test("incompatible update defers noninteractively and keeps running executable", async () => {
   await cli(["start"]);

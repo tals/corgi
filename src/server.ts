@@ -35,6 +35,7 @@ import * as integration from "./integration";
 import * as observers from "./observer_service";
 import * as trackers from "./trackers";
 import * as updates from "./updates";
+import * as errors from "./errors";
 import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import { testBuild } from "./build_assets";
@@ -118,6 +119,10 @@ export class Server {
   /** The installation this daemon runs from, once looked up; deleting it uninstalls Corgi. */
   private install: string | null | undefined;
   private installChecked = 0;
+  /** When this daemon next looks for a newer release; 0 looks at once. */
+  private updateDue = 0;
+  private updating = false;
+  private updateFailure = "";
   private uninstalling = false;
   /** The folder holding the Omarchy plugin that installed this Corgi, watched
    * so that removing the plugin removes Corgi too. */
@@ -604,6 +609,7 @@ export class Server {
         void this.uninstalled(this.install);
         return;
       }
+      if (this.install) this.checkForUpdates(this.install);
     }
     if (this.owner && Date.now() - this.ownerChecked >= 1000) {
       this.ownerChecked = Date.now();
@@ -1278,6 +1284,34 @@ export class Server {
       .finally(() => {
         this.deferred.delete(pending);
         release();
+      });
+  }
+  /** Downloads a newer release for the next launch to activate: about
+   * hourly, and as soon as automatic updates are turned back on. */
+  private checkForUpdates(root: string): void {
+    if (existsSync(join(root, "auto-off"))) {
+      this.updateDue = 0;
+      return;
+    }
+    if (this.updating || Date.now() < this.updateDue) return;
+    this.updating = true;
+    updates
+      .background(this.executable)
+      .then(
+        () => {
+          this.updateFailure = "";
+        },
+        error => {
+          const failure = errors.name(error) ?? String(error);
+          if (failure !== this.updateFailure) console.error("checking for updates:", failure);
+          this.updateFailure = failure;
+        },
+      )
+      .finally(() => {
+        this.updating = false;
+        this.updateDue =
+          Date.now() +
+          ((testBuild && Number(process.env.CORGI_TEST_UPDATE_CHECK_MS)) || 3_600_000 + Math.random() * 300_000);
       });
   }
   /** Its installation at `root` was deleted: viewers see the corgi leave, the
