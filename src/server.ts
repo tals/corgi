@@ -119,9 +119,8 @@ export class Server {
   /** The installation this daemon runs from, once looked up; deleting it uninstalls Corgi. */
   private install: string | null | undefined;
   private installChecked = 0;
-  /** When this daemon next looks for a newer release; 0 looks at once. */
-  private updateDue = 0;
-  private updating = false;
+  /** When this daemon next looks for a newer release. */
+  private updateTimer: ReturnType<typeof setTimeout> | null = null;
   private updateFailure = "";
   /** Stops a check under way when the daemon stops. */
   private readonly updateStop = new AbortController();
@@ -334,6 +333,7 @@ export class Server {
       this.watchInstall();
       this.listen();
       this.startLoop();
+      if (this.install) void this.checkForUpdates();
       process.on("SIGTERM", () => void this.shutdown());
       process.on("SIGINT", () => void this.shutdown());
       await this.saveWorkspaces();
@@ -611,7 +611,6 @@ export class Server {
         void this.uninstalled(this.install);
         return;
       }
-      if (this.install) this.checkForUpdates(this.install);
     }
     if (this.owner && Date.now() - this.ownerChecked >= 1000) {
       this.ownerChecked = Date.now();
@@ -1288,37 +1287,23 @@ export class Server {
         release();
       });
   }
-  /** Downloads a newer release for the next launch to activate: about
-   * hourly, and as soon as automatic updates are turned back on. */
-  private checkForUpdates(root: string): void {
-    if (existsSync(join(root, "auto-off"))) {
-      this.updateDue = 0;
-      return;
-    }
-    if (this.updating || Date.now() < this.updateDue) return;
-    this.updating = true;
+  /** Downloads a newer release for the next launch to activate: once the
+   * daemon starts, then about hourly. */
+  private async checkForUpdates(): Promise<void> {
     const hourly = (testBuild && Number(process.env.CORGI_TEST_UPDATE_CHECK_MS)) || 3_600_000 + Math.random() * 300_000;
     let wait = hourly;
-    updates
-      .background(this.executable, this.updateStop.signal)
-      .then(
-        checked => {
-          this.updateFailure = "";
-          // Another runtime's download, or the one this daemon took over from
-          // that's on its way out: look again soon.
-          if (!checked) wait = Math.min(hourly, 60_000);
-        },
-        error => {
-          if (this.stopped) return;
-          const failure = errors.name(error) ?? String(error);
-          if (failure !== this.updateFailure) console.error("checking for updates:", failure);
-          this.updateFailure = failure;
-        },
-      )
-      .finally(() => {
-        this.updating = false;
-        this.updateDue = Date.now() + wait;
-      });
+    try {
+      // Another runtime's download, or the daemon this one took over from
+      // on its way out, held the lock: look again soon.
+      if (!(await updates.background(this.executable, this.updateStop.signal))) wait = Math.min(hourly, 60_000);
+      this.updateFailure = "";
+    } catch (error) {
+      if (this.stopped) return;
+      const failure = errors.name(error) ?? String(error);
+      if (failure !== this.updateFailure) console.error("checking for updates:", failure);
+      this.updateFailure = failure;
+    }
+    if (!this.stopped) this.updateTimer = setTimeout(() => void this.checkForUpdates(), wait);
   }
   /** Its installation at `root` was deleted: viewers see the corgi leave, the
    * launcher it left goes, and the runtime stops, keeping saved sessions. */
@@ -1383,6 +1368,7 @@ export class Server {
     this.stopped = true;
     clearInterval(this.timer);
     // A download under way would keep this process, and its locks, alive.
+    if (this.updateTimer) clearTimeout(this.updateTimer);
     this.updateStop.abort(Error("ServerShutdown"));
     this.signins.destroy();
     this.pluginWatch?.close();

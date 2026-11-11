@@ -453,6 +453,8 @@ test("reload from a pane uses the selected executable as its default target", as
   await exec([target, "shutdown"]);
 }, 30_000);
 test("background download stages without activating, next start works offline", async () => {
+  // The runtime's next check, not an hour away, sees automatic updates on.
+  env.CORGI_TEST_UPDATE_CHECK_MS = "200";
   await cli(["start"]);
   const old = await rpc({ op: "hello" });
   await cli(["update", "auto", "on"]);
