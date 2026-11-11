@@ -6,3 +6,5 @@ export const updateURL = "";
 export const updatePublicKey = "";
 export const sentryDSN = "";
 export const sourceHash = "";
+/** Where a development build's commit lives; empty for a release. */
+export const buildRepository = "";

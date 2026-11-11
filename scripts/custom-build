@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# A stopped run resets the tree to upstream, which may lack this tool: use the
+# copy the run took, so continue, rollback and status still work.
+dir=${CORGI_CUSTOM_BUILD_DIR:-$root/.custom-build}
+prev=
+for arg in "$@"; do
+  if [ "$prev" = --dir ]; then
+    dir=$arg prev=
+    continue
+  fi
+  case $arg in
+    --dir) prev=--dir ;;
+    --dir=*) dir=${arg#--dir=} ;;
+    *) break ;;
+  esac
+done
+tool=$root/scripts/custom_build/main.ts
+[ -f "$dir/run.json" ] && [ -f "$dir/work/tool/main.ts" ] && tool=$dir/work/tool/main.ts
+CORGI_CUSTOM_BUILD_REPO=$root exec bun run "$tool" "$@"

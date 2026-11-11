@@ -31,3 +31,6 @@ zig-pkg/
 
 # Python benchmark helpers.
 /tools/benchmarks/__pycache__/
+
+# Custom build config, run state and reports (scripts/custom-build).
+/.custom-build/
