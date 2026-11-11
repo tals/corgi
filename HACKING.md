@@ -91,8 +91,14 @@ existing canonical executable or, when absent, `~/.local/bin/corgi`. Managed
 installations keep their launcher and release history. Signed releases are fetched
 at the exact version using the local installation's update trust; development
 builds use binary/source identity and Git ancestry, never build timestamps.
+Ancestry checks use the source checkout recorded at build time, independently
+of the directory where the setup command runs. Keep that checkout available
+when reconciling different development builds.
 Cross-platform development setup requires a matching `dist/corgi-<target>` and
-its build metadata. Divergent development builds stop with an explicit error.
+its build metadata. Divergent development builds stop with both build identities
+in the error. Pass `--replace-remote` to `machine add` or `machine check` to
+explicitly replace an unordered remote development build with the local build;
+artifact verification and live-handoff compatibility checks still apply.
 When the remote is newer, setup upgrades the local installation and re-executes
 it to finish the command. State preflight and live handoff preserve running
 shells; setup refuses incompatible handoffs instead of restarting agents.

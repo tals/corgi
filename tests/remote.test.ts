@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { userInfo } from "node:os";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
@@ -211,6 +211,82 @@ class Remote extends Runtime {
     );
     // The shells survived a handoff to the installed binary, not the absence of one.
     this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).executable, realpathSync(destination));
+  }
+  async test_setup_explains_unordered_development_builds_without_replacing_them() {
+    const commit = "f".repeat(40);
+    const metadata = JSON.stringify({ version: "0.1.0-dev", commit, update_abi: "1" });
+    const script = `#!/bin/sh\n[ "$1" = __update-info ] || exit 97\nprintf '%s\\n' ${quote(metadata)}\n`;
+    const executable = writeExecutable(join(this.temp.name, "divergent-corgi"), script);
+    const local = JSON.parse((await run([EXE, "__update-info"], { env: this.env })).stdout);
+    const result = await run([EXE, "machine", "add", "divergent", "corgi-test-host", "--executable", executable], {
+      env: this.env,
+      check: false,
+    });
+    this.assertNotEqual(result.code, 0);
+    this.assertTrue(result.stderr.includes("UnorderedDevelopmentBuilds"), result.stderr);
+    this.assertTrue(result.stderr.includes(local.commit), result.stderr);
+    this.assertTrue(result.stderr.includes(commit), result.stderr);
+    this.assertTrue(result.stderr.includes("same source checkout"), result.stderr);
+    this.assertEqual(readFileSync(executable, "utf8"), script);
+    const catalog = await this.cli(["machine", "list"]);
+    this.assertFalse(catalog.machines.some((p: { name: string }) => p.name === "divergent"));
+  }
+  async test_setup_replaces_a_divergent_remote_build_when_requested_and_preserves_shells() {
+    await this.setupDevelopmentBuild(true);
+  }
+  async test_setup_orders_ancestral_development_builds_outside_the_checkout() {
+    await this.setupDevelopmentBuild(false);
+  }
+  private async setupDevelopmentBuild(replaceRemote: boolean) {
+    const before = await this.remote!.rpc({ op: "session.snapshot" });
+    const ssh = Bun.which("ssh")!;
+    const prefix = `export HOME=${quote(this.remote!.temp.name)}; export CORGI_SOCKET=${quote(this.remote!.path)}; `;
+    writeExecutable(
+      join(this.temp.name, "bin/ssh"),
+      `#!${process.execPath}\nconst args = process.argv.slice(2); args[args.length - 1] = ${JSON.stringify(prefix)} + args.at(-1); const p = Bun.spawn([${JSON.stringify(ssh)}, "-F", ${JSON.stringify(this.sshconfig)}, ...args], { stdin: "inherit", stdout: "inherit", stderr: "inherit" }); process.exit(await p.exited);\n`,
+    );
+    const destination = join(this.remote!.temp.name, "divergent-corgi");
+    copyFileSync(EXE, destination);
+    const local = JSON.parse((await run([EXE, "__update-info"], { env: this.env })).stdout);
+    const older = replaceRemote
+      ? "f".repeat(40)
+      : (await run(["git", "-C", dirname(EXE), "rev-parse", local.commit.replace(/-dirty$/, "") + "^"])).stdout.trim();
+    const metadata = JSON.stringify({
+      ...local,
+      commit: older,
+      build_id: "",
+      source_hash: "",
+      executable: destination,
+      socket: this.remote!.path,
+    });
+    const wrapper = writeExecutable(
+      join(this.temp.name, "divergent-metadata"),
+      `#!/bin/sh\nif [ "$1" = __update-info ]; then printf '%s\\n' ${quote(metadata)}; else exec ${quote(destination)} "$@"; fi\n`,
+    );
+    await run(
+      [
+        EXE,
+        "machine",
+        "add",
+        "replaced",
+        "corgi-test-host",
+        "--executable",
+        wrapper,
+        ...(replaceRemote ? ["--replace-remote"] : []),
+      ],
+      { env: this.env, cwd: this.temp.name, timeout: 20_000 },
+    );
+    this.assertEqual(
+      createHash("sha256").update(readFileSync(destination)).digest("hex"),
+      createHash("sha256").update(readFileSync(EXE)).digest("hex"),
+    );
+    const after = await this.remote!.rpc({ op: "session.snapshot" });
+    this.assertEqual(
+      after.panes.map((p: { pid: number }) => p.pid).join(","),
+      before.panes.map((p: { pid: number }) => p.pid).join(","),
+    );
+    this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).executable, realpathSync(destination));
+    await this.cli(["machine", "check", "replaced", "--replace-remote"]);
   }
   async tearDown() {
     try {
