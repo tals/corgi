@@ -5,6 +5,27 @@ import * as subprocess from "../subprocess";
 
 type Child = ReturnType<typeof Bun.spawn>;
 const tail_bytes = 4096;
+/** A subtitle cue's number and timing lines; the groups are its end. */
+const cue_header = /^\d+\r?\n\d+:\d\d:\d\d[,.]\d{3} --> (\d+):(\d\d):(\d\d)[,.](\d{3})[ \t]*\r?\n/gm;
+
+/** A subtitle reply: its cues' text, read as json's `text`, and where the
+ * last cue ends, in seconds. No speech is an empty reply. */
+export function subtitles(srt: string): { text: string; speech_end?: number } {
+  const cues = [...srt.matchAll(cue_header)],
+    last = cues.at(-1);
+  if (!last) {
+    if (srt.trim()) throw Error("TranscriptionFailed");
+    return { text: "" };
+  }
+  // A cue is its segment's text and a blank line; json ends each segment with one newline.
+  const text = cues
+    .map((cue, i) => srt.slice(cue.index + cue[0].length, cues[i + 1]?.index).replace(/\r?\n$/, ""))
+    .join("");
+  return {
+    text: text.trim(),
+    speech_end: Number(last[1]) * 3600 + Number(last[2]) * 60 + Number(last[3]) + Number(last[4]) / 1000,
+  };
+}
 
 /** Whether something already answers on `port`. */
 async function answers(port: number): Promise<boolean> {
@@ -89,9 +110,10 @@ export class Server {
     } catch {}
   }
   /** What Whisper heard in `wav`, trimmed. `padMs` is the speech filter's
-   * padding for this request. `segments` asks for segment times, at the cost of
-   * a language-detection pass, for `speech_end`: where the last one ends, in
-   * seconds into the audio. */
+   * padding for this request. `segments` asks for subtitles instead, for
+   * `speech_end`: where the last segment ends, in seconds into the audio.
+   * (verbose_json has the times too, but whisper-server 1.9.5 crashes on it
+   * when the filter finds no speech in a fresh server's first request.) */
   async transcribe(
     wav: Uint8Array,
     opts: { timeoutMs?: number; padMs?: number; segments?: boolean } = {},
@@ -104,7 +126,7 @@ export class Server {
       no_speech_thold: "0.6",
       entropy_thold: "2.4",
       logprob_thold: "-1.0",
-      response_format: opts.segments ? "verbose_json" : "json",
+      response_format: opts.segments ? "srt" : "json",
     }))
       form.append(key, value);
     if (opts.padMs !== undefined) form.append("vad_speech_pad_ms", String(Math.round(opts.padMs)));
@@ -119,15 +141,18 @@ export class Server {
       throw Error((error as Error)?.name === "TimeoutError" ? "Timeout" : "ServerDown");
     }
     if (!reply.ok) throw Error("TranscriptionFailed");
+    if (opts.segments)
+      return subtitles(
+        await reply.text().catch(() => {
+          throw Error("TranscriptionFailed");
+        }),
+      );
     const body: unknown = await reply.json().catch(() => {
       throw Error("TranscriptionFailed");
     });
-    const answer = body && typeof body === "object" ? (body as { text?: unknown; segments?: unknown }) : {};
-    if (typeof answer.text !== "string") throw Error("TranscriptionFailed");
-    const text = answer.text.trim(),
-      last: unknown = Array.isArray(answer.segments) ? answer.segments.at(-1) : undefined,
-      end = last && typeof last === "object" ? (last as { end?: unknown }).end : undefined;
-    return typeof end === "number" ? { text, speech_end: end } : { text };
+    const heard = body && typeof body === "object" ? (body as { text?: unknown }).text : undefined;
+    if (typeof heard !== "string") throw Error("TranscriptionFailed");
+    return { text: heard.trim() };
   }
   on(_event: "crashed", fn: (code: number | null) => void): void {
     this.crashed.push(fn);

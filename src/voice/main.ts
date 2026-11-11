@@ -180,7 +180,7 @@ async function voice(
     link,
     transcriber: {
       // What the filter switch cuts off, sent before it or during it, says so.
-      // Segment times cost a language-detection pass, so only --verbose asks.
+      // Only the --verbose log shows segment times, so only it asks for them.
       transcribe: (wav, opts) =>
         server
           ? server.transcribe(wav, { padMs: opts.padMs, segments: given.verbose }).catch(error => {
