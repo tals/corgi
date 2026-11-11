@@ -8,7 +8,6 @@ import * as errors from "../errors";
 import { Failure } from "../failure";
 import { bounded, type Seen, type VoiceLink } from "./link";
 import type { Segmenter, Segment } from "./segmenter";
-import type { Server } from "./whisper";
 import type { MicProblem } from "./capture";
 
 /** "muted": dropped by a mute, on purpose; "discarded": dropped for `reason`. */
@@ -22,6 +21,15 @@ export type Utterance = {
   text: string | null;
   reason: string | null;
   timings: { transcribe_ms?: number; deliver_ms?: number };
+  /** What the segmenter's cut kept, once the utterance ended. */
+  cut?: Pick<Segment, "post_roll" | "kept" | "dropped">;
+  /** Where Whisper heard the speech end, in seconds, when it says. */
+  speech_end?: number;
+};
+/** Whisper: `padMs` is the speech filter's padding for this utterance. */
+export type Transcriber = {
+  transcribe(wav: Uint8Array, opts: { padMs: number }): Promise<{ text: string; speech_end?: number }>;
+  on(event: "crashed", fn: (code: number | null) => void): void;
 };
 export type LinkState = "connecting" | "connected" | "lost" | "refused" | "closed";
 export type Unavailable = MicProblem | "server_down";
@@ -96,7 +104,7 @@ export class VoiceSession {
     private deps: {
       /** Connects; `signal` aborts an attempt still in progress when voice mode quits. */
       link: (signal: AbortSignal) => Promise<VoiceLink>;
-      transcriber: Pick<Server, "transcribe" | "on">;
+      transcriber: Transcriber;
       segmenter: Segmenter;
       now: () => number;
       deliverTimeoutMs?: number;
@@ -220,6 +228,7 @@ export class VoiceSession {
     this.current = null;
     u.captured_at = segment.started_at;
     u.duration = segment.duration;
+    u.cut = { post_roll: segment.post_roll, kept: segment.kept, dropped: segment.dropped };
     // Speech this far behind Whisper or the runtime is not kept on top.
     if (this.pending >= max_backlog) return this.finish(u, "failed", "backlog");
     u.status = "transcribing";
@@ -237,7 +246,11 @@ export class VoiceSession {
     const started = this.deps.now();
     let heard: string;
     try {
-      heard = await this.deps.transcriber.transcribe(wav.encode(segment.pcm));
+      // The filter pads by the post-roll this utterance ended with, at least its own 30 ms.
+      const padMs = Math.max(30, Math.round(segment.post_roll * 1000)),
+        reply = await this.deps.transcriber.transcribe(wav.encode(segment.pcm), { padMs });
+      heard = reply.text;
+      u.speech_end = reply.speech_end;
     } catch (error) {
       if (u.status === "transcribing")
         this.finish(u, "failed", this.server === "crashed" ? "server crashed" : reason(error));
@@ -274,11 +287,14 @@ export class VoiceSession {
   private finish(u: Utterance, status: UtteranceStatus, why: string | null): void {
     u.status = status;
     u.reason = why;
-    const t = u.timings;
+    const t = u.timings,
+      secs = (n: number) => `${Math.round(n * 100) / 100}s`;
     this.deps.log?.(
       `utterance ${u.id}: ${status}${why ? ` (${why})` : ""} duration=${u.duration}s` +
         (t.transcribe_ms !== undefined ? ` transcribe_ms=${t.transcribe_ms}` : "") +
-        (t.deliver_ms !== undefined ? ` deliver_ms=${t.deliver_ms}` : ""),
+        (t.deliver_ms !== undefined ? ` deliver_ms=${t.deliver_ms}` : "") +
+        (u.cut ? ` post_roll=${secs(u.cut.post_roll)} kept=${secs(u.cut.kept)} dropped=${secs(u.cut.dropped)}` : "") +
+        (u.speech_end !== undefined ? ` speech_end=${secs(u.speech_end)}` : ""),
     );
     this.changed();
   }

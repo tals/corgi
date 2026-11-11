@@ -30,14 +30,17 @@ const reset = "\x1b[0m",
   /** The meter's colors run from the accent through warm to hot, so they follow the theme. */
   meter_stops: palette.Token[] = ["accent", "warm", "hot"];
 type Option = keyof Timing | "filter";
-/** The options in two lines of aligned columns: what ends an utterance, then what starts one. */
+/** The options in two lines of aligned columns: what ends an utterance, then
+ * what starts one. The filter stays last, as its value can be long. */
 const option_lines: Option[][] = [
-    ["silence", "burst", "filter"],
+    ["silence", "burst", "post_roll", "filter"],
     ["pre_roll", "min_speech"],
   ],
+  option_columns = Math.max(...option_lines.map(l => l.length)),
   option_names: Record<Option, string> = {
     silence: "silence",
     burst: "burst",
+    post_roll: "post-roll",
     filter: "filter",
     pre_roll: "pre-roll",
     min_speech: "min speech",
@@ -46,12 +49,16 @@ const option_lines: Option[][] = [
   choices: Record<keyof Timing, number[]> = {
     silence: [0.5, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10],
     burst: [0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5],
+    post_roll: [0.3, 0.5, 0.75, 1, 1.5, 2, Infinity],
     pre_roll: [0, 0.1, 0.2, 0.3, 0.5, 0.75, 1],
     min_speech: [0.05, 0.1, 0.2, 0.3, 0.5, 1],
   },
   /** The widest timing, "0.75 s". */
   value_width = 6;
-const seconds = (v: number) => `${v} s`;
+/** A timing on the options line; whole pause, `Infinity`, reads "pause". */
+const lineText = (v: number) => (v === Infinity ? "pause" : `${v} s`);
+/** A timing in its menu. */
+const menuText = (v: number) => (v === Infinity ? "whole pause" : `${v} s`);
 /** The help overlay: each setting, and how it changes what becomes text. */
 const help_entries: [string, string][] = [
   [
@@ -65,6 +72,10 @@ const help_entries: [string, string][] = [
   [
     "burst",
     "How long a sound must stay above the threshold to count as speaking again. Shorter peaks, such as music or a click, neither end nor extend the pause.",
+  ],
+  [
+    "post-roll",
+    "Audio kept after the last loud stretch, so a quiet sentence ending reaches Whisper; it is also the speech filter's padding. Longer keeps more of a soft ending but sends more background sound, which can become a stray word. Whole pause keeps everything up to the end of the silence window.",
   ],
   [
     "filter",
@@ -382,7 +393,7 @@ export class VoiceUi {
     // The options, a click away: each opens a menu of values, and the filter switches.
     put(options_row, 1, muted, "Options:");
     let x = 1 + label_width;
-    for (let c = 0; c < 3; c++) {
+    for (let c = 0; c < option_columns; c++) {
       const column = option_lines.map(l => l[c]).filter(o => o !== undefined),
         name_width = Math.max(...column.map(o => option_names[o].length)) + 1;
       option_lines.forEach((l, i) => {
@@ -394,7 +405,7 @@ export class VoiceUi {
           shown =
             o === "filter"
               ? put(y, at, this.filter === "not installed" ? warm : this.filter === "on" ? strong : muted, this.filter)
-              : put(y, at, strong, seconds(this.timing[o]));
+              : put(y, at, strong, lineText(this.timing[o]));
         this.hits.push({
           y,
           x,
@@ -490,7 +501,7 @@ export class VoiceUi {
   /** The menu's box, kept on screen: its top-left corner and size. */
   private menuBox(cols: number, rows: number) {
     const m = this.menu!,
-      width = Math.max(...m.values.map(v => seconds(v).length)) + 6,
+      width = Math.max(...m.values.map(v => menuText(v).length)) + 6,
       height = Math.min(rows, m.values.length + 2);
     return {
       top: Math.max(0, Math.min(m.y, rows - height)),
@@ -504,7 +515,7 @@ export class VoiceUi {
       { top, left, width, height } = this.menuBox(cols, rows);
     let out = at(top, left) + line + "╭" + "─".repeat(width - 2) + "╮";
     m.values.slice(0, height - 2).forEach((v, i) => {
-      const label = (i === m.choice ? "❯ " : "  ") + seconds(v);
+      const label = (i === m.choice ? "❯ " : "  ") + menuText(v);
       out +=
         at(top + 1 + i, left) +
         line +

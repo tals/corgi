@@ -88,8 +88,14 @@ export class Server {
       for await (const chunk of stream) this.output = (this.output + decoder.decode(chunk)).slice(-tail_bytes);
     } catch {}
   }
-  /** What Whisper heard in `wav`, trimmed. */
-  async transcribe(wav: Uint8Array, opts: { timeoutMs?: number } = {}): Promise<string> {
+  /** What Whisper heard in `wav`, trimmed. `padMs` is the speech filter's
+   * padding for this request. `segments` asks for segment times, at the cost of
+   * a language-detection pass, for `speech_end`: where the last one ends, in
+   * seconds into the audio. */
+  async transcribe(
+    wav: Uint8Array,
+    opts: { timeoutMs?: number; padMs?: number; segments?: boolean } = {},
+  ): Promise<{ text: string; speech_end?: number }> {
     const form = new FormData();
     form.append("file", new Blob([wav as Uint8Array<ArrayBuffer>], { type: "audio/wav" }), "utterance.wav");
     for (const [key, value] of Object.entries({
@@ -98,9 +104,10 @@ export class Server {
       no_speech_thold: "0.6",
       entropy_thold: "2.4",
       logprob_thold: "-1.0",
-      response_format: "json",
+      response_format: opts.segments ? "verbose_json" : "json",
     }))
       form.append(key, value);
+    if (opts.padMs !== undefined) form.append("vad_speech_pad_ms", String(Math.round(opts.padMs)));
     let reply: Response;
     try {
       reply = await fetch(`http://127.0.0.1:${this.port}/inference`, {
@@ -115,9 +122,12 @@ export class Server {
     const body: unknown = await reply.json().catch(() => {
       throw Error("TranscriptionFailed");
     });
-    const heard = body && typeof body === "object" ? (body as { text?: unknown }).text : undefined;
-    if (typeof heard !== "string") throw Error("TranscriptionFailed");
-    return heard.trim();
+    const answer = body && typeof body === "object" ? (body as { text?: unknown; segments?: unknown }) : {};
+    if (typeof answer.text !== "string") throw Error("TranscriptionFailed");
+    const text = answer.text.trim(),
+      last: unknown = Array.isArray(answer.segments) ? answer.segments.at(-1) : undefined,
+      end = last && typeof last === "object" ? (last as { end?: unknown }).end : undefined;
+    return typeof end === "number" ? { text, speech_end: end } : { text };
   }
   on(_event: "crashed", fn: (code: number | null) => void): void {
     this.crashed.push(fn);

@@ -56,7 +56,7 @@ The screen is a small table:
 | `Level` | A braille meter in the theme's colors, dimmed while your voice is under the threshold (the bar, `T:`), and grey while muted. A thin grey line grows under it while you pause; when it reaches the end, the utterance ends |
 | `Model` | The Whisper model |
 | `Mode` | `Listening`, or `MUTED` in red (also while voice cannot listen, as in the sidebar) |
-| `Options` | What ends an utterance (`silence`, `burst`), the speech `filter`, and what starts one (`pre-roll`, `min speech`) |
+| `Options` | What ends an utterance (`silence`, `burst`), how much of its pause is kept (`post-roll`), the speech `filter`, and what starts one (`pre-roll`, `min speech`) |
 
 Click an option to change it: a menu opens with a few values to pick with a
 click, or with `↑`/`↓` and Enter (Esc closes it). A click on `filter` switches
@@ -76,8 +76,10 @@ what muting cuts off, leaves no row.
 
 An utterance ends after 2.5 seconds of silence and is capped at 30 seconds.
 Short peaks under 0.1 seconds, such as music below your voice, don't keep it
-open. An utterance that follows another in the same pane is joined to it with
-one space; after anything else you type, it starts fresh.
+open. One second of the pause after you were last loud is kept (post-roll), so
+a softer last word still reaches Whisper; the speech filter pads the speech it
+finds by the same amount. An utterance that follows another in the same pane
+is joined to it with one space; after anything else you type, it starts fresh.
 Filler words (um, uh, hmm, ah, er) are removed from the text. Sounds Whisper
 describes, such as `*clap*` or `[BLANK_AUDIO]`, are removed too, alone or
 beside speech, and lines it invents from silence ("Thank you.") are not typed
@@ -142,6 +144,7 @@ running voice mode. Every field is optional.
   "threshold": 44,
   "silence": 2.5,
   "pre_roll": 0.3,
+  "post_roll": 1,
   "min_speech": 0.2,
   "burst": 0.1,
   "model": "base.en",
@@ -155,6 +158,7 @@ running voice mode. Every field is optional.
 | `threshold` | 44, on a 0 to 100 scale | `--threshold N` |
 | `silence` | 2.5 seconds, 0.5 to 10 | `--silence SECONDS` |
 | `pre_roll` | 0.3 seconds, 0 to 2: audio kept from before you start | |
+| `post_roll` | 1 second, 0 to 10, or `"pause"` for the whole pause: audio kept after you stop being loud, and the speech filter's padding | |
 | `min_speech` | 0.2 seconds, 0.02 to 2: shorter sounds are dropped | |
 | `burst` | 0.1 seconds, 0.02 to 1: shorter peaks don't keep an utterance open | |
 | `model` | `base.en` | `--model NAME` |
@@ -168,7 +172,11 @@ without authentication, so leave `port` unset unless you need a fixed one.
 
 `--verbose` appends one line per utterance (duration, transcription and
 delivery times, outcome) and whisper-server's health to `voice.log` beside
-`voice.json`. Nothing goes to the screen.
+`voice.json`. Nothing goes to the screen. Each line also shows the cut:
+`post_roll=` used, how much audio after your last loud stretch was `kept=` and
+`dropped=`, and `speech_end=`, where Whisper heard the speech end. To report
+that end, voice mode asks Whisper for segment times, which costs a
+language-detection pass per utterance, so only `--verbose` does.
 
 ## Troubleshooting
 
@@ -184,3 +192,4 @@ delivery times, outcome) and whisper-server's health to `voice.log` beside
 | "The Whisper server stopped" | Press `f` for a fresh one (it switches the filter), or quit and start voice mode again |
 | Background noise becomes text | Raise the threshold with `+`, or keep the speech filter on |
 | Quiet speech is missed | Lower the threshold with `-` until the meter crosses the marker as you speak |
+| Sentence endings are lost, with music or a raised threshold | Lengthen post-roll, or choose `whole pause` in its menu; with `--verbose`, compare `kept=` and `speech_end=` in `voice.log` with the utterance's duration |

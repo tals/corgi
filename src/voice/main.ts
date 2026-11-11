@@ -164,7 +164,13 @@ async function voice(
   let connected = false;
   const link = (signal: AbortSignal): Promise<VoiceLink> =>
     host ? SshLink.connect(host, { batch: connected, signal }) : LocalLink.connect(socket);
-  const timing = { silence: s.silence, pre_roll: s.pre_roll, min_speech: s.min_speech, burst: s.burst },
+  const timing = {
+      silence: s.silence,
+      pre_roll: s.pre_roll,
+      post_roll: s.post_roll,
+      min_speech: s.min_speech,
+      burst: s.burst,
+    },
     segmenter = new Segmenter({ threshold: s.threshold, timing, now: Date.now });
   // The server starts after the first connection, so a refusal starts nothing.
   let server: Server | null = null,
@@ -174,9 +180,10 @@ async function voice(
     link,
     transcriber: {
       // What the filter switch cuts off, sent before it or during it, says so.
-      transcribe: wav =>
+      // Segment times cost a language-detection pass, so only --verbose asks.
+      transcribe: (wav, opts) =>
         server
-          ? server.transcribe(wav).catch(error => {
+          ? server.transcribe(wav, { padMs: opts.padMs, segments: given.verbose }).catch(error => {
               throw restarting ? Error("ServerRestarting") : error;
             })
           : Promise.reject(Error(restarting ? "ServerRestarting" : "ServerDown")),

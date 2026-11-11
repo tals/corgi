@@ -36,14 +36,18 @@ class FakeLink implements VoiceLink {
 class FakeWhisper {
   heard: string[] = [];
   requests = 0;
+  /** The filter padding each request asked for. */
+  pads: number[] = [];
+  speech_end?: number;
   crash: (code: number | null) => void = () => {};
   /** Holds every transcription until it resolves, for a Whisper that is behind. */
   gate: Promise<void> = Promise.resolve();
   constructor(private script: string[]) {}
-  async transcribe() {
+  async transcribe(_wav: Uint8Array, opts: { padMs: number }): Promise<{ text: string; speech_end?: number }> {
     this.requests++;
+    this.pads.push(opts.padMs);
     await this.gate;
-    return this.script.shift() ?? "";
+    return { text: this.script.shift() ?? "", speech_end: this.speech_end };
   }
   on(_event: "crashed", fn: (code: number | null) => void) {
     this.crash = fn;
@@ -51,19 +55,26 @@ class FakeWhisper {
 }
 function session(
   script: string[],
-  opts: { link?: FakeLink; links?: (signal: AbortSignal) => Promise<VoiceLink>; timeout?: number } = {},
+  opts: {
+    link?: FakeLink;
+    links?: (signal: AbortSignal) => Promise<VoiceLink>;
+    timeout?: number;
+    log?: (line: string) => void;
+  } = {},
 ) {
   const link = opts.link ?? new FakeLink(),
     whisper = new FakeWhisper(script),
+    segmenter = new Segmenter({ threshold: 44, timing: { silence: 0.5 }, now: () => 0 }),
     s = new VoiceSession({
       link: opts.links ?? (async () => link),
       transcriber: whisper,
-      segmenter: new Segmenter({ threshold: 44, timing: { silence: 0.5 }, now: () => 0 }),
+      segmenter,
       now: () => performance.now(),
       deliverTimeoutMs: opts.timeout ?? 2000,
       retryMs: 20,
+      log: opts.log,
     });
-  return { s, link, whisper };
+  return { s, link, whisper, segmenter };
 }
 /** One utterance: 1.5 s of tone, then enough silence to end it. */
 function speak(s: VoiceSession) {
@@ -168,12 +179,12 @@ test("muting discards what is being said or transcribed", async () => {
   expect(link.calls).toEqual([]);
   // Unmuted mid-transcription, then muted again before delivery.
   s.setMuted(false);
-  let release!: (text: string) => void;
-  whisper.transcribe = () => new Promise<string>(resolve => (release = resolve));
+  let release!: (heard: { text: string }) => void;
+  whisper.transcribe = () => new Promise(resolve => (release = resolve));
   speak(s);
   await until(() => s.history.at(-1)?.status === "transcribing");
   s.setMuted(true);
-  release("too late");
+  release({ text: "too late" });
   await Bun.sleep(30);
   expect(s.history.at(-1)?.status).toBe("muted");
   expect(link.calls).toEqual([]);
@@ -315,7 +326,7 @@ test("a fresh server after a crash makes voice listen again", async () => {
 test("a server crash fails the utterance and stops listening", async () => {
   const { s, link, whisper } = session([]);
   await s.connect();
-  whisper.transcribe = () => new Promise<string>(() => {});
+  whisper.transcribe = () => new Promise(() => {});
   speak(s);
   await until(() => s.history[0]?.status === "transcribing");
   whisper.crash(3);
@@ -525,4 +536,42 @@ test("a transcription that times out says so, not that it may have been typed", 
   await until(() => s.history[0]?.status === "failed");
   expect(s.history[0].reason).toBe("timed out");
   expect(link.calls).toEqual([]);
+});
+
+test("the speech filter pads by the post-roll each utterance ended with", async () => {
+  const { s, whisper, segmenter } = session(["one", "two", "three"]);
+  let open!: () => void;
+  whisper.gate = new Promise(resolve => (open = resolve));
+  await s.connect();
+  // The default 1 s, within the tests' 0.5 s silence window.
+  speak(s);
+  speak(s);
+  // Changed while the second waits behind the first: it keeps its own.
+  segmenter.setTiming("post_roll", 0);
+  open();
+  await until(() => s.history.filter(u => u.status === "delivered").length === 2);
+  expect(whisper.pads).toEqual([500, 500]);
+  // None at all still leaves the filter its own 30 ms.
+  speak(s);
+  await until(() => s.history.filter(u => u.status === "delivered").length === 3);
+  expect(whisper.pads).toEqual([500, 500, 30]);
+});
+
+test("the log says what the cut kept and where Whisper heard the speech end", async () => {
+  const lines: string[] = [],
+    { s, whisper, segmenter } = session(["run the tests again", "send"], { log: line => lines.push(line) });
+  // The real server reports times such as this one.
+  whisper.speech_end = 4.2700000000000005;
+  await s.connect();
+  speak(s);
+  await until(() => s.history[0]?.status === "delivered");
+  expect(lines.find(l => l.startsWith("utterance 1:"))).toMatch(
+    /^utterance 1: delivered duration=2s transcribe_ms=[\d.]+ deliver_ms=[\d.]+ post_roll=0\.5s kept=0\.5s dropped=0s speech_end=4\.27s$/,
+  );
+  // Without segment times, there is no speech end.
+  whisper.speech_end = undefined;
+  segmenter.setTiming("post_roll", 0.3);
+  speak(s);
+  await until(() => s.history[1]?.status === "delivered");
+  expect(lines.find(l => l.startsWith("utterance 2:"))).toMatch(/ post_roll=0\.3s kept=0\.3s dropped=0\.2s$/);
 });
