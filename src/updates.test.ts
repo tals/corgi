@@ -151,6 +151,15 @@ test("an installation keeps its current release and the previous one", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+test("pointers machine setup wrote with a newline still name their releases", () => {
+  const root = installation(["1.0.0", "1.0.1", "1.0.2"], { current: "1.0.2\n", previous: "1.0.1\n" });
+  try {
+    prune(root);
+    expect(releases(root)).toEqual(["1.0.1", "1.0.2"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("releases newer than the current one stay", () => {
   // 1.0.3 waits to apply and 1.0.4 is still downloading.
   const root = installation(["1.0.0", "1.0.1", "1.0.2", "1.0.3", "1.0.4"], {

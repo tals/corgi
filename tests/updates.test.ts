@@ -793,7 +793,8 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     await writeFile(manifest, manifests.get("1.0.1")!);
     const result = await exec([fixture("1.0.1"), "__machine-install", old, expected, manifest]);
     expect(JSON.parse(result.out).executable).toBe(await realpath(join(root, "releases/1.0.1/corgi")));
-    expect((await readFile(join(root, "current"), "utf8")).trim()).toBe("1.0.1");
+    expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
+    expect(await readFile(join(root, "previous"), "utf8")).toBe("1.0.0");
     expect((await rpc({ op: "session.snapshot" })).panes[0].pid).toBe(before.panes[0].pid);
     expect((await rpc({ op: "hello" })).executable).toBe(await realpath(join(root, "releases/1.0.1/corgi")));
   },

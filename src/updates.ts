@@ -87,6 +87,9 @@ const read = (root: string, name: string): string | null => {
     throw error;
   }
 };
+type Pointer = "current" | "previous" | "staged" | "suppressed";
+/** The release a pointer file names. Machine setup used to end them with a newline. */
+const pointer = (root: string, name: Pointer): string | null => read(root, name)?.trim() ?? null;
 const write = (root: string, name: string, value: string) => atomicWrite(join(root, name), value);
 const remove = (root: string, name: string) => {
   try {
@@ -112,7 +115,7 @@ export function managed(rel: Release, exe: string): string | null {
   )
     return null;
   const root = dirname(dirname(dirname(exe)));
-  if (read(root, "current") === null) return null;
+  if (pointer(root, "current") === null) return null;
   privateDirectory(root);
   return root;
 }
@@ -140,7 +143,7 @@ export function activating(exe: string): boolean {
  * belongs to names current; null for a build no install manages. */
 export function currentOf(exe: string): (() => string | null) | null {
   const root = managed(release(exe), exe);
-  return root === null ? null : () => read(root, "current");
+  return root === null ? null : () => pointer(root, "current");
 }
 /** The Omarchy plugin folder that installed the Corgi at `root`, as its
  * installer recorded it, or null. Corgi removes itself when that folder goes. */
@@ -369,16 +372,16 @@ async function feed(
     const channelUrl = `${rel.feed_url}/channels/${channel}.json`;
     const bytes = (await fetchBytes(rel, channelUrl, 1024 * 1024, signal)).toString(),
       m = parse(rel, bytes),
-      current = read(root, "current");
+      current = pointer(root, "current");
     if (!current) throw Error("MissingInstalledVersion");
     if (compare(m.version, current) <= 0) {
       if (explicit) console.log("Corgi is up to date.");
       return true;
     }
-    const suppressed = read(root, "suppressed");
+    const suppressed = pointer(root, "suppressed");
     if (!explicit && suppressed && compare(m.version, suppressed) <= 0) return true;
     // A stale feed doesn't take back a newer update, such as one the installer staged.
-    const staged = read(root, "staged");
+    const staged = pointer(root, "staged");
     if (staged && compare(m.version, staged) < 0) return true;
     if (explicit) console.error(`Corgi ${m.version} is available.${download ? " Downloading…" : ""}`);
     if (!download) return true;
@@ -397,8 +400,8 @@ async function feed(
       const unlockActivation = await lock(root, "activation.lock", true, signal);
       try {
         // An install or activation may have overtaken the download.
-        const current = read(root, "current"),
-          staged = read(root, "staged");
+        const current = pointer(root, "current"),
+          staged = pointer(root, "staged");
         if (current === null) throw Error("MissingInstalledVersion");
         if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0)) {
           privateDirectory(dir);
@@ -452,14 +455,14 @@ export async function route(daemon: rpc_http.Client, exe: string, args: string[]
     process.execve!(target, [target, ...args], { ...process.env, CORGI_APP_EXE: target } as Record<string, string>);
 }
 function switchCurrent(root: string, v: string) {
-  const old = read(root, "current");
+  const old = pointer(root, "current");
   if (old === null) throw Error("MissingInstalledVersion");
   if (old !== v) {
     write(root, "previous", old);
     write(root, "current", v);
     prune(root);
   }
-  if (read(root, "staged") === v) remove(root, "staged");
+  if (pointer(root, "staged") === v) remove(root, "staged");
 }
 const runtimeLock = /^runtime-\d+\.lock$/;
 let holding: number | null = null;
@@ -507,8 +510,8 @@ export function prune(root: string, downloads = false) {
     const guard = openSync(join(root, "releases.lock"), "a", 0o600);
     try {
       if (!flock(guard)) return;
-      const current = read(root, "current"),
-        keep = [current, read(root, "previous"), read(root, "staged")],
+      const current = pointer(root, "current"),
+        keep = [current, pointer(root, "previous"), pointer(root, "staged")],
         dir = join(root, "releases");
       if (current === null) return;
       for (const v of readdirSync(dir))
@@ -715,12 +718,12 @@ async function select(
   const unlock = await lock(root, "activation.lock", explicit);
   try {
     let h = await hello(daemon);
-    const current = read(root, "current");
+    const current = pointer(root, "current");
     if (current === null) throw Error("MissingInstalledVersion");
     if (h && !h.executable) throw Error("RuntimeDoesNotSupportUpdates");
     const old = h?.executable || executable(root, current);
     if (!allow || !unlock) return old;
-    const candidate = read(root, rollback ? "previous" : "staged") ?? (rollback ? null : current);
+    const candidate = pointer(root, rollback ? "previous" : "staged") ?? (rollback ? null : current);
     if (candidate === null) return old;
     if (!rollback && compare(candidate, current) < 0) return old;
     const target = executable(root, candidate);
@@ -838,10 +841,11 @@ export function state(root: string): string[] {
   return [
     `Automatic updates: ${existsSync(join(root, "auto-off")) ? "off" : "on"}`,
     ...(plugin ? [`Installed by the Omarchy plugin in ${plugin}; removing it removes Corgi`] : []),
-    ...["current", "staged", "previous", "suppressed", "last-error"].flatMap(name => {
-      const v = read(root, name);
+    ...(["current", "staged", "previous", "suppressed"] as const).flatMap(name => {
+      const v = pointer(root, name);
       return v === null ? [] : [`${name}: ${v}`];
     }),
+    ...[read(root, "last-error")].flatMap(v => (v === null ? [] : [`last-error: ${v}`])),
   ];
 }
 export async function command(args: string[], daemon: rpc_http.Client, exe: string) {
@@ -893,7 +897,7 @@ async function install(rel: Release, exe: string, root: string, manifest: string
   privateDirectory(root);
   const unlock = await lock(root, "activation.lock", true);
   try {
-    const current = read(root, "current");
+    const current = pointer(root, "current");
     if (current !== null && compare(rel.version, current) <= 0) throw Error("AlreadyInstalled");
     const bytes = readFileSync(manifest, "utf8"),
       m = parse(rel, bytes);
@@ -911,7 +915,7 @@ async function install(rel: Release, exe: string, root: string, manifest: string
     write(dir, "manifest.json", bytes);
     // Over an older installation it stages the release, as a background download would; the next launch activates it.
     if (current !== null) {
-      const staged = read(root, "staged");
+      const staged = pointer(root, "staged");
       if (staged === null || compare(staged, rel.version) < 0) write(root, "staged", rel.version);
       return;
     }
