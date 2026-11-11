@@ -560,6 +560,17 @@ async function finish(e: Env, t: RebaseTarget, tree: string, how: How): Promise<
     const busy = git.checkedOutIn(e.repo, t.branch);
     if (busy) return done({ ...base, to: null, outcome: "skipped", reason: `checked out in ${busy}`, ...extra });
   }
+  // The checks approved the worktree's files as they were while they ran; a
+  // commit or an edit made meanwhile means they did not check `to`. The
+  // worktree keeps what it has, but its tip is not recorded as checked.
+  if (t.worktree && (git.revParse(tree, "HEAD") !== to || !git.isClean(tree)))
+    return done({
+      ...base,
+      to: null,
+      outcome: "skipped",
+      reason: `${tree} changed during the checks; ${t.branch} keeps its rebased tip, unchecked`,
+      ...extra,
+    });
   // The backup, the record of this rebase and the move happen together; the
   // rebase itself already moved a branch rebased in its own worktree.
   const records: { ref: string; value: string; old?: string | null }[] = [

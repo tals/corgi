@@ -2375,6 +2375,57 @@ test("an in-worktree rebase records its backup before the rebase moves the branc
   expect(read(seen)).toBe(`${busy}\n`);
 });
 
+test("an in-worktree rebase whose checks approve an edit made while they ran stays unchecked", async () => {
+  const w = world();
+  const busy = branch(w, "busy", { "busy.txt": "busy\n" });
+  const tree = join(fresh("busy"), "tree");
+  git(w.clone, "worktree", "add", "-q", tree, "busy");
+  upstreamMoves(w, { "up.txt": "up\n" });
+  // The test step plays the user editing the worktree while the checks run:
+  // a passing check on the edited files must not record `to` as checked.
+  configureOwn(w, ["busy"], {
+    steps: { ...stubSteps, test: ["sh", "-c", "echo edited >> busy.txt"] },
+  });
+  const result = await cb(w, "rebase", "--in-worktree");
+  expect(result.code).toBe(0);
+  expect(behindUpstream(w, "busy")).toBe(false);
+  expect(result.out).toContain("busy: skipped: ");
+  expect(result.out).toContain("changed during the checks; busy keeps its rebased tip, unchecked");
+  // The worktree keeps its edit and the rebased tip; nothing is pushed.
+  expect(read(join(tree, "busy.txt"))).toBe("busy\nedited\n");
+  expect(git(tree, "rev-parse", "HEAD")).toBe(tip(w, "busy"));
+  expect(backupOf(w, "busy")).toBe(busy);
+  expect(onFork(w, "busy")).toBe("");
+});
+
+test("an in-worktree rebase whose checks approve a commit made while they ran stays unchecked", async () => {
+  const w = world();
+  const busy = branch(w, "busy", { "busy.txt": "busy\n" });
+  const tree = join(fresh("busy"), "tree");
+  git(w.clone, "worktree", "add", "-q", tree, "busy");
+  upstreamMoves(w, { "up.txt": "up\n" });
+  const committed = join(fresh("commit"), "done");
+  configureOwn(w, ["busy"], {
+    steps: {
+      ...stubSteps,
+      test: [
+        "sh",
+        "-c",
+        `if [ ! -f "${committed}" ]; then echo x > extra.txt; git add extra.txt; git commit -q -m meanwhile; touch "${committed}"; fi`,
+      ],
+    },
+  });
+  const result = await cb(w, "rebase", "--in-worktree");
+  expect(result.code).toBe(0);
+  expect(result.out).toContain("busy: skipped: ");
+  expect(result.out).toContain("changed during the checks; busy keeps its rebased tip, unchecked");
+  // The branch moved with the worktree's commit, which is kept but unchecked.
+  expect(git(tree, "rev-parse", "HEAD")).toBe(tip(w, "busy"));
+  expect(git(tree, "status", "--porcelain")).toBe("");
+  expect(git(w.clone, "show", "busy:extra.txt")).toBe("x");
+  expect(onFork(w, "busy")).toBe("");
+});
+
 test("rebase --in-worktree leaves checked-out branches alone that are current or that the mode skips", async () => {
   const w = world();
   const clean = branch(w, "clean", { "clean.txt": "clean\n" });
