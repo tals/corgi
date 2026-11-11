@@ -173,3 +173,22 @@ test("an edit clears the message and the overflow", () => {
   expect(r.field.overflow).toBe(false);
   expect(r.field.len).toBe(name_limit);
 });
+
+test("a press in the field drops the selection and puts the caret where it lands", () => {
+  const open = InlineRename.open({ workspace: 1 }, "Billing team", "");
+  expect(open.field.selected).toBe(true);
+  open.place(3, 14);
+  expect(open.field.selected).toBe(false);
+  expect(open.field.cursor).toBe(3);
+  open.field.key(c("X"));
+  expect(open.field.raw()).toBe("BilXling team");
+  // Past the text, in the field's spare columns, the caret goes to the end.
+  open.place(13, 15);
+  expect(open.field.cursor).toBe(open.field.len);
+  // Wide characters take two columns each; a press on either half picks it.
+  const wide = InlineRename.open({ workspace: 2 }, "日本語版", "");
+  wide.place(3, 10);
+  expect(wide.field.cursor).toBe(3);
+  wide.place(4, 10);
+  expect(wide.field.cursor).toBe(6);
+});

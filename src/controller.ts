@@ -7882,14 +7882,16 @@ export class Controller {
       this.dirty = true;
       return;
     }
-    // A press in the open rename field changes nothing; anywhere else it
-    // closes the field unsaved and then does what it would have done. The
-    // field takes the whole name line, as the double-click that opens it does.
+    // A press in the open rename field puts the caret there; anywhere else
+    // it closes the field unsaved and then does what it would have done.
     if (this.inline_rename && !release && (button & 0xe0) === 0) {
       const open = this.inline_rename,
-        side = this.sidebarView(this.sidebarEntries());
-      if (side.onNameLine(open.target, this.workspaceEntries(), x, y)) {
+        side = this.sidebarView(this.sidebarEntries()),
+        rect = side.fieldRect(open.target, this.workspaceEntries());
+      if (rect && y === rect.y && x >= rect.x && x < rect.x + rect.width) {
+        if (button === 0) open.place(x - rect.x, rect.width);
         this.ui_mouse_down = true;
+        this.dirty = true;
         return;
       }
       // The drawer the field opened takes the press as it does without one:

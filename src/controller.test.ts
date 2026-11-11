@@ -4188,16 +4188,22 @@ test("the prompt's picker offers each installed agent's models per account, with
   }
 });
 
-test("a press outside the field closes it unsaved and still acts; one inside changes nothing", async () => {
+test("a press outside the field closes it unsaved and still acts; one inside puts the caret there", async () => {
   const { s, sent, rect, press, twice } = renaming();
   try {
     setSystemTime(new Date(1000));
     await twice({ agent: 1 });
     const inside = rect({ agent: 1 });
+    const name = s.inline_rename.field.raw();
+    expect(s.inline_rename.field.selected).toBe(true);
+    // Past the double-click window, so it is a plain press.
+    setSystemTime(new Date(2000));
     await press(inside.x + 2, inside.y);
     expect(s.inline_rename.target).toEqual({ agent: 1 });
-    expect(s.inline_rename.field.cursor).toBe(s.inline_rename.field.len);
+    expect(s.inline_rename.field.selected).toBe(false);
+    expect(s.inline_rename.field.cursor).toBe(2);
     await s.input(bytes("x"));
+    expect(s.inline_rename.field.raw()).toBe(name.slice(0, 2) + "x" + name.slice(2));
     const other = rect({ agent: 2 });
     await press(other.x, other.y);
     expect(s.inline_rename).toBeNull();
