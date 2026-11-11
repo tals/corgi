@@ -110,8 +110,8 @@ test("resource row omits unavailable metrics and I/O, and preserves real zeros",
   expect(has(w.s, "›")).toBe(false);
   w = new Writer();
   drawResources(w, work({ id: 1, known: true, cpu: 0, memory: 0n, read: 0n, written: 0n }), view, false, false);
-  expect(has(w.s, "CPU 0%")).toBe(true);
-  expect(has(w.s, "Memory 0M")).toBe(true);
+  expect(has(w.s, "C 0%")).toBe(true);
+  expect(has(w.s, "M 0M")).toBe(true);
   expect(has(w.s, "›")).toBe(true);
   w = new Writer();
   drawResources(
@@ -126,7 +126,7 @@ test("resource row omits unavailable metrics and I/O, and preserves real zeros",
 });
 
 test("resource readings turn off as a whole", () => {
-  let view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
+  let view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0).withWidth(46);
   let w = new Writer();
   drawResources(w, hot, view, false, false);
   expect(has(w.s, "CPU 182%")).toBe(true);
@@ -134,12 +134,12 @@ test("resource readings turn off as a whole", () => {
   expect(has(w.s, "\x1b[22m" + fg("warm") + "CPU")).toBe(true);
   // Narrower sidebars shorten labels rather than clipping values.
   w = new Writer();
-  drawResources(w, hot, view.withWidth(26), false, false);
+  drawResources(w, hot, view.withWidth(40), false, false);
   expect(has(w.s, "CPU 182%")).toBe(true);
   expect(has(w.s, "Mem 3.0G")).toBe(true);
   expect(has(w.s, "Memory")).toBe(false);
   w = new Writer();
-  drawResources(w, hot, view.withWidth(20), false, false);
+  drawResources(w, hot, view.withWidth(26), false, false);
   expect(has(w.s, "C 182%")).toBe(true);
   expect(has(w.s, "M 3.0G")).toBe(true);
   expect(has(w.s, "Mem")).toBe(false);
@@ -1475,7 +1475,7 @@ test("a worktree's group runs while rows are its checkout's", () => {
   expect(groupEnd(entries, 3)).toBe(4);
 });
 
-test("on a host with GPUs every resource row keeps a GPU place, used or not", () => {
+test("every resource row keeps a GPU place, whether the host has GPUs or not", () => {
   const view = Object.assign(View.init(100, 30, true, 0, 0).withWorkspaces(1, 0), { gpus: true }),
     calm = { ...hot, cpu_pressure: false },
     plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, ""),
@@ -1491,8 +1491,7 @@ test("on a host with GPUs every resource row keeps a GPU place, used or not", ()
   // CPU and memory sit in the same columns either way.
   expect(idle.indexOf("M 3.0G")).toBe(busy.indexOf("M 3.0G"));
   expect(idle.length).toBe(busy.length);
-  // Without GPUs the row keeps its two halves.
-  expect(row({ gpu: 150, gpu_shown: true }, Object.assign(view.clone(), { gpus: false }))).toContain("Memory 3.0G");
+  expect(row({ gpu: 150, gpu_shown: true }, Object.assign(view.clone(), { gpus: false }))).toBe(idle);
   const wide = row({ gpu: 150, gpu_shown: true }, view.withWidth(40));
   expect(wide).toContain("CPU 182%");
   expect(wide).toContain("Mem 3.0G");

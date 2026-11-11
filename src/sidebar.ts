@@ -2314,7 +2314,7 @@ function resourceCardFits(v: View): boolean {
   return resourceTooltip.geometry(v.cols, v.rows, v.sidebarWidth(), 0) !== null;
 }
 /** Whether the row shows CPU (0), memory (1) or GPU (2), the last only while
- * the workspace uses one; on a host with GPUs its place stays either way.
+ * the workspace uses one; its place stays reserved on every host.
  * Disk I/O is only in the hover card. */
 function shownReading(prefs: { enabled: boolean }, work: Work, reading: number): boolean {
   const available =
@@ -2333,13 +2333,12 @@ export function drawResources(w: Writer, work: Work, v: View, hovered: boolean, 
   const normal = hover ? "\x1b[22m" + fg("text") : tinted ? "\x1b[22m" + fg("muted") : "\x1b[22m" + fg("faint");
   if (hover) w.write(selected_bg);
   const readings_width = width - (details ? 2 : 0);
-  const values = [cpuText(work.cpu), memoryText(work.memory)];
+  const values = [cpuText(work.cpu), memoryText(work.memory), v.gpus ? cpuText(work.gpu) : ""];
   const names = [
     ["CPU", "C"],
     [i18n.t`Memory`, i18n.t`Mem`, "M"],
     ["GPU", "G"],
   ];
-  if (v.gpus) values.push(cpuText(work.gpu));
   const rooms = values.map(
     (_, i) => Math.floor((readings_width * (i + 1)) / values.length) - Math.floor((readings_width * i) / values.length),
   );
@@ -2353,8 +2352,7 @@ export function drawResources(w: Writer, work: Work, v: View, hovered: boolean, 
     );
   });
   // Three readings shorten together rather than mixing "C" and "GPU".
-  if (values.length === 3 && labels.some((label, i) => label === names[i].at(-1)))
-    labels.forEach((_, i) => (labels[i] = names[i].at(-1)!));
+  if (labels.some((label, i) => label === names[i].at(-1))) labels.forEach((_, i) => (labels[i] = names[i].at(-1)!));
   values.forEach((value, i) => {
     const last = i === values.length - 1;
     const room = rooms[i];
