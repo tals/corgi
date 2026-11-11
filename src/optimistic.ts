@@ -29,9 +29,19 @@ export function edit(command: protocol.CommandInput): Edit | null {
       const { workspace, target, before, pinned } = request.payload;
       return runtime => {
         const ws = find(runtime, workspace),
-          pins = Pins.restore(ws.pinned_agents);
-        if (pinned === false) pins.unpin(agents(runtime, ws), target);
-        else pins.pin(agents(runtime, ws), target, before ?? null);
+          targets = agents(runtime, ws),
+          pins = Pins.restore(ws.pinned_agents),
+          starred = pinned !== false;
+        if (starred) pins.pin(targets, target, before ?? null);
+        else pins.unpin(targets, target);
+        // The star is the conversation's, wherever else it's open.
+        const mine = conversation(runtime, target);
+        if (mine)
+          for (const other of targets) {
+            if (conversation(runtime, other) !== mine) continue;
+            if (starred && !pins.has(other)) pins.pin(targets, other, null);
+            else if (!starred) pins.unpin(targets, other);
+          }
         ws.pinned_agents = pins.items;
       };
     }
@@ -46,8 +56,13 @@ export function edit(command: protocol.CommandInput): Edit | null {
         // Docked, or changed by something else: the daemon's layout stands.
         if (ws.model.revision !== q.expected) return;
         // A new tab or shell gets its id from the daemon, which may differ.
-        const plan = docking.arrange(ws.model, q.source, q.drop, q.focus, unused(runtime));
-        plan.model.revision = BigInt.asUintN(64, q.expected + 1n);
+        const next = unused(runtime),
+          plan = docking.arrange(ws.model, q.source, q.drop, q.focus, next);
+        // Without one it's the daemon's next layout. With one it keeps the
+        // revision it was planned on, so nothing planned on its guessed ids
+        // passes for the daemon's, and the daemon's layout cancels a drag
+        // begun on it.
+        if (plan.model.next_id === next) plan.model.revision = BigInt.asUintN(64, q.expected + 1n);
         ws.model = plan.model;
       };
     }
@@ -59,6 +74,12 @@ export function edit(command: protocol.CommandInput): Edit | null {
  * workspaces, so one only this workspace lacks may be another's pane. */
 function unused(runtime: Runtime): number {
   return Math.max(...runtime.workspaces.items.map(ws => docking.nextId(ws.model)), ...runtime.panes.map(p => p.id + 1));
+}
+/** The conversation `target` shows, as the daemon stars it; null between ones. */
+function conversation(runtime: Runtime, target: Target): string | null {
+  const agent =
+    "pane" in target ? runtime.pane(target.pane)?.agent : runtime.sessions.find(s => s.id === target.headless)?.agent;
+  return agent?.provider && agent.session ? `${agent.provider} ${agent.session}` : null;
 }
 function find(runtime: Runtime, id: number): Workspace {
   const ws = runtime.workspaces.items.find(ws => ws.id === id);

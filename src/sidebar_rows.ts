@@ -201,13 +201,15 @@ export class State {
     }
     const reveal = this.reveal;
     this.reveal = false;
-    // A group the move opens fades in; one it empties goes at once.
-    if (moved) for (const slot of headers) slot.opening_ms = now;
+    // A group the move or drop opens fades in; one it empties goes at once,
+    // leaving the rows below where they land.
+    const rearranged = moved || placed;
+    if (rearranged) for (const slot of headers) slot.opening_ms = now;
     for (let position = 0; position < this.order.length; position++) {
       const index = this.order[position],
         slot = this.slots[index];
       if (!slot.seen && slot.closing_ms === null) {
-        if (moved && isHeading(slot.entry.target)) continue;
+        if (rearranged && isHeading(slot.entry.target)) continue;
         slot.closing_ms = now;
       }
       if (slot.closing_ms !== null && now - slot.closing_ms < State.duration_ms && next.length < capacity)

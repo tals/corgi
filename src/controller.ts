@@ -959,35 +959,41 @@ export class Controller {
   private command(command: CommandInput): void {
     this.later(lane => this.edit(command, lane));
   }
-  /** Sends `command`, showing its result at once where optimistic.ts can.
-   * The guess stands until a snapshot taken after the reply; a refusal
-   * shows the last snapshot without it. `settle` tells the viewer's own
-   * guesses whether the daemon took it; `then` takes the result. */
-  private optimistic(
+  /** Shows `command`'s result at once where optimistic.ts can, and returns
+   * the task that sends it. The guess stands until the daemon answers; a
+   * refusal shows the last snapshot without it. `settle` then tells the
+   * viewer's own guesses whether the daemon took it. */
+  private assume(
     command: CommandInput,
-    { then, settle }: { then?: (result: { pane: number }) => void; settle?: (kept: boolean) => void } = {},
-  ): void {
+    settle?: (kept: boolean) => void,
+  ): (lane: tasks.Lane) => Promise<{ pane: number }> {
     const machine = this.machine,
       edit = optimistic.edit(command),
       forget = edit ? machine.runtime.assume(edit) : () => {};
     this.dirty = true;
-    this.later(async lane => {
+    return async lane => {
       let answered = false;
       try {
-        const result = await this.execute(command, lane, () => {
+        return await this.execute(command, lane, () => {
           answered = true;
+          // Snapshots from here on have it, or what came after it.
+          forget();
           settle?.(true);
         });
-        then?.(result);
       } catch (error) {
-        forget();
-        if (!answered) settle?.(false);
-        if (edit && !answered && machine.runtime.snapshot) this.receiveSnapshot(machine.runtime.snapshot, machine);
+        if (!answered) {
+          forget();
+          if (edit && machine.runtime.snapshot) this.receiveSnapshot(machine.runtime.snapshot, machine);
+          settle?.(false);
+        }
         throw error;
-      } finally {
-        forget();
       }
-    });
+    };
+  }
+  /** Sends `command`, showing its result at once; see `assume`. */
+  private optimistic(command: CommandInput, settle?: (kept: boolean) => void): void {
+    const send = this.assume(command, settle);
+    this.later(async lane => void (await send(lane)));
   }
   private moveTab(id: number, gap: number): void {
     const operation = navigation.moveTab(this.model(), id, gap);
@@ -7552,18 +7558,17 @@ export class Controller {
     this.ui_mouse_down = true;
     this.dirty = true;
   }
+  /** The undo and redo counts for the layout shown. A dock still waiting
+   * shows a layout they don't name yet; they wait for it rather than go. */
   private dockingHistory() {
-    const id = this.current().id,
-      history = this.dock_history.get(id);
+    const history = this.dock_history.get(this.current().id);
     if (history && history.revision === this.model().revision) return history;
-    this.dock_history.delete(id);
     return { revision: this.model().revision, undo: 0, redo: 0 };
   }
   private commitDock(): void {
     const drag = this.input_state.tab_drag;
     if (!drag || !this.validTabDrag(drag) || !drag.plan || !drag.drop) return this.cancelDock();
-    const history = this.dockingHistory(),
-      workspace = this.current().id,
+    const workspace = this.current().id,
       plan = drag.plan,
       here = this.here();
     const command: CommandInput = {
@@ -7581,21 +7586,31 @@ export class Controller {
     };
     // Consume the gesture; no release can repeat it.
     this.cancelDock();
-    const revision = this.navigation.revision;
-    this.optimistic(command, {
-      then: result => {
+    let revision = this.navigation.revision;
+    const send = this.assume(command, kept => {
+      if (kept) {
+        // Counted from the history as it is now: an earlier dock may have
+        // been answered since this one was dropped.
+        const history = this.dock_history.get(workspace);
         this.dock_history.set(workspace, {
           revision: drag.revision + 1n,
-          undo: Math.min(32, history.undo + 1),
+          undo: Math.min(32, (history?.revision === drag.revision ? history.undo : 0) + 1),
           redo: 0,
         });
-        if (plan.shell !== null && here() && this.navigation.revision === revision) this.focusPane(result.pane);
-      },
+      } else if (here() && this.navigation.revision === revision) {
+        // Refused, and the user is where the drop left them: back to where
+        // the drag began.
+        Object.assign(this.nav(), structuredClone(drag.before));
+        this.nav().reconcile(this.model());
+      }
     });
-    // A new shell's id is the daemon's to give; until it does, keys stay where
-    // they were, and it takes them only if the user hasn't moved meanwhile.
     if (plan.shell === null) this.focusPane(plan.focus);
     this.nav().tab().zoom = false;
+    revision = this.navigation.revision;
+    // A new shell's id is the daemon's to give: it opens like any new pane,
+    // keeping what's typed for it until it's there.
+    if (plan.shell !== null) this.open(async lane => (await send(lane)).pane);
+    else this.later(async lane => void (await send(lane)));
   }
   private async restoreDock(direction: "undo" | "redo"): Promise<void> {
     this.cancelDock();
@@ -8092,7 +8107,7 @@ export class Controller {
               : drag.action === "place"
                 ? { "agent.place": place }
                 : { "agent.pin": { ...place, pinned: true } },
-            { settle },
+            settle,
           );
           this.sidebar_rows.place();
         }
@@ -8727,7 +8742,10 @@ export class Controller {
     const hover = isHover(button);
     for (const p of this.layoutView().placements(this.area())) {
       if (!p.rect.contains(x, y)) continue;
-      const term = this.pane(p.id)!.terminal;
+      // A shell a dock is still opening shows its place, but takes no clicks.
+      const pane = this.pane(p.id);
+      if (!pane) return;
+      const term = pane.terminal;
       // Once the app asks for mouse input it gets every event except
       // Shift, copy mode and the rest of a selection drag.
       const app_mouse = term.mouseEvents() && !this.copy_mode && (button & 4) === 0 && this.selection === null;
