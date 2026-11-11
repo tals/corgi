@@ -18,6 +18,53 @@ const opening = () => ({
 const sync = (id: string, fields: object = {}) =>
   protocol.decode("account.signin.sync", { id, cols: 80, rows: 24, ...fields });
 
+test.each(["cancel", "close", "expire"])(
+  "existing account remains locked until its cancelled provider exits: %s",
+  async end => {
+    const accounts = await import("./accounts"),
+      lock = await import("./account_lock");
+    const account = { provider: "claude" as const, name: "work", dir: "/isolated/existing-account", managed: true };
+    const exited = Promise.withResolvers<number>();
+    let flow!: Signin,
+      now = 0;
+    const find = spyOn(accounts, "find").mockReturnValue(account);
+    const open = spyOn(Signin.prototype, "open").mockImplementation(async function (this: Signin) {
+      flow = this;
+      this.child = new Terminal(78, 19);
+      Object.defineProperty(this.child, "child", { value: { exited: exited.promise, exitCode: null } });
+    });
+    const sessions = new Sessions(
+        () => {},
+        () => now,
+      ),
+      q = { ...opening(), add: false, account: account.dir };
+    try {
+      sessions.open(q);
+      flow.cancel();
+      expect((await sessions.sync(sync(q.id)))?.result).toBeNull();
+      if (end === "close") sessions.close(q.id);
+      if (end === "expire") {
+        now = lease_ms;
+        sessions.expire();
+      }
+      expect(sessions.busy).toBe(true);
+      expect(() => lock.check("claude", account.dir)).toThrow("AccountInUse");
+      expect(() => sessions.open({ ...q, id: crypto.randomUUID() })).toThrow("AccountInUse");
+      exited.resolve(0);
+      await Bun.sleep(0);
+      expect(sessions.busy).toBe(false);
+      expect(() => lock.check("claude", account.dir)).not.toThrow();
+      if (end === "cancel") expect((await sessions.sync(sync(q.id)))?.result?.status).toBe(1);
+    } finally {
+      exited.resolve(0);
+      await Bun.sleep(0);
+      sessions.destroy();
+      find.mockRestore();
+      open.mockRestore();
+    }
+  },
+);
+
 test("sign-in survives a lost reply, deduplicates input, and cleans up an expired viewer", async () => {
   let now = 0;
   const sessions = new Sessions(
@@ -52,6 +99,7 @@ test("sign-in survives a lost reply, deduplicates input, and cleans up an expire
     now += lease_ms;
     sessions.expire();
     expect(flow.over).toBe(true);
+    await Bun.sleep(0);
     expect(sessions.busy).toBe(false);
     await expect(sessions.sync(sync(q.id))).rejects.toThrow("SigninExpired");
   } finally {
@@ -202,6 +250,7 @@ test.each(["complete", "close", "expire", "close-error"])(
         gate.resolve();
         await finishing;
       }
+      await Bun.sleep(0);
       expect(sessions.busy).toBe(false);
       expect(() => lock.check("claude", staged.dir)).not.toThrow();
     } finally {

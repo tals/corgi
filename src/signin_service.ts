@@ -58,10 +58,10 @@ export class Sessions {
         entry.revision++;
       },
       done: (status, start, message) => {
-        entry.result = { status, start, message };
-        entry.revision++;
-        entry.release();
-        this.changed();
+        this.settle(entry, () => {
+          entry.result = { status, start, message };
+          entry.revision++;
+        });
       },
     };
     const s = q.add ? signin.adding(q.provider, null, host) : signin.signingIn(known!, host);
@@ -113,19 +113,22 @@ export class Sessions {
     const e = this.entries.get(id);
     if (!e) return;
     e.signin.abandon();
-    e.signin.child?.destroy();
-    e.signin.child = null;
     this.entries.delete(id);
-    const pending = e.signin.finishing;
-    if (pending) {
-      this.settling.add(pending);
-      const settled = () => {
-        this.settling.delete(pending);
-        e.release();
-        this.changed();
-      };
-      void pending.then(settled, settled);
-    } else e.release();
+    this.settle(e);
+  }
+  private settle(e: Entry, done = () => {}): void {
+    const jobs = [e.signin.finishing, e.signin.stopping].filter(p => p !== null);
+    const complete = () => {
+      e.release();
+      done();
+      this.changed();
+    };
+    if (!jobs.length) return complete();
+    const pending = Promise.allSettled(jobs).then(() => {
+      this.settling.delete(pending);
+      complete();
+    });
+    this.settling.add(pending);
   }
   expire(): void {
     for (const [id, e] of this.entries) if (this.now() - e.touched >= lease_ms) this.close(id);

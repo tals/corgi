@@ -198,6 +198,7 @@ export class Signin {
   compared = false;
   busy = false;
   finishing: Promise<void> | null = null;
+  stopping: Promise<void> | null = null;
   /** What it's doing that takes a moment, shown in place of its questions. */
   working: string | null = null;
   /** When the agent started, and whether its screen shows something yet. */
@@ -369,10 +370,16 @@ export class Signin {
     this.stage = { kind: "signin" };
     this.changed();
   }
-  async stopChild() {
+  stopChild(): Promise<void> {
+    if (this.stopping) return this.stopping;
     const t = this.child;
     this.child = null;
-    if (!t) return;
+    if (!t) return Promise.resolve();
+    return (this.stopping = this.stopTerminal(t).finally(() => {
+      this.stopping = null;
+    }));
+  }
+  private async stopTerminal(t: Terminal) {
     t.removeAllListeners("exit");
     const pid = t.pid,
       exited = t.child?.exited;
@@ -382,6 +389,7 @@ export class Signin {
       try {
         process.kill(-pid, "SIGKILL");
       } catch {}
+    if (exited) await exited;
     t.destroy();
   }
   /** Runs one of the agent's account commands in the account; its status. */
@@ -530,6 +538,7 @@ export class Signin {
     try {
       if (this.child && this.child.pid > 0) process.kill(-this.child.pid, "SIGKILL");
     } catch {}
+    void this.stopChild();
     const s = this.staged;
     this.staged = null;
     if (s) {
