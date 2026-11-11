@@ -426,3 +426,18 @@ test("a headless start defaults to an ordinary session the provider keeps", () =
     "UnexpectedToken",
   );
 });
+
+test("sign-in input has its own sequence and account mutations use the connection's sequence", () => {
+  const request = protocol.envelope("account.signin.sync", {
+    id: "test",
+    cols: 80,
+    rows: 24,
+    input_seq: 1,
+    input: "DQ==",
+  });
+  expect(request).not.toHaveProperty("seq");
+  expect(protocol.decode("account.signin.sync", request).input_seq).toBe(1);
+  expect(protocol.once("account.signin.sync")).toBe(false);
+  expect(protocol.once("account.restore")).toBe(true);
+  expect(protocol.once("account.remove")).toBe(true);
+});

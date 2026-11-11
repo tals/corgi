@@ -70,7 +70,7 @@ import * as agentManager from "./agent_manager";
 import * as agentModels from "./agent_models";
 import * as agentProfiles from "./agent_profiles";
 import * as launcherOrder from "./launch/order";
-import * as accounts from "./accounts";
+import * as launcherData from "./launcher_data";
 import { Stream as LaunchPreviewStream } from "./launch_preview_stream";
 import * as launcherResume from "./launcher_resume";
 import { workspaceFor } from "./cli";
@@ -118,6 +118,7 @@ import * as summaries from "./review/summaries";
 import * as subagentTooltip from "./subagent_tooltip";
 import * as viewerNative from "./viewer_native";
 import * as signin from "./signin";
+import * as signinClient from "./signin_client";
 import * as signinExit from "./signin_exit";
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import { Provider, adapter } from "./providers";
@@ -336,6 +337,7 @@ const toggled = <T extends string>(list: T[], item: T, on: boolean) => [
 const prompt_session_env = "CORGI_PROMPT_SESSION";
 /** An agent's account the Corgi prompt offers models from. */
 type AccountRemoval = {
+  machine: Machine;
   agent: agentManager.Agent;
   launch: LauncherMenu;
   removal: agentManager.View["removal"];
@@ -344,11 +346,20 @@ type AccountRemoval = {
 };
 
 export class Controller {
-  readonly model_cache = new agentModels.Cache(() => {
-    this.prompt_stale = true;
-    this.dirty = true;
-    this.wake();
-  });
+  model_cache = this.modelCache();
+  private modelCache(): agentModels.Cache {
+    return new agentModels.Cache(
+      () => {
+        this.prompt_stale = true;
+        this.dirty = true;
+        this.wake();
+      },
+      async (provider, account, _quit, cwd) => {
+        const reply = await call(this.connection, "launcher.models", { row: Row.of(provider, account), cwd });
+        return reply.models;
+      },
+    );
+  }
   /** The daemon the view shows: its data, selection and connection. */
   machine: Machine;
   workspace_offset = 0;
@@ -536,7 +547,7 @@ export class Controller {
   private rename_pending: object | null = null;
   /** An account signing in over the panes, and a selection being dragged in
    * its agent's screen. */
-  signin: signin.Signin | null = null;
+  signin: signin.Signin | signinClient.Signin | null = null;
   private signin_drag: { x: number; y: number; moved: boolean } | null = null;
   private signin_frame: { ansi: string; width: number; height: number } | null = null;
   signin_exit: signinExit.State | null = null;
@@ -664,6 +675,8 @@ export class Controller {
     this.closeMachineUi();
     this.cancelInput();
     this.machine = machine;
+    this.model_cache.close();
+    this.model_cache = this.modelCache();
     if (!this.reviewable && this.review.open) this.closeReview();
     this.selected_pane = null;
     this.wake_pending = this.unarchive_pending = null;
@@ -674,6 +687,8 @@ export class Controller {
   /** Closes what names the shown machine's ids, which a switch or a replaced
    * daemon leaves meaning nothing. */
   closeMachineUi(): void {
+    this.signin?.abandon();
+    this.signin = null;
     this.closeMenu();
     this.dismissName();
     this.closeInlineRename();
@@ -4163,29 +4178,33 @@ export class Controller {
   }
   /** The agents saved on the shown machine's computer. */
   private launcherProfiles(): agentProfiles.Profile[] {
-    return this.machine.remote ? this.machine.profiles.list : agentProfiles.list();
+    return this.machine.profiles.list;
   }
-  /** Asks a remote machine's daemon for its saved agents: once it's shown,
+  /** Asks the shown daemon for its saved agents: once it's shown,
    * and `again` as a launcher opens, for any saved there since. */
   private readProfiles(again: boolean): void {
     const machine = this.machine,
       profiles = machine.profiles;
-    if (!machine.remote || !profiles.due(again, milliTimestamp())) return;
+    if (!profiles.due(again, milliTimestamp())) return;
     const launch = this.launcherModel(),
       workspace = launch?.workspace ?? this.current().id,
       cwd = launch?.cwd ?? this.launcherCwd();
     profiles.reading = true;
+    profiles.read = true;
     this.later(async lane => {
       try {
-        const reply = await lane.call("launcher.catalog", { workspace, cwd });
+        const reply = await lane.call("launcher.catalog", { workspace, cwd, preview: false });
         profiles.list = agentProfiles.fromCatalog(reply.agents);
-        profiles.read = true;
+        profiles.data = launcherData.read(reply.data);
+        profiles.loaded = reply.data !== undefined;
         this.dirty = true;
       } catch (error) {
         // The launcher keeps the last list. A lost connection asks again
         // soon; a refusal waits for the next launcher.
-        if (lost(error)) profiles.retry_at = milliTimestamp() + 1000;
-        else profiles.read = true;
+        if (lost(error)) {
+          profiles.read = false;
+          profiles.retry_at = milliTimestamp() + 1000;
+        } else profiles.read = true;
       } finally {
         profiles.reading = false;
       }
@@ -4214,209 +4233,222 @@ export class Controller {
     const launch = this.launcherModel();
     this.dirty = true;
     if (!launch || !action) return;
-    if (this.machine.remote && action.kind !== "back" && action.kind !== "close") {
-      launch.manager.fail("Manage accounts and launch options on the remote machine.");
-      return;
-    }
+    const machine = this.machine;
     launch.pinned = true;
-    switch (action.kind) {
-      case "find":
-        this.findAgents();
-        return;
-      case "close":
-        if (this.corgi_setup) return this.closeMenu();
-        return this.dismissLauncher();
-      case "back":
-        if (this.corgi_setup) {
-          this.corgi_setup.back();
+    try {
+      switch (action.kind) {
+        case "find":
+          this.findAgents();
           return;
-        }
-        launch.back();
-        return;
-      case "show":
-        await this.setLauncherShown(action.agent, true);
-        await this.setWorkspaceShown(agentManager.agentRow(action.agent), true);
-        this.addedAgent(action.agent.label);
-        return;
-      case "show_command":
-        await this.setCommandShown(action.index, true);
-        await this.setWorkspaceShown(Row.ofCommand(action.index), true);
-        this.addedAgent(launch.commands[action.index].label());
-        return;
-      case "here":
-        return this.setWorkspaceShown(agentManager.agentRow(action.agent), action.shown);
-      case "here_command":
-        return this.setWorkspaceShown(Row.ofCommand(action.index), action.shown);
-      case "configure":
-        try {
-          await this.execute({
-            "agent.launcher.configure": {
-              row: agentManager.agentRow(action.agent),
-              name: action.name,
-              model: action.options.model ?? "auto",
-              effort: action.options.effort ?? "default",
-              flags: action.options.flags,
-              env: JSON.stringify(Object.fromEntries(action.options.env)),
-            },
-          });
-          launch.profiles = this.launcherProfiles();
-          launch.manager.configured();
-          if (action.agent.profile) return;
-          if (!action.agent.account) launch.preview.names[action.agent.provider] = action.name;
-          else
-            for (const option of launch.preview.accounts)
-              if (option.provider === action.agent.provider && option.account === action.agent.account)
-                option.name = action.name;
-        } catch (error) {
-          launch.manager.fail(signin.problem(error));
-        }
-        return;
-      case "model":
-        try {
-          await this.execute({
-            "agent.launcher.configure": {
-              row: agentManager.agentRow(action.agent),
-              model: action.model || "auto",
-              effort: action.effort ?? "default",
-            },
-          });
-          launch.profiles = this.launcherProfiles();
-        } catch (error) {
-          launch.manager.fail(signin.problem(error));
-        }
-        return;
-      case "models": {
-        const entry = this.model_cache.get(action.agent.provider, action.agent.account, launch.cwd);
-        action.picker.received(entry.values, entry.failed, entry.pending);
-        return;
-      }
-      case "clone":
-        try {
-          const source = agentManager.agentRow(action.agent),
-            rows = launch.rows().filter(r => r !== "terminal"),
-            saved = await this.execute({
+        case "close":
+          if (this.corgi_setup) return this.closeMenu();
+          return this.dismissLauncher();
+        case "back":
+          if (this.corgi_setup) {
+            this.corgi_setup.back();
+            return;
+          }
+          launch.back();
+          return;
+        case "show":
+          await this.setLauncherShown(action.agent, true);
+          await this.setWorkspaceShown(agentManager.agentRow(action.agent), true);
+          this.addedAgent(action.agent.label);
+          return;
+        case "show_command":
+          await this.setCommandShown(action.index, true);
+          await this.setWorkspaceShown(Row.ofCommand(action.index), true);
+          this.addedAgent(launch.commands[action.index].label());
+          return;
+        case "here":
+          return this.setWorkspaceShown(agentManager.agentRow(action.agent), action.shown);
+        case "here_command":
+          return this.setWorkspaceShown(Row.ofCommand(action.index), action.shown);
+        case "configure":
+          try {
+            await this.execute({
               "agent.launcher.configure": {
-                row: source,
-                clone: true,
+                row: agentManager.agentRow(action.agent),
                 name: action.name,
                 model: action.options.model ?? "auto",
                 effort: action.options.effort ?? "default",
                 flags: action.options.flags,
                 env: JSON.stringify(Object.fromEntries(action.options.env)),
               },
-            }),
-            row = Row.parse(saved.text ?? "");
-          if (!row) throw Error("InvalidAgent");
-          const move = {
-            workspace: launch.workspace,
-            row,
-            before: rows[rows.findIndex(r => r === source) + 1] ?? null,
-            order: [...rows, row],
-            shown: action.agent.shown && action.agent.here,
-          };
-          try {
-            await this.execute({ "agent.launcher.move": move });
-          } catch (error) {
-            await this.execute({ "agent.launcher.remove": { row } });
-            throw error;
-          }
-          launch.profiles = this.launcherProfiles();
-          launch.workspace_order = launcherOrder.move(
-            launcherOrder.arrange(move.order, launch.workspace_order),
-            move.row,
-            move.before,
-          );
-          launch.workspace_hidden = toggled(launch.workspace_hidden, move.row, !move.shown);
-          launch.manager.configured();
-          launch.manager.at = row;
-          this.addedAgent(action.name);
-        } catch (error) {
-          launch.manager.fail(signin.problem(error));
-        }
-        return;
-      case "move":
-        try {
-          const target = launch.manageModel().agents.find(a => agentManager.agentRow(a) === action.row);
-          if (action.shown && target && !target.shown) await this.setLauncherShown(target, true);
-          const command = Row.custom(action.row);
-          if (action.shown && command !== null && launch.commands[command].hidden)
-            await this.setCommandShown(command, true);
-          await this.execute({
-            "agent.launcher.move": {
-              workspace: launch.workspace,
-              row: action.row,
-              before: action.before,
-              order: action.order,
-              shown: action.shown,
-            },
-          });
-          launch.workspace_order = launcherOrder.move(
-            launcherOrder.arrange(action.order, launch.workspace_order),
-            action.row,
-            action.before,
-          );
-          launch.workspace_hidden = toggled(launch.workspace_hidden, action.row, !action.shown);
-          if (action.shown && Row.launch(action.row) && !launch.added.includes(action.row))
-            launch.added = [...launch.added, action.row];
-        } catch (error) {
-          launch.manager.fail(signin.problem(error));
-        }
-        return;
-      case "remove":
-        if (action.agent.profile) {
-          try {
-            await this.execute({ "agent.launcher.remove": { row: agentManager.agentRow(action.agent) } });
+            });
             launch.profiles = this.launcherProfiles();
-            launch.manager.removed();
+            launch.data = this.machine.profiles.data;
+            launch.data_ready = this.machine.profiles.loaded;
+            launch.manager.configured();
+            if (action.agent.profile) return;
+            if (!action.agent.account) launch.preview.names[action.agent.provider] = action.name;
+            else
+              for (const option of launch.preview.accounts)
+                if (option.provider === action.agent.provider && option.account === action.agent.account)
+                  option.name = action.name;
+          } catch (error) {
+            launch.manager.fail(signin.problem(error));
+          }
+          return;
+        case "model":
+          try {
+            await this.execute({
+              "agent.launcher.configure": {
+                row: agentManager.agentRow(action.agent),
+                model: action.model || "auto",
+                effort: action.effort ?? "default",
+              },
+            });
+            launch.profiles = this.launcherProfiles();
+            launch.data = this.machine.profiles.data;
+            launch.data_ready = this.machine.profiles.loaded;
+          } catch (error) {
+            launch.manager.fail(signin.problem(error));
+          }
+          return;
+        case "models": {
+          const entry = this.model_cache.get(action.agent.provider, action.agent.account, launch.cwd);
+          action.picker.received(entry.values, entry.failed, entry.pending);
+          return;
+        }
+        case "clone":
+          try {
+            const source = agentManager.agentRow(action.agent),
+              rows = launch.rows().filter(r => r !== "terminal"),
+              saved = await this.execute({
+                "agent.launcher.configure": {
+                  row: source,
+                  clone: true,
+                  name: action.name,
+                  model: action.options.model ?? "auto",
+                  effort: action.options.effort ?? "default",
+                  flags: action.options.flags,
+                  env: JSON.stringify(Object.fromEntries(action.options.env)),
+                },
+              }),
+              row = Row.parse(saved.text ?? "");
+            if (!row) throw Error("InvalidAgent");
+            const move = {
+              workspace: launch.workspace,
+              row,
+              before: rows[rows.findIndex(r => r === source) + 1] ?? null,
+              order: [...rows, row],
+              shown: action.agent.shown && action.agent.here,
+            };
+            try {
+              await this.execute({ "agent.launcher.move": move });
+            } catch (error) {
+              await this.execute({ "agent.launcher.remove": { row } });
+              throw error;
+            }
+            launch.profiles = this.launcherProfiles();
+            launch.data = this.machine.profiles.data;
+            launch.data_ready = this.machine.profiles.loaded;
+            launch.workspace_order = launcherOrder.move(
+              launcherOrder.arrange(move.order, launch.workspace_order),
+              move.row,
+              move.before,
+            );
+            launch.workspace_hidden = toggled(launch.workspace_hidden, move.row, !move.shown);
+            launch.manager.configured();
+            launch.manager.at = row;
+            this.addedAgent(action.name);
+          } catch (error) {
+            launch.manager.fail(signin.problem(error));
+          }
+          return;
+        case "move":
+          try {
+            const target = launch.manageModel().agents.find(a => agentManager.agentRow(a) === action.row);
+            if (action.shown && target && !target.shown) await this.setLauncherShown(target, true);
+            const command = Row.custom(action.row);
+            if (action.shown && command !== null && launch.commands[command].hidden)
+              await this.setCommandShown(command, true);
+            await this.execute({
+              "agent.launcher.move": {
+                workspace: launch.workspace,
+                row: action.row,
+                before: action.before,
+                order: action.order,
+                shown: action.shown,
+              },
+            });
+            launch.workspace_order = launcherOrder.move(
+              launcherOrder.arrange(action.order, launch.workspace_order),
+              action.row,
+              action.before,
+            );
+            launch.workspace_hidden = toggled(launch.workspace_hidden, action.row, !action.shown);
+            if (action.shown && Row.launch(action.row) && !launch.added.includes(action.row))
+              launch.added = [...launch.added, action.row];
+          } catch (error) {
+            launch.manager.fail(signin.problem(error));
+          }
+          return;
+        case "remove":
+          if (action.agent.profile) {
+            try {
+              await this.execute({ "agent.launcher.remove": { row: agentManager.agentRow(action.agent) } });
+              launch.profiles = this.launcherProfiles();
+              launch.data = this.machine.profiles.data;
+              launch.data_ready = this.machine.profiles.loaded;
+              launch.manager.removed();
+            } catch (error) {
+              launch.manager.removed(signin.problem(error));
+            }
+            return;
+          }
+          if (action.agent.account) return this.removeAccount(action.agent, launch);
+          try {
+            await this.setLauncherShown(action.agent, false);
+            launch.manager.removed(launch.manager.error || null);
           } catch (error) {
             launch.manager.removed(signin.problem(error));
           }
           return;
-        }
-        if (action.agent.account) return this.removeAccount(action.agent, launch);
-        try {
-          await this.setLauncherShown(action.agent, false);
-          launch.manager.removed(launch.manager.error || null);
-        } catch (error) {
-          launch.manager.removed(signin.problem(error));
-        }
-        return;
-      case "remove_command":
-        try {
-          await this.deleteLauncherCommand(action.index);
-          launch.manager.removed();
-        } catch (error) {
-          launch.manager.removed((error as Error).message);
-        }
-        return;
-      case "add":
-        return this.openSignin(host => signin.adding(action.provider, null, host));
-      case "restore":
-        try {
-          const a = accounts.restore(action.provider, action.account);
-          // The daemon lists it on its next read; the list shows it now.
-          for (const preview of new Set([launch.preview, this.launch_previews.preview]))
-            if (!preview.accounts.some(o => o.provider === a.provider && o.account === a.dir))
-              preview.accounts = [
-                ...preview.accounts,
-                {
-                  provider: a.provider,
-                  account: a.dir,
-                  name: a.name,
-                  managed: a.managed,
-                  option: agentLauncher.option({ pending: true }),
-                },
-              ];
-          // `corgi account remove` leaves it hidden wherever it was.
-          await this.showEverywhere({ provider: a.provider, account: a.dir });
-          launch.workspace_hidden = launch.workspace_hidden.filter(r => r !== Row.of(a.provider, a.dir));
-          this.addedAgent(`${adapter(a.provider).label} · ${a.name}`);
-        } catch (error) {
-          launch.manager.fail(signin.problem(error));
-        }
-        return;
-      case "save":
-        return this.saveInlineCommand();
+        case "remove_command":
+          try {
+            await this.deleteLauncherCommand(action.index);
+            launch.manager.removed();
+          } catch (error) {
+            launch.manager.removed((error as Error).message);
+          }
+          return;
+        case "add":
+          return this.openSignin(host => this.remoteSignin(action.provider, "", true, host));
+        case "restore":
+          try {
+            const { account: a } = await call(this.connection, "account.restore", {
+              provider: action.provider,
+              account: action.account,
+            });
+            this.readProfiles(true);
+            // The daemon lists it on its next read; the list shows it now.
+            for (const preview of new Set([launch.preview, this.launch_previews.preview]))
+              if (!preview.accounts.some(o => o.provider === a.provider && o.account === a.dir))
+                preview.accounts = [
+                  ...preview.accounts,
+                  {
+                    provider: a.provider,
+                    account: a.dir,
+                    name: a.name,
+                    managed: a.managed,
+                    option: agentLauncher.option({ pending: true }),
+                  },
+                ];
+            // `corgi account remove` leaves it hidden wherever it was.
+            await this.showEverywhere({ provider: a.provider, account: a.dir });
+            launch.workspace_hidden = launch.workspace_hidden.filter(r => r !== Row.of(a.provider, a.dir));
+            this.addedAgent(`${adapter(a.provider).label} · ${a.name}`);
+          } catch (error) {
+            launch.manager.fail(signin.problem(error));
+          }
+          return;
+        case "save":
+          return await this.saveInlineCommand();
+      }
+    } finally {
+      machine.profiles.read = false;
     }
   }
   /** Shows an account's row in the launcher and in every workspace that hid it. */
@@ -4434,23 +4466,12 @@ export class Controller {
   }
   /** The slow logout and folder deletion must not hold up input or drawing. */
   private removeAccount(a: agentManager.Agent, launch: LauncherMenu): void {
-    const key = agentManager.agentKey(a.provider, a.account),
-      known = accounts.find(a.provider, a.account);
+    const machine = this.machine,
+      key = `${this.machines.indexOf(machine)}:${agentManager.agentKey(a.provider, a.account)}`,
+      connection = machine.connection;
     if (this.account_removals.has(key)) return launch.manager.removed(i18n.t`This account is already being removed.`);
-    if (!known) return launch.manager.removed(i18n.t`Corgi doesn't list this account any more.`);
-    try {
-      agentProfiles.assertAccountUnused(a.provider, a.account);
-    } catch (error) {
-      return launch.manager.removed(signin.problem(error));
-    }
-    const running = this.runtime.panes.filter(p => p.agent.provider === a.provider && p.account === a.account).length;
-    if (running > 0)
-      return launch.manager.removed(
-        running === 1
-          ? i18n.t`Close the agent that runs in it first.`
-          : i18n.t`Close the ${running} agents that run in it first.`,
-      );
     const job: AccountRemoval = {
+      machine,
       agent: a,
       launch,
       removal: launch.manager.removal,
@@ -4460,8 +4481,8 @@ export class Controller {
     this.account_removals.set(key, job);
     job.task = (async () => {
       try {
-        if (accounts.owns(known)) await signin.signOut(known);
-        job.result = { deleted: await accounts.remove(known), error: null };
+        const { deleted } = await call(connection, "account.remove", { provider: a.provider, account: a.account });
+        job.result = { deleted, error: null };
       } catch (error) {
         job.result = { deleted: false, error: signin.problem(error) };
       }
@@ -4477,36 +4498,31 @@ export class Controller {
       const { agent: a, result, launch } = job,
         current = this.launcherModel(),
         name = a.label;
-      let warning = "";
       if (result.error === null) {
-        const previews = new Set([launch.preview, current?.preview, this.launch_previews.preview]);
+        const previews = new Set([
+          launch.preview,
+          ...(this.machine === job.machine ? [current?.preview, this.launch_previews.preview] : []),
+        ]);
         for (const preview of previews)
           if (preview)
             preview.accounts = preview.accounts.filter(o => !(o.provider === a.provider && o.account === a.account));
-        try {
-          // An account added later in its folder starts shown everywhere.
-          await this.showEverywhere(a);
-        } catch (error) {
-          const reason = signin.problem(error);
-          warning = i18n.t` Removed ${name}, but couldn't update launcher settings: ${reason}`;
-        }
+        job.machine.profiles.read = false;
       }
       if (current === launch && launch.manager.removal === job.removal) launch.manager.removed(result.error);
-      const reason = result.error;
-      if (reason !== null) this.notice(i18n.t` Couldn't remove ${name}: ${reason}`);
-      else
-        this.notice(
-          warning ||
-            (result.deleted ? i18n.t` Deleted ${name} and its folder` : i18n.t` Removed ${name}; kept its folder`),
-        );
+      if (this.machine === job.machine) {
+        const reason = result.error;
+        if (reason !== null) this.notice(i18n.t` Couldn't remove ${name}: ${reason}`);
+        else
+          this.notice(
+            result.deleted ? i18n.t` Deleted ${name} and its folder` : i18n.t` Removed ${name}; kept its folder`,
+          );
+      }
       this.dirty = true;
     }
   }
   /** Signs in to a signed-out account's row instead of starting its agent. */
   private signIn(a: agentLauncher.AccountOption): void {
-    this.openSignin(host =>
-      signin.signingIn({ provider: a.provider, dir: a.account, name: a.name, managed: a.managed }, host),
-    );
+    this.openSignin(host => this.remoteSignin(a.provider, a.account, false, host));
   }
   /** Where the sign-in shows: the whole screen, as nothing else takes input
    * while it's open. */
@@ -4580,8 +4596,12 @@ export class Controller {
   /** Shows an account's sign-in over the whole viewer, which takes no other
    * input meanwhile, its agent in the launcher's folder; once signed in, it
    * can start that agent as any launch does. */
-  private openSignin(make: (host: signin.Host) => signin.Signin): void {
-    if (this.machine.remote) return this.notice(i18n.t` Sign in on the remote machine`);
+  private remoteSignin(provider: Provider, account: string, adding: boolean, host: signin.Host): signinClient.Signin {
+    const machine = this.machine;
+    return new signinClient.Signin(() => machine.connection, adding, provider, account, host);
+  }
+  private openSignin(make: (host: signin.Host) => signin.Signin | signinClient.Signin): void {
+    const machine = this.machine;
     const launcher = this.agent_launcher,
       setup = this.corgi_setup,
       launch = this.launcherModel(),
@@ -4637,7 +4657,8 @@ export class Controller {
               }
             }
           }
-          if (start) void this.launchAgent(s.provider, s.account, message);
+          this.readProfiles(true);
+          if (start && this.machine === machine) void this.launchAgent(s.provider, s.account, message);
         },
       });
     this.closeMenu();
@@ -4940,7 +4961,7 @@ export class Controller {
         await this.execute(command, lane);
         sent = true;
         // A remote machine's list is read again only as a launcher opens.
-        if (id && machine.remote) for (const p of machine.profiles.list) if (p.id === id) p.yolo = enabled;
+        if (id) for (const p of machine.profiles.list) if (p.id === id) p.yolo = enabled;
       } finally {
         if (this.yolo_pending.get(row) === pending && --pending.out === 0) {
           this.yolo_pending.delete(row);
@@ -4958,6 +4979,8 @@ export class Controller {
     launch.yolo = { ...this.runtime.agent_yolo };
     launch.account_yolo = this.runtime.account_yolo;
     launch.profiles = this.launcherProfiles();
+    launch.data = this.machine.profiles.data;
+    launch.data_ready = this.machine.profiles.loaded;
     for (const [row, { machine, enabled }] of this.yolo_pending)
       if (machine === this.machine) showYolo(launch, row, enabled);
   }
@@ -5074,6 +5097,8 @@ export class Controller {
       workspace_hidden: this.current().launcher_hidden,
       workspace_order: this.current().launcher_order,
       profiles: this.launcherProfiles(),
+      data: this.machine.profiles.data,
+      data_ready: this.machine.profiles.loaded,
       workspace_name: this.current().name,
       commands: this.runtime.agent_commands,
       accounts: this.runtime.accounts,
@@ -5140,7 +5165,7 @@ export class Controller {
   }
   private pollLauncher(hover: boolean): Promise<void> | void {
     this.updateLaunchPreview();
-    this.readProfiles(false);
+    if (this.launcherModel()) this.readProfiles(false);
     if (!this.launcherModel() && !hover) return;
     return this.pollOpenLauncher(hover);
   }
@@ -5166,7 +5191,7 @@ export class Controller {
       this.syncLauncherYolo(launch);
       launch.commands = this.runtime.agent_commands;
       launch.accounts = this.runtime.accounts;
-      if (!this.machine.remote && launch.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
+      if (launch.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
         for (const agent of launch.manageModel().agents)
           if (agent.shown && launch.preview.installed[agent.provider])
             this.model_cache.get(agent.provider, agent.account, launch.cwd);
@@ -5274,7 +5299,6 @@ export class Controller {
     launch.resume_view.reveal(launch.resumeContext(), launch.resumeArea(this.width, this.height, this.sidebarView([])));
   }
   private async openManager(): Promise<void> {
-    if (this.machine.remote) return this.notice(i18n.t` Manage accounts and launch options on the remote machine`);
     const launch = this.agent_launcher;
     if (!launch) return;
     launch.resume_view.focused = false;

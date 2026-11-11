@@ -8,6 +8,7 @@ import type * as launcherResume from "./launcher_resume";
 import type { Target as OrderTarget } from "./agent_order";
 import type { Provider } from "./providers";
 import type { Profile } from "./agent_profiles";
+import * as launcherData from "./launcher_data";
 import { Tasks } from "./tasks";
 import type * as protocol from "./protocol";
 import type { WorkspaceEntry } from "./sidebar";
@@ -48,6 +49,8 @@ export interface Presence {
  * launcher lists these; a local viewer reads its own. */
 export class Profiles {
   list: Profile[] = [];
+  data = launcherData.empty();
+  loaded = false;
   read = false;
   reading = false;
   /** When to ask again after a read failed. */
@@ -128,5 +131,6 @@ export class Machine {
     this.remembered_names.clear();
     this.running = [];
     this.stopped = [];
+    this.profiles = new Profiles();
   }
 }

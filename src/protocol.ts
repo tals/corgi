@@ -115,6 +115,11 @@ export const operations = [
   "session.list",
   "launcher.catalog",
   "launcher.models",
+  "account.signin.open",
+  "account.signin.sync",
+  "account.signin.close",
+  "account.restore",
+  "account.remove",
   "session.snapshot",
   "session.subscribe",
   "viewer.watch",
@@ -228,6 +233,8 @@ export function versions(op: string): { protocol?: number; runtime_protocol?: nu
  * and report a lost result rather than replaying before completion. */
 export function once(op: Op): boolean {
   switch (op) {
+    case "account.restore":
+    case "account.remove":
     case "session.command":
     case "pane.paste":
     case "pane.mark_unread":
@@ -697,7 +704,30 @@ const requests = {
   hello: { accept_encoding: ["[]string", []] },
   /** `output: false` leaves out pushes for terminal output alone, as a status display wants. */
   "session.subscribe": { output: ["bool", true] },
-  "launcher.catalog": { workspace: ["u32", 0], cwd: ["string", ""] },
+  "account.signin.open": {
+    id: "string",
+    provider: "provider",
+    account: "string",
+    add: "bool",
+    cwd: "string",
+    cols: "u32",
+    rows: "u32",
+  },
+  "account.signin.sync": {
+    id: "string",
+    cols: "u32",
+    rows: "u32",
+    revision: ["u32", 0],
+    input_seq: ["u32", 0],
+    input: ["string", ""],
+    raw: ["bool", false],
+    x: ["i32", -1],
+    y: ["i32", -1],
+  },
+  "account.signin.close": { id: "string" },
+  "account.restore": { provider: "provider", account: "string" },
+  "account.remove": { provider: "provider", account: "string" },
+  "launcher.catalog": { workspace: ["u32", 0], cwd: ["string", ""], preview: ["bool", true] },
   "launcher.models": { row: "string", workspace: ["u32", 0], cwd: ["string", ""] },
   "link.resume": { link: "string" },
   "session.locate": { pane: "u32" },
@@ -884,7 +914,12 @@ export interface ReplyPayloads {
   "session.command": Ok & { result: Result };
   "session.locate": Ok & { result: Result };
   "workspace.archive.preview": Ok & { preview: import("./workspace_archive").Preview };
-  "launcher.catalog": Ok & { agents: import("./launcher_config").Agent[] };
+  "launcher.catalog": Ok & { agents: import("./launcher_config").Agent[]; data: import("./launcher_data").Data };
+  "account.signin.open": Ok;
+  "account.signin.sync": Ok & { state: import("./signin_service").Snapshot | null };
+  "account.signin.close": Ok;
+  "account.restore": Ok & { account: import("./accounts").Known };
+  "account.remove": Ok & { deleted: boolean };
   "launcher.models": Ok & { models: import("./agent_models").Choice[] };
   "session.list": Ok & { result: SessionSnapshot; viewers: ViewerInfo[] };
   "session.snapshot": SessionSnapshot;
@@ -1014,7 +1049,10 @@ export function pushed(type: unknown): boolean {
   }
 }
 /** What a `ReloadBusy` reload waits out. */
-export type Busy = { op: "worktree.add"; path: string } | { op: "headless.start"; provider: Provider };
+export type Busy =
+  | { op: "account.signin" | "account.remove" }
+  | { op: "worktree.add"; path: string }
+  | { op: "headless.start"; provider: Provider };
 export type ErrorReply = { err: string; viewer_protocol?: number; busy?: Busy };
 /** The `busy` of an error reply, or null when it names nothing this client knows. */
 export function busy(reply: unknown): Busy | null {
@@ -1022,6 +1060,9 @@ export function busy(reply: unknown): Busy | null {
   if (!value || typeof value !== "object") return null;
   const { op, path, provider } = value as Record<string, unknown>;
   switch (op) {
+    case "account.signin":
+    case "account.remove":
+      return { op };
     case "worktree.add":
       return typeof path === "string" ? { op, path } : null;
     case "headless.start": {

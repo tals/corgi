@@ -714,6 +714,10 @@ export function failure(args: string[], error: unknown): string {
 /** What a busy daemon is in the middle of, in words. */
 function busyDoing(busy: protocol.Busy): string {
   switch (busy.op) {
+    case "account.signin":
+      return "an account signs in";
+    case "account.remove":
+      return "an account is removed";
     case "worktree.add":
       return `Git adds the worktree ${busy.path}`;
     case "headless.start":

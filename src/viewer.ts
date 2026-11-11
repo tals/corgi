@@ -82,6 +82,8 @@ function incompatible(error: Error): Error {
     : error;
 }
 export function close(view: Controller): void {
+  view.signin?.abandon();
+  view.signin = null;
   view.closePreferences?.();
   view.closePreferences = null;
   view.model_cache.close();

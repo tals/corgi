@@ -1,6 +1,7 @@
 //! Daemon-hosted sessions: a provider client without a terminal, and the
 //! conversations, approvals, tools and journal Corgi keeps for it. The client
 //! speaks the provider's protocol; this file sees only its events.
+import * as accountLock from "./account_lock";
 import { realpathSync } from "node:fs";
 import { dirname, isAbsolute } from "node:path";
 import { Agent, Text, type Provider } from "./agents";
@@ -328,6 +329,7 @@ export class Session {
       );
   }
   static async start(id: number, provider: Provider, cwd: string, options: Options = {}) {
+    accountLock.check(provider, options.account ?? "");
     const headless = adapter(provider).headless;
     if (!headless) throw Error("HeadlessUnsupported");
     // A shim would install the agent inside the daemon, where nobody sees it.
@@ -335,6 +337,7 @@ export class Session {
     if (discovery.stubOf(provider, cwd)) throw Error("ProviderOnDemand");
     const directory = realpathSync(cwd),
       executable = await discovery.resolve(provider, directory);
+    accountLock.check(provider, options.account ?? "");
     const session = new Session(
       id,
       provider,

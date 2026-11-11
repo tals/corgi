@@ -11,7 +11,8 @@ import type { ByProvider } from "./providers";
 import { Rect } from "./layout";
 import { Dialog, View as DialogView, writeField } from "./name_dialog";
 import { Entry as CommandEntry, Semantics, Resolution, capacity as command_capacity } from "./launch/command";
-import * as accounts from "./accounts";
+import * as launcherData from "./launcher_data";
+import * as agentOptions from "./agent_options";
 import * as visibility from "./launch/visibility";
 import { writeModel } from "./agent_models";
 import * as effort from "./providers/effort";
@@ -195,6 +196,8 @@ export class Menu {
   workspace_hidden: Row[] = [];
   workspace_order: Row[] = [];
   profiles: Profile[] = [];
+  data = launcherData.empty();
+  data_ready = true;
   workspace_name = "";
   /** Manage agents has the card. */
   managing = false;
@@ -297,7 +300,8 @@ export class Menu {
   modelCell(row: Row): { name: string; effort?: effort.Effort } {
     const target = this.launchOf(row),
       settings =
-        this.profileOf(row)?.options ?? (target ? accounts.launchOptions(target.provider, target.account) : null),
+        this.profileOf(row)?.options ??
+        (target ? this.data.accounts.find(a => a.row === Row.of(target.provider, target.account))?.options : null),
       o = this.optionOf(row) ?? option();
     return {
       name: settings?.model
@@ -841,13 +845,16 @@ export class Menu {
         installed: this.preview.installed[p],
         signin: adapter(p).accounts.signin !== null,
       })),
-      removed: accounts.removed().map(a => ({ provider: a.provider, account: a.dir, name: a.name })),
-      folder: accounts.folder,
+      removed: this.data.removed,
+      folder: (provider, account) =>
+        this.data.accounts.find(a => a.row === Row.of(provider, account))?.folder ?? account,
       account: info => this.account(info),
-      suggest: a => accounts.suggest(a.provider, accounts.identity(a.provider, a.account), a.account),
+      suggest: a => this.data.accounts.find(v => v.row === Row.of(a.provider, a.account))?.suggest ?? a.name,
+      ready: () => this.data_ready,
       options: a =>
         (a.profile ? this.profiles.find(p => p.id === a.profile)?.options : null) ??
-        accounts.launchOptions(a.provider, a.account),
+        this.data.accounts.find(v => v.row === Row.of(a.provider, a.account))?.options ??
+        agentOptions.empty(),
       order: this.rows(),
     };
   }

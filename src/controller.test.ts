@@ -21,6 +21,8 @@ import * as agentModels from "./agent_models";
 import * as accounts from "./accounts";
 import * as agentProfiles from "./agent_profiles";
 import * as signin from "./signin";
+import * as accountService from "./account_service";
+import type { Runtime } from "./runtime";
 import * as signinExit from "./signin_exit";
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import { Writer, displayWidth } from "./text";
@@ -47,6 +49,7 @@ function controller(): any {
       throw Error("UnexpectedRequest");
     }).request,
   });
+  s.machine.profiles.loaded = true;
   s.model_cache = new agentModels.Cache(
     () => {},
     async () => [],
@@ -574,6 +577,7 @@ for (const archived of [false, true])
     const sent: any[] = [];
     const s: any = new Controller({
       request: transport(async (op, fields: any) => {
+        if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
         if (op !== "session.command") return snapshot;
         sent.push(fields.command);
         if ("workspace.close" in fields.command)
@@ -1163,6 +1167,7 @@ test("change folder works in a terminal too short for the folder list", async ()
   const commands: any[] = [];
   const s: any = new Controller({
     request: transport(async (op, fields) => {
+      if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
       if (op !== "session.command") return snapshot;
       commands.push(protocol.decode("session.command", fields).command);
       return { result: {} };
@@ -1203,6 +1208,7 @@ test("change folder browses from the workspace's folder and moves it there", asy
   const commands: any[] = [];
   const s: any = new Controller({
     request: transport(async (op, fields) => {
+      if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
       if (op !== "session.command") return snapshot;
       commands.push(protocol.decode("session.command", fields).command);
       return { result: {} };
@@ -1289,6 +1295,7 @@ test("open adds a workspace for a folder no workspace is on", async () => {
   let snapshot = folders("/a");
   const s = new Controller({
     request: transport(async (op, fields) => {
+      if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
       if (op !== "session.command") return snapshot;
       commands.push(protocol.decode("session.command", fields).command);
       snapshot = folders("/a", "/b");
@@ -1915,12 +1922,25 @@ function recording(snapshot: any, fail?: (command: any) => string | undefined) {
   const sent: any[] = [];
   const s: any = new Controller({
     request: transport(async (op, fields: any) => {
+      const runtime = {
+        panes: s.runtime.panes.map((p: Pane) => ({ agent: () => p.agent, account: () => p.account })),
+        workspaces: s.runtime.workspaces,
+        sessions: [],
+        account_hidden: s.runtime.account_hidden,
+        changed() {},
+      } as unknown as Runtime;
+      if (op === "account.remove")
+        return { deleted: await accountService.remove(runtime, fields.provider, fields.account) };
+      if (op === "account.restore")
+        return { account: accountService.restore(runtime, fields.provider, fields.account) };
+      if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
       if (op !== "session.command") return snapshot;
       sent.push(fields.command);
       const err = fail?.(fields.command);
       return err === undefined ? { result: { pane: 1 } } : { err };
     }).request,
   });
+  s.machine.profiles.loaded = true;
   s.model_cache = new agentModels.Cache(
     () => {},
     async () => [],
@@ -2089,6 +2109,8 @@ test.each(["launcher", "settings"] as const)(
       const recorded = recording(folders("/src/app")),
         sent = recorded.sent;
       s = recorded.s;
+      s.remoteSignin = (provider: Provider, account: string, adding: boolean, host: signin.Host) =>
+        signin.adding(provider, null, host);
       await openManagement(s, source);
       await s.key(27);
       expect(s.agent_launcher).toBeNull();
@@ -2254,6 +2276,8 @@ test.each([false, true])(
       expect(readFileSync(credential, "utf8")).toBe("signed in");
       expect(readFileSync(accounts.path(), "utf8")).toBe(accountFile);
       expect(sent).toEqual([]);
+      await Promise.all([...s.account_removals.values()].map((job: any) => job.task));
+      await s.finishAccountRemovals();
       expect(manager.error).toContain("Close the agent");
       expect(signOut).not.toHaveBeenCalled();
       s.runtime.panes[0].agent.provider = null;
@@ -2293,6 +2317,8 @@ test("a signed-out account's row signs in to it over the panes instead of starti
   process.env.CORGI_CLAUDE_BIN = "/usr/bin/true";
   try {
     const { s, sent } = withWork({ signed_in: false });
+    s.remoteSignin = (provider: Provider, account: string, adding: boolean, host: signin.Host) =>
+      signin.signingIn({ provider, dir: account, name: "work", managed: true }, host);
     s.agent_launcher.selected = work;
     await s.key(13);
     expect(sent).toEqual([]);
@@ -2967,7 +2993,7 @@ test("Add agent adds a removed account back, its row there at once and shown in 
     launch.workspace_hidden = [row];
     await s.manageAction({ kind: "restore", provider: "claude", account: old.dir });
     expect(restore).toHaveBeenCalledWith("claude", old.dir);
-    expect(sent).toContainEqual({ "agent.workspace_visibility": { workspace: ws.id, row, shown: true } });
+    expect(ws.launcher_hidden).toEqual([]);
     expect(launch.workspace_hidden).toEqual([]);
     expect(launch.manageModel().agents.find((a: agentManager.Agent) => a.account === old.dir)).toMatchObject({
       label: "Claude Code · old",
@@ -3801,6 +3827,7 @@ test("the prompt's picker offers each installed agent's models per account, with
   const s = controller(),
     read: string[] = [];
   // As the viewer's own cache does, a catalog arriving has the prompt told again.
+  s.machine.profiles.loaded = true;
   s.model_cache = new agentModels.Cache(
     () => (s.prompt_stale = true),
     async (provider, account) => {
@@ -4374,6 +4401,7 @@ test("Esc calls off a retry still waiting, and goes to the agent once the retry 
 test("the prompt's catalogs are read ahead of it, only where the launcher lists an agent or the user picked one", async () => {
   const s = controller(),
     read: string[] = [];
+  s.machine.profiles.loaded = true;
   s.model_cache = new agentModels.Cache(
     () => {},
     async (provider, account) => {
@@ -4408,6 +4436,7 @@ test("the prompt's catalogs are read ahead of it, only where the launcher lists 
 test("the prompt offers an agent hidden in Manage agents that the user runs, and every one when it would offer none", async () => {
   const s = controller(),
     read: string[] = [];
+  s.machine.profiles.loaded = true;
   s.model_cache = new agentModels.Cache(
     () => {},
     async (provider, account) => {
@@ -4610,6 +4639,7 @@ test("a reloaded viewer goes on with its own prompt session; another viewer's st
         throw Error("UnexpectedRequest");
       }).request,
     });
+    s.machine.profiles.loaded = true;
     s.model_cache = new agentModels.Cache(
       () => {},
       async () => [],
@@ -5359,7 +5389,7 @@ test("a remote machine's launcher lists the agents saved on that computer, not t
     expect(s.agent_launcher.profiles).toEqual([]);
     await other.tasks.idle();
     await s.pollLauncher(false);
-    expect(asked).toEqual([{ workspace: 1, cwd: "/w" }]);
+    expect(asked).toEqual([{ workspace: 1, cwd: "/w", preview: false }]);
     expect(s.agent_launcher.profiles.map((p: agentProfiles.Profile) => p.name)).toEqual(["Opus"]);
     expect(s.agent_launcher.shown("profile:opus")).toBe(true);
     // Read once it's shown, then again only as a launcher opens.
@@ -6516,22 +6546,34 @@ test("activity sections keep same-numbered agents on different machines distinct
   }
 });
 
-test("remote sign-in never starts a local account process", () => {
+test("remote sign-in asks its daemon and never starts a local account process", async () => {
+  const calls: [string, unknown][] = [];
   const s: any = new Controller(
     new Machine(
-      transport(async () => ({})),
+      transport(async (op, fields) => {
+        calls.push([op, fields]);
+        return op === "account.signin.sync" ? { state: null } : {};
+      }),
       "work",
       true,
     ),
   );
-  let started = false;
-  s.openSignin(() => {
-    started = true;
-    throw Error("LocalSignin");
-  });
-  expect(started).toBe(false);
-  expect(s.message).toContain("remote machine");
-  viewer.close(s);
+  const local = spyOn(signin.Signin.prototype, "open").mockRejectedValue(Error("LocalSignin"));
+  s.receiveSnapshot(folders("/remote"));
+  try {
+    s.openSignin((host: signin.Host) => s.remoteSignin("claude", "", true, host));
+    await Bun.sleep(1);
+    expect(local).not.toHaveBeenCalled();
+    expect(calls.find(([op]) => op === "account.signin.open")?.[1]).toMatchObject({
+      provider: "claude",
+      cwd: "/remote",
+      add: true,
+    });
+    expect(s.signin).not.toBeNull();
+  } finally {
+    viewer.close(s);
+    local.mockRestore();
+  }
 });
 
 test("a remote resource card sends signals and pane navigation to its owner", async () => {
@@ -6707,5 +6749,87 @@ test("Escape cancels an agent rename probe before its slow reply opens the field
   } finally {
     await answer();
     viewer.close(s);
+  }
+});
+
+test("remote management reads options from its daemon and refreshes a saved configuration", async () => {
+  const local = spyOn(accounts, "launchOptions").mockImplementation(() => {
+    throw Error("LocalAccountRead");
+  });
+  let settings = { flags: "--remote", env: [] as [string, string][], model: "remote-model" };
+  const asked: string[] = [];
+  const snapshot = folders("/remote");
+  const remote = new Machine(
+    transport(async (op, fields: any) => {
+      asked.push(op);
+      if (op === "launcher.catalog")
+        return {
+          agents: [],
+          data: {
+            accounts: [{ row: "claude", folder: "/remote/.claude", suggest: "Remote", options: settings }],
+            removed: [],
+          },
+        };
+      if (op === "session.snapshot") return snapshot;
+      if (op === "session.command") {
+        settings = { ...settings, ...fields.command["agent.launcher.configure"] };
+        return { result: {} };
+      }
+      return {};
+    }),
+    "remote",
+    true,
+  );
+  const s: any = new Controller(remote);
+  s.receiveSnapshot(snapshot);
+  s.launch_previews.preview = agentLauncher.preview({
+    pending: false,
+    installed: byProvider(p => p === "claude"),
+    options: { claude: { signed_in: true } },
+  });
+  try {
+    s.openLauncher(true);
+    await remote.tasks.idle();
+    await s.pollLauncher(false);
+    await s.openManager();
+    expect(s.agent_launcher.managing).toBe(true);
+    const model = s.agent_launcher.manageModel(),
+      a = model.agents.find((a: agentManager.Agent) => a.provider === "claude");
+    expect(model.options(a)).toEqual(settings);
+    expect(model.folder("claude", "")).toBe("/remote/.claude");
+    await s.manageAction({ kind: "model", agent: a, model: "updated-model", effort: "high" });
+    await s.pollLauncher(false);
+    await remote.tasks.idle();
+    await s.pollLauncher(false);
+    expect(s.agent_launcher.manageModel().options(a).model).toBe("updated-model");
+    expect(asked.filter(op => op === "launcher.catalog")).toHaveLength(2);
+    expect(local).not.toHaveBeenCalled();
+  } finally {
+    local.mockRestore();
+    viewer.close(s);
+  }
+});
+
+test("model catalogs belong to the selected machine even when account paths match", async () => {
+  const home = new Machine(transport(async () => ({ models: [{ id: "local", name: "Local" }] })));
+  const away = new Machine(
+    transport(async () => ({ models: [{ id: "remote", name: "Remote" }] })),
+    "remote",
+    true,
+  );
+  const s: any = new Controller(home);
+  s.receiveSnapshot(folders("/same"));
+  s.receiveSnapshot(folders("/same"), away);
+  try {
+    const here = s.model_cache.get("claude", "/same/account", "/same");
+    await Bun.sleep(0);
+    expect(here.values[0].id).toBe("local");
+    s.switchMachine(away);
+    const there = s.model_cache.get("claude", "/same/account", "/same");
+    await Bun.sleep(0);
+    expect(there.values[0].id).toBe("remote");
+  } finally {
+    viewer.close(s);
+    home.runtime.destroy();
   }
 });

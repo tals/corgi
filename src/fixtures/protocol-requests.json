@@ -18,8 +18,13 @@
     "target": 1
   },
   "session.list": {},
-  "launcher.catalog": { "workspace": 0, "cwd": "" },
-  "launcher.models": { "row": "codex" },
+  "launcher.catalog": {
+    "workspace": 0,
+    "cwd": ""
+  },
+  "launcher.models": {
+    "row": "codex"
+  },
   "session.snapshot": {},
   "session.subscribe": {},
   "viewer.watch": {
@@ -212,7 +217,12 @@
     "instructions": "Be brief.",
     "persist": false,
     "corgi": true,
-    "images": [{ "path": "/tmp/a.png", "mime": "image/png" }]
+    "images": [
+      {
+        "path": "/tmp/a.png",
+        "mime": "image/png"
+      }
+    ]
   },
   "headless.list": {},
   "headless.stop": {
@@ -227,7 +237,10 @@
     },
     "provider": "codex"
   },
-  "headless.search": { "id": 1, "search": {} },
+  "headless.search": {
+    "id": 1,
+    "search": {}
+  },
   "headless.memory": {
     "id": 1,
     "file": "/memory/MEMORY.md",
@@ -289,7 +302,13 @@
   },
   "viewer.stream": {
     "viewer_protocol": 3,
-    "interests": [{ "pane": 1, "cols": 80, "rows": 24 }],
+    "interests": [
+      {
+        "pane": 1,
+        "cols": 80,
+        "rows": 24
+      }
+    ],
     "ack": 2,
     "sequence": 1
   },
@@ -298,8 +317,39 @@
   },
   "viewer.stream.configure": {
     "viewer_protocol": 3,
-    "interests": [{ "pane": 1, "cols": 80, "rows": 24 }],
+    "interests": [
+      {
+        "pane": 1,
+        "cols": 80,
+        "rows": 24
+      }
+    ],
     "ack": 2,
     "sequence": 1
+  },
+  "account.restore": {
+    "provider": "claude",
+    "account": "/accounts/work"
+  },
+  "account.remove": {
+    "provider": "claude",
+    "account": "/accounts/work"
+  },
+  "account.signin.open": {
+    "id": "0123456789abcdef",
+    "provider": "claude",
+    "account": "",
+    "add": true,
+    "cwd": "/tmp",
+    "cols": 80,
+    "rows": 24
+  },
+  "account.signin.sync": {
+    "id": "0123456789abcdef",
+    "cols": 80,
+    "rows": 24
+  },
+  "account.signin.close": {
+    "id": "0123456789abcdef"
   }
 }

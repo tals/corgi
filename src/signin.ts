@@ -167,6 +167,8 @@ function keys(data: string): Key[] {
 
 /** Where a sign-in shows. */
 export interface Host {
+  /** A new account stays exclusive until this sign-in completes. */
+  staged?(provider: Provider, dir: string): void;
   /** Something in it changed, to draw again. */
   changed(): void;
   /** It's over: `start` opens the agent in its account; `message` confirms
@@ -195,6 +197,7 @@ export class Signin {
   checked = 0;
   compared = false;
   busy = false;
+  finishing: Promise<void> | null = null;
   /** What it's doing that takes a moment, shown in place of its questions. */
   working: string | null = null;
   /** When the agent started, and whether its screen shows something yet. */
@@ -319,11 +322,13 @@ export class Signin {
         esc: 1,
       });
     }
+    if (this.over) return;
     if (!this.agent.includes("/")) this.agent = Bun.which(this.agent) ?? this.agent;
-    if (this.adding)
+    if (this.adding && !this.staged)
       try {
         this.staged = accounts.stage(this.provider!, this.name);
         this.dir = this.staged.dir;
+        this.host.staged?.(this.provider!, this.dir);
       } catch (error) {
         return this.ask({
           heading: `Corgi couldn't make the account. ${problem(error)}`,
@@ -466,17 +471,26 @@ export class Signin {
     this.changed();
   }
   /** The login worked out: the folder moves in and gets Corgi's hooks. */
-  async finish() {
+  finish(): Promise<void> {
+    if (this.over) return Promise.resolve();
+    return (this.finishing ??= this.finishAccount().finally(() => {
+      this.finishing = null;
+    }));
+  }
+  private async finishAccount() {
     this.busy = true;
     this.work(`Signed in. Setting up ${this.label}…`);
     await this.stopChild();
+    if (this.over) return;
     if (this.staged) {
       await stopInside([this.staged.dir, this.staged.temp]);
+      if (this.over) return;
       this.name = accounts.adopt(this.staged, this.name ?? accounts.suggest(this.provider!, this.who)).name;
       this.staged = null;
     }
     this.account = this.dir;
     await integration.prepare(this.provider!, this.dir, false, this.cwd);
+    if (this.over) return;
     this.busy = false;
     this.work(null);
     if (this.adding) return this.close(0, true, `Account added: ${this.label} / ${this.name}.`);
@@ -517,6 +531,7 @@ export class Signin {
       if (this.child && this.child.pid > 0) process.kill(-this.child.pid, "SIGKILL");
     } catch {}
     const s = this.staged;
+    this.staged = null;
     if (s) {
       if (accounts.identity(this.provider!, s.dir)) {
         const logout = this.signin.logout;
@@ -725,6 +740,7 @@ export class Signin {
 }
 const keycap = (k: string) => `${palette.keycap} ${k} ${reset}`;
 const problems: Record<string, string> = {
+  AccountInUse: "Close the agent that runs in it first.",
   AccountHasProfiles: "Delete this account’s cloned configurations first.",
   AccountManagementUnsupported: "Manage this agent's login in the agent itself.",
   get InvalidAccountName() {

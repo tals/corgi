@@ -165,7 +165,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Keep at least one workspace active"]': () => ` 请保留至少一个活动工作区`,
     '[" Keyboard shortcuts "]': () => ` 键盘快捷键 `,
     '[" Keys "]': () => ` 按键 `,
-    '[" Manage accounts and launch options on the remote machine"]': () => ` 在远程机器上管理账户和启动选项`,
     '[" Names are one line of up to 80 characters"]': () => ` 名称须为单行，最多 80 个字符`,
     '[" New agent  in  "]': () => ` 新建智能体  位置  `,
     '[" New panes start in ",""]': v0 => ` 新窗格将使用 ${v0}`,
@@ -187,8 +186,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Pushed ✓"]': () => ` 已推送 ✓`,
     '[" Pushing ",""]': v0 => ` 正在推送 ${v0}`,
     '[" Recent "]': () => ` 最近 `,
-    '[" Removed ",", but couldn\'t update launcher settings: ",""]': (v0, v1) =>
-      ` 已移除 ${v0}，但无法更新启动器设置：${v1}`,
     '[" Removed ","; kept its folder"]': v0 => ` 已移除 ${v0}；已保留其文件夹`,
     '[" Resize panes"]': () => ` 调整窗格大小`,
     '[" Resource readings are off: turn them on in Corgi setup → Resources"]': () =>
@@ -209,7 +206,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Shortcuts: "," · prefix ",". Reload Ghostty: Cmd+Shift+,"]': (v0, v1) =>
       ` 快捷键：${v0} · 前缀键 ${v1}。请按 Cmd+Shift+, 重载 Ghostty`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () => ` 快捷键：cmux。请按 Cmd+Shift+, 重载 Ghostty`,
-    '[" Sign in on the remote machine"]': () => ` 请在远程机器上登录`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () => ` 智能链接已关闭：Corgi 不会连接窗格中的端口`,
     '[" Smart Links on"]': () => ` 智能链接已开启`,
     '[" Split "]': () => ` 分屏 `,
@@ -464,8 +460,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Close all agents for ",""]': v0 => `关闭 ${v0} 的所有智能体`,
     '["Close pane"]': () => `关闭窗格`,
     '["Close tab"]': () => `关闭标签页`,
-    '["Close the "," agents that run in it first."]': v0 => `请先关闭其中运行的 ${v0} 个智能体。`,
-    '["Close the agent that runs in it first."]': () => `请先关闭其中运行的智能体。`,
     '["Close workspace"]': () => `关闭工作区`,
     '["Cmd+T/D/W, workspace numbers and related bindings replace host actions."]': () =>
       `Cmd+T/D/W、工作区编号等快捷键将接管终端原有操作。`,
@@ -507,7 +501,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Copying into Corgi"]': () => `正在复制到 Corgi`,
     '["Corgi and your agents keep running."]': () => `Corgi 和智能体会继续运行。`,
     '["Corgi can\'t read your Ghostty config."]': () => `Corgi 无法读取你的 Ghostty 配置。`,
-    '["Corgi doesn\'t list this account any more."]': () => `Corgi 已不再列出此账号。`,
     '["Corgi keeps your background when it\'s dark and paints its own otherwise."]': () =>
       `终端背景为深色时 Corgi 会保留它，否则使用自己的背景色。`,
     '["Corgi pastes PNG, JPEG, GIF and WebP images"]': () => `Corgi 支持粘贴 PNG、JPEG、GIF 和 WebP 图片`,
@@ -1588,8 +1581,6 @@ ${v1} 使用该账号。
     '[" Keep at least one workspace active"]': () => ` 少なくとも1つのワークスペースを有効にしてください`,
     '[" Keyboard shortcuts "]': () => ` キーボードショートカット `,
     '[" Keys "]': () => ` キー `,
-    '[" Manage accounts and launch options on the remote machine"]': () =>
-      ` リモートマシンでアカウントと起動オプションを管理してください`,
     '[" Names are one line of up to 80 characters"]': () => ` 名前は80文字以内の1行で入力してください`,
     '[" New agent  in  "]': () => ` 新しいエージェント · `,
     '[" New panes start in ",""]': v0 => ` 新しいペインでは${v0}を起動します`,
@@ -1612,8 +1603,6 @@ ${v1} 使用该账号。
     '[" Pushed ✓"]': () => ` プッシュ済み ✓`,
     '[" Pushing ",""]': v0 => ` プッシュ中 ${v0}`,
     '[" Recent "]': () => ` 最近 `,
-    '[" Removed ",", but couldn\'t update launcher settings: ",""]': (v0, v1) =>
-      ` ${v0}を削除しましたが、ランチャー設定を更新できませんでした：${v1}`,
     '[" Removed ","; kept its folder"]': v0 => ` ${v0}を削除しました。フォルダーは残しています`,
     '[" Resize panes"]': () => ` ペインのサイズ変更`,
     '[" Resource readings are off: turn them on in Corgi setup → Resources"]': () =>
@@ -1635,7 +1624,6 @@ ${v1} 使用该账号。
       ` ショートカット：${v0} · プレフィックス ${v1}。Cmd+Shift+,でGhosttyを再読み込み`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` ショートカット：cmux。Cmd+Shift+,でGhosttyを再読み込み`,
-    '[" Sign in on the remote machine"]': () => ` リモートマシンでサインインしてください`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () =>
       ` スマートリンクはオフです。ペインのポートには接続しません`,
     '[" Smart Links on"]': () => ` スマートリンクはオンです`,
@@ -1901,8 +1889,6 @@ ${v1} 使用该账号。
     '["Close all agents for ",""]': v0 => `${v0}の全エージェントを閉じる`,
     '["Close pane"]': () => `ペインを閉じる`,
     '["Close tab"]': () => `タブを閉じる`,
-    '["Close the "," agents that run in it first."]': v0 => `先にそこで動作中の${v0}エージェントを閉じてください。`,
-    '["Close the agent that runs in it first."]': () => `先にそこで動作中のエージェントを閉じてください。`,
     '["Close workspace"]': () => `ワークスペースを閉じる`,
     '["Cmd+T/D/W, workspace numbers and related bindings replace host actions."]': () =>
       `Cmd+T/D/Wやワークスペース番号などが端末本体の操作に優先します。`,
@@ -1946,7 +1932,6 @@ ${v1} 使用该账号。
     '["Copying into Corgi"]': () => `Corgiにコピー中`,
     '["Corgi and your agents keep running."]': () => `Corgiとエージェントは動作を続けます。`,
     '["Corgi can\'t read your Ghostty config."]': () => `Ghosttyの設定を読み込めません。`,
-    '["Corgi doesn\'t list this account any more."]': () => `このアカウントはCorgiに登録されていません。`,
     '["Corgi keeps your background when it\'s dark and paints its own otherwise."]': () =>
       `背景が暗い場合はそのまま使い、それ以外はCorgiの背景色にします。`,
     '["Corgi pastes PNG, JPEG, GIF and WebP images"]': () => `PNG、JPEG、GIF、WebP画像を貼り付けられます`,
@@ -3046,8 +3031,6 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Keep at least one workspace active"]': () => ` 작업 공간을 하나 이상 활성 상태로 유지하세요`,
     '[" Keyboard shortcuts "]': () => ` 키보드 단축키 `,
     '[" Keys "]': () => ` 키 `,
-    '[" Manage accounts and launch options on the remote machine"]': () =>
-      ` 원격 컴퓨터에서 계정과 실행 옵션을 관리하세요`,
     '[" Names are one line of up to 80 characters"]': () => ` 이름은 한 줄로 80자까지 입력할 수 있습니다`,
     '[" New agent  in  "]': () => ` 새 에이전트  위치  `,
     '[" New panes start in ",""]': v0 => ` 새 패널은 ${v0} 셸로 시작합니다`,
@@ -3069,8 +3052,6 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Pushed ✓"]': () => ` 푸시 완료 ✓`,
     '[" Pushing ",""]': v0 => ` 푸시 중 ${v0}`,
     '[" Recent "]': () => ` 최근 `,
-    '[" Removed ",", but couldn\'t update launcher settings: ",""]': (v0, v1) =>
-      ` ${v0} 제거 완료. 실행기 설정 갱신 실패: ${v1}`,
     '[" Removed ","; kept its folder"]': v0 => ` ${v0} 제거 완료; 폴더는 유지했습니다`,
     '[" Resize panes"]': () => ` 패널 크기 조절`,
     '[" Resource readings are off: turn them on in Corgi setup → Resources"]': () =>
@@ -3091,7 +3072,6 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Shortcuts: "," · prefix ",". Reload Ghostty: Cmd+Shift+,"]': (v0, v1) =>
       ` 단축키: ${v0} · 접두 키 ${v1}. Cmd+Shift+,로 Ghostty 다시 불러오기`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () => ` 단축키: cmux. Cmd+Shift+,로 Ghostty 다시 불러오기`,
-    '[" Sign in on the remote machine"]': () => ` 원격 컴퓨터에서 로그인하세요`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () =>
       ` 스마트 링크 꺼짐: Corgi가 패널의 포트에 연결하지 않습니다`,
     '[" Smart Links on"]': () => ` 스마트 링크 켜짐`,
@@ -3359,8 +3339,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Close all agents for ",""]': v0 => `${v0}의 모든 에이전트 닫기`,
     '["Close pane"]': () => `패널 닫기`,
     '["Close tab"]': () => `탭 닫기`,
-    '["Close the "," agents that run in it first."]': v0 => `먼저 해당 계정으로 실행 중인 에이전트 ${v0}개를 닫으세요.`,
-    '["Close the agent that runs in it first."]': () => `먼저 해당 계정으로 실행 중인 에이전트를 닫으세요.`,
     '["Close workspace"]': () => `작업 공간 닫기`,
     '["Cmd+T/D/W, workspace numbers and related bindings replace host actions."]': () =>
       `Cmd+T/D/W, 작업 공간 번호와 관련 단축키가 호스트의 동작을 대신합니다.`,
@@ -3403,7 +3381,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Copying into Corgi"]': () => `Corgi로 복사 중`,
     '["Corgi and your agents keep running."]': () => `Corgi와 에이전트는 계속 실행됩니다.`,
     '["Corgi can\'t read your Ghostty config."]': () => `Corgi가 Ghostty 설정을 읽을 수 없습니다.`,
-    '["Corgi doesn\'t list this account any more."]': () => `Corgi에 더 이상 이 계정이 없습니다.`,
     '["Corgi keeps your background when it\'s dark and paints its own otherwise."]': () =>
       `터미널 배경이 어두우면 유지하고, 그렇지 않으면 Corgi의 배경을 사용합니다.`,
     '["Corgi pastes PNG, JPEG, GIF and WebP images"]': () =>
@@ -4504,8 +4481,6 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Keep at least one workspace active"]': () => ` Оставьте хотя бы одно рабочее пространство активным`,
     '[" Keyboard shortcuts "]': () => ` Сочетания клавиш `,
     '[" Keys "]': () => ` Клавиши `,
-    '[" Manage accounts and launch options on the remote machine"]': () =>
-      ` Управляйте аккаунтами и параметрами запуска на удалённом компьютере`,
     '[" Names are one line of up to 80 characters"]': () =>
       ` Имя должно занимать одну строку и не превышать 80 символов`,
     '[" New agent  in  "]': () => ` Новый агент в  `,
@@ -4528,8 +4503,6 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Pushed ✓"]': () => ` Отправлено ✓`,
     '[" Pushing ",""]': v0 => ` Отправка ${v0}`,
     '[" Recent "]': () => ` Недавнее `,
-    '[" Removed ",", but couldn\'t update launcher settings: ",""]': (v0, v1) =>
-      ` ${v0} удалён, но настройки запуска не обновлены: ${v1}`,
     '[" Removed ","; kept its folder"]': v0 => ` ${v0} удалён; его папка сохранена`,
     '[" Resize panes"]': () => ` Размер панелей`,
     '[" Resource readings are off: turn them on in Corgi setup → Resources"]': () =>
@@ -4576,7 +4549,6 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Shortcuts: "," · prefix ",". Reload Ghostty: Cmd+Shift+,"]': (v0, v1) =>
       ` Сочетания: ${v0} · префикс ${v1}. Перезагрузите Ghostty: Cmd+Shift+,`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () => ` Сочетания: cmux. Перезагрузите Ghostty: Cmd+Shift+,`,
-    '[" Sign in on the remote machine"]': () => ` Войдите в аккаунт на удалённом компьютере`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () =>
       ` Умные ссылки выключены: Corgi не будет подключаться к портам панелей`,
     '[" Smart Links on"]': () => ` Умные ссылки включены`,
@@ -5196,8 +5168,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Close all agents for ",""]': v0 => `Закрыть всех агентов для ${v0}`,
     '["Close pane"]': () => `Закрыть панель`,
     '["Close tab"]': () => `Закрыть вкладку`,
-    '["Close the "," agents that run in it first."]': v0 => `Сначала закройте работающих в нём агентов (${v0}).`,
-    '["Close the agent that runs in it first."]': () => `Сначала закройте работающего в нём агента.`,
     '["Close workspace"]': () => `Закрыть пространство`,
     '["Cmd+T/D/W, workspace numbers and related bindings replace host actions."]': () =>
       `Cmd+T/D/W, номера пространств и связанные сочетания заменят действия терминала.`,
@@ -5267,7 +5237,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Copying into Corgi"]': () => `Копирование в Corgi`,
     '["Corgi and your agents keep running."]': () => `Corgi и ваши агенты продолжают работать.`,
     '["Corgi can\'t read your Ghostty config."]': () => `Corgi не может прочитать настройки Ghostty.`,
-    '["Corgi doesn\'t list this account any more."]': () => `Corgi больше не видит этот аккаунт.`,
     '["Corgi keeps your background when it\'s dark and paints its own otherwise."]': () =>
       `Corgi сохраняет тёмный фон терминала, иначе использует свой.`,
     '["Corgi pastes PNG, JPEG, GIF and WebP images"]': () => `Corgi вставляет изображения PNG, JPEG, GIF и WebP`,

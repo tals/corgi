@@ -201,6 +201,28 @@ $.requests|session.locate.pane: u32
 $.requests|session.list: {}
 $.requests|launcher.catalog.workspace: u32
 $.requests|launcher.catalog.cwd: string
+$.requests|launcher.catalog.preview: bool
+$.requests|account.restore.provider: enum claude codex pi omp opencode2
+$.requests|account.restore.account: string
+$.requests|account.remove.provider: enum claude codex pi omp opencode2
+$.requests|account.remove.account: string
+$.requests|account.signin.open.id: string
+$.requests|account.signin.open.provider: enum claude codex pi omp opencode2
+$.requests|account.signin.open.account: string
+$.requests|account.signin.open.add: bool
+$.requests|account.signin.open.cwd: string
+$.requests|account.signin.open.cols: u32
+$.requests|account.signin.open.rows: u32
+$.requests|account.signin.sync.id: string
+$.requests|account.signin.sync.cols: u32
+$.requests|account.signin.sync.rows: u32
+$.requests|account.signin.sync.revision: u32
+$.requests|account.signin.sync.input_seq: u32
+$.requests|account.signin.sync.input: string
+$.requests|account.signin.sync.raw: bool
+$.requests|account.signin.sync.x: i32
+$.requests|account.signin.sync.y: i32
+$.requests|account.signin.close.id: string
 $.requests|launcher.models.row: string
 $.requests|launcher.models.workspace: u32
 $.requests|launcher.models.cwd: string

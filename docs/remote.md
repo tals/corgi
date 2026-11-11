@@ -89,10 +89,18 @@ and exits nonzero if any machine fails. Remote commands execute once: Corgi does
 not automatically retry mutations after a timeout or disconnect. Check the host's
 state before manually repeating an operation whose result was lost.
 
-Remote launchers use the accounts configured on that host. Account sign-in and
-management still run on the host itself; the remote viewer does not read or
-modify matching account paths on the local computer. Local launcher profiles
-are not offered for remote sessions.
+Remote launchers and **Manage agents** use the selected host's accounts,
+models and saved launch options. The daemon reads and changes that host's
+account files; local accounts are not offered for remote sessions.
+
+Adding or signing in to an account opens the usual guided sign-in screen.
+Its process runs on the selected daemon. Open the displayed link in your
+browser and use a device code or paste the returned code when offered; a
+browser callback to localhost targets the computer running the provider.
+A disconnected viewer can resume its sign-in for two minutes. Closing the
+viewer cancels it; after two minutes without a viewer, the daemon discards
+unfinished account creation. Reload waits until active sign-ins and account
+removals finish.
 
 ## Authentication and permissions
 
