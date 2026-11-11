@@ -206,8 +206,14 @@ export class Sandbox {
   }
   async shutdown(): Promise<void> {
     await this.world.shutdown?.(this);
-    if (existsSync(this.env.CORGI_SOCKET) && this.running())
+    if (existsSync(this.env.CORGI_SOCKET) && this.running()) {
       spawnSync(this.exe, ["shutdown"], { env: this.env, stdio: "ignore" });
+      // The CLI returns once the daemon acknowledges, before it finishes:
+      // wiping the world while it still writes brings the tree back under
+      // rmSync's feet, so wait for it to let go of the socket.
+      const end = Date.now() + 5000;
+      while (this.running() && Date.now() < end) Bun.sleepSync(100);
+    }
   }
   prepareHome(): void {
     mkdirSync(join(this.home, ".local/state/corgi"), { recursive: true });
@@ -360,6 +366,13 @@ const interval = Number(option('--sandbox-interval')) || 0;
 let progress = null;
 if (task && provider === 'claude')
   appendFileSync(transcript, JSON.stringify({ type: 'custom-title', sessionId: session, customTitle: task }) + '\n');
+const figure = option('--sandbox-context');
+if (figure && provider === 'claude') {
+  // One assistant record with a known model and usage, so the sidebar's
+  // context figure has something to read: percent of the 1M window.
+  const used = Math.round(Number(figure) * 10000);
+  appendFileSync(transcript, JSON.stringify({ type: 'assistant', sessionId: session, timestamp: new Date().toISOString(), message: { id: 'msg-context', model: 'claude-opus-5-5', usage: { input_tokens: used, output_tokens: 10 } } }) + '\n');
+}
 let turn = 0;
 function event(name) {
   if (!existsSync(hooks)) return;
