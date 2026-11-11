@@ -68,6 +68,8 @@ export class Preferences {
   prefix: Prefix = defaultPrefix;
   /** Action overrides; omitted actions inherit the selected preset. */
   keys: keybindings.Config = {};
+  instant_typing: "auto" | "off" = "auto";
+  dim_predictions = true;
   onboarding_complete = false;
   /** Unset follows this viewer's locale; CORGI_LANG overrides an explicit choice. */
   language: locale.Locale | undefined = undefined;
@@ -126,6 +128,8 @@ const settings: readonly string[] = [
   "corgi_intensity",
   "resources",
   "worktree_folder",
+  "instant_typing",
+  "dim_predictions",
 ];
 /** viewer.json, which viewers write. */
 export function path(env = process.env): string {
@@ -548,6 +552,7 @@ function readState(d: Record<string, any>, v: Preferences): void {
 }
 const enums = {
   preset: ["corgi", "tmux", "herdr", "cmux"],
+  instant_typing: ["auto", "off"],
 } as const;
 /** config.json's fields, each read alone: one this build can't use keeps its
  * default and names itself, without costing the others. */
@@ -584,6 +589,10 @@ function readSettings(d: Record<string, any>, v: Preferences): Skipped[] {
     // A theme from a newer build falls back quietly.
     if (typeof d.theme !== "string") unexpected("theme");
     else v.theme = palette.parseTheme(d.theme) ?? undefined;
+  }
+  if ("dim_predictions" in d) {
+    if (typeof d.dim_predictions === "boolean") v.dim_predictions = d.dim_predictions;
+    else unexpected("dim_predictions");
   }
   if ("worktree_folder" in d) {
     const problem = typeof d.worktree_folder === "string" ? worktreeFolder.problem(d.worktree_folder) : null;

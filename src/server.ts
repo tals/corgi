@@ -236,6 +236,7 @@ export class Server {
           this.dirty = true;
           this.wakeViewers();
         });
+        pane.terminal.on("acknowledged", () => this.wakeViewers());
         pane.terminal.on("ioError", error => console.error("terminal:", error));
       }
   }
@@ -246,7 +247,8 @@ export class Server {
         seq += c.next_control;
         for (const interest of c.interests) {
           const p = this.runtime.pane(interest.pane);
-          if (p) seq += p.displayed().surface_revision;
+          // A settled input travels with its pane's next frame.
+          if (p) seq += p.displayed().surface_revision + p.terminal.input_ack.ack.sequence;
         }
       }
     return BigInt.asUintN(64, seq);

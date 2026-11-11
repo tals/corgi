@@ -10,9 +10,10 @@ interface Values {
   "Split": "right" | "down";
   "Signal": "term" | "kill";
   "Workspace": viewerRef.Workspace;
+  "InstantTyping": "auto" | "off";
 }
 export type Action = {
-  [Name in keyof typeof specs]: { name: Name } & ((typeof specs)[Name] extends "Workspace"
+  [Name in keyof typeof specs]: { name: Name } & ((typeof specs)[Name] extends "Workspace" | "InstantTyping"
     ? { value: Values[(typeof specs)[Name]] }
     : { value?: Values[(typeof specs)[Name]] });
 }[keyof typeof specs];
@@ -38,6 +39,7 @@ export const specs = {
   "redo-layout": "void",
   machines: "void",
   connectivity: "void",
+  "instant-typing": "InstantTyping",
   new: "void",
   next: "void",
   prev: "void",
@@ -159,7 +161,9 @@ function parseValue(type: keyof Values, value: string): string | number | undefi
       ? ["left", "down", "up", "right"]
       : type === "Signal"
         ? ["term", "kill"]
-        : ["left", "right"];
+        : type === "InstantTyping"
+          ? ["auto", "off"]
+          : ["left", "right"];
   if (type === "Split") values.splice(0, 2, "right", "down");
   if (!value && (type === "Side" || type === "Split")) value = "right";
   if (!values.includes(value)) throw new Error("BadValue");
@@ -200,6 +204,7 @@ export function title(action: Action | Template): string {
     "undo-layout": i18n.t`Undo layout change`,
     "redo-layout": i18n.t`Redo layout change`,
     machines: "Filter workspace machines",
+    "instant-typing": i18n.t`Remote instant typing`,
     onboard: i18n.t`Onboarding`,
     keybindings: i18n.t`Customize shortcuts`,
     new: i18n.t`New tab (agent picker)`,
