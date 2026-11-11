@@ -11,7 +11,7 @@ import { thumb } from "../scroll_thumb";
 import { Differ } from "../frame_diff";
 import { closeReadiness } from "../pane/terminal";
 import type { VoiceSession, Utterance, GaugeRow } from "./session";
-import type { Device } from "./capture";
+import type { Device, MicProblem } from "./capture";
 import type { Timing } from "./segmenter";
 
 const reset = "\x1b[0m",
@@ -205,25 +205,37 @@ type Picker = { devices: Device[]; choice: number; loading: boolean; notice?: st
 /** A timing's dropdown, opened by a click on it, below its value at `y`, `x`. */
 type Menu = { name: keyof Timing; values: number[]; choice: number; y: number; x: number };
 
-/** What a problem means for the user, and the fix. */
+/** Every problem that keeps voice from listening, with its fix, for the status line. */
 export function problem(
   session: VoiceSession,
   app = process.env.TERM_PROGRAM,
   platform = process.platform,
 ): string | null {
-  switch (session.unavailable) {
+  const mic = session.mic_problem && micTrouble(session.mic_problem, app, platform),
+    down = session.server === "crashed";
+  // Both at once: the microphone first, as it is why `t` cannot gauge.
+  if (mic && down) {
+    const fixes = [mic.fix, "press f for a fresh server, or restart voice mode"].filter(f => f !== null);
+    return `${mic.what}, and the Whisper server stopped: ${fixes.join("; ")}`;
+  }
+  if (down) return "The Whisper server stopped: press f for a fresh one, or restart voice mode";
+  return mic && (mic.fix ? `${mic.what}: ${mic.fix}` : mic.what);
+}
+/** What is wrong with the microphone, and the fix when there is one. */
+function micTrouble(p: MicProblem, app: string | undefined, platform: string): { what: string; fix: string | null } {
+  switch (p) {
     case "mic_denied":
-      return platform === "darwin"
-        ? `Microphone access denied: allow ${app || "your terminal"} in System Settings › Privacy & Security › Microphone`
-        : "Microphone access denied";
+      return {
+        what: "Microphone access denied",
+        fix:
+          platform === "darwin"
+            ? `allow ${app || "your terminal"} in System Settings › Privacy & Security › Microphone`
+            : null,
+      };
     case "mic_busy":
-      return "The microphone is in use by another program";
+      return { what: "The microphone is in use by another program", fix: null };
     case "mic_missing":
-      return "No microphone found: press d to pick another";
-    case "server_down":
-      return "The Whisper server stopped: press f for a fresh one, or restart voice mode";
-    default:
-      return null;
+      return { what: "No microphone found", fix: "press d to pick another" };
   }
 }
 function linkStatus(session: VoiceSession, target: string): string | null {
@@ -310,7 +322,7 @@ export function gaugeRow(g: GaugeRow): Row {
         case "applied":
           return [text, `${change} (gauged)`];
         case "applied_quiet_speech":
-          return [warm, `${change} (gauged; your speech was mostly quieter, turn the music down)`];
+          return [warm, `${change} (gauged; music ≈ your speech, turn it down)`];
         case "no_speech_to_compare":
           return [text, `${change} (gauged; no speech yet to compare)`];
         case "too_loud":
