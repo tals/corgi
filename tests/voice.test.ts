@@ -185,13 +185,21 @@ class Voice extends Viewers {
     this.assertEqual(readFileSync(target.file, "latin1"), "refactor the parser module");
     this.assertNotIn("\r", bytes);
     this.assertTrue(this.lines(logs.whisper)[0].vad);
+    // The filter pads by the default 1 s post-roll; --verbose asks for segment times.
+    const [request] = this.lines(logs.whisper).filter(l => l.request);
+    this.assertEqual(request.fields.vad_speech_pad_ms, "1000");
+    this.assertEqual(request.fields.response_format, "verbose_json");
     pty.write("q");
     this.assertEqual(await pty.proc.exited, 0);
     // Quitting stops its whisper-server and ffmpeg and ends the presence.
     await this.until(async () => (await this.voice()) === null, 5);
     // --verbose kept a line per utterance, dropped ones too, outside the screen.
     const log = readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/voice.log"), "utf8");
-    this.assertRegex(log, /utterance 1: delivered duration=[\d.]+s transcribe_ms=\d+ deliver_ms=\d+/);
+    // 1.5 s of speech, then 1 s of the 2.5 s pause.
+    this.assertRegex(
+      log,
+      /utterance 1: delivered duration=2\.5s transcribe_ms=\d+ deliver_ms=\d+ post_roll=1s kept=1s dropped=1\.5s/,
+    );
     this.assertRegex(log, /utterance 2: dropped \(not speech\)/);
     this.assertIn("whisper-server ready", log);
   }

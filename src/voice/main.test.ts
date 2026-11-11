@@ -42,6 +42,8 @@ test("flags override settings within their ranges", () => {
     ["--ssh", "-oProxyCommand=x"],
     ["--ssh"],
     ["--device"],
+    // Post-roll, like the other timings but silence, is set in voice.json or live.
+    ["--post-roll", "1"],
     ["--bogus"],
   ])
     expect(() => flags(bad)).toThrow("Usage");

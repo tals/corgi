@@ -18,6 +18,7 @@ test("a missing file gives the defaults without notices", () => {
       threshold: 44,
       silence: 2.5,
       pre_roll: 0.3,
+      post_roll: 1,
       min_speech: 0.2,
       burst: 0.1,
       model: "base.en",
@@ -37,6 +38,7 @@ test("valid fields are read", () => {
         threshold: 60,
         silence: 1.5,
         pre_roll: 0.5,
+        post_roll: 1.5,
         min_speech: 0.1,
         burst: 0.05,
         model: "small.en",
@@ -54,6 +56,7 @@ test("valid fields are read", () => {
     threshold: 60,
     silence: 1.5,
     pre_roll: 0.5,
+    post_roll: 1.5,
     min_speech: 0.1,
     burst: 0.05,
     model: "small.en",
@@ -61,6 +64,22 @@ test("valid fields are read", () => {
     speech_filter: false,
     device: "1",
   });
+});
+
+test('post-roll is seconds from 0 to 10, or "pause" for the whole pause', () => {
+  const post_roll = (value: unknown) => settings.read(file("post_roll.json", JSON.stringify({ post_roll: value })));
+  for (const [value, read] of [
+    [0, 0],
+    [10, 10],
+    [1.2, 1.2],
+    ["pause", Infinity],
+  ] as [unknown, number][])
+    expect(post_roll(value)).toEqual({ settings: { ...settings.defaults(), post_roll: read }, notices: [] });
+  for (const value of ["Pause", null, -0.1, 10.5, "1"])
+    expect(post_roll(value)).toEqual({
+      settings: settings.defaults(),
+      notices: ['voice.json: "post_roll" must be 0..10 or "pause"; using 1'],
+    });
 });
 
 test("each invalid field falls back with one notice", () => {

@@ -55,7 +55,7 @@ test("transcribes through /inference and trims the text", async () => {
       { CORGI_FAKE_WHISPER_SCRIPT: "refactor the parser module", CORGI_FAKE_WHISPER_LOG: log },
       { vadModel: "/models/silero.bin", language: "auto" },
     );
-    expect(await server.transcribe(utterance)).toBe("refactor the parser module");
+    expect(await server.transcribe(utterance, { padMs: 1000 })).toEqual({ text: "refactor the parser module" });
     const lines = readFileSync(log, "utf8")
       .trim()
       .split("\n")
@@ -64,7 +64,13 @@ test("transcribes through /inference and trims the text", async () => {
     expect(lines[0].start).toContain("/models/silero.bin");
     expect(lines[0].start.join(" ")).toContain("-l auto");
     expect(lines[1].bytes).toBe(utterance.length);
-    expect(lines[1].fields).toMatchObject({ temperature: "0.0", beam_size: "1", response_format: "json" });
+    // The filter pads by the post-roll; plain json skips a language-detection pass.
+    expect(lines[1].fields).toMatchObject({
+      temperature: "0.0",
+      beam_size: "1",
+      response_format: "json",
+      vad_speech_pad_ms: "1000",
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -79,13 +85,45 @@ test("without a port, the server takes a free one, and English stays the default
       { port: undefined },
     );
     expect(server.port).toBeGreaterThan(0);
-    expect(await server.transcribe(utterance)).toBe("hello");
-    const first = JSON.parse(readFileSync(log, "utf8").split("\n")[0]);
+    expect(await server.transcribe(utterance)).toEqual({ text: "hello" });
+    const [first, request] = readFileSync(log, "utf8")
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line));
     expect(first.start).toContain(String(server.port));
     expect(first.start).not.toContain("-l");
+    // Without a padding, the server keeps its own.
+    expect(request.fields).not.toHaveProperty("vad_speech_pad_ms");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("asked for segments, it reads where the speech ended", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-whisper-")),
+    log = join(dir, "log");
+  try {
+    const server = await start({
+      CORGI_FAKE_WHISPER_MODE: "segments:4.2700000000000005",
+      CORGI_FAKE_WHISPER_SCRIPT: "run the tests again",
+      CORGI_FAKE_WHISPER_LOG: log,
+    });
+    expect(await server.transcribe(utterance, { padMs: 2500, segments: true })).toEqual({
+      text: "run the tests again",
+      speech_end: 4.2700000000000005,
+    });
+    const request = JSON.parse(readFileSync(log, "utf8").trim().split("\n")[1]);
+    expect(request.fields).toMatchObject({ response_format: "verbose_json", vad_speech_pad_ms: "2500" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a segment without an end leaves the speech end out; a reply without text fails", async () => {
+  const no_end = await start({ CORGI_FAKE_WHISPER_MODE: "no_end", CORGI_FAKE_WHISPER_SCRIPT: "send it" });
+  expect(await no_end.transcribe(utterance, { segments: true })).toStrictEqual({ text: "send it" });
+  const no_text = await start({ CORGI_FAKE_WHISPER_MODE: "no_text" });
+  await expect(no_text.transcribe(utterance, { segments: true })).rejects.toThrow("TranscriptionFailed");
 });
 
 test("a port in use is refused before anything starts", async () => {
@@ -115,7 +153,7 @@ test("a crash fails the request and fires crashed once", async () => {
   const server = await start({ CORGI_FAKE_WHISPER_MODE: "crash_after:1", CORGI_FAKE_WHISPER_SCRIPT: "one" }),
     crashes: (number | null)[] = [];
   server.on("crashed", code => crashes.push(code));
-  expect(await server.transcribe(utterance)).toBe("one");
+  expect(await server.transcribe(utterance)).toEqual({ text: "one" });
   await expect(server.transcribe(utterance)).rejects.toThrow("ServerDown");
   await Bun.sleep(100);
   expect(crashes).toEqual([3]);

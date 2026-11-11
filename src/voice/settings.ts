@@ -11,6 +11,8 @@ export type VoiceSettings = {
   threshold: number;
   silence: number;
   pre_roll: number;
+  /** Seconds; `Infinity` keeps the whole pause, written "pause" in voice.json. */
+  post_roll: number;
   min_speech: number;
   burst: number;
   model: models.ModelName;
@@ -65,6 +67,7 @@ export function read(file: string): { settings: VoiceSettings; notices: string[]
     typeof v === "number" && v >= min && v <= max ? v : null;
   field("silence", "0.5..10", seconds(0.5, 10));
   field("pre_roll", "0..2", seconds(0, 2));
+  field("post_roll", '0..10 or "pause"', v => (v === "pause" ? Infinity : seconds(0, 10)(v)));
   field("min_speech", "0.02..2", seconds(0.02, 2));
   field("burst", "0.02..1", seconds(0.02, 1));
   field("model", models.names.join("|"), v => (typeof v === "string" ? models.parseName(v) : null));
