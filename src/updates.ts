@@ -170,11 +170,12 @@ export function forget(root: string): void {
       unlinkSync(launcher);
   } catch {}
 }
-async function lock(root: string, name: string, wait: boolean): Promise<(() => void) | null> {
+async function lock(root: string, name: string, wait: boolean, signal?: AbortSignal): Promise<(() => void) | null> {
   const fd = openSync(join(root, name), "a", 0o600);
   while (!flock(fd)) {
-    if (!wait) {
+    if (!wait || signal?.aborted) {
       closeSync(fd);
+      if (signal?.aborted) throw signal.reason;
       return null;
     }
     await Bun.sleep(20);
@@ -248,18 +249,36 @@ function secure(rel: Release, url: string) {
     throw Error("InsecureUpdateURL");
 }
 /** The body the feed serves at `url`, following redirects, in chunks of at most `limit` bytes in all. */
-async function* fetchChunks(rel: Release, url: string, limit: number): AsyncGenerator<Uint8Array> {
+async function* fetchChunks(
+  rel: Release,
+  url: string,
+  limit: number,
+  signal?: AbortSignal,
+): AsyncGenerator<Uint8Array> {
+  const timeout = AbortSignal.timeout(300000);
   for (let redirect = 0; redirect < 10; redirect++) {
     secure(rel, url);
-    const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(300000) });
+    const response = await fetch(url, {
+      redirect: "manual",
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    // A body that isn't read goes, rather than wait on its connection.
+    const skip = () => response.body?.cancel().catch(() => {});
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const next = response.headers.get("location");
+      await skip();
       if (!next) throw Error("UpdateSubprocessFailed");
       url = new URL(next, url).href;
       continue;
     }
-    if (!response.ok || !response.body) throw Error("UpdateSubprocessFailed");
-    if (Number(response.headers.get("content-length")) > limit) throw Error("FileTooBig");
+    if (!response.ok || !response.body) {
+      await skip();
+      throw Error("UpdateSubprocessFailed");
+    }
+    if (Number(response.headers.get("content-length")) > limit) {
+      await skip();
+      throw Error("FileTooBig");
+    }
     const reader = response.body.getReader();
     let size = 0;
     try {
@@ -276,19 +295,19 @@ async function* fetchChunks(rel: Release, url: string, limit: number): AsyncGene
   }
   throw Error("UpdateSubprocessFailed");
 }
-async function fetchBytes(rel: Release, url: string, limit: number): Promise<Buffer> {
+async function fetchBytes(rel: Release, url: string, limit: number, signal?: AbortSignal): Promise<Buffer> {
   const chunks: Uint8Array[] = [];
-  for await (const chunk of fetchChunks(rel, url, limit)) chunks.push(chunk);
+  for await (const chunk of fetchChunks(rel, url, limit, signal)) chunks.push(chunk);
   return Buffer.concat(chunks);
 }
 /** Writes release target `t` to `path` as it downloads, checking its size and
  * hash on the way: a runtime never holds the binary in memory or reads it back. */
-async function downloadTo(rel: Release, t: Target, path: string): Promise<void> {
+async function downloadTo(rel: Release, t: Target, path: string, signal?: AbortSignal): Promise<void> {
   const hash = createHash("sha256"),
     file = await open(path, "w", 0o700);
   let size = 0;
   try {
-    for await (const chunk of fetchChunks(rel, t.url, t.size)) {
+    for await (const chunk of fetchChunks(rel, t.url, t.size, signal)) {
       hash.update(chunk);
       size += chunk.length;
       for (let offset = 0; offset < chunk.length;)
@@ -333,37 +352,49 @@ export async function artifact(rel: Release, v: string, target: Platform, direct
   verifyFile(file, m.targets[target]!);
   return file;
 }
-async function feed(rel: Release, root: string, download: boolean, explicit: boolean): Promise<void> {
+/** Looks for a newer release, and downloads and stages it when asked; false
+ * when another download holds the lock and an automatic check gave way. */
+async function feed(
+  rel: Release,
+  root: string,
+  download: boolean,
+  explicit: boolean,
+  signal?: AbortSignal,
+): Promise<boolean> {
   const unlock = await lock(root, "download.lock", explicit);
-  if (!unlock) return;
+  if (!unlock) return false;
   try {
-    const bytes = (await fetchBytes(rel, `${rel.feed_url}/channels/${channel}.json`, 1024 * 1024)).toString(),
+    // What a download cut short by a crash or a handoff left.
+    remove(root, "download.tmp");
+    const channelUrl = `${rel.feed_url}/channels/${channel}.json`;
+    const bytes = (await fetchBytes(rel, channelUrl, 1024 * 1024, signal)).toString(),
       m = parse(rel, bytes),
       current = read(root, "current");
     if (!current) throw Error("MissingInstalledVersion");
     if (compare(m.version, current) <= 0) {
       if (explicit) console.log("Corgi is up to date.");
-      return;
+      return true;
     }
     const suppressed = read(root, "suppressed");
-    if (!explicit && suppressed && compare(m.version, suppressed) <= 0) return;
+    if (!explicit && suppressed && compare(m.version, suppressed) <= 0) return true;
     // A stale feed doesn't take back a newer update, such as one the installer staged.
     const staged = read(root, "staged");
-    if (staged && compare(m.version, staged) < 0) return;
+    if (staged && compare(m.version, staged) < 0) return true;
     if (explicit) console.error(`Corgi ${m.version} is available.${download ? " Downloading…" : ""}`);
-    if (!download) return;
+    if (!download) return true;
     const dest = executable(root, m.version),
       dir = dirname(dest);
-    // Already downloaded; activation verifies it before it runs.
-    if (staged === m.version && existsSync(dest)) {
+    // A release kept for rollback, or one already staged, needn't download again.
+    const present = await holds(dest, own(m));
+    if (present && staged === m.version) {
       remove(root, "last-error");
-      return;
+      return true;
     }
     // The download lock keeps this file to one download at a time.
     const partial = join(root, "download.tmp");
     try {
-      await downloadTo(rel, own(m), partial);
-      const unlockActivation = await lock(root, "activation.lock", true);
+      if (!present) await downloadTo(rel, own(m), partial, signal);
+      const unlockActivation = await lock(root, "activation.lock", true, signal);
       try {
         // An install or activation may have overtaken the download.
         const current = read(root, "current"),
@@ -371,8 +402,12 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
         if (current === null) throw Error("MissingInstalledVersion");
         if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0)) {
           privateDirectory(dir);
-          if (!existsSync(dest)) renameSync(partial, dest);
-          else if (!(await holds(dest, own(m)))) throw Error("ExistingReleaseDiffers");
+          if (!(await holds(dest, own(m)))) {
+            if (existsSync(dest)) throw Error("ExistingReleaseDiffers");
+            // Removed since it was checked: the next check downloads it again.
+            if (present) return true;
+            renameSync(partial, dest);
+          }
           write(dir, "manifest.json", bytes);
           write(root, "staged", m.version);
         }
@@ -384,6 +419,7 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
     } finally {
       remove(root, "download.tmp");
     }
+    return true;
   } finally {
     unlock();
   }
@@ -492,6 +528,8 @@ export function prune(root: string, downloads = false) {
   } catch {}
 }
 function recordError(root: string, error: unknown) {
+  // An installation removed meanwhile stays removed.
+  if (!existsSync(join(root, "current"))) return;
   try {
     write(root, "last-error", error instanceof Error ? error.message : String(error));
   } catch {}
@@ -835,16 +873,17 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
   console.log("Corgi is ready.");
 }
 /** Downloads a newer release for the next launch to activate, as a runtime
- * running `exe` does about hourly while automatic updates are on. A failure
- * is kept for `corgi update status`. */
-export async function background(exe: string): Promise<void> {
+ * running `exe` does about hourly while automatic updates are on; false when
+ * another download was under way. A failure is kept for `corgi update
+ * status`; one `signal` cut short isn't. */
+export async function background(exe: string, signal: AbortSignal): Promise<boolean> {
   const rel = release(exe),
     root = managed(rel, exe);
-  if (!root || existsSync(join(root, "auto-off"))) return;
+  if (!root || existsSync(join(root, "auto-off"))) return true;
   try {
-    await feed(rel, root, true, false);
+    return await feed(rel, root, true, false, signal);
   } catch (error) {
-    recordError(root, error);
+    if (!signal.aborted) recordError(root, error);
     throw error;
   }
 }

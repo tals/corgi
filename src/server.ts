@@ -123,6 +123,8 @@ export class Server {
   private updateDue = 0;
   private updating = false;
   private updateFailure = "";
+  /** Stops a check under way when the daemon stops. */
+  private readonly updateStop = new AbortController();
   private uninstalling = false;
   /** The folder holding the Omarchy plugin that installed this Corgi, watched
    * so that removing the plugin removes Corgi too. */
@@ -1295,13 +1297,19 @@ export class Server {
     }
     if (this.updating || Date.now() < this.updateDue) return;
     this.updating = true;
+    const hourly = (testBuild && Number(process.env.CORGI_TEST_UPDATE_CHECK_MS)) || 3_600_000 + Math.random() * 300_000;
+    let wait = hourly;
     updates
-      .background(this.executable)
+      .background(this.executable, this.updateStop.signal)
       .then(
-        () => {
+        checked => {
           this.updateFailure = "";
+          // Another runtime's download, or the one this daemon took over from
+          // that's on its way out: look again soon.
+          if (!checked) wait = Math.min(hourly, 60_000);
         },
         error => {
+          if (this.stopped) return;
           const failure = errors.name(error) ?? String(error);
           if (failure !== this.updateFailure) console.error("checking for updates:", failure);
           this.updateFailure = failure;
@@ -1309,9 +1317,7 @@ export class Server {
       )
       .finally(() => {
         this.updating = false;
-        this.updateDue =
-          Date.now() +
-          ((testBuild && Number(process.env.CORGI_TEST_UPDATE_CHECK_MS)) || 3_600_000 + Math.random() * 300_000);
+        this.updateDue = Date.now() + wait;
       });
   }
   /** Its installation at `root` was deleted: viewers see the corgi leave, the
@@ -1376,6 +1382,8 @@ export class Server {
     if (this.stopped) return;
     this.stopped = true;
     clearInterval(this.timer);
+    // A download under way would keep this process, and its locks, alive.
+    this.updateStop.abort(Error("ServerShutdown"));
     this.signins.destroy();
     this.pluginWatch?.close();
     // Nothing new connects, and the path goes so pollers see it gone; replies

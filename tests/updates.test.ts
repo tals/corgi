@@ -254,7 +254,7 @@ test.skipIf(!process.env.CORGI_OLD_EXE)(
   "with automatic updates on, the next start finishes an update an older updater left",
   async () => {
     const pid = await interruptedUpdate();
-    // Without the update worker `auto on` starts, which may hold the activation lock.
+    // Not `auto on`: an older release's starts its update worker, which may hold the activation lock.
     await rm(join(root, "auto-off"));
     await cli(["start"]);
     expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
@@ -509,10 +509,47 @@ test("a runtime keeps looking for newer releases, also after an update", async (
   latest = "1.0.2";
   await waitFor(async () => (await staged()) === "1.0.2");
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
-  // Only an older release still runs a separate update worker.
-  if (!process.env.CORGI_OLD_EXE)
-    expect(Bun.spawnSync(["pgrep", "-f", `__update-worker ${socket}`]).stdout.toString()).toBe("");
 }, 30_000);
+// CORGI_OLD_EXE makes 1.0.0, whose update worker downloads instead, the older release.
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a runtime that stops mid-download gives it up",
+  async () => {
+    let release = () => {};
+    const held = new Promise<void>(resolve => (release = resolve));
+    let asked = false;
+    beforeDownload = async () => {
+      asked = true;
+      await held;
+    };
+    try {
+      await rm(join(root, "auto-off"));
+      await cli(["start"]);
+      const pid = (await rpc({ op: "hello" })).server_pid;
+      await waitFor(async () => asked);
+      await cli(["shutdown"]);
+      // It exits rather than wait out the download, keeping its locks and file.
+      await waitFor(async () => {
+        try {
+          process.kill(pid, 0);
+          return false;
+        } catch {
+          return true;
+        }
+      });
+      const lock = openSync(join(root, "download.lock"), "a", 0o600);
+      try {
+        expect(flock(lock)).toBe(true);
+      } finally {
+        closeSync(lock);
+      }
+      expect(await Bun.file(join(root, "download.tmp")).exists()).toBe(false);
+      expect(await Bun.file(join(root, "last-error")).exists()).toBe(false);
+    } finally {
+      release();
+    }
+  },
+  30_000,
+);
 test("incompatible update defers noninteractively and keeps running executable", async () => {
   await cli(["start"]);
   const before = await rpc({ op: "hello" });
