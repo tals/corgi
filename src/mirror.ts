@@ -749,6 +749,22 @@ export class Runtime {
   agent_commands: CommandEntry[] = Array.from({ length: 6 }, () => commandEntry());
   /** The accounts Corgi knows besides each provider's default. */
   accounts: Account[] = [];
+  /** Commands shown before their daemon answers; see optimistic.ts. */
+  private assumed = new Set<(runtime: Runtime) => void>();
+  /** Makes `edit` now and again after every snapshot, until the returned
+   * function drops it. An edit that no longer applies drops itself. */
+  assume(edit: (runtime: Runtime) => void): () => void {
+    this.assumed.add(edit);
+    this.make(edit);
+    return () => void this.assumed.delete(edit);
+  }
+  private make(edit: (runtime: Runtime) => void): void {
+    try {
+      edit(this);
+    } catch {
+      this.assumed.delete(edit);
+    }
+  }
   pane(id: number): Pane | null {
     return this.panes.find(p => p.id === id) ?? null;
   }
@@ -834,6 +850,7 @@ export class Runtime {
     this.account_hidden = strings(snapshot.account_hidden);
     this.agent_commands = Array.from({ length: 6 }, (_, i) => commandEntry(snapshot.agent_commands?.[i]));
     this.accounts = (Array.isArray(snapshot.accounts) ? snapshot.accounts : []).flatMap(account);
+    for (const edit of this.assumed) this.make(edit);
   }
   /** What `provider`'s `account` is called, "" for the default. */
   accountName(provider: Provider | null, account: string): string {

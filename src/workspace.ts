@@ -10,6 +10,13 @@ import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
 import { Window } from "./usage/tokens";
 import type { Snapshot as Worktrees } from "./worktrees";
+/** Moves workspace `id` above `before`, or last when `before` is itself. */
+export function moveBefore(items: { id: number }[], id: number, before: number): void {
+  const from = items.findIndex(w => w.id === id);
+  if (from < 0 || !items.some(w => w.id === before)) throw Error("NoWorkspace");
+  const [w] = items.splice(from, 1);
+  items.splice(before === id ? items.length : items.findIndex(w => w.id === before), 0, w);
+}
 export class Workspace {
   static Id = { none: 0, first: 1, next: (id: number) => id + 1 };
   private title: string;
@@ -187,10 +194,7 @@ export class Store {
     return this.items.find(w => w.model.tabForPane(pane) !== null) ?? null;
   }
   moveBefore(id: number, before: number) {
-    const from = this.index(id);
-    if (from === null || this.index(before) === null) throw Error("NoWorkspace");
-    const [w] = this.items.splice(from, 1);
-    this.items.splice(before === id ? this.items.length : this.index(before)!, 0, w);
+    moveBefore(this.items, id, before);
   }
   static async directory(path: string) {
     const home = process.env.HOME ?? ".",

@@ -123,6 +123,8 @@ class AgentReorder extends Viewers {
     await viewer.request({ op: "size", cols: 100, rows: 30 });
     await begin();
     await this.command("pane.close", { target: b });
+    // A drop is made on the list the viewer has; let it see the close first.
+    await viewer.poll();
     await viewer.input(mouse(0, 6, 21, true));
     this.assertEqual(await this.order(), this.initial_order);
     this.assertEqual(

@@ -24,7 +24,7 @@ import * as keys from "./keys";
 import * as trackers from "./trackers";
 import { Model as AgentModel } from "./providers/model";
 import { Status as InferenceStatus } from "./inference/setup";
-import { index, key as agentKey, section, type Section, type Target } from "./agent_order";
+import { index, key as agentKey, live as liveAgents, section, type Section, type Target } from "./agent_order";
 import type { Session } from "./headless";
 import { Briefs } from "./worktree_briefs";
 import * as worktreeAgents from "./worktree_agents";
@@ -1263,15 +1263,8 @@ export class Runtime {
     return s ? section(s.status(), s.attention()) : null;
   }
   agentTargets(ws: Workspace, out: Target[] = []) {
-    out.length = 0;
-    const tabs: Target[][] = Array.from({ length: ws.model.count }, () => []);
-    for (const p of this.panes) {
-      const tab = ws.model.tabForPane(p.id);
-      if (tab !== null) tabs[tab].push({ pane: p.id });
-    }
-    for (const targets of tabs) out.push(...targets);
-    for (const s of this.sessions) if (s.workspace_id === ws.id && !s.corgi) out.push({ headless: s.id });
-    return out;
+    const headless = this.sessions.filter(s => s.workspace_id === ws.id && !s.corgi);
+    return liveAgents(ws.model, this.panes, headless, out);
   }
   async renameAgent(id: number, wanted: string | null) {
     const p = this.pane(id);
