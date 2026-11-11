@@ -701,7 +701,7 @@ const requests = {
   "launcher.models": { row: "string", workspace: ["u32", 0], cwd: ["string", ""] },
   "link.resume": { link: "string" },
   "session.locate": { pane: "u32" },
-  "session.snapshot": { resources: ["?bool", null] },
+  "session.snapshot": { resources: ["?bool", null], worktree_detail: ["?u32", null] },
   "viewer.watch": { viewer: "u32" },
   "agent.subscribe": launch,
   "agent.preview": launch,

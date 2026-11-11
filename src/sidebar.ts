@@ -2624,7 +2624,7 @@ export function worktreeAt(v: View, workspaces: WorkspaceEntry[], x: number, y: 
   const hit = v.hit(x, y);
   if (hit.tag !== "workspace") return null;
   const ws = workspaces[hit.workspace];
-  if (ws?.external || ws?.unavailable) return null;
+  if (ws?.unavailable) return null;
   const width = ws ? displayWidth(worktreeLabel(ws)) : 0;
   return width && x >= v.width - 2 - width && x < v.width - 2 ? ws : null;
 }

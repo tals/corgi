@@ -9,6 +9,8 @@ import { Probe } from "./terminal_info";
 import { Host } from "./host";
 import * as protocol from "./protocol";
 import * as machine_path from "./machine_path";
+import { Controller } from "./controller";
+import { transport } from "./fixtures/transport";
 
 test("endpoint completion wakes presentation without pumping continuously", async () => {
   const endpoint = localEndpoint("/tmp/corgi-scheduling-test/control.sock", new Probe(), new Host());
@@ -81,6 +83,7 @@ test("a machine keeps its data across reconnects to its daemon but not the daemo
   const dir = mkdtempSync(join(tmpdir(), "corgi-endpoint-"));
   const path = join(dir, "control.sock");
   let instance = "first";
+  const requests: any[] = [];
   const snapshot = {
     workspaces: [
       {
@@ -111,6 +114,7 @@ test("a machine keeps its data across reconnects to its daemon but not the daemo
       for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
         const request = JSON.parse(buffer.slice(0, end)),
           op = request.op;
+        requests.push(request);
         buffer = buffer.slice(end + 1);
         const hello = {
           type: "hello",
@@ -125,23 +129,35 @@ test("a machine keeps its data across reconnects to its daemon but not the daemo
   });
   await new Promise<void>(resolve => server.listen(path, resolve));
   const endpoint = localEndpoint(path, new Probe(), new Host());
+  const view = new Controller(transport(async () => ({})));
+  endpoint.controller = view;
+  view.adopt(endpoint.machine);
   const connect = () => Reflect.get(endpoint, "connect").call(endpoint) as Promise<void>;
   const disconnect = () => Reflect.get(endpoint, "disconnect").call(endpoint);
   try {
     await connect();
     const runtime = endpoint.machine.runtime;
+    view.worktree_card.workspace = view.workspaceRef(1, endpoint.machine);
+    view.worktree_card.pinned = true;
+    await Reflect.get(endpoint, "step").call(endpoint, false, 0);
+    expect(requests.at(-1)).toMatchObject({ op: "session.snapshot", worktree_detail: 1 });
+    expect(requests.some(r => r.op === "viewer.open")).toBe(false);
+    expect(view.machine).not.toBe(endpoint.machine);
     endpoint.machine.last_control = 5n;
     disconnect();
     await connect();
     expect(endpoint.machine.runtime).toBe(runtime);
+    expect(view.worktreeDetail()).toEqual(view.workspaceRef(1, endpoint.machine));
     // Each connection numbers its controls from the start.
     expect(endpoint.machine.last_control).toBe(0n);
     instance = "second";
     disconnect();
     await connect();
     expect(endpoint.machine.runtime).not.toBe(runtime);
+    expect(view.worktreeDetail()).toBeNull();
   } finally {
     await endpoint.close();
+    view.runtime.destroy();
     server.close();
     rmSync(dir, { recursive: true, force: true });
   }

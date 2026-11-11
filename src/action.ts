@@ -1,6 +1,8 @@
 import * as i18n from "./i18n";
+import type * as viewerRef from "./viewer_ref";
 export type Direction = "left" | "right" | "up" | "down";
-export type Action = { name: string; value?: string | number };
+export type Action =
+  { name: string; value?: string | number } | { name: "worktrees"; workspace: viewerRef.Workspace; value?: never };
 export const specs: Record<string, string> = {
   dock: "void",
   "cancel-dock": "void",

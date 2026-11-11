@@ -27,6 +27,34 @@ function fixture() {
     },
   };
 }
+test("snapshot worktree interest belongs to its client without attaching a viewer", async () => {
+  const { server, dispose } = fixture(),
+    first = server.addClient(null, false),
+    second = server.addClient(null, false);
+  spyOn(first, "queue").mockImplementation(() => {});
+  spyOn(second, "queue").mockImplementation(() => {});
+  server.runtime.workspaces.items.push(new Workspace(1, "/tmp"));
+  try {
+    await server.request(first, { op: "session.snapshot", protocol: protocol.version, worktree_detail: 1 });
+    expect(first.worktree_detail).toBe(1);
+    expect(first.viewer).toBe(false);
+    expect(first.interests).toEqual([]);
+    expect(server.runtime.panes).toEqual([]);
+    await server.request(second, { op: "session.snapshot", protocol: protocol.version });
+    expect(second.worktree_detail).toBeNull();
+    expect(first.worktree_detail).toBe(1);
+    await server.request(first, { op: "session.snapshot", protocol: protocol.version, worktree_detail: null });
+    expect(first.worktree_detail).toBeNull();
+    first.viewer = true;
+    first.worktree_detail = 1;
+    await server.request(first, { op: "session.snapshot", protocol: protocol.version });
+    expect(first.worktree_detail).toBe(1);
+  } finally {
+    first.close();
+    second.close();
+    dispose();
+  }
+});
 test("session snapshots are shared by subscribers and skipped without them", () => {
   const { server, dispose } = fixture(),
     snapshot = spyOn(session, "snapshot"),

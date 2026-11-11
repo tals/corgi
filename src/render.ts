@@ -1,3 +1,4 @@
+import type { Machine } from "./machine";
 import type * as workspaceArchive from "./workspace_archive";
 import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
@@ -233,7 +234,7 @@ export interface Ui {
   git_card: gitTooltip.State | null;
   worktree_card: worktreeTooltip.State | null;
   /** The sidebar row of a shown machine's workspace, which the cards name by its own id. */
-  row_key: (id: number) => number;
+  row_key: (id: number, machine?: Machine) => number;
   /** The worktree browsed in the overview, or the checkout the launcher
    * starts agents in, whose rows stay lit while the rest of the agent list dims. */
   worktree_spotlight: sidebar.Spotlight | null;
@@ -1228,7 +1229,7 @@ export function frame(
   }
   if (u.worktree_card) {
     const id = u.worktree_card.workspace,
-      ws = id === null ? undefined : u.workspaces.find(ws => ws.id === u.row_key(id));
+      ws = id === null ? undefined : u.workspaces.find(ws => ws.id === u.row_key(id.workspace, id.machine));
     if (ws) {
       const badge = sidebar.worktreeBadge(side, u.workspaces, ws.id),
         now = milliTimestamp(),

@@ -72,6 +72,15 @@ buffers. A local socket adapter preserves the interface used by RPC and preview
 clients. Old saved profiles without a bridge path retain dedicated SSH socket forwarding;
 remove and add the machine again to discover the helper.
 
+Viewer workspace and pane references pair a machine with its daemon-local ID
+in `viewer_ref.ts`. Worktree cards keep this reference while another machine
+has keyboard focus; requests use the owner's connection and send only its
+numeric ID. Background worktree scans do not mark that workspace as read.
+The optional `worktree_detail` on `session.snapshot` requests these scans before
+a viewer has opened on that daemon. Older daemons ignore the new field; both
+ends need this change for background details to refresh. Saved IDs and CLI
+target syntax are unchanged.
+
 Normal stdio attachments and CLI commands share a private Corgi OpenSSH master,
 with ten minutes of idle persistence. Bulk image uploads, explicit machine
 checks, manual retries, and recovery probes use independent connections. Closing

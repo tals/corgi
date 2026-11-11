@@ -14,6 +14,7 @@ import { parseInventory } from "./trackers/worktrees";
 import * as clock from "./clock";
 import * as i18n from "./i18n";
 import * as worktrees from "./worktrees";
+import * as viewer from "./viewer";
 import type { Brief, Snapshot } from "./worktrees";
 import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -213,7 +214,7 @@ test("the overview counts each worktree's agents, and those working, as the side
       ],
     });
     view.input_state.attached = true;
-    view.worktree_card.workspace = 1;
+    view.worktree_card.workspace = view.workspaceRef(1);
     view.worktree_card.pinned = true;
     const terminal = new Terminal(140, 30);
     try {
@@ -287,7 +288,7 @@ test("r asks the daemon to brief the overview's worktrees again", async () => {
     headless_sessions: [],
   });
   view.input_state.attached = true;
-  view.worktree_card.workspace = 1;
+  view.worktree_card.workspace = view.workspaceRef(1);
   view.worktree_card.pinned = true;
   await view.input(Buffer.from("r"));
   expect(requests.filter(r => r.op === "worktree.brief")).toEqual([{ op: "worktree.brief", workspace: 1 }]);
@@ -426,7 +427,7 @@ test("pinned worktrees own keys and paste; Escape closes the table without reach
     panes: [],
   });
   await view.perform({ name: "worktrees", value: 1 });
-  expect(view.worktreeDetail()).toBe(1);
+  expect(view.worktreeDetail()).toEqual(view.workspaceRef(1));
   expect((view as any).pasteTarget()).toBe("discard");
   await (view as any).key(106);
   expect(view.worktree_card.selected).toBe("/repo/.worktrees/1");
@@ -519,7 +520,7 @@ test("a big worktree shows Git still deleting it once the ending has played, and
     // Esc stops the deletion rather than closing the overview.
     await (view as any).key(27);
     expect(requests.at(-1)).toEqual({ op: "worktree.stop", workspace: 1 });
-    expect(view.worktreeDetail()).toBe(1);
+    expect(view.worktreeDetail()).toEqual(view.workspaceRef(1));
     report(snapshot(2), { id: 7, path: "/repo/.worktrees/0", phase: "stopped", error: "" });
     await view.expireInput();
     expect(view.worktree_card.removal.phase).toBe("stopped");
@@ -561,7 +562,7 @@ test("holding ⌫ on a locked worktree ends on its band; Esc keeps it and Enter 
     expect(requests.some(r => r.op === "worktree.remove")).toBe(false);
     // Esc keeps it: the row comes back, and the overview stays open.
     await (view as any).key(27);
-    expect(view.worktreeDetail()).toBe(1);
+    expect(view.worktreeDetail()).toEqual(view.workspaceRef(1));
     clock.advance(1000);
     await view.expireInput();
     expect(view.worktree_card.removal.phase).toBe("idle");
@@ -687,10 +688,10 @@ function browsing() {
     ),
   };
   view.input_state.attached = true;
-  view.worktree_card.workspace = 1;
+  view.worktree_card.workspace = view.workspaceRef(1);
   view.link_tooltip.shown = true;
   view.link_tooltip.suppressed = false;
-  view.link_tooltip.target = { worktree: 1 };
+  view.link_tooltip.target = { worktree: view.workspaceRef(1) };
   view.pointer = { x: 20, y: 3 };
   return { view, requests };
 }
@@ -698,7 +699,7 @@ test("hovered worktrees own legacy, application and Kitty arrows before hover ca
   for (const down of ["\x1b[B", "\x1bOB", "\x1b[57353u", "j"]) {
     const { view, requests } = browsing();
     await view.input(Buffer.from(down));
-    expect(view.worktreeDetail()).toBe(1);
+    expect(view.worktreeDetail()).toEqual(view.workspaceRef(1));
     expect(view.worktree_card.pinned).toBe(true);
     expect(view.worktree_card.selected).toBe("/repo/.worktrees/1");
     expect(view.agentEntries().some(e => e.name === "Search agent")).toBe(true);
@@ -720,7 +721,7 @@ test("⌫ or Delete on a hovered overview starts removing rather than closing it
   for (const key of ["\x7f", "\x08", "\x1b[3~"]) {
     const { view, requests } = browsing();
     await view.input(Buffer.from(key));
-    expect(view.worktreeDetail()).toBe(1);
+    expect(view.worktreeDetail()).toEqual(view.workspaceRef(1));
     expect(view.worktree_card.pinned).toBe(true);
     expect(view.worktree_card.removal.phase).toBe("held");
     expect(view.worktree_card.removal.target?.path).toBe("/repo/.worktrees/0");
@@ -995,7 +996,7 @@ test("the card closes once the pointer leaves it, its badge and the triangle bet
   expect(view.worktree_card.pinned).toBe(true);
   await move(badge.x + badge.w, badge.y + 1);
   await move(rect.x + 2, rect.y + 3);
-  expect(view.worktreeDetail()).toBe(1);
+  expect(view.worktreeDetail()).toEqual(view.workspaceRef(1));
   await move(5, side.middle() + 3);
   expect(view.worktreeDetail()).toBeNull();
   expect(view.worktree_card.pinned).toBe(false);
@@ -1025,7 +1026,7 @@ test("a remote machine's overview shows its own workspace, not this computer's w
   view.receiveSnapshot(workspace("repo", "/repo", snapshot(2)), other);
   view.switchMachine(other);
   view.input_state.attached = true;
-  view.worktree_card.workspace = 1;
+  view.worktree_card.workspace = view.workspaceRef(1);
   view.worktree_card.pinned = true;
   const terminal = new Terminal(140, 30);
   try {
@@ -1034,5 +1035,176 @@ test("a remote machine's overview shows its own workspace, not this computer's w
   } finally {
     terminal.destroy();
     view.runtime.destroy();
+  }
+});
+
+function remoteWorktrees() {
+  const localRequests: any[] = [],
+    remoteRequests: any[] = [];
+  const data = snapshot(2),
+    localData = snapshot(1);
+  localData.entries[1].branch = "local-only";
+  const state = (name: string, worktrees: Snapshot) => ({
+    workspaces: [
+      {
+        id: 1,
+        name,
+        cwd: "/repo",
+        worktrees,
+        model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0 }], revision: 0 },
+      },
+    ],
+    panes: [{ id: 1, workspace: 1, tab: 1, cols: 80, rows: 24, cwd: "/repo" }],
+  });
+  const remoteState = state("remote repo", data);
+  const view = new Controller(
+    transport(async (op, fields) => {
+      localRequests.push({ op, ...Object(fields) });
+      return { ok: true };
+    }),
+  );
+  const local = view.machine,
+    remote = new Machine(
+      transport(async (op, fields) => {
+        remoteRequests.push({ op, ...Object(fields) });
+        if (op === "session.snapshot") return remoteState;
+        return op === "worktree.remove" ? { ok: true, removal: 7 } : { ok: true };
+      }),
+      "work",
+      true,
+    );
+  view.adopt(remote);
+  view.width = 140;
+  view.height = 30;
+  view.sidebar_open = true;
+  view.input_state.attached = true;
+  view.receiveSnapshot(state("local repo", localData));
+  view.receiveSnapshot(remoteState, remote);
+  view.onMachine = (machine, target) => {
+    view.switchMachine(machine);
+    if (target && "workspace" in target) view.switchWorkspace(target.workspace);
+    if (target && "pane" in target) view.focusPane(target.pane);
+  };
+  const badge = () =>
+    worktreeBadge(view.sidebarView([]), Reflect.get(view, "workspaceRows").call(view), view.rowKey(1, remote))!;
+  const mouse = (button: number) => {
+    const b = badge();
+    expect(b).not.toBeNull();
+    return view.input(Buffer.from(`\x1b[<${button};${b.x + 1};${b.y + 1}M`));
+  };
+  return {
+    view,
+    local,
+    remote,
+    data,
+    remoteState,
+    localRequests,
+    remoteRequests,
+    mouse,
+    close() {
+      local.runtime.destroy();
+      remote.runtime.destroy();
+      clock.reset();
+    },
+  };
+}
+
+test("hover and click keep a background worktree's owner without selecting its machine", async () => {
+  const f = remoteWorktrees(),
+    { view, local, remote } = f;
+  const terminal = new Terminal(140, 30);
+  try {
+    await f.mouse(35);
+    await view.expireInput();
+    view.frame();
+    clock.advance(600);
+    await view.expireInput();
+    terminal.feed(view.frame());
+    expect(view.worktreeDetail()).toEqual(view.workspaceRef(1, remote));
+    expect(terminal.text()).toContain("topic-1");
+    expect(terminal.text()).not.toContain("local-only");
+    expect(view.machine).toBe(local);
+    const background = viewer.syncRequest(view, false, remote);
+    expect(background.worktree_detail).toBe(1);
+    expect(background.interests).toEqual([]);
+    expect(background.watched).toBe(false);
+    expect(background.focus).toBeNull();
+    expect(viewer.syncRequest(view, true, local).worktree_detail).toBeNull();
+    await f.mouse(0);
+    expect(view.worktree_card.pinned).toBe(true);
+    expect(view.machine).toBe(local);
+    await view.perform({ name: "worktree-refresh" });
+    await remote.tasks.idle();
+    expect(f.remoteRequests).toContainEqual({ op: "worktree.brief", workspace: 1 });
+    expect(f.localRequests).toEqual([]);
+    await view.perform({ name: "worktree-enter" });
+    expect(view.machine).toBe(remote);
+    expect(view.agent_launcher?.cwd).toBe("/repo/.worktrees/0");
+  } finally {
+    terminal.destroy();
+    f.close();
+  }
+});
+
+test("a background worktree removal and stop use its owner and ignore another daemon's report", async () => {
+  const f = remoteWorktrees(),
+    { view, local, remote } = f;
+  try {
+    Object.assign(f.remoteState.panes[0], { agent: { provider: "codex", name: "Remote worker", session: "remote" } });
+    f.data.agents = [{ target: { pane: 1 }, path: "/repo/.worktrees/0", source: "write", stale: false }];
+    view.receiveSnapshot(f.remoteState, remote);
+    await f.mouse(0);
+    view.frame();
+    expect(view.worktree_card.agents?.get("/repo/.worktrees/0")).toEqual({ agents: 1, attention: 0, working: 0 });
+    for (let i = 0; i < 50 && view.worktree_card.removal.phase !== "removing"; i++) {
+      await view.perform({ name: "worktree-remove" });
+      clock.advance(50);
+    }
+    await remote.tasks.idle();
+    expect(f.remoteRequests).toContainEqual({ op: "worktree.remove", workspace: 1, path: "/repo/.worktrees/0" });
+    expect(f.remoteRequests).toContainEqual({ op: "session.command", command: { "pane.close": { target: 1 } } });
+    expect(view.machine).toBe(local);
+    expect(view.worktree_card.removal.phase).toBe("removing");
+    local.runtime.workspaces.items[0].worktree_removal = {
+      id: 7,
+      path: "/repo/.worktrees/0",
+      phase: "done",
+      error: "",
+    };
+    await view.expireInput();
+    expect(view.worktree_card.removal.phase).toBe("removing");
+    await view.perform({ name: "worktree-stop" });
+    await remote.tasks.idle();
+    expect(f.remoteRequests.at(-1)).toEqual({ op: "worktree.stop", workspace: 1 });
+    const removal = view.worktree_card.removal;
+    await view.perform({ name: "worktrees", value: 1 });
+    expect(view.worktree_card.removal).not.toBe(removal);
+    expect(view.worktree_card.removal.phase).toBe("idle");
+    remote.runtime.workspaces.items[0].worktree_removal = {
+      id: 7,
+      path: "/repo/.worktrees/0",
+      phase: "stopped",
+      error: "",
+    };
+    await view.expireInput();
+    expect(removal.phase).toBe("stopped");
+    expect(view.worktree_card.removal.phase).toBe("idle");
+    expect(f.localRequests).toEqual([]);
+  } finally {
+    f.close();
+  }
+});
+
+test("a pane ref selects its owner when another machine has the same pane id", () => {
+  const f = remoteWorktrees();
+  try {
+    f.view.selectPane({ machine: f.remote, pane: 1 });
+    expect(f.view.machine).toBe(f.remote);
+    expect(f.view.focused()).toBe(f.remote.runtime.pane(1));
+    f.view.selectPane({ machine: f.local, pane: 1 });
+    expect(f.view.machine).toBe(f.local);
+    expect(f.view.focused()).toBe(f.local.runtime.pane(1));
+  } finally {
+    f.close();
   }
 });

@@ -187,7 +187,7 @@ export function syncRequest(
     ack: machine.last_control,
     active: visible && view.input_state.active,
     resource_detail: visible ? view.resourceWorkspace() : null,
-    worktree_detail: visible ? view.worktreeDetailWanted() : null,
+    worktree_detail: view.worktreeDetailWanted(machine),
     resources: view.host.prefs.resources.enabled,
     resources_hash: machine.runtime.resources_hash,
   };
