@@ -5,6 +5,8 @@ import * as subprocess from "../subprocess";
 
 type Child = ReturnType<typeof Bun.spawn>;
 const tail_bytes = 4096;
+/** whisper-server's own speech padding, the least the filter is given. */
+const min_pad_ms = 30;
 /** A subtitle cue's number and timing lines; the groups are its end. */
 const cue_header = /^\d+\r?\n\d+:\d\d:\d\d[,.]\d{3} --> (\d+):(\d\d):(\d\d)[,.](\d{3})[ \t]*\r?\n/gm;
 
@@ -27,6 +29,8 @@ export function subtitles(srt: string): { text: string; speech_end?: number } {
   };
 }
 
+/** The speech filter's padding, in milliseconds, for `seconds` of post-roll. */
+export const padMs = (seconds: number) => Math.max(min_pad_ms, Math.round(seconds * 1000));
 /** Whether something already answers on `port`. */
 async function answers(port: number): Promise<boolean> {
   try {
@@ -109,14 +113,15 @@ export class Server {
       for await (const chunk of stream) this.output = (this.output + decoder.decode(chunk)).slice(-tail_bytes);
     } catch {}
   }
-  /** What Whisper heard in `wav`, trimmed. `padMs` is the speech filter's
-   * padding for this request. `segments` asks for subtitles instead, for
-   * `speech_end`: where the last segment ends, in seconds into the audio.
-   * (verbose_json has the times too, but whisper-server 1.9.5 crashes on it
-   * when the filter finds no speech in a fresh server's first request.) */
+  /** What Whisper heard in `wav`, trimmed. `pad` is the speech filter's
+   * padding for this request, in seconds. `segments` asks for subtitles
+   * instead, for `speech_end`: where the last segment ends, in seconds into
+   * the audio. (verbose_json has the times too, but whisper-server 1.9.5
+   * crashes on it when the filter finds no speech in a fresh server's first
+   * request.) */
   async transcribe(
     wav: Uint8Array,
-    opts: { timeoutMs?: number; padMs?: number; segments?: boolean } = {},
+    opts: { timeoutMs?: number; pad?: number; segments?: boolean } = {},
   ): Promise<{ text: string; speech_end?: number }> {
     const form = new FormData();
     form.append("file", new Blob([wav as Uint8Array<ArrayBuffer>], { type: "audio/wav" }), "utterance.wav");
@@ -129,7 +134,7 @@ export class Server {
       response_format: opts.segments ? "srt" : "json",
     }))
       form.append(key, value);
-    if (opts.padMs !== undefined) form.append("vad_speech_pad_ms", String(Math.round(opts.padMs)));
+    if (opts.pad !== undefined) form.append("vad_speech_pad_ms", String(padMs(opts.pad)));
     let reply: Response;
     try {
       reply = await fetch(`http://127.0.0.1:${this.port}/inference`, {

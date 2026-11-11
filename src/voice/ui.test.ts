@@ -381,7 +381,7 @@ test("post-roll sits between burst and filter; its menu ends in whole pause", ()
   const { ui, calls } = setup();
   let rows = screen(ui.draw(80, 20), 80, 20);
   expect(rows[6].indexOf("post-roll")).toBe(48);
-  expect(rows[6].indexOf("filter")).toBe(67);
+  expect(rows[6].indexOf("filter")).toBe(66);
   click(ui, rows, 6, "post-roll");
   expect(ui.menu?.values).toEqual([0.3, 0.5, 0.75, 1, 1.5, 2, Infinity]);
   rows = screen(ui.draw(80, 20), 80, 20);
@@ -392,6 +392,8 @@ test("post-roll sits between burst and filter; its menu ends in whole pause", ()
   expect(rows[last + 1]).toContain("╰" + "─".repeat(15) + "╯");
   click(ui, rows, last, "whole pause");
   expect(calls.timings).toEqual([["post_roll", Infinity]]);
+  // The filter's padding follows without a server restart.
+  expect(calls.filters).toBe(0);
   expect(ui.timing.post_roll).toBe(Infinity);
   // On the line it reads "pause".
   expect(screen(ui.draw(80, 20), 80, 20)[6]).toMatch(/post-roll pause +filter on/);
@@ -413,12 +415,14 @@ test("a post-roll from voice.json joins the menu; whole pause starts as pause", 
 
 test("a narrow window clips the options line without disturbing the rows around it", () => {
   const { ui } = setup(),
-    rows = screen(ui.draw(72, 20), 72, 20);
-  expect(rows[6]).toMatch(/^ Options: silence +2\.5 s +burst +0\.1 s +post-roll 1 s +filt…$/);
+    rows = screen(ui.draw(70, 20), 70, 20);
+  expect(rows[6]).toMatch(/^ Options: silence +2\.5 s +burst +0\.1 s +post-roll 1 s +fil…$/);
   expect(rows[7]).toMatch(/^ {10}pre-roll +0\.3 s +min speech +0\.2 s *$/);
-  expect(rows[8]).toBe("─".repeat(72));
+  expect(rows[8]).toBe("─".repeat(70));
   // Nothing is written past the last column, where it would wrap.
-  for (const row of screen(ui.draw(72, 20), 100, 20)) expect(row.slice(72).trim()).toBe("");
+  for (const row of screen(ui.draw(70, 20), 100, 20)) expect(row.slice(70).trim()).toBe("");
+  // The filter's state shows from 75 columns.
+  expect(screen(ui.draw(75, 20), 75, 20)[6]).toMatch(/filter on$/);
 });
 
 test("? explains the options in an overlay that scrolls when it does not fit", () => {
@@ -429,6 +433,8 @@ test("? explains the options in an overlay that scrolls when it does not fit", (
   for (const name of ["threshold", "silence", "burst", "post-roll", "filter", "pre-roll", "min speech"])
     expect(rows).toContain(name);
   expect(rows).toContain("Audio kept after the last loud stretch, so a quiet sentence");
+  // Its cost: more background sound, which Whisper can turn into a stray word.
+  expect(rows).toContain("background sound, which can become a stray word");
   expect(rows.indexOf("post-roll")).toBeGreaterThan(rows.indexOf("burst "));
   expect(rows).toContain("How loud a sound must be to count as speech");
   expect(rows).toContain("? or esc close");
@@ -468,7 +474,7 @@ test("f switches the speech filter, one restart at a time", async () => {
   const { ui, calls } = setup();
   ui.input("f");
   // The server restarts in the meantime, and a second press waits for it.
-  // The filter's value starts at cell 74; this one needs 84 columns.
+  // The filter's value starts at cell 73; this one needs 83 columns.
   expect(screen(ui.draw(90, 20), 90, 20)[6]).toContain("filter switching…");
   ui.input("f");
   await Bun.sleep(0);
@@ -489,7 +495,8 @@ test("the target names the pane the next text goes to", () => {
   session.focus = "dictation";
   const rows = screen(ui.draw(80, 20), 80, 20);
   expect(rows[2]).toContain("Target:  local → dictation");
-  expect(screen(ui.draw(90, 20), 90, 20)[6]).toContain("filter not installed");
+  // On the options line it reads "missing", which fits 80 columns.
+  expect(rows[6]).toMatch(/filter missing$/);
   // A long name is cut to its column, leaving the second one in place.
   session.focus = "a pane with a very long title indeed";
   ui.device = "USB Audio Interface with a very long name";

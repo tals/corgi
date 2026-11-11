@@ -4,6 +4,7 @@
 import * as wav from "./wav";
 import * as text from "./text";
 import * as level from "./level";
+import * as whisper from "./whisper";
 import * as errors from "../errors";
 import { Failure } from "../failure";
 import { bounded, type Seen, type VoiceLink } from "./link";
@@ -22,13 +23,15 @@ export type Utterance = {
   reason: string | null;
   timings: { transcribe_ms?: number; deliver_ms?: number };
   /** What the segmenter's cut kept, once the utterance ended. */
-  cut?: Pick<Segment, "post_roll" | "kept" | "dropped">;
+  cut?: Pick<Segment, "post_roll" | "kept" | "dropped" | "capped">;
+  /** The speech filter's padding Whisper was given, in seconds. */
+  pad?: number;
   /** Where Whisper heard the speech end, in seconds, when it says. */
   speech_end?: number;
 };
-/** Whisper: `padMs` is the speech filter's padding for this utterance. */
+/** Whisper: `pad` is the speech filter's padding for this utterance, in seconds. */
 export type Transcriber = {
-  transcribe(wav: Uint8Array, opts: { padMs: number }): Promise<{ text: string; speech_end?: number }>;
+  transcribe(wav: Uint8Array, opts: { pad: number }): Promise<{ text: string; speech_end?: number }>;
   on(event: "crashed", fn: (code: number | null) => void): void;
 };
 export type LinkState = "connecting" | "connected" | "lost" | "refused" | "closed";
@@ -228,7 +231,7 @@ export class VoiceSession {
     this.current = null;
     u.captured_at = segment.started_at;
     u.duration = segment.duration;
-    u.cut = { post_roll: segment.post_roll, kept: segment.kept, dropped: segment.dropped };
+    u.cut = { post_roll: segment.post_roll, kept: segment.kept, dropped: segment.dropped, capped: segment.capped };
     // Speech this far behind Whisper or the runtime is not kept on top.
     if (this.pending >= max_backlog) return this.finish(u, "failed", "backlog");
     u.status = "transcribing";
@@ -246,9 +249,9 @@ export class VoiceSession {
     const started = this.deps.now();
     let heard: string;
     try {
-      // The filter pads by the post-roll this utterance ended with, at least its own 30 ms.
-      const padMs = Math.max(30, Math.round(segment.post_roll * 1000)),
-        reply = await this.deps.transcriber.transcribe(wav.encode(segment.pcm), { padMs });
+      // The filter pads by the post-roll this utterance ended with.
+      u.pad = whisper.padMs(segment.post_roll) / 1000;
+      const reply = await this.deps.transcriber.transcribe(wav.encode(segment.pcm), { pad: segment.post_roll });
       heard = reply.text;
       u.speech_end = reply.speech_end;
     } catch (error) {
@@ -288,13 +291,17 @@ export class VoiceSession {
     u.status = status;
     u.reason = why;
     const t = u.timings,
-      secs = (n: number) => `${Math.round(n * 100) / 100}s`;
+      cut = u.cut,
+      shown = (seconds: number) => `${Math.round(seconds * 100) / 100}s`;
     this.deps.log?.(
-      `utterance ${u.id}: ${status}${why ? ` (${why})` : ""} duration=${u.duration}s` +
+      `utterance ${u.id}: ${status}${why ? ` (${why})` : ""} duration=${shown(u.duration)}` +
         (t.transcribe_ms !== undefined ? ` transcribe_ms=${t.transcribe_ms}` : "") +
         (t.deliver_ms !== undefined ? ` deliver_ms=${t.deliver_ms}` : "") +
-        (u.cut ? ` post_roll=${secs(u.cut.post_roll)} kept=${secs(u.cut.kept)} dropped=${secs(u.cut.dropped)}` : "") +
-        (u.speech_end !== undefined ? ` speech_end=${secs(u.speech_end)}` : ""),
+        // One cut at the cap went out whole, with no post-roll applied.
+        (cut ? (cut.capped ? " capped" : ` post_roll=${shown(cut.post_roll)}`) : "") +
+        (cut ? ` kept=${shown(cut.kept)} dropped=${shown(cut.dropped)}` : "") +
+        (u.pad !== undefined ? ` pad=${shown(u.pad)}` : "") +
+        (u.speech_end !== undefined ? ` speech_end=${shown(u.speech_end)}` : ""),
     );
     this.changed();
   }

@@ -167,6 +167,8 @@ test("post-roll keeps a quiet sentence ending under the threshold", () => {
   // 0.3 s, the old fixed trim, ends it 0.3 s after the last burst.
   const [cut] = feed(pcm, { post_roll: 0.3 }).segments;
   expect(cut.pcm.length).toBe(1.8 * 16000);
+  // The speech and the first 0.3 s of the ending; its last 0.5 s is lost.
+  expect(cut.pcm).toEqual(pcm.subarray(0, 1.8 * 16000));
   expect(cut.post_roll).toBe(0.3);
   expect(cut.kept).toBeCloseTo(0.3, 5);
   expect(cut.dropped).toBeCloseTo(2.2, 5);
@@ -208,13 +210,14 @@ test("with a burst longer than the first loud run, the cut follows that run", ()
 test("an utterance cut at the cap is sent whole", () => {
   // During speech: nothing follows the last burst.
   const [during] = feed(shapes.long(), { post_roll: 0.3 }).segments;
-  expect(during).toMatchObject({ duration: 30, kept: 0, dropped: 0 });
+  expect(during).toMatchObject({ duration: 30, kept: 0, dropped: 0, capped: true });
   // During the closing pause: the second of it so far stays.
   const { segments, segmenter } = feed(concat(tone(29), silence(4)), { post_roll: 0.3 });
   expect(segments).toHaveLength(1);
   expect(segments[0].duration).toBe(30);
   expect(segments[0].kept).toBeCloseTo(1, 5);
   expect(segments[0].dropped).toBe(0);
+  expect(segments[0].capped).toBe(true);
   // Listening carried on; the pause alone was too little speech.
   expect(segmenter.recording).toBe(false);
 });
@@ -223,6 +226,31 @@ test("post-roll never changes when an utterance ends", () => {
   const ends = [0.3, 1, Infinity].map(post_roll => feed(softEnding(), { post_roll }).ends);
   // 1.5 s of speech and the 2.5 s window.
   expect(ends).toEqual([[4000], [4000], [4000]]);
+});
+
+test("post-roll changes neither how an utterance starts, which ones count, nor the cap", () => {
+  // Pre-roll, speech, a short peak, then a sound too short to count.
+  const pcm = concat(silence(1), tone(1.5), silence(0.4), tone(0.04), silence(3), tone(0.1), silence(3)),
+    base = feed(pcm, { post_roll: 0 });
+  expect(base.segments).toHaveLength(1);
+  expect(base.segments[0].capped).toBe(false);
+  for (const post_roll of [0.3, 1, Infinity]) {
+    const run = feed(pcm, { post_roll });
+    expect(run.ends).toEqual(base.ends);
+    expect(run.segments.map(s => s.started_at)).toEqual(base.segments.map(s => s.started_at));
+    // The same pre-roll and speech, then more of the pause.
+    expect(run.segments[0].pcm.subarray(0, base.segments[0].pcm.length)).toEqual(base.segments[0].pcm);
+  }
+  for (const post_roll of [0, Infinity])
+    expect(feed(shapes.long(), { post_roll }).segments[0]).toMatchObject({ duration: 30, capped: true });
+});
+
+test("the cut reports the whole frames it kept", () => {
+  // 0.75 s is 37.5 frames of 20 ms; the cut keeps 38.
+  const [s] = feed(softEnding(), { post_roll: 0.75 }).segments;
+  expect(s.post_roll).toBe(0.76);
+  expect(s.kept).toBe(0.76);
+  expect(s.dropped).toBeCloseTo(1.74, 5);
 });
 
 test("post-roll changed mid-utterance applies when it ends, within the silence window then", () => {

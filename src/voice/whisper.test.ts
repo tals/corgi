@@ -2,7 +2,7 @@ import { test, expect, afterEach } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { Server, subtitles } from "./whisper";
+import { Server, padMs, subtitles } from "./whisper";
 import * as wav from "./wav";
 
 const fake = resolve(import.meta.dir, "../../tests/fixtures/voice/whisper-server");
@@ -55,7 +55,7 @@ test("transcribes through /inference and trims the text", async () => {
       { CORGI_FAKE_WHISPER_SCRIPT: "refactor the parser module", CORGI_FAKE_WHISPER_LOG: log },
       { vadModel: "/models/silero.bin", language: "auto" },
     );
-    expect(await server.transcribe(utterance, { padMs: 1000 })).toEqual({ text: "refactor the parser module" });
+    expect(await server.transcribe(utterance, { pad: 1 })).toEqual({ text: "refactor the parser module" });
     const lines = readFileSync(log, "utf8")
       .trim()
       .split("\n")
@@ -109,7 +109,7 @@ test("asked for segments, it reads subtitles and where the last one ends", async
       CORGI_FAKE_WHISPER_LOG: log,
     });
     // The cues' text reads as json's does, a segment a line.
-    expect(await server.transcribe(utterance, { padMs: 2500, segments: true })).toEqual({
+    expect(await server.transcribe(utterance, { pad: 2.5, segments: true })).toEqual({
       text: "run the tests\n again",
       speech_end: 4.27,
     });
@@ -119,6 +119,10 @@ test("asked for segments, it reads subtitles and where the last one ends", async
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("the filter's padding is the post-roll in milliseconds, at least the server's own 30", () => {
+  expect([0, 0.02, 0.76, 1, 2.5].map(padMs)).toEqual([30, 30, 760, 1000, 2500]);
 });
 
 test("a cue's text runs to the next cue, blank lines and all", () => {
