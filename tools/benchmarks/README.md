@@ -1,4 +1,11 @@
-# CPU comparison
+# Benchmarks
+
+The [Corgi/Herdr network harness](remote_network/README.md) covers connection
+startup, bandwidth, backpressure and outage recovery. See the
+[artifact workflow and results index](ARTIFACTS.md) for caching, archiving
+and fetching reports.
+
+## CPU comparison
 
 Build both revisions before measuring. Run the same harness and fake-provider
 workload serially; `flock` prevents overlapping Corgi benchmark runs. Each run

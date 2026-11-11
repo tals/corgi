@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """Check final evidence against frozen harness, corpus and recorded results."""
 
+import argparse
 import gzip
 import hashlib
 import json
 import pathlib
 
-root = pathlib.Path(__file__).resolve().parent
-repository = root.parents[3]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("experiment", type=pathlib.Path, help="External directory with frozen sources, fixtures and evidence")
+parser.add_argument("--output", type=pathlib.Path, required=True)
+parser.add_argument("--repository", type=pathlib.Path, default=pathlib.Path(__file__).resolve().parents[4])
+args = parser.parse_args()
+root, repository = args.experiment.resolve(), args.repository.resolve()
+if args.output.resolve().is_relative_to(pathlib.Path(__file__).resolve().parents[4]):
+    parser.error("Write audit output outside the checkout")
 rows, runs, frozen = [], [], None
 for name in ["loopback", "shaped"]:
     directory = root / "evidence" / name
@@ -109,5 +116,6 @@ result = {
         (repository / "src/wire_compression.ts").read_bytes()
     ).hexdigest(),
 }
-(root / "evidence" / "validation.json").write_text(json.dumps(result, indent=2) + "\n")
+args.output.parent.mkdir(parents=True, exist_ok=True)
+args.output.write_text(json.dumps(result, indent=2) + "\n")
 print(json.dumps(result, indent=2))

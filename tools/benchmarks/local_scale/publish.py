@@ -11,7 +11,7 @@ import tarfile
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("source", type=Path)
 parser.add_argument("--calibration", type=Path, required=True)
-parser.add_argument("--destination", type=Path, default=Path(__file__).parent)
+parser.add_argument("--destination", type=Path, required=True)
 args = parser.parse_args()
 args.source = args.source.resolve()
 evidence = args.destination / "evidence"

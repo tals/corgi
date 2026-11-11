@@ -7,6 +7,7 @@ import * as rpc from "../../../src/rpc";
 import * as peer from "../../../src/peer";
 import * as json from "../../../src/json";
 import { n, ptr, ReadyLoop, READ } from "../../../src/native_bridge";
+import * as paths from "../paths";
 
 const argument = (name: string, fallback: string) => {
   const at = Bun.argv.indexOf(name);
@@ -21,7 +22,7 @@ const cpu = () => {
   const value = process.cpuUsage();
   return value.user + value.system;
 };
-const fixtureRoot = path.join(import.meta.dir, "../remote_network/websocket_eval/fixtures");
+const fixtureRoot = paths.corpus();
 function frames() {
   const bytes = zlib.gunzipSync(fs.readFileSync(path.join(fixtureRoot, corpus + ".jsonl.gz"))),
     manifest = JSON.parse(fs.readFileSync(path.join(fixtureRoot, "manifest.json"), "utf8"));
@@ -192,7 +193,7 @@ if (role === "server") {
 } else {
   const cores = argument("--cores", "176,177").split(","),
     trials = Number(argument("--trials", "5")),
-    out = argument("--out", "dist/local-websocket.json"),
+    out = paths.external(argument("--out", path.join(paths.run("local-websocket"), "results.json"))),
     results: unknown[] = [],
     directory = fs.mkdtempSync("/tmp/corgi-local-ws-bench-");
   try {

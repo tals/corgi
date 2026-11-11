@@ -8,13 +8,14 @@ import * as lock from "../cpu_lock";
 import * as fixture from "../streaming_fixture";
 import * as progress from "../viewer_progress";
 import { Connection } from "../../../src/rpc";
+import * as paths from "../paths";
 
 const arg = (name: string, fallback: string) => {
   const i = Bun.argv.indexOf("--" + name);
   return i < 0 ? fallback : Bun.argv[i + 1];
 };
 const binary = path.resolve(arg("binary", "dist/corgi")),
-  output = path.resolve(arg("out", "dist/local-scale")),
+  output = paths.external(arg("out", paths.run("local-scale"))),
   count = Number(arg("agents", "4")),
   seconds = Number(arg("seconds", "20")),
   warmup = Number(arg("warmup", "8")),

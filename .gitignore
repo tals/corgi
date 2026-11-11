@@ -31,3 +31,41 @@ zig-pkg/
 
 # Python benchmark helpers.
 /tools/benchmarks/__pycache__/
+
+# Generated network benchmark artifacts live in the external cache/R2.
+/tools/benchmarks/remote_network/**/__pycache__/
+/tools/benchmarks/remote_network/**/evidence/
+/tools/benchmarks/remote_network/**/comparison-evidence/
+/tools/benchmarks/remote_network/**/results/
+/tools/benchmarks/remote_network/**/*.json
+/tools/benchmarks/remote_network/**/*.jsonl
+/tools/benchmarks/remote_network/**/*.csv
+/tools/benchmarks/remote_network/**/*.gz
+/tools/benchmarks/remote_network/**/*.ansi
+/tools/benchmarks/control_priority/**/__pycache__/
+/tools/benchmarks/control_priority/**/evidence/
+/tools/benchmarks/control_priority/**/comparison-evidence/
+/tools/benchmarks/control_priority/**/results/
+/tools/benchmarks/control_priority/**/*.json
+/tools/benchmarks/control_priority/**/*.jsonl
+/tools/benchmarks/control_priority/**/*.csv
+/tools/benchmarks/control_priority/**/*.gz
+/tools/benchmarks/control_priority/**/*.ansi
+/tools/benchmarks/local_scale/**/__pycache__/
+/tools/benchmarks/local_scale/**/evidence/
+/tools/benchmarks/local_scale/**/comparison-evidence/
+/tools/benchmarks/local_scale/**/results/
+/tools/benchmarks/local_scale/**/*.json
+/tools/benchmarks/local_scale/**/*.jsonl
+/tools/benchmarks/local_scale/**/*.csv
+/tools/benchmarks/local_scale/**/*.gz
+/tools/benchmarks/local_scale/**/*.ansi
+/tools/benchmarks/websocket_transport/**/__pycache__/
+/tools/benchmarks/websocket_transport/**/evidence/
+/tools/benchmarks/websocket_transport/**/comparison-evidence/
+/tools/benchmarks/websocket_transport/**/results/
+/tools/benchmarks/websocket_transport/**/*.json
+/tools/benchmarks/websocket_transport/**/*.jsonl
+/tools/benchmarks/websocket_transport/**/*.csv
+/tools/benchmarks/websocket_transport/**/*.gz
+/tools/benchmarks/websocket_transport/**/*.ansi

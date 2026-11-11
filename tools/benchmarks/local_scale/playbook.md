@@ -1,5 +1,9 @@
 # Reproduce local daemon CPU and socket traffic
 
+Use the [artifact workflow](../ARTIFACTS.md) to create a cache run directory.
+Replace historical data/output paths below with paths under that directory;
+binaries may remain in `dist`. Reports also belong in the cache.
+
 This uses the production binary, real daemon/viewer processes, real PTYs, and
 the repository's simulated Claude/Codex providers. It makes no model calls and
 uses a private home, provider accounts, and socket for every run. Application

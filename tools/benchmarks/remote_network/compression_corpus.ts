@@ -2,6 +2,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { directory as fixtures, load } from "../frame_sequences/replay";
+import * as paths from "../paths";
 import { Terminal } from "../../../src/pane/terminal";
 import * as surface from "../../../src/pane/surface";
 import * as json from "../../../src/json";
@@ -9,8 +10,8 @@ import * as protocol from "../../../src/protocol";
 import { Frames } from "../../../src/viewer_stream";
 import type { View } from "../../../src/viewer_protocol";
 
-const directory = process.argv[2];
-if (!directory) throw Error("Usage: bun compression_corpus.ts OUTPUT");
+if (!process.argv[2]) throw Error("Usage: bun compression_corpus.ts OUTPUT");
+const directory = paths.external(process.argv[2]);
 const source = process.argv[3];
 const names = process.argv.slice(4);
 mkdirSync(directory, { recursive: true });

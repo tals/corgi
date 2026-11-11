@@ -1,5 +1,9 @@
 # Reproduce the local WebSocket before/after comparison
 
+Use the [artifact workflow](../ARTIFACTS.md) to create a cache run directory.
+Replace historical `dist/local-comparison*` data paths below with paths under
+that directory; binaries may remain in `dist`. Reports also belong in the cache.
+
 Use the same machine and Bun release for both production builds. The measured
 baseline is `6c9cafb3`, immediately before `8802db03` migrated persistent local
 RPC to WebSockets. The after build is `a49dd498`, which includes rollback support.

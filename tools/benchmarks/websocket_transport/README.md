@@ -1,5 +1,10 @@
 # Local WebSocket transport
 
+New results use the [external cache and artifact workflow](../ARTIFACTS.md).
+Fetch the historical replay corpus first; payload hashes are still verified.
+`--out` defaults to a fresh cache directory. Replace the historical `dist/*.json`
+output paths below with paths under your cache run.
+
 Local persistent RPC now uses **uncompressed WS over the existing Unix socket**.
 Remote viewer RPC composes the same transport with the existing negotiated zstd
 codec. HTTP POST hooks and raw management/legacy controls remain on that socket.

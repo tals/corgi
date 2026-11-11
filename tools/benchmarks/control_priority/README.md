@@ -1,5 +1,10 @@
 # Reproduce control isolation
 
+Use the [artifact workflow](../ARTIFACTS.md) for new results. Replace historical
+`dist/control-priority-*` data paths and the repository evidence destination
+below with paths under your cache run. Binary paths may remain in `dist`.
+The runner now defaults to a fresh cache directory.
+
 Run from the repository root with Bun and the existing native build. These
 fixtures create disposable daemons, homes, sockets and pane producers. They do
 not attach to the user's daemon or change host networking.

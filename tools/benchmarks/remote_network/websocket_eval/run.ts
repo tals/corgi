@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { cpus } from "node:os";
 import { type Config, type Mode } from "./common";
 import { proxy, type Shape } from "./proxy";
+import * as paths from "../../paths";
 
 const args = process.argv.slice(2);
 const arg = (name: string, fallback: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
-const output = arg("--output", join(import.meta.dir, "results"));
+const output = paths.external(arg("--output", paths.run("websocket-eval")));
 const trials = Number(arg("--trials", "3"));
 const quick = args.includes("--quick");
 const modes = arg("--modes", "tcp,websocket,tcp-zstd,websocket-zstd,websocket-deflate").split(",") as Mode[];
@@ -62,7 +63,7 @@ writeFileSync(
       cpus: cpus().map(value => value.model),
       cores,
       args,
-      corpus: JSON.parse(readFileSync(join(import.meta.dir, "fixtures/manifest.json"), "utf8")),
+      corpus: JSON.parse(readFileSync(join(paths.corpus(), "manifest.json"), "utf8")),
       source_sha256: Object.fromEntries(
         ["endpoint.ts", "proxy.ts", "common.ts", "run.ts"].map(file => [
           file,

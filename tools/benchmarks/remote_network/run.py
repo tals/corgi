@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import traceback
+import storage
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -152,7 +153,7 @@ class Lab:
     def __init__(self, args):
         self.args, self.product = args, args.product
         self.binary = str(Path(args.binary).resolve())
-        self.out = Path(args.output).resolve()
+        self.out = storage.external(args.output)
         self.out.mkdir(parents=True, exist_ok=False)
         self.root = Path(f"/tmp/cne-{os.getpid()}")
         self.root.mkdir(mode=0o700)
@@ -697,7 +698,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("product", choices=["corgi", "herdr"])
     parser.add_argument("binary")
-    parser.add_argument("output")
+    parser.add_argument("output", nargs="?", default=str(storage.run("remote-network")))
     parser.add_argument("--suite", choices=["smoke", "startup", "faults", "stream", "sleep", "all"], default="smoke")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--panes", type=int, default=4)

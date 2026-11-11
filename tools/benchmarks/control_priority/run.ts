@@ -7,6 +7,7 @@ import { Connection } from "../../../src/rpc";
 import { quote } from "../../../tests/support";
 import * as surface from "../../../src/pane/surface";
 import * as lock from "../cpu_lock";
+import * as paths from "../paths";
 
 const option = (key: string, fallback: string) => {
   const i = Bun.argv.indexOf("--" + key);
@@ -14,7 +15,7 @@ const option = (key: string, fallback: string) => {
 };
 const before = path.resolve(option("before", "dist/corgi-control-before")),
   after = path.resolve(option("after", "dist/corgi")),
-  output = path.resolve(option("out", "dist/control-priority")),
+  output = paths.external(option("out", paths.run("control-priority"))),
   repeats = Number(option("repeats", "3")),
   seconds = Number(option("seconds", "6"));
 if (fs.existsSync(output)) throw Error("UseFreshOutputDirectory");

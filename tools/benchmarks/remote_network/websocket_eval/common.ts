@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { join } from "node:path";
 import { dlopen, ptr } from "bun:ffi";
+import * as paths from "../../paths";
 
 export type Mode = "tcp" | "websocket" | "tcp-zstd" | "websocket-zstd" | "websocket-deflate";
 export interface Config {
@@ -26,8 +27,9 @@ export const cpu = () => {
   return value.user + value.system;
 };
 export function corpus(name: string, limit?: number): Buffer[] {
-  const bytes = gunzipSync(readFileSync(join(import.meta.dir, "fixtures", name + ".jsonl.gz")));
-  const manifest = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "manifest.json"), "utf8"));
+  const directory = paths.corpus();
+  const bytes = gunzipSync(readFileSync(join(directory, name + ".jsonl.gz")));
+  const manifest = JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8"));
   if (new Bun.CryptoHasher("sha256").update(bytes).digest("hex") !== manifest[name].corpus_sha256)
     throw Error("CorpusHashMismatch");
   const lines: Buffer[] = [];

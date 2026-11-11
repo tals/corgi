@@ -1,5 +1,10 @@
 # Reproduce the remote-network evaluation
 
+For new runs, use the [external cache and artifact workflow](../ARTIFACTS.md).
+The optional output argument now defaults to a fresh cache directory. Explicit
+outputs must be outside this checkout. Replace historical data/output paths
+below with cache paths. Historical evidence remains until R2 migration finishes.
+
 The [comparison report](report.md) is the short entry point. This directory
 contains an external network and terminal harness. It does not patch Corgi or
 Herdr, replace either transport, or inject hooks into application code.
