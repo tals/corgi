@@ -175,8 +175,8 @@ delivery times, outcome) and whisper-server's health to `voice.log` beside
 `voice.json`. Nothing goes to the screen. Each line also shows the cut:
 `post_roll=` used, how much audio after your last loud stretch was `kept=` and
 `dropped=`, and `speech_end=`, where Whisper heard the speech end. To report
-that end, voice mode asks Whisper for segment times, which costs a
-language-detection pass per utterance, so only `--verbose` does.
+that end, `--verbose` asks Whisper for subtitles instead of plain text, as
+their cues carry its segment times.
 
 ## Troubleshooting
 

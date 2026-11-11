@@ -2,7 +2,7 @@ import { test, expect, afterEach } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { Server } from "./whisper";
+import { Server, subtitles } from "./whisper";
 import * as wav from "./wav";
 
 const fake = resolve(import.meta.dir, "../../tests/fixtures/voice/whisper-server");
@@ -64,7 +64,7 @@ test("transcribes through /inference and trims the text", async () => {
     expect(lines[0].start).toContain("/models/silero.bin");
     expect(lines[0].start.join(" ")).toContain("-l auto");
     expect(lines[1].bytes).toBe(utterance.length);
-    // The filter pads by the post-roll; plain json skips a language-detection pass.
+    // The filter pads by the post-roll; without segments, plain json.
     expect(lines[1].fields).toMatchObject({
       temperature: "0.0",
       beam_size: "1",
@@ -99,31 +99,42 @@ test("without a port, the server takes a free one, and English stays the default
   }
 });
 
-test("asked for segments, it reads where the speech ended", async () => {
+test("asked for segments, it reads subtitles and where the last one ends", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-whisper-")),
     log = join(dir, "log");
   try {
     const server = await start({
-      CORGI_FAKE_WHISPER_MODE: "segments:4.2700000000000005",
-      CORGI_FAKE_WHISPER_SCRIPT: "run the tests again",
+      CORGI_FAKE_WHISPER_MODE: "segments:1.2,4.27",
+      CORGI_FAKE_WHISPER_SCRIPT: "run the tests|again",
       CORGI_FAKE_WHISPER_LOG: log,
     });
+    // The cues' text reads as json's does, a segment a line.
     expect(await server.transcribe(utterance, { padMs: 2500, segments: true })).toEqual({
-      text: "run the tests again",
-      speech_end: 4.2700000000000005,
+      text: "run the tests\n again",
+      speech_end: 4.27,
     });
+    // Never verbose_json: whisper-server 1.9.5 crashes on it when the filter finds no speech.
     const request = JSON.parse(readFileSync(log, "utf8").trim().split("\n")[1]);
-    expect(request.fields).toMatchObject({ response_format: "verbose_json", vad_speech_pad_ms: "2500" });
+    expect(request.fields).toMatchObject({ response_format: "srt", vad_speech_pad_ms: "2500" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("a segment without an end leaves the speech end out; a reply without text fails", async () => {
-  const no_end = await start({ CORGI_FAKE_WHISPER_MODE: "no_end", CORGI_FAKE_WHISPER_SCRIPT: "send it" });
-  expect(await no_end.transcribe(utterance, { segments: true })).toStrictEqual({ text: "send it" });
+test("a cue's text runs to the next cue, blank lines and all", () => {
+  // As whisper-server writes it: each segment's text, then a blank line.
+  const srt = "1\n00:00:00,000 --> 00:00:02,000\n\n hello there\n\n2\n00:00:02,000 --> 01:01:01,230\n one\n\n two\n\n";
+  expect(subtitles(srt)).toEqual({ text: "hello there\n one\n\n two", speech_end: 3661.23 });
+  expect(subtitles(srt.replaceAll("\n", "\r\n")).speech_end).toBe(3661.23);
+});
+
+test("subtitles without cues are silence; other replies fail", async () => {
+  const silent = await start({ CORGI_FAKE_WHISPER_SCRIPT: "" });
+  expect(await silent.transcribe(utterance, { segments: true })).toStrictEqual({ text: "" });
+  const garbage = await start({ CORGI_FAKE_WHISPER_MODE: "garbage" });
+  await expect(garbage.transcribe(utterance, { segments: true })).rejects.toThrow("TranscriptionFailed");
   const no_text = await start({ CORGI_FAKE_WHISPER_MODE: "no_text" });
-  await expect(no_text.transcribe(utterance, { segments: true })).rejects.toThrow("TranscriptionFailed");
+  await expect(no_text.transcribe(utterance)).rejects.toThrow("TranscriptionFailed");
 });
 
 test("a port in use is refused before anything starts", async () => {
