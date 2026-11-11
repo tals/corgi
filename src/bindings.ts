@@ -1,4 +1,4 @@
-import { specs as actionSpecs, title as actionTitle } from "./action";
+import { specs as actionSpecs, title as actionTitle, parse as parseAction } from "./action";
 import type { Action } from "./action";
 import type { Preset } from "./keymap";
 import type { Mods, Key } from "./keyboard";
@@ -779,7 +779,7 @@ export function writeTable(presets?: Preset[]): string {
     const values =
       type === "void"
         ? [undefined]
-        : type === "usize"
+        : type === "usize" || type === "Workspace"
           ? [1]
           : type === "Split"
             ? ["right", "down"]
@@ -789,7 +789,7 @@ export function writeTable(presets?: Preset[]): string {
                 ? ["left", "down", "up", "right"]
                 : [];
     for (const value of values) {
-      const a: Action = { name, ...(value === undefined ? {} : { value }) };
+      const a = parseAction(name, value === undefined ? "" : String(value));
       if (selected.some(p => table(p).some(b => sameRow(b, a)))) actions.push(a);
     }
   }

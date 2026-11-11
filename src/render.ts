@@ -1,4 +1,5 @@
 import type { Machine } from "./machine";
+import type { Action } from "./action";
 import type * as workspaceArchive from "./workspace_archive";
 import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
@@ -885,15 +886,15 @@ export function frame(
     else w.write(button.buffered());
   } else if (layout && model.count === 0 && !u.workspace_loading) {
     const prefix_key = keymap.prefixName(u.prefs.prefix);
-    const hint = (name: string, label: string) => {
+    const hint = (action: Action, label: string) => {
       const binding =
-        bindings.first(u.prefs.bindings(), { name }, true) ?? bindings.first(u.prefs.bindings(), { name }, false);
+        bindings.first(u.prefs.bindings(), action, true) ?? bindings.first(u.prefs.bindings(), action, false);
       return binding
         ? `${binding.prefixed ? prefix_key + " " : ""}${bindings.format(binding)}: ${label}`
-        : `corgi action ${name}: ${label}`;
+        : `corgi action ${action.name}: ${label}`;
     };
-    const newAgent = hint("new", i18n.t`agent picker`),
-      shortcuts = hint("help", i18n.t`shortcuts`);
+    const newAgent = hint({ name: "new" }, i18n.t`agent picker`),
+      shortcuts = hint({ name: "help" }, i18n.t`shortcuts`);
     const empty = i18n.t` No panes. ${newAgent} | ${shortcuts}`;
     w.write(`\x1b[2;${side.area().x + 1}H`);
     writeEllipsis(w, empty, side.area().w);

@@ -6551,12 +6551,16 @@ test("a remote resource card sends signals and pane navigation to its owner", as
   const process = { pid: 42, start: 7n, name: "cat", pane: 1, cpu: 0 };
   const key = s.rowKey(1, other);
   other.runtime.resources.workspaces = [{ id: 1, known: true, processes: [process] }] as any;
-  s.resource_card.update({ id: key, known: true, processes: [process] }, false);
-  s.resource_card.pin({ pid: 42, start: "7" });
   const chosen: unknown[] = [];
   s.onMachine = (machine: Machine, focus: unknown) => chosen.push([machine.name, focus]);
   try {
+    await s.perform({ name: "resources", value: s.workspaceRef(1, other) });
+    expect(s.resource_card.workspace).toBe(key);
+    expect(s.resource_card.pinned).toBe(true);
+    expect(s.machine).not.toBe(other);
     expect(s.resourceDetail()).toBe(key);
+    s.resource_card.update({ id: key, known: true, processes: [process] }, false);
+    s.resource_card.pin({ pid: 42, start: "7" });
     await s.signalProcesses("term");
     expect(calls).toEqual([]);
     await s.signalProcesses("term");

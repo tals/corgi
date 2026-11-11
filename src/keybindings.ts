@@ -150,7 +150,7 @@ export function defaults(preset: Preset): Entry[] {
                 ? ["left", "right"]
                 : [];
     for (const value of values) {
-      const a = { name, ...(value === undefined ? {} : { value }) },
+      const a = action.parse(name, value === undefined ? "" : String(value)),
         nameId = id(a);
       if (!entries.has(nameId))
         entries.set(nameId, {
@@ -205,7 +205,10 @@ export function resolve(preset: Preset, config: Config): bindings.Binding[] {
   return entries(preset, config).flatMap(e =>
     e.shortcuts.flatMap(s =>
       s.keys.map((key, index) => {
-        const a = e.indexed ? { name: e.action.name, value: index + 1 } : e.action;
+        const a =
+          e.action.name === "tab" || e.action.name === "goto-workspace"
+            ? { name: e.action.name, value: index + 1 }
+            : e.action;
         const original = base.find(
           b => id(b.action) === e.id && b.prefixed === s.prefixed && keys.same(key, { codepoint: b.key, mods: b.mods }),
         );

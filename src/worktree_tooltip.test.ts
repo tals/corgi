@@ -1109,6 +1109,28 @@ function remoteWorktrees() {
   };
 }
 
+test("workspace actions resolve local ids on the selected machine and refs on their owner", async () => {
+  const f = remoteWorktrees(),
+    { view, local, remote } = f;
+  try {
+    for (const selected of [local, remote]) {
+      view.switchMachine(selected);
+      for (const value of [undefined, 0, 1, view.workspaceRef(1, local), view.workspaceRef(1, remote)]) {
+        const owner = typeof value === "object" ? value : view.workspaceRef(1, selected);
+        await view.perform({ name: "worktrees", value });
+        expect(view.worktree_card.workspace).toEqual(owner);
+        expect(view.worktree_card.pinned).toBe(true);
+        await view.perform({ name: "resources", value });
+        expect(view.resource_card.workspace).toBe(view.rowKey(1, owner.machine));
+        expect(view.resource_card.pinned).toBe(true);
+        expect(view.machine).toBe(selected);
+      }
+    }
+  } finally {
+    f.close();
+  }
+});
+
 test("hover and click keep a background worktree's owner without selecting its machine", async () => {
   const f = remoteWorktrees(),
     { view, local, remote } = f;

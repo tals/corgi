@@ -29,3 +29,11 @@ test("wire names used by the CLI and the test suites parse", () => {
   ])
     expect(() => parse(name, value)).toThrow(error);
 });
+test("workspace arguments accept a local id and default to the current workspace", () => {
+  for (const name of ["worktrees", "resources"] as const) {
+    expect(parse(name)).toEqual({ name, value: 0 });
+    expect(parse(name, "2")).toEqual({ name, value: 2 });
+    for (const value of ["-1", "1.5", "NaN", "remote/1", "9007199254740992"])
+      expect(() => parse(name, value)).toThrow("BadValue");
+  }
+});

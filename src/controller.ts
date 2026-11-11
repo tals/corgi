@@ -706,6 +706,10 @@ export class Controller {
   workspaceRef(workspace: number, machine = this.machine): viewerRef.Workspace {
     return { machine, workspace };
   }
+  /** Numeric action arguments belong to the selected machine; refs keep their owner. */
+  private actionWorkspace(value: number | viewerRef.Workspace | undefined): viewerRef.Workspace {
+    return typeof value === "object" ? value : this.workspaceRef(value || this.current().id);
+  }
   /** A sidebar row's id: a daemon's workspace id, set apart for each machine
    * so ids from different daemons never meet. The first machine's rows keep
    * their own ids. */
@@ -3286,8 +3290,7 @@ export class Controller {
         else this.notice(i18n.t`Add a machine with corgi machine add NAME`);
         break;
       case "worktrees": {
-        const owner = "workspace" in act ? act.workspace : this.workspaceRef(Number(act.value) || this.current().id);
-        this.openWorktreeCard(owner, true);
+        this.openWorktreeCard(this.actionWorkspace(act.value), true);
         break;
       }
       case "worktree-close":
@@ -3297,9 +3300,10 @@ export class Controller {
         this.dirty = true;
         break;
       case "resources": {
-        const id = Number(act.value) || this.current().id,
+        const owner = this.actionWorkspace(act.value),
+          id = this.rowKey(owner.workspace, owner.machine),
           card = this.resource_card;
-        if (this.runtime.workspaces.index(id) === null) break;
+        if (viewerRef.workspace(owner) === null) break;
         if (!this.prefs.resources.enabled) {
           this.notice(i18n.t` Resource readings are off: turn them on in Corgi setup → Resources`);
           break;
@@ -7683,7 +7687,9 @@ export class Controller {
     if (this.startup_card) {
       const rect = startupCard.geometry(this.width, this.height, this.runtime.startup_waits.length);
       if (!release && button === 0) {
-        const act = rect ? this.startup_card.hit(rect, this.runtime.startup_waits, x, y) : { name: "startup-close" };
+        const act: Action | null = rect
+          ? this.startup_card.hit(rect, this.runtime.startup_waits, x, y)
+          : { name: "startup-close" };
         if (act) await this.perform(act);
       } else if (!release && (button === 64 || button === 65))
         await this.perform({ name: button === 65 ? "startup-next" : "startup-prev" });
@@ -7700,7 +7706,7 @@ export class Controller {
     if (this.archive_dialog) {
       this.pointer = { x, y };
       this.dirty = true;
-      const action =
+      const action: Action | null =
         button === 64 || button === 65
           ? { name: "archive-scroll", value: button === 64 ? "left" : "right" }
           : button === 0
@@ -8461,7 +8467,7 @@ export class Controller {
     const worktree_row = worktree_hit ? this.rowOf(worktree_hit.id) : null;
     if (!release && button === 0 && worktree_row && !resource_workspace_press && !this.copy_mode) {
       this.ui_mouse_down = true;
-      await this.perform({ name: "worktrees", workspace: this.workspaceRef(worktree_row.id, worktree_row.machine) });
+      await this.perform({ name: "worktrees", value: this.workspaceRef(worktree_row.id, worktree_row.machine) });
       return;
     }
     if (!release && button === 0 && side.width > 0 && x === side.width - 1) {
