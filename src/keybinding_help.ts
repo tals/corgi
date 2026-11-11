@@ -372,7 +372,13 @@ export class State {
         const e = this.entry(t.id);
         if (this.customizing || e.action === null) this.start(t.id, t.index);
         else {
-          return { name: "action", action: e.indexed ? { name: e.action.name, value: 1 } : e.action };
+          return {
+            name: "action",
+            action:
+              e.action.name === "tab" || e.action.name === "goto-workspace"
+                ? { name: e.action.name, value: 1 }
+                : e.action,
+          };
         }
         return null;
       }

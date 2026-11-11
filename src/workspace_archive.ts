@@ -177,7 +177,7 @@ export class View {
     return labels.map((label, i) => {
       const key = i === 1 && !this.dialog.pending ? "a" : "";
       const width = displayWidth(label) + 2 + (key ? 3 : 0),
-        button = { x, width, label, key, name: i === 0 ? "archive-cancel" : "archive-confirm" };
+        button = { x, width, label, key, name: i === 0 ? "archive-cancel" : "archive-confirm" } as const;
       x += width + 2;
       return button;
     });
