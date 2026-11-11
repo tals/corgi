@@ -3,6 +3,7 @@
  * on the terminal while the run's synchronous git calls hold the main thread,
  * so spinners and clocks never freeze. */
 import { writeSync } from "node:fs";
+import tty from "node:tty";
 import type { LiveEvent } from "./live_events";
 import { card, clock, frame } from "./live_render";
 import { apply, initial, type LiveState } from "./live_state";
@@ -14,8 +15,9 @@ type End = Extract<LiveEvent, { t: "end" }>;
 export const frameMs = 100;
 /** A run that took longer than this sends a desktop notification at its end. */
 const notifyAfterMs = 60_000;
-/** `--verbose` pins the view only on a terminal this tall; below, it draws inline. */
-const pinnedRows = 12;
+/** `--verbose` pins the view only on a terminal this tall; below, it draws
+ * inline, so a short pane keeps the frame's footer. */
+const pinnedRows = 20;
 export const pinned = (verbose: boolean, rows: number): boolean => verbose && rows >= pinnedRows;
 
 export type ViewOptions = {
@@ -228,13 +230,40 @@ export function writeAll(fd: number, text: string): void {
   }
 }
 
+/** The terminal's size as it is now, read again on every call. A worker gets
+ * no resize events, and its `process.stdout` keeps the size it started with:
+ * Bun handles SIGWINCH on the main thread, which the run's git calls block.
+ * A stream of the worker's own asks the terminal (`_refreshSize`). */
+export function terminalSize(fd = 1): () => { rows: number; cols: number } {
+  let stream: (tty.WriteStream & { _refreshSize?: () => void }) | null = null;
+  try {
+    if (tty.isatty(fd)) stream = new tty.WriteStream(fd);
+  } catch {}
+  return () => {
+    try {
+      stream?._refreshSize?.();
+    } catch {}
+    return {
+      rows: stream?.rows || process.stdout.rows || 24,
+      cols: stream?.columns || process.stdout.columns || 80,
+    };
+  };
+}
+
 export type Port = { onmessage: (m: MessageEvent<ToWorker>) => void; postMessage: (m: FromWorker) => void };
 /** Serves `live.ts`'s messages on `port`, drawing with a view `make` gives. */
 export function serve(port: Port, make: (o: ViewOptions) => View = o => new View(o)): void {
   let view: View | null = null,
     shared = new Int32Array(new SharedArrayBuffer(sharedSize)),
-    timer: ReturnType<typeof setInterval> | null = null;
-  const resized = () => view?.resized();
+    timer: ReturnType<typeof setInterval> | null = null,
+    size = { rows: 24, cols: 80 },
+    measure = () => size;
+  /** Reads the terminal's size; a change lays the frame out again. */
+  const remeasure = () => {
+    const was = size;
+    size = measure();
+    if (view && (size.rows !== was.rows || size.cols !== was.cols)) view.resized();
+  };
   const write = (text: string) => {
     if (Atomics.load(shared, slot.stopped) || !lock(shared)) return;
     try {
@@ -251,17 +280,22 @@ export function serve(port: Port, make: (o: ViewOptions) => View = o => new View
       switch (m.t) {
         case "init":
           shared = new Int32Array(m.shared);
+          measure = terminalSize();
+          size = measure();
           view = make({
             write,
-            rows: () => process.stdout.rows || 24,
-            cols: () => process.stdout.columns || 80,
+            rows: () => size.rows,
+            cols: () => size.cols,
             verbose: m.verbose,
             color: m.color,
           });
-          timer = setInterval(() => view?.tick(), frameMs);
-          process.stdout.on("resize", resized);
+          timer = setInterval(() => {
+            remeasure();
+            view?.tick();
+          }, frameMs);
           break;
         case "event":
+          remeasure();
           view?.event(m.e, m.at);
           break;
         case "ask":
@@ -272,7 +306,7 @@ export function serve(port: Port, make: (o: ViewOptions) => View = o => new View
           break;
         case "finish":
           if (timer) clearInterval(timer);
-          process.stdout.off("resize", resized);
+          remeasure();
           view?.finish(m.e);
           break;
       }

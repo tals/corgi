@@ -1,6 +1,7 @@
 /** The live view of a run as lines of text: pure functions of its state, so the
  * renderer only decides when to draw. Every line fits the width it is given:
- * the frame cuts lines with `…`, a card wraps the lines the plain output prints. */
+ * the frame wraps long text a few lines deep and cuts the rest with `…`, a card
+ * wraps the lines the plain output prints. */
 import { pathToFileURL } from "node:url";
 import type { Stage } from "./live_events";
 import type { ItemView, LiveState, StageView, Why } from "./live_state";
@@ -88,9 +89,10 @@ function cut(line: Line, room: number): Line {
   }
   return out;
 }
-/** The line in as many lines of `room` cells as it takes, broken after a space
- * where there is one, the later lines indented. */
-function wrap(line: Line, room: number, indent = 4): Line[] {
+/** The line in as many lines of `room` cells as it takes (`rest` cells from the
+ * second), broken after a space or a slash where there is one, the later lines
+ * indented. */
+function wrap(line: Line, room: number, indent = 4, rest = room): Line[] {
   const parts = line.map(seg => ({ ...seg, text: clean(seg.text) }));
   if (room <= 0) return [];
   if (widthOf(parts) <= room) return [parts];
@@ -99,12 +101,14 @@ function wrap(line: Line, room: number, indent = 4): Line[] {
     lines: Line[] = [];
   let i = 0;
   while (i < chars.length) {
-    const start = lines.length ? lead : 0;
+    const start = lines.length ? lead : 0,
+      limit = lines.length ? Math.max(1, rest) : room;
     let used = start,
       end = i,
       space = -1;
-    while (end < chars.length && used + chars[end].w <= room) {
-      if (chars[end].g === " " && end > i) space = end;
+    while (end < chars.length && used + chars[end].w <= limit) {
+      // After a slash only inside a path, not after the one that starts it.
+      if (end > i && (chars[end].g === " " || (chars[end].g === "/" && chars[end - 1].g !== " "))) space = end;
       used += chars[end].w;
       end++;
     }
@@ -314,12 +318,21 @@ export function timeline(
       color,
     );
   }
+  // Each stage's name under where it starts, a space apart. Names that would
+  // run past the edge (short stages at the end) move left instead of being cut.
+  const at6 = all.map((_, i) => 6 + (unit > 0 ? Math.round(starts[i] / unit) : 0)),
+    pos: number[] = [];
+  all.forEach((x, i) => pos.push(i ? Math.max(at6[i], pos[i - 1] + all[i - 1].stage.length + 1) : at6[i]));
+  for (let i = all.length - 1; i >= 0; i--) {
+    const limit = (i === all.length - 1 ? width : pos[i + 1] - 1) - all[i].stage.length;
+    pos[i] = Math.max(0, Math.min(pos[i], limit));
+  }
+  for (let i = 1; i < all.length; i++) pos[i] = Math.max(pos[i], pos[i - 1] + all[i - 1].stage.length + 1);
   const legend: Line = [];
   let col = 0;
   all.forEach((x, i) => {
-    const target = Math.max(col + (i ? 1 : 0), 6 + (unit > 0 ? Math.round(starts[i] / unit) : 0));
-    legend.push({ text: " ".repeat(target - col) }, { ...stageLook(x.stage), text: x.stage, dim: true });
-    col = target + x.stage.length;
+    legend.push({ text: " ".repeat(pos[i] - col) }, { ...stageLook(x.stage), text: x.stage, dim: true });
+    col = pos[i] + x.stage.length;
   });
   return { now, last: lastLine, legend: draw(legend, width, color) };
 }
@@ -350,6 +363,8 @@ function outcome(it: ItemView): Line {
       return [{ text: "skipped: already contained", dim: true }];
     case "left-alone":
       return [{ text: `left alone${detail}`, dim: true }];
+    case "not-rebased":
+      return [{ text: `not rebased, kept as it was${detail}`, hex: amber }];
     case "flaky":
       return [{ text: "passed on retry: may be flaky", hex: amber }];
     case "stopped":
@@ -390,21 +405,72 @@ const itemMark = (stage: Stage, it: ItemView, nowMs: number): Seg => {
 };
 const finishedItem = (it: ItemView) => it.state === "done" || it.state === "skipped" || it.state === "failed";
 
-/** The items to show of a running stage's `items` in `rows` lines: all that
- * fit, else a window around the running one with a line for those before and
- * after it. The running item always shows. */
-function windowOf(items: ItemView[], rows: number): { from: number; to: number } {
-  const n = items.length;
-  if (n <= rows) return { from: 0, to: n };
+/** The items to show of a running stage's items, `heights` lines each, in
+ * `rows` lines: all that fit, else a window around the running one with a
+ * line for those before and after it. The running item always shows. */
+function windowOf(items: ItemView[], heights: number[], rows: number): { from: number; to: number } {
+  const n = items.length,
+    lines = (from: number, to: number) =>
+      heights.slice(from, to).reduce((a, b) => a + b, 0) + (from > 0 ? 1 : 0) + (to < n ? 1 : 0);
+  if (lines(0, n) <= rows) return { from: 0, to: n };
   let active = items.findIndex(it => it.state === "running");
   if (active < 0) active = items.findIndex(it => it.state === "pending");
   if (active < 0) active = n - 1;
-  for (let shown = Math.min(n, rows); shown >= 1; shown--) {
-    const to = Math.min(n, Math.max(0, active - Math.floor((shown - 1) / 2)) + shown),
-      from = Math.max(0, to - shown);
-    if (shown + (from > 0 ? 1 : 0) + (to < n ? 1 : 0) <= rows) return { from, to };
+  // Grow around the running item, one after it, then one before, while it fits.
+  let from = active,
+    to = active + 1,
+    grew = true;
+  while (grew) {
+    grew = false;
+    if (to < n && lines(from, to + 1) <= rows) {
+      to++;
+      grew = true;
+    }
+    if (from > 0 && lines(from - 1, to) <= rows) {
+      from--;
+      grew = true;
+    }
   }
-  return { from: active, to: active + 1 };
+  return { from, to };
+}
+
+/** Lines a stage's list or an item's text may wrap to in the frame. */
+const wrapRows = 3;
+/** `line` in lines of `room` cells (`rest` from the second), at most `max`,
+ * the last cut with `…` when there is more. */
+function wrapUpTo(line: Line, room: number, rest = room, max = wrapRows): Line[] {
+  const lines = wrap(line, Math.max(1, room), 0, Math.max(1, rest));
+  if (lines.length <= max) return lines;
+  const last = lines[max - 1],
+    limit = Math.max(1, max > 1 ? rest : room),
+    more = { ...last[last.length - 1], text: "…", url: null };
+  return [...lines.slice(0, max - 1), widthOf(last) < limit ? [...last, more] : cut([...last, more], limit)];
+}
+/** `parts` joined by ` · ` in lines of `room` cells (`rest` from the second),
+ * broken between parts, at most `wrapRows`: the last ends in `+N more` when
+ * there is more. */
+function listLines(parts: string[], room: number, rest = room): string[] {
+  const lines: string[] = [];
+  let shown = 0;
+  for (const part of parts) {
+    const at = lines.length - 1;
+    if (at >= 0 && term.width(lines[at]) + 3 + term.width(part) <= (at ? rest : room)) lines[at] += ` · ${part}`;
+    else if (lines.length < wrapRows) lines.push(part);
+    else break;
+    shown++;
+  }
+  if (shown < parts.length) {
+    // Make room for the count on the last line, giving up its last parts.
+    const at = lines.length - 1,
+      limit = at ? rest : room;
+    let left = parts.length - shown;
+    while (term.width(`${lines[at]} · +${left} more`) > limit && lines[at].includes(" · ")) {
+      lines[at] = lines[at].slice(0, lines[at].lastIndexOf(" · "));
+      left++;
+    }
+    lines[at] += ` · +${left} more`;
+  }
+  return lines;
 }
 const foldMarks: [ItemView["state"], Seg][] = [
   ["done", { text: "✓", hex: green }],
@@ -422,15 +488,15 @@ function folded(items: ItemView[]): Line {
   return line;
 }
 
-/** The checklist: a line per stage, the running stage's items under it, at
- * most `itemRows` of them. */
-function checklist(s: LiveState, o: { width: number; nowMs: number; color: boolean; itemRows: number }): string[] {
+/** Each stage's lines in the checklist: its mark, name and summary, list or
+ * progress, a long summary or list wrapped under itself. */
+function stageHeads(s: LiveState, o: { width: number; nowMs: number; color: boolean }): string[][] {
   const { width, nowMs, color } = o,
     edge = Math.min(width, 72),
     nameCol = Math.max(0, ...s.stages.map(st => st.name.length)) + 3,
-    plan = stretches(s, nowMs).all,
-    lines: string[] = [];
-  for (const st of s.stages) {
+    bodyCol = 3 + nameCol,
+    plan = stretches(s, nowMs).all;
+  return s.stages.map(st => {
     const items = s.items[st.name] ?? [],
       failed = items.some(it => it.state === "failed"),
       mark: Seg = failed
@@ -441,56 +507,91 @@ function checklist(s: LiveState, o: { width: number; nowMs: number; color: boole
             ? { text: turn(nowMs), hex: colorOf(st.name) }
             : { text: "·", dim: true },
       name: Seg = { ...stageLook(st.name), text: st.name.padEnd(nameCol), dim: st.state === "pending" };
-    let body: Line = [],
+    let body: Line[] = [[]],
       right: Line = [];
-    if (st.state === "done") {
-      body = [{ text: st.summary ?? "" }];
-      right = [{ text: clock(st.ms), dim: true }];
-    } else if (st.state === "running") {
+    if (st.state === "running") {
+      const bar: Line = [];
       if (items.length) {
         const finished = items.filter(finishedItem).length,
           active = items.findIndex(it => it.state === "running"),
           filled = Math.round((finished / items.length) * 16);
         for (let c = 0; c < 16; c++)
-          body.push(c < filled ? { text: "█", hex: colorOf(st.name, c / 15) } : { text: "░", dim: true });
-        body.push({ text: ` ${active >= 0 ? active + 1 : finished}/${items.length}` });
-      } else body = [{ text: spinner(nowMs), hex: colorOf(st.name) }];
+          bar.push(c < filled ? { text: "█", hex: colorOf(st.name, c / 15) } : { text: "░", dim: true });
+        bar.push({ text: ` ${active >= 0 ? active + 1 : finished}/${items.length}` });
+      } else bar.push({ text: spinner(nowMs), hex: colorOf(st.name) });
+      body = [bar];
       right = [{ text: clock(stageMs(st, nowMs)), dim: true }];
     } else {
-      body = [{ text: items.map(it => it.id).join(" · "), dim: true }];
-      const left = plan.find(x => x.stage === st.name)?.leftMs ?? 0;
-      if (left > 0) right = [{ text: `~${clock(left)}`, dim: true }];
+      if (st.state === "done") right = [{ text: clock(st.ms), dim: true }];
+      else {
+        const left = plan.find(x => x.stage === st.name)?.leftMs ?? 0;
+        if (left > 0) right = [{ text: `~${clock(left)}`, dim: true }];
+      }
+      // A long summary or list wraps under itself: its first line clear of
+      // the time on the right, the others as wide as the terminal.
+      const room = (right.length ? edge - widthOf(right) - 2 : width) - bodyCol,
+        rest = width - bodyCol;
+      if (st.state === "done") body = wrapUpTo([{ text: st.summary ?? "" }], room, rest);
+      else
+        body = listLines(
+          items.map(it => it.id),
+          room,
+          rest,
+        ).map(text => [{ text, dim: true }]);
+      if (!body.length) body = [[]];
     }
-    lines.push(draw(spread([{ text: " " }, mark, { text: " " }, name, ...body], right, edge), width, color));
-    if (st.state !== "running") continue;
-    const idCol = Math.min(
-      Math.max(0, ...items.map(it => term.width(it.id))) + 3,
-      Math.max(8, Math.floor(width * 0.4)),
-    );
-    const { from, to } = windowOf(items, o.itemRows);
-    if (from > 0) lines.push(draw(folded(items.slice(0, from)), width, color));
-    for (const it of items.slice(from, to)) {
+    return [
+      draw(spread([{ text: " " }, mark, { text: " " }, name, ...body[0]], right, edge), width, color),
+      ...body.slice(1).map(line => draw([{ text: " ".repeat(bodyCol) }, ...line], width, color)),
+    ];
+  });
+}
+
+/** The checklist: each stage's `heads`, the running stage's items under it,
+ * in at most `itemRows` lines. An item's text wraps under itself. */
+function checklist(
+  s: LiveState,
+  o: { width: number; nowMs: number; color: boolean; itemRows: number; heads: string[][] },
+): string[] {
+  const { width, nowMs, color } = o,
+    lines: string[] = [];
+  s.stages.forEach((st, i) => {
+    lines.push(...o.heads[i]);
+    if (st.state !== "running") return;
+    const items = s.items[st.name] ?? [],
+      idCol = Math.min(Math.max(0, ...items.map(it => term.width(it.id))) + 3, Math.max(8, Math.floor(width * 0.4))),
+      restCol = 7 + idCol;
+    const itemLines = items.map(it => {
       const id = cut([{ text: it.id }], idCol - 1)[0]?.text ?? "",
-        idSeg: Seg = {
-          text: id,
-          url: s.links[it.id],
-          dim: it.state === "pending",
-          tone: it.state === "running" ? "bold" : null,
-        },
-        rest: Line =
-          it.state === "running" ? activeItem(s, st.name, it, nowMs) : it.state === "pending" ? [] : outcome(it),
-        line: Line = [
+        band = it.state === "running",
+        idSeg: Seg = { text: id, url: s.links[it.id], dim: it.state === "pending", tone: band ? "bold" : null },
+        lead: Line = [
           { text: "     " },
           itemMark(st.name, it, nowMs),
           { text: " " },
           idSeg,
           { text: " ".repeat(Math.max(1, idCol - term.width(id))) },
-          ...rest,
         ];
-      lines.push(draw(it.state === "pending" ? line.slice(0, 4) : line, width, color, it.state === "running"));
-    }
+      if (it.state === "pending") return [draw(lead.slice(0, 4), width, color)];
+      const rest = wrapUpTo(it.state === "running" ? activeItem(s, st.name, it, nowMs) : outcome(it), width - restCol);
+      return [
+        draw([...lead, ...(rest[0] ?? [])], width, color, band),
+        ...rest.slice(1).map(line => draw([{ text: " ".repeat(restCol) }, ...line], width, color, band)),
+      ];
+    });
+    const { from, to } = windowOf(
+        items,
+        itemLines.map(l => l.length),
+        o.itemRows,
+      ),
+      folds = (from > 0 ? 1 : 0) + (to < items.length ? 1 : 0),
+      shown = itemLines.slice(from, to);
+    // A window of the running item alone that is still too tall loses that item's last lines.
+    if (shown.length === 1) shown[0] = shown[0].slice(0, Math.max(1, o.itemRows - folds));
+    if (from > 0) lines.push(draw(folded(items.slice(0, from)), width, color));
+    for (const l of shown) lines.push(...l);
     if (to < items.length) lines.push(draw(folded(items.slice(to)), width, color));
-  }
+  });
   return lines;
 }
 
@@ -550,22 +651,17 @@ export function frame(
     { nowMs, color } = o,
     t = timeline(s, width, color, nowMs),
     times = t.last === null ? [t.now, t.legend] : [t.now, t.last, t.legend],
+    // The activity takes up to two lines, the second under the first.
     activity =
       !o.verbose && s.activity
-        ? [
-            draw(
-              [
-                { text: " ▏ ", dim: true },
-                { text: s.activity, dim: true },
-              ],
-              width,
-              color,
-            ),
-          ]
+        ? wrapUpTo([{ text: s.activity, dim: true }], width - 3, width - 3, 2).map((line, i) =>
+            draw([{ text: i ? "   " : " ▏ ", dim: true }, ...line], width, color),
+          )
         : [],
     rows = o.rows === undefined ? Infinity : Math.max(1, Math.floor(o.rows)),
     items = s.stages.filter(st => st.state === "running").reduce((n, st) => n + (s.items[st.name] ?? []).length, 0),
-    fixed = 1 + times.length + s.stages.length + 2,
+    heads = stageHeads(s, { width, nowMs, color }),
+    fixed = 1 + times.length + heads.reduce((n, h) => n + h.length, 0) + 2,
     // The items want at least a line before, the running one and one after.
     fits = (extra: number) => fixed + extra + Math.min(items, 3) <= rows,
     gaps = fits(3 + activity.length),
@@ -577,7 +673,7 @@ export function frame(
     ...gap,
     ...times,
     ...gap,
-    ...checklist(s, { width, nowMs, color, itemRows }),
+    ...checklist(s, { width, nowMs, color, itemRows, heads }),
     ...gap,
     ...footer(s, width, color),
     ...shownActivity,

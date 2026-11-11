@@ -230,7 +230,7 @@ function assess(
  * error, the branch keeps its old tip. A branch with a worktree of its own
  * (`--in-worktree`) is rebased right there instead. */
 export async function rebaseTarget(e: Env, t: RebaseTarget, o: { stopOnConflict: boolean }): Promise<Outcome> {
-  if (t.worktree) return inOwnWorktree(e, t, o);
+  if (t.worktree) return inOwnWorktree(e, t, t.worktree, o);
   const tree = worktreeOf(e, t.branch);
   try {
     remove(e, tree);
@@ -250,11 +250,10 @@ export async function rebaseTarget(e: Env, t: RebaseTarget, o: { stopOnConflict:
  * checkout and the branch move together; the worktree is never removed. Its
  * tracked files must be committed; a rebase or check that fails, and a rebase
  * that leaves nothing, put the branch back at the tip it started from. */
-async function inOwnWorktree(e: Env, t: RebaseTarget, o: { stopOnConflict: boolean }): Promise<Outcome> {
-  const tree = t.worktree,
-    skipped = (reason: string): Outcome => ({
-      result: { patch: t.patch, branch: t.branch, from: t.from, to: null, lease: t.lease, outcome: "skipped", reason },
-    });
+async function inOwnWorktree(e: Env, t: RebaseTarget, tree: string, o: { stopOnConflict: boolean }): Promise<Outcome> {
+  const skipped = (reason: string): Outcome => ({
+    result: { patch: t.patch, branch: t.branch, from: t.from, to: null, lease: t.lease, outcome: "skipped", reason },
+  });
   try {
     // Targets are chosen before any branch runs; the worktree may have moved on since.
     if (!existsSync(tree)) return skipped(`the worktree ${tree} is gone`);
@@ -635,6 +634,7 @@ export function lines(results: RebaseResult[], o: { current: boolean }): string[
         return `rebased ${r.patch}: ${r.from.slice(0, 7)} to ${r.to!.slice(0, 7)} (${r.how})${undoHint(r)}${flaky}${pushed}`;
       if (r.pending) return `${r.patch}: rebased earlier, push pending${undoHint(r)}${pushed}`;
       if (r.outcome === "current") return `${r.patch}: current${r.reason ? ` (${r.reason})` : ""}`;
+      if (r.outcome === "failed") return `${r.patch}: not rebased: ${r.reason}${flaky}`;
       return `${r.patch}: ${r.outcome}: ${r.reason}${flaky}`;
     });
 }

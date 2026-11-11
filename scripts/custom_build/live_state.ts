@@ -323,22 +323,23 @@ export function rebaseItem(r: RebaseResult, ms?: number): LiveEvent {
     case "skipped":
       return { ...base, state: "skipped", outcome: "left-alone", ...(r.reason ? { detail: r.reason } : {}) };
     case "failed":
-      return { ...base, state: "failed", outcome: "failed", ...(r.reason ? { detail: r.reason } : {}) };
+      // Not a failure of the run: the branch keeps its old tip and is merged as it is.
+      return { ...base, state: "skipped", outcome: "not-rebased", ...(r.reason ? { detail: r.reason } : {}) };
   }
 }
-/** The rebase stage's line once done: `2 rebased · 6 left alone`. */
+/** The rebase stage's line once done: `2 rebased · 6 left alone · 1 kept as it was`. */
 export function rebaseSummary(results: RebaseResult[]): string {
   const count = (outcome: RebaseResult["outcome"]) => results.filter(r => r.outcome === outcome).length,
     parts = [
       [count("rebased"), "rebased"],
       [count("current"), "current"],
       [count("skipped"), "left alone"],
-      [count("failed"), "failed"],
+      [count("failed"), "kept as it was"],
     ] as const;
   return (
     parts
       .filter(([n]) => n)
-      .map(([n, what]) => `${n} ${what}`)
+      .map(([n, what]) => `${n} ${n > 1 ? what.replace("it was", "they were") : what}`)
       .join(" · ") || "nothing to rebase"
   );
 }

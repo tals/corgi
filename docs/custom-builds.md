@@ -239,9 +239,13 @@ in place of the progress lines and step output:
   without `--verbose`, one dim line with the latest harness activity or step
   output.
 
-A view taller than the terminal keeps the header, the timeline, the stage lines
-and the footer: the running stage folds the patches before and after the one
-it is at into `✓ 4 done` and `· 3 pending` lines.
+Long text wraps instead of being cut: an outcome or a stage's list continues
+on up to three lines under itself (the list says `+3 more` past that), the
+activity line on up to two. A view taller than the terminal keeps the header,
+the timeline, the stage lines and the footer: the running stage folds the
+patches before and after the one it is at into `✓ 4 done` and `· 3 pending`
+lines. A resize lays the view out again at the new size. A terminal made
+shorter may push the top of the view into the scrollback before it is redrawn.
 
 When the run ends, the view turns into a card that stays in the scrollback,
 with everything the plain output prints (push commands, handoffs, notes, the
@@ -252,7 +256,8 @@ steps to their logs (OSC 8).
 `--verbose` pins the view at the top and scrolls the full log below it: the
 `custom-build:` lines, step output and harness output (readable text with a
 `kind`). The log takes the place of the dim activity line. On a terminal under
-12 rows it is ignored. Piped output stays plain, `--verbose` or not.
+20 rows it is ignored, so the view keeps its footer. Piped output stays plain,
+`--verbose` or not.
 
 The tab or dock shows the run's progress (OSC 9;4). A stop shows the error
 state only briefly, while the stop's report is written: the card then puts the

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { LiveEvent, Stage } from "./live_events";
 import { card, frame, spinner, timeline } from "./live_render";
-import { apply, initial, type LiveState } from "./live_state";
+import { apply, initial, type LiveState, rebaseItem, rebaseSummary } from "./live_state";
 import * as term from "./term";
 import type { Estimate, HistoryRun } from "./timings";
 
@@ -446,4 +446,117 @@ test("the card's report link is a file URL, spaces and all", () => {
     ),
     lines = card(state, { width: 100, color: true });
   expect(lines.join("\n")).toContain("\x1b]8;;file:///tmp/my%20builds/report.md\x1b\\");
+});
+
+const longDetail =
+  "checked out in /Users/someone/Development/context-engineering/corgi/.claude/worktrees/004-workspace-section-tint";
+/** A merge with a long detail on its first patch and the second running. */
+function wordy(): LiveState {
+  return play([
+    [begin(), 0],
+    [stage("fetch", "start"), 0],
+    [stage("fetch", "done", { summary: "7 upstream commits, 8 patches" }), s(6)],
+    [stage("merge", "start"), s(6)],
+    [item(patches[0], "start"), s(6)],
+    [item(patches[0], "done", { outcome: "left-alone", detail: longDetail }), s(7)],
+    [item(patches[1], "start"), s(7)],
+    [{ t: "log", text: `(pass) ${"a long test name ".repeat(8)}[1166.59ms]\n` }, s(8)],
+  ]);
+}
+
+test("a long item text wraps under itself instead of being cut", () => {
+  for (const width of [80, 100, 160]) {
+    const lines = frame(wordy(), { width, nowMs: s(20), color: false, verbose: false }),
+      at = lines.findIndex(l => l.includes("left alone:")),
+      col = lines[at].indexOf("left alone:"),
+      text = [
+        lines[at].slice(col),
+        ...lines
+          .slice(at + 1)
+          .filter(l => /^ +\S/.test(l) && l.search(/\S/) === col)
+          .map(l => l.trim()),
+      ]
+        .join(" ")
+        .replace(/\/ /g, "/");
+    expect([width, text]).toEqual([width, `left alone: ${longDetail}`]);
+    // Paths break after a slash, never inside a name.
+    expect(lines.some(l => /\w\/$/.test(l) || l.endsWith(" in"))).toBe(width < 120);
+  }
+});
+
+test("a pending stage's list wraps between its parts", () => {
+  for (const width of [72, 100, 160]) {
+    const lines = frame(running(), { width, nowMs: now, color: false, verbose: false }),
+      at = lines.findIndex(l => l.startsWith(" · verify")),
+      list = lines[at].replace(/\s+~\d+:\d+$/, "").replace(/^ · verify\s+/, "");
+    expect(list).toBe(steps.join(" · "));
+    // Where the text fits its wrap limits, nothing is cut.
+    const head = frame(wordy(), { width, nowMs: s(20), color: false, verbose: false });
+    if (width >= 100) expect([width, head.filter(l => l.includes("…"))]).toEqual([width, []]);
+  }
+  // Too many for three lines: the last says how many are left.
+  const narrow = frame(play([[begin({ items: { merge: many, verify: steps } }), 0]]), {
+    width: 50,
+    nowMs: 0,
+    color: false,
+    verbose: false,
+  });
+  const merge = narrow.findIndex(l => l.startsWith(" · merge")),
+    shown = narrow.slice(merge, merge + 3).join(" "),
+    more = /\+(\d+) more/.exec(shown);
+  expect(more).not.toBeNull();
+  expect(many.filter(p => shown.includes(p)).length + Number(more![1])).toBe(many.length);
+  expect(narrow[merge + 3].startsWith(" · verify")).toBe(true);
+});
+
+test("the timeline names every stage whole", () => {
+  for (const width of [40, 60, 100, 160, 200]) {
+    const legend = timeline(
+      running({ stages: ["fetch", "rebase", "merge", "verify", "after-build"] }),
+      width,
+      false,
+    ).legend;
+    for (const name of ["fetch", "rebase", "merge", "verify", "after-build"])
+      expect([width, legend.split(/\s+/).includes(name)]).toEqual([width, true]);
+    expect(term.width(legend)).toBeLessThanOrEqual(width);
+  }
+});
+
+test("wrapped items still fit the frame's rows", () => {
+  for (const rows of [14, 16, 19, 23])
+    for (const width of [50, 80]) {
+      const lines = frame(wordy(), { width, nowMs: s(20), color: false, verbose: false, rows });
+      expect([rows, width, lines.length <= rows]).toEqual([rows, width, true]);
+      expect(lines.some(l => l.includes(patches[1]))).toBe(true);
+      expect(lines.some(l => l.startsWith(" ↻ retries"))).toBe(true);
+    }
+});
+
+test("a branch that couldn't be rebased is kept, not failed", () => {
+  const result = (branch: string, outcome: "rebased" | "failed") => ({
+      patch: branch,
+      branch,
+      from: "1234567890",
+      to: outcome === "rebased" ? "abcdef0123" : null,
+      lease: "",
+      outcome,
+      ...(outcome === "failed" ? { reason: "test fails on the rebased branch" } : {}),
+    }),
+    results = [result("a", "rebased"), result("b", "failed"), result("c", "failed")];
+  expect(rebaseSummary(results)).toBe("1 rebased · 2 kept as they were");
+  expect(rebaseSummary(results.slice(0, 2))).toBe("1 rebased · 1 kept as it was");
+  const state = play([
+      [begin({ stages: ["fetch", "rebase", "merge"], items: { rebase: ["a", "b"], merge: patches } }), 0],
+      [stage("fetch", "start"), 0],
+      [stage("fetch", "done"), s(1)],
+      [stage("rebase", "start"), s(1)],
+      [{ t: "item", stage: "rebase", id: "a", state: "start" }, s(1)],
+      [rebaseItem(results[0]), s(2)],
+      [{ t: "item", stage: "rebase", id: "b", state: "start" }, s(2)],
+      [rebaseItem(results[1]), s(3)],
+    ]),
+    lines = frame(state, { width: 120, nowMs: s(4), color: false, verbose: false });
+  expect(lines.some(l => l.includes(" b ") && l.includes("not rebased, kept as it was: test fails"))).toBe(true);
+  // Nothing failed: the stage keeps running, not red.
+  expect(lines.some(l => l.includes("✗"))).toBe(false);
 });
