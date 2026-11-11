@@ -248,6 +248,15 @@ test("a refused drag puts a held ready agent back between its old neighbours", (
   expect(ready([1, 3, 2])).toEqual([1, 3, 2]);
   undo();
   expect(ready([2, 1, 3])).toEqual([1, 2, 3]);
+  // Two drops waiting at once: the first refused leaves the second standing.
+  const first = since.move("pane:2", null);
+  expect(ready([1, 3, 2])).toEqual([1, 3, 2]);
+  const second = since.move("pane:2", "pane:1");
+  expect(ready([2, 1, 3])).toEqual([2, 1, 3]);
+  first();
+  expect(ready([2, 1, 3])).toEqual([2, 1, 3]);
+  second();
+  expect(ready([2, 1, 3])).toEqual([1, 2, 3]);
 });
 test("a held ready agent starred and unstarred keeps its place", () => {
   const since = new agentSections.Since(),

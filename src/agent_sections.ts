@@ -20,13 +20,21 @@ function sameSection(a: Place, b: Place): boolean {
   return a.workspace === b.workspace && (a.pin === null ? b.pin === null && a.section === b.section : b.pin !== null);
 }
 
+type Anchor = {
+  above: string | null;
+  below: string | null;
+  at: Place;
+  /** What a drop the daemon hasn't answered replaced. */
+  dropped?: { rank: { rank: number; at: Place }; anchor: Anchor | undefined };
+};
+
 /** When each agent entered its section, in ms. */
 export class Since {
   private seen = new Map<string, { kind: Section; at: number }>();
   /** Each agent's last place in its workspace's section order, and the section it was in. */
   private ranks = new Map<string, { rank: number; at: Place }>();
   /** A held agent's neighbours in its section, and where it was then. */
-  private anchors = new Map<string, { above: string | null; below: string | null; at: Place }>();
+  private anchors = new Map<string, Anchor>();
   /** An agent first seen dates from `start`, the daemon's word for when its state began. */
   observe(key: string, kind: Section, start: number, now: number): number {
     const last = this.seen.get(key);
@@ -51,13 +59,22 @@ export class Since {
     if (index < 0) return () => {};
     const above = others[index - 1],
       below = others[index],
-      was = { rank: { ...saved }, anchor: this.anchors.get(key) };
-    this.anchors.set(key, { above: above?.[0] ?? null, below: below?.[0] ?? null, at: saved.at });
+      anchor: Anchor = {
+        above: above?.[0] ?? null,
+        below: below?.[0] ?? null,
+        at: saved.at,
+        dropped: { rank: { ...saved }, anchor: this.anchors.get(key) },
+      };
+    this.anchors.set(key, anchor);
     saved.rank = below ? below[1].rank - 0.5 : (above?.[1].rank ?? -0.5) + 0.5;
     return () => {
-      if (!this.ranks.has(key)) return;
-      this.ranks.set(key, was.rank);
-      if (was.anchor) this.anchors.set(key, was.anchor);
+      const current = this.anchors.get(key);
+      // A later drop of the agent stands, now on what this one replaced.
+      for (let later = current; later?.dropped; later = later.dropped.anchor)
+        if (later.dropped.anchor === anchor) return void (later.dropped = anchor.dropped);
+      if (current !== anchor || !anchor.dropped || !this.ranks.has(key)) return;
+      this.ranks.set(key, anchor.dropped.rank);
+      if (anchor.dropped.anchor) this.anchors.set(key, anchor.dropped.anchor);
       else this.anchors.delete(key);
     };
   }

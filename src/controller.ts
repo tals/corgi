@@ -7578,6 +7578,7 @@ export class Controller {
     };
     // Consume the gesture; no release can repeat it.
     this.cancelDock();
+    const revision = this.navigation.revision;
     this.optimistic(command, {
       then: result => {
         this.dock_history.set(workspace, {
@@ -7585,10 +7586,11 @@ export class Controller {
           undo: Math.min(32, history.undo + 1),
           redo: 0,
         });
-        if (plan.shell !== null && here()) this.focusPane(result.pane);
+        if (plan.shell !== null && here() && this.navigation.revision === revision) this.focusPane(result.pane);
       },
     });
-    // A new shell's id is the daemon's to give; until it does, keys stay where they were.
+    // A new shell's id is the daemon's to give; until it does, keys stay where
+    // they were, and it takes them only if the user hasn't moved meanwhile.
     if (plan.shell === null) this.focusPane(plan.focus);
     this.nav().tab().zoom = false;
   }
