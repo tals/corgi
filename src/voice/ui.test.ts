@@ -742,7 +742,7 @@ test("gauge rows join the history by time, each saying what it did", () => {
     hot = new Style({ fg: "hot", bg: "bg" }).sgr();
   expect(row("applied")).toMatchObject({ label: "threshold 44 → 58 (gauged)", style: text });
   expect(row("applied_quiet_speech")).toMatchObject({
-    label: "threshold 44 → 58 (gauged; your speech was mostly quieter, turn the music down)",
+    label: "threshold 44 → 58 (gauged; music ≈ your speech, turn it down)",
     style: warm,
   });
   expect(row("no_speech_to_compare")).toMatchObject({
@@ -754,6 +754,48 @@ test("gauge rows join the history by time, each saying what it did", () => {
     label: "threshold stays 44 (gauge stopped: microphone failed)",
     style: hot,
   });
+});
+
+test("the gauge's warning row fits 80 columns whole, even with three-digit thresholds", () => {
+  const { session, ui } = setup();
+  session.gauges = [
+    { at: 0, old: 44, threshold: 58, loudest: 55, outcome: "applied_quiet_speech", took_ms: 10000 },
+    { at: 1000, old: 100, threshold: 100, loudest: 97, outcome: "applied_quiet_speech", took_ms: 10000 },
+  ];
+  const rows = screen(ui.draw(80, 20), 80, 20).join("\n");
+  expect(rows).toContain(`┃ ${clock(0)} threshold 44 → 58 (gauged; music ≈ your speech, turn it down)`);
+  expect(rows).toContain(`┃ ${clock(1000)} threshold 100 → 100 (gauged; music ≈ your speech, turn it down)`);
+  expect(rows).not.toContain("…");
+});
+
+test("the status line names every problem that keeps voice from listening", () => {
+  const { session, ui } = setup(),
+    status = (cols = 80) => screen(ui.draw(cols, 20), cols, 20)[9].trim();
+  session.setAvailable(false, "mic_missing");
+  expect(status()).toBe("No microphone found: press d to pick another");
+  session.setAvailable(true, null);
+  session.server = "crashed";
+  expect(status()).toBe("The Whisper server stopped: press f for a fresh one, or restart voice mode");
+  // Both: the microphone comes first, as it is why t starts no gauge.
+  session.setAvailable(false, "mic_missing");
+  const both =
+    "No microphone found, and the Whisper server stopped: press d to pick another; press f for a fresh server, or restart voice mode";
+  expect(problem(session, "ghostty", "darwin")).toBe(both);
+  ui.input("t");
+  expect(session.gauge).toBeNull();
+  expect(status(140)).toBe(both);
+  // Clipped like any row; at 80 columns both are still named.
+  expect(status()).toStartWith("No microphone found, and the Whisper server stopped: press d to pick another");
+  expect(status()).toEndWith("…");
+  session.setAvailable(false, "mic_busy");
+  expect(status()).toStartWith("The microphone is in use by another program, and the Whisper server stopped:");
+  session.setAvailable(false, "mic_denied");
+  expect(problem(session, "ghostty", "darwin")).toBe(
+    "Microphone access denied, and the Whisper server stopped: allow ghostty in System Settings › Privacy & Security › Microphone; press f for a fresh server, or restart voice mode",
+  );
+  expect(problem(session, "ghostty", "linux")).toBe(
+    "Microphone access denied, and the Whisper server stopped: press f for a fresh server, or restart voice mode",
+  );
 });
 
 test("at the smallest size the gauge's countdown, corgi and result still show", () => {

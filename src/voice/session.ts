@@ -145,6 +145,10 @@ export class VoiceSession {
   get unavailable(): Unavailable | null {
     return this.server === "crashed" ? "server_down" : this.mic;
   }
+  /** Why the microphone cannot listen, whatever the server does. */
+  get mic_problem(): MicProblem | null {
+    return this.mic;
+  }
   on(_event: "change", fn: () => void): void {
     this.listeners.push(fn);
   }
