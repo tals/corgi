@@ -93,6 +93,7 @@ the history says "focused pane is the voice pane".
 | `m` | Mute or unmute |
 | `?` | Explain the options and how each changes what becomes text |
 | `+` / `-` | Raise or lower the threshold by 2 (or turn the mouse wheel anywhere in the window) |
+| `t` | Gauge the threshold against background music; `Esc` cancels |
 | `f` | Turn the speech filter on or off; restarts whisper-server, about a second, and brings it back after a crash |
 | `d` | Pick another microphone |
 | `j` / `k`, `↓` / `↑` | Scroll the history by a row |
@@ -104,6 +105,24 @@ the history says "focused pane is the voice pane".
 Threshold, option and filter changes last for the session. Put values you
 like in `voice.json`. The line under the level grows while you pause, so you can
 see when the utterance is about to end. `Target:` follows the focused pane as you move around in Corgi. The footer lists as many keys as fit.
+
+### Gauge the threshold
+
+With music playing, press `t` and stay quiet for 10 seconds. The corgi
+sniffs along under the meter, a tick marks the loudest the music got, and
+`T:` counts down. Nothing is recorded meanwhile. Then the threshold moves to
+just above the music, two steps over the lowest value at which those 10
+seconds would start no utterance, and the history notes it, as in
+`threshold 44 → 58 (gauged)`. Like `+` and `-`, this lasts for the session.
+
+The gauge never sets the threshold below 44, or below a lower threshold you
+already had, so gauging a quiet room brings it back to 44. If most of your
+last utterances were quieter than the new threshold, the row says so: the
+music is about as loud as your speech, so turn it down. Music too loud for
+any threshold leaves it unchanged. `Esc`, `q` or `Ctrl+C` cancels a gauge;
+only `?` and `m` work besides. With `--verbose`, `voice.log` gets one
+`gauge:` line with the old and new threshold, the loudest level and how long
+it took.
 
 ## Mute
 
@@ -194,5 +213,6 @@ as their cues carry its segment times.
 | "Corgi on HOST has no voice support" | Install a Corgi with voice support on the host |
 | "The Whisper server stopped" | Press `f` for a fresh one (it switches the filter), or quit and start voice mode again |
 | Background noise becomes text | Raise the threshold with `+`, or keep the speech filter on |
+| Music starts recordings | Press `t` and stay quiet for 10 seconds to gauge the threshold against it |
 | Quiet speech is missed | Lower the threshold with `-` until the meter crosses the marker as you speak |
 | Sentence endings are lost, with music or a raised threshold | Lengthen post-roll, or choose `whole pause` in its menu; with `--verbose`, compare `kept=`, `pad=` and `speech_end=` in `voice.log` with the utterance's duration |

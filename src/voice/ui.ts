@@ -3,12 +3,14 @@
 import * as palette from "../palette";
 import { Style } from "../palette";
 import * as level from "./level";
+import * as gauge from "./gauge";
+import * as corgiAnimation from "../corgi_animation";
 import { keys, incomplete, type Key } from "../terminal_keys";
 import { displayWidth, ellipsis } from "../text";
 import { thumb } from "../scroll_thumb";
 import { Differ } from "../frame_diff";
 import { closeReadiness } from "../pane/terminal";
-import type { VoiceSession, Utterance } from "./session";
+import type { VoiceSession, Utterance, GaugeRow } from "./session";
 import type { Device } from "./capture";
 import type { Timing } from "./segmenter";
 
@@ -29,6 +31,8 @@ const reset = "\x1b[0m",
   fills = [" ", "⣀", "⣤", "⣶", "⣿"],
   /** The meter's colors run from the accent through warm to hot, so they follow the theme. */
   meter_stops: palette.Token[] = ["accent", "warm", "hot"];
+/** The meter cell of the threshold marker at `pct`. */
+const markerCell = (pct: number) => Math.min(meter_cells - 1, Math.round((pct / 100) * meter_cells));
 type Option = keyof Timing | "filter";
 /** The options in two lines of aligned columns: what ends an utterance, then
  * what starts one. The filter stays last, as its value can be long. */
@@ -71,6 +75,10 @@ const help_entries: [string, string][] = [
   [
     "threshold",
     "How loud a sound must be to count as speech: the bar on the meter, changed with + and - or the mouse wheel. Raise it in a noisy room; lower it when quiet words are missed.",
+  ],
+  [
+    "gauge",
+    "Press t and stay quiet for 10 s while the music plays: the threshold moves to just above it, for this session. It never goes below 44, or a lower threshold you had, and warns when the music is about as loud as your speech. Esc cancels.",
   ],
   [
     "silence",
@@ -190,6 +198,8 @@ export type Options = {
   listDevices: () => Promise<{ devices: Device[]; notice?: string }>;
   switchDevice: (device: Device) => void;
   quit: () => void;
+  /** The clock a gauged threshold's glide runs on, in ms; `Date.now` by default. */
+  now?: () => number;
 };
 type Picker = { devices: Device[]; choice: number; loading: boolean; notice?: string };
 /** A timing's dropdown, opened by a click on it, below its value at `y`, `x`. */
@@ -291,6 +301,38 @@ function describe(u: Utterance): { glyph: string; style: string; label: string }
       return null;
   }
 }
+/** A gauge's history row: the threshold it set, with any warning, or why it stayed. */
+export function gaugeRow(g: GaugeRow): Row {
+  const change = `threshold ${Math.round(g.old)} → ${Math.round(g.threshold)}`,
+    stays = `threshold stays ${Math.round(g.old)}`,
+    [style, label] = ((): [string, string] => {
+      switch (g.outcome) {
+        case "applied":
+          return [text, `${change} (gauged)`];
+        case "applied_quiet_speech":
+          return [warm, `${change} (gauged; your speech was mostly quieter, turn the music down)`];
+        case "no_speech_to_compare":
+          return [text, `${change} (gauged; no speech yet to compare)`];
+        case "too_loud":
+          return [warm, `${stays} (music too loud to gauge)`];
+        case "mic_failed":
+          return [hot, `${stays} (gauge stopped: microphone failed)`];
+      }
+    })();
+  return { glyph: "┃", style, label, time: clock(g.at), latency: null };
+}
+/** The utterances' rows with the gauges' among them, by time. */
+function historyRows(history: readonly Utterance[], gauges: readonly GaugeRow[]): Row[] {
+  const out: Row[] = [];
+  let g = 0;
+  for (const u of history) {
+    for (; g < gauges.length && gauges[g].at < u.captured_at; g++) out.push(gaugeRow(gauges[g]));
+    const r = row(u);
+    if (r) out.push(r);
+  }
+  for (; g < gauges.length; g++) out.push(gaugeRow(gauges[g]));
+  return out;
+}
 /** A rounded box, blank inside, with `title` in its top edge. */
 function box(
   at: (y: number, x: number) => string,
@@ -330,8 +372,12 @@ export class VoiceUi {
    * name it was started with (`--device 1` or `--device "USB Mic"`). */
   private deviceId: string | null;
   /** What a click does, and where, from the last frame: the note and the mode
-   * mute or unmute, an option opens its menu or switches. */
-  private hits: { y: number; x: number; width: number; act: () => void }[] = [];
+   * mute or unmute (also during a gauge), an option opens its menu or switches. */
+  private hits: { y: number; x: number; width: number; act: () => void; mute?: boolean }[] = [];
+  /** The marker's glide to a gauged threshold, and the gauge rows already taken. */
+  private glide: { from: number; to: number; started: number } | null = null;
+  private gauges_seen: number;
+  private readonly now: () => number;
   constructor(
     readonly session: VoiceSession,
     private opts: Options,
@@ -341,11 +387,39 @@ export class VoiceUi {
     this.filter = opts.filter;
     this.device = opts.device;
     this.deviceId = opts.device === "(default)" ? null : opts.device;
+    this.gauges_seen = session.gauges.length;
+    this.now = opts.now ?? Date.now;
+  }
+  /** A gauged threshold applies at once; the marker glides there. */
+  private sync(): void {
+    const gauges = this.session.gauges;
+    for (const g of gauges.slice(this.gauges_seen))
+      if (g.outcome !== "too_loud" && g.outcome !== "mic_failed") {
+        this.threshold = g.threshold;
+        this.glide = { from: g.old, to: g.threshold, started: this.now() };
+      }
+    this.gauges_seen = gauges.length;
+  }
+  /** The glide's marker cell and the number `T:` counts through, a cell
+   * every 50 ms; null once it is over. */
+  private glided(): { cell: number; value: number } | null {
+    const g = this.glide;
+    if (!g) return null;
+    const from = markerCell(g.from),
+      to = markerCell(g.to),
+      steps = Math.abs(to - from),
+      done = Math.floor((this.now() - g.started) / corgiAnimation.gauge_glide_ms);
+    if (done >= steps) {
+      this.glide = null;
+      return null;
+    }
+    return { cell: from + Math.sign(to - from) * done, value: Math.round(g.from + ((g.to - g.from) * done) / steps) };
   }
   /** The frame for a `cols` × `rows` screen, from a clear one. */
   draw(cols: number, rows: number): string {
     const at = (y: number, x: number) => `\x1b[${y + 1};${x + 1}H`,
       s = this.session;
+    this.sync();
     let frame = "";
     for (let y = 0; y < rows; y++) frame += at(y, 0) + plain + " ".repeat(cols);
     const put = (y: number, x: number, style: string, value: string, room = cols - x) => {
@@ -361,7 +435,7 @@ export class VoiceUi {
     // Title: a note for the mode that a click mutes or unmutes, then voice mode.
     const state = mode(s),
       mute = () => this.session.setMuted(!this.session.muted);
-    this.hits = [{ y: 0, x: 0, width: 3, act: mute }];
+    this.hits = [{ y: 0, x: 0, width: 3, act: mute, mute: true }];
     put(0, 1, state.style, state.note);
     put(0, 3, strong, "Corgi Voice");
     frame += at(1, 0) + line + "─".repeat(cols) + reset;
@@ -378,25 +452,38 @@ export class VoiceUi {
       const right = cols - 1 - second - label_width;
       cell(2, "Model:", this.opts.model, strong, second, right);
       const shown = cell(3, "Mode:", state.label, state.label_style, second, right);
-      this.hits.push({ y: 3, x: second + label_width, width: shown, act: mute });
+      this.hits.push({ y: 3, x: second + label_width, width: shown, act: mute, mute: true });
     }
     // The level in braille dots, a quarter cell at a time, dimmed while it is
-    // under the threshold, which is a solid warm bar. Grey while muted.
-    const filled = (s.level / 100) * meter_cells,
-      threshold = Math.min(meter_cells - 1, Math.round((this.threshold / 100) * meter_cells)),
+    // under the threshold, which is a solid warm bar. Grey while muted. While
+    // a gauge listens, a tick marks the loudest it heard and `T:` the seconds
+    // left; then the marker glides to the new threshold, `T:` counting along.
+    const g = s.gauge,
+      glide = this.glided(),
+      filled = (s.level / 100) * meter_cells,
+      threshold = glide ? glide.cell : markerCell(this.threshold),
+      tick = g ? Math.min(meter_cells - 1, Math.floor((g.loudest / 100) * meter_cells)) : -1,
       loud = s.level >= this.threshold,
-      colors = state.muted ? (loud ? grey_gradient : grey_dimmed) : loud ? gradient : dimmed;
+      colors = state.muted ? (loud ? grey_gradient : grey_dimmed) : loud ? gradient : dimmed,
+      shown_t = g
+        ? `${Math.ceil((gauge.listen_frames - g.frames.length) / (gauge.listen_frames / gauge.listen_seconds))}s`
+        : String(Math.round(glide?.value ?? this.threshold)).padStart(2, "0");
     put(meter_row, 1, muted, "Level:");
     frame += at(meter_row, 1 + label_width);
     for (let i = 0; i < meter_cells; i++) {
       const quarters = Math.min(4, Math.floor(Math.max(0, filled - i) * 4));
-      frame += i === threshold ? mark + "┃" : (quarters ? colors[i] : plain) + fills[quarters];
+      frame +=
+        i === threshold ? mark + "┃" : i === tick ? strong + "│" : (quarters ? colors[i] : plain) + fills[quarters];
     }
-    frame += plain + "  " + mark + `T:${String(Math.round(this.threshold)).padStart(2, "0")}` + reset;
+    frame += plain + "  " + mark + `T:${shown_t}` + reset;
     // Under the meter, a thin line in the separators' grey grows while a pause
-    // runs toward the end of the utterance.
+    // runs toward the end of the utterance; during a gauge the corgi sniffs
+    // along there, its nose under the cell it has reached.
     const paused = Math.round(s.pause * meter_cells);
-    if (paused) frame += at(pause_row, 1 + label_width) + line + "─".repeat(paused) + reset;
+    if (g) {
+      const corgi = corgiAnimation.gaugeScene(meter_cells, g.progress, g.frames.length * 20);
+      put(pause_row, 1 + label_width + corgi.x - corgiAnimation.gauge_nose, muted, corgi.sprite);
+    } else if (paused) frame += at(pause_row, 1 + label_width) + line + "─".repeat(paused) + reset;
     // The options, a click away: each opens a menu of values, and the filter switches.
     put(options_row, 1, muted, "Options:");
     let x = 1 + label_width;
@@ -441,7 +528,7 @@ export class VoiceUi {
     notices.forEach(([style, n], i) => put(history_top + i, 1, style, n, cols - 3));
     const top = history_top + notices.length,
       height = Math.max(0, rows - 2 - top),
-      shown = s.history.map(row).filter(r => r !== null);
+      shown = historyRows(s.history, s.gauges);
     this.scroll = Math.max(0, Math.min(this.scroll, shown.length - height));
     const last = shown.length - this.scroll,
       first = Math.max(0, last - height);
@@ -455,18 +542,22 @@ export class VoiceUi {
     const bar = thumb(height, shown.length, first);
     if (bar) for (let i = 0; i < bar.len; i++) frame += at(top + bar.start + i, cols - 1) + muted + "┃" + reset;
     // The keys, most needed first; those that do not fit are left out whole.
+    // Padded to "unmute", so the keys after it never shift.
+    const mute_key: [string, string] = ["m", (s.muted ? "unmute" : "mute").padEnd(6)];
     frame += at(rows - 1, 1);
     let room = cols - 2;
-    for (const [key, what] of [
-      // Padded to "unmute", so the keys after it never shift.
-      ["m", (s.muted ? "unmute" : "mute").padEnd(6)],
-      ["q", "quit"],
-      ["?", "help"],
-      ["+ -", "threshold"],
-      ["f", "filter"],
-      ["d", "device"],
-      ["j k", "history"],
-    ]) {
+    for (const [key, what] of g
+      ? [mute_key, ["esc", "cancel"], ["?", "help"]]
+      : [
+          mute_key,
+          ["q", "quit"],
+          ["?", "help"],
+          ["+ -", "threshold"],
+          ["t", "gauge"],
+          ["f", "filter"],
+          ["d", "device"],
+          ["j k", "history"],
+        ]) {
       const width = key.length + what.length + 5;
       if (width > room) break;
       room -= width;
@@ -598,9 +689,11 @@ export class VoiceUi {
     for (const key of keys(data)) this.key(key, rows);
   }
   key(key: Key, rows = 24): void {
+    this.sync();
     if (this.picker) return this.pickerKey(key);
     if (this.menu) return this.menuKey(key);
     if (this.help) return this.helpKey(key);
+    if (this.session.gauge) return this.gaugeKey(key);
     const page = Math.max(1, rows - history_top - 3),
       back = (n: number) => void (this.scroll = Math.max(0, this.scroll + n));
     switch (key.kind) {
@@ -639,6 +732,9 @@ export class VoiceUi {
             return this.nudge(-1);
           case "d":
             return this.openPicker();
+          case "t":
+            // Without a microphone the status line already says why.
+            return void this.session.startGauge();
           case "k":
             return back(1);
           case "j":
@@ -655,12 +751,23 @@ export class VoiceUi {
         }
     }
   }
+  /** While a gauge listens: Esc, q and Ctrl+C cancel it, ? opens the help,
+   * and m or a click on the note or the mode mutes; nothing else acts. */
+  private gaugeKey(key: Key): void {
+    if (key.kind === "esc" || key.kind === "cancel" || (key.kind === "text" && key.text === "q"))
+      this.session.cancelGauge();
+    else if (key.kind === "text" && key.text === "m") this.session.setMuted(!this.session.muted);
+    else if (key.kind === "text" && key.text === "?") this.help = { scroll: 0 };
+    else if (key.kind === "click")
+      this.hits.find(h => h.mute && key.y === h.y && key.x >= h.x && key.x < h.x + h.width)?.act();
+  }
   private async switchFilter(): Promise<void> {
     if (this.filter === "switching…" || this.filter === "not installed") return;
     this.filter = "switching…";
     this.filter = await this.opts.toggleFilter();
   }
   private nudge(dir: 1 | -1): void {
+    this.glide = null;
     this.threshold = level.step(this.threshold, dir);
     this.opts.setThreshold(this.threshold);
   }

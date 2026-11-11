@@ -5,7 +5,9 @@ import * as level from "./level";
 /** An utterance, and what the cut kept: `post_roll` is the one in effect as
  * it ended, in whole frames up to the silence window, which also sets the
  * speech filter's padding; `kept` and `dropped` are the seconds after the last
- * loud stretch it kept and left out. One `capped` at 30 s goes out untrimmed. */
+ * loud stretch it kept and left out. One `capped` at 30 s goes out untrimmed.
+ * `peak` is the level, 0 to 100, its loudest tenth of frames all reach, up to
+ * the end of the last loud stretch (pre-roll in, the kept pause out). */
 export type Segment = {
   pcm: Int16Array;
   started_at: number;
@@ -14,6 +16,7 @@ export type Segment = {
   kept: number;
   dropped: number;
   capped: boolean;
+  peak: number;
 };
 /** The times, in seconds, that start and end an utterance:
  * - `silence`: the pause that ends it;
@@ -36,7 +39,11 @@ const roll = (seconds: number) => Math.round((seconds * 1000) / frame_ms);
 const inSeconds = (n: number) => (n * frame_ms) / 1000;
 
 export class Segmenter {
+  /** The threshold as RMS, and as set on the 0 to 100 scale. */
   private threshold: number;
+  private pct: number;
+  /** The timings as set, in seconds. */
+  private times: Timing;
   private silence_frames: number;
   private preroll_frames: number;
   private post_roll_frames: number;
@@ -54,7 +61,8 @@ export class Segmenter {
   private active = false;
   constructor(opts: { threshold: number; timing?: Partial<Timing>; now: () => number }) {
     this.threshold = level.percentToRms(opts.threshold);
-    const t = { ...default_timing, ...opts.timing };
+    this.pct = opts.threshold;
+    const t = (this.times = { ...default_timing, ...opts.timing });
     this.silence_frames = frames(t.silence);
     this.preroll_frames = roll(t.pre_roll);
     this.post_roll_frames = roll(t.post_roll);
@@ -65,11 +73,23 @@ export class Segmenter {
   get recording(): boolean {
     return this.active;
   }
+  /** Recording an utterance with enough speech to be sent, were it to end now. */
+  get counts(): boolean {
+    return this.active && this.speech >= this.min_speech_frames;
+  }
+  get percent(): number {
+    return this.pct;
+  }
+  get timing(): Timing {
+    return { ...this.times };
+  }
   setThreshold(pct: number): void {
     this.threshold = level.percentToRms(pct);
+    this.pct = pct;
   }
   /** One of the timings, in seconds, from the next frame on. */
   setTiming(name: keyof Timing, seconds: number): void {
+    this.times[name] = seconds;
     switch (name) {
       case "silence":
         this.silence_frames = frames(seconds);
@@ -155,6 +175,10 @@ export class Segmenter {
       pcm.set(f, at);
       at += f.length;
     }
+    const levels = frames
+      .slice(0, frames.length - kept)
+      .map(f => level.rmsToPercent(level.rms(f)))
+      .sort((a, b) => a - b);
     return [
       {
         pcm,
@@ -164,6 +188,7 @@ export class Segmenter {
         kept: inSeconds(kept),
         dropped: inSeconds(dropped),
         capped,
+        peak: levels[levels.length - Math.ceil(levels.length / 10)] ?? 0,
       },
     ];
   }

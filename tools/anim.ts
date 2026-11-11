@@ -11,7 +11,7 @@
  *   --width N    the row's width for row animations; default each one's own
  *   --speed X    playback rate; default 1
  *   --lang L     en, zh, ja, ko or ru; default from the environment
- *   --seed N     the throw or dig to play; default a new one on each replay
+ *   --seed N     the throw, dig or music to play; default a new one on each replay
  *   --once       exit when it ends instead of replaying
  *
  * Keys: space pauses, ← and → step a frame, r restarts, q quits.
@@ -113,6 +113,13 @@ const clips: Record<string, Clip> = {
   },
   restoring: unearth("restoring"),
   forking: unearth("forking"),
+  gauge: {
+    about: "the voice gauge listening to music, then setting the threshold; --seed picks the music",
+    frame_ms: 20,
+    width: () => a.gauge_width,
+    duration_ms: (size, seed) => a.gaugeDuration(size.width, seed),
+    draw: row((width, ms, seed) => a.writeGauge(width, ms, seed)),
+  },
 };
 
 function usage(problem?: string): never {

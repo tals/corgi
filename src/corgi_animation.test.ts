@@ -680,3 +680,57 @@ test("the farewell centers the caption over the scene, and drops the sign on a s
   expect(short.rows(0)).toHaveLength(3);
   expect(short.ticks).toBe(a.farewellTicks(40, null));
 });
+test("the gauge's corgi sniffs along the meter from its first cell to its last", () => {
+  expect(a.gaugeScene(20, 0, 0).x).toBe(0);
+  expect(a.gaugeScene(20, 0.5, 0).x).toBe(10);
+  expect(a.gaugeScene(20, 1, 0).x).toBe(19);
+  // Out of range stays on the meter.
+  expect([a.gaugeScene(20, -1, 0).x, a.gaugeScene(20, 2, 0).x]).toEqual([0, 19]);
+  // A sniff frame every 200 ms, round and round.
+  for (let k = 0; k < 2 * frames.sniff.length; k++) {
+    expect(a.gaugeScene(20, 0, k * 200).sprite).toBe(frames.sniff[k % frames.sniff.length]);
+    expect(a.gaugeScene(20, 0, k * 200 + 199).sprite).toBe(frames.sniff[k % frames.sniff.length]);
+  }
+});
+test("the gauge counts down 10 s, then glides the marker to the threshold it sets", () => {
+  const seed = 3,
+    { loudest, threshold } = a.gaugeResult(seed),
+    width = a.gauge_width,
+    end = a.gaugeDuration(width, seed),
+    row = (ms: number) => plain(a.writeGauge(width, ms, seed));
+  expect(threshold).toBe(Math.floor(loudest) + 3);
+  expect(row(0)).toEndWith("  T:10s");
+  expect(row(9500)).toEndWith("  T:1s");
+  // The corgi walks in front of the meter, then sits beside it.
+  expect(row(0).slice(0, 6)).toBe(frames.sniff[0]);
+  expect(frames.wag).toContain(row(end - 1).slice(20, 26));
+  // The marker starts at 44, cell 9 of 20, and moves a cell every 50 ms.
+  const marker = (ms: number) => row(ms).indexOf("┃");
+  expect(marker(a.gauge_listen_ms)).toBe(9);
+  expect(marker(a.gauge_listen_ms + a.gauge_glide_ms)).toBe(10);
+  // The end of the clip shows the final value and place.
+  expect(row(end - 1)).toEndWith(`  T:${threshold}`);
+  expect(marker(end - 1)).toBe(Math.round((threshold / 100) * 20));
+  expect(end).toBe(a.gauge_listen_ms + (marker(end - 1) - 9 + 1) * a.gauge_glide_ms);
+  // A tick marks the loudest cell while it listens.
+  expect(row(9990).indexOf("│")).toBe(Math.floor((loudest / 100) * 20));
+  expect(row(end - 1)).not.toContain("│");
+});
+test("the gauge's row fits its width, without the corgi when it has no room", () => {
+  for (const width of [0, 1, 6, 7, 12, 26, 27, 32, a.gauge_width, 40])
+    for (let ms = 0; ms < a.gaugeDuration(width, 1); ms += 250)
+      expect(displayWidth(plain(a.writeGauge(width, ms, 1)))).toBeLessThanOrEqual(width);
+  const corgi = /[ʌᐱᐯᴥω]/;
+  expect(plain(a.writeGauge(a.gauge_width, 0, 1))).toMatch(corgi);
+  for (const ms of [0, 5000, 9999, 10500]) {
+    const narrow = plain(a.writeGauge(12, ms, 1));
+    expect(narrow).not.toMatch(corgi);
+    expect(narrow).toContain("T:");
+  }
+  expect(plain(a.writeGauge(a.gauge_width - 1, 0, 1))).not.toMatch(corgi);
+});
+test("the same seed plays the same gauge", () => {
+  const clip = (seed: number) => Array.from({ length: 60 }, (_, i) => a.writeGauge(a.gauge_width, i * 190, seed));
+  expect(clip(5)).toEqual(clip(5));
+  expect(clip(5)).not.toEqual(clip(6));
+});

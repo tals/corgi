@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { Segmenter, type Segment, type Timing } from "./segmenter";
+import { Segmenter, default_timing, type Segment, type Timing } from "./segmenter";
+import * as level from "./level";
 import { shapes, concat, silence, tone } from "../../tests/fixtures/voice/make_pcm";
 
 /** A segmenter fed 20 ms frames on a clock that moves with them; `ends` holds
@@ -296,4 +297,53 @@ test("whole pause follows a silence window changed mid-utterance", () => {
     expect(short.segments[0].dropped).toBeCloseTo(0.52, 5);
     expect(short.segments[0].duration).toBeCloseTo(2, 5);
   }
+});
+
+test("the threshold and the timings read back exactly as set", () => {
+  const s = new Segmenter({ threshold: 44, timing: { post_roll: Infinity }, now: () => 0 });
+  expect(s.percent).toBe(44);
+  expect(s.timing).toEqual({ ...default_timing, post_roll: Infinity });
+  s.setThreshold(45);
+  expect(s.percent).toBe(45);
+  s.setTiming("silence", 0.75);
+  s.setTiming("burst", 0.05);
+  expect(s.timing).toEqual({ ...default_timing, silence: 0.75, burst: 0.05, post_roll: Infinity });
+  // A copy: changing it changes nothing.
+  s.timing.silence = 9;
+  expect(s.timing.silence).toBe(0.75);
+});
+
+test("an utterance counts once it has the minimum speech, also one that never pauses", () => {
+  // 0.1 s of speech is under the 0.2 s minimum: recording, but it would be dropped.
+  const short = feed(tone(0.1));
+  expect([short.segmenter.recording, short.segmenter.counts]).toEqual([true, false]);
+  const long = feed(tone(0.3));
+  expect([long.segmenter.recording, long.segmenter.counts]).toEqual([true, true]);
+  // Steady loud audio keeps one open for good; it counts, though nothing came out.
+  const steady = feed(tone(10));
+  expect(steady.segments).toEqual([]);
+  expect(steady.segmenter.counts).toBe(true);
+  // Ended, it no longer counts.
+  const ended = feed(concat(tone(0.3), silence(3)));
+  expect(ended.segments).toHaveLength(1);
+  expect([ended.segmenter.recording, ended.segmenter.counts]).toEqual([false, false]);
+});
+
+test("a segment's peak is the 90th-percentile level of its speech, without the kept pause", () => {
+  const loud = tone(1.5, 0.05),
+    at = level.rmsToPercent(level.rms(loud.subarray(0, 320)));
+  // The pre-roll's silence is in, but it is under a tenth of the frames.
+  const [s] = feed(concat(silence(1), loud, silence(3))).segments;
+  expect(s.peak).toBeCloseTo(at, 5);
+  // A short utterance under whole pause keeps 2.5 s of silence, which does not lower it.
+  const [short] = feed(concat(silence(1), tone(0.3, 0.05), silence(3)), { post_roll: Infinity }).segments;
+  expect(short.kept).toBeCloseTo(2.5, 5);
+  expect(short.peak).toBeCloseTo(at, 5);
+  // The loudest tenth sets it: 10 % of the speech louder still.
+  const [mixed] = feed(concat(tone(0.2, 0.2), tone(1.8, 0.05), silence(3)), { pre_roll: 0 }).segments;
+  expect(mixed.peak).toBeCloseTo(level.rmsToPercent(level.rms(tone(0.02, 0.2))), 5);
+  expect(feed(concat(tone(0.1, 0.2), tone(1.9, 0.05), silence(3)), { pre_roll: 0 }).segments[0].peak).toBeCloseTo(
+    at,
+    5,
+  );
 });
