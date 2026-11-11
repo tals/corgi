@@ -29,6 +29,7 @@ function fail(message: string): never {
   throw new InvalidKeys(message);
 }
 export function id(a: action.Action): string {
+  if (typeof a.value === "object") return fail("Viewer-local workspace references cannot be saved as shortcuts");
   return a.name === "tab" || a.name === "goto-workspace"
     ? a.name
     : a.name + (a.value === undefined || (a.name === "resources" && a.value === 0) ? "" : `:${a.value}`);

@@ -1,4 +1,3 @@
-import type { Machine } from "./machine";
 import type { Action } from "./action";
 import type * as workspaceArchive from "./workspace_archive";
 import * as i18n from "./i18n";
@@ -234,8 +233,8 @@ export interface Ui {
   /** The push card, shown or held open, with the row whose review shows dimmed. */
   git_card: gitTooltip.State | null;
   worktree_card: worktreeTooltip.State | null;
-  /** The sidebar row of a shown machine's workspace, which the cards name by its own id. */
-  row_key: (id: number, machine?: Machine) => number;
+  /** The sidebar row for a workspace on the given machine, or the selected one. */
+  row_key: (id: number, machine?: number) => number | null;
   /** The worktree browsed in the overview, or the checkout the launcher
    * starts agents in, whose rows stay lit while the rest of the agent list dims. */
   worktree_spotlight: sidebar.Spotlight | null;

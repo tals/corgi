@@ -698,7 +698,7 @@ export class Endpoint {
     if (!same) {
       this.focus = null;
       if (this.shown) view.closeMachineUi();
-      else if (view.worktree_card.workspace?.machine === this.machine) view.worktree_card.clear();
+      else if (view.worktree_card.workspace?.machine === this.machine.id) view.worktree_card.clear();
       this.machine.forget();
       this.workspaces = [];
       this.workspaces_instance = this.instance;

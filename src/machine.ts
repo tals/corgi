@@ -57,7 +57,10 @@ export class Profiles {
     return !this.reading && now >= this.retry_at && (again || !this.read);
   }
 }
+let next_machine_id = 1;
 export class Machine {
+  /** Identity within this viewer process, kept across reconnects and never reused. */
+  readonly id = next_machine_id++;
   order_scope = "";
   collapsed = false;
   runtime = new Runtime();

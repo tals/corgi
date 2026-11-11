@@ -72,13 +72,17 @@ buffers. A local socket adapter preserves the interface used by RPC and preview
 clients. Old saved profiles without a bridge path retain dedicated SSH socket forwarding;
 remove and add the machine again to discover the helper.
 
-Viewer workspace and pane references pair a machine with its daemon-local ID
-in `viewer_ref.ts`. Worktree cards keep this reference while another machine
-has keyboard focus; requests use the owner's connection and send only its
-numeric ID. Background worktree scans do not mark that workspace as read.
+Viewer workspace and pane references are plain data in `viewer_ref.ts`: a
+machine ID paired with its daemon-local workspace or pane ID. Machine IDs
+are unique within the viewer process and survive reconnects; the controller
+resolves them through its registry when reading state or issuing requests.
+Worktree cards keep this reference while another machine has keyboard focus;
+only the workspace or pane ID crosses the owner's connection. Background
+worktree scans do not mark that workspace as read.
 `action.ts` derives action names and argument types from its command table.
 Workspace arguments accept a reference from a click or a numeric ID from CLI
 and shortcut input; the controller resolves those IDs on the selected machine.
+Saved shortcuts accept numeric workspace IDs, not viewer-local references.
 The optional `worktree_detail` on `session.snapshot` requests these scans before
 a viewer has opened on that daemon. Older daemons ignore the new field; both
 ends need this change for background details to refresh. Saved IDs and CLI

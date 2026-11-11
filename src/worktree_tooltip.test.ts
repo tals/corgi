@@ -1,5 +1,5 @@
 import { transport } from "./fixtures/transport";
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Controller } from "./controller";
 import { Machine } from "./machine";
 import { worktreeSnapshot } from "./mirror";
@@ -1117,11 +1117,13 @@ test("workspace actions resolve local ids on the selected machine and refs on th
       view.switchMachine(selected);
       for (const value of [undefined, 0, 1, view.workspaceRef(1, local), view.workspaceRef(1, remote)]) {
         const owner = typeof value === "object" ? value : view.workspaceRef(1, selected);
-        await view.perform({ name: "worktrees", value });
+        const copied = structuredClone(value);
+        if (typeof copied === "object") expect(JSON.parse(JSON.stringify(copied))).toEqual(owner);
+        await view.perform({ name: "worktrees", value: copied });
         expect(view.worktree_card.workspace).toEqual(owner);
         expect(view.worktree_card.pinned).toBe(true);
-        await view.perform({ name: "resources", value });
-        expect(view.resource_card.workspace).toBe(view.rowKey(1, owner.machine));
+        await view.perform({ name: "resources", value: copied });
+        expect(view.resource_card.workspace).toBe(view.rowKey(1, owner.machine === local.id ? local : remote));
         expect(view.resource_card.pinned).toBe(true);
         expect(view.machine).toBe(selected);
       }
@@ -1217,16 +1219,42 @@ test("a background worktree removal and stop use its owner and ignore another da
   }
 });
 
-test("a pane ref selects its owner when another machine has the same pane id", () => {
+test("a cloned pane ref selects its owner when another machine has the same pane id", () => {
   const f = remoteWorktrees();
   try {
-    f.view.selectPane({ machine: f.remote, pane: 1 });
+    f.view.selectPane(structuredClone({ machine: f.remote.id, pane: 1 }));
     expect(f.view.machine).toBe(f.remote);
     expect(f.view.focused()).toBe(f.remote.runtime.pane(1));
-    f.view.selectPane({ machine: f.local, pane: 1 });
+    f.view.selectPane(structuredClone({ machine: f.local.id, pane: 1 }));
     expect(f.view.machine).toBe(f.local);
     expect(f.view.focused()).toBe(f.local.runtime.pane(1));
   } finally {
+    f.close();
+  }
+});
+test("unknown machine ids cannot target the selected machine's workspace or pane", async () => {
+  const f = remoteWorktrees(),
+    foreign = new Machine(
+      transport(async () => ({})),
+      "work",
+      true,
+    );
+  const focus = spyOn(f.view, "focusPane");
+  try {
+    const value = f.view.workspaceRef(1, foreign);
+    expect(value).toEqual({ machine: foreign.id, workspace: 1 });
+    await f.view.perform({ name: "worktrees", value });
+    await f.view.perform({ name: "resources", value });
+    f.view.selectPane({ machine: foreign.id, pane: 1 });
+    expect(focus).not.toHaveBeenCalled();
+    expect(f.view.worktree_card.workspace).toBeNull();
+    expect(f.view.resource_card.pinned).toBe(false);
+    expect(f.view.machine).toBe(f.local);
+    expect(f.localRequests).toEqual([]);
+    expect(f.remoteRequests).toEqual([]);
+  } finally {
+    focus.mockRestore();
+    foreign.runtime.destroy();
     f.close();
   }
 });
