@@ -1,5 +1,4 @@
 /** Development launches retire other same-user Corgi daemons. */
-import { createConnection } from "node:net";
 import { isatty } from "node:tty";
 
 export type Daemon = { pid: number; command: string };
@@ -106,30 +105,16 @@ export async function stopOthers(actions: Actions, scope: Scope = "all"): Promis
   return rows;
 }
 
+/** One HTTP `POST`, which every Bun-era daemon answers, before and after JSON lines went away. */
 async function rpc(socket: string, value: object): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const connection = createConnection(socket);
-    let data = "";
-    const timer = setTimeout(() => finish(new Error("daemon did not respond")), 1000);
-    function finish(error?: Error, result?: any) {
-      clearTimeout(timer);
-      connection.destroy();
-      if (error) reject(error);
-      else resolve(result);
-    }
-    connection.on("connect", () => connection.write(JSON.stringify(value) + "\n"));
-    connection.on("error", error => finish(error));
-    connection.on("data", chunk => {
-      data += chunk.toString();
-      if (data.length > 65536) return finish(new Error("oversized daemon reply"));
-      if (!data.includes("\n")) return;
-      try {
-        finish(undefined, JSON.parse(data.slice(0, data.indexOf("\n"))));
-      } catch (error) {
-        finish(error as Error);
-      }
-    });
-  });
+  const response = await fetch("http://corgi/rpc", {
+    unix: socket,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+    signal: AbortSignal.timeout(1000),
+  } as RequestInit);
+  return response.json();
 }
 
 async function output(command: string[]): Promise<string> {
