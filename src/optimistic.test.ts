@@ -73,6 +73,28 @@ test("a moved workspace and a starred agent's place show before the daemon answe
     runtime.destroy();
   }
 });
+test("starring an agent stars the others in its conversation, as the daemon does", () => {
+  const runtime = new mirror.Runtime(),
+    session = (id: number, conversation: string) => ({
+      id,
+      workspace: 1,
+      provider: "codex",
+      session: `s${id}`,
+      agent: { provider: "codex", session: conversation },
+    });
+  try {
+    runtime.receive(null as any, {
+      ...snapshot([1, 2, 3]),
+      headless_sessions: [session(1, "c1"), session(2, "c2"), session(3, "c1")],
+    });
+    assume(runtime, { "agent.pin": { workspace: 1, target: { headless: 1 }, before: null } });
+    expect(runtime.workspaces.items[0].pinned_agents).toEqual([{ headless: 1 }, { headless: 3 }]);
+    assume(runtime, { "agent.pin": { workspace: 1, target: { headless: 3 }, before: null, pinned: false } });
+    expect(runtime.workspaces.items[0].pinned_agents).toEqual([]);
+  } finally {
+    runtime.destroy();
+  }
+});
 test("a dock that opens a shell guesses an id no other workspace's pane has", () => {
   const runtime = new mirror.Runtime(),
     workspace = (id: number, pane: number, tab: number) => ({
@@ -99,6 +121,8 @@ test("a dock that opens a shell guesses an id no other workspace's pane has", ()
     expect(first.model.paneCount(first.model.tabs[0].root)).toBe(2);
     expect(first.model.tabForPane(3)).toBeNull();
     expect(runtime.workspaces.owner(3)).toBe(second);
+    // Its ids are guesses, so it doesn't pass for the daemon's next layout.
+    expect(first.model.revision).toBe(5n);
   } finally {
     runtime.destroy();
   }

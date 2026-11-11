@@ -124,11 +124,15 @@ class Docking extends Viewers {
     await this.mouse(view, 32, 110, 16);
     this.assertIn("shell at", view.state.data);
     this.assertEqual((await this.session()).panes.length, 2);
-    await this.mouse(view, 0, 110, 16, true);
+    // Typed with the drop, before the daemon has started the shell.
+    await view.input(`\x1b[<0;111;17mprintf 'TYPED_%s\\n' EARLY\r`);
     const created = view.state.pane;
     this.assertNotEqual(created, a);
     const shell = (await this.session()).panes.find((p: any) => p.id === created);
     this.assertEqual(shell.cwd, realpathSync(this.temp.name));
+    await this.until(async () =>
+      (await this.command("pane.read", { target: created, view: "screen" })).text.includes("TYPED_EARLY"),
+    );
     await this.command("pane.send", { target: created, text: "printf SHELL_READY", enter: true });
     await this.until(async () =>
       (await this.command("pane.read", { target: created, view: "screen" })).text.includes("SHELL_READY"),

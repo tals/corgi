@@ -142,6 +142,19 @@ test("an agent leaving its worktree takes the emptied header with it at once", (
   expect(shown[0].moved).toEqual({ from: 3, ms: 0 });
   expect(shown[1].slide).toBe(-2);
 });
+test("a drop that empties a group takes its header at once, leaving rows where they land", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    [a, b] = [entry(1), entry(2)];
+  rows.update(1, [b, header("/wt"), under(a, "/wt")], out, 0);
+  rows.place();
+  const shown = rows.update(1, [a, b], out, 10);
+  expect(shown.map(paneOf)).toEqual([1, 2]);
+  expect(shown.map(e => [e.moved, e.slide])).toEqual([
+    [null, 0],
+    [null, 0],
+  ]);
+});
 test("an agent listed under two checkouts keeps a row under each", () => {
   const rows = new State(),
     out: Entry[] = [],
