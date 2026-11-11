@@ -244,18 +244,41 @@ test("a refused drag puts a held ready agent back between its old neighbours", (
     new Set(),
   );
   expect(ready([2, 1, 3])).toEqual([1, 2, 3]);
-  const undo = since.move("pane:2", null);
+  const settle = since.move("pane:2", null);
   expect(ready([1, 3, 2])).toEqual([1, 3, 2]);
-  undo();
+  settle(false);
   expect(ready([2, 1, 3])).toEqual([1, 2, 3]);
   // Two drops waiting at once: the first refused leaves the second standing.
   const first = since.move("pane:2", null);
   expect(ready([1, 3, 2])).toEqual([1, 3, 2]);
   const second = since.move("pane:2", "pane:1");
   expect(ready([2, 1, 3])).toEqual([2, 1, 3]);
-  first();
+  first(false);
   expect(ready([2, 1, 3])).toEqual([2, 1, 3]);
-  second();
+  second(false);
+  expect(ready([2, 1, 3])).toEqual([1, 2, 3]);
+  // One taken holds it there; a later refusal goes back to that.
+  since.move("pane:2", null)(true);
+  expect(ready([1, 3, 2])).toEqual([1, 3, 2]);
+  since.move("pane:2", "pane:1")(false);
+  expect(ready([1, 3, 2])).toEqual([1, 3, 2]);
+});
+test("a refused drag whose new neighbour left puts a held agent back", () => {
+  const since = new agentSections.Since(),
+    ready = (order: number[]) => {
+      const items = order.map((pane, rank) => item(pane, "idle", { attention: "finished", rank }));
+      since.place(items, new Set(["pane:2"]));
+      return agentSections.arrange(items, options()).flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+    };
+  since.place(
+    [1, 2, 3, 4].map((pane, rank) => item(pane, "idle", { attention: "finished", rank })),
+    new Set(),
+  );
+  expect(ready([2, 1, 3, 4])).toEqual([1, 2, 3, 4]);
+  const settle = since.move("pane:2", "pane:4");
+  expect(ready([1, 3, 2, 4])).toEqual([1, 3, 2, 4]);
+  expect(ready([1, 3, 2])).toEqual([1, 3, 2]);
+  settle(false);
   expect(ready([2, 1, 3])).toEqual([1, 2, 3]);
 });
 test("a held ready agent starred and unstarred keeps its place", () => {

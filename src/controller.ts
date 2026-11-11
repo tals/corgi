@@ -961,11 +961,11 @@ export class Controller {
   }
   /** Sends `command`, showing its result at once where optimistic.ts can.
    * The guess stands until a snapshot taken after the reply; a refusal
-   * shows the last snapshot without it and runs `undo` for the viewer's own
-   * state. `then` takes the result. */
+   * shows the last snapshot without it. `settle` tells the viewer's own
+   * guesses whether the daemon took it; `then` takes the result. */
   private optimistic(
     command: CommandInput,
-    { then, undo }: { then?: (result: { pane: number }) => void; undo?: () => void } = {},
+    { then, settle }: { then?: (result: { pane: number }) => void; settle?: (kept: boolean) => void } = {},
   ): void {
     const machine = this.machine,
       edit = optimistic.edit(command),
@@ -974,11 +974,14 @@ export class Controller {
     this.later(async lane => {
       let answered = false;
       try {
-        const result = await this.execute(command, lane, () => (answered = true));
+        const result = await this.execute(command, lane, () => {
+          answered = true;
+          settle?.(true);
+        });
         then?.(result);
       } catch (error) {
         forget();
-        if (!answered) undo?.();
+        if (!answered) settle?.(false);
         if (edit && !answered && machine.runtime.snapshot) this.receiveSnapshot(machine.runtime.snapshot, machine);
         throw error;
       } finally {
@@ -8079,7 +8082,7 @@ export class Controller {
             other = at === null ? null : sidebar.orderTarget(live[at]),
             before = other && this.agentWorkspace(other) === drag.workspace ? other : null,
             place = { workspace: drag.workspace, target: drag.target, before };
-          const undo =
+          const settle =
             drag.action === "place"
               ? this.agent_since.move(agentKey(place.target), before ? agentKey(before) : null)
               : undefined;
@@ -8089,7 +8092,7 @@ export class Controller {
               : drag.action === "place"
                 ? { "agent.place": place }
                 : { "agent.pin": { ...place, pinned: true } },
-            { undo },
+            { settle },
           );
           this.sidebar_rows.place();
         }

@@ -20,13 +20,7 @@ function sameSection(a: Place, b: Place): boolean {
   return a.workspace === b.workspace && (a.pin === null ? b.pin === null && a.section === b.section : b.pin !== null);
 }
 
-type Anchor = {
-  above: string | null;
-  below: string | null;
-  at: Place;
-  /** What a drop the daemon hasn't answered replaced. */
-  dropped?: { rank: { rank: number; at: Place }; anchor: Anchor | undefined };
-};
+type Anchor = { above: string | null; below: string | null; at: Place };
 
 /** When each agent entered its section, in ms. */
 export class Since {
@@ -35,6 +29,9 @@ export class Since {
   private ranks = new Map<string, { rank: number; at: Place }>();
   /** A held agent's neighbours in its section, and where it was then. */
   private anchors = new Map<string, Anchor>();
+  /** Drops of a held agent the daemon hasn't answered, newest last. The
+   * newest holds it in place of its anchor until answered. */
+  private drops = new Map<string, Anchor[]>();
   /** An agent first seen dates from `start`, the daemon's word for when its state began. */
   observe(key: string, kind: Section, start: number, now: number): number {
     const last = this.seen.get(key);
@@ -47,9 +44,10 @@ export class Since {
   shown(key: string, kind: Exclude<Section, "starred">, focused: boolean): Exclude<Section, "starred"> {
     return focused && kind === "idle" && this.seen.get(key)?.kind === "ready" ? "ready" : kind;
   }
-  /** An explicit drop replaces the neighbours holding a read agent in place.
-   * The function returned puts back the ones it had, for a refused drop. */
-  move(key: string, before: string | null): () => void {
+  /** An explicit drop replaces the neighbours holding a read agent in place
+   * once the daemon takes it. Until then they hold it over its old ones; the
+   * function returned says whether the daemon took it. */
+  move(key: string, before: string | null): (kept: boolean) => void {
     const saved = this.ranks.get(key);
     if (!saved || key === before) return () => {};
     const others = [...this.ranks]
@@ -59,23 +57,20 @@ export class Since {
     if (index < 0) return () => {};
     const above = others[index - 1],
       below = others[index],
-      anchor: Anchor = {
-        above: above?.[0] ?? null,
-        below: below?.[0] ?? null,
-        at: saved.at,
-        dropped: { rank: { ...saved }, anchor: this.anchors.get(key) },
-      };
-    this.anchors.set(key, anchor);
+      anchor: Anchor = { above: above?.[0] ?? null, below: below?.[0] ?? null, at: saved.at },
+      drops = this.drops.get(key) ?? [];
+    drops.push(anchor);
+    this.drops.set(key, drops);
     saved.rank = below ? below[1].rank - 0.5 : (above?.[1].rank ?? -0.5) + 0.5;
-    return () => {
-      const current = this.anchors.get(key);
-      // A later drop of the agent stands, now on what this one replaced.
-      for (let later = current; later?.dropped; later = later.dropped.anchor)
-        if (later.dropped.anchor === anchor) return void (later.dropped = anchor.dropped);
-      if (current !== anchor || !anchor.dropped || !this.ranks.has(key)) return;
-      this.ranks.set(key, anchor.dropped.rank);
-      if (anchor.dropped.anchor) this.anchors.set(key, anchor.dropped.anchor);
-      else this.anchors.delete(key);
+    return kept => {
+      const drops = this.drops.get(key),
+        at = drops?.indexOf(anchor) ?? -1;
+      // Gone, or no longer held: the daemon's order places it.
+      if (!drops || at < 0) return;
+      // The daemon answers in order: a drop it took outlasts any before it.
+      drops.splice(kept ? 0 : at, kept ? at + 1 : 1);
+      if (!drops.length) this.drops.delete(key);
+      if (kept) this.anchors.set(key, anchor);
     };
   }
   /** Settles each item's place in the section order. One `held` among the
@@ -87,6 +82,7 @@ export class Since {
     for (const item of items) {
       if (!held.has(item.key)) {
         this.anchors.delete(item.key);
+        this.drops.delete(item.key);
         continue;
       }
       const rank = (key: string | null) => {
@@ -94,17 +90,20 @@ export class Since {
           return other && other !== item && sameSection(item, other) ? other.rank : undefined;
         },
         gone = (key: string | null) => key !== null && rank(key) === undefined;
-      let anchor = this.anchors.get(item.key);
+      const dropped = this.drops.get(item.key)?.at(-1);
+      let anchor = dropped ?? this.anchors.get(item.key);
       if (anchor && !sameSection(item, anchor.at)) {
         away.add(item.key);
         continue;
       }
       if (!anchor || gone(anchor.above) || gone(anchor.below) || (anchor.above === null && anchor.below === null)) {
-        anchor = {
+        const fresh = {
           ...this.neighbours(item, items),
           at: { workspace: item.workspace, pin: item.pin, section: item.section },
         };
-        this.anchors.set(item.key, anchor);
+        // A drop still waiting keeps the anchor it would leave if refused.
+        if (dropped) anchor = Object.assign(dropped, fresh);
+        else this.anchors.set(item.key, (anchor = fresh));
       }
       const below = rank(anchor.below),
         above = rank(anchor.above);
@@ -136,7 +135,7 @@ export class Since {
   }
   /** Forgets agents that are gone. */
   keep(keys: ReadonlySet<string>): void {
-    for (const map of [this.seen, this.ranks, this.anchors])
+    for (const map of [this.seen, this.ranks, this.anchors, this.drops])
       for (const key of map.keys()) if (!keys.has(key)) map.delete(key);
   }
 }
