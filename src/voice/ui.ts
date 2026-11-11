@@ -59,6 +59,13 @@ const option_lines: Option[][] = [
 const lineText = (v: number) => (v === Infinity ? "pause" : `${v} s`);
 /** A timing in its menu. */
 const menuText = (v: number) => (v === Infinity ? "whole pause" : `${v} s`);
+/** The filter's state on the options line, short enough for 80 columns. */
+const filter_labels: Record<FilterState | "switching…", string> = {
+  on: "on",
+  off: "off",
+  "not installed": "missing",
+  "switching…": "switching…",
+};
 /** The help overlay: each setting, and how it changes what becomes text. */
 const help_entries: [string, string][] = [
   [
@@ -404,7 +411,12 @@ export class VoiceUi {
         const at = x + name_width,
           shown =
             o === "filter"
-              ? put(y, at, this.filter === "not installed" ? warm : this.filter === "on" ? strong : muted, this.filter)
+              ? put(
+                  y,
+                  at,
+                  this.filter === "not installed" ? warm : this.filter === "on" ? strong : muted,
+                  filter_labels[this.filter],
+                )
               : put(y, at, strong, lineText(this.timing[o]));
         this.hits.push({
           y,
@@ -413,7 +425,8 @@ export class VoiceUi {
           act: () => (o === "filter" ? void this.switchFilter() : this.openMenu(o, y + 1, at - 2)),
         });
       });
-      x += name_width + value_width + 3;
+      // Columns only the first line has sit a cell closer, so the filter's state fits 80 columns.
+      x += name_width + value_width + (c < option_lines[1].length ? 3 : 2);
     }
     frame += at(history_top - 1, 0) + line + "─".repeat(cols) + reset;
     // What stands in the way, if anything, and the notices; then the history, newest at the bottom.

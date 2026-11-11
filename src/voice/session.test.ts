@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { VoiceSession } from "./session";
 import { Segmenter } from "./segmenter";
 import { Events, type VoiceLink, type WatchRequest } from "./link";
-import { shapes } from "../../tests/fixtures/voice/make_pcm";
+import { concat, shapes, silence, tone } from "../../tests/fixtures/voice/make_pcm";
 
 /** A link whose replies the test hands out. */
 class FakeLink implements VoiceLink {
@@ -36,16 +36,16 @@ class FakeLink implements VoiceLink {
 class FakeWhisper {
   heard: string[] = [];
   requests = 0;
-  /** The filter padding each request asked for. */
+  /** The filter padding each request asked for, in seconds. */
   pads: number[] = [];
   speech_end?: number;
   crash: (code: number | null) => void = () => {};
   /** Holds every transcription until it resolves, for a Whisper that is behind. */
   gate: Promise<void> = Promise.resolve();
   constructor(private script: string[]) {}
-  async transcribe(_wav: Uint8Array, opts: { padMs: number }): Promise<{ text: string; speech_end?: number }> {
+  async transcribe(_wav: Uint8Array, opts: { pad: number }): Promise<{ text: string; speech_end?: number }> {
     this.requests++;
-    this.pads.push(opts.padMs);
+    this.pads.push(opts.pad);
     await this.gate;
     return { text: this.script.shift() ?? "", speech_end: this.speech_end };
   }
@@ -539,7 +539,7 @@ test("a transcription that times out says so, not that it may have been typed", 
 });
 
 test("the speech filter pads by the post-roll each utterance ended with", async () => {
-  const { s, whisper, segmenter } = session(["one", "two", "three"]);
+  const { s, whisper, segmenter } = session(["one", "two", "three", "four"]);
   let open!: () => void;
   whisper.gate = new Promise(resolve => (open = resolve));
   await s.connect();
@@ -550,28 +550,55 @@ test("the speech filter pads by the post-roll each utterance ended with", async 
   segmenter.setTiming("post_roll", 0);
   open();
   await until(() => s.history.filter(u => u.status === "delivered").length === 2);
-  expect(whisper.pads).toEqual([500, 500]);
-  // None at all still leaves the filter its own 30 ms.
+  expect(whisper.pads).toEqual([0.5, 0.5]);
+  // None at all; whisper.ts keeps the filter's own 30 ms.
   speak(s);
   await until(() => s.history.filter(u => u.status === "delivered").length === 3);
-  expect(whisper.pads).toEqual([500, 500, 30]);
+  expect(whisper.pads).toEqual([0.5, 0.5, 0]);
+  expect(s.history[2].pad).toBe(0.03);
+  // Whole pause pads by the silence window, here 0.5 s.
+  segmenter.setTiming("post_roll", Infinity);
+  speak(s);
+  await until(() => s.history.filter(u => u.status === "delivered").length === 4);
+  expect(whisper.pads).toEqual([0.5, 0.5, 0, 0.5]);
 });
 
 test("the log says what the cut kept and where Whisper heard the speech end", async () => {
   const lines: string[] = [],
-    { s, whisper, segmenter } = session(["run the tests again", "send"], { log: line => lines.push(line) });
+    { s, whisper, segmenter } = session(["run the tests again", "send", "it"], { log: line => lines.push(line) });
   // The real server reports times such as this one.
   whisper.speech_end = 4.2700000000000005;
   await s.connect();
   speak(s);
   await until(() => s.history[0]?.status === "delivered");
   expect(lines.find(l => l.startsWith("utterance 1:"))).toMatch(
-    /^utterance 1: delivered duration=2s transcribe_ms=[\d.]+ deliver_ms=[\d.]+ post_roll=0\.5s kept=0\.5s dropped=0s speech_end=4\.27s$/,
+    /^utterance 1: delivered duration=2s transcribe_ms=[\d.]+ deliver_ms=[\d.]+ post_roll=0\.5s kept=0\.5s dropped=0s pad=0\.5s speech_end=4\.27s$/,
   );
   // Without segment times, there is no speech end.
   whisper.speech_end = undefined;
   segmenter.setTiming("post_roll", 0.3);
   speak(s);
   await until(() => s.history[1]?.status === "delivered");
-  expect(lines.find(l => l.startsWith("utterance 2:"))).toMatch(/ post_roll=0\.3s kept=0\.3s dropped=0\.2s$/);
+  expect(lines.find(l => l.startsWith("utterance 2:"))).toMatch(/ post_roll=0\.3s kept=0\.3s dropped=0\.2s pad=0\.3s$/);
+  // The cut reports the 20 ms frames it kept: 0.75 s is 38 of them.
+  segmenter.setTiming("silence", 2.5);
+  segmenter.setTiming("post_roll", 0.75);
+  speak(s);
+  await until(() => s.history[2]?.status === "delivered");
+  expect(lines.find(l => l.startsWith("utterance 3:"))).toMatch(
+    / post_roll=0\.76s kept=0\.76s dropped=1\.74s pad=0\.76s$/,
+  );
+});
+
+test("an utterance cut at 30 s logs no post-roll, as none was applied", async () => {
+  const lines: string[] = [],
+    { s } = session(["a long one", ""], { log: line => lines.push(line) });
+  await s.connect();
+  // The cap comes 0.2 s into the pause, before the 0.5 s window ends it.
+  const pcm = concat(tone(29.8), silence(1));
+  for (let at = 0; at < pcm.length; at += 320) s.frame(pcm.subarray(at, at + 320));
+  await until(() => s.history[0]?.status === "delivered");
+  expect(lines.find(l => l.startsWith("utterance 1:"))).toMatch(
+    /^utterance 1: delivered duration=30s transcribe_ms=[\d.]+ deliver_ms=[\d.]+ capped kept=0\.2s dropped=0s pad=0\.5s$/,
+  );
 });

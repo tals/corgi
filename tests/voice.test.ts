@@ -198,10 +198,34 @@ class Voice extends Viewers {
     // 1.5 s of speech, then 1 s of the 2.5 s pause; the fake's one cue ends at 1 s.
     this.assertRegex(
       log,
-      /utterance 1: delivered duration=2\.5s transcribe_ms=\d+ deliver_ms=\d+ post_roll=1s kept=1s dropped=1\.5s speech_end=1s/,
+      /utterance 1: delivered duration=2\.5s transcribe_ms=\d+ deliver_ms=\d+ post_roll=1s kept=1s dropped=1\.5s pad=1s speech_end=1s/,
     );
     this.assertRegex(log, /utterance 2: dropped \(not speech\)/);
     this.assertIn("whisper-server ready", log);
+  }
+
+  async test_a_post_roll_from_voice_json_sets_the_cut_and_the_filter_padding() {
+    const target = await this.capturePane("target"),
+      a = await this.newViewer();
+    await a.focus(target.pane);
+    const state = join(this.env.XDG_STATE_HOME!, "corgi");
+    mkdirSync(state, { recursive: true });
+    writeFileSync(join(state, "voice.json"), JSON.stringify({ post_roll: "pause" }));
+    const { pty, logs } = await this.voiceMode(
+      { CORGI_FAKE_PCM: join(FIXTURES, "speech.pcm"), CORGI_FAKE_WHISPER_SCRIPT: "run the tests again" },
+      ["--verbose"],
+    );
+    await this.captured(target.file, "run the tests again");
+    // Whole pause pads the filter by the 2.5 s silence window.
+    const [request] = this.lines(logs.whisper).filter(l => l.request);
+    this.assertEqual(request.fields.vad_speech_pad_ms, "2500");
+    pty.write("q");
+    this.assertEqual(await pty.proc.exited, 0);
+    // 1.5 s of speech and the whole pause.
+    this.assertRegex(
+      readFileSync(join(state, "voice.log"), "utf8"),
+      /utterance 1: delivered duration=4s .*post_roll=2\.5s kept=2\.5s dropped=0s pad=2\.5s/,
+    );
   }
 
   async test_consecutive_utterances_join_with_a_space_and_nothing_submits() {

@@ -174,9 +174,12 @@ without authentication, so leave `port` unset unless you need a fixed one.
 delivery times, outcome) and whisper-server's health to `voice.log` beside
 `voice.json`. Nothing goes to the screen. Each line also shows the cut:
 `post_roll=` used, how much audio after your last loud stretch was `kept=` and
-`dropped=`, and `speech_end=`, where Whisper heard the speech end. To report
-that end, `--verbose` asks Whisper for subtitles instead of plain text, as
-their cues carry its segment times.
+`dropped=`, the speech filter's padding `pad=`, and `speech_end=`, where
+Whisper's last segment ends. That end includes the filter's padding, so
+compare it with `kept=` and `pad=` rather than reading it as your last word.
+An utterance cut at 30 seconds shows `capped` instead of a post-roll. To
+report the end, `--verbose` asks Whisper for subtitles instead of plain text,
+as their cues carry its segment times.
 
 ## Troubleshooting
 
@@ -192,4 +195,4 @@ their cues carry its segment times.
 | "The Whisper server stopped" | Press `f` for a fresh one (it switches the filter), or quit and start voice mode again |
 | Background noise becomes text | Raise the threshold with `+`, or keep the speech filter on |
 | Quiet speech is missed | Lower the threshold with `-` until the meter crosses the marker as you speak |
-| Sentence endings are lost, with music or a raised threshold | Lengthen post-roll, or choose `whole pause` in its menu; with `--verbose`, compare `kept=` and `speech_end=` in `voice.log` with the utterance's duration |
+| Sentence endings are lost, with music or a raised threshold | Lengthen post-roll, or choose `whole pause` in its menu; with `--verbose`, compare `kept=`, `pad=` and `speech_end=` in `voice.log` with the utterance's duration |

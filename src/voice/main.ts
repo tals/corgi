@@ -183,7 +183,7 @@ async function voice(
       // Only the --verbose log shows segment times, so only it asks for them.
       transcribe: (wav, opts) =>
         server
-          ? server.transcribe(wav, { padMs: opts.padMs, segments: given.verbose }).catch(error => {
+          ? server.transcribe(wav, { pad: opts.pad, segments: given.verbose }).catch(error => {
               throw restarting ? Error("ServerRestarting") : error;
             })
           : Promise.reject(Error(restarting ? "ServerRestarting" : "ServerDown")),
