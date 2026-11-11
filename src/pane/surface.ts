@@ -67,11 +67,19 @@ export interface Stamp {
   offset: number | null;
 }
 export interface View {
+  input_ack?: InputReceipt;
   surface: Surface;
   bottom: number;
   offset: number;
   modes: Modes;
   stamp: Stamp;
+}
+export interface InputReceipt {
+  epoch: string;
+  sequence: bigint;
+}
+export function inputReceipt(value: Wire<InputReceipt> | InputReceipt): InputReceipt {
+  return { epoch: value.epoch, sequence: BigInt(value.sequence) };
 }
 /** Changed rows relative to the preceding frame on an ordered stream. */
 export interface Patch extends Omit<View, "surface"> {
@@ -127,6 +135,7 @@ type NativeView = Omit<View, "stamp"> & {
 export function view(value: Wire<View> | NativeView): View {
   return {
     ...value,
+    input_ack: value.input_ack ? inputReceipt(value.input_ack) : undefined,
     surface: value.surface && { ...value.surface, cursor_style: cursorStyle(value.surface.cursor_style) },
     stamp: {
       ...value.stamp,

@@ -232,6 +232,8 @@ test("preferences round trip, each field in its file, and fall back to defaults"
     const p = new Preferences();
     p.agents = "all";
     p.language = "ja";
+    p.instant_typing = "off";
+    p.dim_predictions = false;
     write(p, where);
     expect(read(where)).toEqual(p);
     p.agents = "workspace";
@@ -250,12 +252,15 @@ test("preferences round trip, each field in its file, and fall back to defaults"
       review_tree_rows: 14,
       agent_scroll: { workspace: 2, offset: 7 },
       workspace_order: p.workspace_order,
+      instant_typing: "off",
     });
-    expect(await json(where.config)).toMatchObject({ language: "ja", preset: "corgi" });
+    expect(await json(where.config)).toMatchObject({ language: "ja", preset: "corgi", instant_typing: "off" });
     expect(await json(where.config)).not.toHaveProperty("sidebar_width");
     expect(await json(where.viewer)).toMatchObject({ agents: "all", sidebar_width: 44, format: current });
+    expect(await json(where.viewer)).not.toHaveProperty("instant_typing");
     await put(where.config, '{"resources":{"enabled":false,"io":false,"alerts":true}}');
     expect(read(where).resources).toEqual({ enabled: false });
+    expect(read(where)).toMatchObject({ instant_typing: "auto", dim_predictions: true });
     await put(where.config, '{"preset":"cmux"}');
     expect(read(where).preset).toBe(process.platform === "darwin" ? "cmux" : "corgi");
     await put(where.config, '{"theme":"animal_style","corgi_intensity":0}');

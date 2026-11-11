@@ -111,3 +111,15 @@ test("latency heatmap preserves mixed response times and keeps failures separate
   expect(stats.recent(1000)[0].failed).toBe(1);
   expect(stats.recent(1000)[0].count).toBe(10);
 });
+
+test("prediction budgets cover slow input and surface round trips and stay bounded", () => {
+  const stats = new Stats();
+  expect(stats.predictionMs).toBe(750);
+  for (let i = 0; i < 30; i++) stats.answer(2000, false);
+  expect(stats.predictionMs).toBeGreaterThan(6000);
+  const budget = stats.predictionMs;
+  stats.answer(90000, true);
+  expect(stats.predictionMs).toBe(budget);
+  for (let i = 0; i < 30; i++) stats.answer(60000, false);
+  expect(stats.predictionMs).toBe(30000);
+});
