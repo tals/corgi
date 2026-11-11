@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { localEndpoint } from "./machine_connection";
 import { sshEndpoint } from "./ssh_path";
 import { expect, spyOn, test } from "bun:test";
@@ -63,8 +64,8 @@ test("all workspaces list each machine's rows by their own ids, cached ones unti
   local.status = "online";
   expect(view.machineScope()).toBe("all");
   const [a, b] = view.workspaceRows();
-  // The first machine's rows keep their ids; another's are set apart.
-  expect(a.id).toBe(1);
+  // Even local rows are qualified; both daemons may use the same local ID.
+  expect(a.id).toBe(view.workspaceRef(1, local.machine));
   expect(view.rowOf(b.id)).toEqual({ machine: remote.machine, id: 1 });
   expect(b.unavailable).toContain("Connecting");
   expect(b.connecting).toBe(true);
@@ -110,9 +111,17 @@ test("a local-only viewer has the unchanged header and no machine decoration", (
   workspaces.show();
   expect(workspaces.open).toBe(false);
   const side = sidebar.View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
-  const original = screen(side, local.workspaces);
+  const original = screen(
+    side,
+    view.workspaceRows().filter(row => view.rowOf(row.id)?.machine === local.machine),
+  );
   side.workspace_scope = view.machineScope();
-  expect(screen(side, local.workspaces)).toBe(original);
+  expect(
+    screen(
+      side,
+      view.workspaceRows().filter(row => view.rowOf(row.id)?.machine === local.machine),
+    ),
+  ).toBe(original);
   expect(side.workspaceScope()).toBeNull();
 });
 test("resource cards read each row's own machine and reject a replaced or disconnected daemon", () => {
@@ -130,7 +139,7 @@ test("resource cards read each row's own machine and reject a replaced or discon
       ],
     });
   }
-  const resources = (key: number) => (view as any).rowResources(key) as Snapshot | null;
+  const resources = (key: viewerRef.Workspace) => (view as any).rowResources(key);
   const detail = spyOn(view, "resourceDetail");
   try {
     const rows = view.workspaceRows();
@@ -242,7 +251,7 @@ test("machine filter colors connection states and measured reception, including 
 
 test("ghost workspace cards keep readings and move their connection indicator to the header", () => {
   const row = sidebar.workspaceEntry({
-    id: 1,
+    id: viewerRef.workspace(1, 1),
     name: "my project",
     cwd: "/project",
     active: true,
@@ -283,7 +292,13 @@ test("ghost workspace cards keep readings and move their connection indicator to
 
 test("machine header bands use the palette and keep reception bars right aligned", () => {
   const name = "a-machine-name-wider-than-the-sidebar";
-  const row = sidebar.workspaceEntry({ id: 1, name: "project", cwd: "/project", active: false, machine: name });
+  const row = sidebar.workspaceEntry({
+    id: viewerRef.workspace(1, 1),
+    name: "project",
+    cwd: "/project",
+    active: false,
+    machine: name,
+  });
   try {
     for (const theme of ["corgi", "animal_style"] as const) {
       palette.use(theme, { foreground: [25, 25, 25], background: [245, 245, 245], ansi: Array(16).fill(null) });
@@ -350,7 +365,7 @@ test("connection transitions never move workspace content or status hitboxes", (
       for (const active of [false, true])
         for (const resources of [false, true]) {
           const row = sidebar.workspaceEntry({
-            id: 1,
+            id: viewerRef.workspace(1, 1),
             name: "my 世界 project é with a long title",
             cwd: "/project",
             active,
@@ -422,7 +437,11 @@ test("workspaces can be interleaved across disconnected machines and keep their 
     other.endpoints[0].workspaces = local.workspaces;
     other.endpoints[0].updated = other.endpoints[1].updated = 1;
     other.view.prefs.workspace_order = saved;
-    expect(other.view.workspaceRows().map(row => row.id)).toEqual([before[0], before[2], before[1]]);
+    expect(other.view.workspaceRows().map(row => row.id)).toEqual([
+      other.view.workspaceRef(1, other.endpoints[0].machine),
+      other.view.workspaceRef(1, other.endpoints[1].machine),
+      other.view.workspaceRef(2, other.endpoints[0].machine),
+    ]);
     const grouped = view.sidebarView([]);
     expect([0, 1, 2].map(i => grouped.workspaceHeader(i))).toEqual([true, true, true]);
   } finally {
@@ -490,18 +509,18 @@ test("workspace cycling skips intervention states but retains recovery and revea
     for (const status of ["paused", "incompatible", "attention"] as const) {
       remote.status = status;
       view.navigateWorkspace(false);
-      expect(select.mock.calls.at(-1)![0]).toBe(view.rowKey(1, local.machine));
+      expect(select.mock.calls.at(-1)![0]).toBe(view.workspaceRef(1, local.machine));
     }
     for (const status of ["connecting", "stalled", "offline", "online"] as const) {
       remote.status = status;
       remote.machine.collapsed = true;
       view.navigateWorkspace(false);
-      expect(select.mock.calls.at(-1)![0]).toBe(view.rowKey(1, remote.machine));
+      expect(select.mock.calls.at(-1)![0]).toBe(view.workspaceRef(1, remote.machine));
     }
   } finally {
     select.mockRestore();
   }
-  view.selectRow(view.rowKey(1, remote.machine));
+  view.selectRow(view.workspaceRef(1, remote.machine));
   expect(remote.machine.collapsed).toBe(false);
 });
 

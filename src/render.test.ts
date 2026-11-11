@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { expect, test } from "bun:test";
 import {
   frame,
@@ -58,7 +59,7 @@ test("the empty sidebar's New keycap prefers short direct bindings and falls bac
 test("machine reception uses cached Kitty pixels, falls back to blocks, and yields to retry text and cards", () => {
   const images = new SignalBars();
   const row = sidebar.workspaceEntry({
-    id: 1,
+    id: viewerRef.workspace(1, 1),
     name: "project",
     cwd: "/tmp",
     active: true,
@@ -99,7 +100,14 @@ test("setup clips signal bars at its border and restores them when closed", () =
     copy_mode: false,
     sidebar_open: true,
     workspaces: [
-      sidebar.workspaceEntry({ id: 1, name: "project", cwd: "/tmp", active: true, machine: "atlas", link_quality: 4 }),
+      sidebar.workspaceEntry({
+        id: viewerRef.workspace(1, 1),
+        name: "project",
+        cwd: "/tmp",
+        active: true,
+        machine: "atlas",
+        link_quality: 4,
+      }),
     ],
     signal_bars: images,
     cell_pixels: { width: 8, height: 16 },
@@ -124,7 +132,13 @@ test("setup clips signal bars at its border and restores them when closed", () =
 });
 
 test("machine headers highlight only the hovered band and clear under overlays", () => {
-  const row = sidebar.workspaceEntry({ id: 1, name: "project", cwd: "/tmp", active: false, machine: "atlas" });
+  const row = sidebar.workspaceEntry({
+    id: viewerRef.workspace(1, 1),
+    name: "project",
+    cwd: "/tmp",
+    active: false,
+    machine: "atlas",
+  });
   const u = ui({ message: "", workspaces: [row], sidebar_open: true, copy_mode: false });
   const terminal = new Terminal(120, 40);
   const draw = () => {
@@ -150,8 +164,8 @@ test("machine headers highlight only the hovered band and clear under overlays",
 test("unread pointer follows the clickable workspace and respects overlays", () => {
   const view = emptyView();
   const workspaces = [
-    sidebar.workspaceEntry({ id: 1, name: "Read", cwd: "/tmp", active: true }),
-    sidebar.workspaceEntry({ id: 2, name: "Unread", cwd: "/tmp", active: false, unread: 2 }),
+    sidebar.workspaceEntry({ id: viewerRef.workspace(1, 1), name: "Read", cwd: "/tmp", active: true }),
+    sidebar.workspaceEntry({ id: viewerRef.workspace(1, 2), name: "Unread", cwd: "/tmp", active: false, unread: 2 }),
   ];
   const side = sidebar.View.init(100, 30, true, 0, 0).withWorkspaces(workspaces.length, 0);
   const range = side.unreadRange(workspaces[1]);
@@ -176,8 +190,20 @@ test("unread pointer follows the clickable workspace and respects overlays", () 
 test("the agent under the pointer takes the hover tint until the pointer leaves it", () => {
   const view = emptyView();
   const entries = [
-    sidebar.entry({ target: { pane: 1 }, name: "api refactor", provider: "codex", state: "idle", attention: "none" }),
-    sidebar.entry({ target: { pane: 2 }, name: "release notes", provider: "claude", state: "idle", attention: "none" }),
+    sidebar.entry({
+      target: viewerRef.pane(0, 1),
+      name: "api refactor",
+      provider: "codex",
+      state: "idle",
+      attention: "none",
+    }),
+    sidebar.entry({
+      target: viewerRef.pane(0, 2),
+      name: "release notes",
+      provider: "claude",
+      state: "idle",
+      attention: "none",
+    }),
   ];
   const tint = palette.bgRgb(palette.mix(palette.colors.bg, palette.colors.selected, 50));
   const top = sidebar.View.init(100, 30, true, 0, entries.length).middle() + 2;
@@ -214,7 +240,9 @@ test("the agent under the pointer takes the hover tint until the pointer leaves 
 
 test("resource card points only at its sortable column headers", () => {
   const view = emptyView();
-  const workspaces = [sidebar.workspaceEntry({ id: 1, name: "Busy", cwd: "/tmp", active: true })];
+  const workspaces = [
+    sidebar.workspaceEntry({ id: viewerRef.workspace(1, 1), name: "Busy", cwd: "/tmp", active: true }),
+  ];
   const side = sidebar.View.init(100, 30, true, 0, 0).withWorkspaces(workspaces.length, 0);
   const rect = resourceTooltip.geometry(100, 30, side.width, 2)!;
   const header = rect.y + 14;
@@ -744,7 +772,15 @@ test("before a machine shows its screen, the frame keeps the badge and drops the
     message: "",
     copy_mode: false,
     corgi_badge: "image",
-    workspaces: [sidebar.workspaceEntry({ id: -1, name: "work", cwd: "", active: false, connecting: true })],
+    workspaces: [
+      sidebar.workspaceEntry({
+        id: viewerRef.workspace(1, -1),
+        name: "work",
+        cwd: "",
+        active: false,
+        connecting: true,
+      }),
+    ],
   });
   const shown = frame(null, [], 100, 30, u);
   expect(shown).toContain("a=p,i=730031");

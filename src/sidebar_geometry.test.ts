@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { expect, spyOn, test } from "bun:test";
 import { Controller } from "./controller";
 import { Picker } from "./agent_navigation";
@@ -9,9 +10,13 @@ import * as sidebarFocus from "./sidebar_focus";
 
 test("archived workspaces fold at the bottom, scroll independently, and do not overlap active rows", () => {
   const active = Array.from({ length: 20 }, (_, i) =>
-    workspaceEntry({ id: i + 1, name: `Active ${i}`, cwd: "", active: i === 0 }),
+    workspaceEntry({ id: viewerRef.workspace(1, i + 1), name: `Active ${i}`, cwd: "", active: i === 0 }),
   );
-  const archived = Array.from({ length: 32 }, (_, i) => ({ id: i + 100, name: `Archive ${i}`, active: false }));
+  const archived = Array.from({ length: 32 }, (_, i) => ({
+    id: viewerRef.workspace(1, i + 100),
+    name: `Archive ${i}`,
+    active: false,
+  }));
   for (const rows of [13, 16, 24, 50])
     for (const enabled of [true, false]) {
       let v = View.init(100, rows, true, 0, 0);
@@ -76,7 +81,7 @@ test("controller pane geometry agrees with its complete sidebar without construc
   // This geometry does not depend on workspace or list contents.
   view.prefs.agents = "all";
   const picker = new Picker(1);
-  const focus = new sidebarFocus.State({ workspace: 1 });
+  const focus = new sidebarFocus.State({ workspace: view.workspaceRef(1) });
   try {
     for (const cols of [39, 40, 63, 64, 80, 160])
       for (const rows of [12, 13, 48])

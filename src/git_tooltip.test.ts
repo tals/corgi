@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { expect, setSystemTime, test } from "bun:test";
 import { Controller } from "./controller";
 import { transport } from "./fixtures/transport";
@@ -7,7 +8,7 @@ import * as viewer from "./viewer";
 
 const commit = (hash: string, subject: string) => ({ hash, subject, author: "A", date: "d", timestamp: 0 });
 const ws = workspaceEntry({
-  id: 1,
+  id: viewerRef.workspace(1, 1),
   name: "w",
   cwd: "/tmp",
   active: true,

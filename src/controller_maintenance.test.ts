@@ -209,7 +209,7 @@ test("archived workspaces expand from the sidebar header without waking until op
     f.view.receiveSnapshot(snapshot);
     expect(f.view.current().id).toBe(2);
     expect(f.view.workspaceEntries().map(w => w.id)).toEqual([2]);
-    expect(f.view.archivedWorkspaceEntries().map(w => w.id)).toEqual([1]);
+    expect(f.view.archivedWorkspaceEntries().map(w => w.id)).toEqual([f.view.workspaceRef(1)]);
     expect(f.view.archived_expanded).toBe(false);
     await f.view.perform({ name: "choose-workspace" });
     f.view.input_state.attached = true;
@@ -221,7 +221,7 @@ test("archived workspaces expand from the sidebar header without waking until op
     expect(edit).not.toHaveBeenCalled();
     expect(f.view.runtime.pane(1)?.dormant).toBe(true);
     await f.view.input(Buffer.from("\x1b[B"));
-    expect(f.view.sidebar_focus?.cursor).toEqual({ workspace: 1 });
+    expect(f.view.sidebar_focus?.cursor).toEqual({ workspace: f.view.workspaceRef(1) });
     await f.view.input(Buffer.from("\r"));
     expect(f.view.current().id).toBe(1);
   } finally {

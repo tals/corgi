@@ -15,7 +15,7 @@ import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import * as keymap from "./keymap";
 import * as bindings from "./bindings";
-import type { Action } from "./action";
+import type { Template as Action } from "./action";
 export type State = "unavailable" | "disabled" | "enabled" | "failed";
 export type Keys = { preset: keymap.Preset; prefix: keymap.Prefix; bindings?: readonly bindings.Binding[] };
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n",

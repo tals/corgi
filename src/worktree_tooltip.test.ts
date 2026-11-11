@@ -1,3 +1,5 @@
+import { bind } from "./action";
+import * as viewerRef from "./viewer_ref";
 import { transport } from "./fixtures/transport";
 import { expect, spyOn, test } from "bun:test";
 import { Controller } from "./controller";
@@ -5,7 +7,16 @@ import { Machine } from "./machine";
 import { worktreeSnapshot } from "./mirror";
 import { State, between, columnsFor, displayPath, draw, geometry, listing, sortAt } from "./worktree_tooltip";
 import * as worktreeRemoval from "./worktree_removal";
-import { View, workspaceEntry, worktreeAt, worktreeLabel, worktreeBadge, writeExit, spotlight_dim } from "./sidebar";
+import {
+  isAgent,
+  View,
+  workspaceEntry,
+  worktreeAt,
+  worktreeLabel,
+  worktreeBadge,
+  writeExit,
+  spotlight_dim,
+} from "./sidebar";
 import { bgRgb, colors, fg, fgRgb } from "./palette";
 import * as launcherResume from "./launcher_resume";
 import { Writer, ellipsis } from "./text";
@@ -37,7 +48,7 @@ function snapshot(count = 4): Snapshot {
 }
 test("the count includes empty linked worktrees and has its own hit area", () => {
   const worktrees = snapshot(),
-    ws = workspaceEntry({ id: 1, name: "repo", cwd: "/repo", active: true, worktrees });
+    ws = workspaceEntry({ id: viewerRef.workspace(1, 1), name: "repo", cwd: "/repo", active: true, worktrees });
   const view = View.init(120, 40, true, 0, 0).withWorkspaces(1, 0);
   expect(worktreeLabel(ws)).toBe("4 worktrees");
   expect(worktreeAt(view, [ws], 20, 3)).toBe(ws);
@@ -54,7 +65,13 @@ test("the count and table hide dead worktrees but retain locked and temporarily 
   data.entries[5].prunable = "stale metadata";
   data.entries[5].available = true;
   data.entries[6].available = true;
-  const ws = workspaceEntry({ id: 1, name: "repo", cwd: "/repo", active: true, worktrees: data });
+  const ws = workspaceEntry({
+    id: viewerRef.workspace(1, 1),
+    name: "repo",
+    cwd: "/repo",
+    active: true,
+    worktrees: data,
+  });
   expect(worktreeLabel(ws)).toBe("4 worktrees");
   const state = new State(),
     w = new Writer(),
@@ -426,7 +443,7 @@ test("pinned worktrees own keys and paste; Escape closes the table without reach
     ],
     panes: [],
   });
-  await view.perform({ name: "worktrees", value: 1 });
+  await view.perform({ name: "worktrees", value: view.workspaceRef(1) });
   expect(view.worktreeDetail()).toEqual(view.workspaceRef(1));
   expect((view as any).pasteTarget()).toBe("discard");
   await (view as any).key(106);
@@ -452,7 +469,7 @@ async function removing() {
       panes: [],
     });
   report(snapshot(2), null);
-  await view.perform({ name: "worktrees", value: 1 });
+  await view.perform({ name: "worktrees", value: view.workspaceRef(1) });
   const screen = () => {
     const terminal = new Terminal(100, 30);
     try {
@@ -707,7 +724,7 @@ test("hovered worktrees own legacy, application and Kitty arrows before hover ca
     expect(requests).toHaveLength(0);
     await view.input(Buffer.from("\x1b[A"));
     const entries = (view as any).sidebarEntries();
-    expect(entries.filter((e: any) => "asleep" in e.target)).toHaveLength(3);
+    expect(entries.filter((e: any) => !isAgent(e.target) && "asleep" in e.target)).toHaveLength(3);
     expect(entries.some((e: any) => e.name === "Search agent")).toBe(true);
     await view.input(Buffer.from("\x1b[27u"));
     expect(view.worktreeDetail()).toBeNull();
@@ -736,7 +753,7 @@ test("Enter on a worktree with no agent opens the agent picker there", async () 
     ],
     panes: [],
   });
-  await view.perform({ name: "worktrees", value: 1 });
+  await view.perform({ name: "worktrees", value: view.workspaceRef(1) });
   const terminal = new Terminal(100, 30);
   try {
     terminal.feed(view.frame());
@@ -758,7 +775,7 @@ test("a ghost previews a worktree's newest conversations as agents; Enter brings
     expect(entries[0].enter).toBe(0);
     view.worktree_agents.appeared_at -= 300;
     expect((view as any).sidebarEntries()[0].enter).toBeNull();
-    expect(entries.filter((e: any) => "asleep" in e.target).map((e: any) => e.name)).toEqual([
+    expect(entries.filter((e: any) => !isAgent(e.target) && "asleep" in e.target).map((e: any) => e.name)).toEqual([
       "Recent 0",
       "Recent 1",
       "Recent 2",
@@ -789,12 +806,12 @@ test("a ghost previews a worktree's newest conversations as agents; Enter brings
       })),
     );
     entries = (view as any).sidebarEntries();
-    expect(entries.some((e: any) => e.worktree?.ghost || "asleep" in e.target)).toBe(false);
+    expect(entries.some((e: any) => e.worktree?.ghost || (!isAgent(e.target) && "asleep" in e.target))).toBe(false);
     const group = entries.findIndex((e: any) => e.target.checkout === path);
     expect(entries.slice(group + 1, group + 4).map((e: any) => [e.target, e.name])).toEqual([
-      [{ pane: 2 }, "Recent 0"],
-      [{ pane: 3 }, "Recent 1"],
-      [{ pane: 4 }, "Recent 2"],
+      [viewerRef.pane(view.machine.id, 2), "Recent 0"],
+      [viewerRef.pane(view.machine.id, 3), "Recent 1"],
+      [viewerRef.pane(view.machine.id, 4), "Recent 2"],
     ]);
     // They stay asleep: focus stays on the shell.
     expect(view.focused()?.id).toBe(1);
@@ -821,7 +838,7 @@ test("Escape removes an uncommitted ghost without changing normal agents", async
   await view.input(Buffer.from("\x1b[27u"));
   const entries = (view as any).sidebarEntries();
   expect(entries.some((e: any) => e.worktree?.ghost)).toBe(false);
-  expect(entries.some((e: any) => "asleep" in e.target)).toBe(false);
+  expect(entries.some((e: any) => !isAgent(e.target) && "asleep" in e.target)).toBe(false);
   expect(entries.some((e: any) => e.name === "Search agent")).toBe(true);
 });
 test("browsing an offscreen group scrolls the existing sidebar without a duplicate", async () => {
@@ -843,7 +860,9 @@ test("browsing an offscreen group scrolls the existing sidebar without a duplica
   });
   await view.input(Buffer.from("\x1b[B"));
   const entries = (view as any).sidebarEntries();
-  const index = entries.findIndex((e: any) => "headless" in e.target && e.worktree?.path === "/repo/.worktrees/1");
+  const index = entries.findIndex(
+    (e: any) => viewerRef.isHeadless(e.target) && e.worktree?.path === "/repo/.worktrees/1",
+  );
   const side = view.sidebarView(entries);
   expect(side.offset).toBeGreaterThan(0);
   expect(index).toBeGreaterThanOrEqual(side.offset);
@@ -974,7 +993,7 @@ test("browsing a worktree in the overview dims the rest and lights its agents wh
   await view.input(Buffer.from(`\x1b[<35;6;${row(heading)}M`));
   expect(view.frame()).not.toContain(faded);
   const before = rows().map(e => e.target);
-  await view.perform({ name: "worktrees", value: 1 });
+  await view.perform({ name: "worktrees", value: view.workspaceRef(1) });
   await view.perform({ name: "worktree-select", value: path });
   expect(rows().map(e => e.target)).toEqual(before);
   expect(rows().some(e => e.worktree?.ghost)).toBe(false);
@@ -985,14 +1004,14 @@ test("browsing a worktree in the overview dims the rest and lights its agents wh
 test("the card closes once the pointer leaves it, its badge and the triangle between, pinned or not", async () => {
   const { view } = browsing(),
     side = view.sidebarView([]),
-    badge = worktreeBadge(side, view.workspaceEntries(), 1)!,
+    badge = worktreeBadge(side, view.workspaceRows(), view.workspaceRef(1))!,
     rect = (view as any).worktreeRect(),
     move = (x: number, y: number) => view.input(Buffer.from(`\x1b[<35;${x + 1};${y + 1}M`));
   expect(rect.x).toBe(side.width + 2);
   expect(between(rect, badge, badge.x, badge.y)).toBe(true);
   expect(between(rect, badge, badge.x, badge.y + 1)).toBe(false);
   expect(between(rect, badge, rect.x - 1, rect.y + rect.h / 2)).toBe(true);
-  await view.perform({ name: "worktrees", value: 1 });
+  await view.perform({ name: "worktrees", value: view.workspaceRef(1) });
   expect(view.worktree_card.pinned).toBe(true);
   await move(badge.x + badge.w, badge.y + 1);
   await move(rect.x + 2, rect.y + 3);
@@ -1002,9 +1021,15 @@ test("the card closes once the pointer leaves it, its badge and the triangle bet
   expect(view.worktree_card.pinned).toBe(false);
 });
 test("callout geometry keeps the agent pane and source badge uncovered", () => {
-  const ws = workspaceEntry({ id: 1, name: "repo", cwd: "/repo", active: true, worktrees: snapshot(2) });
+  const ws = workspaceEntry({
+    id: viewerRef.workspace(1, 1),
+    name: "repo",
+    cwd: "/repo",
+    active: true,
+    worktrees: snapshot(2),
+  });
   const side = View.init(120, 38, true, 0, 0).withWorkspaces(1, 0),
-    badge = worktreeBadge(side, [ws], 1)!,
+    badge = worktreeBadge(side, [ws], ws.id)!,
     rect = geometry(120, 38, side.width, badge.y, 2)!;
   expect(rect.x).toBeGreaterThan(side.width);
   expect(rect.contains(badge.x, badge.y)).toBe(false);
@@ -1086,7 +1111,7 @@ function remoteWorktrees() {
     if (target && "pane" in target) view.focusPane(target.pane);
   };
   const badge = () =>
-    worktreeBadge(view.sidebarView([]), Reflect.get(view, "workspaceRows").call(view), view.rowKey(1, remote))!;
+    worktreeBadge(view.sidebarView([]), Reflect.get(view, "workspaceRows").call(view), view.workspaceRef(1, remote))!;
   const mouse = (button: number) => {
     const b = badge();
     expect(b).not.toBeNull();
@@ -1116,14 +1141,16 @@ test("workspace actions resolve local ids on the selected machine and refs on th
     for (const selected of [local, remote]) {
       view.switchMachine(selected);
       for (const value of [undefined, 0, 1, view.workspaceRef(1, local), view.workspaceRef(1, remote)]) {
-        const owner = typeof value === "object" ? value : view.workspaceRef(1, selected);
+        const owner = typeof value === "string" ? value : view.workspaceRef(1, selected);
         const copied = structuredClone(value);
-        if (typeof copied === "object") expect(JSON.parse(JSON.stringify(copied))).toEqual(owner);
-        await view.perform({ name: "worktrees", value: copied });
+        if (typeof copied === "string") expect(JSON.parse(JSON.stringify(copied))).toEqual(owner);
+        if (typeof copied === "string") await view.perform({ name: "worktrees", value: copied });
+        else await view.invoke({ name: "worktrees", value: copied });
         expect(view.worktree_card.workspace).toEqual(owner);
         expect(view.worktree_card.pinned).toBe(true);
-        await view.perform({ name: "resources", value: copied });
-        expect(view.resource_card.workspace).toBe(view.rowKey(1, owner.machine === local.id ? local : remote));
+        if (typeof copied === "string") await view.perform({ name: "resources", value: copied });
+        else await view.invoke({ name: "resources", value: copied });
+        expect(view.resource_card.workspace).toBe(owner);
         expect(view.resource_card.pinned).toBe(true);
         expect(view.machine).toBe(selected);
       }
@@ -1201,7 +1228,7 @@ test("a background worktree removal and stop use its owner and ignore another da
     await remote.tasks.idle();
     expect(f.remoteRequests.at(-1)).toEqual({ op: "worktree.stop", workspace: 1 });
     const removal = view.worktree_card.removal;
-    await view.perform({ name: "worktrees", value: 1 });
+    await view.perform({ name: "worktrees", value: view.workspaceRef(1) });
     expect(view.worktree_card.removal).not.toBe(removal);
     expect(view.worktree_card.removal.phase).toBe("idle");
     remote.runtime.workspaces.items[0].worktree_removal = {
@@ -1222,10 +1249,10 @@ test("a background worktree removal and stop use its owner and ignore another da
 test("a cloned pane ref selects its owner when another machine has the same pane id", () => {
   const f = remoteWorktrees();
   try {
-    f.view.selectPane(structuredClone({ machine: f.remote.id, pane: 1 }));
+    f.view.selectPane(structuredClone(viewerRef.pane(f.remote.id, 1)));
     expect(f.view.machine).toBe(f.remote);
     expect(f.view.focused()).toBe(f.remote.runtime.pane(1));
-    f.view.selectPane(structuredClone({ machine: f.local.id, pane: 1 }));
+    f.view.selectPane(structuredClone(viewerRef.pane(f.local.id, 1)));
     expect(f.view.machine).toBe(f.local);
     expect(f.view.focused()).toBe(f.local.runtime.pane(1));
   } finally {
@@ -1242,10 +1269,10 @@ test("unknown machine ids cannot target the selected machine's workspace or pane
   const focus = spyOn(f.view, "focusPane");
   try {
     const value = f.view.workspaceRef(1, foreign);
-    expect(value).toEqual({ machine: foreign.id, workspace: 1 });
+    expect(value).toBe(viewerRef.workspace(foreign.id, 1));
     await f.view.perform({ name: "worktrees", value });
     await f.view.perform({ name: "resources", value });
-    f.view.selectPane({ machine: foreign.id, pane: 1 });
+    f.view.selectPane(viewerRef.pane(foreign.id, 1));
     expect(focus).not.toHaveBeenCalled();
     expect(f.view.worktree_card.workspace).toBeNull();
     expect(f.view.resource_card.pinned).toBe(false);
@@ -1255,6 +1282,29 @@ test("unknown machine ids cannot target the selected machine's workspace or pane
   } finally {
     focus.mockRestore();
     foreign.runtime.destroy();
+    f.close();
+  }
+});
+
+test("bound workspace actions retain their owner after selection changes", async () => {
+  const f = remoteWorktrees();
+  const { view, local, remote } = f;
+  try {
+    const target = view.workspaceRef(1, remote);
+    const action = bind({ name: "worktrees" }, target);
+    view.switchMachine(local);
+    await view.perform(structuredClone(action));
+    expect(view.worktree_card.workspace).toBe(target);
+    expect(view.worktreeDetailWanted(remote)).toBe(1);
+    expect(view.worktreeDetailWanted(local)).toBeNull();
+    expect(view.machine).toBe(local);
+    await view.invoke({ name: "resources", value: 1 }, remote);
+    expect(view.resource_card.workspace).toBe(target);
+    expect(view.machine).toBe(local);
+    const rows = view.workspaceRows();
+    expect(rows[0].id).not.toBe(rows[1].id);
+    expect(view.workspaceRows().map(row => row.id)).toEqual(rows.map(row => row.id));
+  } finally {
     f.close();
   }
 });

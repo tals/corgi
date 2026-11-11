@@ -1,14 +1,19 @@
+import * as viewerRef from "./viewer_ref";
 import { test, expect } from "bun:test";
 import { State, outOfOrder } from "./sidebar_rows";
 import { entry as sidebarEntry, type Entry } from "./sidebar";
 import * as rowGlide from "./row_glide";
 import type { Provider } from "./providers";
 const entry = (pane: number, provider: Provider = "codex", state = "idle"): Entry =>
-  sidebarEntry({ name: "", target: { pane }, provider, state, attention: "none" });
-const paneOf = (e: Entry) => ("pane" in e.target ? e.target.pane : null);
-const checkout = (path: string) => ({ workspace: 1, path, ghost: false });
+  sidebarEntry({ name: "", target: viewerRef.pane(0, pane), provider, state, attention: "none" });
+const paneOf = (e: Entry) => (viewerRef.isPane(e.target) ? viewerRef.parts(e.target).id : null);
+const checkout = (path: string) => ({ workspace: viewerRef.workspace(0, 1), path, ghost: false });
 const header = (path: string) =>
-  sidebarEntry({ name: path, target: { worktree: path, workspace: 1 }, worktree: checkout(path) });
+  sidebarEntry({
+    name: path,
+    target: { worktree: path, workspace: viewerRef.workspace(0, 1) },
+    worktree: checkout(path),
+  });
 const under = (e: Entry, path: string): Entry => ({ ...e, worktree: checkout(path) });
 test("an ended agent's row stays live until it goes, then fades once without changing adjacent rows", () => {
   const rows = new State(),
@@ -96,10 +101,10 @@ test("pane removal fades once while ended headless sessions stay visible and sam
   const rows = new State(),
     out: Entry[] = [],
     pane = entry(1),
-    headless: Entry = { ...entry(1, "claude", "working"), target: { headless: 1 } };
+    headless: Entry = { ...entry(1, "claude", "working"), target: viewerRef.headless(0, 1) };
   rows.update(1, [pane, headless], out, 0);
   let shown = rows.update(1, [headless, pane], out, 10);
-  expect(shown[0].target).toEqual({ headless: 1 });
+  expect(shown[0].target).toEqual(viewerRef.headless(0, 1));
   headless.state = "done";
   shown = rows.update(1, [headless], out, 20);
   expect(shown).toHaveLength(2);

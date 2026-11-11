@@ -37,7 +37,7 @@ export interface Presence {
   /** Why it isn't online. */
   description: string;
   /** Its rows from the last time it answered, until it does this session. */
-  cached: WorkspaceEntry[];
+  cached: WorkspaceEntry<number>[];
   /** It has answered at some point, so rows name their machine. */
   seen: boolean;
   /** Its cached rows came from a daemon since replaced; their ids name

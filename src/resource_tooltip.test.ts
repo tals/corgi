@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { test, expect } from "bun:test";
 import { geometry, aimed, draw, hoverAt, State, buttonAt, rowAt } from "./resource_tooltip";
 import { Rect } from "./layout";
@@ -41,7 +42,12 @@ test("agent processes carry their provider's mark, which the legend explains", (
   const remove = sim.register();
   try {
     const state = new State(),
-      work = { id: 1, known: true, count: 1, processes: [{ pid: 7, start: 1n, name: "sim", provider: sim.sim }] };
+      work = {
+        id: viewerRef.workspace(1, 1),
+        known: true,
+        count: 1,
+        processes: [{ pid: 7, start: 1n, name: "sim", provider: sim.sim }],
+      };
     state.update(work, true);
     const w = new Writer();
     draw(w, new Rect(0, 0, 82, 24), "corgi", { workspaces: [work] }, state);
@@ -59,7 +65,7 @@ test("process rows freeze by identity while their numbers can refresh", () => {
       { pid: 1, start: 10n, name: "first", cpu: 90 },
       { pid: 2, start: 20n, name: "second", cpu: 10 },
     ],
-    work = { id: 1, known: true, processes };
+    work = { id: viewerRef.workspace(1, 1), known: true, processes };
   state.update(work, true);
   processes[0].cpu = 0;
   processes[1].cpu = 100;
@@ -69,14 +75,14 @@ test("process rows freeze by identity while their numbers can refresh", () => {
   expect(state.order[0].pid).toBe(2);
 });
 test("a second click on the sorted heading turns the order around, unsampled processes last", () => {
-  const state = new State({ workspace: 1 }),
+  const state = new State({ workspace: viewerRef.workspace(1, 1) }),
     rect = new Rect(28, 4, 82, 24),
     processes = [
       { pid: 1, start: 10n, name: "busy", cpu: 90 },
       { pid: 2, start: 20n, name: "unsampled", cpu: null },
       { pid: 3, start: 30n, name: "quiet", cpu: 10 },
     ],
-    work = { id: 1, known: true, processes },
+    work = { id: viewerRef.workspace(1, 1), known: true, processes },
     heading = () => {
       const w = new Writer(),
         terminal = new Terminal(120, 30);
@@ -109,7 +115,7 @@ test("a host with GPUs gets a GPU row and columns that stay while workspaces go 
     ],
     share = (index: number, util: number) => ({ index, util, memory: 4n << 30n }),
     work = {
-      id: 1,
+      id: viewerRef.workspace(1, 1),
       known: true,
       count: 3,
       cpu: 55,
@@ -231,7 +237,7 @@ test("a host with GPUs gets a GPU row and columns that stay while workspaces go 
 test("GPU trees pack devices that outnumber their lines", () => {
   const rect = geometry(160, 44, 28, 0, 12)!,
     work = {
-      id: 1,
+      id: viewerRef.workspace(1, 1),
       known: true,
       cpu: 1,
       gpu: 120,
@@ -269,7 +275,7 @@ test("pointing at a graph's history shows that point's figures and leaders", () 
       written: 0n,
     }),
     work = {
-      id: 1,
+      id: viewerRef.workspace(1, 1),
       known: true,
       count: 2,
       cpu: 5,
@@ -337,7 +343,7 @@ test("a GPU heatmap cell lists the processes on the GPUs at its line", () => {
         gpu_devices: [share],
       })),
     work = {
-      id: 1,
+      id: viewerRef.workspace(1, 1),
       known: true,
       count: 4,
       cpu: 0,
@@ -387,7 +393,7 @@ test("a pinned card keeps its rows put: new processes join at the foot, gone one
       { pid: 1, start: 10n, name: "first", cpu: 90 },
       { pid: 2, start: 20n, name: "second", cpu: 10 },
     ],
-    work = { id: 1, known: true, processes };
+    work = { id: viewerRef.workspace(1, 1), known: true, processes };
   state.update(work, true);
   state.pin();
   state.move(1);
@@ -417,7 +423,7 @@ test("a pinned card keeps its rows put: new processes join at the foot, gone one
 test("the selection scrolls the table and stays on its process", () => {
   const processes = Array.from({ length: 12 }, (_, i) => ({ pid: i + 1, start: 1n, name: `p${i}`, cpu: 100 - i })),
     state = new State();
-  state.update({ id: 1, processes }, true);
+  state.update({ id: viewerRef.workspace(1, 1), processes }, true);
   state.pin();
   for (let i = 0; i < 7; i++) state.move(1);
   state.reveal(5);
@@ -434,7 +440,7 @@ test("tags work as htop's: space tags and moves down, c tags a process and what 
       { pid: 13, start: 1n, name: "other", cpu: 1, parent: 1 },
     ],
     state = new State();
-  state.update({ id: 1, processes }, true);
+  state.update({ id: viewerRef.workspace(1, 1), processes }, true);
   state.pin();
   expect(state.targets().map(k => k.pid)).toEqual([10]);
   state.move(1);
@@ -454,14 +460,14 @@ test("the pinned card's bar names where the process runs, then asks before a sig
       const w = new Writer(),
         terminal = new Terminal(120, 30);
       try {
-        draw(w, rect, "api", { workspaces: [{ id: 1, known: true, processes }] }, state);
+        draw(w, rect, "api", { workspaces: [{ id: viewerRef.workspace(1, 1), known: true, processes }] }, state);
         terminal.feed(w.buffered());
         return terminal.text().split("\n");
       } finally {
         terminal.destroy();
       }
     };
-  state.update({ id: 1, processes }, true);
+  state.update({ id: viewerRef.workspace(1, 1), processes }, true);
   state.pin();
   let lines = screen();
   expect(lines[21]).toMatch(/vite · api › tab 2 +↵ go to pane +t term +k kill/);

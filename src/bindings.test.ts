@@ -23,7 +23,7 @@ test("presets preserve first shortcuts and held chords", () => {
 });
 
 test("each action shows its first binding", () => {
-  const cases: [Preset, import("./action").Action, number, import("./keyboard").Mods, boolean][] = [
+  const cases: [Preset, import("./action").Template, number, import("./keyboard").Mods, boolean][] = [
     ["corgi", { name: "new" }, 99, {}, true],
     ["corgi", { name: "split", value: "right" }, 118, {}, true],
     ["corgi", { name: "detach" }, 113, {}, true],
@@ -46,17 +46,17 @@ test("each action shows its first binding", () => {
   }
   expect(find("tmux", { name: "resize-mode" })).toBeNull();
 });
-test("bindings match copied workspace targets by machine and workspace id", () => {
+test("bindings match workspace templates before a machine is selected", () => {
   const binding: Binding = {
     key: 119,
     mods: {},
     prefixed: true,
-    action: { name: "worktrees", value: { machine: 2, workspace: 1 } },
+    action: { name: "worktrees", value: 1 },
   };
   const action = structuredClone(binding.action);
   expect(find([binding], action)).toBe(binding);
   expect(first([binding], action, true)).toBe(binding);
-  expect(find([binding], { name: "worktrees", value: { machine: 3, workspace: 1 } })).toBeNull();
+  expect(find([binding], { name: "worktrees", value: 2 })).toBeNull();
 });
 
 test("keys are spelled the way the help screen shows them", async () => {
@@ -130,7 +130,7 @@ test("keys that arrive as bytes", () => {
 });
 
 test("keys that arrive as sequences", () => {
-  const cases: [Preset, boolean, number, import("./keyboard").Mods, import("./action").Action | null][] = [
+  const cases: [Preset, boolean, number, import("./keyboard").Mods, import("./action").Template | null][] = [
     ["cmux", false, 116, { super: true }, { name: "new" }],
     ["cmux", true, 116, { super: true }, { name: "new" }],
     ["cmux", false, 84, { super: true }, { name: "new" }],

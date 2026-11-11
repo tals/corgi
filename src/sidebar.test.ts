@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 // Mirrors the tests in sidebar.zig.
 import { expect, test } from "bun:test";
 import * as i18n from "./i18n";
@@ -148,7 +149,7 @@ test("resource readings turn off as a whole", () => {
   drawResources(w, hot, view, false, false);
   expect(has(w.s, "C")).toBe(false);
   view.resources = { enabled: true };
-  const entries = [workspaceEntry({ id: 1, name: "a", cwd: "", active: true, resources: hot })];
+  const entries = [workspaceEntry({ id: viewerRef.workspace(1, 1), name: "a", cwd: "", active: true, resources: hot })];
   expect(resourceAt(view, entries, 3, 4)).not.toBeNull();
   let quiet = view.clone();
   quiet.rows = 20;
@@ -172,14 +173,14 @@ test("readings off removes the resource row and moves the separator under the st
   expect(paged.workspaceDrop(5, 4)!.index).toBe(4);
   const entries = [
     workspaceEntry({
-      id: 1,
+      id: viewerRef.workspace(1, 1),
       name: "first",
       cwd: "",
       active: false,
       resources: hot,
       stats: { tools: 12, input: 0, output: 0, tokens_known: false },
     }),
-    workspaceEntry({ id: 2, name: "second", cwd: "", active: true, resources: hot }),
+    workspaceEntry({ id: viewerRef.workspace(1, 2), name: "second", cwd: "", active: true, resources: hot }),
   ];
   view = view.withWorkspaces(entries.length, 0);
   const frame = draw(view, [], entries);
@@ -237,7 +238,15 @@ test("unpushed badge retains its columns beside a long workspace name", () => {
   const out = draw(
     view,
     [],
-    [workspaceEntry({ id: 1, name: "abcdefghijklmnopqrstuvwxyz", cwd: "/tmp", active: true, git_ahead: 123 })],
+    [
+      workspaceEntry({
+        id: viewerRef.workspace(1, 1),
+        name: "abcdefghijklmnopqrstuvwxyz",
+        cwd: "/tmp",
+        active: true,
+        git_ahead: 123,
+      }),
+    ],
   );
   expect(has(out, "abcdefghijklmnopqrs")).toBe(true);
   expect(has(out, "abcdefghijklmnopqrst")).toBe(false);
@@ -246,8 +255,8 @@ test("unpushed badge retains its columns beside a long workspace name", () => {
 
 test("active workspace bar is a half block with or without Kitty graphics", () => {
   const entries = [
-    workspaceEntry({ id: 1, name: "Other", cwd: "/tmp", active: false }),
-    workspaceEntry({ id: 2, name: "Project", cwd: "/tmp", active: true }),
+    workspaceEntry({ id: viewerRef.workspace(1, 1), name: "Other", cwd: "/tmp", active: false }),
+    workspaceEntry({ id: viewerRef.workspace(1, 2), name: "Project", cwd: "/tmp", active: true }),
   ];
   for (const supported of [true, false]) {
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(entries.length, 0);
@@ -261,8 +270,8 @@ test("active workspace bar is a half block with or without Kitty graphics", () =
 
 test("a dragged workspace takes the selected tint and a strong bar", () => {
   const entries = [
-    workspaceEntry({ id: 1, name: "Other", cwd: "/tmp", active: false }),
-    workspaceEntry({ id: 2, name: "Project", cwd: "/tmp", active: true }),
+    workspaceEntry({ id: viewerRef.workspace(1, 1), name: "Other", cwd: "/tmp", active: false }),
+    workspaceEntry({ id: viewerRef.workspace(1, 2), name: "Project", cwd: "/tmp", active: true }),
   ];
   const view = View.init(100, 30, true, 0, 0).withWorkspaces(entries.length, 0);
   view.dragged_workspace = 0;
@@ -274,8 +283,8 @@ test("a dragged workspace takes the selected tint and a strong bar", () => {
 
 test("unnamed agent rows show the provider name and keep explicit session names", () => {
   const entries = [
-    entry({ target: { pane: 1 }, provider: "opencode2", state: "idle" }),
-    entry({ target: { pane: 2 }, provider: "opencode2", name: "Align UI elements", state: "idle" }),
+    entry({ target: viewerRef.pane(0, 1), provider: "opencode2", state: "idle" }),
+    entry({ target: viewerRef.pane(0, 2), provider: "opencode2", name: "Align UI elements", state: "idle" }),
   ];
   const view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
   const out = hostText(draw(view, entries, []));
@@ -286,15 +295,15 @@ test("unnamed agent rows show the provider name and keep explicit session names"
 
 test("agent rows take the workspace bars: active when focused outside groups, strong when dragged", () => {
   const group = entry({
-    target: { group: 1 },
+    target: { group: viewerRef.workspace(0, 1) },
     name: "corgi",
     provider: "codex",
     state: "idle",
     group: { agents: 2, working: 0, attention: 0, folded: false, current: true },
   });
   const agents_only = [
-    entry({ target: { pane: 1 }, name: "api refactor", provider: "codex", state: "idle", focused: true }),
-    entry({ target: { pane: 2 }, name: "release notes", provider: "claude", state: "idle" }),
+    entry({ target: viewerRef.pane(0, 1), name: "api refactor", provider: "codex", state: "idle", focused: true }),
+    entry({ target: viewerRef.pane(0, 2), name: "release notes", provider: "claude", state: "idle" }),
   ];
   const grouped = [group, ...agents_only];
   let view = View.init(100, 30, true, 0, agents_only.length).withEntries(agents_only);
@@ -313,8 +322,8 @@ test("agent rows take the workspace bars: active when focused outside groups, st
 
 test("a hovered agent's rows tint halfway to selected, and a selected one keeps its tint", () => {
   const entries = [
-    entry({ target: { pane: 1 }, name: "api refactor", provider: "codex", state: "idle" }),
-    entry({ target: { pane: 2 }, name: "release notes", provider: "claude", state: "idle" }),
+    entry({ target: viewerRef.pane(0, 1), name: "api refactor", provider: "codex", state: "idle" }),
+    entry({ target: viewerRef.pane(0, 2), name: "release notes", provider: "claude", state: "idle" }),
   ];
   const view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
   view.hovered = 0;
@@ -332,7 +341,7 @@ test("a hovered agent's rows tint halfway to selected, and a selected one keeps 
 
 test("subagent badge shares the second row without reserving empty space", () => {
   const e = entry({
-    target: { pane: 1 },
+    target: viewerRef.pane(0, 1),
     name: "Long agent title",
     provider: "codex",
     state: "working",
@@ -371,7 +380,7 @@ test("an empty agent list points to New beside the shortcut keycap", () => {
 
 test("an unread agent takes the bold dot and a bold name, and working takes the arrow", () => {
   const e = entry({
-    target: { pane: 1 },
+    target: viewerRef.pane(0, 1),
     name: "Release notes",
     provider: "codex",
     state: "idle",
@@ -390,7 +399,7 @@ test("an unread agent takes the bold dot and a bold name, and working takes the 
 
 test("a paused agent takes the pause glyph, green while unread and gray once read", () => {
   const e = entry({
-    target: { pane: 1 },
+    target: viewerRef.pane(0, 1),
     name: "Squash history",
     provider: "claude",
     state: "idle",
@@ -421,7 +430,7 @@ test("workspace status uses agent colors and keeps usage on its second row", () 
     [],
     [
       workspaceEntry({
-        id: 1,
+        id: viewerRef.workspace(1, 1),
         name: "Project",
         cwd: "/tmp",
         active: false,
@@ -437,7 +446,7 @@ test("workspace status uses agent colors and keeps usage on its second row", () 
   expect(has(out, "\x1b[1m" + fg("accent") + "3 unread →")).toBe(true);
   expect(has(out, "⚒12")).toBe(true);
   expect(has(out, "\x1b[4;24H" + panel + "⚒12")).toBe(true);
-  const empty = workspaceEntry({ id: 1, name: "Project", cwd: "/tmp", active: true });
+  const empty = workspaceEntry({ id: viewerRef.workspace(1, 1), name: "Project", cwd: "/tmp", active: true });
   out = draw(view, [], [empty]);
   expect(has(out, "unread")).toBe(false);
   expect(has(out, "▶0")).toBe(false);
@@ -458,7 +467,7 @@ test("workspace status uses agent colors and keeps usage on its second row", () 
 
 test("unread label and arrow share their hit area across sidebar widths", () => {
   const ws = workspaceEntry({
-    id: 1,
+    id: viewerRef.workspace(1, 1),
     name: "Project",
     cwd: "/tmp",
     active: false,
@@ -484,7 +493,7 @@ test("unread label and arrow share their hit area across sidebar widths", () => 
 
 test("compaction herds on the second agent row ahead of waiting and summaries", () => {
   const e = entry({
-    target: { pane: 1 },
+    target: viewerRef.pane(0, 1),
     name: "Agent title",
     provider: "codex",
     state: "working",
@@ -520,14 +529,17 @@ test("compaction herds on the second agent row ahead of waiting and summaries", 
 
 test("compaction follows its start across scrolling, narrow rows and unseen restarts", () => {
   const e = entry({
-    target: { pane: 952 },
+    target: viewerRef.pane(0, 952),
     name: "Compacting agent",
     state: "working",
     compacting: true,
     compacting_since: 1_000_000,
   });
   const view = View.init(100, 30, true, 0, 1).withWidth(28 + lists_x);
-  const entries = [e, ...Array.from({ length: view.capacity }, (_, i) => entry({ target: { pane: 960 + i } }))];
+  const entries = [
+    e,
+    ...Array.from({ length: view.capacity }, (_, i) => entry({ target: viewerRef.pane(0, 960 + i) })),
+  ];
   view.count = entries.length;
   draw(view, [], [], 0);
   // First seen partway through, not at the scattered opening frame.
@@ -570,11 +582,15 @@ test("workspace port labels contain OSC8 URLs selected per viewer", () => {
   const ifaces = [{ name: "tailscale0", address: "100.80.1.2", kind: "tailscale", ipv6: false }];
   const endpoints = [endpoint({ bind_address: "*", scheme: "http", http_status: 200, interfaces: ifaces })];
   const ws = workspaceEntry({
-    id: 1,
+    id: viewerRef.workspace(1, 1),
     name: "test",
     cwd: "/tmp",
     active: true,
-    ports: { processes_available: true, ports_available: true, workspaces: [{ id: 1, background: 2, endpoints }] },
+    ports: {
+      processes_available: true,
+      ports_available: true,
+      workspaces: [{ id: viewerRef.workspace(1, 1), background: 2, endpoints }],
+    },
   });
   let w = new Writer();
   drawPorts(w, ws, 25, false);
@@ -591,12 +607,16 @@ test("non-browser endpoints have no link-out control", () => {
     endpoint({ pid: 13, name: "db", bind_address: "::1", port: 5432, ipv6: true }),
   ];
   const ws = workspaceEntry({
-    id: 1,
+    id: viewerRef.workspace(1, 1),
     name: "test",
     cwd: "/tmp",
     active: true,
     remote_links: true,
-    ports: { processes_available: true, ports_available: true, workspaces: [{ id: 1, endpoints }] },
+    ports: {
+      processes_available: true,
+      ports_available: true,
+      workspaces: [{ id: viewerRef.workspace(1, 1), endpoints }],
+    },
   });
   const w = new Writer();
   drawPorts(w, ws, 60, false);
@@ -610,22 +630,26 @@ test("port hit testing matches clipped labels and outer terminal receives link m
   ];
   const entries = [
     workspaceEntry({
-      id: 1,
+      id: viewerRef.workspace(1, 1),
       name: "test",
       cwd: "/tmp",
       active: true,
-      ports: { processes_available: true, ports_available: true, workspaces: [{ id: 1, endpoints }] },
+      ports: {
+        processes_available: true,
+        ports_available: true,
+        workspaces: [{ id: viewerRef.workspace(1, 1), endpoints }],
+      },
     }),
   ];
   const view = View.init(80, 24, true, 0, 0).withWorkspaces(1, 0);
   expect(portLink(view, entries, 1, 4)).toBeNull();
-  expect(portWorkspace(view, entries, 12, 2)!.id).toBe(1);
+  expect(portWorkspace(view, entries, 12, 2)!.id).toBe(viewerRef.workspace(1, 1));
   expect(portWorkspace(view, entries, 1, 2)).toBeNull();
   const w = new Writer();
   view.draw(w, [], entries);
   expect(has(w.s, "Open Link ↗ 2")).toBe(true);
   expect(has(w.s, "http://")).toBe(false);
-  const menu = new PortMenu(1);
+  const menu = new PortMenu(viewerRef.workspace(1, 1));
   menu.draw(w, entries[0], 80, 24);
   const host = new Terminal(80, 24);
   host.feed(w.s);
@@ -636,7 +660,10 @@ test("port hit testing matches clipped labels and outer terminal receives link m
   const rect = PortMenu.bounds(80, 24);
   expect(menu.hit(entries[0], 80, 24, rect.x + 3, rect.y + 2)).toBe(0);
   expect(menu.hit(entries[0], 80, 24, 0, 0)).toBeNull();
-  const single = { ...entries[0], ports: { workspaces: [{ id: 1, endpoints: endpoints.slice(0, 1) }] } };
+  const single = {
+    ...entries[0],
+    ports: { workspaces: [{ id: viewerRef.workspace(1, 1), endpoints: endpoints.slice(0, 1) }] },
+  };
   expect(portLink(view, [single], 13, 2)).toBe("http://localhost:3000");
 });
 
@@ -645,8 +672,14 @@ test("inferred link names share clipped hit geometry and name chooser destinatio
     endpoint({ label: "Finance Dashboard", scheme: "http", http_status: 200 }),
     endpoint({ pid: 13, pane: 2, label: "API Docs", port: 3001, scheme: "http", http_status: 200 }),
   ];
-  const works = [{ id: 1, endpoints: endpoints.slice(0, 1) }];
-  const ws = workspaceEntry({ id: 1, name: "test", cwd: "/tmp", active: true, ports: { workspaces: works } });
+  const works = [{ id: viewerRef.workspace(1, 1), endpoints: endpoints.slice(0, 1) }];
+  const ws = workspaceEntry({
+    id: viewerRef.workspace(1, 1),
+    name: "test",
+    cwd: "/tmp",
+    active: true,
+    ports: { workspaces: works },
+  });
   for (const width of [20, 28, 40]) {
     const view = View.init(100, 30, true, 0, 0).withWidth(width).withWorkspaces(1, 0);
     const range = linkRange(view, ws, [ws]);
@@ -657,7 +690,7 @@ test("inferred link names share clipped hit geometry and name chooser destinatio
   works[0].endpoints = endpoints;
   expect(portLabel(ws)).toBe("Open Link ↗ 2");
   const w = new Writer();
-  new PortMenu(1).draw(w, ws, 100, 30);
+  new PortMenu(viewerRef.workspace(1, 1)).draw(w, ws, 100, 30);
   expect(has(w.s, "Finance Dashboard · http://localhost:3000")).toBe(true);
   expect(has(w.s, "API Docs · http://localhost:3001")).toBe(true);
 });
@@ -665,11 +698,11 @@ test("inferred link names share clipped hit geometry and name chooser destinatio
 test("only a link still being named animates its placeholder dots", () => {
   const endpoints = [endpoint({ label_pending: true, scheme: "http", http_status: 200 })];
   const ws = workspaceEntry({
-    id: 1,
+    id: viewerRef.workspace(1, 1),
     name: "test",
     cwd: "/tmp",
     active: true,
-    ports: { workspaces: [{ id: 1, endpoints }] },
+    ports: { workspaces: [{ id: viewerRef.workspace(1, 1), endpoints }] },
   });
   expect(portName(ws)).toBeNull();
   let w = new Writer();
@@ -693,7 +726,7 @@ test("corgi frames occupy one column per glyph in the terminal", () => {
 
 test("idle face replaces stale activity while working activity remains useful", () => {
   const e = entry({
-    target: { pane: 1 },
+    target: viewerRef.pane(0, 1),
     name: "Agent",
     provider: "codex",
     state: "idle",
@@ -734,7 +767,7 @@ test("agent lifecycle labels follow the viewer language while activity stays ver
     ru: ["Запуск сеанса", "Ждёт ввода", "Сеанс завершён", "Ожидание агентов"],
   };
   const view = View.init(100, 30, true, 0, 1).withWidth(50),
-    e = entry({ target: { pane: 9512 }, name: "Agent", activity: "Starting session" }),
+    e = entry({ target: viewerRef.pane(0, 9512), name: "Agent", activity: "Starting session" }),
     previous = i18n.language();
   view.corgi_intensity = 0;
   try {
@@ -756,7 +789,7 @@ test("agent lifecycle labels follow the viewer language while activity stays ver
 });
 
 test("a startup ghost stays dimmed in working through its first idle prompt", () => {
-  const e = entry({ target: { pane: 1 }, name: "New agent", provider: "codex", starting: true }),
+  const e = entry({ target: viewerRef.pane(0, 1), name: "New agent", provider: "codex", starting: true }),
     view = View.init(100, 30, true, 0, 1),
     dim = fgRgb(mix(colors.bg, colors.text, 50));
   for (const focused of [false, true]) {
@@ -808,9 +841,17 @@ test("agents header names its scope and opens the scope menu left of New", () =>
 
 test("scope menu offers only the current workspace and all agents", () => {
   const workspaces = [
-    workspaceEntry({ id: 4, name: "corgi", cwd: "/tmp", active: true, agents: 3, working: 2, attention: 1 }),
-    workspaceEntry({ id: 7, name: "blog", cwd: "/tmp", active: false, agents: 1 }),
-    workspaceEntry({ id: 9, name: "notes", cwd: "/tmp", active: false }),
+    workspaceEntry({
+      id: viewerRef.workspace(1, 4),
+      name: "corgi",
+      cwd: "/tmp",
+      active: true,
+      agents: 3,
+      working: 2,
+      attention: 1,
+    }),
+    workspaceEntry({ id: viewerRef.workspace(1, 7), name: "blog", cwd: "/tmp", active: false, agents: 1 }),
+    workspaceEntry({ id: viewerRef.workspace(1, 9), name: "notes", cwd: "/tmp", active: false }),
   ];
   const view = View.init(100, 30, true, 0, 0).withWorkspaces(3, 0);
   const b = ScopeMenu.bounds(view, 100, 30);
@@ -867,16 +908,16 @@ test("translated narrow headers keep scope and new-agent controls separately rea
 test("grouped list draws one-row headers with a margin guide and measures rows per entry", () => {
   const entries = [
     entry({
-      target: { group: 1 },
+      target: { group: viewerRef.workspace(0, 1) },
       name: "corgi",
       provider: "codex",
       state: "idle",
       group: { agents: 2, working: 1, attention: 0, folded: false, current: true },
     }),
-    entry({ target: { pane: 1 }, name: "api refactor", provider: "codex", state: "blocked", focused: true }),
-    entry({ target: { pane: 2 }, name: "release notes", provider: "claude", state: "done" }),
+    entry({ target: viewerRef.pane(0, 1), name: "api refactor", provider: "codex", state: "blocked", focused: true }),
+    entry({ target: viewerRef.pane(0, 2), name: "release notes", provider: "claude", state: "done" }),
     entry({
-      target: { group: 2 },
+      target: { group: viewerRef.workspace(0, 2) },
       name: "blog",
       provider: "codex",
       state: "idle",
@@ -935,7 +976,7 @@ test("grouped list draws one-row headers with a margin guide and measures rows p
 test("group headers name their machine, which takes at most half the room", () => {
   const header = (name: string, machine: string) =>
     entry({
-      target: { group: 1 },
+      target: { group: viewerRef.workspace(0, 1) },
       name,
       provider: "codex",
       state: "idle",
@@ -953,7 +994,11 @@ test("group headers name their machine, which takes at most half the room", () =
 
 test("grouped scrolling fits more rows when headers are shorter", () => {
   const entries = Array.from({ length: 7 }, (_, i) =>
-    entry({ target: i % 3 === 0 ? { group: i } : { pane: i }, provider: "codex", state: "idle" }),
+    entry({
+      target: i % 3 === 0 ? { group: viewerRef.workspace(0, i) } : viewerRef.pane(0, i),
+      provider: "codex",
+      state: "idle",
+    }),
   );
   // 13 rows leave five list rows: three entries where only two agents fit.
   // Scrolled into a group, its pinned header takes one, except at the end,
@@ -968,18 +1013,24 @@ test("grouped scrolling fits more rows when headers are shorter", () => {
 });
 
 test("worktree groups branch off the workspace rail and pin their headers above scrolled rows", () => {
-  const worktree = { workspace: 1, path: "/repo/.worktrees/one", ghost: false };
+  const worktree = { workspace: viewerRef.workspace(0, 1), path: "/repo/.worktrees/one", ghost: false };
   const agent = (pane: number, name: string, inside: boolean) =>
-    entry({ target: { pane }, name, provider: "codex", state: "done", worktree: inside ? worktree : null });
+    entry({
+      target: viewerRef.pane(0, pane),
+      name,
+      provider: "codex",
+      state: "done",
+      worktree: inside ? worktree : null,
+    });
   const entries = [
     entry({
-      target: { group: 1 },
+      target: { group: viewerRef.workspace(0, 1) },
       name: "corgi",
       group: { agents: 3, working: 0, attention: 0, folded: false, current: true },
     }),
     agent(1, "direct", false),
     entry({
-      target: { worktree: worktree.path, workspace: 1 },
+      target: { worktree: worktree.path, workspace: viewerRef.workspace(0, 1) },
       name: "one",
       worktree,
       group: { agents: 2, working: 0, attention: 0, folded: false, current: false },
@@ -987,22 +1038,22 @@ test("worktree groups branch off the workspace rail and pin their headers above 
     agent(2, "first", true),
     agent(3, "second", true),
     entry({
-      target: { group: 2 },
+      target: { group: viewerRef.workspace(0, 2) },
       name: "blog",
       group: { agents: 1, working: 0, attention: 0, folded: true, current: false },
     }),
     entry({
-      target: { group: 3 },
+      target: { group: viewerRef.workspace(0, 3) },
       name: "site",
       group: { agents: 1, working: 0, attention: 0, folded: true, current: false },
     }),
     entry({
-      target: { group: 4 },
+      target: { group: viewerRef.workspace(0, 4) },
       name: "docs",
       group: { agents: 1, working: 0, attention: 0, folded: true, current: false },
     }),
     entry({
-      target: { group: 5 },
+      target: { group: viewerRef.workspace(0, 5) },
       name: "notes",
       group: { agents: 1, working: 0, attention: 0, folded: true, current: false },
     }),
@@ -1053,16 +1104,16 @@ test("worktree groups branch off the workspace rail and pin their headers above 
 });
 
 test("a lit worktree keeps its colors while the rest of the agent list fades", () => {
-  const worktree = { workspace: 1, path: "/repo/.worktrees/one", ghost: false };
+  const worktree = { workspace: viewerRef.workspace(0, 1), path: "/repo/.worktrees/one", ghost: false };
   const entries = [
-    entry({ target: { pane: 1 }, name: "direct", provider: "codex", state: "done" }),
+    entry({ target: viewerRef.pane(0, 1), name: "direct", provider: "codex", state: "done" }),
     entry({
-      target: { worktree: worktree.path, workspace: 1 },
+      target: { worktree: worktree.path, workspace: viewerRef.workspace(0, 1) },
       name: "one",
       worktree,
       group: { agents: 1, working: 0, attention: 0, folded: false, current: false },
     }),
-    entry({ target: { pane: 2 }, name: "inside", provider: "codex", state: "done", worktree }),
+    entry({ target: viewerRef.pane(0, 2), name: "inside", provider: "codex", state: "done", worktree }),
   ];
   const faded = (sgr: string) => {
     const w = new Writer();
@@ -1072,36 +1123,52 @@ test("a lit worktree keeps its colors while the rest of the agent list fades", (
   const view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
   const plain = draw(view, entries, []);
   expect(has(plain, "\x1b[22m" + fg("text") + "direct")).toBe(true);
-  view.spotlight = { workspace: 1, path: worktree.path };
+  view.spotlight = { workspace: viewerRef.workspace(0, 1), path: worktree.path };
   const lit = draw(view, entries, []);
   expect(has(lit, "\x1b[22m" + faded(fg("text")) + "direct")).toBe(true);
   expect(has(lit, "\x1b[22m" + fg("text") + "inside")).toBe(true);
   expect(has(lit, faded(fg("text")) + "one")).toBe(false);
   expect(hostText(lit)).toBe(hostText(plain));
   // With no path, the workspace's own rows stay lit and its worktrees fade.
-  view.spotlight = { workspace: 1, path: null };
+  view.spotlight = { workspace: viewerRef.workspace(0, 1), path: null };
   const main = draw(view, entries, []);
   expect(has(main, "\x1b[22m" + fg("text") + "direct")).toBe(true);
   expect(has(main, "\x1b[22m" + faded(fg("text")) + "inside")).toBe(true);
 });
 
 test("in All, a lit main checkout keeps its workspace's header and direct rows", () => {
-  const worktree = { workspace: 1, path: "/repo/.worktrees/one", ghost: false };
+  const worktree = { workspace: viewerRef.workspace(0, 1), path: "/repo/.worktrees/one", ghost: false };
   const entries = [
-    entry({ target: { group: 1 }, name: "repo" }),
-    entry({ target: { pane: 1 }, name: "direct" }),
-    entry({ target: { worktree: worktree.path, workspace: 1 }, name: "one", worktree }),
-    entry({ target: { pane: 2 }, name: "inside", worktree }),
-    entry({ target: { group: 2 }, name: "other" }),
-    entry({ target: { pane: 3 }, name: "elsewhere" }),
+    entry({ target: { group: viewerRef.workspace(0, 1) }, name: "repo" }),
+    entry({ target: viewerRef.pane(0, 1), name: "direct" }),
+    entry({ target: { worktree: worktree.path, workspace: viewerRef.workspace(0, 1) }, name: "one", worktree }),
+    entry({ target: viewerRef.pane(0, 2), name: "inside", worktree }),
+    entry({ target: { group: viewerRef.workspace(0, 2) }, name: "other" }),
+    entry({ target: viewerRef.pane(0, 3), name: "elsewhere" }),
   ];
   expect(unlit(entries, null)).toEqual([false, false, false, false, false, false]);
-  expect(unlit(entries, { workspace: 1, path: null })).toEqual([false, false, true, true, true, true]);
-  expect(unlit(entries, { workspace: 1, path: worktree.path })).toEqual([true, true, false, false, true, true]);
+  expect(unlit(entries, { workspace: viewerRef.workspace(0, 1), path: null })).toEqual([
+    false,
+    false,
+    true,
+    true,
+    true,
+    true,
+  ]);
+  expect(unlit(entries, { workspace: viewerRef.workspace(0, 1), path: worktree.path })).toEqual([
+    true,
+    true,
+    false,
+    false,
+    true,
+    true,
+  ]);
 });
 
 test("agent list shows a scrollbar on the border only when it overflows", () => {
-  const entries = Array.from({ length: 6 }, (_, i) => entry({ target: { pane: i }, provider: "codex", state: "idle" }));
+  const entries = Array.from({ length: 6 }, (_, i) =>
+    entry({ target: viewerRef.pane(0, i), provider: "codex", state: "idle" }),
+  );
   // 23 rows leave ten list rows: five agents.
   const fits = View.init(80, 23, true, 0, 5).withEntries(entries.slice(0, 5));
   expect(fits.thumb()).toBeNull();
@@ -1125,12 +1192,12 @@ test("agent list shows a scrollbar on the border only when it overflows", () => 
 
 test("git badge hit area follows sidebar width and workspace scroll", () => {
   const entries = [
-    workspaceEntry({ id: 1, name: "one", cwd: "/tmp", active: false }),
-    workspaceEntry({ id: 2, name: "two", cwd: "/tmp", active: true, git_ahead: 14 }),
-    workspaceEntry({ id: 3, name: "three", cwd: "/tmp", active: false }),
+    workspaceEntry({ id: viewerRef.workspace(1, 1), name: "one", cwd: "/tmp", active: false }),
+    workspaceEntry({ id: viewerRef.workspace(1, 2), name: "two", cwd: "/tmp", active: true, git_ahead: 14 }),
+    workspaceEntry({ id: viewerRef.workspace(1, 3), name: "three", cwd: "/tmp", active: false }),
   ];
   const view = View.init(100, 20, true, 0, 0).withWidth(36).withWorkspaces(3, 1);
-  expect(gitWorkspace(view, entries, 31, 2)!.id).toBe(2);
+  expect(gitWorkspace(view, entries, 31, 2)!.id).toBe(viewerRef.workspace(1, 2));
   expect(gitWorkspace(view, entries, 30, 2)).toBeNull();
   expect(gitWorkspace(view, entries, 34, 2)).toBeNull();
   expect(gitWorkspace(view, entries, 32, 3)).toBeNull();
@@ -1155,7 +1222,7 @@ test("commit relative time humanizes elapsed and future timestamps", () => {
 
 test("content wipes over the old corgi in terminal cells and then clears it", () => {
   const host = new Terminal(100, 30);
-  const e = entry({ target: { pane: 10001 }, name: "Agent", provider: "codex", state: "working" });
+  const e = entry({ target: viewerRef.pane(0, 10001), name: "Agent", provider: "codex", state: "working" });
   const view = View.init(100, 30, true, 0, 1);
   host.feed(draw(view, [e], [], 0));
   e.activity = "Reading files";
@@ -1205,16 +1272,16 @@ test("closing card keeps its glyphs and geometry while all colors fade into the 
 });
 
 test("a moved row rides a Kitty tint from where it was and shows as it lands; elsewhere its background tints", () => {
-  const worktree = { workspace: 1, path: "/repo/.worktrees/one", ghost: false };
+  const worktree = { workspace: viewerRef.workspace(0, 1), path: "/repo/.worktrees/one", ghost: false };
   const moved = (ms: number): Entry[] => [
-    entry({ target: { pane: 2 }, name: "stays", provider: "codex" }),
+    entry({ target: viewerRef.pane(0, 2), name: "stays", provider: "codex" }),
     entry({
-      target: { worktree: worktree.path, workspace: 1 },
+      target: { worktree: worktree.path, workspace: viewerRef.workspace(0, 1) },
       name: "one",
       worktree,
       group: { agents: 1, working: 0, attention: 0, folded: false, current: false },
     }),
-    { ...entry({ target: { pane: 1 }, name: "moves", provider: "codex", worktree }), moved: { from: 0, ms } },
+    { ...entry({ target: viewerRef.pane(0, 1), name: "moves", provider: "codex", worktree }), moved: { from: 0, ms } },
   ];
   const kitty = View.init(100, 30, true, 0, 3).withEntries(moved(0));
   kitty.supports_kitty_graphics = true;
@@ -1244,7 +1311,7 @@ test("a moved row rides a Kitty tint from where it was and shows as it lands; el
 
 test("only one sleeping corgi puffs at a time, and turning them off leaves a faint Z", () => {
   const entries = Array.from({ length: 4 }, (_, i) =>
-    entry({ target: { pane: i + 1 }, name: "Agent", provider: "claude", state: "idle" }),
+    entry({ target: viewerRef.pane(0, i + 1), name: "Agent", provider: "claude", state: "idle" }),
   );
   const view = View.init(100, 30, true, 0, entries.length);
   view.scope_label = "Corgi";
@@ -1274,7 +1341,7 @@ test("only one sleeping corgi puffs at a time, and turning them off leaves a fai
 });
 
 test("zero intensity cancels fetch and reveals immediately but leaves compaction alone", () => {
-  const e = entry({ target: { pane: 951 }, name: "intensity", state: "working" });
+  const e = entry({ target: viewerRef.pane(0, 951), name: "intensity", state: "working" });
   const view = View.init(100, 30, true, 0, 1);
   draw(view, [], [], 0);
   draw(view, [e], [], 0);
@@ -1303,21 +1370,21 @@ test("zero intensity cancels fetch and reveals immediately but leaves compaction
 test("context shows on the name line only near compaction and dims while compacting", () => {
   const entries = [
     entry({
-      target: { pane: 1 },
+      target: viewerRef.pane(0, 1),
       name: "migrate checkpoints",
       provider: "codex",
       state: "working",
       context: new ContextView({ used: 190_000n, window: 258_400n, at: 1 }),
     }),
     entry({
-      target: { pane: 2 },
+      target: viewerRef.pane(0, 2),
       name: "api refactor",
       provider: "codex",
       state: "working",
       context: new ContextView({ used: 120_000n, window: 258_400n, at: 1 }),
     }),
     entry({
-      target: { pane: 3 },
+      target: viewerRef.pane(0, 3),
       name: "release notes",
       provider: "claude",
       state: "working",
@@ -1347,7 +1414,7 @@ test("the drawer runs the workspace list to the bottom and leaves panes and tabs
   expect(view.hit(24, 28)).toEqual(H("workspace", 8));
   expect(view.hit(24, 29)).toEqual(H("none"));
   const entries = Array.from({ length: 12 }, (_, i) =>
-    workspaceEntry({ id: i + 1, name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
+    workspaceEntry({ id: viewerRef.workspace(1, i + 1), name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
   );
   const text = hostText(draw(view, [], entries));
   expect(text).toContain("ws9");
@@ -1358,7 +1425,7 @@ test("the agents drawer runs the agent list from the top, under its header alone
   const open = View.init(100, 30, true, 0, 0);
   open.drawer = "agents";
   const entries = Array.from({ length: 20 }, (_, i) =>
-    entry({ target: { pane: i + 1 }, name: `agent${i + 1}`, provider: "claude", state: "idle" }),
+    entry({ target: viewerRef.pane(0, i + 1), name: `agent${i + 1}`, provider: "claude", state: "idle" }),
   );
   const view = open.withEntries(entries);
   expect(view.area()).toEqual(View.init(100, 30, false, 0, 0).area());
@@ -1368,7 +1435,11 @@ test("the agents drawer runs the agent list from the top, under its header alone
   expect(view.hit(10, 2)).toEqual(H("none"));
   expect(view.hit(24, 0)).toEqual(H("none"));
   view.focus = "agents";
-  const lines = hostText(draw(view, entries, [workspaceEntry({ id: 1, name: "Project", cwd: "/tmp", active: true })]))
+  const lines = hostText(
+    draw(view, entries, [
+      workspaceEntry({ id: viewerRef.workspace(1, 1), name: "Project", cwd: "/tmp", active: true }),
+    ]),
+  )
     .split("\n")
     .map(line => line.slice(0, 28));
   expect(lines[0]).toBe("┌" + "─".repeat(26) + "┐");
@@ -1421,7 +1492,7 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   expect(lines[29]).toBe(edge("└", "┘"));
   // A focused list's thumb takes its outline's color; the other keeps the plain one.
   const many = Array.from({ length: 20 }, (_, i) =>
-    entry({ target: { pane: i + 1 }, name: `agent${i + 1}`, provider: "claude", state: "idle" }),
+    entry({ target: viewerRef.pane(0, i + 1), name: `agent${i + 1}`, provider: "claude", state: "idle" }),
   );
   const listed = View.init(100, 30, true, 0, 0).withEntries(many);
   const thumb = outline + "┃";
@@ -1443,9 +1514,12 @@ test("a dragged split moves the agents header within bounds", () => {
 
 test("an unfolded group scrolls into view as far as it fits, its header at most on top", () => {
   const header = (id: number) =>
-    entry({ target: { group: id }, group: { agents: 0, working: 0, attention: 0, folded: false, current: false } });
+    entry({
+      target: { group: viewerRef.workspace(0, id) },
+      group: { agents: 0, working: 0, attention: 0, folded: false, current: false },
+    });
   const agents = (from: number, n: number) =>
-    Array.from({ length: n }, (_, i) => entry({ target: { pane: from + i } }));
+    Array.from({ length: n }, (_, i) => entry({ target: viewerRef.pane(0, from + i) }));
   // 14 list rows: the first group takes 11, so the second's header sits on the 12th.
   const small = [header(1), ...agents(1, 5), header(2), ...agents(10, 2)];
   let view = View.init(100, 30, true, 0, small.length).withEntries(small);
@@ -1463,13 +1537,13 @@ test("an unfolded group scrolls into view as far as it fits, its header at most 
 });
 
 test("a worktree's group runs while rows are its checkout's", () => {
-  const info = { workspace: 1, path: "/w", ghost: false };
+  const info = { workspace: viewerRef.workspace(0, 1), path: "/w", ghost: false };
   const entries = [
-    entry({ target: { worktree: "/w", workspace: 1 }, worktree: info }),
-    entry({ target: { pane: 1 }, worktree: info }),
+    entry({ target: { worktree: "/w", workspace: viewerRef.workspace(0, 1) }, worktree: info }),
+    entry({ target: viewerRef.pane(0, 1), worktree: info }),
     entry({ target: { asleep: "s", provider: "claude" }, worktree: info }),
-    entry({ target: { worktree: "/v", workspace: 1 }, worktree: { ...info, path: "/v" } }),
-    entry({ target: { pane: 2 } }),
+    entry({ target: { worktree: "/v", workspace: viewerRef.workspace(0, 1) }, worktree: { ...info, path: "/v" } }),
+    entry({ target: viewerRef.pane(0, 2) }),
   ];
   expect(groupEnd(entries, 0)).toBe(3);
   expect(groupEnd(entries, 3)).toBe(4);
@@ -1509,7 +1583,7 @@ test("the push popover shows what the push and each commit change", () => {
     diff,
   });
   const ws = workspaceEntry({
-    id: 1,
+    id: viewerRef.workspace(1, 1),
     name: "w",
     cwd: "/tmp",
     active: true,
@@ -1528,7 +1602,7 @@ test("the push popover shows what the push and each commit change", () => {
 });
 
 test("the agent list draws into the bottom row and cuts off the entry that runs past it", () => {
-  const entries = Array.from({ length: 10 }, (_, i) => entry({ target: { pane: i + 1 }, name: `agent ${i}` }));
+  const entries = Array.from({ length: 10 }, (_, i) => entry({ target: viewerRef.pane(0, i + 1), name: `agent ${i}` }));
   const view = View.init(80, 20, true, 0, entries.length).withEntries(entries);
   const lines = hostText(draw(view, entries, []), 80, 20).split("\n");
   expect(lines[19]).toContain("agent 4");
@@ -1544,7 +1618,7 @@ test("badges count agents scrolled out of sight and point at the farthest, so th
   const working = new Set([0, 1, 7]);
   const entries = Array.from({ length: 10 }, (_, i) =>
     entry({
-      target: { pane: i + 1 },
+      target: viewerRef.pane(0, i + 1),
       name: `agent ${i}`,
       state: working.has(i) ? "working" : i === 8 ? "blocked" : "idle",
       attention: i === 9 ? "finished" : "none",
@@ -1572,7 +1646,7 @@ test("badges count agents scrolled out of sight and point at the farthest, so th
 test("a badge scrolls no farther than keeps the nearest it counts in view", () => {
   const working = new Set([2, 25, 40, 60]);
   const entries = Array.from({ length: 64 }, (_, i) =>
-    entry({ target: { pane: i + 1 }, name: `agent ${i}`, state: working.has(i) ? "working" : "idle" }),
+    entry({ target: viewerRef.pane(0, i + 1), name: `agent ${i}`, state: working.has(i) ? "working" : "idle" }),
   );
   const view = View.init(80, 21, true, 30, entries.length).withEntries(entries);
   const above = view.lists().badge("above")!,
@@ -1587,7 +1661,7 @@ test("a badge scrolls no farther than keeps the nearest it counts in view", () =
 });
 
 test("a focused agent list scrolls its last agent fully into view", () => {
-  const entries = Array.from({ length: 10 }, (_, i) => entry({ target: { pane: i + 1 }, name: `agent ${i}` }));
+  const entries = Array.from({ length: 10 }, (_, i) => entry({ target: viewerRef.pane(0, i + 1), name: `agent ${i}` }));
   const view = View.init(80, 22, true, 99, entries.length);
   view.focus = "agents";
   const focused = view.withEntries(entries);
@@ -1598,10 +1672,12 @@ test("a focused agent list scrolls its last agent fully into view", () => {
 test("the agent list stops scrolling once its last entry shows", () => {
   const entries: Entry[] = [];
   for (let g = 0; g < 4; g++) {
-    const worktree = { workspace: 1, path: `/w/${g}`, ghost: false };
-    entries.push(entry({ target: { worktree: worktree.path, workspace: 1 }, name: `wt ${g}`, worktree }));
+    const worktree = { workspace: viewerRef.workspace(0, 1), path: `/w/${g}`, ghost: false };
+    entries.push(
+      entry({ target: { worktree: worktree.path, workspace: viewerRef.workspace(0, 1) }, name: `wt ${g}`, worktree }),
+    );
     for (let a = 0; a < 3; a++)
-      entries.push(entry({ target: { pane: g * 10 + a + 1 }, name: `agent ${g}.${a}`, worktree }));
+      entries.push(entry({ target: viewerRef.pane(0, g * 10 + a + 1), name: `agent ${g}.${a}`, worktree }));
   }
   const view = View.init(80, 31, true, 99, entries.length).withEntries(entries);
   expect(view.offset).toBe(8);
@@ -1615,12 +1691,16 @@ test("the agent list stops scrolling once its last entry shows", () => {
     group = 0,
     checkout: Entry["worktree"] = null;
   const grouped = [...shape].map(c => {
-    if (c === "G") return entry({ target: { group: ++group }, name: `ws ${group}` });
+    if (c === "G") return entry({ target: { group: viewerRef.workspace(0, ++group) }, name: `ws ${group}` });
     if (c === "W") {
-      checkout = { workspace: group, path: `/w/${pane}`, ghost: false };
-      return entry({ target: { worktree: checkout.path, workspace: group }, name: "wt", worktree: checkout });
+      checkout = { workspace: viewerRef.workspace(0, group), path: `/w/${pane}`, ghost: false };
+      return entry({
+        target: { worktree: checkout.path, workspace: viewerRef.workspace(0, group) },
+        name: "wt",
+        worktree: checkout,
+      });
     }
-    return entry({ target: { pane: ++pane }, name: `agent ${pane}`, worktree: c === "a" ? checkout : null });
+    return entry({ target: viewerRef.pane(0, ++pane), name: `agent ${pane}`, worktree: c === "a" ? checkout : null });
   });
   const end = View.init(80, 29, true, 99, grouped.length).withEntries(grouped);
   expect(end.offset).toBe(10);
@@ -1638,8 +1718,15 @@ test("activity sections draw centered headers with the chevron over their rows' 
     fields: Partial<agentSections.Item> = {},
   ) => ({
     key: `pane:${pane}`,
-    entry: entry({ target: { pane }, name, provider: "claude", state, attention: "none", paused: pane === 5 }),
-    workspace: 1,
+    entry: entry({
+      target: viewerRef.pane(0, pane),
+      name,
+      provider: "claude",
+      state,
+      attention: "none",
+      paused: pane === 5,
+    }),
+    workspace: viewerRef.workspace(0, 1),
     checkout: null,
     since: now - minutes * 60_000,
     pin: null,
@@ -1656,7 +1743,12 @@ test("activity sections draw centered headers with the chevron over their rows' 
       item(5, "Docs", "idle", 40),
       item(6, "Old idea", "idle", 300),
     ],
-    { all: false, folded: new Set(), workspaces: [1], label: (_, checkout) => checkout?.slice(6) ?? "main" },
+    {
+      all: false,
+      folded: new Set(),
+      workspaces: [viewerRef.workspace(0, 1)],
+      label: (_, checkout) => checkout?.slice(6) ?? "main",
+    },
   );
   const view = View.init(100, 44, true, 0, entries.length).withEntries(entries);
   const lines = hostText(draw(view, entries, [], now), 100, 44)
@@ -1702,9 +1794,16 @@ test("activity sections draw centered headers with the chevron over their rows' 
 });
 test("starred agents take a gold edge, divider and star; focus keeps its bar", () => {
   const entries = [
-    entry({ target: { pane: 1 }, name: "Ship notes", provider: "claude", state: "idle", starred: true }),
-    entry({ target: { pane: 2 }, name: "Fix login", provider: "claude", state: "idle", starred: true, focused: true }),
-    entry({ target: { pane: 3 }, name: "Plain", provider: "claude", state: "idle" }),
+    entry({ target: viewerRef.pane(0, 1), name: "Ship notes", provider: "claude", state: "idle", starred: true }),
+    entry({
+      target: viewerRef.pane(0, 2),
+      name: "Fix login",
+      provider: "claude",
+      state: "idle",
+      starred: true,
+      focused: true,
+    }),
+    entry({ target: viewerRef.pane(0, 3), name: "Plain", provider: "claude", state: "idle" }),
   ];
   const view = View.init(80, 20, true, 0, entries.length).withEntries(entries);
   const out = draw(view, entries, []);
@@ -1718,7 +1817,7 @@ test("starred agents take a gold edge, divider and star; focus keeps its bar", (
   expect(row("Fix login")).toStartWith(" ▌○  ★ Fix login");
   expect(row("Plain")).toStartWith("  ○  Plain");
   // Under a workspace's rail, the rail stays; only the star is gold.
-  const group = entry({ target: { group: 1 }, name: "app" });
+  const group = entry({ target: { group: viewerRef.workspace(0, 1) }, name: "app" });
   const grouped = [group, entry({ ...entries[0], focused: false })];
   const all = View.init(80, 20, true, 0, grouped.length).withEntries(grouped);
   const drawn = hostText(draw(all, grouped, []), 80, 20).split("\n");
@@ -1728,7 +1827,7 @@ test("an opening section scrolls to show all of it, or when too long, just its f
   const rows = (n: number, from: number) =>
     Array.from({ length: n }, (_, i) =>
       entry({
-        target: { pane: from + i },
+        target: viewerRef.pane(0, from + i),
         name: `agent ${from + i}`,
         provider: "claude",
         state: "idle",
@@ -1759,7 +1858,9 @@ test("an opening section scrolls to show all of it, or when too long, just its f
 });
 test.each([null, "/repo/topic"])("opening a large section reveals its first agent past subhead %s", checkout => {
   const rows = (from: number, count: number) =>
-      Array.from({ length: count }, (_, i) => entry({ target: { pane: from + i }, name: `agent ${from + i}` })),
+      Array.from({ length: count }, (_, i) =>
+        entry({ target: viewerRef.pane(0, from + i), name: `agent ${from + i}` }),
+      ),
     entries = [
       entry({ target: { section: "working" } }),
       ...rows(1, 5),
@@ -1767,7 +1868,7 @@ test.each([null, "/repo/topic"])("opening a large section reveals its first agen
         target: { section: "idle" },
         group: { agents: 10, working: 0, attention: 0, folded: false, current: false, gap: true },
       }),
-      entry({ target: { section: "idle", workspace: 1, checkout, run: 0 } }),
+      entry({ target: { section: "idle", workspace: viewerRef.workspace(0, 1), checkout, run: 0 } }),
       ...rows(6, 10),
     ],
     view = View.init(100, 30, true, 0, entries.length).withEntries(entries),
@@ -1788,10 +1889,12 @@ test("the agent list's menu moves up to fit when the header sits low", () => {
 test("a row stepping aside draws off its place, never over the list's header", () => {
   const view = View.init(100, 30, true, 0, 2),
     entries = ["Alpha", "Beta"].map((name, i) =>
-      entry({ target: { pane: i + 1 }, name, provider: "claude", state: "idle", attention: "none" }),
+      entry({ target: viewerRef.pane(0, i + 1), name, provider: "claude", state: "idle", attention: "none" }),
     );
   const lines = () =>
-    hostText(draw(view, entries, [workspaceEntry({ id: 1, name: "ws", cwd: "", active: true })], 0)).split("\n");
+    hostText(
+      draw(view, entries, [workspaceEntry({ id: viewerRef.workspace(1, 1), name: "ws", cwd: "", active: true })], 0),
+    ).split("\n");
   const row = (text: string, screen: string[]) => screen.findIndex(line => line.includes(text));
   const settled = lines();
   entries[1].slide = 2;
@@ -1807,7 +1910,7 @@ test("a row stepping aside draws off its place, never over the list's header", (
 });
 test("clicks follow the top row when successive reorders overlap animations", () => {
   const base = [1, 2, 3, 4].map(pane =>
-    entry({ target: { pane }, name: `Agent ${pane}`, provider: "claude", state: "idle" }),
+    entry({ target: viewerRef.pane(0, pane), name: `Agent ${pane}`, provider: "claude", state: "idle" }),
   );
   for (const graphics of [false, true]) {
     const state = new sidebarRows.State();
@@ -1831,35 +1934,39 @@ test("clicks follow the top row when successive reorders overlap animations", ()
 test.each(["normal", "search", "fade", "ghost", "graphics", "agents", "workspaces"] as const)(
   "positioned sidebar matches buffered output for %s rows",
   mode => {
-    const checkout = { workspace: 1, path: "/repo/branch", ghost: false },
+    const checkout = { workspace: viewerRef.workspace(0, 1), path: "/repo/branch", ghost: false },
       entries = [
         entry({
-          target: { group: 1 },
+          target: { group: viewerRef.workspace(0, 1) },
           name: "project",
           group: { agents: 3, working: 2, attention: 0, folded: false, current: true },
         }),
         entry({
-          target: { pane: 99101 },
+          target: viewerRef.pane(0, 99101),
           name: "running 界",
           provider: "codex",
           state: "working",
           activity: "editing",
           focused: true,
         }),
-        entry({ target: { worktree: checkout.path, workspace: 1 }, name: "branch", worktree: checkout }),
         entry({
-          target: { pane: 99102 },
+          target: { worktree: checkout.path, workspace: viewerRef.workspace(0, 1) },
+          name: "branch",
+          worktree: checkout,
+        }),
+        entry({
+          target: viewerRef.pane(0, 99102),
           name: "other",
           provider: "claude",
           state: "working",
           activity: "reading",
           worktree: checkout,
         }),
-        entry({ target: { pane: 99103 }, name: "waiting", provider: "claude", state: "blocked" }),
+        entry({ target: viewerRef.pane(0, 99103), name: "waiting", provider: "claude", state: "blocked" }),
       ],
       workspaces = [
         workspaceEntry({
-          id: 1,
+          id: viewerRef.workspace(1, 1),
           name: "project",
           cwd: "/repo",
           active: true,
@@ -1877,7 +1984,7 @@ test.each(["normal", "search", "fade", "ghost", "graphics", "agents", "workspace
       entries[1].exit = { frame_ms: 5000, progress: 0.4 };
       entries[3].enter = 0.3;
       entries[4].moved = { from: 0, ms: 150 };
-      view.spotlight = { workspace: 1, path: checkout.path };
+      view.spotlight = { workspace: viewerRef.workspace(0, 1), path: checkout.path };
     }
     if (mode === "graphics") {
       view.supports_kitty_graphics = true;
@@ -1907,7 +2014,7 @@ test.each(["normal", "search", "fade", "ghost", "graphics", "agents", "workspace
 
 test("positioned git details keep nested columns and cursor save/restore unchanged", () => {
   const workspace = workspaceEntry({
-    id: 1,
+    id: viewerRef.workspace(1, 1),
     name: "repo",
     cwd: "/repo",
     active: true,
@@ -1939,9 +2046,17 @@ test("positioned activity sections and overflow badges keep their column offsets
         target: { section: "working" },
         group: { agents: 12, working: 12, attention: 0, folded: false, current: false },
       }),
-      entry({ target: { section: "working", workspace: 1, checkout: "/topic", run: 0 }, name: "topic" }),
+      entry({
+        target: { section: "working", workspace: viewerRef.workspace(0, 1), checkout: "/topic", run: 0 },
+        name: "topic",
+      }),
       ...Array.from({ length: 12 }, (_, index) =>
-        entry({ target: { pane: 99300 + index }, name: `agent ${index}`, state: "working", section: "working" }),
+        entry({
+          target: viewerRef.pane(0, 99300 + index),
+          name: `agent ${index}`,
+          state: "working",
+          section: "working",
+        }),
       ),
     ],
     view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
@@ -1952,7 +2067,13 @@ test("positioned activity sections and overflow badges keep their column offsets
   expect(writer.s).toBe(shifted(expected, 7));
 });
 test("an agent waiting on a retry shows a warm pause and counts down", () => {
-  const e = entry({ target: { pane: 1 }, name: "Agent title", provider: "codex", state: "working", retry_at: 60_000 });
+  const e = entry({
+    target: viewerRef.pane(0, 1),
+    name: "Agent title",
+    provider: "codex",
+    state: "working",
+    retry_at: 60_000,
+  });
   expect(indicator(e, false)).toEqual({ icon: "‖", color: "\x1b[1m" + fg("warm"), unread: false });
   expect(indicator({ ...e, retry_at: 0 }, false).icon).toBe("▶");
   const view = View.init(100, 30, true, 0, 1).withWidth(28 + lists_x);
@@ -1969,88 +2090,119 @@ test("an agent waiting on a retry shows a warm pause and counts down", () => {
 
 /** A rename open on `target` with the caret at the end of `text`, as the controller opens one. */
 const renaming = (target: RenameTarget, text: string, fallback = "", message: string | null = null): RenameState => {
-  const field = Dialog.init("agent" in target ? { agent: target.agent } : { workspace_name: target.workspace }, text);
+  const field = Dialog.init(
+    viewerRef.isPane(target) ? { agent: viewerRef.parts(target).id } : { workspace_name: viewerRef.parts(target).id },
+    text,
+  );
   field.selected = false;
   field.position(field.len);
   return { target, field, message, fallback };
 };
-const three_workspaces = [1, 2, 3].map(id => workspaceEntry({ id, name: `ws${id}`, cwd: "/tmp", active: id === 1 }));
+const three_workspaces = [1, 2, 3].map(id =>
+  workspaceEntry({ id: viewerRef.workspace(1, id), name: `ws${id}`, cwd: "/tmp", active: id === 1 }),
+);
 const agents = (n: number) =>
-  Array.from({ length: n }, (_, i) => entry({ target: { pane: i + 1 }, name: `agent ${i}`, provider: "claude" }));
+  Array.from({ length: n }, (_, i) =>
+    entry({ target: viewerRef.pane(0, i + 1), name: `agent ${i}`, provider: "claude" }),
+  );
 
 test("the rename field takes a row's name columns and says where its message goes", () => {
   const entries = agents(4);
   const view = View.init(100, 30, true, 0, entries.length).withWorkspaces(3, 0).withEntries(entries);
   // The name starts a column into the lists and runs to the git column.
-  expect(view.fieldRect({ workspace: 1 }, three_workspaces)).toEqual({ x: 2, y: 2, width: 19, message_y: 3 });
-  expect(view.fieldRect({ workspace: 3 }, three_workspaces)).toEqual({ x: 2, y: 8, width: 19, message_y: 9 });
+  expect(view.fieldRect(viewerRef.workspace(1, 1), three_workspaces)).toEqual({
+    x: 2,
+    y: 2,
+    width: 19,
+    message_y: 3,
+  });
+  expect(view.fieldRect(viewerRef.workspace(1, 3), three_workspaces)).toEqual({
+    x: 2,
+    y: 8,
+    width: 19,
+    message_y: 9,
+  });
   // Agent rows start two below the header; the name has the row past its dot.
-  expect(view.fieldRect({ agent: 1 }, three_workspaces)).toEqual({ x: 5, y: 16, width: 21, message_y: 17 });
-  expect(view.fieldRect({ agent: 4 }, three_workspaces)).toEqual({ x: 5, y: 22, width: 21, message_y: 23 });
-  expect(view.fieldRect({ workspace: 9 }, three_workspaces)).toBeNull();
-  expect(view.fieldRect({ agent: 9 }, three_workspaces)).toBeNull();
-  expect(View.init(100, 30, false, 0, 0).fieldRect({ workspace: 1 }, three_workspaces)).toBeNull();
-  expect(View.init(100, 30, false, 0, 0).fieldRect({ agent: 1 }, three_workspaces)).toBeNull();
+  expect(view.fieldRect(viewerRef.pane(0, 1), three_workspaces)).toEqual({ x: 5, y: 16, width: 21, message_y: 17 });
+  expect(view.fieldRect(viewerRef.pane(0, 4), three_workspaces)).toEqual({ x: 5, y: 22, width: 21, message_y: 23 });
+  expect(view.fieldRect(viewerRef.workspace(1, 9), three_workspaces)).toBeNull();
+  expect(view.fieldRect(viewerRef.pane(0, 9), three_workspaces)).toBeNull();
+  expect(View.init(100, 30, false, 0, 0).fieldRect(viewerRef.workspace(1, 1), three_workspaces)).toBeNull();
+  expect(View.init(100, 30, false, 0, 0).fieldRect(viewerRef.pane(0, 1), three_workspaces)).toBeNull();
   // Readings off shorten the workspace rows; the agent list moves with the split.
   const compact = View.init(100, 30, true, 0, entries.length, 10).withWorkspaces(3, 0).withEntries(entries);
   compact.resources = { enabled: false };
-  expect(compact.fieldRect({ workspace: 3 }, three_workspaces)!.y).toBe(6);
-  expect(compact.fieldRect({ agent: 1 }, three_workspaces)!.y).toBe(12);
+  expect(compact.fieldRect(viewerRef.workspace(1, 3), three_workspaces)!.y).toBe(6);
+  expect(compact.fieldRect(viewerRef.pane(0, 1), three_workspaces)!.y).toBe(12);
   // The figure and the notes keep their columns at the right.
-  const busy = entries.map(e => ("pane" in e.target && e.target.pane === 2 ? { ...e, notes: 2 } : e));
-  expect(view.withEntries(busy).fieldRect({ agent: 2 }, three_workspaces)!.width).toBe(21 - 8);
+  const busy = entries.map(e =>
+    viewerRef.isPane(e.target) && viewerRef.parts(e.target).id === 2 ? { ...e, notes: 2 } : e,
+  );
+  expect(view.withEntries(busy).fieldRect(viewerRef.pane(0, 2), three_workspaces)!.width).toBe(21 - 8);
 });
 
 test("a renamed row scrolled out of its list has no field, and the last visible line puts the message above", () => {
   const workspaces = Array.from({ length: 8 }, (_, i) =>
-    workspaceEntry({ id: i + 1, name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
+    workspaceEntry({ id: viewerRef.workspace(1, i + 1), name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
   );
   const entries = agents(20);
   const view = View.init(100, 30, true, 3, entries.length).withWorkspaces(8, 2).withEntries(entries);
   expect(view.workspaceCapacity()).toBe(4);
-  expect(view.fieldRect({ workspace: 2 }, workspaces)).toBeNull();
-  expect(view.fieldRect({ workspace: 3 }, workspaces)).toEqual({ x: 2, y: 2, width: 19, message_y: 3 });
-  expect(view.fieldRect({ workspace: 6 }, workspaces)!.y).toBe(11);
-  expect(view.fieldRect({ workspace: 7 }, workspaces)).toBeNull();
+  expect(view.fieldRect(viewerRef.workspace(1, 2), workspaces)).toBeNull();
+  expect(view.fieldRect(viewerRef.workspace(1, 3), workspaces)).toEqual({
+    x: 2,
+    y: 2,
+    width: 19,
+    message_y: 3,
+  });
+  expect(view.fieldRect(viewerRef.workspace(1, 6), workspaces)!.y).toBe(11);
+  expect(view.fieldRect(viewerRef.workspace(1, 7), workspaces)).toBeNull();
   expect(view.offset).toBe(3);
-  expect(view.fieldRect({ agent: 3 }, workspaces)).toBeNull();
-  expect(view.fieldRect({ agent: 4 }, workspaces)!.y).toBe(16);
-  expect(view.fieldRect({ agent: 10 }, workspaces)!.y).toBe(28);
-  expect(view.fieldRect({ agent: 11 }, workspaces)).toBeNull();
+  expect(view.fieldRect(viewerRef.pane(0, 3), workspaces)).toBeNull();
+  expect(view.fieldRect(viewerRef.pane(0, 4), workspaces)!.y).toBe(16);
+  expect(view.fieldRect(viewerRef.pane(0, 10), workspaces)!.y).toBe(28);
+  expect(view.fieldRect(viewerRef.pane(0, 11), workspaces)).toBeNull();
   // Boxed, the list ends a row higher: the seventh row shows its name line only.
   const boxed = View.init(100, 30, true, 0, entries.length);
   boxed.focus = "agents";
   const focused = boxed.withEntries(entries);
-  expect(focused.fieldRect({ agent: 6 }, workspaces)).toEqual({ x: 5, y: 26, width: 21, message_y: 27 });
-  expect(focused.fieldRect({ agent: 7 }, workspaces)).toEqual({ x: 5, y: 28, width: 21, message_y: 27 });
-  expect(focused.fieldRect({ agent: 8 }, workspaces)).toBeNull();
+  expect(focused.fieldRect(viewerRef.pane(0, 6), workspaces)).toEqual({ x: 5, y: 26, width: 21, message_y: 27 });
+  expect(focused.fieldRect(viewerRef.pane(0, 7), workspaces)).toEqual({ x: 5, y: 28, width: 21, message_y: 27 });
+  expect(focused.fieldRect(viewerRef.pane(0, 8), workspaces)).toBeNull();
 });
 
 test("the workspaces drawer finds a visible workspace row's field", () => {
   const workspaces = Array.from({ length: 12 }, (_, i) =>
-    workspaceEntry({ id: i + 1, name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
+    workspaceEntry({ id: viewerRef.workspace(1, i + 1), name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
   );
   const open = View.init(100, 30, true, 0, 0);
   open.drawer = "workspaces";
   const view = open.withWorkspaces(12, 0);
-  expect(view.fieldRect({ workspace: 9 }, workspaces)).toEqual({ x: 2, y: 26, width: 19, message_y: 27 });
-  expect(view.fieldRect({ workspace: 10 }, workspaces)).toBeNull();
-  expect(view.fieldRect({ agent: 1 }, workspaces)).toBeNull();
+  expect(view.fieldRect(viewerRef.workspace(1, 9), workspaces)).toEqual({
+    x: 2,
+    y: 26,
+    width: 19,
+    message_y: 27,
+  });
+  expect(view.fieldRect(viewerRef.workspace(1, 10), workspaces)).toBeNull();
+  expect(view.fieldRect(viewerRef.pane(0, 1), workspaces)).toBeNull();
   const agents_drawer = View.init(100, 30, true, 0, 0);
   agents_drawer.drawer = "agents";
-  expect(agents_drawer.withWorkspaces(12, 0).fieldRect({ workspace: 1 }, workspaces)).toBeNull();
-  const lines = hostText(draw(view.withRename(renaming({ workspace: 9 }, "ninth")), [], workspaces)).split("\n");
+  expect(agents_drawer.withWorkspaces(12, 0).fieldRect(viewerRef.workspace(1, 1), workspaces)).toBeNull();
+  const lines = hostText(draw(view.withRename(renaming(viewerRef.workspace(1, 9), "ninth")), [], workspaces)).split(
+    "\n",
+  );
   expect(lines[26].startsWith("  ninth ")).toBe(true);
   expect(lines[26]).not.toContain("ws9");
 });
 
 test("a renamed row shows its field in place of the name, muted fallback while empty", () => {
   const entries = agents(3);
-  const workspaces = three_workspaces.map(ws => (ws.id === 2 ? { ...ws, git_ahead: 3 } : ws));
+  const workspaces = three_workspaces.map(ws => (ws.id === viewerRef.workspace(1, 2) ? { ...ws, git_ahead: 3 } : ws));
   const view = View.init(100, 30, true, 0, entries.length).withWorkspaces(3, 0).withEntries(entries);
   const fill = new Style({ fg: "text", bg: "surface" }).sgr();
   const hint = new Style({ fg: "muted", bg: "surface" }).sgr();
-  let out = draw(view.withRename(renaming({ workspace: 2 }, "renamed")), entries, workspaces);
+  let out = draw(view.withRename(renaming(viewerRef.workspace(1, 2), "renamed")), entries, workspaces);
   let lines = hostText(out).split("\n");
   expect(lines[5].startsWith("  renamed  ")).toBe(true);
   expect(lines[5]).not.toContain("ws2");
@@ -2060,11 +2212,11 @@ test("a renamed row shows its field in place of the name, muted fallback while e
   expect(lines[16]).toContain("agent 0");
   expect(has(out, fill + " ".repeat(19))).toBe(true);
   expect(has(out, fill + "renamed")).toBe(true);
-  out = draw(view.withRename(renaming({ workspace: 2 }, "", "project")), entries, workspaces);
+  out = draw(view.withRename(renaming(viewerRef.workspace(1, 2), "", "project")), entries, workspaces);
   lines = hostText(out).split("\n");
   expect(lines[5].startsWith("  project ")).toBe(true);
   expect(has(out, hint + "project")).toBe(true);
-  out = draw(view.withRename(renaming({ agent: 2 }, "tagged")), entries, workspaces);
+  out = draw(view.withRename(renaming(viewerRef.pane(0, 2), "tagged")), entries, workspaces);
   lines = hostText(out).split("\n");
   // The field starts where the name stood.
   expect(
@@ -2077,12 +2229,12 @@ test("a renamed row shows its field in place of the name, muted fallback while e
   expect(lines[16]).toContain("agent 0");
   expect(lines[20]).toContain("agent 2");
   expect(has(out, fill + " ".repeat(21))).toBe(true);
-  out = draw(view.withRename(renaming({ agent: 2 }, "", "Claude")), entries, workspaces);
+  out = draw(view.withRename(renaming(viewerRef.pane(0, 2), "", "Claude")), entries, workspaces);
   expect(hostText(out).split("\n")[18].slice(5, 12)).toBe("Claude ");
   expect(has(out, hint + "Claude")).toBe(true);
   // A rename on a row that isn't listed changes nothing.
   view.corgi_intensity = 0;
-  expect(draw(view.withRename(renaming({ agent: 9 }, "lost")), entries, workspaces, 5000)).toBe(
+  expect(draw(view.withRename(renaming(viewerRef.pane(0, 9), "lost")), entries, workspaces, 5000)).toBe(
     draw(view, entries, workspaces, 5000),
   );
 });
@@ -2090,17 +2242,21 @@ test("a renamed row shows its field in place of the name, muted fallback while e
 test("a rename's message takes the line below the field, or the one above on the list's last line", () => {
   const entries = agents(3);
   const view = View.init(100, 30, true, 0, entries.length).withWorkspaces(3, 0).withEntries(entries);
-  let out = draw(view.withRename(renaming({ workspace: 2 }, "x", "", "Busy: try again")), entries, three_workspaces);
+  let out = draw(
+    view.withRename(renaming(viewerRef.workspace(1, 2), "x", "", "Busy: try again")),
+    entries,
+    three_workspaces,
+  );
   let lines = hostText(out).split("\n");
   expect(lines[6].startsWith("  Busy: try again")).toBe(true);
   expect(has(out, fg("hot") + "Busy: try again")).toBe(true);
   // Clipped to the sidebar, short of the border.
   const long = "Could not rename this workspace";
-  lines = hostText(draw(view.withRename(renaming({ workspace: 2 }, "x", "", long)), entries, three_workspaces)).split(
-    "\n",
-  );
+  lines = hostText(
+    draw(view.withRename(renaming(viewerRef.workspace(1, 2), "x", "", long)), entries, three_workspaces),
+  ).split("\n");
   expect(lines[6].slice(2, 28)).toBe("Could not rename this w… │");
-  out = draw(view.withRename(renaming({ agent: 2 }, "x", "", "Busy: try again")), entries, three_workspaces);
+  out = draw(view.withRename(renaming(viewerRef.pane(0, 2), "x", "", "Busy: try again")), entries, three_workspaces);
   lines = hostText(out).split("\n");
   expect(lines[18].slice(5, 7)).toBe("x ");
   expect(lines[19].startsWith("  Busy: try again")).toBe(true);
@@ -2108,7 +2264,7 @@ test("a rename's message takes the line below the field, or the one above on the
   const many = agents(20);
   const boxed = View.init(100, 30, true, 0, many.length);
   boxed.focus = "agents";
-  const focused = boxed.withEntries(many).withRename(renaming({ agent: 7 }, "seventh", "", "Busy: try again"));
+  const focused = boxed.withEntries(many).withRename(renaming(viewerRef.pane(0, 7), "seventh", "", "Busy: try again"));
   lines = hostText(draw(focused, many, three_workspaces)).split("\n");
   expect(lines[28].slice(5, 12)).toBe("seventh");
   expect(lines[27].startsWith("│ Busy: try again")).toBe(true);
@@ -2119,7 +2275,7 @@ test("a name longer than the field shows its tail, and the caret follows it", ()
   const entries = agents(3);
   const view = View.init(100, 30, true, 0, entries.length).withWorkspaces(3, 0).withEntries(entries);
   const long = "a very long workspace name indeed";
-  const renamed = view.withRename(renaming({ workspace: 2 }, long));
+  const renamed = view.withRename(renaming(viewerRef.workspace(1, 2), long));
   const lines = hostText(draw(renamed, entries, three_workspaces)).split("\n");
   expect(lines[5].slice(2, 21)).toBe("kspace name indeed ");
   const caret = (v: View) => {
@@ -2128,15 +2284,15 @@ test("a name longer than the field shows its tail, and the caret follows it", ()
     return w.buffered();
   };
   expect(caret(renamed)).toBe("\x1b[0m\x1b[6;21H\x1b[?25h");
-  expect(caret(view.withRename(renaming({ workspace: 1 }, "ws")))).toBe("\x1b[0m\x1b[3;5H\x1b[?25h");
-  expect(caret(view.withRename(renaming({ workspace: 1 }, "", "folder")))).toBe("\x1b[0m\x1b[3;3H\x1b[?25h");
-  expect(caret(view.withRename(renaming({ agent: 1 }, "abc")))).toBe("\x1b[0m\x1b[17;9H\x1b[?25h");
+  expect(caret(view.withRename(renaming(viewerRef.workspace(1, 1), "ws")))).toBe("\x1b[0m\x1b[3;5H\x1b[?25h");
+  expect(caret(view.withRename(renaming(viewerRef.workspace(1, 1), "", "folder")))).toBe("\x1b[0m\x1b[3;3H\x1b[?25h");
+  expect(caret(view.withRename(renaming(viewerRef.pane(0, 1), "abc")))).toBe("\x1b[0m\x1b[17;9H\x1b[?25h");
   // The caret sits where the field's text has it, not at its end.
-  const inside = renaming({ agent: 1 }, "abc");
+  const inside = renaming(viewerRef.pane(0, 1), "abc");
   inside.field.position(1);
   expect(caret(view.withRename(inside))).toBe("\x1b[0m\x1b[17;7H\x1b[?25h");
   expect(caret(view)).toBe("");
-  expect(caret(view.withRename(renaming({ agent: 9 }, "lost")))).toBe("");
+  expect(caret(view.withRename(renaming(viewerRef.pane(0, 9), "lost")))).toBe("");
   const scrolled = View.init(100, 30, true, 3, 20).withWorkspaces(3, 0).withEntries(agents(20));
-  expect(caret(scrolled.withRename(renaming({ agent: 1 }, "gone")))).toBe("");
+  expect(caret(scrolled.withRename(renaming(viewerRef.pane(0, 1), "gone")))).toBe("");
 });

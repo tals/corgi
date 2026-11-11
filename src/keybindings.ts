@@ -15,7 +15,7 @@ export interface Shortcut {
 }
 export interface Entry {
   id: string;
-  action: action.Action;
+  action: action.Template;
   title: string;
   indexed: boolean;
   shortcuts: Shortcut[];
@@ -28,13 +28,12 @@ export class InvalidKeys extends Error {
 function fail(message: string): never {
   throw new InvalidKeys(message);
 }
-export function id(a: action.Action): string {
-  if (typeof a.value === "object") return fail("Viewer-local workspace references cannot be saved as shortcuts");
+export function id(a: action.Template): string {
   return a.name === "tab" || a.name === "goto-workspace"
     ? a.name
     : a.name + (a.value === undefined || (a.name === "resources" && a.value === 0) ? "" : `:${a.value}`);
 }
-export function target(name: string): action.Action {
+export function target(name: string): action.Template {
   if (name === "tab" || name === "goto-workspace") return { name, value: 1 };
   const colon = name.indexOf(":");
   try {

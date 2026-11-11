@@ -1,5 +1,6 @@
+import * as viewerRef from "./viewer_ref";
 import { test, expect } from "bun:test";
-import { parse, same, type Action } from "./action";
+import { bind, parse, same, type Action } from "./action";
 test("wire names used by the CLI and the test suites parse", () => {
   expect(parse("split", "down")).toEqual({ name: "split", value: "down" });
   expect(parse("split")).toEqual({ name: "split", value: "right" });
@@ -38,13 +39,36 @@ test("workspace arguments accept a local id and default to the current workspace
   }
 });
 test("actions with workspace references survive JSON and compare by target", () => {
-  const action: Action = { name: "worktrees", value: { machine: 2, workspace: 3 } };
+  const action: Action = { name: "worktrees", value: viewerRef.workspace(2, 3) };
   const copy: Action = JSON.parse(JSON.stringify(action));
   expect(same(action, copy)).toBe(true);
-  expect(same(action, { name: "worktrees", value: { machine: 1, workspace: 3 } })).toBe(false);
-  expect(same(action, { name: "worktrees", value: { machine: 2, workspace: 4 } })).toBe(false);
-  expect(same(action, { name: "resources", value: { machine: 2, workspace: 3 } })).toBe(false);
+  expect(same(action, { name: "worktrees", value: viewerRef.workspace(1, 3) })).toBe(false);
+  expect(same(action, { name: "worktrees", value: viewerRef.workspace(2, 4) })).toBe(false);
+  expect(same(action, { name: "resources", value: viewerRef.workspace(2, 3) })).toBe(false);
   expect(same(action, { name: "worktrees", value: 3 })).toBe(false);
   expect(same(parse("split", "down"), { name: "split", value: "down" })).toBe(true);
   expect(same(parse("split", "down"), { name: "split", value: "right" })).toBe(false);
 });
+
+test("input templates bind workspace targets before dispatch", () => {
+  const local = viewerRef.workspace(1, 3),
+    remote = viewerRef.workspace(2, 3);
+  const template = parse("resources");
+  const action = bind(template, remote);
+  expect(action).toEqual({ name: "resources", value: remote });
+  expect(bind(template, local).value).toBe(local);
+  expect(action.value).toBe(remote);
+  expect(bind(parse("worktrees", "9"), remote).value).toBe(viewerRef.workspace(2, 9));
+  expect(bind(parse("split", "down"), remote)).toEqual({ name: "split", value: "down" });
+});
+
+// Executable actions cannot carry unresolved or wrong-kind workspace targets.
+function concreteTargets() {
+  // @ts-expect-error A workspace action requires a target.
+  const absent: Action = { name: "worktrees" };
+  // @ts-expect-error Daemon-local numbers belong only to input templates.
+  const local: Action = { name: "resources", value: 3 };
+  // @ts-expect-error A pane identity is not a workspace identity.
+  const pane: Action = { name: "worktrees", value: viewerRef.pane(1, 3) };
+  return [absent, local, pane];
+}

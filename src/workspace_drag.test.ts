@@ -1,8 +1,9 @@
+import * as viewerRef from "./viewer_ref";
 import { test, expect } from "bun:test";
 import { Drag } from "./workspace_drag";
 import { View } from "./sidebar";
 test("workspace drop follows row midpoints, scrolling, and stale lists", () => {
-  const ids = [1, 2, 3, 4],
+  const ids = [1, 2, 3, 4].map(id => viewerRef.workspace(1, id)),
     view = View.init(100, 30, true, 0, 0, 12).withWorkspaces(ids.length, 0),
     drag = Drag.init(view, ids, 0, 5, 2);
   drag.update(view, ids, 5, 9);

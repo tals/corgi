@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { View, isHeading, type Entry } from "./sidebar";
 import { sameTarget } from "./agent_navigation";
 import * as rowGlide from "./row_glide";
@@ -152,7 +153,7 @@ export class State {
         regrouped = !arrived && !sameGroup(slot.entry, entry),
         lost =
           slot.occupied &&
-          "pane" in entry.target &&
+          viewerRef.isPane(entry.target) &&
           slot.entry.provider === entry.provider &&
           (slot.entry.conversation ?? 0) !== 0 &&
           (entry.conversation ?? 0) === 0 &&

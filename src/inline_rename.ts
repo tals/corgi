@@ -1,14 +1,10 @@
+import * as viewerRef from "./viewer_ref";
 //! Renaming a sidebar row in place: the double-click that starts it and the
 //! field that replaces the row's name while it is edited.
 import { Dialog } from "./name_dialog";
 
 /** A pane-backed agent row by pane id, or a workspace row by workspace id. */
-export type RenameTarget = { agent: number } | { workspace: number };
-
-export function sameRenameTarget(a: RenameTarget, b: RenameTarget): boolean {
-  if ("agent" in a) return "agent" in b && a.agent === b.agent;
-  return "workspace" in b && a.workspace === b.workspace;
-}
+export type RenameTarget = viewerRef.Pane | viewerRef.Workspace;
 
 /** How soon a second press on the same row counts as a double-click. */
 export const double_click_ms = 500;
@@ -28,7 +24,7 @@ export class ClickHistory {
   press(target: RenameTarget, now: number, x: number, y: number): boolean {
     if (
       this.target !== null &&
-      sameRenameTarget(this.target, target) &&
+      this.target === target &&
       now - this.at < double_click_ms &&
       !this.moved &&
       x === this.x &&
@@ -85,7 +81,8 @@ export class InlineRename {
   /** A field on `target` holding `text`, with the caret at its end and
    * nothing selected: typing adds to the name rather than replacing it. */
   static open(target: RenameTarget, text: string, fallback: string): InlineRename {
-    const field = Dialog.init("agent" in target ? { agent: target.agent } : { workspace_name: target.workspace }, text);
+    const id = viewerRef.parts(target).id;
+    const field = Dialog.init(viewerRef.isPane(target) ? { agent: id } : { workspace_name: id }, text);
     field.selected = false;
     field.position(field.len);
     return new InlineRename(target, field, fallback);

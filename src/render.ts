@@ -1,4 +1,5 @@
-import type { Action } from "./action";
+import type * as viewerRef from "./viewer_ref";
+import type { Template as Action } from "./action";
 import type * as workspaceArchive from "./workspace_archive";
 import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
@@ -218,7 +219,7 @@ export interface Ui {
   link_tooltip: boolean;
   link_card: linkTooltip.Card | null;
   resources: any;
-  resource_hover: number | null;
+  resource_hover: viewerRef.Workspace | null;
   resource_card: resourceTooltip.State | null;
   startup_waits: StartupWait[];
   startup_card: startupCard.State | null;
@@ -227,14 +228,12 @@ export interface Ui {
   /** A pane an action is opening has the keyboard: no pane shows focus. */
   pane_opening: boolean;
   signal_bars: SignalBars | null;
-  git_hover: number | null;
+  git_hover: viewerRef.Workspace | null;
   /** Panes whose grips showed last frame. */
   grip_hover: readonly number[];
   /** The push card, shown or held open, with the row whose review shows dimmed. */
   git_card: gitTooltip.State | null;
   worktree_card: worktreeTooltip.State | null;
-  /** The sidebar row for a workspace on the given machine, or the selected one. */
-  row_key: (id: number, machine?: number) => number | null;
   /** The worktree browsed in the overview, or the checkout the launcher
    * starts agents in, whose rows stay lit while the rest of the agent list dims. */
   worktree_spotlight: sidebar.Spotlight | null;
@@ -341,7 +340,6 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     grip_hover: [],
     git_card: null,
     worktree_card: null,
-    row_key: id => id,
     worktree_spotlight: null,
     agent_launcher: null,
     corgi_setup: null,
@@ -919,7 +917,7 @@ export function frame(
         : null;
   const git_ws =
     u.git_card && u.agent_launcher === null && u.corgi_setup === null
-      ? (u.workspaces.find(ws => u.git_card!.workspace !== null && ws.id === u.row_key(u.git_card!.workspace)) ?? null)
+      ? (u.workspaces.find(ws => u.git_card!.workspace !== null && ws.id === u.git_card!.workspace) ?? null)
       : null;
   const git_rect = git_ws
     ? gitTooltip.geometry(git_ws, width, height, u.git_card!.anchor.x, u.git_card!.anchor.y)
@@ -1229,7 +1227,7 @@ export function frame(
   }
   if (u.worktree_card) {
     const id = u.worktree_card.workspace,
-      ws = id === null ? undefined : u.workspaces.find(ws => ws.id === u.row_key(id.workspace, id.machine));
+      ws = id === null ? undefined : u.workspaces.find(ws => ws.id === id);
     if (ws) {
       const badge = sidebar.worktreeBadge(side, u.workspaces, ws.id),
         now = milliTimestamp(),

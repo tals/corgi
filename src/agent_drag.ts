@@ -1,3 +1,4 @@
+import type * as viewerRef from "./viewer_ref";
 import { isAgent, isGroup, isSection, isSubhead, type Sort, type View, type Target } from "./sidebar";
 import { sameTarget } from "./agent_navigation";
 
@@ -25,7 +26,7 @@ export class Drag {
   end: number;
   starred: boolean;
   /** Each row's workspace, by the subhead over it; null where none says. */
-  owners: (number | null)[];
+  owners: (viewerRef.Workspace | null)[];
   private pointer: { x: number; y: number } | null = null;
   private scroll_direction: -1 | 0 | 1 = 0;
   private scroll_at = 0;
@@ -34,7 +35,7 @@ export class Drag {
     public source: number,
     public start_x: number,
     public start_y: number,
-    public workspace: number,
+    public workspace: viewerRef.Workspace,
     public current: number,
     public sort: Sort = "manual",
   ) {
@@ -42,7 +43,7 @@ export class Drag {
     this.rows = view.rows;
     this.width = view.width;
     this.count = view.entries.length;
-    this.ids = view.entries.map(e => ({ ...e.target }));
+    this.ids = view.entries.map(e => e.target);
     this.target = this.ids[source];
     // Hand-sorted, an agent stays with its workspace; worktree labels never stop it.
     const bound = sort === "manual" ? isGroup : isSection;
@@ -51,14 +52,22 @@ export class Drag {
     this.end = source + 1;
     while (this.end < view.entries.length && !bound(view.entries[this.end].target)) this.end++;
     this.starred = view.entries[source].section === "starred";
-    let owner: number | null = null;
+    let owner: viewerRef.Workspace | null = null;
     this.owners = view.entries.map(e => {
       if (isSection(e.target) || isGroup(e.target)) owner = null;
       else if (isSubhead(e.target)) owner = e.target.workspace;
       return owner;
     });
   }
-  static init(view: View, source: number, x: number, y: number, workspace: number, current: number, sort?: Sort) {
+  static init(
+    view: View,
+    source: number,
+    x: number,
+    y: number,
+    workspace: viewerRef.Workspace,
+    current: number,
+    sort?: Sort,
+  ) {
     return new Drag(view, source, x, y, workspace, current, sort);
   }
   valid(view: View, current: number) {

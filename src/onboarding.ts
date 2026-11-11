@@ -3,7 +3,7 @@ import * as i18n from "./i18n";
 import { BoundedText } from "./bounded_text";
 import { Writer, writeSanitized, displayWidth, wrap } from "./text";
 import { milliTimestamp } from "./clock";
-import type { Action } from "./action";
+import type { Template as Action } from "./action";
 import * as km from "./keymap";
 import * as keys from "./keys";
 import * as bindings from "./bindings";

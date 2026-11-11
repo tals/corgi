@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { State, geometry, copyAt, draw, filePath } from "./link_tooltip";
 import { Controller } from "./controller";
@@ -16,7 +17,7 @@ import { Menu } from "./corgi_setup";
 const source = { updateRender() {}, hyperlinks: () => [] };
 test("the resource card opens and wakes the viewer after 150 ms", () => {
   const s = new State(),
-    target = { resource: 1 };
+    target = { resource: viewerRef.workspace(1, 1) };
   s.move();
   expect(s.ready(target, 100)).toBe(false);
   expect(s.due(249)).toBe(false);
@@ -24,13 +25,13 @@ test("the resource card opens and wakes the viewer after 150 ms", () => {
   expect(s.due(250)).toBe(true);
   expect(s.ready(target, 250)).toBe(true);
   expect(s.due(251)).toBe(false);
-  expect(s.ready({ resource: 2 }, 251)).toBe(false);
+  expect(s.ready({ resource: viewerRef.workspace(1, 2) }, 251)).toBe(false);
   expect(s.due(400)).toBe(false);
-  expect(s.ready({ resource: 2 }, 401)).toBe(true);
+  expect(s.ready({ resource: viewerRef.workspace(1, 2) }, 401)).toBe(true);
 });
 test("tooltip waits for rest and requires fresh movement after interaction", () => {
   const s = new State(),
-    target = { git: 1 };
+    target = { git: viewerRef.workspace(1, 1) };
   expect(s.ready(target, 0)).toBe(false);
   s.move();
   expect(s.ready(target, 100)).toBe(false);
@@ -41,7 +42,7 @@ test("tooltip waits for rest and requires fresh movement after interaction", () 
   s.move();
   expect(s.ready(target, 2001)).toBe(false);
   expect(s.ready(target, 2501)).toBe(true);
-  expect(s.ready({ git: 2 }, 2502)).toBe(false);
+  expect(s.ready({ git: viewerRef.workspace(1, 2) }, 2502)).toBe(false);
   expect(s.ready(null, 4000)).toBe(false);
   expect(s.ready(target, 4001)).toBe(false);
 });
@@ -448,9 +449,9 @@ test("an arrow over the resource card selects its top row first, or else moves f
   } as any);
   const hover = () => {
     s.resource_card.release();
-    s.link_tooltip.target = { resource: 1 };
+    s.link_tooltip.target = { resource: s.workspaceRef(1) };
     s.link_tooltip.shown = true;
-    s.resource_card.update(s.runtime.resources.workspaces[0], true);
+    s.resource_card.update({ ...s.runtime.resources.workspaces[0], id: s.workspaceRef(1) }, true);
   };
   hover();
   await s.input(Buffer.from("\x1b[B"));

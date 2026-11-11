@@ -31,7 +31,7 @@ import * as launcherWorktree from "./launcher_worktree";
 import * as worktreeFolder from "./worktree_folder";
 import * as dropdown from "./dropdown";
 import * as worktrees from "./worktrees";
-import type { View as SidebarView, Spotlight } from "./sidebar";
+import type { View as SidebarView } from "./sidebar";
 import { Writer, displayWidth, ellipsis, writeEllipsis, sat } from "./text";
 import { Row, customs, type Launch } from "./launch/row";
 import { writeMark, type Marks } from "./provider_mark";
@@ -645,7 +645,7 @@ export class Menu {
   /** Where agents start, which the agent list lights as the overview lights
    * a browsed worktree: a linked worktree's group, a new one's (none yet),
    * or with no path, the workspace's own rows. */
-  spotlight(): Spotlight | null {
+  spotlight(): { workspace: number; path: string | null } | null {
     if (this.managing) return null;
     const planned = this.worktree.planned;
     if (planned) return { workspace: this.workspace, path: planned.path };

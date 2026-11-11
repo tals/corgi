@@ -21,7 +21,7 @@ export function section(state: string, attention: string, paused = false): Exclu
   if (attention === "finished") return "ready";
   return "idle";
 }
-const equal = (a: Target, b: Target) =>
+export const equal = (a: Target, b: Target) =>
   "pane" in a && "pane" in b ? a.pane === b.pane : "headless" in a && "headless" in b && a.headless === b.headless;
 export function index(targets: Target[], target: Target) {
   const i = targets.findIndex(t => equal(t, target));

@@ -109,31 +109,33 @@ function arranged(
   since: agentSections.Since,
   now_ms: number,
   seen: Set<string>,
-): sidebar.Entry[] {
-  const items = agentRows.rows(runtime, ws, now_ms).map(({ entry, start }): agentSections.Item => {
-    const target = entry.target as agentOrder.Target,
-      key = agentOrder.key(target),
-      section = agentSections.section(entry),
-      pin = ws.pinned_agents.findIndex(t => sidebar.sameTarget(t, target)),
-      rank = ws.activity_order.findIndex(t => sidebar.sameTarget(t, target));
-    seen.add(key);
-    return {
-      key,
-      entry,
-      workspace: ws.id,
-      checkout: null,
-      section,
-      since: since.observe(key, section, start, now_ms),
-      pin: pin < 0 ? null : pin,
-      rank: rank < 0 ? ws.activity_order.length : rank,
-    };
-  });
+): agentRows.Entry[] {
+  const items = agentRows
+    .rows(runtime, ws, now_ms)
+    .map(({ entry, start }): agentSections.Item<agentOrder.Target, number> => {
+      const target = entry.target as agentOrder.Target,
+        key = agentOrder.key(target),
+        section = agentSections.section(entry),
+        pin = ws.pinned_agents.findIndex(t => agentOrder.equal(t, target)),
+        rank = ws.activity_order.findIndex(t => agentOrder.equal(t, target));
+      seen.add(key);
+      return {
+        key,
+        entry,
+        workspace: ws.id,
+        checkout: null,
+        section,
+        since: since.observe(key, section, start, now_ms),
+        pin: pin < 0 ? null : pin,
+        rank: rank < 0 ? ws.activity_order.length : rank,
+      };
+    });
   since.place(items, new Set());
   return agentSections
     .arrange(items, { all: false, folded: new Set(), workspaces: [ws.id], label: () => "" })
-    .filter(e => sidebar.isAgent(e.target));
+    .flatMap(e => ("pane" in e.target || "headless" in e.target ? [{ ...e, target: e.target }] : []));
 }
-function agent(e: sidebar.Entry, intensity: number): Agent {
+function agent(e: agentRows.Entry, intensity: number): Agent {
   const detail = sidebar.rowDetail(e, null),
     status = sidebar.status(e);
   return {

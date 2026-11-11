@@ -29,7 +29,7 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
         );
         // viewer.sync execs the new binary before perform; the driver cannot.
         if (act.name === "relaunch") throw Error("UnknownAction");
-        await view.perform(act);
+        await view.invoke(act);
       }
       if (op === "focus") view.focusPane(typedId(value, "pane"));
       if (op === "workspace") view.switchWorkspace(typedId(value, "workspace"));

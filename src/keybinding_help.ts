@@ -10,7 +10,7 @@ import { Style, type Token } from "./palette";
 import { Fetch } from "./corgi_animation";
 
 export type Result =
-  { name: "close" } | { name: "action"; action: action.Action } | { name: "save"; config: model.Config } | null;
+  { name: "close" } | { name: "action"; action: action.Template } | { name: "save"; config: model.Config } | null;
 type Target =
   | { name: "binding"; id: string; index: number }
   | { name: "label"; id: string }

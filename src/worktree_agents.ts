@@ -1,12 +1,15 @@
+import * as agentOrder from "./agent_order";
+import type * as agentRows from "./agent_rows";
+import type * as viewerRef from "./viewer_ref";
 import * as sidebar from "./sidebar";
 import * as worktrees from "./worktrees";
 import * as launcherResume from "./launcher_resume";
 
-export interface Selection {
-  workspace: number;
+export interface Selection<Workspace = number> {
+  workspace: Workspace;
   path: string;
 }
-export const key = (selection: Selection) => `${selection.workspace}:${selection.path}`;
+export const key = (selection: Selection<number | viewerRef.Workspace>) => `${selection.workspace}:${selection.path}`;
 /** How many conversations entering a worktree with no agents brings back. */
 export const hibernated = 3;
 export class State {
@@ -14,7 +17,7 @@ export class State {
   previewed: string | null = null;
   appearing: string | null = null;
   appeared_at = 0;
-  animate(entries: sidebar.Entry[], selection: Selection, now: number): sidebar.Entry[] {
+  animate(entries: sidebar.Entry[], selection: Selection<viewerRef.Workspace>, now: number): sidebar.Entry[] {
     const id = key(selection);
     if (this.appearing !== id) {
       this.appearing = id;
@@ -44,22 +47,21 @@ function checkoutAt(snapshot: worktrees.Snapshot, path: string): string | null {
 }
 /** The checkouts an agent counts under: those the daemon associates it
  * with, else the one holding its folder. */
-function checkoutsOf(snapshot: worktrees.Snapshot, target: sidebar.Target, cwd: string): string[] {
-  const associations = snapshot.agents.filter(a => sidebar.sameTarget(a.target, target));
+function checkoutsOf(snapshot: worktrees.Snapshot, target: agentOrder.Target, cwd: string): string[] {
+  const associations = snapshot.agents.filter(a => agentOrder.equal(a.target, target));
   if (associations.length) return associations.map(a => a.path);
   const at = checkoutAt(snapshot, cwd);
   return at === null ? [] : [at];
 }
 /** Whether an agent is listed under the checkout at `path`. */
-export function belongs(snapshot: worktrees.Snapshot, path: string, entry: sidebar.Entry): boolean {
-  if (!sidebar.isAgent(entry.target)) return false;
+export function belongs(snapshot: worktrees.Snapshot, path: string, entry: agentRows.Entry): boolean {
   return checkoutsOf(snapshot, entry.target, entry.cwd).includes(path);
 }
 /** The linked worktree whose group lists `target`, the one holding `cwd`
  * when several do; null for a direct row. */
 export function listedWorktree(
   snapshot: worktrees.Snapshot | null,
-  target: sidebar.Target,
+  target: agentOrder.Target,
   cwd: string,
 ): string | null {
   if (!snapshot) return null;
@@ -72,7 +74,7 @@ export function listedWorktree(
 /** The folder an agent's work is in: its own `cwd`, unless the agent list
  * puts it under another checkout, then that checkout. Linked worktrees come
  * first, as `grouped` lists an agent under them. */
-export function folder(snapshot: worktrees.Snapshot | null, target: sidebar.Target, cwd: string): string {
+export function folder(snapshot: worktrees.Snapshot | null, target: agentOrder.Target, cwd: string): string {
   if (!snapshot) return cwd;
   const at = listedWorktree(snapshot, target, cwd),
     here = checkoutAt(snapshot, cwd);
@@ -85,7 +87,7 @@ export function folder(snapshot: worktrees.Snapshot | null, target: sidebar.Targ
 }
 /** Each linked worktree's live agents by state, counted as its group
  * header counts them. */
-export function counts(snapshot: worktrees.Snapshot, agents: sidebar.Entry[]): Map<string, sidebar.Tally> {
+export function counts(snapshot: worktrees.Snapshot, agents: agentRows.Entry[]): Map<string, sidebar.Tally> {
   const out = new Map<string, sidebar.Tally>();
   for (const checkout of worktrees.linked(snapshot)) {
     const t = { agents: 0, working: 0, attention: 0 };
@@ -116,11 +118,11 @@ export function name(e: launcherResume.Entry): string {
 export function group(
   snapshot: worktrees.Snapshot,
   selection: Selection,
-  agents: sidebar.Entry[],
+  agents: agentRows.Entry[],
   asleep: launcherResume.Entry[],
   state: State,
   ghost = false,
-): sidebar.Entry[] {
+): agentRows.Listed[] {
   const checkout = worktrees.linked(snapshot).find(e => e.path === selection.path);
   if (!checkout) return [];
   const live = agents.filter(e => belongs(snapshot, selection.path, e));
@@ -131,7 +133,7 @@ export function group(
   for (const e of live) sidebar.tally(t, e.state, e.attention);
   // With no live agents, its asleep conversations count as idle.
   if (!live.length) t.agents = asleep.length;
-  const header = sidebar.entry({
+  const header = sidebar.entry<sidebar.Heading<number> | sidebar.Asleep, number>({
     target: { worktree: selection.path, workspace: selection.workspace },
     name: label(checkout),
     worktree: info,
@@ -144,7 +146,7 @@ export function group(
   return [
     header,
     ...asleep.map(e =>
-      sidebar.entry({
+      sidebar.entry<sidebar.Heading<number> | sidebar.Asleep, number>({
         target: { asleep: e.session, provider: e.provider },
         worktree: info,
         provider: e.provider,
@@ -158,12 +160,12 @@ export function group(
 export function grouped(
   snapshot: worktrees.Snapshot | null,
   workspace: number,
-  agents: sidebar.Entry[],
+  agents: agentRows.Entry[],
   state: State,
-): sidebar.Entry[] {
+): agentRows.Listed[] {
   if (!snapshot) return agents;
-  const groups: sidebar.Entry[] = [],
-    assigned = new Set<sidebar.Entry>();
+  const groups: agentRows.Listed[] = [],
+    assigned = new Set<agentRows.Entry>();
   for (const checkout of worktrees.linked(snapshot)) {
     const live = agents.filter(e => belongs(snapshot, checkout.path, e));
     if (!live.length) continue;
@@ -172,8 +174,15 @@ export function grouped(
   }
   return [...agents.filter(e => !assigned.has(e)), ...groups];
 }
-export function index(entries: sidebar.Entry[], selection: Selection): number {
+export function index<W>(
+  entries: sidebar.Entry<sidebar.Heading<W> | sidebar.Asleep | viewerRef.Agent | agentOrder.Target, W>[],
+  selection: Selection<W>,
+): number {
   return entries.findIndex(
-    e => "worktree" in e.target && e.target.workspace === selection.workspace && e.target.worktree === selection.path,
+    e =>
+      typeof e.target !== "string" &&
+      "worktree" in e.target &&
+      e.target.workspace === selection.workspace &&
+      e.target.worktree === selection.path,
   );
 }

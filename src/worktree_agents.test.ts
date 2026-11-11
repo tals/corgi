@@ -1,3 +1,5 @@
+import * as viewerRef from "./viewer_ref";
+import type * as agentOrder from "./agent_order";
 import { expect, test } from "bun:test";
 import * as agents from "./worktree_agents";
 import * as sidebar from "./sidebar";
@@ -20,8 +22,12 @@ function snapshot(): Snapshot {
 test("primary agents stay direct; confirmed writes take precedence over cwd and reads", () => {
   const data = snapshot(),
     state = new agents.State(),
-    main = sidebar.entry({ target: { pane: 1 }, cwd: "/repo", provider: "codex" }),
-    moved = sidebar.entry({ target: { pane: 2 }, cwd: "/repo/.worktrees/one", provider: "claude" });
+    main = sidebar.entry<agentOrder.Target, number>({ target: { pane: 1 }, cwd: "/repo", provider: "codex" }),
+    moved = sidebar.entry<agentOrder.Target, number>({
+      target: { pane: 2 },
+      cwd: "/repo/.worktrees/one",
+      provider: "claude",
+    });
   data.agents = [
     { target: moved.target as { pane: number }, path: data.entries[2].path, source: "write", stale: false },
   ];
@@ -72,16 +78,31 @@ test("an agent's folder is the checkout the list puts it under, its own when tha
 });
 test("each worktree counts its agents by state, as its header does, ended ones as quiet", () => {
   const data = snapshot(),
-    working = sidebar.entry({ target: { pane: 1 }, cwd: "/repo/.worktrees/one", provider: "claude", state: "working" }),
-    idle = sidebar.entry({ target: { pane: 2 }, cwd: "/repo/.worktrees/one/src", provider: "codex", state: "idle" }),
-    asking = sidebar.entry({
+    working = sidebar.entry<agentOrder.Target, number>({
+      target: { pane: 1 },
+      cwd: "/repo/.worktrees/one",
+      provider: "claude",
+      state: "working",
+    }),
+    idle = sidebar.entry<agentOrder.Target, number>({
+      target: { pane: 2 },
+      cwd: "/repo/.worktrees/one/src",
+      provider: "codex",
+      state: "idle",
+    }),
+    asking = sidebar.entry<agentOrder.Target, number>({
       target: { pane: 4 },
       cwd: "/repo/.worktrees/one",
       provider: "claude",
       state: "working",
       attention: "needs_input",
     }),
-    done = sidebar.entry({ target: { pane: 3 }, cwd: "/repo/.worktrees/two", provider: "codex", state: "done" });
+    done = sidebar.entry<agentOrder.Target, number>({
+      target: { pane: 3 },
+      cwd: "/repo/.worktrees/two",
+      provider: "codex",
+      state: "done",
+    });
   const counts = agents.counts(data, [working, idle, asking, done]);
   expect(counts.get("/repo/.worktrees/one")).toEqual({ agents: 3, working: 1, attention: 1 });
   expect(counts.get("/repo/.worktrees/two")).toEqual({ agents: 1, working: 0, attention: 0 });
@@ -120,12 +141,26 @@ test("a ghost with no agents shows the newest conversations no pane has open, as
 test("an agent associated with two checkouts keeps distinct rows during sidebar reconciliation", () => {
   const data = snapshot(),
     state = new agents.State(),
-    live = sidebar.entry({ target: { pane: 1 }, provider: "codex" });
+    live = sidebar.entry<agentOrder.Target, number>({ target: { pane: 1 }, provider: "codex" });
   data.agents = data.entries.slice(1).map(e => ({ target: { pane: 1 }, path: e.path, source: "write", stale: false }));
   const rows = agents.grouped(data, 1, [live], state),
     animated = new SidebarRows();
+  const shown = rows.map(e => ({
+    ...e,
+    target:
+      "pane" in e.target
+        ? viewerRef.pane(0, e.target.pane)
+        : "headless" in e.target
+          ? viewerRef.headless(0, e.target.headless)
+          : "workspace" in e.target
+            ? { ...e.target, workspace: viewerRef.workspace(0, e.target.workspace) }
+            : "group" in e.target
+              ? { group: viewerRef.workspace(0, e.target.group) }
+              : e.target,
+    worktree: e.worktree ? { ...e.worktree, workspace: viewerRef.workspace(0, e.worktree.workspace) } : null,
+  }));
   const paths = animated
-    .update(1, rows, [], 0)
+    .update(1, shown, [], 0)
     .filter(e => sidebar.isAgent(e.target))
     .map(e => e.worktree!.path);
   expect(paths).toEqual(data.entries.slice(1).map(e => e.path));
@@ -134,7 +169,12 @@ test("a folded group keeps only its header, which stands in for a focused agent;
   const data = snapshot(),
     state = new agents.State(),
     selection = { workspace: 1, path: data.entries[1].path },
-    live = sidebar.entry({ target: { pane: 1 }, cwd: selection.path, provider: "codex", focused: true });
+    live = sidebar.entry<agentOrder.Target, number>({
+      target: { pane: 1 },
+      cwd: selection.path,
+      provider: "codex",
+      focused: true,
+    });
   data.entries[1].branch = "refs/heads/worktree-one";
   let rows = agents.grouped(data, 1, [live], state);
   expect(rows.map(e => e.target)).toEqual([{ workspace: 1, worktree: selection.path }, { pane: 1 }]);

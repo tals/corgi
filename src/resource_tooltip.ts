@@ -1,3 +1,4 @@
+import type * as viewerRef from "./viewer_ref";
 //! Viewer-local resource card: framed graphs and a stable mini top. On a host
 //! with GPUs the card is taller, with a row for GPU graphs (drawn while the
 //! workspace uses one) and GPU columns, so its layout doesn't follow usage.
@@ -195,7 +196,7 @@ function sorts(gpus: number): Sort[] {
   return [...new Set(columns(gpus > 0, "").map(c => c.sort))];
 }
 export class State {
-  workspace: number | null = null;
+  workspace: viewerRef.Workspace | null = null;
   anchor = 0;
   sort: Sort = "cpu";
   ascending = false;
@@ -219,7 +220,7 @@ export class State {
   constructor(fields: Partial<State> = {}) {
     Object.assign(this, fields);
   }
-  update(work: { id: number; processes?: Process[] }, freeze: boolean, gpus = 0): void {
+  update(work: { id: viewerRef.Workspace; processes?: Process[] }, freeze: boolean, gpus = 0): void {
     if (this.workspace !== work.id || (!gpus && (this.sort === "gpu" || this.sort === "gpu_memory"))) {
       if (this.workspace !== work.id) this.release();
       this.workspace = work.id;

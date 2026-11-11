@@ -282,7 +282,7 @@ export async function receive(
           view.executable = String(act.value);
           return false;
         }
-        await view.perform(act);
+        await view.invoke(act, machine);
       }
     } catch (error) {
       view.notice((error as Error).message);

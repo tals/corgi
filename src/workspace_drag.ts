@@ -1,3 +1,4 @@
+import type * as viewerRef from "./viewer_ref";
 import type { View } from "./sidebar";
 export class Drag {
   dragging = false;
@@ -8,10 +9,10 @@ export class Drag {
   rows: number;
   width: number;
   count: number;
-  ids: number[];
+  ids: viewerRef.Workspace[];
   constructor(
     view: View,
-    ids: number[],
+    ids: viewerRef.Workspace[],
     public source: number,
     public start_x: number,
     public start_y: number,
@@ -22,10 +23,10 @@ export class Drag {
     this.count = ids.length;
     this.ids = [...ids];
   }
-  static init(view: View, ids: number[], source: number, x: number, y: number) {
+  static init(view: View, ids: viewerRef.Workspace[], source: number, x: number, y: number) {
     return new Drag(view, ids, source, x, y);
   }
-  valid(view: View, ids: number[]) {
+  valid(view: View, ids: viewerRef.Workspace[]) {
     if (
       this.cols !== view.cols ||
       this.rows !== view.rows ||
@@ -40,7 +41,7 @@ export class Drag {
     }
     return !this.cancelled;
   }
-  update(view: View, ids: number[], x: number, y: number) {
+  update(view: View, ids: viewerRef.Workspace[], x: number, y: number) {
     this.drop = null;
     this.preview = null;
     if (!this.valid(view, ids) || !this.dragging) return;

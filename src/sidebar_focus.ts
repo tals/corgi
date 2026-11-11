@@ -1,3 +1,4 @@
+import type * as viewerRef from "./viewer_ref";
 //! Keyboard focus in the sidebar: a cursor in the workspace list or the agent
 //! list. Plain arrows move it within its list, wrapping; prefixed ones move it
 //! between the lists, as they move focus between panes. Opening a row is the
@@ -5,7 +6,7 @@
 import { isSubhead, sameTarget, type Entry, type Section, type Target } from "./sidebar";
 
 /** A workspace row by id, or an agent list row by target. */
-export type Cursor = { workspace: number } | { entry: Target } | { archived: true };
+export type Cursor = { workspace: viewerRef.Workspace } | { entry: Target } | { archived: true };
 
 export function same(a: Cursor, b: Cursor): boolean {
   if ("workspace" in a) return "workspace" in b && a.workspace === b.workspace;
@@ -23,7 +24,7 @@ function agentRow(entries: Entry[]): Cursor | null {
   return row ? { entry: row.target } : null;
 }
 /** Where focus enters: the agent list, else the current workspace's row. */
-export function initial(current: number, entries: Entry[]): Cursor {
+export function initial(current: viewerRef.Workspace, entries: Entry[]): Cursor {
   return agentRow(entries) ?? { workspace: current };
 }
 
@@ -46,7 +47,7 @@ export class State {
   searches(): boolean {
     return this.drawer === null && this.section() === "agents";
   }
-  private list(workspaces: number[], entries: Entry[], archived_at: number | null): Cursor[] {
+  private list(workspaces: viewerRef.Workspace[], entries: Entry[], archived_at: number | null): Cursor[] {
     if (this.section() === "workspaces") {
       const rows: Cursor[] = workspaces.map(id => ({ workspace: id }));
       if (archived_at !== null) rows.splice(archived_at, 0, { archived: true });
@@ -55,7 +56,7 @@ export class State {
     return entries.filter(stops).map(e => ({ entry: e.target }));
   }
   /** Keeps the cursor on its row, or the row now in its place when it closed. */
-  reconcile(workspaces: number[], entries: Entry[], archived_at: number | null = null): void {
+  reconcile(workspaces: viewerRef.Workspace[], entries: Entry[], archived_at: number | null = null): void {
     const list = this.list(workspaces, entries, archived_at);
     const i = list.findIndex(row => same(row, this.cursor));
     if (i >= 0) this.index = i;
@@ -65,7 +66,7 @@ export class State {
     }
   }
   /** One row down or up in the cursor's list, wrapping at either end. */
-  move(workspaces: number[], entries: Entry[], down: boolean, archived_at: number | null = null): void {
+  move(workspaces: viewerRef.Workspace[], entries: Entry[], down: boolean, archived_at: number | null = null): void {
     this.reconcile(workspaces, entries, archived_at);
     const list = this.list(workspaces, entries, archived_at);
     if (list.length === 0) return;
@@ -74,7 +75,7 @@ export class State {
   }
   /** Up from the agents to the current workspace, or down back to the agent
    * row it left; false when there is no list that way. */
-  cross(current: number, entries: Entry[], up: boolean): boolean {
+  cross(current: viewerRef.Workspace, entries: Entry[], up: boolean): boolean {
     if (this.drawer) return false;
     const cursor = this.cursor;
     if (up && "entry" in cursor) {
@@ -89,7 +90,7 @@ export class State {
     return this.cursor !== cursor;
   }
   /** Workspace rows as drawn: on a workspace, the cursor's row takes the current one's tint. */
-  markWorkspaces<T extends { id: number; active: boolean }>(workspaces: T[]): T[] {
+  markWorkspaces<T extends { id: viewerRef.Workspace; active: boolean }>(workspaces: T[]): T[] {
     const cursor = this.cursor;
     if ("entry" in cursor) return workspaces;
     return workspaces.map(ws => ({ ...ws, active: "workspace" in cursor && ws.id === cursor.workspace }));

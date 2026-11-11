@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 //! The sidebar: workspaces above, agents below. Mirrors sidebar.zig.
 import * as i18n from "./i18n";
 import type { Quality } from "./connection_stats";
@@ -18,10 +19,10 @@ import type { Cell } from "./fork_hero";
 import { url as portUrl } from "./trackers/ports";
 import { cpuText, memoryText } from "./trackers/resources";
 import { View as ContextView } from "./usage/context_window";
-import { rank, type Target as OrderTarget } from "./agent_order";
+
 import type { Section as SectionKind } from "./agent_order";
 import { writeField, View as NameView, type Dialog } from "./name_dialog";
-import { sameRenameTarget, type RenameTarget } from "./inline_rename";
+import { type RenameTarget } from "./inline_rename";
 import { Rect } from "./layout";
 import {
   Writer,
@@ -45,13 +46,13 @@ export const spotlight_dim = 0.55;
 /** A checkout whose rows stay lit: a linked worktree's group, or with no
  * path, the workspace's own rows, those outside its worktree groups. */
 export interface Spotlight {
-  workspace: number;
+  workspace: viewerRef.Workspace;
   path: string | null;
 }
 /** Which rows fade around `spot`. In All, a row belongs to the workspace
  * whose header it follows; a one-workspace list is the spotlight's. */
 export function unlit(entries: Entry[], spot: Spotlight | null): boolean[] {
-  let workspace: number | null = null;
+  let workspace: viewerRef.Workspace | null = null;
   return entries.map(e => {
     if (isGroup(e.target)) workspace = e.target.group;
     if (spot === null) return false;
@@ -135,38 +136,45 @@ palette.derived(() => {
 export type State = "initializing" | "idle" | "working" | "blocked" | "done" | string;
 export type Attention = "none" | "finished" | "needs_input";
 /** `group` is a workspace header row in the grouped "All" list, not an agent. */
-export type Target =
-  | OrderTarget
-  | { group: number }
-  | { worktree: string; workspace: number }
-  /** A conversation a browsed worktree's ghost shows, which entering it
-   * brings back as a hibernated agent. */
-  | { asleep: string; provider: Provider }
+export type Heading<Workspace = viewerRef.Workspace> =
+  | { group: Workspace }
+  | { worktree: string; workspace: Workspace }
   /** An activity section's header in the agent list. */
   | { section: SectionKind }
   /** Neighbouring rows in one checkout: a linked worktree's, or in "all", a
    * workspace's own; in a section, or a hand-sorted list's null. `run` tells
    * apart two runs of one checkout. */
-  | { section: SectionKind | null; workspace: number; checkout: string | null; run: number };
-export const isAgent = (t: Target): t is OrderTarget => "pane" in t || "headless" in t;
-export const isHeading = (t: Target): boolean => "group" in t || "worktree" in t || "section" in t;
-export const isSection = (t: Target): t is { section: SectionKind } => "section" in t && !("workspace" in t);
+  | { section: SectionKind | null; workspace: Workspace; checkout: string | null; run: number };
+export interface Asleep {
+  asleep: string;
+  provider: Provider;
+}
+export type Target = viewerRef.Agent | Heading | Asleep;
+export const isAgent = (t: Target): t is viewerRef.Agent => typeof t === "string";
+export const isHeading = (t: Target): t is Heading => typeof t !== "string" && !("asleep" in t);
+export const isSection = (t: Target): t is { section: SectionKind } =>
+  isHeading(t) && "section" in t && !("workspace" in t);
 export const isSubhead = (
   t: Target,
-): t is { section: SectionKind | null; workspace: number; checkout: string | null; run: number } =>
-  "section" in t && "workspace" in t;
-/** A header that starts a run of rows: a workspace's in "all", or a section's. */
+): t is { section: SectionKind | null; workspace: viewerRef.Workspace; checkout: string | null; run: number } =>
+  isHeading(t) && "section" in t && "workspace" in t;
+/** A header that starts a run of rows: a workspace group, or a section. */
 const isOuter = (t: Target): boolean => isGroup(t) || isSection(t);
 export function sameTarget(a: Target | null | undefined, b: Target | null | undefined): boolean {
-  if (!a || !b) return !a && !b;
-  if ("pane" in a) return "pane" in b && a.pane === b.pane;
-  if ("headless" in a) return "headless" in b && a.headless === b.headless;
+  if (a === b) return true;
+  if (!a || !b || isAgent(a) || isAgent(b)) return false;
   return (
     Object.keys(a).length === Object.keys(b).length &&
     Object.entries(a).every(([key, value]) => value === (b as Record<string, unknown>)[key])
   );
 }
-export const isGroup = (t: Target): t is { group: number } => "group" in t;
+export const isGroup = (t: Target): t is { group: viewerRef.Workspace } => isHeading(t) && "group" in t;
+/** The entity whose machine owns this target; activity headings have none. */
+export function owner(target: Target): viewerRef.Entity | null {
+  if (isAgent(target)) return target;
+  if ("group" in target) return target.group;
+  return "workspace" in target ? target.workspace : null;
+}
 /** Just past the rows header `index` holds: a workspace group's run to the
  * next workspace, a worktree's are its checkout's. */
 export function groupEnd(entries: Entry[], index: number): number {
@@ -174,7 +182,7 @@ export function groupEnd(entries: Entry[], index: number): number {
   let end = index + 1;
   if (header && isOuter(header)) while (end < entries.length && !isOuter(entries[end].target)) end += 1;
   else if (header && isSubhead(header)) while (end < entries.length && !isHeading(entries[end].target)) end += 1;
-  else if (header && "worktree" in header)
+  else if (header && isHeading(header) && "worktree" in header)
     while (
       end < entries.length &&
       !isHeading(entries[end].target) &&
@@ -216,8 +224,8 @@ export interface Subagents {
   blocked: number;
   waiting: boolean;
 }
-export interface Entry {
-  worktree: { workspace: number; path: string; ghost: boolean; end?: boolean } | null;
+export interface Entry<T = Target, Workspace = viewerRef.Workspace> {
+  worktree: { workspace: Workspace; path: string; ghost: boolean; end?: boolean } | null;
   conversation: number;
   children: number;
   exit: { frame_ms: number; progress: number } | null;
@@ -233,7 +241,7 @@ export interface Entry {
    * shows while it steps there. */
   slide: number;
   name: string;
-  target: Target;
+  target: T;
   /** Null for workspace group headers. */
   provider: Provider | null;
   state: State;
@@ -261,7 +269,10 @@ export interface Entry {
   starting: boolean;
   starred: boolean;
 }
-export function entry(fields: Partial<Entry> & { target: Target }): Entry {
+export type Data = Omit<Entry, "target" | "worktree">;
+export function entry<const T = Target, Workspace = viewerRef.Workspace>(
+  fields: Partial<Entry<T, Workspace>> & { target: T },
+): Entry<T, Workspace> {
   return {
     worktree: null,
     conversation: 0,
@@ -294,13 +305,8 @@ export function entry(fields: Partial<Entry> & { target: Target }): Entry {
     ...fields,
   };
 }
-export function orderTarget(e: Entry): OrderTarget | null {
-  if ("pane" in e.target) return { pane: e.target.pane };
-  if ("headless" in e.target) return { headless: e.target.headless };
-  return null;
-}
-export function lessThan(order: OrderTarget[], left: Entry, right: Entry): boolean {
-  return rank(order, orderTarget(left)!) < rank(order, orderTarget(right)!);
+export function agentId(e: Entry): viewerRef.Agent | null {
+  return isAgent(e.target) ? e.target : null;
 }
 /** An agent row's name: its own, or else its provider's. */
 export function rowTitle(e: Pick<Entry, "name" | "provider">): string {
@@ -308,7 +314,7 @@ export function rowTitle(e: Pick<Entry, "name" | "provider">): string {
 }
 /** The line under an agent's name: what it's doing, or why it isn't. With
  * `now_ms` null, a retry leaves out its countdown. */
-export function rowDetail(e: Entry, now_ms: number | null = Date.now()): string {
+export function rowDetail(e: Data, now_ms: number | null = Date.now()): string {
   const compacting = e.state === "working" && e.compacting,
     waiting = e.state === "working" && e.subagents.waiting && !compacting;
   if (retrying(e)) {
@@ -333,7 +339,7 @@ export function rowDetail(e: Entry, now_ms: number | null = Date.now()): string 
 }
 /** The corgi on an agent row's second line, at the sidebar's corgi
  * `intensity`, in a row with `room` columns for it. */
-export function corgiMode(e: Entry, intensity: number, room = Infinity): corgiAnimation.Mode {
+export function corgiMode(e: Data, intensity: number, room = Infinity): corgiAnimation.Mode {
   const compacting = e.state === "working" && e.compacting,
     waiting = e.state === "working" && e.subagents.waiting && !compacting;
   // Narrow rows keep the text; the pile beside it still moves.
@@ -343,7 +349,7 @@ export function corgiMode(e: Entry, intensity: number, room = Infinity): corgiAn
   return e.state === "idle" ? "asleep" : "content";
 }
 /** The glyph before an agent row's second line; `corgi watch --json` reports it. */
-export function activityKind(e: Entry, intensity: number): corgiAnimation.Activity {
+export function activityKind(e: Data, intensity: number): corgiAnimation.Activity {
   const compacting = e.state === "working" && e.compacting;
   if ((e.state === "working" && e.subagents.waiting && !compacting) || retrying(e)) return "waiting";
   if (e.tool_active && (e.state === "working" || e.state === "blocked")) return "tool";
@@ -485,8 +491,8 @@ export interface Stats {
   [key: string]: unknown;
 }
 /** A workspace's resource readings, as resources.zig's `Work`. */
-export interface Work {
-  id: number;
+export interface Work<Id = number> {
+  id: Id;
   known: boolean;
   cpu: number | null;
   memory: bigint | null;
@@ -497,7 +503,7 @@ export interface Work {
   gpu_shown: boolean;
   [key: string]: unknown;
 }
-export function work(fields: Partial<Work> & { id: number }): Work {
+export function work<Id>(fields: Partial<Work<Id>> & { id: Id }): Work<Id> {
   return {
     known: false,
     cpu: null,
@@ -511,7 +517,7 @@ export function work(fields: Partial<Work> & { id: number }): Work {
   };
 }
 /** The workspace's readings in a resources snapshot, or none. */
-export function resourcesFor(snapshot: any, id: number): Work {
+export function resourcesFor<Id>(snapshot: any, id: Id): Work<Id> {
   const found = (snapshot?.workspaces ?? []).find((w: any) => w.id === id);
   return work({ ...(found ?? {}), id });
 }
@@ -520,12 +526,12 @@ export interface Endpoint {
   label_pending?: boolean;
   [key: string]: any;
 }
-export interface PortsSnapshot {
+export interface PortsSnapshot<Id = number> {
   processes_available?: boolean;
   ports_available?: boolean;
-  workspaces: { id: number; background?: number; endpoints: Endpoint[] }[];
+  workspaces: { id: Id; background?: number; endpoints: Endpoint[] }[];
 }
-function portEndpoints(ports: PortsSnapshot, id: number): Endpoint[] {
+function portEndpoints<Id>(ports: PortsSnapshot<Id>, id: Id): Endpoint[] {
   return (ports?.workspaces ?? []).find(w => w.id === id)?.endpoints ?? [];
 }
 export interface ConnectionStatus {
@@ -534,7 +540,7 @@ export interface ConnectionStatus {
   seconds: number | null;
   color: palette.Token;
 }
-export interface WorkspaceEntry {
+export interface WorkspaceEntry<Id = viewerRef.Workspace> {
   archived: boolean;
   collapsed: boolean;
   machine: string;
@@ -544,14 +550,14 @@ export interface WorkspaceEntry {
   connection_status: ConnectionStatus | null;
   external: boolean;
   resources: Work;
-  ports: PortsSnapshot;
+  ports: PortsSnapshot<Id>;
   remote_links: boolean;
   git_push: GitPush;
   git_ahead: number | null;
   git_commits: GitCommit[];
   git_diff: GitDiff;
   worktrees: worktrees.Snapshot | null;
-  id: number;
+  id: Id;
   name: string;
   cwd: string;
   active: boolean;
@@ -562,9 +568,9 @@ export interface WorkspaceEntry {
   stats: Stats;
 }
 export type ArchivedWorkspace = Pick<WorkspaceEntry, "id" | "name" | "active"> & { summary?: ArchiveSummary | null };
-export function workspaceEntry(
-  fields: Partial<WorkspaceEntry> & { id: number; name: string; cwd: string; active: boolean },
-): WorkspaceEntry {
+export function workspaceEntry<Id>(
+  fields: Partial<WorkspaceEntry<Id>> & { id: Id; name: string; cwd: string; active: boolean },
+): WorkspaceEntry<Id> {
   return {
     archived: false,
     collapsed: false,
@@ -636,7 +642,12 @@ export type Hit =
 const hit = <T extends Hit["tag"]>(tag: T): Hit => ({ tag }) as Hit;
 /** A row renamed in place: its field drawn over the name, the notice from
  * its last try, and the name the row falls back to while the text is empty. */
-export type RenameState = { target: RenameTarget; field: Dialog; message: string | null; fallback: string };
+export type RenameState = {
+  target: RenameTarget;
+  field: Dialog;
+  message: string | null;
+  fallback: string;
+};
 /** Where a row's rename field sits, in screen columns, and the line its message takes. */
 export interface FieldRect {
   x: number;
@@ -702,7 +713,7 @@ export class View {
   resources: { enabled: boolean } = { enabled: true };
   /** Whether the host has GPUs: rows keep a GPU reading's place, used or not. */
   gpus = false;
-  resource_hover: number | null = null;
+  resource_hover: viewerRef.Workspace | null = null;
   /** Decorative corgis only; contextual compaction keeps its animation. */
   corgi_intensity = 50;
   /** The agents header row as last dragged; null splits the sidebar in half. */
@@ -997,7 +1008,10 @@ export class View {
   }
   static height(e: Entry): number {
     const content = isHeading(e.target) ? 1 + Number(e.group.gap === true) : 2;
-    return content + (e.worktree?.ghost ? Number("worktree" in e.target) + Number(e.worktree.end === true) : 0);
+    return (
+      content +
+      (e.worktree?.ghost ? Number(isHeading(e.target) && "worktree" in e.target) + Number(e.worktree.end === true) : 0)
+    );
   }
   /** The headers of the groups the entry at `from` belongs to, which stay
    * pinned above it: its workspace's in the grouped list, then its
@@ -1013,7 +1027,7 @@ export class View {
     if (
       checkout &&
       !checkout.ghost &&
-      !("worktree" in first.target) &&
+      !(isHeading(first.target) && "worktree" in first.target) &&
       !isSubhead(first.target) &&
       index.worktree[from] >= 0
     )
@@ -1071,7 +1085,7 @@ export class View {
       if (isOuter(e.target)) {
         header = i;
         checkouts = new Map();
-      } else if ("worktree" in e.target) checkouts.set(e.target.worktree, i);
+      } else if (isHeading(e.target) && "worktree" in e.target) checkouts.set(e.target.worktree, i);
       else if (isSubhead(e.target) && e.target.checkout !== null) checkouts.set(e.target.checkout, i);
     });
     prev.push(last);
@@ -1158,7 +1172,7 @@ export class View {
   }
   /** The rename open on `target`'s row, or null. */
   private renaming(target: RenameTarget): RenameState | null {
-    return this.rename !== null && sameRenameTarget(this.rename.target, target) ? this.rename : null;
+    return this.rename !== null && this.rename.target === target ? this.rename : null;
   }
   /** The name columns of `target`'s row, as `hit` finds it, and the line
    * below it for a message, or the one above when the row is the last
@@ -1170,16 +1184,16 @@ export class View {
     }
     const v = this;
     if (v.width === 0) return null;
-    if ("workspace" in target) {
+    if (viewerRef.isWorkspace(target)) {
       if (v.drawer === "agents") return null;
-      const index = workspaces.findIndex(ws => ws.id === target.workspace);
+      const index = workspaces.findIndex(ws => ws.id === target);
       if (index < v.workspace_offset || index < 0 || v.workspace_collapsed[index]) return null;
       const y = v.workspaceY(index);
       if (y >= v.workspaceEnd()) return null;
       return { x: 1, y, width: sat(linkRange(v, workspaces[index], workspaces).start, 2), message_y: y + 1 };
     }
     if (v.drawer === "workspaces") return null;
-    const index = v.entries.findIndex(e => "pane" in e.target && e.target.pane === target.agent);
+    const index = v.entries.findIndex(e => viewerRef.isPane(e.target) && e.target === target);
     if (index < 0 || index < v.offset) return null;
     const end = v.drawEnd(v.badge("below"));
     const y = v.middle() + 2 + v.pinned(v.offset).length + v.rowsBefore(index) - v.rowsBefore(v.offset);
@@ -1192,11 +1206,11 @@ export class View {
     const rect = this.fieldRect(target, workspaces);
     if (rect === null || y !== rect.y || x < rect.x) return false;
     let width = 0;
-    if ("workspace" in target) {
-      const ws = workspaces.find(ws => ws.id === target.workspace);
+    if (viewerRef.isWorkspace(target)) {
+      const ws = workspaces.find(ws => ws.id === target);
       if (ws) width = displayWidth(workspaceName(ws)) + (ws.archived ? displayWidth(archivedSuffix()) : 0);
     } else {
-      const e = this.entries.find(e => "pane" in e.target && e.target.pane === target.agent);
+      const e = this.entries.find(e => viewerRef.isPane(e.target) && e.target === target);
       if (e) width = displayWidth(agentName(e));
     }
     return x < rect.x + Math.min(width, rect.width);
@@ -1591,7 +1605,7 @@ export class View {
       const badge = gitLabel(ws, false);
       const badge_width = displayWidth(badge);
       const link = linkRange(v, ws, workspaces);
-      const rename = v.renaming({ workspace: ws.id });
+      const rename = v.renaming(ws.id);
       const name = workspaceName(ws);
       const name_room = sat(link.start, 2);
       w.write(`${w.cup(y + 1, 2)}${style}`);
@@ -1856,7 +1870,10 @@ export class View {
         else if (cut) w.write(bytes);
       };
       const frame_ms = e.exit ? e.exit.frame_ms : now_ms;
-      const y = top + Number(e.worktree?.ghost === true && "worktree" in e.target) + Number(e.group.gap === true);
+      const y =
+        top +
+        Number(e.worktree?.ghost === true && isHeading(e.target) && "worktree" in e.target) +
+        Number(e.group.gap === true);
       if (gliding) {
         const from = list_top + moved.from - v.rowsBefore(v.offset);
         glide = rowGlide.place(
@@ -1976,7 +1993,7 @@ export class View {
     const figure_width = figure ? displayWidth(figure.text) : 0;
     const notes = noteLabel(e);
     const right = nameRight(e, figure);
-    const rename = "pane" in e.target ? v.renaming({ agent: e.target.pane }) : null;
+    const rename = viewerRef.isPane(e.target) ? v.renaming(e.target) : null;
     const name_style = waits
       ? "\x1b[1m" + fg("warm")
       : dot.unread || (grouped && e.focused)
@@ -2097,7 +2114,7 @@ export class View {
       w.write("\x1b[22m");
     }
     let name_x = arrow_x + 2;
-    if ("worktree" in e.target) {
+    if (isHeading(e.target) && "worktree" in e.target) {
       w.write(w.cup(y + 1, name_x + 1) + fg("faint") + "⌥");
       name_x += 2;
     }
@@ -2174,7 +2191,7 @@ export class View {
     for (let row = y; row < Math.min(y + height, this.listEnd()); row++) {
       w.write(`${w.cup(row + 1, 1)}${style}┊${w.cup(row + 1, right + 1)}┊`);
     }
-    if ("worktree" in e.target) w.write(`${w.cup(y + 1, 1)}${style}╭${"┄".repeat(right - 1)}╮`);
+    if (isHeading(e.target) && "worktree" in e.target) w.write(`${w.cup(y + 1, 1)}${style}╭${"┄".repeat(right - 1)}╮`);
     if (e.worktree.end && y + height <= this.listEnd())
       w.write(`${w.cup(y + height, 1)}${style}╰${"┄".repeat(right - 1)}╯`);
   }
@@ -2268,9 +2285,8 @@ function nameRight(e: Entry, figure: { text: string } | null): number {
   return figure_width + (figure_width > 0 ? 1 : 0) + (notes.length > 0 ? displayWidth(notes) + 1 : 0);
 }
 export function animationKey(e: Entry): string {
-  if ("pane" in e.target) return `pane:${e.target.pane}`;
-  if ("headless" in e.target) return `headless:${e.target.headless}`;
-  if ("asleep" in e.target) return `asleep:${e.target.asleep}`;
+  if (isAgent(e.target)) return e.target;
+  if (!isAgent(e.target) && "asleep" in e.target) return `asleep:${e.target.asleep}`;
   throw Error("unreachable");
 }
 function subagentBadge(status: Subagents, children: number): string {
@@ -2524,7 +2540,7 @@ export function linkRange(v: View, ws: WorkspaceEntry, workspaces: WorkspaceEntr
   return { start: end - width, end };
 }
 /** Resolve names through the same deduplicated URL selection used by clicks. */
-export function workspaceUrlName(ws: WorkspaceEntry, index: number): string {
+export function workspaceUrlName<Id>(ws: WorkspaceEntry<Id>, index: number): string {
   const target = workspaceUrl(ws, index);
   if (target === null) return "";
   for (const endpoint of portEndpoints(ws.ports, ws.id)) {
@@ -2534,7 +2550,7 @@ export function workspaceUrlName(ws: WorkspaceEntry, index: number): string {
   }
   return "";
 }
-function workspaceUrlPending(ws: WorkspaceEntry, index: number): boolean {
+function workspaceUrlPending<Id>(ws: WorkspaceEntry<Id>, index: number): boolean {
   if (workspaceUrlName(ws, index).length > 0) return false;
   const target = workspaceUrl(ws, index);
   if (target === null) return false;
@@ -2545,13 +2561,13 @@ function workspaceUrlPending(ws: WorkspaceEntry, index: number): boolean {
   }
   return false;
 }
-function portPending(ws: WorkspaceEntry): boolean {
+function portPending<Id>(ws: WorkspaceEntry<Id>): boolean {
   for (let i = 0; i < urlCount(ws); i++) if (workspaceUrlPending(ws, i)) return true;
   return false;
 }
 /** The link button's name, empty when it has none, or null while inference is
  * still naming it. */
-export function portName(ws: WorkspaceEntry): string | null {
+export function portName<Id>(ws: WorkspaceEntry<Id>): string | null {
   let name = workspaceUrlName(ws, 0);
   // A common name is useful for duplicate app endpoints; distinct apps keep
   // the generic chooser label and their individual names inside the menu.
@@ -2562,7 +2578,7 @@ export function portName(ws: WorkspaceEntry): string | null {
     }
   return name.length === 0 && portPending(ws) ? null : name;
 }
-export function portLabel(ws: WorkspaceEntry): string {
+export function portLabel<Id>(ws: WorkspaceEntry<Id>): string {
   const count = urlCount(ws);
   // A name stands alone; without one the button says what it does.
   const name = portName(ws) ?? `${i18n.t`Open `}...`;
@@ -2610,7 +2626,7 @@ export function worktreeLabel(ws: WorkspaceEntry): string {
   const count = worktrees.linked(ws.worktrees).length;
   return count ? (count === 1 ? i18n.t`${count} worktree` : i18n.t`${count} worktrees`) : "";
 }
-export function worktreeBadge(v: View, workspaces: WorkspaceEntry[], id: number): Rect | null {
+export function worktreeBadge(v: View, workspaces: WorkspaceEntry[], id: viewerRef.Workspace): Rect | null {
   const index = workspaces.findIndex(ws => ws.id === id),
     slot = index - v.workspace_offset;
   if (v.width === 0 || index < 0 || slot < 0 || slot >= v.workspaceCapacity() || workspaces[index].collapsed)
@@ -2634,7 +2650,7 @@ export function portLink(v: View, workspaces: WorkspaceEntry[], x: number, y: nu
   return urlCount(ws) === 1 ? workspaceUrl(ws, 0) : null;
 }
 // Only confirmed browser URLs participate; duplicate binds collapse to one link.
-export function workspaceUrl(ws: WorkspaceEntry, wanted: number): string | null {
+export function workspaceUrl<Id>(ws: WorkspaceEntry<Id>, wanted: number): string | null {
   const endpoints = portEndpoints(ws.ports, ws.id);
   let count = 0;
   for (let i = 0; i < endpoints.length; i++) {
@@ -2654,7 +2670,7 @@ export function workspaceUrl(ws: WorkspaceEntry, wanted: number): string | null 
   }
   return null;
 }
-export function urlCount(ws: WorkspaceEntry): number {
+export function urlCount<Id>(ws: WorkspaceEntry<Id>): number {
   let count = 0;
   while (workspaceUrl(ws, count) !== null) count += 1;
   return count;
@@ -2796,7 +2812,7 @@ function newAgentLabel(width: number): string {
 export class PortMenu {
   selected = 0;
   constructor(
-    public workspace: number,
+    public workspace: viewerRef.Workspace,
     selected = 0,
   ) {
     this.selected = selected;
@@ -2878,7 +2894,7 @@ export function gitWorkspace(v: View, workspaces: WorkspaceEntry[], x: number, y
 export function gitActionWorkspace(
   v: View,
   workspaces: WorkspaceEntry[],
-  expanded: number | null,
+  expanded: viewerRef.Workspace | null,
   x: number,
   y: number,
 ): WorkspaceEntry | null {
@@ -2892,7 +2908,7 @@ export function gitActionWorkspace(
   const end = v.width - 2;
   return size > 0 && x >= sat(end, size) && x < end ? ws : null;
 }
-export function drawGitAction(w: Writer, v: View, workspaces: WorkspaceEntry[], id: number): void {
+export function drawGitAction(w: Writer, v: View, workspaces: WorkspaceEntry[], id: viewerRef.Workspace): void {
   if (v.width === 0) return;
   const shown = workspaces.slice(
     v.workspace_offset,

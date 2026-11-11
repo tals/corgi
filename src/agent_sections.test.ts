@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { test, expect } from "bun:test";
 import * as agentSections from "./agent_sections";
 import { section } from "./agent_order";
@@ -10,13 +11,13 @@ const item = (
 ): agentSections.Item => ({
   key: `pane:${pane}`,
   entry: entry({
-    target: { pane },
+    target: viewerRef.pane(0, pane),
     name: `agent ${pane}`,
     provider: "claude",
     state,
     attention: fields.attention ?? "none",
   }),
-  workspace: 1,
+  workspace: viewerRef.workspace(0, 1),
   checkout: null,
   since: pane,
   section: section(state, fields.attention ?? "none"),
@@ -27,13 +28,17 @@ const item = (
 const options = (fields: Partial<agentSections.Options> = {}): agentSections.Options => ({
   all: false,
   folded: new Set(),
-  workspaces: [1, 2],
-  label: (workspace, checkout) => (checkout ?? `ws${workspace}`).replace(/^\/repo\//, ""),
+  workspaces: [viewerRef.workspace(0, 1), viewerRef.workspace(0, 2)],
+  label: (workspace, checkout) => (checkout ?? `ws${viewerRef.parts(workspace).id}`).replace(/^\/repo\//, ""),
   ...fields,
 });
-const rows = (entries: ReturnType<typeof agentSections.arrange>) =>
+const rows = (entries: import("./sidebar").Entry[]) =>
   entries.map(e =>
-    "pane" in e.target ? e.target.pane : isSection(e.target) ? `${e.target.section} ${e.group.agents}` : `· ${e.name}`,
+    viewerRef.isPane(e.target)
+      ? viewerRef.parts(e.target).id
+      : isSection(e.target)
+        ? `${e.target.section} ${e.group.agents}`
+        : `· ${e.name}`,
   );
 
 test("sections go in a fixed order, ready under working, newest first, neighbours in a worktree under one subhead", () => {
@@ -77,9 +82,22 @@ test("sections go in a fixed order, ready under working, newest first, neighbour
   expect(out[7]).toMatchObject({ section: "working", worktree: null, state: "blocked" });
   expect(out[5].group.branch).toBe(true);
   expect(out[1].group.branch).toBe(true);
-  expect(out[2]).toMatchObject({ section: "working", worktree: { workspace: 1, path: "/repo/topic", ghost: false } });
-  expect(out[1].target).toEqual({ section: "working", workspace: 1, checkout: "/repo/topic", run: 0 });
-  expect(out[9].target).toEqual({ section: "working", workspace: 1, checkout: "/repo/topic", run: 1 });
+  expect(out[2]).toMatchObject({
+    section: "working",
+    worktree: { workspace: viewerRef.workspace(0, 1), path: "/repo/topic", ghost: false },
+  });
+  expect(out[1].target).toEqual({
+    section: "working",
+    workspace: viewerRef.workspace(0, 1),
+    checkout: "/repo/topic",
+    run: 0,
+  });
+  expect(out[9].target).toEqual({
+    section: "working",
+    workspace: viewerRef.workspace(0, 1),
+    checkout: "/repo/topic",
+    run: 1,
+  });
   // A blank row parts each section from the one above it.
   expect(out.filter(e => isSection(e.target)).map(e => e.group.gap)).toEqual([false, true, true, true]);
   expect(out.at(-1)!.group.folded).toBe(true);
@@ -105,7 +123,7 @@ test("pins keep their order above the sections, each workspace's together, under
       item(1, "working", { pin: 1 }),
       item(2, "blocked", { pin: 0, checkout: "/repo/topic" }),
       item(5, "idle", { pin: 2, checkout: "/repo/topic" }),
-      item(3, "idle", { workspace: 2, pin: 0 }),
+      item(3, "idle", { workspace: viewerRef.workspace(0, 2), pin: 0 }),
       item(4, "idle"),
     ],
     options(),
@@ -113,16 +131,26 @@ test("pins keep their order above the sections, each workspace's together, under
   // A worktree's stars take its subhead in pin order, so one met again gets a
   // second, and the workspace's own checkout is named where it follows one.
   expect(rows(out)).toEqual(["starred 4", "· topic", 2, "· ws1", 1, "· topic", 5, 3, "idle 1", 4]);
-  expect(out[1].target).toEqual({ section: "starred", workspace: 1, checkout: "/repo/topic", run: 0 });
+  expect(out[1].target).toEqual({
+    section: "starred",
+    workspace: viewerRef.workspace(0, 1),
+    checkout: "/repo/topic",
+    run: 0,
+  });
   expect(out[3].group.branch).toBe(true);
-  expect(out[5].target).toEqual({ section: "starred", workspace: 1, checkout: "/repo/topic", run: 1 });
+  expect(out[5].target).toEqual({
+    section: "starred",
+    workspace: viewerRef.workspace(0, 1),
+    checkout: "/repo/topic",
+    run: 1,
+  });
   // In "all", each workspace and each of its worktrees gets a subhead.
   const all = agentSections.arrange(
     [
       item(1, "working", { pin: 0 }),
-      item(2, "working", { workspace: 2, since: 9 }),
+      item(2, "working", { workspace: viewerRef.workspace(0, 2), since: 9 }),
       item(3, "working", { checkout: "/repo/topic" }),
-      item(4, "working", { workspace: 2, pin: 0 }),
+      item(4, "working", { workspace: viewerRef.workspace(0, 2), pin: 0 }),
       item(5, "working", { checkout: "/repo/topic", pin: 1 }),
     ],
     options({ all: true }),
@@ -169,8 +197,10 @@ test("an agent keeps its place when a neighbour in its worktree leaves the secti
     item(3, "idle", { rank: 2 }),
     item(4, "idle", { checkout: "/repo/wt", rank: 3 }),
   ];
-  const agents = (out: ReturnType<typeof agentSections.arrange>) =>
-    out.filter(e => e.section === "idle" && "pane" in e.target).map(e => ("pane" in e.target ? e.target.pane : 0));
+  const agents = (out: import("./sidebar").Entry[]) =>
+    out
+      .filter(e => e.section === "idle" && viewerRef.isPane(e.target))
+      .map(e => (viewerRef.isPane(e.target) ? viewerRef.parts(e.target).id : 0));
   expect(agents(agentSections.arrange(idle("idle"), options()))).toEqual([1, 2, 3, 4]);
   expect(agents(agentSections.arrange(idle("working"), options()))).toEqual([2, 3, 4]);
 });
@@ -181,7 +211,9 @@ test("an agent held among the ready stays between its neighbours while others mo
         item(Number(pane), "idle", { attention: "finished", rank }),
       );
       since.place(items, new Set(held.map(pane => `pane:${pane}`)));
-      return agentSections.arrange(items, options()).flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+      return agentSections
+        .arrange(items, options())
+        .flatMap(e => (viewerRef.isPane(e.target) ? [viewerRef.parts(e.target).id] : []));
     };
   // Ready: A, B, C.
   expect(ready({ 1: 0, 2: 1, 3: 2 }, [])).toEqual([1, 2, 3]);
@@ -204,7 +236,7 @@ test("a held ready agent keeps to the next neighbour when one leaves", () => {
       return agentSections
         .arrange(items, options())
         .filter(e => e.section === "ready")
-        .flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+        .flatMap(e => (viewerRef.isPane(e.target) ? [viewerRef.parts(e.target).id] : []));
     };
   // Ready: C, A, B.
   expect(ready({ 3: 0, 1: 1, 2: 2 }, [])).toEqual([3, 1, 2]);
@@ -218,7 +250,9 @@ test("dragging a held ready agent replaces its neighbours until focus leaves", (
     ready = (order: number[], held: boolean) => {
       const items = order.map((pane, rank) => item(pane, "idle", { attention: "finished", rank }));
       since.place(items, new Set(held ? ["pane:2"] : []));
-      return agentSections.arrange(items, options()).flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+      return agentSections
+        .arrange(items, options())
+        .flatMap(e => (viewerRef.isPane(e.target) ? [viewerRef.parts(e.target).id] : []));
     };
   expect(ready([1, 2, 3], false)).toEqual([1, 2, 3]);
   expect(ready([2, 1, 3], true)).toEqual([1, 2, 3]);
@@ -242,7 +276,7 @@ test("a held ready agent starred and unstarred keeps its place", () => {
       return agentSections
         .arrange(items, options())
         .filter(e => e.section === "ready")
-        .flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+        .flatMap(e => (viewerRef.isPane(e.target) ? [viewerRef.parts(e.target).id] : []));
     };
   since.place(
     [1, 2, 3].map(pane => item(pane, "idle", { attention: "finished", rank: pane - 1 })),
@@ -260,14 +294,22 @@ test("a held ready agent stops following a neighbour that leaves its section", (
         since.place(items, new Set(held ? ["pane:2"] : []));
         return agentSections
           .arrange(
-            items.filter(i => i.workspace === 1),
+            items.filter(i => i.workspace === viewerRef.workspace(0, 1)),
             options(),
           )
           .filter(e => e.section === "ready")
           .map(e => e.target);
       };
-    expect(place([ready(1, 0), ready(2, 1), ready(3, 2)], false)).toEqual([{ pane: 1 }, { pane: 2 }, { pane: 3 }]);
-    expect(place([ready(1, 1), ready(2, 0), ready(3, 2)], true)).toEqual([{ pane: 1 }, { pane: 2 }, { pane: 3 }]);
+    expect(place([ready(1, 0), ready(2, 1), ready(3, 2)], false)).toEqual([
+      viewerRef.pane(0, 1),
+      viewerRef.pane(0, 2),
+      viewerRef.pane(0, 3),
+    ]);
+    expect(place([ready(1, 1), ready(2, 0), ready(3, 2)], true)).toEqual([
+      viewerRef.pane(0, 1),
+      viewerRef.pane(0, 2),
+      viewerRef.pane(0, 3),
+    ]);
     const neighbour = ready(3, 0);
     switch (change) {
       case "working":
@@ -277,17 +319,21 @@ test("a held ready agent stops following a neighbour that leaves its section", (
         neighbour.pin = 0;
         break;
       case "workspace":
-        neighbour.workspace = 2;
+        neighbour.workspace = viewerRef.workspace(0, 2);
         break;
       case "closed":
         break;
     }
     expect(place([ready(1, 2), ready(2, 1), ...(change === "closed" ? [] : [neighbour])], true)).toEqual([
-      { pane: 1 },
-      { pane: 2 },
+      viewerRef.pane(0, 1),
+      viewerRef.pane(0, 2),
     ]);
     // Returning at the top must not pull the reader up with it.
-    expect(place([ready(1, 2), ready(2, 1), ready(3, 0)], true)).toEqual([{ pane: 3 }, { pane: 1 }, { pane: 2 }]);
+    expect(place([ready(1, 2), ready(2, 1), ready(3, 0)], true)).toEqual([
+      viewerRef.pane(0, 3),
+      viewerRef.pane(0, 1),
+      viewerRef.pane(0, 2),
+    ]);
   }
 });
 test("a held ready agent alone in its section lets one that enters go on top", () => {
@@ -297,7 +343,7 @@ test("a held ready agent alone in its section lets one that enters go on top", (
       return agentSections
         .arrange(items, options())
         .filter(e => e.section === "ready")
-        .flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+        .flatMap(e => (viewerRef.isPane(e.target) ? [viewerRef.parts(e.target).id] : []));
     },
     ready = (pane: number, rank: number) => item(pane, "idle", { attention: "finished", rank });
   // B is read and held, alone in ready; A works below where B was.

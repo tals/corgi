@@ -11,7 +11,7 @@ import { Model, max_workspaces } from "./layout";
 interface Snapshot {
   instance: string;
   updated: number;
-  workspaces: sidebar.WorkspaceEntry[];
+  workspaces: sidebar.WorkspaceEntry<number>[];
   metadata?: Metadata;
 }
 interface Metadata {

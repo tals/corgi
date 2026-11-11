@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { createServer, type Server as SocketServer, type Socket } from "./fixtures/websocket_server";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -158,9 +159,14 @@ test("the summary lists each workspace's agents as the sidebar sorted by activit
       expect(
         viewer
           .agentEntries()
-          .filter((e: any) => "pane" in e.target || "headless" in e.target)
+          .filter((e: sidebar.Entry) => sidebar.isAgent(e.target))
           .map((e: any) => e.target),
-      ).toEqual([{ pane: blocked.id }, { pane: working.id }, { pane: ready.id }, { headless: 7 }]);
+      ).toEqual([
+        viewerRef.pane(viewer.machine.id, blocked.id),
+        viewerRef.pane(viewer.machine.id, working.id),
+        viewerRef.pane(viewer.machine.id, ready.id),
+        viewerRef.headless(viewer.machine.id, 7),
+      ]);
     } finally {
       viewer.runtime.destroy();
     }
@@ -193,9 +199,9 @@ test("watch and the sidebar list only Corgi chats held by a live pane", () => {
     expect(
       viewer
         .agentEntries()
-        .filter(e => "headless" in e.target)
+        .filter(e => viewerRef.isHeadless(e.target))
         .map(e => [e.target, e.name]),
-    ).toEqual([[{ headless: 7 }, "Corgi"]]);
+    ).toEqual([[viewerRef.headless(viewer.machine.id, 7), "Corgi"]]);
   } finally {
     runtime?.destroy();
     viewer.runtime.destroy();
@@ -248,9 +254,11 @@ test("watch and the sidebar suppress stale child claims for pane and headless ag
           corgi: sidebar.corgiMode(row, 1),
         };
         expect(shown).toEqual(expected);
-        expect(agents.find(a => ("pane" in row.target ? a.pane === row.target.pane : a.headless === 7))).toMatchObject(
-          shown,
-        );
+        expect(
+          agents.find(a =>
+            viewerRef.isPane(row.target) ? a.pane === viewerRef.parts(row.target).id : a.headless === 7,
+          ),
+        ).toMatchObject(shown);
       }
       expect(runtime.panes[0].agent.subagents.waiting).toBe(true);
     }

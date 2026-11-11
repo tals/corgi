@@ -58,7 +58,7 @@ import {
   type Workspace,
   type Headless,
 } from "./mirror";
-import { needsPane, type Action } from "./action";
+import { bind as bindAction, needsPane, type Action, type Template } from "./action";
 import * as corgiBadge from "./corgi_badge";
 import * as forkHero from "./fork_hero";
 import * as newWorkspace from "./new_workspace";
@@ -93,8 +93,9 @@ import * as worktreeTooltip from "./worktree_tooltip";
 import * as viewerRef from "./viewer_ref";
 import * as worktreeAgents from "./worktree_agents";
 import * as agentSections from "./agent_sections";
+import * as agentOrder from "./agent_order";
 import * as agentRows from "./agent_rows";
-import { key as agentKey, section, type Section, type Target as OrderTarget } from "./agent_order";
+import { section, type Section, type Target as OrderTarget } from "./agent_order";
 import * as worktrees from "./worktrees";
 import * as worktreeRemoval from "./worktree_removal";
 import * as rpc from "./rpc";
@@ -214,7 +215,7 @@ interface PortClick {
   x: number;
   y: number;
   url: string;
-  menu: number | null;
+  menu: viewerRef.Workspace | null;
   pane: number | null;
   px: number;
   py: number;
@@ -500,7 +501,7 @@ export class Controller {
     this.wake();
   });
   tab_icons = new tabIcons.Icons();
-  git_hover: number | null = null;
+  git_hover: viewerRef.Workspace | null = null;
   grip_hover: number[] = [];
   git_card = new gitTooltip.State();
   git_aim: gitTooltip.Aim | null = null;
@@ -706,38 +707,33 @@ export class Controller {
     this.dirty = true;
   }
   workspaceRef(workspace: number, machine = this.machine): viewerRef.Workspace {
-    return { machine: machine.id, workspace };
+    return viewerRef.workspace(machine.id, workspace);
   }
   private resolveWorkspace(ref: viewerRef.Workspace | null): { machine: Machine; workspace: Workspace } | null {
     if (!ref) return null;
-    const machine = this.machines_by_id.get(ref.machine),
-      workspace = machine?.runtime.workspaces.items.find(ws => ws.id === ref.workspace);
-    return machine && workspace ? { machine, workspace } : null;
+    const owner = this.rowOf(ref);
+    const workspace = owner?.machine.runtime.workspaces.items.find(ws => ws.id === owner.id);
+    return owner && workspace ? { machine: owner.machine, workspace } : null;
   }
-  /** Numeric action arguments belong to the selected machine; refs keep their owner. */
-  private actionWorkspace(value: number | viewerRef.Workspace | undefined): viewerRef.Workspace {
-    return typeof value === "object" ? value : this.workspaceRef(value || this.current().id);
-  }
-  /** A sidebar row's id: a daemon's workspace id, set apart for each machine
-   * so ids from different daemons never meet. The first machine's rows keep
-   * their own ids. */
-  rowKey(id: number, machine = this.machine): number {
-    return Math.max(0, this.machines.indexOf(machine)) * machine_stride + id;
+  /** Input templates become concrete actions before entering the UI dispatcher. */
+  invoke(template: Template, machine = this.machine): Promise<void> {
+    const selected = this.workspaceRef(machine.navigation.current(machine.runtime.workspaces).id, machine);
+    return this.perform(bindAction(template, selected));
   }
   /** The machine and workspace a sidebar row's id names; 0 for a machine
    * with no workspaces listed yet. */
-  rowOf(key: number): { machine: Machine; id: number } | null {
-    const machine = this.machines[Math.floor(key / machine_stride)];
-    return machine ? { machine, id: key % machine_stride } : null;
+  rowOf(key: viewerRef.Entity): { machine: Machine; id: number } | null {
+    const { machine: machineId, id } = viewerRef.parts(key);
+    const machine = this.machines_by_id.get(machineId);
+    return machine ? { machine, id } : null;
   }
-  /** The shown machine's workspace on a sidebar row, by its own id: the
-   * cards that read it name it so. Null for another machine's row. */
+  /** Limits controls that act on the shown layout to its machine's rows. */
   private shownRow(row: sidebar.WorkspaceEntry | null): sidebar.WorkspaceEntry | null {
     const owner = row && this.rowOf(row.id);
-    return row && owner?.machine === this.machine ? { ...row, id: owner.id } : null;
+    return row && owner?.machine === this.machine ? row : null;
   }
   /** Shows the workspace a sidebar row names, on its own machine. */
-  selectRow(key: number): void {
+  selectRow(key: viewerRef.Workspace): void {
     const row = this.rowOf(key);
     if (!row) return;
     row.machine.collapsed = false;
@@ -751,39 +747,16 @@ export class Controller {
     this.leaveSidebar();
     this.onMachine(row.machine, row.id ? { workspace: row.id } : null);
   }
-  /** An agent list row's id: the shown machine's own, else set apart for
-   * the machine it's on. Unlike row keys, these follow the shown machine. */
-  private agentKey(id: number, machine: Machine): number {
-    return machine === this.machine ? id : (this.machines.indexOf(machine) + 1) * machine_stride + id;
+  private resolveAgent(ref: viewerRef.Agent): { machine: Machine; target: OrderTarget } | null {
+    const owner = this.rowOf(ref);
+    return (
+      owner && { machine: owner.machine, target: viewerRef.isPane(ref) ? { pane: owner.id } : { headless: owner.id } }
+    );
   }
-  /** The machine and id an agent list row's id names. */
-  private agentOf(key: number): { machine: Machine; id: number } {
-    if (key < machine_stride) return { machine: this.machine, id: key };
-    return { machine: this.machines[Math.floor(key / machine_stride) - 1] ?? this.machine, id: key % machine_stride };
-  }
-  /** An agent list target in its own machine's ids, and that machine. */
-  private agentTarget(target: Target): { machine: Machine; target: Target } {
-    if ("pane" in target) {
-      const { machine, id } = this.agentOf(target.pane);
-      return { machine, target: { pane: id } };
-    }
-    if ("headless" in target) {
-      const { machine, id } = this.agentOf(target.headless);
-      return { machine, target: { headless: id } };
-    }
-    if ("group" in target) {
-      const { machine, id } = this.agentOf(target.group);
-      return { machine, target: { group: id } };
-    }
-    if ("workspace" in target) {
-      const { machine, id } = this.agentOf(target.workspace);
-      return { machine, target: { ...target, workspace: id } };
-    }
-    return { machine: this.machine, target };
-  }
-  /** Whether an agent list row is another machine's. */
+  /** Whether a sidebar target belongs to another machine. */
   private away(target: Target): boolean {
-    return this.agentTarget(target).machine !== this.machine;
+    const owner = sidebar.owner(target);
+    return owner !== null && this.rowOf(owner)?.machine !== this.machine;
   }
   /** Whether `machine`'s rows are only cached ones from a daemon since replaced. */
   private stale(machine: Machine): boolean {
@@ -952,13 +925,14 @@ export class Controller {
     command: CommandInput,
     lane?: tasks.Lane | (() => void),
     completed?: () => void,
+    machine = this.machine,
   ): Promise<{ pane: number; workspace: number; text: string | null }> {
     const done = typeof lane === "function" ? lane : undefined;
     lane = typeof lane === "function" ? undefined : lane;
-    const machine = lane ? (this.machines.find(m => m.connection === lane.transport) ?? this.machine) : this.machine;
+    if (lane) machine = this.machines.find(m => m.connection === lane.transport) ?? machine;
     const response = await (lane
       ? lane.call("session.command", { command })
-      : call(this.connection, "session.command", { command }));
+      : call(machine.connection, "session.command", { command }));
     done?.();
     completed?.();
     const result = {
@@ -970,8 +944,8 @@ export class Controller {
     this.dirty = true;
     return result;
   }
-  private async edit(command: CommandInput, lane?: tasks.Lane): Promise<void> {
-    await this.execute(command, lane);
+  private async edit(command: CommandInput, lane?: tasks.Lane, machine = this.machine): Promise<void> {
+    await this.execute(command, lane, undefined, machine);
   }
   /** Sends `command` and shows its result once the daemon has it. */
   private command(command: CommandInput): void {
@@ -1039,7 +1013,7 @@ export class Controller {
       else this.closeMenu();
     });
   }
-  private revealWorkspace(index = this.workspaceIds().indexOf(this.rowKey(this.current().id))): void {
+  private revealWorkspace(index = this.workspaceIds().indexOf(this.workspaceRef(this.current().id))): void {
     if (index < 0) return;
     if (this.archived_expanded && this.sidebarView([]).workspaceCapacity() === 0) this.archived_expanded = false;
     this.workspace_offset = this.sidebarView([]).workspaceReveal(index);
@@ -1069,7 +1043,7 @@ export class Controller {
     if (focus) {
       if (to !== "up" && to !== "down") return false;
       const entries = this.sidebarEntries();
-      if (!focus.cross(this.current().id, entries, to === "up")) return false;
+      if (!focus.cross(this.workspaceRef(this.current().id), entries, to === "up")) return false;
       this.revealCursor(entries);
       return true;
     }
@@ -1105,7 +1079,7 @@ export class Controller {
     this.selection = null;
     this.cancelDividers();
     const entries = this.sidebarEntries(),
-      current = this.rowKey(this.current().id);
+      current = this.workspaceRef(this.current().id);
     const cursor = list === "workspaces" ? { workspace: current } : sidebarFocus.initial(current, entries);
     this.giveKeyboard({ sidebar: new sidebarFocus.State(cursor, folded ? list : null) });
     this.revealCursor(entries);
@@ -1136,7 +1110,7 @@ export class Controller {
     const cursor = this.sidebar_focus!.cursor;
     if ("archived" in cursor) return;
     if ("workspace" in cursor) {
-      const archived = this.archivedWorkspaces().findIndex(ws => ws.id === cursor.workspace);
+      const archived = this.archivedWorkspaces().findIndex(ws => this.workspaceRef(ws.id) === cursor.workspace);
       if (archived >= 0 && this.archived_expanded) {
         const capacity = this.sidebarView([]).archivedCapacity();
         if (archived < this.archived_offset) this.archived_offset = archived;
@@ -1177,8 +1151,9 @@ export class Controller {
   sidebarGhost(): render.Ghost | null {
     const focus = this.sidebar_focus;
     const cursor = focus?.cursor;
-    if (!focus || !cursor || !("entry" in cursor) || !("pane" in cursor.entry)) return null;
-    return this.agentGhost(cursor.entry.pane);
+    if (!focus || !cursor || !("entry" in cursor) || !viewerRef.isPane(cursor.entry)) return null;
+    const owner = this.rowOf(cursor.entry);
+    return owner?.machine === this.machine ? this.agentGhost(owner.id) : null;
   }
   /** The same preview for the sidebar and the archive review, without entering its pane. */
   previewGhost(): render.Ghost | null {
@@ -1209,12 +1184,18 @@ export class Controller {
    * show it, while it isn't the current one. */
   sidebarWorkspaceGhost(): render.WorkspaceGhost | null {
     const cursor = this.sidebar_focus?.cursor;
-    if (!cursor || !("workspace" in cursor) || cursor.workspace === this.current().id) return null;
-    const index = this.runtime.workspaces.index(cursor.workspace);
-    if (index === null) return null;
-    const ws = this.runtime.workspaces.items[index];
-    return { name: ws.name, view: new LayoutView(ws.model, this.navigation.selection(this.runtime.workspaces, ws)) };
+    if (!cursor || !("workspace" in cursor) || cursor.workspace === this.workspaceRef(this.current().id)) return null;
+    const owner = this.resolveWorkspace(cursor.workspace);
+    if (!owner || owner.machine !== this.machine) return null;
+    return {
+      name: owner.workspace.name,
+      view: new LayoutView(
+        owner.workspace.model,
+        owner.machine.navigation.selection(owner.machine.runtime.workspaces, owner.workspace),
+      ),
+    };
   }
+
   /** `/` in the focused agent list searches it; Esc comes back to the list. */
   private searchSidebar(): void {
     const focus = this.sidebar_focus!;
@@ -1230,12 +1211,12 @@ export class Controller {
   /** Runs a prefixed binding. Prefixed commands act on panes, so any but one
    * that moves the keyboard gives it back to them; a repeatable one opens its
    * repeat window. */
-  private async runPrefixed(act: Action, repeats: boolean): Promise<void> {
+  private async runPrefixed(act: Template, repeats: boolean): Promise<void> {
     this.prefix = false;
     if (this.prompt.open && act.name !== "prompt") this.prompt.hide();
     this.repeat_until = repeats ? Date.now() + bindings.repeat_ms : 0;
     if (!["focus", "choose-workspace", "choose-agent", "review"].includes(act.name)) this.giveKeyboard("pane");
-    await this.perform(act);
+    await this.invoke(act);
   }
   /** Whether the prefix, or the key after it, was a sign-in's to take. Only
    * detach runs over a sign-in: other commands act on what it covers and
@@ -1264,17 +1245,18 @@ export class Controller {
    * extends, or else closes. The sidebar and the review panel take plain
    * arrows themselves, but they keep the window open, so focus can leave
    * the sidebar the same way. */
-  private repeats(act: Action | null): act is Action {
+  private repeats(act: Template | null): act is Template {
     if (act === null) return false;
     const again = !this.prefix && Date.now() < this.repeat_until;
     this.repeat_until = again ? Date.now() + bindings.repeat_ms : 0;
     return again && !this.sidebar_focus && !this.reviewKeys();
   }
   selectPane(ref: viewerRef.Pane): void {
-    const machine = this.machines_by_id.get(ref.machine);
-    if (!machine?.runtime.pane(ref.pane)) return;
-    if (machine !== this.machine) this.onMachine(machine, { pane: ref.pane });
-    else this.focusPane(ref.pane);
+    const { machine: machineId, id } = viewerRef.parts(ref);
+    const machine = this.machines_by_id.get(machineId);
+    if (!machine?.runtime.pane(id)) return;
+    if (machine !== this.machine) this.onMachine(machine, { pane: id });
+    else this.focusPane(id);
   }
   focusPane(id: number, remember = true): void {
     const owner = this.runtime.workspaces.owner(id);
@@ -1336,7 +1318,7 @@ export class Controller {
         rows.map(row => row.collapsed),
       )
       .withEntries(entries)
-      .withRename(this.renameState());
+      .withRename(this.inline_rename);
     view.scope_label = this.scopeLabel();
     view.workspace_scope = this.machineScope();
     view.corgi_badge = this.host.corgi_badge;
@@ -1472,8 +1454,10 @@ export class Controller {
       this.onboarding = Object.assign(new onboarding.State(), { preset: prefs.preset, prefix: prefs.prefix });
   }
   /** Folds or unfolds a group header, on whichever machine it lists. */
-  private toggleGroup(key: number): void {
-    const { machine, id } = this.agentOf(key);
+  private toggleGroup(key: viewerRef.Workspace): void {
+    const owner = this.rowOf(key);
+    if (!owner) return;
+    const { machine, id } = owner;
     const folded = machine.folded_groups;
     const index = folded.indexOf(id);
     if (index >= 0) {
@@ -1496,8 +1480,10 @@ export class Controller {
     }
     this.dirty = true;
   }
-  private toggleWorktree(selection: worktreeAgents.Selection): void {
-    const { machine, id } = this.agentOf(selection.workspace);
+  private toggleWorktree(selection: worktreeAgents.Selection<viewerRef.Workspace>): void {
+    const owner = this.rowOf(selection.workspace);
+    if (!owner) return;
+    const { machine, id } = owner;
     const key = worktreeAgents.key({ workspace: id, path: selection.path });
     const unfolded = machine.worktree_agents.folded.delete(key);
     if (!unfolded) machine.worktree_agents.folded.add(key);
@@ -1576,12 +1562,11 @@ export class Controller {
     const p = this.focused();
     return this.inheritedCwd(this.current(), p ? p.id : null);
   }
-  private workspaceIds(): number[] {
+  private workspaceIds(): viewerRef.Workspace[] {
     return this.workspaceRows().map(ws => ws.id);
   }
   /** The sidebar's workspace rows for every machine shown, by row id; see `key`. */
   workspaceRows(all = false, expanded = false): WorkspaceEntry[] {
-    if (this.machines.length === 1) return this.workspaceEntries();
     const labels = this.machineLabels();
     const rows = this.machines.flatMap(machine => {
       if (!all && this.machine_filter && this.machine_filter !== machine) return [];
@@ -1595,7 +1580,7 @@ export class Controller {
       if (!rows.length)
         return [
           sidebar.workspaceEntry({
-            id: this.rowKey(0, machine),
+            id: this.workspaceRef(0, machine),
             name: machine.name,
             cwd: "",
             active: false,
@@ -1609,13 +1594,13 @@ export class Controller {
         ];
       return rows.map(row => ({
         ...row,
-        id: this.rowKey(row.id, machine),
+        id: this.workspaceRef(row.id, machine),
         // Ports are found by the row's id, so they take it too.
         ports: {
           ...row.ports,
           workspaces: (row.ports?.workspaces ?? [])
             .filter(w => w.id === row.id)
-            .map(w => ({ ...w, id: this.rowKey(w.id, machine) })),
+            .map(w => ({ ...w, id: this.workspaceRef(w.id, machine) })),
         },
         active: shown && row.id === machine.navigation.workspace_id,
         machine: labels ? machine.name : "",
@@ -1655,12 +1640,12 @@ export class Controller {
       })
       .map(row => row.id);
     if (!ids.length) return;
-    const current = ids.indexOf(this.rowKey(this.current().id));
+    const current = ids.indexOf(this.workspaceRef(this.current().id));
     const index =
       current < 0 ? (forward ? 0 : ids.length - 1) : (current + (forward ? 1 : ids.length - 1)) % ids.length;
     this.selectRow(ids[index]);
   }
-  private workspaceOrderKey(key: number): string {
+  private workspaceOrderKey(key: viewerRef.Workspace): string {
     const row = this.rowOf(key)!;
     return JSON.stringify([row.machine.order_scope || row.machine.name, row.id]);
   }
@@ -1719,9 +1704,9 @@ export class Controller {
       if (side.unreadHit(row, x, y)) return false;
       // Only presses on the name make the double-click that renames.
       const workspace = this.rowOf(row.id)!.id;
-      if (!side.onName({ workspace: row.id }, rows, x, y)) this.clicks.reset();
-      else if (this.clicks.press({ workspace }, milliTimestamp(), x, y)) {
-        this.beginInlineRename({ workspace });
+      if (!side.onName(row.id, rows, x, y)) this.clicks.reset();
+      else if (this.clicks.press(row.id, milliTimestamp(), x, y)) {
+        this.beginInlineRename(row.id);
         return true;
       }
       const key = ids[hit.workspace];
@@ -1757,15 +1742,13 @@ export class Controller {
     return true;
   }
   /** The readings a row's machine sampled, its workspace under the row's id. */
-  private rowResources(key: number): resources.Snapshot | null {
+  private rowResources(key: viewerRef.Workspace) {
     const row = this.rowOf(key);
     if (!row || !row.machine.presence().online || this.stale(row.machine)) return null;
     const snapshot = row.machine.runtime.resources,
       work = snapshot.workspaces.find(work => work.id === row.id);
     if (!work) return null;
-    return Object.assign(new resources.Snapshot(), snapshot, {
-      workspaces: [Object.assign(new resources.Work(key), work, { id: key })],
-    });
+    return { ...snapshot, workspaces: [{ ...work, id: key }] };
   }
   private workspaceList(): Workspace[] {
     return this.runtime.workspaces.items.filter(ws => !ws.archived || ws.id === this.current().id);
@@ -1779,7 +1762,7 @@ export class Controller {
   }
   archivedWorkspaceEntries(): sidebar.ArchivedWorkspace[] {
     return this.archivedWorkspaces().map(ws => ({
-      id: this.rowKey(ws.id),
+      id: this.workspaceRef(ws.id),
       name: ws.name,
       active: false,
       summary:
@@ -1791,7 +1774,7 @@ export class Controller {
         ),
     }));
   }
-  private sidebarWorkspaceIds(): number[] {
+  private sidebarWorkspaceIds(): viewerRef.Workspace[] {
     return [
       ...this.workspaceRows()
         .filter(row => {
@@ -1799,14 +1782,14 @@ export class Controller {
           return presence.online || presence.connecting;
         })
         .map(row => row.id),
-      ...(this.archived_expanded ? this.archivedWorkspaces().map(ws => this.rowKey(ws.id)) : []),
+      ...(this.archived_expanded ? this.archivedWorkspaces().map(ws => this.workspaceRef(ws.id)) : []),
     ];
   }
   private archivedHeaderIndex(): number | null {
     return this.archivedWorkspaces().length ? this.workspaceIds().length : null;
   }
   /** `machine`'s workspaces as the sidebar lists them, by their own ids. */
-  workspaceEntries(machine = this.machine): WorkspaceEntry[] {
+  workspaceEntries(machine = this.machine): WorkspaceEntry<number>[] {
     const runtime = machine.runtime;
     // Until the daemon first answers, it has none.
     if (runtime.workspaces.items.length === 0) return [];
@@ -1844,69 +1827,78 @@ export class Controller {
       });
   }
   /** The agent list; `unfolded` keeps the agents of folded sections. */
-  agentEntries(workspace?: number, unfolded = false, owner = this.machine): Entry[] {
-    let entries: Entry[] = [];
-    const focus = this.model().count > 0 ? this.nav().tab().focus : 0;
-    // Activity sorting sections the sidebar's list; a single workspace's,
-    // for its worktrees, keeps the hand-sorted order.
-    const sectioned = workspace === undefined && this.prefs.agentSort() === "activity";
-    // A hand-sorted "All" groups agents under a header per workspace that has any.
-    const grouped = workspace === undefined && !sectioned && this.prefs.agents === "all";
-    const machines =
-      workspace !== undefined || this.prefs.agents !== "all"
-        ? [owner]
-        : this.machine_filter
-          ? [this.machine_filter]
-          : this.machines;
-    const label = (id: number, checkout: string | null, all: boolean) => {
-      const owner = this.agentOf(id);
-      const name = this.checkoutLabel(owner.id, checkout, all, owner.machine);
-      return all && this.machineLabels() ? `${owner.machine.name} · ${name}` : name;
+  /** One machine's agents, with its own IDs and saved ordering. */
+  private machineAgents(workspace: number, machine = this.machine): agentRows.Row[] {
+    const runtime = machine.runtime,
+      ws = runtime.workspaces.items.find(ws => ws.id === workspace);
+    if (!ws) return [];
+    const shown = machine === this.machine,
+      focus = this.model().count > 0 ? this.nav().tab().focus : 0;
+    const rows = agentRows.rows(runtime, ws, milliTimestamp());
+    for (const { entry } of rows) {
+      const target = entry.target,
+        chat = "headless" in target ? runtime.corgi_sessions.find(s => s.id === target.headless) : null,
+        pane = "pane" in target ? target.pane : chat?.pane;
+      entry.focused =
+        shown &&
+        (pane != null
+          ? this.headless_notice === null && focus === pane
+          : "headless" in target && this.headless_notice === target.headless);
+      const conversation = runtime.conversations.find(c => c.id === entry.conversation);
+      if (conversation) entry.context = contextView(conversation.context);
+      if (shown && "pane" in target) entry.notes = this.review.noteCount(target.pane);
+    }
+    return rows.sort(
+      (a, b) => agentOrder.rank(ws.agent_order, a.entry.target) - agentOrder.rank(ws.agent_order, b.entry.target),
+    );
+  }
+  /** Local rows enter the shared UI with qualified identities. */
+  private agentEntry(entry: agentRows.Listed, machine: Machine): Entry {
+    const t = entry.target;
+    const target: Target =
+      "pane" in t
+        ? viewerRef.pane(machine.id, t.pane)
+        : "headless" in t
+          ? viewerRef.headless(machine.id, t.headless)
+          : "group" in t
+            ? { group: this.workspaceRef(t.group, machine) }
+            : "workspace" in t
+              ? { ...t, workspace: this.workspaceRef(t.workspace, machine) }
+              : t;
+    return {
+      ...entry,
+      target,
+      worktree: entry.worktree
+        ? { ...entry.worktree, workspace: this.workspaceRef(entry.worktree.workspace, machine) }
+        : null,
     };
-    const items: agentSections.Item[] = [],
+  }
+  agentEntries(unfolded = false): Entry[] {
+    const sectioned = this.prefs.agentSort() === "activity",
+      grouped = !sectioned && this.prefs.agents === "all";
+    const machines =
+      this.prefs.agents !== "all" ? [this.machine] : this.machine_filter ? [this.machine_filter] : this.machines;
+    const entries: Entry[] = [],
+      items: agentSections.Item[] = [],
       held = new Set<string>(),
       now_ms = milliTimestamp();
     for (const machine of machines) {
       if (machine !== this.machine && !machine.presence().online) continue;
-      const runtime = machine.runtime,
-        shown = machine === this.machine;
-      const totals = grouped ? this.workspaceEntries(machine) : [];
-      const keyed = (entry: Entry): Entry => {
-        if (workspace !== undefined) return entry;
-        const target = entry.target;
-        const key = (id: number) => this.agentKey(id, machine);
-        return {
-          ...entry,
-          target:
-            "pane" in target
-              ? { pane: key(target.pane) }
-              : "headless" in target
-                ? { headless: key(target.headless) }
-                : "group" in target
-                  ? { group: key(target.group) }
-                  : "workspace" in target
-                    ? { ...target, workspace: key(target.workspace) }
-                    : target,
-          worktree: entry.worktree ? { ...entry.worktree, workspace: key(entry.worktree.workspace) } : null,
-        };
-      };
-      runtime.workspaces.items.forEach(ws => {
-        if (ws.archived && (!shown || ws.id !== this.current().id)) return;
-        if (workspace !== undefined ? ws.id !== workspace : this.prefs.agents !== "all" && !this.inScope(ws.id)) return;
+      const shown = machine === this.machine,
+        totals = grouped ? this.workspaceEntries(machine) : [];
+      for (const ws of machine.runtime.workspaces.items) {
+        if (ws.archived && (!shown || ws.id !== this.current().id)) continue;
+        if (this.prefs.agents !== "all" && !this.inScope(ws.id)) continue;
+        const workspace = this.workspaceRef(ws.id, machine);
         if (grouped) {
           const total = totals.find(w => w.id === ws.id);
-          if (!total) return;
-          if (total.agents === 0) return;
-          const folded = machine.folded_groups.includes(ws.id);
-          const here = shown && ws.id === this.current().id;
-          // A folded header stands in for the focused agent it hides.
+          if (!total || total.agents === 0) continue;
+          const folded = machine.folded_groups.includes(ws.id),
+            here = shown && ws.id === this.current().id;
           entries.push(
             sidebar.entry({
-              target: { group: this.agentKey(ws.id, machine) },
+              target: { group: workspace },
               name: ws.name,
-              provider: null,
-              state: "idle",
-              attention: "none",
               focused: folded && here && this.focusedAgent() !== null,
               group: {
                 agents: total.agents,
@@ -1918,31 +1910,11 @@ export class Controller {
               },
             }),
           );
-          if (folded) return;
+          if (folded) continue;
         }
-        const first_agent = entries.length,
-          starts: number[] = [];
-        for (const { entry, start } of agentRows.rows(runtime, ws, now_ms)) {
-          const target = entry.target,
-            chat = "headless" in target ? runtime.corgi_sessions.find(s => s.id === target.headless) : null,
-            pane = "pane" in target ? target.pane : chat?.pane;
-          entry.focused =
-            shown &&
-            (pane != null
-              ? this.headless_notice === null && focus === pane
-              : "headless" in target && this.headless_notice === target.headless);
-          entries.push(entry);
-          starts.push(start);
-        }
+        const rows = this.machineAgents(ws.id, machine);
         if (!sectioned) {
-          // std.sort.insertion is stable.
-          const sorted = entries
-            .slice(first_agent)
-            .sort((l, r) =>
-              sidebar.lessThan(ws.agent_order, l, r) ? -1 : sidebar.lessThan(ws.agent_order, r, l) ? 1 : 0,
-            );
-          // Worktrees label the rows that sit together, as in the sections.
-          const placed = sorted.map(entry => {
+          const placed = rows.map(({ entry }) => {
             const checkout = worktreeAgents.listedWorktree(ws.worktrees, entry.target, entry.cwd);
             return {
               entry: {
@@ -1953,60 +1925,49 @@ export class Controller {
               checkout,
             };
           });
-          const decorated =
-            workspace === undefined
-              ? agentSections.labelled(placed, null, false, (id, checkout) =>
-                  this.checkoutLabel(id, checkout, false, machine),
-                )
-              : sorted;
-          entries.splice(first_agent, sorted.length, ...decorated.map(keyed));
-          return;
+          entries.push(
+            ...agentSections
+              .labelled(placed, null, false, (id, checkout) => this.checkoutLabel(id, checkout, false, machine))
+              .map(e => this.agentEntry(e, machine)),
+          );
+          continue;
         }
-        entries.slice(first_agent).forEach((entry, i) => {
-          const target = entry.target as OrderTarget,
-            key = agentKey(keyed(entry).target as OrderTarget),
-            pin = ws.pinned_agents.findIndex(t => sidebar.sameTarget(t, target)),
-            rank = ws.activity_order.findIndex(t => sidebar.sameTarget(t, target));
-          // Opening an unread agent reads it; it stays among the ready until left.
-          const kind = agentSections.section(entry),
+        for (const { entry, start } of rows) {
+          const qualified = this.agentEntry(entry, machine),
+            key = qualified.target as viewerRef.Agent,
+            pin = ws.pinned_agents.findIndex(t => agentOrder.equal(t, entry.target)),
+            rank = ws.activity_order.findIndex(t => agentOrder.equal(t, entry.target)),
+            kind = agentSections.section(entry),
             shown = this.agent_since.shown(key, kind, entry.focused);
           items.push({
             key,
-            entry: keyed(entry),
-            workspace: this.agentKey(ws.id, machine),
-            checkout: worktreeAgents.listedWorktree(ws.worktrees, target, entry.cwd),
+            entry: qualified,
+            workspace,
+            checkout: worktreeAgents.listedWorktree(ws.worktrees, entry.target, entry.cwd),
             section: shown,
-            since: this.agent_since.observe(key, shown, starts[i], now_ms),
+            since: this.agent_since.observe(key, shown, start, now_ms),
             pin: pin < 0 ? null : pin,
             rank: rank < 0 ? ws.activity_order.length : rank,
           });
           if (shown !== kind) held.add(key);
-        });
-      });
+        }
+      }
     }
-    if (sectioned) {
-      this.agent_since.place(items, held);
-      const all = this.prefs.agents === "all";
-      entries = agentSections.arrange(items, {
-        all,
-        folded: unfolded ? new Set() : this.folded_sections,
-        workspaces: machines.flatMap(machine =>
-          machine.runtime.workspaces.items.map(ws => this.agentKey(ws.id, machine)),
-        ),
-        label: (id, checkout) => label(id, checkout, all),
-      });
-    }
-    for (const entry of entries) {
-      if (!sidebar.isAgent(entry.target)) continue;
-      const resolved =
-        workspace === undefined ? this.agentTarget(entry.target) : { machine: owner, target: entry.target };
-      const runtime = resolved.machine.runtime;
-      const conversation = runtime.conversations.find(c => c.id === entry.conversation);
-      if (conversation) entry.context = contextView(conversation.context);
-      if (resolved.machine === this.machine && "pane" in entry.target)
-        entry.notes = this.review.noteCount(entry.target.pane);
-    }
-    return entries;
+    if (!sectioned) return entries;
+    this.agent_since.place(items, held);
+    const all = this.prefs.agents === "all";
+    return agentSections.arrange(items, {
+      all,
+      folded: unfolded ? new Set() : this.folded_sections,
+      workspaces: machines.flatMap(machine =>
+        machine.runtime.workspaces.items.map(ws => this.workspaceRef(ws.id, machine)),
+      ),
+      label: (ref, checkout) => {
+        const owner = this.rowOf(ref)!;
+        const name = this.checkoutLabel(owner.id, checkout, all, owner.machine);
+        return all && this.machineLabels() ? `${owner.machine.name} · ${name}` : name;
+      },
+    });
   }
   /** A subhead's text for checkout `checkout` of workspace `id`: a worktree's
    * branch, or the workspace's own checkout's branch; in `all`, by workspace. */
@@ -2037,19 +1998,21 @@ export class Controller {
     );
     if (index >= 0) this.worktree_agents.appearing = null;
     else {
-      const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selected.workspace)?.worktrees;
+      const snapshot = this.resolveWorkspace(selected.workspace)?.workspace?.worktrees;
       if (snapshot) {
         const asleep = worktreeAgents.conversations(snapshot, selected.path, this.mergedHistory(), this.openSessions());
         // The overview's footer says what Enter would do with them.
         this.worktree_card.asleep = { path: selected.path, count: asleep.length };
-        const ghost = worktreeAgents.group(
-          snapshot,
-          selected,
-          this.agentEntries(selected.workspace),
-          asleep,
-          this.worktree_agents,
-          true,
-        );
+        const ghost = worktreeAgents
+          .group(
+            snapshot,
+            { workspace: this.rowOf(selected.workspace)!.id, path: selected.path },
+            this.machineAgents(this.rowOf(selected.workspace)!.id).map(({ entry }) => entry),
+            asleep,
+            this.worktree_agents,
+            true,
+          )
+          .map(e => this.agentEntry(e, this.machine));
         // A worktree with nothing to list has no ghost; one fades in once it has.
         if (!ghost.length) this.worktree_agents.appearing = null;
         const shown = ghost.length ? this.worktree_agents.animate(ghost, selected, milliTimestamp()) : [];
@@ -2069,9 +2032,10 @@ export class Controller {
     for (let tab_index = 0; tab_index < ws.model.count; tab_index++)
       for (const p of this.runtime.panes)
         if (p.agent.provider !== null && ws.model.tabForPane(p.id) === tab_index && unread(p.agent.observation))
-          return { pane: p.id };
+          return viewerRef.pane(this.machine.id, p.id);
     for (const session of this.listedSessions())
-      if (session.workspace === ws.id && unread(session.observation)) return { headless: session.id };
+      if (session.workspace === ws.id && unread(session.observation))
+        return viewerRef.headless(this.machine.id, session.id);
     return null;
   }
   /** The headless sessions the sidebar lists: the agents', and the prompt's
@@ -2080,34 +2044,35 @@ export class Controller {
     return agentRows.sessions(this.runtime);
   }
   selectAgent(target: Target): void {
-    const away = this.agentTarget(target);
-    if (away.machine !== this.machine) {
-      if ("group" in target) return this.toggleGroup(target.group);
-      if ("worktree" in target) return this.toggleWorktree({ workspace: target.workspace, path: target.worktree });
-      if (!sidebar.isAgent(away.target)) return;
-      this.closeMenu();
-      if ("pane" in away.target) return this.selectPane({ machine: away.machine.id, pane: away.target.pane });
-      return this.onMachine(away.machine, away.target);
-    }
-    if ("worktree" in target) return this.revealWorktree({ workspace: target.workspace, path: target.worktree }, true);
-    // A subhead stands for its worktree; a workspace's own rows have nothing to open.
-    if (sidebar.isSubhead(target)) {
-      if (target.checkout !== null) this.revealWorktree({ workspace: target.workspace, path: target.checkout }, true);
+    if (!sidebar.isAgent(target)) {
+      if ("group" in target) this.toggleGroup(target.group);
+      else if ("worktree" in target) {
+        if (this.away(target)) this.toggleWorktree({ workspace: target.workspace, path: target.worktree });
+        else this.enterWorktreeAt({ owner: target.workspace, path: target.worktree });
+      } else if (sidebar.isSubhead(target)) {
+        if (target.checkout !== null) this.enterWorktreeAt({ owner: target.workspace, path: target.checkout });
+      } else if (sidebar.isSection(target)) this.toggleSection(target.section);
+      this.dirty = true;
       return;
     }
-    if (!sidebar.isAgent(target) && !("group" in target) && !sidebar.isSection(target)) return;
+    const resolved = this.rowOf(target);
+    if (!resolved) return;
+    if (resolved.machine !== this.machine) {
+      this.closeMenu();
+      if (viewerRef.isPane(target)) this.selectPane(target);
+      else this.onMachine(resolved.machine, { headless: resolved.id });
+      return;
+    }
     this.rememberAgent();
     this.copy_mode = false;
     this.search_mode = false;
     this.selection = null;
     this.cancelDividers();
     this.message = "";
-    if ("pane" in target) {
-      this.focusPane(target.pane);
-      this.dirty = true;
-    } else if ("headless" in target) {
-      const session = this.listedSessions().find(s => s.id === target.headless);
-      // The prompt's conversation opens where it is: its Corgi pane, or the card.
+    if (viewerRef.isPane(target)) this.selectPane(target);
+    else {
+      const id = resolved.id,
+        session = this.listedSessions().find(s => s.id === id);
       if (session?.corgi && session.pane !== null && this.pane(session.pane)) this.focusPane(session.pane);
       else if (session?.corgi) {
         if (!this.prompt.open) void this.perform({ name: "prompt" });
@@ -2115,12 +2080,16 @@ export class Controller {
         if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace);
         this.noticeHeadlessSession(session);
       }
-    } else if ("group" in target) this.toggleGroup(target.group);
-    else if (sidebar.isSection(target)) this.toggleSection(target.section);
-    // An agent in a folded section opens it.
-    if (sidebar.isAgent(target) && this.folded_sections.size > 0 && this.prefs.agentSort() === "activity") {
-      const id = this.agentWorkspace(target),
-        e = id === null ? undefined : this.agentEntries(id).find(e => sidebar.sameTarget(e.target, target));
+    }
+    if (this.folded_sections.size > 0) {
+      const owner = this.agentWorkspace(target),
+        id = owner && this.rowOf(owner)?.id;
+      const e =
+        id == null
+          ? undefined
+          : this.machineAgents(id)
+              .map(({ entry }) => this.agentEntry(entry, this.machine))
+              .find(e => e.target === target);
       if (e && this.folded_sections.delete(this.shownSection(e))) this.sidebar_rows.reveal = true;
     }
     this.rememberAgent();
@@ -2137,24 +2106,32 @@ export class Controller {
       this.launched = 0;
       return;
     }
-    const index = agentNavigation.indexOf(entries, { pane: this.launched });
+    const index = agentNavigation.indexOf(entries, viewerRef.pane(this.machine.id, this.launched));
     if (index === null) return;
     this.agentOffset().set(this.sidebarView(entries).reveal(index));
     this.launched = 0;
   }
   /** The workspace an agent's pane or session is in. */
-  private agentWorkspace(target: OrderTarget): number | null {
-    if ("pane" in target) return this.runtime.workspaces.owner(target.pane)?.id ?? null;
-    return this.listedSessions().find(s => s.id === target.headless)?.workspace ?? null;
+  private agentWorkspace(ref: viewerRef.Agent): viewerRef.Workspace | null {
+    const resolved = this.resolveAgent(ref);
+    if (!resolved) return null;
+    const { machine, target } = resolved,
+      runtime = machine.runtime;
+    const id =
+      "pane" in target
+        ? runtime.workspaces.owner(target.pane)?.id
+        : agentRows.sessions(runtime).find(s => s.id === target.headless)?.workspace;
+    return id == null ? null : this.workspaceRef(id, machine);
   }
   private focusedAgent(): Target | null {
     if (this.headless_notice !== null) {
       const id = this.headless_notice;
       for (const session of this.runtime.sessions)
-        if (session.id === id && session.workspace === this.current().id) return { headless: id };
+        if (session.id === id && session.workspace === this.current().id)
+          return viewerRef.headless(this.machine.id, id);
     }
     const p = this.focused();
-    if (p && p.agent.provider !== null) return { pane: p.id };
+    if (p && p.agent.provider !== null) return viewerRef.pane(this.machine.id, p.id);
     return null;
   }
   private rememberAgent(): void {
@@ -2165,7 +2142,7 @@ export class Controller {
   private navigateAgent(next: boolean | null): void {
     this.rememberAgent();
     // Stepping follows the list as shown; going back reaches a folded agent too.
-    const entries = this.agentEntries(undefined, next === null);
+    const entries = this.agentEntries(next === null);
     const target =
       next !== null
         ? agentNavigation.relative(entries, this.focusedAgent(), next)
@@ -2194,7 +2171,7 @@ export class Controller {
     this.dirty = true;
   }
   private pickerEntries(): Entry[] {
-    const entries = this.agentEntries(undefined, true);
+    const entries = this.agentEntries(true);
     const picker = this.agent_picker!;
     const filtered = picker.list(entries);
     picker.reconcile(filtered, this.sidebarView(filtered).capacity);
@@ -2332,7 +2309,7 @@ export class Controller {
     const opened = new TabMenu({
       tab: id,
       agent: true,
-      starred: this.runtime.workspaces.owner(id)?.pinned_agents.some(t => sidebar.sameTarget(t, { pane: id })) ?? false,
+      starred: this.runtime.workspaces.owner(id)?.pinned_agents.some(t => agentOrder.equal(t, { pane: id })) ?? false,
       anchor_x: x,
       anchor_y: y,
     });
@@ -2375,12 +2352,17 @@ export class Controller {
   private openWorktreeMenu(entry: Entry, x: number, y: number): void {
     // A section's subhead stands for its worktree, but folds nothing.
     const subhead = sidebar.isSubhead(entry.target);
-    if (!("worktree" in entry.target) && !(subhead && entry.worktree)) return;
+    if (
+      sidebar.isAgent(entry.target) ||
+      this.away(entry.target) ||
+      (!("worktree" in entry.target) && !(subhead && entry.worktree))
+    )
+      return;
     this.closeMenu();
     this.search_mode = false;
     this.cancelDividers();
     this.selection = null;
-    const selection = { workspace: entry.worktree!.workspace, path: entry.worktree!.path };
+    const selection = { workspace: this.rowOf(entry.worktree!.workspace)!.id, path: entry.worktree!.path };
     const opened = new TabMenu({
       tab: selection.workspace,
       worktree: selection.path,
@@ -2422,7 +2404,7 @@ export class Controller {
   private openCurrentWorkspaceMenu(): void {
     this.revealWorkspace();
     const side = this.sidebarView([]),
-      slot = this.workspaceIds().indexOf(this.rowKey(this.current().id)) - side.workspace_offset;
+      slot = this.workspaceIds().indexOf(this.workspaceRef(this.current().id)) - side.workspace_offset;
     const menu = this.openWorkspaceMenu(
       this.current().id,
       0,
@@ -2440,7 +2422,7 @@ export class Controller {
       if (
         hold.phase !== "removing" ||
         !t ||
-        removal.runtime !== this.machines_by_id.get(removal.owner.machine)?.runtime
+        removal.runtime !== this.resolveWorkspace(removal.owner)?.machine.runtime
       ) {
         this.removals.delete(hold);
         continue;
@@ -2449,7 +2431,7 @@ export class Controller {
       if (!hold.job || report?.id !== hold.job) continue;
       hold.report = report;
       const now = milliTimestamp(),
-        shown = card.removal === hold && viewerRef.sameWorkspace(card.workspace, removal.owner);
+        shown = card.removal === hold && card.workspace === removal.owner;
       switch (report.phase) {
         case "done":
           hold.settle(now, null);
@@ -2474,7 +2456,7 @@ export class Controller {
   private worktreePanes(selection: worktreeAgents.Selection, machine = this.machine): number[] {
     const snapshot = machine.runtime.workspaces.items.find(ws => ws.id === selection.workspace)?.worktrees;
     if (!snapshot) return [];
-    return this.agentEntries(selection.workspace, false, machine).flatMap(e =>
+    return this.machineAgents(selection.workspace, machine).flatMap(({ entry: e }) =>
       "pane" in e.target && worktreeAgents.belongs(snapshot, selection.path, e) ? [e.target.pane] : [],
     );
   }
@@ -2491,7 +2473,7 @@ export class Controller {
       const selection = { workspace: context.tab, path: context.worktree };
       switch (item) {
         case "fold":
-          this.toggleWorktree(selection);
+          this.toggleWorktree({ workspace: this.workspaceRef(selection.workspace), path: selection.path });
           break;
         case "close-all":
           for (const id of this.worktreePanes(selection)) this.close(id);
@@ -2519,7 +2501,7 @@ export class Controller {
           await this.perform({ name: "star-agent", value: pane_id });
           break;
         case "rename":
-          if (this.beginInlineRename({ agent: pane_id })) break;
+          if (this.beginInlineRename(viewerRef.pane(this.machine.id, pane_id))) break;
           this.name_dialog = Dialog.init({ agent: pane_id }, this.renameText(p));
           this.prepareName();
           break;
@@ -2691,7 +2673,7 @@ export class Controller {
       case "action":
         if (this.model().count > 0 || !needsPane(result.action)) {
           this.closeMenu();
-          await this.perform(result.action);
+          await this.invoke(result.action);
         }
         break;
       case "save":
@@ -2777,7 +2759,7 @@ export class Controller {
   /** Names a new workspace in the centered dialog; renames one on its
    * sidebar row, in the dialog only when no sidebar can show the row. */
   private beginWorkspace(id: number | null): void {
-    if (id !== null && this.beginInlineRename({ workspace: id })) return;
+    if (id !== null && this.beginInlineRename(this.workspaceRef(id))) return;
     this.dismissName();
     let initial = "";
     if (id !== null) {
@@ -2913,7 +2895,7 @@ export class Controller {
           );
         } else if ("rename" in target) await this.edit({ "tab.rename": { target: target.rename, name } }, lane);
         else if ("agent" in target) {
-          const failure = await this.applyName({ agent: target.agent }, name, lane);
+          const failure = await this.applyName(viewerRef.pane(this.machine.id, target.agent), name, lane);
           if (this.name_dialog !== dialog) return;
           if (failure !== null) {
             this.remembered_names.set(target.agent, name);
@@ -2946,10 +2928,13 @@ export class Controller {
   /** Renames a sidebar row's agent or workspace as the centered dialog does:
    * null once the name took, else what to tell the user. */
   private async applyName(target: RenameTarget, name: string, lane?: tasks.Lane): Promise<string | null> {
-    const agent = "agent" in target ? this.pane(target.agent)?.agent : undefined;
-    if ("workspace" in target) {
+    const owner = this.rowOf(target);
+    if (!owner) return i18n.t`No daemon connection`;
+    const { machine, id } = owner;
+    const agent = viewerRef.isPane(target) ? machine.runtime.pane(id)?.agent : undefined;
+    if (viewerRef.isWorkspace(target)) {
       try {
-        await this.edit({ "workspace.edit": { target: target.workspace, name } }, lane);
+        await this.edit({ "workspace.edit": { target: id, name } }, lane, machine);
         return null;
       } catch (error) {
         if (errors.unreachable(error)) return i18n.t`No daemon connection`;
@@ -2957,51 +2942,47 @@ export class Controller {
       }
     }
     try {
-      await this.edit({ "agent.rename": { target: target.agent, name } }, lane);
+      await this.edit({ "agent.rename": { target: id, name } }, lane, machine);
       return null;
     } catch (error) {
       if (errors.unreachable(error)) return i18n.t`No daemon connection`;
       return agentMessage((error as Error).message, i18n.t` Could not rename this agent`, agent).trim();
     }
   }
-  private renameTarget(target: RenameTarget): RenameTarget {
-    return "workspace" in target ? { workspace: this.rowKey(target.workspace) } : target;
-  }
-  private renameState(): sidebar.RenameState | null {
-    const open = this.inline_rename;
-    return open && { ...open, target: this.renameTarget(open.target) };
-  }
   /** Opens the field on `target`'s row, in place of its name. A folded
    * sidebar shows its workspaces drawer for a workspace, which goes away with
    * the field. False when no sidebar can show the row. */
   private beginInlineRename(target: RenameTarget): boolean {
+    const owner = this.rowOf(target);
+    if (!owner || owner.machine !== this.machine) return false;
+    const id = owner.id;
     this.dismissName();
     this.closeInlineRename();
     this.prepareName();
     let drawer = false;
     let text: string, fallback: string;
-    if ("workspace" in target) {
-      const index = this.runtime.workspaces.index(target.workspace);
+    if (viewerRef.isWorkspace(target)) {
+      const index = this.runtime.workspaces.index(id);
       if (index === null) return false;
       if (!this.sidebar_open) {
         this.enterSidebar("workspaces");
         drawer = this.sidebar_focus?.drawer === "workspaces";
-        if (drawer) this.sidebar_focus!.cursor = { workspace: this.rowKey(target.workspace) };
+        if (drawer) this.sidebar_focus!.cursor = { workspace: target };
       }
-      this.revealWorkspace(this.workspaceIds().indexOf(this.rowKey(target.workspace)));
+      this.revealWorkspace(this.workspaceIds().indexOf(target));
       const ws = this.runtime.workspaces.items[index];
       text = ws.name;
       fallback = basename(ws.cwd) || "/";
     } else {
-      const p = this.pane(target.agent);
+      const p = this.pane(id);
       const entries = this.sidebarEntries();
-      const index = agentNavigation.indexOf(entries, { pane: target.agent });
+      const index = agentNavigation.indexOf(entries, target);
       if (!p || index === null) return false;
       this.agentOffset().set(this.sidebarView(entries).reveal(index));
       text = this.renameText(p);
       fallback = providerName(p.agent);
     }
-    if (this.sidebarView(this.sidebarEntries()).fieldRect(this.renameTarget(target), this.workspaceRows()) === null) {
+    if (this.sidebarView(this.sidebarEntries()).fieldRect(target, this.workspaceRows()) === null) {
       if (drawer) this.leaveSidebar();
       return false;
     }
@@ -3026,7 +3007,7 @@ export class Controller {
     this.dirty = true;
     switch (open.field.key(byte)) {
       case "cancel":
-        if ("agent" in open.target) this.remembered_names.delete(open.target.agent);
+        if (viewerRef.isPane(open.target)) this.remembered_names.delete(viewerRef.parts(open.target).id);
         this.closeInlineRename();
         break;
       case "save":
@@ -3049,7 +3030,7 @@ export class Controller {
   private async saveInlineRename(open: InlineRename, lane?: tasks.Lane): Promise<void> {
     if (open.saving) return;
     const name = open.field.name();
-    if ("agent" in open.target && name.length === 0) return this.closeInlineRename();
+    if (viewerRef.isPane(open.target) && name.length === 0) return this.closeInlineRename();
     // As in the dialog, a workspace keeps a name: an empty one is refused.
     if (name.length === 0) {
       open.message = i18n.t`Enter a workspace name.`;
@@ -3061,13 +3042,13 @@ export class Controller {
     open.saving = false;
     if (this.inline_rename !== open) return;
     if (failure === null) {
-      if ("agent" in open.target) this.remembered_names.delete(open.target.agent);
+      if (viewerRef.isPane(open.target)) this.remembered_names.delete(viewerRef.parts(open.target).id);
       this.closeInlineRename();
       return;
     }
     open.message = failure;
     open.field.overflow = false;
-    if ("agent" in open.target) this.remembered_names.set(open.target.agent, name);
+    if (viewerRef.isPane(open.target)) this.remembered_names.set(viewerRef.parts(open.target).id, name);
     this.dirty = true;
   }
   /** The text an agent's rename starts with: a name whose rename failed,
@@ -3094,7 +3075,8 @@ export class Controller {
       const allowed = await this.renamable(id, lane);
       if (this.rename_pending !== pending || !here()) return;
       this.rename_pending = null;
-      if (allowed && this.pane(id) !== null && this.beginInlineRename({ agent: id })) this.agent_drag = null;
+      if (allowed && this.pane(id) !== null && this.beginInlineRename(viewerRef.pane(this.machine.id, id)))
+        this.agent_drag = null;
     });
   }
   private async create(
@@ -3303,7 +3285,7 @@ export class Controller {
         else this.notice(i18n.t`Add a machine with corgi machine add NAME`);
         break;
       case "worktrees": {
-        this.openWorktreeCard(this.actionWorkspace(act.value), true);
+        this.openWorktreeCard(act.value, true);
         break;
       }
       case "worktree-close":
@@ -3313,9 +3295,9 @@ export class Controller {
         this.dirty = true;
         break;
       case "resources": {
-        const owner = this.resolveWorkspace(this.actionWorkspace(act.value));
+        const owner = this.resolveWorkspace(act.value);
         if (!owner) break;
-        const id = this.rowKey(owner.workspace.id, owner.machine),
+        const id = act.value,
           card = this.resource_card;
         if (!this.prefs.resources.enabled) {
           this.notice(i18n.t` Resource readings are off: turn them on in Corgi setup → Resources`);
@@ -3420,7 +3402,10 @@ export class Controller {
       case "worktree-review": {
         const selection = this.browsingWorktree();
         if (selection && this.selectWorktreeOwner(selection.owner))
-          this.reviewWorktree({ workspace: selection.owner.workspace, path: selection.path });
+          this.reviewWorktree({
+            workspace: this.resolveWorkspace(selection.owner)!.workspace.id,
+            path: selection.path,
+          });
         break;
       }
       case "worktree-refresh": {
@@ -3528,18 +3513,18 @@ export class Controller {
         const row = this.sidebarEntries()[Number(act.value)];
         if (!row) break;
         const target = row.target;
-        if ("asleep" in target && row.worktree) {
+        if (!sidebar.isAgent(target) && "asleep" in target && row.worktree) {
           // Entering brings the ghost's agents back asleep; the clicked one wakes.
-          this.enterWorktree({ workspace: row.worktree.workspace, path: row.worktree.path }, () => {
+          this.enterWorktreeAt({ owner: row.worktree.workspace, path: row.worktree.path }, () => {
             const p = this.runtime.panes.find(
               p => p.agent.provider === target.provider && p.agent.session === target.asleep,
             );
-            if (p) this.selectAgent({ pane: p.id });
+            if (p) this.selectAgent(viewerRef.pane(this.machine.id, p.id));
           });
-        } else if ("worktree" in target) {
+        } else if (sidebar.isHeading(target) && "worktree" in target) {
           // A ghost's header keeps its group; one in the list folds it.
           const selection = { workspace: target.workspace, path: target.worktree };
-          if (row.worktree?.ghost) this.enterWorktree(selection);
+          if (row.worktree?.ghost) this.enterWorktreeAt({ owner: selection.workspace, path: selection.path });
           else this.toggleWorktree(selection);
         } else if (sidebar.isAgent(target)) {
           this.closeMenu();
@@ -3618,7 +3603,11 @@ export class Controller {
         if ("pane" in target && !this.pane(target.pane)) return;
         if ("headless" in target && !this.listedSessions().some(s => s.id === target.headless)) return;
         this.archive_dialog = null;
-        this.selectAgent(agent.target);
+        this.selectAgent(
+          "pane" in agent.target
+            ? viewerRef.pane(this.machine.id, agent.target.pane)
+            : viewerRef.headless(this.machine.id, agent.target.headless),
+        );
         this.dirty = true;
         return;
       }
@@ -3657,7 +3646,7 @@ export class Controller {
           !this.archived_expanded &&
           focus &&
           "workspace" in focus.cursor &&
-          archived.some(ws => "workspace" in focus.cursor && ws.id === focus.cursor.workspace)
+          archived.some(ws => "workspace" in focus.cursor && this.workspaceRef(ws.id) === focus.cursor.workspace)
         )
           focus.cursor = { archived: true };
         this.workspace_drag = null;
@@ -3702,17 +3691,19 @@ export class Controller {
       case "star-session": {
         const id = Number(act.value),
           target = act.name === "star-session" ? { headless: id } : { pane: id },
-          owner = this.agentWorkspace(target),
-          ws = this.runtime.workspaces.items.find(ws => ws.id === owner);
+          ref =
+            act.name === "star-session" ? viewerRef.headless(this.machine.id, id) : viewerRef.pane(this.machine.id, id),
+          owner = this.agentWorkspace(ref),
+          ws = this.resolveWorkspace(owner)?.workspace;
         if (!ws) break;
         if ("pane" in target && !this.pane(id)?.agent.provider) break;
-        const starred = !ws.pinned_agents.some(t => sidebar.sameTarget(t, target));
+        const starred = !ws.pinned_agents.some(t => agentOrder.equal(t, target));
         await this.edit({ "agent.pin": { workspace: ws.id, target, pinned: starred } });
         if (starred && this.prefs.agentSort() === "activity") {
           this.folded_sections.delete("starred");
           this.sidebar_rows.discard();
           const entries = this.sidebarEntries(),
-            index = agentNavigation.indexOf(entries, target);
+            index = agentNavigation.indexOf(entries, ref);
           if (index !== null) this.agentOffset().set(this.sidebarView(entries).reveal(index));
         }
         break;
@@ -5443,7 +5434,7 @@ export class Controller {
     for (const open of this.running)
       if (open.provider === e.provider && open.session === e.session) {
         this.closeMenu();
-        return this.selectAgent({ pane: open.pane });
+        return this.selectAgent(viewerRef.pane(this.machine.id, open.pane));
       }
     if (byteLength(e.cwd) > 4096 || byteLength(e.session) > 256) throw Error("NameTooLong");
     const command = {
@@ -5490,8 +5481,8 @@ export class Controller {
       workspace_id: ws.id,
       branch: checkout ? worktreeAgents.label(checkout) : "",
       focus: p ? { title: paneName(p), provider: p.agent.provider, activity: p.agent.activity, pane: p.id } : null,
-      herd: this.agentEntries(ws.id)
-        .filter(e => sidebar.isAgent(e.target))
+      herd: this.machineAgents(ws.id)
+        .map(({ entry }) => entry)
         .slice(0, 16)
         .map(e => ({
           name: e.name || (e.provider ? adapter(e.provider).name : "agent"),
@@ -5504,7 +5495,7 @@ export class Controller {
   /** A workspace's panes as `@` offers them: its agents that have a pane, as
    * the agent list names them, then its other panes, such as shells. */
   private promptPanes(ws: Workspace): Extract<PromptMention, { kind: "agent" }>[] {
-    const agents = this.agentEntries(ws.id).flatMap(e =>
+    const agents = this.machineAgents(ws.id).flatMap(({ entry: e }) =>
       "pane" in e.target && e.provider
         ? [
             {
@@ -5601,7 +5592,7 @@ export class Controller {
   private workspaceOverview(id: number): string {
     const ws = this.runtime.workspaces.items.find(w => w.id === id);
     if (!ws) return "(That workspace is gone.)";
-    const agents = this.agentEntries(ws.id).filter(e => sidebar.isAgent(e.target)),
+    const agents = this.machineAgents(ws.id).map(({ entry }) => entry),
       shells = this.runtime.panes.filter(p => ws.model.tabForPane(p.id) !== null && p.agent.provider === null),
       lines = [`Workspace ${clean(ws.name)} (id ${ws.id}), in ${ws.cwd}.`];
     if (agents.length) lines.push("Agents:");
@@ -5814,7 +5805,7 @@ export class Controller {
     };
   }
   /** The ports of a sidebar row's workspace, from the row's own machine. */
-  private portWorkspaceEntry(key: number): WorkspaceEntry {
+  private portWorkspaceEntry(key: viewerRef.Workspace): WorkspaceEntry {
     return (
       this.workspaceRows().find(row => row.id === key) ??
       sidebar.workspaceEntry({ id: key, name: "", cwd: "", active: false })
@@ -6612,7 +6603,7 @@ export class Controller {
     }
     if (!this.copy_mode && !literal) {
       const act = bindings.lookup(this.prefs.bindings(), false, byte, {});
-      if (act) return this.perform(act);
+      if (act) return this.invoke(act);
     }
     if (this.reviewKeys() && !this.copy_mode) {
       const k = this.reviewByte(byte);
@@ -7136,7 +7127,7 @@ export class Controller {
               const act = bindings.lookup(this.prefs.bindings(), this.prefix, decoded.key.codepoint, decoded.key.mods);
               if (act) {
                 if (this.prefix) await this.runPrefixed(act, false);
-                else await this.perform(act);
+                else await this.invoke(act);
                 used += decoded.length;
                 continue;
               }
@@ -7263,7 +7254,7 @@ export class Controller {
             }
             const repeated = bindings.repeat(this.prefs.bindings(), key_event);
             if (this.repeats(repeated)) {
-              await this.perform(repeated);
+              await this.invoke(repeated);
               used += len;
               continue;
             }
@@ -7286,7 +7277,7 @@ export class Controller {
               const act = bindings.chord(this.prefs.bindings(), this.prefix, key_event);
               if (act) {
                 if (this.prefix) await this.runPrefixed(act, repeated !== null);
-                else await this.perform(act);
+                else await this.invoke(act);
                 used += len;
                 continue;
               }
@@ -7386,7 +7377,7 @@ export class Controller {
           if (this.moonlander.sequence(text)) this.closeMoonlander();
           this.dirty = true;
         } else if (this.prompt.open && !this.prefix) await this.promptEffect(this.prompt.sequence(text));
-        else if (this.repeats(again)) await this.perform(again);
+        else if (this.repeats(again)) await this.invoke(again);
         else if (this.worktree_card.pinned) {
           if (parsed_key === "up") await this.perform({ name: "worktree-prev" });
           else if (parsed_key === "down") await this.perform({ name: "worktree-next" });
@@ -7816,7 +7807,7 @@ export class Controller {
     // closes the field unsaved and then does what it would have done.
     if (this.inline_rename && !release && (button & 0xe0) === 0) {
       const open = this.inline_rename,
-        rect = this.sidebarView(this.sidebarEntries()).fieldRect(this.renameTarget(open.target), this.workspaceRows());
+        rect = this.sidebarView(this.sidebarEntries()).fieldRect(open.target, this.workspaceRows());
       if (rect && y === rect.y && x >= rect.x && x < rect.x + rect.width) {
         this.ui_mouse_down = true;
         return;
@@ -7835,10 +7826,11 @@ export class Controller {
         entries = this.sidebarEntries(),
         found = this.sidebarView(entries).hit(x, y);
       this.dirty = true;
-      if (found.tag === "workspace") focus.cursor = { workspace: this.workspaceList()[found.workspace].id };
+      if (found.tag === "workspace")
+        focus.cursor = { workspace: this.workspaceRef(this.workspaceList()[found.workspace].id) };
       else if (found.tag === "archives") focus.cursor = { archived: true };
       else if (found.tag === "archived_workspace")
-        focus.cursor = { workspace: this.archivedWorkspaces()[found.workspace].id };
+        focus.cursor = { workspace: this.workspaceRef(this.archivedWorkspaces()[found.workspace].id) };
       else if (found.tag === "entry" && sidebarFocus.stops(entries[found.entry]))
         focus.cursor = { entry: entries[found.entry].target };
       else {
@@ -8090,9 +8082,13 @@ export class Controller {
             // Pins and section order belong to a workspace; above another's row,
             // the agent goes last in its own.
             const at = drag.before(),
-              other = at === null ? null : sidebar.orderTarget(live[at]),
+              other = at === null ? null : sidebar.agentId(live[at]),
               before = other && this.agentWorkspace(other) === drag.workspace ? other : null,
-              place = { workspace: drag.workspace, target: drag.target, before };
+              place = {
+                workspace: viewerRef.parts(drag.workspace).id,
+                target: this.resolveAgent(drag.target)!.target,
+                before: before ? this.resolveAgent(before)!.target : null,
+              };
             this.sidebar_rows.discard();
             await this.edit(
               drag.action === "move"
@@ -8103,7 +8099,7 @@ export class Controller {
               lane,
             );
             if (!here()) return;
-            if (drag.action === "place") this.agent_since.move(agentKey(drag.target), before ? agentKey(before) : null);
+            if (drag.action === "place") this.agent_since.move(drag.target, before);
             this.sidebar_rows.discard();
           });
       }
@@ -8479,10 +8475,9 @@ export class Controller {
     let entries = this.sidebarEntries();
     const side = this.sidebarView(entries);
     const worktree_hit = sidebar.worktreeAt(side, this.workspaceRows(), x, y);
-    const worktree_row = worktree_hit ? this.rowOf(worktree_hit.id) : null;
-    if (!release && button === 0 && worktree_row && !resource_workspace_press && !this.copy_mode) {
+    if (!release && button === 0 && worktree_hit && !resource_workspace_press && !this.copy_mode) {
       this.ui_mouse_down = true;
-      await this.perform({ name: "worktrees", value: this.workspaceRef(worktree_row.id, worktree_row.machine) });
+      await this.perform({ name: "worktrees", value: worktree_hit.id });
       return;
     }
     if (!release && button === 0 && side.width > 0 && x === side.width - 1) {
@@ -8594,16 +8589,17 @@ export class Controller {
             // A second left press on the same pane agent's name renames it; the
             // first already selected it, so this one neither selects nor drags.
             // An agent that takes no rename gets a plain press instead.
-            const name = "pane" in target && !this.away(target) ? { agent: target.pane } : null;
+            const name = viewerRef.isPane(target) && !this.away(target) ? target : null;
             if (button === 0 && name && side.onName(name, this.workspaceRows(), x, y)) {
-              if (this.clicks.press(name, milliTimestamp(), x, y)) this.doubleClickAgent(name.agent);
+              if (this.clicks.press(name, milliTimestamp(), x, y)) this.doubleClickAgent(viewerRef.parts(name).id);
             } else this.clicks.reset();
             this.selectAgent(target);
-            if (button === 2 && "pane" in target) await this.openAgentMenu(target.pane, x, y);
-            else if (button === 2 && "headless" in target) {
+            if (button === 2 && viewerRef.isPane(target) && !this.away(target))
+              this.openAgentMenu(viewerRef.parts(target).id, x, y);
+            else if (button === 2 && viewerRef.isHeadless(target) && !this.away(target)) {
               this.closeMenu();
               this.tab_menu = new TabMenu({
-                tab: target.headless,
+                tab: viewerRef.parts(target).id,
                 headless: true,
                 starred: entries[index].starred,
                 anchor_x: x,
@@ -8656,9 +8652,9 @@ export class Controller {
               this.openWorkspaceMenu(workspace, x, y);
             } else {
               // Only presses on the name itself make the double-click that renames.
-              if (!side.onName({ workspace: row.id }, this.workspaceRows(), x, y)) this.clicks.reset();
-              else if (this.clicks.press({ workspace }, milliTimestamp(), x, y)) {
-                this.beginInlineRename({ workspace });
+              if (!side.onName(row.id, this.workspaceRows(), x, y)) this.clicks.reset();
+              else if (this.clicks.press(row.id, milliTimestamp(), x, y)) {
+                this.beginInlineRename(row.id);
                 break;
               }
               const jump = !resource_workspace_press && side.unreadHit(row, x, y);
@@ -8884,11 +8880,11 @@ export class Controller {
     const live = new Set<string>();
     for (const p of this.runtime.panes) {
       if (p.agent.provider === null) continue;
-      const key = agentKey({ pane: p.id });
+      const key = viewerRef.pane(this.machine.id, p.id);
       live.add(key);
     }
     for (const session of this.runtime.sessions) {
-      const key = agentKey({ headless: session.id });
+      const key = viewerRef.headless(this.machine.id, session.id);
       live.add(key);
     }
     this.agent_since.keep(live);
@@ -8950,10 +8946,9 @@ export class Controller {
     }
     const open = this.inline_rename;
     if (open) {
-      const gone =
-        "agent" in open.target
-          ? this.pane(open.target.agent) === null
-          : this.runtime.workspaces.index(open.target.workspace) === null;
+      const gone = viewerRef.isPane(open.target)
+        ? this.pane(viewerRef.parts(open.target).id) === null
+        : this.runtime.workspaces.index(viewerRef.parts(open.target).id) === null;
       if (gone) this.closeInlineRename();
     }
     for (const id of this.remembered_names.keys()) if (this.pane(id) === null) this.remembered_names.delete(id);
@@ -9114,7 +9109,8 @@ export class Controller {
    * the current one while the launcher lists its checkouts. */
   worktreeDetailWanted(machine = this.machine): number | null {
     const owner = this.worktreeDetail();
-    if (owner?.machine === machine.id) return owner.workspace;
+    const resolved = this.resolveWorkspace(owner);
+    if (resolved?.machine === machine) return resolved.workspace.id;
     return machine === this.machine && this.agent_launcher?.worktree.mode === "open" ? this.current().id : null;
   }
   worktreeDetail(): viewerRef.Workspace | null {
@@ -9122,8 +9118,7 @@ export class Controller {
       resolved = this.resolveWorkspace(owner);
     if (!owner || (!this.worktree_card.pinned && !this.hoverIdle()) || !resolved || this.stale(resolved.machine))
       return null;
-    return this.worktree_card.pinned ||
-      (this.link_tooltip.shown && viewerRef.sameWorkspace(this.link_tooltip.target?.worktree, owner))
+    return this.worktree_card.pinned || (this.link_tooltip.shown && this.link_tooltip.target?.worktree === owner)
       ? owner
       : null;
   }
@@ -9134,20 +9129,16 @@ export class Controller {
     this.sidebar_open = true;
     this.setWorktreeOwner(owner);
     this.worktree_card.pinned = pinned;
-    this.worktree_card.anchor =
-      sidebar.worktreeBadge(this.sidebarView([]), this.workspaceRows(), this.rowKey(owner.workspace, resolved.machine))
-        ?.y ?? 3;
+    this.worktree_card.anchor = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceRows(), owner)?.y ?? 3;
     this.dirty = true;
   }
   private setWorktreeOwner(owner: viewerRef.Workspace): void {
     const card = this.worktree_card;
-    if (viewerRef.sameWorkspace(card.workspace, owner)) return;
+    if (card.workspace === owner) return;
     card.clear();
     card.removal =
       [...this.removals].find(
-        ([, removal]) =>
-          removal.runtime === this.machines_by_id.get(owner.machine)?.runtime &&
-          viewerRef.sameWorkspace(removal.owner, owner),
+        ([, removal]) => removal.runtime === this.resolveWorkspace(owner)?.machine.runtime && removal.owner === owner,
       )?.[0] ?? new worktreeRemoval.Hold();
     card.workspace = owner;
   }
@@ -9158,7 +9149,10 @@ export class Controller {
     const ws = owner.workspace,
       snapshot = ws.worktrees;
     this.worktree_card.agents = snapshot
-      ? worktreeAgents.counts(snapshot, this.agentEntries(ws.id, false, owner.machine))
+      ? worktreeAgents.counts(
+          snapshot,
+          this.machineAgents(ws.id, owner.machine).map(({ entry }) => entry),
+        )
       : null;
     this.worktree_card.briefs = owner.machine.runtime.inference.uses.worktrees
       ? new Map(ws.worktree_briefs.map(b => [b.path, b]))
@@ -9337,9 +9331,10 @@ export class Controller {
    * overview, else where the launcher starts agents. */
   private spotlight(): sidebar.Spotlight | null {
     const selected = this.browsingWorktree();
-    if (selected?.owner.machine === this.machine.id)
-      return { workspace: selected.owner.workspace, path: selected.path };
-    return this.agent_launcher?.spotlight() ?? null;
+    const owner = selected && this.resolveWorkspace(selected.owner);
+    if (selected && owner?.machine === this.machine) return { workspace: selected.owner, path: selected.path };
+    const spot = this.agent_launcher?.spotlight();
+    return spot ? { ...spot, workspace: this.workspaceRef(spot.workspace) } : null;
   }
   private worktreeAgentContains(x: number, y: number): boolean {
     const side = this.sidebarView([]);
@@ -9351,19 +9346,24 @@ export class Controller {
   private selectWorktreeOwner(owner: viewerRef.Workspace): boolean {
     const resolved = this.resolveWorkspace(owner);
     if (!resolved || this.stale(resolved.machine)) return false;
-    if (resolved.machine !== this.machine) this.onMachine(resolved.machine, { workspace: owner.workspace });
+    if (resolved.machine !== this.machine) this.onMachine(resolved.machine, { workspace: resolved.workspace.id });
     return resolved.machine === this.machine;
   }
-  private enterWorktreeAt(selection: viewerRef.Worktree): void {
+  private enterWorktreeAt(selection: viewerRef.Worktree, then: () => void = () => {}): void {
     if (this.selectWorktreeOwner(selection.owner))
-      this.enterWorktree({ workspace: selection.owner.workspace, path: selection.path });
+      this.enterWorktree(
+        { workspace: this.resolveWorkspace(selection.owner)!.workspace.id, path: selection.path },
+        then,
+      );
   }
   /** Shows a worktree's agents, bringing back asleep the ones it had, then
    * runs `then`, unless the user has gone elsewhere meanwhile. */
   private enterWorktree(selection: worktreeAgents.Selection, then: () => void = () => {}): void {
     const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace)?.worktrees;
     if (!snapshot || !worktrees.linked(snapshot).some(e => e.path === selection.path)) return;
-    const live = this.agentEntries(selection.workspace).some(e => worktreeAgents.belongs(snapshot, selection.path, e)),
+    const live = this.machineAgents(selection.workspace).some(({ entry: e }) =>
+        worktreeAgents.belongs(snapshot, selection.path, e),
+      ),
       asleep = live
         ? []
         : worktreeAgents.conversations(snapshot, selection.path, this.mergedHistory(), this.openSessions());
@@ -9457,15 +9457,15 @@ export class Controller {
     this.closeMenu();
     // Its agents may all be in folded sections; those open.
     const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
-    for (const e of this.agentEntries(selection.workspace))
-      if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, e.target as OrderTarget, e.cwd) === selection.path)
-        this.folded_sections.delete(this.shownSection(e));
+    for (const { entry } of this.machineAgents(selection.workspace))
+      if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, entry.target, entry.cwd) === selection.path)
+        this.folded_sections.delete(this.shownSection(this.agentEntry(entry, this.machine)));
     this.sidebar_rows.discard();
     const entries = this.sidebarEntries();
     const index = entries.findIndex(
       e =>
         sidebar.isAgent(e.target) &&
-        e.worktree?.workspace === selection.workspace &&
+        e.worktree?.workspace === this.workspaceRef(selection.workspace) &&
         e.worktree.path === selection.path,
     );
     if (focus && index >= 0) this.selectAgent(entries[index].target);
@@ -9474,15 +9474,17 @@ export class Controller {
   }
   /** The section an agent's row shows in, from its entry in a workspace's list. */
   private shownSection(e: Entry): Section {
-    return e.starred
-      ? "starred"
-      : this.agent_since.shown(agentKey(e.target as OrderTarget), agentSections.section(e), e.focused);
+    return e.starred ? "starred" : this.agent_since.shown(sidebar.agentId(e)!, agentSections.section(e), e.focused);
   }
   private worktreeRect(): Rect | null {
     const owner = this.resolveWorkspace(this.worktreeDetail());
     if (!owner) return null;
     const ws = owner.workspace;
-    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceRows(), this.rowKey(ws.id, owner.machine)),
+    const badge = sidebar.worktreeBadge(
+        this.sidebarView([]),
+        this.workspaceRows(),
+        this.workspaceRef(ws.id, owner.machine),
+      ),
       shown = worktreeTooltip.listing(ws?.worktrees ?? null, this.worktree_card);
     return worktreeTooltip.geometry(
       this.width,
@@ -9502,7 +9504,7 @@ export class Controller {
     const badge = sidebar.worktreeBadge(
       this.sidebarView([]),
       this.workspaceRows(),
-      this.rowKey(owner.workspace.id, owner.machine),
+      this.workspaceRef(owner.workspace.id, owner.machine),
     );
     return badge !== null && worktreeTooltip.between(rect, badge, x, y);
   }
@@ -9512,7 +9514,7 @@ export class Controller {
       row = detail === null ? null : this.rowOf(detail);
     return row && row.machine === machine && !this.stale(machine) ? row.id : null;
   }
-  resourceDetail(): number | null {
+  resourceDetail(): viewerRef.Workspace | null {
     const pinned = this.resource_card.pinned ? this.resource_card.workspace : null;
     if (this.prefs.resources.enabled && pinned !== null && this.rowResources(pinned) !== null) return pinned;
     if (!this.prefs.resources.enabled || !this.link_tooltip.shown || this.link_tooltip.target === null) return null;
@@ -9580,7 +9582,7 @@ export class Controller {
     const card = this.git_card,
       id = card.pinned ? card.workspace : this.link_tooltip.shown ? (this.link_tooltip.target?.git ?? null) : null;
     if (id === null || id !== card.workspace) return null;
-    const ws = this.workspaceEntries().find(w => w.id === id);
+    const ws = this.workspaceRows().find(w => w.id === id);
     return ws && ws.git_push.phase !== "failed" ? ws : null;
   }
   private gitRect(ws: sidebar.WorkspaceEntry): Rect | null {
@@ -9685,7 +9687,7 @@ export class Controller {
   private checkoutPane(ws: sidebar.WorkspaceEntry): Pane | null {
     const linked = new Set(worktrees.linked(ws.worktrees).map(c => c.path));
     const panes = this.runtime.panes.filter(p => {
-      if (this.runtime.workspaces.owner(p.id)?.id !== ws.id) return false;
+      if (this.workspaceRef(this.runtime.workspaces.owner(p.id)?.id ?? 0) !== ws.id) return false;
       const cwd = this.agentFolder(p);
       return (cwd === ws.cwd || cwd.startsWith(ws.cwd + i18n.t`/`)) && !linked.has(cwd);
     });
@@ -9840,8 +9842,7 @@ export class Controller {
             worktrees.linked(worktree.worktrees).length,
           )
         ) {
-          const row = this.rowOf(worktree.id)!;
-          const owner = this.workspaceRef(row.id, row.machine);
+          const owner = worktree.id;
           target = { worktree: owner };
           this.setWorktreeOwner(owner);
           this.worktree_card.anchor = pointer.y;
@@ -9850,7 +9851,8 @@ export class Controller {
         // The host may leave its last mouse report at the window edge.
         if (pointer.x > 0) {
           const entry = sidebar.agentAt(this.sidebarView(entries), entries, pointer.x, pointer.y);
-          if (entry && !this.away(entry.target)) target = { conversation: entry.conversation, agent: entry.target };
+          if (entry && sidebar.isAgent(entry.target) && !this.away(entry.target))
+            target = { conversation: entry.conversation, agent: entry.target };
         }
       }
       const link = !this.paste_card ? this.linkAt(pointer.x, pointer.y) : null;
@@ -9931,7 +9933,7 @@ export class Controller {
     if (this.inline_rename) {
       const open = this.inline_rename,
         covered = this.name_dialog !== null || (this.hasMenu() && this.sidebar_focus === null);
-      if (covered || this.sidebarView(entries).fieldRect(this.renameTarget(open.target), this.workspaceRows()) === null)
+      if (covered || this.sidebarView(entries).fieldRect(open.target, this.workspaceRows()) === null)
         this.closeInlineRename();
     }
     const tooltip_ready = this.linkTooltipReady();
@@ -9946,10 +9948,7 @@ export class Controller {
     if (thumbnail) this.queueEffect({ write_terminal: thumbnail });
     const detail = this.resourceDetail();
     // Another machine's row reads from that machine.
-    const readings =
-      this.machines.length > 1 && detail !== null
-        ? (this.rowResources(detail) ?? this.runtime.resources)
-        : this.runtime.resources;
+    const readings = detail !== null ? (this.rowResources(detail) ?? this.runtime.resources) : this.runtime.resources;
     if (detail !== null) {
       const rect = this.resourceRect();
       const freeze =
@@ -10004,10 +10003,7 @@ export class Controller {
         grip_hover: this.grip_hover,
         git_card: (tooltip_ready || this.git_card.pinned) && git_ws ? this.git_card : null,
         worktree_card: this.worktreeCard(),
-        row_key: (id, machine_id = this.machine.id) => {
-          const machine = this.machines_by_id.get(machine_id);
-          return machine ? this.rowKey(id, machine) : null;
-        },
+
         worktree_spotlight: this.spotlight(),
         message:
           this.agent_picker && (this.width < 40 || this.height < 13)
@@ -10039,7 +10035,7 @@ export class Controller {
         docking: this.dockingPreview(),
         dialog: this.name_dialog,
         archive_dialog: this.archive_dialog,
-        inline_rename: this.renameState(),
+        inline_rename: this.inline_rename,
         sidebar_open: this.sidebar_open,
         sidebar_drawer: this.sidebar_focus?.drawer ?? null,
         corgi_badge: this.corgi_badge,
@@ -10167,11 +10163,11 @@ export class Controller {
       for (const id of this.summary_turns.keys()) if (!this.pane(id)) this.summary_turns.delete(id);
     const panes = new Set<number>();
     const focused = this.focused();
-    const at = focused ? entries.findIndex(e => "pane" in e.target && e.target.pane === focused.id) : -1;
+    const at = focused ? entries.findIndex(e => e.target === viewerRef.pane(this.machine.id, focused.id)) : -1;
     if (at >= 0)
       for (const i of [at, at - 1, at + 1]) {
         const target = entries[i]?.target;
-        if (target && "pane" in target) panes.add(target.pane);
+        if (viewerRef.isPane(target) && !this.away(target)) panes.add(viewerRef.parts(target).id);
       }
     const pointer = this.pointer;
     const hover = pointer && pointer.x > 0 ? this.checkoutAt(entries, pointer.x, pointer.y) : null;
@@ -10194,8 +10190,8 @@ export class Controller {
     const found = this.sidebarView(entries).hit(x, y),
       e = found.tag === "entry" ? entries[found.entry] : undefined;
     if (!e || e.exit !== null) return null;
-    if ("worktree" in e.target) return e.worktree?.ghost ? null : e.target.worktree;
-    const p = "pane" in e.target ? this.pane(e.target.pane) : null;
+    if (sidebar.isHeading(e.target) && "worktree" in e.target) return e.worktree?.ghost ? null : e.target.worktree;
+    const p = viewerRef.isPane(e.target) && !this.away(e.target) ? this.pane(viewerRef.parts(e.target).id) : null;
     return p ? this.agentFolder(p) : null;
   }
   /** Where a pane's agent works, as its review reads and the launcher's
@@ -10429,7 +10425,7 @@ function onFocusedPane(name: string): boolean {
   }
 }
 /** Room for each machine's workspace ids in a sidebar row's id. */
-const machine_stride = 2 ** 32;
+
 /** The connection went before the reply came, so the request may have run. */
 function lost(error: unknown): boolean {
   switch (errors.name(error)) {
@@ -10467,7 +10463,7 @@ function paneName(p: Pane): string {
   return p.label || p.agent.name || (p.agent.provider ? providerName(p.agent) : p.command || "shell");
 }
 /** An agent's state as the prompt tells its model. */
-function herdState(e: Entry): string {
+function herdState(e: sidebar.Data): string {
   if (e.attention === "needs_input") return "needs input";
   if (e.paused) return "paused";
   if (e.unread) return "finished, unread";

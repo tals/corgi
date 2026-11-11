@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { Controller } from "./controller";
 import { Frame, same } from "./composition";
@@ -241,14 +242,14 @@ test("subagent metadata follows observation freshness without a dirty flag", () 
 test.each(["exit", "unbound"] as const)("retained sidebar advances the existing %s transition", transition => {
   const f = fixture(),
     first = sidebar.entry({
-      target: { pane: 1 },
+      target: viewerRef.pane(0, 1),
       name: "stays",
       provider: "claude",
       conversation: 91,
       state: "working",
       activity: "reading",
     }),
-    second = sidebar.entry({ target: { pane: 2 }, name: "leaves", provider: "claude" });
+    second = sidebar.entry({ target: viewerRef.pane(0, 2), name: "leaves", provider: "claude" });
   let live = transition === "exit" ? [first, second] : [first];
   const metadata = spyOn(f.view, "agentEntries").mockImplementation(() => live);
   try {

@@ -3,6 +3,7 @@
 //! put it in, the agent that entered it last on top. Neighbours in one linked
 //! worktree share a subhead, as do neighbours in one workspace in "all"; the
 //! subheads follow the order rather than making it.
+import type * as viewerRef from "./viewer_ref";
 import * as sidebar from "./sidebar";
 import * as agentOrder from "./agent_order";
 import type { Section } from "./agent_order";
@@ -12,10 +13,10 @@ import type { Section } from "./agent_order";
 const order: Section[] = ["starred", "working", "ready", "idle", "done"];
 
 /** The section an agent's row belongs in; the daemon holds a new one in working. */
-export function section(e: sidebar.Entry): Exclude<Section, "starred"> {
+export function section(e: sidebar.Data): Exclude<Section, "starred"> {
   return e.starting ? "working" : agentOrder.section(e.state, e.attention, e.paused);
 }
-type Place = Pick<Item, "workspace" | "pin" | "section">;
+type Place = Pick<Item<unknown, unknown>, "workspace" | "pin" | "section">;
 function sameSection(a: Place, b: Place): boolean {
   return a.workspace === b.workspace && (a.pin === null ? b.pin === null && a.section === b.section : b.pin !== null);
 }
@@ -56,7 +57,7 @@ export class Since {
   /** Settles each item's place in the section order. One `held` among the
    * ready stays between its neighbours; one that leaves gives way to the
    * nearest that stayed. Its neighbours wait while it is away itself. */
-  place(items: Item[], held: ReadonlySet<string>): void {
+  place<T, W>(items: Item<T, W>[], held: ReadonlySet<string>): void {
     const byKey = new Map(items.map(item => [item.key, item])),
       away = new Set<string>();
     for (const item of items) {
@@ -95,11 +96,11 @@ export class Since {
   }
   /** `item`'s neighbours in its workspace's section, by where they were last.
    * One that just entered it has no place there yet. */
-  private neighbours(item: Item, items: Item[]) {
+  private neighbours<T, W>(item: Item<T, W>, items: Item<T, W>[]) {
     const was = this.ranks.get(item.key)?.rank ?? item.rank,
-      last = (other: Item) => this.ranks.get(other.key)!.rank;
-    let above: Item | null = null,
-      below: Item | null = null;
+      last = (other: Item<T, W>) => this.ranks.get(other.key)!.rank;
+    let above: Item<T, W> | null = null,
+      below: Item<T, W> | null = null;
     for (const other of items) {
       const before = this.ranks.get(other.key);
       if (other === item || !before || !sameSection(item, other) || !sameSection(item, before.at)) continue;
@@ -116,11 +117,11 @@ export class Since {
   }
 }
 
-export interface Item {
+export interface Item<T = sidebar.Target, W = viewerRef.Workspace> {
   /** `pane:N` or `headless:N`. */
   key: string;
-  entry: sidebar.Entry;
-  workspace: number;
+  entry: sidebar.Entry<T, W>;
+  workspace: W;
   /** The linked worktree it's listed under; null in the workspace's own checkout. */
   checkout: string | null;
   since: number;
@@ -131,28 +132,28 @@ export interface Item {
   /** The section it shows in, unless starred. */
   section: Exclude<Section, "starred">;
 }
-export interface Options {
+export interface Options<W = viewerRef.Workspace> {
   /** Every workspace is listed, each named in its subheads. */
   all: boolean;
   folded: ReadonlySet<Section>;
   /** Workspace ids in the workspace list's order. */
-  workspaces: number[];
+  workspaces: W[];
   /** A subhead's text: the worktree's branch; for the workspace's own
    * checkout, its branch in one workspace's list, its name in "all". */
-  label: (workspace: number, checkout: string | null) => string;
+  label: (workspace: W, checkout: string | null) => string;
 }
 
-function header(
-  target: sidebar.Target,
+function header<T, W>(
+  target: sidebar.Heading<W>,
   name: string,
-  rows: { entry: sidebar.Entry }[],
+  rows: { entry: sidebar.Entry<T, W> }[],
   folded: boolean,
-  worktree: sidebar.Entry["worktree"],
+  worktree: sidebar.Entry<T, W>["worktree"],
   gap = false,
 ) {
   const group = { agents: 0, working: 0, attention: 0, folded, current: false, gap };
   for (const item of rows) sidebar.tally(group, item.entry.state, item.entry.attention);
-  return sidebar.entry({
+  return sidebar.entry<sidebar.Heading<W>, W>({
     target,
     name,
     worktree,
@@ -161,16 +162,16 @@ function header(
     group,
   });
 }
-function row(item: Item, kind: Section): sidebar.Entry {
+function row<T, W>(item: Item<T, W>, kind: Section): sidebar.Entry<T, W> {
   const worktree = item.checkout === null ? null : { workspace: item.workspace, path: item.checkout, ghost: false };
   return { ...item.entry, section: kind, worktree };
 }
 /** Your order, then the newest first among those it doesn't place. */
-const before = (a: Item, b: Item) => a.rank - b.rank || b.since - a.since;
+const before = <T, W>(a: Item<T, W>, b: Item<T, W>) => a.rank - b.rank || b.since - a.since;
 
-export function arrange(items: Item[], o: Options): sidebar.Entry[] {
-  const out: sidebar.Entry[] = [],
-    place = (workspace: number) => {
+export function arrange<T, W>(items: Item<T, W>[], o: Options<W>): sidebar.Entry<T | sidebar.Heading<W>, W>[] {
+  const out: sidebar.Entry<T | sidebar.Heading<W>, W>[] = [],
+    place = (workspace: W) => {
       const i = o.workspaces.indexOf(workspace);
       return i < 0 ? o.workspaces.length : i;
     };
@@ -196,19 +197,24 @@ export function arrange(items: Item[], o: Options): sidebar.Entry[] {
 }
 
 /** An agent row, in the workspace and checkout it belongs to. */
-export interface Placed {
-  entry: sidebar.Entry;
-  workspace: number;
+export interface Placed<T = sidebar.Target, W = viewerRef.Workspace> {
+  entry: sidebar.Entry<T, W>;
+  workspace: W;
   checkout: string | null;
 }
 /** `rows` with a subhead over each run of neighbours in one linked worktree,
  * or in "all", one workspace's own checkout. In one workspace's list its own
  * checkout is named only where it follows a worktree's rows, to show where
  * those stop. The subheads follow the order; they never make it. */
-export function labelled(rows: Placed[], kind: Section | null, all: boolean, label: Options["label"]): sidebar.Entry[] {
-  const out: sidebar.Entry[] = [],
+export function labelled<T, W>(
+  rows: Placed<T, W>[],
+  kind: Section | null,
+  all: boolean,
+  label: Options<W>["label"],
+): sidebar.Entry<T | sidebar.Heading<W>, W>[] {
+  const out: sidebar.Entry<T | sidebar.Heading<W>, W>[] = [],
     runs = new Map<string, number>(),
-    same = (a: Placed | undefined, b: Placed) =>
+    same = (a: Placed<T, W> | undefined, b: Placed<T, W>) =>
       a !== undefined && a.workspace === b.workspace && a.checkout === b.checkout;
   rows.forEach((item, i) => {
     const { workspace, checkout } = item,
