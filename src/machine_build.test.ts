@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { version } from "./updates";
-import { compare, parse, slot, type Build } from "./machine_build";
+import { compare, direction, parse, slot, type Build } from "./machine_build";
 const a = "a".repeat(40),
   b = "b".repeat(40);
 const build = (values: Partial<Build> = {}): Build => ({
@@ -30,6 +30,15 @@ test("development builds need identity or proved ancestry", async () => {
   await expect(
     compare({ ...older, commit: a + "-dirty" }, { ...newer, commit: b + "-dirty" }, async () => true),
   ).rejects.toThrow("UnorderedDevelopmentBuilds");
+});
+test("forced setup installs this computer's build unless the two match", async () => {
+  const local = build(),
+    other = build({ commit: b }),
+    never = async () => false;
+  await expect(direction(local, other, never, false)).rejects.toThrow("UnorderedDevelopmentBuilds");
+  expect(await direction(local, other, never, true)).toBe(1);
+  expect(await direction(local, other, async (x, y) => x === a && y === b, true)).toBe(1);
+  expect(await direction(local, { ...local, target: "darwin-arm64" }, never, true)).toBe(0);
 });
 test("dirty cross-platform copies use source identity and cannot overwrite divergent work", async () => {
   const local = build({ commit: a + "-dirty", source_hash: "a".repeat(64) });

@@ -147,7 +147,13 @@ async function artifact(local: build.Build, wanted: build.Build, directory: stri
   return file;
 }
 /** Setup owns upgrades; the viewer's reconnect loop never waits for installation. */
-export async function reconcile(host: string, requested: string, retryArgs: string[], socket = ""): Promise<string> {
+export async function reconcile(
+  host: string,
+  requested: string,
+  retryArgs: string[],
+  socket = "",
+  force = false,
+): Promise<string> {
   // A source run has no commit or artifact to compare or install.
   if (!import.meta.filename.startsWith("/$bunfs/")) throw Error("BuildCorgiBeforeMachineSetup");
   const local = build.describe(buildId.self());
@@ -196,7 +202,7 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
     executable = installed.executable;
     if (!installed.socket && socket) installed.socket = socket;
   }
-  const order = installed ? await build.compare(local, installed, ancestor) : 1;
+  const order = installed ? await build.direction(local, installed, ancestor, force) : 1;
   if (!order) {
     process.stderr.write(`Corgi builds match on ${host}.\n`);
     return lines[3] || executable;
