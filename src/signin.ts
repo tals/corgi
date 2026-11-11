@@ -199,6 +199,11 @@ export class Signin {
   busy = false;
   finishing: Promise<void> | null = null;
   stopping: Promise<void> | null = null;
+  discarding: Promise<void> | null = null;
+  /** Work that can still use the account after its screen closes. */
+  get pending(): Promise<void>[] {
+    return [this.finishing, this.stopping, this.discarding].filter(p => p !== null);
+  }
   /** What it's doing that takes a moment, shown in place of its questions. */
   working: string | null = null;
   /** When the agent started, and whether its screen shows something yet. */
@@ -480,7 +485,7 @@ export class Signin {
   }
   /** The login worked out: the folder moves in and gets Corgi's hooks. */
   finish(): Promise<void> {
-    if (this.over) return Promise.resolve();
+    if (this.over || this.discarding) return Promise.resolve();
     return (this.finishing ??= this.finishAccount().finally(() => {
       this.finishing = null;
     }));
@@ -514,23 +519,34 @@ export class Signin {
     });
   }
   /** Deletes a new account that didn't work out, its login first. */
-  async discard() {
-    if (this.working) return;
+  discard(): Promise<void> {
+    if (this.discarding) return this.discarding;
+    if (this.over || this.working) return Promise.resolve();
+    return (this.discarding = this.discardAccount()
+      .catch(error => this.close(1, false, problem(error)))
+      .finally(() => {
+        this.discarding = null;
+      }));
+  }
+  private async discardAccount() {
     this.busy = true;
     this.work("Signing out and deleting the new folder…");
     await this.stopChild();
     const s = this.staged;
     if (s) {
-      if (accounts.identity(this.provider!, s.dir) || (await this.account_command(this.check, 10000)) === 0)
-        await this.signOut();
-      await stopInside([s.dir, s.temp]);
-      accounts.unstage(s);
-      this.staged = null;
+      try {
+        if (accounts.identity(this.provider!, s.dir) || (await this.account_command(this.check, 10000)) === 0)
+          await this.signOut();
+      } finally {
+        await stopInside([s.dir, s.temp]);
+        accounts.unstage(s);
+        this.staged = null;
+      }
     }
     this.close(1, false, `Cancelled: the new ${this.label} account wasn't added.`);
   }
-  /** Its host went away mid-way: what it started stops, and a new account
-   * goes, at once. */
+  /** Its host went away mid-way: stop what it started, leaving an active
+   * discard to finish deleting its own account. */
   abandon() {
     if (this.over) return;
     this.over = true;
@@ -539,6 +555,7 @@ export class Signin {
       if (this.child && this.child.pid > 0) process.kill(-this.child.pid, "SIGKILL");
     } catch {}
     void this.stopChild();
+    if (this.discarding) return;
     const s = this.staged;
     this.staged = null;
     if (s) {
@@ -885,7 +902,7 @@ async function inTerminal(make: (host: Host) => Signin): Promise<number> {
         process.stdout.write(leave);
       } catch {}
       s.abandon();
-      process.exit(1);
+      void Promise.allSettled(s.pending).then(() => process.exit(1));
     });
   process.stdout.write(enter);
   await s.open(cols, rows);

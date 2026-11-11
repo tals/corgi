@@ -117,7 +117,7 @@ export class Sessions {
     this.settle(e);
   }
   private settle(e: Entry, done = () => {}): void {
-    const jobs = [e.signin.finishing, e.signin.stopping].filter(p => p !== null);
+    const jobs = e.signin.pending;
     const complete = () => {
       e.release();
       done();
