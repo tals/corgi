@@ -387,12 +387,13 @@ async function feed(
     if (!download) return true;
     const dest = executable(root, m.version),
       dir = dirname(dest);
-    // A release kept for rollback, or one already staged, needn't download again.
-    const present = await holds(dest, own(m));
-    if (present && staged === m.version) {
+    // Already staged; activation verifies it before it runs.
+    if (staged === m.version && existsSync(dest)) {
       remove(root, "last-error");
       return true;
     }
+    // A release kept for rollback needn't download again.
+    const present = await holds(dest, own(m));
     // The download lock keeps this file to one download at a time.
     const partial = join(root, "download.tmp");
     try {
