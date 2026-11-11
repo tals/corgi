@@ -73,6 +73,36 @@ test("a moved workspace and a starred agent's place show before the daemon answe
     runtime.destroy();
   }
 });
+test("a dock that opens a shell guesses an id no other workspace's pane has", () => {
+  const runtime = new mirror.Runtime(),
+    workspace = (id: number, pane: number, tab: number) => ({
+      id,
+      model: { nodes: [{ pane }], tabs: [{ id: tab, title: "", root: 0 }], revision: 5 },
+    });
+  try {
+    // The daemon numbers panes and tabs across workspaces: 3 is the second's.
+    runtime.receive(null as any, { workspaces: [workspace(1, 1, 2), workspace(2, 3, 4)] });
+    assume(runtime, {
+      "layout.dock": {
+        workspace: 1,
+        viewer: 1,
+        expected: 5n,
+        source: { tab: 2 },
+        drop: { kind: "beside", pane: 1, direction: "right", whole: false },
+        focus: 1,
+        selected: 1,
+        cols: 80,
+        rows: 24,
+      },
+    });
+    const [first, second] = runtime.workspaces.items;
+    expect(first.model.paneCount(first.model.tabs[0].root)).toBe(2);
+    expect(first.model.tabForPane(3)).toBeNull();
+    expect(runtime.workspaces.owner(3)).toBe(second);
+  } finally {
+    runtime.destroy();
+  }
+});
 test("a dock shows on the layout it was planned on, and yields to any later one", () => {
   const runtime = new mirror.Runtime(),
     tabs = () => runtime.workspaces.items[0].model.tabs.slice(0, 2).map(t => t.id);

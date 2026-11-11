@@ -46,7 +46,7 @@ export function edit(command: protocol.CommandInput): Edit | null {
         // Docked, or changed by something else: the daemon's layout stands.
         if (ws.model.revision !== q.expected) return;
         // A new tab or shell gets its id from the daemon, which may differ.
-        const plan = docking.arrange(ws.model, q.source, q.drop, q.focus, docking.nextId(ws.model));
+        const plan = docking.arrange(ws.model, q.source, q.drop, q.focus, unused(runtime));
         plan.model.revision = BigInt.asUintN(64, q.expected + 1n);
         ws.model = plan.model;
       };
@@ -54,6 +54,11 @@ export function edit(command: protocol.CommandInput): Edit | null {
     default:
       return null;
   }
+}
+/** An id past every pane and tab shown. The daemon numbers them across
+ * workspaces, so one only this workspace lacks may be another's pane. */
+function unused(runtime: Runtime): number {
+  return Math.max(...runtime.workspaces.items.map(ws => docking.nextId(ws.model)), ...runtime.panes.map(p => p.id + 1));
 }
 function find(runtime: Runtime, id: number): Workspace {
   const ws = runtime.workspaces.items.find(ws => ws.id === id);

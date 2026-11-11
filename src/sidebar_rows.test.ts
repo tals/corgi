@@ -191,6 +191,20 @@ test("rows the user dropped land without gliding; a later move glides again", ()
   shown = rows.update(1, [a, b, c], out, 20);
   expect(shown[2].moved).toEqual({ from: 0, ms: 0 });
 });
+test("a drop stops rows still gliding from an earlier move", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    [a, b, c] = [entry(1), entry(2), entry(3)];
+  rows.update(1, [a, b, c], out, 0);
+  rows.update(1, [c, a, b], out, 10);
+  expect(rows.moving(20)).toBe(true);
+  rows.place();
+  const shown = rows.update(1, [c, b, a], out, 20);
+  expect(shown.map(paneOf)).toEqual([3, 2, 1]);
+  expect(shown.map(e => e.moved)).toEqual([null, null, null]);
+  expect(shown.map(e => e.slide)).toEqual([0, 0, 0]);
+  expect(rows.moving(20)).toBe(false);
+});
 test("a row pushed one row or less just lands", () => {
   const rows = new State(),
     out: Entry[] = [],

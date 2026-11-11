@@ -124,6 +124,8 @@ export class State {
     for (let i = 0; i < this.slots.length; i++) {
       const slot = this.slots[i];
       slot.seen = false;
+      // Gliding from where it was would draw it away from where it was put.
+      if (placed) slot.moved = slot.slid = null;
       if (!slot.occupied || this.order.includes(i)) continue;
       if (!live.some(e => sameEntry(e, slot.entry))) slot.occupied = false;
     }

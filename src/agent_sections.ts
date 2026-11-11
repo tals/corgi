@@ -39,19 +39,27 @@ export class Since {
   shown(key: string, kind: Exclude<Section, "starred">, focused: boolean): Exclude<Section, "starred"> {
     return focused && kind === "idle" && this.seen.get(key)?.kind === "ready" ? "ready" : kind;
   }
-  /** An explicit drop replaces the neighbours holding a read agent in place. */
-  move(key: string, before: string | null): void {
+  /** An explicit drop replaces the neighbours holding a read agent in place.
+   * The function returned puts back the ones it had, for a refused drop. */
+  move(key: string, before: string | null): () => void {
     const saved = this.ranks.get(key);
-    if (!saved || key === before) return;
+    if (!saved || key === before) return () => {};
     const others = [...this.ranks]
         .filter(([other, place]) => other !== key && sameSection(saved.at, place.at))
         .sort((a, b) => a[1].rank - b[1].rank),
       index = before === null ? others.length : others.findIndex(([other]) => other === before);
-    if (index < 0) return;
+    if (index < 0) return () => {};
     const above = others[index - 1],
-      below = others[index];
+      below = others[index],
+      was = { rank: { ...saved }, anchor: this.anchors.get(key) };
     this.anchors.set(key, { above: above?.[0] ?? null, below: below?.[0] ?? null, at: saved.at });
     saved.rank = below ? below[1].rank - 0.5 : (above?.[1].rank ?? -0.5) + 0.5;
+    return () => {
+      if (!this.ranks.has(key)) return;
+      this.ranks.set(key, was.rank);
+      if (was.anchor) this.anchors.set(key, was.anchor);
+      else this.anchors.delete(key);
+    };
   }
   /** Settles each item's place in the section order. One `held` among the
    * ready stays between its neighbours; one that leaves gives way to the

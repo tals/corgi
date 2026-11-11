@@ -961,8 +961,12 @@ export class Controller {
   }
   /** Sends `command`, showing its result at once where optimistic.ts can.
    * The guess stands until a snapshot taken after the reply; a refusal
-   * shows the last snapshot without it. `then` takes the result. */
-  private optimistic(command: CommandInput, then?: (result: { pane: number }) => void): void {
+   * shows the last snapshot without it and runs `undo` for the viewer's own
+   * state. `then` takes the result. */
+  private optimistic(
+    command: CommandInput,
+    { then, undo }: { then?: (result: { pane: number }) => void; undo?: () => void } = {},
+  ): void {
     const machine = this.machine,
       edit = optimistic.edit(command),
       forget = edit ? machine.runtime.assume(edit) : () => {};
@@ -974,6 +978,7 @@ export class Controller {
         then?.(result);
       } catch (error) {
         forget();
+        if (!answered) undo?.();
         if (edit && !answered && machine.runtime.snapshot) this.receiveSnapshot(machine.runtime.snapshot, machine);
         throw error;
       } finally {
@@ -7556,7 +7561,7 @@ export class Controller {
     if (!drag || !this.validTabDrag(drag) || !drag.plan || !drag.drop) return this.cancelDock();
     const history = this.dockingHistory(),
       workspace = this.current().id,
-      focus = drag.plan.focus,
+      plan = drag.plan,
       here = this.here();
     const command: CommandInput = {
       "layout.dock": {
@@ -7573,12 +7578,18 @@ export class Controller {
     };
     // Consume the gesture; no release can repeat it.
     this.cancelDock();
-    this.optimistic(command, result => {
-      this.dock_history.set(workspace, { revision: drag.revision + 1n, undo: Math.min(32, history.undo + 1), redo: 0 });
-      // A new shell's id is the daemon's to give.
-      if (here() && this.pane(focus) === null) this.focusPane(result.pane);
+    this.optimistic(command, {
+      then: result => {
+        this.dock_history.set(workspace, {
+          revision: drag.revision + 1n,
+          undo: Math.min(32, history.undo + 1),
+          redo: 0,
+        });
+        if (plan.shell !== null && here()) this.focusPane(result.pane);
+      },
     });
-    this.focusPane(focus);
+    // A new shell's id is the daemon's to give; until it does, keys stay where they were.
+    if (plan.shell === null) this.focusPane(plan.focus);
     this.nav().tab().zoom = false;
   }
   private async restoreDock(direction: "undo" | "redo"): Promise<void> {
@@ -8066,14 +8077,18 @@ export class Controller {
             other = at === null ? null : sidebar.orderTarget(live[at]),
             before = other && this.agentWorkspace(other) === drag.workspace ? other : null,
             place = { workspace: drag.workspace, target: drag.target, before };
+          const undo =
+            drag.action === "place"
+              ? this.agent_since.move(agentKey(place.target), before ? agentKey(before) : null)
+              : undefined;
           this.optimistic(
             drag.action === "move"
               ? { "agent.move": place }
               : drag.action === "place"
                 ? { "agent.place": place }
                 : { "agent.pin": { ...place, pinned: true } },
+            { undo },
           );
-          if (drag.action === "place") this.agent_since.move(agentKey(place.target), before ? agentKey(before) : null);
           this.sidebar_rows.place();
         }
       }

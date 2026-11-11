@@ -232,6 +232,23 @@ test("dragging a held ready agent replaces its neighbours until focus leaves", (
   expect(ready([2, 4, 1, 3], true)).toEqual([2, 4, 1, 3]);
   expect(ready([4, 1, 3, 2], false)).toEqual([4, 1, 3, 2]);
 });
+test("a refused drag puts a held ready agent back between its old neighbours", () => {
+  const since = new agentSections.Since(),
+    ready = (order: number[]) => {
+      const items = order.map((pane, rank) => item(pane, "idle", { attention: "finished", rank }));
+      since.place(items, new Set(["pane:2"]));
+      return agentSections.arrange(items, options()).flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+    };
+  since.place(
+    [1, 2, 3].map((pane, rank) => item(pane, "idle", { attention: "finished", rank })),
+    new Set(),
+  );
+  expect(ready([2, 1, 3])).toEqual([1, 2, 3]);
+  const undo = since.move("pane:2", null);
+  expect(ready([1, 3, 2])).toEqual([1, 3, 2]);
+  undo();
+  expect(ready([2, 1, 3])).toEqual([1, 2, 3]);
+});
 test("a held ready agent starred and unstarred keeps its place", () => {
   const since = new agentSections.Since(),
     ready = (ranks: Record<number, number>, starred: number[] = []) => {
