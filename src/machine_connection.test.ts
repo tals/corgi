@@ -12,6 +12,7 @@ import { Probe } from "./terminal_info";
 import { Host } from "./host";
 import * as protocol from "./protocol";
 import * as machine_path from "./machine_path";
+import { Controller } from "./controller";
 import { transport } from "./fixtures/transport";
 
 /** A daemon that keeps links, and drops the connection the first time it gets
@@ -19,7 +20,7 @@ import { transport } from "./fixtures/transport";
 async function flakyDaemon(remote = false, resumed = false) {
   const dir = mkdtempSync(join(tmpdir(), "corgi-link-"));
   const path = join(dir, "control.sock");
-  const seen: { op: string; seq?: number }[] = [];
+  const seen: { op: string; seq?: number; worktree_detail?: number | null }[] = [];
   let instance = "first",
     dropped = false;
   const snapshot = {
@@ -48,7 +49,7 @@ async function flakyDaemon(remote = false, resumed = false) {
     socket.on("error", () => {});
     lines(socket, line => {
       const request = JSON.parse(line);
-      seen.push({ op: request.op, seq: request.seq });
+      seen.push(request);
       const reply = (value: unknown) =>
         socket.write(JSON.stringify({ ...(value as object), request_id: request.request_id }) + "\n");
       switch (request.op) {
@@ -89,7 +90,7 @@ async function flakyDaemon(remote = false, resumed = false) {
   return {
     endpoint,
     seen,
-    replace: () => (instance = "second"),
+    replace: (next = "second") => (instance = next),
     connect: () => Reflect.get(endpoint, "connect").call(endpoint) as Promise<void>,
     disconnect: () => Reflect.get(endpoint, "disconnect").call(endpoint),
     close: async () => {
@@ -169,26 +170,45 @@ test("input arriving during an endpoint task runs immediately after completion",
 
 test("a machine keeps its data across reconnects to its daemon but not the daemon's replacement", async () => {
   const daemon = await flakyDaemon(),
-    endpoint = daemon.endpoint;
+    endpoint = daemon.endpoint,
+    view = new Controller(transport(async () => ({})));
+  endpoint.controller = view;
+  view.adopt(endpoint.machine);
   try {
     await daemon.connect();
     const runtime = endpoint.machine.runtime,
-      expire = spyOn(endpoint.controller!.model_cache, "expire");
+      expire = spyOn(view.model_cache, "expire");
+    view.worktree_card.workspace = view.workspaceRef(1, endpoint.machine);
+    view.worktree_card.pinned = true;
+    await Reflect.get(endpoint, "step").call(endpoint, false, 0);
+    expect(daemon.seen.at(-1)).toMatchObject({ op: "session.snapshot", worktree_detail: 1 });
+    expect(daemon.seen.some(r => r.op === "viewer.open")).toBe(false);
+    expect(view.machine).not.toBe(endpoint.machine);
     endpoint.machine.last_control = 5n;
     daemon.disconnect();
     await daemon.connect();
     expect(endpoint.machine.runtime).toBe(runtime);
     expect(expire).not.toHaveBeenCalled();
+    expect(view.worktreeDetail()).toEqual(view.workspaceRef(1, endpoint.machine));
     // Each connection numbers its controls from the start.
     expect(endpoint.machine.last_control).toBe(0n);
     daemon.replace();
     daemon.disconnect();
     await daemon.connect();
     expect(endpoint.machine.runtime).not.toBe(runtime);
-    // Its agents may differ, and so may their models.
-    expect(expire).toHaveBeenCalledTimes(1);
+    expect(view.worktreeDetail()).toBeNull();
+    expect(expire).not.toHaveBeenCalled();
+    // Replacing the shown daemon also refreshes its model lists.
+    view.switchMachine(endpoint.machine);
+    const remoteExpire = spyOn(view.model_cache, "expire");
+    daemon.replace("third");
+    daemon.disconnect();
+    await daemon.connect();
+    expect(remoteExpire).toHaveBeenCalledTimes(1);
+    expect(expire).not.toHaveBeenCalled();
   } finally {
     await daemon.close();
+    view.runtime.destroy();
   }
 });
 

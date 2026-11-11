@@ -748,7 +748,7 @@ export class Endpoint {
         view.closeMachineUi();
         // Its agents may have been updated: read their model lists again.
         view.model_cache.expire();
-      }
+      } else if (view.worktree_card.workspace?.machine === this.machine) view.worktree_card.clear();
       this.machine.forget();
       this.workspaces = [];
       this.workspaces_instance = this.instance;
@@ -1048,6 +1048,7 @@ export class Endpoint {
     } else {
       const snapshot = await this.connection!.call("session.snapshot", {
         resources: this.host.prefs.resources.enabled,
+        worktree_detail: view.worktreeDetailWanted(machine),
       });
       this.current(generation);
       view.receiveSnapshot(snapshot, machine);

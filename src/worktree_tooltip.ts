@@ -7,6 +7,7 @@ import * as palette from "./palette";
 import { Writer, ellipsis, directoryLabel, displayWidth, shortPath, compactCount } from "./text";
 import { Grid } from "./cell_grid";
 import * as worktrees from "./worktrees";
+import type * as viewerRef from "./viewer_ref";
 import * as worktreeRemoval from "./worktree_removal";
 import { clean } from "./trackers/git_status";
 import { milliTimestamp } from "./clock";
@@ -42,7 +43,7 @@ export function between(rect: Rect, badge: Rect, x: number, y: number): boolean 
   return slope >= top && slope <= bottom;
 }
 export class State {
-  workspace: number | null = null;
+  workspace: viewerRef.Workspace | null = null;
   pinned = false;
   anchor = 2;
   selected: string | null = null;
