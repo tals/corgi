@@ -1,7 +1,7 @@
 import * as viewerRef from "./viewer_ref";
 //! Renaming a sidebar row in place: the double-click that starts it and the
 //! field that replaces the row's name while it is edited.
-import { Dialog } from "./name_dialog";
+import { Dialog, View as NameView } from "./name_dialog";
 
 /** A pane-backed agent row by pane id, or a workspace row by workspace id. */
 export type RenameTarget = viewerRef.Pane | viewerRef.Workspace;
@@ -98,6 +98,13 @@ export class InlineRename {
     const id = viewerRef.parts(target).id;
     const field = Dialog.init(viewerRef.isPane(target) ? { agent: id } : { workspace_name: id }, text);
     return new InlineRename(target, field, fallback);
+  }
+  /** A press at `column` of the field, drawn `width` columns wide: the
+   * selection goes and the caret takes the character there, or the end
+   * past the text. */
+  place(column: number, width: number): void {
+    const field = this.field;
+    field.position(field.byteAtColumn(NameView.scroll(field, width), Math.max(0, column)));
   }
   /** The text changed: a notice about the last try no longer applies. */
   edited(): void {

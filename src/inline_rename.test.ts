@@ -131,3 +131,22 @@ test("equal pane numbers on different machines are different double-click target
   expect(clicks.press(viewerRef.pane(2, 7), 1100, 4)).toBe(false);
   expect(clicks.press(viewerRef.pane(2, 7), 1200, 4)).toBe(true);
 });
+
+test("a press in the field drops the selection and puts the caret where it lands", () => {
+  const open = InlineRename.open(viewerRef.workspace(0, 1), "Billing team", "");
+  expect(open.field.selected).toBe(true);
+  open.place(3, 14);
+  expect(open.field.selected).toBe(false);
+  expect(open.field.cursor).toBe(3);
+  open.field.key(c("X"));
+  expect(open.field.raw()).toBe("BilXling team");
+  // Past the text, in the field's spare columns, the caret goes to the end.
+  open.place(13, 15);
+  expect(open.field.cursor).toBe(open.field.len);
+  // Wide characters take two columns each; a press on either half picks it.
+  const wide = InlineRename.open(viewerRef.workspace(0, 2), "日本語版", "");
+  wide.place(3, 10);
+  expect(wide.field.cursor).toBe(3);
+  wide.place(4, 10);
+  expect(wide.field.cursor).toBe(6);
+});
