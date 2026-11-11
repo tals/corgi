@@ -6810,6 +6810,96 @@ test("remote management reads options from its daemon and refreshes a saved conf
   }
 });
 
+test.each(["model", "configure"])(
+  "reopening settings after %s waits for a fresh catalog, including an older reply in flight",
+  async kind => {
+    let settings = { flags: "--old", env: [["SETTING", "old"]] as [string, string][], model: "old-model" };
+    let reads = 0;
+    const stale = Promise.withResolvers<void>(),
+      fresh = Promise.withResolvers<void>(),
+      snapshot = folders("/remote");
+    const machine = new Machine(
+      transport(async (op, fields: any) => {
+        if (op === "session.snapshot") return snapshot;
+        if (op === "launcher.catalog") {
+          const options = structuredClone(settings),
+            read = ++reads;
+          if (read === 2) await stale.promise;
+          if (read === 3) await fresh.promise;
+          return {
+            agents: [],
+            data: { accounts: [{ row: "claude", folder: "/remote/.claude", suggest: "Remote", options }], removed: [] },
+          };
+        }
+        if (op === "session.command") {
+          const patch = { ...fields.command["agent.launcher.configure"] };
+          if (patch.effort === "default") delete patch.effort;
+          settings = { ...settings, ...patch, env: patch.env ? Object.entries(JSON.parse(patch.env)) : settings.env };
+          return { result: {} };
+        }
+        return {};
+      }),
+      "remote",
+      true,
+    );
+    const s: any = new Controller(machine);
+    s.receiveSnapshot(snapshot);
+    s.updateLaunchPreview = () => {};
+    s.launch_previews.cwd = "/remote";
+    s.launch_previews.preview = agentLauncher.preview({
+      pending: false,
+      installed: byProvider(p => p === "claude"),
+      options: { claude: { signed_in: true } },
+    });
+    try {
+      s.openLauncher(true);
+      await machine.tasks.idle();
+      await s.pollLauncher(false);
+      await s.openManager();
+      const launch = s.agent_launcher,
+        manager = launch.manager;
+      const agent = launch.manageModel().agents.find((a: agentManager.Agent) => a.provider === "claude");
+      s.readProfiles(true);
+      expect(reads).toBe(2);
+      await s.manageAction(
+        kind === "model"
+          ? { kind, agent, model: "new-model", effort: "high" }
+          : { kind, agent, name: "New", options: { model: "new-model", flags: "--new", env: [["SETTING", "new"]] } },
+      );
+      const reopen = () => {
+        manager.open(agentManager.agentKey("claude", ""));
+        expect(manager.selected(launch.manageModel())?.kind).toBe("agent");
+        manager.key(101, launch.manageModel());
+      };
+      reopen();
+      expect(manager.page).toBe("list");
+      stale.resolve();
+      await machine.tasks.idle();
+      await s.pollLauncher(false);
+      expect(reads).toBe(3);
+      reopen();
+      expect(manager.page).toBe("list");
+      fresh.resolve();
+      await machine.tasks.idle();
+      await s.pollLauncher(false);
+      reopen();
+      expect(manager.page).toBe("agent");
+      expect(manager.agent_form.options().model).toBe("new-model");
+      expect(manager.agent_form.options().flags).toBe(settings.flags);
+      expect(manager.agent_form.options().env).toEqual(settings.env);
+      await s.manageAction({ kind: "configure", agent, name: "Rename only", options: manager.agent_form.options() });
+      expect(settings.model).toBe("new-model");
+      expect(settings.flags).toBe(kind === "configure" ? "--new" : "--old");
+      expect(settings.env).toEqual([["SETTING", kind === "configure" ? "new" : "old"]]);
+    } finally {
+      stale.resolve();
+      fresh.resolve();
+      await machine.tasks.idle();
+      viewer.close(s);
+    }
+  },
+);
+
 test("model catalogs belong to the selected machine even when account paths match", async () => {
   const home = new Machine(transport(async () => ({ models: [{ id: "local", name: "Local" }] })));
   const away = new Machine(

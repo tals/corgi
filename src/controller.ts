@@ -4187,6 +4187,7 @@ export class Controller {
       profiles = machine.profiles;
     if (!profiles.due(again, milliTimestamp())) return;
     const launch = this.launcherModel(),
+      generation = profiles.generation,
       workspace = launch?.workspace ?? this.current().id,
       cwd = launch?.cwd ?? this.launcherCwd();
     profiles.reading = true;
@@ -4194,11 +4195,13 @@ export class Controller {
     this.later(async lane => {
       try {
         const reply = await lane.call("launcher.catalog", { workspace, cwd, preview: false });
+        if (profiles.generation !== generation) return;
         profiles.list = agentProfiles.fromCatalog(reply.agents);
         profiles.data = launcherData.read(reply.data);
         profiles.loaded = reply.data !== undefined;
         this.dirty = true;
       } catch (error) {
+        if (profiles.generation !== generation) return;
         // The launcher keeps the last list. A lost connection asks again
         // soon; a refusal waits for the next launcher.
         if (lost(error)) {
@@ -4448,7 +4451,18 @@ export class Controller {
           return await this.saveInlineCommand();
       }
     } finally {
-      machine.profiles.read = false;
+      switch (action.kind) {
+        case "configure":
+        case "model":
+        case "clone":
+        case "remove":
+        case "restore":
+          machine.profiles.invalidate();
+          launch.data_ready = false;
+          break;
+        default:
+          machine.profiles.read = false;
+      }
     }
   }
   /** Shows an account's row in the launcher and in every workspace that hid it. */

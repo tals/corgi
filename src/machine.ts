@@ -53,8 +53,15 @@ export class Profiles {
   loaded = false;
   read = false;
   reading = false;
+  generation = 0;
   /** When to ask again after a read failed. */
   retry_at = 0;
+  invalidate(): void {
+    this.generation++;
+    this.loaded = false;
+    this.read = false;
+    this.retry_at = 0;
+  }
   /** Whether to ask now: once at first, then `again`, as each launcher opens. */
   due(again: boolean, now: number): boolean {
     return !this.reading && now >= this.retry_at && (again || !this.read);
