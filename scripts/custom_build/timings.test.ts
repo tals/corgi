@@ -14,6 +14,7 @@ import {
   resume,
   startItem,
   tick,
+  typical,
   type History,
   type HistoryRun,
 } from "./timings";
@@ -80,11 +81,39 @@ test("ahead compares with the last finished run of the same command", () => {
   expect(estimate(history(runs), "rebuild", [], { fetch: 4000, "merge:new": 50000 }, 0).aheadMs).toBe(2000);
 });
 
-test("only partial runs give estimates but no last run", () => {
+test("rolled-back runs an older tool recorded are no history", () => {
   const e = estimate(history([past({ fetch: 3 * s }, { partial: true })]), "rebuild", ["fetch"], {}, 0);
-  expect(e.totalMs).toBe(3 * s);
-  expect(e.last).toBeNull();
-  expect(e.aheadMs).toBeNull();
+  expect(e).toEqual({ totalMs: null, leftMs: null, aheadMs: null, last: null });
+  expect(harnessMedian(history([past({}, { partial: true, harnessMs: [3 * s] })]), "rebuild")).toBeNull();
+});
+
+const min = 60 * s;
+test("a duration far above its peers is an outlier; small or close ones aren't", () => {
+  expect(typical([])).toEqual([]);
+  expect(typical([90 * min])).toEqual([true]);
+  // A step a laptop slept through.
+  expect(typical([2 * min, 3 * min, 95 * min, 2 * min])).toEqual([true, true, false, true]);
+  // With two, the long one is the odd one out.
+  expect(typical([95 * min, 3 * min])).toEqual([false, true]);
+  // Three times as long but only seconds more: noise, not sleep.
+  expect(typical([10 * s, 40 * s, 12 * s])).toEqual([true, true, true]);
+});
+
+test("estimates leave out outliers, and the last run is the latest without one", () => {
+  const usual = past({ fetch: 1 * min, "step:test": 4 * min }),
+    slept = past({ fetch: 1 * min, "step:test": 120 * min }),
+    e = estimate(
+      history([usual, past({ fetch: 1 * min, "step:test": 5 * min }), slept]),
+      "rebuild",
+      ["step:test"],
+      {},
+      0,
+    );
+  expect(e.totalMs).toBe(4.5 * min);
+  expect(e.last?.items["step:test"]).toBe(5 * min);
+  // The stage median for an unseen item, and the harness median, likewise.
+  expect(estimate(history([usual, slept]), "rebuild", ["step:new"], {}, 0).totalMs).toBe(4 * min);
+  expect(harnessMedian(history([past({}, { harnessMs: [2 * min, 3 * min, 200 * min] })]), "rebuild")).toBe(2.5 * min);
 });
 
 test("history keeps the last 20 runs and survives a corrupt file", () => {

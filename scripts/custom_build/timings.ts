@@ -20,7 +20,8 @@ export type Command = "rebuild" | "rebase";
 export type HistoryRun = {
   command: Command;
   finishedAt: string;
-  /** A rolled-back run: its finished items feed the estimates, but it is never the last run. */
+  /** A rolled-back run, which older tools recorded with the items it finished;
+   * estimates leave it out. */
   partial: boolean;
   activeMs: number;
   items: Record<string, number>;
@@ -40,6 +41,10 @@ export const historyPath = (dir: string) => join(dir, "timings.json");
 const keep = 20;
 /** How many recorded durations an estimate takes the median of. */
 const window = 5;
+/** A duration this many times the median of its peers, and at least `outlierGapMs`
+ * above it, is left out: a laptop that slept through a step counts the sleep. */
+const outlierFactor = 3;
+const outlierGapMs = 5 * 60_000;
 
 /** The clock reading the run's active time was last brought up to; null while paused.
  * Per process: a run loaded by `continue` starts counting at its first tick. */
@@ -82,7 +87,7 @@ export function endItem(run: RunState, key: string, nowMs: number, exceptMs = 0)
   return ms;
 }
 
-/** Keeps a finished harness call's duration. */
+/** Keeps a finished harness call's duration; only accepted calls are recorded. */
 export function harnessCall(run: RunState, ms: number): void {
   timing(run).harnessMs.push(ms);
 }
@@ -148,14 +153,28 @@ function median(values: number[]): number | null {
     mid = sorted.length >> 1;
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
+/** Whether each of `values` is typical: not far above the median of the others.
+ * A lone value has no peers and is typical. */
+export function typical(values: number[]): boolean[] {
+  return values.map((v, i) => {
+    const others = median(values.filter((_, j) => j !== i));
+    return others === null || v <= others * outlierFactor || v - others < outlierGapMs;
+  });
+}
+const withoutOutliers = (values: number[]) => {
+  const keep = typical(values);
+  return values.filter((_, i) => keep[i]);
+};
+
 /** `merge:a` belongs to `merge`; an item without a colon is its own stage. */
 const stage = (key: string) => key.split(":")[0];
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 
-/** How long a run of `command` takes, from earlier runs of it: each planned item
- * not done yet is the median of its last 5 recorded durations, an item never seen
- * the median of its stage's items in the last 5 runs, a stage never seen nothing.
- * Rolled-back runs count for the items they finished. */
+/** How long a run of `command` takes, from earlier finished runs of it: each
+ * planned item not done yet is the median of its last 5 recorded durations, an
+ * item never seen the median of its stage's items in the last 5 runs, a stage
+ * never seen nothing. Outliers are left out first, and the last run compared
+ * against is the latest whose active time isn't one. */
 export function estimate(
   h: History,
   command: Command,
@@ -163,27 +182,30 @@ export function estimate(
   done: Record<string, number>,
   activeMs: number,
 ): Estimate {
-  const runs = h.runs.filter(r => r.command === command);
+  const runs = h.runs.filter(r => r.command === command && !r.partial);
   if (!runs.length) return { totalMs: null, leftMs: null, aheadMs: null, last: null };
   const recent = runs.slice(-window),
     left = planned
       .filter(key => !(key in done))
       .map(key => {
-        const own = runs.filter(r => key in r.items).map(r => r.items[key]);
+        const own = withoutOutliers(runs.filter(r => key in r.items).map(r => r.items[key]));
         if (own.length) return median(own.slice(-window))!;
         const s = stage(key);
         return (
           median(
-            recent.flatMap(r =>
-              Object.entries(r.items)
-                .filter(([k]) => stage(k) === s)
-                .map(([, v]) => v),
+            withoutOutliers(
+              recent.flatMap(r =>
+                Object.entries(r.items)
+                  .filter(([k]) => stage(k) === s)
+                  .map(([, v]) => v),
+              ),
             ),
           ) ?? 0
         );
       }),
     totalMs = sum(Object.values(done)) + sum(left),
-    last = runs.findLast(r => !r.partial) ?? null,
+    usual = typical(runs.map(r => r.activeMs)),
+    last = runs.findLast((_, i) => usual[i]) ?? null,
     shared = last ? Object.keys(done).filter(key => key in last.items) : [];
   return {
     totalMs,
@@ -193,13 +215,10 @@ export function estimate(
   };
 }
 
-/** The median of the last 5 harness calls in runs of `command`; null without any.
- * A call isn't predicted: the live view adds this when one starts. */
+/** The median of the last 5 harness calls in finished runs of `command`, outliers
+ * left out; null without any. A call isn't predicted: the live view adds this when one starts. */
 export function harnessMedian(h: History, command: Command): number | null {
   return median(
-    h.runs
-      .filter(r => r.command === command)
-      .flatMap(r => r.harnessMs)
-      .slice(-window),
+    withoutOutliers(h.runs.filter(r => r.command === command && !r.partial).flatMap(r => r.harnessMs)).slice(-window),
   );
 }

@@ -558,14 +558,11 @@ test("a stopped run is recorded once, when it finishes", async () => {
   expect(Object.keys(runs[0].items)).toEqual(
     expect.arrayContaining(["fetch", "merge:left", "merge:right", "step:build"]),
   );
-  // Rolled back instead, the run writes its finished items, marked partial.
+  // Rolled back instead, the run is no history: only finished runs count.
   const v = conflicted();
   expect((await cb(v, "rebuild")).code).toBe(2);
   expect((await cb(v, "rollback")).code).toBe(0);
-  const partial = timings.loadHistory(dirOf(v)).runs;
-  expect(partial.length).toBe(1);
-  expect(partial[0]).toMatchObject({ command: "rebuild", partial: true });
-  expect(Object.keys(partial[0].items)).toEqual(["fetch", "merge:left"]);
+  expect(existsSync(timings.historyPath(dirOf(v)))).toBe(false);
 });
 test("a successful run keeps the previous build as -prev; a stopped run leaves the backups alone", async () => {
   const w = world();
@@ -1887,16 +1884,6 @@ test("a timings history that can't be written is a warning, and the run keeps it
     }
     expect(run(w)).toBeNull();
   }
-  // A rollback's partial entry likewise.
-  const w = world();
-  conflicting(w);
-  configure(w, ["left", "right"]);
-  expect((await cb(w, "rebuild")).code).toBe(2);
-  mkdirSync(join(dirOf(w), "timings.json.tmp"), { recursive: true });
-  const undone = await cb(w, "rollback");
-  expect(undone.code).toBe(0);
-  expect(undone.out).toStartWith("custom-build: rolled back to ");
-  expect(undone.err).toContain("custom-build: warning: could not record timings: ");
 });
 test("the usage names --verbose for every command with a live view", async () => {
   let out = "";

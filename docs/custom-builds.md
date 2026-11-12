@@ -273,12 +273,16 @@ sends a desktop notification (OSC 9) when it finishes or stops, and every wait
 on the y/N push question sends one.
 
 Estimates come from `timings.json` in the config directory, which keeps the
-last 20 runs, finished or rolled back; `rebuild` and `rebase` are estimated
-from their own runs. An item still to do counts as the median of its last 5
-durations; an item never seen before, as the median of its stage's items in
-the last 5 runs. Only active time counts, not the time a run sat stopped
-before `continue` or waited for the push answer. A first run has no estimate
-and shows the elapsed time only.
+last 20 finished runs; a rolled-back run isn't recorded, and of the harness
+calls only accepted ones are. `rebuild` and `rebase` are estimated from their
+own runs. An item still to do counts as the median of its last 5 durations;
+an item never seen before, as the median of its stage's items in the last 5
+runs. A duration more than three times the median of its peers and at least
+5 minutes above it, like a step the computer slept through, is left out, and
+the last run a run compares with is the latest without such a total. Only
+active time counts, not the time a run sat stopped before `continue` or
+waited for the push answer. A first run has no estimate and shows the
+elapsed time only.
 
 ## Configuration
 
