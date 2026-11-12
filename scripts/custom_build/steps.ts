@@ -1,6 +1,6 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Config, StepName } from "./config";
+import type { Attribution, Config, StepName } from "./config";
 import * as git from "./git";
 
 const defaults: Record<StepName, string[]> = {
@@ -80,7 +80,8 @@ async function runOne(cmd: string[], o: Run): Promise<boolean> {
   return (await child.exited) === 0;
 }
 
-export type Isolated = "passed" | "failed";
+/** `conflict`: the merges don't apply on the base, so the step never ran. */
+export type Isolated = "passed" | "failed" | "conflict";
 /** Runs `step` in a throwaway worktree of `base` with `merges` merged in,
  * never touching the checkout (blame-first and attribution). A merge that
  * doesn't apply there counts as a failure. */
@@ -104,7 +105,7 @@ export async function runIsolated(o: {
   try {
     for (const ref of o.merges)
       if (git.git(path, ["merge", "--no-ff", "--no-edit", "-m", `custom-build: isolated merge ${ref}`, ref]).code !== 0)
-        return "failed";
+        return "conflict";
     const vars = { outfile: join(path, "dist", "corgi-isolated") },
       run = (step: StepName) =>
         runStep(commands(step, o.config, vars), {
@@ -132,12 +133,12 @@ export function failureText(log: string): string {
 }
 
 export type Merged = { display: string; ref: string; merge: string };
-export type Attribution = { kind: "build-drift" | "build-clash"; patch: string; others: string[] };
-/** Who an agent fix for `step` answered: the implicated patches (touching a
- * file the fix changed or the failure names), each run merged alone onto
- * upstream. Those that fail alone drifted from upstream; if none does, the
- * implicated patches clash with each other. With no implicated patch, nothing
- * points at a patch and nothing is run. */
+/** Who a failure of `step` points at: the implicated patches (touching a file
+ * a fix changed or the failure names), each run merged alone onto upstream.
+ * Those that fail alone drifted from upstream; if none does, the implicated
+ * patches clash with each other. One that doesn't merge alone can't be run
+ * and counts toward a clash: its conflict is reported on its own. With no
+ * implicated patch, nothing points at a patch and nothing is run. */
 export async function attribute(o: {
   repo: string;
   workDir: string;
@@ -175,7 +176,7 @@ export async function attribute(o: {
       env: o.env,
       echo: o.echo,
     });
-    if (alone !== "passed") failing.push(m.display);
+    if (alone === "failed") failing.push(m.display);
   }
   if (failing.length) return failing.map(patch => ({ kind: "build-drift", patch, others: [] }));
   // A clash needs two sides: a lone implicated patch clashes with the rest merged.

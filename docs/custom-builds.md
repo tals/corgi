@@ -89,7 +89,7 @@ scripts/custom-build [--dir <path>] <command> [args]
 | 2 | stopped at a merge conflict, or a rebase conflict in `rebase` |
 | 3 | stopped at a failing step |
 | 4 | the step fails on plain upstream too: upstream is broken |
-| 5 | the harness ran out of attempts |
+| 5 | the harness ran out of attempts, or failed to start |
 
 Progress goes to stderr, prefixed `custom-build:`; the summary goes to stdout.
 On a terminal, `rebuild`, `rebase` and `continue` show a
@@ -348,7 +348,11 @@ cache read tokens; for `codex`, in is its `input_tokens`, which already include
 the cached ones. Without a `kind`, nothing is added to the command and its
 tokens are unknown.
 
-The tool checks every result itself; the harness's exit code doesn't count.
+The tool checks every result itself; a harness that exits non-zero but leaves
+an acceptable result is still accepted. A rejected call that exited non-zero
+(an expired login, a bad flag) ends the attempts at once, since the next call
+would fail the same way: the stop names the exit code and the harness's last
+output line, and `continue` asks the harness again once it is fixed.
 
 - **Conflicts:** accepted when no conflict markers remain, only the conflicted
   files changed and nothing was committed. The merge is committed with a
@@ -380,6 +384,11 @@ the logs of the last 10 rollbacks made without a stopped run
   to roll back.
 - `handoffs/<patch>.md`: a problem to fix in a patch's own branch, with a
   ready-to-run prompt for that checkout.
+- `fix-<step>.md`: for a run stopped at a failing step, a prompt for fixing it
+  with an agent in the custom build's checkout. The stop prints it with the
+  command that runs it there (the harness's executable, or `claude`), for
+  example `cd ~/corgi && claude "$(cat …/fix-typecheck.md)"`; `continue`
+  then commits the agent's changes as a user fix.
 - `steps/`, `rebase/` and `prompts/`: step logs, the checks of rebased
   branches, harness prompts and harness output (plus the raw `.jsonl` stream
   with a `kind`).
@@ -388,11 +397,15 @@ At the end of every `rebuild`, stopped or not, each patch is test-merged alone o
 touching the working tree. One that conflicts gets a `rebase` handoff, and so
 does an own branch whose rebase couldn't be completed; one whose checks failed
 after the rebase gets a `rebase-checks` handoff. After an
-agent build fix, the step runs again for each implicated patch merged alone
+agent build fix, or when the run stops at a failing step, the step runs again
+for each implicated patch merged alone
 onto upstream: a patch that fails alone gets a `build-drift` handoff; if none
 does, each implicated patch gets a `build-clash` handoff naming the others (a
 lone implicated patch names every other merged patch, since a clash needs two
-sides). A
+sides). A patch that doesn't merge alone onto upstream can't be run that way
+and counts toward a clash; its conflict gets its own `rebase` handoff. A stop
+names the result as `caused by:`, and a user fix committed by `continue`
+inherits it, so its handoffs show the fix. A
 patch is implicated when it touches a file the fix changed or the failure
 names; lines that hold only a path, like the file list of a test run, don't
 count. When no patch is implicated, nothing runs and the report says the fix
