@@ -79,7 +79,7 @@ scripts/custom-build [--dir <path>] <command> [args]
 | `rebase [--rebase=<mode>] [--push] [--in-worktree] [--verbose]` | Only rebases your own branches onto upstream (below). |
 | `rebase --skip-branch [--verbose]` | Gives up the branch a stopped `rebase` run is at, and goes on with the next. |
 | `continue [--verbose]` | Resumes a stopped run after you resolved the conflict or fixed the step. |
-| `rollback` | Returns to the last successful build. |
+| `rollback [--verbose]` | Returns to the last successful build. |
 | `status` | Shows a stopped run, which patches need a rebase onto upstream, and which of your own branches `rebase` would update, leaves alone (with the reason, such as the worktree it is checked out in), or has rebased without pushing. |
 
 | Exit | Meaning |
@@ -258,6 +258,13 @@ steps to their logs (OSC 8).
 `kind`). The log takes the place of the dim activity line. On a terminal under
 20 rows it is ignored, so the view keeps its footer. Piped output stays plain,
 `--verbose` or not.
+
+`rollback` on a terminal shows its steps as a checklist (undo, binary,
+install) with a clock on the running one, and ends with a card. The install's
+output goes only to its log; `rollback --verbose` shows it instead of the
+checklist. Errors on a terminal end in a card too, in red: a refusal because a
+run is stopped says where it stopped, since when, its report, and the commands
+that go on from there (piped, these lines follow the error message).
 
 The tab or dock shows the run's progress (OSC 9;4). A stop shows the error
 state only briefly, while the stop's report is written: the card then puts the

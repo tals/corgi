@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { LiveEvent, Stage } from "./live_events";
-import { card, frame, spinner, timeline } from "./live_render";
+import { card, frame, outcomeCard, spinner, type TaskLine, taskFrame, timeline } from "./live_render";
 import { apply, initial, type LiveState, rebaseItem, rebaseSummary } from "./live_state";
 import * as term from "./term";
 import type { Estimate, HistoryRun } from "./timings";
@@ -559,4 +559,54 @@ test("a branch that couldn't be rebased is kept, not failed", () => {
   expect(lines.some(l => l.includes(" b ") && l.includes("not rebased, kept as it was: test fails"))).toBe(true);
   // Nothing failed: the stage keeps running, not red.
   expect(lines.some(l => l.includes("✗"))).toBe(false);
+});
+
+test("an outcome card lines up its labels and wraps under them", () => {
+  const lines = outcomeCard(
+    {
+      ok: false,
+      headline: "a run is stopped or in progress",
+      lines: ["  stopped: while verifying (typecheck)", "  report: /tmp/my builds/r", "  a line without a label"],
+    },
+    { width: 60, color: false, command: "rebuild" },
+  );
+  expect(lines).toEqual([
+    "✗ custom-build rebuild: a run is stopped or in progress",
+    "   stopped  while verifying (typecheck)",
+    "   report   /tmp/my builds/r",
+    "   a line without a label",
+  ]);
+  expect(
+    outcomeCard({ ok: true, headline: "rolled back", lines: [] }, { width: 60, color: false, tookMs: s(3) }),
+  ).toEqual(["✓ rolled back in 0:03"]);
+  const linked = outcomeCard(
+    { ok: true, headline: "x", lines: ["  report: /tmp/my builds/r"] },
+    { width: 60, color: true },
+  ).join("\n");
+  expect(linked).toContain("\x1b]8;;file:///tmp/my%20builds/r\x1b\\");
+  for (const width of [1, 10, 30, 60])
+    for (const line of outcomeCard(
+      { ok: false, headline: "a long headline ".repeat(5), lines: [`  report: /${"dir/".repeat(20)}`] },
+      { width, color: true, command: "rollback" },
+    ))
+      expect(term.width(line)).toBeLessThanOrEqual(width);
+});
+
+test("a task frame shows each task with its mark, what it did and its time", () => {
+  const tasks: TaskLine[] = [
+    { id: "undo", state: "done", detail: "integration back at 3b35a04", startedMs: 0, ms: 100 },
+    { id: "binary", state: "skipped", detail: "no saved binary", startedMs: 100, ms: 0 },
+    { id: "install", state: "running", detail: "restoring dependencies", startedMs: 100, ms: null },
+  ];
+  const lines = taskFrame(
+    { command: "rollback", branch: "integration", tasks },
+    { width: 80, nowMs: s(2), color: false },
+  );
+  expect(lines[0]).toBe("custom-build rollback · integration");
+  expect(lines[1]).toMatch(/^ ✓ undo {6}integration back at 3b35a04 +0:00$/);
+  expect(lines[2]).toMatch(/^ ↷ binary {4}no saved binary +0:00$/);
+  expect(lines[3]).toMatch(new RegExp(`^ ${spinner(s(2))} install {3}restoring dependencies +0:01$`));
+  for (const width of [1, 10, 40])
+    for (const line of taskFrame({ command: "rollback", tasks }, { width, nowMs: 0, color: true }))
+      expect(term.width(line)).toBeLessThanOrEqual(width);
 });

@@ -833,3 +833,98 @@ export function card(s: LiveState, o: { width: number; color: boolean }): string
     ]);
   return out;
 }
+
+/** Detail lines of an outcome (`  report: path`) by their label, lined up on a card. */
+const detailLine = /^\s*(report|handoff|push|note|warning|log|stopped|next)\s*:\s(.*)$/;
+const fileLabels = new Set(["report", "handoff", "log"]);
+/** An outcome without a run to show (an error, a refusal, a rollback) as a
+ * card: a ✓ or ✗ headline, then its lines with their labels lined up. */
+export function outcomeCard(
+  e: { ok: boolean; headline: string; lines: string[]; report?: string | null },
+  o: { width: number; color: boolean; command?: string | null; tookMs?: number | null },
+): string[] {
+  const width = Math.max(0, Math.floor(o.width)),
+    details = e.lines.map(line => {
+      const m = detailLine.exec(line);
+      return m ? { label: m[1], text: m[2] } : { label: null, text: line.trim() };
+    });
+  if (e.report && !e.lines.some(line => line.includes(e.report!))) details.push({ label: "report", text: e.report });
+  const labelCol = Math.max(0, ...details.map(d => d.label?.length ?? 0)),
+    head: Line = [e.ok ? { text: "✓", hex: green } : { text: "✗", hex: red }, { text: " " }];
+  if (!e.ok && o.command)
+    head.push({ text: "custom-build", grad: term.titleGradient }, { text: ` ${o.command}: `, tone: "bold" });
+  head.push({ text: e.headline, tone: "bold" });
+  if (o.tookMs) head.push({ text: ` in ${clock(o.tookMs)}` });
+  const out = drawn(wrap(head, width, 2), o.color);
+  for (const d of details) {
+    if (!d.text) continue;
+    const line: Line = d.label
+      ? [
+          { text: "   " },
+          d.label === "warning"
+            ? { text: d.label.padEnd(labelCol), hex: amber }
+            : { text: d.label.padEnd(labelCol), dim: true },
+          { text: "  " },
+          {
+            text: d.text,
+            url: fileLabels.has(d.label) && d.text.startsWith("/") ? pathToFileURL(d.text).href : null,
+          },
+        ]
+      : [{ text: "   " }, { text: d.text }];
+    out.push(...drawn(wrap(line, width, d.label ? 5 + labelCol : 3), o.color));
+  }
+  return out;
+}
+
+/** A task of a short command (rollback) and how it went. */
+export type TaskLine = {
+  id: string;
+  state: "running" | "done" | "skipped" | "failed";
+  detail: string;
+  startedMs: number;
+  ms: number | null;
+};
+const taskColor: Record<string, string> = {
+  undo: term.stageColor.rebase,
+  binary: term.stageColor["after-build"],
+  install: term.stageColor.verify,
+};
+/** A short command's checklist: its title, then a line per task with its
+ * mark, name, what it did and its time; the running one spins. */
+export function taskFrame(
+  t: { command: string; branch?: string | null; tasks: TaskLine[] },
+  o: { width: number; nowMs: number; color: boolean },
+): string[] {
+  const width = Math.max(0, Math.floor(o.width)),
+    { nowMs, color } = o,
+    edge = Math.min(width, 72),
+    nameCol = Math.max(0, ...t.tasks.map(x => term.width(x.id))) + 3,
+    bodyCol = 3 + nameCol,
+    head: Line = [
+      { text: "custom-build", grad: term.titleGradient },
+      { text: ` ${t.command}`, tone: "bold" },
+    ];
+  if (t.branch) head.push({ text: " · ", dim: true }, { text: t.branch });
+  const lines = [draw(head, width, color)];
+  for (const x of t.tasks) {
+    const hex = taskColor[x.id] ?? violet,
+      mark: Seg =
+        x.state === "running"
+          ? { text: spinner(nowMs), hex }
+          : x.state === "done"
+            ? { text: "✓", hex: green }
+            : x.state === "failed"
+              ? { text: "✗", hex: red }
+              : { text: "↷", dim: true },
+      name: Seg = { text: x.id.padEnd(nameCol), hex, dim: x.state === "skipped" },
+      right: Line = [{ text: clock(x.ms ?? Math.max(0, nowMs - x.startedMs)), dim: true }],
+      look: Partial<Seg> =
+        x.state === "failed" ? { hex: red } : x.state === "running" || x.state === "skipped" ? { dim: true } : {},
+      body = wrapUpTo([{ text: x.detail, ...look }], edge - widthOf(right) - 2 - bodyCol, width - bodyCol);
+    lines.push(
+      draw(spread([{ text: " " }, mark, { text: " " }, name, ...(body[0] ?? [])], right, edge), width, color),
+      ...body.slice(1).map(line => draw([{ text: " ".repeat(bodyCol) }, ...line], width, color)),
+    );
+  }
+  return lines;
+}
