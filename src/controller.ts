@@ -8811,7 +8811,8 @@ export class Controller {
             } else {
               // Only presses on the name line make the double-click that
               // renames; the message line below, with its unread mark, only
-              // switches.
+              // switches. Screen positions take the displayed rows; the
+              // rename and the switch take the row's own workspace.
               if (
                 side.onNameLine(row.id, this.workspaceRows(), x, y) &&
                 this.clicks.press(row.id, milliTimestamp(), y)
