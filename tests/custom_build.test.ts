@@ -1241,7 +1241,8 @@ test("a harness that fails to start is asked once, and the stop says why", async
   );
   expect(stopped.out).toMatch(/harness log: \S+\/prompts\/01-build\.log/);
   expect(stopped.out).toContain("fix the harness, then continue to let it try again");
-  expect(stopped.out).toContain(`&& ${h.command[0]} "$(cat `);
+  // The hint runs the harness as configured: its {prompt_file} names the prompt.
+  expect(stopped.out).toMatch(new RegExp(`&& ${h.command[0]} \\S+/fix-typecheck\\.md\\n`));
   expect(read(join(latest(w), "report.md"))).toContain(
     "typecheck fix try 1: rejected: it exited 1: Failed to authenticate: OAuth session expired",
   );
@@ -2752,9 +2753,10 @@ test("an in-worktree check that fails keeps uncommitted edits made during the ch
   const rebased = tip(w, "busy")!;
   expect(rebased).not.toBe(busy);
   expect(read(join(tree, "busy.txt"))).toBe("busy\nedited\nedited\n");
-  expect(result.out).toContain(
-    `busy: not rebased: test fails on the rebased branch; busy stays at ${rebased.slice(0, 7)} in `,
-  );
+  // The worktree changed under the checks: its edits stay and the harness isn't asked.
+  expect(result.out).toContain("busy: not rebased: test fails on the rebased branch; ");
+  expect(result.out).toContain(" changed during the checks; its edits are kept and the harness was not asked; ");
+  expect(result.out).toContain(`busy stays at ${rebased.slice(0, 7)} in `);
   expect(result.out).toContain(
     "which changed during the checks; its tip before the rebase is refs/custom-build/rebase-backup/busy",
   );
