@@ -6940,6 +6940,41 @@ test("switching machines during an awaited key discards the old batch's tail", a
   }
 });
 
+test.each(["local", "work"])(
+  "unheld motion along %s workspace names keeps the double-click with multiple machines",
+  async name => {
+    const s = controller(),
+      local = s.machine,
+      remote = new Machine(
+        transport(async () => pair()),
+        "work",
+        true,
+      );
+    s.height = 60;
+    s.receiveSnapshot(pair());
+    s.adopt(remote);
+    s.receiveSnapshot(pair(), remote);
+    s.input_state.attached = true;
+    try {
+      setSystemTime(new Date(1000));
+      if (name === "work") s.switchMachine(remote);
+      const at = s.sidebarView(s.sidebarEntries()).fieldRect({ workspace: s.rowKey(1) }, s.workspaceRows());
+      const press = async (x: number) => {
+        await s.input(bytes(`\x1b[<0;${x + 1};${at.y + 1}M\x1b[<0;${x + 1};${at.y + 1}m`));
+      };
+      await press(at.x);
+      await s.input(bytes(`\x1b[<35;${at.x + 2};${at.y + 1}M`));
+      await press(at.x + 1);
+      expect(s.inline_rename?.target).toEqual({ workspace: 1 });
+    } finally {
+      setSystemTime();
+      s.switchMachine(local);
+      remote.runtime.destroy();
+      viewer.close(s);
+    }
+  },
+);
+
 test("remote workspace renaming uses its row below the machine header and keeps failed names on their machine", () => {
   const s = controller(),
     local = s.machine,

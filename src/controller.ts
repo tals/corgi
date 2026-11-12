@@ -7824,7 +7824,10 @@ export class Controller {
     // a drag of the row (32), a wheel turn or any other press starts over.
     if (!release && (button === 32 || button === 35)) {
       const pending = this.clicks.pending(milliTimestamp());
-      if (pending && !this.sidebarView(this.sidebarEntries()).onNameLine(pending, this.workspaceEntries(), x, y))
+      if (
+        pending &&
+        !this.sidebarView(this.sidebarEntries()).onNameLine(this.renameTarget(pending), this.workspaceRows(), x, y)
+      )
         this.clicks.move();
     } else if (!release && (button & 64) !== 0) this.clicks.reset();
     else if (!release && button === 0) this.clicks.pressed();
