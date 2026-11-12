@@ -193,7 +193,8 @@ test.each([0, 50])(
   async intensity => {
     const s = controller(),
       open = spyOn(signin.Signin.prototype, "open").mockResolvedValue(undefined),
-      launch = spyOn(s, "launchAgent").mockResolvedValue(undefined);
+      launch = spyOn(s, "launchAgent").mockResolvedValue(undefined),
+      expire = spyOn(s.model_cache, "expire");
     s.receiveSnapshot(folders("/a"));
     s.prefs.corgi_intensity = intensity;
     let flow: signin.Signin | null = null;
@@ -221,6 +222,8 @@ test.each([0, 50])(
       expect(held.buffered()).toContain("Setting up Claude Code");
       current.close(0, true, "Account added");
       expect(launch).toHaveBeenCalledWith("claude", "/accounts/work", "Account added");
+      // The new login's models are read afresh.
+      expect(expire).toHaveBeenCalledTimes(1);
       expect(s.signin).toBeNull();
       expect(s.signin_frame).toBeNull();
       expect(s.added_feedback.label).toBe("Claude Code · work");
@@ -4398,7 +4401,7 @@ test("Esc calls off a retry still waiting, and goes to the agent once the retry 
   }
 });
 
-test("the prompt's catalogs are read ahead of it, only where the launcher lists an agent or the user picked one", async () => {
+test("the prompt's catalogs are read ahead of it, once, only where the launcher lists an agent or the user picked one", async () => {
   const s = controller(),
     read: string[] = [];
   s.machine.profiles.loaded = true;
@@ -4424,11 +4427,32 @@ test("the prompt's catalogs are read ahead of it, only where the launcher lists 
     s.pollPrompt();
     await Bun.sleep(1);
     expect(read.sort()).toEqual(["claude:", "codex:", "omp:"]);
-    // Read once, they wait out their freshness.
-    s.prompt_warmed_at = 0;
-    s.pollPrompt();
-    await Bun.sleep(1);
+    // Neither time nor finding agents on opening Manage reads them again;
+    // the Find agents button does.
+    const again = async () => {
+      s.prompt_warmed_at = 0;
+      s.pollPrompt();
+      await Bun.sleep(1);
+    };
+    await again();
     expect(read.length).toBe(3);
+    s.connection = { request: async () => ({ ok: true }) };
+    s.findAgents();
+    await s.finding_agents;
+    await again();
+    expect(read.length).toBe(3);
+    s.finding_agents_until = 0;
+    s.findAgents(true);
+    await s.finding_agents;
+    await again();
+    expect(read.length).toBe(6);
+    // Pressed while the automatic search runs, it reads them once that ends.
+    s.finding_agents_until = 0;
+    s.findAgents();
+    s.findAgents(true);
+    await s.finding_agents;
+    await again();
+    expect(read.length).toBe(9);
   } finally {
     viewer.close(s);
   }

@@ -486,6 +486,8 @@ export class Controller {
   private find_agents: "not_yet" | "asked" = "not_yet";
   private finding_agents: Promise<void> | null = null;
   private finding_agents_until = 0;
+  /** The running search reads the model lists again when it ends. */
+  private finding_models = false;
   private was_managing = false;
   launch_previews = new LaunchPreviewStream();
   corgi_setup: SetupMenu | null = null;
@@ -4220,19 +4222,30 @@ export class Controller {
     });
   }
   /** Asks the daemon to find agents afresh, as Find agents does, and the
-   * first time this viewer opens Manage agents. */
-  private findAgents(): void {
+   * first time this viewer opens Manage agents. `models` reads the model
+   * lists again once agents are found, as the Find agents button does, also
+   * when it's pressed during a search already running. */
+  private findAgents(models = false): void {
     const now = milliTimestamp();
-    if (this.finding_agents || now < this.finding_agents_until) return;
+    if (this.finding_agents) {
+      this.finding_models ||= models;
+      return;
+    }
+    if (now < this.finding_agents_until) return;
     this.finding_agents_until = now + 150;
+    this.finding_models = models;
+    const cache = this.model_cache;
     this.finding_agents = call(this.connection, "agent.discover", {
       provider: null,
       cwd: this.launcherModel()?.cwd ?? "",
     })
-      .then(() => undefined)
+      .then(() => {
+        if (this.finding_models) cache.expire();
+      })
       .catch(() => {})
       .finally(() => {
         this.finding_agents = null;
+        this.finding_models = false;
         this.dirty = true;
       });
     this.dirty = true;
@@ -4247,7 +4260,7 @@ export class Controller {
     try {
       switch (action.kind) {
         case "find":
-          this.findAgents();
+          this.findAgents(true);
           return;
         case "close":
           if (this.corgi_setup) return this.closeMenu();
@@ -4316,7 +4329,7 @@ export class Controller {
           }
           return;
         case "models": {
-          const entry = this.model_cache.get(action.agent.provider, action.agent.account, launch.cwd);
+          const entry = this.model_cache.get(action.agent.provider, action.agent.account, this.modelsCwd(launch));
           action.picker.received(entry.values, entry.failed, entry.pending);
           return;
         }
@@ -4678,6 +4691,8 @@ export class Controller {
             }
           }
           this.readProfiles(true);
+          // A new login can bring other models.
+          if (status === 0 && this.machine === machine) this.model_cache.expire();
           if (start && this.machine === machine) void this.launchAgent(s.provider, s.account, message);
         },
       });
@@ -5080,6 +5095,10 @@ export class Controller {
       }
     });
   }
+  /** The folder model lists are read for: the workspace's, as `launch` saw it. */
+  private modelsCwd(launch: LauncherMenu | null = null): string {
+    return launch?.workspace_cwd || this.current().cwd;
+  }
   /** Where the launcher starts: the workspace's root, or the root of the
    * worktree the agent list puts the focused pane under. */
   private launcherCwd(): string {
@@ -5214,10 +5233,10 @@ export class Controller {
       if (launch.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
         for (const agent of launch.manageModel().agents)
           if (agent.shown && launch.preview.installed[agent.provider])
-            this.model_cache.get(agent.provider, agent.account, launch.cwd);
+            this.model_cache.get(agent.provider, agent.account, this.modelsCwd(launch));
         const picker = launch.manager.picker;
         if (picker) {
-          const entry = this.model_cache.get(picker.agent.provider, picker.agent.account, launch.cwd),
+          const entry = this.model_cache.get(picker.agent.provider, picker.agent.account, this.modelsCwd(launch)),
             view = picker.view;
           if (view.values !== entry.values || view.pending !== entry.pending || view.failed !== entry.failed) {
             view.received(entry.values, entry.failed, entry.pending);
@@ -5784,7 +5803,7 @@ export class Controller {
     else if (!this.prompt.open && now - this.prompt_warmed_at >= 5000) {
       this.prompt_warmed_at = now;
       for (const { provider, account } of this.promptPlaces())
-        this.model_cache.get(provider, account, this.launcherCwd(), agentModels.Cache.fresh_ms);
+        this.model_cache.get(provider, account, this.modelsCwd(), agentModels.Cache.background_ms);
     }
     const changed = this.prompt.poll(now),
       attention = this.prompt.open ? "none" : this.prompt.attention();
@@ -5821,7 +5840,7 @@ export class Controller {
   }
   private promptModels(): { entries: modelPicker.Entry[]; briefs: modelPicker.Brief[]; pending: boolean } {
     if (!this.launch_previews.received) return { entries: [], briefs: [], pending: true };
-    return promptModels.catalog(this.model_cache, this.promptPlaces(), nowSeconds(), this.launcherCwd());
+    return promptModels.catalog(this.model_cache, this.promptPlaces(), nowSeconds(), this.modelsCwd());
   }
   private promptUsage(): modelSuggest.Usage {
     return promptModels.usage(

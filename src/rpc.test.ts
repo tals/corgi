@@ -35,6 +35,49 @@ test("a timed out request closes its generation and never accepts a late reply",
   }
 });
 
+test("a slow request waits while its daemon is heard from, and the connection fails once it falls silent", async () => {
+  const sockets = new Set<Socket>();
+  const server = createServer(socket => {
+    sockets.add(socket);
+    let buffer = "";
+    socket.on("data", bytes => {
+      buffer += bytes.toString();
+      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+        const request = JSON.parse(buffer.slice(0, end));
+        buffer = buffer.slice(end + 1);
+        // Pings are answered; `hello` never is.
+        if (request.op === "ping") socket.write(JSON.stringify({ ok: true, request_id: request.request_id }) + "\n");
+      }
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as import("node:net").AddressInfo;
+  // Pings 10 ms apart keep it waiting through twice its timeout, with room
+  // for a slow machine to miss a few.
+  const conn = new Connection(createConnection(address.port, "127.0.0.1"), 200);
+  try {
+    let slow = "waiting";
+    conn.call("hello").then(
+      () => (slow = "answered"),
+      (error: Error) => (slow = error.message),
+    );
+    const started = performance.now();
+    while (performance.now() - started < 400) {
+      await conn.call("ping");
+      await Bun.sleep(10);
+    }
+    expect(slow).toBe("waiting");
+    const quiet = performance.now();
+    while (slow === "waiting" && performance.now() - quiet < 2000) await Bun.sleep(10);
+    expect(slow).toBe("RequestTimedOut");
+    expect(conn.socket.destroyed).toBe(true);
+  } finally {
+    conn.close();
+    for (const socket of sockets) socket.destroy();
+    server.close();
+  }
+});
+
 test("lost mutation acknowledgments are not replayed and cancellation rejects every pending call", async () => {
   const sockets = new Set<import("node:net").Socket>();
   let applied = 0;

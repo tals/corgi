@@ -54,7 +54,7 @@ test("native model choices filter by name or ID and scroll to the keyboard selec
   expect(p.click(b, 0, 0)).toBe("close");
 });
 
-test("prefetch shares in-flight reads, caches by account, and refreshes stale values without clearing them", async () => {
+test("prefetch shares in-flight reads, caches by account, and reads again only after Find agents, without clearing values", async () => {
   let now = 0,
     reads = 0;
   const finish: ((values: Choice[]) => void)[] = [];
@@ -78,7 +78,9 @@ test("prefetch shares in-flight reads, caches by account, and refreshes stale va
   expect(reads).toBe(3);
   expect(cache.get("codex", "").values).toEqual([{ id: "a", name: "A" }]);
   expect(cache.get("codex", "").pending).toBe(false);
-  now = Cache.fresh_ms;
+  now = 60 * 60_000;
+  expect(cache.get("codex", "").pending).toBe(false);
+  cache.expire();
   expect(cache.get("codex", "").pending).toBe(true);
   expect(cache.get("codex", "").values[0].id).toBe("a");
   finish.shift()!([]);
@@ -88,6 +90,27 @@ test("prefetch shares in-flight reads, caches by account, and refreshes stale va
   finish.shift()!([{ id: "b", name: "B" }]);
   await Bun.sleep(0);
   expect(first.values).toEqual([{ id: "b", name: "B" }]);
+});
+
+test("a cache that refreshes on its own, as the chat pane's does, reads again once its lists are old", async () => {
+  let now = 0,
+    reads = 0;
+  const cache = new Cache(
+    () => {},
+    async () => {
+      reads++;
+      return [{ id: "a", name: "A" }];
+    },
+    () => now,
+    Cache.background_ms,
+  );
+  cache.get("codex", "");
+  await Bun.sleep(0);
+  now = Cache.background_ms - 1;
+  expect(cache.get("codex", "").pending).toBe(false);
+  now = Cache.background_ms;
+  expect(cache.get("codex", "").pending).toBe(true);
+  expect(reads).toBe(2);
 });
 
 test("model caches keep workspaces separate while sharing reads within one folder", async () => {
@@ -154,9 +177,9 @@ test("failed catalogs back off, and loading glimmers beneath Auto without becomi
   expect(entry.failed).toBe(true);
   cache.get("codex", "");
   expect(reads).toBe(1);
-  // Read in the background, a failed catalog waits out its freshness instead.
+  // Read in the background, a failed catalog waits longer.
   now = Cache.retry_ms;
-  cache.get("codex", "", "", Cache.fresh_ms);
+  cache.get("codex", "", "", Cache.background_ms);
   expect(reads).toBe(1);
   cache.get("codex", "");
   await Bun.sleep(0);

@@ -380,8 +380,9 @@ is the next viewer's default.
 
 The prompt lists the agents and accounts the launcher shows, so hiding one in
 **Manage agents** takes it out of the picker too. Their model lists are read in
-the background, a few seconds after Corgi starts and every five minutes; open
-the prompt before the first arrive and it says "Loading models…".
+the background, a few seconds after Corgi starts, once for each workspace, and
+again after **Find agents**; open the prompt before the first arrive and it
+says "Loading models…".
 
 Conversation searches show the expression and a count as results arrive. The
 latest search previews three conversation titles; earlier searches collapse to
