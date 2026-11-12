@@ -86,13 +86,12 @@ const ms = (ctx: Context) => ctx.now().getTime();
 const startItem = (ctx: Context, run: RunState, key: string) => timings.startItem(run, key, ms(ctx));
 const endItem = (ctx: Context, run: RunState, key: string, exceptMs = 0) =>
   timings.endItem(run, key, ms(ctx), exceptMs);
-/** Adds a finished run to the timings history: a rolled-back one as partial,
- * with the items it finished. A history that can't be written is a warning:
- * the run's outcome stands. */
-function recordTimings(ctx: Context, run: RunState, partial: boolean) {
+/** Adds a finished run to the timings history; a rolled-back one isn't recorded.
+ * A history that can't be written is a warning: the run's outcome stands. */
+function recordTimings(ctx: Context, run: RunState) {
   try {
-    if (!partial) timings.tick(run, ms(ctx));
-    timings.record(ctx.dir, timings.historyRun(run, run.kind ?? "rebuild", partial, ctx.now()));
+    timings.tick(run, ms(ctx));
+    timings.record(ctx.dir, timings.historyRun(run, run.kind ?? "rebuild", false, ctx.now()));
   } catch (error) {
     ctx.progress(`warning: could not record timings: ${(error as Error).message}`);
   }
@@ -841,7 +840,8 @@ const upstreamLine = (ctx: Context, run: RunState) => git.must(ctx.repo, ["log",
 /** Keeps a finished harness call in the run state, for `continue` and the report. */
 function recordUse(ctx: Context, run: RunState, use: configFile.HarnessUse) {
   (run.harnessUsage ??= []).push(use);
-  timings.harnessCall(run, use.seconds * 1000);
+  // A rejected call, like one that failed to start, says nothing about how long a fix takes.
+  if (use.ok) timings.harnessCall(run, use.seconds * 1000);
   sendEstimate(ctx, run);
 }
 /** Sends a harness call's end, and a rejected one as a retry. */
@@ -1316,7 +1316,7 @@ async function finish(ctx: Context, run: RunState): Promise<Outcome> {
       code = 1;
     }
   }
-  recordTimings(ctx, run, false);
+  recordTimings(ctx, run);
   return ended(ctx, run, { code, lines });
 }
 function summary(run: RunState): string[] {
@@ -1483,7 +1483,6 @@ export async function rollback(ctx: Context): Promise<Outcome> {
       run.rebaseStop ? `${run.rebaseStop.target.branch}'s rebase abandoned` : "rebase run ended",
     );
     configFile.clearRun(ctx.dir);
-    if (run.timing) recordTimings(ctx, run, true);
     // A stopped run offers no push; the branches it moved still need one.
     const moved = (run.rebased ?? []).filter(r => (r.outcome === "rebased" || r.pending) && r.to && !r.push);
     return {
@@ -1525,7 +1524,6 @@ export async function rollback(ctx: Context): Promise<Outcome> {
     else if (!run.startBinary) restoreBinary(ctx, null, false);
     await restoreDependencies(ctx, join(run.reportDir, "steps", "rollback-install.log"));
     configFile.clearRun(ctx.dir);
-    if (run.timing) recordTimings(ctx, run, true);
     return {
       code: 0,
       lines: [
@@ -1750,7 +1748,7 @@ async function rebaseLoop(ctx: Context, run: RunState): Promise<Outcome> {
   const pushed = offerPush(ctx, run),
     handoffs = await writeReport(ctx, run, 0, []);
   configFile.clearRun(ctx.dir);
-  recordTimings(ctx, run, false);
+  recordTimings(ctx, run);
   const shown = rebase.lines(run.rebased ?? [], { current: false });
   return ended(ctx, run, {
     code: pushed.refused ? 1 : 0,
