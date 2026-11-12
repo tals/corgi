@@ -85,6 +85,7 @@ const imports = files
 const nativeHash = hash.digest("hex");
 const assets = `${imports}\nexport const nativeFiles={${files.map((file, i) => `${JSON.stringify(file)}:asset${i}`).join(",")}};export const nativeHash=${JSON.stringify(nativeHash)};export const testBuild=${process.argv.includes("--test")};`;
 const config = {
+  sourceRoot: root,
   releaseVersion: option("release-version", "0.1.0-dev"),
   releaseCommit: option("release-commit") || gitCommit(),
   updateURL: option("update-url"),

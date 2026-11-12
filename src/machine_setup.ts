@@ -4,9 +4,11 @@ import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import * as build from "./machine_build";
 import * as buildId from "./build_id";
+import * as config from "./build_config";
 import * as updates from "./updates";
 import * as ssh from "./ssh";
 import * as os from "./os";
+import * as errors from "./errors";
 import type { FileSink, Subprocess } from "bun";
 
 const quote = os.shellQuote;
@@ -93,8 +95,9 @@ async function confirm(question: string): Promise<boolean> {
   process.stdin.pause();
   return /^y(es)?$/i.test(answer.trim());
 }
-async function ancestor(older: string, newer: string): Promise<boolean> {
-  const child = Bun.spawn(["git", "merge-base", "--is-ancestor", older, newer], {
+export async function ancestor(older: string, newer: string, directory = config.sourceRoot): Promise<boolean> {
+  if (!directory || !existsSync(directory)) return false;
+  const child = Bun.spawn(["git", "-C", directory, "merge-base", "--is-ancestor", older, newer], {
     stdin: "ignore",
     stdout: "ignore",
     stderr: "ignore",
@@ -146,15 +149,9 @@ async function artifact(local: build.Build, wanted: build.Build, directory: stri
     throw Error("RemoteArtifactDoesNotMatchLocalBuild");
   return file;
 }
-/** Setup owns upgrades; the viewer's reconnect loop never waits for installation. */
-export async function reconcile(host: string, requested: string, retryArgs: string[], socket = ""): Promise<string> {
-  // A source run has no commit or artifact to compare or install.
-  if (!import.meta.filename.startsWith("/$bunfs/")) throw Error("BuildCorgiBeforeMachineSetup");
-  const local = build.describe(buildId.self());
+export function probe(requested: string, socket = ""): string {
   const launcherRoot = "s/^root='\\(.*\\)'$/\\1/p";
-  const output = await remote(
-    host,
-    `set -eu
+  return `set -eu
 ${socket ? "export CORGI_SOCKET=" + quote(socket) : ""}
 printf '\\ncorgi-setup-v1\\n'
 uname -s
@@ -162,7 +159,7 @@ uname -m
 printf '%s\\n' "$HOME"
 p=$(command -v ${quote(requested)} || true)
 if [ -z "$p" ] && [ ${quote(requested)} = corgi ] && [ -x "$HOME/.local/bin/corgi" ]; then p="$HOME/.local/bin/corgi"; fi
-if [ -n "$p" ] && [ "$(head -c 9 "$p")" = '#!/bin/sh' ]; then
+if [ -n "$p" ] && [ "$(od -An -tx1 -N9 "$p" | tr -d ' \\n')" = 23212f62696e2f7368 ]; then
   root=$(sed -n ${quote(launcherRoot)} "$p")
   if [ -n "$root" ] && grep -F 'exec "$root/releases/$v/corgi" "$@"' "$p" >/dev/null; then
     v=$(cat "$root/current")
@@ -177,10 +174,20 @@ if [ -n "$p" ] && [ "$(basename "$(dirname "$(dirname "$p")")")" = releases ]; t
   p="$root/releases/$v/corgi"
 fi
 printf '%s\\n' "$p"
-if [ -n "$p" ]; then "$p" __update-info; fi`,
-    undefined,
-    true,
-  );
+if [ -n "$p" ]; then "$p" __update-info; fi`;
+}
+/** Setup owns upgrades; the viewer's reconnect loop never waits for installation. */
+export async function reconcile(
+  host: string,
+  requested: string,
+  retryArgs: string[],
+  socket = "",
+  replaceRemote = false,
+): Promise<string> {
+  // A source run has no commit or artifact to compare or install.
+  if (!import.meta.filename.startsWith("/$bunfs/")) throw Error("BuildCorgiBeforeMachineSetup");
+  const local = build.describe(buildId.self());
+  const output = await remote(host, probe(requested, socket), undefined, true);
   const marker = output.indexOf("\ncorgi-setup-v1\n");
   if (marker < 0) throw Error("InvalidSetupResponse");
   const lines = output.slice(marker + "\ncorgi-setup-v1\n".length).split("\n");
@@ -196,7 +203,27 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
     executable = installed.executable;
     if (!installed.socket && socket) installed.socket = socket;
   }
-  const order = installed ? await build.compare(local, installed, ancestor) : 1;
+  let order: number;
+  try {
+    order = installed ? await build.compare(local, installed, ancestor) : 1;
+  } catch (error) {
+    if (!errors.is(error, "UnorderedDevelopmentBuilds")) throw error;
+    const describe = (value: build.Build) => JSON.stringify({ commit: value.commit, source_hash: value.source_hash });
+    process.stderr.write(
+      `Cannot determine which Corgi development build is newer.\nLocal: ${describe(local)}\nRemote: ${describe(installed!)}\n`,
+    );
+    const development = !build.released(local.version) && !build.released(installed!.version);
+    if (!replaceRemote || !development) {
+      process.stderr.write(
+        development
+          ? "Use matching builds from the same source checkout, or pass --replace-remote to choose the local development build.\n"
+          : "Use matching builds from the same source checkout; --replace-remote only replaces development builds.\n",
+      );
+      throw error;
+    }
+    process.stderr.write("Replacing the remote development build with the local build as requested.\n");
+    order = 1;
+  }
   if (!order) {
     process.stderr.write(`Corgi builds match on ${host}.\n`);
     return lines[3] || executable;

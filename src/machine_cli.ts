@@ -16,11 +16,11 @@ import { Connection } from "./rpc";
 
 export const help = `
 Machines (SSH):
-  corgi machine add NAME [SSH_TARGET] [--executable /path/to/corgi]
+  corgi machine add NAME [SSH_TARGET] [--executable /path/to/corgi] [--replace-remote]
   corgi machine list
   corgi machine status NAME
   corgi machine reconnect NAME
-  corgi machine check NAME
+  corgi machine check NAME [--replace-remote]
   corgi machine remove NAME
   corgi --machine NAME [attach | open PATH | COMMAND...]
   corgi list --all-machines
@@ -28,6 +28,7 @@ Machines (SSH):
 SSH_TARGET defaults to NAME. "local" always selects this machine.
 Setup upgrades the older Corgi installation. Add uses normal SSH prompts;
 viewers reconnect with SSH keys/agent or noninteractive corporate SSH authentication.
+--replace-remote replaces an unordered remote development build with the local build.
 In the viewer, Ctrl+] or clicking the machine name opens the machine picker.
 `;
 export async function manage(args: string[]): Promise<void> {
@@ -35,13 +36,16 @@ export async function manage(args: string[]): Promise<void> {
     case "add": {
       const rest = args.slice(1);
       const name = machines.name(rest.shift() ?? "");
+      const replacement = rest.indexOf("--replace-remote");
+      const replaceRemote = replacement >= 0;
+      if (replaceRemote) rest.splice(replacement, 1);
       const target = machines.target(rest[0] && !rest[0].startsWith("--") ? rest.shift()! : name);
       let executable = "corgi";
       if (rest[0] === "--executable" && rest.length === 2) executable = rest.splice(0)[1];
       if (rest.length) throw Error("Usage");
       if (machines.read().some(p => p.name === name)) throw Error("MachineExists");
       process.stderr.write(`Checking ${target} through SSH…\n`);
-      executable = await setup.reconcile(target, executable, args);
+      executable = await setup.reconcile(target, executable, args, "", replaceRemote);
       const info = await machines.discover(target, executable);
       const profile = {
         name,
@@ -89,9 +93,9 @@ export async function manage(args: string[]): Promise<void> {
       process.stdout.write(json.stringify({ machines: [{ name: "local" }, ...machines.read()] }) + "\n");
       return;
     case "check": {
-      if (args.length !== 2) throw Error("Usage");
+      if (args.length !== 2 && !(args.length === 3 && args[2] === "--replace-remote")) throw Error("Usage");
       const old = machines.find(args[1]);
-      const executable = await setup.reconcile(old.target, old.executable, args, old.socket);
+      const executable = await setup.reconcile(old.target, old.executable, args, old.socket, args.length === 3);
       const info = await machines.discover(old.target, executable, old.socket);
       const refreshed = {
         ...old,
