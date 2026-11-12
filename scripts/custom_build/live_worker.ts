@@ -104,22 +104,26 @@ export class View {
     const lines = this.end(e);
     if (lines) this.screen.finish(lines);
   }
-  /** Like `finish`, playing the fireworks first for a run that fully
-   * succeeded; their last frame stays above the card. */
+  /** Like `finish`, then fireworks below the card for a run that fully
+   * succeeded (not under a pinned `--verbose` view); their last frame stays. */
   async finishShow(e: End): Promise<void> {
     const lines = this.end(e);
     if (!lines) return;
     const s = this.s,
       show =
-        this.o.finale && this.o.color && e.ok && s.command !== null && !problems(s)
+        this.o.finale && this.o.color && !this.verbose && e.ok && s.command !== null && !problems(s)
           ? fireworks(this.o.cols(), this.o.color, Math.floor(this.now()))
           : [],
       wait = this.o.wait ?? Bun.sleep;
+    if (!show.length) return this.screen.finish(lines);
+    // The card goes to the scrollback first; the show plays below it, and its
+    // last frame stays as the end.
+    this.screen.print(lines);
     for (const frame of show.slice(0, -1)) {
       this.screen.draw(frame);
       await wait(finaleFrameMs);
     }
-    this.screen.finish(show.length ? [...show[show.length - 1], ...lines] : lines);
+    this.screen.finish(show[show.length - 1]);
   }
   /** Ends the view on `e` and returns its card; null when it had ended already. */
   private end(e: End): string[] | null {

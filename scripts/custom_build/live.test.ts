@@ -377,7 +377,7 @@ test("an interrupted git call under a live view stops there and restores the ter
   expect(p.stdout.toString()).toEndWith(term.restore());
 });
 
-test("a run that fully succeeded ends with fireworks above its card; any other ends at once", async () => {
+test("a run that fully succeeded ends with fireworks below its card; any other ends at once", async () => {
   const show = async (o: { finale?: boolean; color?: boolean; e?: Partial<Extract<LiveEvent, { t: "end" }>> }) => {
     let out = "",
       frames = 0;
@@ -396,10 +396,11 @@ test("a run that fully succeeded ends with fireworks above its card; any other e
   };
   const shown = await show({});
   expect(shown.frames).toBeGreaterThan(10);
-  // The embers stay above the card.
-  const card = shown.out.slice(shown.out.lastIndexOf("✓ built"));
-  expect(shown.out.slice(0, shown.out.lastIndexOf("✓ built"))).toMatch(/✧[^│]*$/);
-  expect(card).toContain("report");
+  // The card is written once, and the show plays below it; the embers end it.
+  expect(shown.out.split("✓ built").length).toBe(2);
+  const below = shown.out.slice(shown.out.indexOf("report"));
+  expect(below).toContain("│");
+  expect(below.slice(below.lastIndexOf("│"))).toMatch(/✧/);
   for (const o of [{ finale: false }, { color: false }, { e: { ok: false, code: 3, headline: "stopped" } }])
     expect((await show(o)).frames).toBe(0);
 });

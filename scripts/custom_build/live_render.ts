@@ -829,6 +829,25 @@ export function card(s: LiveState, o: { width: number; color: boolean }): string
       });
       out.push(draw(line, width, color));
     }
+    // A short card lists the branches that need a look; the full lines name every one.
+    if (e.brief) {
+      const undone = branches.filter(
+          it => it.outcome === "not-rebased" || (s.command === "rebase" && it.outcome === "left-alone"),
+        ),
+        pad = Math.max(0, ...undone.map(it => term.width(it.id)));
+      for (const it of undone)
+        plainLines(
+          [
+            { text: " " },
+            it.outcome === "not-rebased" ? { text: "✗", hex: red } : { text: "–", hex: amber },
+            { text: " " },
+            { text: it.id, url: s.links[it.id], tone: "bold" },
+            { text: " ".repeat(pad - term.width(it.id) + 2) },
+            { text: it.detail ?? "" },
+          ],
+          pad + 5,
+        );
+    }
     for (const st of s.stages)
       for (const it of s.items[st.name] ?? [])
         for (const r of it.retries) {
@@ -843,11 +862,13 @@ export function card(s: LiveState, o: { width: number; color: boolean }): string
           out.push(draw([{ text: " " }, { text: "↻", hex: amber }, { text: ` retried ${text}` }], width, color));
         }
   }
-  for (const line of e.lines) plainLines([{ text: line }]);
-  if (e.report && !e.lines.some(line => line.includes(e.report!)))
+  const shown = e.brief ?? e.lines;
+  for (const line of shown) plainLines([{ text: line }]);
+  if (e.report && !shown.some(line => line.includes(e.report!)))
     plainLines([
       { text: " report    ", dim: true },
       { text: e.report, url: e.report.startsWith("/") ? pathToFileURL(e.report).href : null },
+      { text: e.handoffs ? `  · ${plural(e.handoffs, "handoff")}` : "", dim: true },
     ]);
   return out;
 }

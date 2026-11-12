@@ -255,8 +255,11 @@ export async function main(argv: string[], io: IO): Promise<number> {
 const ended = (outcome: { code: number; lines: string[] }) =>
   liveEvents.end(outcome, null) as Extract<liveEvents.LiveEvent, { t: "end" }>;
 /** The end with the run's warnings after its headline, as plain output shows them on stderr. */
-const warned = (e: ReturnType<typeof ended>, warnings: string[]): ReturnType<typeof ended> =>
-  warnings.length ? { ...e, lines: [...warnings.map(line => `  ${line}`), ...e.lines] } : e;
+const warned = (e: ReturnType<typeof ended>, warnings: string[]): ReturnType<typeof ended> => {
+  if (!warnings.length || e.t !== "end") return e;
+  const shown = warnings.map(line => `  ${line}`);
+  return { ...e, lines: [...shown, ...e.lines], ...(e.brief ? { brief: [...shown, ...e.brief] } : {}) };
+};
 const today = (ctx: run.Context) => ctx.now().toISOString().slice(0, 10);
 function named(ctx: run.Context, args: string[]): { source: sources.PatchSource; display: string } {
   const arg = args.shift();

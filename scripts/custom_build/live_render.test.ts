@@ -679,3 +679,37 @@ test("fireworks rise, burst and fade, and leave embers that fit the width", () =
   // Too narrow for a show.
   expect(fireworks(10, true)).toEqual([]);
 });
+
+test("a finished run's card with a brief lists what needs a look and points at the report", () => {
+  const detail = (id: string, outcome: string, text: string) =>
+    ({ t: "item", stage: "rebase", id, state: "skipped", outcome, detail: text, ms: s(30) }) as LiveEvent;
+  const state = play([
+    [begin({ command: "rebase", stages: ["fetch", "rebase"], items: {} }), 0],
+    [stage("rebase", "start"), 0],
+    [{ t: "item", stage: "rebase", id: "sidebar-teammates", state: "done", outcome: "rebased", ms: s(30) }, 0],
+    [detail("001-voice-dictation", "not-rebased", "test fails on the rebased branch: 2 tests fail"), 0],
+    [detail("tals/corgi#93", "left-alone", "checked out in /w/004"), 0],
+    [stage("rebase", "done", { ms: s(60) }), s(60)],
+    [
+      {
+        t: "end",
+        ok: true,
+        code: 0,
+        headline: "rebased own branches onto upstream c29ecae",
+        lines: ["  rebased sidebar-teammates: 4e220cd to 4e14fa0 (clean); pushed", "  handoff: /r/handoffs/001.md"],
+        brief: ["  review sidebar-teammates: the harness fixed its checks in abc1234"],
+        handoffs: 2,
+        report: "/r/report.md",
+      },
+      s(60),
+    ],
+  ]);
+  const lines = card(state, { width: 100, color: false });
+  expect(lines).toContain(" ✗ 001-voice-dictation  test fails on the rebased branch: 2 tests fail");
+  expect(lines).toContain(" – tals/corgi#93        checked out in /w/004");
+  expect(lines).toContain("  review sidebar-teammates: the harness fixed its checks in abc1234");
+  expect(lines.at(-1)).toBe(" report    /r/report.md  · 2 handoffs");
+  // The full lines are for plain output and the report.
+  expect(lines.some(l => l.includes("4e220cd to 4e14fa0"))).toBe(false);
+  expect(lines.some(l => l.includes("/r/handoffs/001.md"))).toBe(false);
+});
