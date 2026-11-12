@@ -853,6 +853,27 @@ test("shutdown tells a viewer there's nothing to reconnect to, unless a reload h
     }
   }
 });
+test("shutdown stops a model read still running, so its agent's CLI doesn't outlive the daemon", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "corgi-models-")),
+    server = new Server(join(directory, "s"), "", "0".repeat(64)),
+    reader = spyOn(agentModels, "read").mockImplementation(
+      (_provider, _account, quit) =>
+        new Promise(resolve => quit.abortSignal.addEventListener("abort", () => resolve([]))),
+    ),
+    cl = server.addClient(new client_socket.Recorder(), false);
+  try {
+    cl.pending.push({ op: "launcher.models", row: "codex", protocol: protocol.version, request_id: 17 });
+    cl.resume();
+    for (let i = 0; i < 3; i++) await (server as any).jobs;
+    const quit = reader.mock.calls[0]![2];
+    expect(quit.aborted).toBe(false);
+    await server.shutdown();
+    expect(quit.aborted).toBe(true);
+  } finally {
+    reader.mockRestore();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 test("shutdown stops a server a handoff bound that never took the socket", async () => {
   const directory = mkdtempSync(join(tmpdir(), "corgi-bound-")),
     server = new Server(join(directory, "s"), "", "0".repeat(64)),

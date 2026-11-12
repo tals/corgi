@@ -1378,6 +1378,8 @@ export class Server {
     if (this.updateTimer) clearTimeout(this.updateTimer);
     this.updateStop.abort(Error("ServerShutdown"));
     this.signins.destroy();
+    // A model read would keep its agent's CLI, and this process, alive.
+    for (const read of this.modelReads.values()) read.quit.signal();
     this.pluginWatch?.close();
     // Nothing new connects, and the path goes so pollers see it gone; replies
     // already on their way, such as the one to `shutdown`, still leave.
