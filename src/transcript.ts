@@ -29,17 +29,30 @@ export async function head(file: FileHandle): Promise<unknown> {
   }
   return null;
 }
-export function completion(agent: Agent, line: string): Outcome | null {
+/** How long a transcript stays quiet after a record that settles a turn
+ * before that turn counts as ended. */
+export const settle_ms = 2000;
+/** A record written no earlier than `agent`'s latest hook, from a provider that reads transcripts. */
+function fresh(agent: Agent, line: string) {
   let v: any;
   try {
     v = parse(line);
   } catch {
     return null;
   }
-  if (!v || typeof v !== "object") return null;
+  if (!v || typeof v !== "object" || !agent.provider) return null;
   const stamp = timestampMs(str(v, "timestamp"));
   if (stamp === null || BigInt(stamp) < agent.last_seq / 1000n) return null;
-  return agent.provider ? (adapter(agent.provider).transcript?.completion(agent, v) ?? null) : null;
+  const transcript = adapter(agent.provider).transcript;
+  return transcript ? { v, transcript } : null;
+}
+export function completion(agent: Agent, line: string): Outcome | null {
+  const r = fresh(agent, line);
+  return r ? r.transcript.completion(agent, r.v) : null;
+}
+export function settling(agent: Agent, line: string) {
+  const r = fresh(agent, line);
+  return r ? (r.transcript.settling?.(agent, r.v) ?? null) : null;
 }
 export class Tail {
   actor = 0;
@@ -52,7 +65,9 @@ export class Tail {
   finished = false;
   next_check = 0;
   attempts = 0;
-  ingest(agent: Agent, bytes: Buffer | string): Outcome | null {
+  /** When the transcript last wrote a record that settles the turn, or 0. */
+  settling_at = 0;
+  ingest(agent: Agent, bytes: Buffer | string, now = Date.now()): Outcome | null {
     const input = typeof bytes === "string" ? Buffer.from(bytes) : bytes;
     let found: Outcome | null = null,
       start = 0;
@@ -65,17 +80,31 @@ export class Tail {
       if (!this.discard && this.partial.length + segment.length > record_limit) {
         this.partial = Buffer.alloc(0);
         this.discard = true;
+        // A record too large to read may show the turn went on.
+        this.settling_at = 0;
       }
       if (!this.discard) this.partial = Buffer.concat([this.partial, segment]);
       if (complete) {
-        if (!this.discard) found = completion(agent, this.partial.toString()) ?? found;
+        if (!this.discard) {
+          const line = this.partial.toString();
+          found = completion(agent, line) ?? found;
+          const s = settling(agent, line);
+          if (s) this.settling_at = s === "settles" ? now : 0;
+        }
         this.partial = Buffer.alloc(0);
         this.discard = false;
       }
     }
     return found;
   }
+  /** Ends the turn once a record that settles it has stood `settle_ms`. */
+  settled(now: number): Outcome | null {
+    // A record still being written may show the turn went on.
+    if (this.partial.length || this.discard) return null;
+    return this.settling_at && now - this.settling_at >= settle_ms ? "completed" : null;
+  }
   close() {
+    this.settling_at = 0;
     this.inode = 0;
     this.device = 0;
     this.offset = 0;
@@ -103,11 +132,12 @@ export class Tail {
       }
       if (stat.ino !== this.inode || named.ino !== this.inode || named.dev !== this.device || stat.size < this.offset)
         throw Error("Replaced");
-      if (stat.size === this.offset) return null;
+      const now = Date.now();
+      if (stat.size === this.offset) return this.settled(now);
       const bytes = Buffer.alloc(read_budget);
       const { bytesRead } = await file.read(bytes, 0, bytes.length, this.offset);
       this.offset += bytesRead;
-      return this.ingest(agent, bytes.subarray(0, bytesRead));
+      return this.ingest(agent, bytes.subarray(0, bytesRead), now);
     } finally {
       await file.close();
     }
