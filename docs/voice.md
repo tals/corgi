@@ -128,7 +128,7 @@ it took.
 ## Mute
 
 Voice mode and Corgi share one mute state. Press `m` in voice mode, or
-**prefix M** in Corgi (every preset). **prefix m** still mutes sounds. The
+**prefix V** in Corgi (every preset). **prefix m** still mutes sounds. The
 sidebar's title row shows a green `♫` while voice listens and a faint one
 while it is muted; click it to toggle. Beside the corgi badge the title
 shortens to make room; with no voice attached it is gone.
