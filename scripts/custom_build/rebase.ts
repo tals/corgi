@@ -389,6 +389,8 @@ async function drive(
   let how = start;
   const tries = new Map<string, number>(),
     limit = e.harness?.attempts ?? 3;
+  // Set once the harness failed to start: it would fail the same way again.
+  let down: string | null = null;
   while (git.rebaseInProgress(tree)) {
     const at = git.rebaseStoppedAt(tree),
       files = git.unmergedFiles(tree);
@@ -405,6 +407,12 @@ async function drive(
       return o.stopOnConflict ? stop(problem) : failed(e, t, tree, `the rebase can't go on at ${at.line}: ${problem}`);
     }
     const used = tries.get(at.commit) ?? 0;
+    if (down) {
+      const problem = `the harness failed to run: ${down}`;
+      return o.stopOnConflict
+        ? stop(problem)
+        : failed(e, t, tree, `rebase conflict at ${at.line} in ${files.join(", ")}; ${problem}`);
+    }
     if (!e.harness || used >= limit)
       return o.stopOnConflict ? stop() : failed(e, t, tree, `rebase conflict at ${at.line} in ${files.join(", ")}`);
     tries.set(at.commit, used + 1);
@@ -431,9 +439,10 @@ async function drive(
       echo: e.echo,
       onActivity: activity(e.signal, live),
     });
-    const verdict: harness.Verdict = call.timedOut
-      ? { ok: false, reason: `it timed out after ${e.harness.timeoutSeconds ?? 900}s` }
-      : harness.acceptConflict(tree, files, head, before, []);
+    const { verdict, broken } = harness.judge(call, e.harness, () =>
+      harness.acceptConflict(tree, files, head, before, []),
+    );
+    if (broken && !verdict.ok) down = verdict.reason;
     const problem = verdict.ok ? continueOrSkip(tree) : verdict.reason;
     signal(e.signal, {
       t: "harness",
@@ -611,7 +620,7 @@ export function push(repo: string, reportDir: string, results: RebaseResult[]): 
   return lines;
 }
 /** A branch name as a shell word, quoted when it needs it. */
-const word = (text: string) => (/^[\w./@+:-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`);
+export const word = (text: string) => (/^[\w./@+:-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`);
 export function pushCommand(r: RebaseResult): string {
   return `git push --force-with-lease=${word(`refs/heads/${r.branch}:${r.lease}`)} origin ${word(`${r.to}:refs/heads/${r.branch}`)}`;
 }

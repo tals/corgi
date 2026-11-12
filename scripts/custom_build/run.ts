@@ -596,17 +596,20 @@ async function mergeLoop(ctx: Context, run: RunState): Promise<Outcome | null> {
     save(ctx, run);
     const h = harnessFor(ctx);
     if (h) {
-      if (await resolveWithHarness(ctx, run, p, unmerged, h)) {
+      const resolution = await resolveWithHarness(ctx, run, p, unmerged, h);
+      if (resolution === true) {
         commitAgentMerge(ctx, run, p);
         continue;
       }
-      const what = `the harness could not resolve the conflict in ${p.display} in ${run.attempts} attempts`;
+      const what = resolution
+        ? `the harness failed to run on the conflict in ${p.display}: ${resolution.reason}`
+        : `the harness could not resolve the conflict in ${p.display} in ${run.attempts} attempts`;
       send(ctx, { t: "item", stage: "merge", id: p.display, state: "failed", outcome: "stopped", detail: what });
       return stop(
         ctx,
         run,
         5,
-        [what, `files: ${unmerged.join(", ")}`],
+        [what, `files: ${unmerged.join(", ")}`, ...(resolution ? [`harness log: ${resolution.log}`] : [])],
         ["resolve the conflicts yourself, `git add` the files, then continue"],
       );
     }
@@ -764,7 +767,8 @@ async function verifyLoop(ctx: Context, run: RunState): Promise<Outcome | null> 
         ["roll back, then rebuild once upstream is fixed"],
       );
     }
-    const h = harnessFor(ctx);
+    const failure: StepFailure = { step, command: cmd.join(" "), log },
+      h = harnessFor(ctx);
     if (h) {
       // Fixes that keep breaking each other stop the run instead of looping; a
       // tree the fixes repaired never gets here, so it isn't stopped.
@@ -777,20 +781,37 @@ async function verifyLoop(ctx: Context, run: RunState): Promise<Outcome | null> 
           5,
           [`${step} fails again after the harness's ${agentFixes} fixes`, `log: ${log}`],
           ["fix it in the working tree (or commit the fix), then continue"],
+          failure,
         );
       }
-      if (await fixWithHarness(ctx, run, step, cmds, log, h)) {
+      const fix = await fixWithHarness(ctx, run, step, cmds, log, h);
+      if (fix === true) {
         // A fix can break a step that passed before it, so everything runs again.
         i = -1;
         continue;
       }
-      failed(step, `the harness could not fix it in ${run.attempts} attempts`);
+      failed(
+        step,
+        fix ? `the harness failed to run: ${fix.reason}` : `the harness could not fix it in ${run.attempts} attempts`,
+      );
       return stop(
         ctx,
         run,
         5,
-        [`the harness could not fix ${step} in ${run.attempts} attempts`, `command: ${cmd.join(" ")}`, `log: ${log}`],
-        ["fix it in the working tree (or commit the fix), then continue"],
+        [
+          fix
+            ? `the harness failed to run on ${step}: ${fix.reason}`
+            : `the harness could not fix ${step} in ${run.attempts} attempts`,
+          `command: ${cmd.join(" ")}`,
+          `log: ${log}`,
+          ...(fix ? [`harness log: ${fix.log}`] : []),
+        ],
+        [
+          fix
+            ? "fix the harness, then continue to let it try again; or fix the step yourself, then continue"
+            : "fix it in the working tree (or commit the fix), then continue",
+        ],
+        failure,
       );
     }
     failed(step, "it passes on plain upstream: a patch breaks it");
@@ -800,6 +821,7 @@ async function verifyLoop(ctx: Context, run: RunState): Promise<Outcome | null> 
       3,
       [`${step} failed`, `command: ${cmd.join(" ")}`, `log: ${log}`],
       ["fix it in the working tree (or commit the fix), then continue"],
+      failure,
     );
   }
   stage(ctx, "verify", "done");
@@ -833,9 +855,18 @@ function harnessEnd(
   if (!verdict.ok) send(ctx, { t: "retry", stage: call.stage, id: call.id, why: "harness", detail: verdict.reason });
 }
 
+/** A harness call that failed to start: why, and its log. */
+type Broken = { reason: string; log: string };
 /** Asks the harness to resolve the conflict in progress until a result passes
- * the tool's checks or the attempts run out, the conflict restored after each rejection. */
-async function resolveWithHarness(ctx: Context, run: RunState, p: Planned, files: string[], h: Harness) {
+ * the tool's checks or the attempts run out, the conflict restored after each
+ * rejection. True when resolved; a harness that failed to start ends the tries. */
+async function resolveWithHarness(
+  ctx: Context,
+  run: RunState,
+  p: Planned,
+  files: string[],
+  h: Harness,
+): Promise<true | Broken | null> {
   const { repo } = ctx,
     limit = h.attempts ?? 3;
   while (run.attempts < limit) {
@@ -866,9 +897,9 @@ async function resolveWithHarness(ctx: Context, run: RunState, p: Planned, files
       echo: ctx.echo,
       onActivity: live.activity(ctx.signal, liveCall),
     });
-    const verdict: harness.Verdict = call.timedOut
-      ? { ok: false, reason: `it timed out after ${h.timeoutSeconds ?? 900}s` }
-      : harness.acceptConflict(repo, files, head, before, excluded(ctx));
+    const { verdict, broken } = harness.judge(call, h, () =>
+      harness.acceptConflict(repo, files, head, before, excluded(ctx)),
+    );
     harnessEnd(ctx, liveCall, call.usage, verdict);
     recordUse(ctx, run, {
       call: run.calls,
@@ -885,13 +916,22 @@ async function resolveWithHarness(ctx: Context, run: RunState, p: Planned, files
     git.remerge(repo, p.commit!, mergeMessage(p), files);
     run.harnessCall = null;
     save(ctx, run);
+    if (broken) return { reason: verdict.reason, log: call.log };
   }
-  return false;
+  return null;
 }
 
 /** Asks the harness to fix a failing step, committing each accepted change as
- * its own fix commit, until the step passes or the attempts run out. */
-async function fixWithHarness(ctx: Context, run: RunState, step: StepName, cmds: string[][], log: string, h: Harness) {
+ * its own fix commit, until the step passes or the attempts run out. True when
+ * fixed; a harness that failed to start ends the tries. */
+async function fixWithHarness(
+  ctx: Context,
+  run: RunState,
+  step: StepName,
+  cmds: string[][],
+  log: string,
+  h: Harness,
+): Promise<true | Broken | null> {
   const cmd = cmds[cmds.length - 1];
   const { repo } = ctx,
     limit = h.attempts ?? 3;
@@ -931,9 +971,7 @@ async function fixWithHarness(ctx: Context, run: RunState, step: StepName, cmds:
       echo: ctx.echo,
       onActivity: live.activity(ctx.signal, liveCall),
     });
-    const verdict: harness.Verdict = call.timedOut
-      ? { ok: false, reason: `it timed out after ${h.timeoutSeconds ?? 900}s` }
-      : harness.acceptFix(repo, head, before, excluded(ctx));
+    const { verdict, broken } = harness.judge(call, h, () => harness.acceptFix(repo, head, before, excluded(ctx)));
     harnessEnd(ctx, liveCall, call.usage, verdict);
     recordUse(ctx, run, {
       call: run.calls,
@@ -949,6 +987,7 @@ async function fixWithHarness(ctx: Context, run: RunState, step: StepName, cmds:
       if (call.timedOut) harness.discard(repo, head, before, excluded(ctx));
       run.harnessCall = null;
       save(ctx, run);
+      if (broken) return { reason: verdict.reason, log: call.log };
       continue;
     }
     commitAgentFix(ctx, run, step, verdict.files, failedLog);
@@ -965,7 +1004,7 @@ async function fixWithHarness(ctx: Context, run: RunState, step: StepName, cmds:
     }
     if (run.attempts < limit) failedLog = keepFailure();
   }
-  return false;
+  return null;
 }
 /** Runs `step` on plain upstream, to tell a broken upstream from a broken patch. */
 function onUpstream(ctx: Context, run: RunState, step: StepName) {
@@ -987,24 +1026,104 @@ function onUpstream(ctx: Context, run: RunState, step: StepName) {
 function toolCommand(ctx: Context, command: string): string {
   return `bun ${join(work(ctx), "tool", "main.ts")} --dir ${ctx.dir} ${command}`;
 }
-async function stop(ctx: Context, run: RunState, code: Code, what: string[], next: string[]): Promise<Outcome> {
+/** A failing step a run stops at: what it ran and its output. */
+type StepFailure = { step: StepName; command: string; log: string };
+async function stop(
+  ctx: Context,
+  run: RunState,
+  code: Code,
+  what: string[],
+  next: string[],
+  failure?: StepFailure,
+): Promise<Outcome> {
   run.stopped = { code, snapshot: git.snapshot(ctx.repo) };
+  run.stopFailure = failure ? await blame(ctx, run, failure) : null;
   save(ctx, run);
-  const handoffs = await writeReport(ctx, run, code, what);
+  const why = run.stopFailure && cause(run.stopFailure.attribution),
+    reason = why ? [what[0], `caused by: ${why}`, ...what.slice(1)] : what,
+    handoffs = await writeReport(ctx, run, code, reason),
+    agent = failure && run.stopFailure ? agentHint(ctx, run, failure, run.stopFailure, why) : [];
   return ended(ctx, run, {
     code,
     lines: [
-      `custom-build stopped: ${what[0]}`,
-      ...what.slice(1).map(line => `  ${line}`),
+      `custom-build stopped: ${reason[0]}`,
+      ...reason.slice(1).map(line => `  ${line}`),
       `  report: ${join(run.reportDir, "report.md")}`,
       ...handoffs.map(path => `  handoff: ${path}`),
       ...next.map(line => `  ${line}`),
+      ...agent.map(line => `  ${line}`),
       // Upstream breakage isn't fixed by continuing the pinned run.
       ...(code === 4 ? [] : [`  continue: scripts/custom-build continue`]),
       `  undo the run: scripts/custom-build rollback`,
       `  (without the tool in this checkout: ${toolCommand(ctx, code === 4 ? "rollback" : "continue")})`,
     ],
   });
+}
+
+/** The patches a failing step points at, worked out once per step and tree:
+ * a stop that comes back to the same failure doesn't run them again. */
+async function blame(ctx: Context, run: RunState, f: StepFailure): Promise<configFile.StopFailure> {
+  const head = git.must(ctx.repo, ["rev-parse", "HEAD"]),
+    known = run.stopFailure;
+  if (known?.step === f.step && known.head === head) return known;
+  // The step's log is written again by the next run; keep the failure this stop answers.
+  const log = join(run.reportDir, "steps", `${f.step}-failed-${run.fixes.length + 1}.log`);
+  if (existsSync(f.log) && resolve(f.log) !== resolve(log)) copyFileSync(f.log, log);
+  ctx.progress(`working out which patches ${f.step} fails on`);
+  const attribution = await steps.attribute({
+    repo: ctx.repo,
+    workDir: work(ctx),
+    step: f.step,
+    upstream: run.upstream,
+    merged: mergedPatches(run),
+    fixFiles: [],
+    log,
+    config: ctx.config,
+    logDir: join(run.reportDir, "isolated"),
+    env: ctx.env,
+    echo: ctx.echo,
+    progress: ctx.progress,
+  });
+  return { step: f.step, head, log, attribution };
+}
+const mergedPatches = (run: RunState) =>
+  run.plan.filter(p => !p.skip && p.merge).map(p => ({ display: p.display, ref: p.commit!, merge: p.merge! }));
+/** The patches a failure points at, in a few words; null when none does. */
+function cause(attribution: configFile.Attribution[]): string | null {
+  const drift = attribution.filter(a => a.kind === "build-drift").map(a => a.patch);
+  if (drift.length) return `${drift.join(", ")} ${drift.length > 1 ? "fail" : "fails"} alone on upstream`;
+  if (attribution.length > 1) return `${attribution.map(a => a.patch).join(" and ")} only together`;
+  if (attribution.length) return `${attribution[0].patch} together with the other patches`;
+  return null;
+}
+/** Writes a prompt for fixing the failing step with an agent; returns the
+ * lines that name it and the command that runs it in the checkout. */
+function agentHint(
+  ctx: Context,
+  run: RunState,
+  f: StepFailure,
+  stopped: configFile.StopFailure,
+  why: string | null,
+): string[] {
+  const path = join(run.reportDir, `fix-${f.step}.md`),
+    excerpt = existsSync(stopped.log) ? readFileSync(stopped.log, "utf8").split("\n").slice(-200).join("\n") : "",
+    h = ctx.config.harness,
+    exe = !h?.command[0] ? "claude" : h.command[0].includes("/") ? resolve(ctx.repo, h.command[0]) : h.command[0];
+  writeFileSync(
+    path,
+    harness.fill(harness.template("fix", templates(ctx)), {
+      step: f.step,
+      command: f.command,
+      cause: why ?? "not worked out: no merged patch touches the files the failure names",
+      patches: run.merged.map(m => `${m.source}: ${m.description}`),
+      log: stopped.log,
+      logExcerpt: excerpt,
+    }),
+  );
+  return [
+    `prompt for an agent: ${path}`,
+    `run it: cd ${rebase.word(ctx.repo)} && ${rebase.word(exe)} "$(cat ${rebase.word(path)})"`,
+  ];
 }
 
 /** The run's report, rebase check and handoffs; returns the handoff paths. */
@@ -1032,7 +1151,7 @@ async function writeReport(ctx: Context, run: RunState, code: Code, reason: stri
         workDir: work(ctx),
         step: fix.step,
         upstream: run.upstream,
-        merged: active.filter(p => p.merge).map(p => ({ display: p.display, ref: p.commit!, merge: p.merge! })),
+        merged: mergedPatches(run),
         fixFiles: fix.files,
         log: fix.log ?? "",
         config: ctx.config,
@@ -1087,30 +1206,49 @@ async function writeReport(ctx: Context, run: RunState, code: Code, reason: stri
         }),
       );
   }
+  const attributed = (
+    step: StepName,
+    log: string | undefined,
+    a: configFile.Attribution,
+    fix: string,
+    hint: string,
+  ) => {
+    const command = steps.command(step, ctx.config, stepVars(ctx)).join(" "),
+      excerpt = log && existsSync(log) ? readFileSync(log, "utf8").trimEnd().split("\n").slice(-40) : [];
+    handoffs.push(
+      report.writeHandoff(run.reportDir, template, {
+        ...handoffBase(ctx, run, a.patch, upstream),
+        kind: a.kind,
+        problem: `\`${command}\` (${step}) failed in the custom build:\n\n\`\`\`text\n${excerpt.join("\n")}\n\`\`\``,
+        cause:
+          a.kind === "build-drift"
+            ? "upstream main moved on"
+            : a.others.length
+              ? `clashes with: ${a.others.join(", ")}`
+              : "clashes with the other changes in this build",
+        fix,
+        task:
+          a.kind === "build-drift"
+            ? `With this branch merged alone onto the latest upstream main, \`${command}\` fails. Update the branch onto upstream main and fix it${hint}.`
+            : `This branch and ${a.others.join(", ")} fail \`${command}\` only when merged together. Decide with their authors which side adapts, or wait until one of them is merged upstream, then update this branch if it is the one to change.`,
+      }),
+    );
+  };
   for (const fix of run.fixes)
     for (const a of fix.attribution ?? []) {
-      const command = steps.command(fix.step, ctx.config, stepVars(ctx)).join(" "),
-        excerpt = fix.log && existsSync(fix.log) ? readFileSync(fix.log, "utf8").trimEnd().split("\n").slice(-40) : [],
-        stat = git.git(repo, ["show", "--stat", "--format=", fix.commit]).stdout.trimEnd();
-      handoffs.push(
-        report.writeHandoff(run.reportDir, template, {
-          ...handoffBase(ctx, run, a.patch, upstream),
-          kind: a.kind,
-          problem: `\`${command}\` (${fix.step}) failed in the custom build:\n\n\`\`\`text\n${excerpt.join("\n")}\n\`\`\``,
-          cause:
-            a.kind === "build-drift"
-              ? "upstream main moved on"
-              : a.others.length
-                ? `clashes with: ${a.others.join(", ")}`
-                : "clashes with the other changes in this build",
-          fix: `${fix.commit.slice(0, 7)} custom-build: fix ${fix.step} (agent)\n\n\`\`\`text\n${stat}\n\`\`\``,
-          task:
-            a.kind === "build-drift"
-              ? `With this branch merged alone onto the latest upstream main, \`${command}\` fails. Update the branch onto upstream main and fix it; the fix the custom build applied is shown above as a hint.`
-              : `This branch and ${a.others.join(", ")} each pass \`${command}\` alone on upstream main but fail together. Decide with their authors which side adapts, or wait until one of them is merged upstream, then update this branch if it is the one to change.`,
-        }),
+      const stat = git.git(repo, ["show", "--stat", "--format=", fix.commit]).stdout.trimEnd();
+      attributed(
+        fix.step,
+        fix.log,
+        a,
+        `${fix.commit.slice(0, 7)} custom-build: fix ${fix.step} (${fix.by})\n\n\`\`\`text\n${stat}\n\`\`\``,
+        "; the fix the custom build applied is shown above as a hint",
       );
     }
+  // A run stopped at a failing step hands it to the patches it points at before anyone fixed it.
+  const stopped = run.stopped ? run.stopFailure : null;
+  for (const a of stopped?.attribution ?? [])
+    attributed(stopped!.step, stopped!.log, a, "none; the custom build stopped on it", "");
   report.writeReport(run, { outcome: { code, reason }, upstream: run.upstream, pulled, rebase: mergeCheck, handoffs });
   const reports = join(ctx.dir, "reports");
   report.linkLatest(reports, run.reportDir);
@@ -1259,7 +1397,15 @@ export async function resume(ctx: Context): Promise<Outcome> {
     if (changed.length) {
       git.must(repo, ["add", "-A", "--", ...changed]);
       git.must(repo, ["commit", "--no-verify", "-q", "-m", `custom-build: fix ${run.step} (user)`]);
-      run.fixes.push({ step: run.step, commit: git.must(repo, ["rev-parse", "HEAD"]), by: "user", files: changed });
+      // The patches the stop pointed at are what this fix answers.
+      const known = run.stopFailure?.step === run.step ? run.stopFailure : null;
+      run.fixes.push({
+        step: run.step,
+        commit: git.must(repo, ["rev-parse", "HEAD"]),
+        by: "user",
+        files: changed,
+        ...(known ? { log: known.log, attribution: known.attribution } : {}),
+      });
       event(run, "user-fix", { step: run.step });
     }
   }
@@ -1303,7 +1449,11 @@ async function resumeHarnessCall(ctx: Context, run: RunState, call: configFile.H
   run.harnessCall = null;
   const what = `the interrupted harness fix for ${step} was rejected: ${verdict.reason}`;
   send(ctx, { t: "item", stage: "verify", id: step, state: "failed", outcome: "failed", detail: what });
-  return stop(ctx, run, 3, [what], ["fix it in the working tree (or commit the fix), then continue"]);
+  return stop(ctx, run, 3, [what], ["fix it in the working tree (or commit the fix), then continue"], {
+    step,
+    command: steps.command(step, ctx.config, stepVars(ctx)).join(" "),
+    log: call.log ?? join(run.reportDir, "steps", `${step}.log`),
+  });
 }
 function resolved(run: RunState, p: Planned, by: "user" | "harness") {
   const conflict = run.conflicts.findLast(c => c.patch === p.display);

@@ -199,9 +199,13 @@ export type Fix = {
   by: "agent" | "user";
   files: string[];
   log?: string;
-  /** Which patches an agent fix answered, worked out once for the report. */
-  attribution?: { kind: "build-drift" | "build-clash"; patch: string; others: string[] }[];
+  /** Which patches the fix answered, worked out once for the report. */
+  attribution?: Attribution[];
 };
+export type Attribution = { kind: "build-drift" | "build-clash"; patch: string; others: string[] };
+/** The failing step a run stopped at, and the patches it points at, worked
+ * out once for the tree at `head`. */
+export type StopFailure = { step: StepName; head: string; log: string; attribution: Attribution[] };
 export type HarnessCall = {
   kind: "conflict" | "build";
   /** The conflicting patch, for a conflict call. */
@@ -314,6 +318,8 @@ export type RunState = {
   /** Set while stopped: the exit code and the working tree at the stop, so
    * `continue` commits only what changed since. */
   stopped: { code: number; snapshot: Snapshot } | null;
+  /** The failing step of the latest stop on one; a user fix for it inherits its attribution. */
+  stopFailure?: StopFailure | null;
   push: boolean;
   /** Set while a harness call runs: what it was asked and the tree before it,
    * so `continue` after an interruption checks what it left like a finished result. */

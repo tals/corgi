@@ -50,9 +50,11 @@ export function executable(h: Harness, repo: string, env: Record<string, string 
   return Bun.which(exe, { PATH: env.PATH ?? "" });
 }
 
-export type Call = { timedOut: boolean; usage: Usage | null };
+/** A finished call: its exit code (null when killed), the last line it
+ * printed, the log holding its output, and its tokens. */
+export type Call = { timedOut: boolean; code: number | null; tail: string; log: string; usage: Usage | null };
 /** Runs the harness once on `text`: the prompt goes to a file named in the
- * command and to stdin; its exit code is only logged. With a `kind`, its
+ * command and to stdin. With a `kind`, its
  * stdout is a JSON stream: the log and the echo get the readable lines, the raw
  * stream goes to a `.jsonl` file beside the log, and the call's tokens come back. */
 export async function invoke(
@@ -154,8 +156,30 @@ export async function invoke(
   await Promise.race([pumps, Bun.sleep(1000)]);
   // The parser holds a last line that ended without a newline until it sees one.
   if (parser) readable("\n");
+  const tail = lastLine(readFileSync(log, "utf8"));
   appendFileSync(log, timedOut ? `\n(killed after ${h.timeoutSeconds ?? 900}s)\n` : `\n(exit ${code})\n`);
-  return { timedOut, usage: parser?.usage() ?? null };
+  return { timedOut, code: timedOut ? null : code, tail, log, usage: parser?.usage() ?? null };
+}
+/** The last non-empty line a call printed, after the command line the log starts with. */
+function lastLine(log: string): string {
+  const line =
+    log
+      .split("\n")
+      .slice(1)
+      .findLast(line => line.trim()) ?? "";
+  return line.trim().length > 200 ? `${line.trim().slice(0, 199)}…` : line.trim();
+}
+
+/** The verdict on a finished call: a timeout, or `accept`'s verdict on what it
+ * left. A rejected call that exited non-zero is reported by its exit instead,
+ * and is `broken`: a harness that fails to start (an expired login, a bad flag)
+ * fails the same way on the next attempt. */
+export function judge(call: Call, h: Harness, accept: () => Verdict): { verdict: Verdict; broken: boolean } {
+  if (call.timedOut)
+    return { verdict: { ok: false, reason: `it timed out after ${h.timeoutSeconds ?? 900}s` }, broken: false };
+  const verdict = accept();
+  if (verdict.ok || !call.code) return { verdict, broken: false };
+  return { verdict: { ok: false, reason: `it exited ${call.code}${call.tail ? `: ${call.tail}` : ""}` }, broken: true };
 }
 
 /** A temporary file an interrupted `bun build` leaves in the checkout; never part of a fix. */

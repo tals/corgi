@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -1193,6 +1194,63 @@ test("an agent fix for patches that only fail together hands off a clash naming 
   expect(a).toContain("clashes with: b");
   expect(b).toContain("clashes with: a");
   for (const text of [a, b]) expect(text).toContain(rule);
+});
+/** Steps whose typecheck fails while both a.txt and b.txt are merged, unless ok.txt exists. */
+const clashingSteps = {
+  ...stubSteps,
+  typecheck: [
+    "sh",
+    "-c",
+    'test -f ok.txt || ! { test -f a.txt && test -f b.txt; } || { echo "a.txt clashes with b.txt"; false; }',
+  ],
+};
+test("a step stop names the patches behind it and writes a prompt for fixing it with an agent", async () => {
+  const w = world();
+  branch(w, "a", { "a.txt": "a\n" });
+  branch(w, "b", { "b.txt": "b\n" });
+  configure(w, ["a", "b"], { steps: clashingSteps });
+  const stopped = await cb(w, "rebuild");
+  expect(stopped.code).toBe(3);
+  expect(stopped.out).toContain("caused by: a and b only together");
+  expect(stopped.out).toMatch(/stopped: typecheck failed\n {2}caused by: /);
+  const prompt = stopped.out.match(/prompt for an agent: (\S+\/fix-typecheck\.md)\n/)![1];
+  expect(stopped.out).toContain(`run it: cd ${realpathSync(w.clone)} && claude "$(cat ${prompt})"`);
+  const text = read(prompt);
+  expect(text).toContain("- Cause: a and b only together");
+  expect(text).toContain("- a: about a");
+  expect(text).toContain("a.txt clashes with b.txt");
+  expect(text).toContain("`scripts/custom-build continue`");
+  expect(handoffs(w)).toEqual(["a.md", "b.md"]);
+  expect(read(join(latest(w), "handoffs", "a.md"))).toContain("none; the custom build stopped on it");
+  // The user's fix answers the same patches: its handoffs show it.
+  write(w.clone, { "ok.txt": "ok\n" });
+  expect((await cb(w, "continue")).code).toBe(0);
+  expect(handoffs(w)).toEqual(["a.md", "b.md"]);
+  const a = read(join(latest(w), "handoffs", "a.md"));
+  expect(a).toContain("custom-build: fix typecheck (user)");
+  expect(a).toContain("clashes with: b");
+});
+test("a harness that fails to start is asked once, and the stop says why", async () => {
+  const w = world();
+  branch(w, "a", { "a.txt": "a\n" });
+  branch(w, "b", { "b.txt": "b\n" });
+  const h = stubHarness('echo "Failed to authenticate: OAuth session expired" >&2; exit 1');
+  configure(w, ["a", "b"], { steps: clashingSteps, harness: { command: h.command, attempts: 3 } });
+  const stopped = await cb(w, "rebuild");
+  expect(stopped.code).toBe(5);
+  expect(h.calls()).toBe(1);
+  expect(stopped.out).toContain(
+    "the harness failed to run on typecheck: it exited 1: Failed to authenticate: OAuth session expired",
+  );
+  expect(stopped.out).toMatch(/harness log: \S+\/prompts\/01-build\.log/);
+  expect(stopped.out).toContain("fix the harness, then continue to let it try again");
+  expect(stopped.out).toContain(`&& ${h.command[0]} "$(cat `);
+  expect(read(join(latest(w), "report.md"))).toContain(
+    "typecheck fix try 1: rejected: it exited 1: Failed to authenticate: OAuth session expired",
+  );
+  // Continue asks it again.
+  expect((await cb(w, "continue")).code).toBe(5);
+  expect(h.calls()).toBe(2);
 });
 test("reports/latest follows the newest run and only ten runs and ten rollback logs are kept", () => {
   const reports = fresh("reports");
