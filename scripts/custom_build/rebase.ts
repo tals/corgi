@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
   Config,
@@ -508,8 +508,9 @@ function todoEditor(e: Pick<Env, "workDir">): string {
 
 /** Checks the rebased tip alone and moves the branch to it. */
 async function finish(e: Env, t: RebaseTarget, tree: string, how: How): Promise<Outcome> {
-  const to = git.must(tree, ["rev-parse", "HEAD"]),
-    base = { patch: t.patch, branch: t.branch, from: t.from, lease: t.lease };
+  // A harness fix moves the rebased tip on.
+  let to = git.must(tree, ["rev-parse", "HEAD"]);
+  const base = { patch: t.patch, branch: t.branch, from: t.from, lease: t.lease };
   // `back`: an outcome that undoes an in-worktree rebase's move of the branch.
   const done = (result: RebaseResult, back = false): Outcome => {
     if (t.worktree) {
@@ -538,8 +539,14 @@ async function finish(e: Env, t: RebaseTarget, tree: string, how: How): Promise<
     );
   const vars = { outfile: join(tree, "dist", "corgi-rebase") },
     logs = join(e.reportDir, "rebase"),
-    flaky: { step: StepName; log: string }[] = [];
-  for (const step of checks) {
+    flaky: { step: StepName; log: string }[] = [],
+    fixes: string[] = [],
+    limit = e.harness?.attempts ?? 3;
+  // Harness tries for this branch, over all its checks; `down` once it failed to start.
+  let tries = 0,
+    down: string | null = null;
+  for (let i = 0; i < checks.length; i++) {
+    const step = checks[i];
     e.progress(`running ${step} on ${t.branch} rebased`);
     const log = join(logs, `${sources.slug(t.branch)}-${step}.log`),
       keep = join(logs, `${sources.slug(t.branch)}-${step}-flaky.log`),
@@ -549,19 +556,52 @@ async function finish(e: Env, t: RebaseTarget, tree: string, how: How): Promise<
         env: e.env,
         echo: e.echo,
         keep,
+        again: failed => steps.failedAgain(step, e.config, vars, failed),
         onRetry: () => {
-          e.progress(`${step} failed on ${t.branch}; running it once more in case the failure is flaky`);
+          e.progress(`${step} failed on ${t.branch}; running what failed once more in case it is flaky`);
           signal(e.signal, { t: "retry", stage: "rebase", id: t.branch, why: "flaky", detail: `${step} failed once` });
         },
       });
-    if (!tried.ok)
-      return done(
-        { ...base, to: null, outcome: "failed", reason: `${step} fails on the rebased branch`, step, log },
-        true,
-      );
-    if (tried.flaky) flaky.push({ step, log: keep });
+    if (tried.ok) {
+      if (tried.flaky) flaky.push({ step, log: keep });
+      continue;
+    }
+    const failing = steps.failureSummary(step, readFileSync(log, "utf8"));
+    // The harness adapts the branch to upstream; each accepted fix is a commit
+    // on the branch, and every check runs again from the first.
+    let fixed: string | null = null;
+    while (e.harness && !down && !fixed && tries < limit) {
+      tries++;
+      const r = await fixBranch(e, t, tree, { step, log, failing, attempt: tries, limit });
+      if (r.ok) fixed = r.commit;
+      else if (r.broken) down = r.reason;
+    }
+    if (fixed) {
+      fixes.push(fixed);
+      to = fixed;
+      if (t.worktree) git.updateRefs(e.repo, [{ ref: checkingRef(t.branch), value: to }]);
+      i = -1;
+      continue;
+    }
+    const harnessNote = down
+      ? `; the harness failed to run: ${down}`
+      : tries
+        ? `; the harness could not fix it in ${plural(tries, "try", "tries")}`
+        : "";
+    return done(
+      {
+        ...base,
+        to: null,
+        outcome: "failed",
+        reason: `${step} fails on the rebased branch${failing ? `: ${failing}` : ""}${harnessNote}`,
+        step,
+        log,
+        ...(fixes.length ? { fixes } : {}),
+      },
+      true,
+    );
   }
-  const extra = flaky.length ? { flaky } : {};
+  const extra = { ...(flaky.length ? { flaky } : {}), ...(fixes.length ? { fixes } : {}) };
   // A checkout or a commit made meanwhile keeps the branch where it is; a
   // branch rebased in its own worktree is checked out there by design.
   if (!t.worktree) {
@@ -592,6 +632,78 @@ async function finish(e: Env, t: RebaseTarget, tree: string, how: How): Promise<
   if (!moved)
     return done({ ...base, to: null, outcome: "skipped", reason: "the branch moved while it was rebased", ...extra });
   return done({ ...base, to, outcome: "rebased", how, ...(t.local ? {} : { created: true }), ...extra });
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** Asks the harness once to make the failing check pass on the rebased branch;
+ * an accepted change is committed on it. `broken`: the harness failed to start. */
+async function fixBranch(
+  e: Env,
+  t: RebaseTarget,
+  tree: string,
+  f: { step: StepName; log: string; failing: string | null; attempt: number; limit: number },
+): Promise<{ ok: true; commit: string } | { ok: false; reason: string; broken: boolean }> {
+  const h = e.harness!,
+    head = git.must(tree, ["rev-parse", "HEAD"]),
+    before = git.snapshot(tree),
+    command = steps.command(f.step, e.config, { outfile: join(tree, "dist", "corgi-rebase") }).join(" "),
+    upstream = git.must(e.repo, ["log", "-1", "--format=%h %s", e.upstream]),
+    text = harness.fill(harness.template("rebase-fix", e.templates), {
+      patch: t.patch,
+      description: e.config.patches.find(p => sources.display(p.source) === t.patch)?.description ?? "",
+      branch: t.branch,
+      upstream,
+      step: f.step,
+      command,
+      failing: f.failing ?? "see the output below",
+      attempt: `${f.attempt} of ${f.limit}`,
+      logExcerpt: readFileSync(f.log, "utf8").split("\n").slice(-200).join("\n"),
+      base: e.upstream.slice(0, 12),
+      from: git.git(e.repo, ["merge-base", t.from, e.upstream]).stdout.trim().slice(0, 12) || t.from.slice(0, 12),
+    });
+  e.progress(`asking the harness to fix ${f.step} on ${t.branch} (attempt ${f.attempt} of ${f.limit})`);
+  const live = { stage: "rebase" as const, id: t.branch, attempt: f.attempt, limit: f.limit };
+  signal(e.signal, { t: "harness", state: "start", ...live });
+  const started = performance.now(),
+    number = e.nextCall(),
+    call = await harness.invoke(h, "build", text, {
+      repo: tree,
+      reportDir: e.reportDir,
+      number,
+      env: e.env,
+      echo: e.echo,
+      onActivity: activity(e.signal, live),
+    }),
+    { verdict, broken } = harness.judge(call, h, () => harness.acceptFix(tree, head, before, []));
+  signal(e.signal, { t: "harness", state: "end", ...live, usage: call.usage, ...harness.outcome(verdict) });
+  if (!verdict.ok)
+    signal(e.signal, { t: "retry", stage: "rebase", id: t.branch, why: "harness", detail: verdict.reason });
+  e.onUse?.({
+    call: number,
+    kind: "rebase-fix",
+    patch: t.patch,
+    branch: t.branch,
+    step: f.step,
+    attempt: f.attempt,
+    ...harness.outcome(verdict),
+    seconds: harness.since(started),
+    usage: call.usage,
+  });
+  if (!verdict.ok) {
+    e.progress(`rejected the harness's fix: ${verdict.reason}`);
+    harness.discard(tree, head, before, []);
+    return { ok: false, reason: verdict.reason, broken };
+  }
+  git.must(tree, ["add", "-A", "--", ...verdict.files]);
+  git.must(tree, [
+    "commit",
+    "--no-verify",
+    "-q",
+    "-m",
+    `fix: pass ${f.step} on upstream ${e.upstream.slice(0, 7)}\n\nMade by the custom build's harness after rebasing onto ${upstream}.\n\nFixed-By: harness`,
+  ]);
+  return { ok: true, commit: git.must(tree, ["rev-parse", "HEAD"]) };
 }
 
 /** Pushes each rebased branch to origin with its lease; a pushed branch drops
@@ -638,12 +750,18 @@ export function lines(results: RebaseResult[], o: { current: boolean }): string[
       const pushed = r.push === "pushed" ? "; pushed" : r.push === "refused" ? "; push refused" : "",
         flaky = r.flaky?.length
           ? `; ${r.flaky.map(f => f.step).join(", ")} failed once and passed when run again, it may be flaky (${r.flaky.map(f => f.log).join(", ")})`
+          : "",
+        // Kept for review on a rebased branch; on one that wasn't, still reachable for a look.
+        fixes = r.fixes?.length
+          ? r.outcome === "rebased"
+            ? `; the harness fixed its checks in ${r.fixes.map(c => c.slice(0, 7)).join(", ")}, review before pushing`
+            : `; the harness's tries: ${r.fixes.map(c => c.slice(0, 7)).join(", ")}`
           : "";
       if (r.outcome === "rebased")
-        return `rebased ${r.patch}: ${r.from.slice(0, 7)} to ${r.to!.slice(0, 7)} (${r.how})${undoHint(r)}${flaky}${pushed}`;
+        return `rebased ${r.patch}: ${r.from.slice(0, 7)} to ${r.to!.slice(0, 7)} (${r.how})${fixes}${undoHint(r)}${flaky}${pushed}`;
       if (r.pending) return `${r.patch}: rebased earlier, push pending${undoHint(r)}${pushed}`;
       if (r.outcome === "current") return `${r.patch}: current${r.reason ? ` (${r.reason})` : ""}`;
-      if (r.outcome === "failed") return `${r.patch}: not rebased: ${r.reason}${flaky}`;
+      if (r.outcome === "failed") return `${r.patch}: not rebased: ${r.reason}${fixes}${flaky}`;
       return `${r.patch}: ${r.outcome}: ${r.reason}${flaky}`;
     });
 }

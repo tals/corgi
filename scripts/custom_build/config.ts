@@ -225,7 +225,7 @@ export type HarnessCall = {
  * (null when the harness has no kind or its output named none). */
 export type HarnessUse = {
   call: number;
-  kind: "conflict" | "build" | "rebase-conflict";
+  kind: "conflict" | "build" | "rebase-conflict" | "rebase-fix";
   /** The conflicting patch, for a conflict call. */
   patch?: string;
   /** The failing step, for a build call. */
@@ -253,6 +253,8 @@ export type RebaseResult = {
   /** For a failed check: the step and its log. */
   step?: StepName;
   log?: string;
+  /** Fix commits the harness made on the rebased branch for failing checks. */
+  fixes?: string[];
   /** Checks that passed only when run again, with the first failure's log. */
   flaky?: { step: StepName; log: string }[];
   /** Rebased by an earlier run and not pushed yet: `to` is its tip. */

@@ -6,15 +6,23 @@ import * as git from "./git";
 const defaults: Record<StepName, string[]> = {
   install: ["bun", "install", "--frozen-lockfile"],
   typecheck: ["bun", "typecheck.ts"],
-  test: ["bun", "test", "src"],
+  test: ["bun", "test", "{tests}"],
   build: ["bun", "build.ts", "--outfile", "{outfile}"],
 };
-export type Vars = { outfile: string };
+/** `tests`: the test files `{tests}` stands for; all of `src` when absent. */
+export type Vars = { outfile: string; tests?: string[] };
 
 /** A step's command, from `config.steps` when it overrides it. */
 export function command(step: StepName, config: Config, vars: Vars): string[] {
-  return (config.steps?.[step] ?? defaults[step]).map(arg => arg.replaceAll("{outfile}", vars.outfile));
+  const tests = vars.tests ?? ["src"];
+  // `{tests}` alone is one argument per file; inside a shell string, shell words.
+  return (config.steps?.[step] ?? defaults[step]).flatMap(arg =>
+    arg === "{tests}"
+      ? tests
+      : [arg.replaceAll("{outfile}", vars.outfile).replaceAll("{tests}", tests.map(word).join(" "))],
+  );
 }
+const word = (text: string) => (/^[\w./@+:-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`);
 
 /** What a step runs: unit tests need the native layer built first, which a
  * fresh worktree lacks and a patch may change. */
@@ -49,17 +57,74 @@ export async function runStep(cmds: string[] | string[][], o: Run): Promise<bool
 }
 /** Runs a step, and once more when it fails, so a flaky failure isn't taken
  * for a broken step; the first failure's output is kept at `keep`. `flaky`
- * means only the second run passed. */
+ * means only the second run passed. `again` names what to run the second time
+ * from the first failure's log (only the failed tests), or null for all of it;
+ * a failure's log is then the second run's, with only what failed again. */
 export async function runWithRetry(
   cmds: string[] | string[][],
-  o: Run & { keep: string; onRetry?: () => void },
+  o: Run & { keep: string; onRetry?: () => void; again?: (log: string) => string[][] | null },
 ): Promise<{ ok: boolean; flaky: boolean }> {
   if (await runStep(cmds, o)) return { ok: true, flaky: false };
   copyFileSync(o.log, o.keep);
   o.onRetry?.();
-  if (await runStep(cmds, o)) return { ok: true, flaky: true };
+  if (await runStep(o.again?.(readFileSync(o.keep, "utf8")) ?? cmds, o)) return { ok: true, flaky: true };
   rmSync(o.keep, { force: true });
   return { ok: false, flaky: false };
+}
+/** The commands that run again only the test files that failed in `log`; null
+ * when that can't be told, or the test command has no `{tests}` to name them. */
+export function failedAgain(step: StepName, config: Config, vars: Vars, log: string): string[][] | null {
+  if (step !== "test") return null;
+  const files = [...new Set(testFailures(log).map(f => f.file))];
+  if (!files.length || files.includes(null)) return null;
+  const narrowed = commands(step, config, { ...vars, tests: files as string[] });
+  return JSON.stringify(narrowed) === JSON.stringify(commands(step, config, vars)) ? null : narrowed;
+}
+
+export type TestFailure = { file: string | null; name: string; timedOut: boolean };
+/** The failed tests in `bun test` output, each with the file it ran in (null
+ * when the output doesn't say). The summary bun repeats at the end is skipped. */
+export function testFailures(log: string): TestFailure[] {
+  const out: TestFailure[] = [];
+  let file: string | null = null;
+  for (const line of log.split("\n")) {
+    if (/^\d+ tests? (failed|skipped|todo):?$/.test(line.trim()) || /^Ran \d+ tests?/.test(line)) break;
+    const header = /^(\S+\.(test|spec)\.[cm]?[jt]sx?):$/.exec(line);
+    if (header) file = header[1];
+    else if (line.startsWith("(fail) "))
+      out.push({ file, name: line.slice(7).replace(/ \[[\d.]+m?s\]$/, ""), timedOut: false });
+    else if (/^\s*\^ this test timed out/.test(line) && out.length) out[out.length - 1].timedOut = true;
+  }
+  return out;
+}
+/** What failed in a step's output in a few words: the failing tests or the
+ * files with type errors; null when nothing in it says. */
+export function failureSummary(step: StepName, log: string): string | null {
+  const list = (items: string[], n = 2) =>
+    items.slice(0, n).join(", ") + (items.length > n ? `, +${items.length - n} more` : "");
+  if (step === "typecheck") {
+    const errors = log.split("\n").flatMap(line => /^(\S+?)\(\d+,\d+\): error TS\d+/.exec(line)?.[1] ?? []);
+    return errors.length
+      ? `${errors.length} type error${errors.length > 1 ? "s" : ""} in ${list([...new Set(errors)], 3)}`
+      : null;
+  }
+  if (step !== "test") return null;
+  const failures = testFailures(log);
+  if (!failures.length) return null;
+  const failed = failures.filter(f => !f.timedOut),
+    timedOut = failures.length - failed.length,
+    files = [...new Set(failed.flatMap(f => f.file ?? []))],
+    where = files.length === 1 ? ` in ${files[0]}` : files.length ? ` in ${files.length} files` : "",
+    parts = [
+      ...(failed.length
+        ? [
+            `${failed.length} test${failed.length > 1 ? "s" : ""} fail${failed.length > 1 ? "" : "s"}${where}` +
+              ` (${list(failed.map(f => f.name))})`,
+          ]
+        : []),
+      ...(timedOut ? [`${timedOut} timed out`] : []),
+    ];
+  return parts.join("; ");
 }
 async function runOne(cmd: string[], o: Run): Promise<boolean> {
   appendFileSync(o.log, `$ ${cmd.join(" ")}\n`);

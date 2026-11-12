@@ -731,8 +731,9 @@ async function verifyLoop(ctx: Context, run: RunState): Promise<Outcome | null> 
         env: ctx.env,
         echo: ctx.echo,
         keep,
+        again: failedLog => steps.failedAgain(step, ctx.config, stepVars(ctx), failedLog),
         onRetry: () => {
-          ctx.progress(`${step} failed; running it once more in case the failure is flaky`);
+          ctx.progress(`${step} failed; running what failed once more in case it is flaky`);
           send(ctx, { t: "retry", stage: "verify", id: step, why: "flaky", detail: `${step} failed once` });
         },
       });
@@ -1040,7 +1041,16 @@ async function stop(
   run.stopFailure = failure ? await blame(ctx, run, failure) : null;
   save(ctx, run);
   const why = run.stopFailure && cause(run.stopFailure.attribution),
-    reason = why ? [what[0], `caused by: ${why}`, ...what.slice(1)] : what,
+    failing =
+      run.stopFailure && existsSync(run.stopFailure.log)
+        ? steps.failureSummary(run.stopFailure.step, readFileSync(run.stopFailure.log, "utf8"))
+        : null,
+    reason = [
+      what[0],
+      ...(failing ? [`failing: ${failing}`] : []),
+      ...(why ? [`caused by: ${why}`] : []),
+      ...what.slice(1),
+    ],
     handoffs = await writeReport(ctx, run, code, reason),
     agent = failure && run.stopFailure ? agentHint(ctx, run, failure, run.stopFailure, why) : [];
   return ended(ctx, run, {
