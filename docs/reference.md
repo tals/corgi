@@ -223,7 +223,7 @@ tmux tab numbering starts at zero; other presets start at one.
 | Jump to attention | `prefix f`, `F1` | `prefix F` | `prefix o` | `Cmd+Shift+U`, `prefix f` |
 | New agent | `prefix A`, `prefix Ctrl+A` | `prefix a` | `prefix a` | `prefix A`, `prefix Ctrl+A` |
 | Mute / unmute sounds | `prefix m` | `prefix m` | `prefix m` | `prefix m` |
-| Mute / unmute voice | `prefix M` | `prefix M` | `prefix M` | `prefix M` |
+| Mute / unmute voice | `prefix V` | `prefix V` | `prefix V` | `prefix V` |
 | Focus left | `prefix ←`, `prefix h` | `prefix ←` | `prefix h` | `Cmd+Opt+←`, `prefix ←`, `prefix h` |
 | Focus down | `prefix ↓`, `prefix j` | `prefix ↓` | `prefix j` | `Cmd+Opt+↓`, `prefix ↓`, `prefix j` |
 | Focus up | `prefix ↑`, `prefix k` | `prefix ↑` | `prefix k` | `Cmd+Opt+↑`, `prefix ↑`, `prefix k` |
@@ -494,7 +494,7 @@ For multiple machines, use `corgi machine add HOST` and `corgi --machine HOST li
 
 `corgi voice setup` installs a local Whisper model; `corgi voice` then types
 what you say into the focused pane, and `corgi voice --ssh HOST` does the same
-for a runtime on another host. It never presses Enter. **prefix M** mutes
+for a runtime on another host. It never presses Enter. **prefix V** mutes
 voice. See the [voice guide](voice.md).
 
 ## Settings and troubleshooting
