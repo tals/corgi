@@ -2187,27 +2187,64 @@ test("an own PR's head branch is rebased into a new local branch and pushed to t
   expect(onFork(w, "feature")).not.toBe(old);
 });
 
+/** A test that fails while mine.txt still says "old" and upstream's up.txt is there. */
+const clashesWithUpstream = {
+  ...stubSteps,
+  test: ["sh", "-c", "echo 'both files'; ! { test -f up.txt && grep -q old mine.txt; }"],
+};
 test("a rebased branch whose tests fail alone keeps its old tip and gets a rebase-checks handoff", async () => {
   const w = world();
-  const old = branch(w, "mine", { "mine.txt": "mine\n" });
+  const old = branch(w, "mine", { "mine.txt": "old\n" });
   upstreamMoves(w, { "up.txt": "up\n" });
-  const h = stubHarness(fixBroken);
-  configureOwn(w, ["mine"], {
-    steps: { ...stubSteps, test: ["sh", "-c", "echo 'both files'; ! { test -f up.txt && test -f mine.txt; }"] },
-    harness: { command: h.command },
-  });
+  configureOwn(w, ["mine"], { steps: clashesWithUpstream });
   const result = await cb(w, "rebase");
   expect(result.code).toBe(0);
   expect(tip(w, "mine")).toBe(old);
   expect(backupOf(w, "mine")).toBeNull();
-  expect(h.calls()).toBe(0);
   expect(result.out).toContain("mine: not rebased: test fails on the rebased branch");
-  expect(result.err).toContain("test failed on mine; running it once more in case the failure is flaky");
+  expect(result.err).toContain("test failed on mine; running what failed once more in case it is flaky");
   expect(handoffs(w)).toEqual(["mine.md"]);
   const handoff = read(join(latest(w), "handoffs", "mine.md"));
   expect(handoff).toContain("- Kind: rebase-checks\n");
   expect(handoff).toContain("(test) fails on mine alone");
   expect(handoff).toContain("both files");
+});
+test("the harness adapts a rebased branch whose checks fail, as a fix commit to review before pushing", async () => {
+  const w = world();
+  branch(w, "mine", { "mine.txt": "old\n" });
+  upstreamMoves(w, { "up.txt": "up\n" });
+  const h = stubHarness(`cp "$1" "$(dirname "$0")/prompt-file"; echo new > mine.txt`);
+  configureOwn(w, ["mine"], { steps: clashesWithUpstream, harness: { command: h.command } });
+  const result = await cb(w, "rebase");
+  expect(result.code).toBe(0);
+  expect(h.calls()).toBe(1);
+  const prompt = read(join(h.bin, "prompt-file"));
+  expect(prompt).toContain("- Branch: mine");
+  expect(prompt).toContain("- Check: test");
+  expect(prompt).toContain("both files");
+  // The branch moved onto upstream, with the fix on top.
+  expect(behindUpstream(w, "mine")).toBe(false);
+  expect(git(w.clone, "log", "-1", "--format=%s%n%(trailers:key=Fixed-By,valueonly)", "mine")).toMatch(
+    /^fix: pass test on upstream [0-9a-f]{7}\nharness/,
+  );
+  expect(git(w.clone, "show", "mine:mine.txt")).toBe("new");
+  const fix = tip(w, "mine")!.slice(0, 7);
+  expect(result.out).toContain(`the harness fixed its checks in ${fix}, review before pushing`);
+  expect(read(join(latest(w), "report.md"))).toContain("mine test rebased-branch fix try 1: accepted");
+});
+test("a harness that can't fix a rebased branch's checks leaves it at its old tip after its tries", async () => {
+  const w = world();
+  const old = branch(w, "mine", { "mine.txt": "old\n" });
+  upstreamMoves(w, { "up.txt": "up\n" });
+  const h = stubHarness("true");
+  configureOwn(w, ["mine"], { steps: clashesWithUpstream, harness: { command: h.command, attempts: 2 } });
+  const result = await cb(w, "rebase");
+  expect(result.code).toBe(0);
+  expect(h.calls()).toBe(2);
+  expect(tip(w, "mine")).toBe(old);
+  expect(result.out).toContain(
+    "mine: not rebased: test fails on the rebased branch; the harness could not fix it in 2 tries",
+  );
 });
 test("a rebased branch whose check passes only when run again moves, with a flaky warning", async () => {
   const w = world();

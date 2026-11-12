@@ -58,6 +58,7 @@ const kindWord: Record<HarnessUse["kind"], string> = {
   conflict: "conflict",
   build: "fix",
   "rebase-conflict": "rebase conflict",
+  "rebase-fix": "rebased-branch fix",
 };
 
 /** The harness calls: a totals line, then one line per call. Tokens of calls
@@ -76,7 +77,14 @@ export function harnessLines(uses: HarnessUse[]): string[] {
   return [
     `- ${uses.length} ${uses.length === 1 ? "call" : "calls"}, ${accepted} accepted, ${totals}`,
     ...uses.map(u => {
-      const what = u.kind === "build" ? u.step : u.kind === "rebase-conflict" ? u.branch : u.patch;
+      const what =
+        u.kind === "build"
+          ? u.step
+          : u.kind === "rebase-conflict"
+            ? u.branch
+            : u.kind === "rebase-fix"
+              ? `${u.branch} ${u.step}`
+              : u.patch;
       return (
         `- ${what} ${kindWord[u.kind]} try ${u.attempt}: ${u.ok ? "accepted" : `rejected: ${u.reason}`}, ` +
         (u.usage ? inOut(u.usage) : "tokens unknown")

@@ -118,7 +118,8 @@ found it.
    (after `bun build.ts --native-only`, which the unit tests need) and
    `bun build.ts --outfile dist/corgi-custom`, which stamps the fork's
    repository into the binary.
-6. When a step fails, runs it once more. If it passes then, the run goes on
+6. When a step fails, runs it once more (for `test`, only the test files that
+   failed; see `{tests}` below). If it passes then, the run goes on
    and the report warns that the step may be flaky. If it fails again, runs it
    on plain upstream in a throwaway worktree first. If upstream fails too, the
    run stops with exit 4 and blames nobody.
@@ -184,7 +185,14 @@ For each branch:
    rerere; other conflicts go to the harness, checked like merge conflicts.
 3. Runs install, typecheck and tests on the rebased branch alone, with the
    same retry for flaky failures (a check that passed only the second time is
-   reported as possibly flaky). The harness never fixes these on your branch.
+   reported as possibly flaky). When a check still fails, the harness gets
+   up to `attempts` tries per branch to adapt the branch to upstream; an
+   accepted change becomes a `fix: pass <check> on upstream <sha>` commit on
+   the branch with a `Fixed-By: harness` trailer, and every check runs again.
+   The result line names that commit for review; it is pushed only with the
+   branch, after the usual question. A branch whose checks still fail is not
+   rebased, and the line says what fails, such as
+   `test fails on the rebased branch: 2 tests fail in src/bindings.test.ts (…)`.
 4. Only when they pass, and only if nobody checked out or moved the branch
    meanwhile, moves the branch to its new tip and, in the same step, keeps the
    tip it rebased as `refs/custom-build/rebase-backup/<branch>` until the branch
@@ -320,6 +328,11 @@ edit it by hand.
   `origin`. `upstream.branch` defaults to `main`.
 - `branch` defaults to `custom-build`.
 - `rebase` is optional: `all` (default), `conflicting` or `off`.
+- `steps` is optional and overrides a step's command, such as
+  `"test": ["sh", "-c", "bun build.ts --native-only && bun test {tests} --timeout 60000"]`.
+  `{outfile}` is the binary to build. `{tests}` is `src`, or, when a test run
+  is retried, the test files that failed; a command without it reruns
+  everything. As a whole argument it becomes one argument per file.
 - `harness.kind` is optional: `claude` or `codex` (see [Agent harness](#agent-harness)).
 - `harness` and `afterBuild` are optional. `afterBuild` runs in the repository
   root after a fully successful run; if it fails, the build still counts. The
@@ -331,8 +344,8 @@ Without a harness, a conflict or a failing step stops the run for you. With
 one, the run goes on unattended. The tool fills a prompt from
 `scripts/custom_build/prompts/`, writes it to the run's `prompts/` directory,
 replaces `{prompt_file}` in the command with its path, and also pipes it on
-stdin. The command runs in the repository root (for a conflict while rebasing
-an own branch, in that branch's throwaway worktree) with `CORGI_CUSTOM_BUILD_KIND`
+stdin. The command runs in the repository root (for a conflict or a failing
+check while rebasing an own branch, in the worktree it is rebased in) with `CORGI_CUSTOM_BUILD_KIND`
 (`conflict` or `build`) and `CORGI_CUSTOM_BUILD_PROMPT` set. The command alone
 decides what the harness may do; give it a tool list like the one above.
 Allowing it to run the tests lets it run any code it writes, and its prompts

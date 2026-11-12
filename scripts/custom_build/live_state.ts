@@ -285,7 +285,11 @@ export function liveEstimate(
   if (e.totalMs === null) return e;
   const totalMs =
     e.totalMs +
-    sum((run.harnessUsage ?? []).filter(u => u.kind !== "rebase-conflict").map(u => Math.round(u.seconds * 1000)));
+    sum(
+      (run.harnessUsage ?? [])
+        .filter(u => u.kind !== "rebase-conflict" && u.kind !== "rebase-fix")
+        .map(u => Math.round(u.seconds * 1000)),
+    );
   return { ...e, totalMs, leftMs: Math.max(0, totalMs - t.activeMs) };
 }
 
@@ -345,7 +349,8 @@ export function rebaseSummary(results: RebaseResult[]): string {
 }
 /** A harness call's stage and item. */
 export function harnessItem(u: HarnessUse): { stage: Stage; id: string } {
-  if (u.kind === "rebase-conflict") return { stage: "rebase", id: u.branch ?? u.patch ?? "" };
+  if (u.kind === "rebase-conflict" || u.kind === "rebase-fix")
+    return { stage: "rebase", id: u.branch ?? u.patch ?? "" };
   if (u.kind === "build") return { stage: "verify", id: u.step ?? "" };
   return { stage: "merge", id: u.patch ?? "" };
 }
