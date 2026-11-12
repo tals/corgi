@@ -2165,6 +2165,22 @@ test("other people's branches and PRs are never rebased and keep their rebase ha
   for (const file of files) expect(read(join(latest(w), "handoffs", file))).toContain("- Kind: rebase\n");
 });
 
+test("status reads origin from git's own ref, so a branch force-pushed by hand isn't diverged", async () => {
+  const w = world();
+  branch(w, "mine", { "mine.txt": "mine\n" });
+  git(w.clone, "push", "-q", "origin", "mine");
+  upstreamMoves(w, { "up.txt": "up\n" });
+  configureOwn(w, ["mine"]);
+  // A run records origin's tip; then the branch is rebased and force-pushed by hand.
+  expect((await cb(w, "rebuild")).code).toBe(0);
+  git(w.clone, "fetch", "-q", "upstream");
+  git(w.clone, "checkout", "-q", "-b", "redo", "upstream/main");
+  commit(w.clone, { "mine.txt": "mine again\n" }, "mine: change");
+  git(w.clone, "branch", "-q", "-f", "mine", "redo");
+  git(w.clone, "push", "-q", "-f", "origin", "mine");
+  const status = await cb(w, "status");
+  expect(status.out).toMatch(/mine +✓ clean +✓ up to date/);
+});
 test("an own PR's head branch is rebased into a new local branch and pushed to the fork; without gh it is not", async () => {
   const w = world();
   const old = ownPullRequest(w, 5, "feature", { "feature.txt": "f\n" });

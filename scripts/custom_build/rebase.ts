@@ -105,6 +105,8 @@ export function select(
   if (problem) return { targets, results, note: problem };
   const fork = git.remoteTarget(e.repo, "origin", "push"),
     url = pushUrl(e.repo),
+    // `origin/<branch>` tracks the fork the tool pushes to only when origin fetches from there too.
+    tracked = git.git(e.repo, ["remote", "get-url", "origin"]).stdout.trim() === url,
     // A PR's head names a GitHub repository; a fork elsewhere can't be it. SSH aliases count by their host.
     host = fork.split("/")[0],
     githubHost = (e.env.GH_HOST || "github.com").toLowerCase();
@@ -146,7 +148,7 @@ export function select(
     }
     first.set(branch, patch);
     try {
-      const r = assess(e, mode, { patch, branch, url, fetch: o.fetch, inWorktree: !!o.inWorktree });
+      const r = assess(e, mode, { patch, branch, url, tracked, fetch: o.fetch, inWorktree: !!o.inWorktree });
       if ("target" in r) targets.push(r.target);
       else results.push(r.result);
     } catch (error) {
@@ -161,7 +163,7 @@ export function select(
 function assess(
   e: Pick<Env, "repo" | "upstream">,
   mode: RebaseMode,
-  o: { patch: string; branch: string; url: string; fetch: boolean; inWorktree: boolean },
+  o: { patch: string; branch: string; url: string; tracked: boolean; fetch: boolean; inWorktree: boolean },
 ): { target: RebaseTarget } | { result: RebaseResult } {
   const { patch, branch } = o,
     result = (from: string, lease: string, rest: Partial<RebaseResult>) => ({
@@ -175,8 +177,15 @@ function assess(
     if (lease) {
       const failed = git.fetch(e.repo, o.url, `+refs/heads/${branch}:${forkRef(branch)}`);
       if (failed) return result("", lease, { reason: `cannot fetch origin/${branch}: ${failed}` });
+      // As `git fetch origin` would, so git and the tool agree on origin's tip.
+      if (o.tracked) git.updateRefs(e.repo, [{ ref: `refs/remotes/origin/${branch}`, value: lease }]);
     } else git.deleteRef(e.repo, forkRef(branch));
-  } else lease = git.revParse(e.repo, forkRef(branch)) ?? git.revParse(e.repo, `refs/remotes/origin/${branch}`) ?? "";
+  } else {
+    // Without a fetch, the freshest record of origin: git's `origin/<branch>`,
+    // which every fetch and push updates (one made by hand too), else the tool's own.
+    const tracking = git.revParse(e.repo, `refs/remotes/origin/${branch}`);
+    lease = (o.tracked ? tracking : null) ?? git.revParse(e.repo, forkRef(branch)) ?? tracking ?? "";
+  }
   const local = git.revParse(e.repo, `refs/heads/${branch}`),
     pushed = lease || null,
     rebased = git.revParse(e.repo, rebasedRef(branch));
