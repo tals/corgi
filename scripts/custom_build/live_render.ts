@@ -744,6 +744,7 @@ export function card(s: LiveState, o: { width: number; color: boolean }): string
         );
     }
   } else {
+    const partial = e.ok && problems(s);
     // Like with like: both runs' active times. The stage clocks hold harness
     // calls that history's merge items leave out.
     const last = s.estimate.last ?? s.base.last,
@@ -756,8 +757,8 @@ export function card(s: LiveState, o: { width: number; color: boolean }): string
       );
     }
     plainLines([
-      e.ok ? { text: "✓", hex: green } : { text: "✗", hex: red },
-      { text: ` ${e.headline}`, tone: "bold" },
+      partial ? { text: "◐", hex: amber } : e.ok ? { text: "✓", hex: green } : { text: "✗", hex: red },
+      { text: ` ${e.headline}${partial ? ", with problems" : ""}`, tone: "bold" },
       { text: ` in ${clock(took)}` },
       ...compare,
     ]);
@@ -789,6 +790,21 @@ export function card(s: LiveState, o: { width: number; color: boolean }): string
           n: merged.filter(it => it.outcome !== null && outcomes.includes(it.outcome)).length,
         }))
         .filter(g => g.n);
+    const branches = s.items.rebase ?? [],
+      branchGroups = branchOutcomes
+        .map(([label, outcome, hex]) => ({ label, hex, n: branches.filter(it => it.outcome === outcome).length }))
+        .filter(g => g.n);
+    if (branchGroups.length) {
+      const line: Line = [{ text: " branches  " }];
+      branchGroups.forEach((g, i) => {
+        line.push(
+          { text: i ? "  " : "" },
+          { text: "■".repeat(Math.min(g.n, 10)), hex: g.hex },
+          { text: ` ${g.n} ${g.label}` },
+        );
+      });
+      out.push(draw(line, width, color));
+    }
     if (groups.length) {
       const line: Line = [{ text: " patches   " }];
       groups.forEach((g, i) => {
@@ -816,12 +832,14 @@ export function card(s: LiveState, o: { width: number; color: boolean }): string
     for (const st of s.stages)
       for (const it of s.items[st.name] ?? [])
         for (const r of it.retries) {
-          const text =
-            r.why === "flaky"
-              ? `${r.detail}${it.state === "done" ? ", passed on retry: may be flaky" : ""}`
-              : r.why === "harness"
-                ? `${it.id}: a try was rejected, ${r.detail}`
-                : `${r.detail}, tried on plain upstream`;
+          // A verify item is its step; any other names what the retry was for.
+          const who = st.name === "verify" ? "" : `${it.id}: `,
+            text =
+              r.why === "flaky"
+                ? `${who}${r.detail}${it.state === "done" ? ", passed on retry: may be flaky" : ""}`
+                : r.why === "harness"
+                  ? `${it.id}: a try was rejected, ${r.detail}`
+                  : `${r.detail}, tried on plain upstream`;
           out.push(draw([{ text: " " }, { text: "↻", hex: amber }, { text: ` retried ${text}` }], width, color));
         }
   }
@@ -832,6 +850,20 @@ export function card(s: LiveState, o: { width: number; color: boolean }): string
       { text: e.report, url: e.report.startsWith("/") ? pathToFileURL(e.report).href : null },
     ]);
   return out;
+}
+
+/** A rebase stage's outcomes in the card's branch line, worst news last. */
+const branchOutcomes: [string, string, string][] = [
+  ["rebased", "rebased", green],
+  ["current", "current", gray],
+  ["not rebased", "not-rebased", red],
+  ["left alone", "left-alone", amber],
+];
+/** Whether a run that ended well left work undone: an own branch that couldn't
+ * be rebased, or, when rebasing was the whole run, one it left alone. */
+export function problems(s: LiveState): boolean {
+  const outcomes = (s.items.rebase ?? []).map(it => it.outcome);
+  return outcomes.includes("not-rebased") || (s.command === "rebase" && outcomes.includes("left-alone"));
 }
 
 /** Detail lines of an outcome (`  report: path`) by their label, lined up on a card. */
@@ -927,4 +959,79 @@ export function taskFrame(
     );
   }
   return lines;
+}
+
+/** The fireworks that open the card of a run that fully succeeded. */
+export const finaleRows = 5,
+  finaleFrameMs = 70;
+const sparkColors = [violet, amber, "#7dcfff", red, green];
+/** Where a burst's sparks fly: twelve directions round a circle. */
+const sparkAngles = Array.from({ length: 12 }, (_, i) => (i * Math.PI) / 6);
+/** A spark by its age: bright, then fading, then gone. */
+const sparkAge = ["✦", "✦", "✧", "·"];
+/** A spark at `radius` from a burst at (x, y): columns doubled so the burst
+ * looks round in terminal cells, and sparks sink as they age. */
+const sparkAt = (x: number, y: number, angle: number, radius: number, sink: number) => ({
+  x: x + Math.round(Math.cos(angle) * radius * 2),
+  y: y + Math.round(Math.sin(angle) * radius * 0.75) + sink,
+});
+/** Fireworks frame by frame, `finaleRows` high: rockets rise and burst into
+ * sparks that fade, a beat apart; the last frame, a few sparks left, is what
+ * stays above the card. Seeded, so a seed always draws the same show. */
+export function fireworks(width: number, color: boolean, seed = 1): string[][] {
+  const w = Math.max(0, Math.min(Math.floor(width), 64));
+  if (w < 12) return [];
+  let state = seed >>> 0 || 1;
+  const rand = (n: number) => {
+    state = (Math.imul(state, 1103515245) + 12345) >>> 0;
+    return (state >>> 8) % n;
+  };
+  const count = w >= 40 ? 3 : w >= 24 ? 2 : 1,
+    rockets = Array.from({ length: count }, (_, i) => {
+      const x = Math.round(((i + 1) * w) / (count + 1)) + rand(5) - 2,
+        top = rand(2),
+        launch = i * 5;
+      return { x, top, launch, burst: launch + (finaleRows - 1 - top), hex: sparkColors[rand(sparkColors.length)] };
+    }),
+    end = Math.max(...rockets.map(r => r.burst)) + sparkAge.length + 1;
+  type Cell = { ch: string; hex?: string; dim?: boolean } | null;
+  const scene = (frame: number, final: boolean): string[] => {
+    const grid: Cell[][] = Array.from({ length: finaleRows }, () => Array<Cell>(w).fill(null)),
+      put = (x: number, y: number, cell: Cell) => {
+        if (x >= 0 && x < w && y >= 0 && y < finaleRows) grid[y][x] = cell;
+      };
+    for (const r of rockets) {
+      if (final) {
+        // What's left once the show is over: a few embers round each burst.
+        sparkAngles.forEach((angle, i) => {
+          if (i % 3 === 0) return;
+          const at = sparkAt(r.x, r.top + 1, angle, 2.5, 1);
+          put(at.x, at.y, { ch: i % 2 ? "✧" : "·", hex: r.hex, dim: i % 2 === 0 });
+        });
+        continue;
+      }
+      if (frame < r.launch) continue;
+      if (frame < r.burst) {
+        const y = finaleRows - 1 - (frame - r.launch);
+        put(r.x, y, { ch: "│", hex: r.hex });
+        put(r.x, y + 1, { ch: "╵", dim: true });
+        continue;
+      }
+      const age = frame - r.burst;
+      if (age >= sparkAge.length) continue;
+      if (age === 0) put(r.x, r.top + 1, { ch: "✸", hex: r.hex });
+      for (const angle of sparkAngles) {
+        const at = sparkAt(r.x, r.top + 1, angle, age + 1, age >> 1);
+        put(at.x, at.y, { ch: sparkAge[age], hex: r.hex, dim: age === sparkAge.length - 1 });
+      }
+    }
+    return grid.map(row =>
+      draw(
+        row.map(cell => (cell ? { text: cell.ch, hex: cell.hex, dim: cell.dim } : { text: " " })),
+        width,
+        color,
+      ).trimEnd(),
+    );
+  };
+  return [...Array.from({ length: end }, (_, f) => scene(f, false)), scene(end, true)];
 }

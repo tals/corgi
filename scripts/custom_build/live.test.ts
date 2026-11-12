@@ -316,18 +316,18 @@ test("a card that fails is replaced by the restore and the plain outcome", async
   expect(out).toEndWith(fallback(e, null));
 });
 
-test("the worker reports a card that failed, and one that didn't", () => {
+test("the worker reports a card that failed, and one that didn't", async () => {
   for (const [card, ok] of [
     [failing, false],
     [undefined, true],
   ] as const) {
     const posted: unknown[] = [],
       port = { postMessage: m => void posted.push(m) } as Port;
-    serve(port, o => new View({ ...o, write: () => {}, ...(card ? { card } : {}) }));
+    serve(port, o => new View({ ...o, write: () => {}, wait: async () => {}, ...(card ? { card } : {}) }));
     const send = (m: unknown) => port.onmessage({ data: m } as MessageEvent);
-    send({ t: "init", shared: new SharedArrayBuffer(12), verbose: false, color: true });
-    send({ t: "event", e: begin(), at: Date.now() });
-    send({ t: "finish", e: end() });
+    await send({ t: "init", shared: new SharedArrayBuffer(12), verbose: false, color: true });
+    await send({ t: "event", e: begin(), at: Date.now() });
+    await send({ t: "finish", e: end() });
     expect(posted).toEqual([{ t: "finished", ok }]);
   }
 });
@@ -375,4 +375,31 @@ test("an interrupted git call under a live view stops there and restores the ter
   expect(p.exitCode).toBe(130);
   expect(p.stderr.toString()).not.toContain("went on");
   expect(p.stdout.toString()).toEndWith(term.restore());
+});
+
+test("a run that fully succeeded ends with fireworks above its card; any other ends at once", async () => {
+  const show = async (o: { finale?: boolean; color?: boolean; e?: Partial<Extract<LiveEvent, { t: "end" }>> }) => {
+    let out = "",
+      frames = 0;
+    const view = new View({
+      write: s => void (out += s),
+      rows: () => 40,
+      cols: () => 80,
+      verbose: false,
+      color: o.color ?? true,
+      finale: o.finale ?? true,
+      wait: async () => void frames++,
+    });
+    view.event(begin(), 0);
+    await view.finishShow(end(o.e));
+    return { frames, out: out.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g, "") };
+  };
+  const shown = await show({});
+  expect(shown.frames).toBeGreaterThan(10);
+  // The embers stay above the card.
+  const card = shown.out.slice(shown.out.lastIndexOf("✓ built"));
+  expect(shown.out.slice(0, shown.out.lastIndexOf("✓ built"))).toMatch(/✧[^│]*$/);
+  expect(card).toContain("report");
+  for (const o of [{ finale: false }, { color: false }, { e: { ok: false, code: 3, headline: "stopped" } }])
+    expect((await show(o)).frames).toBe(0);
 });

@@ -257,7 +257,12 @@ shorter may push the top of the view into the scrollback before it is redrawn.
 
 When the run ends, the view turns into a card that stays in the scrollback,
 with everything the plain output prints (push commands, handoffs, notes, the
-report) and its `warning:` lines. An error that ends the command shows on the
+report) and its `warning:` lines. Its headline says how it went: `✓` when
+everything succeeded, `◐` in amber when the run finished but left work undone
+(an own branch that couldn't be rebased, or, for `rebase`, one it left alone,
+counted on a `branches` line), `✗` when it stopped. A fully successful run
+opens its card with a short burst of fireworks, five rows high; the last
+frame stays above the card. An error that ends the command shows on the
 card too, on stdout, rather than on stderr. Patch names link to their pages and
 steps to their logs (OSC 8).
 
