@@ -44,11 +44,14 @@ export function writeModel(
 function defaultLabel(choice: Choice): string {
   return choice.default_effort ? `Default (${effort.label(choice.default_effort)})` : "Default";
 }
-type Entry = { values: Choice[]; pending: boolean; failed: boolean; checked: number };
-/** Viewer-local catalogs survive closing a dropdown or the manager. */
+type Entry = { values: Choice[]; pending: boolean; failed: boolean; checked: number; stale: boolean };
+/** Viewer-local catalogs survive closing a dropdown or the manager. Each is
+ * read once, and again after Find agents (`expire`), a failure, or `fresh_ms`. */
 export class Cache {
-  static fresh_ms = 5 * 60_000;
   static retry_ms = 30_000;
+  /** How long a background read waits: a failed list's retry when no one is
+   * looking, and the chat pane's refresh. */
+  static background_ms = 5 * 60_000;
   private entries = new Map<string, Entry>();
   private queue: { provider: Provider; account: string; cwd: string; entry: Entry }[] = [];
   private running = 0;
@@ -58,22 +61,30 @@ export class Cache {
     private changed: () => void,
     private reader = read,
     private now = Date.now,
+    private fresh_ms = Infinity,
   ) {}
-  /** A catalog, read again once it's stale; a failed one is retried sooner
-   * when someone is looking (`retry_ms`) than in the background. */
+  /** A catalog for `cwd`, the workspace's folder: read the first time it's
+   * asked for, and again once it's stale or `retry_ms` after it failed. */
   get(provider: Provider, account: string, cwd = "", retry_ms = Cache.retry_ms): Entry {
     const key = JSON.stringify([provider, account, cwd]);
     let entry = this.entries.get(key);
     if (!entry) {
-      entry = { values: [], pending: false, failed: false, checked: -Infinity };
+      entry = { values: [], pending: false, failed: false, checked: -Infinity, stale: true };
       this.entries.set(key, entry);
     }
-    if (!this.closed && !entry.pending && this.now() - entry.checked >= (entry.failed ? retry_ms : Cache.fresh_ms)) {
+    const due = entry.stale || this.now() - entry.checked >= (entry.failed ? retry_ms : this.fresh_ms);
+    if (!this.closed && !entry.pending && due) {
       entry.pending = true;
+      entry.stale = false;
       this.queue.push({ provider, account, cwd, entry });
       this.drain();
     }
     return entry;
+  }
+  /** Reads every catalog again the next time it's asked for; until then it
+   * shows what it had. */
+  expire(): void {
+    for (const entry of this.entries.values()) entry.stale = true;
   }
   close(): void {
     this.closed = true;

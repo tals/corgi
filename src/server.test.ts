@@ -465,6 +465,36 @@ test("model requests use their workspace or cwd and keep legacy requests valid",
   }
 });
 
+test("a model read doesn't hold its connection, and requests for the same list share it", async () => {
+  const { server, dispose } = fixture(),
+    pending = Promise.withResolvers<agentModels.Choice[]>(),
+    reader = spyOn(agentModels, "read").mockReturnValue(pending.promise),
+    socket = new client_socket.Recorder(),
+    cl = server.addClient(socket, false);
+  try {
+    cl.pending.push(
+      { op: "launcher.models", row: "codex", protocol: protocol.version, request_id: 17 },
+      { op: "launcher.models", row: "codex", protocol: protocol.version, request_id: 18 },
+      { op: "ping", protocol: protocol.version, request_id: 19 },
+    );
+    cl.resume();
+    for (let i = 0; i < 3; i++) await (server as any).jobs;
+    expect(socket.lines()).toEqual([{ ok: true, pid: process.pid, request_id: 19 }]);
+    expect(reader).toHaveBeenCalledTimes(1);
+    pending.resolve([{ id: "gpt", name: "GPT" }]);
+    await Bun.sleep(0);
+    expect(socket.lines().slice(1)).toEqual([
+      { ok: true, models: [{ id: "gpt", name: "GPT" }], request_id: 17 },
+      { ok: true, models: [{ id: "gpt", name: "GPT" }], request_id: 18 },
+    ]);
+  } finally {
+    pending.resolve([]);
+    reader.mockRestore();
+    cl.close();
+    dispose();
+  }
+});
+
 test("pending model discovery releases the shared request queue", async () => {
   const { server, dispose } = fixture(),
     messages: unknown[] = [],
@@ -489,6 +519,7 @@ test("pending model discovery releases the shared request queue", async () => {
     pending.resolve([{ id: "test", name: "Test" }]);
     await (server as any).jobs;
     await pending.promise;
+    await Bun.sleep(0);
     expect(messages).toEqual([{ ok: true, models: [{ id: "test", name: "Test" }], request_id: 17 }]);
   } finally {
     pending.resolve([]);
@@ -562,18 +593,22 @@ for (const request_id of [undefined, 41])
         await (server as any).jobs;
         server.pause();
         expect(reader.mock.calls[0][2].aborted).toBe(true);
-        expect(socket.text).toBe(JSON.stringify({ err: "Cancelled", request_id }) + "\n");
-        expect(cl.waiting).toBe(true);
+        await Bun.sleep(0);
+        const errors = () => socket.lines().filter(r => !r.ok);
+        expect(errors()).toEqual([{ err: "Cancelled", request_id }]);
         if (failure) pending.reject(Error("LateFailure"));
         else pending.resolve([{ id: "late", name: "Late" }]);
         await pending.promise.catch(() => {});
-        expect(socket.text).toBe(JSON.stringify({ err: "Cancelled", request_id }) + "\n");
+        await Bun.sleep(0);
+        expect(errors()).toEqual([{ err: "Cancelled", request_id }]);
         // A failed handoff resumes the client without an extra reply or a stuck busy flag.
         cl.resume();
         await (server as any).jobs;
+        await Bun.sleep(0);
+        await (server as any).jobs;
         const replies = socket.lines();
         expect(replies).toHaveLength(2);
-        expect(replies[1].ok).toBe(true);
+        expect(replies.filter(r => r.ok)).toHaveLength(1);
       } finally {
         pending.resolve([]);
         reader.mockRestore();

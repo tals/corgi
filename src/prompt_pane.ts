@@ -153,7 +153,8 @@ export class Models {
     private context: Context,
     read = agentModels.read,
   ) {
-    this.cache = new agentModels.Cache(() => this.feed(), read);
+    // A pane has no Find agents button; it reads its lists again on a timer.
+    this.cache = new agentModels.Cache(() => this.feed(), read, Date.now, agentModels.Cache.background_ms);
   }
   poll(now: number): void {
     if (this.closed || this.reading || now - this.read_at < (this.preview?.pending === false ? 5000 : 1000)) return;

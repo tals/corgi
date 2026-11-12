@@ -697,7 +697,11 @@ export class Endpoint {
     const view = this.view();
     if (!same) {
       this.focus = null;
-      if (this.shown) view.closeMachineUi();
+      if (this.shown) {
+        view.closeMachineUi();
+        // Its agents may have been updated: read their model lists again.
+        view.model_cache.expire();
+      }
       this.machine.forget();
       this.workspaces = [];
       this.workspaces_instance = this.instance;

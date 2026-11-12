@@ -129,17 +129,21 @@ test("a machine keeps its data across reconnects to its daemon but not the daemo
   const disconnect = () => Reflect.get(endpoint, "disconnect").call(endpoint);
   try {
     await connect();
-    const runtime = endpoint.machine.runtime;
+    const runtime = endpoint.machine.runtime,
+      expire = spyOn(endpoint.controller!.model_cache, "expire");
     endpoint.machine.last_control = 5n;
     disconnect();
     await connect();
     expect(endpoint.machine.runtime).toBe(runtime);
+    expect(expire).not.toHaveBeenCalled();
     // Each connection numbers its controls from the start.
     expect(endpoint.machine.last_control).toBe(0n);
     instance = "second";
     disconnect();
     await connect();
     expect(endpoint.machine.runtime).not.toBe(runtime);
+    // Its agents may differ, and so may their models.
+    expect(expire).toHaveBeenCalledTimes(1);
   } finally {
     await endpoint.close();
     server.close();

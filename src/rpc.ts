@@ -6,6 +6,8 @@ import * as protocol from "./protocol";
 import * as wire_compression from "./wire_compression";
 import * as websocket_socket from "./websocket_socket";
 import type { Stats } from "./connection_stats";
+/** A request still unanswered this long fails its connection, however lively. */
+const wait_ms = 120_000;
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -34,6 +36,8 @@ export class Connection {
   private listeners = new Set<(event: protocol.Event) => void>();
   private closedListeners = new Set<() => void>();
   private readonly timeout: number | (() => number);
+  /** When bytes last arrived, in ms. */
+  private heard = performance.now();
   get timeout_ms(): number {
     return typeof this.timeout === "function" ? this.timeout() : this.timeout;
   }
@@ -62,6 +66,7 @@ export class Connection {
     this.requestIds = init.requestIds ?? true;
     this.socket = typeof target === "string" ? new websocket_socket.Socket(target) : target;
     this.socket.on("data", (chunk: Buffer) => {
+      this.heard = performance.now();
       this.stats?.traffic("received", chunk.length);
       this.read(chunk);
     });
@@ -214,8 +219,21 @@ export class Connection {
     const id = this.requestIds ? this.next++ : 0;
     return new Promise((resolve, reject) => {
       const timeout = this.timeout_ms;
-      const timer = timeout > 0 ? setTimeout(() => this.fail(Error("RequestTimedOut")), timeout) : null;
       const started = performance.now();
+      // A slow reply is fine while the daemon is heard from: the viewer's
+      // stream hears it several times a second. Silence for `timeout_ms`, or
+      // a reply still missing at `wait_ms`, fails the connection, so its
+      // run-once requests are sent again after it reconnects.
+      const check = (): ReturnType<typeof setTimeout> | null => {
+        const silence = this.timeout_ms;
+        if (silence <= 0) return null;
+        const now = performance.now(),
+          left = Math.min(silence - (now - Math.max(this.heard, started)), wait_ms - (now - started));
+        if (left > 0) return setTimeout(() => (timer = check()), left);
+        this.fail(Error("RequestTimedOut"));
+        return null;
+      };
+      let timer = timeout > 0 ? check() : null;
       if (this.stats) this.stats.pending++;
       const done = (failed: boolean) => {
         if (this.stats) {

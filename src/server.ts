@@ -98,7 +98,8 @@ export class Server {
   private bound: socket_server.Bound | null = null;
   private loop = new ReadyLoop();
   private jobs: Promise<void> = Promise.resolve();
-  private modelReads = new Map<Client, () => void>();
+  /** Model reads under way, by provider, account and folder; a request for the same list joins one. */
+  private modelReads = new Map<string, { quit: ModelQuit; done: Promise<agentModels.Choice[]> }>();
   /** Deferred replies, each with whether it changes state and how to answer it early. */
   private deferred = new Map<Promise<void>, { busy: protocol.Busy | null; drop: () => void }>();
   private timer?: ReturnType<typeof setInterval>;
@@ -515,8 +516,8 @@ export class Server {
     clearInterval(this.timer);
     this.signins.destroy();
     for (const c of this.clients) c.pause();
-    // Queue cancellation before handoff captures output.
-    for (const cancel of this.modelReads.values()) cancel();
+    // Their requests are answered `Cancelled`, or `Reloading` by a reload.
+    for (const read of this.modelReads.values()) read.quit.signal();
     for (const p of this.runtime.panes) p.terminal.pause();
     for (const s of this.runtime.sessions) s.pause();
   }
@@ -540,13 +541,12 @@ export class Server {
         this.enqueue(async () => {
           if (cl.dead && cl.pending[0]?.op !== "hook") return;
           const v = cl.take();
-          let deferred = false;
           let reply = new Reply(cl);
           try {
             reply = new Reply(cl, protocol.requestId(v));
             const seq = numbered(v, "seq");
             if (seq !== null && cl.link) await this.once(cl, cl.link, seq, v, reply);
-            else deferred = (await this.request(cl, v, reply)) === "deferred";
+            else await this.request(cl, v, reply);
           } catch (error) {
             const err = error instanceof Error ? error.message : String(error);
             // An invalid id is echoed as sent, so its client can still match the error.
@@ -554,7 +554,7 @@ export class Server {
               cl.queue({ err, request_id: v.request_id });
             else reply.send({ err });
           } finally {
-            if (!deferred && !cl.headless_start && !cl.held) cl.done();
+            if (!cl.headless_start && !cl.held) cl.done();
           }
           this.publish();
         });
@@ -563,7 +563,6 @@ export class Server {
         this.closing?.(client);
         if (this.handed_off) return;
         if (client.viewer) viewer.data(this, client)?.close();
-        this.modelReads.get(client)?.();
         if (client.headless_start) {
           const session = this.runtime.sessions.find(s => s.id === client.headless_start!.id);
           if (session && !session.session) {
@@ -787,11 +786,7 @@ export class Server {
     for (const [i, l] of detached.entries())
       if (now - l.detached_at! > link.grace_ms || detached.length - i > link.detached_limit) this.links.delete(l.id);
   }
-  async request(
-    cl: Client,
-    value: unknown,
-    reply = new Reply(cl, protocol.requestId(value)),
-  ): Promise<void | "deferred"> {
+  async request(cl: Client, value: unknown, reply = new Reply(cl, protocol.requestId(value))): Promise<void> {
     const op = protocol.parse(value);
     if (!op) throw Error("UnknownOperation");
     const v = json.object(value);
@@ -911,25 +906,11 @@ export class Server {
           cwd = q.cwd || (q.workspace ? this.runtime.getWorkspace(q.workspace).cwd : process.cwd()),
           agent = launcherConfig.get(this.runtime, q.row);
         if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
-        if (!agent.provider) throw Error("CustomCommandOptions");
-        const quit = new ModelQuit();
-        let settled = false;
-        const finish = (result: { ok: true; models: agentModels.Choice[] } | { err: string }) => {
-          if (settled) return;
-          settled = true;
-          this.modelReads.delete(cl);
-          clearTimeout(timeout);
-          quit.signal();
-          reply.send(result);
-          cl.done();
-        };
-        const timeout = setTimeout(() => finish({ err: "TimedOut" }), 15000);
-        this.modelReads.set(cl, () => finish({ err: "Cancelled" }));
-        void agentModels.read(agent.provider, agent.account, quit, cwd).then(
-          models => finish({ ok: true, models }),
-          error => finish({ err: error instanceof Error ? error.message : String(error) }),
-        );
-        return "deferred";
+        const provider = agent.provider;
+        if (!provider) throw Error("CustomCommandOptions");
+        // A read takes seconds; later requests on the connection don't wait on it.
+        this.defer(cl, reply, null, async () => ({ models: await this.readModels(provider, agent.account, cwd) }));
+        return;
       }
       case "session.list":
         reply.send({ ok: true, result: session.snapshot(this.runtime), viewers: viewer.viewers(this) });
@@ -1250,6 +1231,32 @@ export class Server {
         return;
       }
     }
+  }
+  /** `account`'s models in `cwd`. The read starts the provider's CLI; a
+   * request for the same list joins it. It ends within 15 s, or when a
+   * handoff pauses the daemon. */
+  private readModels(provider: Provider, account: string, cwd: string): Promise<agentModels.Choice[]> {
+    const key = JSON.stringify([provider, account, cwd]),
+      running = this.modelReads.get(key);
+    if (running) return running.done;
+    const quit = new ModelQuit();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = Promise.race([
+      agentModels.read(provider, account, quit, cwd),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(Error("TimedOut"));
+          quit.signal();
+        }, 15_000);
+        quit.abortSignal.addEventListener("abort", () => reject(Error("Cancelled")));
+      }),
+    ]).finally(() => {
+      clearTimeout(timer);
+      quit.signal();
+      this.modelReads.delete(key);
+    });
+    this.modelReads.set(key, { quit, done });
+    return done;
   }
   /** Replies once `work` finishes, letting the client's later requests run
    * meanwhile. A request without an id holds them, so its replies stay in order.
