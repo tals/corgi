@@ -5,7 +5,7 @@
 import { writeSync } from "node:fs";
 import tty from "node:tty";
 import type { LiveEvent } from "./live_events";
-import { card, clock, frame } from "./live_render";
+import { card, clock, frame, outcomeCard } from "./live_render";
 import { apply, initial, type LiveState } from "./live_state";
 import { Screen } from "./screen";
 import * as term from "./term";
@@ -26,6 +26,8 @@ export type ViewOptions = {
   cols: () => number;
   verbose: boolean;
   color: boolean;
+  /** The command, for the card of an end without a run (an error before it began). */
+  command?: string;
   now?: () => number;
   /** Test hook: draws the card in place of `live_render.card`. */
   card?: typeof card;
@@ -108,9 +110,12 @@ export class View {
     if (ms > notifyAfterMs) out += term.notify(notice(s, e, ms));
     if (out) this.o.write(out);
     this.done = true;
-    // Without a begin there is no run to show: the outcome as plain output prints it.
-    const lines =
-      s.command === null ? plain(e) : (this.o.card ?? card)(s, { width: this.o.cols(), color: this.o.color });
+    // Without a begin there is no run to show: the outcome's card alone.
+    const width = this.o.cols(),
+      lines =
+        s.command === null
+          ? outcomeCard(e, { width, color: this.o.color, command: this.o.command ?? null })
+          : (this.o.card ?? card)(s, { width, color: this.o.color });
     this.screen.finish(lines);
   }
 
@@ -186,7 +191,7 @@ function notice(s: LiveState, e: End, ms: number): string {
 
 /** What `live.ts` sends the worker. */
 export type ToWorker =
-  | { t: "init"; shared: SharedArrayBuffer; verbose: boolean; color: boolean }
+  | { t: "init"; shared: SharedArrayBuffer; verbose: boolean; color: boolean; command?: string }
   | { t: "event"; e: LiveEvent; at: number }
   | { t: "ask"; question: string }
   | { t: "answered"; answer: string | null }
@@ -288,6 +293,7 @@ export function serve(port: Port, make: (o: ViewOptions) => View = o => new View
             cols: () => size.cols,
             verbose: m.verbose,
             color: m.color,
+            ...(m.command ? { command: m.command } : {}),
           });
           timer = setInterval(() => {
             remeasure();

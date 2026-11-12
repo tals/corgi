@@ -43,7 +43,20 @@ export type Context = {
   color?: boolean;
   /** Receives the live events of `rebuild`, `rebase` and `continue`; plain output stays as it is. */
   signal?: Sink;
+  /** Receives `rollback`'s tasks as they start and end, for its checklist on a terminal. */
+  task?: (id: string, state: "running" | "done" | "skipped" | "failed", detail?: string) => void;
 };
+/** An error with lines that explain it, shown below its message; a card
+ * leads with the shorter `headline` when there is one. */
+export class Explained extends Error {
+  constructor(
+    message: string,
+    readonly lines: string[],
+    readonly headline?: string,
+  ) {
+    super(message);
+  }
+}
 export type Code = 0 | 1 | 2 | 3 | 4 | 5;
 /** How a command ended; `lines` are the summary for stdout. */
 export type Outcome = { code: Code; lines: string[] };
@@ -278,8 +291,8 @@ export async function rebuild(
 ): Promise<Outcome> {
   const { repo, config } = ctx;
   git.requireVersion(repo);
-  if (configFile.loadRun(ctx.dir))
-    throw Error("a run is stopped or in progress; resume it with `continue` or undo it with `rollback`");
+  const busy = configFile.loadRun(ctx.dir);
+  if (busy) throw inProgress(ctx, busy);
   if (!git.isClean(repo)) throw Error("tracked files have uncommitted changes; commit or stash them first");
   if (config.branch === config.upstream.branch || !git.validBranchName(repo, config.branch))
     throw Error(`${config.branch} can't be the custom build branch`);
@@ -645,13 +658,34 @@ function stepVars(ctx: Context): steps.Vars {
 }
 async function restoreDependencies(ctx: Context, log: string) {
   ctx.progress("restoring dependencies after rollback");
+  ctx.task?.("install", "running", "restoring dependencies");
   const ok = await steps.runStep(steps.commands("install", ctx.config, stepVars(ctx)), {
     cwd: ctx.repo,
     log,
     env: ctx.env,
     echo: ctx.echo,
   });
-  if (!ok) throw Error(`dependency restore failed after rollback; see ${log}`);
+  if (!ok) {
+    ctx.task?.("install", "failed", `failed; see ${log}`);
+    throw Error(`dependency restore failed after rollback; see ${log}`);
+  }
+  ctx.task?.("install", "done", "dependencies restored");
+}
+/** Puts back the binary saved as `from` (moved away unless `keep`); without
+ * one, the run's binary goes since there was none before. */
+function restoreBinary(ctx: Context, from: string | null, keep: boolean) {
+  const target = binary(ctx),
+    shown = relative(ctx.repo, target);
+  ctx.task?.("binary", "running");
+  if (from && existsSync(from)) {
+    mkdirSync(join(ctx.repo, "dist"), { recursive: true });
+    replaceFile(from, target);
+    if (!keep) rmSync(from, { force: true });
+    ctx.task?.("binary", "done", `${shown} restored`);
+  } else if (!from && existsSync(target)) {
+    rmSync(target, { force: true });
+    ctx.task?.("binary", "done", `${shown} removed; there was none before`);
+  } else ctx.task?.("binary", "skipped", "no saved binary");
 }
 async function verifyLoop(ctx: Context, run: RunState): Promise<Outcome | null> {
   const { repo } = ctx;
@@ -1288,10 +1322,16 @@ export async function rollback(ctx: Context): Promise<Outcome> {
   if (run?.kind === "rebase") {
     // Interrupted before it recorded a result, the branch at the cursor may have
     // moved in its own worktree without passing its checks.
+    ctx.task?.("undo", "running");
     const active = run.rebaseStop ? null : run.rebaseTargets?.[run.rebaseCursor ?? 0],
       undone = active ? rebase.undoInterrupted(active) : null;
     if (run.rebaseStop) rebase.abandon({ repo: ctx.repo }, run.rebaseStop);
     rebase.cleanLeftovers({ repo: ctx.repo, workDir: work(ctx) });
+    ctx.task?.(
+      "undo",
+      "done",
+      run.rebaseStop ? `${run.rebaseStop.target.branch}'s rebase abandoned` : "rebase run ended",
+    );
     configFile.clearRun(ctx.dir);
     if (run.timing) recordTimings(ctx, run, true);
     // A stopped run offers no push; the branches it moved still need one.
@@ -1316,18 +1356,23 @@ export async function rollback(ctx: Context): Promise<Outcome> {
       );
     run.phase = "rollback";
     save(ctx, run);
+    ctx.task?.("undo", "running");
     if (git.mergeInProgress(repo)) git.git(repo, ["merge", "--abort"]);
-    if (run.startTip) git.must(repo, ["checkout", "--quiet", "-f", "-B", config.branch, run.startTip]);
-    else {
+    if (run.startTip) {
+      git.must(repo, ["checkout", "--quiet", "-f", "-B", config.branch, run.startTip]);
+      ctx.task?.("undo", "done", `${config.branch} back at ${short(run.startTip)}`);
+    } else {
       git.must(repo, ["checkout", "--quiet", "-f", run.startBranch ?? run.startHead]);
-      if (run.startBranch !== config.branch && git.branchExists(repo, config.branch))
-        git.must(repo, ["branch", "-D", config.branch]);
+      const drop = run.startBranch !== config.branch && git.branchExists(repo, config.branch);
+      if (drop) git.must(repo, ["branch", "-D", config.branch]);
+      ctx.task?.(
+        "undo",
+        "done",
+        `${run.startBranch ?? short(run.startHead)} checked out${drop ? `, ${config.branch} deleted` : ""}`,
+      );
     }
-    if (run.startBinary && existsSync(run.startBinary)) {
-      mkdirSync(join(repo, "dist"), { recursive: true });
-      replaceFile(run.startBinary, binary(ctx));
-      rmSync(run.startBinary, { force: true });
-    } else if (!run.startBinary) rmSync(binary(ctx), { force: true });
+    if (run.startBinary && existsSync(run.startBinary)) restoreBinary(ctx, run.startBinary, false);
+    else if (!run.startBinary) restoreBinary(ctx, null, false);
     await restoreDependencies(ctx, join(run.reportDir, "steps", "rollback-install.log"));
     configFile.clearRun(ctx.dir);
     if (run.timing) recordTimings(ctx, run, true);
@@ -1344,11 +1389,12 @@ export async function rollback(ctx: Context): Promise<Outcome> {
     prevBinary = `${binary(ctx)}.prev`;
   if (!prev && !existsSync(prevBinary)) throw Error("nothing to roll back to: no stopped run and no earlier build");
   if (!git.isClean(repo)) throw Error("tracked files have uncommitted changes; commit or stash them first");
-  if (prev) git.must(repo, ["checkout", "--quiet", "-B", config.branch, prev]);
-  if (existsSync(prevBinary)) {
-    mkdirSync(join(repo, "dist"), { recursive: true });
-    replaceFile(prevBinary, binary(ctx));
+  if (prev) {
+    ctx.task?.("undo", "running");
+    git.must(repo, ["checkout", "--quiet", "-B", config.branch, prev]);
+    ctx.task?.("undo", "done", `${config.branch} back at ${config.branch}-prev (${short(prev)})`);
   }
+  if (existsSync(prevBinary)) restoreBinary(ctx, prevBinary, true);
   if (prev)
     await restoreDependencies(ctx, join(ctx.dir, "reports", `rollback-${stamp(ctx.now())}`, "steps", "install.log"));
   return {
@@ -1380,33 +1426,60 @@ export function knownRefs(ctx: Context): { display: string; ref: string | null }
   });
 }
 
+/** Where a stopped run is, and the commands that go on from there. A run file
+ * cut short (an interrupted save, an older tool) still gets an answer. */
+function whereStopped(run: RunState): { where: string; next: string } {
+  const at = run.plan?.[run.cursor],
+    where =
+      run.kind === "rebase"
+        ? `rebasing ${run.rebaseStop?.target.branch ?? "own branches"}${run.rebaseStop ? ` in ${run.rebaseStop.worktree}` : ""}`
+        : run.phase === "merge"
+          ? at
+            ? `merging ${at.display} (${run.cursor + 1} of ${run.plan.length})`
+            : "merging patches"
+          : run.phase === "verify"
+            ? `verifying (${run.step ?? "install"})`
+            : run.phase === "rollback"
+              ? "rolling back and restoring dependencies"
+              : "writing the report",
+    next =
+      run.kind === "rebase"
+        ? run.rebaseStop
+          ? "scripts/custom-build continue, scripts/custom-build rebase --skip-branch, or scripts/custom-build rollback"
+          : "scripts/custom-build continue, or scripts/custom-build rollback"
+        : run.phase === "rollback"
+          ? "scripts/custom-build continue (finishes rollback)"
+          : run.stopped?.code === 4
+            ? "scripts/custom-build rollback, then rebuild once upstream is fixed"
+            : "scripts/custom-build continue, or scripts/custom-build rollback";
+  return { where, next };
+}
+/** The refusal to start while `run` is stopped or in progress: where it is,
+ * since when, and what goes on from there. */
+function inProgress(ctx: Context, run: RunState): Explained {
+  const { where, next } = whereStopped(run),
+    since = run.startedAt ? Date.parse(run.startedAt) : NaN,
+    ago = Number.isNaN(since) ? "" : `, started ${span(ctx.now().getTime() - since)} ago`;
+  return new Explained(
+    "a run is stopped or in progress; resume it with `continue` or undo it with `rollback`",
+    [`  stopped: while ${where}${ago}`, ...(run.reportDir ? [`  report: ${run.reportDir}`] : []), `  next: ${next}`],
+    "a run is stopped or in progress",
+  );
+}
+/** `2h 05m`, `12m` or `40s`. */
+function span(ms: number): string {
+  const t = Math.max(0, Math.round(ms / 1000)),
+    h = Math.floor(t / 3600),
+    m = Math.floor((t % 3600) / 60);
+  if (h) return `${h}h ${String(m).padStart(2, "0")}m`;
+  return m ? `${m}m` : `${t}s`;
+}
+
 /** The stopped run, if any, and which patches need a rebase onto upstream. */
 export async function status(ctx: Context): Promise<Outcome> {
   const run = configFile.loadRun(ctx.dir);
   let stopped: statusView.View["run"] = null;
-  if (run) {
-    const where =
-        run.kind === "rebase"
-          ? `rebasing ${run.rebaseStop?.target.branch ?? "own branches"}${run.rebaseStop ? ` in ${run.rebaseStop.worktree}` : ""}`
-          : run.phase === "merge"
-            ? `merging ${run.plan[run.cursor]?.display ?? "patches"} (${run.cursor + 1} of ${run.plan.length})`
-            : run.phase === "verify"
-              ? `verifying (${run.step ?? "install"})`
-              : run.phase === "rollback"
-                ? "rolling back and restoring dependencies"
-                : "writing the report",
-      next =
-        run.kind === "rebase"
-          ? run.rebaseStop
-            ? "scripts/custom-build continue, scripts/custom-build rebase --skip-branch, or scripts/custom-build rollback"
-            : "scripts/custom-build continue, or scripts/custom-build rollback"
-          : run.phase === "rollback"
-            ? "scripts/custom-build continue (finishes rollback)"
-            : run.stopped?.code === 4
-              ? "scripts/custom-build rollback, then rebuild once upstream is fixed"
-              : "scripts/custom-build continue, or scripts/custom-build rollback";
-    stopped = { where, startedAt: run.startedAt, report: run.reportDir, next };
-  }
+  if (run) stopped = { ...whereStopped(run), startedAt: run.startedAt, report: run.reportDir };
   const remote = git.resolveUpstreamRemote(ctx.repo, ctx.config),
     name = `${remote}/${ctx.config.upstream.branch}`,
     upstream = git.revParse(ctx.repo, `refs/remotes/${name}`),
@@ -1455,8 +1528,8 @@ export async function rebaseCommand(
 ): Promise<Outcome> {
   const { repo, config } = ctx;
   git.requireVersion(repo);
-  if (configFile.loadRun(ctx.dir))
-    throw Error("a run is stopped or in progress; resume it with `continue` or undo it with `rollback`");
+  const busy = configFile.loadRun(ctx.dir);
+  if (busy) throw inProgress(ctx, busy);
   const remote = preflight(ctx, o);
   const run: RunState = {
     kind: "rebase",

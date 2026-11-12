@@ -5,8 +5,10 @@ import { Live } from "./live";
 import * as liveEvents from "./live_events";
 import type { Sink } from "./live_events";
 import * as listView from "./list_view";
+import { outcomeCard } from "./live_render";
 import * as run from "./run";
 import * as sources from "./sources";
+import { TaskView } from "./task_view";
 
 const usage = `usage: scripts/custom-build [--dir <path>] <command> [args]
 
@@ -20,11 +22,12 @@ commands:
                                        only rebase own branches onto upstream
   rebase --skip-branch [--verbose]      give up the branch a rebase run stopped at
   continue [--verbose]                  resume a stopped run
-  rollback                              return to the last successful build
+  rollback [--verbose]                  return to the last successful build
   status                                show a stopped run and which patches need a rebase
 
 <mode> is all (default), conflicting or off. On a terminal, rebuild, rebase and
-continue show a live view; --verbose pins it above the full log.
+continue show a live view; --verbose pins it above the full log. rollback shows
+its steps, and with --verbose the install's output instead.
 
 See docs/custom-builds.md.`;
 
@@ -100,7 +103,8 @@ export async function main(argv: string[], io: IO): Promise<number> {
     (command ? io.out : io.err)(usage + "\n");
     return command ? 0 : 1;
   }
-  let view: Live | null = null;
+  let view: Live | null = null,
+    tasks: TaskView | null = null;
   /** Live mode: the `warning:` progress lines, which the card shows. */
   const warnings: string[] = [];
   try {
@@ -125,6 +129,7 @@ export async function main(argv: string[], io: IO): Promise<number> {
       const started = Live.start({
         verbose,
         color: !!io.color,
+        command: command!,
         ...(io.live === "inline" ? { inline: { write: io.out, rows: io.rows ?? 24, cols: io.columns ?? 80 } } : {}),
       });
       const sink = started.sink,
@@ -174,10 +179,28 @@ export async function main(argv: string[], io: IO): Promise<number> {
         outcome = await run.resume(ctx);
         break;
       }
-      case "rollback":
+      case "rollback": {
+        const verbose = flag(args, "verbose");
         noMore(args);
+        // On a terminal, a checklist of the rollback's steps; --verbose streams the install's output instead.
+        if (!verbose && !io.sink && (io.color || io.live === "inline")) {
+          const shown = (tasks = new TaskView({
+            write: io.out,
+            rows: () => (io.live === "inline" ? io.rows : process.stdout.rows || io.rows) ?? 24,
+            cols: () => (io.live === "inline" ? io.columns : process.stdout.columns || io.columns) ?? 80,
+            color: !!io.color,
+            command: "rollback",
+            branch: ctx.config.branch,
+            ...(io.now ? { now: () => io.now!().getTime() } : {}),
+            hooks: io.live !== "inline",
+          }));
+          ctx.task = (id, state, detail) => shown.task(id, state, detail);
+          ctx.progress = line => void (line.startsWith("warning:") && warnings.push(line));
+          ctx.echo = () => {};
+        }
         outcome = await run.rollback(ctx);
         break;
+      }
       case "status":
         noMore(args);
         outcome = await run.status(ctx);
@@ -199,14 +222,32 @@ export async function main(argv: string[], io: IO): Promise<number> {
     }
     // The card holds the outcome's lines; the run's own end has its report and time.
     if (view) await view.end(warned(view.received ?? ended(outcome), warnings));
-    else if (outcome.lines.length) io.out(outcome.lines.join("\n") + "\n");
+    else if (tasks) tasks.finish(warned(ended(outcome), warnings));
+    else if (outcome.lines.length) {
+      // A rollback on a terminal ends in a card like the views'; other commands print as they are.
+      const lines =
+        command === "rollback" && io.color
+          ? outcomeCard(ended(outcome), { width: io.columns ?? 80, color: true })
+          : outcome.lines;
+      io.out(lines.join("\n") + "\n");
+    }
     return outcome.code;
   } catch (error) {
     if (error instanceof Usage) return usageError(io, error.message);
-    const message = (error as Error).message;
+    const message = (error as Error).message,
+      explained = error instanceof run.Explained ? error : null,
+      details = explained?.lines ?? [],
+      // A card shows the commands to go on with below it: its headline can be the short one.
+      failure = warned(
+        ended({ code: 1, lines: [`custom-build: ${explained?.headline ?? message}`, ...details] }),
+        warnings,
+      );
     // The view ends with the error, so the terminal is put back and the error shows.
-    if (view) await view.end(warned(ended({ code: 1, lines: [`custom-build: ${message}`] }), warnings));
-    else io.err(`custom-build: ${message}\n`);
+    if (view) await view.end(failure);
+    else if (tasks) tasks.finish(failure);
+    else if (io.color)
+      io.err(outcomeCard(failure, { width: io.columns ?? 80, color: true, command: command! }).join("\n") + "\n");
+    else io.err([`custom-build: ${message}`, ...details].join("\n") + "\n");
     return 1;
   }
 }

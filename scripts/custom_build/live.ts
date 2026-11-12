@@ -46,6 +46,8 @@ export class Live {
   static start(o: {
     verbose: boolean;
     color: boolean;
+    /** The command, for the card of an error before the run began. */
+    command?: string;
     inline?: { write: (s: string) => void; rows: number; cols: number; card?: typeof card };
     /** Test hook: the worker script, in place of `live_worker.ts`. */
     script?: URL;
@@ -74,7 +76,7 @@ export class Live {
 /** A view drawn in this thread, into `write`. */
 function inline(
   screen: { write: (s: string) => void; rows: number; cols: number; card?: typeof card },
-  o: { verbose: boolean; color: boolean },
+  o: { verbose: boolean; color: boolean; command?: string },
 ): Backend {
   const write = (s: string) => {
       try {
@@ -87,6 +89,7 @@ function inline(
       cols: () => screen.cols,
       verbose: o.verbose,
       color: o.color,
+      ...(o.command ? { command: o.command } : {}),
       ...(screen.card ? { card: screen.card } : {}),
     }),
     timer = setInterval(() => view.tick(), frameMs);
@@ -116,7 +119,7 @@ function inline(
 /** A view drawn by a worker on stdout. This thread restores the terminal
  * when the process exits before the view ended: on a crash, `process.exit`,
  * or a signal. */
-function worker(o: { verbose: boolean; color: boolean; script?: URL }): Backend {
+function worker(o: { verbose: boolean; color: boolean; command?: string; script?: URL }): Backend {
   const shared = new Int32Array(new SharedArrayBuffer(sharedSize)),
     w = new Worker(o.script ?? new URL("./live_worker.ts", import.meta.url)),
     rows = process.stdout.rows || 24,
@@ -136,7 +139,13 @@ function worker(o: { verbose: boolean; color: boolean; script?: URL }): Backend 
   w.addEventListener("close", () => void (alive = false));
   // An unfinished view never keeps the process alive.
   (w as unknown as { unref(): void }).unref();
-  post({ t: "init", shared: shared.buffer as SharedArrayBuffer, verbose: o.verbose, color: o.color });
+  post({
+    t: "init",
+    shared: shared.buffer as SharedArrayBuffer,
+    verbose: o.verbose,
+    color: o.color,
+    ...(o.command ? { command: o.command } : {}),
+  });
 
   /** Takes the terminal from the worker for good and writes `text`. */
   const takeOver = (text: string) => {

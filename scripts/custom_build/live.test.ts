@@ -231,10 +231,10 @@ test("redraws at most every 100 ms", () => {
   expect(frames()).toBe(first + 2);
 });
 
-test("an end without a begin prints the outcome as the plain output would", () => {
+test("an end without a begin shows the outcome as a card", () => {
   const { v, all } = view();
   v.finish(end({ ok: false, code: 1, headline: "a run is stopped or in progress", lines: [], report: null }));
-  expect(plain(all())).toContain("custom-build: a run is stopped or in progress\n");
+  expect(plain(all())).toContain("✗ a run is stopped or in progress\n");
 });
 
 test("restore sequence is written on exit", () => {
@@ -357,7 +357,8 @@ test("a worker whose card failed leaves the plain outcome after the restore", ()
 test("an end without a begin names its report once", () => {
   const { v, all } = view();
   v.finish(end({ ok: false, code: 2, headline: "stopped", lines: ["  report: /tmp/reports/1/report.md"] }));
-  expect(plain(all()).split("report: /tmp/reports/1/report.md").length).toBe(2);
+  expect(plain(all()).split("/tmp/reports/1/report.md").length).toBe(2);
+  expect(plain(all())).toContain("   report  /tmp/reports/1/report.md\n");
 });
 
 test("an interrupted git call under a live view stops there and restores the terminal", () => {

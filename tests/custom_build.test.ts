@@ -621,6 +621,69 @@ test("rolling back a stopped first run returns to the branch it started on", asy
   expect(git(w.clone, "branch", "--list", "custom-build")).toBe("");
   expect(existsSync(binary(w))).toBe(false);
 });
+/** Terminal output as text: colors and links gone, a frame redrawn in place kept as written. */
+const shown = (text: string) =>
+  text
+    .replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "")
+    .replace(/\x1b\][^\x07]*\x07/g, "")
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+test("a run that is stopped refuses another with where it stopped and what to run", async () => {
+  const w = world();
+  branch(w, "left", { "base.txt": "one\nLEFT\nthree\n" });
+  branch(w, "right", { "base.txt": "one\nRIGHT\nthree\n" });
+  configure(w, ["left", "right"]);
+  expect((await cb(w, "rebuild")).code).toBe(2);
+  // Piped: the message as before, the details below it.
+  const plain = await cb(w, "rebuild");
+  expect(plain.code).toBe(1);
+  expect(plain.err).toContain(
+    "custom-build: a run is stopped or in progress; resume it with `continue` or undo it with `rollback`\n",
+  );
+  expect(plain.err).toMatch(/\n {2}stopped: while merging right \(2 of 2\), started \d+s ago\n/);
+  expect(plain.err).toContain("  next: scripts/custom-build continue, or scripts/custom-build rollback\n");
+  // On a terminal: a card with the short headline and the labels lined up.
+  const card = await cbWith(w, { live: "inline", color: true, columns: 100, rows: 40 }, "rebase");
+  expect(card.code).toBe(1);
+  const text = shown(card.out);
+  expect(text).toContain("✗ custom-build rebase: a run is stopped or in progress\n");
+  expect(text).toMatch(/\n {3}stopped {2}while merging right \(2 of 2\)/);
+  expect(text).toMatch(/\n {3}next {5}scripts\/custom-build continue/);
+  expect(card.out).toContain("\x1b[38;2;247;118;142m✗");
+  // Without a view, an error on a terminal is the same card, on stderr.
+  const other = await cbWith(w, { color: true, columns: 100 }, "remove", "nope");
+  expect(shown(other.err)).toBe("✗ custom-build remove: nope is not in the list\n");
+});
+test("rollback on a terminal shows its steps and ends in a card", async () => {
+  const w = world();
+  branch(w, "left", { "base.txt": "one\nLEFT\nthree\n" });
+  branch(w, "right", { "base.txt": "one\nRIGHT\nthree\n" });
+  configure(w, ["left"]);
+  expect((await cb(w, "rebuild")).code).toBe(0);
+  const built = head(w);
+  configure(w, ["left", "right"]);
+  expect((await cb(w, "rebuild")).code).toBe(2);
+  const result = await cbWith(w, { live: "inline", color: true, columns: 100, rows: 40 }, "rollback");
+  expect(result.code).toBe(0);
+  expect(head(w)).toBe(built);
+  const text = shown(result.out);
+  expect(text).toContain("custom-build rollback · custom-build\n");
+  expect(text).toMatch(new RegExp(`✓ undo {6}custom-build back at ${built.slice(0, 7)}`));
+  expect(text).toMatch(/✓ binary {4}dist\/corgi-custom restored/);
+  expect(text).toMatch(/✓ install {3}dependencies restored/);
+  expect(text).toMatch(
+    new RegExp(`✓ rolled back to custom-build at ${built.slice(0, 7)}, as before the run in \\d+:\\d\\d\\n`),
+  );
+  // The install's output stays in its log, out of the view.
+  expect(result.err).toBe("");
+  expect(text).not.toContain("custom-build: restoring dependencies");
+});
+test("an error before the run began ends the live view in a card", async () => {
+  const w = world();
+  configure(w, []);
+  const result = await cbWith(w, { live: "inline", color: true, columns: 100, rows: 40 }, "continue");
+  expect(result.code).toBe(1);
+  expect(shown(result.out)).toContain("✗ custom-build continue: there is no stopped run to continue\n");
+});
 test("an own branch behind its pushed copy uses the pushed one; a diverged one uses local with a warning", async () => {
   const w = world();
   branch(w, "behind", { "behind.txt": "1\n" });
