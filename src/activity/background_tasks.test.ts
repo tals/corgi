@@ -48,15 +48,21 @@ test("task labels summarize commands and bound provider prose", () => {
     expect(inventory.items[i].label.text()).toBe(label);
   }
 });
-test("a Claude Stop lists the shells that can wake it, and the transcript ends them", () => {
-  const shells = claudeConversation.shells([
-    { id: "m1", type: "shell", status: "running", command: "tail -F build.log" },
-    { id: "m2", type: "shell", status: "completed" },
-    { id: "m1", type: "shell", status: "running" },
-    { id: "b1", type: "shell", status: "pending", command: "bun test" },
-    { id: "a1", type: "subagent", status: "running" },
-    { id: "", type: "shell", status: "running" },
-  ]);
+test("a Claude Stop lists the Monitors that can wake it, and the transcript ends them", () => {
+  const monitors = new Set(["m1", "m2", "b1"]);
+  const shells = claudeConversation.shells(
+    [
+      { id: "m1", type: "shell", status: "running", command: "tail -F build.log" },
+      { id: "m2", type: "shell", status: "completed" },
+      { id: "m1", type: "shell", status: "running" },
+      { id: "b1", type: "shell", status: "pending", command: "bun test" },
+      { id: "a1", type: "subagent", status: "running" },
+      { id: "", type: "shell", status: "running" },
+      // A background command no Monitor started, such as a dev server.
+      { id: "s1", type: "shell", status: "running", command: "bun run dev" },
+    ],
+    monitors,
+  );
   expect(shells.len).toBe(2);
   expect(shells.slice()[0].text()).toBe("m1");
   expect(shells.slice()[1].text()).toBe("b1");
@@ -68,7 +74,7 @@ test("a Claude Stop lists the shells that can wake it, and the transcript ends t
   ended.add("b1");
   shells.drop(ended);
   expect(shells.len).toBe(0);
-  expect(claudeConversation.shells(null).len).toBe(0);
+  expect(claudeConversation.shells(null, monitors).len).toBe(0);
   for (let i = 0; i < Ended.limit + 1; i++) ended.add(`t${i}`);
   expect(ended.len).toBe(Ended.limit);
   expect(ended.listed("x1")).toBe(false);
