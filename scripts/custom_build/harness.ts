@@ -188,6 +188,8 @@ export function buildLeftover(path: string): boolean {
 }
 
 export type Verdict = { ok: true; files: string[] } | { ok: false; reason: string };
+/** A rejected call's reason when it left nothing behind: nothing to undo. */
+export const changedNothing = "it changed nothing";
 /** A verdict as a recorded call's outcome. */
 export const outcome = (verdict: Verdict): { ok: boolean; reason?: string } =>
   verdict.ok ? { ok: true } : { ok: false, reason: verdict.reason };
@@ -225,7 +227,7 @@ export function acceptConflict(
 export function acceptFix(repo: string, headBefore: string, before: git.Snapshot, exclude: string[]): Verdict {
   if (git.revParse(repo, "HEAD") !== headBefore) git.must(repo, ["reset", "--quiet", "--soft", headBefore]);
   const files = git.changedSince(repo, before, exclude).filter(path => !buildLeftover(path));
-  return files.length ? { ok: true, files } : { ok: false, reason: "it changed nothing" };
+  return files.length ? { ok: true, files } : { ok: false, reason: changedNothing };
 }
 
 /** Undoes what a rejected attempt changed: back to `head`, without files it created. */

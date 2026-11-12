@@ -588,9 +588,12 @@ function checklist(
       shown = itemLines.slice(from, to);
     // A window of the running item alone that is still too tall loses that item's last lines.
     if (shown.length === 1) shown[0] = shown[0].slice(0, Math.max(1, o.itemRows - folds));
-    if (from > 0) lines.push(draw(folded(items.slice(0, from)), width, color));
-    for (const l of shown) lines.push(...l);
-    if (to < items.length) lines.push(draw(folded(items.slice(to)), width, color));
+    // With not even room for the item and its fold lines, the item outranks
+    // the folds, so the frame keeps fitting and the footer still shows.
+    const skipFolds = o.itemRows < shown.reduce((n, l) => n + l.length, 0) + folds;
+    if (from > 0 && !skipFolds) lines.push(draw(folded(items.slice(0, from)), width, color));
+    for (const l of shown) lines.push(...l.slice(0, skipFolds ? Math.max(1, o.itemRows) : undefined));
+    if (to < items.length && !skipFolds) lines.push(draw(folded(items.slice(to)), width, color));
   });
   return lines;
 }
@@ -832,7 +835,7 @@ export function card(s: LiveState, o: { width: number; color: boolean }): string
     // A short card lists the branches that need a look; the full lines name every one.
     if (e.brief) {
       const undone = branches.filter(
-          it => it.outcome === "not-rebased" || (s.command === "rebase" && it.outcome === "left-alone"),
+          it => it.outcome === "not-rebased" || (s.rebaseRun && it.outcome === "left-alone"),
         ),
         pad = Math.max(0, ...undone.map(it => term.width(it.id)));
       for (const it of undone)
@@ -884,7 +887,7 @@ const branchOutcomes: [string, string, string][] = [
  * be rebased, or, when rebasing was the whole run, one it left alone. */
 export function problems(s: LiveState): boolean {
   const outcomes = (s.items.rebase ?? []).map(it => it.outcome);
-  return outcomes.includes("not-rebased") || (s.command === "rebase" && outcomes.includes("left-alone"));
+  return outcomes.includes("not-rebased") || (s.rebaseRun && outcomes.includes("left-alone"));
 }
 
 /** Detail lines of an outcome (`  report: path`) by their label, lined up on a card. */
@@ -1055,4 +1058,24 @@ export function fireworks(width: number, color: boolean, seed = 1): string[][] {
     );
   };
   return [...Array.from({ length: end }, (_, f) => scene(f, false)), scene(end, true)];
+}
+
+/** The line that ends a rebuild that built its binary: that it is done, and
+ * where the binary is (a link). Amber when the run still ended badly (a
+ * refused push); nothing without a binary. */
+export function doneLine(e: { ok: boolean; binary?: string }, o: { width: number; color: boolean }): string[] {
+  if (!e.binary) return [];
+  return drawn(
+    wrap(
+      [
+        e.ok ? { text: "✓", hex: green } : { text: "◐", hex: amber },
+        { text: " rebuild done", tone: "bold" },
+        { text: " · binary ", dim: true },
+        { text: e.binary, url: e.binary.startsWith("/") ? pathToFileURL(e.binary).href : null },
+      ],
+      Math.max(0, Math.floor(o.width)),
+      2,
+    ),
+    o.color,
+  );
 }

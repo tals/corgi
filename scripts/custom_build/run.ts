@@ -61,7 +61,7 @@ export type Code = 0 | 1 | 2 | 3 | 4 | 5;
 /** How a command ended; `lines` are the summary for stdout. */
 /** `brief`: what a terminal's card shows of `lines` for a finished run; it
  * draws the rest from the run itself. `handoffs`: how many were written. */
-export type Outcome = { code: Code; lines: string[]; brief?: string[]; handoffs?: number };
+export type Outcome = { code: Code; lines: string[]; brief?: string[]; handoffs?: number; binary?: string };
 
 const work = (ctx: Context) => join(ctx.dir, "work");
 const binary = (ctx: Context) => join(ctx.repo, "dist", "corgi-custom");
@@ -158,6 +158,7 @@ function begin(ctx: Context, run: RunState, remote: string, stages: Stage[]) {
   send(ctx, {
     t: "begin",
     command,
+    rebaseRun: run.kind === "rebase",
     branch: config.branch,
     upstream: upstreamOf(ctx, run, remote, known),
     stages,
@@ -1120,7 +1121,18 @@ function agentHint(
   const path = join(run.reportDir, `fix-${f.step}.md`),
     excerpt = existsSync(stopped.log) ? readFileSync(stopped.log, "utf8").split("\n").slice(-200).join("\n") : "",
     h = ctx.config.harness,
-    exe = !h?.command[0] ? "claude" : h.command[0].includes("/") ? resolve(ctx.repo, h.command[0]) : h.command[0];
+    exe = !h?.command[0] ? "claude" : h.command[0].includes("/") ? resolve(ctx.repo, h.command[0]) : h.command[0],
+    // The command the tool itself would run: the whole harness command, its
+    // {prompt_file} named in it; a program without one reads the prompt from
+    // stdin, and a bare program takes it as its argument.
+    args = h ? [exe, ...h.command.slice(1)] : null,
+    full = (args ?? []).map(arg => arg.replaceAll("{prompt_file}", path)),
+    named = full.some((arg, i) => args![i] !== arg),
+    command = h
+      ? named
+        ? full.map(rebase.word).join(" ")
+        : `${full.map(rebase.word).join(" ")} < ${rebase.word(path)}`
+      : `${rebase.word(exe)} "$(cat ${rebase.word(path)})"`;
   writeFileSync(
     path,
     harness.fill(harness.template("fix", templates(ctx)), {
@@ -1132,10 +1144,7 @@ function agentHint(
       logExcerpt: excerpt,
     }),
   );
-  return [
-    `prompt for an agent: ${path}`,
-    `run it: cd ${rebase.word(ctx.repo)} && ${rebase.word(exe)} "$(cat ${rebase.word(path)})"`,
-  ];
+  return [`prompt for an agent: ${path}`, `run it: cd ${rebase.word(ctx.repo)} && ${command}`];
 }
 
 /** The run's report, rebase check and handoffs; returns the handoff paths. */
@@ -1332,7 +1341,7 @@ async function finish(ctx: Context, run: RunState): Promise<Outcome> {
     }
   }
   recordTimings(ctx, run);
-  return ended(ctx, run, { code, lines, brief, handoffs: handoffs.length });
+  return ended(ctx, run, { code, lines, brief, handoffs: handoffs.length, binary: binary(ctx) });
 }
 /** A declined push leaves its commands to run; they stay on the summary. */
 const pushCommands = (lines: string[]) => lines.filter(line => line.startsWith("  push: "));
@@ -1424,16 +1433,28 @@ export async function resume(ctx: Context): Promise<Outcome> {
     )
       .filter(path => !harness.buildLeftover(path))
       .filter(path => existsSync(join(repo, path)) || git.git(repo, ["cat-file", "-e", `HEAD:${path}`]).code === 0);
+    // A fix the user committed before `continue` leaves the tree clean: the
+    // commits since the stop are theirs too, and answer what it stopped on.
+    const known = run.stopFailure?.step === run.step ? run.stopFailure : null,
+      committed =
+        known && run.stopped && git.revParse(repo, "HEAD") !== known.head
+          ? git
+              .must(repo, ["diff", "--name-only", known.head, "HEAD"])
+              .split("\n")
+              .filter(Boolean)
+              .filter(path => !harness.buildLeftover(path))
+          : [];
     if (changed.length) {
       git.must(repo, ["add", "-A", "--", ...changed]);
       git.must(repo, ["commit", "--no-verify", "-q", "-m", `custom-build: fix ${run.step} (user)`]);
-      // The patches the stop pointed at are what this fix answers.
-      const known = run.stopFailure?.step === run.step ? run.stopFailure : null;
+    }
+    const files = [...new Set([...changed, ...committed])];
+    if (files.length) {
       run.fixes.push({
         step: run.step,
         commit: git.must(repo, ["rev-parse", "HEAD"]),
         by: "user",
-        files: changed,
+        files,
         ...(known ? { log: known.log, attribution: known.attribution } : {}),
       });
       event(run, "user-fix", { step: run.step });

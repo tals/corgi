@@ -653,11 +653,15 @@ test("a rebase that left branches undone ends amber, with what happened to each 
   expect(card(rebaseRun(), { width: 100, color: false })[0]).toStartWith(
     "✓ rebased own branches onto upstream c29ecae in",
   );
-  // A branch left alone is a problem only when rebasing was the whole run.
+  // A branch left alone is a problem only when rebasing was the whole run:
+  // a rebase kind, even one that finished through `continue`.
   expect(problems(rebaseRun({ leftAlone: true }))).toBe(true);
-  const rebuild = { ...rebaseRun({ leftAlone: true }), command: "rebuild" as const };
+  expect(problems({ ...rebaseRun({ leftAlone: true }), command: "continue" as const })).toBe(true);
+  const rebuild = { ...rebaseRun({ leftAlone: true }), command: "rebuild" as const, rebaseRun: false };
   expect(problems(rebuild)).toBe(false);
-  expect(problems({ ...rebuild, ...rebaseRun({ failed: true }), command: "rebuild" as const })).toBe(true);
+  expect(problems({ ...rebuild, ...rebaseRun({ failed: true }), command: "rebuild" as const, rebaseRun: false })).toBe(
+    true,
+  );
 });
 
 test("fireworks rise, burst and fade, and leave embers that fit the width", () => {
@@ -712,4 +716,19 @@ test("a finished run's card with a brief lists what needs a look and points at t
   // The full lines are for plain output and the report.
   expect(lines.some(l => l.includes("4e220cd to 4e14fa0"))).toBe(false);
   expect(lines.some(l => l.includes("/r/handoffs/001.md"))).toBe(false);
+});
+
+test("a frame with very few rows keeps the footer: the fold lines give way first", () => {
+  for (const [rows, verbose] of [
+    [15, true],
+    [13, true],
+    [12, false],
+    [11, false],
+  ] as const) {
+    const lines = frame(crowded(5), { width: 80, nowMs: s(140), color: false, verbose, rows }),
+      where = `${rows} rows, verbose ${verbose}, ${lines.length} lines`;
+    expect([where, lines.length <= rows]).toEqual([where, true]);
+    expect(lines.some(l => l.startsWith(" ✦ harness"))).toBe(true);
+    expect(lines.some(l => l.startsWith(" ↻ retries"))).toBe(true);
+  }
 });

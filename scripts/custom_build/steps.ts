@@ -77,6 +77,9 @@ export function failedAgain(step: StepName, config: Config, vars: Vars, log: str
   if (step !== "test") return null;
   const files = [...new Set(testFailures(log).map(f => f.file))];
   if (!files.length || files.includes(null)) return null;
+  // An error bun reports outside the failing tests, like a file it could not
+  // load, names no file to narrow to: retry everything, or it never runs again.
+  if (/# Unhandled error|^ \d+ errors?$/m.test(log)) return null;
   const narrowed = commands(step, config, { ...vars, tests: files as string[] });
   return JSON.stringify(narrowed) === JSON.stringify(commands(step, config, vars)) ? null : narrowed;
 }

@@ -3,7 +3,7 @@ import type { Config } from "./config";
 import { command, failedAgain, failureSummary, testFailures } from "./steps";
 
 const config = (test?: string[]) =>
-  ({ version: 1, branch: "custom", patches: [], steps: test ? { test } : {} }) as Config;
+  ({ version: 1, branch: "custom", patches: [], steps: test ? { test } : {} }) as unknown as Config;
 const vars = { outfile: "dist/out" };
 const bunLog = [
   "$ bun test src",
@@ -71,5 +71,30 @@ test("a failed test run is run again on only its failing files, when the command
   // Nothing to narrow to: other steps, no failures named, or one without its file.
   expect(failedAgain("typecheck", config(), vars, bunLog)).toBeNull();
   expect(failedAgain("test", config(), vars, "$ bun test src\nsegfault\n")).toBeNull();
+  // An error bun reports outside the failing tests, like a file it could not
+  // load, is retried with everything: a narrowed run would never try it again.
+  expect(
+    failedAgain(
+      "test",
+      config(),
+      vars,
+      [
+        "$ bun test src",
+        "src/bindings.test.ts:",
+        "(fail) no preset binds a key twice [0.61ms]",
+        "",
+        "src/broken.test.ts:",
+        "# Unhandled error between tests",
+        "-------------------------------",
+        "error: Cannot find module './nope.ts' from 'src/broken.test.ts'",
+        "-------------------------------",
+        "",
+        " 1 pass",
+        " 1 fail",
+        " 1 error",
+        "Ran 2 tests across 2 files. [61.00s]",
+      ].join("\n"),
+    ),
+  ).toBeNull();
   expect(failedAgain("test", config(), vars, "(fail) loose [1ms]\n")).toBeNull();
 });

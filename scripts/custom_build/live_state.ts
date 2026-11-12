@@ -35,6 +35,8 @@ export type ItemView = {
 export type Ended = Omit<Extract<LiveEvent, { t: "end" }>, "t">;
 export type LiveState = {
   command: Extract<LiveEvent, { t: "begin" }>["command"] | null;
+  /** Whether the run rewrites own branches: a rebase kind, even continued. */
+  rebaseRun: boolean;
   branch: string;
   upstream: Upstream;
   harnessKind: HarnessKind | null;
@@ -73,6 +75,7 @@ const none: timings.Estimate = { totalMs: null, leftMs: null, aheadMs: null, las
 export function initial(): LiveState {
   return {
     command: null,
+    rebaseRun: false,
     branch: "",
     upstream: { name: "", tip: "", newCommits: 0 },
     harnessKind: null,
@@ -154,6 +157,7 @@ export function apply(s: LiveState, e: LiveEvent, nowMs: number): LiveState {
     case "begin": {
       const fresh = initial();
       fresh.command = e.command;
+      fresh.rebaseRun = e.rebaseRun ?? e.command === "rebase";
       fresh.branch = e.branch;
       fresh.upstream = { ...e.upstream };
       fresh.harnessKind = e.harness;
@@ -384,6 +388,7 @@ export function fromRun(
       {
         t: "begin",
         command: o.command ?? "continue",
+        rebaseRun: run.kind === "rebase",
         branch: config.branch,
         upstream: o.upstream ?? {
           name: `${config.upstream.remote ?? "upstream"}/${config.upstream.branch}`,
