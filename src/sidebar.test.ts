@@ -2384,16 +2384,18 @@ test("a hovered workspace sits halfway between its section and the selected tint
   expect(grid[4].slice(1, 27)).toContain(hover);
   expect(new Set(rowsOf(grid, [2, 3]))).toEqual(new Set([hover]));
   // On a tinted section, readings lift from faint to muted to keep their
-  // contrast, hovered or not; off, they stay faint.
+  // contrast, hovered or not; off, they stay faint. At this width the
+  // readings take one-letter labels, and every CPU reads 12% to 14%.
+  const cpu = "C 1";
   const plain = draw(view(100, null), tint_agents, few, 1_000_000),
     hovered = draw(view(100, 0), tint_agents, few, 1_000_000),
     untinted = draw(view(0, null), tint_agents, few, 1_000_000);
-  expect(count(plain, fg("faint") + "CPU")).toBe(0);
-  expect(count(hovered, fg("faint") + "CPU")).toBe(0);
-  expect(count(plain, fg("muted") + "CPU")).toBe(few.length);
-  expect(count(hovered, fg("muted") + "CPU")).toBe(few.length);
-  expect(count(untinted, fg("faint") + "CPU")).toBe(count(untinted, "CPU") - count(untinted, fg("muted") + "CPU"));
-  expect(count(untinted, fg("faint") + "CPU")).toBeGreaterThan(0);
+  expect(count(plain, fg("faint") + cpu)).toBe(0);
+  expect(count(hovered, fg("faint") + cpu)).toBe(0);
+  expect(count(plain, fg("muted") + cpu)).toBe(few.length);
+  expect(count(hovered, fg("muted") + cpu)).toBe(few.length);
+  expect(count(untinted, fg("faint") + cpu)).toBe(count(untinted, cpu) - count(untinted, fg("muted") + cpu));
+  expect(count(untinted, fg("faint") + cpu)).toBeGreaterThan(0);
   // Scrolled, the hover is by index in the whole list.
   const many = tintWorkspaces(6);
   const scrolled = view(0, 3, 2, many);
