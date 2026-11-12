@@ -716,6 +716,8 @@ export function push(repo: string, reportDir: string, results: RebaseResult[]): 
     if (out.code === 0) {
       r.push = "pushed";
       for (const ref of [backupRef(r.branch), rebasedRef(r.branch), leaseRef(r.branch)]) git.deleteRef(repo, ref);
+      // What origin holds now, so `status` doesn't read the old tip as a divergence.
+      git.updateRefs(repo, [{ ref: forkRef(r.branch), value: r.to! }]);
       lines.push(`  pushed ${r.branch} to origin`);
       continue;
     }
