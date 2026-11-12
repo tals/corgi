@@ -7887,7 +7887,7 @@ export class Controller {
     if (this.inline_rename && !release && (button & 0xe0) === 0) {
       const open = this.inline_rename,
         side = this.sidebarView(this.sidebarEntries()),
-        rect = side.fieldRect(open.target, this.workspaceEntries());
+        rect = side.fieldRect(this.renameTarget(open.target), this.workspaceRows());
       if (rect && y === rect.y && x >= rect.x && x < rect.x + rect.width) {
         if (button === 0) open.place(x - rect.x, rect.width);
         this.ui_mouse_down = true;
@@ -8731,21 +8731,21 @@ export class Controller {
             if (button === 2) {
               this.openWorkspaceMenu(workspace, x, y);
             } else {
-              const ws_entries = this.workspaceEntries();
               // Only presses on the name line make the double-click that
               // renames; the message line below, with its unread mark, only
-              // switches.
+              // switches. Screen positions take the displayed rows; the
+              // rename and the switch take the row's own workspace.
               if (
-                side.onNameLine({ workspace: row.id }, ws_entries, x, y) &&
-                this.clicks.press({ workspace: row.id }, milliTimestamp(), y)
+                side.onNameLine({ workspace: row.id }, this.workspaceRows(), x, y) &&
+                this.clicks.press({ workspace }, milliTimestamp(), y)
               ) {
-                this.beginInlineRename({ workspace: row.id });
+                this.beginInlineRename({ workspace });
                 break;
               }
               const jump = !resource_workspace_press && side.unreadHit(row, x, y);
-              const local_index = this.runtime.workspaces.index(row.id);
+              const local_index = this.runtime.workspaces.index(workspace);
               const target = jump && local_index !== null ? this.firstUnreadAgent(local_index) : null;
-              this.switchWorkspace(row.id);
+              this.switchWorkspace(workspace);
               if (jump) {
                 if (target) {
                   this.selectAgent(target);
