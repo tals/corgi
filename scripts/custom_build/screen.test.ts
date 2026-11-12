@@ -238,10 +238,12 @@ test("keep is ignored inline, where nothing is replayed", () => {
   expect(all()).not.toContain("push? y");
 });
 
-test("suspend shows the cursor and resume hides it again", () => {
+test("suspend clears the frame and shows the cursor, and resume hides it again", () => {
   const { out, screen } = fake();
   screen.draw(["a", "b"]);
   screen.suspend();
+  // Inline, the question replaces the frame, so no stale frame stays in the scrollback.
+  expect(out.at(-1)).toStartWith("\x1b[2A");
   expect(out.at(-1)).toContain("\x1b[?25h");
   expect(out.at(-1)).not.toContain("\x1b[?25l");
   // Nothing is drawn while the question waits for its answer.
@@ -250,7 +252,7 @@ test("suspend shows the cursor and resume hides it again", () => {
   expect(out).toHaveLength(n);
   screen.resume();
   expect(out.at(-1)).toContain("\x1b[?25l");
-  // The frame before the question stays; the next one goes below the answer.
+  // The next frame goes below the answer.
   screen.draw(["d"]);
   expect(out.at(-1)).not.toMatch(/\x1b\[\d+A/);
   expect(out.at(-1)).toContain("d\n");

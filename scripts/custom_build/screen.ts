@@ -88,15 +88,16 @@ export class Screen {
     this.logged.push(...lines.flatMap(l => l.split("\n")).map(tidy));
   }
 
-  /** Stops drawing and shows the cursor, leaving the frame as it is, so a
-   * question can be asked below it. */
+  /** Stops drawing and shows the cursor so a question can be asked: inline,
+   * the frame is cleared first (the question names what it is about), so no
+   * stale frame stays in the scrollback; pinned, it stays at the top. */
   suspend(): void {
     if (this.paused || this.done) return;
     this.paused = true;
     this.hidden = false;
-    // The frame stays where it is; the next one goes below the question.
+    const clear = this.o.verbose ? "" : this.erase();
     this.shown = [];
-    this.o.write((this.pinned ? at(this.next) : "") + term.cursor(true));
+    this.o.write(clear + (this.pinned ? at(this.next) : "") + term.cursor(true));
   }
 
   /** Draws again after `suspend`, hiding the cursor. */

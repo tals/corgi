@@ -2177,6 +2177,9 @@ test("an own PR's head branch is rebased into a new local branch and pushed to t
   expect(onFork(w, "feature")).toBe(tip(w, "feature")!);
   expect(backupOf(w, "feature")).toBeNull();
   expect(result.out).toContain("pushed feature to origin");
+  // What was pushed is what origin has: status doesn't take the old tip for a divergence.
+  const status = await cb(w, "status");
+  expect(status.out).toMatch(/tals\/corgi#5 +✓ clean +✓ up to date/);
 
   const u = world(),
     unchanged = ownPullRequest(u, 5, "feature", { "feature.txt": "f\n" });
