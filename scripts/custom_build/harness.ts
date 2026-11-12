@@ -176,10 +176,16 @@ function lastLine(log: string): string {
  * fails the same way on the next attempt. */
 export function judge(call: Call, h: Harness, accept: () => Verdict): { verdict: Verdict; broken: boolean } {
   if (call.timedOut)
-    return { verdict: { ok: false, reason: `it timed out after ${h.timeoutSeconds ?? 900}s` }, broken: false };
+    return {
+      verdict: { ok: false, untouched: false, reason: `it timed out after ${h.timeoutSeconds ?? 900}s` },
+      broken: false,
+    };
   const verdict = accept();
   if (verdict.ok || !call.code) return { verdict, broken: false };
-  return { verdict: { ok: false, reason: `it exited ${call.code}${call.tail ? `: ${call.tail}` : ""}` }, broken: true };
+  return {
+    verdict: { ok: false, untouched: false, reason: `it exited ${call.code}${call.tail ? `: ${call.tail}` : ""}` },
+    broken: true,
+  };
 }
 
 /** A temporary file an interrupted `bun build` leaves in the checkout; never part of a fix. */
@@ -187,8 +193,10 @@ export function buildLeftover(path: string): boolean {
   return /(^|\/)\.[^/]+\.bun-build$/.test(path);
 }
 
-export type Verdict = { ok: true; files: string[] } | { ok: false; reason: string };
-/** A rejected call's reason when it left nothing behind: nothing to undo. */
+/** A rejected call carries `untouched` when it left the checkout exactly as it
+ * was, so a reset has nothing to undo; `reason` is display text only. */
+export type Verdict = { ok: true; files: string[] } | { ok: false; untouched: boolean; reason: string };
+/** A rejected call's label when it left nothing behind: nothing to undo. */
 export const changedNothing = "it changed nothing";
 /** A verdict as a recorded call's outcome. */
 export const outcome = (verdict: Verdict): { ok: boolean; reason?: string } =>
@@ -207,18 +215,19 @@ export function acceptConflict(
   before: git.Snapshot,
   exclude: string[],
 ): Verdict {
-  if (git.revParse(repo, "HEAD") !== headBefore) return { ok: false, reason: "it committed" };
-  if (!git.conflictInProgress(repo)) return { ok: false, reason: "it ended the merge or rebase" };
+  if (git.revParse(repo, "HEAD") !== headBefore) return { ok: false, untouched: false, reason: "it committed" };
+  if (!git.conflictInProgress(repo)) return { ok: false, untouched: false, reason: "it ended the merge or rebase" };
   const outside = git.changedSince(repo, before, exclude).filter(path => !files.includes(path));
-  if (outside.length) return { ok: false, reason: `it changed files outside the conflict: ${outside.join(", ")}` };
+  if (outside.length)
+    return { ok: false, untouched: false, reason: `it changed files outside the conflict: ${outside.join(", ")}` };
   for (const file of files) {
     const path = join(repo, file);
     if (existsSync(path) && readFileSync(path, "utf8").split("\n").some(marker))
-      return { ok: false, reason: `conflict markers remain in ${file}` };
+      return { ok: false, untouched: false, reason: `conflict markers remain in ${file}` };
   }
   git.must(repo, ["add", "-A", "--", ...files]);
   const left = git.unmergedFiles(repo);
-  if (left.length) return { ok: false, reason: `still unmerged: ${left.join(", ")}` };
+  if (left.length) return { ok: false, untouched: false, reason: `still unmerged: ${left.join(", ")}` };
   return { ok: true, files };
 }
 
@@ -227,7 +236,7 @@ export function acceptConflict(
 export function acceptFix(repo: string, headBefore: string, before: git.Snapshot, exclude: string[]): Verdict {
   if (git.revParse(repo, "HEAD") !== headBefore) git.must(repo, ["reset", "--quiet", "--soft", headBefore]);
   const files = git.changedSince(repo, before, exclude).filter(path => !buildLeftover(path));
-  return files.length ? { ok: true, files } : { ok: false, reason: changedNothing };
+  return files.length ? { ok: true, files } : { ok: false, untouched: true, reason: changedNothing };
 }
 
 /** Undoes what a rejected attempt changed: back to `head`, without files it created. */

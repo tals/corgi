@@ -710,7 +710,7 @@ async function fixBranch(
     e.progress(`rejected the harness's fix: ${verdict.reason}`);
     // A fix that changed nothing leaves nothing to undo; the reset would
     // only erase edits the user made in the worktree meanwhile.
-    if (verdict.reason !== harness.changedNothing) harness.discard(tree, head, before, []);
+    if (!verdict.untouched) harness.discard(tree, head, before, []);
     return { ok: false, reason: verdict.reason, broken };
   }
   git.must(tree, ["add", "-A", "--", ...verdict.files]);
