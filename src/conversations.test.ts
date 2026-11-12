@@ -300,6 +300,26 @@ test("Claude keeps a teammate's launch a teammate while many others wait for a p
   expect(r.find("claude", "asleeper-a4d6")!.state.state).toBe("working");
   expect(parent.state.subagents).toEqual({ running: 1, blocked: 0, waiting: true });
 });
+test("Claude counts a teammate once however often it stops and starts without a task list", () => {
+  const r = new Registry(),
+    parent = r.get("claude", "s");
+  let seq = 0n;
+  const send = (v: any) =>
+    r.observeHook(parent, adapter("claude").hook({ session_id: "s", ...v })!, ++seq, false, Number(seq) * 1000);
+  send({
+    hook_event_name: "PostToolUse",
+    tool_name: "Agent",
+    tool_input: { name: "sleeper", description: "Sleep then report" },
+    tool_response: { status: "teammate_spawned", agentId: "asleeper-a4d6", name: "sleeper" },
+  });
+  expect(parent.state.subagents.running).toBe(1);
+  for (let i = 0; i < 3; i++) {
+    send({ hook_event_name: "SubagentStop", agent_id: "asleeper-a4d6" });
+    expect(parent.state.subagents.running).toBe(0);
+    send({ hook_event_name: "SubagentStart", agent_id: "asleeper-a4d6", agent_type: "sleeper" });
+    expect(parent.state.subagents.running).toBe(1);
+  }
+});
 
 function hook(kind: string, session: string, extra: any = {}) {
   return {
@@ -1034,6 +1054,22 @@ test("a Claude Stop pauses a conversation its Monitors or a wakeup can wake", ()
   observe(4, 17n, 1300);
   expect(actor.state.paused).toBe(false);
   expect(actor.state.subagents.waiting).toBe(true);
+});
+
+test("a Claude Stop pauses on its latest Monitor after more launches than it keeps", () => {
+  const registry = new Registry();
+  const actor = registry.get("claude", "s");
+  actor.pid = 4242;
+  let seq = 0n;
+  const send = (v: any) =>
+    registry.observeHook(actor, adapter("claude").hook({ session_id: "s", ...v })!, ++seq, false, Number(seq) * 100);
+  send({ hook_event_name: "UserPromptSubmit" });
+  for (let i = 0; i <= 40; i++)
+    send({ hook_event_name: "PostToolUse", tool_name: "Monitor", tool_input: {}, tool_response: { taskId: `m${i}` } });
+  // The earlier Monitors ended; only the last one still runs.
+  send({ hook_event_name: "Stop", background_tasks: [{ id: "m40", type: "shell", status: "running" }] });
+  expect(actor.state.paused).toBe(true);
+  expect(actor.shells.len).toBe(1);
 });
 
 const shellHookRecords = [

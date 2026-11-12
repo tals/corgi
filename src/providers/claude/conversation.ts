@@ -101,7 +101,9 @@ export function hooked(actor: Actor, event: any, now: number) {
   if (tasks) actor.background_tasks = tasks;
   if (event.wake_task && Buffer.byteLength(event.wake_task) <= 32) {
     const started = monitors.get(actor) ?? new Set<string>();
-    if (started.size < capacity) started.add(event.wake_task);
+    // The oldest Monitor has most likely ended, so a new one takes its place.
+    if (!started.has(event.wake_task) && started.size === capacity) started.delete(started.values().next().value!);
+    started.add(event.wake_task);
     monitors.set(actor, started);
   }
   // A Stop lists only the tasks of the process that runs the session
@@ -203,13 +205,18 @@ export function child(registry: Registry, parent: Actor, event: any, now: number
   const known = registry.find(parent.provider(), event.subagent);
   if (event.kind === "subagent_stop") {
     // A subagent idles until a message starts it again, as Claude's teammates do.
-    if (known?.parent === parent.id && known.state.state !== "idle") {
+    const stopped = known?.parent === parent.id && known.state.state !== "idle";
+    if (stopped) {
       known.state.state = "idle";
       known.observed_at = now;
     }
     // The list still has the stopping subagent running.
     const listed = children(event.background_tasks);
     if (listed) follow(registry, parent, listed.without(event.subagent), teammates(event.background_tasks), now);
+    else if (stopped) {
+      parent.state.subagents.running = Math.max(0, parent.state.subagents.running - 1);
+      parent.children_observed_at = now;
+    }
     return;
   }
   // A launch adopts a new subagent; a start only revives one a message resumed.
