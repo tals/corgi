@@ -1741,10 +1741,10 @@ export class Controller {
       const row = rows[hit.workspace];
       // The unread mark jumps to the first unread agent, as any click does.
       if (side.unreadHit(row, x, y)) return false;
-      // Only presses on the name make the double-click that renames.
+      // Only presses on the name line make the double-click that renames.
       const workspace = this.rowOf(row.id)!.id;
-      if (!side.onName({ workspace: row.id }, rows, x, y)) this.clicks.reset();
-      else if (this.clicks.press({ workspace }, milliTimestamp(), x, y)) {
+      if (!side.onNameLine({ workspace: row.id }, rows, x, y)) this.clicks.reset();
+      else if (this.clicks.press({ workspace }, milliTimestamp(), y)) {
         this.beginInlineRename({ workspace });
         return true;
       }
@@ -7819,14 +7819,19 @@ export class Controller {
         this.queueEffect({ open_url: open.url });
     }
     if (!release && (button & 32) === 0) this.endSigninExit();
-    // A double-click needs two left presses on one sidebar cell with the
-    // pointer still between them, held (32) or not (35); a wheel turn or any
-    // other press starts over. The sidebar's own presses reset it for what
-    // isn't a row.
-    if (!release && (button === 32 || button === 35)) this.clicks.motion(x, y);
-    else if (!release && (button & 64) !== 0) this.clicks.reset();
-    else if (!release && (button & 0xe0) === 0 && (button !== 0 || x >= this.sidebarView([]).width))
-      this.clicks.reset();
+    // A double-click needs two left presses in a row on one sidebar row's
+    // name line. Unheld motion (35) may wander along the line; leaving it,
+    // a drag of the row (32), a wheel turn or any other press starts over.
+    if (!release && (button === 32 || button === 35)) {
+      const pending = this.clicks.pending(milliTimestamp());
+      if (
+        pending &&
+        !this.sidebarView(this.sidebarEntries()).onNameLine(this.renameTarget(pending), this.workspaceRows(), x, y)
+      )
+        this.clicks.move();
+    } else if (!release && (button & 64) !== 0) this.clicks.reset();
+    else if (!release && button === 0) this.clicks.pressed();
+    else if (!release && (button & 0xe0) === 0) this.clicks.reset();
     if (this.signin) {
       if (await this.linkMouse(button, x, y, release)) return;
       this.moveHover(button, x, y, release);
@@ -7880,13 +7885,16 @@ export class Controller {
       this.dirty = true;
       return;
     }
-    // A press in the open rename field changes nothing; anywhere else it
-    // closes the field unsaved and then does what it would have done.
+    // A press in the open rename field puts the caret there; anywhere else
+    // it closes the field unsaved and then does what it would have done.
     if (this.inline_rename && !release && (button & 0xe0) === 0) {
       const open = this.inline_rename,
-        rect = this.sidebarView(this.sidebarEntries()).fieldRect(this.renameTarget(open.target), this.workspaceRows());
+        side = this.sidebarView(this.sidebarEntries()),
+        rect = side.fieldRect(this.renameTarget(open.target), this.workspaceRows());
       if (rect && y === rect.y && x >= rect.x && x < rect.x + rect.width) {
+        if (button === 0) open.place(x - rect.x, rect.width);
         this.ui_mouse_down = true;
+        this.dirty = true;
         return;
       }
       // The drawer the field opened takes the press as it does without one:
@@ -8141,7 +8149,11 @@ export class Controller {
         drag.dragging = true;
         this.clicks.move();
       }
-      if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
+      // A drag breaks the rename double-click, as motion off the line does.
+      if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) {
+        drag.dragging = true;
+        this.clicks.move();
+      }
       if (!release && button === 35) drag.cancelled = true;
       drag.update(side, this.current().id, x, y, milliTimestamp());
       if (release && (button & 3) === 0) {
@@ -8185,7 +8197,10 @@ export class Controller {
         drag.dragging = true;
         this.clicks.move();
       }
-      if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
+      if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) {
+        drag.dragging = true;
+        this.clicks.move();
+      }
       drag.update(side, ids, x, y);
       if (release && (button & 3) === 0) {
         this.workspace_drag = null;
@@ -8619,12 +8634,8 @@ export class Controller {
         this.dirty = true;
       } else if (!release && (button === 0 || button === 2)) {
         this.ui_mouse_down = true;
-        if (corgiBadge.hit(this.host.corgi_badge, side.width, x, y)) {
-          this.clicks.reset();
-          return this.openSetup();
-        }
+        if (corgiBadge.hit(this.host.corgi_badge, side.width, x, y)) return this.openSetup();
         const found = side.hit(x, y);
-        if (found.tag !== "entry" && found.tag !== "workspace") this.clicks.reset();
         switch (found.tag) {
           case "archives":
             await this.perform({ name: "toggle-archived-workspaces" });
@@ -8641,31 +8652,32 @@ export class Controller {
             break;
           case "entry": {
             const index = found.entry;
-            if (entries[index].exit !== null) {
-              this.clicks.reset();
-              break;
-            }
+            if (entries[index].exit !== null) break;
             const target = entries[index].target;
             // Another machine's rows have no menus or drags here: they switch to it, or fold.
             if (button === 2 && sidebar.isSubhead(target)) {
-              this.clicks.reset();
               this.openWorktreeMenu(entries[index], x, y);
               break;
             }
             if (!sidebar.isAgent(target) && !("group" in target) && !("section" in target)) {
-              this.clicks.reset();
               if (button === 2 && "worktree" in target && !entries[index].worktree?.ghost)
                 this.openWorktreeMenu(entries[index], x, y);
               else await this.perform({ name: "worktree-agent", value: index });
               break;
             }
-            // A second left press on the same pane agent's name renames it; the
-            // first already selected it, so this one neither selects nor drags.
-            // An agent that takes no rename gets a plain press instead.
+            // A second left press anywhere on the same pane agent's name line
+            // renames it; the first already selected it, so this one neither
+            // selects nor drags. An agent that takes no rename gets a plain
+            // press instead.
             const name = "pane" in target && !this.away(target) ? { agent: target.pane } : null;
-            if (button === 0 && name && side.onName(name, this.workspaceRows(), x, y)) {
-              if (this.clicks.press(name, milliTimestamp(), x, y)) this.doubleClickAgent(name.agent);
-            } else this.clicks.reset();
+            if (
+              button === 0 &&
+              name &&
+              side.onNameLine(name, this.workspaceEntries(), x, y) &&
+              this.clicks.press(name, milliTimestamp(), y) &&
+              (await this.doubleClickAgent(name.agent))
+            )
+              break;
             this.selectAgent(target);
             if (button === 2 && "pane" in target) await this.openAgentMenu(target.pane, x, y);
             else if (button === 2 && "headless" in target) {
@@ -8720,12 +8732,16 @@ export class Controller {
             }
             const workspace = this.rowOf(row.id)!.id;
             if (button === 2) {
-              this.clicks.reset();
               this.openWorkspaceMenu(workspace, x, y);
             } else {
-              // Only presses on the name itself make the double-click that renames.
-              if (!side.onName({ workspace: row.id }, this.workspaceRows(), x, y)) this.clicks.reset();
-              else if (this.clicks.press({ workspace }, milliTimestamp(), x, y)) {
+              // Only presses on the name line make the double-click that
+              // renames; the message line below, with its unread mark, only
+              // switches. Screen positions take the displayed rows; the
+              // rename and the switch take the row's own workspace.
+              if (
+                side.onNameLine({ workspace: row.id }, this.workspaceRows(), x, y) &&
+                this.clicks.press({ workspace }, milliTimestamp(), y)
+              ) {
                 this.beginInlineRename({ workspace });
                 break;
               }

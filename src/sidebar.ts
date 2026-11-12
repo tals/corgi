@@ -1160,9 +1160,11 @@ export class View {
   private renaming(target: RenameTarget): RenameState | null {
     return this.rename !== null && sameRenameTarget(this.rename.target, target) ? this.rename : null;
   }
-  /** The name columns of `target`'s row, as `hit` finds it, and the line
-   * below it for a message, or the one above when the row is the last
-   * visible line of its list. Null while the row is not on screen. */
+  /** The columns `target`'s rename field takes on its name line, from the
+   * name's start, and the line below it for a message, or the one above
+   * when the row is the last visible line of its list. The field hugs the
+   * name, or the text typed into it, rather than filling the room before
+   * the row's right side. Null while the row is not on screen. */
   fieldRect(target: RenameTarget, workspaces: WorkspaceEntry[]): FieldRect | null {
     if (this.framed()) {
       const rect = this.lists().fieldRect(target, workspaces);
@@ -1176,7 +1178,11 @@ export class View {
       if (index < v.workspace_offset || index < 0 || v.workspace_collapsed[index]) return null;
       const y = v.workspaceY(index);
       if (y >= v.workspaceEnd()) return null;
-      return { x: 1, y, width: sat(linkRange(v, workspaces[index], workspaces).start, 2), message_y: y + 1 };
+      const ws = workspaces[index];
+      const room = sat(linkRange(v, ws, workspaces).start, 2);
+      const open = v.renaming(target);
+      const name = displayWidth(workspaceName(ws)) + (ws.archived ? displayWidth(archivedSuffix()) : 0);
+      return { x: 1, y, width: renameColumns(open ? renameTextWidth(open) : name, room), message_y: y + 1 };
     }
     if (v.drawer === "workspaces") return null;
     const index = v.entries.findIndex(e => "pane" in e.target && e.target.pane === target.agent);
@@ -1184,42 +1190,41 @@ export class View {
     const end = v.drawEnd(v.badge("below"));
     const y = v.middle() + 2 + v.pinned(v.offset).length + v.rowsBefore(index) - v.rowsBefore(v.offset);
     if (y >= end) return null;
-    return { x: 4, y, width: v.nameRoom(v.entries[index]), message_y: y + 1 < end ? y + 1 : y - 1 };
+    const e = v.entries[index];
+    const open = v.renaming(target);
+    const width = renameColumns(open ? renameTextWidth(open) : displayWidth(agentName(e)), v.nameRoom(e));
+    return { x: 4, y, width, message_y: y + 1 < end ? y + 1 : y - 1 };
   }
-  /** Whether `x`, `y` lands on `target`'s name as its row draws it, rather
-   * than elsewhere on the row. */
-  onName(target: RenameTarget, workspaces: WorkspaceEntry[], x: number, y: number): boolean {
+  /** Whether `x`, `y` lands where `target`'s rename field opens: the name
+   * and a little past it, never the row's other lines, the workspace
+   * line's port link and Git figures, an agent's context figure and notes,
+   * or the border. */
+  onNameLine(target: RenameTarget, workspaces: WorkspaceEntry[], x: number, y: number): boolean {
     const rect = this.fieldRect(target, workspaces);
-    if (rect === null || y !== rect.y || x < rect.x) return false;
-    let width = 0;
-    if ("workspace" in target) {
-      const ws = workspaces.find(ws => ws.id === target.workspace);
-      if (ws) width = displayWidth(workspaceName(ws)) + (ws.archived ? displayWidth(archivedSuffix()) : 0);
-    } else {
-      const e = this.entries.find(e => "pane" in e.target && e.target.pane === target.agent);
-      if (e) width = displayWidth(agentName(e));
-    }
-    return x < rect.x + Math.min(width, rect.width);
+    return rect !== null && y === rect.y && x >= rect.x && x < rect.x + rect.width;
   }
   /** The columns an agent row's name has, before its context figure and notes. */
   nameRoom(e: Entry): number {
     return sat(this.width - 6, nameRight(e, contextFigure(e, false, colors.bg)));
   }
   /** Shows the terminal caret in the rename field, as `searchCursor` does
-   * for the search; nothing while no renamed row is on screen. */
+   * for the search; nothing while no renamed row is on screen, or while
+   * the whole name is selected, which shows as the highlight instead. */
   renameCursor(w: Writer, workspaces: WorkspaceEntry[]): void {
     const state = this.rename;
     if (state === null) return;
     const rect = this.fieldRect(state.target, workspaces);
     if (rect === null) return;
+    if (state.field.len > 0 && state.field.selected) return;
     const column = writeField(new Writer(), state.field, NameView.scroll(state.field, rect.width), rect.width, "");
     w.write(`\x1b[0m${w.cup(rect.y + 1, rect.x + column + 1)}\x1b[?25h`);
   }
-  /** The rename field over `width` columns of the name line from `x`: its
+  /** The rename field on the name line from `x`, within `room` columns: its
    * text scrolled so the caret shows, or the fallback name, muted, while
    * the text is empty. */
-  private drawField(w: Writer, state: RenameState, x: number, y: number, width: number): void {
+  private drawField(w: Writer, state: RenameState, x: number, y: number, room: number): void {
     const field = state.field;
+    const width = renameColumns(renameTextWidth(state), room);
     w.write(`${w.cup(y + 1, x + 1)}${rename_field}`);
     w.splat(" ", width);
     w.write(w.cup(y + 1, x + 1));
@@ -2252,6 +2257,20 @@ function workspaceName(ws: WorkspaceEntry): string {
   return directoryLabel(ws.name, null, 4097);
 }
 const archivedSuffix = () => i18n.t` (archived)`;
+/** The fewest columns a rename field takes, so a short name still makes a
+ * target for the double-click. */
+const rename_min_columns = 8;
+/** The columns a rename field takes in `room` for text `width` columns wide:
+ * the text, the caret after it and one spare column. */
+function renameColumns(width: number, room: number): number {
+  return Math.min(room, Math.max(rename_min_columns, width + 2));
+}
+/** The columns an open rename field's text takes, or its fallback name's
+ * while the text is empty. */
+function renameTextWidth(state: RenameState): number {
+  const field = state.field;
+  return field.len > 0 ? displayWidth(field.raw()) : displayWidth(directoryLabel(state.fallback, null, 160));
+}
 /** An agent row's name line: its title, starred outside the starred section. */
 function agentName(e: Entry): string {
   return (e.starred && e.section !== "starred" ? "★ " : "") + rowTitle(e);

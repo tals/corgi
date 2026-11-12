@@ -126,3 +126,16 @@ test("an agent's name shows its C0 and C1 controls as spaces, one column each", 
   expect(writeField(w, d, 0, 20, "")).toBe(7);
   expect(w.buffered()).toBe("a 2Jb c\x1b[27m");
 });
+
+test("the field scrolls by columns, so wide text that fits keeps its start", () => {
+  // Four wide characters take eight columns and twelve bytes.
+  const wide = Dialog.init({ workspace_name: 1 }, "日本語版");
+  wide.position(wide.len);
+  expect(View.scroll(wide, 10)).toBe(0);
+  // One column short of the caret's, the first character scrolls off.
+  expect(View.scroll(wide, 8)).toBe(3);
+  const plain = Dialog.init({ workspace_name: 1 }, "abcdefghij");
+  plain.position(plain.len);
+  expect(View.scroll(plain, 11)).toBe(0);
+  expect(View.scroll(plain, 5)).toBe(6);
+});
