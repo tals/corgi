@@ -5,6 +5,10 @@ export type Value = string | number | bigint;
 export type Message = (...values: Value[]) => string;
 export const messages: Record<TranslatedLocale, Record<string, Message>> = {
   "zh": {
+    '["                                check tools, download a speech model"]': () =>
+      `                                检查工具并下载语音模型`,
+    '["                                dictate into the focused pane by speaking"]': () =>
+      `                                通过说话向焦点窗格听写`,
     '["    prompt through the agent\'s own channel, or type it and press Enter"]': () =>
       `    通过智能体自己的通道发送提示；没有通道时输入文本并按 Enter`,
     '["    search conversation text; --session PROVIDER:ID narrows, -o extracts matches"]': () =>
@@ -711,6 +715,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
       `move 未指定位置时追加到末尾。--env 替换环境变量覆盖配置，例如 '{"KEY":"value"}'。`,
     '["Mute / unmute"]': () => `静音 / 取消静音`,
     '["Mute / unmute sounds"]': () => `静音 / 开启声音`,
+    '["Mute / unmute voice"]': () => `静音 / 开启语音`,
     '["Name"]': () => `名称`,
     '["Name it and pick a folder"]': () => `命名并选择文件夹`,
     '["Name tab"]': () => `命名标签页`,
@@ -1416,6 +1421,10 @@ ${v1} 使用该账号。
     '["🐕 badge; animations stay still."]': () => `🐕 图标；动画保持静止。`,
   },
   "ja": {
+    '["                                check tools, download a speech model"]': () =>
+      `                                ツールを確認し音声モデルをダウンロード`,
+    '["                                dictate into the focused pane by speaking"]': () =>
+      `                                話して焦点ペインに口述入力`,
     '["    prompt through the agent\'s own channel, or type it and press Enter"]': () =>
       `    エージェント自身のチャネルでプロンプトを送る。なければ入力して Enter を押す`,
     '["    search conversation text; --session PROVIDER:ID narrows, -o extracts matches"]': () =>
@@ -2149,6 +2158,7 @@ ${v1} 使用该账号。
       `移動先の位置を省略すると末尾に移動します。Envは環境変数の上書き設定を置き換えます。例：'{"KEY":"value"}'。`,
     '["Mute / unmute"]': () => `ミュート切替`,
     '["Mute / unmute sounds"]': () => `通知音のミュート切り替え`,
+    '["Mute / unmute voice"]': () => `音声入力のミュート切り替え`,
     '["Name"]': () => `名前`,
     '["Name it and pick a folder"]': () => `名前とフォルダーを決める`,
     '["Name tab"]': () => `タブに名前を付ける`,
@@ -2867,6 +2877,10 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["🐕 badge; animations stay still."]': () => `🐕 バッジを表示。アニメーションは停止します。`,
   },
   "ko": {
+    '["                                check tools, download a speech model"]': () =>
+      `                                도구 확인 및 음성 모델 다운로드`,
+    '["                                dictate into the focused pane by speaking"]': () =>
+      `                                말해서 포커스된 창에 받아쓰기`,
     '["    prompt through the agent\'s own channel, or type it and press Enter"]': () =>
       `    에이전트 자체 채널로 프롬프트를 보내고, 없으면 입력한 뒤 Enter를 누릅니다`,
     '["    search conversation text; --session PROVIDER:ID narrows, -o extracts matches"]': () =>
@@ -3597,6 +3611,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
       `위치 없이 move하면 끝에 추가합니다. Env는 재정의 값을 교체합니다. 예: '{"KEY":"value"}'.`,
     '["Mute / unmute"]': () => `음소거 / 해제`,
     '["Mute / unmute sounds"]': () => `알림음 끄기 / 켜기`,
+    '["Mute / unmute voice"]': () => `음성 입력 끄기 / 켜기`,
     '["Name"]': () => `이름`,
     '["Name it and pick a folder"]': () => `이름을 정하고 폴더 선택`,
     '["Name tab"]': () => `탭 이름 지정`,
@@ -4313,6 +4328,10 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["🐕 badge; animations stay still."]': () => `🐕 배지; 애니메이션은 멈춰 있습니다.`,
   },
   "ru": {
+    '["                                check tools, download a speech model"]': () =>
+      `                                проверить инструменты и скачать речевую модель`,
+    '["                                dictate into the focused pane by speaking"]': () =>
+      `                                диктовать голосом в активную панель`,
     '["    prompt through the agent\'s own channel, or type it and press Enter"]': () =>
       `    отправить запрос через канал самого агента, а без него ввести текст и нажать Enter`,
     '["    search conversation text; --session PROVIDER:ID narrows, -o extracts matches"]': () =>
@@ -5455,6 +5474,7 @@ profile/ID, имя копии или command/N — как в выводе launch
       `Перемещение без позиции добавляет в конец. Env заменяет переопределения, например '{"KEY":"value"}'.`,
     '["Mute / unmute"]': () => `Включить / выключить звук`,
     '["Mute / unmute sounds"]': () => `Включить / выключить звуки`,
+    '["Mute / unmute voice"]': () => `Включить / выключить голос`,
     '["Name"]': () => `Имя`,
     '["Name it and pick a folder"]': () => `Назовите и выберите папку`,
     '["Name tab"]': () => `Имя вкладки`,

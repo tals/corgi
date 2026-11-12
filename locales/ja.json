@@ -1,4 +1,6 @@
 {
+  "                                check tools, download a speech model": "                                ツールを確認し音声モデルをダウンロード",
+  "                                dictate into the focused pane by speaking": "                                話して焦点ペインに口述入力",
   "    prompt through the agent's own channel, or type it and press Enter": "    エージェント自身のチャネルでプロンプトを送る。なければ入力して Enter を押す",
   "    search conversation text; --session PROVIDER:ID narrows, -o extracts matches": "    会話の本文を検索。--session PROVIDER:ID で絞り込み、-o で一致部分を抽出",
   "    to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added": "    今日のログ、MEMORY.md、ワークスペースのメモに追加。完全な重複は追加しません",
@@ -650,6 +652,7 @@
   "Move without a position appends. Env replaces overrides, e.g. '{\"KEY\":\"value\"}'.": "移動先の位置を省略すると末尾に移動します。Envは環境変数の上書き設定を置き換えます。例：'{\"KEY\":\"value\"}'。",
   "Mute / unmute": "ミュート切替",
   "Mute / unmute sounds": "通知音のミュート切り替え",
+  "Mute / unmute voice": "音声入力のミュート切り替え",
   "Name": "名前",
   "Name it and pick a folder": "名前とフォルダーを決める",
   "Name tab": "タブに名前を付ける",

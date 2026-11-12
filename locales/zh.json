@@ -1,4 +1,6 @@
 {
+  "                                check tools, download a speech model": "                                检查工具并下载语音模型",
+  "                                dictate into the focused pane by speaking": "                                通过说话向焦点窗格听写",
   "    prompt through the agent's own channel, or type it and press Enter": "    通过智能体自己的通道发送提示；没有通道时输入文本并按 Enter",
   "    search conversation text; --session PROVIDER:ID narrows, -o extracts matches": "    搜索对话文本；--session PROVIDER:ID 缩小范围，-o 提取匹配内容",
   "    to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added": "    写入今日日志、MEMORY.md 或工作区笔记；完全重复的条目不会添加",
@@ -650,6 +652,7 @@
   "Move without a position appends. Env replaces overrides, e.g. '{\"KEY\":\"value\"}'.": "move 未指定位置时追加到末尾。--env 替换环境变量覆盖配置，例如 '{\"KEY\":\"value\"}'。",
   "Mute / unmute": "静音 / 取消静音",
   "Mute / unmute sounds": "静音 / 开启声音",
+  "Mute / unmute voice": "静音 / 开启语音",
   "Name": "名称",
   "Name it and pick a folder": "命名并选择文件夹",
   "Name tab": "命名标签页",

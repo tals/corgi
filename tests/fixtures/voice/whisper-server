@@ -1,0 +1,72 @@
+#!/usr/bin/env bun
+// Stands in for whisper.cpp's whisper-server in the voice tests. Each
+// /inference request answers with the next line of CORGI_FAKE_WHISPER_SCRIPT.
+// Asked for srt, it answers one cue per "|"-separated part of the line, 1 s
+// apart, or ending at the seconds CORGI_FAKE_WHISPER_MODE=segments:<end>,…
+// lists; an empty line is no cue. no_text leaves the text out of json.
+import { appendFileSync, readFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+if (args.includes("--help")) {
+  process.stdout.write("usage: whisper-server [options]\n  --port PORT\n  --vad\n  --vad-model FNAME\n");
+  process.exit(0);
+}
+const option = (name: string) => {
+  const at = args.indexOf(name);
+  return at >= 0 ? args[at + 1] : undefined;
+};
+const log = (value: object) => {
+  if (process.env.CORGI_FAKE_WHISPER_LOG)
+    appendFileSync(process.env.CORGI_FAKE_WHISPER_LOG, JSON.stringify(value) + "\n");
+};
+log({ start: args, vad: args.includes("--vad"), pid: process.pid });
+const script = (() => {
+  const source = process.env.CORGI_FAKE_WHISPER_SCRIPT ?? "";
+  try {
+    return readFileSync(source, "utf8").split("\n");
+  } catch {
+    return source.split("\n");
+  }
+})();
+const [mode, value] = (process.env.CORGI_FAKE_WHISPER_MODE ?? "").split(":");
+/** Seconds as an srt time, 00:00:04,270. */
+const srtTime = (seconds: number) => {
+  const ms = Math.round(seconds * 1000),
+    pad = (n: number, width = 2) => String(n).padStart(width, "0"),
+    clock = [ms / 3_600_000, (ms / 60_000) % 60, (ms / 1000) % 60].map(n => pad(Math.floor(n)));
+  return `${clock.join(":")},${pad(ms % 1000, 3)}`;
+};
+const subtitles = (line: string) => {
+  const parts = line ? line.split("|") : [],
+    ends = mode === "segments" ? value.split(",").map(Number) : parts.map((_, i) => i + 1);
+  return parts
+    .map((part, i) => `${i + 1}\n${srtTime(ends[i - 1] ?? 0)} --> ${srtTime(ends[i])}\n ${part.trim()}\n\n`)
+    .join("");
+};
+let requests = 0;
+Bun.serve({
+  hostname: option("--host") ?? "127.0.0.1",
+  port: Number(option("--port") ?? 8080),
+  async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (mode === "no_health" && path === "/health") return new Promise<Response>(() => {});
+    if (request.method === "GET" && path === "/health") return Response.json({ status: "ok" });
+    if (request.method !== "POST" || path !== "/inference") return new Response("not found", { status: 404 });
+    const form = await request.formData(),
+      file = form.get("file") as Blob | null;
+    requests++;
+    log({
+      request: requests,
+      bytes: file ? file.size : 0,
+      fields: Object.fromEntries([...form.entries()].filter(([key]) => key !== "file")),
+    });
+    if (mode === "crash_after" && requests > Number(value)) process.exit(3);
+    if (mode === "hang") return new Promise<Response>(() => {});
+    if (mode === "slow") await Bun.sleep(Number(value));
+    if (mode === "garbage") return new Response("<html>not json</html>");
+    const line = script.shift() ?? "";
+    if (form.get("response_format") === "srt") return new Response(subtitles(line));
+    if (mode === "no_text") return Response.json({});
+    return Response.json({ text: ` ${line}\n` });
+  },
+});

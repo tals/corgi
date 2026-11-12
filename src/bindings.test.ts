@@ -194,3 +194,10 @@ test("prefix Space toggles the Corgi prompt in every preset, and Ctrl+Shift+K wh
     "| Corgi prompt | `prefix Space`, `Ctrl+Shift+K` | `prefix Space`, `Ctrl+Shift+K` | `prefix Space`, `Ctrl+Shift+K` | `prefix Space` |\n",
   );
 });
+
+test("prefix V mutes voice in every preset, beside prefix m for sounds", () => {
+  for (const preset of ["corgi", "tmux", "herdr", "cmux"] as Preset[]) {
+    expect(lookup(preset, true, 86)).toEqual({ name: "voice-mute" });
+    expect(lookup(preset, true, 109)).toEqual({ name: "mute" });
+  }
+});
