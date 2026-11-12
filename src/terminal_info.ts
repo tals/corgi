@@ -164,6 +164,8 @@ export class Probe {
     return Buffer.from(out);
   }
   private scan(byte: number, out: number[], now: number) {
+    // A typed Escape must not consume the Escape starting a terminal reply.
+    if (!this.paste && this.pending === "\x1b" && byte === 27) this.flush(out);
     if (!this.pending && byte !== 27) {
       out.push(byte);
       return;
