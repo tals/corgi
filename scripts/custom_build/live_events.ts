@@ -9,6 +9,9 @@ export type LiveEvent =
   | {
       t: "begin";
       command: "rebuild" | "rebase" | "continue";
+      /** The run rewrites own branches (a `rebase` kind, even continued): its
+       * left-alone results are named on the card. */
+      rebaseRun?: boolean;
       branch: string;
       upstream: Upstream;
       stages: Stage[];
@@ -74,13 +77,15 @@ export type LiveEvent =
       /** What a finished run's card shows of `lines`; absent, it shows them all. */
       brief?: string[];
       handoffs?: number;
+      /** The binary a rebuild built, absolute: the card's last line points to it. */
+      binary?: string;
     };
 export type Sink = (event: LiveEvent) => void;
 export const signal = (sink: Sink | undefined, event: LiveEvent): void => sink?.(event);
 
 /** The `end` of a command's outcome: its first line without the `custom-build: ` prefix leads. */
 export function end(
-  outcome: { code: number; lines: string[]; brief?: string[]; handoffs?: number },
+  outcome: { code: number; lines: string[]; brief?: string[]; handoffs?: number; binary?: string },
   report: string | null,
   activeMs?: number,
 ): LiveEvent {
@@ -95,6 +100,7 @@ export function end(
     ...(activeMs === undefined ? {} : { activeMs }),
     ...(outcome.brief ? { brief: outcome.brief } : {}),
     ...(outcome.handoffs ? { handoffs: outcome.handoffs } : {}),
+    ...(outcome.binary ? { binary: outcome.binary } : {}),
   };
 }
 

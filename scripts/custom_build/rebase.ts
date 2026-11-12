@@ -404,9 +404,9 @@ async function drive(
     const at = git.rebaseStoppedAt(tree),
       files = git.unmergedFiles(tree);
     if (!at) return failed(e, t, tree, "the rebase stopped without a conflict");
-    const stop = (problem?: string): Outcome => ({
+    const stop = (problem?: string, harnessDown = false): Outcome => ({
       stop: { target: t, worktree: tree, commit: at.commit, files, ...(problem ? { problem } : {}) },
-      exhausted: !!e.harness && !problem,
+      exhausted: harnessDown || (!!e.harness && !problem),
     });
     if (!files.length) {
       // rerere replayed a recorded resolution for every path.
@@ -418,8 +418,9 @@ async function drive(
     const used = tries.get(at.commit) ?? 0;
     if (down) {
       const problem = `the harness failed to run: ${down}`;
+      // The attempts ended at once, which reads as exit 5 everywhere else.
       return o.stopOnConflict
-        ? stop(problem)
+        ? stop(problem, true)
         : failed(e, t, tree, `rebase conflict at ${at.line} in ${files.join(", ")}; ${problem}`);
     }
     if (!e.harness || used >= limit)
@@ -576,10 +577,14 @@ async function finish(e: Env, t: RebaseTarget, tree: string, how: How): Promise<
       continue;
     }
     const failing = steps.failureSummary(step, readFileSync(log, "utf8"));
+    // The harness's fix would run in the branch's own worktree; edits made
+    // there meanwhile are the user's, and a rejected attempt must not erase
+    // them, so the harness is not asked while any are there.
+    const dirty = t.worktree && !git.isClean(tree);
     // The harness adapts the branch to upstream; each accepted fix is a commit
     // on the branch, and every check runs again from the first.
     let fixed: string | null = null;
-    while (e.harness && !down && !fixed && tries < limit) {
+    while (e.harness && !down && !fixed && tries < limit && !dirty) {
       tries++;
       const r = await fixBranch(e, t, tree, { step, log, failing, attempt: tries, limit });
       if (r.ok) fixed = r.commit;
@@ -594,9 +599,11 @@ async function finish(e: Env, t: RebaseTarget, tree: string, how: How): Promise<
     }
     const harnessNote = down
       ? `; the harness failed to run: ${down}`
-      : tries
-        ? `; the harness could not fix it in ${plural(tries, "try", "tries")}`
-        : "";
+      : dirty
+        ? `; ${tree} changed during the checks; its edits are kept and the harness was not asked`
+        : tries
+          ? `; the harness could not fix it in ${plural(tries, "try", "tries")}`
+          : "";
     return done(
       {
         ...base,
@@ -701,7 +708,9 @@ async function fixBranch(
   });
   if (!verdict.ok) {
     e.progress(`rejected the harness's fix: ${verdict.reason}`);
-    harness.discard(tree, head, before, []);
+    // A fix that changed nothing leaves nothing to undo; the reset would
+    // only erase edits the user made in the worktree meanwhile.
+    if (verdict.reason !== harness.changedNothing) harness.discard(tree, head, before, []);
     return { ok: false, reason: verdict.reason, broken };
   }
   git.must(tree, ["add", "-A", "--", ...verdict.files]);
@@ -719,14 +728,26 @@ async function fixBranch(
  * its backup. A refusal keeps git's output in the report's `rebase/`. */
 export function push(repo: string, reportDir: string, results: RebaseResult[]): string[] {
   const lines: string[] = [],
-    url = pushUrl(repo);
+    url = pushUrl(repo),
+    // `origin/<branch>` tracks the fork this pushes to only when origin
+    // fetches from it too; without that, git's own push would update it.
+    tracked = git.git(repo, ["remote", "get-url", "origin"]).stdout.trim() === url;
   for (const r of results) {
     const out = git.pushWithLease(repo, url, r.branch, r.to!, r.lease);
     if (out.code === 0) {
       r.push = "pushed";
       for (const ref of [backupRef(r.branch), rebasedRef(r.branch), leaseRef(r.branch)]) git.deleteRef(repo, ref);
-      // What origin holds now, so `status` doesn't read the old tip as a divergence.
-      git.updateRefs(repo, [{ ref: forkRef(r.branch), value: r.to! }]);
+      // What origin holds now, so `status` doesn't read the old tip as a
+      // divergence: the tool's record, and the tracking ref it prefers.
+      git.updateRefs(
+        repo,
+        tracked
+          ? [
+              { ref: forkRef(r.branch), value: r.to! },
+              { ref: `refs/remotes/origin/${r.branch}`, value: r.to! },
+            ]
+          : [{ ref: forkRef(r.branch), value: r.to! }],
+      );
       lines.push(`  pushed ${r.branch} to origin`);
       continue;
     }
