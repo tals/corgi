@@ -59,7 +59,9 @@ export class Explained extends Error {
 }
 export type Code = 0 | 1 | 2 | 3 | 4 | 5;
 /** How a command ended; `lines` are the summary for stdout. */
-export type Outcome = { code: Code; lines: string[] };
+/** `brief`: what a terminal's card shows of `lines` for a finished run; it
+ * draws the rest from the run itself. `handoffs`: how many were written. */
+export type Outcome = { code: Code; lines: string[]; brief?: string[]; handoffs?: number };
 
 const work = (ctx: Context) => join(ctx.dir, "work");
 const binary = (ctx: Context) => join(ctx.repo, "dist", "corgi-custom");
@@ -1288,7 +1290,8 @@ async function finish(ctx: Context, run: RunState): Promise<Outcome> {
   const { repo, config } = ctx,
     pushed = offerPush(ctx, run),
     handoffs = await writeReport(ctx, run, 0, []),
-    lines = [...summary(run), ...pushed.lines, ...handoffs.map(path => `  handoff: ${path}`)];
+    lines = [...summary(run), ...pushed.lines, ...handoffs.map(path => `  handoff: ${path}`)],
+    brief = [...attentionOf(run), ...pushCommands(pushed.lines)];
   // The backups are the run's start, both halves, so a rollback never mixes builds.
   if (run.startTip) git.must(repo, ["branch", "-f", `${config.branch}-prev`, run.startTip]);
   else if (git.branchExists(repo, `${config.branch}-prev`)) git.must(repo, ["branch", "-D", `${config.branch}-prev`]);
@@ -1312,6 +1315,7 @@ async function finish(ctx: Context, run: RunState): Promise<Outcome> {
     endItem(ctx, run, "after-build");
     stage(ctx, "after-build", "done", ok ? "passed" : "failed");
     lines.push(ok ? "after-build command: passed" : "after-build command failed; the build itself succeeded");
+    if (!ok) brief.push("  warning: the after-build command failed; the build itself succeeded");
   }
   if (run.push) {
     startItem(ctx, run, "push");
@@ -1323,11 +1327,27 @@ async function finish(ctx: Context, run: RunState): Promise<Outcome> {
     if (out.code === 0) lines.push(`pushed ${config.branch} to origin`);
     else {
       lines.push(`push to origin failed: ${(out.stderr || out.stdout).trim()}`);
+      brief.push(`  warning: push to origin failed: ${(out.stderr || out.stdout).trim()}`);
       code = 1;
     }
   }
   recordTimings(ctx, run);
-  return ended(ctx, run, { code, lines });
+  return ended(ctx, run, { code, lines, brief, handoffs: handoffs.length });
+}
+/** A declined push leaves its commands to run; they stay on the summary. */
+const pushCommands = (lines: string[]) => lines.filter(line => line.startsWith("  push: "));
+/** What of a finished run needs the user on a short summary: harness fixes to
+ * review, refused pushes, notes, patches to remove and warnings. Flaky steps
+ * are left to the card's retry lines. */
+function attentionOf(run: RunState): string[] {
+  const of = (kind: string) => run.events.filter(e => e.kind === kind);
+  return [
+    ...rebase.attention(run.rebased ?? []),
+    ...of("rebase-note").map(e => `  note: ${e.detail}`),
+    ...of("skipped-merged").map(e => `  note: ${e.patch} is merged upstream; remove it from the list`),
+    ...of("closed-warning").map(e => `  warning: ${e.patch} ${e.detail}`),
+    ...of("note").map(e => `  note: ${e.patch}: ${e.detail}`),
+  ];
 }
 function summary(run: RunState): string[] {
   const of = (kind: string) => run.events.filter(e => e.kind === kind).map(e => e.patch ?? e.step ?? "");
@@ -1770,6 +1790,12 @@ async function rebaseLoop(ctx: Context, run: RunState): Promise<Outcome> {
       ...handoffs.map(path => `  handoff: ${path}`),
       `  report: ${join(run.reportDir, "report.md")}`,
     ],
+    brief: [
+      ...rebase.attention(run.rebased ?? []),
+      ...run.events.filter(e => e.kind === "rebase-note").map(e => `  note: ${e.detail}`),
+      ...pushCommands(pushed.lines),
+    ],
+    handoffs: handoffs.length,
   });
 }
 function recordRebase(ctx: Context, run: RunState, result: configFile.RebaseResult) {

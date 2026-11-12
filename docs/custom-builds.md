@@ -255,14 +255,18 @@ patches before and after the one it is at into `✓ 4 done` and `· 3 pending`
 lines. A resize lays the view out again at the new size. A terminal made
 shorter may push the top of the view into the scrollback before it is redrawn.
 
-When the run ends, the view turns into a card that stays in the scrollback,
-with everything the plain output prints (push commands, handoffs, notes, the
-report) and its `warning:` lines. Its headline says how it went: `✓` when
-everything succeeded, `◐` in amber when the run finished but left work undone
-(an own branch that couldn't be rebased, or, for `rebase`, one it left alone,
-counted on a `branches` line), `✗` when it stopped. A fully successful run
-opens its card with a short burst of fireworks, five rows high; the last
-frame stays above the card. An error that ends the command shows on the
+When the run ends, the view turns into a card that stays in the scrollback.
+Its headline says how it went: `✓` when everything succeeded, `◐` in amber
+when the run finished but left work undone (an own branch that couldn't be
+rebased, or, for `rebase`, one it left alone), `✗` when it stopped. A
+finished run's card is a summary: the stage times, counts of patches and
+branches, one line for each branch that needs a look, harness fixes to
+review, notes, warnings and commands still to run, and the report with the
+number of handoffs. Every other line (what merged, what was pushed, each
+handoff's path) is in the report and in the plain output. A stopped run's
+card keeps all of its lines, since they say how to go on. A fully successful
+run ends with a short burst of fireworks below the card, five rows high,
+whose last frame stays (not under a pinned `--verbose` view). An error that ends the command shows on the
 card too, on stdout, rather than on stderr. Patch names link to their pages and
 steps to their logs (OSC 8).
 

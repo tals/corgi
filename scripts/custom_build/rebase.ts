@@ -731,6 +731,18 @@ export function push(repo: string, reportDir: string, results: RebaseResult[]): 
   }
   return lines;
 }
+/** What of the rebased branches needs the user on a short summary: harness
+ * fixes to review, and refused pushes with the command to retry. */
+export function attention(results: RebaseResult[]): string[] {
+  return results.flatMap(r => [
+    ...(r.outcome === "rebased" && r.fixes?.length
+      ? [`  review ${r.branch}: the harness fixed its checks in ${r.fixes.map(c => c.slice(0, 7)).join(", ")}`]
+      : []),
+    ...(r.push === "refused"
+      ? [`  push of ${r.branch} refused (${r.pushDetail ?? "see the report"})`, `  retry: ${pushCommand(r)}`]
+      : []),
+  ]);
+}
 /** A branch name as a shell word, quoted when it needs it. */
 export const word = (text: string) => (/^[\w./@+:-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`);
 export function pushCommand(r: RebaseResult): string {

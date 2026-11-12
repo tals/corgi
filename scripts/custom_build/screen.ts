@@ -109,6 +109,13 @@ export class Screen {
     this.o.write(term.sync(true) + this.hide() + (this.pinned ? this.flush() : "") + term.sync(false));
   }
 
+  /** Inline: replaces the frame with `lines`, which stay in the scrollback,
+   * and goes on drawing frames below them. */
+  print(lines: string[]): void {
+    if (this.paused || this.done || this.o.verbose) return;
+    this.o.write(term.sync(true) + this.erase() + lines.map(l => `${l}\n`).join("") + term.sync(false));
+  }
+
   /** Replaces the frame with `card`, which stays in the scrollback, and puts
    * the terminal back. Verbose writes the whole log above the card first,
    * since the lines that scrolled in the region never reached the scrollback. */

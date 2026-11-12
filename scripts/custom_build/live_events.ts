@@ -71,12 +71,19 @@ export type LiveEvent =
       report: string | null;
       /** The run's active time at its end, for the finished card's comparison with the last run. */
       activeMs?: number;
+      /** What a finished run's card shows of `lines`; absent, it shows them all. */
+      brief?: string[];
+      handoffs?: number;
     };
 export type Sink = (event: LiveEvent) => void;
 export const signal = (sink: Sink | undefined, event: LiveEvent): void => sink?.(event);
 
 /** The `end` of a command's outcome: its first line without the `custom-build: ` prefix leads. */
-export function end(outcome: { code: number; lines: string[] }, report: string | null, activeMs?: number): LiveEvent {
+export function end(
+  outcome: { code: number; lines: string[]; brief?: string[]; handoffs?: number },
+  report: string | null,
+  activeMs?: number,
+): LiveEvent {
   const [first = "", ...rest] = outcome.lines;
   return {
     t: "end",
@@ -86,6 +93,8 @@ export function end(outcome: { code: number; lines: string[] }, report: string |
     lines: rest,
     report,
     ...(activeMs === undefined ? {} : { activeMs }),
+    ...(outcome.brief ? { brief: outcome.brief } : {}),
+    ...(outcome.handoffs ? { handoffs: outcome.handoffs } : {}),
   };
 }
 

@@ -1834,7 +1834,7 @@ test("rebuild --verbose is accepted and plain output is unchanged", async () => 
   expect(outputs[1]).toEqual(outputs[0]);
   expect(outputs[0][1]).toContain("custom-build: merging mine\n");
 });
-test("a live rebuild prints the card and the outcome lines", async () => {
+test("a live rebuild prints a summary card that points at the report", async () => {
   const w = world();
   branch(w, "mine", { "mine.txt": "mine\n" });
   configure(w, ["mine"]);
@@ -1845,9 +1845,11 @@ test("a live rebuild prints the card and the outcome lines", async () => {
   expect(result.out).toContain("\x1b[?25l");
   expect(out).toContain("custom-build rebuild");
   expect(out).toContain("✓ built dist/corgi-custom");
-  // The card wraps the long report path; without the spaces it reads as the plain line.
-  expect(out.replace(/\s+/g, "")).toMatch(/report:\/\S+\/\.custom-build\/reports\/\d{8}-\d{6}\/report\.md/);
-  expect(out).toContain(`  merged mine ${tip(w, "mine")!.slice(0, 7)} about mine\n`);
+  // The card wraps the long report path; without the spaces it reads as one.
+  expect(out.replace(/\s+/g, "")).toMatch(/report\/\S+\/\.custom-build\/reports\/\d{8}-\d{6}\/report\.md/);
+  expect(out).toContain(" patches   ■ 1 merged");
+  // Each merge is in the report and the plain output, not on the card.
+  expect(out).not.toContain("  merged mine ");
   expect(result.out).toEndWith(term.restore());
 });
 test("a live command that throws ends its view with the error", async () => {
@@ -1873,13 +1875,13 @@ test("a timings history that can't be written is a warning, and the run keeps it
     const result = await cbWith(w, live ? { live: "inline", color: true, columns: 100, rows: 40 } : {}, "rebuild");
     expect(result.code).toBe(0);
     const out = unpainted(result.out);
-    expect(out).toContain(`  merged mine ${tip(w, "mine")!.slice(0, 7)} about mine\n`);
     if (live) {
       expect(result.err).toBe("");
       expect(out).toContain("✓ built dist/corgi-custom");
       expect(out.slice(out.lastIndexOf("✓ built"))).toContain("  warning: could not record timings: ");
     } else {
       expect(out).toStartWith("custom-build: built dist/corgi-custom");
+      expect(out).toContain(`  merged mine ${tip(w, "mine")!.slice(0, 7)} about mine\n`);
       expect(result.err).toContain("custom-build: warning: could not record timings: ");
     }
     expect(run(w)).toBeNull();
