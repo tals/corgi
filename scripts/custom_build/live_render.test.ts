@@ -1,6 +1,17 @@
 import { expect, test } from "bun:test";
 import type { LiveEvent, Stage } from "./live_events";
-import { card, frame, outcomeCard, spinner, type TaskLine, taskFrame, timeline } from "./live_render";
+import {
+  card,
+  fireworks,
+  finaleRows,
+  frame,
+  outcomeCard,
+  problems,
+  spinner,
+  type TaskLine,
+  taskFrame,
+  timeline,
+} from "./live_render";
 import { apply, initial, type LiveState, rebaseItem, rebaseSummary } from "./live_state";
 import * as term from "./term";
 import type { Estimate, HistoryRun } from "./timings";
@@ -609,4 +620,62 @@ test("a task frame shows each task with its mark, what it did and its time", () 
   for (const width of [1, 10, 40])
     for (const line of taskFrame({ command: "rollback", tasks }, { width, nowMs: 0, color: true }))
       expect(term.width(line)).toBeLessThanOrEqual(width);
+});
+
+/** A `rebase` run: two branches rebased, one that couldn't be, one left alone. */
+function rebaseRun(o: { failed?: boolean; leftAlone?: boolean } = {}): LiveState {
+  const branch = (id: string, outcome: string, state: "done" | "skipped" = "done") =>
+    ({ t: "item", stage: "rebase", id, state, outcome, ms: s(30) }) as LiveEvent;
+  return play([
+    [begin({ command: "rebase", stages: ["fetch", "rebase"], items: {} }), 0],
+    [stage("fetch", "start"), 0],
+    [stage("fetch", "done", { ms: s(5) }), s(5)],
+    [stage("rebase", "start"), s(5)],
+    [branch("fix-jump-to-blocked", "rebased"), 0],
+    [{ t: "retry", stage: "rebase", id: "fix-jump-to-blocked", why: "flaky", detail: "test failed once" }, s(30)],
+    [branch("sidebar-teammates", "rebased"), 0],
+    ...(o.failed ? [[branch("001-voice-dictation", "not-rebased", "skipped"), 0] as [LiveEvent, number]] : []),
+    ...(o.leftAlone ? [[branch("tals/corgi#93", "left-alone", "skipped"), 0] as [LiveEvent, number]] : []),
+    [stage("rebase", "done", { ms: s(120) }), s(125)],
+    [
+      { t: "end", ok: true, code: 0, headline: "rebased own branches onto upstream c29ecae", lines: [], report: null },
+      s(125),
+    ],
+  ]);
+}
+
+test("a rebase that left branches undone ends amber, with what happened to each branch", () => {
+  const lines = card(rebaseRun({ failed: true, leftAlone: true }), { width: 100, color: false });
+  expect(lines[0]).toStartWith("◐ rebased own branches onto upstream c29ecae, with problems in 2:05");
+  expect(lines).toContain(" branches  ■■ 2 rebased  ■ 1 not rebased  ■ 1 left alone");
+  // A retry names the branch it was for.
+  expect(lines).toContain(" ↻ retried fix-jump-to-blocked: test failed once, passed on retry: may be flaky");
+  expect(card(rebaseRun(), { width: 100, color: false })[0]).toStartWith(
+    "✓ rebased own branches onto upstream c29ecae in",
+  );
+  // A branch left alone is a problem only when rebasing was the whole run.
+  expect(problems(rebaseRun({ leftAlone: true }))).toBe(true);
+  const rebuild = { ...rebaseRun({ leftAlone: true }), command: "rebuild" as const };
+  expect(problems(rebuild)).toBe(false);
+  expect(problems({ ...rebuild, ...rebaseRun({ failed: true }), command: "rebuild" as const })).toBe(true);
+});
+
+test("fireworks rise, burst and fade, and leave embers that fit the width", () => {
+  const frames = fireworks(60, false, 7),
+    width = (line: string) => [...line].length;
+  expect(frames.length).toBeGreaterThan(10);
+  for (const f of frames) {
+    expect(f.length).toBe(finaleRows);
+    for (const line of f) expect(width(line)).toBeLessThanOrEqual(60);
+  }
+  const all = frames.map(f => f.join("\n"));
+  expect(all.some(f => f.includes("│"))).toBe(true);
+  expect(all.some(f => f.includes("✸"))).toBe(true);
+  expect(all.at(-1)).toMatch(/✧/);
+  expect(all.at(-1)).not.toMatch(/[│✸]/);
+  // The same seed draws the same show; colors only paint it.
+  expect(fireworks(60, false, 7)).toEqual(frames);
+  expect(fireworks(60, true, 7).map(f => f.map(plain))).toEqual(frames);
+  // Too narrow for a show.
+  expect(fireworks(10, true)).toEqual([]);
 });

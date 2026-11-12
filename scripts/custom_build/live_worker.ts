@@ -5,7 +5,7 @@
 import { writeSync } from "node:fs";
 import tty from "node:tty";
 import type { LiveEvent } from "./live_events";
-import { card, clock, frame, outcomeCard } from "./live_render";
+import { card, clock, finaleFrameMs, fireworks, frame, outcomeCard, problems } from "./live_render";
 import { apply, initial, type LiveState } from "./live_state";
 import { Screen } from "./screen";
 import * as term from "./term";
@@ -31,6 +31,10 @@ export type ViewOptions = {
   now?: () => number;
   /** Test hook: draws the card in place of `live_render.card`. */
   card?: typeof card;
+  /** Plays the fireworks before the card of a run that fully succeeded. */
+  finale?: boolean;
+  /** How the fireworks wait between frames (a test hook). */
+  wait?: (ms: number) => Promise<void>;
 };
 
 export class View {
@@ -97,7 +101,29 @@ export class View {
   /** Replaces the view with the card for `e` and puts the terminal back.
    * Throws when it couldn't: the caller then restores and prints `plain(e)`. */
   finish(e: End): void {
-    if (this.done) return;
+    const lines = this.end(e);
+    if (lines) this.screen.finish(lines);
+  }
+  /** Like `finish`, playing the fireworks first for a run that fully
+   * succeeded; their last frame stays above the card. */
+  async finishShow(e: End): Promise<void> {
+    const lines = this.end(e);
+    if (!lines) return;
+    const s = this.s,
+      show =
+        this.o.finale && this.o.color && e.ok && s.command !== null && !problems(s)
+          ? fireworks(this.o.cols(), this.o.color, Math.floor(this.now()))
+          : [],
+      wait = this.o.wait ?? Bun.sleep;
+    for (const frame of show.slice(0, -1)) {
+      this.screen.draw(frame);
+      await wait(finaleFrameMs);
+    }
+    this.screen.finish(show.length ? [...show[show.length - 1], ...lines] : lines);
+  }
+  /** Ends the view on `e` and returns its card; null when it had ended already. */
+  private end(e: End): string[] | null {
+    if (this.done) return null;
     const now = this.now();
     this.s = apply(this.s, e, now);
     if (this.asking) this.answered(null);
@@ -116,7 +142,7 @@ export class View {
         s.command === null
           ? outcomeCard(e, { width, color: this.o.color, command: this.o.command ?? null })
           : (this.o.card ?? card)(s, { width, color: this.o.color });
-    this.screen.finish(lines);
+    return lines;
   }
 
   /** Whether `--verbose` pinned the view (it then needs the cursor moved below the log). */
@@ -255,7 +281,10 @@ export function terminalSize(fd = 1): () => { rows: number; cols: number } {
   };
 }
 
-export type Port = { onmessage: (m: MessageEvent<ToWorker>) => void; postMessage: (m: FromWorker) => void };
+export type Port = {
+  onmessage: (m: MessageEvent<ToWorker>) => void | Promise<void>;
+  postMessage: (m: FromWorker) => void;
+};
 /** Serves `live.ts`'s messages on `port`, drawing with a view `make` gives. */
 export function serve(port: Port, make: (o: ViewOptions) => View = o => new View(o)): void {
   let view: View | null = null,
@@ -279,7 +308,7 @@ export function serve(port: Port, make: (o: ViewOptions) => View = o => new View
       unlock(shared);
     }
   };
-  port.onmessage = ({ data: m }) => {
+  port.onmessage = async ({ data: m }) => {
     let ok = true;
     try {
       switch (m.t) {
@@ -293,6 +322,7 @@ export function serve(port: Port, make: (o: ViewOptions) => View = o => new View
             cols: () => size.cols,
             verbose: m.verbose,
             color: m.color,
+            finale: true,
             ...(m.command ? { command: m.command } : {}),
           });
           timer = setInterval(() => {
@@ -313,7 +343,7 @@ export function serve(port: Port, make: (o: ViewOptions) => View = o => new View
         case "finish":
           if (timer) clearInterval(timer);
           remeasure();
-          view?.finish(m.e);
+          await view?.finishShow(m.e);
           break;
       }
     } catch {
