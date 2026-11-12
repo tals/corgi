@@ -88,7 +88,7 @@ test("on a terminal patch names link to their pages, in the table and the confli
   ];
   const colored = render(view({ rows }), { color: true }),
     out = colored.join("\n"),
-    linked = "\x1b]8;;https://github.com/tals/corgi/pull/5\x1b\\tals/corgi#5\x1b]8;;\x1b\\";
+    linked = "\x1b]8;;https://github.com/tals/corgi/pull/5\x1b\\\x1b[4mtals/corgi#5\x1b[24m\x1b]8;;\x1b\\";
   expect(out.split(linked)).toHaveLength(3);
   expect(colored.map(l => l.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[\d;]*m/g, ""))).toEqual(
     render(view({ rows }), { color: false }),

@@ -51,9 +51,15 @@ test("empty lists say so", () => {
 test("a terminal gets each patch linked to its page, without shifting a column", () => {
   const linked = render({ patches, retired }, { ...opts, color: true });
   const out = linked.join("\n");
-  expect(out).toContain("\x1b]8;;https://github.com/tals/corgi/pull/128\x1b\\tals/corgi#128\x1b]8;;\x1b\\");
-  expect(out).toContain("\x1b]8;;https://github.com/me/corgi/tree/my-branch\x1b\\my-branch\x1b]8;;\x1b\\");
-  expect(out).toContain("\x1b]8;;https://github.com/other/corgi/tree/topic\x1b\\other/corgi:topic\x1b]8;;\x1b\\");
+  expect(out).toContain(
+    "\x1b]8;;https://github.com/tals/corgi/pull/128\x1b\\\x1b[4mtals/corgi#128\x1b[24m\x1b]8;;\x1b\\",
+  );
+  expect(out).toContain(
+    "\x1b]8;;https://github.com/me/corgi/tree/my-branch\x1b\\\x1b[4mmy-branch\x1b[24m\x1b]8;;\x1b\\",
+  );
+  expect(out).toContain(
+    "\x1b]8;;https://github.com/other/corgi/tree/topic\x1b\\\x1b[4mother/corgi:topic\x1b[24m\x1b]8;;\x1b\\",
+  );
   expect(out).not.toContain("\x1b]8;;https://git.example.com");
   expect(plain(linked)).toEqual(render({ patches, retired }, opts));
 });
@@ -103,9 +109,9 @@ test("list colors kinds, names and dates on a terminal", () => {
   expect(colored[0].startsWith(`${title(true)} · `)).toBe(true);
   expect(colored[0].startsWith("\x1b[38;2;125;207;255mc")).toBe(true);
   expect(colored[0]).toContain("\x1b[38;2;187;154;247md\x1b[0m");
-  expect(out).toContain("\x1b[36m\x1b]8;;https://github.com/tals/corgi/pull/128\x1b\\tals/corgi#128");
-  expect(out).toContain("\x1b[34m\x1b]8;;https://github.com/me/corgi/tree/my-branch\x1b\\my-branch");
-  expect(out).toContain("\x1b[35m\x1b]8;;https://github.com/other/corgi/tree/topic\x1b\\other/corgi:topic");
+  expect(out).toContain("\x1b[36m\x1b]8;;https://github.com/tals/corgi/pull/128\x1b\\\x1b[4mtals/corgi#128");
+  expect(out).toContain("\x1b[34m\x1b]8;;https://github.com/me/corgi/tree/my-branch\x1b\\\x1b[4mmy-branch");
+  expect(out).toContain("\x1b[35m\x1b]8;;https://github.com/other/corgi/tree/topic\x1b\\\x1b[4mother/corgi:topic");
   expect(out).toContain("\x1b[35mhttps://git.example.com/x.git:b\x1b[0m");
   expect(out).toContain("\x1b[2m2026-11-04\x1b[0m");
   expect(colored[3].startsWith("\x1b[2m1\x1b[0m")).toBe(true);

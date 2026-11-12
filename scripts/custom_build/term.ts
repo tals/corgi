@@ -81,9 +81,13 @@ export const stageColor: Record<Stage, string> = {
 export const stageGradient: Partial<Record<Stage, [string, string]>> = { merge: ["#9ece6a", "#bb9af7"] };
 
 /** `text` as an OSC 8 hyperlink, which terminals like Ghostty, iTerm2, WezTerm
- * and kitty make clickable and others show as plain text. */
+ * and kitty make clickable (often with Cmd or Ctrl held) and others show as
+ * plain text. It is underlined, so a link looks like one; a reset inside the
+ * text keeps the underline. */
 export function link(text: string, url: string | null | undefined, on: boolean): string {
-  return on && url ? `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\` : text;
+  if (!on || !url) return text;
+  const underlined = `\x1b[4m${text.replaceAll(ansi.reset, `${ansi.reset}\x1b[4m`)}\x1b[24m`;
+  return `\x1b]8;;${url}\x1b\\${underlined}\x1b]8;;\x1b\\`;
 }
 
 /** How narrow the last column may get before it stops being cut to fit. */
