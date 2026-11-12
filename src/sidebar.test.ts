@@ -1,5 +1,6 @@
 // Mirrors the tests in sidebar.zig.
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import * as i18n from "./i18n";
 import * as palette from "./palette";
 import { Style, colors, fg, fgRgb, bgRgb, mix, underline } from "./palette";
@@ -21,6 +22,7 @@ import {
   drawResources,
   resourceAt,
   agentAt,
+  workspaceIndexAt,
   writeExit,
   writeRevealedDetail,
   linkRange,
@@ -2139,4 +2141,280 @@ test("a name longer than the field shows its tail, and the caret follows it", ()
   expect(caret(view.withRename(renaming({ agent: 9 }, "lost")))).toBe("");
   const scrolled = View.init(100, 30, true, 3, 20).withWorkspaces(3, 0).withEntries(agents(20));
   expect(caret(scrolled.withRename(renaming({ agent: 1 }, "gone")))).toBe("");
+});
+
+/** Each cell's background after `bytes`: "bg" for the terminal's default,
+ * else the truecolor value as `r;g;b`. Only CUP, SGR and OSC 8 are expected. */
+function backgrounds(bytes: string, cols = 100, rows = 30): string[][] {
+  const grid = Array.from({ length: rows }, () => Array<string>(cols).fill("bg"));
+  let x = 0,
+    y = 0,
+    background = "bg";
+  for (let i = 0; i < bytes.length;) {
+    if (bytes.startsWith("\x1b]", i)) {
+      const end = bytes.indexOf("\x1b\\", i);
+      i = end < 0 ? bytes.length : end + 2;
+      continue;
+    }
+    if (bytes.startsWith("\x1b[", i)) {
+      let end = i + 2;
+      while (end < bytes.length && (bytes.charCodeAt(end) < 0x40 || bytes.charCodeAt(end) > 0x7e)) end++;
+      const params = bytes.slice(i + 2, end);
+      if (bytes[end] === "H") {
+        const [row, column] = params.split(";").map(Number);
+        y = row - 1;
+        x = column - 1;
+      } else if (bytes[end] === "m") {
+        const fields = params.split(";");
+        for (let f = 0; f < fields.length; f++) {
+          const field = fields[f];
+          if (field === "" || field === "0" || field === "49") background = "bg";
+          else if (field === "38") f += fields[f + 1] === "5" ? 2 : 4;
+          else if (field === "48") {
+            background = fields.slice(f + 2, f + 5).join(";");
+            f += 4;
+          }
+        }
+      }
+      i = end + 1;
+      continue;
+    }
+    const ch = String.fromCodePoint(bytes.codePointAt(i)!);
+    const width = displayWidth(ch);
+    for (let n = 0; n < width; n++) if (y >= 0 && y < rows && x + n >= 0 && x + n < cols) grid[y][x + n] = background;
+    x += width;
+    i += ch.length;
+  }
+  return grid;
+}
+const rgbKey = (rgb: palette.Rgb) => rgb.join(";");
+/** Workspaces with an active one, a port, readings and tools. */
+function tintWorkspaces(n: number): WorkspaceEntry[] {
+  const endpoints = [endpoint({ label: "web", scheme: "http", http_status: 200 })];
+  return Array.from({ length: n }, (_, i) =>
+    workspaceEntry({
+      id: i + 1,
+      name: `ws${i + 1}`,
+      cwd: "/tmp",
+      active: i === 1,
+      resources: work({ id: i + 1, known: true, cpu: 12 + i, memory: 2n ** 30n, read: 0n, written: 0n }),
+      stats: { tools: 3 + i, input: 0, output: 0, tokens_known: false },
+      unread: i === 3 ? 2 : 0,
+      ports:
+        i === 2
+          ? { processes_available: true, ports_available: true, workspaces: [{ id: i + 1, endpoints }] }
+          : { workspaces: [] },
+    }),
+  );
+}
+/** Panes no other test animates: corgi slots are shared and randomly seeded. */
+const tint_agents = (["working", "blocked", "done", "idle"] as const).map((state, i) =>
+  entry({ target: { pane: 9101 + i }, name: `agent${i + 1}`, provider: "claude", state }),
+);
+/** The sidebar in each layout the tint must leave alone at 0. Decorative
+ * corgis are off so the agent rows draw the same in any test order. */
+function tintLayouts(workspaces: WorkspaceEntry[]): [string, View][] {
+  const base = () => {
+    const v = View.init(100, 30, true, 0, 0).withWorkspaces(workspaces.length, 0).withEntries(tint_agents);
+    v.corgi_intensity = 0;
+    return v;
+  };
+  const split = base(),
+    focused = base(),
+    drawer = base(),
+    agents = base();
+  focused.focus = "workspaces";
+  drawer.drawer = "workspaces";
+  drawer.focus = "workspaces";
+  agents.drawer = "agents";
+  return [
+    ["split", split],
+    ["focused", focused],
+    ["workspaces drawer", drawer.withWorkspaces(workspaces.length, 0)],
+    ["agents drawer", agents],
+    ["lists", split.lists()],
+  ];
+}
+const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+
+test("an unset workspace tint draws today's sidebar in every layout", () => {
+  const workspaces = tintWorkspaces(6);
+  // Recorded from the sidebar before the tint existed.
+  const expected: Record<string, string> = {
+    split: "5b0d00cfdf79bb37c03559f80bfdcb4d4c7802c1031f8dd4fc154ce5f612777d",
+    focused: "462ec3d3b340857ef2ac72cd54b20cb689cb70c0a4fcb8c2ff448aaa58835d35",
+    "workspaces drawer": "366b3701e50eed17e921aedb30872542b57b84f829c5d2a87d159e8d133fe12d",
+    "agents drawer": "1f41953defdefe7a665de145896653d07b5863674388ebee915e1715366c688a",
+    lists: "72c8ce93765ef3bfe07885327067b447b5d297c9a9b1934375dee2ce7ab27ed0",
+  };
+  const recorded: Record<string, string> = {};
+  for (const [name, view] of tintLayouts(workspaces)) {
+    expect(view.workspace_tint).toBe(0);
+    expect(view.workspace_hover).toBeNull();
+    const out = draw(view, tint_agents, workspaces, 1_000_000);
+    expect(draw(view, tint_agents, workspaces, 1_000_000)).toBe(out);
+    recorded[name] = sha(out);
+    const tinted = palette.sectionTint(100)!;
+    expect(has(out, bgRgb(tinted)), name).toBe(false);
+    expect(has(out, bgRgb(mix(tinted, colors.selected, 50))), name).toBe(false);
+  }
+  expect(recorded).toEqual(expected);
+});
+
+test("a workspace tint fills the workspace section and nothing else", () => {
+  const tinted = rgbKey(palette.sectionTint(100)!),
+    selected = rgbKey(colors.selected),
+    surface = rgbKey(colors.surface);
+  const tint = (view: View) => {
+    const v = view.clone();
+    v.workspace_tint = 100;
+    return v;
+  };
+  /** Rows `rows` of columns `from` to `to` take the tint, but for the active
+   * workspace's rows and the `[ + ]` button. */
+  const expectTinted = (
+    grid: string[][],
+    rows: number[],
+    from: number,
+    to: number,
+    active: number[],
+    where: string,
+  ) => {
+    let button = 0;
+    for (const y of rows)
+      for (let x = from; x <= to; x++) {
+        const cell = grid[y][x];
+        if (active.includes(y)) expect(cell, `${where} ${x},${y}`).toBe(selected);
+        else if (y === 0 && cell === surface) button += 1;
+        else expect(cell, `${where} ${x},${y}`).toBe(tinted);
+      }
+    expect(button, where).toBe(5);
+  };
+  const expectPlain = (grid: string[][], cells: [number, number][], where: string) => {
+    for (const [x, y] of cells) expect(grid[y][x], `${where} ${x},${y}`).not.toBe(tinted);
+  };
+  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  const column = (x: number, rows: number[]) => rows.map(y => [x, y] as [number, number]);
+  const rows = (ys: number[], xs: number[]) => ys.flatMap(y => xs.map(x => [x, y] as [number, number]));
+  // Fewer workspaces than fit, so empty rows sit between the last and the rule.
+  const few = tintWorkspaces(3),
+    many = tintWorkspaces(6);
+  const [[, split], [, focused], [, drawer], [, agents], [, lists]] = tintLayouts(few);
+  const view = tint(split);
+  expect(view.middle()).toBe(14);
+  let out = draw(view, tint_agents, few, 1_000_000),
+    grid = backgrounds(out);
+  // Rows 0 to 12, columns 1 to 26: the margin is column 0 and the border 27.
+  expectTinted(grid, range(0, 12), 1, 26, [5, 6, 7], "split");
+  expectPlain(grid, [...column(0, range(0, 29)), ...column(27, range(0, 29))], "split edges");
+  // The rule, the agents header, the New row and the agents keep their background.
+  expectPlain(grid, rows(range(13, 29), range(0, 27)), "split agents");
+  // Glyphs and their colors stay as untinted.
+  expect(hostText(out)).toBe(hostText(draw(split, tint_agents, few, 1_000_000)));
+  // The workspace scrollbar in the border column keeps its background too.
+  const scrolled = tint(View.init(100, 30, true, 0, 0).withWorkspaces(many.length, 0).withEntries(tint_agents));
+  expect(scrolled.workspaceThumb()).not.toBeNull();
+  grid = backgrounds(draw(scrolled, tint_agents, many, 1_000_000));
+  expectTinted(grid, range(0, 12), 1, 26, [5, 6, 7], "scrolled");
+  expectPlain(grid, column(27, range(0, 29)), "scrollbar");
+  // The lists' own view, unframed: its columns start at 0.
+  grid = backgrounds(draw(tint(lists), tint_agents, few, 1_000_000));
+  expectTinted(grid, range(0, 12), 0, 25, [5, 6, 7], "lists");
+  expectPlain(grid, [...column(26, range(0, 29)), ...rows(range(13, 29), range(0, 26))], "lists agents");
+  // The focus box's top edge sits on the tint, in the outline's color; its
+  // left edge in the margin and the border keep theirs.
+  out = draw(tint(focused), tint_agents, few, 1_000_000);
+  grid = backgrounds(out);
+  expectTinted(grid, range(0, 12), 1, 26, [5, 6, 7], "focused");
+  expectPlain(grid, [...column(0, range(0, 29)), ...column(27, range(0, 29)), ...rows([13], range(0, 27))], "box");
+  expect(has(out, bgRgb(palette.sectionTint(100)!) + fgRgb(palette.outline) + "─")).toBe(true);
+  // The workspaces drawer tints its whole list, box edges included.
+  out = draw(tint(drawer), tint_agents, few, 1_000_000);
+  grid = backgrounds(out);
+  expectTinted(grid, range(0, 29), 1, 26, [5, 6, 7], "drawer");
+  expectPlain(grid, [...column(0, range(0, 29)), ...column(27, range(0, 29))], "drawer edges");
+  // The agents drawer shows no workspaces, so no tint.
+  out = draw(tint(agents), tint_agents, few, 1_000_000);
+  expect(has(out, bgRgb(palette.sectionTint(100)!))).toBe(false);
+});
+
+test("a hovered workspace sits halfway between its section and the selected tint", () => {
+  const few = tintWorkspaces(3);
+  const view = (tint: number, hover: number | null, offset = 0, workspaces = few) => {
+    const v = View.init(100, 30, true, 0, 0).withWorkspaces(workspaces.length, offset).withEntries(tint_agents);
+    v.corgi_intensity = 0;
+    v.workspace_tint = tint;
+    v.workspace_hover = hover;
+    return v;
+  };
+  const rowsOf = (grid: string[][], ys: number[]) => ys.flatMap(y => grid[y].slice(1, 27));
+  const selected = rgbKey(colors.selected);
+  for (const tint of [0, 100]) {
+    const section = palette.sectionTint(tint) ?? colors.bg,
+      hover = rgbKey(mix(section, colors.selected, 50));
+    // Off, it takes the agent rows' hover.
+    if (tint === 0) expect(hover).toBe(rgbKey(hover_rgb));
+    // Name, status and readings rows, across the list.
+    let grid = backgrounds(draw(view(tint, 0), tint_agents, few, 1_000_000));
+    expect(new Set(rowsOf(grid, [2, 3, 4])), `tint ${tint}`).toEqual(new Set([hover]));
+    expect(rowsOf(grid, [8, 9, 10]).includes(hover), `tint ${tint}`).toBe(false);
+    // The margin and the border keep theirs.
+    for (const y of [2, 3, 4]) {
+      expect(grid[y][0]).not.toBe(hover);
+      expect(grid[y][27]).not.toBe(hover);
+    }
+    // The active workspace stays selected under the pointer.
+    grid = backgrounds(draw(view(tint, 1), tint_agents, few, 1_000_000));
+    expect(new Set(rowsOf(grid, [5, 6, 7]))).toEqual(new Set([selected]));
+    expect(has(draw(view(tint, 1), tint_agents, few, 1_000_000), bgRgb(mix(section, colors.selected, 50)))).toBe(false);
+    // So does a dragged one.
+    const dragged = view(tint, 0);
+    dragged.dragged_workspace = 0;
+    const out = draw(dragged, tint_agents, few, 1_000_000);
+    grid = backgrounds(out);
+    expect(new Set(rowsOf(grid, [2, 3, 4]))).toEqual(new Set([selected]));
+    expect(has(out, ghost_bar)).toBe(true);
+  }
+  // A reading under the pointer keeps its own highlight on the hovered row.
+  const reading = view(100, 0);
+  reading.resource_hover = few[0].id;
+  const grid = backgrounds(draw(reading, tint_agents, few, 1_000_000));
+  const hover = rgbKey(mix(palette.sectionTint(100)!, colors.selected, 50));
+  expect(grid[4].slice(1, 27)).toContain(rgbKey(colors.selected));
+  expect(grid[4].slice(1, 27)).toContain(hover);
+  expect(new Set(rowsOf(grid, [2, 3]))).toEqual(new Set([hover]));
+  // On a tinted section, readings lift from faint to muted to keep their
+  // contrast, hovered or not; off, they stay faint. At this width the
+  // readings take one-letter labels, and every CPU reads 12% to 14%.
+  const cpu = "C 1";
+  const plain = draw(view(100, null), tint_agents, few, 1_000_000),
+    hovered = draw(view(100, 0), tint_agents, few, 1_000_000),
+    untinted = draw(view(0, null), tint_agents, few, 1_000_000);
+  expect(count(plain, fg("faint") + cpu)).toBe(0);
+  expect(count(hovered, fg("faint") + cpu)).toBe(0);
+  expect(count(plain, fg("muted") + cpu)).toBe(few.length);
+  expect(count(hovered, fg("muted") + cpu)).toBe(few.length);
+  expect(count(untinted, fg("faint") + cpu)).toBe(count(untinted, cpu) - count(untinted, fg("muted") + cpu));
+  expect(count(untinted, fg("faint") + cpu)).toBeGreaterThan(0);
+  // Scrolled, the hover is by index in the whole list.
+  const many = tintWorkspaces(6);
+  const scrolled = view(0, 3, 2, many);
+  expect(scrolled.workspace_offset).toBe(2);
+  const off = rgbKey(hover_rgb);
+  const at = backgrounds(draw(scrolled, tint_agents, many, 1_000_000));
+  expect(new Set(rowsOf(at, [5, 6, 7]))).toEqual(new Set([off]));
+  expect(rowsOf(at, [2, 3, 4]).includes(off)).toBe(false);
+});
+
+test("the pointer names the workspace whose rows it is on", () => {
+  const view = View.init(100, 30, true, 0, 0).withWorkspaces(6, 2);
+  // Framed: the lists start a column in; each workspace takes three rows from row 2.
+  expect(workspaceIndexAt(view, 5, 2)).toBe(2);
+  expect(workspaceIndexAt(view, 5, 4)).toBe(2);
+  expect(workspaceIndexAt(view, 5, 5)).toBe(3);
+  expect(workspaceIndexAt(view, 5, 0)).toBeNull();
+  expect(workspaceIndexAt(view, 5, 1)).toBeNull();
+  expect(workspaceIndexAt(view, 5, 13)).toBeNull();
+  expect(workspaceIndexAt(view, 5, 20)).toBeNull();
+  expect(workspaceIndexAt(view, 27, 5)).toBeNull();
 });

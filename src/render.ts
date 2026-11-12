@@ -815,6 +815,7 @@ export function sidebarView(u: Ui, width: number, height: number): SidebarView {
   side.workspace_scope = u.workspace_scope;
   side.resource_hover = u.resource_hover;
   side.corgi_intensity = u.corgi_setup?.previewIntensity(u.prefs) ?? u.prefs.corgi_intensity;
+  side.workspace_tint = u.corgi_setup?.previewSlider("workspace_tint", u.prefs) ?? u.prefs.workspace_tint;
   side.dragged = u.dragged_agent ? u.dragged_agent.destination : null;
   side.dragged_workspace = u.dragged_workspace ? u.dragged_workspace.destination : null;
   return side;
@@ -1134,6 +1135,7 @@ export function frame(
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
     if (!on_link_card && !on_git && !u.connection_card?.rect.contains(u.pointer.x, u.pointer.y))
       side.machine_hover = sidebar.machineHeaderAt(side, u.pointer.x, u.pointer.y)?.rect.y ?? null;
+    side.workspace_hover = sidebar.workspaceIndexAt(side, u.pointer.x, u.pointer.y);
   }
   side.spotlight = u.worktree_spotlight;
   // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.

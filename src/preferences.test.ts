@@ -156,6 +156,31 @@ test("agent sorting follows the default until explicitly saved", async () => {
   }
 });
 
+test("workspace tint reads whole percents and falls back to off", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corgi-workspace-tint-"));
+  const file = join(root, "viewer.json");
+  try {
+    expect(read(file).workspace_tint).toBe(0);
+    const cases: [unknown, number][] = [
+      [0, 0],
+      [55, 55],
+      [100, 100],
+    ];
+    for (const invalid of [-1, 101, 2.5, "50", null, true]) cases.push([invalid, 0]);
+    for (const [saved, tint] of cases) {
+      await writeFile(file, JSON.stringify({ sidebar_width: 44, corgi_intensity: 70, workspace_tint: saved }));
+      expect(read(file)).toMatchObject({ workspace_tint: tint, sidebar_width: 44, corgi_intensity: 70 });
+    }
+    await writeFile(file, JSON.stringify({ sidebar_width: 44 }));
+    expect(read(file).workspace_tint).toBe(0);
+    updateFile(file, { workspace_tint: 35 });
+    expect(JSON.parse(await readFile(file, "utf8"))).toHaveProperty("workspace_tint", 35);
+    expect(read(file)).toMatchObject({ workspace_tint: 35, sidebar_width: 44 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("corgi intensity migrates the old toggle without losing unrelated preferences", async () => {
   const root = await mkdtemp(join(tmpdir(), "corgi-intensity-"));
   const file = join(root, "viewer.json");

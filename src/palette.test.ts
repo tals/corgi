@@ -18,6 +18,11 @@ import {
   use,
   chosen,
   painted,
+  available_themes,
+  blend,
+  dist,
+  luminance,
+  sectionTint,
   type Rgb,
   type Token,
 } from "./palette";
@@ -93,6 +98,86 @@ test("mix blends toward the second color", () => {
   expect(mix([100, 50, 0], [0, 0, 0], 0)).toEqual([100, 50, 0]);
   expect(mix([100, 50, 0], [0, 0, 0], 50)).toEqual([50, 25, 0]);
   expect(mix([100, 50, 0], [0, 0, 0], 100)).toEqual([0, 0, 0]);
+});
+test("blend takes fractions and dist measures between colors", () => {
+  expect(blend([100, 50, 0], [0, 0, 0], 0)).toEqual([100, 50, 0]);
+  expect(blend([100, 50, 0], [0, 0, 0], 0.03)).toEqual([97, 49, 0]);
+  expect(blend([100, 50, 0], [0, 0, 0], 2)).toEqual([0, 0, 0]);
+  expect(blend([100, 50, 0], [0, 0, 0], -1)).toEqual([100, 50, 0]);
+  expect(dist([0, 0, 0], [3, 4, 0])).toBe(5);
+});
+test("the workspace section tint leans toward text, short of the selected tint, on every theme", () => {
+  const day = { foreground: [74, 69, 67] as Rgb, background: [247, 247, 247] as Rgb, ansi: Array(16).fill(null) },
+    night = { foreground: [192, 202, 245] as Rgb, background: [26, 27, 38] as Rgb, ansi: Array(16).fill(null) };
+  let lighter = 0,
+    darker = 0;
+  try {
+    for (const theme of available_themes)
+      for (const host of [null, night, day]) {
+        use(theme, host);
+        const where = `${theme} on ${host === null ? "no host" : host === day ? "day" : "night"}`;
+        expect(sectionTint(0), where).toBeNull();
+        // A background left to a terminal of unknown colors has no tint (below).
+        if (host === null && painted() === null) continue;
+        const bg = [...colors.bg] as Rgb;
+        const dark = luminance(bg) < luminance(colors.text);
+        for (const value of [5, 50, 100]) {
+          const tinted = sectionTint(value)!;
+          if (dark) expect(luminance(tinted), `${where} at ${value}`).toBeGreaterThan(luminance(bg));
+          else expect(luminance(tinted), `${where} at ${value}`).toBeLessThan(luminance(bg));
+          expect(dist(bg, tinted), `${where} at ${value}`).toBeLessThan(dist(bg, colors.selected));
+          const hover = mix(tinted, colors.selected, 50);
+          expect(dist(colors.selected, tinted), `${where} at ${value}`).toBeGreaterThan(dist(hover, tinted));
+          expect(dist(hover, tinted), `${where} at ${value}`).toBeGreaterThan(0);
+        }
+        if (dark) lighter += 1;
+        else darker += 1;
+        let last = 0;
+        for (let value = 0; value <= 100; value += 1) {
+          const now = dist(bg, sectionTint(value) ?? bg);
+          expect(now, `${where} at ${value}`).toBeGreaterThanOrEqual(last);
+          if (value > 0) expect(now, `${where} at ${value}`).toBeGreaterThan(0);
+          last = now;
+        }
+      }
+    // Hand-edited values below a slider step stay monotonic on palettes
+    // whose smallest blend moves only some channels.
+    const dracula = { foreground: [248, 248, 242] as Rgb, background: [40, 42, 54] as Rgb, ansi: Array(16).fill(null) };
+    for (const theme of available_themes) {
+      use(theme, dracula);
+      const bg = [...colors.bg] as Rgb;
+      let last = 0;
+      for (let value = 1; value <= 100; value += 1) {
+        const now = dist(bg, sectionTint(value)!);
+        expect(now, `${theme} on dracula at ${value}`).toBeGreaterThanOrEqual(last);
+        last = now;
+      }
+    }
+  } finally {
+    use(undefined, null);
+  }
+  // Both directions are exercised: Animal Style on a light terminal darkens.
+  expect(lighter).toBeGreaterThan(0);
+  expect(darker).toBeGreaterThan(0);
+});
+test("the workspace section tint stays off on a terminal background of unknown colors", () => {
+  const day = { foreground: [74, 69, 67] as Rgb, background: [247, 247, 247] as Rgb, ansi: Array(16).fill(null) };
+  try {
+    // Animal Style leaves bg to the terminal; without its colors, `bg` is
+    // Corgi's dark guess, and a tint from it would be a dark band on a light terminal.
+    use("animal_style", null);
+    expect(painted()).toBeNull();
+    for (const value of [1, 50, 100]) expect(sectionTint(value), `at ${value}`).toBeNull();
+    // Corgi paints its own background then, so its tint stays.
+    use("corgi", null);
+    expect(painted()).not.toBeNull();
+    expect(sectionTint(100)).not.toBeNull();
+    // Once the terminal reports its colors, the tint follows them again.
+    use("animal_style", day);
+    expect(sectionTint(100)).not.toBeNull();
+  } finally {
+    use(undefined, null);
+  }
 });
 test("termhtml's corgi theme matches the palette", () => {
   expect(readFileSync(resolve(import.meta.dir, "../termhtml/index.html"), "utf8")).toContain(termhtmlTheme());

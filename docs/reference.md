@@ -493,8 +493,13 @@ For multiple machines, use `corgi machine add HOST` and `corgi --machine HOST li
 
 Prefer **Corgi setup** for changes. **Panes → Shell** selects the shell for new
 panes; **Theme** changes appearance; **Clever Corgi** controls model-backed
-features, Smart Links and auto-retrying capacity errors. Settings and launcher
-commands survive restarts.
+features, Smart Links and auto-retrying capacity errors. **Visual flourishes**
+sets the sidebar corgi's brightness and an optional workspace tint that sets
+the workspace list apart from the agents (lighter on dark backgrounds, darker
+on light ones). The tint paints a solid background, so it shows as a band on a
+transparent terminal, and it stays off when the theme leaves the background to
+a terminal that does not report its colors. Settings and launcher commands
+survive restarts.
 Its model picker is the prompt's: Auto first, then cheap models under each
 agent, account and routed source, with heavier ones a search away. Auto is
 resolved by Corgi, preferring subscription-backed access, and does not pin a
