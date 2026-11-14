@@ -1,0 +1,17 @@
+width: 80
+start_x: 2
+first_indent: 2
+
+  services:
+    web:
+      image: nginx
+
+    db:
+      image: postgres:16
+---
+services:
+  web:
+    image: nginx
+
+  db:
+    image: postgres:16

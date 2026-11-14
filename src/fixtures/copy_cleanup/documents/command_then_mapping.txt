@@ -1,0 +1,9 @@
+width: 32
+start_x: 2
+first_indent: 2
+
+  helm install web ./chart --set
+  image: nginx
+---
+helm install web ./chart --set
+image: nginx

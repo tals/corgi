@@ -1,0 +1,9 @@
+width: 30
+start_x: 2
+first_indent: 2
+
+  # deploy the web app with
+  kubectl apply -f web.yaml
+---
+# deploy the web app with
+kubectl apply -f web.yaml

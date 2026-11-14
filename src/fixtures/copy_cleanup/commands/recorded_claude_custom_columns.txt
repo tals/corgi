@@ -1,0 +1,9 @@
+width: 88
+start_x: 2
+first_indent: 2
+
+  kubectl get pods --all-namespaces -o custom-columns='NAMESPACE:.metadata.namespace,NAM
+  E:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName,IP:.status.podIP,RESTARTS:.s
+  tatus.containerStatuses[0].restartCount,STARTED:.status.startTime'
+---
+kubectl get pods --all-namespaces -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName,IP:.status.podIP,RESTARTS:.status.containerStatuses[0].restartCount,STARTED:.status.startTime'

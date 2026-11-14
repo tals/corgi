@@ -1,0 +1,11 @@
+width: 80
+start_x: 1
+first_indent: 2
+
+		if ready:
+			go()
+		done()
+---
+if ready:
+	go()
+done()
