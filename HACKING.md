@@ -539,12 +539,17 @@ are fixed; new daemon changes go in the shared state history.
    including during uncommitted development. Descriptions explain the change;
    correcting their wording does not change identity. Rebases, cherry-picks and
    release tagging preserve IDs when their migration contracts stay the same.
-3. Each binary advertises its selected revision followed by its migration
-   ancestors. After merging branches, create a revision for the combined state
-   with `--parent REVISION` to choose its migration parent and regenerate the
-   registry. The other branch transfers through a shared ancestor. This is one
-   explicit lineage per build; it does not automatically compose independent
-   branches' migrations. A backport requiring a different parent gets a new ID.
+3. Each checkout must contain one linear history per saved format. The runner
+   rejects forks, and the registry rejects unselected revisions or extra roots.
+   The generator only appends to the current head. When merging code branches
+   with conflicting migrations, retain one chain and select its head in the
+   registry. Remove the other branch's divergent revision files, fixtures and
+   registry entries, then add new sequential revisions for the combined state.
+   Do not reparent existing IDs; a different parent or state meaning requires
+   a new ID. Previously built binaries retain their own chain.
+   Switching branches or reverting code rolls metadata down to the nearest
+   shared revision, then up the target binary's chain. Each binary advertises
+   its head followed by its ancestors; running processes stay in the fixed core.
 4. Down steps may discard metadata. Up steps must supply defaults for missing
    data. Migrations cannot access core; the receiver restores core identities,
    membership and screens after importing metadata. Frozen core fields must not

@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test";
-import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -79,7 +88,7 @@ test("the generator appends migrations and schema checks without rewriting previ
     expect(next.parent).toBe(first.id);
     expect(next.structures).toEqual(state_revision.structures(directory));
     expect(readFileSync(fixture, "utf8")).toBe(recorded);
-    const workspace = await state_revision.create(directory, "Name workspace groups", undefined, "workspaces"),
+    const workspace = await state_revision.create(directory, "Name workspace groups", "workspaces"),
       updated = await import(
         pathToFileURL(join(directory, "src/persist/state_formats.ts")).href + `?revision=${workspace.id}`
       ),
@@ -91,9 +100,42 @@ test("the generator appends migrations and schema checks without rewriting previ
     expect(updated.workspaces.down(saved, state_formats.workspaces.current)).toEqual(saved);
     expect(updated.checkpoint.current).toBe(state_formats.checkpoint.current);
     expect(updated.handoff.current).toBe(state_formats.handoff.current);
-    await expect(
-      state_revision.create(directory, "Invalid state parent", state_formats.checkpoint.current),
-    ).rejects.toThrow("InvalidStateParent");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the generator rejects unresolved merged histories before writing files", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "corgi-state-conflict-")),
+    revisions = join(directory, "src/persist/revisions"),
+    registry = join(directory, "src/persist/state_formats.ts");
+  try {
+    mkdirSync(join(directory, "src/persist"), { recursive: true });
+    cpSync(join(root, "src/persist/revisions"), revisions, { recursive: true });
+    for (const file of ["formats.ts", "state_formats.ts", "revision_values.ts"])
+      cpSync(join(root, "src/persist", file), join(directory, "src/persist", file));
+    const original = readFileSync(registry, "utf8");
+    for (const scenario of ["fork", "unselected", "root"]) {
+      const next = state_revision.draft(
+          scenario === "fork" ? formats.baseline : state_formats.current,
+          "Conflicting migration",
+        ),
+        path = join(revisions, next.name + ".ts");
+      writeFileSync(
+        path,
+        scenario === "root" ? next.source.replace(/parent: "[a-f0-9]{12}"/, "parent: null") : next.source,
+      );
+      const before = readdirSync(revisions);
+      // Neither saved format can append while the checkout has unresolved revisions.
+      for (const kind of ["state", "workspaces"] as const)
+        await expect(state_revision.create(directory, "Next migration", kind)).rejects.toThrow(
+          scenario === "fork" ? "ForkedStateHistory" : "InvalidStateHeads",
+        );
+      expect(readFileSync(registry, "utf8")).toBe(original);
+      expect(readdirSync(revisions)).toEqual(before);
+      expect(readdirSync(join(directory, "src"))).toEqual(["persist"]);
+      rmSync(path);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

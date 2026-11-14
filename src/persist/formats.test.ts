@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { baseline, History, parse, supported, select } from "./formats";
+import { baseline, History, histories, parse, supported, select } from "./formats";
 import type { Revision } from "./formats";
 import * as root from "./revisions/r_68139a93dee0_terminal_core_handoff_baseline";
 
@@ -65,6 +65,32 @@ test("format advertisements and migration paths reject malformed identities", ()
   expect(() => createHistory(a, [step(a, baseline, "a"), step(a, baseline, "b")])).toThrow("InvalidStateHistory");
   expect(() => createHistory(a, [{ ...step(a, baseline, "a"), description: " " }])).toThrow("InvalidStateHistory");
   expect(() => createHistory(a, [step(a, baseline, "a"), step(b, c, "b")])).toThrow("InvalidStateHistory");
+});
+
+test("a checkout rejects sibling revisions even when only one branch is selected", () => {
+  for (const revisions of [
+    [step(a, baseline, "left"), step(b, baseline, "right")],
+    [step(a, baseline, "common"), step(b, a, "left"), step(c, a, "right")],
+    [{ ...step(a, baseline, "historical root"), parent: null }, step(b, a, "left"), step(c, a, "right")],
+  ]) {
+    for (const current of [baseline, b]) expect(() => createHistory(current, revisions)).toThrow("ForkedStateHistory");
+  }
+});
+
+test("checkout heads must cover exactly four complete independent histories", () => {
+  const next = "d".repeat(12),
+    heads = { state: next, checkpoint: a, handoff: b, workspaces: c },
+    revisions = [
+      root.revision,
+      ...[a, b, c].map(id => ({ ...step(id, baseline, "historical root"), parent: null })),
+      step(next, baseline, "metadata"),
+    ];
+  expect(histories(heads, revisions).state.ancestors).toEqual([next, baseline]);
+  expect(() => histories({ ...heads, state: baseline }, revisions)).toThrow("InvalidStateHeads");
+  expect(() => histories({ ...heads, workspaces: a }, revisions)).toThrow("InvalidStateHeads");
+  expect(() =>
+    histories(heads, [...revisions, { ...step("e".repeat(12), baseline, "extra root"), parent: null }]),
+  ).toThrow("InvalidStateHeads");
 });
 
 test("descriptions and migration order do not change revision identity", () => {

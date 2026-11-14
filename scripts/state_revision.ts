@@ -65,18 +65,14 @@ ${Object.entries(heads)
   .join("\n")}
 };
 export const current = heads.state;
-export const history = new formats.History(current, revisions);
-export const checkpoint = new formats.History(heads.checkpoint, revisions);
-export const handoff = new formats.History(heads.handoff, revisions);
-export const workspaces = new formats.History(heads.workspaces, revisions);
+const histories = formats.histories(heads, revisions);
+export const history = histories.state;
+export const checkpoint = histories.checkpoint;
+export const handoff = histories.handoff;
+export const workspaces = histories.workspaces;
 `;
 }
-export async function create(
-  root: string,
-  description: string,
-  parent?: string,
-  kind: "state" | "workspaces" = "state",
-) {
+export async function create(root: string, description: string, kind: "state" | "workspaces" = "state") {
   const directory = join(root, "src/persist/revisions"),
     names = readdirSync(directory)
       .filter(name => /^r_[a-f0-9]{12}_[a-z0-9_]+\.ts$/.test(name))
@@ -96,21 +92,19 @@ export async function create(
   ) as Record<Kind, string>;
   if (["state", "checkpoint", "handoff", "workspaces"].some(kind => !heads[kind as Kind]))
     throw Error("MissingStateHead");
-  parent ??= entries.find(entry => entry.name === heads[kind])?.revision.id;
-  if (!parent) throw Error("MissingStateHead");
-  const lineage = new formats.History(
-    parent,
-    entries.map(entry => entry.revision),
-  );
-  const rootId =
-    kind === "state"
-      ? formats.baseline
-      : new formats.History(
-          entries.find(entry => entry.name === heads.workspaces)!.revision.id,
-          entries.map(entry => entry.revision),
-        ).ancestors.at(-1)!;
-  if (!lineage.ancestors.includes(rootId)) throw Error("InvalidStateParent");
-  const next = draft(parent, description, kind),
+  const ids = Object.fromEntries(
+    Object.entries(heads).map(([kind, name]) => {
+      const entry = entries.find(entry => entry.name === name);
+      if (!entry) throw Error("MissingStateHead");
+      return [kind, entry.revision.id];
+    }),
+  ) as Record<Kind, string>;
+  const histories = formats.histories(
+      ids,
+      entries.map(entry => entry.revision),
+    ),
+    parent = histories[kind].current,
+    next = draft(parent, description, kind),
     snapshot = { parent, structures: structures(root) },
     fixtures = join(root, "src/fixtures/state_revisions");
   mkdirSync(fixtures, { recursive: true });

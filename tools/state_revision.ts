@@ -3,21 +3,14 @@ import * as state_revision from "../scripts/state_revision";
 
 const args = process.argv.slice(2),
   description = args.shift();
-let parent: string | undefined,
-  kind: "state" | "workspaces" = "state";
+let kind: "state" | "workspaces" = "state";
 const usage = (): never => {
-  console.error(
-    'Usage: bun tools/state_revision.ts "Describe the saved-state change" [--parent REVISION] [--workspaces]',
-  );
+  console.error('Usage: bun tools/state_revision.ts "Describe the saved-state change" [--workspaces]');
   process.exit(1);
 };
 if (!description) usage();
 while (args.length) {
   switch (args.shift()) {
-    case "--parent":
-      if (parent !== undefined || !args.length) usage();
-      parent = args.shift();
-      break;
     case "--workspaces":
       if (kind !== "state") usage();
       kind = "workspaces";
@@ -26,7 +19,7 @@ while (args.length) {
       usage();
   }
 }
-const next = await state_revision.create(join(import.meta.dir, ".."), description!, parent, kind);
+const next = await state_revision.create(join(import.meta.dir, ".."), description!, kind);
 console.log(`Created src/persist/revisions/${next.name}.ts`);
 console.log(
   kind === "state"

@@ -31,7 +31,8 @@ export class History {
     readonly current: string,
     revisions: readonly Revision[],
   ) {
-    const byId = new Map(revisions.map(revision => [revision.id, revision]));
+    const byId = new Map(revisions.map(revision => [revision.id, revision])),
+      children = new Set<string>();
     if (byId.size !== revisions.length) throw Error("InvalidStateHistory");
     for (const revision of revisions) {
       if (
@@ -42,6 +43,10 @@ export class History {
         (revision.down !== null && typeof revision.down !== "function")
       )
         throw Error("InvalidStateHistory");
+      if (revision.parent !== null) {
+        if (children.has(revision.parent)) throw Error("ForkedStateHistory");
+        children.add(revision.parent);
+      }
     }
     for (const revision of revisions) {
       const seen = new Set<string>();
@@ -76,4 +81,19 @@ export class History {
     for (let i = index - 1; i >= 0; i--) result = this.path[i].up(result);
     return result;
   }
+}
+
+/** A checkout contains one complete chain for each saved format. */
+export function histories(heads: Record<Kind, string>, revisions: readonly Revision[]): Record<Kind, History> {
+  const result = {
+    state: new History(heads.state, revisions),
+    checkpoint: new History(heads.checkpoint, revisions),
+    handoff: new History(heads.handoff, revisions),
+    workspaces: new History(heads.workspaces, revisions),
+  };
+  const selected = Object.values(result).flatMap(history => history.ancestors);
+  if (selected.length !== revisions.length || new Set(selected).size !== selected.length)
+    throw Error("InvalidStateHeads");
+  supported(result.state);
+  return result;
 }

@@ -44,7 +44,8 @@ export const heads = {
   workspaces: r_f4c12b1642bd_remove_workspace_pinned_flag.revision.id,
 };
 export const current = heads.state;
-export const history = new formats.History(current, revisions);
-export const checkpoint = new formats.History(heads.checkpoint, revisions);
-export const handoff = new formats.History(heads.handoff, revisions);
-export const workspaces = new formats.History(heads.workspaces, revisions);
+const histories = formats.histories(heads, revisions);
+export const history = histories.state;
+export const checkpoint = histories.checkpoint;
+export const handoff = histories.handoff;
+export const workspaces = histories.workspaces;
