@@ -21,6 +21,7 @@ import * as updates from "./updates";
 import * as current_release from "./current_release";
 import { testBuild } from "./build_assets";
 import * as config from "./build_config";
+import * as customBuild from "./custom_build";
 import * as crash from "./crash";
 import * as build_id from "./build_id";
 import * as localeHost from "./locale_host";
@@ -394,7 +395,14 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   }
   switch (command) {
     case "--version":
-      process.stdout.write(`corgi ${config.releaseVersion} (${config.releaseCommit})\n`);
+      process.stdout.write(
+        customBuild.versionText(
+          config.releaseVersion,
+          config.releaseCommit,
+          customBuild.current,
+          args.includes("--verbose"),
+        ),
+      );
       return;
     case "bugreport": {
       const asked = args[1] === "--full";

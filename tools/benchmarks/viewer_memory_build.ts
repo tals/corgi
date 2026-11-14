@@ -69,6 +69,7 @@ try {
       updateURL: "",
       updatePublicKey: "",
       sentryDSN: "",
+      buildRepository: "",
     },
     configSource = Object.entries(config)
       .map(([key, value]) => `export const ${key}=${JSON.stringify(value)};`)

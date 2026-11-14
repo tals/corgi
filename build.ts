@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { mkdirSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import * as translations from "./scripts/translations";
+import * as customBuild from "./src/custom_build";
 const root = import.meta.dir;
 function option(name: string, fallback = ""): string {
   const args = process.argv.slice(2),
@@ -26,6 +27,8 @@ const buildTarget = option("target", `${process.platform}-${process.arch}`),
   [platform, arch] = buildTarget.split("-");
 if (!["linux-x64", "linux-arm64", "darwin-arm64", "darwin-x64"].includes(buildTarget))
   throw Error(`Unsupported target: ${buildTarget}`);
+// A development build says where its commit lives; a release does not.
+const identity = option("update-url") ? null : customBuild.fromGit(root);
 const nativeRoot = option(
   "native-root",
   buildTarget === `${process.platform}-${process.arch}`
@@ -90,6 +93,7 @@ const config = {
   updateURL: option("update-url"),
   updatePublicKey: option("update-public-key"),
   sentryDSN: option("sentry-dsn"),
+  buildRepository: identity?.repository ?? "",
 };
 const outfile = option(
   "outfile",
