@@ -370,6 +370,25 @@ test("the prompt's last pick round trips, and one this build can't read falls ba
   }
 });
 
+test("copy cleanup round trips, and a missing or unknown value reads as on drag", async () => {
+  const { root, where } = await scratch("copy-cleanup");
+  try {
+    for (const value of ["on_drag", "with_modifier", "off"] as const) {
+      update({ copy_cleanup: value, sidebar_width: 40 }, where);
+      expect(read(where)).toMatchObject({ copy_cleanup: value, sidebar_width: 40 });
+    }
+    await put(where.viewer, { format: current, sidebar_width: 40 });
+    expect(read(where).copy_cleanup).toBe("on_drag");
+    await put(where.config, { theme: "animal_style" });
+    for (const value of ["always", 1, null, {}]) {
+      await put(where.viewer, { format: current, copy_cleanup: value, sidebar_width: 40 });
+      expect(read(where)).toMatchObject({ copy_cleanup: "on_drag", sidebar_width: 40, theme: "animal_style" });
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("a setting or shortcut this build can't use falls back alone and is named", async () => {
   const { root, where } = await scratch("preferences-problems");
   try {

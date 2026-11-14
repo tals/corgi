@@ -34,6 +34,7 @@ import * as os from "./os";
 import * as locale from "./locale";
 import * as i18n from "./i18n";
 import * as state_formats from "./persist/state_formats";
+import * as copyCleanup from "./copy_cleanup";
 
 /** Resource readings shown in the sidebar. Disabling removes the row and,
  * once every attached viewer is off, stops the daemon's sampling. Settings
@@ -89,6 +90,8 @@ export class Preferences {
   /** The Corgi prompt's last pick; "auto", like unset, follows the strong
    * model of the agent run most. */
   prompt_model: PromptModel | "auto" | undefined = undefined;
+  /** Whether a plain drag or an Alt/Ctrl drag cleans up copied text. */
+  copy_cleanup: copyCleanup.CopyCleanup = "on_drag";
 
   agentSort(): Sort {
     return this.agent_sort ?? "manual";
@@ -537,6 +540,7 @@ function readState(d: Record<string, any>, v: Preferences): void {
   if (whole(d.review_tree_rows, 1)) v.review_tree_rows = d.review_tree_rows;
   // A pick this build can't read, such as a provider it doesn't know, falls back.
   if ("prompt_model" in d) v.prompt_model = promptModel(d.prompt_model) ?? undefined;
+  v.copy_cleanup = copyCleanup.parse(d.copy_cleanup) ?? "on_drag";
   const scroll = d.agent_scroll;
   if (
     scroll &&

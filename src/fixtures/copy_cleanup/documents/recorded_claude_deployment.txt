@@ -1,0 +1,43 @@
+width: 88
+start_x: 2
+first_indent: 2
+
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: hello-web
+  spec:
+    replicas: 2
+    selector:
+      matchLabels:
+        app: hello-web
+    template:
+      metadata:
+        labels:
+          app: hello-web
+      spec:
+        containers:
+          - name: web
+            image: nginx:1.27
+            ports:
+              - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello-web
+  template:
+    metadata:
+      labels:
+        app: hello-web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+          ports:
+            - containerPort: 80
