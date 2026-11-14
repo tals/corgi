@@ -25,6 +25,7 @@ import * as ghosttyIntegration from "./ghostty_integration";
 import type { Binding } from "./bindings";
 import { flock } from "./native_bridge";
 import * as locale from "./locale";
+import * as copyCleanup from "./copy_cleanup";
 
 /** Resource readings shown in the sidebar. Disabling removes the row and,
  * once every attached viewer is off, stops the daemon's sampling. Settings
@@ -76,6 +77,8 @@ export class Preferences {
   /** The Corgi prompt's last pick; "auto", like unset, follows the strong
    * model of the agent run most. */
   prompt_model: PromptModel | "auto" | undefined = undefined;
+  /** Whether a plain drag or an Alt/Ctrl drag cleans up copied text. */
+  copy_cleanup: copyCleanup.CopyCleanup = "on_drag";
 
   agentSort(): Sort {
     return this.agent_sort ?? "manual";
@@ -250,6 +253,8 @@ export function readExisting(file: string): Preferences | null {
     }
     // A pick this build can't read, such as a provider it doesn't know, falls back alone.
     if ("prompt_model" in d) v.prompt_model = promptModel(d.prompt_model) ?? undefined;
+    // Unlike the enums, a value from a newer build falls back alone.
+    v.copy_cleanup = copyCleanup.parse(d.copy_cleanup) ?? "on_drag";
     if ("agent_scroll" in d && d.agent_scroll !== null) {
       const scroll = d.agent_scroll;
       if (!scroll || typeof scroll !== "object" || Array.isArray(scroll)) return null;

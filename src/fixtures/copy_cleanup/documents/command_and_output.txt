@@ -1,0 +1,11 @@
+width: 80
+start_x: 2
+first_indent: 2
+
+  ls -la /tmp
+  total 0
+  drwxrwxrwt  2 root root 40 Nov 13 09:00 .
+---
+ls -la /tmp
+total 0
+drwxrwxrwt  2 root root 40 Nov 13 09:00 .

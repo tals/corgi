@@ -1,0 +1,8 @@
+width: 32
+start_x: 2
+first_indent: 2
+
+  cp https://example.com/aaaaaaa
+  ~/dest
+---
+cp https://example.com/aaaaaaa ~/dest

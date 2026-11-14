@@ -1,0 +1,7 @@
+width: 80
+start_x: 0
+first_indent: 2
+
+  kubectl get pods -n web   
+---
+kubectl get pods -n web

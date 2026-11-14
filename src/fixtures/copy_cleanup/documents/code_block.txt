@@ -1,0 +1,13 @@
+width: 80
+start_x: 2
+first_indent: 2
+
+  function greet(name: string): string {
+    if (name === "") return "hello";
+    return `hello ${name}`;
+  }
+---
+function greet(name: string): string {
+  if (name === "") return "hello";
+  return `hello ${name}`;
+}

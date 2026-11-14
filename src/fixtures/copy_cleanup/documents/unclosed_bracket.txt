@@ -1,0 +1,9 @@
+width: 26
+start_x: 2
+first_indent: 2
+
+  jq -r ".items[] | {name:
+  .metadata.name"
+---
+jq -r ".items[] | {name:
+.metadata.name"

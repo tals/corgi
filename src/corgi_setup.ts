@@ -25,6 +25,8 @@ import * as catalog from "./import/catalog";
 import * as importPicker from "./import/picker";
 import type { Action } from "./action";
 import type { Preferences } from "./preferences";
+import * as copyCleanup from "./copy_cleanup";
+import type { CopyCleanup } from "./copy_cleanup";
 import * as ghosttyIntegration from "./ghostty_integration";
 import type { State as IntegrationState } from "./ghostty_integration";
 import type { State as ClipboardState } from "./host_clipboard";
@@ -113,6 +115,7 @@ export type Item =
   | "clever_corgi"
   | "theme"
   | "language"
+  | "copy_cleanup"
   | "shell"
   | "keyboard"
   | "agents"
@@ -135,6 +138,7 @@ const list = (): ListRow[] => [
   "clever_corgi",
   "flourishes",
   "readings",
+  "copy_cleanup",
   null,
   "theme",
   "language",
@@ -162,6 +166,7 @@ const labels = (): Record<Item, string> => ({
   clever_corgi: i18n.t`Clever Corgi`,
   theme: i18n.t`Theme`,
   language: i18n.t`Language`,
+  copy_cleanup: i18n.t`Copy cleanup`,
   shell: i18n.t`Shell`,
   keyboard: i18n.t`Keymap`,
   source_control: i18n.t`Source control`,
@@ -184,6 +189,26 @@ function importSource(item: Item): catalog.Source | null {
   return item in import_sources ? import_sources[item as ImportItem] : null;
 }
 
+function copyCleanupLabel(value: CopyCleanup): string {
+  switch (value) {
+    case "on_drag":
+      return i18n.t`On drag`;
+    case "with_modifier":
+      return i18n.t`With modifier`;
+    case "off":
+      return i18n.t`Off`;
+  }
+}
+function copyCleanupDetail(value: CopyCleanup): string {
+  switch (value) {
+    case "on_drag":
+      return i18n.t`Alt or Ctrl drag copies as shown`;
+    case "with_modifier":
+      return i18n.t`only Alt or Ctrl drag cleans up`;
+    case "off":
+      return i18n.t`always copy as shown`;
+  }
+}
 /** The settings Report a bug names, as they are now. */
 function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
   return {
@@ -200,6 +225,7 @@ export type Apply =
   | { kind: "corgi_intensity"; value: number }
   | { kind: "theme"; theme: palette.Theme }
   | { kind: "language"; language: i18n.Locale | undefined }
+  | { kind: "copy_cleanup"; value: CopyCleanup }
   | { kind: "shell"; entry: shellPicker.Entry }
   | { kind: "preset"; preset: km.Preset }
   | { kind: "prefix" }
@@ -1860,6 +1886,23 @@ export class Menu implements LinkSource {
             }),
           ),
         ];
+      case "copy_cleanup":
+        return [
+          title(i18n.t`Copy cleanup`),
+          lead(i18n.t`Dragging over a wrapped command copies it as one line; other text loses its shared indent.`),
+          blank,
+          ...copyCleanup.values.map(value =>
+            option({
+              label: copyCleanupLabel(value),
+              detail: copyCleanupDetail(value),
+              mark: value === prefs.copy_cleanup ? "on" : "off",
+              apply: value === prefs.copy_cleanup ? null : { kind: "copy_cleanup", value },
+              action: i18n.t`use`,
+            }),
+          ),
+          blank,
+          { tag: "note", text: i18n.t`Keyboard copy mode always copies the text as shown.` },
+        ];
       case "shell": {
         const picker = shellPicker.Picker.open(this.shell, this.shells);
         return [
@@ -2140,6 +2183,8 @@ export class Menu implements LinkSource {
         return { text: palette.themes[palette.chosen(prefs.theme)].label, tone: "muted" };
       case "language":
         return { text: prefs.language ? i18n.names[prefs.language] : i18n.t`Auto`, tone: "muted" };
+      case "copy_cleanup":
+        return { text: copyCleanupLabel(prefs.copy_cleanup), tone: "muted" };
       case "shell":
         if (shellPicker.missing(this.shell)) return { text: i18n.t`not found`, tone: "warm" };
         return { text: this.shell.path ? this.shell.path.split("/").pop()! : "", tone: "muted" };

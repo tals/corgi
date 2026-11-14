@@ -1,0 +1,8 @@
+width: 19
+start_x: 2
+first_indent: 2
+
+  cp -r abcd /tmp/x
+  bbbbbbbbbbb
+---
+cp -r abcd /tmp/x bbbbbbbbbbb

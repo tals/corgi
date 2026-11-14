@@ -1,0 +1,9 @@
+width: 60
+start_x: 2
+first_indent: 2
+
+  rm -rf ./node_modules
+  /Users/me/Development/projects/important-project-dir/with/a/long/path/x
+---
+rm -rf ./node_modules
+/Users/me/Development/projects/important-project-dir/with/a/long/path/x

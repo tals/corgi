@@ -1,0 +1,8 @@
+width: 38
+start_x: 2
+first_indent: 2
+
+  terraform plan -var-file=prod.tfvars
+  -out=plan.bin -lock-timeout=60s
+---
+terraform plan -var-file=prod.tfvars -out=plan.bin -lock-timeout=60s

@@ -1,0 +1,11 @@
+width: 80
+start_x: 0
+first_indent: 1
+
+	def main():
+		print("hi")
+		return 0
+---
+def main():
+	print("hi")
+	return 0
