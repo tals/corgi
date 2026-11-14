@@ -150,3 +150,33 @@ test("a press in the field drops the selection and puts the caret where it lands
   wide.place(4, 10);
   expect(wide.field.cursor).toBe(6);
 });
+
+test("a double-click in the field selects the whole name again", () => {
+  const open = InlineRename.open({ workspace: 1 }, "Billing team", "");
+  open.press(3, 14, 1000);
+  expect(open.field.selected).toBe(false);
+  expect(open.field.cursor).toBe(3);
+  // The second press may land elsewhere on the line.
+  open.press(8, 14, 1000 + double_click_ms - 1);
+  expect(open.field.selected).toBe(true);
+  // A third press right after keeps it selected, as a triple-click does.
+  open.press(5, 14, 1000 + double_click_ms + 100);
+  expect(open.field.selected).toBe(true);
+  // A press after the window places the caret again.
+  open.press(5, 14, 5000);
+  expect(open.field.selected).toBe(false);
+  expect(open.field.cursor).toBe(5);
+  open.press(6, 14, 5000 + double_click_ms);
+  expect(open.field.selected).toBe(false);
+  expect(open.field.cursor).toBe(6);
+});
+
+test("typing between two presses ends the double-click", () => {
+  const open = InlineRename.open({ workspace: 1 }, "Billing team", "");
+  open.press(3, 14, 1000);
+  open.field.key(c("X"));
+  open.edited();
+  open.press(5, 14, 1100);
+  expect(open.field.selected).toBe(false);
+  expect(open.field.cursor).toBe(5);
+});

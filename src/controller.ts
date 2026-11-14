@@ -7965,14 +7965,15 @@ export class Controller {
       this.dirty = true;
       return;
     }
-    // A press in the open rename field puts the caret there; anywhere else
-    // it closes the field unsaved and then does what it would have done.
+    // A press in the open rename field puts the caret there, or selects the
+    // name on a double-click; anywhere else it closes the field unsaved and
+    // then does what it would have done.
     if (this.inline_rename && !release && (button & 0xe0) === 0) {
       const open = this.inline_rename,
         side = this.sidebarView(this.sidebarEntries()),
         rect = side.fieldRect(open.target, this.workspaceRows());
       if (rect && y === rect.y && x >= rect.x && x < rect.x + rect.width) {
-        if (button === 0) open.place(x - rect.x, rect.width);
+        if (button === 0) open.press(x - rect.x, rect.width, milliTimestamp());
         this.ui_mouse_down = true;
         this.dirty = true;
         return;

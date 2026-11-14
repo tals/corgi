@@ -85,6 +85,9 @@ export class InlineRename {
   saving = false;
   /** The field opened the workspaces drawer, which closes with it. */
   drawer = false;
+  /** When the last press in the field came, for a double-click; null after
+   * an edit. */
+  pressed_at: number | null = null;
 
   constructor(target: RenameTarget, field: Dialog, fallback: string) {
     this.target = target;
@@ -99,6 +102,15 @@ export class InlineRename {
     const field = Dialog.init(viewerRef.isPane(target) ? { agent: id } : { workspace_name: id }, text);
     return new InlineRename(target, field, fallback);
   }
+  /** A primary press at `column` of the field at `now`: a double-click
+   * selects the whole name again, as it was when the field opened, and so do
+   * further presses in quick succession; a single press places the caret. */
+  press(column: number, width: number, now: number): void {
+    const again = this.pressed_at !== null && now - this.pressed_at < double_click_ms;
+    this.pressed_at = now;
+    if (again) this.field.selected = true;
+    else this.place(column, width);
+  }
   /** A press at `column` of the field, drawn `width` columns wide: the
    * selection goes and the caret takes the character there, or the end
    * past the text. */
@@ -109,6 +121,7 @@ export class InlineRename {
   /** The text changed: a notice about the last try no longer applies. */
   edited(): void {
     this.message = null;
+    this.pressed_at = null;
     this.field.overflow = false;
   }
 }
