@@ -1,0 +1,10 @@
+width: 60
+start_x: 2
+first_indent: 2
+
+  helm upgrade --install prometheus \
+    prometheus-community/kube-prometheus-stack --namespace
+    monitoring --create-namespace \
+    --values values.yaml
+---
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace --values values.yaml

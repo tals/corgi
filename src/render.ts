@@ -3,6 +3,7 @@ import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
 import * as palette from "./palette";
+import type * as copyCleanup from "./copy_cleanup";
 import * as docking from "./docking";
 import * as dockingGrip from "./docking_grip";
 import type { DockDrop } from "./protocol";
@@ -248,6 +249,8 @@ export interface Ui {
   message: string;
   copy_mode: boolean;
   copy_feedback: boolean;
+  /** What cleanup did to the copied text, said in the copy toast. */
+  copy_note: copyCleanup.Note;
   /** The agent just added, shown briefly above the launcher or its new pane. */
   added_feedback: string;
   signin_exit: signinExit.State | null;
@@ -320,6 +323,17 @@ export interface Ui {
   prompt_draw: ((w: Writer, marks: Marks | null) => Rect[]) | null;
   prompt_cue: Cue | null;
 }
+/** The copy toast's words for what cleanup did to the copied text. */
+function copyLabel(note: copyCleanup.Note): string {
+  switch (note) {
+    case "joined":
+      return i18n.t`Copied as one line`;
+    case "dedented":
+      return i18n.t`Copied without indent`;
+    case null:
+      return i18n.t`Copied to clipboard`;
+  }
+}
 export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }): Ui {
   return {
     prefs: new Preferences(),
@@ -349,6 +363,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     paste_progress: null,
     inference: setupStatus(),
     copy_feedback: false,
+    copy_note: null,
     added_feedback: "",
     signin_exit: null,
     prefix: false,
@@ -1298,19 +1313,23 @@ export function frame(
     u.review_ghost.draw(w);
     cover(new Rect(width - u.review_ghost.width, 0, u.review_ghost.width, height));
   }
-  if (u.copy_feedback && width >= 27 && height >= 5) {
-    cover(new Rect(width - 27, 1, 27, 3));
-    const toast_x = width - 26;
+  const copied = copyLabel(u.copy_note),
+    toast_w = Math.max(27, displayWidth(copied) + 8);
+  if (u.copy_feedback && width >= toast_w && height >= 5) {
+    cover(new Rect(width - toast_w, 1, toast_w, 3));
+    const toast_x = width - toast_w + 1,
+      inner = toast_w - 2;
     w.write("\x1b7" + new Style({ fg: "line", bg: "bg" }).sgr());
-    w.write(`\x1b[2;${toast_x}H╭─────────────────────────╮`);
+    w.write(`\x1b[2;${toast_x}H╭${"─".repeat(inner)}╮`);
     w.write(
       `\x1b[3;${toast_x}H│ ` +
         palette.fg("strong") +
-        "● \x1b[1mCopied to clipboard\x1b[22m" +
+        `● \x1b[1m${copied}\x1b[22m` +
         palette.fg("line") +
-        "   │",
+        " ".repeat(inner - 3 - displayWidth(copied)) +
+        "│",
     );
-    w.write(`\x1b[4;${toast_x}H╰─────────────────────────╯`);
+    w.write(`\x1b[4;${toast_x}H╰${"─".repeat(inner)}╯`);
     w.write("\x1b[0m\x1b8");
   }
   covered.push(...menuBoxes(u, width, height, area));

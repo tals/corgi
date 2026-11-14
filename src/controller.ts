@@ -100,6 +100,7 @@ import * as rpc from "./rpc";
 import type { CommandInput, Op, PickResult, PickUnit } from "./protocol";
 import * as launcherWorktree from "./launcher_worktree";
 import * as preferences from "./preferences";
+import * as copyCleanup from "./copy_cleanup";
 import type { Preferences } from "./preferences";
 import { Host } from "./host";
 import { Drag as AgentDrag } from "./agent_drag";
@@ -128,6 +129,7 @@ import {
   byteSlice,
   clamp,
   directoryLabel,
+  codepointWidth,
   displayWidth,
   ellipsis,
   shortPath,
@@ -223,6 +225,8 @@ interface PortClick {
   cancelled: boolean;
   /** The press time. */
   at: number;
+  /** The press's SGR button code, with its modifiers. */
+  button: number;
 }
 const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortClick => ({
   url: "",
@@ -233,8 +237,36 @@ const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortC
   drag_selects: false,
   cancelled: false,
   at: milliTimestamp(),
+  button: 0,
   ...fields,
 });
+/** A pane selection being dragged: where its press landed, whether it moved,
+ * whether Alt or Ctrl was held at the press, and where the drag last ended. */
+interface DragSelection {
+  pane: number;
+  x: number;
+  y: number;
+  moved: boolean;
+  modifier: boolean;
+  ex: number;
+  ey: number;
+}
+/** Alt (8) or Ctrl (16) in an SGR button code. */
+const copyModifier = (button: number): boolean => (button & 24) !== 0;
+/** The part of `row` from screen column `x` on. */
+function fromColumn(row: string, x: number): string {
+  let col = 0,
+    i = 0;
+  while (i < row.length && col < x) {
+    const cp = row.codePointAt(i)!;
+    col += codepointWidth(cp);
+    i += cp > 0xffff ? 2 : 1;
+  }
+  return row.slice(i);
+}
+/** How much of a selection's first line `selectionSnapshot` matches against
+ * the row it started on. */
+const snapshot_head = 16;
 /** An SGR button press or release: neither motion nor the wheel. */
 const isButton = (button: number): boolean => (button & 96) === 0;
 /** Motion with a button held. */
@@ -556,9 +588,11 @@ export class Controller {
   message = "";
   headless_notice: number | null = null;
   copy_feedback_until = 0;
+  /** What cleanup did to the text the copy toast confirms. */
+  copy_note: copyCleanup.Note = null;
   added_feedback: { label: string; until: number } | null = null;
   muted = false;
-  selection: { pane: number; x: number; y: number; moved: boolean } | null = null;
+  selection: DragSelection | null = null;
   click_series: ClickSeries | null = null;
   gesture: Gesture | null = null;
   picked: Picked | null = null;
@@ -1430,7 +1464,10 @@ export class Controller {
       if (existsSync(preferences.path()) && preferences.readExisting(preferences.path()) === null)
         this.notice(i18n.t`Invalid viewer.json; using default preferences until the file is repaired.`);
       this.closePreferences = keybindingFile.observe(preferences.path(), saved => {
-        if (saved) this.prefs.workspace_order = saved.workspace_order;
+        if (saved) {
+          this.prefs.workspace_order = saved.workspace_order;
+          this.prefs.copy_cleanup = saved.copy_cleanup;
+        }
         if (saved && saved.language !== this.prefs.language) {
           this.prefs.language = saved.language;
           localeHost.initialize(saved.language);
@@ -3963,7 +4000,9 @@ export class Controller {
     const due = g.at + double_click_ms;
     const dragged = g.to.x !== g.anchor.x || g.to.y !== g.anchor.y;
     if (g.unit === "word" && !dragged && milliTimestamp() < due) this.pending_copy = { text: result.copy, due };
-    else this.copyText(result.copy);
+    else if (g.unit === "word") this.copyText(result.copy);
+    // A click series never carries Alt or Ctrl, so a line counts as a plain drag.
+    else this.copyCleaned(this.cleaned(term, result.copy, result.match.x, result.match.y, "plain"));
   }
   /** Copies a double-click's word now, as when something other than a
    * third press follows it. */
@@ -4065,9 +4104,55 @@ export class Controller {
   private copyPane(p: Pane): void {
     this.copyText(p.terminal.selectedText());
   }
+  /** Copies a drag's selection, cleaned up as the preference and the
+   * press's modifiers ask. */
+  private copyDrag(p: Pane, sel: DragSelection): void {
+    const first = sel.y < sel.ey || (sel.y === sel.ey && sel.x <= sel.ex);
+    const [x, y] = first ? [sel.x, sel.y] : [sel.ex, sel.ey];
+    this.copyCleaned(this.cleaned(p.terminal, p.terminal.selectedText(), x, y, sel.modifier ? "modifier" : "plain"));
+  }
+  /** Selected `text` starting at cell `x`, `y`, cleaned up as the preference
+   * asks for `trigger`, with what cleanup did; the text as selected if
+   * cleanup fails. */
+  private cleaned(
+    term: Terminal,
+    text: string,
+    x: number,
+    y: number,
+    trigger: copyCleanup.Trigger,
+  ): { text: string; note: copyCleanup.Note } {
+    const mode = copyCleanup.mode(this.prefs.copy_cleanup, trigger);
+    if (mode === "raw") return { text, note: null };
+    try {
+      const result = copyCleanup.clean(this.selectionSnapshot(term, text, x, y), mode);
+      return { text: result.text, note: copyCleanup.note(text, result) };
+    } catch {
+      return { text, note: null };
+    }
+  }
+  /** What cleanup needs to know about selected `text` that starts at cell
+   * `x`, `y` of the pane's view. When that row no longer shows the text, as
+   * after a scroll, the first line counts from column 0 instead. */
+  private selectionSnapshot(term: Terminal, text: string, x: number, y: number): copyCleanup.Snapshot {
+    const lines = text.split("\n");
+    const width = term.inner.cols;
+    const row = term.inner.text().split("\n")[y] ?? "";
+    // A soft-wrapped first line goes on past the row's end.
+    const head = lines[0].slice(0, snapshot_head);
+    const rest = fromColumn(row, x);
+    const full = displayWidth(row.trimEnd()) >= width;
+    if (rest.startsWith(head) || (full && rest !== "" && head.startsWith(rest)))
+      return { lines, start_x: x, first_indent: copyCleanup.indentWidth(row), width };
+    return copyCleanup.fromColumnZero(lines, width);
+  }
   /** Puts `text` on the host clipboard and keeps it for `paste`. */
   private copyText(text: string): void {
-    this.copyQuietly(text);
+    this.copyCleaned({ text, note: null });
+  }
+  /** `copyText` for cleaned-up text, its toast saying what cleanup did. */
+  private copyCleaned(copy: { text: string; note: copyCleanup.Note }): void {
+    this.copyQuietly(copy.text);
+    this.copy_note = copy.note;
     this.copy_feedback_until = milliTimestamp() + 2000;
   }
   /** `copyText` without the toast, for a caller that confirms it itself. */
@@ -5631,11 +5716,14 @@ export class Controller {
         if (phases.length) lines.push(`Recently: ${phases.map(phase => clean(phase)).join(" · ")}`);
         return lines.join("\n");
       }
-      case "selection":
-        return promptAttach.tail(
-          clean(this.pane(m.pane)?.terminal.selectedText() ?? "", true),
-          promptAttach.screen_bytes,
-        );
+      case "selection": {
+        // Where the selection started is gone by now, so its first line
+        // counts from column 0; it is dedented, never flattened.
+        const term = this.pane(m.pane)?.terminal;
+        const snapshot = copyCleanup.fromColumnZero((term?.selectedText() ?? "").split("\n"), term?.inner.cols ?? 0);
+        const text = copyCleanup.clean(snapshot, copyCleanup.mode(this.prefs.copy_cleanup, "mention")).text;
+        return promptAttach.tail(clean(text, true), promptAttach.screen_bytes);
+      }
       case "diff":
         return promptAttach.workspaceDiff(m.cwd);
       case "workspace":
@@ -5998,6 +6086,14 @@ export class Controller {
         this.host.prefs.theme = apply.theme;
         try {
           preferences.update({ theme: this.host.prefs.theme });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
+      case "copy_cleanup":
+        this.host.prefs.copy_cleanup = apply.value;
+        try {
+          preferences.update({ copy_cleanup: apply.value });
         } catch (error) {
           this.notice((error as Error).message);
         }
@@ -8036,7 +8132,16 @@ export class Controller {
           }
           p.terminal.clearSelection();
           p.terminal.holding_selection = true;
-          this.selection = { pane: click.pane, x: click.px, y: click.py, moved: false };
+          const modifier = copyModifier(click.button);
+          this.selection = {
+            pane: click.pane,
+            x: click.px,
+            y: click.py,
+            moved: false,
+            modifier,
+            ex: click.px,
+            ey: click.py,
+          };
         }
         cl.port_click = null;
       } else {
@@ -8245,7 +8350,7 @@ export class Controller {
       const p = this.pane(sel.pane);
       if (p) {
         try {
-          if (sel.moved) this.copyPane(p);
+          if (sel.moved) this.copyDrag(p, sel);
         } finally {
           try {
             p.terminal.clearSelection();
@@ -8857,6 +8962,7 @@ export class Controller {
             px: x - p.rect.x,
             py: y - p.rect.y,
             drag_selects: plain_link,
+            button,
           });
           return;
         }
@@ -8895,10 +9001,14 @@ export class Controller {
         const sel = this.selection;
         if (sel && sel.pane === p.id) {
           sel.moved = true;
+          sel.ex = px;
+          sel.ey = py;
           term.select(sel.x, sel.y, px, py);
         }
       } else if ((button & 3) === 0) {
-        this.selection = { pane: p.id, x: px, y: py, moved: false };
+        // The press's modifiers decide the copy; later ones don't.
+        const modifier = copyModifier(button);
+        this.selection = { pane: p.id, x: px, y: py, moved: false, modifier, ex: px, ey: py };
         term.clearSelection();
         term.holding_selection = true;
       }
@@ -10038,6 +10148,7 @@ export class Controller {
             ? i18n.t` Agent search: enlarge terminal or Esc`
             : this.message,
         copy_feedback: this.copy_feedback_until > milliTimestamp(),
+        copy_note: this.copy_note,
         added_feedback:
           this.added_feedback && this.added_feedback.until > milliTimestamp() ? this.added_feedback.label : "",
         signin_exit: this.signin_exit,

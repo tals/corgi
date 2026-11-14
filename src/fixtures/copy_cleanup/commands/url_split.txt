@@ -1,0 +1,8 @@
+width: 50
+start_x: 2
+first_indent: 2
+
+  curl -fsSL https://raw.githubusercontent.com/exa
+  mple/project/main/scripts/install.sh | bash
+---
+curl -fsSL https://raw.githubusercontent.com/example/project/main/scripts/install.sh | bash

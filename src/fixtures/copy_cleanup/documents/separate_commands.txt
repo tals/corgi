@@ -1,0 +1,9 @@
+width: 80
+start_x: 2
+first_indent: 2
+
+  cd foo
+  make test
+---
+cd foo
+make test

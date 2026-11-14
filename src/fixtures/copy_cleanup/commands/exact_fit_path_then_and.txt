@@ -1,0 +1,8 @@
+width: 22
+start_x: 2
+first_indent: 2
+
+  cp -r a.txt /tmp/dir
+  && ls
+---
+cp -r a.txt /tmp/dir && ls

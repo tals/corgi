@@ -150,9 +150,9 @@ test("setup keeps its options while aiming diagonally across list rows and gaps"
   expect(await menu.poll(no_setup_rpc, 100, 30, 2000)).toBe(false);
   expect(menu.item).toBe("clever_corgi");
   // Up and to the right, toward Keymap's options, crosses Shell.
-  hover(25, 10, 2100);
+  hover(25, 11, 2100);
   expect(menu.item).toBe("keyboard");
-  hover(30, 9, 2200);
+  hover(30, 10, 2200);
   expect(menu.item).toBe("keyboard");
   hover(36, 7, 2300);
   expect(menu.item).toBe("keyboard");
@@ -282,8 +282,8 @@ test("setup aims only at the options a click acts on", () => {
   }
   // Terminal capabilities has nothing to click, so nothing guards it.
   const menu = Menu.open();
-  menu.hover(100, 30, 15, 15, s, prefs, 0);
-  menu.hover(100, 30, 22, 11, s, prefs, 100);
+  menu.hover(100, 30, 15, 16, s, prefs, 0);
+  menu.hover(100, 30, 22, 12, s, prefs, 100);
   expect(menu.item).toBe("source_control");
 });
 
@@ -306,7 +306,7 @@ test("setup stops guarding when moving away, leaving the frame, or resizing", as
         break;
       case "vertical":
         menu.hover(100, 30, 15, 3, s, prefs, 150);
-        menu.hover(100, 30, 15, 7, s, prefs, 200);
+        menu.hover(100, 30, 15, 8, s, prefs, 200);
         break;
     }
     expect(menu.item).toBe(end === "outside" ? "clever_corgi" : end === "vertical" ? "theme" : "flourishes");

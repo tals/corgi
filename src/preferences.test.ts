@@ -221,3 +221,21 @@ test("the prompt's last pick round trips, and one this build can't read falls ba
     await rm(root, { recursive: true, force: true });
   }
 });
+test("copy cleanup round trips, and a missing or unknown value reads as on drag", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corgi-copy-cleanup-"));
+  const file = join(root, "viewer.json");
+  try {
+    for (const value of ["on_drag", "with_modifier", "off"] as const) {
+      updateFile(file, { copy_cleanup: value, sidebar_width: 40 });
+      expect(read(file)).toMatchObject({ copy_cleanup: value, sidebar_width: 40 });
+    }
+    await writeFile(file, JSON.stringify({ sidebar_width: 40 }));
+    expect(read(file).copy_cleanup).toBe("on_drag");
+    for (const value of ["always", 1, null, {}]) {
+      await writeFile(file, JSON.stringify({ copy_cleanup: value, sidebar_width: 40, theme: "animal_style" }));
+      expect(read(file)).toMatchObject({ copy_cleanup: "on_drag", sidebar_width: 40, theme: "animal_style" });
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

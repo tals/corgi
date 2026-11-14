@@ -1,0 +1,21 @@
+width: 80
+start_x: 0
+first_indent: 2
+
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: web
+    labels:
+      app: web
+  spec:
+    replicas: 2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  replicas: 2

@@ -1,0 +1,9 @@
+width: 30
+start_x: 2
+first_indent: 2
+
+  name: web
+    image: nginx
+---
+name: web
+  image: nginx

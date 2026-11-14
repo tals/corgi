@@ -1,0 +1,9 @@
+width: 50
+start_x: 0
+first_indent: 2
+
+  kubectl --kubeconfig ~/.kube/home-config -n
+  monitoring get pods -l
+  app.kubernetes.io/name=prometheus -o wide
+---
+kubectl --kubeconfig ~/.kube/home-config -n monitoring get pods -l app.kubernetes.io/name=prometheus -o wide

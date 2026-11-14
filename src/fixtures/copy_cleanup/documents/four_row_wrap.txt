@@ -1,0 +1,15 @@
+width: 30
+start_x: 2
+first_indent: 2
+
+  kubectl --kubeconfig
+  ~/.kube/home-config -n
+  monitoring logs
+  deploy/prometheus-server
+  --since 10m --tail 200 -f
+---
+kubectl --kubeconfig
+~/.kube/home-config -n
+monitoring logs
+deploy/prometheus-server
+--since 10m --tail 200 -f
