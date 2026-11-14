@@ -1,17 +1,6 @@
 import { expect, test } from "bun:test";
 import type { LiveEvent, Stage } from "./live_events";
-import {
-  card,
-  fireworks,
-  finaleRows,
-  frame,
-  outcomeCard,
-  problems,
-  spinner,
-  type TaskLine,
-  taskFrame,
-  timeline,
-} from "./live_render";
+import { card, frame, outcomeCard, problems, spinner, type TaskLine, taskFrame, timeline } from "./live_render";
 import { apply, initial, type LiveState, rebaseItem, rebaseSummary } from "./live_state";
 import * as term from "./term";
 import type { Estimate, HistoryRun } from "./timings";
@@ -662,26 +651,6 @@ test("a rebase that left branches undone ends amber, with what happened to each 
   expect(problems({ ...rebuild, ...rebaseRun({ failed: true }), command: "rebuild" as const, rebaseRun: false })).toBe(
     true,
   );
-});
-
-test("fireworks rise, burst and fade, and leave embers that fit the width", () => {
-  const frames = fireworks(60, false, 7),
-    width = (line: string) => [...line].length;
-  expect(frames.length).toBeGreaterThan(10);
-  for (const f of frames) {
-    expect(f.length).toBe(finaleRows);
-    for (const line of f) expect(width(line)).toBeLessThanOrEqual(60);
-  }
-  const all = frames.map(f => f.join("\n"));
-  expect(all.some(f => f.includes("│"))).toBe(true);
-  expect(all.some(f => f.includes("✸"))).toBe(true);
-  expect(all.at(-1)).toMatch(/✧/);
-  expect(all.at(-1)).not.toMatch(/[│✸]/);
-  // The same seed draws the same show; colors only paint it.
-  expect(fireworks(60, false, 7)).toEqual(frames);
-  expect(fireworks(60, true, 7).map(f => f.map(plain))).toEqual(frames);
-  // Too narrow for a show.
-  expect(fireworks(10, true)).toEqual([]);
 });
 
 test("a finished run's card with a brief lists what needs a look and points at the report", () => {

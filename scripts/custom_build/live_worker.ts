@@ -5,7 +5,7 @@
 import { writeSync } from "node:fs";
 import tty from "node:tty";
 import type { LiveEvent } from "./live_events";
-import { card, clock, doneLine, finaleFrameMs, fireworks, frame, outcomeCard, problems } from "./live_render";
+import { card, clock, doneLine, frame, outcomeCard } from "./live_render";
 import { apply, initial, type LiveState } from "./live_state";
 import { Screen } from "./screen";
 import * as term from "./term";
@@ -31,10 +31,6 @@ export type ViewOptions = {
   now?: () => number;
   /** Test hook: draws the card in place of `live_render.card`. */
   card?: typeof card;
-  /** Plays the fireworks before the card of a run that fully succeeded. */
-  finale?: boolean;
-  /** How the fireworks wait between frames (a test hook). */
-  wait?: (ms: number) => Promise<void>;
 };
 
 export class View {
@@ -98,37 +94,14 @@ export class View {
     this.draw();
   }
 
-  /** Replaces the view with the card for `e` and puts the terminal back.
-   * Throws when it couldn't: the caller then restores and prints `plain(e)`. */
+  /** Replaces the view with the card for `e`, a rebuild's done line last, and
+   * puts the terminal back. Throws when it couldn't: the caller then restores
+   * and prints `plain(e)`. */
   finish(e: End): void {
     const lines = this.end(e);
     if (lines) this.screen.finish([...lines, ...this.closing(e)]);
   }
-  /** Like `finish`, then fireworks below the card for a run that succeeded:
-   * a rebuild that built its binary (problems or not), or any other run with
-   * no problems; not under a pinned `--verbose` view. Their last frame stays,
-   * with the rebuild's done line under it. */
-  async finishShow(e: End): Promise<void> {
-    const lines = this.end(e);
-    if (!lines) return;
-    const s = this.s,
-      success = e.ok && s.command !== null && (!!e.binary || !problems(s)),
-      show =
-        this.o.finale && this.o.color && !this.verbose && success
-          ? fireworks(this.o.cols(), this.o.color, Math.floor(this.now()))
-          : [],
-      wait = this.o.wait ?? Bun.sleep;
-    if (!show.length) return this.screen.finish([...lines, ...this.closing(e)]);
-    // The card goes to the scrollback first; the show plays below it, and its
-    // last frame stays as the end.
-    this.screen.print(lines);
-    for (const frame of show.slice(0, -1)) {
-      this.screen.draw(frame);
-      await wait(finaleFrameMs);
-    }
-    this.screen.finish([...show[show.length - 1], ...this.closing(e)]);
-  }
-  /** The rebuild's done line, last under the card (or the fireworks). */
+  /** The rebuild's done line, last under the card. */
   private closing(e: End): string[] {
     return this.s.command === null ? [] : doneLine(e, { width: this.o.cols(), color: this.o.color });
   }
@@ -333,7 +306,6 @@ export function serve(port: Port, make: (o: ViewOptions) => View = o => new View
             cols: () => size.cols,
             verbose: m.verbose,
             color: m.color,
-            finale: true,
             ...(m.command ? { command: m.command } : {}),
           });
           timer = setInterval(() => {
@@ -354,7 +326,7 @@ export function serve(port: Port, make: (o: ViewOptions) => View = o => new View
         case "finish":
           if (timer) clearInterval(timer);
           remeasure();
-          await view?.finishShow(m.e);
+          view?.finish(m.e);
           break;
       }
     } catch {
