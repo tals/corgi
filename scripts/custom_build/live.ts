@@ -22,8 +22,7 @@ import * as term from "./term";
 type End = Extract<LiveEvent, { t: "end" }>;
 /** How long the run waits for the worker: to make room for a question, and to write the card. */
 const askWaitMs = 2000;
-/** Room for the fireworks too, which play before a successful run's card. */
-const finishWaitMs = 5000;
+const finishWaitMs = 3000;
 const exitCodes = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 } as const;
 
 interface Backend {

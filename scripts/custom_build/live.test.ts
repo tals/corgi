@@ -323,7 +323,7 @@ test("the worker reports a card that failed, and one that didn't", async () => {
   ] as const) {
     const posted: unknown[] = [],
       port = { postMessage: m => void posted.push(m) } as Port;
-    serve(port, o => new View({ ...o, write: () => {}, wait: async () => {}, ...(card ? { card } : {}) }));
+    serve(port, o => new View({ ...o, write: () => {}, ...(card ? { card } : {}) }));
     const send = (m: unknown) => port.onmessage({ data: m } as MessageEvent);
     await send({ t: "init", shared: new SharedArrayBuffer(12), verbose: false, color: true });
     await send({ t: "event", e: begin(), at: Date.now() });
@@ -377,65 +377,31 @@ test("an interrupted git call under a live view stops there and restores the ter
   expect(p.stdout.toString()).toEndWith(term.restore());
 });
 
-test("a run that fully succeeded ends with fireworks below its card; any other ends at once", async () => {
-  const show = async (o: { finale?: boolean; color?: boolean; e?: Partial<Extract<LiveEvent, { t: "end" }>> }) => {
-    let out = "",
-      frames = 0;
-    const view = new View({
-      write: s => void (out += s),
-      rows: () => 40,
-      cols: () => 80,
-      verbose: false,
-      color: o.color ?? true,
-      finale: o.finale ?? true,
-      wait: async () => void frames++,
-    });
-    view.event(begin(), 0);
-    await view.finishShow(end(o.e));
-    return { frames, out: out.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g, "") };
-  };
-  const shown = await show({});
-  expect(shown.frames).toBeGreaterThan(10);
-  // The card is written once, and the show plays below it; the embers end it.
-  expect(shown.out.split("✓ built").length).toBe(2);
-  const below = shown.out.slice(shown.out.indexOf("report"));
-  expect(below).toContain("│");
-  expect(below.slice(below.lastIndexOf("│"))).toMatch(/✧/);
-  for (const o of [{ finale: false }, { color: false }, { e: { ok: false, code: 3, headline: "stopped" } }])
-    expect((await show(o)).frames).toBe(0);
-});
-
-test("a rebuild that built its binary gets fireworks, problems or not, and ends with where the binary is", async () => {
-  const show = async (o: { e?: Partial<Extract<LiveEvent, { t: "end" }>>; finale?: boolean }) => {
-    let out = "",
-      frames = 0;
+test("a rebuild that built its binary ends its card with where the binary is", () => {
+  const show = (e: Partial<Extract<LiveEvent, { t: "end" }>>) => {
+    let out = "";
     const view = new View({
       write: s => void (out += s),
       rows: () => 40,
       cols: () => 120,
       verbose: false,
       color: true,
-      finale: o.finale ?? true,
-      wait: async () => void frames++,
     });
-    // A branch that couldn't be rebased: the run ends "with problems".
+    // A branch that couldn't be rebased: the run ends "with problems", and its binary is still built.
     view.event(begin({ stages: ["fetch", "rebase", "merge", "verify"], items: { rebase: ["b"], merge: ["left"] } }), 0);
     view.event({ t: "item", stage: "rebase", id: "b", state: "skipped", outcome: "not-rebased", detail: "x" }, 1);
-    await view.finishShow(end(o.e));
-    return {
-      frames,
-      out: out.replace(/\x1b\]8;;[^\x1b]*\x1b\\|\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*\x07|\x1b[78]/g, ""),
-    };
+    view.finish(end(e));
+    return out.replace(/\x1b\]8;;[^\x1b]*\x1b\\|\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*\x07|\x1b[78]/g, "");
   };
-  const built = await show({ e: { binary: "/repo/dist/corgi-custom" } });
-  expect(built.frames).toBeGreaterThan(10);
-  expect(built.out).toContain("◐ built");
-  // The done line comes last, under the fireworks' last frame.
-  expect(built.out.trimEnd().split("\n").at(-1)).toBe("✓ rebuild done · binary /repo/dist/corgi-custom");
-  // With problems and no binary (a rebase run): no show.
-  expect((await show({})).frames).toBe(0);
-  // Without fireworks, the done line still ends the card.
-  const quiet = await show({ e: { binary: "/repo/dist/corgi-custom" }, finale: false });
-  expect(quiet.frames).toBe(0);
-  expect(quiet.out.trimEnd().split("\n").at(-1)).toBe("✓ rebuild done · binary /repo/dist/corgi-custom");
+  const built = show({ binary: "/repo/dist/corgi-custom" });
+  expect(built).toContain("◐ built");
+  expect(built.trimEnd().split("\n").at(-1)).toBe("✓ rebuild done · binary /repo/dist/corgi-custom");
+  // No animation: the card is written once, in one finish.
+  expect(built.split("◐ built").length).toBe(2);
+  // A refused push still built it: the done line is amber.
+  expect(show({ binary: "/repo/dist/corgi-custom", ok: false, code: 1 }).trimEnd().split("\n").at(-1)).toBe(
+    "◐ rebuild done · binary /repo/dist/corgi-custom",
+  );
+  // Without a binary (a rebase run), no done line.
+  expect(show({})).not.toContain("rebuild done");
 });

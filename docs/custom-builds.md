@@ -265,12 +265,10 @@ review, notes, warnings and commands still to run, and the report with the
 number of handoffs. Every other line (what merged, what was pushed, each
 handoff's path) is in the report and in the plain output. A stopped run's
 card keeps all of its lines, since they say how to go on. A rebuild that
-built its binary ends with a short burst of fireworks below the card, five
-rows high, even when it finished with problems (the card's amber headline
-says so); so does any other run that fully succeeded. The last frame stays
-(not under a pinned `--verbose` view), and under it a rebuild's last line
-says it is done and links to the binary it built. An error that ends the command shows on the
-card too, on stdout, rather than on stderr. Patch names link to their pages and
+built its binary ends the card with a line that says it is done and links to
+the binary, even when it finished with problems (the card's amber headline
+says so). An error that ends the command shows on the card too, on stdout,
+rather than on stderr. Patch names link to their pages and
 steps to their logs (OSC 8).
 
 `--verbose` pins the view at the top and scrolls the full log below it: the
