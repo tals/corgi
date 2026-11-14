@@ -25,6 +25,7 @@ class Rollback extends Runtime {
         join(this.temp.name, "reject"),
         `
 import { readFileSync, writeSync, appendFileSync } from "node:fs";
+if (process.argv[2] === "__handoff-info") { console.error("corgi: UnknownCommand"); process.exit(1); }
 const state = JSON.parse(readFileSync(3, "utf8"));
 appendFileSync(${JSON.stringify(attempts)}, state.version + "\\n");
 writeSync(4, state.version === 7 ? "UnsupportedStateVersion\\n" : ${JSON.stringify(reason + "\n")});

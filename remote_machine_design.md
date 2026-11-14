@@ -216,17 +216,17 @@ must not be presented as proof that an operation failed on the server.
 
 ### Compatibility boundaries
 
-Current management protocol is **1**, runtime protocol **4**, and viewer protocol
+Current management protocol is **1**, runtime protocol **5**, and viewer protocol
 **4**. `hello` exposes compatibility, capabilities and daemon incarnation.
 Streaming and links are capabilities (`viewer.stream`, `link.open`,
 `link.resume`), not implications of a version-looking binary name. Remote
 viewers require streaming; use matching builds as the supported deployment path.
 The bridge's preamble version is a separate byte-transport boundary.
 
-Checkpoint schemas, live handoff compatibility (`update_abi` / terminal ABI),
-wire protocols, build identity and release version answer different questions.
-A peer can speak a compatible wire protocol while still being unsuitable for a
-live process handoff. Do not collapse these checks into one version comparison.
+Wire protocols still require exact matching. Daemons implementing core handoff
+protocol 1 can switch builds in either direction: they negotiate a common
+metadata revision ID while preserving the fixed terminal core. Legacy `update_abi`
+and terminal ABI checks apply only to pre-baseline handoffs.
 
 ### Correlation is different from replay identity
 
@@ -296,27 +296,25 @@ symlink targets. If none exists, the default is `~/.local/bin/corgi`.
 `--executable` selects a nonstandard installation; it is not required for normal
 setup. Arbitrary wrapper scripts are not silently overwritten.
 
-The newer comparable build wins. If local is newer, setup installs the matching
-remote artifact. If remote is newer, setup upgrades the local installation first
-and re-executes setup. Release versions are compared with commit consistency
-checks. Development builds use binary/source hashes and Git ancestry, with
-explicit handling of dirty builds; divergent or otherwise unordered builds stop
-with an error instead of choosing by timestamp.
+Explicit setup selects the invoking build, including downgrades and divergent
+branches. Development builds match by binary/source identity without consulting
+Git ancestry. One daemon still has one selected build; other viewers must follow
+that selection. Background attachment never changes it.
 
 Signed release artifacts use the local installation's configured update trust
 and the exact requested version. Development artifacts must match the required
 source and target. For a different architecture, build the matching
 `dist/corgi-<target>` plus metadata with `bun build.ts --target <target>`.
-A newer same-platform development binary can also be fetched from the SSH peer
-and verified against its reported hash. That is trust in the authenticated host,
-not independent publisher attestation.
+Setup does not fetch a remote build to replace the local installation.
 
 Installation stages and verifies the candidate, checks that the destination has
 not changed, takes the installation lock, and preflights compatibility. Managed
 installations preserve their launcher and release slots; standalone installations
 replace the canonical executable with backup/rollback handling. A running daemon
-uses live handoff to preserve shells. Incompatible handoffs are refused rather
-than replaced by a destructive restart. Ambiguous upgrade outcomes preserve
+uses branch-aware live handoff to preserve terminal shells. A fixed core and
+negotiated metadata revision IDs support downgrade and upgrade through a common
+state revision; incompatible metadata can reset. Headless clients retain their
+existing compatibility requirements. A failed handoff leaves the source alive. Ambiguous upgrade outcomes preserve
 recovery information instead of claiming success or blindly rolling back a daemon
 that may already be running the new build.
 
@@ -380,10 +378,9 @@ behavior by extending a timeout or adding another request ID.
 
 ### 4. Upgrade authority, compatibility policy and multiple viewers
 
-Automatically upgrading local Corgi from a newer development peer expands the
-trust placed in that peer. The product needs an explicit policy for trusted dev
-hosts versus release-only installations. A hash supplied by the same peer proves
-transfer consistency, not publisher trust.
+Explicit setup installs the invoking build on the remote. Signed artifacts use
+the local installation's publisher trust; development artifacts come from the
+local build. The remote cannot select a replacement local binary.
 
 Also define what happens when several viewers want different builds of the same
 canonical daemon. “Newer wins” cannot by itself prevent upgrade churn, unavailable

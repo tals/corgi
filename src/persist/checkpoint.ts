@@ -89,6 +89,7 @@ export class Screen {
       exit_status: t.exit_status,
       runs_command: t.runs_command,
       initial_input: live ? t.initial_input : null,
+      pending: live ? t.pendingInput() : "",
     };
   }
   static restore(screen: any, live: boolean): Terminal {
@@ -105,6 +106,7 @@ export class Screen {
       t = Terminal.create(screen.cols, screen.rows);
     t.restore(bytes, live ? (screen.title_pid ?? 0) : 0);
     if (live) {
+      if (screen.pending) t.send(binary.decode(screen.pending));
       if (screen.initial_input) t.prefill(screen.initial_input);
       Object.assign(t, {
         fd: screen.fd ?? -1,
@@ -306,10 +308,6 @@ export async function restore(
   );
   check(!Array.isArray(state.sessions), () => "sessions isn't a list");
   check(
-    state.workspaces.length > max_workspaces,
-    () => `${state.workspaces.length} workspaces, over ${max_workspaces}`,
-  );
-  check(
     state.closed.length > closed_per_workspace * max_workspaces,
     () => `${state.closed.length} closed tabs, over ${closed_per_workspace * max_workspaces}`,
   );
@@ -454,6 +452,7 @@ export async function restore(
     check(!r.workspaces.owner(p.id), () => `pane ${p.id} isn't in any workspace's layout`);
     check(!isAbsolute(p.cwd), () => `pane ${p.id}'s folder isn't an absolute path`);
     const pane = new Pane(p.id, Screen.restore(p.screen, live), p.cwd);
+    r.panes.push(pane);
     pane.label = p.label ?? "";
     pane.attachment = restoreBinding(r.conversations, p.binding, live, { what: `pane ${p.id}`, repairs, strict });
     pane.detection = live ? hydrate(new Tracker(), p.detection) : new Tracker();
@@ -462,7 +461,6 @@ export async function restore(
     pane.dormant = p.dormant === true;
     pane.manual_resume = p.manual_resume === true || r.workspaces.owner(p.id)!.archived;
     pane.manual_command = pane.manual_resume && typeof p.manual_command === "string" ? p.manual_command : null;
-    r.panes.push(pane);
     if (live) agentEffort.restore(r, pane, p.effort);
   }
   for (const w of r.workspaces.items)

@@ -2,6 +2,7 @@ import { basename, dirname, join, isAbsolute } from "node:path";
 import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
 import { Model, boundLabel, max_label, max_workspaces } from "./layout";
 import * as migrations from "./persist/migrations";
+import * as state_formats from "./persist/state_formats";
 import { Order, Pins, key as agentKey, type Section } from "./agent_order";
 import * as errors from "./errors";
 import * as archiveSummary from "./archive_summary";
@@ -117,6 +118,7 @@ export class Store {
         JSON.stringify(
           {
             version: migrations.workspaces_version,
+            format: state_formats.workspaces.current,
             active: selected,
             next_id: this.next_id,
             workspaces: this.items.map(w => ({

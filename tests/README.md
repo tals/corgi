@@ -85,6 +85,12 @@ checks live rollback to a format-6 daemon: shell PID/input continuity, the WS
 requester's committed reply, HTTP rollback and re-upgrade, rejection of later queued input, and a clear exit
 for an attached viewer and CLI subscription. It also returns to the new build
 and reattaches. Without the old binary, the rejected-candidate test still runs.
+`CORGI_BRANCH_EXE=/path/to/other-branch/corgi-test bun integration.ts branch_handoff --jobs 1`
+checks a different-format compiled binary in both directions, retaining shell
+PIDs and in-memory variables. Without it, the suite still exercises baseline
+negotiation between divergent format advertisements, rejected candidates and
+unknown-branch recovery preflight.
+
 Use a test-enabled old binary to also run the signed updater's upgrade/rollback
 case in `updates`.
 

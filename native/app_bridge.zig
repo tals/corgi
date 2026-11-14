@@ -3,7 +3,7 @@ const pane = @import("pane");
 const a = std.heap.c_allocator;
 const Theme = @typeInfo(@TypeOf(pane.Terminal.applyTheme)).@"fn".param_types[1].?;
 const Request = struct {
-    op: enum { info, surface, image, pixels, search, pick, select, selection, clearSelection, liveText, text, history, snapshot, fadedSnapshot, theme, paste, prefill, flush, refreshRedraw, tick, takeCopied, takePending, restore, adopt, stop, reap, links, probeFormat },
+    op: enum { info, surface, image, pixels, search, pick, select, selection, clearSelection, liveText, text, history, snapshot, fadedSnapshot, theme, paste, prefill, flush, refreshRedraw, tick, takeCopied, takePending, pending, restore, adopt, stop, reap, links, probeFormat },
     pane: u32 = 0,
     offset: ?usize = null,
     text: []const u8 = "",
@@ -161,6 +161,11 @@ fn perform(t: *pane.Terminal, alloc: std.mem.Allocator, req: Request, out: [*]u8
             const written = result(alloc, t.pending.items, out, cap);
             if (written >= 0) t.pending.clearRetainingCapacity();
             return written;
+        },
+        .pending => {
+            const encoder = std.base64.standard.Encoder;
+            const bytes = try alloc.alloc(u8, encoder.calcSize(t.pending.items.len));
+            return result(alloc, encoder.encode(bytes, t.pending.items), out, cap);
         },
         .restore => {
             t.restoring = true;

@@ -229,7 +229,11 @@ ftruncateSync(fd, 0); writeSync(fd, JSON.stringify(m));
 libc.symbols.lseek(fd, 0n, 0);
 `,
     );
-    writeFileSync(candidate, `#!/bin/sh\nbun ${quote(transformer)} "$2"\nexec ${quote(EXE)} "$@"\n`, { mode: 0o700 });
+    writeFileSync(
+      candidate,
+      `#!/bin/sh\nif [ "$1" = __handoff-info ]; then echo "corgi: UnknownCommand" >&2; exit 1; fi\nbun ${quote(transformer)} "$2"\nexec ${quote(EXE)} "$@"\n`,
+      { mode: 0o700 },
+    );
     chmodSync(candidate, 0o700);
     return candidate;
   }
@@ -459,6 +463,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       }
     });
     const original = JSON.parse(readFileSync(saved, "utf8"));
+    delete original.transfer;
     new Function("state", `${DOWNGRADE}checkpointV4(state);`)(original);
     original.version = 2;
     original.panes[0].agent.provider = "other";
@@ -727,7 +732,7 @@ await Bun.sleep(120000);
     });
     await this.until(async () => (await this.screen(first)).includes("ROLLBACK_OK"));
   }
-  async test_reload_drops_input_a_blocked_pane_never_read() {
+  async test_reload_preserves_input_a_blocked_pane_has_not_read() {
     const program = join(this.temp.name, "blocked.ts"),
       gate = join(this.temp.name, "gate"),
       received = join(this.temp.name, "received");
@@ -757,7 +762,7 @@ process.stdin.resume();
     writeFileSync(gate, "");
     await this.command("pane.input", { data: "END", target: first });
     await this.until(() => existsSync(received) && readFileSync(received).toString().endsWith("END"));
-    this.assertTrue(statSync(received).size < 8 * 65536 + 3);
+    this.assertEqual(readFileSync(received).toString(), "a".repeat(8 * 65536) + "END");
   }
   async test_headless_cold_recovery_displays_resume_without_starting_agent() {
     this.env.SHELL = "/bin/bash";

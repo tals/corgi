@@ -28,6 +28,7 @@ import * as clock from "./clock";
 import { SocketPath, listen as bindSocket, running } from "./os";
 import * as json from "./json";
 import * as recovery from "./persist/recovery";
+import * as transfer from "./persist/transfer";
 import * as launch from "./launch_service";
 import * as launch_command from "./launch/command";
 import * as settings from "./settings";
@@ -816,6 +817,7 @@ export class Server {
           executable: this.executable,
           release_version: updates.release(this.executable).version,
           update_abi: updates.abi,
+          handoff: transfer.protocol,
           viewer_protocol: protocol.viewer_version,
           instance: this.instance,
           ...(compress ? { content_encoding: encoding } : {}),

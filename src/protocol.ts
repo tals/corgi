@@ -898,6 +898,7 @@ export interface ReplyPayloads {
     executable: string;
     release_version: string;
     update_abi: string;
+    handoff?: number;
     transports?: { http: number; websocket: string };
     viewer_protocol?: number;
     instance?: string;

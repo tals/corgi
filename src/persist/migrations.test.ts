@@ -1,16 +1,49 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import * as json from "../json";
-import * as steps from "./steps";
-import { decode, checkpoint_version, handoff_version } from "./migrations";
+import * as values from "./revision_values";
+import * as formats from "./formats";
+import * as state_formats from "./state_formats";
+import { decode, checkpoint_version, handoff_version, legacy } from "./migrations";
+function released(kind: keyof typeof legacy, from: number) {
+  return state_formats.revisions.find(revision => revision.id === legacy[kind][from + 1])!;
+}
+test("numeric headers and explicit revisions traverse the same historical steps", () => {
+  for (const kind of ["checkpoint", "handoff", "workspaces"] as const) {
+    const original = json.parse(readFileSync(new URL(`../fixtures/steps/${kind}-1.in.json`, import.meta.url), "utf8"));
+    if (kind === "handoff") original.runtime = { version: 1 };
+    const numbered = { ...original, version: 1 },
+      identified = { ...original, format: legacy[kind][1] };
+    delete identified.version;
+    const numeric = decode(kind, json.stringify(numbered)),
+      explicit = decode(kind, json.stringify(identified)),
+      { format, ...payload } = explicit.value;
+    expect(payload).toEqual(numeric.value);
+    expect(format).toBe(state_formats[kind].current);
+    expect(explicit.migrated).toBe(true);
+    expect(decode(kind, json.stringify(explicit.value)).migrated).toBe(false);
+  }
+});
+
+test("an explicit revision cannot be substituted with a numeric fallback or another format's history", () => {
+  expect(() => decode("checkpoint", JSON.stringify({ format: "a".repeat(12), version: 6 }))).toThrow(
+    "UnsupportedStateFormat",
+  );
+  expect(() => decode("checkpoint", JSON.stringify({ format: state_formats.workspaces.current, version: 6 }))).toThrow(
+    "UnsupportedStateFormat",
+  );
+  for (const kind of ["checkpoint", "handoff", "workspaces"] as const)
+    expect(state_formats[kind].ancestors.some(id => formats.supported(state_formats.history).includes(id))).toBe(false);
+});
 for (const kind of ["checkpoint", "handoff", "workspaces"] as const)
-  for (const [i, step] of steps[kind].entries())
-    test(`${kind} released step ${i + 1} retains golden output`, () => {
-      const base = new URL(`../fixtures/steps/${kind}-${i + 1}`, import.meta.url);
+  for (const version of Object.keys(legacy[kind])
+    .map(Number)
+    .filter(version => version > 1))
+    test(`${kind} released revision ${version} retains golden output`, () => {
+      const base = new URL(`../fixtures/steps/${kind}-${version - 1}`, import.meta.url);
       const input = json.parse(readFileSync(`${base.pathname}.in.json`, "utf8"));
       const output = json.parse(readFileSync(`${base.pathname}.out.json`, "utf8"));
-      step(input);
-      expect(input).toEqual(output);
+      expect(released(kind, version - 1).up(input)).toEqual(output);
     });
 test("versions are checked before current enum decoding", () => {
   expect(() => decode("checkpoint", "{}")).toThrow("MissingStateVersion");
@@ -92,7 +125,7 @@ test("provider migrations are scoped and accept both V2 representations", () => 
       payload: { provider: "other" },
     }),
   );
-  steps.checkpoint[1](result);
+  released("checkpoint", 2).up(result);
   expect(result.panes[0].binding.provisional.provider).toBe("codex");
   expect(result.panes[0].resume_hint.provider).toBe(null);
   expect(result.sessions[0].resume_hint.provider).toBe(null);
@@ -120,7 +153,7 @@ test("promotion moves agents as JSON and never shares them", () => {
     conversations: [],
     panes: [{ agent: { provider: "claude", session: "", session_len: 0, later: 2 } }],
   };
-  steps.checkpoint[1](value);
+  released("checkpoint", 2).up(value);
   value.panes[0].agent.later = 9;
   expect((value.panes[0] as any).binding.provisional.later).toBe(2);
   expect(() =>
@@ -128,9 +161,9 @@ test("promotion moves agents as JSON and never shares them", () => {
   ).toThrow("InvalidCheckpoint");
 });
 test("historical fixed text cuts byte length and rejects malformed buffers", () => {
-  expect(steps.fixedText("Idleing tests\0", 4)).toBe("Idle");
-  expect(steps.fixedText([115, 49, 255, 0], 2)).toBe("s1");
-  expect(steps.fixedText("a\0b\0", 3)).toBe("a\0b");
+  expect(values.fixedText("Idleing tests\0", 4)).toBe("Idle");
+  expect(values.fixedText([115, 49, 255, 0], 2)).toBe("s1");
+  expect(values.fixedText("a\0b\0", 3)).toBe("a\0b");
   for (const [bytes, len] of [
     ["ab", 3],
     [[97, 98], 3],
@@ -138,18 +171,18 @@ test("historical fixed text cuts byte length and rejects malformed buffers", () 
     [[97, 256], 1],
     [null, 0],
   ] as any[])
-    expect(() => steps.fixedText(bytes, len)).toThrow("InvalidCheckpoint");
+    expect(() => values.fixedText(bytes, len)).toThrow("InvalidCheckpoint");
   for (const value of [{ agent_yolo: [true, false, true] }, { agent_yolo: [1, 0] }])
-    expect(() => steps.checkpoint[3](value)).toThrow("InvalidCheckpoint");
+    expect(() => released("checkpoint", 4).up(value)).toThrow("InvalidCheckpoint");
 });
-test("migration steps import only std", () => {
-  const source = readFileSync(new URL("./steps.ts", import.meta.url), "utf8");
+test("revision value helpers have no application dependencies", () => {
+  const source = readFileSync(new URL("./revision_values.ts", import.meta.url), "utf8");
   expect(source).not.toMatch(/(?:from|import\s*\()\s*["']\./);
 });
 /** A handoff migrated to format 6, the last that hands over clients. */
 function clientsOf(value: any) {
-  for (let i = value.version - 1; i < 5; i++) steps.handoff[i](value);
-  return value.clients;
+  const history = new formats.History(legacy.handoff[6], state_formats.revisions);
+  return (history.up(value, legacy.handoff[value.version]) as any).clients;
 }
 test("handoff keeps only the metered fact from launcher usage text", () => {
   const clients = clientsOf({
@@ -204,16 +237,6 @@ test("handoff spend cells from before running totals are cleared", () => {
   const current = decode("handoff", JSON.stringify(handoff(cells))).value;
   expect(current.version).toBe(handoff_version);
   expect(current).not.toHaveProperty("clients");
-});
-test("each released step still produces its golden output", () => {
-  for (const kind of ["checkpoint", "handoff", "workspaces"] as const)
-    for (const [i, step] of steps[kind].entries()) {
-      const base = new URL(`../fixtures/steps/${kind}-${i + 1}`, import.meta.url).pathname,
-        input = json.parse(readFileSync(base + ".in.json", "utf8")),
-        output = json.parse(readFileSync(base + ".out.json", "utf8"));
-      step(input);
-      expect(input).toEqual(output);
-    }
 });
 test("an empty workspace name takes its folder's on every decode, at the same version", () => {
   const workspaces = [

@@ -19,15 +19,15 @@ corgi list --all-machines
 ```
 
 `machine add` checks the host through OpenSSH, starts Corgi if it is not running,
-and verifies protocol compatibility before saving the profile. It upgrades the
-older installation to the newer build, preserving the canonical Corgi executable
-and using live daemon handoff to keep shells running. When Corgi is missing,
-setup installs it at `~/.local/bin/corgi`. `--executable` selects a different
-existing installation. Incompatible handoffs and divergent development builds
-stop with an explicit error instead of restarting sessions. When the remote has
-the newer development build, setup asks before installing it on this computer;
-releases are checked against their publisher and need no answer. See HACKING.md for
-cross-platform development artifacts and release verification.
+and verifies protocol compatibility before saving the profile. Add/check select
+the invoking Corgi build on the remote, including downgrades and development
+branch switches. The canonical executable stays in place and live handoff keeps
+terminal shells and agents running. Incompatible auxiliary state may reset.
+When Corgi is missing, setup installs it at `~/.local/bin/corgi`.
+`--executable` selects a different existing installation. Releases are checked
+against their publisher; development artifacts must match the local source.
+See HACKING.md for the handoff baseline, headless-client limitations and
+cross-platform development artifacts. Background reconnects never change builds.
 
 With saved profiles, `corgi` starts locally and connects to the other machines
 independently in the background. The sidebar shows **all workspaces**, with a

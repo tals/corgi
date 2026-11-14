@@ -791,12 +791,14 @@ test("a handoff carries links and its requester, never connections", () => {
 test("a format-6 rollback gets a listener and its requester as a client, without links", () => {
   const { server, dispose } = fixture();
   server.links.set("kept", new link.Link("kept"));
+  server.runtime.panes.push(new Pane(1, Terminal.create(20, 4), "/tmp"));
   try {
     const saved = handoff.captureManifest(server, 12, null, -1, true),
       before = json.stringify(saved);
     expect(saved.older_updater).toBe(true);
     const older = handoffRollback.downgrade(saved, 9);
     expect([older.version, older.listener, older.requester]).toEqual([6, 9, 12]);
+    expect(json.clone(older.runtime)).toEqual(json.clone(saved.runtime));
     expect(older.clients.map(client => [client.fd, client.viewer])).toEqual([[12, false]]);
     expect(older).not.toHaveProperty("links");
     expect(older).not.toHaveProperty("instance");

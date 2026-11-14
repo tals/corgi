@@ -15,6 +15,7 @@ import * as updates from "./updates";
 import * as build from "./machine_build";
 import * as rpc_http from "./rpc_http";
 import * as os from "./os";
+import * as transfer from "./persist/transfer";
 
 async function hello(daemon: rpc_http.Client) {
   try {
@@ -56,7 +57,8 @@ export async function install(
       if (manifest) copyFileSync(manifest, join(directory, "manifest.json"));
       const daemon = new rpc_http.Client(os.socketPath());
       const live = await hello(daemon);
-      if (live && live.update_abi !== incoming.update_abi) throw Error("UpdateRequiresSessionRestart");
+      if (live && !transfer.compatible(live) && live.update_abi !== incoming.update_abi)
+        throw Error("UpdateRequiresSessionRestart");
       if (await updates.check(daemon, target, live)) throw Error("UpdateCheckFailed");
       if (live) {
         try {
@@ -91,7 +93,8 @@ export async function install(
     if (present && build.describe(canonical).build_id !== expected) throw Error("InstallationChanged");
     const daemon = new rpc_http.Client(os.socketPath());
     const live = await hello(daemon);
-    if (live && live.update_abi !== incoming.update_abi) throw Error("UpdateRequiresSessionRestart");
+    if (live && !transfer.compatible(live) && live.update_abi !== incoming.update_abi)
+      throw Error("UpdateRequiresSessionRestart");
     const failure = await updates.check(daemon, candidate, live);
     if (failure) throw Error("UpdateCheckFailed");
     copyFileSync(candidate, stage);

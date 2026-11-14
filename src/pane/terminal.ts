@@ -394,6 +394,9 @@ export class Terminal extends EventEmitter {
   dropPending(): void {
     this.native({ op: "takePending" });
   }
+  pendingInput(): string {
+    return this.native({ op: "pending" });
+  }
   restore(bytes: Uint8Array, title_pid = 0): void {
     this.native({ op: "restore", text: Buffer.from(bytes).toString(), title_pid });
   }

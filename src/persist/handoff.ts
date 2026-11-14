@@ -22,6 +22,9 @@ import * as breadcrumbs from "../breadcrumbs";
 import * as observers from "../observer_service";
 import * as link from "../link";
 import * as start_lock from "../start_lock";
+import * as transferState from "./transfer";
+import * as formats from "./formats";
+import * as state_formats from "./state_formats";
 
 export const terminal_abi = 0xa826bd22ebcdbe60n;
 export const update_abi = `1-${terminal_abi.toString(16)}`;
@@ -135,8 +138,12 @@ export async function replace(
   request_id: number | null = null,
   /** XXX: Remove for next protocol bump. A retry for a format-6 candidate. */
   legacy = false,
+  coreOnly = false,
 ): Promise<void> {
   if (!isAbsolute(executable)) throw Error("InvalidExecutable");
+  const candidateInfo = legacy ? null : await transferState.discover(executable),
+    readable = coreOnly ? [formats.baseline] : candidateInfo?.formats,
+    retryCore = readable && formats.select(state_formats.history, readable) !== formats.baseline;
   // XXX: Remove for next protocol bump. A daemon still answering an older
   // build's listener finishes that first, unless that build asked: then a
   // reload that doesn't happen leaves it answering.
@@ -145,7 +152,7 @@ export async function replace(
   // one if the reload doesn't happen.
   server.hold();
   try {
-    await prepare(server);
+    await prepare(server, candidateInfo !== null);
   } catch (error) {
     server.release();
     throw error;
@@ -175,14 +182,23 @@ export async function replace(
     // Clients that find no daemon while it's held wait; this process and the
     // candidate hold it until the candidate listens and this one is gone.
     lock = (await start_lock.take(server.socket)) ?? -1;
-    const captured = captureManifest(server, relayFD, request_id, lock, server.older(requester));
+    const captured = captureManifest(server, relayFD, request_id, lock, server.older(requester)),
+      exported = candidateInfo ? captured : transferState.downgrade(server.runtime, captured);
     if (listening) {
       rmSync(listening, { force: true });
       listener = os.listen(listening);
     }
-    const manifest = listening ? handoff_rollback.downgrade(captured, listener) : captured;
+    const manifest = listening ? handoff_rollback.downgrade(exported, listener) : exported;
     const transfer = descriptors(manifest),
-      bytes = Buffer.from(json.stringify(transfer.state));
+      negotiated = candidateInfo
+        ? transferState.encode(
+            server.runtime,
+            transfer.state,
+            readable!,
+            transfer.fds.map((_, i) => inherited_start + i),
+          )
+        : null,
+      bytes = Buffer.from(json.stringify(negotiated ?? transfer.state));
     if (bytes.length > 256 * 1024 * 1024) throw Error("CheckpointTooLarge");
     const filename = `${server.socket}.handoff-${process.pid}-${crypto.randomUUID()}`;
     stateFD = openSync(filename, "wx+", 0o600);
@@ -233,7 +249,19 @@ export async function replace(
       }),
     ]);
     clearTimeout(timeout);
-    if (ready !== "ready") {
+    let retainsSummaries = true;
+    let prepared = ready === "ready" && !negotiated;
+    if (negotiated && ready.startsWith("{")) {
+      const receipt = json.object(json.parse(ready));
+      prepared = receipt.ready === true && typeof receipt.summaries === "boolean" && Array.isArray(receipt.sessions);
+      if (prepared) {
+        // Headless clients remain outside the terminal core guarantee.
+        if (server.runtime.sessions.some(session => !session.exited && !receipt.sessions.includes(session.id)))
+          throw Error("UnsupportedHeadlessHandoff");
+        retainsSummaries = receipt.summaries;
+      }
+    }
+    if (!prepared) {
       if (
         ["MissingStateVersion", "InvalidStateVersion", "UnsupportedStateVersion", "InvalidCheckpoint"].includes(ready)
       )
@@ -245,6 +273,7 @@ export async function replace(
     committed = true;
     // Closing a connection must not end what its client started: the candidate runs it now.
     server.handed_off = true;
+    if (!retainsSummaries) await server.summaries?.stop();
     if (listening) renameSync(listening, server.socket);
     // The candidate answers once it listens on the socket.
     let answer: unknown;
@@ -268,7 +297,7 @@ export async function replace(
     if (committed) process.exit(0);
     candidate?.kill("SIGKILL");
     if (candidate) await candidate.exited;
-    if (legacy || !handoff_rollback.supported(error)) throw error;
+    if (!retryCore && (legacy || candidateInfo || !handoff_rollback.supported(error))) throw error;
   } finally {
     clearTimeout(timeout);
     loop?.close();
@@ -280,14 +309,20 @@ export async function replace(
       observers.unpause(server);
     }
   }
+  // Auxiliary state must not prevent a terminal-only handoff.
+  if (retryCore) return replace(server, requester, executable, request_id, false, true);
   // XXX: Remove for next protocol bump. A candidate that reads no newer than format 6.
   return replace(server, requester, executable, request_id, true);
 }
 /** Saves and settles what a reload hands over: workspaces, recovery, input
  * panes haven't read yet, and the observers. */
-async function prepare(server: Server): Promise<void> {
+async function prepare(server: Server, preservesInput: boolean): Promise<void> {
   await server.flushWorkspaceWrites();
   await recovery.save(server.runtime, server.socket);
+  if (preservesInput) {
+    await observers.pause(server);
+    return;
+  }
   const deadline = Date.now() + 1500;
   for (;;) {
     let pending = false;
@@ -388,15 +423,21 @@ export async function importAndRun(
       delete process.env.CORGI_HANDOFF_RESERVED_FDS;
     }
     if (Buffer.byteLength(bytes) > 256 * 1024 * 1024) throw Error("CheckpointTooLarge");
-    const { value: m } = migrations.decode("handoff", bytes);
+    const encoded = json.object(json.parse(bytes)),
+      negotiated = encoded.transfer !== undefined,
+      m: Record<string, any> = negotiated
+        ? transferState.decode(encoded)
+        : transferState.upgrade(migrations.decode("handoff", bytes).value);
     if (
-      (m.update_abi !== null && m.update_abi !== undefined && m.update_abi !== update_abi) ||
-      BigInt(m.terminal_abi) !== terminal_abi
+      !negotiated &&
+      ((m.update_abi !== null && m.update_abi !== undefined && m.update_abi !== update_abi) ||
+        BigInt(m.terminal_abi) !== terminal_abi)
     )
       throw Error("IncompatibleCheckpoint");
     server = new Server(socket, executable, build_id.of(executable));
     server.imported = true;
     restoreMetadata(server, m);
+    for (const fd of m.transferred_handles ?? []) fdNative.fd_cloexec(fd);
     for (const fd of [m.requester, m.start_lock ?? -1, ...retiredFds(m)]) if (fd >= 0) fdNative.fd_cloexec(fd);
     server.start_lock = m.start_lock ?? -1;
     // XXX: Remove for next protocol bump. An older build that asked for this
@@ -419,13 +460,33 @@ export async function importAndRun(
       server.summaries.link_names = !setup.off(setup.path(server.socket));
     }
     if (m.usage) server.usage = UsageWorker.restore(m.usage);
+    if (negotiated) {
+      const retained = new Set<number>([
+        m.requester,
+        m.start_lock,
+        ...m.runtime.panes.map((p: any) => p.screen.fd),
+        ...m.runtime.sessions.flatMap((s: any) => s.client.handles),
+        ...(m.summaries?.pool?.slots ?? []).flatMap((s: any) => s?.client?.handles ?? []),
+      ]);
+      for (const fd of m.transferred_handles) if (!retained.has(fd)) n.probe_close(fd);
+    }
     for (const pane of server.runtime.panes) if (pane.terminal.fd >= 0) fdNative.fd_cloexec(pane.terminal.fd);
     // The requester hears back once this daemon answers on the socket.
     const restored = server;
     server.listened = () => answer(m, restored.runtime.panes.length);
     // A socket this daemon can't bind stops the reload while the old one can carry on.
     server.bind();
-    await control.write(Buffer.from("ready\n"));
+    await control.write(
+      Buffer.from(
+        negotiated
+          ? json.stringify({
+              ready: true,
+              summaries: server.summaries !== null,
+              sessions: server.runtime.sessions.map(session => session.id),
+            }) + "\n"
+          : "ready\n",
+      ),
+    );
     if ((await line(control, 32)) !== "commit") throw Error("ReloadNotCommitted");
     control.close();
     loop.close();

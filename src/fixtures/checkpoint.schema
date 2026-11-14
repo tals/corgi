@@ -314,6 +314,7 @@ $.panes[].screen.exit_status: i32
 $.panes[].screen.runs_command: bool
 $.panes[].screen.initial_input: optional
 $.panes[].screen.initial_input?: string
+$.panes[].screen.pending: string
 $.panes[].detection.claim: optional
 $.panes[].detection.claim?.provider: provider
 $.panes[].detection.claim?.owner: i32
@@ -367,6 +368,7 @@ $.closed[].screen.exit_status: i32
 $.closed[].screen.runs_command: bool
 $.closed[].screen.initial_input: optional
 $.closed[].screen.initial_input?: string
+$.closed[].screen.pending: string
 $.closed[].tab.id: u32
 $.closed[].tab.root: u32
 $.closed[].tab.title: custom bounded_text.BoundedText(80)

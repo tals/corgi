@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, existsSync, readFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
@@ -79,28 +79,6 @@ function remote(host: string, script: string, input?: Blob, fresh = false, limit
 function lastJSON(output: string): unknown {
   return JSON.parse(output.trim().split("\n").at(-1) ?? "");
 }
-/** A yes at the terminal; without one, no. */
-async function confirm(question: string): Promise<boolean> {
-  if (!process.stdin.isTTY) return false;
-  // Typed before the question, as for SSH's own just before, it isn't the answer.
-  const early = () => {};
-  process.stdin.on("data", early);
-  process.stdin.resume();
-  await Bun.sleep(50);
-  process.stdin.off("data", early);
-  process.stderr.write(`${question} [y/N] `);
-  const answer = await new Promise<string>(resolve => process.stdin.once("data", data => resolve(String(data))));
-  process.stdin.pause();
-  return /^y(es)?$/i.test(answer.trim());
-}
-async function ancestor(older: string, newer: string): Promise<boolean> {
-  const child = Bun.spawn(["git", "merge-base", "--is-ancestor", older, newer], {
-    stdin: "ignore",
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  return (await child.exited) === 0;
-}
 function platform(target: build.Target): updates.Platform {
   switch (target) {
     case "darwin-arm64":
@@ -147,7 +125,7 @@ async function artifact(local: build.Build, wanted: build.Build, directory: stri
   return file;
 }
 /** Setup owns upgrades; the viewer's reconnect loop never waits for installation. */
-export async function reconcile(host: string, requested: string, retryArgs: string[], socket = ""): Promise<string> {
+export async function reconcile(host: string, requested: string, _retryArgs: string[], socket = ""): Promise<string> {
   // A source run has no commit or artifact to compare or install.
   if (!import.meta.filename.startsWith("/$bunfs/")) throw Error("BuildCorgiBeforeMachineSetup");
   const local = build.describe(buildId.self());
@@ -196,70 +174,13 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
     executable = installed.executable;
     if (!installed.socket && socket) installed.socket = socket;
   }
-  const order = installed ? await build.compare(local, installed, ancestor) : 1;
-  if (!order) {
+  if (installed && build.matches(local, installed)) {
     process.stderr.write(`Corgi builds match on ${host}.\n`);
     return lines[3] || executable;
   }
   const directory = mkdtempSync(join(tmpdir(), "corgi-setup-"));
   try {
-    if (order < 0) {
-      process.stderr.write(`Remote Corgi ${installed!.version} is newer; upgrading this installation first…\n`);
-      let file: string;
-      if (!build.released(installed!.version) && installed!.target === local.target && installed!.build_id) {
-        // Its build runs here as this user, and only releases are checked
-        // against their publisher: the user decides whether to trust it.
-        // Both come from the remote: only plain version and build names show.
-        const plain = (text: string) => (/^[\w.+-]{1,64}$/.test(text) ? text : "(unnamed)"),
-          version = plain(installed!.version),
-          id = plain(installed!.build_id.slice(0, 12));
-        if (!(await confirm(`Install the development build ${version} (${id}) from ${host} on this computer?`)))
-          throw Error("RemoteBuildDeclined");
-        file = join(directory, "corgi");
-        const child = Bun.spawn(["ssh", ...ssh.args(host, true, true), "cat " + quote(installed!.executable)], {
-          stdin: "ignore",
-          stdout: "pipe",
-          stderr: "inherit",
-        });
-        const writer = Bun.file(file).writer(),
-          timer = deadline(child, { idle: stalled_ms });
-        let size = 0;
-        try {
-          for await (const chunk of child.stdout) {
-            timer.moved();
-            size += chunk.length;
-            if (size > 256 * 1024 * 1024) throw Error("ArtifactTooLarge");
-            writer.write(chunk);
-          }
-          await writer.end();
-          if (await child.exited) throw Error(timer.expired ? "MachineSetupTimedOut" : "ArtifactDownloadFailed");
-        } finally {
-          timer.clear();
-          child.kill();
-          await writer.end();
-        }
-        if (createHash("sha256").update(readFileSync(file)).digest("hex") !== installed!.build_id)
-          throw Error("ArtifactHashMismatch");
-        chmodSync(file, 0o700);
-      } else file = await artifact(local, { ...installed!, target: local.target }, directory);
-      const result = lastJSON(
-        await run(
-          [
-            file,
-            "__machine-install",
-            local.executable,
-            local.build_id,
-            existsSync(join(directory, "manifest.json")) ? join(directory, "manifest.json") : "",
-          ],
-          undefined,
-          { total: install_ms },
-        ),
-      ) as { executable: string };
-      rmSync(directory, { recursive: true, force: true });
-      process.execve!(result.executable, [result.executable, "machine", ...retryArgs], process.env);
-      throw Error("LocalUpgradeExecFailed");
-    }
-    process.stderr.write(`${installed ? "Upgrading" : "Installing"} Corgi ${local.version} on ${host}…\n`);
+    process.stderr.write(`${installed ? "Switching to" : "Installing"} Corgi ${local.version} on ${host}…\n`);
     const file = await artifact(local, { ...local, target }, directory);
     const hash = createHash("sha256").update(readFileSync(file)).digest("hex");
     let expected = installed?.build_id ?? "";

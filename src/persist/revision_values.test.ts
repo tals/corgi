@@ -1,6 +1,8 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
-import { checkpoint, handoff, fixedText } from "./steps";
+import * as checkpoint_text from "./revisions/r_d58e69e6af6c_replace_fixed_byte_strings_and_index_providers_b";
+import * as handoff_text from "./revisions/r_35327c122041_normalize_handoff_strings_and_provider_maps";
+import * as values from "./revision_values";
 test("checkpoint 4 to 5 writes text alone and names providers", () => {
   const value: Record<string, unknown> = {
     version: 4,
@@ -106,7 +108,7 @@ test("checkpoint 4 to 5 writes text alone and names providers", () => {
       },
     ],
   };
-  checkpoint[3](value);
+  checkpoint_text.revision.up(value);
   expect(value).toEqual({
     version: 4,
     conversations: [
@@ -283,7 +285,7 @@ test("handoff 3 to 4 writes summary and launcher text alone and names providers"
       { fd: 5 },
     ],
   };
-  handoff[2](value);
+  handoff_text.revision.up(value);
   expect(value).toEqual({
     version: 3,
     runtime: {
@@ -376,12 +378,12 @@ test("handoff 3 to 4 writes summary and launcher text alone and names providers"
   });
 });
 test("fixed text is cut at its saved length, never at a NUL", () => {
-  expect(fixedText("Idleing tests\0\0", 4)).toBe("Idle");
-  expect(fixedText([115, 49, 255, 0], 2)).toBe("s1");
-  expect(fixedText("t1\0")).toBe("");
-  expect(fixedText("a\0b\0", 3)).toBe("a\0b");
-  expect(fixedText(undefined, 0)).toBe("");
-  expect((fixedText([104, 105, 255, 0], 3) as { bytes: Buffer }).bytes).toEqual(Buffer.from([104, 105, 255]));
+  expect(values.fixedText("Idleing tests\0\0", 4)).toBe("Idle");
+  expect(values.fixedText([115, 49, 255, 0], 2)).toBe("s1");
+  expect(values.fixedText("t1\0")).toBe("");
+  expect(values.fixedText("a\0b\0", 3)).toBe("a\0b");
+  expect(values.fixedText(undefined, 0)).toBe("");
+  expect((values.fixedText([104, 105, 255, 0], 3) as { bytes: Buffer }).bytes).toEqual(Buffer.from([104, 105, 255]));
   for (const [bytes, len] of [
     ["ab", 3],
     [[97, 98], 3],
@@ -389,13 +391,13 @@ test("fixed text is cut at its saved length, never at a NUL", () => {
     [[97, 256], 1],
     [null, 0],
   ] as any[])
-    expect(() => fixedText(bytes, len)).toThrow("InvalidCheckpoint");
+    expect(() => values.fixedText(bytes, len)).toThrow("InvalidCheckpoint");
   for (const label of [{ bytes: "ab", len: 3 }, { len: 1 }, "ab"])
-    expect(() => checkpoint[3]({ panes: [{ label }] })).toThrow("InvalidCheckpoint");
+    expect(() => checkpoint_text.revision.up({ panes: [{ label }] })).toThrow("InvalidCheckpoint");
 });
 test("provider arrays hold at most one bool per historical provider", () => {
   const value: any = { version: 4, agent_yolo: [true], agent_hidden: [] };
-  checkpoint[3](value);
+  checkpoint_text.revision.up(value);
   expect(value).toEqual({
     version: 4,
     agent_yolo: { codex: true },
@@ -407,11 +409,11 @@ test("provider arrays hold at most one bool per historical provider", () => {
     { agent_yolo: null },
     { agent_hidden: { codex: true } },
   ])
-    expect(() => checkpoint[3](value)).toThrow("InvalidCheckpoint");
+    expect(() => checkpoint_text.revision.up(value)).toThrow("InvalidCheckpoint");
 });
 test("the V4 fixture migrates to text without padding", () => {
   const value = JSON.parse(readFileSync(new URL("../fixtures/checkpoint-v4.json", import.meta.url), "utf8"));
-  checkpoint[3](value);
+  checkpoint_text.revision.up(value);
   expect(JSON.stringify(value)).not.toContain("\\u0000");
   const check = (v: any) => {
     if (v && typeof v === "object") {
