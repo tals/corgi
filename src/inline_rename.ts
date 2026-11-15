@@ -118,6 +118,11 @@ export class InlineRename {
     const field = this.field;
     field.position(field.byteAtColumn(NameView.scroll(field, width), Math.max(0, column)));
   }
+  /** A drag, wheel turn or other button came between presses: the next
+   * press starts a new double-click. */
+  interrupt(): void {
+    this.pressed_at = null;
+  }
   /** The text changed: a notice about the last try no longer applies. */
   edited(): void {
     this.message = null;

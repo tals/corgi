@@ -180,3 +180,12 @@ test("typing between two presses ends the double-click", () => {
   expect(open.field.selected).toBe(false);
   expect(open.field.cursor).toBe(5);
 });
+
+test("an interrupted click sequence is no double-click", () => {
+  const open = InlineRename.open({ workspace: 1 }, "Billing team", "");
+  open.press(3, 14, 1000);
+  open.interrupt();
+  open.press(5, 14, 1100);
+  expect(open.field.selected).toBe(false);
+  expect(open.field.cursor).toBe(5);
+});

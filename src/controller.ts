@@ -7912,6 +7912,9 @@ export class Controller {
     } else if (!release && (button & 64) !== 0) this.clicks.reset();
     else if (!release && button === 0) this.clicks.pressed();
     else if (!release && (button & 0xe0) === 0) this.clicks.reset();
+    // The rename field's double-click ends the same way, except that unheld
+    // motion never ends it.
+    if (this.inline_rename && !release && button !== 0 && button !== 35) this.inline_rename.interrupt();
     if (this.signin) {
       if (await this.linkMouse(button, x, y, release)) return;
       this.moveHover(button, x, y, release);
