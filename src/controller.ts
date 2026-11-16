@@ -7148,8 +7148,11 @@ export class Controller {
         }
         const buf = cl.keybuf,
           byte = buf[used];
-        if (byte !== 27) {
-          if (cl.paste !== null) {
+        if (cl.paste !== null) {
+          const head = latin1(buf.slice(used, used + keys.paste_end.length));
+          if (keys.paste_end.startsWith(head)) {
+            if (head.length < keys.paste_end.length) break;
+          } else {
             let end = used + 1;
             while (end < buf.length && buf[end] !== 27) end++;
             this.closePasteCard();
@@ -7159,6 +7162,8 @@ export class Controller {
             used = end;
             continue;
           }
+        }
+        if (byte !== 27) {
           if (byte >= 128) {
             const decoded = keyboard.textKey(buf.slice(used, used + 4));
             if (decoded.length === 0) break;
@@ -7214,6 +7219,11 @@ export class Controller {
           this.link_tooltip.cancel();
           this.dirty = true;
           break;
+        }
+        if (buf[used + 1] === 27) {
+          await this.key(27);
+          used += 1;
+          continue;
         }
         if (
           cl.paste === null &&

@@ -91,6 +91,53 @@ function folder() {
 }
 const b64 = (text: string | Buffer) => Buffer.from(text).toString("base64");
 
+test("Escape before a fragmented paste cannot submit the standalone prompt", async () => {
+  const payload = "first\rsecond\x1b",
+    data = bytes(`\x1b\x1b[200~${payload}\x1b[201~`);
+  for (let split = 0; split <= data.length; split++) {
+    const prompt = new Prompt({
+      mode: "pane",
+      memory_root: folder(),
+      daemon: { call: async () => ({ ok: true }), start: async () => ({ provider: "claude", session: "fake" }) },
+    });
+    prompt.catalog(
+      [
+        {
+          provider: "claude",
+          account: "",
+          account_name: "",
+          model: "fake",
+          name: "Fake",
+          efforts: [],
+          default_effort: null,
+        },
+      ],
+      [{ provider: "claude", account: "", model: "fake", name: "Fake", effort: null }],
+      [],
+    );
+    prompt.show({ cwd: "", workspace: "", workspace_id: null, branch: "", focus: null, herd: [], mentions: [] });
+    try {
+      const first = tokens(data.subarray(0, split)),
+        second = tokens([...first.rest, ...data.subarray(split)]),
+        input = [...first.tokens, ...second.tokens];
+      for (const token of input.flatMap(legacy)) {
+        if (token.kind === "paste") prompt.paste(token.text);
+        else if (token.kind === "byte") prompt.key(token.byte);
+        else if (token.kind === "sequence") prompt.sequence(token.text);
+      }
+      expect(prompt.conversation.items.filter(item => item.kind === "user")).toEqual([]);
+      expect(prompt.textField()?.text).toBe("first\nsecond");
+      expect(input).toEqual([
+        { kind: "byte", byte: 27 },
+        { kind: "paste", text: payload },
+      ]);
+      expect(second.rest).toEqual([]);
+    } finally {
+      await prompt.conversation.stop();
+    }
+  }
+});
+
 test("a pane loads workspace models and refreshes when accounts change", async () => {
   const preview = agentLauncher.preview({ installed: byProvider(() => false) }),
     context = {

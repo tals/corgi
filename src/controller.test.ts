@@ -41,6 +41,8 @@ import * as sidebar from "./sidebar";
 import * as render from "./render";
 import * as modelPicker from "./model_picker";
 import * as subprocess from "./subprocess";
+import * as machine_input from "./machine_input";
+import * as terminal_info from "./terminal_info";
 
 /** A controller with no daemon: these tests send no requests. */
 function controller(): any {
@@ -717,6 +719,34 @@ test.each([false, true])("large pane pastes arrive in chunks (bracketed: %s)", a
   }
 });
 
+test.each([false, true])("pasted escapes stay literal through the input pipeline (pipeline: %s)", async pipeline => {
+  const payload = "first\rsecond\x1d\x1b[200~\x1b[20\x1b[0n\x1b",
+    data = bytes(`\x1b\x1b[200~${payload}\x1b[201~z`);
+  for (let split = 0; split <= data.length; split++) {
+    const s = controller(),
+      probe = new terminal_info.Probe(),
+      parser = new machine_input.Parser();
+    s.receiveSnapshot(folders("/a"));
+    s.input_state.attached = true;
+    const term = s.focused().terminal;
+    term.inner.feed("\x1b[?2004h");
+    try {
+      for (const chunk of [data.subarray(0, split), data.subarray(split)]) {
+        if (pipeline) {
+          for (const input of parser.feed(probe.feed(chunk))) await s.input(input.bytes);
+        } else await s.input(chunk);
+      }
+      expect(Buffer.from(term.pending)).toEqual(Buffer.from(data));
+      expect(s.input_state.paste).toBeNull();
+      expect(s.input_state.keybuf).toEqual([]);
+      expect(s.prefix).toBe(false);
+      expect(probe.paste).toBe(false);
+    } finally {
+      viewer.close(s);
+    }
+  }
+});
+
 test("paste markers and UTF-8 survive every read boundary", async () => {
   const data = bytes("x\x1b[200~hé🐶\r\nok\x1b[201~y");
   for (let split = 1; split < data.length; split++) {
@@ -737,13 +767,13 @@ test("paste markers and UTF-8 survive every read boundary", async () => {
   }
 });
 
-test("a paste terminator waits across delayed reads", async () => {
+test.each(["", "\x1b"])("a paste terminator waits across delayed reads after %j", async tail => {
   const s = controller();
   s.input_state.attached = true;
   s.name_dialog = Dialog.init({ rename: 1 }, "");
   try {
     setSystemTime(new Date(1000));
-    await s.input(bytes("\x1b[200~a"));
+    await s.input(bytes("\x1b[200~a" + tail));
     for (const byte of bytes("\x1b[201~")) {
       await s.input(Uint8Array.of(byte));
       setSystemTime(new Date(Date.now() + 2000));

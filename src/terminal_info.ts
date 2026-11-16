@@ -164,6 +164,18 @@ export class Probe {
     return Buffer.from(out);
   }
   private scan(byte: number, out: number[], now: number) {
+    if (this.paste) {
+      // Only the exact terminator has meaning inside a paste.
+      if (!paste_end.startsWith(this.pending + String.fromCharCode(byte))) this.flush(out);
+      if (this.pending || byte === 27) {
+        this.pending += String.fromCharCode(byte);
+        if (this.pending === paste_end) {
+          this.paste = false;
+          this.flush(out);
+        }
+      } else out.push(byte);
+      return;
+    }
     // A typed Escape must not consume the Escape starting a terminal reply.
     if (!this.paste && this.pending === "\x1b" && byte === 27) this.flush(out);
     if (!this.pending && byte !== 27) {
@@ -271,7 +283,7 @@ export class Probe {
       this.info.status = "done";
       this.late_until = now + late_ms;
     }
-    if (this.pending && now - this.touched >= 100) this.flush(out);
+    if (!this.paste && this.pending && now - this.touched >= 100) this.flush(out);
     if (this.in_packet && now - this.touched >= 10_000) {
       this.in_packet = false;
       this.packet_escape = false;

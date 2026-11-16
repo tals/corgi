@@ -53,6 +53,10 @@ export function tokens(input: ArrayLike<number>): { tokens: Token[]; rest: numbe
     // A lone Esc waits: it may start a sequence.
     if (i + 1 >= bytes.length) break;
     const next = bytes[i + 1];
+    if (next === 0x1b) {
+      out.push({ kind: "byte", byte: bytes[i++] });
+      continue;
+    }
     const head = latin1(bytes.slice(i, i + clipboard_prefix.length));
     if (head === clipboard_prefix) {
       // A clipboard packet ends at ST or BEL.
