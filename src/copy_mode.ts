@@ -18,7 +18,7 @@ type Motion =
   | "half_up"
   | "half_down";
 export type Command = Motion | "select" | "lines" | "swap" | "copy" | "cancel";
-type Navigation = Exclude<Command, "copy" | "cancel">;
+type Navigation = Exclude<Command, "copy" | "cancel"> | { scroll: number };
 
 export function command(key: number | Key): Command | null {
   switch (key) {
@@ -210,9 +210,18 @@ export class State {
   act(command: Navigation): void {
     this.sync();
     const term = this.terminal;
-    // Replay keys once the requested rows arrive, without skipping selected text.
+    // Replay navigation once the requested rows arrive, without skipping selected text.
     if (this.requested !== null || (term.offset ?? term.bottom) !== term.displayedOffset) {
       this.queued.push(command);
+      return;
+    }
+    if (typeof command === "object") {
+      const top = term.displayedOffset;
+      const delta = Math.max(-this.rows, Math.min(command.scroll, this.rows));
+      const next = Math.max(0, Math.min(top + delta, term.bottom));
+      if (next !== top && delta !== command.scroll) this.queued.unshift({ scroll: command.scroll - delta });
+      this.cursor.y = Math.max(next, Math.min(this.cursor.y, next + this.rows - 1));
+      this.reveal(next);
       return;
     }
     switch (command) {
@@ -266,13 +275,14 @@ export class State {
     }
     this.reveal();
   }
-  private reveal(): void {
+  private reveal(viewport?: number): void {
     const term = this.terminal;
     this.cursor.y = Math.max(0, Math.min(this.cursor.y, term.bottom + this.rows - 1));
     this.cursor.x = this.column(this.cursor.x);
     const top = term.displayedOffset;
     let next =
-      this.cursor.y < top ? this.cursor.y : this.cursor.y >= top + this.rows ? this.cursor.y - this.rows + 1 : top;
+      viewport ??
+      (this.cursor.y < top ? this.cursor.y : this.cursor.y >= top + this.rows ? this.cursor.y - this.rows + 1 : top);
     // Visit intervening rows so a selection spanning scrollback is complete.
     if (this.selection) next = Math.max(top - this.rows, Math.min(next, top + this.rows));
     if (next !== top) {
@@ -294,13 +304,11 @@ export class State {
       if (line === undefined) return null;
       const left = y === range.start.y ? range.start.x : 0;
       const right = y === range.end.y ? range.end.x : this.cols - 1;
-      lines.push(
-        cells(line)
-          .filter(cell => cell.x + cell.width > left && cell.x <= right)
-          .map(cell => cell.text)
-          .join("")
-          .trimEnd(),
-      );
+      const selected = cells(line)
+        .filter(cell => cell.x + cell.width > left && cell.x <= right)
+        .map(cell => cell.text)
+        .join("");
+      lines.push(this.selection?.kind === "lines" ? selected.trimEnd() : selected);
     }
     return lines.join("\n") + (this.selection?.kind === "lines" ? "\n" : "");
   }

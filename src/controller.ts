@@ -3876,10 +3876,12 @@ export class Controller {
   private scroll(delta: number): void {
     const p = this.focused();
     if (p) {
-      p.terminal.scrollViewport({ delta });
       this.click_series = null;
       this.clearPicked();
       this.dropGesture();
+      const copy = this.copyState();
+      if (copy) copy.act({ scroll: delta });
+      else p.terminal.scrollViewport({ delta });
       this.dirty = true;
     }
   }

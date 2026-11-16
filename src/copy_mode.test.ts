@@ -50,6 +50,36 @@ test("copy selects inclusive characters forwards and backwards", () => {
   }
 });
 
+test.each([
+  ["hello world", 6, "hello "],
+  ["    value", 4, "    "],
+  ["hello  ", 7, "hello  "],
+  ["界  ", 3, "界  "],
+])("copy preserves selected whitespace in %j", (text, count, expected) => {
+  const f = fixture(text + "\x1b[H");
+  try {
+    f.state.act("select");
+    for (let i = 1; i < count; i++) f.state.act("right");
+    expect(f.state.text()).toBe(expected);
+    f.state.act("swap");
+    expect(f.state.text()).toBe(expected);
+  } finally {
+    f.close();
+  }
+});
+
+test("copy preserves selected whitespace across rows", () => {
+  const f = fixture("ab  \r\n  cd\x1b[1;3H", 4);
+  try {
+    f.state.act("select");
+    f.state.act("down");
+    f.state.act("left");
+    expect(f.state.text()).toBe("  \n  ");
+  } finally {
+    f.close();
+  }
+});
+
 test("copy selects whole lines in reverse and switches selection kind", () => {
   const f = fixture("first\r\nsecond\x1b[2;3H");
   try {
@@ -127,6 +157,34 @@ test("copy fills intervening scrollback for top and bottom jumps", () => {
     f.state.act("bottom");
     for (let i = 0; i < 10 && !f.term.holding_selection; i++) f.arrive();
     expect(f.state.text()).toBe(lines.join("\n") + "\n");
+  } finally {
+    f.close();
+  }
+});
+
+test("copy wheel scrolling moves the viewport and clamps the cursor at its edges", () => {
+  const f = fixture(Array.from({ length: 14 }, (_, i) => `line ${i}`).join("\r\n"));
+  try {
+    f.state.act({ scroll: -3 });
+    f.state.act({ scroll: 3 });
+    expect(f.state.text()).toBeNull();
+    f.arrive();
+    expect(f.term.displayedOffset).toBe(7);
+    expect(f.state.cursor.y).toBe(10);
+    expect(f.state.text()).toBeNull();
+    f.arrive();
+    expect(f.term.displayedOffset).toBe(10);
+    expect(f.state.visibleCursor()?.y).toBe(0);
+    expect(f.state.text()).not.toBeNull();
+    f.state.act({ scroll: 3 });
+    expect(f.term.offset).toBe(10);
+    expect(f.term.holding_selection).toBe(true);
+    f.state.act("top");
+    f.arrive();
+    f.state.act({ scroll: -3 });
+    expect(f.term.offset).toBe(0);
+    expect(f.state.visibleCursor()?.y).toBe(0);
+    expect(f.term.holding_selection).toBe(true);
   } finally {
     f.close();
   }

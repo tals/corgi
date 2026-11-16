@@ -3625,6 +3625,47 @@ test("copy mode waits for scrollback before applying selection keys and copying"
   }
 });
 
+test.each([1, 2, 4])("copy mode queues rapid wheel events in a %i-row viewport", async rows => {
+  for (const direction of ["up", "down"]) {
+    const { s, at, mouse } = clickSeries();
+    const source = new NativeTerminal(80, rows);
+    const term = s.focused()?.terminal;
+    if (!term) throw Error("NoPane");
+    const lines = Array.from({ length: 14 }, (_, i) => `line ${i}`);
+    try {
+      source.feed(lines.join("\r\n"));
+      term.receive(source.surface(1));
+      await s.perform({ name: "copy-mode" });
+      if (direction === "down") {
+        await s.input(bytes("g"));
+        term.receive(source.surface(1, term.offset));
+      }
+      await s.input(bytes("V"));
+      const start = term.displayedOffset;
+      const button = direction === "up" ? 64 : 65;
+      await mouse(button, at.x, at.y);
+      await mouse(button, at.x, at.y);
+      term.receive(source.surface(1, term.offset));
+      await s.input(bytes("y"));
+      expect(s.clipboard).toBeNull();
+      expect(s.copy_mode).toBe(true);
+      for (let i = 0; i < 10 && s.copy_mode; i++) {
+        term.receive(source.surface(1, term.offset));
+        await s.expireInput();
+      }
+      expect(s.clipboard).toBe((direction === "up" ? lines.slice(7) : lines.slice(0, 7)).join("\n") + "\n");
+      expect(term.displayedOffset).toBe(start + (direction === "up" ? -6 : 6));
+      expect(s.copy_mode).toBe(false);
+      expect(term.holding_selection).toBe(false);
+      expect(term.offset).toBeNull();
+      expect(term.pending).toEqual([]);
+    } finally {
+      source.destroy();
+      viewer.close(s);
+    }
+  }
+});
+
 test("changing focus releases the copy-mode viewport", async () => {
   const s: Controller = controller();
   const source = new NativeTerminal(80, 24);
