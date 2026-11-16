@@ -423,6 +423,8 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Builds"]': () => `构建`,
     '["By activity"]': () => `按活动排序`,
     '["COPY"]': () => `复制`,
+    '["COPY  hjkl/arrows move  Space/v select  V lines  y/Enter copy  q exit"]': () =>
+      `复制  hjkl/方向键 移动  Space/v 选择  V 选行  y/Enter 复制  q 退出`,
     '["CORGI"]': () => `CORGI`,
     '["CORGI_LANG overrides this setting when set."]': () => `设置 CORGI_LANG 后，它会覆盖此选项。`,
     '["CORGI_SOCKET selects a runtime. Workspaces group tabs and panes; no worktrees."]': () =>
@@ -905,7 +907,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Running"]': () => `运行中`,
     '["Running a tool"]': () => `正在使用工具`,
     '["Runs: "]': () => `执行：`,
-    '["SCROLL  j/k move  y copy viewport  q exit"]': () => `滚动  j/k 移动  y 复制可见内容  q 退出`,
     '["SCROLL / COPY"]': () => `滚动 / 复制`,
     '["SIDEBAR  ↑↓/j/k move  ↵ open  ","Esc back"]': v0 => `侧栏  ↑↓/j/k 移动  ↵ 打开  ${v0}Esc 返回`,
     '["Sample not available"]': () => `暂无采样数据`,
@@ -1851,6 +1852,8 @@ ${v1} 使用该账号。
     '["Builds"]': () => `ビルド`,
     '["By activity"]': () => `状態別`,
     '["COPY"]': () => `コピー`,
+    '["COPY  hjkl/arrows move  Space/v select  V lines  y/Enter copy  q exit"]': () =>
+      `コピー  hjkl/矢印キー 移動  Space/v 選択  V 行選択  y/Enter コピー  q 終了`,
     '["CORGI"]': () => `CORGI`,
     '["CORGI_LANG overrides this setting when set."]': () => `CORGI_LANGが設定されていれば優先します。`,
     '["CORGI_SOCKET selects a runtime. Workspaces group tabs and panes; no worktrees."]': () =>
@@ -2349,7 +2352,6 @@ ${v1} 使用该账号。
     '["Running"]': () => `実行中`,
     '["Running a tool"]': () => `ツールを実行中`,
     '["Runs: "]': () => `実行内容：`,
-    '["SCROLL  j/k move  y copy viewport  q exit"]': () => `スクロール  j/k 移動  y 表示範囲をコピー  q 終了`,
     '["SCROLL / COPY"]': () => `スクロール / コピー`,
     '["SIDEBAR  ↑↓/j/k move  ↵ open  ","Esc back"]': v0 => `サイドバー  ↑↓/j/k 移動  ↵ 開く  ${v0}Esc 戻る`,
     '["Sample not available"]': () => `測定値を取得できません`,
@@ -3301,6 +3303,8 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Builds"]': () => `빌드`,
     '["By activity"]': () => `활동순`,
     '["COPY"]': () => `복사`,
+    '["COPY  hjkl/arrows move  Space/v select  V lines  y/Enter copy  q exit"]': () =>
+      `복사  hjkl/방향키 이동  Space/v 선택  V 줄 선택  y/Enter 복사  q 종료`,
     '["CORGI"]': () => `CORGI`,
     '["CORGI_LANG overrides this setting when set."]': () => `CORGI_LANG이 설정되어 있으면 이 설정보다 우선합니다.`,
     '["CORGI_SOCKET selects a runtime. Workspaces group tabs and panes; no worktrees."]': () =>
@@ -3794,7 +3798,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Running"]': () => `실행 중`,
     '["Running a tool"]': () => `도구 사용 중`,
     '["Runs: "]': () => `실행: `,
-    '["SCROLL  j/k move  y copy viewport  q exit"]': () => `스크롤  j/k 이동  y 화면 복사  q 종료`,
     '["SCROLL / COPY"]': () => `스크롤 / 복사`,
     '["SIDEBAR  ↑↓/j/k move  ↵ open  ","Esc back"]': v0 => `사이드바  ↑↓/j/k 이동  ↵ 열기  ${v0}Esc 뒤로`,
     '["Sample not available"]': () => `측정값 없음`,
@@ -5129,6 +5132,8 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Builds"]': () => `Сборки`,
     '["By activity"]': () => `По активности`,
     '["COPY"]': () => `КОПИРОВАТЬ`,
+    '["COPY  hjkl/arrows move  Space/v select  V lines  y/Enter copy  q exit"]': () =>
+      `КОПИРОВАНИЕ  hjkl/стрелки движение  Space/v выделить  V строки  y/Enter копировать  q выход`,
     '["CORGI"]': () => `CORGI`,
     '["CORGI_LANG overrides this setting when set."]': () =>
       `Если задан CORGI_LANG, он имеет приоритет над этой настройкой.`,
@@ -5656,7 +5661,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Running"]': () => `Выполняется`,
     '["Running a tool"]': () => `Выполняет инструмент`,
     '["Runs: "]': () => `Запуск: `,
-    '["SCROLL  j/k move  y copy viewport  q exit"]': () => `ПРОКРУТКА  j/k движение  y копировать экран  q выход`,
     '["SCROLL / COPY"]': () => `ПРОКРУТКА / КОПИЯ`,
     '["SIDEBAR  ↑↓/j/k move  ↵ open  ","Esc back"]': v0 => `БОКОВАЯ ПАНЕЛЬ  ↑↓/j/k движение  ↵ открыть  ${v0}Esc назад`,
     '["Sample not available"]': () => `Данные недоступны`,

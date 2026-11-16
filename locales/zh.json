@@ -850,7 +850,7 @@
   "Running": "运行中",
   "Running a tool": "正在使用工具",
   "Runs: ": "执行：",
-  "SCROLL  j/k move  y copy viewport  q exit": "滚动  j/k 移动  y 复制可见内容  q 退出",
+  "COPY  hjkl/arrows move  Space/v select  V lines  y/Enter copy  q exit": "复制  hjkl/方向键 移动  Space/v 选择  V 选行  y/Enter 复制  q 退出",
   "SCROLL / COPY": "滚动 / 复制",
   "SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back": "侧栏  ↑↓/j/k 移动  ↵ 打开  ${search}Esc 返回",
   "Sample not available": "暂无采样数据",

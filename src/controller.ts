@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as keys from "./keys";
+import * as copyMode from "./copy_mode";
 import * as keyboard from "./keyboard";
 import * as textArea from "./text_area";
 import * as keymap from "./keymap";
@@ -535,7 +536,20 @@ export class Controller {
   private dock_history = new Map<number, { revision: bigint; undo: number; redo: number }>();
   workspace_drag: WorkspaceDrag | null = null;
   resize_mode = false;
-  copy_mode = false;
+  private copying = false;
+  private copy_state: copyMode.State | null = null;
+  private copy_pending = false;
+  get copy_mode(): boolean {
+    return this.copying;
+  }
+  set copy_mode(value: boolean) {
+    if (!value) this.copy_pending = false;
+    if (!value && this.copy_state) {
+      if (this.copy_state.terminal.loaded) this.copy_state.close();
+      this.copy_state = null;
+    }
+    this.copying = value;
+  }
   name_dialog: Dialog | null = null;
   archive_dialog: workspaceArchive.Dialog | null = null;
   /** The sidebar row whose name is being typed in place. */
@@ -3160,6 +3174,10 @@ export class Controller {
   /** Dormancy alone never creates a new selection. */
   private observeFocus(): void {
     const p = this.focused();
+    if (this.copy_state && this.copy_state.terminal !== p?.terminal) {
+      this.copy_mode = false;
+      this.search_mode = false;
+    }
     const id = p?.id ?? null;
     if (id === this.selected_pane) return;
     this.selected_pane = id;
@@ -3753,9 +3771,11 @@ export class Controller {
         this.cyclePane(false);
         break;
       case "copy-mode":
-        this.copy_mode = true;
         this.flushPendingCopy();
         this.clearPicked();
+        this.dropGesture();
+        this.copy_mode = true;
+        this.copyState();
         break;
       case "copy":
         this.copyText(String(act.value ?? ""));
@@ -3856,10 +3876,12 @@ export class Controller {
   private scroll(delta: number): void {
     const p = this.focused();
     if (p) {
-      p.terminal.scrollViewport({ delta });
       this.click_series = null;
       this.clearPicked();
       this.dropGesture();
+      const copy = this.copyState();
+      if (copy) copy.act({ scroll: delta });
+      else p.terminal.scrollViewport({ delta });
       this.dirty = true;
     }
   }
@@ -4064,6 +4086,44 @@ export class Controller {
   }
   private copyPane(p: Pane): void {
     this.copyText(p.terminal.selectedText());
+  }
+  private copyState(): copyMode.State | null {
+    if (!this.copy_mode) return null;
+    const pane = this.focused();
+    if (!pane?.terminal.loaded) return null;
+    if (this.copy_state?.terminal !== pane.terminal) {
+      if (this.copy_state?.terminal.loaded) this.copy_state.close();
+      this.copy_state = new copyMode.State(pane.terminal);
+    }
+    this.copy_state.sync();
+    return this.copy_state;
+  }
+  private copyKey(command: copyMode.Command): void {
+    const state = this.copyState();
+    if (command === "cancel") {
+      this.copy_mode = false;
+      this.search_mode = false;
+      this.message = "";
+    } else if (command === "copy") {
+      this.copy_pending = true;
+      this.finishCopy();
+    } else state?.act(command);
+    this.dirty = true;
+  }
+  private finishCopy(): void {
+    if (!this.copy_pending) return;
+    const text = this.copyState()?.text();
+    if (text === null || text === undefined) return;
+    this.copyText(text);
+    this.copy_mode = false;
+  }
+  private async copySearch(needle: string, skip: number): Promise<boolean> {
+    const state = this.copyState();
+    if (!state) return false;
+    const found = await state.terminal.search(needle, skip);
+    if (this.copy_state !== state || !this.copy_mode) return false;
+    if (found) state.found();
+    return found;
   }
   /** Puts `text` on the host clipboard and keeps it for `paste`. */
   private copyText(text: string): void {
@@ -6601,9 +6661,7 @@ export class Controller {
         this.search_mode = false;
         this.search_skip = 0;
         this.message = "";
-        const p = this.focused();
-        if (p && !(await p.terminal.search(Buffer.from(this.search_text).toString(), 0)))
-          this.notice(i18n.t` No matches`);
+        if (!(await this.copySearch(Buffer.from(this.search_text).toString(), 0))) this.notice(i18n.t` No matches`);
       } else if (byte === 127) {
         this.search_text.pop();
       } else if (byte >= 32 && byte < 127 && this.search_text.length < 128) {
@@ -6669,63 +6727,26 @@ export class Controller {
       return;
     }
     if (this.copy_mode) {
-      const p = this.focused();
+      const command = copyMode.command(byte);
+      if (command) return this.copyKey(command);
       switch (byte) {
-        case 107:
-          this.scroll(-1);
-          break;
-        case 106:
-          this.scroll(1);
-          break;
-        case 21:
-          this.scroll(-10);
-          break;
-        case 4:
-          this.scroll(10);
-          break;
-        case 103:
-          if (p) {
-            p.terminal.scrollViewport("top");
-            this.dirty = true;
-          }
-          break;
-        case 71:
-          if (p) {
-            p.terminal.scrollViewport("bottom");
-            this.dirty = true;
-          }
-          break;
-        case 121:
-        case 13:
-          if (p) this.copyPane(p);
-          break;
         case 47:
           this.search_mode = true;
           this.search_text = [];
           this.notice(i18n.t`/`);
           break;
         case 110:
-        case 78:
-          if (p) {
-            const needle = Buffer.from(this.search_text).toString();
-            if (byte === 110) this.search_skip += 1;
-            else this.search_skip = sat(this.search_skip, 1);
-            if (!(await p.terminal.search(needle, this.search_skip))) {
-              this.search_skip = 0;
-              await p.terminal.search(needle, 0);
-            }
-            this.dirty = true;
-          }
-          break;
-        case 113:
-        case 27:
-          this.copy_mode = false;
-          if (p) {
-            p.terminal.scrollViewport("bottom");
-            p.terminal.clearSelection();
+        case 78: {
+          const needle = Buffer.from(this.search_text).toString();
+          if (byte === 110) this.search_skip += 1;
+          else this.search_skip = sat(this.search_skip, 1);
+          if (!(await this.copySearch(needle, this.search_skip))) {
+            this.search_skip = 0;
+            await this.copySearch(needle, 0);
           }
           this.dirty = true;
           break;
+        }
         default:
           break;
       }
@@ -6764,7 +6785,7 @@ export class Controller {
     if (this.agent_picker) return "picker";
     if (this.editingName()) return "name";
     if (this.reviewKeys() && this.review.typing) return "review";
-    if (this.hasMenu() || this.reviewKeys()) return "discard";
+    if (this.hasMenu() || this.reviewKeys() || this.copy_mode) return "discard";
     // A pane still opening takes no pastes.
     if (this.openingFocus()) return "discard";
     const p = this.focused();
@@ -7541,12 +7562,13 @@ export class Controller {
           this.fitNameDialog();
           this.name_dialog.sequence(text);
           this.dirty = true;
+        } else if (this.copy_mode) {
+          const command = parsed_key === null ? null : copyMode.command(parsed_key);
+          if (command && !this.search_mode) this.copyKey(command);
         } else if (this.reviewKeys()) {
           const named = parsed_key === null ? null : reviewNamed(parsed_key);
           if (named) await this.reviewKey({ named });
-        } else if (this.copy_mode && parsed_key === "page_up") this.scroll(-20);
-        else if (this.copy_mode && parsed_key === "page_down") this.scroll(20);
-        else this.typeFocused(seq);
+        } else this.typeFocused(seq);
         used += len;
       }
     } catch (error) {
@@ -8895,10 +8917,13 @@ export class Controller {
         const sel = this.selection;
         if (sel && sel.pane === p.id) {
           sel.moved = true;
-          term.select(sel.x, sel.y, px, py);
+          const copy = this.copyState();
+          if (copy) copy.mouse(px, py, sel);
+          else term.select(sel.x, sel.y, px, py);
         }
       } else if ((button & 3) === 0) {
         this.selection = { pane: p.id, x: px, y: py, moved: false };
+        this.copyState()?.mouse(px, py);
         term.clearSelection();
         term.holding_selection = true;
       }
@@ -9035,6 +9060,7 @@ export class Controller {
     await this.tasks.idle();
   }
   async expireInput(current = () => true): Promise<void> {
+    this.finishCopy();
     const machine = this.machine,
       input = this.input_state;
     const valid = () => current() && this.machine === machine && this.input_state === input;
@@ -10042,6 +10068,7 @@ export class Controller {
           this.added_feedback && this.added_feedback.until > milliTimestamp() ? this.added_feedback.label : "",
         signin_exit: this.signin_exit,
         copy_mode: this.copy_mode,
+        copy_cursor: this.copyState()?.visibleCursor() ?? null,
         prefix: this.prefix,
         sidebar_focus: this.sidebar_focus?.section() ?? null,
         ghost: this.previewGhost(),
