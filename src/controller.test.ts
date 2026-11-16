@@ -3547,6 +3547,104 @@ test("a double-click on a workspace row edits its name; Escape keeps the old one
   }
 });
 
+test.each(["0vllll", "\x1b[Hv\x1b[C\x1b[C\x1b[C\x1b[C", "\x1b[48uv\x1b[108u\x1b[108u\x1b[108u\x1b[108u"])(
+  "keyboard copy mode selects and copies through %j",
+  async input => {
+    const s: Controller = controller();
+    const source = new NativeTerminal(80, 24);
+    s.receiveSnapshot(folders("/a"));
+    s.input_state.attached = true;
+    const term = s.focused()?.terminal;
+    if (!term) throw Error("NoPane");
+    try {
+      source.feed("hello world\x1b[H");
+      term.receive(source.surface(1));
+      await s.perform({ name: "copy-mode" });
+      await s.input(bytes(input));
+      expect(term.selectedText()).toBe("hello");
+      await s.input(bytes("y"));
+      expect(s.clipboard).toBe("hello");
+      expect(s.effects).toContainEqual({ write_terminal: "\x1b]52;c;aGVsbG8=\x07" });
+      expect(s.copy_mode).toBe(false);
+      expect(term.holding_selection).toBe(false);
+      expect(term.offset).toBeNull();
+      expect(term.pending).toEqual([]);
+    } finally {
+      source.destroy();
+      viewer.close(s);
+    }
+  },
+);
+
+test("copy mode swallows unbound keys and pastes, and releases on cancel", async () => {
+  const s: Controller = controller();
+  const source = new NativeTerminal(80, 24);
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  const term = s.focused()?.terminal;
+  if (!term) throw Error("NoPane");
+  try {
+    source.feed("hello\x1b[H");
+    term.receive(source.surface(1));
+    await s.perform({ name: "copy-mode" });
+    await s.input(bytes("x\x1b[3~\x1b[200~pasted\x1b[201~"));
+    expect(term.pending).toEqual([]);
+    expect(s.copy_mode).toBe(true);
+    await s.input(bytes("q"));
+    expect(s.copy_mode).toBe(false);
+    expect(term.holding_selection).toBe(false);
+    expect(s.clipboard).toBeNull();
+  } finally {
+    source.destroy();
+    viewer.close(s);
+  }
+});
+
+test("copy mode waits for scrollback before applying selection keys and copying", async () => {
+  const s: Controller = controller();
+  const source = new NativeTerminal(80, 4);
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  const term = s.focused()?.terminal;
+  if (!term) throw Error("NoPane");
+  try {
+    source.feed(Array.from({ length: 14 }, (_, i) => `hello ${i}`).join("\r\n"));
+    term.receive(source.surface(1));
+    await s.perform({ name: "copy-mode" });
+    await s.input(bytes("g0vlllly"));
+    expect(s.clipboard).toBeNull();
+    expect(s.copy_mode).toBe(true);
+    term.receive(source.surface(1, term.offset));
+    await s.expireInput();
+    expect(s.clipboard).toBe("hello");
+    expect(s.copy_mode).toBe(false);
+    expect(term.pending).toEqual([]);
+  } finally {
+    source.destroy();
+    viewer.close(s);
+  }
+});
+
+test("changing focus releases the copy-mode viewport", async () => {
+  const s: Controller = controller();
+  const source = new NativeTerminal(80, 24);
+  s.receiveSnapshot(folders("/a", "/b"));
+  const term = s.focused()?.terminal;
+  if (!term) throw Error("NoPane");
+  try {
+    term.receive(source.surface(1));
+    await s.perform({ name: "copy-mode" });
+    expect(term.holding_selection).toBe(true);
+    s.focusPane(2);
+    expect(s.copy_mode).toBe(false);
+    expect(term.holding_selection).toBe(false);
+    expect(term.offset).toBeNull();
+  } finally {
+    source.destroy();
+    viewer.close(s);
+  }
+});
+
 test("presses in copy mode don't count a click series", async () => {
   const { s, click } = clickSeries();
   try {

@@ -850,7 +850,7 @@
   "Running": "실행 중",
   "Running a tool": "도구 사용 중",
   "Runs: ": "실행: ",
-  "SCROLL  j/k move  y copy viewport  q exit": "스크롤  j/k 이동  y 화면 복사  q 종료",
+  "COPY  hjkl/arrows move  Space/v select  V lines  y/Enter copy  q exit": "복사  hjkl/방향키 이동  Space/v 선택  V 줄 선택  y/Enter 복사  q 종료",
   "SCROLL / COPY": "스크롤 / 복사",
   "SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back": "사이드바  ↑↓/j/k 이동  ↵ 열기  ${search}Esc 뒤로",
   "Sample not available": "측정값 없음",

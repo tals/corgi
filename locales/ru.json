@@ -1098,7 +1098,7 @@
   "Running": "Выполняется",
   "Running a tool": "Выполняет инструмент",
   "Runs: ": "Запуск: ",
-  "SCROLL  j/k move  y copy viewport  q exit": "ПРОКРУТКА  j/k движение  y копировать экран  q выход",
+  "COPY  hjkl/arrows move  Space/v select  V lines  y/Enter copy  q exit": "КОПИРОВАНИЕ  hjkl/стрелки движение  Space/v выделить  V строки  y/Enter копировать  q выход",
   "SCROLL / COPY": "ПРОКРУТКА / КОПИЯ",
   "SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back": "БОКОВАЯ ПАНЕЛЬ  ↑↓/j/k движение  ↵ открыть  ${search}Esc назад",
   "Sample not available": "Данные недоступны",

@@ -247,6 +247,7 @@ export interface Ui {
   inference: SetupStatus;
   message: string;
   copy_mode: boolean;
+  copy_cursor: { x: number; y: number } | null;
   copy_feedback: boolean;
   /** The agent just added, shown briefly above the launcher or its new pane. */
   added_feedback: string;
@@ -322,6 +323,7 @@ export interface Ui {
 }
 export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }): Ui {
   return {
+    copy_cursor: null,
     prefs: new Preferences(),
     pointer: null,
     iterm2_pointer: false,
@@ -1175,7 +1177,7 @@ export function frame(
       (u.message.length > 0
         ? u.message
         : u.copy_mode
-          ? i18n.t`SCROLL  j/k move  y copy viewport  q exit`
+          ? i18n.t`COPY  hjkl/arrows move  Space/v select  V lines  y/Enter copy  q exit`
           : u.sidebar_focus
             ? i18n.t`SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back`
             : "");
@@ -1197,7 +1199,12 @@ export function frame(
   // The prefix bar covers the area's last row.
   const cursor_rows = area.y + area.h - (u.prefix && area.h > 0 ? 1 : 0);
   const pane_cursor_owned =
-    model.count > 0 && !u.copy_mode && !u.link_tooltip && !u.review_focused && !u.pane_opening && noOverlay(u);
+    model.count > 0 &&
+    (!u.copy_mode || u.copy_cursor !== null) &&
+    !u.link_tooltip &&
+    !u.review_focused &&
+    !u.pane_opening &&
+    noOverlay(u);
   let pane_cursor: composition.Cursor = null,
     cursor_style: CursorStyle = "default";
   if (pane_cursor_owned) {
@@ -1205,8 +1212,8 @@ export function frame(
       if (place.id !== view.selection.tabs[view.selection.active].focus || place.rect.h === 0) continue;
       const p = panes.find(pane => pane.id === place.id && pane.restoring.length === 0);
       if (!p || p.terminal.loaded === false) continue;
-      cursor_style = p.terminal.cursorStyle();
-      const cursor = p.terminal.cursor();
+      cursor_style = u.copy_mode ? "steady_block" : p.terminal.cursorStyle();
+      const cursor = u.copy_mode ? u.copy_cursor : p.terminal.cursor();
       if (cursor && cursor.x < place.rect.w && cursor.y < place.rect.h && place.rect.y + cursor.y < cursor_rows) {
         pane_cursor = { x: place.rect.x + cursor.x, y: place.rect.y + cursor.y };
       }

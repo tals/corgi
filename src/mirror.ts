@@ -145,6 +145,9 @@ export class Terminal {
   get loaded(): boolean {
     return this.installed !== null;
   }
+  get displayedOffset(): number {
+    return this.installed?.offset ?? this.bottom;
+  }
   get inner(): NativeTerminal {
     return this.ensure();
   }

@@ -253,6 +253,30 @@ tmux tab numbering starts at zero; other presets start at one.
 | Setup | `prefix i`, `prefix C` | `prefix C` | `prefix s` | `Cmd+,`, `prefix i`, `prefix C` |
 | All shortcuts | `prefix ?` | `prefix ?` | `prefix ?` | `prefix ?` |
 
+## Keyboard copy mode
+
+Open copy mode with `prefix s` in the Corgi preset or `prefix [` in the tmux
+and Herdr presets. Move to the start of the text, press Space, extend the
+selection, then press `y` to copy it to the clipboard and return to the pane.
+
+| Task | Key |
+| --- | --- |
+| Move the cursor | Arrow keys or `h` / `j` / `k` / `l` |
+| Start or clear character selection | Space or `v` |
+| Select whole lines | `V` |
+| Move to the other end of the selection | `o` |
+| Start / end of row | Home / End or `0` / `$` |
+| Previous / next page | Page Up / Page Down |
+| Previous / next half-page | Ctrl+U / Ctrl+D |
+| Top / bottom of scrollback | `g` / `G` |
+| Search / next match / previous match | `/` / `n` / `N` |
+| Copy and exit | `y` or Enter |
+| Exit without copying | Escape, `q` or Ctrl+C |
+
+Without a selection, copying takes the visible viewport. Selections can span
+scrollback; long jumps load the intervening pages before they can be copied.
+Copied rows retain their displayed line breaks. Exiting returns to live output.
+
 ## Review changes
 
 **prefix e** opens the review panel for the focused pane's checkout. Press it

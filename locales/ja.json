@@ -850,7 +850,7 @@
   "Running": "実行中",
   "Running a tool": "ツールを実行中",
   "Runs: ": "実行内容：",
-  "SCROLL  j/k move  y copy viewport  q exit": "スクロール  j/k 移動  y 表示範囲をコピー  q 終了",
+  "COPY  hjkl/arrows move  Space/v select  V lines  y/Enter copy  q exit": "コピー  hjkl/矢印キー 移動  Space/v 選択  V 行選択  y/Enter コピー  q 終了",
   "SCROLL / COPY": "スクロール / コピー",
   "SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back": "サイドバー  ↑↓/j/k 移動  ↵ 開く  ${search}Esc 戻る",
   "Sample not available": "測定値を取得できません",

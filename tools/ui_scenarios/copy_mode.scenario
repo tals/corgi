@@ -1,0 +1,23 @@
+# Select a word and capture the clipboard escape sequence.
+size 100x30
+type printf '\033[2J\033[Hhello world\n'
+key enter
+settle
+key ctrl+b s
+key g home space right right right right
+snap selection
+mark
+key y
+raw clipboard
+snap copied
+
+# Select across several scrollback pages.
+type printf '\033[3J\033[2J\033[H' && seq 1 60
+key enter
+settle
+key ctrl+b s g home V G
+settle
+mark
+key y
+raw scrollback-clipboard
+snap scrollback-copied
