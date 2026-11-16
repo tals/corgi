@@ -55,9 +55,9 @@ export function capture(runtime: Runtime, saved: ReturnType<typeof checkpoint.ca
         screen: { ...p.screen, pending: p.screen.pending ?? "" },
         dormant: p.dormant,
         manual_resume: p.manual_resume,
-        command:
-          pane.manual_command ??
-          (pane.resume_hint.args() ? pane.resume_hint.command() : (pane.launch?.command ?? null)),
+        command: pane.resume_hint.args()
+          ? pane.resume_hint.command()
+          : (pane.manual_command ?? pane.launch?.command ?? null),
       };
     }),
   };
@@ -93,9 +93,11 @@ export function fromCheckpoint(value: unknown): Core {
           label: pane.label ?? "",
           dormant: pane.dormant === true,
           manual_resume: manual,
-          command:
-            (manual && typeof pane.manual_command === "string" ? pane.manual_command : null) ??
-            (hint.args() ? hint.command() : (pane.launch?.command ?? null)),
+          command: hint.args()
+            ? hint.command()
+            : ((manual && typeof pane.manual_command === "string" ? pane.manual_command : null) ??
+              pane.launch?.command ??
+              null),
           screen: {
             cols: screen.cols,
             rows: screen.rows,
@@ -239,17 +241,21 @@ export function restore(core: Core, metadata: unknown): ReturnType<typeof checkp
     }),
     panes: core.panes.map(p => {
       const extra = json.object(panes.get(p.id) ?? {});
-      let launch = extra.launch ?? null;
+      let launch = extra.launch ?? null,
+        resume_hint = extra.resume_hint ?? {};
       if (p.command !== null) {
-        const hint = checkpoint.hydrate(new ResumeHint(), extra.resume_hint ?? {});
-        // A retained provider hint already supplies the resume arguments.
-        if (hint.args() === null) launch = { command: p.command };
+        const hint = checkpoint.hydrate(new ResumeHint(), resume_hint);
+        // Only a matching hint may supply the protected resume arguments.
+        if (hint.args() === null || hint.command() !== p.command) {
+          launch = { command: p.command };
+          resume_hint = {};
+        }
       }
       return {
         binding: {},
-        resume_hint: {},
         ...extra,
         launch,
+        resume_hint,
         manual_command: p.command,
         id: p.id,
         cwd: p.cwd,

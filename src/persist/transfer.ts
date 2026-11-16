@@ -114,10 +114,16 @@ export function decode(value: unknown, history = state_formats.history) {
   };
 }
 /** Keep a legacy checkpoint alongside the core envelope during the baseline rollout. */
-export function recovery(runtime: Runtime, saved: ReturnType<typeof checkpoint.capture>) {
+export function recovery(
+  runtime: Runtime,
+  saved: ReturnType<typeof checkpoint.capture>,
+  history = state_formats.history,
+) {
+  const payload = json.clone({ runtime: { ...saved, panes: saved.panes.map(({ screen, ...pane }) => pane) } }),
+    legacy: ReturnType<typeof checkpoint.capture> = downgrade(runtime, { runtime: saved }, history).runtime;
   return {
-    ...saved,
-    transfer: { protocol, format: state_formats.history.current, core: core.capture(runtime, saved) },
+    ...legacy,
+    transfer: { protocol, format: history.current, core: core.capture(runtime, saved), payload },
   };
 }
 /** Export the numbered format before the pre-baseline transport adapter runs. */
@@ -169,7 +175,9 @@ export function recover(bytes: string, history = state_formats.history, coreOnly
   if (!formats.id(envelope.format)) throw Error("InvalidStateFormats");
   const known =
       !coreOnly && envelope.format !== formats.baseline && formats.supported(history).includes(envelope.format),
-    restored = known ? history.up({ runtime: payload }, envelope.format) : null,
+    restored = known
+      ? history.up("payload" in envelope ? envelope.payload : { runtime: payload }, envelope.format)
+      : null,
     metadata = restored === null ? {} : json.object(restored);
   return {
     value: core.restore(essential, metadata.runtime),

@@ -12,6 +12,7 @@ import * as r_68139a93dee0_terminal_core_handoff_baseline from "./revisions/r_68
 import * as r_852a72ce6f71_recover_permission_bypass_from_saved_command_mod from "./revisions/r_852a72ce6f71_recover_permission_bypass_from_saved_command_mod";
 import * as r_d58e69e6af6c_replace_fixed_byte_strings_and_index_providers_b from "./revisions/r_d58e69e6af6c_replace_fixed_byte_strings_and_index_providers_b";
 import * as r_e2a57d17f66f_initial_state from "./revisions/r_e2a57d17f66f_initial_state";
+import * as r_e4d557bcd1e4_separate_current_recovery_metadata_from_legacy_c from "./revisions/r_e4d557bcd1e4_separate_current_recovery_metadata_from_legacy_c";
 import * as r_e6040f3691c4_add_shared_conversation_storage from "./revisions/r_e6040f3691c4_add_shared_conversation_storage";
 import * as r_e853a6493fda_initial_handoff_state from "./revisions/r_e853a6493fda_initial_handoff_state";
 import * as r_f02a7f1348ba_initial_checkpoint_state from "./revisions/r_f02a7f1348ba_initial_checkpoint_state";
@@ -31,6 +32,7 @@ export const revisions = [
   r_852a72ce6f71_recover_permission_bypass_from_saved_command_mod.revision,
   r_d58e69e6af6c_replace_fixed_byte_strings_and_index_providers_b.revision,
   r_e2a57d17f66f_initial_state.revision,
+  r_e4d557bcd1e4_separate_current_recovery_metadata_from_legacy_c.revision,
   r_e6040f3691c4_add_shared_conversation_storage.revision,
   r_e853a6493fda_initial_handoff_state.revision,
   r_f02a7f1348ba_initial_checkpoint_state.revision,
@@ -38,7 +40,7 @@ export const revisions = [
   r_f598c67a8c73_store_summary_workers_in_provider_clients.revision,
 ];
 export const heads = {
-  state: r_e2a57d17f66f_initial_state.revision.id,
+  state: r_e4d557bcd1e4_separate_current_recovery_metadata_from_legacy_c.revision.id,
   checkpoint: r_1dfaa1773956_store_headless_process_state_in_provider_clients.revision.id,
   handoff: r_3a005bd21b0d_retire_transferred_connections_and_resume_links.revision.id,
   workspaces: r_f4c12b1642bd_remove_workspace_pinned_flag.revision.id,

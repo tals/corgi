@@ -66,7 +66,10 @@ test("successful migrated recovery keeps its backup when the final rewrite fails
     r = new Runtime();
   process.env.XDG_STATE_HOME = root;
   const source = recovery.path(join(root, "control.sock")),
-    bytes = readFileSync(new URL("../fixtures/steps/checkpoint-4.in.json", import.meta.url), "utf8");
+    bytes = json.stringify({
+      ...json.parse(readFileSync(new URL("../fixtures/checkpoint-v4.json", import.meta.url), "utf8")),
+      live: false,
+    });
   mkdirSync(dirname(source), { recursive: true, mode: 0o700 });
   writeFileSync(source, bytes, { mode: 0o600 });
   const restore = spyOn(checkpoint, "restore").mockImplementationOnce(async () => {

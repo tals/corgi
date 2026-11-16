@@ -259,6 +259,82 @@ test("retained provider resume metadata keeps its launch options and does not du
   expect(restored.panes.map(pane => pane.restoring())).toEqual(expected);
 });
 
+test("conflicting resume hints cannot redirect core commands during up, down or cold recovery", async () => {
+  using original = fixture(3);
+  for (const pane of original.panes) {
+    pane.dormant = true;
+    pane.launch = new Launch({ provider: "codex" });
+    pane.resume_hint.provider = "codex";
+    pane.resume_hint.session = new Text("original-session");
+  }
+  const expected = original.panes.map(pane => pane.restoring()),
+    conflict = (value: unknown) => {
+      const saved = json.object(value);
+      saved.runtime.panes[0].resume_hint.session = "different-session";
+      saved.runtime.panes[1].resume_hint.provider = "claude";
+      saved.runtime.panes[2].resume_hint = {};
+      return saved;
+    },
+    history = new formats.History("a".repeat(12), [
+      ...state_formats.revisions,
+      {
+        id: "a".repeat(12),
+        parent: state_formats.current,
+        description: "Replace resume hints",
+        up: conflict,
+        down: conflict,
+      },
+    ]),
+    up = transfer.decode(
+      json.clone(transfer.encode(original, manifest(original), formats.supported(history), [])),
+      history,
+    ),
+    down = transfer.decode(
+      json.clone(transfer.encode(original, manifest(original), transfer.info().formats, [], history)),
+    ),
+    cold = transfer.recover(json.stringify(transfer.recovery(original, checkpoint.capture(original, false))), history);
+  for (const [saved, live] of [
+    [up.runtime, true],
+    [down.runtime, true],
+    [cold.value, false],
+  ] as const) {
+    using restored = new Runtime();
+    await checkpoint.restore(restored, saved, live, "/tmp/unused", "/tmp/corgi", false);
+    expect(restored.panes.map(pane => pane.restoring())).toEqual(expected);
+    expect(restored.panes.every(pane => pane.resume_hint.args() === null)).toBe(true);
+    expect(core.capture(restored, checkpoint.capture(restored, live)).panes.map(pane => pane.command)).toEqual(
+      expected,
+    );
+  }
+});
+
+test("archived resume hints keep runtime precedence over retained manual commands", async () => {
+  using original = fixture(1);
+  const pane = original.panes[0];
+  pane.dormant = true;
+  pane.manual_resume = true;
+  pane.manual_command = "codex --model archived-model";
+  pane.launch = new Launch({ provider: "codex", args: ["--foo"], env: [["KEPT", "1"]] });
+  pane.resume_hint.provider = "codex";
+  pane.resume_hint.session = new Text("original-session");
+  const before = pane.restoring(),
+    saved = checkpoint.capture(original, false),
+    sent = transfer.encode(original, manifest(original), transfer.info().formats, []);
+  expect(sent.core.panes[0].command).toBe(pane.resume_hint.command());
+  expect(core.fromCheckpoint(json.clone(saved)).panes[0].command).toBe(pane.resume_hint.command());
+  for (const [snapshot, live] of [
+    [transfer.decode(json.clone(sent)).runtime, true],
+    [transfer.recover(json.stringify(saved)).value, false],
+    [transfer.recover(json.stringify(transfer.recovery(original, saved))).value, false],
+  ] as const) {
+    using restored = new Runtime();
+    await checkpoint.restore(restored, snapshot, live, "/tmp/unused", "/tmp/corgi", false);
+    expect(restored.panes[0].restoring()).toBe(before);
+    expect(restored.panes[0].resume_hint.session.text()).toBe("original-session");
+    expect(restored.panes[0].launch?.agent).toEqual(pane.launch.agent);
+  }
+});
+
 test("live baseline handoff bypasses failing migrations and auxiliary serialization", async () => {
   using original = fixture();
   original.panes[0].terminal.send(Buffer.from([0, 128, 255, 27, 10]));
@@ -353,8 +429,94 @@ test("matching recovery formats preserve metadata and legacy checkpoints still d
   const saved = checkpoint.capture(original, false),
     wrapped = transfer.recovery(original, saved);
   expect(transfer.recover(json.stringify(wrapped)).value.panes[0].label).toBe("kept");
-  expect(transfer.recover(json.stringify(saved)).value).toEqual(json.clone(saved));
+  expect(json.clone(transfer.recover(json.stringify(saved)).value)).toEqual(json.clone(saved));
   expect(transfer.recover(json.stringify(wrapped)).migrated).toBe(false);
+  const old = {
+    ...saved,
+    transfer: { protocol: transfer.protocol, format: formats.initial, core: wrapped.transfer.core },
+  };
+  expect(json.clone(transfer.recover(json.stringify(old)).value)).toEqual(json.clone(saved));
+});
+
+test("cold snapshots keep downgraded legacy fields separate from current metadata", async () => {
+  using original = fixture();
+  const history = new formats.History("a".repeat(12), [
+    ...state_formats.revisions,
+    {
+      id: "a".repeat(12),
+      parent: state_formats.current,
+      description: "Rename closed tabs",
+      up(value) {
+        const saved = json.object(value);
+        saved.runtime.closed_tabs = saved.runtime.closed;
+        delete saved.runtime.closed;
+        return saved;
+      },
+      down(value) {
+        const saved = json.object(value);
+        expect(saved.runtime.panes.every((p: any) => p.screen === undefined)).toBe(true);
+        saved.runtime.closed = saved.runtime.closed_tabs;
+        delete saved.runtime.closed_tabs;
+        delete saved.runtime.new_metadata;
+        return saved;
+      },
+    },
+  ]);
+  const current = json.object(
+    history.up({ runtime: json.clone(checkpoint.capture(original, false)) }, state_formats.current),
+  ).runtime;
+  current.new_metadata = "retain in current reader";
+  const before = json.clone(current),
+    wrapped = transfer.recovery(original, current, history),
+    bytes = json.stringify(wrapped),
+    legacy = migrations.decode("checkpoint", bytes).value,
+    recovered = transfer.recover(bytes, history);
+  expect(current).toEqual(before);
+  expect(legacy.closed).toEqual([]);
+  expect(legacy).not.toHaveProperty("closed_tabs");
+  expect(legacy).not.toHaveProperty("new_metadata");
+  expect(recovered.value.closed_tabs).toEqual([]);
+  expect(recovered.value.new_metadata).toBe(current.new_metadata);
+  expect(recovered.migrated).toBe(false);
+  expect(wrapped.transfer.payload.runtime.panes.every((p: any) => p.screen === undefined)).toBe(true);
+  using restored = new Runtime();
+  await checkpoint.restore(restored, legacy, false, "/tmp/unused", "/tmp/corgi", false);
+  expect(restored.panes.map(pane => pane.id)).toEqual(original.panes.map(pane => pane.id));
+  expect(restored.panes[0].terminal.text()).toContain("screen 0");
+});
+
+test("failed or lossy cold downgrades retain current metadata and a readable legacy core", async () => {
+  using original = fixture();
+  for (const down of [
+    () => null,
+    () => {
+      throw Error("FailedMigration");
+    },
+  ]) {
+    const history = new formats.History("a".repeat(12), [
+        ...state_formats.revisions,
+        {
+          id: "a".repeat(12),
+          parent: state_formats.current,
+          description: "Discard old metadata",
+          up: value => value,
+          down,
+        },
+      ]),
+      saved = { ...checkpoint.capture(original, false), retained: "current metadata" },
+      bytes = json.stringify(transfer.recovery(original, saved, history));
+    expect(transfer.recover(bytes, history).value.retained).toBe(saved.retained);
+    using restored = new Runtime();
+    await checkpoint.restore(
+      restored,
+      migrations.decode("checkpoint", bytes).value,
+      false,
+      "/tmp/unused",
+      "/tmp/corgi",
+      false,
+    );
+    expect(restored.panes.map(pane => pane.id)).toEqual(original.panes.map(pane => pane.id));
+  }
 });
 test("invalid core and descriptor inventories fail before any process is adopted", () => {
   using original = fixture();
@@ -395,7 +557,7 @@ test("numbered checkpoints continue through later revisions with their core prot
     ...state_formats.revisions,
     {
       id: "a".repeat(12),
-      parent: formats.initial,
+      parent: state_formats.current,
       description: "Reorganize auxiliary state",
       up(value) {
         calls++;
@@ -428,7 +590,7 @@ test("later revisions cannot replace legacy handoff descriptors or lose its core
     transform = (up: formats.Step) =>
       new formats.History("a".repeat(12), [
         ...state_formats.revisions,
-        { id: "a".repeat(12), parent: formats.initial, description: "Change metadata", up, down: () => null },
+        { id: "a".repeat(12), parent: state_formats.current, description: "Change metadata", up, down: () => null },
       ]);
   for (const up of [
     () => ({ requester: 99, retired: { listener: 99 }, runtime: { panes: [] } }),

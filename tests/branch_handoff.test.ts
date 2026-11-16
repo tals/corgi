@@ -74,6 +74,37 @@ ${reject ? "printf 'InvalidHandoffCore\\n' >&4; exit 1" : `exec ${quote(EXE)} "$
       await this.until(async () => (await this.read(pane)).includes("COMPILED_still_here"));
     }
   }
+  async test_cold_recovery_restarts_and_exercises_every_shell() {
+    const panes: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const pane = await this.pane();
+      panes.push(pane);
+      await this.command("pane.input", { target: pane, data: `stty -echo; printf 'BEFORE_%s\\n' ${pane}\r` });
+      await this.until(async () => (await this.read(pane)).includes(`BEFORE_${pane}`));
+    }
+    const before = await this.session();
+    await this.rpc({ op: "recovery.save" });
+    process.kill(before.server_pid, "SIGKILL");
+    await this.until(() => {
+      try {
+        process.kill(before.server_pid, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    await this.run_cli("start");
+    const after = await this.session();
+    for (const id of panes) {
+      const pane = after.panes.find((p: any) => p.id === id);
+      this.assertGreater(pane.pid, 0);
+      this.assertFalse(pane.dormant);
+      this.assertNotEqual(pane.pid, before.panes.find((p: any) => p.id === id).pid);
+      this.assertIn(`BEFORE_${id}`, await this.read(id));
+      await this.command("pane.input", { target: id, data: `stty -echo; printf 'RECOVERED_%s_%s\\n' ${id} "$$"\r` });
+      await this.until(async () => (await this.read(id)).includes(`RECOVERED_${id}_${pane.pid}`));
+    }
+  }
   async test_rejected_metadata_retries_with_core_and_preserves_the_shell() {
     const pane = await this.pane(),
       before = await this.session(),
@@ -143,7 +174,7 @@ exec ${quote(EXE)} "$@"
   }
   async test_preflight_discards_invalid_metadata_under_a_known_revision() {
     await this.preflight(state => {
-      state.closed = [{}];
+      state.transfer.payload.runtime.closed = [{}];
     });
   }
 }

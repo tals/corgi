@@ -40,7 +40,7 @@ test("a checkpoint the release turns down names the check, without paths or sess
   const result = await check.run(write(state), "/tmp/unused.sock", "/tmp/corgi");
   if (result.ok) throw Error("expected a failure");
   expect(result.error).toBe("InvalidCheckpoint");
-  expect(result.why).toBe("workspace 1 isn't between 1 and next_workspace 1");
+  expect(result.why).toBe("invalid terminal core");
   expect(result.state.summary).toBe(
     "cold checkpoint v6: 1 workspace, 1 pane, 0 closed tabs, 0 native sessions, 1 conversation (codex 1)",
   );

@@ -35,8 +35,9 @@ test("preflight and cold recovery discard invalid auxiliary data under a recogni
     previous = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = directory;
   try {
-    const state = { ...saved(), closed: [{}] },
-      bytes = json.stringify(state),
+    const state = saved();
+    json.object(state.transfer.payload.runtime).closed = [{}];
+    const bytes = json.stringify(state),
       path = recovery.path(socket);
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     await Bun.write(path, bytes);
@@ -61,8 +62,8 @@ test("preflight and cold recovery discard invalid auxiliary data under a recogni
 
 test("fallback starts with a fresh runtime after a partial metadata restore", async () => {
   const state = saved();
-  state.panes[1].binding.provisional.observation.read = 2n;
-  state.panes[1].binding.provisional.observation.completed = 1n;
+  state.transfer.payload.runtime.panes[1].binding.provisional.observation.read = 2n;
+  state.transfer.payload.runtime.panes[1].binding.provisional.observation.completed = 1n;
   const decoded = await cold.read(json.stringify(state), "/tmp/unused", process.execPath);
   expect(decoded.discarded).toBe(true);
   using restored = new Runtime();

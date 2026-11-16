@@ -591,9 +591,11 @@ uses VT terminal data; parser fragments and some display state remain
 approximate, independently of metadata compatibility.
 
 Recovery backs up the original bytes after successful migration and writes a
-fresh core envelope. A failed restore leaves the source untouched. An unknown
-metadata revision can recover through the baseline; malformed core fails
-without starting a partial session.
+fresh core envelope. Its payload keeps current metadata; the top-level checkpoint
+is migrated down to the initial format for pre-baseline readers. Readers also
+accept earlier envelopes whose metadata lived at the top level. A failed restore
+leaves the source untouched. An unknown metadata revision can recover through
+the baseline; malformed core fails without starting a partial session.
 
 ## Debug
 
