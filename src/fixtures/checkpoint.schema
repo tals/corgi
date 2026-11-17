@@ -257,6 +257,13 @@ $.workspaces[].archive_summary?.programs[].name: string
 $.workspaces[].archive_summary?.programs[].brand: optional
 $.workspaces[].archive_summary?.programs[].brand?: string
 $.workspaces[].archive_summary?.programs[].count: u32
+$.workspaces[].active_at: u64
+$.workspaces[].group: enum active stale
+$.auto_order.clock: u64
+$.auto_order.guard: u64
+$.auto_order.applied: optional
+$.auto_order.applied?.enabled: bool
+$.auto_order.applied?.archive_after: u32
 $.panes[].binding.actor: u32
 $.panes[].binding.generation: u64
 $.panes[].binding.selection_hash: u64

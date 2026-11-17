@@ -30,6 +30,7 @@ import { index, key as agentKey, live as liveAgents, section, type Section, type
 import type { Session } from "./headless";
 import { Briefs } from "./worktree_briefs";
 import * as worktreeAgents from "./worktree_agents";
+import * as workspaceActivity from "./workspace_activity";
 import * as breadcrumbs from "./breadcrumbs";
 import { WantedEffort } from "./agent_effort";
 import * as effort from "./providers/effort";
@@ -521,6 +522,14 @@ export class Runtime {
   wanted_efforts: WantedEffort[] = [];
   /** Whether Corgi starts a failed turn again when its condition may pass. */
   auto_retry = true;
+  /** The workspace auto-order settings, from settings.json. */
+  auto_order: workspaceActivity.Settings = workspaceActivity.defaults;
+  /** The pause-adjusted clock workspace idle times are read on. */
+  activity = new workspaceActivity.Clock(clock.milliTimestamp());
+  /** The settings last applied to the archive guard, saved with the clock. */
+  applied: workspaceActivity.Applied | null = null;
+  /** The fade step each workspace's viewers last heard, by id. */
+  stale_steps = new Map<number, workspaceActivity.Step>();
   /** Conversations whose latest turn failed on a condition that may pass. */
   retries: Retry[] = [];
   /** Failed turns their transcripts ended, waiting on the observer. */
@@ -558,6 +567,12 @@ export class Runtime {
     this.revision = BigInt.asUintN(64, this.revision + 1n);
     this.durable = BigInt.asUintN(64, this.durable + 1n);
     this.shown = BigInt.asUintN(64, this.shown + 1n);
+  }
+  /** Someone worked: anywhere, which ends a pause, and in `workspace` when known. */
+  markActivity(workspace: number | null, now = clock.milliTimestamp()) {
+    this.activity.activity(now);
+    const w = workspace === null ? null : this.workspaces.get(workspace);
+    if (w) w.active_at = this.activity.clock;
   }
   refreshed() {
     this.revision = BigInt.asUintN(64, this.revision + 1n);
@@ -896,6 +911,8 @@ export class Runtime {
     const ws = this.getWorkspace(id);
     if (!ws.archived) return;
     ws.archived = false;
+    ws.auto_archived = false;
+    this.markActivity(id);
     this.changed();
   }
   reopen(opts: Create) {
@@ -1324,6 +1341,7 @@ export class Runtime {
   async createWorkspace(name: string, opts: Create) {
     const id = await this.workspaces.add(name, opts.cwd);
     this.workspaces.distinguish(id);
+    this.markActivity(id);
     try {
       await this.create({ ...opts, workspace: id });
     } catch (e) {

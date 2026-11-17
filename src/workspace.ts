@@ -11,6 +11,7 @@ import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
 import { Window } from "./usage/tokens";
 import type { Snapshot as Worktrees } from "./worktrees";
+import * as workspaceActivity from "./workspace_activity";
 /** Moves workspace `id` above `before`, or last when `before` is itself. */
 export function moveBefore(items: { id: number }[], id: number, before: number): void {
   const from = items.findIndex(w => w.id === id);
@@ -47,6 +48,11 @@ export class Workspace {
   focus = 0;
   archived = false;
   archive_summary: archiveSummary.Summary | null = null;
+  /** The activity clock at its last activity; 0 until first seen. */
+  active_at = 0;
+  group: workspaceActivity.Group = "active";
+  /** Archived by auto-order, until unarchived. */
+  auto_archived = false;
   git_ahead: bigint | null = null;
   git_ref = new Ref();
   git_push = new State();
@@ -109,7 +115,8 @@ export class Store {
     if (!e.HOME) throw Error("NoHome");
     return join(e.HOME, ".local", "state", "corgi", "workspaces.json");
   }
-  async save(path: string, selected: number) {
+  /** Saves the workspaces, the one viewers open on and the auto-order clock. */
+  async save(path: string, selected: number, auto_order: workspaceActivity.Saved | null = null) {
     await mkdir(dirname(path), { recursive: true });
     const temp = path + ".tmp";
     const f = await open(temp, "w", 0o600);
@@ -127,7 +134,10 @@ export class Store {
               cwd: w.cwd,
               archived: w.archived,
               archive_summary: w.archive_summary,
+              active_at: w.active_at,
+              group: w.group,
             })),
+            auto_order,
           },
           null,
           2,
@@ -139,7 +149,9 @@ export class Store {
     }
     await rename(temp, path);
   }
-  async load(path: string) {
+  /** The saved workspaces; null when there's no file. Gives the one viewers
+   * open on, and the saved auto-order clock as found, for the runtime to check. */
+  async load(path: string): Promise<{ selected: number; auto_order: unknown } | null> {
     let bytes: string;
     try {
       bytes = await readFile(path, "utf8");
@@ -177,13 +189,15 @@ export class Store {
       const item = new Workspace(x.id, x.cwd, x.name);
       item.archived = x.archived === true;
       item.archive_summary = archiveSummary.restore(x.archive_summary);
+      item.active_at = workspaceActivity.activeAt(x.active_at);
+      item.group = workspaceActivity.group(x.group);
       items.push(item);
     }
     // With every workspace closed or archived, none is active.
     if (d.active === Workspace.Id.none ? items.some(w => !w.archived) : !items.some(w => w.id === d.active)) invalid();
     this.items = items;
     this.next_id = d.next_id;
-    return d.active as number;
+    return { selected: d.active as number, auto_order: d.auto_order ?? null };
   }
   index(id: number) {
     const i = this.items.findIndex(w => w.id === id);
