@@ -1080,6 +1080,13 @@ test("switching auto-order off keeps the order, drops the fade and stops archivi
     expect(session.snapshot(r).workspaces.find(w => w.id === due.id)?.stale_step).toBe(0);
     expect(r.revision).toBeGreaterThan(revision);
     expect(due.archived).toBe(false);
+    // A closed workspace leaves no bookkeeping behind.
+    const checked = Reflect.get(server, "archive_checked") as Map<number, number>;
+    checked.set(due.id, 0);
+    r.workspaces.items.splice(r.workspaces.items.indexOf(due), 1);
+    tick();
+    expect(r.stale_steps.has(due.id)).toBe(false);
+    expect(checked.has(due.id)).toBe(false);
   } finally {
     await dispose();
   }

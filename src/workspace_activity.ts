@@ -76,12 +76,11 @@ export class Clock {
   last_activity: number | null = null;
   constructor(public last_tick: number) {}
   activity(now: number) {
+    this.rewind(now);
     this.last_activity = now;
   }
   advance(now: number, pause_after_ms: number) {
-    // A wall clock set back moves the last activity with it, so the pause
-    // still starts "pause after" past it.
-    if (now < this.last_tick && this.last_activity !== null) this.last_activity += now - this.last_tick;
+    this.rewind(now);
     const elapsed = Math.min(Math.max(0, now - this.last_tick), tick_cap_ms),
       open = this.last_activity === null ? 0 : Math.max(0, this.last_activity + pause_after_ms - this.last_tick);
     this.clock += Math.min(elapsed, open);
@@ -89,6 +88,13 @@ export class Clock {
   }
   paused(now: number, pause_after_ms: number) {
     return this.last_activity === null || now >= this.last_activity + pause_after_ms;
+  }
+  /** A wall clock set back moves the last activity with it, so the pause
+   * still starts "pause after" past it. */
+  private rewind(now: number) {
+    if (now >= this.last_tick) return;
+    if (this.last_activity !== null) this.last_activity += now - this.last_tick;
+    this.last_tick = now;
   }
 }
 export type Group = "active" | "stale";
