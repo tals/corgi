@@ -41,14 +41,28 @@ export class Drag {
     }
     return !this.cancelled;
   }
-  update(view: View, ids: viewerRef.Workspace[], x: number, y: number) {
+  /** `allowed` says whether the dragged row may land above another, or last
+   * when that is itself; a refused drop shows nowhere. */
+  update(
+    view: View,
+    ids: viewerRef.Workspace[],
+    x: number,
+    y: number,
+    allowed: (source: viewerRef.Workspace, before: viewerRef.Workspace) => boolean = () => true,
+  ) {
     this.drop = null;
     this.preview = null;
     if (!this.valid(view, ids) || !this.dragging) return;
     const drop = view.workspaceDrop(x, y);
     if (!drop) return;
-    this.preview = drop.index - Number(drop.index > this.source);
-    if (this.preview === this.source) return;
+    const preview = drop.index - Number(drop.index > this.source);
+    if (preview === this.source) {
+      this.preview = preview;
+      return;
+    }
+    const source = this.ids[this.source];
+    if (!allowed(source, drop.index === this.count ? source : this.ids[drop.index])) return;
+    this.preview = preview;
     this.drop = drop;
   }
   before() {

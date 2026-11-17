@@ -2,6 +2,7 @@ import * as workspaceArchive from "./workspace_archive";
 import * as webLinks from "./web_links";
 import type { Input, Mouse } from "./terminal_input";
 import * as archiveSummary from "./archive_summary";
+import * as workspaceActivity from "./workspace_activity";
 //! Viewer-owned navigation, dialogs, input and rendering. Shared mutations
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
@@ -1935,6 +1936,7 @@ export class Controller {
   private dropWorkspace(drag: WorkspaceDrag): void {
     if (!drag.drop) return;
     const source = drag.ids[drag.source];
+    if (!this.workspaceMoveAllowed(source, drag.before() ?? source)) return;
     if (this.machines.length > 1) {
       const rows = this.workspaceRows(true)
         .map(row => row.id)
@@ -1955,6 +1957,19 @@ export class Controller {
     const target = this.rowOf(source)!,
       before = drag.drop.index >= drag.ids.length ? target.id : this.rowOf(drag.ids[drag.drop.index])!.id;
     this.optimistic({ "workspace.move": { target: target.id, before } });
+  }
+  /** Whether workspace row `source` may land above row `before`, or last
+   * when that's itself: a machine ordering its workspaces by activity keeps
+   * its stale ones in place and the rest above them. */
+  private workspaceMoveAllowed(source: number, before: number): boolean {
+    const from = this.rowOf(source),
+      runtime = from?.machine.runtime;
+    if (!from || !runtime?.workspace_auto_order?.enabled) return true;
+    const items = runtime.workspaces.items.map(workspaceActivity.shown),
+      to = before === source ? from : this.rowOf(before);
+    // Above another machine's row, only the dragged one's own group counts.
+    if (!to || to.machine !== from.machine) return items.find(w => w.id === from.id)?.group !== "stale";
+    return workspaceActivity.moveAllowed(items, from.id, to.id, true);
   }
   cancelWorkspaceDrag(): boolean {
     if (!this.workspace_drag) return false;
@@ -2010,7 +2025,9 @@ export class Controller {
       drag.dragging = true;
       this.clicks.reset();
     }
-    drag.update(this.sidebarView([]), this.workspaceIds(), x, y);
+    drag.update(this.sidebarView([]), this.workspaceIds(), x, y, (source, before) =>
+      this.workspaceMoveAllowed(source, before),
+    );
     if (release && (button & 3) === 0) {
       this.workspace_drag = null;
       this.ui_mouse_down = false;
@@ -2086,6 +2103,7 @@ export class Controller {
           git_diff: ws.git_diff,
           worktrees: ws.worktrees,
           stats: ws.stats,
+          stale_step: ws.stale_step,
         });
         entry.ports = runtime.ports;
         entry.resources = sidebar.resourcesFor(runtime.resources, ws.id);

@@ -73,6 +73,38 @@ test("a moved workspace and a starred agent's place show before the daemon answe
     runtime.destroy();
   }
 });
+test("a workspace move that breaks the auto-order groups shows nothing, as the daemon drops it", () => {
+  const runtime = new mirror.Runtime(),
+    grouped = (enabled: boolean) => {
+      const base = snapshot([1, 2, 3], [1, 2, 3, 4]);
+      return {
+        ...base,
+        workspace_auto_order: { enabled, pause_after: 5, stale_after: 10, archive_after: 480 },
+        workspaces: base.workspaces.map(ws => ({ ...ws, stale_step: ws.id >= 3 ? 2 : 0 })),
+      };
+    },
+    ids = () => runtime.workspaces.items.map(ws => ws.id);
+  try {
+    runtime.receive(null as any, grouped(true));
+    for (const [target, before] of [
+      [3, 1],
+      [1, 4],
+      [1, 1],
+    ]) {
+      const forget = assume(runtime, { "workspace.move": { target, before } });
+      expect(ids()).toEqual([1, 2, 3, 4]);
+      forget();
+    }
+    const forget = assume(runtime, { "workspace.move": { target: 1, before: 3 } });
+    expect(ids()).toEqual([2, 1, 3, 4]);
+    forget();
+    runtime.receive(null as any, grouped(false));
+    assume(runtime, { "workspace.move": { target: 4, before: 1 } });
+    expect(ids()).toEqual([4, 1, 2, 3]);
+  } finally {
+    runtime.destroy();
+  }
+});
 test("starring an agent stars the others in its conversation, as the daemon does", () => {
   const runtime = new mirror.Runtime(),
     session = (id: number, conversation: string) => ({

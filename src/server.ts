@@ -129,6 +129,8 @@ export class Server {
   private workspaceWrites: Promise<void> = Promise.resolve();
   private collecting = false;
   private collected = -Infinity;
+  /** Whether the last tick ordered workspaces automatically. */
+  private auto_ordering = false;
   // Test builds stop with the test process that owns their runtime.
   private owner = testBuild ? Number(process.env.CORGI_TEST_OWNER) || 0 : 0;
   private ownerChecked = 0;
@@ -693,6 +695,7 @@ export class Server {
     this.collectStartups();
     this.runtime.reapStopped();
     if (this.runtime.raiseEntered()) this.runtime.changed();
+    this.autoOrder();
     await this.runtime.advanceRenames(clock.milliTimestamp());
     agentEffort.advance(this.runtime, clock.milliTimestamp());
     agentRetry.advance(this.runtime, clock.milliTimestamp(), pane => this.inputAt(pane));
@@ -755,6 +758,45 @@ export class Server {
     }
     // Streams pace their own frames, so they hear every tick.
     if (!this.publish()) this.wakeViewers();
+  }
+  /** Marks the workspaces whose agents process a turn, runs the activity
+   * clock and, with auto-order on, keeps the groups, their order and the fade. */
+  private autoOrder(): void {
+    const r = this.runtime,
+      s = r.auto_order,
+      now = clock.milliTimestamp(),
+      items = r.workspaces.items;
+    for (const p of r.panes)
+      if (!p.dormant && !p.terminal.exited && workspaceActivity.working(p.agent()))
+        r.markActivity(r.workspaces.owner(p.id)?.id ?? null, now);
+    for (const h of r.sessions)
+      if (
+        !h.corgi &&
+        !h.exited &&
+        workspaceActivity.working({ state: h.status(), paused: h.agent().paused, attention: h.attention() })
+      )
+        r.markActivity(h.workspace_id, now);
+    r.activity.advance(now, s.pause_after * workspaceActivity.minute_ms);
+    let changed = false;
+    // Switching on groups the workspaces as they stand, then sorts the stale ones.
+    if (!s.enabled || !this.auto_ordering) workspaceActivity.resync(items, r.activity.clock, s);
+    if (s.enabled) changed = workspaceActivity.regroup(items, r.activity.clock, s);
+    this.auto_ordering = s.enabled;
+    for (const w of items) {
+      const step = workspaceActivity.staleStep(w, r.activity.clock, s);
+      if ((r.stale_steps.get(w.id) ?? 0) === step) continue;
+      r.stale_steps.set(w.id, step);
+      changed = true;
+    }
+    if (!changed) return;
+    r.changed();
+    this.dirty = true;
+    void this.saveWorkspaces();
+  }
+  /** Keys and pastes a viewer sends a pane count as work in its workspace;
+   * the CLI's, scripts' and other agents' don't. */
+  private typedIn(pane: number): void {
+    this.runtime.markActivity(this.runtime.workspaces.owner(pane)?.id ?? null);
   }
   /** Runs numbered request `seq` once. Sent again, it gets the reply it had. */
   private async once(
@@ -894,6 +936,10 @@ export class Server {
         setTimeout(() => void this.shutdown(), 0);
         return;
       case "session.command":
+        if (cl.viewer && "pane.input" in request.payload.command) {
+          const input = request.payload.command["pane.input"];
+          if (workspaceActivity.typing(input.data)) this.typedIn(input.target);
+        }
         if ("agent.message" in request.payload.command) {
           const command = request.payload.command;
           this.defer(cl, reply, null, async () => ({ result: await this.message(command) }));
@@ -1033,6 +1079,7 @@ export class Server {
         viewer.markUnread(this, cl, request.payload, reply);
         return;
       case "pane.paste":
+        if (cl.viewer) this.typedIn(request.payload.pane);
         await viewer.paste(this, cl, request.payload, reply);
         return;
       case "pane.idle":
@@ -1183,6 +1230,19 @@ export class Server {
       case "headless.stop":
       case "headless.send":
       case "headless.events": {
+        // A prompt submitted to Corgi ends a pause but is no workspace's work.
+        // Only viewers start Corgi's sessions, some over HTTP; answers and
+        // interrupts aren't prompts.
+        if (
+          request.op === "headless.start"
+            ? request.payload.corgi
+            : request.op === "headless.send" &&
+              (request.payload.input as { kind?: unknown } | null)?.kind === "prompt" &&
+              this.runtime.sessions.some(
+                s => s.corgi && s.provider === request.payload.provider && s.session === request.payload.session,
+              )
+        )
+          this.runtime.markActivity(null);
         const headless = await import("./headless");
         await headless.request(this, cl, request, reply);
         return;

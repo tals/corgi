@@ -105,6 +105,20 @@ test("a resumed viewer can request and clear background worktree details through
     dispose();
   }
 });
+/** A server whose saved state goes to a folder of its own. */
+function saving() {
+  const directory = mkdtempSync(join(tmpdir(), "corgi-auto-order-")),
+    server = new Server(join(directory, "s"), "", "0".repeat(64));
+  return {
+    server,
+    dispose: async () => {
+      await server.flushWorkspaceWrites();
+      server.runtime.destroy();
+      (server as any).loop.close();
+      rmSync(directory, { recursive: true, force: true });
+    },
+  };
+}
 test("session snapshots are shared by subscribers and skipped without them", () => {
   const { server, dispose } = fixture(),
     snapshot = spyOn(session, "snapshot"),
@@ -944,5 +958,131 @@ test("shutdown stops a server a handoff bound that never took the socket", async
     expect(existsSync(bound)).toBe(false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+test("auto-order counts agents processing a turn and keeps the groups each tick", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    tick = () => Reflect.get(server, "autoOrder").call(server),
+    minute = 60_000;
+  try {
+    const [busy, quiet, other] = [1, 2, 3].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(busy, quiet, other);
+    const pane = new Pane(busy.model.newTab(""), Terminal.create(20, 4), "/tmp");
+    r.panes.push(pane);
+    pane.attachment.provisional.provider = "claude";
+    pane.attachment.provisional.state = "working";
+    r.activity.clock = 30 * minute;
+    quiet.active_at = 30 * minute - 20 * minute;
+    other.active_at = 30 * minute - 1 * minute;
+    busy.active_at = 1;
+    tick();
+    // Off: groups follow idle time, nothing moves, and no fade goes out.
+    expect(busy.active_at).toBe(30 * minute);
+    expect(r.workspaces.items.map(w => [w.id, w.group])).toEqual([
+      [1, "active"],
+      [2, "stale"],
+      [3, "active"],
+    ]);
+    expect(r.stale_steps.get(2) ?? 0).toBe(0);
+    const revision = r.revision;
+    r.auto_order = { ...r.auto_order, enabled: true };
+    tick();
+    expect(r.workspaces.items.map(w => w.id)).toEqual([1, 3, 2]);
+    expect(r.stale_steps.get(2)).toBe(1);
+    expect(r.revision).toBeGreaterThan(revision);
+    // Waiting on an answer, paused or blocked isn't work.
+    const agent = pane.attachment.provisional;
+    for (const change of [
+      () => (agent.attention = "needs_input"),
+      () => (agent.paused = true),
+      () => (agent.state = "blocked"),
+    ]) {
+      agent.state = "working";
+      agent.attention = "none";
+      agent.paused = false;
+      change();
+      const before = (busy.active_at = r.activity.clock - 1);
+      tick();
+      expect(busy.active_at).toBe(before);
+    }
+  } finally {
+    await dispose();
+  }
+});
+test("only a prompt submitted to Corgi ends a pause, however it arrives", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime;
+  try {
+    const http = server.addClient(null, false),
+      sent: unknown[] = [];
+    r.sessions.push({
+      corgi: true,
+      provider: "claude",
+      session: "s1",
+      send: (input: unknown) => sent.push(input),
+    } as any);
+    const send = (input: object) =>
+      server
+        .request(http, protocol.envelope("headless.send", { provider: "claude", session: "s1", input }))
+        .catch(() => {});
+    await send({ kind: "answer", request: "permission-1", allow: false });
+    await send({ kind: "interrupt" });
+    expect(r.activity.last_activity).toBeNull();
+    await send({ kind: "prompt", text: "hi" });
+    expect(r.activity.last_activity).not.toBeNull();
+    r.activity.last_activity = null;
+    // A new conversation starts over HTTP, not the viewer's connection.
+    await server
+      .request(http, protocol.envelope("headless.start", { provider: "claude", prompt: "hi", cwd: "x", corgi: true }))
+      .catch(() => {});
+    expect(r.activity.last_activity).not.toBeNull();
+    r.activity.last_activity = null;
+    await server
+      .request(http, protocol.envelope("headless.start", { provider: "claude", prompt: "hi", cwd: "x" }))
+      .catch(() => {});
+    expect(r.activity.last_activity).toBeNull();
+    r.sessions.length = 0;
+    http.close();
+  } finally {
+    await dispose();
+  }
+});
+test("only a viewer's keys and pastes count as typing in a workspace", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime;
+  try {
+    const ws = new Workspace(1, "/tmp", "w");
+    r.workspaces.items.push(ws);
+    const pane = new Pane(ws.model.newTab(""), Terminal.create(20, 4), "/tmp");
+    pane.terminal.exited = true;
+    r.panes.push(pane);
+    r.activity.clock = 5000;
+    const viewer = server.addClient(null, false),
+      cli = server.addClient(null, false);
+    viewer.viewer = true;
+    const input = (cl: typeof viewer, data: string) =>
+      server
+        .request(cl, protocol.envelope("session.command", { command: { "pane.input": { target: pane.id, data } } }))
+        .catch(() => {});
+    for (const report of ["\x1b[<64;3;4M", "\x1b[<0;3;4m", "\x1b[I", "\x1b[O\x1b[<65;1;1M"]) {
+      await input(viewer, report);
+      expect(ws.active_at).toBe(0);
+    }
+    expect(r.activity.last_activity).toBeNull();
+    await input(cli, "ls\r");
+    expect(ws.active_at).toBe(0);
+    await input(viewer, "l");
+    expect(ws.active_at).toBe(5000);
+    expect(r.activity.last_activity).not.toBeNull();
+    r.activity.clock = 6000;
+    await server
+      .request(viewer, protocol.envelope("pane.paste", { pane: pane.id, text: "x", image: null }))
+      .catch(() => {});
+    expect(ws.active_at).toBe(6000);
+    viewer.close();
+    cli.close();
+  } finally {
+    await dispose();
   }
 });
