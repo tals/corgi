@@ -230,6 +230,27 @@ test("discarding resume hints while retaining a launcher preserves the core resu
   expect(recovered.panes[0].restoring()).toBe(command);
 });
 
+test("dormant commands with discarded metadata remain available for explicit resume", async () => {
+  using original = fixture(1);
+  const pane = original.panes[0],
+    command = "printf 'initial work\\n'";
+  pane.dormant = true;
+  pane.launch = new Launch(undefined, command);
+  for (const live of [true, false]) {
+    const cold = transfer.recovery(original, checkpoint.capture(original, false));
+    cold.transfer.format = "f".repeat(12);
+    const saved = live
+      ? transfer.decode(json.clone(transfer.encode(original, manifest(original), [formats.baseline], []))).runtime
+      : transfer.recover(json.stringify(cold)).value;
+    using restored = new Runtime();
+    await checkpoint.restore(restored, saved, live, "/tmp/unused", "/tmp/corgi", false);
+    expect(restored.panes[0].dormant).toBe(true);
+    expect(restored.panes[0].manual_resume).toBe(true);
+    expect(restored.panes[0].recovery_command).toBeNull();
+    expect(restored.panes[0].restoring()).toBe(command);
+  }
+});
+
 test("retained provider resume metadata keeps its launch options and does not duplicate resume arguments", async () => {
   using original = fixture();
   for (const pane of original.panes) {
@@ -257,6 +278,33 @@ test("retained provider resume metadata keeps its launch options and does not du
   expect(restored.panes[0].launch).toBeNull();
   expect(restored.panes[1].launch?.agent).toEqual(original.panes[1].launch.agent);
   expect(restored.panes.map(pane => pane.restoring())).toEqual(expected);
+});
+
+test("rediscovered resume hints replace a core-only fallback without duplicating its arguments", async () => {
+  using original = fixture(1);
+  const source = original.panes[0];
+  source.resume_hint.provider = "codex";
+  source.resume_hint.session = new Text("retained-session");
+  const command = source.resume_hint.command(),
+    sent = transfer.encode(original, manifest(original), [formats.baseline], []);
+  using handed = new Runtime();
+  await checkpoint.restore(handed, transfer.decode(json.clone(sent)).runtime, true, "/tmp/unused", "/tmp/corgi", false);
+  const pane = handed.panes[0];
+  pane.resume_hint.provider = "codex";
+  pane.resume_hint.session = new Text("retained-session");
+  pane.dormant = true;
+  expect(pane.restoring()).toBe(command);
+  using recovered = new Runtime();
+  const saved = transfer.recovery(handed, checkpoint.capture(handed, false));
+  await checkpoint.restore(
+    recovered,
+    transfer.recover(json.stringify(saved)).value,
+    false,
+    "/tmp/unused",
+    "/tmp/corgi",
+    false,
+  );
+  expect(recovered.panes[0].restoring()).toBe(command);
 });
 
 test("conflicting resume hints cannot redirect core commands during up, down or cold recovery", async () => {

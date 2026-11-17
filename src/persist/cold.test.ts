@@ -12,6 +12,7 @@ import * as transfer from "./transfer";
 import * as recovery from "./recovery";
 import * as check from "./check";
 import * as cold from "./cold";
+import * as formats from "./formats";
 
 function saved() {
   using runtime = new Runtime();
@@ -87,12 +88,12 @@ test("matching valid metadata is retained without a recovery rewrite", async () 
   expect(decoded.value.panes[0].binding).toEqual(state.panes[0].binding);
 });
 
-test("discarded cold metadata keeps active agents dormant and resumable while shells restart", async () => {
+test("cold recovery resumes agents without replaying ordinary commands, even after metadata loss", async () => {
   using original = new Runtime();
   const workspace = new Workspace(1, "/tmp", "workspace");
   original.workspaces.items.push(workspace);
   original.workspaces.next_id = 2;
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     const pane = new Pane(workspace.model.newTab("pane"), Terminal.create(20, 4), "/tmp");
     pane.terminal.exited = true;
     original.panes.push(pane);
@@ -102,24 +103,51 @@ test("discarded cold metadata keeps active agents dormant and resumable while sh
   agent.launch = new Launch({ provider: "codex" });
   agent.resume_hint.provider = "codex";
   agent.resume_hint.session = new Text("retained-session");
-  const saved = transfer.recovery(original, checkpoint.capture(original, false)),
-    starts: unknown[][] = [],
+  original.panes[2].launch = new Launch(undefined, "codex 'initial prompt'");
+  const starts: unknown[][] = [],
     spawn = spyOn(Terminal.prototype, "spawn").mockImplementation(async (...args) => {
       starts.push(args);
     });
   try {
-    for (const unknown of [true, false]) {
-      const state = json.clone(saved);
-      if (unknown) state.transfer.format = "f".repeat(12);
-      else json.object(state.transfer.payload.runtime).closed = [{}];
-      starts.length = 0;
-      using restored = new Runtime();
-      const decoded = await cold.read(json.stringify(state), "/tmp/unused", process.execPath);
-      await checkpoint.restore(restored, decoded.value, false, "/tmp/unused", process.execPath);
-      expect(restored.panes[0].dormant).toBe(true);
-      expect(restored.panes[0].restoring()).toBe("codex resume retained-session");
-      expect(restored.panes[1].dormant).toBe(false);
-      expect(starts.map(args => [args[2], args[4]])).toEqual([[original.panes[1].id, null]]);
+    using handed = new Runtime();
+    const wire = transfer.encode(
+      original,
+      {
+        runtime: checkpoint.capture(original, true),
+        requester: -1,
+        request_id: null,
+        start_lock: -1,
+        older_updater: false,
+        links: [],
+        theme: {},
+      },
+      [formats.baseline],
+      [],
+    );
+    await checkpoint.restore(
+      handed,
+      transfer.decode(json.clone(wire)).runtime,
+      true,
+      "/tmp/unused",
+      process.execPath,
+      false,
+    );
+    for (const source of [original, handed]) {
+      const saved = transfer.recovery(source, checkpoint.capture(source, false));
+      for (const metadata of ["valid", "unknown", "invalid", "legacy"]) {
+        const state = json.clone(saved);
+        if (metadata === "unknown") state.transfer.format = "f".repeat(12);
+        else if (metadata === "invalid") json.object(state.transfer.payload.runtime).closed = [{}];
+        else if (metadata === "legacy") delete json.object(state).transfer;
+        starts.length = 0;
+        using restored = new Runtime();
+        const decoded = await cold.read(json.stringify(state), "/tmp/unused", process.execPath);
+        await checkpoint.restore(restored, decoded.value, false, "/tmp/unused", process.execPath);
+        expect(restored.panes[0].dormant).toBe(true);
+        expect(restored.panes[0].restoring()).toBe("codex resume retained-session");
+        expect(restored.panes.slice(1).map(pane => pane.dormant)).toEqual([false, false]);
+        expect(starts.map(args => [args[2], args[4]])).toEqual(original.panes.slice(1).map(pane => [pane.id, null]));
+      }
     }
   } finally {
     spawn.mockRestore();

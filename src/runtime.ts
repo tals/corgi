@@ -255,6 +255,8 @@ export class Pane {
   /** A program archiving found running, typed at the prompt when no agent
    * comes back. It lasts as long as `manual_resume`, apart from `launch`. */
   manual_command: string | null = null;
+  /** A core resume command retained without its provider metadata. */
+  recovery_command: string | null = null;
   /** The account the agent a saved command started reads from its own
    * environment, which can say what the command's text can't. */
   running_account: string | null = null;
@@ -381,6 +383,12 @@ export class Pane {
   }
   /** How its agent comes back: as it was launched, or as its provider starts. */
   resumeLaunch() {
+    if (
+      this.recovery_command !== null &&
+      this.launch?.command === this.recovery_command &&
+      this.resume_hint.args() !== null
+    )
+      return new Launch({ provider: this.resume_hint.provider! });
     return this.launch ?? (this.resume_hint.provider ? new Launch({ provider: this.resume_hint.provider }) : null);
   }
   /** Shows its saved screen, faded, with nothing running until `Runtime.wake`. */
@@ -762,7 +770,8 @@ export class Runtime {
       p.terminal.read();
       if (p.detection.claim) {
         p.resume_hint = new ResumeHint();
-        if (p.launch?.agent) p.launch = null;
+        if (p.launch?.agent || p.recovery_command !== null) p.launch = null;
+        p.recovery_command = null;
         p.releaseDetection();
       } else {
         const a = p.agent();

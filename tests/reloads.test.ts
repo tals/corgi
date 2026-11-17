@@ -675,6 +675,54 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
   async test_cold_recovery_without_metadata_resumes_the_original_agent_once_focused() {
     await this.cold_resume(true);
   }
+  async test_cold_recovery_does_not_replay_custom_launcher_commands() {
+    await this.cold_command();
+  }
+  async test_cold_recovery_without_metadata_does_not_replay_custom_launcher_commands() {
+    await this.cold_command(true);
+  }
+  async test_cold_recovery_does_not_replay_a_command_woken_after_handoff() {
+    await this.cold_command(false, true);
+  }
+  async cold_command(discardMetadata = false, hibernate = false) {
+    const runs = join(this.temp.name, "command-runs"),
+      command = `printf 'RUN\\n' >> ${quote(runs)}; exec /bin/sh`;
+    await this.command("agent.command", { index: 0, command, resolve: false });
+    const { pane } = await this.command("agent.command.create", {
+      workspace: (await this.session()).workspaces[0].id,
+      cwd: this.temp.name,
+      index: 0,
+    });
+    await this.until(() => existsSync(runs));
+    this.assertEqual(readFileSync(runs, "utf8"), "RUN\n");
+    if (hibernate) {
+      await this.command("pane.hibernate", { targets: [pane] });
+      await this.reload();
+      const viewer = await Viewer.create(this);
+      await viewer.focus(pane);
+      await this.until(() => readFileSync(runs, "utf8") === "RUN\nRUN\n");
+      await viewer.close();
+    }
+    await this.restart_recovery(discardMetadata);
+    const recovered = (await this.session()).panes.find((p: any) => p.id === pane);
+    this.assertFalse(recovered.dormant);
+    this.assertGreater(recovered.pid, 0);
+    const viewer = await Viewer.create(this);
+    await viewer.focus(pane);
+    await this.command("pane.input", { target: pane, data: "printf 'FRESH_%s\\n' SHELL\r" });
+    await this.until(async () => (await this.screen(pane)).includes("FRESH_SHELL"));
+    this.assertEqual(readFileSync(runs, "utf8"), hibernate ? "RUN\nRUN\n" : "RUN\n");
+  }
+  async restart_recovery(discardMetadata: boolean) {
+    const saved = await this.rpc({ op: "recovery.save" });
+    if (!discardMetadata) return this.restart_runtime();
+    await this.run_cli("shutdown");
+    await this.until(() => !existsSync(this.path));
+    const state = JSON.parse(readFileSync(saved.path, "utf8"));
+    state.transfer.format = "f".repeat(12);
+    writeFileSync(saved.path, JSON.stringify(state));
+    await this.run_cli("start");
+  }
   async cold_resume(discardMetadata = false) {
     const resumes = join(this.temp.name, "resumes.jsonl"),
       session = "01901234-1234-1234-1234-123456789aaa",
@@ -695,15 +743,7 @@ await Bun.sleep(120000);
     const first = await this.new("printf 'BEFORE_%s\\n' CRASH; exec /bin/sh");
     await this.until(async () => (await this.screen(first)).includes("BEFORE_CRASH"));
     await this.pair(first, session);
-    const saved = await this.rpc({ op: "recovery.save" });
-    if (discardMetadata) {
-      await this.run_cli("shutdown");
-      await this.until(() => !existsSync(this.path));
-      const state = JSON.parse(readFileSync(saved.path, "utf8"));
-      state.transfer.format = "f".repeat(12);
-      writeFileSync(saved.path, JSON.stringify(state));
-      await this.run_cli("start");
-    } else await this.restart_runtime();
+    await this.restart_recovery(discardMetadata);
     const pane = async () => (await this.session()).panes.find((p: any) => p.id === first);
     this.assertEqual([(await pane()).dormant, (await pane()).pid], [true, -1]);
     this.assertEqual((await pane()).restoring, `codex resume ${session}`);

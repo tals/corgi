@@ -56,9 +56,14 @@ export function capture(runtime: Runtime, saved: ReturnType<typeof checkpoint.ca
         screen: { ...p.screen, pending: p.screen.pending ?? "" },
         dormant: p.dormant,
         manual_resume: p.manual_resume,
-        command: pane.resume_hint.args()
-          ? pane.resume_hint.command()
-          : (pane.manual_command ?? pane.launch?.command ?? null),
+        command: recoveryCommand(
+          pane.resume_hint,
+          p.dormant,
+          p.manual_resume,
+          pane.manual_command,
+          pane.recovery_command,
+          pane.launch,
+        ),
       };
     }),
   };
@@ -94,11 +99,14 @@ export function fromCheckpoint(value: unknown): Core {
           label: legacyLabel(pane.label ?? ""),
           dormant: pane.dormant === true,
           manual_resume: manual,
-          command: hint.args()
-            ? hint.command()
-            : ((manual && typeof pane.manual_command === "string" ? pane.manual_command : null) ??
-              pane.launch?.command ??
-              null),
+          command: recoveryCommand(
+            hint,
+            pane.dormant === true,
+            manual,
+            pane.manual_command,
+            pane.recovery_command,
+            pane.launch,
+          ),
           screen: {
             cols: screen.cols,
             rows: screen.rows,
@@ -119,6 +127,22 @@ export function fromCheckpoint(value: unknown): Core {
     if (errors.is(error, "InvalidHandoffCore")) throw new checkpoint.Invalid("invalid terminal core");
     throw error;
   }
+}
+
+function recoveryCommand(
+  hint: ResumeHint,
+  dormant: boolean,
+  manual: boolean,
+  command: unknown,
+  recovered: unknown,
+  launch: { command?: string } | null,
+): string | null {
+  if (hint.args()) return hint.command();
+  if (manual && typeof command === "string") return command;
+  // An active custom launch is not a command to replay after a crash.
+  return dormant || manual || (typeof recovered === "string" && launch?.command === recovered)
+    ? (launch?.command ?? null)
+    : null;
 }
 
 function legacyLabel(value: unknown): string {
@@ -249,14 +273,22 @@ export function restore(core: Core, metadata: unknown): ReturnType<typeof checkp
     panes: core.panes.map(p => {
       const extra = json.object(panes.get(p.id) ?? {});
       let launch = extra.launch ?? null,
-        resume_hint = extra.resume_hint ?? {};
+        resume_hint = extra.resume_hint ?? {},
+        recovery_command = null,
+        manual_resume = p.manual_resume;
       if (p.command !== null) {
         const hint = checkpoint.hydrate(new ResumeHint(), resume_hint);
         // Only a matching hint may supply the protected resume arguments.
         if (hint.args() === null || hint.command() !== p.command) {
+          const retained = extra.recovery_command === p.command,
+            ordinary = !retained && (extra.launch?.command === p.command || extra.manual_command === p.command);
           launch = { command: p.command };
           resume_hint = {};
-        }
+          // A dormant command without metadata may be an ordinary launch.
+          if (p.dormant && !ordinary && !retained) manual_resume = true;
+          if (!ordinary && !manual_resume) recovery_command = p.command;
+        } else if (typeof extra.recovery_command === "string" && launch?.command === extra.recovery_command)
+          launch = null;
       }
       return {
         binding: {},
@@ -264,12 +296,13 @@ export function restore(core: Core, metadata: unknown): ReturnType<typeof checkp
         launch,
         resume_hint,
         manual_command: p.command,
+        recovery_command,
         id: p.id,
         cwd: p.cwd,
         label: p.label,
         screen: p.screen,
-        dormant: p.dormant || (!core.live && p.command !== null),
-        manual_resume: p.manual_resume,
+        dormant: p.dormant || (!core.live && recovery_command !== null),
+        manual_resume,
       };
     }),
   } as ReturnType<typeof checkpoint.capture>;

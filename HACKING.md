@@ -555,6 +555,10 @@ are fixed; new daemon changes go in the shared state history.
    membership and screens after importing metadata. Frozen core fields must not
    acquire new meanings. Live auxiliary processes must be accounted for in the
    candidate's readiness receipt.
+   Core recovery commands retain agent resumes and dormant or archived commands;
+   an active custom launch opens a fresh shell after a crash. If metadata loss
+   leaves a dormant command's purpose ambiguous, preserve it at the prompt for
+   Enter instead of automatically running it.
 5. `state_formats.test.ts` compares the current structures with the fixture
    recorded for that revision in `fixtures/state_revisions/`. Schema changes
    require a new revision; never refresh an existing revision's fixture to

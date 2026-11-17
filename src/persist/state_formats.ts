@@ -11,6 +11,7 @@ import * as r_66623983aa75_promote_provider_sessions_into_shared_conversati from
 import * as r_68139a93dee0_terminal_core_handoff_baseline from "./revisions/r_68139a93dee0_terminal_core_handoff_baseline";
 import * as r_726fa383fd91_add_remote_account_management_and_model_lookup_r from "./revisions/r_726fa383fd91_add_remote_account_management_and_model_lookup_r";
 import * as r_852a72ce6f71_recover_permission_bypass_from_saved_command_mod from "./revisions/r_852a72ce6f71_recover_permission_bypass_from_saved_command_mod";
+import * as r_ce6d04179c29_distinguish_retained_resume_commands_from_custom from "./revisions/r_ce6d04179c29_distinguish_retained_resume_commands_from_custom";
 import * as r_d58e69e6af6c_replace_fixed_byte_strings_and_index_providers_b from "./revisions/r_d58e69e6af6c_replace_fixed_byte_strings_and_index_providers_b";
 import * as r_e2a57d17f66f_initial_state from "./revisions/r_e2a57d17f66f_initial_state";
 import * as r_e4d557bcd1e4_separate_current_recovery_metadata_from_legacy_c from "./revisions/r_e4d557bcd1e4_separate_current_recovery_metadata_from_legacy_c";
@@ -32,6 +33,7 @@ export const revisions = [
   r_68139a93dee0_terminal_core_handoff_baseline.revision,
   r_726fa383fd91_add_remote_account_management_and_model_lookup_r.revision,
   r_852a72ce6f71_recover_permission_bypass_from_saved_command_mod.revision,
+  r_ce6d04179c29_distinguish_retained_resume_commands_from_custom.revision,
   r_d58e69e6af6c_replace_fixed_byte_strings_and_index_providers_b.revision,
   r_e2a57d17f66f_initial_state.revision,
   r_e4d557bcd1e4_separate_current_recovery_metadata_from_legacy_c.revision,
@@ -42,7 +44,7 @@ export const revisions = [
   r_f598c67a8c73_store_summary_workers_in_provider_clients.revision,
 ];
 export const heads = {
-  state: r_726fa383fd91_add_remote_account_management_and_model_lookup_r.revision.id,
+  state: r_ce6d04179c29_distinguish_retained_resume_commands_from_custom.revision.id,
   checkpoint: r_1dfaa1773956_store_headless_process_state_in_provider_clients.revision.id,
   handoff: r_3a005bd21b0d_retire_transferred_connections_and_resume_links.revision.id,
   workspaces: r_f4c12b1642bd_remove_workspace_pinned_flag.revision.id,

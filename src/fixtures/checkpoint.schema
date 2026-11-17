@@ -355,6 +355,8 @@ $.panes[].effort?.done[]: string
 $.panes[].effort?.last: string
 $.panes[].manual_command: optional
 $.panes[].manual_command?: custom bounded_text.BoundedText(2048)
+$.panes[].recovery_command: optional
+$.panes[].recovery_command?: custom bounded_text.BoundedText(2048)
 $.closed[].label: custom bounded_text.BoundedText(80)
 $.closed[].cwd: string
 $.closed[].screen.cols: u16

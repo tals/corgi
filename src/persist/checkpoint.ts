@@ -238,6 +238,7 @@ export function capture(r: Runtime, live: boolean) {
         manual_resume: p.manual_resume,
         effort: live ? agentEffort.save(r, p) : null,
         manual_command: p.manual_command,
+        recovery_command: p.recovery_command,
       };
     }),
     closed: r.closed.map(p => ({
@@ -461,6 +462,7 @@ export async function restore(
     pane.dormant = p.dormant === true;
     pane.manual_resume = p.manual_resume === true || r.workspaces.owner(p.id)!.archived;
     pane.manual_command = pane.manual_resume && typeof p.manual_command === "string" ? p.manual_command : null;
+    pane.recovery_command = typeof p.recovery_command === "string" ? p.recovery_command : null;
     if (live) agentEffort.restore(r, pane, p.effort);
   }
   for (const w of r.workspaces.items)
