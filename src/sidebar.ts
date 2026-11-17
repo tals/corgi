@@ -1508,7 +1508,7 @@ export class View {
       return { start: range.start + lists_x, end: range.end + lists_x };
     }
     const unread_width = View.unreadWidth(ws);
-    const metadata_width = statusMetadataWidth(ws);
+    const metadata_width = displayWidth(statusLabel(ws, this.width));
     const attention_width = ws.attention > 0 ? displayWidth(compactCount(ws.attention)) + 2 : 0;
     const working_width = ws.working > 0 ? displayWidth(compactCount(ws.working)) + 1 : 1;
     const room = sat(sat(sat(this.width, 3), metadata_width + 1), unread_width + 3);
@@ -1781,15 +1781,14 @@ export class View {
         w.splat(" ", v.width - 3);
         w.write(w.cup(y + 2, 2));
       }
-      const tools = compactCount(ws.stats.tools);
       const count = compactCount(ws.unread);
       const unread = ws.unread > 0 ? i18n.t`${count} unread →` : "";
       const attention = ws.attention > 0 ? ` ●${compactCount(ws.attention)}` : "";
       const unread_width = View.unreadWidth(ws);
       const attention_width = displayWidth(attention);
-      const metadata = `⚒${tools}`;
+      const metadata = statusLabel(ws, v.width);
       const metadata_width = displayWidth(metadata);
-      const left_room = sat(v.width - 3, statusMetadataWidth(ws) + 1);
+      const left_room = sat(v.width - 3, metadata_width + 1);
       const room = { value: sat(left_room, unread_width + 3) };
       let has_status = false;
       {
@@ -1809,10 +1808,7 @@ export class View {
         const unread_room = { value: unread_width };
         statusPart(w, unread, "\x1b[1m" + fg("accent"), unread_room);
       }
-      const worktree_label = worktreeLabel(ws);
-      if (worktree_label) {
-        w.write(`${w.cup(y + 2, v.width - 1 - displayWidth(worktree_label))}${meta}${rule}${worktree_label}`);
-      } else if (ws.stats.tools > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
+      if (metadata_width > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
       if (tinted) for (const row of [y + 1, y + 2]) w.write(`${w.cup(row, 1)}${bar}`);
       w.write(panel);
       if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
@@ -2780,19 +2776,35 @@ function writeConnectionGlimmer(w: Writer, label: string, now_ms: number): void 
     col += width;
   }
 }
-function statusMetadataWidth(ws: WorkspaceEntry): number {
-  return displayWidth(worktreeLabel(ws)) || displayWidth(compactCount(ws.stats.tools)) + 1;
+/** Columns the status row's right-hand label may take: what is left once the
+ * activity indicator and the unread slot have theirs. */
+function statusLabelRoom(ws: WorkspaceEntry, width: number): number {
+  const working = ws.working > 0 ? displayWidth(compactCount(ws.working)) + 1 : 1;
+  const attention = ws.attention > 0 ? displayWidth(compactCount(ws.attention)) + 2 : 0;
+  return sat(sat(width, 3), working + attention + View.unreadWidth(ws) + 3 + 1);
+}
+/** The status row's right-hand label: the worktree count, or the tool count
+ * in a workspace without worktrees. It yields to the activity indicator. */
+function statusLabel(ws: WorkspaceEntry, width: number): string {
+  const worktree = worktreeLabel(ws);
+  if (worktree) return displayWidth(worktree) <= statusLabelRoom(ws, width) ? worktree : "";
+  const tools = `⚒${compactCount(ws.stats.tools)}`;
+  return ws.stats.tools > 0 && displayWidth(tools) <= statusLabelRoom(ws, width) ? tools : "";
 }
 export function worktreeLabel(ws: WorkspaceEntry): string {
   const count = worktrees.linked(ws.worktrees).length;
-  return count ? (count === 1 ? i18n.t`${count} worktree` : i18n.t`${count} worktrees`) : "";
+  return count ? `⑂${compactCount(count)}` : "";
+}
+/** The worktree count unless it would crowd out the activity indicator. */
+function shownWorktreeLabel(ws: WorkspaceEntry, width: number): string {
+  return worktrees.linked(ws.worktrees).length > 0 ? statusLabel(ws, width) : "";
 }
 export function worktreeBadge(v: View, workspaces: WorkspaceEntry[], id: viewerRef.Workspace): Rect | null {
   const index = workspaces.findIndex(ws => ws.id === id),
     slot = index - v.workspace_offset;
   if (v.width === 0 || index < 0 || slot < 0 || slot >= v.workspaceCapacity() || workspaces[index].collapsed)
     return null;
-  const width = displayWidth(worktreeLabel(workspaces[index]));
+  const width = displayWidth(shownWorktreeLabel(workspaces[index], v.width));
   return width ? new Rect(v.width - 2 - width, v.workspaceY(index) + 1, width, 1) : null;
 }
 export function worktreeAt(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
@@ -2802,7 +2814,7 @@ export function worktreeAt(v: View, workspaces: WorkspaceEntry[], x: number, y: 
   if (hit.tag !== "workspace") return null;
   const ws = workspaces[hit.workspace];
   if (ws?.unavailable) return null;
-  const width = ws ? displayWidth(worktreeLabel(ws)) : 0;
+  const width = ws ? displayWidth(shownWorktreeLabel(ws, v.width)) : 0;
   return width && x >= v.width - 2 - width && x < v.width - 2 ? ws : null;
 }
 export function portLink(v: View, workspaces: WorkspaceEntry[], x: number, y: number): string | null {
