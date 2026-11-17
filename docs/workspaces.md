@@ -52,6 +52,45 @@ retry waits while you work in that pane, and Esc there calls it off. It needs
 Codex on its shared app server; a Codex with a server of its own leaves the
 failure as it is.
 
+## Order workspaces by activity
+
+Turn on **Corgi setup → Workspace order → Auto-order workspaces** to let the
+workspace list follow your work. Workspaces you worked in lately form an
+active group at the top, in the order they had; the others sink below it,
+most recently used first.
+
+- **Activity** is an agent in the workspace running a turn, with or without a
+  pane, or you typing or pasting into one of its panes. Creating or
+  unarchiving a workspace counts too. Looking, clicking, scrolling and text
+  sent with `corgi pane send` or by scripts don't, and an agent waiting on a
+  permission prompt isn't working.
+- **Stale after** (default 10 minutes): a workspace idle this long leaves the
+  active group. Activity brings it back, at the end of the group. Agents
+  going from working to idle and back never move an active workspace.
+- **Fade**: a stale workspace's name darkens in five steps, closer together in
+  the first hour, down to the gray of a napping agent. Only the name fades.
+- **Archive after** (default 8 hours, or Off): a stale workspace idle this
+  long is archived as if you had chosen **Archive workspace**, without the
+  review. It waits while it runs a program or serves a link, its process list
+  can't be read in full, an agent in it waits on you, a viewer shows it, or it
+  is the last workspace left. A notice names each one archived, and
+  `server.log` records why one waited. Switching auto-order on, or lowering
+  this, holds archiving back for one full period.
+- **Pause after** (default 5 minutes): when nothing happens anywhere for this
+  long (no agent working, no typing, no prompt sent to Corgi), every idle
+  clock stops until something does. Lunch, nights, a stopped Corgi and a
+  sleeping computer don't age anything.
+
+You can still drag workspaces within the active group, including to the slot
+right below it. A stale workspace stays where its idle time puts it, and
+nothing can be dropped among the stale ones; such a drop snaps back.
+Switching auto-order off keeps the order as it is, without the fade or
+archiving. Each machine keeps its own settings, clocks and groups; with
+several machines in one sidebar, a machine ordering by activity keeps its
+places among the others and fills them in its own order.
+
+Try it with `./go.ts --sandbox auto_order`.
+
 ## Hibernate panes and archive workspaces
 
 Pane hibernation is a CLI/RPC primitive for scripts and tricks. It stops the
@@ -112,8 +151,9 @@ corgi workspace unarchive 3
 `corgi list --json` and `corgi workspace list --json` include `dormant`
 and `archived`. The corresponding session commands are `pane.hibernate`
 with `targets`, and `pane.wake`, `workspace.archive`, `workspace.unarchive`
-with `target`. Repeating an operation is harmless. Core does not choose when
-to park idle workspaces; that policy belongs in a script or trick.
+with `target`. Repeating an operation is harmless. Beyond
+[auto-order](#order-workspaces-by-activity), core does not choose when to
+park idle workspaces; other policies belong in a script or trick.
 
 Try an isolated example with `./go.ts --sandbox hibernation`.
 
