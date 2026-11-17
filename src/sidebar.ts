@@ -2800,6 +2800,10 @@ function shownWorktreeLabel(ws: WorkspaceEntry, width: number): string {
   return worktrees.linked(ws.worktrees).length > 0 ? statusLabel(ws, width) : "";
 }
 export function worktreeBadge(v: View, workspaces: WorkspaceEntry[], id: viewerRef.Workspace): Rect | null {
+  if (v.framed()) {
+    const badge = worktreeBadge(v.lists(), workspaces, id);
+    return badge && new Rect(badge.x + lists_x, badge.y, badge.w, badge.h);
+  }
   const index = workspaces.findIndex(ws => ws.id === id),
     slot = index - v.workspace_offset;
   if (v.width === 0 || index < 0 || slot < 0 || slot >= v.workspaceCapacity() || workspaces[index].collapsed)
