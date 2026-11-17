@@ -25,3 +25,28 @@ test("workspace drop follows row midpoints, scrolling, and stale lists", () => {
   expect(drag.before()).toBe(ids[0]);
   expect(drag.valid(view, ids.slice(0, 3))).toBe(false);
 });
+test("a drop the predicate refuses shows nowhere", () => {
+  const ids = [1, 2, 3, 4],
+    view = View.init(100, 30, true, 0, 0, 12).withWorkspaces(ids.length, 0),
+    drag = Drag.init(view, ids, 0, 5, 2),
+    asked: [number, number][] = [];
+  // Rows 3 and 4 are stale: nothing lands past row 3.
+  const allowed = (source: number, before: number) => {
+    asked.push([source, before]);
+    return before === 2 || before === 3;
+  };
+  drag.dragging = true;
+  drag.update(view, ids, 5, 9, allowed);
+  expect([drag.drop?.index, drag.preview]).toEqual([2, 1]);
+  drag.update(view, ids, 5, 10, allowed);
+  expect([drag.drop, drag.preview]).toEqual([null, null]);
+  expect(drag.before()).toBeNull();
+  const scrolled = view.withWorkspaces(ids.length, 1);
+  drag.update(scrolled, ids, 5, 10, allowed);
+  expect(drag.drop).toBeNull();
+  expect(asked).toEqual([
+    [1, 3],
+    [1, 4],
+    [1, 1],
+  ]);
+});

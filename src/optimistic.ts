@@ -2,6 +2,7 @@ import * as docking from "./docking";
 import * as protocol from "./protocol";
 import { Order, Pins, live, type Target } from "./agent_order";
 import { moveBefore } from "./workspace";
+import * as workspaceActivity from "./workspace_activity";
 import type { Runtime, Workspace } from "./mirror";
 
 /** A change to the mirror showing a command's result before its daemon
@@ -47,7 +48,13 @@ export function edit(command: protocol.CommandInput): Edit | null {
     }
     case "workspace.move": {
       const { target, before } = request.payload;
-      return runtime => moveBefore(runtime.workspaces.items, target, before);
+      return runtime => {
+        // The daemon drops a move that breaks the auto-order groups.
+        const items = runtime.workspaces.items.map(workspaceActivity.shown),
+          enabled = runtime.workspace_auto_order?.enabled ?? false;
+        if (workspaceActivity.moveAllowed(items, target, before, enabled))
+          moveBefore(runtime.workspaces.items, target, before);
+      };
     }
     case "layout.dock": {
       const q = request.payload;

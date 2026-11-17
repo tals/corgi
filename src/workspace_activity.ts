@@ -91,6 +91,16 @@ export function step(idle_ms: number, s: Settings): Step {
   return n as Step;
 }
 export type Item = { id: number; archived: boolean; active_at: number; group: Group };
+/** The fade step viewers draw a workspace with: 0 unless auto-order is on and it's stale. */
+export function staleStep(w: Item, clock: number, s: Settings): Step {
+  return s.enabled && !w.archived && w.group === "stale" ? step(clock - w.active_at, s) : 0;
+}
+/** Mouse and focus reports a terminal sends on its own. */
+const reports = /\x1b\[(?:<\d+;\d+;\d+[Mm]|M[\s\S]{3}|\d+;\d+;\d+M|I|O)/g;
+/** Whether pane input is typing: anything but mouse and focus reports. */
+export function typing(data: string): boolean {
+  return data.replace(reports, "") !== "";
+}
 /** Sets the group each workspace's idle time gives it and orders `items`:
  * active ones as they were, a stale one waking at the end of them; stale
  * ones by idle time; archived ones last. Whether the order or a group changed. */
@@ -131,6 +141,13 @@ export function resync(items: Item[], clock: number, s: Settings): void {
   }
 }
 const stale = (w: Item) => !w.archived && w.group === "stale";
+/** A workspace as a viewer knows it: stale while it shows a fade step. */
+export const shown = (w: { id: number; archived: boolean; stale_step: number }): Item => ({
+  id: w.id,
+  archived: w.archived,
+  active_at: 0,
+  group: w.stale_step > 0 ? "stale" : "active",
+});
 /** Whether moving `target` above `before` (last when it's `target`) keeps the
  * groups: a stale workspace stays put, and none lands past the first stale
  * one. The slot right after the last active one is in the active group. */

@@ -540,6 +540,10 @@ $.snapshot.shell.default: string
 $.snapshot.shell.default_source: enum env account fallback
 $.snapshot.smart_links: bool
 $.snapshot.auto_retry: bool
+$.snapshot.workspace_auto_order.enabled: bool
+$.snapshot.workspace_auto_order.pause_after: u32
+$.snapshot.workspace_auto_order.stale_after: u32
+$.snapshot.workspace_auto_order.archive_after: u32
 $.snapshot.system_working: bool
 $.snapshot.system_usage.tokens.input: u64
 $.snapshot.system_usage.tokens.cached_input: u64
@@ -798,6 +802,8 @@ $.snapshot.workspaces[].archive_summary?.programs[].name: string
 $.snapshot.workspaces[].archive_summary?.programs[].brand: optional
 $.snapshot.workspaces[].archive_summary?.programs[].brand?: string
 $.snapshot.workspaces[].archive_summary?.programs[].count: u32
+$.snapshot.workspaces[].stale_step: u8
+$.snapshot.workspaces[].auto_archived: bool
 $.snapshot.workspaces[].model: custom layout.Model
 $.snapshot.workspaces[].agent_order[]: one of
 $.snapshot.workspaces[].agent_order[]|pane: u32

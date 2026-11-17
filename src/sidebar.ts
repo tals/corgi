@@ -598,6 +598,8 @@ export interface WorkspaceEntry<Id = viewerRef.Workspace> {
   unread: number;
   attention: number;
   stats: Stats;
+  /** The auto-order fade: 0 for the usual name color, 1 to 5 ever darker while stale. */
+  stale_step: number;
 }
 export type ArchivedWorkspace = Pick<WorkspaceEntry, "id" | "name" | "active"> & { summary?: ArchiveSummary | null };
 export function workspaceEntry<Id>(
@@ -626,6 +628,7 @@ export function workspaceEntry<Id>(
     unread: 0,
     attention: 0,
     stats: { tools: 0, input: 0, output: 0, tokens_known: false },
+    stale_step: 0,
     ...fields,
   };
 }

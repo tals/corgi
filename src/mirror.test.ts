@@ -66,6 +66,48 @@ test("the Corgi prompt's sessions are kept apart from the headless agents", () =
     runtime.destroy();
   }
 });
+test("auto-order fields default for an older daemon and stay in range", () => {
+  const runtime = new mirror.Runtime(),
+    model = { nodes: [], tabs: [], revision: 0 };
+  try {
+    runtime.receive(null as any, { workspaces: [{ id: 1, model }] });
+    expect(runtime.workspace_auto_order).toBeNull();
+    expect(runtime.workspaces.items[0]).toMatchObject({ stale_step: 0, auto_archived: false });
+    runtime.receive(null as any, {
+      workspace_auto_order: { enabled: true, pause_after: 1, stale_after: 3, archive_after: 0 },
+      workspaces: [
+        { id: 1, model, stale_step: 9, auto_archived: true },
+        { id: 2, model, stale_step: -2 },
+        { id: 3, model, stale_step: 2.5 },
+        { id: 4, model, stale_step: 3 },
+      ],
+    });
+    expect(runtime.workspace_auto_order).toEqual({
+      enabled: true,
+      pause_after: 1,
+      stale_after: 3,
+      archive_after: null,
+    });
+    expect(runtime.workspaces.items.map(w => [w.stale_step, w.auto_archived])).toEqual([
+      [5, true],
+      [0, false],
+      [0, false],
+      [3, false],
+    ]);
+    runtime.receive(null as any, {
+      workspace_auto_order: { enabled: "yes", pause_after: -1, archive_after: 60 },
+      workspaces: [{ id: 1, model }],
+    });
+    expect(runtime.workspace_auto_order).toEqual({
+      enabled: false,
+      pause_after: 5,
+      stale_after: 10,
+      archive_after: 60,
+    });
+  } finally {
+    runtime.destroy();
+  }
+});
 test("a snapshot whose stars the viewer can't read shows none", () => {
   const runtime = new mirror.Runtime();
   try {
