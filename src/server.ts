@@ -798,15 +798,22 @@ export class Server {
       changed = true;
     }
     if (s.enabled) this.autoArchive(now);
+    // Closed workspaces leave no bookkeeping behind.
+    const open = (id: number) => r.workspaces.get(id) !== undefined;
+    for (const map of [r.stale_steps, this.archive_checked]) for (const id of map.keys()) if (!open(id)) map.delete(id);
+    this.archive_reported.retain(open);
     if (!changed) return;
     r.changed();
     this.dirty = true;
     void this.saveWorkspaces();
   }
   /** Archives each workspace idle for "archive after", once a minute at
-   * most asking what holds it back, and logs each new reason once. */
+   * most asking what holds it back, and logs each new reason once. Reading
+   * the process list scans every process, so a tick reads it for one
+   * workspace at most and the rest wait for the next. */
   private autoArchive(now: number): void {
     const r = this.runtime;
+    let scanned = false;
     for (const w of r.workspaces.items) {
       if (!workspaceActivity.due(w, r.activity.clock, r.activity.guard, r.auto_order)) {
         this.archive_reported.clear(w.id);
@@ -814,8 +821,12 @@ export class Server {
         continue;
       }
       if (this.archiving.has(w.id) || now - (this.archive_checked.get(w.id) ?? -Infinity) < 60_000) continue;
+      const facts = this.archiveFacts(w),
+        quick = workspaceActivity.quickBlocker(facts);
+      if (!quick && scanned) continue;
       this.archive_checked.set(w.id, now);
-      const reason = workspaceActivity.blocker(this.archiveFacts(w));
+      scanned ||= !quick;
+      const reason = quick ?? workspaceActivity.blocker(facts);
       if (reason) {
         if (this.archive_reported.report(w.id, reason))
           autoOrderLog.warn("Auto-archive blocked", { workspace: w.id, name: w.name(), reason });
@@ -851,15 +862,14 @@ export class Server {
       served: () => r.ports.enabled && r.ports.current.workspace(w.id).endpoints.length > 0,
     };
   }
-  /** Archives `id` as a manual archive would, unless it woke, came on
-   * screen or an agent began waiting in it since it was checked. */
+  /** Archives `id` as a manual archive would, unless it woke or something
+   * began holding it back since it was checked. */
   private async autoArchiveNow(id: number): Promise<void> {
     const r = this.runtime,
       w = r.workspaces.get(id);
     try {
       if (!w || !workspaceActivity.due(w, r.activity.clock, r.activity.guard, r.auto_order)) return;
-      const facts = this.archiveFacts(w);
-      if (!facts.others || facts.on_screen || facts.waiting) return;
+      if (workspaceActivity.blocker(this.archiveFacts(w))) return;
       // Set first, so the snapshot that shows it archived says why.
       w.auto_archived = true;
       try {

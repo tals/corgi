@@ -52,12 +52,11 @@ export function toFile(s: Settings): Record<string, unknown> {
 export type Wire = { enabled: boolean; pause_after: number; stale_after: number; archive_after: number };
 export const wire = (s: Settings): Wire => ({ ...s, archive_after: s.archive_after ?? 0 });
 /** `s` with the changes a configure request asks for, where `archive_after`
- * 0 means Off; null when a threshold is 0 where it can't be. */
+ * 0 means Off; null when the thresholds would be out of order. */
 export function configure(
   s: Settings,
   q: { enabled: boolean | null; pause_after: number | null; stale_after: number | null; archive_after: number | null },
 ): Settings | null {
-  if (q.pause_after === 0 || q.stale_after === 0) return null;
   const next: Settings = {
     enabled: q.enabled ?? s.enabled,
     pause_after: q.pause_after ?? s.pause_after,
@@ -80,6 +79,9 @@ export class Clock {
     this.last_activity = now;
   }
   advance(now: number, pause_after_ms: number) {
+    // A wall clock set back moves the last activity with it, so the pause
+    // still starts "pause after" past it.
+    if (now < this.last_tick && this.last_activity !== null) this.last_activity += now - this.last_tick;
     const elapsed = Math.min(Math.max(0, now - this.last_tick), tick_cap_ms),
       open = this.last_activity === null ? 0 : Math.max(0, this.last_activity + pause_after_ms - this.last_tick);
     this.clock += Math.min(elapsed, open);
@@ -217,11 +219,18 @@ export type Facts = {
   inventory: () => Inventory;
   served: () => boolean;
 };
-/** The first reason a due workspace can't be archived, or null. */
-export function blocker(facts: Facts): Blocker | null {
+/** The first reason a due workspace can't be archived that needs no
+ * process list, or null. */
+export function quickBlocker(facts: Facts): Blocker | null {
   if (!facts.others) return "last-workspace";
   if (facts.on_screen) return "on-screen";
   if (facts.waiting) return "waiting-agent";
+  return null;
+}
+/** The first reason a due workspace can't be archived, or null. */
+export function blocker(facts: Facts): Blocker | null {
+  const quick = quickBlocker(facts);
+  if (quick) return quick;
   const inventory = facts.inventory();
   if (!inventory.available) return "process-list-unavailable";
   if (inventory.partial) return "process-list-partial";
@@ -229,18 +238,24 @@ export function blocker(facts: Facts): Blocker | null {
   if (facts.served()) return "served-link";
   return null;
 }
-/** Remembers what was logged for each workspace, so a blocker or error is
- * logged once rather than on every check. */
+/** Remembers what was logged for each workspace, so each blocker or error
+ * is logged once while it stays due rather than on every check. */
 export class Reported {
-  private last = new Map<number, string>();
+  private logged = new Map<number, Set<string>>();
   /** Whether `reason` is new for workspace `id`. */
   report(id: number, reason: string): boolean {
-    if (this.last.get(id) === reason) return false;
-    this.last.set(id, reason);
+    const reasons = this.logged.get(id) ?? new Set<string>();
+    if (reasons.has(reason)) return false;
+    reasons.add(reason);
+    this.logged.set(id, reasons);
     return true;
   }
   clear(id: number) {
-    this.last.delete(id);
+    this.logged.delete(id);
+  }
+  /** Forgets workspaces `keep` turns down, such as closed ones. */
+  retain(keep: (id: number) => boolean) {
+    for (const id of this.logged.keys()) if (!keep(id)) this.logged.delete(id);
   }
 }
 /** The settings last applied to the archive guard. */
