@@ -117,6 +117,14 @@ describe("Clock", () => {
     c.advance(30 * 60 * min, pause);
     expect(c.clock).toBe(2 * activity.tick_cap_ms);
   });
+  test("a wall clock set back doesn't hold the pause off", () => {
+    const c = new activity.Clock(0);
+    c.activity(0);
+    run(c, 0, 1 * min, false);
+    // Set back an hour: the pause still starts five minutes past the activity.
+    run(c, -60 * min, 0, false);
+    expect(c.clock).toBe(5 * min);
+  });
   test("a fresh clock waits for activity", () => {
     const c = new activity.Clock(1000);
     c.clock = 42;
@@ -355,9 +363,28 @@ describe("auto-archive", () => {
     expect(r.report(1, "on-screen")).toBe(false);
     expect(r.report(2, "on-screen")).toBe(true);
     expect(r.report(1, "running-process")).toBe(true);
-    expect(r.report(1, "on-screen")).toBe(true);
+    // A reason that comes back after another is still logged only once.
+    expect(r.report(1, "on-screen")).toBe(false);
     r.clear(1);
     expect(r.report(1, "on-screen")).toBe(true);
+    r.retain(id => id !== 2);
+    expect(r.report(2, "on-screen")).toBe(true);
+    expect(r.report(1, "on-screen")).toBe(false);
+  });
+  test("the quick blockers need no process list", () => {
+    const unread: activity.Facts = {
+      ...clear,
+      inventory: () => {
+        throw Error("read");
+      },
+      served: () => {
+        throw Error("read");
+      },
+    };
+    expect(activity.quickBlocker(unread)).toBeNull();
+    expect(activity.quickBlocker({ ...unread, others: false })).toBe("last-workspace");
+    expect(activity.quickBlocker({ ...unread, on_screen: true })).toBe("on-screen");
+    expect(activity.quickBlocker({ ...unread, waiting: true })).toBe("waiting-agent");
   });
   test("the guard arms on switch-on, a lower archive after and leaving Off", () => {
     const clock = 500 * min;
@@ -369,5 +396,58 @@ describe("auto-archive", () => {
     expect(activity.armGuard({ enabled: true, archive_after: 30 }, s, clock)).toBeNull();
     expect(activity.armGuard({ enabled: true, archive_after: 60 }, { ...s, enabled: false }, clock)).toBeNull();
     expect(activity.armGuard(null, { ...s, archive_after: null }, clock)).toBeNull();
+  });
+});
+
+describe("typing", () => {
+  test("mouse and focus reports alone aren't typing", () => {
+    for (const report of ["\x1b[M !!", "\x1b[32;10;5M", "\x1b[<0;1;1M\x1b[I", "\x1b[<65;3;4m", "\x1b[O"])
+      expect(activity.typing(report)).toBe(false);
+  });
+  test("keys are, alone or beside a report", () => {
+    for (const keys of ["a", "\x1b[A", "\x1b[Ia", "\r"]) expect(activity.typing(keys)).toBe(true);
+  });
+});
+describe("restore", () => {
+  const restored = (saved: unknown) => {
+    const r = {
+      activity: new activity.Clock(0),
+      applied: { enabled: true, archive_after: 60 } as activity.Applied | null,
+    };
+    activity.restore(r, saved);
+    return { clock: r.activity.clock, guard: r.activity.guard, applied: r.applied };
+  };
+  test("anything malformed starts over", () => {
+    expect(restored({ clock: "x", guard: -5, applied: { enabled: "yes" } })).toEqual({
+      clock: 0,
+      guard: 0,
+      applied: null,
+    });
+    expect(restored("garbage")).toEqual({ clock: 0, guard: 0, applied: null });
+    expect(restored(null)).toEqual({ clock: 0, guard: 0, applied: null });
+    expect(restored({ clock: 1.5, guard: 20 })).toEqual({ clock: 0, guard: 20, applied: null });
+  });
+  test("a saved archive after of 0 or malformed is Off", () => {
+    expect(restored({ clock: 10, guard: 20, applied: { enabled: true, archive_after: 0 } })).toEqual({
+      clock: 10,
+      guard: 20,
+      applied: { enabled: true, archive_after: null },
+    });
+    expect(restored({ clock: 10, guard: 20, applied: { enabled: false, archive_after: 2.5 } }).applied).toEqual({
+      enabled: false,
+      archive_after: null,
+    });
+    expect(
+      restored(
+        activity.save({
+          activity: Object.assign(new activity.Clock(0), { clock: 7, guard: 9 }),
+          applied: { enabled: true, archive_after: 120 },
+        }),
+      ),
+    ).toEqual({
+      clock: 7,
+      guard: 9,
+      applied: { enabled: true, archive_after: 120 },
+    });
   });
 });

@@ -20,6 +20,8 @@ import * as client_socket from "./fixtures/client_socket";
 import { scopedEnv } from "./fixtures/env";
 import * as settings from "./settings";
 import { Reply } from "./peer";
+import * as archiveInventory from "./archive_inventory";
+import * as workspaceActivity from "./workspace_activity";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -1012,6 +1014,76 @@ test("auto-order counts agents processing a turn and keeps the groups each tick"
     await dispose();
   }
 });
+test("auto-order counts headless agents processing a turn, but not Corgi's own", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    tick = () => Reflect.get(server, "autoOrder").call(server);
+  try {
+    const ws = new Workspace(1, "/tmp", "w");
+    r.workspaces.items.push(ws);
+    r.activity.clock = 5000;
+    const fresh = { corgi: false, exited: false, paused: false, state: "working", attending: "none" },
+      headless = {
+        ...fresh,
+        workspace_id: ws.id,
+        status: () => headless.state,
+        attention: () => headless.attending,
+        agent: () => ({ paused: headless.paused }),
+      };
+    r.sessions.push(headless as any);
+    tick();
+    expect(ws.active_at).toBe(5000);
+    expect(r.activity.last_activity).not.toBeNull();
+    for (const change of [
+      () => (headless.corgi = true),
+      () => (headless.exited = true),
+      () => (headless.attending = "needs_input"),
+      () => (headless.paused = true),
+      () => (headless.state = "idle"),
+    ]) {
+      Object.assign(headless, fresh);
+      change();
+      const before = (ws.active_at = r.activity.clock - 1);
+      tick();
+      expect(ws.active_at).toBe(before);
+    }
+    r.sessions.length = 0;
+  } finally {
+    await dispose();
+  }
+});
+test("switching auto-order off keeps the order, drops the fade and stops archiving", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    tick = () => Reflect.get(server, "autoOrder").call(server),
+    jobs = () => Reflect.get(server, "jobs") as Promise<void>,
+    minute = 60_000;
+  try {
+    const [a, due, b] = [1, 2, 3].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(a, due, b);
+    r.workspaces.next_id = 4;
+    r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
+    r.activity.clock = 100 * minute;
+    a.active_at = b.active_at = r.activity.clock;
+    due.active_at = r.activity.clock - 9 * minute;
+    tick();
+    expect(r.workspaces.items.map(w => w.id)).toEqual([1, 3, 2]);
+    expect(r.stale_steps.get(due.id)).toBeGreaterThan(0);
+    // Off, then due: the order stays, the fade goes and nothing is archived.
+    r.auto_order = { ...r.auto_order, enabled: false };
+    due.active_at = r.activity.clock - 20 * minute;
+    const revision = r.revision;
+    tick();
+    await jobs();
+    expect(r.workspaces.items.map(w => w.id)).toEqual([1, 3, 2]);
+    expect(r.stale_steps.get(due.id)).toBe(0);
+    expect(session.snapshot(r).workspaces.find(w => w.id === due.id)?.stale_step).toBe(0);
+    expect(r.revision).toBeGreaterThan(revision);
+    expect(due.archived).toBe(false);
+  } finally {
+    await dispose();
+  }
+});
 test("only a prompt submitted to Corgi ends a pause, however it arrives", async () => {
   const { server, dispose } = saving(),
     r = server.runtime;
@@ -1179,6 +1251,146 @@ test("auto-archive waits for what holds a due workspace back, then archives it a
     expect(due).toMatchObject({ archived: false, auto_archived: false, active_at: r.activity.clock });
     viewer.close();
   } finally {
+    await dispose();
+  }
+});
+test("auto-archive waits on the process list, served links and waiting headless agents", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    minute = 60_000,
+    jobs = () => Reflect.get(server, "jobs") as Promise<void>,
+    check = async (now: number) => {
+      Reflect.get(server, "autoArchive").call(server, now);
+      await jobs();
+    },
+    inventory = { processes: 0, available: false, partial: false },
+    status = spyOn(archiveInventory, "inventoryStatus").mockImplementation(() => ({ ...inventory })),
+    reported = spyOn(workspaceActivity.Reported.prototype, "report");
+  try {
+    const [due, other] = [1, 2].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(due, other);
+    r.workspaces.next_id = 3;
+    r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
+    r.activity.clock = 100 * minute;
+    due.group = "stale";
+    due.active_at = r.activity.clock - 10 * minute;
+    other.active_at = r.activity.clock;
+    const reasons = () => reported.mock.calls.filter((_, i) => reported.mock.results[i].value).map(c => c[1]);
+    await check(0);
+    await check(60_000);
+    inventory.available = true;
+    inventory.partial = true;
+    await check(120_000);
+    inventory.partial = false;
+    r.ports.enabled = true;
+    const endpoints = spyOn(r.ports.current, "workspace").mockImplementation(() => ({ endpoints: [{}] }) as any);
+    await check(180_000);
+    endpoints.mockRestore();
+    r.ports.enabled = false;
+    r.sessions.push({
+      corgi: false,
+      exited: false,
+      workspace_id: due.id,
+      status: () => "working",
+      attention: () => "needs_input",
+    } as any);
+    await check(240_000);
+    expect(due.archived).toBe(false);
+    // Each reason is logged once, however often it's checked.
+    expect(reasons()).toEqual(["process-list-unavailable", "process-list-partial", "served-link", "waiting-agent"]);
+    r.sessions.length = 0;
+    await check(300_000);
+    expect(due).toMatchObject({ archived: true, auto_archived: true });
+  } finally {
+    status.mockRestore();
+    reported.mockRestore();
+    await dispose();
+  }
+});
+test("auto-archive reads one process list a tick", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    minute = 60_000,
+    status = spyOn(archiveInventory, "inventoryStatus").mockImplementation(() => ({
+      processes: 1,
+      available: true,
+      partial: false,
+    }));
+  try {
+    const items = [1, 2, 3, 4].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(...items);
+    r.workspaces.next_id = 5;
+    r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
+    r.activity.clock = 100 * minute;
+    for (const w of items.slice(0, 3)) {
+      w.group = "stale";
+      w.active_at = r.activity.clock - 10 * minute;
+    }
+    items[3].active_at = r.activity.clock;
+    const autoArchive = (now: number) => Reflect.get(server, "autoArchive").call(server, now);
+    autoArchive(0);
+    expect(status).toHaveBeenCalledTimes(1);
+    autoArchive(250);
+    autoArchive(500);
+    expect(status.mock.calls.map(c => c[1])).toEqual([1, 2, 3]);
+    // Each was checked, so none is read again within the minute.
+    autoArchive(750);
+    expect(status).toHaveBeenCalledTimes(3);
+  } finally {
+    status.mockRestore();
+    await dispose();
+  }
+});
+test("a failed auto-archive stays put, logs once and retries; one held back since its check stays", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    minute = 60_000,
+    jobs = () => Reflect.get(server, "jobs") as Promise<void>,
+    check = async (now: number) => {
+      Reflect.get(server, "autoArchive").call(server, now);
+      await jobs();
+    },
+    status = spyOn(archiveInventory, "inventoryStatus").mockImplementation(() => ({
+      processes: 0,
+      available: true,
+      partial: false,
+    })),
+    execute = server.execute.bind(server),
+    failing = { count: 2 },
+    run = spyOn(server, "execute").mockImplementation(async command => {
+      if (failing.count-- > 0) throw Error("ArchiveFailed");
+      return execute(command);
+    }),
+    reported = spyOn(workspaceActivity.Reported.prototype, "report");
+  try {
+    const [due, other] = [1, 2].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(due, other);
+    r.workspaces.next_id = 3;
+    r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
+    r.activity.clock = 100 * minute;
+    due.group = "stale";
+    due.active_at = r.activity.clock - 10 * minute;
+    other.active_at = r.activity.clock;
+    await check(0);
+    expect(due).toMatchObject({ archived: false, auto_archived: false });
+    await check(70_000);
+    expect(due).toMatchObject({ archived: false, auto_archived: false });
+    expect(reported.mock.calls.filter((_, i) => reported.mock.results[i].value).map(c => c[1])).toEqual([
+      "ArchiveFailed",
+    ]);
+    // Queued, then a process starts before the archive runs: it stays.
+    Reflect.get(server, "autoArchive").call(server, 140_000);
+    status.mockImplementation(() => ({ processes: 1, available: true, partial: false }));
+    await jobs();
+    expect(due.archived).toBe(false);
+    status.mockImplementation(() => ({ processes: 0, available: true, partial: false }));
+    await check(210_000);
+    expect(due).toMatchObject({ archived: true, auto_archived: true });
+    expect(run).toHaveBeenCalledTimes(3);
+  } finally {
+    status.mockRestore();
+    run.mockRestore();
+    reported.mockRestore();
     await dispose();
   }
 });
