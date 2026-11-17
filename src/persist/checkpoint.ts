@@ -25,6 +25,7 @@ import * as agentEffort from "../agent_effort";
 import * as discovery from "../discovery";
 import { adapter } from "../providers";
 import * as workspaceActivity from "../workspace_activity";
+import * as clock from "../clock";
 import { validateCheckpoint } from "./schema";
 import { testBuild } from "../build_assets";
 
@@ -223,7 +224,7 @@ export function capture(r: Runtime, live: boolean) {
       active_at: w.active_at,
       group: w.group,
     })),
-    auto_order: workspaceActivity.save(r),
+    auto_order: workspaceActivity.save(r, live ? clock.milliTimestamp() : null),
     panes: r.panes.map(p => {
       p.refreshCwd();
       if (!p.detection.claim) p.resume_hint.observe(p.agent());
@@ -394,7 +395,7 @@ export async function restore(
   }
   r.workspaces.next_id = state.next_workspace;
   r.workspaces.next_pane_id = state.next_pane;
-  workspaceActivity.restore(r, state.auto_order);
+  workspaceActivity.restore(r, state.auto_order, live ? clock.milliTimestamp() : null);
   r.next_session = state.next_session;
   r.revision = BigInt.asUintN(64, BigInt(state.revision) + 1n);
   r.last_agent = state.last_agent ?? Provider.first;

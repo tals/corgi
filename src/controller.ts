@@ -53,7 +53,6 @@ import {
   acknowledge,
   providerName,
   statsAny,
-  autoOrder as mirrorAutoOrder,
   type Agent,
   type Transport,
   type Pane,
@@ -1110,13 +1109,14 @@ export class Controller {
   /** Shows `command`'s result at once where optimistic.ts can, and returns
    * the task that sends it. The guess stands until the daemon answers; a
    * refusal shows the last snapshot without it. `settle` then tells the
-   * viewer's own guesses whether the daemon took it. */
+   * viewer's own guesses whether the daemon took it. The task runs on a
+   * lane to `machine`. */
   private assume(
     command: CommandInput,
     settle?: (kept: boolean) => void,
+    machine = this.machine,
   ): (lane: tasks.Lane) => Promise<{ pane: number }> {
-    const machine = this.machine,
-      edit = optimistic.edit(command),
+    const edit = optimistic.edit(command),
       forget = edit ? machine.runtime.assume(edit) : () => {};
     this.dirty = true;
     return async lane => {
@@ -1999,22 +1999,12 @@ export class Controller {
       next = rows.slice(at).find(id => this.rowOf(id)?.machine === from.machine);
     return next === undefined ? from.id : this.rowOf(next)!.id;
   }
-  /** Sends `command` to `machine`, shown there at once until it answers. */
+  /** Sends `command` to `machine`, shown there at once until it answers. A
+   * move its daemon drops snaps back with its next snapshot; a failure is
+   * told as any task's is. */
   private moveOn(machine: Machine, command: CommandInput): void {
-    if (machine === this.machine) return this.optimistic(command);
-    const edit = optimistic.edit(command),
-      forget = edit ? machine.runtime.assume(edit) : () => {};
-    this.later(async () => {
-      try {
-        await call(machine.connection, "session.command", { command });
-        forget();
-      } catch {
-        // Refused: the daemon's order stands.
-        forget();
-        if (machine.runtime.snapshot) this.receiveSnapshot(machine.runtime.snapshot, machine);
-      }
-      this.dirty = true;
-    });
+    const send = this.assume(command, undefined, machine);
+    machine.tasks.start(async lane => void (await send(lane)));
   }
   cancelWorkspaceDrag(): boolean {
     if (!this.workspace_drag) return false;
@@ -7004,7 +6994,7 @@ export class Controller {
       );
       return;
     }
-    const order = mirrorAutoOrder(reply.workspace_auto_order);
+    const order = workspaceActivity.fromWire(reply.workspace_auto_order);
     this.runtime.workspace_auto_order = order;
     if (this.corgi_setup) this.corgi_setup.auto_order = order;
     if (changes.enabled !== undefined)

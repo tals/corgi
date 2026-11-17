@@ -135,6 +135,8 @@ export class Server {
   private collected = -Infinity;
   /** Whether the last tick ordered workspaces automatically. */
   private auto_ordering = false;
+  /** The fade step each workspace's viewers last heard, by id. */
+  private stale_steps = new Map<number, workspaceActivity.Step>();
   /** When each workspace due for auto-archive was last checked, by id. */
   private archive_checked = new Map<number, number>();
   /** Workspaces queued for auto-archive. */
@@ -196,9 +198,9 @@ export class Server {
    * auto-order on or archive sooner than those last applied. */
   private armGuard(): void {
     const r = this.runtime,
-      guard = workspaceActivity.armGuard(r.applied, r.auto_order, r.activity.clock);
-    if (guard !== null) r.activity.guard = guard;
-    r.applied = { enabled: r.auto_order.enabled, archive_after: r.auto_order.archive_after };
+      guard = workspaceActivity.armGuard(r.guard_settings, r.auto_order, r.work_clock.reading);
+    if (guard !== null) r.work_clock.guard = guard;
+    r.guard_settings = { enabled: r.auto_order.enabled, archive_after: r.auto_order.archive_after };
   }
   visitWorkspace(id: number): void {
     const w = this.runtime.workspaces.get(id);
@@ -785,22 +787,23 @@ export class Server {
         workspaceActivity.working({ state: h.status(), paused: h.agent().paused, attention: h.attention() })
       )
         r.markActivity(h.workspace_id, now);
-    r.activity.advance(now, s.pause_after * workspaceActivity.minute_ms);
+    r.work_clock.advance(now, s.pause_after * workspaceActivity.minute_ms);
     let changed = false;
     // Switching on groups the workspaces as they stand, then sorts the stale ones.
-    if (!s.enabled || !this.auto_ordering) workspaceActivity.resync(items, r.activity.clock, s);
-    if (s.enabled) changed = workspaceActivity.regroup(items, r.activity.clock, s);
+    if (!s.enabled || !this.auto_ordering) workspaceActivity.resync(items, r.work_clock.reading, s);
+    if (s.enabled) changed = workspaceActivity.regroup(items, r.work_clock.reading, s);
     this.auto_ordering = s.enabled;
     for (const w of items) {
-      const step = workspaceActivity.staleStep(w, r.activity.clock, s);
-      if ((r.stale_steps.get(w.id) ?? 0) === step) continue;
-      r.stale_steps.set(w.id, step);
+      const step = workspaceActivity.staleStep(w, r.work_clock.reading, s);
+      if ((this.stale_steps.get(w.id) ?? 0) === step) continue;
+      this.stale_steps.set(w.id, step);
       changed = true;
     }
     if (s.enabled) this.autoArchive(now);
     // Closed workspaces leave no bookkeeping behind.
     const open = (id: number) => r.workspaces.get(id) !== null;
-    for (const map of [r.stale_steps, this.archive_checked]) for (const id of map.keys()) if (!open(id)) map.delete(id);
+    for (const map of [this.stale_steps, this.archive_checked])
+      for (const id of map.keys()) if (!open(id)) map.delete(id);
     this.archive_reported.retain(open);
     if (!changed) return;
     r.changed();
@@ -815,7 +818,7 @@ export class Server {
     const r = this.runtime;
     let scanned = false;
     for (const w of r.workspaces.items) {
-      if (!workspaceActivity.due(w, r.activity.clock, r.activity.guard, r.auto_order)) {
+      if (!workspaceActivity.due(w, r.work_clock.reading, r.work_clock.guard, r.auto_order)) {
         this.archive_reported.clear(w.id);
         this.archive_checked.delete(w.id);
         continue;
@@ -870,7 +873,7 @@ export class Server {
     const r = this.runtime,
       w = r.workspaces.get(id);
     try {
-      if (!w || !workspaceActivity.due(w, r.activity.clock, r.activity.guard, r.auto_order)) return;
+      if (!w || !workspaceActivity.due(w, r.work_clock.reading, r.work_clock.guard, r.auto_order)) return;
       if (workspaceActivity.blocker(this.archiveFacts(w))) return;
       // Set first, so the snapshot that shows it archived says why.
       w.auto_archived = true;
@@ -1325,19 +1328,6 @@ export class Server {
       case "headless.stop":
       case "headless.send":
       case "headless.events": {
-        // A prompt submitted to Corgi ends a pause but is no workspace's work.
-        // Only viewers start Corgi's sessions, some over HTTP; answers and
-        // interrupts aren't prompts.
-        if (
-          request.op === "headless.start"
-            ? request.payload.corgi
-            : request.op === "headless.send" &&
-              (request.payload.input as { kind?: unknown } | null)?.kind === "prompt" &&
-              this.runtime.sessions.some(
-                s => s.corgi && s.provider === request.payload.provider && s.session === request.payload.session,
-              )
-        )
-          this.runtime.markActivity(null);
         const headless = await import("./headless");
         await headless.request(this, cl, request, reply);
         return;

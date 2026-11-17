@@ -22,6 +22,7 @@ import * as settings from "./settings";
 import { Reply } from "./peer";
 import * as archiveInventory from "./archive_inventory";
 import * as workspaceActivity from "./workspace_activity";
+import * as headless from "./headless";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -123,6 +124,8 @@ function saving() {
     },
   };
 }
+/** The fade step each workspace's viewers last heard. */
+const staleSteps = (server: Server) => Reflect.get(server, "stale_steps") as Map<number, number>;
 test("session snapshots are shared by subscribers and skipped without them", () => {
   const { server, dispose } = fixture(),
     snapshot = spyOn(session, "snapshot"),
@@ -976,7 +979,7 @@ test("auto-order counts agents processing a turn and keeps the groups each tick"
     r.panes.push(pane);
     pane.attachment.provisional.provider = "claude";
     pane.attachment.provisional.state = "working";
-    r.activity.clock = 30 * minute;
+    r.work_clock.reading = 30 * minute;
     quiet.active_at = 30 * minute - 20 * minute;
     other.active_at = 30 * minute - 1 * minute;
     busy.active_at = 1;
@@ -988,12 +991,12 @@ test("auto-order counts agents processing a turn and keeps the groups each tick"
       [2, "stale"],
       [3, "active"],
     ]);
-    expect(r.stale_steps.get(2) ?? 0).toBe(0);
+    expect(staleSteps(server).get(2) ?? 0).toBe(0);
     const revision = r.revision;
     r.auto_order = { ...r.auto_order, enabled: true };
     tick();
     expect(r.workspaces.items.map(w => w.id)).toEqual([1, 3, 2]);
-    expect(r.stale_steps.get(2)).toBe(1);
+    expect(staleSteps(server).get(2)).toBe(1);
     expect(r.revision).toBeGreaterThan(revision);
     // Waiting on an answer, paused or blocked isn't work.
     const agent = pane.attachment.provisional;
@@ -1006,7 +1009,7 @@ test("auto-order counts agents processing a turn and keeps the groups each tick"
       agent.attention = "none";
       agent.paused = false;
       change();
-      const before = (busy.active_at = r.activity.clock - 1);
+      const before = (busy.active_at = r.work_clock.reading - 1);
       tick();
       expect(busy.active_at).toBe(before);
     }
@@ -1021,7 +1024,7 @@ test("auto-order counts headless agents processing a turn, but not Corgi's own",
   try {
     const ws = new Workspace(1, "/tmp", "w");
     r.workspaces.items.push(ws);
-    r.activity.clock = 5000;
+    r.work_clock.reading = 5000;
     const fresh = { corgi: false, exited: false, paused: false, state: "working", attending: "none" },
       headless = {
         ...fresh,
@@ -1033,7 +1036,7 @@ test("auto-order counts headless agents processing a turn, but not Corgi's own",
     r.sessions.push(headless as any);
     tick();
     expect(ws.active_at).toBe(5000);
-    expect(r.activity.last_activity).not.toBeNull();
+    expect(r.work_clock.last_activity).not.toBeNull();
     for (const change of [
       () => (headless.corgi = true),
       () => (headless.exited = true),
@@ -1043,7 +1046,7 @@ test("auto-order counts headless agents processing a turn, but not Corgi's own",
     ]) {
       Object.assign(headless, fresh);
       change();
-      const before = (ws.active_at = r.activity.clock - 1);
+      const before = (ws.active_at = r.work_clock.reading - 1);
       tick();
       expect(ws.active_at).toBe(before);
     }
@@ -1063,20 +1066,20 @@ test("switching auto-order off keeps the order, drops the fade and stops archivi
     r.workspaces.items.push(a, due, b);
     r.workspaces.next_id = 4;
     r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
-    r.activity.clock = 100 * minute;
-    a.active_at = b.active_at = r.activity.clock;
-    due.active_at = r.activity.clock - 9 * minute;
+    r.work_clock.reading = 100 * minute;
+    a.active_at = b.active_at = r.work_clock.reading;
+    due.active_at = r.work_clock.reading - 9 * minute;
     tick();
     expect(r.workspaces.items.map(w => w.id)).toEqual([1, 3, 2]);
-    expect(r.stale_steps.get(due.id)).toBeGreaterThan(0);
+    expect(staleSteps(server).get(due.id)).toBeGreaterThan(0);
     // Off, then due: the order stays, the fade goes and nothing is archived.
     r.auto_order = { ...r.auto_order, enabled: false };
-    due.active_at = r.activity.clock - 20 * minute;
+    due.active_at = r.work_clock.reading - 20 * minute;
     const revision = r.revision;
     tick();
     await jobs();
     expect(r.workspaces.items.map(w => w.id)).toEqual([1, 3, 2]);
-    expect(r.stale_steps.get(due.id)).toBe(0);
+    expect(staleSteps(server).get(due.id)).toBe(0);
     expect(session.snapshot(r).workspaces.find(w => w.id === due.id)?.stale_step).toBe(0);
     expect(r.revision).toBeGreaterThan(revision);
     expect(due.archived).toBe(false);
@@ -1085,7 +1088,7 @@ test("switching auto-order off keeps the order, drops the fade and stops archivi
     checked.set(due.id, 0);
     r.workspaces.items.splice(r.workspaces.items.indexOf(due), 1);
     tick();
-    expect(r.stale_steps.has(due.id)).toBe(false);
+    expect(staleSteps(server).has(due.id)).toBe(false);
     expect(checked.has(due.id)).toBe(false);
   } finally {
     await dispose();
@@ -1094,38 +1097,61 @@ test("switching auto-order off keeps the order, drops the fade and stops archivi
 test("only a prompt submitted to Corgi ends a pause, however it arrives", async () => {
   const { server, dispose } = saving(),
     r = server.runtime;
-  try {
-    const http = server.addClient(null, false),
-      sent: unknown[] = [];
-    r.sessions.push({
-      corgi: true,
+  const fake = (session: string, corgi: boolean, exited = false) =>
+    ({
+      corgi,
+      exited,
+      exited_at: Date.now(),
+      ended_read: false,
       provider: "claude",
-      session: "s1",
-      send: (input: unknown) => sent.push(input),
-    } as any);
-    const send = (input: object) =>
-      server
-        .request(http, protocol.envelope("headless.send", { provider: "claude", session: "s1", input }))
+      session,
+      send: () => {
+        if (exited) throw Error("HeadlessExited");
+      },
+      destroy: () => {},
+    }) as any;
+  let starting: any = null;
+  const start = spyOn(headless.Session, "start").mockImplementation(async () => starting);
+  try {
+    r.workspaces.items.push(new Workspace(1, "/tmp", "w"));
+    r.sessions.push(fake("corgi", true), fake("agent", false), fake("ended", true, true));
+    const http = server.addClient(null, false);
+    const marked = () => {
+      const at = r.work_clock.last_activity;
+      r.work_clock.last_activity = null;
+      return at !== null;
+    };
+    const send = async (session: string, input: object) => {
+      await server
+        .request(http, protocol.envelope("headless.send", { provider: "claude", session, input }))
         .catch(() => {});
-    await send({ kind: "answer", request: "permission-1", allow: false });
-    await send({ kind: "interrupt" });
-    expect(r.activity.last_activity).toBeNull();
-    await send({ kind: "prompt", text: "hi" });
-    expect(r.activity.last_activity).not.toBeNull();
-    r.activity.last_activity = null;
-    // A new conversation starts over HTTP, not the viewer's connection.
-    await server
-      .request(http, protocol.envelope("headless.start", { provider: "claude", prompt: "hi", cwd: "x", corgi: true }))
-      .catch(() => {});
-    expect(r.activity.last_activity).not.toBeNull();
-    r.activity.last_activity = null;
-    await server
-      .request(http, protocol.envelope("headless.start", { provider: "claude", prompt: "hi", cwd: "x" }))
-      .catch(() => {});
-    expect(r.activity.last_activity).toBeNull();
+      return marked();
+    };
+    expect(await send("corgi", { kind: "answer", request: "permission-1", allow: false })).toBe(false);
+    expect(await send("corgi", { kind: "interrupt" })).toBe(false);
+    expect(await send("corgi", { kind: "prompt", text: "hi" })).toBe(true);
+    // Only a prompt Corgi's session took counts: not a malformed one, one to
+    // a session that has ended, or one to an agent's or an unknown session.
+    expect(await send("corgi", { kind: "prompt", text: 5 })).toBe(false);
+    expect(await send("ended", { kind: "prompt", text: "hi" })).toBe(false);
+    expect(await send("agent", { kind: "prompt", text: "hi" })).toBe(false);
+    expect(await send("nobody", { kind: "prompt", text: "hi" })).toBe(false);
+    // A new conversation starts over HTTP, not the viewer's connection, and
+    // counts once its first prompt is sent.
+    const begin = async (corgi: boolean, sends = true) => {
+      starting = fake("", false, !sends);
+      await server
+        .request(http, protocol.envelope("headless.start", { provider: "claude", prompt: "hi", cwd: "/tmp", corgi }))
+        .catch(() => {});
+      return marked();
+    };
+    expect(await begin(true)).toBe(true);
+    expect(await begin(false)).toBe(false);
+    expect(await begin(true, false)).toBe(false);
     r.sessions.length = 0;
     http.close();
   } finally {
+    start.mockRestore();
     await dispose();
   }
 });
@@ -1138,7 +1164,7 @@ test("only a viewer's keys and pastes count as typing in a workspace", async () 
     const pane = new Pane(ws.model.newTab(""), Terminal.create(20, 4), "/tmp");
     pane.terminal.exited = true;
     r.panes.push(pane);
-    r.activity.clock = 5000;
+    r.work_clock.reading = 5000;
     const viewer = server.addClient(null, false),
       cli = server.addClient(null, false);
     viewer.viewer = true;
@@ -1150,13 +1176,13 @@ test("only a viewer's keys and pastes count as typing in a workspace", async () 
       await input(viewer, report);
       expect(ws.active_at).toBe(0);
     }
-    expect(r.activity.last_activity).toBeNull();
+    expect(r.work_clock.last_activity).toBeNull();
     await input(cli, "ls\r");
     expect(ws.active_at).toBe(0);
     await input(viewer, "l");
     expect(ws.active_at).toBe(5000);
-    expect(r.activity.last_activity).not.toBeNull();
-    r.activity.clock = 6000;
+    expect(r.work_clock.last_activity).not.toBeNull();
+    r.work_clock.reading = 6000;
     await server
       .request(viewer, protocol.envelope("pane.paste", { pane: pane.id, text: "x", image: null }))
       .catch(() => {});
@@ -1174,9 +1200,9 @@ test("configuring auto-order saves the settings, arms the archive guard and refu
     configure = (payload: Record<string, unknown>) =>
       server.request(server.addClient(null, false), protocol.envelope("workspace_auto_order.configure", payload));
   try {
-    r.activity.clock = 1000;
+    r.work_clock.reading = 1000;
     Reflect.get(server, "armGuard").call(server);
-    expect(r.activity.guard).toBe(0);
+    expect(r.work_clock.guard).toBe(0);
     let replies: any[] = [];
     const reply = spyOn(Reply.prototype, "send").mockImplementation(function (value: any) {
       replies.push(value);
@@ -1188,15 +1214,15 @@ test("configuring auto-order saves the settings, arms the archive guard and refu
         workspace_auto_order: { enabled: true, pause_after: 5, stale_after: 10, archive_after: 60 },
       });
       expect(settings.autoOrder(file)).toEqual({ enabled: true, pause_after: 5, stale_after: 10, archive_after: 60 });
-      expect(r.activity.guard).toBe(1000 + 60 * 60_000);
+      expect(r.work_clock.guard).toBe(1000 + 60 * 60_000);
       // Raising "archive after" keeps the guard; Off and back arms it again.
-      r.activity.clock = 5000;
+      r.work_clock.reading = 5000;
       await configure({ archive_after: 120 });
-      expect(r.activity.guard).toBe(1000 + 60 * 60_000);
+      expect(r.work_clock.guard).toBe(1000 + 60 * 60_000);
       await configure({ archive_after: 0 });
       expect(settings.read(file).workspace_archive_after).toBe("off");
       await configure({ archive_after: 30 });
-      expect(r.activity.guard).toBe(5000 + 30 * 60_000);
+      expect(r.work_clock.guard).toBe(5000 + 30 * 60_000);
       await expect(configure({ pause_after: 10 })).rejects.toThrow("InvalidThresholds");
       expect(settings.autoOrder(file).pause_after).toBe(5);
       expect(session.snapshot(r).workspace_auto_order.archive_after).toBe(30);
@@ -1222,15 +1248,15 @@ test("auto-archive waits for what holds a due workspace back, then archives it a
     r.workspaces.items.push(due, other);
     r.workspaces.next_id = 3;
     r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
-    r.activity.clock = 100 * minute;
+    r.work_clock.reading = 100 * minute;
     due.group = "stale";
-    due.active_at = r.activity.clock - 10 * minute;
-    other.active_at = r.activity.clock;
+    due.active_at = r.work_clock.reading - 10 * minute;
+    other.active_at = r.work_clock.reading;
     // Before the guard, nothing is checked.
-    r.activity.guard = r.activity.clock + 1;
+    r.work_clock.guard = r.work_clock.reading + 1;
     await check(0);
     expect(due.archived).toBe(false);
-    r.activity.guard = 0;
+    r.work_clock.guard = 0;
     // On screen in a viewer, even one whose terminal lost focus: blocked,
     // and checked again only a minute later.
     const viewer = server.addClient(null, false);
@@ -1255,7 +1281,7 @@ test("auto-archive waits for what holds a due workspace back, then archives it a
     expect(session.snapshot(r).workspaces.find(w => w.id === due.id)?.auto_archived).toBe(true);
     // Unarchiving clears the flag and counts as activity.
     r.unarchiveWorkspace(due.id);
-    expect(due).toMatchObject({ archived: false, auto_archived: false, active_at: r.activity.clock });
+    expect(due).toMatchObject({ archived: false, auto_archived: false, active_at: r.work_clock.reading });
     viewer.close();
   } finally {
     await dispose();
@@ -1278,10 +1304,10 @@ test("auto-archive waits on the process list, served links and waiting headless 
     r.workspaces.items.push(due, other);
     r.workspaces.next_id = 3;
     r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
-    r.activity.clock = 100 * minute;
+    r.work_clock.reading = 100 * minute;
     due.group = "stale";
-    due.active_at = r.activity.clock - 10 * minute;
-    other.active_at = r.activity.clock;
+    due.active_at = r.work_clock.reading - 10 * minute;
+    other.active_at = r.work_clock.reading;
     const reasons = () => reported.mock.calls.filter((_, i) => reported.mock.results[i].value).map(c => c[1]);
     await check(0);
     await check(60_000);
@@ -1328,12 +1354,12 @@ test("auto-archive reads one process list a tick", async () => {
     r.workspaces.items.push(...items);
     r.workspaces.next_id = 5;
     r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
-    r.activity.clock = 100 * minute;
+    r.work_clock.reading = 100 * minute;
     for (const w of items.slice(0, 3)) {
       w.group = "stale";
-      w.active_at = r.activity.clock - 10 * minute;
+      w.active_at = r.work_clock.reading - 10 * minute;
     }
-    items[3].active_at = r.activity.clock;
+    items[3].active_at = r.work_clock.reading;
     const autoArchive = (now: number) => Reflect.get(server, "autoArchive").call(server, now);
     autoArchive(0);
     expect(status).toHaveBeenCalledTimes(1);
@@ -1374,10 +1400,10 @@ test("a failed auto-archive stays put, logs once and retries; one held back sinc
     r.workspaces.items.push(due, other);
     r.workspaces.next_id = 3;
     r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
-    r.activity.clock = 100 * minute;
+    r.work_clock.reading = 100 * minute;
     due.group = "stale";
-    due.active_at = r.activity.clock - 10 * minute;
-    other.active_at = r.activity.clock;
+    due.active_at = r.work_clock.reading - 10 * minute;
+    other.active_at = r.work_clock.reading;
     await check(0);
     expect(due).toMatchObject({ archived: false, auto_archived: false });
     await check(70_000);

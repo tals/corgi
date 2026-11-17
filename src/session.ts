@@ -713,7 +713,7 @@ function build(r: Runtime, viewer: boolean) {
       closed_agents: r.closedCount(w.id),
       archived: w.archived,
       archive_summary: w.archive_summary,
-      stale_step: workspaceActivity.staleStep(w, r.activity.clock, r.auto_order),
+      stale_step: workspaceActivity.staleStep(w, r.work_clock.reading, r.auto_order),
       auto_archived: w.auto_archived,
       git_commits:
         w.git_commits.items?.slice(0, w.git_commits.len).map((c: any) => ({

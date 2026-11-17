@@ -525,11 +525,9 @@ export class Runtime {
   /** The workspace auto-order settings, from settings.json. */
   auto_order: workspaceActivity.Settings = workspaceActivity.defaults;
   /** The pause-adjusted clock workspace idle times are read on. */
-  activity = new workspaceActivity.Clock(clock.milliTimestamp());
+  work_clock = new workspaceActivity.Clock(clock.milliTimestamp());
   /** The settings last applied to the archive guard, saved with the clock. */
-  applied: workspaceActivity.Applied | null = null;
-  /** The fade step each workspace's viewers last heard, by id. */
-  stale_steps = new Map<number, workspaceActivity.Step>();
+  guard_settings: workspaceActivity.Applied | null = null;
   /** Conversations whose latest turn failed on a condition that may pass. */
   retries: Retry[] = [];
   /** Failed turns their transcripts ended, waiting on the observer. */
@@ -570,9 +568,9 @@ export class Runtime {
   }
   /** Someone worked: anywhere, which ends a pause, and in `workspace` when known. */
   markActivity(workspace: number | null, now = clock.milliTimestamp()) {
-    this.activity.activity(now);
+    this.work_clock.worked(now);
     const w = workspace === null ? null : this.workspaces.get(workspace);
-    if (w) w.active_at = this.activity.clock;
+    if (w) w.active_at = this.work_clock.reading;
   }
   refreshed() {
     this.revision = BigInt.asUintN(64, this.revision + 1n);

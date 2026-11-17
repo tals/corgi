@@ -116,6 +116,10 @@ class AutoOrder extends Viewers {
     this.assertEqual(await this.order(), ["Alpha", "Bravo", "Charlie", "Delta"]);
     const later = await this.steps();
     this.assertTrue(later.Charlie >= 1 && later.Delta >= later.Charlie, JSON.stringify(later));
+    // With archive Off, nothing is archived however long it idles: Delta has
+    // been stale for minutes with nothing holding it back.
+    this.assertEqual((await this.session()).workspace_auto_order.archive_after, 0);
+    this.assertEqual(await this.archived(), []);
     // Delta wakes: it joins the end of the active group, in every viewer.
     const first = await this.newViewer(100, 40),
       second = await this.newViewer(100, 40);
@@ -146,8 +150,6 @@ class AutoOrder extends Viewers {
     this.assertEqual(await this.order(), ["Echo", "Bravo", "Delta", "Alpha", "Charlie"]);
     await this.settle();
     this.assertEqual(await this.order(), ["Echo", "Bravo", "Delta", "Alpha", "Charlie"]);
-    // With archive Off, nothing is archived however long it idles.
-    this.assertEqual(await this.archived(), []);
   }
 
   /** Restarts the daemon with `changes` to its settings. */
@@ -231,6 +233,21 @@ class AutoOrder extends Viewers {
     this.assertEqual(order.slice(0, 2), ["Alpha", "Bravo"]);
   }
 
+  async test_a_reload_keeps_the_pause_going() {
+    const [alpha] = await this.workspaces("Alpha", "Bravo");
+    const a = await this.agent(alpha);
+    await this.work(a);
+    await this.age(140);
+    // Alpha's agent stops with Bravo 40 s short of stale, and a reload comes
+    // 10 s later: the 50 s of the pause still to come count, as without it.
+    await this.stop(a);
+    await this.age(10);
+    await this.rpc({ op: "server.reload", executable: EXE });
+    this.assertEqual((await this.steps()).Bravo, 0);
+    await this.age(60);
+    this.assertTrue((await this.steps()).Bravo >= 1, JSON.stringify(await this.steps()));
+  }
+
   async archived() {
     return (await this.session()).workspaces
       .filter((w: any) => w.archived)
@@ -250,8 +267,13 @@ class AutoOrder extends Viewers {
   }
 
   async test_long_idle_workspaces_are_archived_unless_something_holds_them() {
-    await this.reconfigure({ workspace_stale_after: 2, workspace_archive_after: 4 });
+    await this.reconfigure({ workspace_stale_after: 2 });
     const [alpha, bravo, charlie, delta, echo] = await this.workspaces("Alpha", "Bravo", "Charlie", "Delta", "Echo");
+    // With archive Off at first, the others idle past the "archive after" to come.
+    await this.work(await this.agent(alpha));
+    await this.age(260);
+    await this.reconfigure({ workspace_archive_after: 4 });
+    // The pane was recovered asleep; a new agent keeps the clock going.
     const a = await this.agent(alpha);
     // Charlie runs a program, Echo's agent waits on a permission prompt,
     // and a viewer shows Delta.
@@ -263,7 +285,8 @@ class AutoOrder extends Viewers {
     const viewer = await this.newViewer(100, 40);
     await this.show(viewer, delta);
     await this.work(a);
-    // Switching on, or a restart that does, waits a full "archive after" first.
+    // Switching archive on, here by a restart, waits a full "archive after"
+    // first, though Bravo has idled longer.
     await this.age(200);
     this.assertEqual(await this.archived(), []);
     await this.age(100);

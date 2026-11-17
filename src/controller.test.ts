@@ -546,57 +546,114 @@ test("setup's auto-order choices go to the daemon, and thresholds out of order a
     viewer.close(s);
   }
 });
-test("across machines, a drop within one ordering by activity keeps its groups and reaches its daemon", async () => {
+/** A viewer showing folder "/a" here and, on another machine ordering by
+ * activity, W1, W2 and a stale W3. `answer` takes each workspace.move that
+ * machine's daemon receives; snapshots show `order`, its order. */
+function activityMachines(answer: (target: number, before: number) => Promise<unknown>) {
   const s = controller(),
     sent: unknown[] = [],
+    model = { nodes: [], tabs: [], revision: 0 },
+    machine = {
+      order: [1, 2, 3],
+      snapshot: () => ({
+        workspace_auto_order: { enabled: true, pause_after: 5, stale_after: 10, archive_after: 480 },
+        workspaces: machine.order.map(id => ({ id, name: `W${id}`, cwd: "/w", model, stale_step: id === 3 ? 2 : 0 })),
+      }),
+    },
     other = new Machine(
       {
         request: transport(async (op, fields: any) => {
+          if (op === "session.snapshot") return machine.snapshot();
           sent.push([op, fields.command]);
-          return { ok: true, result: {} };
+          const { target, before } = fields.command["workspace.move"];
+          return answer(target, before);
         }).request,
       },
       "work",
       true,
     );
   s.adopt(other);
-  const model = { nodes: [], tabs: [], revision: 0 },
-    work = (ids: number[]) => ({
-      workspace_auto_order: { enabled: true, pause_after: 5, stale_after: 10, archive_after: 480 },
-      workspaces: ids.map(id => ({ id, name: `W${id}`, cwd: "/w", model, stale_step: id === 3 ? 2 : 0 })),
-    });
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(machine.snapshot(), other);
+  const ids = s.workspaceRows(true).map((row: any) => row.id);
+  return {
+    s,
+    other,
+    machine,
+    sent,
+    names: (): string[] => s.workspaceRows(true).map((row: any) => row.name),
+    /** Drops the row at `source` above the one at `index`, or last. */
+    drop(source: number, index: number) {
+      const drag = {
+        drop: { index, y: 0 },
+        ids,
+        source,
+        before: () => (index === ids.length ? ids[source] : ids[index]),
+      };
+      Reflect.get(s, "dropWorkspace").call(s, drag);
+    },
+    settled: () => Promise.all([s.tasks.idle(), other.tasks.idle()]),
+  };
+}
+test("across machines, a drop within one ordering by activity keeps its groups and reaches its daemon", async () => {
+  const at = activityMachines(async (target, before) => {
+    const order = at.machine.order.filter(id => id !== target),
+      index = before === target ? order.length : order.indexOf(before);
+    order.splice(index, 0, target);
+    at.machine.order = order;
+    return { ok: true, result: {} };
+  });
   const save = spyOn(preferences, "update").mockImplementation(() => {});
   try {
-    s.receiveSnapshot(folders("/a"));
-    s.receiveSnapshot(work([1, 2, 3]), other);
-    const ids = s.workspaceRows(true).map((row: any) => row.id),
-      names = () => s.workspaceRows(true).map((row: any) => row.name),
-      drop = (source: number, index: number) => {
-        const drag = {
-          drop: { index, y: 0 },
-          ids,
-          source,
-          before: () => (index === ids.length ? ids[source] : ids[index]),
-        };
-        Reflect.get(s, "dropWorkspace").call(s, drag);
-        return s.tasks.idle();
-      };
-    expect(names()).toEqual(["/a", "W1", "W2", "W3"]);
+    expect(at.names()).toEqual(["/a", "W1", "W2", "W3"]);
     // Last, or anywhere for the stale one: refused, nothing sent.
-    await drop(1, 4);
-    await drop(3, 0);
-    expect(sent).toEqual([]);
-    expect(names()).toEqual(["/a", "W1", "W2", "W3"]);
+    at.drop(1, 4);
+    at.drop(3, 0);
+    await at.settled();
+    expect(at.sent).toEqual([]);
+    expect(at.names()).toEqual(["/a", "W1", "W2", "W3"]);
     // Above W3, the slot after the last active one: the daemon hears of it.
-    await drop(1, 3);
-    expect(sent).toEqual([["session.command", { "workspace.move": { target: 1, before: 3 } }]]);
+    at.drop(1, 3);
+    await at.settled();
+    expect(at.sent).toEqual([["session.command", { "workspace.move": { target: 1, before: 3 } }]]);
+    expect(at.names()).toEqual(["/a", "W2", "W1", "W3"]);
     // Above another machine's row: it lands above the next of its own.
-    await drop(2, 0);
-    expect(sent.at(-1)).toEqual(["session.command", { "workspace.move": { target: 2, before: 1 } }]);
+    at.drop(2, 0);
+    await at.settled();
+    expect(at.sent.at(-1)).toEqual(["session.command", { "workspace.move": { target: 2, before: 1 } }]);
+    expect(at.names()).toEqual(["W2", "/a", "W1", "W3"]);
+    expect(at.s.message).toBe("");
   } finally {
     save.mockRestore();
-    viewer.close(s);
-    other.runtime.destroy();
+    viewer.close(at.s);
+    at.other.runtime.destroy();
+  }
+});
+test("across machines, a move the daemon drops snaps back quietly, and one whose reply is lost says so", async () => {
+  let reply = Promise.withResolvers<unknown>();
+  // The daemon drops the move, as one whose groups have changed does.
+  const at = activityMachines(() => reply.promise);
+  const save = spyOn(preferences, "update").mockImplementation(() => {});
+  try {
+    at.drop(2, 1);
+    // Shown at once, before the daemon answers.
+    expect(at.names()).toEqual(["/a", "W2", "W1", "W3"]);
+    reply.resolve({ ok: true, result: {} });
+    await at.settled();
+    expect(at.sent).toEqual([["session.command", { "workspace.move": { target: 2, before: 1 } }]]);
+    expect(at.names()).toEqual(["/a", "W1", "W2", "W3"]);
+    expect(at.s.message).toBe("");
+    reply = Promise.withResolvers<unknown>();
+    at.drop(2, 1);
+    expect(at.names()).toEqual(["/a", "W2", "W1", "W3"]);
+    reply.reject(Error("ConnectionClosed"));
+    await at.settled();
+    expect(at.names()).toEqual(["/a", "W1", "W2", "W3"]);
+    expect(at.s.message).toBe(" Connection lost before the reply; check before trying again");
+  } finally {
+    save.mockRestore();
+    viewer.close(at.s);
+    at.other.runtime.destroy();
   }
 });
 test("a workspace auto-order archives is named in a notice, on any machine", () => {

@@ -51,6 +51,18 @@ export function toFile(s: Settings): Record<string, unknown> {
 /** The settings as sent to viewers: `archive_after` 0 means Off. */
 export type Wire = { enabled: boolean; pause_after: number; stale_after: number; archive_after: number };
 export const wire = (s: Settings): Wire => ({ ...s, archive_after: s.archive_after ?? 0 });
+/** Settings a daemon sent, each malformed one taking its default; null from
+ * a daemon before them. */
+export function fromWire(value: unknown): Settings | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  return {
+    enabled: v.enabled === true,
+    pause_after: minutes(v.pause_after) ?? defaults.pause_after,
+    stale_after: minutes(v.stale_after) ?? defaults.stale_after,
+    archive_after: v.archive_after === 0 ? null : (minutes(v.archive_after) ?? defaults.archive_after),
+  };
+}
 /** `s` with the changes a configure request asks for, where `archive_after`
  * 0 means Off; null when the thresholds would be out of order. */
 export function configure(
@@ -69,13 +81,15 @@ export function configure(
  * the last activity anywhere, and a long gap between ticks adds at most the
  * tick cap. Readings are milliseconds. */
 export class Clock {
-  clock = 0;
+  /** The pause-adjusted time, in ms, idle times are read on. */
+  reading = 0;
   /** No auto-archive before this reading. */
   guard = 0;
-  /** Real time of the last activity anywhere; null after a start, so downtime counts as paused. */
+  /** Real time of the last activity anywhere; null after a cold start, so downtime counts as paused. */
   last_activity: number | null = null;
   constructor(public last_tick: number) {}
-  activity(now: number) {
+  /** Someone worked at real time `now`. */
+  worked(now: number) {
     this.rewind(now);
     this.last_activity = now;
   }
@@ -83,7 +97,7 @@ export class Clock {
     this.rewind(now);
     const elapsed = Math.min(Math.max(0, now - this.last_tick), tick_cap_ms),
       open = this.last_activity === null ? 0 : Math.max(0, this.last_activity + pause_after_ms - this.last_tick);
-    this.clock += Math.min(elapsed, open);
+    this.reading += Math.min(elapsed, open);
     this.last_tick = now;
   }
   paused(now: number, pause_after_ms: number) {
@@ -100,6 +114,9 @@ export class Clock {
 export type Group = "active" | "stale";
 export type Step = 0 | 1 | 2 | 3 | 4 | 5;
 export const steps = 5;
+/** A fade step a daemon sent; 0 when malformed. */
+export const stepFromWire = (value: unknown): Step =>
+  Number.isInteger(value) ? (Math.min(Math.max(value as number, 0), steps) as Step) : 0;
 /** The idle times, in ms, each fade step starts at: geometric from "stale
  * after" to the fade's end, so early steps come closer together. */
 export function boundaries(s: Settings): number[] {
@@ -266,26 +283,46 @@ export class Reported {
 }
 /** The settings last applied to the archive guard. */
 export type Applied = { enabled: boolean; archive_after: number | null };
-/** The clock as saved; `applied.archive_after` 0 means Off. */
-export type Saved = { clock: number; guard: number; applied: { enabled: boolean; archive_after: number } | null };
-const reading = (value: unknown) => (Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : 0);
-export function save(r: { activity: Clock; applied: Applied | null }): Saved {
-  const applied = r.applied && { enabled: r.applied.enabled, archive_after: r.applied.archive_after ?? 0 };
-  return { clock: r.activity.clock, guard: r.activity.guard, applied };
+/** The clock as saved; `applied.archive_after` 0 means Off. `since_activity`
+ * is how long before a live handoff someone last worked, so the pause goes on
+ * where it was; null otherwise, so downtime counts as paused. */
+export type Saved = {
+  clock: number;
+  guard: number;
+  applied: { enabled: boolean; archive_after: number } | null;
+  since_activity: number | null;
+};
+type Owner = { work_clock: Clock; guard_settings: Applied | null };
+const millis = (value: unknown) => (Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : 0);
+/** The clock to save; `handoff_at`, the time of a live handoff, keeps the last activity. */
+export function save(r: Owner, handoff_at: number | null = null): Saved {
+  const c = r.work_clock,
+    applied = r.guard_settings && {
+      enabled: r.guard_settings.enabled,
+      archive_after: r.guard_settings.archive_after ?? 0,
+    },
+    since_activity = handoff_at === null || c.last_activity === null ? null : Math.max(0, handoff_at - c.last_activity);
+  return { clock: c.reading, guard: c.guard, applied, since_activity };
 }
-/** Takes up a saved clock; anything missing or malformed starts over at 0. */
-export function restore(r: { activity: Clock; applied: Applied | null }, saved: unknown): void {
+/** Takes up a saved clock; anything missing or malformed starts over at 0.
+ * Only a live handoff, taken up at `handoff_at`, keeps the last activity. */
+export function restore(r: Owner, saved: unknown, handoff_at: number | null = null): void {
   const s = saved && typeof saved === "object" ? (saved as Record<string, unknown>) : {},
-    applied = s.applied && typeof s.applied === "object" ? (s.applied as Record<string, unknown>) : null;
-  r.activity.clock = reading(s.clock);
-  r.activity.guard = reading(s.guard);
-  r.applied =
+    applied = s.applied && typeof s.applied === "object" ? (s.applied as Record<string, unknown>) : null,
+    since = s.since_activity;
+  r.work_clock.reading = millis(s.clock);
+  r.work_clock.guard = millis(s.guard);
+  r.work_clock.last_activity =
+    handoff_at !== null && Number.isSafeInteger(since) && (since as number) >= 0
+      ? handoff_at - (since as number)
+      : null;
+  r.guard_settings =
     applied && typeof applied.enabled === "boolean"
       ? { enabled: applied.enabled, archive_after: minutes(applied.archive_after) }
       : null;
 }
 /** A saved `active_at`; 0, first seen, when missing or malformed. */
-export const activeAt = reading;
+export const activeAt = millis;
 /** A saved group; active when missing or unknown. */
 export const group = (value: unknown): Group => (value === "stale" ? "stale" : "active");
 /** The new archive guard when `next` switches auto-order on, lowers "archive
