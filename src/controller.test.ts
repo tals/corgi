@@ -546,6 +546,59 @@ test("setup's auto-order choices go to the daemon, and thresholds out of order a
     viewer.close(s);
   }
 });
+test("across machines, a drop within one ordering by activity keeps its groups and reaches its daemon", async () => {
+  const s = controller(),
+    sent: unknown[] = [],
+    other = new Machine(
+      {
+        request: transport(async (op, fields: any) => {
+          sent.push([op, fields.command]);
+          return { ok: true, result: {} };
+        }).request,
+      },
+      "work",
+      true,
+    );
+  s.adopt(other);
+  const model = { nodes: [], tabs: [], revision: 0 },
+    work = (ids: number[]) => ({
+      workspace_auto_order: { enabled: true, pause_after: 5, stale_after: 10, archive_after: 480 },
+      workspaces: ids.map(id => ({ id, name: `W${id}`, cwd: "/w", model, stale_step: id === 3 ? 2 : 0 })),
+    });
+  const save = spyOn(preferences, "update").mockImplementation(() => {});
+  try {
+    s.receiveSnapshot(folders("/a"));
+    s.receiveSnapshot(work([1, 2, 3]), other);
+    const ids = s.workspaceRows(true).map((row: any) => row.id),
+      names = () => s.workspaceRows(true).map((row: any) => row.name),
+      drop = (source: number, index: number) => {
+        const drag = {
+          drop: { index, y: 0 },
+          ids,
+          source,
+          before: () => (index === ids.length ? ids[source] : ids[index]),
+        };
+        Reflect.get(s, "dropWorkspace").call(s, drag);
+        return s.tasks.idle();
+      };
+    expect(names()).toEqual(["/a", "W1", "W2", "W3"]);
+    // Last, or anywhere for the stale one: refused, nothing sent.
+    await drop(1, 4);
+    await drop(3, 0);
+    expect(sent).toEqual([]);
+    expect(names()).toEqual(["/a", "W1", "W2", "W3"]);
+    // Above W3, the slot after the last active one: the daemon hears of it.
+    await drop(1, 3);
+    expect(sent).toEqual([["session.command", { "workspace.move": { target: 1, before: 3 } }]]);
+    // Above another machine's row: it lands above the next of its own.
+    await drop(2, 0);
+    expect(sent.at(-1)).toEqual(["session.command", { "workspace.move": { target: 2, before: 1 } }]);
+  } finally {
+    save.mockRestore();
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
 test("a workspace auto-order archives is named in a notice, on any machine", () => {
   const s = controller(),
     other = new Machine({ request: transport(async () => ({})).request }, "work", true);
