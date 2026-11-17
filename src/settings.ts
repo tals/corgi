@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import * as os from "./os";
 import { Store } from "./workspace";
+import * as workspaceActivity from "./workspace_activity";
 
 export function path(socket = os.socketPath()) {
   const state = Store.statePath(socket);
@@ -33,6 +34,11 @@ export function smartLinks(file = path()): boolean {
  * unless the file says false. */
 export function autoRetry(file = path()): boolean {
   return read(file).auto_retry !== false;
+}
+/** The workspace auto-order switch and thresholds; malformed values take
+ * their defaults. */
+export function autoOrder(file = path()): workspaceActivity.Settings {
+  return workspaceActivity.parse(read(file));
 }
 export function shell(file = path()): string | null {
   const value = read(file).shell;

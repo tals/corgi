@@ -54,6 +54,7 @@ import * as link from "./link";
 import * as socket_server from "./socket_server";
 import * as legacy_socket from "./legacy_socket";
 import * as start_lock from "./start_lock";
+import * as workspaceActivity from "./workspace_activity";
 export class Server {
   readonly instance = crypto.randomUUID();
   summaries: SummaryWorker | null = null;
@@ -169,6 +170,7 @@ export class Server {
         await this.runtime.workspaces.save(
           Store.statePath(this.socket),
           this.initialWorkspace()?.id ?? Workspace.Id.none,
+          workspaceActivity.save(this.runtime),
         );
       } catch (error) {
         console.error("workspace save:", error);
@@ -178,6 +180,14 @@ export class Server {
   }
   async flushWorkspaceWrites(): Promise<void> {
     await this.workspaceWrites;
+  }
+  /** Holds auto-archive back a full "archive after" when the settings switch
+   * auto-order on or archive sooner than those last applied. */
+  private armGuard(): void {
+    const r = this.runtime,
+      guard = workspaceActivity.armGuard(r.applied, r.auto_order, r.activity.clock);
+    if (guard !== null) r.activity.guard = guard;
+    r.applied = { enabled: r.auto_order.enabled, archive_after: r.auto_order.archive_after };
   }
   visitWorkspace(id: number): void {
     const w = this.runtime.workspaces.get(id);
@@ -315,6 +325,7 @@ export class Server {
   async run(): Promise<void> {
     this.runtime.ports.configure(settings.smartLinks(settings.path(this.socket)));
     this.runtime.auto_retry = settings.autoRetry(settings.path(this.socket));
+    this.runtime.auto_order = settings.autoOrder(settings.path(this.socket));
     try {
       let selected: number | null = null;
       const handoff = this.imported;
@@ -325,14 +336,17 @@ export class Server {
           saved = true;
           const preferences = new Store();
           try {
-            selected = await preferences.load(Store.statePath(this.socket));
+            selected = (await preferences.load(Store.statePath(this.socket)))?.selected ?? null;
           } catch (error) {
             console.error("workspace load:", error);
           }
         } else
           try {
-            selected = await this.runtime.workspaces.load(Store.statePath(this.socket));
-            saved = selected !== null;
+            const loaded = await this.runtime.workspaces.load(Store.statePath(this.socket));
+            selected = loaded?.selected ?? null;
+            saved = loaded !== null;
+            // Without a checkpoint, idle times go on from the workspace file.
+            if (loaded) workspaceActivity.restore(this.runtime, loaded.auto_order);
           } catch (error) {
             console.error("workspace load:", error);
           }
@@ -341,6 +355,8 @@ export class Server {
         if (this.default_folder_pending) await this.runtime.workspaces.add("", process.cwd());
         this.preferred_workspace = selected ?? this.runtime.workspaces.items[0]?.id ?? Workspace.Id.none;
       }
+      // Settings edited while the daemon was stopped arm the guard as a change would.
+      this.armGuard();
       // Setup asks which agents are there, so mise answers for its shims first.
       await discovery.ready();
       // A handoff to a newer Corgi may hook more events than the old one did.

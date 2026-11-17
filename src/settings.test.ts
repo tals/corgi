@@ -57,3 +57,20 @@ test("smart links stay on unless the setting is false", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("auto-order settings fall back per key, then all together", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-settings-")),
+    file = join(root, "settings.json");
+  try {
+    expect(settings.autoOrder(file)).toEqual({ enabled: false, pause_after: 5, stale_after: 10, archive_after: 480 });
+    writeFileSync(
+      file,
+      JSON.stringify({ workspace_auto_order: true, workspace_stale_after: "x", workspace_archive_after: "off" }),
+    );
+    expect(settings.autoOrder(file)).toEqual({ enabled: true, pause_after: 5, stale_after: 10, archive_after: null });
+    writeFileSync(file, JSON.stringify({ workspace_pause_after: 30, workspace_archive_after: 60 }));
+    expect(settings.autoOrder(file)).toEqual({ enabled: false, pause_after: 5, stale_after: 10, archive_after: 480 });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
