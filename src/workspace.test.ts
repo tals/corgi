@@ -114,12 +114,17 @@ test("workspace state keeps each workspace's activity and the auto-order clock",
     quiet.active_at = 1000;
     quiet.group = "stale";
     s.items.push(busy, quiet);
-    await s.save(file, 1, { clock: 9000, guard: 7000, applied: { enabled: true, archive_after: 0 } });
+    await s.save(file, 1, {
+      clock: 9000,
+      guard: 7000,
+      applied: { enabled: true, archive_after: 0 },
+      since_activity: null,
+    });
     const restored = new Store(),
       loaded = await restored.load(file);
     expect(loaded).toEqual({
       selected: 1,
-      auto_order: { clock: 9000, guard: 7000, applied: { enabled: true, archive_after: 0 } },
+      auto_order: { clock: 9000, guard: 7000, applied: { enabled: true, archive_after: 0 }, since_activity: null },
     });
     expect(restored.items.map(w => [w.active_at, w.group])).toEqual([
       [5000, "active"],

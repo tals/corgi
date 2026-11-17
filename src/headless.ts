@@ -822,6 +822,8 @@ export async function request(server: Server, client: Peer, request: Request, re
       throw error;
     }
     runtime.sessions.push(session);
+    // A prompt submitted to Corgi ends a pause but is no workspace's work.
+    if (session.corgi) runtime.markActivity(null);
     runtime.unarchiveWorkspace(workspace.id);
     runtime.next_session = Session.Id.next(runtime.next_session);
     runtime.changed();
@@ -891,6 +893,7 @@ export async function request(server: Server, client: Peer, request: Request, re
       input.session = session.session;
     }
     session.send(input);
+    if (session.corgi && input.kind === "prompt") runtime.markActivity(null);
     reply.send({ ok: true });
   } else if (request.op === "headless.events") {
     const after = BigInt(request.payload.after),

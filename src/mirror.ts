@@ -610,7 +610,7 @@ function workspace(value: any): Workspace {
     id: value.id,
     archived: value.archived === true,
     archive_summary: archiveSummary.restore(value.archive_summary),
-    stale_step: Number.isInteger(value.stale_step) ? Math.min(Math.max(value.stale_step, 0), 5) : 0,
+    stale_step: workspaceActivity.stepFromWire(value.stale_step),
     auto_archived: value.auto_archived === true,
     name: value.name ?? "",
     cwd: value.cwd ?? "",
@@ -640,18 +640,6 @@ function workspace(value: any): Workspace {
     worktree_removal: worktreeRemoval(value.worktree_removal),
     worktree_briefs: worktreeBriefs(value.worktree_briefs),
     stats: { tools: 0, input: 0, output: 0, tokens_known: false, ...(value.stats ?? {}) },
-  };
-}
-/** A daemon's auto-order settings, archive 0 meaning Off; null from one before them. */
-export function autoOrder(value: any): workspaceActivity.Settings | null {
-  if (!value || typeof value !== "object") return null;
-  const d = workspaceActivity.defaults,
-    minutes = (v: unknown) => (Number.isSafeInteger(v) && (v as number) > 0 ? (v as number) : null);
-  return {
-    enabled: value.enabled === true,
-    pause_after: minutes(value.pause_after) ?? d.pause_after,
-    stale_after: minutes(value.stale_after) ?? d.stale_after,
-    archive_after: value.archive_after === 0 ? null : (minutes(value.archive_after) ?? d.archive_after),
   };
 }
 /** A diffstat a daemon sends; one from before them sends none. */
@@ -875,7 +863,7 @@ export class Runtime {
     this.startup_waits = startup.decode(snapshot.startup_waits);
     this.smart_links = snapshot.smart_links !== false;
     this.auto_retry = snapshot.auto_retry !== false;
-    this.workspace_auto_order = autoOrder(snapshot.workspace_auto_order);
+    this.workspace_auto_order = workspaceActivity.fromWire(snapshot.workspace_auto_order);
     this.ports = snapshot.ports ?? { workspaces: [] };
     this.last_agent = Provider.parse(snapshot.last_agent) ?? Provider.first;
     this.agent_yolo = byProvider(p => snapshot.agent_yolo?.[p] === true);

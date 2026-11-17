@@ -87,57 +87,57 @@ describe("Clock", () => {
   const pause = 5 * min;
   const run = (c: activity.Clock, from: number, to: number, active: boolean) => {
     for (let t = from + 250; t <= to; t += 250) {
-      if (active) c.activity(t);
+      if (active) c.worked(t);
       c.advance(t, pause);
     }
   };
   test("runs one for one while someone works", () => {
     const c = new activity.Clock(0);
-    c.activity(0);
+    c.worked(0);
     run(c, 0, 10 * min, true);
-    expect(c.clock).toBe(10 * min);
+    expect(c.reading).toBe(10 * min);
   });
   test("a long quiet period adds exactly pause after", () => {
     const c = new activity.Clock(0);
-    c.activity(0);
+    c.worked(0);
     run(c, 0, 2 * min, true);
     run(c, 2 * min, 62 * min, false);
-    expect(c.clock).toBe(7 * min);
+    expect(c.reading).toBe(7 * min);
     expect(c.paused(62 * min, pause)).toBe(true);
-    c.activity(62 * min);
+    c.worked(62 * min);
     run(c, 62 * min, 63 * min, false);
-    expect(c.clock).toBe(8 * min);
+    expect(c.reading).toBe(8 * min);
   });
   test("a sleep between two ticks adds at most the cap", () => {
     const c = new activity.Clock(0);
-    c.activity(0);
+    c.worked(0);
     c.advance(10 * 60 * min, pause);
-    expect(c.clock).toBe(activity.tick_cap_ms);
-    c.activity(20 * 60 * min);
+    expect(c.reading).toBe(activity.tick_cap_ms);
+    c.worked(20 * 60 * min);
     c.advance(30 * 60 * min, pause);
-    expect(c.clock).toBe(2 * activity.tick_cap_ms);
+    expect(c.reading).toBe(2 * activity.tick_cap_ms);
   });
   test("a wall clock set back doesn't hold the pause off", () => {
     const c = new activity.Clock(0);
-    c.activity(0);
+    c.worked(0);
     run(c, 0, 1 * min, false);
     // Set back an hour: the pause still starts five minutes past the activity.
     run(c, -60 * min, 0, false);
-    expect(c.clock).toBe(5 * min);
+    expect(c.reading).toBe(5 * min);
     // Activity right after a jump back counts from then, not an hour before.
-    c.activity(-120 * min);
+    c.worked(-120 * min);
     run(c, -120 * min, -110 * min, false);
-    expect(c.clock).toBe(10 * min);
+    expect(c.reading).toBe(10 * min);
   });
   test("a fresh clock waits for activity", () => {
     const c = new activity.Clock(1000);
-    c.clock = 42;
+    c.reading = 42;
     c.advance(5000, pause);
-    expect(c.clock).toBe(42);
+    expect(c.reading).toBe(42);
     expect(c.paused(5000, pause)).toBe(true);
-    c.activity(5000);
+    c.worked(5000);
     c.advance(6000, pause);
-    expect(c.clock).toBe(1042);
+    expect(c.reading).toBe(1042);
   });
 });
 
@@ -415,11 +415,11 @@ describe("typing", () => {
 describe("restore", () => {
   const restored = (saved: unknown) => {
     const r = {
-      activity: new activity.Clock(0),
-      applied: { enabled: true, archive_after: 60 } as activity.Applied | null,
+      work_clock: new activity.Clock(0),
+      guard_settings: { enabled: true, archive_after: 60 } as activity.Applied | null,
     };
     activity.restore(r, saved);
-    return { clock: r.activity.clock, guard: r.activity.guard, applied: r.applied };
+    return { clock: r.work_clock.reading, guard: r.work_clock.guard, applied: r.guard_settings };
   };
   test("anything malformed starts over", () => {
     expect(restored({ clock: "x", guard: -5, applied: { enabled: "yes" } })).toEqual({
@@ -444,8 +444,8 @@ describe("restore", () => {
     expect(
       restored(
         activity.save({
-          activity: Object.assign(new activity.Clock(0), { clock: 7, guard: 9 }),
-          applied: { enabled: true, archive_after: 120 },
+          work_clock: Object.assign(new activity.Clock(0), { reading: 7, guard: 9 }),
+          guard_settings: { enabled: true, archive_after: 120 },
         }),
       ),
     ).toEqual({
@@ -453,5 +453,34 @@ describe("restore", () => {
       guard: 9,
       applied: { enabled: true, archive_after: 120 },
     });
+  });
+  test("a live handoff keeps the pause where it was; a cold start counts as paused", () => {
+    const pause = 5 * min,
+      old = new activity.Clock(0);
+    old.worked(10 * min);
+    const owner = (c: activity.Clock) => ({ work_clock: c, guard_settings: null }),
+      cold = activity.save(owner(old)),
+      live = activity.save(owner(old), 12 * min);
+    expect(cold.since_activity).toBeNull();
+    expect(live.since_activity).toBe(2 * min);
+    expect(activity.save(owner(new activity.Clock(0)), 12 * min).since_activity).toBeNull();
+    // Taken up on another timeline: 2 minutes in, the clock runs 3 more.
+    const handed = owner(new activity.Clock(500 * min));
+    activity.restore(handed, JSON.parse(JSON.stringify(live)), 500 * min);
+    expect(handed.work_clock.last_activity).toBe(498 * min);
+    expect(handed.work_clock.paused(500 * min, pause)).toBe(false);
+    for (let t = 500 * min + 250; t <= 510 * min; t += 250) handed.work_clock.advance(t, pause);
+    expect(handed.work_clock.reading).toBe(3 * min);
+    // A cold start, or a checkpoint that didn't keep it, starts paused.
+    for (const [saved, at] of [
+      [live, null],
+      [cold, 500 * min],
+      [{ ...live, since_activity: -1 }, 500 * min],
+      [{ ...live, since_activity: "2m" }, 500 * min],
+    ] as const) {
+      const r = owner(new activity.Clock(500 * min));
+      activity.restore(r, saved, at);
+      expect(r.work_clock.last_activity).toBeNull();
+    }
   });
 });

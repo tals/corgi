@@ -60,9 +60,9 @@ test("the snapshot carries auto-order settings and each stale workspace's fade s
   try {
     const w = new Workspace(1, "/tmp", "w");
     r.workspaces.items = [w, new Workspace(2, "/tmp", "x")];
-    r.activity.clock = 100 * 60_000;
+    r.work_clock.reading = 100 * 60_000;
     w.group = "stale";
-    w.active_at = r.activity.clock - 30 * 60_000;
+    w.active_at = r.work_clock.reading - 30 * 60_000;
     expect(snapshot(r).workspace_auto_order).toEqual({
       enabled: false,
       pause_after: 5,

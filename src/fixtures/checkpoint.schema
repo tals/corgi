@@ -264,6 +264,8 @@ $.auto_order.guard: u64
 $.auto_order.applied: optional
 $.auto_order.applied?.enabled: bool
 $.auto_order.applied?.archive_after: u32
+$.auto_order.since_activity: optional
+$.auto_order.since_activity?: u64
 $.panes[].binding.actor: u32
 $.panes[].binding.generation: u64
 $.panes[].binding.selection_hash: u64
