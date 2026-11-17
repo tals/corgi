@@ -4,7 +4,7 @@ import * as viewerRef from "./viewer_ref";
 import { expect, test } from "bun:test";
 import * as i18n from "./i18n";
 import * as palette from "./palette";
-import { Style, colors, fg, fgRgb, bgRgb, mix, underline } from "./palette";
+import { Style, colors, fg, fgRgb, bgRgb, mix, underline, luminance, use, type Rgb } from "./palette";
 import * as corgiAnimation from "./corgi_animation";
 import * as corgiFrames from "./corgi_frames";
 import { Terminal } from "./pane/terminal";
@@ -51,6 +51,7 @@ import {
   spotlight_dim,
   unlit,
   nap_fg,
+  stale_names,
   hover_rgb,
   hover_bg,
   type Entry,
@@ -411,6 +412,63 @@ test("a paused agent takes the pause glyph, green while unread and gray once rea
   expect(has(out, "‖")).toBe(false);
 });
 
+test("a stale workspace's name fades by step; badges, status and a selected row keep their colors", () => {
+  const names = ["zero", "one", "two", "three", "four", "five"];
+  const rows = names.map((name, step) =>
+    workspaceEntry({ id: step + 1, name, cwd: "/tmp", active: false, stale_step: step, working: 1, attention: 2 }),
+  );
+  const view = View.init(100, 60, true, 0, 0).withWorkspaces(rows.length, 0);
+  let out = draw(view, [], rows);
+  expect(has(out, panel + "zero")).toBe(true);
+  for (let step = 1; step <= 5; step++) expect(has(out, stale_names[step - 1] + names[step])).toBe(true);
+  expect(new Set(stale_names).size).toBe(5);
+  // Only the name fades: every row's status keeps the panel and agent colors.
+  expect(count(out, panel + "\x1b[22m\x1b[1m" + fg("accent") + "▶1")).toBe(6);
+  expect(count(out, "\x1b[1m" + fg("warm") + " ●2")).toBe(6);
+  // The selected row, and a dragged one, stay readable.
+  out = draw(view, [], [{ ...rows[3], active: true }]);
+  expect(has(out, active_name + "three")).toBe(true);
+  expect(stale_names.some(style => has(out, style))).toBe(false);
+  // A disconnected machine's row dims as before, the fade under it.
+  const away = workspaceEntry({
+    id: 9,
+    name: "away",
+    cwd: "/tmp",
+    active: false,
+    stale_step: 2,
+    unavailable: "Offline",
+  });
+  out = draw(View.init(100, 30, true, 0, 0).withWorkspaces(1, 0), [], [away]);
+  expect(has(out, "away")).toBe(true);
+  expect(has(out, stale_names[1] + "away")).toBe(false);
+});
+test("the fade steps darken toward the napping-agent gray on dark and light themes", () => {
+  const rgb = (sgr: string) =>
+      sgr
+        .match(/38;2;(\d+);(\d+);(\d+)m$/)!
+        .slice(1)
+        .map(Number) as Rgb,
+    ratio = (a: Rgb, b: Rgb) => {
+      const [x, y] = [luminance(a), luminance(b)];
+      return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    };
+  const light = { foreground: [40, 40, 40] as Rgb, background: [250, 250, 250] as Rgb, ansi: Array(16).fill(null) };
+  try {
+    for (const [theme, host] of [
+      ["corgi", null],
+      ["animal_style", light],
+    ] as const) {
+      use(theme, host);
+      const ratios = stale_names.map(style => ratio(rgb(style), colors.bg));
+      for (let i = 1; i < ratios.length; i++) expect(ratios[i]).toBeLessThan(ratios[i - 1]);
+      expect(ratios[0]).toBeLessThan(ratio(colors.muted, colors.bg));
+      expect(rgb(stale_names[4])).toEqual(mix(colors.faint, colors.bg, 50));
+      expect(fgRgb(rgb(stale_names[4]))).toBe(nap_fg);
+    }
+  } finally {
+    use("corgi");
+  }
+});
 test("workspace status uses agent colors and keeps usage on its second row", () => {
   const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
   const stats = (tools: number) => ({ tools, input: 0, output: 0, tokens_known: true });
