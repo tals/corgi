@@ -399,24 +399,6 @@
   },
   "${count} unread →": "непрочитано: ${count} →",
   "${count} waiting": "Ожидают: ${count}",
-  "${count} worktree": {
-    "plural": "count",
-    "forms": {
-      "one": "${count} рабочее дерево",
-      "few": "${count} рабочих дерева",
-      "many": "${count} рабочих деревьев",
-      "other": "${count} рабочего дерева"
-    }
-  },
-  "${count} worktrees": {
-    "plural": "count",
-    "forms": {
-      "one": "${count} рабочее дерево",
-      "few": "${count} рабочих дерева",
-      "many": "${count} рабочих деревьев",
-      "other": "${count} рабочего дерева"
-    }
-  },
   "${days} d": "${days} дн.",
   "${details} for details · ${all} for everything": "${details} — подробности · ${all} — все команды",
   "${done}/${total} done": "готово ${done}/${total}",

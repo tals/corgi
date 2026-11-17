@@ -215,8 +215,6 @@
   "${count} unmodified lines": "変更のない${count}行",
   "${count} unread →": "未読${count}件 →",
   "${count} waiting": "${count} 件待機中",
-  "${count} worktree": "${count}ワークツリー",
-  "${count} worktrees": "${count}ワークツリー",
   "${days} d": "${days}日",
   "${details} for details · ${all} for everything": "詳細は ${details} · すべては ${all}",
   "${done}/${total} done": "${done}/${total}完了",
