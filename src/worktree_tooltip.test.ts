@@ -90,6 +90,10 @@ test("the worktree count yields so the activity indicator stays", () => {
   expect(statusRow(ws, 18)).toContain("▶1");
   expect(statusRow(ws, 18)).not.toContain("⑂");
   expect(worktreeBadge(tiny, [ws], ws.id)).toBeNull();
+  // The framed sidebar draws in its lists' view, a column narrower.
+  ws.unread = 1;
+  expect(statusRow(ws, 22)).not.toContain("⑂");
+  expect(worktreeBadge(View.init(100, 30, true, 0, 0).withWidth(22).withWorkspaces(1, 0), [ws], ws.id)).toBeNull();
 });
 test("the tool count yields to the activity indicator", () => {
   const stats = { tools: 999_000, input: 0, output: 0, tokens_known: true };
