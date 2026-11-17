@@ -6,6 +6,7 @@ import * as checkpoint from "./checkpoint";
 import * as json from "../json";
 import * as errors from "../errors";
 import * as layout from "../layout";
+import * as common from "../providers/common";
 
 export type Screen = {
   cols: number;
@@ -90,7 +91,7 @@ export function fromCheckpoint(value: unknown): Core {
           id: pane.id,
           workspace: workspace?.id,
           cwd: pane.cwd,
-          label: pane.label ?? "",
+          label: legacyLabel(pane.label ?? ""),
           dormant: pane.dormant === true,
           manual_resume: manual,
           command: hint.args()
@@ -118,6 +119,12 @@ export function fromCheckpoint(value: unknown): Core {
     if (errors.is(error, "InvalidHandoffCore")) throw new checkpoint.Invalid("invalid terminal core");
     throw error;
   }
+}
+
+function legacyLabel(value: unknown): string {
+  if (typeof value === "string") return value;
+  // Historical byte strings can end inside a UTF-8 character.
+  return layout.boundLabel(common.Text.fromJSON(json.clone(value)).text(), true);
 }
 
 function integer(value: unknown, min: number, max = 0xffffffff): number {
@@ -261,7 +268,7 @@ export function restore(core: Core, metadata: unknown): ReturnType<typeof checkp
         cwd: p.cwd,
         label: p.label,
         screen: p.screen,
-        dormant: p.dormant,
+        dormant: p.dormant || (!core.live && p.command !== null),
         manual_resume: p.manual_resume,
       };
     }),

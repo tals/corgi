@@ -1,8 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { Runtime, Pane } from "../runtime";
+import { Runtime, Pane, Launch } from "../runtime";
+import { Text } from "../agents";
 import { Workspace } from "../workspace";
 import { Terminal } from "../pane/terminal";
 import * as json from "../json";
@@ -84,4 +85,43 @@ test("matching valid metadata is retained without a recovery rewrite", async () 
   expect(decoded.discarded).toBe(false);
   expect(decoded.migrated).toBe(false);
   expect(decoded.value.panes[0].binding).toEqual(state.panes[0].binding);
+});
+
+test("discarded cold metadata keeps active agents dormant and resumable while shells restart", async () => {
+  using original = new Runtime();
+  const workspace = new Workspace(1, "/tmp", "workspace");
+  original.workspaces.items.push(workspace);
+  original.workspaces.next_id = 2;
+  for (let i = 0; i < 2; i++) {
+    const pane = new Pane(workspace.model.newTab("pane"), Terminal.create(20, 4), "/tmp");
+    pane.terminal.exited = true;
+    original.panes.push(pane);
+  }
+  original.workspaces.next_pane_id = workspace.model.next_id;
+  const agent = original.panes[0];
+  agent.launch = new Launch({ provider: "codex" });
+  agent.resume_hint.provider = "codex";
+  agent.resume_hint.session = new Text("retained-session");
+  const saved = transfer.recovery(original, checkpoint.capture(original, false)),
+    starts: unknown[][] = [],
+    spawn = spyOn(Terminal.prototype, "spawn").mockImplementation(async (...args) => {
+      starts.push(args);
+    });
+  try {
+    for (const unknown of [true, false]) {
+      const state = json.clone(saved);
+      if (unknown) state.transfer.format = "f".repeat(12);
+      else json.object(state.transfer.payload.runtime).closed = [{}];
+      starts.length = 0;
+      using restored = new Runtime();
+      const decoded = await cold.read(json.stringify(state), "/tmp/unused", process.execPath);
+      await checkpoint.restore(restored, decoded.value, false, "/tmp/unused", process.execPath);
+      expect(restored.panes[0].dormant).toBe(true);
+      expect(restored.panes[0].restoring()).toBe("codex resume retained-session");
+      expect(restored.panes[1].dormant).toBe(false);
+      expect(starts.map(args => [args[2], args[4]])).toEqual([[original.panes[1].id, null]]);
+    }
+  } finally {
+    spawn.mockRestore();
+  }
 });

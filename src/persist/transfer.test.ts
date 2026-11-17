@@ -584,6 +584,32 @@ test("numbered checkpoints continue through later revisions with their core prot
   expect(() => transfer.recover(json.stringify(invalid), history)).toThrow("InvalidCheckpoint");
 });
 
+test("legacy byte labels normalize before entering core in checkpoints and handoffs", async () => {
+  const fixture = readFileSync(new URL("../fixtures/checkpoint-v4.json", import.meta.url), "utf8");
+  for (const [bytes, label] of [
+    [[0xe2, 0x82], "�"],
+    [[...Buffer.from("a".repeat(78)), 0xe2, 0x82], "a".repeat(78)],
+    [[65, 255, 66], "A�B"],
+    [[...Buffer.from("café")], "café"],
+  ] as const) {
+    for (const live of [false, true]) {
+      const old = json.parse(fixture);
+      old.live = live;
+      old.panes[0].label = { bytes, len: bytes.length };
+      const numbered = migrations.decode("checkpoint", json.stringify(old)).value;
+      for (const saved of [old, numbered]) {
+        const decoded = live
+          ? transfer.upgrade({ runtime: migrations.decode("checkpoint", json.stringify(saved)).value }).runtime
+          : transfer.recover(json.stringify(saved)).value;
+        using restored = new Runtime();
+        await checkpoint.restore(restored, decoded, live, "/tmp/unused", "/tmp/corgi", false);
+        expect(restored.panes[0].label).toBe(label);
+        expect(restored.panes.map(pane => pane.id)).toEqual(old.panes.map((pane: { id: number }) => pane.id));
+      }
+    }
+  }
+});
+
 test("later revisions cannot replace legacy handoff descriptors or lose its core on failure", () => {
   using runtime = fixture();
   const saved = json.clone({ ...manifest(runtime), retired: { listener: 55, clients: [{ fd: 56 }] }, requester: 57 }),

@@ -670,10 +670,19 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     }
   }
   async test_cold_recovery_resumes_the_agent_in_its_pane_once_focused() {
+    await this.cold_resume();
+  }
+  async test_cold_recovery_without_metadata_resumes_the_original_agent_once_focused() {
+    await this.cold_resume(true);
+  }
+  async cold_resume(discardMetadata = false) {
     const resumes = join(this.temp.name, "resumes.jsonl"),
-      session = "01901234-1234-1234-1234-123456789aaa";
+      session = "01901234-1234-1234-1234-123456789aaa",
+      bin = join(this.temp.name, "resume-bin");
+    mkdirSync(bin);
+    this.env.PATH = `${bin}:${this.env.PATH}`;
     this.env.CORGI_CODEX_BIN = writeExecutable(
-      join(this.temp.name, "codex-resume"),
+      join(bin, "codex"),
       `import { appendFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 if (!args.includes('resume')) process.exit(0);
@@ -686,8 +695,15 @@ await Bun.sleep(120000);
     const first = await this.new("printf 'BEFORE_%s\\n' CRASH; exec /bin/sh");
     await this.until(async () => (await this.screen(first)).includes("BEFORE_CRASH"));
     await this.pair(first, session);
-    await this.rpc({ op: "recovery.save" });
-    await this.restart_runtime();
+    const saved = await this.rpc({ op: "recovery.save" });
+    if (discardMetadata) {
+      await this.run_cli("shutdown");
+      await this.until(() => !existsSync(this.path));
+      const state = JSON.parse(readFileSync(saved.path, "utf8"));
+      state.transfer.format = "f".repeat(12);
+      writeFileSync(saved.path, JSON.stringify(state));
+      await this.run_cli("start");
+    } else await this.restart_runtime();
     const pane = async () => (await this.session()).panes.find((p: any) => p.id === first);
     this.assertEqual([(await pane()).dormant, (await pane()).pid], [true, -1]);
     this.assertEqual((await pane()).restoring, `codex resume ${session}`);
