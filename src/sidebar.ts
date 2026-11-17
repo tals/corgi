@@ -96,7 +96,10 @@ export let panel: string,
   /** Gold a quarter of the way into the panel: the starred heading's rules,
    * count and chevron, and the edge beside starred rows. */
   star_trim: string,
-  star_underline: string;
+  star_underline: string,
+  /** A stale workspace's name at each auto-order fade step: from `muted`
+   * past `faint` down to the napping-agent gray. */
+  stale_names: string[];
 let selected_bg: string,
   button: string,
   button_glyph: string,
@@ -129,7 +132,15 @@ palette.derived(() => {
   rule_underline = "\x1b[4m" + underline("line");
   dotted_underline = "\x1b[4:4m" + underline("line");
   ghost_underline = "\x1b[4m" + underline("strong");
-  nap_fg = fgRgb(mix(colors.faint, colors.bg, 50));
+  const nap = mix(colors.faint, colors.bg, 50);
+  nap_fg = fgRgb(nap);
+  stale_names = [
+    mix(colors.muted, colors.faint, 40),
+    mix(colors.muted, colors.faint, 80),
+    mix(colors.faint, nap, 20),
+    mix(colors.faint, nap, 60),
+    nap,
+  ].map(rgb => new Style({ bg: "bg" }).sgr() + fgRgb(rgb));
   hover_rgb = mix(colors.bg, colors.selected, 50);
   hover_bg = bgRgb(hover_rgb);
   star_trim = fgRgb(mix(colors.gold, colors.bg, 25));
@@ -1643,7 +1654,8 @@ export class View {
       if (ws.unavailable) w = new Writer(out.column);
       const ghost = v.dragged_workspace === v.workspace_offset + index;
       const tinted = ws.active || ghost;
-      const style = tinted ? active_name : panel;
+      // A stale name fades with idle time; a selected or dragged one stays readable.
+      const style = tinted ? active_name : (stale_names[ws.stale_step - 1] ?? panel);
       const meta = tinted ? active_meta : panel;
       // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
       const bar = ghost ? ghost_bar : active_bar;
