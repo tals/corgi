@@ -1900,6 +1900,16 @@ export class Controller {
     const order = new Map(this.prefs.workspace_order.map((key, i) => [key, i])),
       place = new Map(rows.map(row => [row.id, order.get(this.workspaceOrderKey(row.id)) ?? Infinity]));
     rows.sort((a, b) => place.get(a.id)! - place.get(b.id)!);
+    // A machine ordering its workspaces by activity keeps the places it has
+    // among the others, and fills them in its own order.
+    for (const machine of this.machines) {
+      if (!machine.runtime.workspace_auto_order?.enabled) continue;
+      const slots = rows.flatMap((row, i) => (this.rowOf(row.id)?.machine === machine ? [i] : [])),
+        order = new Map(machine.runtime.workspaces.items.map((ws, i) => [ws.id, i])),
+        rank = (key: number) => order.get(this.rowOf(key)!.id) ?? Infinity,
+        own = slots.map(i => rows[i]).sort((a, b) => rank(a.id) - rank(b.id));
+      for (const [i, slot] of slots.entries()) rows[slot] = own[i];
+    }
     if (all || expanded) return rows;
     const folded = new Set<Machine>();
     return rows.flatMap(row => {
@@ -1952,6 +1962,13 @@ export class Controller {
       } catch (error) {
         this.notice((error as Error).message);
       }
+      // A machine ordering by activity fills its places in its own order, so
+      // it hears of the move within it too.
+      const row = this.rowOf(source)!;
+      if (row.machine.runtime.workspace_auto_order?.enabled)
+        this.moveOn(row.machine, {
+          "workspace.move": { target: row.id, before: this.localBefore(source, drag.before() ?? source) },
+        });
       this.dirty = true;
       return;
     }
@@ -1966,11 +1983,38 @@ export class Controller {
     const from = this.rowOf(source),
       runtime = from?.machine.runtime;
     if (!from || !runtime?.workspace_auto_order?.enabled) return true;
-    const items = runtime.workspaces.items.map(workspaceActivity.shown),
-      to = before === source ? from : this.rowOf(before);
-    // Above another machine's row, only the dragged one's own group counts.
-    if (!to || to.machine !== from.machine) return items.find(w => w.id === from.id)?.group !== "stale";
-    return workspaceActivity.moveAllowed(items, from.id, to.id, true);
+    const items = runtime.workspaces.items.map(workspaceActivity.shown);
+    return workspaceActivity.moveAllowed(items, from.id, this.localBefore(source, before), true);
+  }
+  /** The workspace of row `source`'s own machine it lands above when dropped
+   * above row `before`, or last when that's `source`: by that machine's id,
+   * its own for last. Other machines' rows between don't count. */
+  private localBefore(source: number, before: number): number {
+    const from = this.rowOf(source)!;
+    if (this.machines.length === 1) return before === source ? from.id : this.rowOf(before)!.id;
+    const rows = this.workspaceRows(true)
+        .map(row => row.id)
+        .filter(id => id !== source),
+      at = before === source ? rows.length : Math.max(0, rows.indexOf(before)),
+      next = rows.slice(at).find(id => this.rowOf(id)?.machine === from.machine);
+    return next === undefined ? from.id : this.rowOf(next)!.id;
+  }
+  /** Sends `command` to `machine`, shown there at once until it answers. */
+  private moveOn(machine: Machine, command: CommandInput): void {
+    if (machine === this.machine) return this.optimistic(command);
+    const edit = optimistic.edit(command),
+      forget = edit ? machine.runtime.assume(edit) : () => {};
+    this.later(async () => {
+      try {
+        await call(machine.connection, "session.command", { command });
+        forget();
+      } catch {
+        // Refused: the daemon's order stands.
+        forget();
+        if (machine.runtime.snapshot) this.receiveSnapshot(machine.runtime.snapshot, machine);
+      }
+      this.dirty = true;
+    });
   }
   cancelWorkspaceDrag(): boolean {
     if (!this.workspace_drag) return false;
