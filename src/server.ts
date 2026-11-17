@@ -799,7 +799,7 @@ export class Server {
     }
     if (s.enabled) this.autoArchive(now);
     // Closed workspaces leave no bookkeeping behind.
-    const open = (id: number) => r.workspaces.get(id) !== undefined;
+    const open = (id: number) => r.workspaces.get(id) !== null;
     for (const map of [r.stale_steps, this.archive_checked]) for (const id of map.keys()) if (!open(id)) map.delete(id);
     this.archive_reported.retain(open);
     if (!changed) return;
@@ -820,7 +820,9 @@ export class Server {
         this.archive_checked.delete(w.id);
         continue;
       }
-      if (this.archiving.has(w.id) || now - (this.archive_checked.get(w.id) ?? -Infinity) < 60_000) continue;
+      // A check "in the future" is from before a wall clock set back.
+      const since = now - (this.archive_checked.get(w.id) ?? -Infinity);
+      if (this.archiving.has(w.id) || (since >= 0 && since < 60_000)) continue;
       const facts = this.archiveFacts(w),
         quick = workspaceActivity.quickBlocker(facts);
       if (!quick && scanned) continue;

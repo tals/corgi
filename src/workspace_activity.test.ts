@@ -124,6 +124,10 @@ describe("Clock", () => {
     // Set back an hour: the pause still starts five minutes past the activity.
     run(c, -60 * min, 0, false);
     expect(c.clock).toBe(5 * min);
+    // Activity right after a jump back counts from then, not an hour before.
+    c.activity(-120 * min);
+    run(c, -120 * min, -110 * min, false);
+    expect(c.clock).toBe(10 * min);
   });
   test("a fresh clock waits for activity", () => {
     const c = new activity.Clock(1000);
