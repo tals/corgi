@@ -133,6 +133,10 @@ literals in UI code. Computed tints blend existing tokens.
 Text tokens on `bg` and `surface` must reach 4.5:1 contrast. On `selected`,
 use `muted` or brighter, not `faint`. Hovered agent rows blend `bg` toward
 `selected` by 50%; focus outlines blend `accent` toward `line` by 50%.
+A napping agent's "z" blends `faint` toward `bg` by 50%. Stale workspace
+names fade in five steps from `muted` through `faint` down to that gray,
+below the contrast rule on purpose: the darkest says the workspace is about
+to be archived. A selected stale row keeps the selected name style.
 
 ### Status
 

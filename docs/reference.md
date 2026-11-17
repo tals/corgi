@@ -518,8 +518,9 @@ For multiple machines, use `corgi machine add HOST` and `corgi --machine HOST li
 
 Prefer **Corgi setup** for changes. **Panes → Shell** selects the shell for new
 panes; **Theme** changes appearance; **Clever Corgi** controls model-backed
-features, Smart Links and auto-retrying capacity errors. Settings and launcher
-commands survive restarts.
+features, Smart Links and auto-retrying capacity errors; **Workspace order**
+sets [auto-order](workspaces.md#order-workspaces-by-activity). Settings and
+launcher commands survive restarts.
 Its model picker is the prompt's: Auto first, then cheap models under each
 agent, account and routed source, with heavier ones a search away. Auto is
 resolved by Corgi, preferring subscription-backed access, and does not pin a
@@ -544,6 +545,19 @@ you changed there from an older `viewer.json`; a `config.json` already there,
 such as one restored from dotfiles, wins. `viewer.json` then contains only
 viewer state. Close older viewers before upgrading; they read settings from
 the old file. Downgrading requires a reverse migration.
+
+`settings.json` may be edited by hand while Corgi is stopped. Workspace
+auto-order reads these keys; durations are whole minutes:
+
+| Key | Default | Values |
+| --- | --- | --- |
+| `workspace_auto_order` | `false` | `true` or `false` |
+| `workspace_pause_after` | `5` | any whole number from 1 |
+| `workspace_stale_after` | `10` | any whole number from 1 |
+| `workspace_archive_after` | `480` | any whole number from 1, or `"off"` |
+
+A malformed value takes its default. Pause must be shorter than stale, and
+stale shorter than archive; otherwise all three take their defaults.
 
 An explicit `CORGI_SOCKET` selects another runtime; its workspace/settings
 files live beside the socket. Viewer preferences remain shared. Developer
