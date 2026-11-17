@@ -55,6 +55,10 @@ import * as socket_server from "./socket_server";
 import * as legacy_socket from "./legacy_socket";
 import * as start_lock from "./start_lock";
 import * as workspaceActivity from "./workspace_activity";
+import * as errors from "./errors";
+import { getLogger } from "./log";
+
+const autoOrderLog = getLogger("auto_order");
 export class Server {
   readonly instance = crypto.randomUUID();
   summaries: SummaryWorker | null = null;
@@ -131,6 +135,11 @@ export class Server {
   private collected = -Infinity;
   /** Whether the last tick ordered workspaces automatically. */
   private auto_ordering = false;
+  /** When each workspace due for auto-archive was last checked, by id. */
+  private archive_checked = new Map<number, number>();
+  /** Workspaces queued for auto-archive. */
+  private archiving = new Set<number>();
+  private archive_reported = new workspaceActivity.Reported();
   // Test builds stop with the test process that owns their runtime.
   private owner = testBuild ? Number(process.env.CORGI_TEST_OWNER) || 0 : 0;
   private ownerChecked = 0;
@@ -788,10 +797,84 @@ export class Server {
       r.stale_steps.set(w.id, step);
       changed = true;
     }
+    if (s.enabled) this.autoArchive(now);
     if (!changed) return;
     r.changed();
     this.dirty = true;
     void this.saveWorkspaces();
+  }
+  /** Archives each workspace idle for "archive after", once a minute at
+   * most asking what holds it back, and logs each new reason once. */
+  private autoArchive(now: number): void {
+    const r = this.runtime;
+    for (const w of r.workspaces.items) {
+      if (!workspaceActivity.due(w, r.activity.clock, r.activity.guard, r.auto_order)) {
+        this.archive_reported.clear(w.id);
+        this.archive_checked.delete(w.id);
+        continue;
+      }
+      if (this.archiving.has(w.id) || now - (this.archive_checked.get(w.id) ?? -Infinity) < 60_000) continue;
+      this.archive_checked.set(w.id, now);
+      const reason = workspaceActivity.blocker(this.archiveFacts(w));
+      if (reason) {
+        if (this.archive_reported.report(w.id, reason))
+          autoOrderLog.warn("Auto-archive blocked", { workspace: w.id, name: w.name(), reason });
+        continue;
+      }
+      this.archiving.add(w.id);
+      this.enqueue(() => this.autoArchiveNow(w.id));
+    }
+  }
+  /** What could hold a due workspace back from auto-archive. */
+  private archiveFacts(w: Workspace): workspaceActivity.Facts {
+    const r = this.runtime;
+    return {
+      others: r.workspaces.items.some(o => o.id !== w.id && !o.archived),
+      // Shown counts whether or not its terminal has focus.
+      on_screen: this.clients.some(c => c.viewer && !c.dead && c.visible && c.view_workspace === w.id),
+      waiting:
+        r.panes.some(
+          p =>
+            !p.dormant &&
+            !p.terminal.exited &&
+            workspaceActivity.waiting(p.agent()) &&
+            r.workspaces.owner(p.id)?.id === w.id,
+        ) ||
+        r.sessions.some(
+          s =>
+            !s.corgi &&
+            !s.exited &&
+            s.workspace_id === w.id &&
+            workspaceActivity.waiting({ state: s.status(), attention: s.attention() }),
+        ),
+      inventory: () => archiveInventory.inventoryStatus(r, w.id),
+      served: () => r.ports.enabled && r.ports.current.workspace(w.id).endpoints.length > 0,
+    };
+  }
+  /** Archives `id` as a manual archive would, unless it woke, came on
+   * screen or an agent began waiting in it since it was checked. */
+  private async autoArchiveNow(id: number): Promise<void> {
+    const r = this.runtime,
+      w = r.workspaces.get(id);
+    try {
+      if (!w || !workspaceActivity.due(w, r.activity.clock, r.activity.guard, r.auto_order)) return;
+      const facts = this.archiveFacts(w);
+      if (!facts.others || facts.on_screen || facts.waiting) return;
+      // Set first, so the snapshot that shows it archived says why.
+      w.auto_archived = true;
+      try {
+        await this.execute({ "workspace.archive": { target: id } });
+      } catch (error) {
+        w.auto_archived = false;
+        if (this.archive_reported.report(id, errors.name(error) ?? String(error)))
+          autoOrderLog.warn("Auto-archive failed", { workspace: id, name: w.name(), error: errors.name(error) });
+        return;
+      }
+      this.archive_reported.clear(id);
+      autoOrderLog.info("Auto-archived workspace", { workspace: id, name: w.name() });
+    } finally {
+      this.archiving.delete(id);
+    }
   }
   /** Keys and pastes a viewer sends a pane count as work in its workspace;
    * the CLI's, scripts' and other agents' don't. */
@@ -1304,6 +1387,18 @@ export class Server {
         this.runtime.changed();
         this.dirty = true;
         reply.ok({ auto_retry: request.payload.enabled });
+        return;
+      }
+      case "workspace_auto_order.configure": {
+        const next = workspaceActivity.configure(this.runtime.auto_order, request.payload);
+        if (!next) throw Error("InvalidThresholds");
+        settings.update(settings.path(this.socket), workspaceActivity.toFile(next));
+        this.runtime.auto_order = next;
+        // Switching on, or archiving sooner, waits a full "archive after".
+        this.armGuard();
+        this.runtime.changed();
+        this.dirty = true;
+        reply.ok({ workspace_auto_order: workspaceActivity.wire(next) });
         return;
       }
       case "retry.cancel":

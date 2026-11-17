@@ -53,6 +53,7 @@ import {
   acknowledge,
   providerName,
   statsAny,
+  autoOrder as mirrorAutoOrder,
   type Agent,
   type Transport,
   type Pane,
@@ -6695,6 +6696,7 @@ export class Controller {
     }
     setup.smart_links = this.runtime.smart_links;
     setup.auto_retry = this.runtime.auto_retry;
+    setup.auto_order = this.runtime.workspace_auto_order;
     setup.changed = () => {
       this.dirty = true;
       this.wake();
@@ -6826,6 +6828,10 @@ export class Controller {
         return this.configureSmartLinks(apply.on);
       case "auto_retry":
         return this.configureAutoRetry(apply.on);
+      case "auto_order":
+        return this.configureAutoOrder({ enabled: apply.on });
+      case "auto_order_threshold":
+        return this.configureAutoOrder({ [apply.field]: apply.minutes ?? 0 });
       case "summaries":
         return this.configureSummaries(apply.choice, apply.model, apply.account);
       case "inference_use":
@@ -6934,6 +6940,32 @@ export class Controller {
     this.runtime.auto_retry = enabled;
     if (this.corgi_setup) this.corgi_setup.auto_retry = enabled;
     this.notice(enabled ? i18n.t` Auto-retry capacity errors on` : i18n.t` Auto-retry capacity errors off`);
+  }
+  /** Changes the daemon's workspace auto-order; thresholds in minutes, an
+   * `archive_after` of 0 for Off. */
+  private async configureAutoOrder(changes: {
+    enabled?: boolean;
+    pause_after?: number;
+    stale_after?: number;
+    archive_after?: number;
+  }): Promise<void> {
+    let reply;
+    try {
+      reply = await call(this.connection, "workspace_auto_order.configure", changes);
+    } catch (error) {
+      this.notice(
+        errors.is(error, "InvalidThresholds")
+          ? i18n.t` Pause after must be shorter than stale after, and stale after shorter than archive after`
+          : i18n.t` Corgi setup: the runtime did not accept the change`,
+      );
+      return;
+    }
+    const order = mirrorAutoOrder(reply.workspace_auto_order);
+    this.runtime.workspace_auto_order = order;
+    if (this.corgi_setup) this.corgi_setup.auto_order = order;
+    if (changes.enabled !== undefined)
+      this.notice(changes.enabled ? i18n.t` Auto-order workspaces on` : i18n.t` Auto-order workspaces off`);
+    this.dirty = true;
   }
   /** Whether the focused agent still waits on a retry, which Esc calls off.
    * Once it is due, the retry is under way and Esc is the agent's again. */
@@ -9763,8 +9795,10 @@ export class Controller {
   /** Takes `machine`'s session as its daemon reports it. Only the machine
    * shown has menus and selections to keep in step with it. */
   receiveSnapshot(snapshot: any, machine = this.machine): void {
+    const archived = new Map(machine.runtime.workspaces.items.map(ws => [ws.id, ws.archived]));
     if (machine !== this.machine) {
       machine.runtime.receive(machine.connection, snapshot);
+      this.noticeAutoArchived(machine, archived);
       return;
     }
     const had = this.runtime.workspaces.items.length > 0;
@@ -9774,6 +9808,9 @@ export class Controller {
     const previous_token = had ? this.model().revision : 0n;
     const was_archived = had && this.current().archived;
     this.runtime.receive(this.connection, snapshot);
+    this.noticeAutoArchived(machine, archived);
+    // Another viewer may have changed it while setup is open.
+    if (this.corgi_setup) this.corgi_setup.auto_order = this.runtime.workspace_auto_order;
     if (this.current().archived && (!was_archived || !had)) {
       const active = this.runtime.workspaces.items.find(w => !w.archived);
       if (active) this.switchWorkspace(active.id);
@@ -9821,6 +9858,15 @@ export class Controller {
       tab = model.tabForPane(menu.tab);
     if (tab === null || model.paneCount(model.tabs[tab].root) === 1) menu.off.add("break");
     else menu.off.delete("break");
+  }
+  /** Names each workspace auto-order archived since the last snapshot,
+   * given which were `archived` before it. */
+  private noticeAutoArchived(machine: Machine, archived: Map<number, boolean>): void {
+    for (const ws of machine.runtime.workspaces.items)
+      if (ws.archived && ws.auto_archived && archived.get(ws.id) === false) {
+        const name = ws.name;
+        this.notice(i18n.t` Auto-archived ${name}`);
+      }
   }
   reconcile(): void {
     if (this.agent_picker && this.agent_picker.workspace !== this.current().id) this.agent_picker = null;

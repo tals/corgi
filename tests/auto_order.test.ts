@@ -1,7 +1,7 @@
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Viewers } from "./viewers";
-import { screen_text } from "./runtime";
+import { PALETTE, screen_text } from "./runtime";
 import type { Viewer } from "./viewer_client";
 import { EXE, registerCase } from "./support";
 
@@ -146,6 +146,8 @@ class AutoOrder extends Viewers {
     this.assertEqual(await this.order(), ["Echo", "Bravo", "Delta", "Alpha", "Charlie"]);
     await this.settle();
     this.assertEqual(await this.order(), ["Echo", "Bravo", "Delta", "Alpha", "Charlie"]);
+    // With archive Off, nothing is archived however long it idles.
+    this.assertEqual(await this.archived(), []);
   }
 
   /** Restarts the daemon with `changes` to its settings. */
@@ -227,6 +229,147 @@ class AutoOrder extends Viewers {
     await this.age(10);
     const order = await this.order();
     this.assertEqual(order.slice(0, 2), ["Alpha", "Bravo"]);
+  }
+
+  async archived() {
+    return (await this.session()).workspaces
+      .filter((w: any) => w.archived)
+      .map((w: any) => w.name)
+      .sort();
+  }
+  log() {
+    return readFileSync(join(this.temp.name, "server.log"), "utf8");
+  }
+  /** Has `viewer` show `workspace`, as it tells the daemon on its next sync. */
+  async show(viewer: Viewer, workspace: number) {
+    await this.rpc({ op: "workspace.switch", workspace });
+    await this.until(async () => {
+      await viewer.poll();
+      return (await this.rpc({ op: "viewer.list" })).viewers[0].workspace === workspace;
+    });
+  }
+
+  async test_long_idle_workspaces_are_archived_unless_something_holds_them() {
+    await this.reconfigure({ workspace_stale_after: 2, workspace_archive_after: 4 });
+    const [alpha, bravo, charlie, delta, echo] = await this.workspaces("Alpha", "Bravo", "Charlie", "Delta", "Echo");
+    const a = await this.agent(alpha);
+    // Charlie runs a program, Echo's agent waits on a permission prompt,
+    // and a viewer shows Delta.
+    const sleeper = (
+      await this.command("pane.create", { workspace: charlie, cwd: this.temp.name, command: "sleep 600" })
+    ).pane;
+    const e = await this.agent(echo);
+    await this.hook(e, "PermissionRequest");
+    const viewer = await this.newViewer(100, 40);
+    await this.show(viewer, delta);
+    await this.work(a);
+    // Switching on, or a restart that does, waits a full "archive after" first.
+    await this.age(200);
+    this.assertEqual(await this.archived(), []);
+    await this.age(100);
+    this.assertEqual(await this.archived(), ["Bravo"]);
+    const bravo_row = (await this.session()).workspaces.find((w: any) => w.id === bravo);
+    this.assertTrue(bravo_row.auto_archived, JSON.stringify(bravo_row));
+    this.assertIn("Auto-archived workspace", this.log());
+    // The viewer showing Delta heard about it.
+    await viewer.poll();
+    this.assertIn("Auto-archived Bravo", screen_text(viewer.state.data, 100, 40).join("\n"));
+    // The others wait in the darkest gray, each reason logged once.
+    const steps = await this.steps();
+    this.assertEqual([steps.Charlie, steps.Delta, steps.Echo], [5, 5, 5]);
+    await this.age(120);
+    this.assertEqual(await this.archived(), ["Bravo"]);
+    for (const reason of ["running-process", "on-screen", "waiting-agent"])
+      this.assertEqual(this.log().split(`"reason":"${reason}"`).length - 1, 1);
+    // Each goes once what held it back is gone. Echo's agent, answered,
+    // goes back to work, which makes Echo active again.
+    await this.command("pane.close", { target: sleeper });
+    await this.show(viewer, alpha);
+    await this.hook(e, "PostToolUse");
+    await this.stop(e);
+    await this.age(70);
+    this.assertEqual(await this.archived(), ["Bravo", "Charlie", "Delta"]);
+    this.assertEqual((await this.steps()).Echo, 0);
+    await this.age(260);
+    this.assertEqual(await this.archived(), ["Bravo", "Charlie", "Delta", "Echo"]);
+    // Unarchived, a workspace joins the end of the active group with its agents resumable.
+    await this.command("workspace.unarchive", { target: echo });
+    await this.settle();
+    this.assertEqual(await this.order(), ["Alpha", "Echo"]);
+    const back = (await this.session()).workspaces.find((w: any) => w.id === echo);
+    this.assertEqual([back.auto_archived, back.stale_step], [false, 0]);
+    this.assertTrue(
+      (await this.session()).panes.some((p: any) => p.id === e && p.dormant),
+      "the agent's pane waits to be resumed",
+    );
+  }
+
+  async test_switching_on_waits_a_full_archive_after() {
+    await this.reconfigure({ workspace_auto_order: false, workspace_stale_after: 2, workspace_archive_after: 4 });
+    const [alpha] = await this.workspaces("Alpha", "Bravo");
+    const a = await this.agent(alpha);
+    await this.work(a);
+    await this.age(360);
+    this.assertEqual(await this.archived(), []);
+    await this.reconfigure({ workspace_auto_order: true });
+    // The pane was recovered asleep; a new agent keeps the clock going.
+    const b = await this.agent(alpha);
+    await this.work(b);
+    await this.age(200);
+    this.assertEqual(await this.archived(), []);
+    this.assertEqual((await this.steps()).Bravo, 5);
+    await this.age(60);
+    this.assertEqual(await this.archived(), ["Bravo"]);
+  }
+
+  async test_configure_applies_at_once_persists_and_refuses_thresholds_out_of_order() {
+    await this.reconfigure({ workspace_auto_order: false });
+    const [alpha] = await this.workspaces("Alpha", "Bravo");
+    const a = await this.agent(alpha);
+    await this.work(a);
+    await this.age(200);
+    const first = await this.newViewer(100, 40),
+      second = await this.newViewer(100, 40);
+    this.assertEqual((await this.steps()).Bravo, 0);
+    const reply = await this.rpc({ op: "workspace_auto_order.configure", enabled: true, stale_after: 2 });
+    this.assertEqual(reply.workspace_auto_order, { enabled: true, pause_after: 1, stale_after: 2, archive_after: 0 });
+    await this.settle();
+    // Both viewers fade the stale workspace at once: its name is no longer
+    // in the usual gray.
+    this.assertTrue((await this.steps()).Bravo >= 1);
+    for (const viewer of [first, second]) {
+      await viewer.poll();
+      const drawn = /((?:\x1b\[[\d;]*m)+)Bravo/.exec(viewer.state.data);
+      this.assertTrue(drawn !== null && !drawn[1].includes(`38;2;${PALETTE.muted}m`), JSON.stringify(drawn?.[1]));
+    }
+    const saved = JSON.parse(readFileSync(this.settingsFile, "utf8"));
+    this.assertEqual(
+      [saved.workspace_auto_order, saved.workspace_stale_after, saved.workspace_archive_after],
+      [true, 2, "off"],
+    );
+    // Out of order: refused, and nothing changes.
+    const refused = await this.raw_rpc({ op: "workspace_auto_order.configure", pause_after: 5 });
+    this.assertEqual(refused.err, "InvalidThresholds");
+    this.assertEqual(JSON.parse(readFileSync(this.settingsFile, "utf8")).workspace_pause_after, 1);
+    // A restart keeps them; a malformed value falls back on its own, and
+    // thresholds out of order all do.
+    await this.run_cli("shutdown");
+    await this.run_cli("start");
+    this.assertEqual((await this.session()).workspace_auto_order.stale_after, 2);
+    await this.reconfigure({ workspace_stale_after: "soon" });
+    this.assertEqual((await this.session()).workspace_auto_order, {
+      enabled: true,
+      pause_after: 1,
+      stale_after: 10,
+      archive_after: 0,
+    });
+    await this.reconfigure({ workspace_stale_after: 2, workspace_pause_after: 30 });
+    this.assertEqual((await this.session()).workspace_auto_order, {
+      enabled: true,
+      pause_after: 5,
+      stale_after: 10,
+      archive_after: 480,
+    });
   }
 
   async test_off_keeps_the_manual_order_and_no_fade() {
