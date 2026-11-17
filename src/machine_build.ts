@@ -74,16 +74,14 @@ export function released(v: string): boolean {
 }
 /** Setup selects the invoking build, regardless of branch ancestry or release order. */
 export function matches(local: Build, remote: Build): boolean {
-  if (
-    released(local.version) &&
-    released(remote.version) &&
-    local.version === remote.version &&
-    local.commit !== remote.commit
-  )
-    throw Error("ConflictingReleaseBuilds");
+  if (released(local.version) || released(remote.version)) {
+    if (local.version !== remote.version) return false;
+    if (local.commit !== remote.commit) throw Error("ConflictingReleaseBuilds");
+    return true;
+  }
   if (local.build_id && local.build_id === remote.build_id) return true;
   if (local.source_hash && remote.source_hash) return local.source_hash === remote.source_hash;
-  return released(local.version) && local.version === remote.version && local.commit === remote.commit;
+  return false;
 }
 
 /** Installation slots stay readable by older updater binaries. This is not the build's release version. */
