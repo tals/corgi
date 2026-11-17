@@ -35,6 +35,7 @@ $.sync.session_hash?: u64
 $.sync.focus: optional
 $.sync.focus?: u32
 $.sync.watched: bool
+$.sync.visible: bool
 $.sync.workspace: u32
 $.sync.ack: u64
 $.sync.active: bool

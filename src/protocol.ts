@@ -151,6 +151,7 @@ export const operations = [
   "shell.configure",
   "smart_links.configure",
   "retry.configure",
+  "workspace_auto_order.configure",
   "retry.cancel",
   "git.push",
   "worktree.remove",
@@ -263,6 +264,7 @@ export function once(op: Op): boolean {
     case "inference.configure":
     case "shell.configure":
     case "smart_links.configure":
+    case "workspace_auto_order.configure":
     case "agent.track_usage":
     case "onboarding.copy":
     case "onboarding.handoff":
@@ -707,6 +709,8 @@ const stream = {
   session_hash: ["?u64", null],
   focus: ["?u32", null],
   watched: ["bool", true],
+  // Whether the viewer shows this machine; `watched` also needs its terminal focused.
+  visible: ["bool", true],
   workspace: ["u32", 0],
   ack: ["u64", 0],
   active: ["bool", false],
@@ -766,6 +770,7 @@ const requests = {
     session_hash: ["?u64", null],
     focus: ["?u32", null],
     watched: ["bool", true],
+    visible: ["bool", true],
     workspace: ["u32", 0],
     ack: ["u64", 0],
     active: ["bool", false],
@@ -853,6 +858,13 @@ const requests = {
   "shell.configure": { shell: "string" },
   "smart_links.configure": { enabled: "bool" },
   "retry.configure": { enabled: "bool" },
+  "workspace_auto_order.configure": {
+    enabled: ["?bool", null],
+    // Minutes; archive_after 0 means Off.
+    pause_after: ["?u32", null],
+    stale_after: ["?u32", null],
+    archive_after: ["?u32", null],
+  },
   "retry.cancel": { pane: "u32" },
   "git.push": { workspace: "u32", ref: "ref" },
   "worktree.remove": { workspace: "u32", path: "string", locked: ["?string", null] },
@@ -1074,6 +1086,7 @@ export interface ReplyPayloads {
   "shell.configure": Ok & { shell: import("./launch/command").ShellStatus };
   "smart_links.configure": Ok & { smart_links: boolean };
   "retry.configure": Ok & { auto_retry: boolean };
+  "workspace_auto_order.configure": Ok & { workspace_auto_order: import("./workspace_activity").Wire };
   "retry.cancel": Ok;
   "worktree.remove": Ok & { removal: number };
   "git.branches": Ok & { branches: Awaited<ReturnType<typeof import("./worktree_add").branches>> };

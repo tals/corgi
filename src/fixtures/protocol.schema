@@ -296,6 +296,14 @@ $.requests|inference.configure.worktrees?: bool
 $.requests|shell.configure.shell: string
 $.requests|smart_links.configure.enabled: bool
 $.requests|retry.configure.enabled: bool
+$.requests|workspace_auto_order.configure.enabled: optional
+$.requests|workspace_auto_order.configure.enabled?: bool
+$.requests|workspace_auto_order.configure.pause_after: optional
+$.requests|workspace_auto_order.configure.pause_after?: u32
+$.requests|workspace_auto_order.configure.stale_after: optional
+$.requests|workspace_auto_order.configure.stale_after?: u32
+$.requests|workspace_auto_order.configure.archive_after: optional
+$.requests|workspace_auto_order.configure.archive_after?: u32
 $.requests|retry.cancel.pane: u32
 $.requests|git.push.workspace: u32
 $.requests|git.push.ref.root: string

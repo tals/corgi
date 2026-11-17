@@ -18,6 +18,8 @@ import * as worktreeAdd from "./worktree_add";
 import * as link from "./link";
 import * as client_socket from "./fixtures/client_socket";
 import { scopedEnv } from "./fixtures/env";
+import * as settings from "./settings";
+import { Reply } from "./peer";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -1082,6 +1084,100 @@ test("only a viewer's keys and pastes count as typing in a workspace", async () 
     expect(ws.active_at).toBe(6000);
     viewer.close();
     cli.close();
+  } finally {
+    await dispose();
+  }
+});
+test("configuring auto-order saves the settings, arms the archive guard and refuses thresholds out of order", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    file = settings.path(server.socket),
+    configure = (payload: Record<string, unknown>) =>
+      server.request(server.addClient(null, false), protocol.envelope("workspace_auto_order.configure", payload));
+  try {
+    r.activity.clock = 1000;
+    Reflect.get(server, "armGuard").call(server);
+    expect(r.activity.guard).toBe(0);
+    let replies: any[] = [];
+    const reply = spyOn(Reply.prototype, "send").mockImplementation(function (value: any) {
+      replies.push(value);
+    });
+    try {
+      await configure({ enabled: true, archive_after: 60 });
+      expect(replies.pop()).toEqual({
+        ok: true,
+        workspace_auto_order: { enabled: true, pause_after: 5, stale_after: 10, archive_after: 60 },
+      });
+      expect(settings.autoOrder(file)).toEqual({ enabled: true, pause_after: 5, stale_after: 10, archive_after: 60 });
+      expect(r.activity.guard).toBe(1000 + 60 * 60_000);
+      // Raising "archive after" keeps the guard; Off and back arms it again.
+      r.activity.clock = 5000;
+      await configure({ archive_after: 120 });
+      expect(r.activity.guard).toBe(1000 + 60 * 60_000);
+      await configure({ archive_after: 0 });
+      expect(settings.read(file).workspace_archive_after).toBe("off");
+      await configure({ archive_after: 30 });
+      expect(r.activity.guard).toBe(5000 + 30 * 60_000);
+      await expect(configure({ pause_after: 10 })).rejects.toThrow("InvalidThresholds");
+      expect(settings.autoOrder(file).pause_after).toBe(5);
+      expect(session.snapshot(r).workspace_auto_order.archive_after).toBe(30);
+    } finally {
+      reply.mockRestore();
+      replies = [];
+    }
+  } finally {
+    await dispose();
+  }
+});
+test("auto-archive waits for what holds a due workspace back, then archives it as a manual archive would", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    minute = 60_000,
+    jobs = () => Reflect.get(server, "jobs") as Promise<void>,
+    check = async (now: number) => {
+      Reflect.get(server, "autoArchive").call(server, now);
+      await jobs();
+    };
+  try {
+    const [due, other] = [1, 2].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(due, other);
+    r.workspaces.next_id = 3;
+    r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
+    r.activity.clock = 100 * minute;
+    due.group = "stale";
+    due.active_at = r.activity.clock - 10 * minute;
+    other.active_at = r.activity.clock;
+    // Before the guard, nothing is checked.
+    r.activity.guard = r.activity.clock + 1;
+    await check(0);
+    expect(due.archived).toBe(false);
+    r.activity.guard = 0;
+    // On screen in a viewer, even one whose terminal lost focus: blocked,
+    // and checked again only a minute later.
+    const viewer = server.addClient(null, false);
+    viewer.viewer = true;
+    viewer.watched = false;
+    viewer.view_workspace = due.id;
+    await check(1000);
+    expect(due.archived).toBe(false);
+    viewer.view_workspace = other.id;
+    await check(30_000);
+    expect(due.archived).toBe(false);
+    // The last workspace not archived stays.
+    other.archived = true;
+    await check(70_000);
+    expect(due.archived).toBe(false);
+    other.archived = false;
+    // A viewer showing another machine only remembers its selection here.
+    viewer.view_workspace = due.id;
+    viewer.visible = false;
+    await check(140_000);
+    expect(due).toMatchObject({ archived: true, auto_archived: true });
+    expect(session.snapshot(r).workspaces.find(w => w.id === due.id)?.auto_archived).toBe(true);
+    // Unarchiving clears the flag and counts as activity.
+    r.unarchiveWorkspace(due.id);
+    expect(due).toMatchObject({ archived: false, auto_archived: false, active_at: r.activity.clock });
+    viewer.close();
   } finally {
     await dispose();
   }

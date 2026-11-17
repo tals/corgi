@@ -517,6 +517,64 @@ function paneless() {
   };
 }
 
+test("setup's auto-order choices go to the daemon, and thresholds out of order are explained", async () => {
+  const sent: unknown[] = [];
+  let order = { enabled: false, pause_after: 5, stale_after: 10, archive_after: 480 };
+  const s: any = new Controller(
+    transport(async (op, fields: any) => {
+      if (op !== "workspace_auto_order.configure") throw Error("UnexpectedRequest");
+      sent.push(fields);
+      const next = { ...order, ...fields };
+      if (next.pause_after >= next.stale_after) return { err: "InvalidThresholds" };
+      order = next;
+      return { ok: true, workspace_auto_order: order };
+    }),
+  );
+  const apply = (value: object) => Reflect.get(s, "applySetup").call(s, value);
+  try {
+    s.receiveSnapshot({ ...folders("/a"), workspace_auto_order: order });
+    await apply({ kind: "auto_order", on: true });
+    expect(s.runtime.workspace_auto_order.enabled).toBe(true);
+    expect(s.message).toBe(" Auto-order workspaces on");
+    await apply({ kind: "auto_order_threshold", field: "archive_after", minutes: null });
+    expect(s.runtime.workspace_auto_order.archive_after).toBeNull();
+    await apply({ kind: "auto_order_threshold", field: "pause_after", minutes: 10 });
+    expect(s.message).toBe(" Pause after must be shorter than stale after, and stale after shorter than archive after");
+    expect(s.runtime.workspace_auto_order.pause_after).toBe(5);
+    expect(sent).toEqual([{ enabled: true }, { archive_after: 0 }, { pause_after: 10 }]);
+  } finally {
+    viewer.close(s);
+  }
+});
+test("a workspace auto-order archives is named in a notice, on any machine", () => {
+  const s = controller(),
+    other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  const archived = (snapshot: any, id: number, auto: boolean) => {
+    snapshot.workspaces[id - 1].archived = true;
+    snapshot.workspaces[id - 1].auto_archived = auto;
+    return snapshot;
+  };
+  try {
+    s.receiveSnapshot(folders("/a", "/b", "/c"));
+    s.receiveSnapshot(folders("/w", "/x"), other);
+    expect(s.message).toBe("");
+    // A manual archive says nothing.
+    s.receiveSnapshot(archived(folders("/a", "/b", "/c"), 3, false));
+    expect(s.message).toBe("");
+    s.receiveSnapshot(archived(archived(folders("/a", "/b", "/c"), 3, false), 2, true));
+    expect(s.message).toBe(" Auto-archived /b");
+    s.message = "";
+    // Only the change is news.
+    s.receiveSnapshot(archived(archived(folders("/a", "/b", "/c"), 3, false), 2, true));
+    expect(s.message).toBe("");
+    s.receiveSnapshot(archived(folders("/w", "/x"), 2, true), other);
+    expect(s.message).toBe(" Auto-archived /x");
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
 test("attention passes over archived workspaces", async () => {
   const s = controller(),
     snapshot: any = folders("/a", "/b", "/c");

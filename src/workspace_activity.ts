@@ -48,6 +48,24 @@ export function toFile(s: Settings): Record<string, unknown> {
     [keys.archive_after]: s.archive_after ?? "off",
   };
 }
+/** The settings as sent to viewers: `archive_after` 0 means Off. */
+export type Wire = { enabled: boolean; pause_after: number; stale_after: number; archive_after: number };
+export const wire = (s: Settings): Wire => ({ ...s, archive_after: s.archive_after ?? 0 });
+/** `s` with the changes a configure request asks for, where `archive_after`
+ * 0 means Off; null when a threshold is 0 where it can't be. */
+export function configure(
+  s: Settings,
+  q: { enabled: boolean | null; pause_after: number | null; stale_after: number | null; archive_after: number | null },
+): Settings | null {
+  if (q.pause_after === 0 || q.stale_after === 0) return null;
+  const next: Settings = {
+    enabled: q.enabled ?? s.enabled,
+    pause_after: q.pause_after ?? s.pause_after,
+    stale_after: q.stale_after ?? s.stale_after,
+    archive_after: q.archive_after === null ? s.archive_after : q.archive_after || null,
+  };
+  return valid(next) ? next : null;
+}
 /** A clock that only runs while someone works: it stops "pause after" past
  * the last activity anywhere, and a long gap between ticks adds at most the
  * tick cap. Readings are milliseconds. */

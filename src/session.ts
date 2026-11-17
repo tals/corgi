@@ -685,7 +685,7 @@ function build(r: Runtime, viewer: boolean) {
     shell: shellStatus(),
     smart_links: r.ports.enabled,
     auto_retry: r.auto_retry,
-    workspace_auto_order: { ...r.auto_order, archive_after: r.auto_order.archive_after ?? 0 },
+    workspace_auto_order: workspaceActivity.wire(r.auto_order),
     system_usage: r.system_usage,
     system_working: r.system_working,
     startup_waits: r.startup_waits,

@@ -59,6 +59,30 @@ describe("parse", () => {
   });
 });
 
+describe("configure", () => {
+  const none = { enabled: null, pause_after: null, stale_after: null, archive_after: null };
+  test("changes only what the request names; archive 0 means Off", () => {
+    expect(activity.configure(activity.defaults, none)).toEqual(activity.defaults);
+    expect(activity.configure(activity.defaults, { ...none, enabled: true, stale_after: 30 })).toEqual({
+      ...activity.defaults,
+      enabled: true,
+      stale_after: 30,
+    });
+    expect(activity.configure(activity.defaults, { ...none, archive_after: 0 })?.archive_after).toBeNull();
+    expect(activity.wire({ ...activity.defaults, archive_after: null }).archive_after).toBe(0);
+  });
+  test("refuses thresholds out of order or zero", () => {
+    expect(activity.configure(activity.defaults, { ...none, pause_after: 10 })).toBeNull();
+    expect(activity.configure(activity.defaults, { ...none, stale_after: 480 })).toBeNull();
+    expect(activity.configure(activity.defaults, { ...none, pause_after: 0 })).toBeNull();
+    expect(activity.configure(activity.defaults, { ...none, stale_after: 600, archive_after: 0 })).toEqual({
+      ...activity.defaults,
+      stale_after: 600,
+      archive_after: null,
+    });
+  });
+});
+
 describe("Clock", () => {
   const pause = 5 * min;
   const run = (c: activity.Clock, from: number, to: number, active: boolean) => {

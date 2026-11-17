@@ -103,6 +103,18 @@ function inventory(runtime: Runtime, workspace: number): { result: Preview; root
   return { result, roots };
 }
 
+/** What the archive dialog would list as running, for auto-archive to wait on. */
+export function inventoryStatus(
+  runtime: Runtime,
+  workspace: number,
+): { processes: number; available: boolean; partial: boolean } {
+  const { result } = inventory(runtime, workspace);
+  return {
+    processes: result.processes.length,
+    available: result.processes_available,
+    partial: result.processes_partial,
+  };
+}
 export function summary(runtime: Runtime, workspace: number): archiveSummary.Summary {
   const { result } = inventory(runtime, workspace);
   return archiveSummary.capture(result.agents, result.processes);
