@@ -6772,6 +6772,33 @@ test("switching machines during an awaited key discards the old batch's tail", a
   }
 });
 
+test.each([false, true])("stale input cannot enter the selected machine's buffer (dropped: %s)", async dropped => {
+  const s = controller(),
+    local = s.machine,
+    other = new Machine(
+      transport(async () => ({})),
+      "work",
+      true,
+    );
+  s.receiveSnapshot(folders("/local"));
+  s.adopt(other);
+  s.receiveSnapshot(folders("/remote"), other);
+  s.input_state.attached = true;
+  try {
+    s.switchMachine(other);
+    await s.input(bytes("stale"), () => s.machine === local, dropped);
+    expect(s.input_state.keybuf).toEqual([]);
+    expect(s.input_state.active).toBe(false);
+    await s.expireInput();
+    await s.input(bytes("fresh"));
+    expect(Buffer.from(other.runtime.pane(1)!.terminal.pending).toString()).toBe("fresh");
+    expect(local.runtime.pane(1)!.terminal.pending).toEqual([]);
+  } finally {
+    other.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
 test("remote workspace renaming uses its row below the machine header and keeps failed names on their machine", () => {
   const s = controller(),
     local = s.machine,

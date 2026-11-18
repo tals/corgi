@@ -369,7 +369,10 @@ export class Endpoint {
     const input = this.input.splice(0);
     this.ui_task = (async () => {
       try {
-        for (const typed of input) await view.input(Uint8Array.from(typed.bytes), current, typed.dropped);
+        for (const typed of input) {
+          if (!current()) return;
+          await view.input(Uint8Array.from(typed.bytes), current, typed.dropped);
+        }
         if (input.length) this.last_dropped = input.at(-1)!.dropped;
         if (current()) await view.expireInput(current, this.last_dropped);
       } catch (error) {

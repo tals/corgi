@@ -7167,6 +7167,7 @@ export class Controller {
     }
   }
   private async route(data: Uint8Array, current: () => boolean): Promise<void> {
+    if (!current()) return;
     const cl = this.input_state,
       machine = this.machine;
     if (data.length > 0) cl.active = true;

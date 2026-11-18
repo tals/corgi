@@ -840,6 +840,36 @@ test("keys keep whether they came while dropping, through a reload, and the view
   }
 });
 
+test("switching machines while routing reload input discards later batches", async () => {
+  const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
+  try {
+    const view = Reflect.get(endpoint, "view").call(endpoint);
+    view.input_state.attached = true;
+    Reflect.set(endpoint, "settled", true);
+    const routed: [string, boolean][] = [],
+      expired: boolean[] = [];
+    view.input = async (data: Uint8Array, _current: () => boolean, dropped: boolean) => {
+      routed.push([Buffer.from(data).toString(), dropped]);
+      endpoint.deactivate();
+    };
+    view.expireInput = async (_current: () => boolean, dropped: boolean) => void expired.push(dropped);
+    endpoint.enqueue(Buffer.from("switch"));
+    Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
+    endpoint.enqueue(Buffer.from("dropped"), true);
+    endpoint.enqueue(Buffer.from("later"));
+    endpoint.generation++;
+    endpoint.ready = true;
+    Reflect.set(endpoint, "resumed", true);
+    Reflect.get(endpoint, "pumpUi").call(endpoint);
+    await Reflect.get(endpoint, "ui_task");
+    expect(routed).toEqual([["switch", false]]);
+    expect(expired).toEqual([]);
+    expect(Reflect.get(endpoint, "input")).toEqual([]);
+  } finally {
+    await endpoint.close();
+  }
+});
+
 test("keys held through a reload still go after a retry or a pause", async () => {
   for (const action of ["retry", "pause"] as const) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
