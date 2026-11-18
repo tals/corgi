@@ -531,6 +531,36 @@ test("out-of-order numbered replies only acknowledge a contiguous prefix", async
   }
 });
 
+test("a connect from online or at startup shows nothing for its first second", async () => {
+  const endpoint = localEndpoint("/tmp/corgi-status-test/control.sock", new Probe(), new Host());
+  const presence = () => {
+    const { online, connecting, connection_status } = endpoint.machine.presence();
+    return { online, connecting, label: connection_status?.label ?? null };
+  };
+  const age = (ms: number) => {
+    const spell = Reflect.get(endpoint, "connecting");
+    Reflect.set(endpoint, "connecting", { ...spell, since: spell.since - ms });
+  };
+  try {
+    expect(presence()).toEqual({ online: false, connecting: false, label: null });
+    age(1000);
+    expect(presence()).toEqual({ online: false, connecting: true, label: "connecting" });
+    endpoint.status = "online";
+    Reflect.set(endpoint, "connected", true);
+    // A reconnect looks online until it's taken a second.
+    endpoint.status = "connecting";
+    expect(presence()).toEqual({ online: true, connecting: false, label: null });
+    age(1000);
+    expect(presence()).toEqual({ online: false, connecting: true, label: "reconnecting" });
+    // After an outage that showed, it says so at once.
+    endpoint.status = "offline";
+    endpoint.status = "connecting";
+    expect(presence()).toEqual({ online: false, connecting: true, label: "reconnecting" });
+  } finally {
+    await endpoint.close();
+  }
+});
+
 test("cached identity does not describe the first connection as a reconnect", async () => {
   const endpoint = localEndpoint("/tmp/corgi-status-test/control.sock", new Probe(), new Host());
   try {

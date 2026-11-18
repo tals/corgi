@@ -67,7 +67,10 @@ test("all workspaces list each machine's rows by their own ids, cached ones unti
   expect(a.id).toBe(1);
   expect(view.rowOf(b.id)).toEqual({ machine: remote.machine, id: 1 });
   expect(b.unavailable).toContain("Connecting");
-  expect(b.connecting).toBe(true);
+  // It glimmers once connecting has taken a second.
+  expect(b.connecting).toBe(false);
+  Reflect.set(remote, "connecting", { since: performance.now() - 1000, from: null });
+  expect(view.workspaceRows()[1].connecting).toBe(true);
   expect(b.active).toBe(false);
   view.selectRow(b.id);
   expect(chosen).toEqual([{ machine: "work", workspace: 1 }]);
@@ -332,6 +335,7 @@ test("machine headers keep their timer visible when a state or machine name is c
   remote.status = "connecting";
   Reflect.set(remote, "task", Promise.resolve());
   Reflect.set(remote, "task_started", performance.now() - 123000);
+  Reflect.set(remote, "connecting", { since: performance.now() - 123000, from: null });
   const row = view.workspaceRows()[1];
   expect(row.connection_status?.seconds).toBe(123);
   for (const width of [24, 28, 44]) {

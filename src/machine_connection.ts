@@ -38,6 +38,8 @@ export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" 
 export const quiet_ms = 500;
 /** A remote machine silent this long gets a second connection beside the first. */
 export const race_ms = 4000;
+/** Most connects are done by then: until it, a machine looks as it did. */
+const quiet_connect_ms = 1000;
 /** The longest a failing connection waits before trying again. */
 const max_retry_ms = 15_000;
 /** An outage this long is no blip: fresh dials beside it slow to the retries' pace. */
@@ -54,7 +56,17 @@ export class Endpoint {
     const control = now - Math.max(this.task_started, this.stats.lastReceived ?? this.task_started);
     return this.stream?.age(now) ?? Math.max(control, this.data?.age(now) ?? 0);
   }
-  status: Status = "connecting";
+  private current_status: Status = "connecting";
+  /** When the machine began connecting, and its status before; none at startup. */
+  private connecting: { since: number; from: Status | null } = { since: performance.now(), from: null };
+  get status(): Status {
+    return this.current_status;
+  }
+  set status(value: Status) {
+    if (value === "connecting" && this.current_status !== "connecting")
+      this.connecting = { since: performance.now(), from: this.current_status };
+    this.current_status = value;
+  }
   error = "";
   issue: Exclude<machine_path.Issue, "fatal"> = "error";
   generation = 0;
@@ -169,16 +181,25 @@ export class Endpoint {
     // Links point at the daemon's machine: another one, or this one when the
     // viewer itself runs over SSH.
     this.machine.remote_links = remote || sshViewer();
-    this.machine.presence = () => ({
-      online: this.status === "online",
-      link_quality: remote ? (this.status === "online" ? this.stats.quality : 0) : null,
-      connecting: this.status === "connecting" || this.status === "stalled" || this.status === "offline",
-      connection_status: this.headerStatus(),
-      description: this.description(),
-      cached: this.workspaces,
-      seen: this.updated > 0,
-      stale: this.workspaces_instance !== "" && this.workspaces_instance !== this.instance,
-    });
+    this.machine.presence = () => {
+      // A connect from online or at startup shows nothing for a second, so
+      // one that's over by then doesn't flicker. One after a shown outage does.
+      const quiet =
+        this.status === "connecting" &&
+        (this.connecting.from === null || this.connecting.from === "online") &&
+        performance.now() - this.connecting.since < quiet_connect_ms;
+      const status = quiet ? (this.connecting.from ?? "connecting") : this.status;
+      return {
+        online: status === "online",
+        link_quality: remote ? (status === "online" ? this.stats.quality : 0) : null,
+        connecting: !quiet && (status === "connecting" || status === "stalled" || status === "offline"),
+        connection_status: quiet ? null : this.headerStatus(),
+        description: this.description(),
+        cached: this.workspaces,
+        seen: this.updated > 0,
+        stale: this.workspaces_instance !== "" && this.workspaces_instance !== this.instance,
+      };
+    };
     this.cache = new Cache(identity);
     const cached = this.cache.read();
     if (cached) {

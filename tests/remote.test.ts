@@ -365,10 +365,13 @@ class Remote extends Runtime {
       .split("\n")
       .findIndex(row => row.includes("REMOTE_WORKSPACE"));
     const status = () => this.text().split("\n")[remoteRow].slice(0, 28);
-    this.assertTrue(
-      this.text()
-        .split("\n")
-        .some(row => row.includes("▾  work") && row.includes("connecting")),
+    // It says so once connecting has taken a second.
+    await this.until(
+      () =>
+        this.text()
+          .split("\n")
+          .some(row => row.includes("▾  work") && row.includes("connecting")),
+      2,
     );
     const first = status();
     const style = () => this.screen!.surface(0).surface.lines[remoteRow];

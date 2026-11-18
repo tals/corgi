@@ -143,7 +143,9 @@ can recover before the original request deadline, while a daemon that is only
 busy keeps its connection. Cached workspaces do not mean the current viewer has
 connected: initial attempts say **Connecting… 4s**, including retries before the
 first success. **Reconnecting… 4s** follows a previously working link. The timer
-shows time spent in the current attempt.
+shows time spent in the current attempt. Most connects finish within a second,
+so one at startup or from a working link shows nothing until then; one after
+an outage that was already showing says so at once.
 Numbered actions retain their replies across that handover. A worktree checkout
 uses a separate connection and is not automatically replayed; if that connection
 is lost, check the remote worktree before retrying.
