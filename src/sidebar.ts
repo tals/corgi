@@ -2788,12 +2788,12 @@ function statusLabelRoom(ws: WorkspaceEntry, width: number): number {
 function statusLabel(ws: WorkspaceEntry, width: number): string {
   const worktree = worktreeLabel(ws);
   if (worktree) return displayWidth(worktree) <= statusLabelRoom(ws, width) ? worktree : "";
-  const tools = `⚒${compactCount(ws.stats.tools)}`;
+  const tools = `${compactCount(ws.stats.tools)}⚒`;
   return ws.stats.tools > 0 && displayWidth(tools) <= statusLabelRoom(ws, width) ? tools : "";
 }
 export function worktreeLabel(ws: WorkspaceEntry): string {
   const count = worktrees.linked(ws.worktrees).length;
-  return count ? `⑂${compactCount(count)}` : "";
+  return count ? `${compactCount(count)}⑂` : "";
 }
 /** The worktree count unless it would crowd out the activity indicator. */
 function shownWorktreeLabel(ws: WorkspaceEntry, width: number): string {
