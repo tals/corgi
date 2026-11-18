@@ -66,6 +66,7 @@ import * as forkHero from "./fork_hero";
 import * as newWorkspace from "./new_workspace";
 import * as noWorkspace from "./no_workspace";
 import { State as SidebarRows } from "./sidebar_rows";
+import * as workspaceRows from "./workspace_rows";
 import * as agentLauncher from "./agent_launcher";
 import { Menu as LauncherMenu, Row, keyAgent, type Row as LauncherRow } from "./agent_launcher";
 import * as agentManager from "./agent_manager";
@@ -489,6 +490,8 @@ export class Controller {
   /** The dormant pane whose resume the daemon hasn't answered yet. */
   private waking: number | null = null;
   sidebar_rows = new SidebarRows();
+  /** The workspace cards as drawn while auto-order moves them. */
+  workspace_rows = new workspaceRows.State();
   get host_pacer(): framePacing.Pacer | null {
     return this.host.pacer;
   }
@@ -832,6 +835,7 @@ export class Controller {
     this.headless_notice = null;
     this.review.pinned = false;
     this.sidebar_rows.discard();
+    this.workspace_rows.discard();
     this.launch_previews.disconnect();
     const changedEvent = this.launch_previews.changedEvent;
     this.launch_previews = new LaunchPreviewStream();
@@ -1768,8 +1772,24 @@ export class Controller {
   private workspaceIds(): viewerRef.Workspace[] {
     return this.workspaceRows().map(ws => ws.id);
   }
-  /** The sidebar's workspace rows for every machine shown, by row id; see `key`. */
+  /** The sidebar's workspace rows for every machine shown, by row id; see
+   * `key`. As drawn, so clicks find the card under the pointer, unless `all`
+   * or `expanded` asks for the order itself. */
   workspaceRows(all = false, expanded = false): WorkspaceEntry[] {
+    const rows = this.arrangedRows(all, expanded);
+    if (all || expanded) return rows;
+    return this.workspace_rows.update(rows, milliTimestamp(), {
+      group: key => {
+        const row = this.rowOf(key);
+        return row?.machine.runtime.workspace_auto_order?.enabled ? this.machines.indexOf(row.machine) : null;
+      },
+      archived: key => {
+        const row = this.rowOf(key);
+        return row?.machine.runtime.workspaces.items.some(ws => ws.id === row.id && ws.auto_archived) ?? false;
+      },
+    });
+  }
+  private arrangedRows(all: boolean, expanded: boolean): WorkspaceEntry[] {
     const labels = this.machineLabels();
     const rows = this.machines.flatMap(machine => {
       if (!all && this.machine_filter && this.machine_filter !== machine) return [];
@@ -1875,6 +1895,7 @@ export class Controller {
       const at = before === null ? rows.length : rows.indexOf(before);
       if (at < 0) return;
       rows.splice(at, 0, source);
+      this.workspace_rows.place();
       this.prefs.workspace_order = rows.map(id => this.workspaceOrderKey(id));
       try {
         preferences.update({ workspace_order: this.prefs.workspace_order });
@@ -1893,6 +1914,7 @@ export class Controller {
     }
     const target = this.rowOf(source)!,
       before = drag.drop.index >= drag.ids.length ? target.id : this.rowOf(drag.ids[drag.drop.index])!.id;
+    this.workspace_rows.place();
     this.optimistic({ "workspace.move": { target: target.id, before } });
   }
   /** Whether workspace row `source` may land above row `before`, or last
@@ -3130,8 +3152,8 @@ export class Controller {
     this.name_dialog = null;
   }
   /** How long the viewer waits between frames: a display frame while a
-   * sidebar row glides to another group, 30 ms while overlays, fades or drag
-   * scrolling run, and otherwise the corgi's own pace. */
+   * sidebar row glides to another group, 30 ms while overlays, row or
+   * workspace fades or drag scrolling run, and otherwise the corgi's own pace. */
   frameDelay(): number {
     const now = milliTimestamp();
     const launch = this.launcherModel(),
@@ -3141,6 +3163,7 @@ export class Controller {
       this.overlayOpen() ||
       this.signin_exit ||
       this.sidebar_rows.fading(now) ||
+      this.workspace_rows.fading(now) ||
       this.agent_drag?.scrolling() ||
       this.input_state.tab_drag?.dragging;
     return smooth ? 30 : corgiAnimation.frameDelay();
@@ -11011,6 +11034,8 @@ export class Controller {
   compose(retain = true): composition.Output {
     this.next_frame = Infinity;
     if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;
+    // Cards auto-order moves take their new places between frames, never mid-input.
+    this.workspace_rows.step(milliTimestamp());
     // Each frame lists its pictures anew; presenting it shows the host the change.
     const pictures = this.host.images.frame(this.cell_pixels ?? { width: 1, height: 1 });
     this.pictures = this.supports_kitty_graphics && this.cell_pixels ? pictures : null;

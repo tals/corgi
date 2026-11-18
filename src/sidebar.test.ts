@@ -439,6 +439,31 @@ test("a stale workspace's name fades by step; badges, status and a selected row 
   expect(has(out, "away")).toBe(true);
   expect(has(out, stale_names[1] + "away")).toBe(false);
 });
+test("a card auto-order moves fades whole through writeExit, the stronger of it and a machine's dimming winning", () => {
+  const faded = (sgr: string, text: string, progress: number) => {
+    const w = new Writer();
+    writeExit(w, sgr + text, progress);
+    return w.s;
+  };
+  const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0),
+    busy = workspaceEntry({ id: 1, name: "busy", cwd: "/tmp", active: false, working: 1 });
+  const plain = draw(view, [], [busy]);
+  // Not yet faded, the card draws as ever.
+  expect(draw(view, [], [{ ...busy, fade: 0 }])).toBe(plain);
+  let out = draw(view, [], [{ ...busy, fade: 0.5 }]);
+  expect(has(out, faded(panel, "busy", 0.5))).toBe(true);
+  expect(has(out, faded("\x1b[1m" + fg("accent"), "▶1", 0.5))).toBe(true);
+  expect(has(out, panel + "busy")).toBe(false);
+  // A stale name fades from its own gray.
+  out = draw(view, [], [{ ...busy, stale_step: 2, fade: 0.5 }]);
+  expect(has(out, faded(stale_names[1], "busy", 0.5))).toBe(true);
+  // A disconnected machine's card stays at its half dimming until the fade passes it.
+  const away = { ...busy, unavailable: "Offline" };
+  expect(draw(view, [], [{ ...away, fade: 0.25 }])).toBe(draw(view, [], [away]));
+  out = draw(view, [], [{ ...away, fade: 0.8 }]);
+  expect(has(out, faded(panel, "busy", 0.8))).toBe(true);
+  expect(has(out, faded(panel, "busy", 0.5))).toBe(false);
+});
 test("the fade steps darken toward the napping-agent gray on dark and light themes", () => {
   const rgb = (sgr: string) =>
       sgr

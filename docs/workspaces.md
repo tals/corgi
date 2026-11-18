@@ -66,7 +66,9 @@ most recently used first.
   permission prompt isn't working.
 - **Stale after** (default 10 minutes): a workspace idle this long leaves the
   active group. Activity brings it back, at the end of the group. Agents
-  going from working to idle and back never move an active workspace.
+  going from working to idle and back never move an active workspace. A
+  workspace auto-order moves fades out where it was and back in where it
+  lands; one you drag moves at once.
 - **Fade**: a stale workspace's name darkens in five steps, closer together in
   the first hour, down to the gray of a napping agent. Only the name fades.
 - **Archive after** (default 8 hours, or Off): a stale workspace idle this
