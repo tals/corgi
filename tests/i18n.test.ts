@@ -13,10 +13,7 @@ class Languages extends Runtime {
     delete this.env.LANGUAGE;
     this.env.LC_MESSAGES = "ja_JP.UTF-8";
     this.env.LANG = "en_US.UTF-8";
-    writeFileSync(
-      join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"),
-      JSON.stringify({ onboarding_complete: true, language: "ru" }),
-    );
+    this.writeConfig({ language: "ru" });
   }
   async test_language_choice_updates_viewers_and_human_help_without_changing_machine_help() {
     const first = await Viewer.create(this, 112, 36),
@@ -40,10 +37,7 @@ class Languages extends Runtime {
     await first.input(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
     this.assertIn("Corgi設定", first.state.data);
     await this.until(async () => (await second.poll()).data.includes("Corgi設定"));
-    this.assertEqual(
-      JSON.parse(readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8")).language,
-      "ja",
-    );
+    this.assertEqual(JSON.parse(readFileSync(this.configFile(), "utf8")).language, "ja");
     const human = await run([EXE, "--help", "--no-agent"], { env: this.env });
     this.assertIn("ターミナルのごきげんな相棒", human.stdout);
     const machine = await run([EXE, "--help", "--agent"], { env: this.env });

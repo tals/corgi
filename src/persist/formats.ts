@@ -1,7 +1,7 @@
 //! Explicit saved-state revisions and their shared migration runner.
 export type Step = (value: unknown) => unknown;
 export type Revision = { id: string; parent: string | null; description: string; up: Step; down: Step | null };
-export type Kind = "state" | "checkpoint" | "handoff" | "workspaces";
+export type Kind = "state" | "checkpoint" | "handoff" | "workspaces" | "viewer";
 export const baseline = "68139a93dee0";
 /** Numbered snapshots enter the shared state history here. */
 export const initial = "e2a57d17f66f";
@@ -90,6 +90,7 @@ export function histories(heads: Record<Kind, string>, revisions: readonly Revis
     checkpoint: new History(heads.checkpoint, revisions),
     handoff: new History(heads.handoff, revisions),
     workspaces: new History(heads.workspaces, revisions),
+    viewer: new History(heads.viewer, revisions),
   };
   const selected = Object.values(result).flatMap(history => history.ancestors);
   if (selected.length !== revisions.length || new Set(selected).size !== selected.length)

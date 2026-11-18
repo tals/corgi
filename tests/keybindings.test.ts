@@ -11,8 +11,7 @@ class Keybindings extends Viewers {
       third = await this.new(),
       home = (await this.session()).workspaces[0].id;
     const other = (await this.command("workspace.create", { name: "Other", cwd: this.temp.name })).workspace;
-    const file = join(this.env.XDG_STATE_HOME!, "corgi", "viewer.json");
-    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), preset: "tmux" }));
+    this.writeConfig({ preset: "tmux" });
     const a = await this.newViewer(),
       b = await this.newViewer();
     const initial = a.state.pane;
@@ -48,7 +47,7 @@ class Keybindings extends Viewers {
     await viewer.input("\x1b[27u\r");
     this.assertIn("[x] Use prefix", screen_text(viewer.state.data, 80, 24).join("\n"));
     await viewer.input("\x1b[A \t\t\t\t\r");
-    const file = join(this.env.XDG_STATE_HOME!, "corgi", "viewer.json");
+    const file = this.configFile();
     this.assertEqual(JSON.parse(readFileSync(file, "utf8")).keys.next, ["n"]);
     await viewer.input("\x1b[27u\x1b[27u\x1b[27u");
     await viewer.focus(first);
@@ -75,7 +74,7 @@ class Keybindings extends Viewers {
     await a.input("/Next tab\r\r\r");
     this.assertIn("Press a shortcut", screen_text(a.state.data, 148, 48).join("\n"));
     await a.input("y\r");
-    const file = join(this.env.XDG_STATE_HOME!, "corgi", "viewer.json");
+    const file = this.configFile();
     let saved = JSON.parse(readFileSync(file, "utf8"));
     this.assertEqual(saved.keys.next, ["prefix+y"]);
     await a.input("\x1b[27u\x1b[27u\x1b[27u");

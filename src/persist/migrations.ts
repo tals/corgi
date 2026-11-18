@@ -9,7 +9,7 @@ import * as state_formats from "./state_formats";
 export const checkpoint_version = 6;
 export const handoff_version = 7;
 export const workspaces_version = 2;
-export type Kind = Exclude<formats.Kind, "state">;
+export type Kind = Exclude<formats.Kind, "state" | "viewer">;
 export const legacy: Record<Kind, Record<number, string>> = {
   "checkpoint": {
     "1": "f02a7f1348ba",

@@ -132,14 +132,7 @@ class Resources extends Runtime {
       })
     ).workspace;
     await this.until(async () => (await this.session()).resources.sampled_at > 0, 8);
-    const preferences = join(this.env.XDG_STATE_HOME!, "corgi/viewer.json");
-    writeFileSync(
-      preferences,
-      JSON.stringify({
-        onboarding_complete: true,
-        resources: { enabled: false },
-      }),
-    );
+    this.writeConfig({ resources: { enabled: false } });
     const viewer = await Viewer.create(this, 120, 40);
     await viewer.request({ op: "workspace", workspace: first });
     // The daemon stops sampling and drops what it had.
@@ -161,7 +154,7 @@ class Resources extends Runtime {
     await sleep(2.5);
     this.assertEqual((await this.session()).resources.sampled_at, 0);
 
-    writeFileSync(preferences, JSON.stringify({ onboarding_complete: true }));
+    this.writeConfig({ resources: { enabled: true } });
     const shown = await Viewer.create(this, 120, 40);
     await this.until(async () => {
       await shown.poll();

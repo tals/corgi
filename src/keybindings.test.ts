@@ -22,6 +22,24 @@ test("strings and arrays replace an action, empty arrays unbind it", () => {
   expect(bindings.chord(table, false, keys.parseChord("ctrl+alt+n")!)).toEqual({ name: "new" });
   expect(bindings.lookup(table, true, 120)).toBeNull();
 });
+test("actions that default to the current target bind by their bare name", () => {
+  for (const name of ["worktrees", "resources"]) {
+    const table = custom.resolve("corgi", custom.parse({ [name]: "ctrl+alt+g" }));
+    const act = bindings.chord(table, false, keys.parseChord("ctrl+alt+g")!);
+    expect(act?.name).toBe(name);
+    expect(act?.value ?? 0).toBe(0);
+    expect(() => custom.parse({ [`${name}:01`]: "ctrl+alt+g" })).toThrow(`Use ${name}:1`);
+  }
+  // Older releases spell the current worktree's action only `worktrees:0`.
+  expect(custom.parse({ "worktrees:0": "ctrl+alt+g" })).toEqual({ worktrees: "ctrl+alt+g" });
+  expect(custom.canonical("worktrees:0")).toBe("worktrees");
+  expect(custom.legacy({ worktrees: "ctrl+alt+g", new: [] })).toEqual({ "worktrees:0": "ctrl+alt+g", new: [] });
+  expect(() => custom.parse({ "resources:0": [] })).toThrow("Use resources");
+  expect(custom.canonical("bogus")).toBeNull();
+  // One that unbinds a preset's shortcut overrides it under the name it was given.
+  const unbound = custom.resolve("corgi", custom.parse({ resources: [] }));
+  expect(unbound.some(b => b.action.name === "resources")).toBe(false);
+});
 test("every preset can bind the last visited tab and workspace actions", () => {
   const config = custom.parse({ "last-tab": "alt+t", "last-workspace": "alt+w" });
   for (const preset of ["corgi", "tmux", "herdr", "cmux"] as const) {

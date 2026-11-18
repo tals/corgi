@@ -10,7 +10,8 @@ Start in an isolated environment:
 ```
 
 This builds `dist/corgi` and starts or attaches to the named runtime. Its
-preferences and recovery state persist. `--temp` gives each invocation fresh
+preferences and recovery state persist; it keeps its own `config.json` too,
+under `CORGI_ENV_DIR`, so your shortcuts and theme stay out of it. `--temp` gives each invocation fresh
 Corgi state and stops your older temporary runtimes, including their panes and
 agents. Use `--temp --no-kill` to keep them. Detaching leaves either runtime
 running. Provider accounts and import sources are still shared. Use a sandbox
@@ -533,6 +534,26 @@ For `workspaces.json`, pass `--workspaces`; its generated steps preserve the
 workspace list by default. The generator selects that history without changing
 the daemon-state head. Checkpoint and handoff histories before the core baseline
 are fixed; new daemon changes go in the shared state history.
+
+For the viewer's preference files, pass `--viewer`. Its steps take both files
+as one value, `{ viewer, config }`, so a revision can move a field from
+`viewer.json` to `config.json`; `config` is null when there is none.
+`viewer.json` records the revision it holds as `format`, unset before the
+first. Viewers step both files up when they start and before every save,
+writing `config.json` first. They hold the lock beside `viewer.json` and one
+for `config.json`, in the runtime folder and named for the file its path
+resolves to, so viewers sharing it through other state folders or links
+exclude each other. Nothing steps while either file can't be read. A
+revision they don't know came from a newer build: they read what they can,
+step and copy nothing, and save only the fields they change.
+
+Nothing steps these files down. Older releases, whether rolled back to or
+still open after an update, read `viewer.json` directly and reject it whole
+over a value they can't use. So a revision that moves a field keeps a copy
+where they read it, as the move to `config.json` does: viewers rewrite
+`viewer.json`'s settings, in the older spelling, from what `config.json`
+holds. An older viewer's save drops `format`, so `up` steps must also work on
+a file stepped up once already.
 
 1. Keep the envelope and core in `persist/core.ts` and the
    `fixtures/transfer-v1.json` fixture fixed. Core is the permanent common

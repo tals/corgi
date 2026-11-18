@@ -1334,8 +1334,10 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     this.assertEqual(this.metadataRequests().filter(r => r.kind === "start").length, 1);
   }
   async test_corgi_intensity_migrates_and_previews_before_saving() {
-    const file = join(this.env.XDG_STATE_HOME!, "corgi", "viewer.json");
+    const file = join(this.env.XDG_STATE_HOME!, "corgi", "viewer.json"),
+      config = this.configFile();
     mkdirSync(join(this.env.XDG_STATE_HOME!, "corgi"), { recursive: true });
+    // An older build's viewer.json: the viewer moves its settings to config.json.
     writeFileSync(
       file,
       JSON.stringify({
@@ -1360,17 +1362,18 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     rows = screen_text((await view.poll()).data, 100, 30);
     this.assertIn("100%", rows.join("\n"));
     this.assertIn("~ᐯ◡ᴥ◡ᐯ", rows.join("\n"));
-    this.assertEqual(json(file).sleeping_corgis, false);
-    this.assertFalse("corgi_intensity" in json(file));
-    await view.input(`\x1b[<0;${right + 1};${sliderY + 1}m`);
-    this.assertEqual(json(file).corgi_intensity, 100);
+    this.assertEqual(json(config).corgi_intensity, 0);
     this.assertFalse("sleeping_corgis" in json(file));
+    await view.input(`\x1b[<0;${right + 1};${sliderY + 1}m`);
+    this.assertEqual(json(config).corgi_intensity, 100);
     this.assertEqual(json(file).sidebar_width, 36);
-    this.assertEqual(json(file).resources, { enabled: false });
+    // viewer.json keeps a copy for older releases.
+    this.assertEqual(json(file).corgi_intensity, 100);
+    this.assertEqual(json(config).resources, { enabled: false });
     await view.input("\x1b[D");
-    this.assertEqual(json(file).corgi_intensity, 95);
+    this.assertEqual(json(config).corgi_intensity, 95);
     await view.input("\x1b[H");
-    this.assertEqual(json(file).corgi_intensity, 0);
+    this.assertEqual(json(config).corgi_intensity, 0);
     await view.close();
     const reopened = await Viewer.create(this, 100, 30);
     await reopened.input("\x02i");
@@ -1378,7 +1381,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     rows = screen_text((await reopened.poll()).data, 100, 30);
     this.assertIn("Intensity", rows.join("\n"));
     this.assertNotIn("~ᐯ◡ᴥ◡ᐯ", rows.join("\n"));
-    this.assertEqual(json(file).corgi_intensity, 0);
+    this.assertEqual(json(config).corgi_intensity, 0);
   }
 
   async test_corgi_setup_changes_inference_provider() {
@@ -1407,7 +1410,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await this.until(async () => (await this.session()).inference.uses.activity === false);
     this.assertEqual((await this.session()).inference.choice, "claude");
     this.assertRegex(await text(), /Activity summaries +○ Off/);
-    const readSaved = () => JSON.parse(readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8"));
+    const readSaved = () => JSON.parse(readFileSync(this.configFile(), "utf8"));
     this.assertNotIn("When busy", await text());
     this.assertNotIn("Process card on hover", await text());
     this.assertNotIn("Amber alerts", await text());
@@ -1425,7 +1428,8 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await view.input("\r");
     await this.until(async () => readSaved().resources.enabled === true);
     await this.until(async () => /Resources\s+On/.test(await text()));
-    this.assertEqual(readSaved().corgi_intensity, 50);
+    // Saving one setting leaves the others out of the file, at their defaults.
+    this.assertFalse("corgi_intensity" in readSaved());
     await clickSetting("Visual flourishes");
     await clickSetting("Visual flourishes");
     await view.input("\x1b[H");

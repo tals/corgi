@@ -1,8 +1,8 @@
 import { statSync } from "node:fs";
-import * as preferences from "./preferences";
 
-/** Follow the path even when an editor replaces the file or its directory. */
-export function observe(file: string, changed: (value: preferences.Preferences | null) => void): () => void {
+/** Calls `changed` when `file` changes, following the path even when an
+ * editor replaces the file or its directory. */
+export function observe(file: string, changed: () => void): () => void {
   const revision = () => {
     try {
       const s = statSync(file, { bigint: true });
@@ -16,7 +16,7 @@ export function observe(file: string, changed: (value: preferences.Preferences |
     const next = revision();
     if (next === previous) return;
     previous = next;
-    changed(next === null ? new preferences.Preferences() : next === false ? null : preferences.readExisting(file));
+    changed();
   }, 200);
   timer.unref();
   return () => clearInterval(timer);
