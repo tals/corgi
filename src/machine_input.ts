@@ -1,3 +1,5 @@
+import * as keys from "./keys";
+
 export interface Input {
   bytes: Uint8Array;
   paste: boolean;
@@ -16,9 +18,19 @@ export class Parser {
       let length = 1;
       const byte = this.buffer[used];
       const available = this.buffer.length - used;
-      if (byte === 27) {
+      if (this.pasting) {
+        if (byte === 27) {
+          const head = String.fromCharCode(...this.buffer.slice(used, used + keys.paste_end.length));
+          if (keys.paste_end.startsWith(head)) {
+            if (head.length < keys.paste_end.length) break;
+            length = keys.paste_end.length;
+          }
+        } else {
+          while (length < Math.min(4096, available) && this.buffer[used + length] !== 27) length++;
+        }
+      } else if (byte === 27) {
         if (available < 2) break;
-        length = 2;
+        length = this.buffer[used + 1] === 27 ? 1 : 2;
         if (this.buffer[used + 1] === 91 || this.buffer[used + 1] === 79) {
           while (length < available && !(this.buffer[used + length] >= 0x40 && this.buffer[used + length] <= 0x7e))
             length++;
@@ -38,9 +50,9 @@ export class Parser {
       }
       const bytes = Uint8Array.from(this.buffer.slice(used, used + length));
       const sequence = Buffer.from(bytes).toString();
-      if (sequence === "\x1b[200~") this.pasting = true;
+      if (sequence === keys.paste_start) this.pasting = true;
       result.push({ bytes, paste: this.pasting });
-      if (sequence === "\x1b[201~") this.pasting = false;
+      if (sequence === keys.paste_end) this.pasting = false;
       used += length;
     }
     this.buffer.splice(0, used);
