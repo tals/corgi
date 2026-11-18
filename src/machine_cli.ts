@@ -26,8 +26,9 @@ Machines (SSH):
   corgi list --all-machines
 
 SSH_TARGET defaults to NAME. "local" always selects this machine.
-Setup upgrades the older Corgi installation. Add uses normal SSH prompts;
-viewers reconnect with SSH keys/agent or noninteractive corporate SSH authentication.
+Setup matches the remote Corgi installation to this build, upgrading or downgrading it.
+Add uses normal SSH prompts; viewers reconnect with SSH keys/agent or noninteractive
+corporate SSH authentication.
 In the viewer, Ctrl+] or clicking the machine name opens the machine picker.
 `;
 export async function manage(args: string[]): Promise<void> {
