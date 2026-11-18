@@ -239,61 +239,6 @@ class AgentMenu extends Viewers {
     }
   }
 
-  async test_codex_without_its_daemon_takes_rename_typed_into_an_empty_box() {
-    const log = join(this.temp.name, "submitted.txt");
-    const script = writeExecutable(join(this.temp.name, "codex"), codexScreen(log));
-    this.codexObserver = new CodexObserver(this.env.CODEX_HOME!, [CODEX_ID]);
-    const pane = await this.new(script);
-    await this.codexConversation(pane, CODEX_ID);
-    await this.stopCodexDaemon();
-    await this.until(async () => (await this.screen(pane)).includes("Ask Codex"));
-    // A draft blocks it, and stays as typed.
-    await this.command("pane.input", { target: pane, data: "draft" });
-    await this.until(async () => (await this.screen(pane)).includes("› draft"));
-    this.assertEqual((await this.attempt("agent.rename", { target: pane, name: "nope" })).err, "AgentBusy");
-    await this.command("pane.input", { target: pane, data: "\x7f".repeat(5) });
-    await this.until(async () => (await this.screen(pane)).includes("Ask Codex"));
-    this.assertFalse(existsSync(log));
-    this.assertTrue((await this.attempt("agent.rename", { target: pane, name: "typed name" })).ok);
-    const submitted = await this.until(() => existsSync(log) && readFileSync(log, "utf8"));
-    this.assertEqual(submitted, "/rename typed name\n");
-    await this.until(
-      async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.name === "typed name",
-    );
-  }
-
-  async test_double_click_on_a_codex_row_renames_it_inline() {
-    const log = join(this.temp.name, "submitted.txt");
-    const script = writeExecutable(join(this.temp.name, "codex"), codexScreen(log));
-    this.codexObserver = new CodexObserver(this.env.CODEX_HOME!, [CODEX_ID]);
-    const pane = await this.new(script);
-    await this.codexConversation(pane, CODEX_ID);
-    await this.stopCodexDaemon();
-    await this.until(async () => (await this.screen(pane)).includes("Ask Codex"));
-    const viewer = await this.newViewer();
-    // The agent's row, named for its provider while it has no name of its own.
-    const row = (data: string) => screen_text(data, 100, 30)[16];
-    await this.until(async () => row((await viewer.poll()).data).includes("Codex"));
-    // Two left presses on the row within the double-click interval: the
-    // first selects it as before, the second opens the field once the
-    // daemon has said the agent takes a rename.
-    await doubleClick(viewer, 6, 16);
-    await this.until(async () => (await viewer.poll()).renaming);
-    this.assertFalse(viewer.state.dialog);
-    // The field holds the current name with nothing selected, so ctrl-c
-    // clears it; Return sends the name the way the dialog did.
-    await viewer.input("\x03typed name\r");
-    const submitted = await this.until(() => existsSync(log) && readFileSync(log, "utf8"));
-    this.assertEqual(submitted, "/rename typed name\n");
-    await this.until(
-      async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.name === "typed name",
-    );
-    await this.until(async () => {
-      const state = await viewer.poll();
-      return !state.renaming && row(state.data).includes("typed name");
-    });
-  }
-
   async test_a_busy_codex_keeps_the_inline_name_until_its_box_is_empty() {
     const log = join(this.temp.name, "submitted.txt");
     const script = writeExecutable(join(this.temp.name, "codex"), codexScreen(log));

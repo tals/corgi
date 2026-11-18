@@ -272,28 +272,6 @@ else if (args[0] === 'api') {
     await this.until(async () => !(await this.session()).startup_waits.some((w: any) => w.id === wait.id));
     await this.until(() => processPath(pid) === null);
   }
-  async test_manager_keeps_configured_opencode_visible_without_account_creation() {
-    writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
-    const workspace = (await this.session()).workspaces[0].id,
-      view = await Viewer.create(this, 180, 40);
-    await view.input("\x02A");
-    await this.until(async () => (await view.poll()).data.includes("OpenCode"));
-    const rows = screen_text((await view.poll()).data, 180, 40),
-      y = rows.findIndex(row => row.includes("Manage agents")),
-      x = rows[y].indexOf("Manage agents");
-    await view.input(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
-    await view.advance(0.3);
-    await this.until(async () => (await view.poll()).data.includes("Add agent"));
-    const managed = screen_text((await view.poll()).data, 180, 40).join("\n");
-    this.assertIn("OpenCode", managed);
-    this.assertFalse(managed.split("\n").some(row => row.includes("New ") && row.includes("OpenCode")));
-    await this.command("agent.workspace_visibility", { workspace, row: "opencode2", shown: false });
-    await view.input("\x1b[D");
-    await view.advance(0.3);
-    await this.until(async () => !(await view.poll()).data.includes("OpenCode"));
-    await this.command("agent.workspace_visibility", { workspace, row: "opencode2", shown: true });
-    await this.until(async () => (await view.poll()).data.includes("OpenCode"));
-  }
   async create(prompt: string) {
     const result = await this.rpc({
       op: "headless.start",

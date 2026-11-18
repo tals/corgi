@@ -28,7 +28,9 @@ export class ImportFixture {
 
   constructor() {
     for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined && !removePrefixes.some(prefix => key.startsWith(prefix))) this.env[key] = value;
+      // The suite's process scope still reaps whatever the fixture leaves running.
+      const kept = key === "CORGI_PROCESS_SCOPE" || !removePrefixes.some(prefix => key.startsWith(prefix));
+      if (value !== undefined && kept) this.env[key] = value;
     }
     for (const name of ["home", "config", "state", "bin"]) mkdirSync(join(this.root, name));
     // Debian's zsh opens its new-user wizard in a home without startup files.
@@ -38,6 +40,8 @@ export class ImportFixture {
       XDG_CONFIG_HOME: join(this.root, "config"),
       XDG_STATE_HOME: join(this.root, "state"),
       CORGI_SOCKET: this.path,
+      // The daemon stops if this process dies before tearing it down.
+      CORGI_TEST_OWNER: String(process.pid),
       CODEX_HOME: join(this.root, "home/.codex"),
       CLAUDE_CONFIG_DIR: join(this.root, "home/.claude"),
       CORGI_INFERENCE_PROVIDER: "off",

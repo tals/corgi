@@ -1126,6 +1126,8 @@ process.stdin.on("data", chunk => {
     await this.until(() => this.text().includes("AFTER_EXIT_INPUT"));
   }
   async test_remote_reload_rebuilds_the_stream_without_replacing_its_panes() {
+    // On a slow link, typing after the reload waits for the same viewer.
+    this.network!.latency_ms = 120;
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
     await this.startViewer();
     await this.online();
@@ -1140,10 +1142,6 @@ process.stdin.on("data", chunk => {
       before,
     );
     this.assertEqual((await this.remote!.command("pane.read", { target: 1 })).text.split("AFTER_RELOAD").length - 1, 1);
-  }
-  async test_typing_after_a_remote_reload_waits_for_the_same_viewer_on_a_slow_link() {
-    this.network!.latency_ms = 120;
-    await this.test_remote_reload_rebuilds_the_stream_without_replacing_its_panes();
   }
   async test_typing_while_a_reload_shows_its_notice_is_dropped_not_replayed() {
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });

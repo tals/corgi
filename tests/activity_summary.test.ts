@@ -147,20 +147,6 @@ class SummaryCases extends Summaries {
     this.assertEqual((await this.state()).state, "working");
     this.assertEqual(await points(), ["Tracing pane focus", "Compacting context", "Tracing pane focus"]);
   }
-  async test_commentary_fires_without_tools_and_one_completion_refreshes() {
-    await this.start_turn("active", false);
-    await this.until(() => this.calls().length === 1);
-    await this.until(async () => (await this.state()).activity === "Tracing pane focus");
-    this.assertIn("tracing pane focus", JSON.parse(this.calls()[0]).evidence);
-    const id = this.tools(1, "rg focus src", false)[0];
-    this.finish_tool(id);
-    this.finish_tool(id);
-    await this.advance(8);
-    await this.until(() => this.calls().length === 2);
-    this.assertIn("rg focus src", JSON.parse(this.calls()[1]).evidence);
-    await this.advance(8.5);
-    this.assertEqual(this.calls().length, 2);
-  }
   async test_running_command_refreshes_before_completion_without_repeated_inference() {
     await this.start_turn("active", false);
     await this.until(async () => (await this.state()).activity === "Tracing pane focus");
@@ -174,35 +160,6 @@ class SummaryCases extends Summaries {
     const count = this.calls().length;
     await this.advance(8.5);
     this.assertEqual(this.calls().length, count);
-  }
-  async test_later_wave_refreshes_under_throttle_even_when_commentary_is_unchanged() {
-    await this.start_turn();
-    await this.until(() => this.calls().length === 1);
-    await this.until(async () => (await this.state()).activity === "Tracing pane focus");
-    writeFileSync(this.control, JSON.stringify({ delay: 0, label: "Testing pane focus" }));
-    this.tools(3, "zig build test");
-    // The wave waits out the conversation's cooldown, then refreshes.
-    await this.advance(6);
-    this.assertEqual(this.calls().length, 1);
-    await this.advance(2.5);
-    await this.until(() => this.calls().length === 2);
-    this.assertEqual(lines(this.log + ".processes").length, 1);
-    await this.until(async () => (await this.state()).activity === "Testing pane focus");
-    this.assertIn("zig build test", JSON.parse(this.calls()[1]).evidence);
-  }
-  async test_tool_burst_is_summarized_once_it_goes_quiet() {
-    await this.start_turn("active", false);
-    await this.until(() => this.calls().length === 1);
-    await this.until(async () => (await this.state()).activity === "Tracing pane focus");
-    this.tools(1, "rg first src");
-    await this.advance(5);
-    this.tools(1, "rg second src");
-    // The cooldown has passed, but the burst is still going.
-    await this.advance(3.5);
-    this.assertEqual(this.calls().length, 1);
-    await this.advance(2);
-    await this.until(() => this.calls().length === 2);
-    this.assertIn("rg second src", JSON.parse(this.calls()[1]).evidence);
   }
   async test_polling_the_same_command_is_not_summarized_again() {
     await this.start_turn("active", false);

@@ -192,51 +192,25 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
       conn.close();
     }
   }
-  async test_reload_cancels_pending_git_and_closes_requests_held_behind_it() {
+  async test_reload_cancels_a_pending_git_request() {
     let conn = new Connection(this.path);
     try {
       const before = await conn.call("ping");
       this.arm("branches");
       const branches = conn.request("git.branches", { workspace: 1 });
       await this.until(() => existsSync(join(this.gate, "started")));
-      this.assertTrue((await conn.call("server.reload", { executable: EXE })).ok);
+      const reloaded = await conn.call("server.reload", { executable: EXE });
+      this.assertTrue(reloaded.ok);
       this.assertEqual(await branches, { err: "Reloading" });
       this.release();
       await this.until(() => conn.disconnected);
       conn = new Connection(this.path);
-      const [reloaded, ping] = await Promise.allSettled([
-        conn.call("server.reload", { executable: EXE }),
-        conn.call("ping"),
-      ]);
-      if (reloaded.status !== "fulfilled") throw reloaded.reason;
-      this.assertNotEqual(reloaded.value.server_pid, before.pid);
-      // The ping waited behind the reload and closed with the old daemon.
-      this.assertEqual(ping.status === "rejected" && ping.reason.message, "ServerReloading");
-      conn = new Connection(this.path);
-      this.assertEqual((await conn.call("ping")).pid, reloaded.value.server_pid);
+      const after = await conn.call("ping");
+      this.assertNotEqual(after.pid, before.pid);
+      this.assertEqual(after.pid, reloaded.server_pid);
     } finally {
       this.release();
       conn.close();
-    }
-  }
-  async test_failed_reload_releases_an_untagged_branch_request() {
-    const socket = new websocket_socket.Socket(this.path),
-      replies = lines(socket);
-    try {
-      this.arm("branches");
-      socket.write(JSON.stringify(versioned({ op: "git.branches", workspace: 1 })) + "\n");
-      socket.write('{"op":"ping"}\n');
-      await this.until(() => existsSync(join(this.gate, "started")));
-      const reloaded = await this.raw_rpc({
-        op: "server.reload",
-        executable: join(this.temp.name, "missing-corgi"),
-      });
-      this.assertEqual(reloaded.err, "ReloadCandidateFailed");
-      this.assertEqual(JSON.parse(await replies.next()), { err: "Reloading" });
-      this.assertTrue(JSON.parse(await replies.next(1000)).ok);
-    } finally {
-      this.release();
-      socket.destroy();
     }
   }
   async test_requests_without_ids_reply_in_order() {

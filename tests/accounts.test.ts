@@ -85,7 +85,7 @@ exec ${quote(ordinary)} "$@"`,
     return (await this.command("pane.read", { target: pane, view: "screen" })).text as string;
   }
   async shows(pane: number, text: string) {
-    return this.until(async () => (await this.screen(pane)).includes(text), 15000);
+    return this.until(async () => (await this.screen(pane)).includes(text), 15);
   }
   /** A tab running the guided `corgi account add claude [NAME]`; its
    * folder is the first free number. */

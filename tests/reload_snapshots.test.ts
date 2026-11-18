@@ -1,17 +1,32 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime } from "./runtime";
-import { EXE, registerCase, shellJoin, writeExecutable } from "./support";
+import { EXE, quote, registerCase, shellJoin, writeExecutable } from "./support";
 
 class ReloadSnapshots extends Runtime {
   async test_large_output_preserves_process_input_and_resize_recovery() {
     await this.check_reload(1, 1025);
   }
   async test_multiple_noisy_panes_use_compact_snapshots() {
-    await this.check_reload(4, 800);
+    // A candidate that notes the size of the state it was handed, then takes over.
+    const size = join(this.temp.name, "handoff-size"),
+      measure = writeExecutable(
+        join(this.temp.name, "measure.ts"),
+        `#!/usr/bin/env bun
+import { fstatSync, writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(size)}, String(fstatSync(Number(process.argv[2])).size));
+`,
+      ),
+      candidate = writeExecutable(
+        join(this.temp.name, "candidate"),
+        `#!/bin/sh\n${quote(measure)} "$2"\nexec ${quote(EXE)} "$@"\n`,
+      );
+    await this.check_reload(4, 800, candidate);
+    // Each pane printed 50 MiB; its snapshot keeps only what the screen shows.
+    this.assertLess(Number(readFileSync(size, "utf8")), 1024 * 1024);
   }
 
-  async check_reload(paneCount: number, chunks: number) {
+  async check_reload(paneCount: number, chunks: number, executable = EXE) {
     const sizes = join(this.temp.name, "sizes.jsonl");
     const program = join(this.temp.name, "terminal.ts");
     writeExecutable(
@@ -62,7 +77,7 @@ process.stdin.on('data', data => {
     const before = await this.session();
     const pid = before.panes.find((p: any) => p.id === pane).pid;
     const geometry = before.panes.find((p: any) => p.id === pane);
-    await this.rpc({ op: "server.reload", executable: EXE });
+    await this.rpc({ op: "server.reload", executable });
     const after = await this.session();
     this.assertNotEqual(before.server_pid, after.server_pid);
     this.assertEqual(
@@ -98,7 +113,7 @@ process.stdin.on('data', data => {
     this.assertIn("READY", await text());
     await this.command("pane.input", { target: pane, data: "still here\r" });
     await this.until(async () => (await text()).includes(`ALIVE ${pid} still here`));
-    await this.rpc({ op: "server.reload", executable: EXE });
+    await this.rpc({ op: "server.reload", executable });
     await this.command("pane.input", { target: pane, data: "twice\r" });
     await this.until(async () => (await text()).includes(`ALIVE ${pid} twice`));
   }

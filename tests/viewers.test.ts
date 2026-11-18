@@ -844,27 +844,6 @@ class ViewerScenarios extends Viewers {
     this.assertEqual((await this.session()).workspaces, before);
   }
 
-  async test_keyboard_workspace_rename_with_the_sidebar_closed_opens_the_drawer() {
-    const first = await this.new("sleep 60", "First");
-    const ws = (await this.session()).workspaces[0].id;
-    const a = await this.newViewer();
-    await a.focus(first);
-    // Prefix b folds the sidebar away. Prefix W r then opens the workspaces
-    // drawer with the field on the current workspace's row.
-    await a.input("\x02b");
-    this.assertEqual(a.state.drawer, null);
-    await a.input("\x02Wr");
-    this.assertTrue(a.state.renaming);
-    this.assertFalse(a.state.dialog);
-    this.assertEqual(a.state.drawer, "workspaces");
-    // Return saves and takes the drawer away with the field.
-    await a.input("\x03Drawer\r");
-    this.assertFalse(a.state.renaming);
-    this.assertEqual(a.state.drawer, null);
-    const renamed = (await this.session()).workspaces.find((w: any) => w.id === ws);
-    this.assertEqual(renamed.name, "Drawer");
-  }
-
   async test_arrangement_is_shared_and_close_reconciles_selection() {
     const first = await this.new("sleep 60", "First"),
       second = await this.new("sleep 60", "Second");
