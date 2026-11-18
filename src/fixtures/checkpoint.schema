@@ -334,6 +334,10 @@ $.panes[].resume_hint.touched_at: i64
 $.panes[].resume_hint.provider: optional
 $.panes[].resume_hint.provider?: provider
 $.panes[].resume_hint.session: custom bounded_text.BoundedText(160)
+$.panes[].resume_hint.account: optional
+$.panes[].resume_hint.account?: string
+$.panes[].resume_hint.executable: optional
+$.panes[].resume_hint.executable?: string
 $.panes[].resume_hint.permissions: optional
 $.panes[].resume_hint.permissions?: enum default bypass
 $.panes[].resume_hint.model: custom bounded_text.BoundedText(160)
@@ -380,6 +384,10 @@ $.closed[].resume_hint.touched_at: i64
 $.closed[].resume_hint.provider: optional
 $.closed[].resume_hint.provider?: provider
 $.closed[].resume_hint.session: custom bounded_text.BoundedText(160)
+$.closed[].resume_hint.account: optional
+$.closed[].resume_hint.account?: string
+$.closed[].resume_hint.executable: optional
+$.closed[].resume_hint.executable?: string
 $.closed[].resume_hint.permissions: optional
 $.closed[].resume_hint.permissions?: enum default bypass
 $.closed[].resume_hint.model: custom bounded_text.BoundedText(160)
@@ -494,6 +502,10 @@ $.sessions[].resume_hint.touched_at: i64
 $.sessions[].resume_hint.provider: optional
 $.sessions[].resume_hint.provider?: provider
 $.sessions[].resume_hint.session: custom bounded_text.BoundedText(160)
+$.sessions[].resume_hint.account: optional
+$.sessions[].resume_hint.account?: string
+$.sessions[].resume_hint.executable: optional
+$.sessions[].resume_hint.executable?: string
 $.sessions[].resume_hint.permissions: optional
 $.sessions[].resume_hint.permissions?: enum default bypass
 $.sessions[].resume_hint.model: custom bounded_text.BoundedText(160)

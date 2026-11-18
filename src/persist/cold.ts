@@ -3,13 +3,20 @@ import { Runtime } from "../runtime";
 import * as json from "../json";
 import * as checkpoint from "./checkpoint";
 import * as transfer from "./transfer";
+import * as breadcrumbs from "../breadcrumbs";
 
 export async function read(bytes: string, socket: string, executable: string) {
   // Pre-baseline files have no independent core to recover from.
   if (json.field(json.parse(bytes), "transfer") === null) return { ...transfer.recover(bytes), discarded: false };
   const validate = async (decoded: ReturnType<typeof transfer.recover>) => {
     using candidate = new Runtime();
-    await checkpoint.restore(candidate, decoded.value, false, socket, executable, false);
+    const prior = breadcrumbs.capture();
+    try {
+      await checkpoint.restore(candidate, decoded.value, false, socket, executable, false);
+    } finally {
+      breadcrumbs.clear();
+      breadcrumbs.restore(prior);
+    }
     return decoded;
   };
   try {

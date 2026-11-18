@@ -85,7 +85,10 @@ test("metadata migrations cannot replace handles or remove core panes", () => {
         parent,
         description: "Discard pane metadata while retaining the terminal core",
         down: value => value,
-        up: () => ({ runtime: { panes: [], workspaces: [], next_pane: 1 } }),
+        up: () => ({
+          runtime: { panes: [], workspaces: [], next_pane: 1 },
+          retired: { listener: 64, clients: [{ fd: 64, viewer: true }] },
+        }),
       },
       { id: parent, parent: formats.baseline, description: "Initial metadata", up: () => null, down: () => null },
     ]),
@@ -94,6 +97,7 @@ test("metadata migrations cannot replace handles or remove core panes", () => {
   expect(restored.runtime.panes.map(p => p.id)).toEqual(original.panes.map(p => p.id));
   expect(restored.runtime.next_pane).toBe(original.workspaces.next_pane_id);
   expect(restored.runtime.workspaces[0].model.tabs).toHaveLength(2);
+  expect(restored.retired).toBeNull();
 });
 
 test("lossy migrations retain dormant commands through downgrade, upgrade and cold recovery", async () => {
@@ -526,7 +530,7 @@ test("cold snapshots keep downgraded legacy fields separate from current metadat
   expect(recovered.value.closed_tabs).toEqual([]);
   expect(recovered.value.new_metadata).toBe(current.new_metadata);
   expect(recovered.migrated).toBe(false);
-  expect(wrapped.transfer.payload.runtime.panes.every((p: any) => p.screen === undefined)).toBe(true);
+  expect(json.parse(wrapped.transfer.payload).runtime.panes.every((p: any) => p.screen === undefined)).toBe(true);
   using restored = new Runtime();
   await checkpoint.restore(restored, legacy, false, "/tmp/unused", "/tmp/corgi", false);
   expect(restored.panes.map(pane => pane.id)).toEqual(original.panes.map(pane => pane.id));
@@ -655,6 +659,22 @@ test("legacy byte labels normalize before entering core in checkpoints and hando
         expect(restored.panes.map(pane => pane.id)).toEqual(old.panes.map((pane: { id: number }) => pane.id));
       }
     }
+  }
+});
+
+test("legacy resume hints normalize byte fields before entering core", async () => {
+  const fixture = readFileSync(new URL("../fixtures/checkpoint-v4.json", import.meta.url), "utf8");
+  for (const live of [false, true]) {
+    const old = json.parse(fixture);
+    old.live = live;
+    old.panes[0].resume_hint.name = [0xe2, 0x82];
+    old.panes[0].resume_hint.name_len = 2;
+    const saved = migrations.decode("checkpoint", json.stringify(old)).value,
+      decoded = live ? transfer.upgrade({ runtime: saved }).runtime : transfer.recover(json.stringify(old)).value;
+    using restored = new Runtime();
+    await checkpoint.restore(restored, decoded, live, "/tmp/unused", "/tmp/corgi", false);
+    expect(restored.panes[0].resume_hint.name.text()).toBe("�");
+    expect(restored.panes.map(pane => pane.id)).toEqual(old.panes.map((pane: { id: number }) => pane.id));
   }
 });
 

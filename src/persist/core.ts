@@ -9,6 +9,8 @@ import * as layout from "../layout";
 import * as common from "../providers/common";
 import * as accounts from "../accounts";
 import * as os from "../os";
+import * as discovery from "../discovery";
+import { adapter } from "../providers";
 
 export type Screen = {
   cols: number;
@@ -75,7 +77,7 @@ export function capture(runtime: Runtime, saved: ReturnType<typeof checkpoint.ca
 /** Extract the fixed core after the historical checkpoint revisions have run. */
 export function fromCheckpoint(value: unknown): Core {
   try {
-    const saved = json.object(value),
+    const saved = json.object(json.clone(value)),
       workspaces = array(saved.workspaces).map(value => json.object(value)),
       owners = new Map<number, Record<string, any>>();
     for (const workspace of workspaces)
@@ -138,10 +140,13 @@ function resumeCommand(
   hint: ResumeHint,
   launch: Launch | null,
   cwd: string,
-  account = launch?.account(hint.provider, cwd) ?? "",
+  account = hint.account ?? launch?.account(hint.provider, cwd) ?? "",
 ): string | null {
-  if (!hint.args(account)) return null;
-  const command = hint.command(account),
+  const args = hint.args(account);
+  if (!args) return null;
+  // Background job IDs expire; core retains the durable session identity.
+  const binary = hint.executable ?? (discovery.override(hint.provider!) || adapter(hint.provider!).command),
+    command = os.shellWords([binary, ...args]),
     env = accounts.env(hint.provider!, account);
   return env.length ? os.shellWords(["env", ...env.map(([key, value]) => `${key}=${value}`)]) + " " + command : command;
 }

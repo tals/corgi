@@ -240,7 +240,8 @@ export function anonymize(state: any): unknown {
     (Array.isArray(v) && !v.length) ||
     (!!v && typeof v === "object" && !Array.isArray(v) && !Object.keys(v).length);
   const walk = (value: unknown, key: string, path: string): unknown => {
-    if (payloads.has(path)) return empty(value) ? null : token(key, json.stringify(value), "payload");
+    if (path === "$.transfer.payload" || payloads.has(path))
+      return empty(value) ? null : token(key, json.stringify(value), "payload");
     if (typeof value === "bigint") value = Number(value);
     if (typeof value === "string") return value === "" || kept.get(key)?.has(value) ? value : token(key, value);
     if (typeof value === "number") return saved && timed(key) && value > 1e8 ? before(value) : value;

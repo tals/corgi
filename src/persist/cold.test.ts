@@ -13,6 +13,7 @@ import * as recovery from "./recovery";
 import * as check from "./check";
 import * as cold from "./cold";
 import * as formats from "./formats";
+import * as breadcrumbs from "../breadcrumbs";
 
 function saved() {
   using runtime = new Runtime();
@@ -28,7 +29,9 @@ function saved() {
     runtime.panes.push(pane);
   }
   runtime.workspaces.next_pane_id = workspace.model.next_id;
-  return json.clone(transfer.recovery(runtime, checkpoint.capture(runtime, false)));
+  const saved = json.clone(transfer.recovery(runtime, checkpoint.capture(runtime, false)));
+  // Earlier envelopes kept metadata as an object.
+  return { ...saved, transfer: { ...saved.transfer, payload: json.parse(saved.transfer.payload) } };
 }
 
 test("preflight and cold recovery discard invalid auxiliary data under a recognized revision", async () => {
@@ -88,6 +91,23 @@ test("matching valid metadata is retained without a recovery rewrite", async () 
   expect(decoded.value.panes[0].binding).toEqual(state.panes[0].binding);
 });
 
+test("preflight does not append saved breadcrumbs before the real restore", async () => {
+  const before = breadcrumbs.capture();
+  try {
+    breadcrumbs.clear();
+    const state = saved();
+    state.transfer.payload.runtime.breadcrumbs = [{ at: 1, kind: "opened", pane: 1, session: 0, actors: [] }];
+    const decoded = await cold.read(json.stringify(state), "/tmp/unused", process.execPath);
+    expect(breadcrumbs.capture()).toEqual([]);
+    using restored = new Runtime();
+    await checkpoint.restore(restored, decoded.value, false, "/tmp/unused", process.execPath, false);
+    expect(breadcrumbs.capture().map(entry => entry.kind)).toEqual(["opened", "restored_cold"]);
+  } finally {
+    breadcrumbs.clear();
+    breadcrumbs.restore(before);
+  }
+});
+
 test("cold recovery resumes agents without replaying ordinary commands, even after metadata loss", async () => {
   using original = new Runtime();
   const workspace = new Workspace(1, "/tmp", "workspace");
@@ -137,8 +157,11 @@ test("cold recovery resumes agents without replaying ordinary commands, even aft
       for (const metadata of ["valid", "unknown", "invalid", "legacy"]) {
         const state = json.clone(saved);
         if (metadata === "unknown") state.transfer.format = "f".repeat(12);
-        else if (metadata === "invalid") json.object(state.transfer.payload.runtime).closed = [{}];
-        else if (metadata === "legacy") delete json.object(state).transfer;
+        else if (metadata === "invalid") {
+          const payload = json.parse(state.transfer.payload);
+          json.object(payload.runtime).closed = [{}];
+          state.transfer.payload = json.stringify(payload);
+        } else if (metadata === "legacy") delete json.object(state).transfer;
         starts.length = 0;
         using restored = new Runtime();
         const decoded = await cold.read(json.stringify(state), "/tmp/unused", process.execPath);

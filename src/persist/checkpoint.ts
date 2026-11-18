@@ -22,6 +22,8 @@ import * as json from "../json";
 import * as worktrees from "../worktrees";
 import * as breadcrumbs from "../breadcrumbs";
 import * as agentEffort from "../agent_effort";
+import * as discovery from "../discovery";
+import { adapter } from "../providers";
 import { validateCheckpoint } from "./schema";
 import { testBuild } from "../build_assets";
 
@@ -220,6 +222,11 @@ export function capture(r: Runtime, live: boolean) {
     panes: r.panes.map(p => {
       p.refreshCwd();
       if (!p.detection.claim) p.resume_hint.observe(p.agent());
+      if (p.resume_hint.provider) {
+        p.resume_hint.account = p.account();
+        p.resume_hint.executable =
+          discovery.override(p.resume_hint.provider) || adapter(p.resume_hint.provider).command;
+      }
       const binding = captureBinding(p.attachment, live);
       if (p.detection.claim && !live) {
         const observation = binding.provisional.observation;

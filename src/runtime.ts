@@ -159,9 +159,28 @@ export class Launch {
     return this.agent ? { agent: this.agent } : { command: this.command };
   }
   private accounts?: Map<Provider, string>;
+  private account_env: [string, string][] = [];
+  private account_provider: Provider | null = null;
+  withAccount(provider: Provider, account: string): Launch {
+    if ((this.agent || this.account_provider === provider) && this.account(provider) === account) return this;
+    const env = accounts.env(provider, account),
+      chosen = new Launch(
+        this.agent
+          ? {
+              ...this.agent,
+              env: [...(this.agent.env ?? []).filter(([key]) => key !== adapter(provider).accounts.env), ...env],
+            }
+          : undefined,
+        this.command,
+      );
+    chosen.accounts = new Map([[provider, account]]);
+    chosen.account_env = env;
+    chosen.account_provider = provider;
+    return chosen;
+  }
   /** The account its `provider` agent runs in, as the variables it sets in
    * `cwd` pick it; "" for the default. */
-  account(provider: Provider | null = this.agent?.provider ?? null, cwd = "/"): string {
+  account(provider: Provider | null = this.agent?.provider ?? this.account_provider, cwd = "/"): string {
     if (!provider) return "";
     const known = (this.accounts ??= new Map());
     let found = known.get(provider);
@@ -216,7 +235,7 @@ export class Launch {
     attached: string | null = null,
   ): Pick<Create, "command" | "interactive_command" | "env" | "effort"> {
     const { agent } = this;
-    if (!agent) return { command: this.typed(then, live), interactive_command: true, env: [] };
+    if (!agent) return { command: this.typed(then, live), interactive_command: true, env: this.account_env };
     const args = this.args(agent, then, live),
       found =
         agent.effort && attached === null ? adapter(agent.provider).launch.deferred?.(args, this.account()) : null,
@@ -383,16 +402,20 @@ export class Pane {
   }
   /** How its agent comes back: as it was launched, or as its provider starts. */
   resumeLaunch() {
+    let launch =
+      this.launch ?? (this.resume_hint.provider ? new Launch({ provider: this.resume_hint.provider }) : null);
     if (
       this.recovery_command !== null &&
       this.launch?.command === this.recovery_command &&
       this.resume_hint.args() !== null
     )
-      return new Launch({
+      launch = new Launch({
         provider: this.resume_hint.provider!,
         env: accounts.env(this.resume_hint.provider!, this.launch.account(this.resume_hint.provider, this.cwd)),
       });
-    return this.launch ?? (this.resume_hint.provider ? new Launch({ provider: this.resume_hint.provider }) : null);
+    return launch && this.resume_hint.provider && this.resume_hint.account !== null
+      ? launch.withAccount(this.resume_hint.provider, this.resume_hint.account)
+      : launch;
   }
   /** Shows its saved screen, faded, with nothing running until `Runtime.wake`. */
   sleep() {

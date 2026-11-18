@@ -97,3 +97,21 @@ test.each([false, true])("provider payloads are private in reports, live=%s", li
   expect(back.events[0].seq).toBe(7);
   expect(back.events[0].event).toMatch(/^<payload \d+>$/);
 });
+
+test("failed core decoding cannot expose private metadata from the recovery envelope", async () => {
+  const state = {
+    ...saved(),
+    transfer: {
+      protocol: 1,
+      format: "f".repeat(12),
+      core: {},
+      payload: { runtime: { sessions: [{ client: { state: { customer_account: 123456789, acme_merger: true } } }] } },
+    },
+  };
+  const result = await check.run(write(state), "/tmp/unused.sock", "/tmp/corgi");
+  expect(result.ok).toBe(false);
+  if (result.ok) throw Error("expected a failure");
+  for (const secret of ["customer_account", "123456789", "acme_merger"])
+    expect(result.state.anonymized).not.toContain(secret);
+  expect(json.parse(result.state.anonymized).transfer.payload).toMatch(/^<payload \d+>$/);
+});

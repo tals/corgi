@@ -1,7 +1,7 @@
 import { join } from "node:path";
-import { readFileSync } from "node:fs";
-import { Runtime, EXE } from "./runtime";
-import { Pty, deadline, registerCase, writeExecutable } from "./support";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { Runtime, EXE, running } from "./runtime";
+import { Pty, deadline, registerCase, writeExecutable, quote } from "./support";
 import * as rpc from "../src/rpc";
 
 class Rollback extends Runtime {
@@ -114,6 +114,50 @@ process.exit(1);
     this.assertEqual((await this.http.call("hello")).server_pid, restored.server_pid);
     this.assertEqual((await this.session()).panes[0].pid, before.panes[0].pid);
   }
+  async test_long_resume_commands_survive_old_readers_and_remain_executable() {
+    const workspace = (await this.session()).workspaces[0].id,
+      pane = (await this.command("pane.create", { workspace, command: "exec /bin/sh" })).pane,
+      saved = await this.rpc({ op: "recovery.save" }),
+      file = saved.path,
+      daemon = (await this.session()).server_pid,
+      output = join(this.temp.name, "resumed-command"),
+      expected = "retained ".repeat(400),
+      command = `printf '%s' ${quote(expected)} > ${quote(output)}`;
+    await this.run_cli("shutdown");
+    await this.until(() => !running(daemon));
+    const state = JSON.parse(readFileSync(file, "utf8")),
+      core = state.transfer.core.panes.find((p: any) => p.id === pane);
+    Object.assign(core, { dormant: true, manual_resume: true, command });
+    writeFileSync(file, JSON.stringify(state));
+    // Prefilled commands wait for an interactive line editor.
+    this.env.SHELL = "/bin/bash";
+    await this.run_cli("start");
+    this.assertTrue((await this.session()).panes.find((p: any) => p.id === pane).dormant);
+    const live = (await this.command("pane.create", { workspace, command: "exec /bin/sh" })).pane,
+      before = (await this.session()).panes.find((p: any) => p.id === live).pid;
+    await this.rpc({ op: "recovery.save" });
+    const checked = Bun.spawn([process.env.CORGI_OLD_EXE!, "__update-check", this.path, file], {
+      env: this.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    this.assertEqual(JSON.parse(await new Response(checked.stdout).text()), { ok: true });
+    this.assertEqual(await checked.exited, 0);
+    await this.rpc({ op: "server.reload", executable: process.env.CORGI_OLD_EXE! });
+    this.assertEqual((await this.older({ op: "session.snapshot" })).panes.find((p: any) => p.id === live).pid, before);
+    await this.older({ op: "session.command", command: { "pane.wake": { target: pane } } });
+    let screen = "";
+    await this.until(async () =>
+      (screen = await this.olderScreen(pane)).replace(/\s+/g, "").includes("resume-commands"),
+    ).catch(error => {
+      throw new Error(`${error}\n${screen}`);
+    });
+    await this.older({ op: "session.command", command: { "pane.input": { target: pane, data: "\r" } } });
+    await this.until(() => existsSync(output));
+    this.assertEqual(readFileSync(output, "utf8"), expected);
+    await this.http.call("server.reload", { executable: EXE });
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === live).pid, before);
+  }
   async test_live_rollback_preserves_shells_and_explains_viewer_and_subscription_disconnects() {
     const workspace = (await this.session()).workspaces[0].id;
     await this.command("pane.create", { workspace, command: "exec /bin/sh" });
@@ -166,6 +210,7 @@ registerCase("Rollback", Rollback, {
           "test_compressed_WS_requester_gets_the_commit_reply_without_replaying_later_input",
           "test_HTTP_requester_gets_the_rollback_reply_and_can_upgrade_again",
           "test_live_rollback_preserves_shells_and_explains_viewer_and_subscription_disconnects",
+          "test_long_resume_commands_survive_old_readers_and_remain_executable",
         ].map(name => [name, "requires a pre-WS format-6 CORGI_OLD_EXE"]),
       ),
 });

@@ -62,7 +62,6 @@ export async function load(r: Runtime, socket: string, executable: string): Prom
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
   }
-  if (Buffer.byteLength(bytes) > 256 * 1024 * 1024) throw Error("FileTooBig");
   const decoded = await cold.read(bytes, socket, executable);
   const repairs = await checkpoint.restore(r, decoded.value, false, socket, executable);
   if (decoded.discarded) repairs.push("discarded incompatible auxiliary state; restored the terminal core");

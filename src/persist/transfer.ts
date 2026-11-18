@@ -3,6 +3,7 @@ import type { Runtime } from "../runtime";
 import * as json from "../json";
 import * as subprocess from "../subprocess";
 import * as core from "./core";
+import * as commands from "./commands";
 import * as formats from "./formats";
 import * as state_formats from "./state_formats";
 import * as migrations from "./migrations";
@@ -69,7 +70,7 @@ export function encode(
   return {
     transfer: protocol,
     format,
-    core: core.capture(runtime, manifest.runtime),
+    core: mapCommands(core.capture(runtime, manifest.runtime), commands.exportCommand),
     payload,
     requester: manifest.requester,
     request_id: manifest.request_id,
@@ -81,7 +82,7 @@ export function encode(
 export function decode(value: unknown, history = state_formats.history) {
   const v = json.object(value);
   if (v.transfer !== protocol) throw Error("UnsupportedHandoffProtocol");
-  const essential = core.decode(v.core);
+  const essential = mapCommands(core.decode(v.core), commands.importCommand);
   if (!essential.live) throw Error("InvalidHandoffCore");
   if (typeof v.format !== "string" || !formats.supported(history).includes(v.format))
     throw Error("UnsupportedStateFormat");
@@ -104,6 +105,7 @@ export function decode(value: unknown, history = state_formats.history) {
   if (typeof v.older_updater !== "boolean") throw Error("InvalidHandoffCore");
   return {
     ...metadata,
+    retired: null,
     version: migrations.handoff_version,
     runtime: core.restore(essential, metadata.runtime),
     requester,
@@ -123,13 +125,18 @@ export function recovery(
     legacy: ReturnType<typeof checkpoint.capture> = downgrade(runtime, { runtime: saved }, history).runtime;
   return {
     ...legacy,
-    transfer: { protocol, format: history.current, core: core.capture(runtime, saved), payload },
+    transfer: {
+      protocol,
+      format: history.current,
+      core: mapCommands(core.capture(runtime, saved), commands.exportCommand),
+      payload: json.stringify(payload),
+    },
   };
 }
 /** Export the numbered format before the pre-baseline transport adapter runs. */
 export function downgrade(runtime: Runtime, value: Record<string, any>, history = state_formats.history) {
   if (history.current === formats.initial) return value;
-  return migrateLegacy(value, core.capture(runtime, value.runtime), metadata =>
+  return migrateLegacy(value, mapCommands(core.capture(runtime, value.runtime), commands.exportCommand), metadata =>
     history.down(metadata, formats.initial),
   );
 }
@@ -137,7 +144,12 @@ export function downgrade(runtime: Runtime, value: Record<string, any>, history 
 export function upgrade(value: unknown, history = state_formats.history): Record<string, any> {
   const saved = json.object(value);
   if (history.current === formats.initial) return saved;
-  return migrateLegacy(saved, core.fromCheckpoint(saved.runtime), metadata => history.up(metadata, formats.initial));
+  return migrateLegacy(saved, mapCommands(core.fromCheckpoint(saved.runtime), commands.importCommand), metadata =>
+    history.up(metadata, formats.initial),
+  );
+}
+function mapCommands(value: core.Core, map: (command: string | null) => string | null): core.Core {
+  return { ...value, panes: value.panes.map(pane => ({ ...pane, command: map(pane.command) })) };
 }
 function migrateLegacy(value: Record<string, any>, essential: core.Core, step: formats.Step) {
   const { requester, request_id, start_lock, older_updater, retired, update_abi, terminal_abi, version, ...metadata } =
@@ -170,13 +182,20 @@ export function recover(bytes: string, history = state_formats.history, coreOnly
   const { transfer, ...payload } = saved,
     envelope = json.object(transfer);
   if (envelope.protocol !== protocol) throw Error("UnsupportedHandoffProtocol");
-  const essential = core.decode(envelope.core);
+  const essential = mapCommands(core.decode(envelope.core), commands.importCommand);
   if (essential.live) throw Error("InvalidHandoffCore");
   if (!formats.id(envelope.format)) throw Error("InvalidStateFormats");
   const known =
       !coreOnly && envelope.format !== formats.baseline && formats.supported(history).includes(envelope.format),
     restored = known
-      ? history.up("payload" in envelope ? envelope.payload : { runtime: payload }, envelope.format)
+      ? history.up(
+          "payload" in envelope
+            ? typeof envelope.payload === "string"
+              ? json.parse(envelope.payload)
+              : envelope.payload
+            : { runtime: payload },
+          envelope.format,
+        )
       : null,
     metadata = restored === null ? {} : json.object(restored);
   return {

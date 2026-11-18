@@ -174,7 +174,9 @@ exec ${quote(EXE)} "$@"
   }
   async test_preflight_discards_invalid_metadata_under_a_known_revision() {
     await this.preflight(state => {
-      state.transfer.payload.runtime.closed = [{}];
+      const payload = JSON.parse(state.transfer.payload);
+      payload.runtime.closed = [{}];
+      state.transfer.payload = JSON.stringify(payload);
     });
   }
 }

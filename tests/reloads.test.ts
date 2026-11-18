@@ -729,8 +729,9 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       bin = join(this.temp.name, "resume-bin");
     mkdirSync(bin);
     this.env.PATH = `${bin}:${this.env.PATH}`;
+    writeExecutable(join(bin, "codex"), "console.log('WRONG_BINARY_ON_PATH');");
     this.env.CORGI_CODEX_BIN = writeExecutable(
-      join(bin, "codex"),
+      join(bin, "selected-codex"),
       `import { appendFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 if (!args.includes('resume')) process.exit(0);
@@ -746,12 +747,16 @@ await Bun.sleep(120000);
     await this.restart_recovery(discardMetadata);
     const pane = async () => (await this.session()).panes.find((p: any) => p.id === first);
     this.assertEqual([(await pane()).dormant, (await pane()).pid], [true, -1]);
-    this.assertEqual((await pane()).restoring, `codex resume ${session}`);
+    this.assertEqual(
+      (await pane()).restoring,
+      discardMetadata ? `${this.env.CORGI_CODEX_BIN} resume ${session}` : `codex resume ${session}`,
+    );
     await this.reload();
     this.assertTrue((await pane()).dormant);
     const viewer = await Viewer.create(this);
     await viewer.focus(first);
-    await this.until(() => existsSync(resumes));
+    await this.until(async () => existsSync(resumes) || (await this.screen(first)).includes("WRONG_BINARY_ON_PATH"));
+    this.assertTrue(existsSync(resumes), "provider override was bypassed");
     this.assertEqual(JSON.parse(readFileSync(resumes, "utf8")).slice(-2), ["resume", session]);
     const woken = await pane();
     this.assertEqual([woken.dormant, woken.pid > 0], [false, true]);

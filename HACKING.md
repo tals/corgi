@@ -562,9 +562,16 @@ are fixed; new daemon changes go in the shared state history.
    an active custom launch opens a fresh shell after a crash. If metadata loss
    leaves a dormant command's purpose ambiguous, preserve it at the prompt for
    Enter instead of automatically running it.
-   Resume commands include account selection and resolved transcript paths. Saved
+   Resume commands include account selection and resolved transcript paths. The
+   core retains durable session IDs rather than expiring background-job IDs;
+   current metadata retains launcher options, the observed account and the
+   executable used to generate the command. Saved
    commands may exceed the launcher's input limit; older metadata revisions drop
-   oversized command fields while the fixed core retains the complete command.
+   oversized command fields. Exports preserve long commands through short shell
+   references to private, content-addressed files in the state directory's
+   `corgi/resume-commands/`. Older readers can execute these references; new readers
+   recover the original command. Keep these files while saved sessions may refer
+   to them, including across downgrades and cold recovery.
 5. `state_formats.test.ts` compares the current structures with the fixture
    recorded for that revision in `fixtures/state_revisions/`. Schema changes
    require a new revision; never refresh an existing revision's fixture to
@@ -601,9 +608,10 @@ uses VT terminal data; parser fragments and some display state remain
 approximate, independently of metadata compatibility.
 
 Recovery backs up the original bytes after successful migration and writes a
-fresh core envelope. Its payload keeps current metadata; the top-level checkpoint
-is migrated down to the initial format for pre-baseline readers. Readers also
-accept earlier envelopes whose metadata lived at the top level. A failed restore
+fresh core envelope. Its payload keeps current metadata as a JSON string so older
+issue reporters redact it as one opaque value. The top-level checkpoint is migrated
+down to the initial format for pre-baseline readers. Readers also accept earlier
+envelopes with object payloads or metadata at the top level. A failed restore
 leaves the source untouched. An unknown metadata revision can recover through
 the baseline; malformed core fails without starting a partial session.
 
