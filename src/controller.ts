@@ -1686,8 +1686,7 @@ export class Controller {
   navigateWorkspace(forward: boolean): void {
     const ids = this.workspaceRows(false, true)
       .filter(row => {
-        const presence = this.rowOf(row.id)!.machine.presence();
-        return presence.online || presence.connecting;
+        return !this.rowOf(row.id)!.machine.presence().stopped;
       })
       .map(row => row.id);
     if (!ids.length) return;
@@ -1826,8 +1825,7 @@ export class Controller {
     return [
       ...this.workspaceRows()
         .filter(row => {
-          const presence = this.rowOf(row.id)!.machine.presence();
-          return presence.online || presence.connecting;
+          return !this.rowOf(row.id)!.machine.presence().stopped;
         })
         .map(row => row.id),
       ...(this.archived_expanded ? this.archivedWorkspaces().map(ws => this.rowKey(ws.id)) : []),

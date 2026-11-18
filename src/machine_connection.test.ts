@@ -534,7 +534,9 @@ test("out-of-order numbered replies only acknowledge a contiguous prefix", async
 test("a connect from online or at startup shows nothing for its first second", async () => {
   const endpoint = localEndpoint("/tmp/corgi-status-test/control.sock", new Probe(), new Host());
   const presence = () => {
-    const { online, connecting, connection_status } = endpoint.machine.presence();
+    const { online, connecting, stopped, connection_status } = endpoint.machine.presence();
+    // Rows stay in keyboard navigation throughout.
+    expect(stopped).toBe(false);
     return { online, connecting, label: connection_status?.label ?? null };
   };
   const age = (ms: number) => {

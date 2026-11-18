@@ -1,4 +1,4 @@
-import type { Endpoint } from "./machine_connection";
+import type { Endpoint, Status } from "./machine_connection";
 import type { Controller } from "./controller";
 import * as sidebar from "./sidebar";
 import * as dropdown from "./dropdown";
@@ -58,14 +58,18 @@ export class Workspaces {
         const name = text.ellipsis(endpoint.name, Math.max(1, Math.floor(width / 3)));
         const room = Math.max(0, width - 8);
         const note_room = Math.max(0, room - Math.min(text.displayWidth(name), Math.ceil(room / 2)) - 2);
-        const quality = endpoint.remote && endpoint.status === "online" ? endpoint.stats.quality : null;
-        const color = statusColor(endpoint, quality);
+        // As the sidebar shows it: a connect's first second still looks as before.
+        const status = endpoint.display().status,
+          online = status === "online";
+        const quality = endpoint.remote && online ? endpoint.stats.quality : null;
+        const color = statusColor(status, endpoint.error, quality);
+        const description = online ? endpoint.error || "online" : endpoint.description();
         const runs: dropdown.Run[] = [];
         if (quality !== null && note_room >= 6) {
           for (const [bar, glyph] of [..."▂▄▆█"].entries()) runs.push([glyph, bar < quality ? color : "line"]);
-          runs.push([" " + text.ellipsis(endpoint.description(), note_room - 5), color]);
+          runs.push([" " + text.ellipsis(description, note_room - 5), color]);
         } else {
-          const state = endpoint.status === "online" ? "● " + endpoint.description() : endpoint.description();
+          const state = online ? "● " + description : description;
           runs.push([text.ellipsis(state, note_room), color]);
         }
         return {
@@ -74,7 +78,7 @@ export class Workspaces {
           runs,
           current: this.filter === endpoint,
           hovered: this.cursor === i + 1,
-          dim: endpoint.status !== "online",
+          dim: !online,
         };
       }),
     ];
@@ -106,10 +110,10 @@ export class Workspaces {
   }
 }
 
-function statusColor(endpoint: Endpoint, quality: number | null): palette.Token {
-  switch (endpoint.status) {
+function statusColor(status: Status, error: string, quality: number | null): palette.Token {
+  switch (status) {
     case "online":
-      return endpoint.error || (quality !== null && quality < 3) ? "warm" : "accent";
+      return error || (quality !== null && quality < 3) ? "warm" : "accent";
     case "connecting":
     case "stalled":
       return "warm";

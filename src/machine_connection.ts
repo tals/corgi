@@ -73,6 +73,18 @@ export class Endpoint {
   get status(): Status {
     return this.current_status;
   }
+  /** The status the viewer shows, and whether it's a connect's `quiet`
+   * first second. Most connects are done by then, so meanwhile one from
+   * online still looks online, and one at startup shows no progress yet.
+   * One after an outage that showed shows at once. */
+  display(now = performance.now()): { status: Status; quiet: boolean } {
+    const from = this.connecting.from,
+      quiet =
+        this.status === "connecting" &&
+        (from === null || from === "online") &&
+        now - this.connecting.since < quiet_connect_ms;
+    return { status: quiet && from === "online" ? "online" : this.status, quiet };
+  }
   set status(value: Status) {
     if (value === "connecting" && this.current_status !== "connecting")
       this.connecting = { since: performance.now(), from: this.current_status };
@@ -195,17 +207,12 @@ export class Endpoint {
     // viewer itself runs over SSH.
     this.machine.remote_links = remote || sshViewer();
     this.machine.presence = () => {
-      // A connect from online or at startup shows nothing for a second, so
-      // one that's over by then doesn't flicker. One after a shown outage does.
-      const quiet =
-        this.status === "connecting" &&
-        (this.connecting.from === null || this.connecting.from === "online") &&
-        performance.now() - this.connecting.since < quiet_connect_ms;
-      const status = quiet ? (this.connecting.from ?? "connecting") : this.status;
+      const { status, quiet } = this.display();
       return {
         online: status === "online",
-        link_quality: remote ? (status === "online" ? this.stats.quality : 0) : null,
+        link_quality: remote ? (status === "online" ? this.stats.quality : quiet ? null : 0) : null,
         connecting: !quiet && (status === "connecting" || status === "stalled" || status === "offline"),
+        stopped: status === "paused" || status === "attention" || status === "incompatible",
         connection_status: quiet ? null : this.headerStatus(),
         description: this.description(),
         cached: this.workspaces,

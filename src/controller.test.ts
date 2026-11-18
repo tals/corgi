@@ -5470,6 +5470,7 @@ test("all agents lists each online machine's under its name, and its rows switch
     online,
     link_quality: null,
     connecting: false,
+    stopped: false,
     connection_status: null,
     description: "",
     cached: [],

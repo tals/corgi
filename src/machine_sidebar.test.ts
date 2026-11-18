@@ -218,10 +218,11 @@ test("machine filter colors connection states and measured reception, including 
   local.status = "online";
   remote.updated = 1;
   workspaces.show();
+  // A connect after a stall shows at once.
   const cases: [Status, palette.Token, string][] = [
     ["online", "accent", "▂▄▆█"],
-    ["connecting", "warm", "Connecting"],
     ["stalled", "warm", "Connection"],
+    ["connecting", "warm", "Connecting"],
     ["offline", "hot", "offline"],
     ["paused", "muted", "Paused"],
     ["incompatible", "hot", "Incompatible"],
@@ -240,6 +241,11 @@ test("machine filter colors connection states and measured reception, including 
       }
     }
   }
+  // One from online still looks online for its first second, as the sidebar does.
+  const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(64);
+  remote.status = "online";
+  remote.status = "connecting";
+  expect(frame(side, [], workspaces.draw(side)).text.split("\n")[5]).toContain("▂▄▆█ online");
   expect(view.machine_filter).toBeNull();
 });
 
@@ -316,6 +322,8 @@ test("header quality comes from the current connection, without rating local or 
     view,
   } = world("local", "work");
   local.updated = remote.updated = 1;
+  // Nothing is measured, nor shown, in a first connect's first second.
+  expect(view.workspaceRows().map(row => row.link_quality)).toEqual([null, null]);
   local.status = remote.status = "online";
   expect(view.workspaceRows().map(row => row.link_quality)).toEqual([null, null]);
   local.stats.answer(20, false);
