@@ -4040,8 +4040,9 @@ export class Controller {
     return count;
   }
   private sendInput(term: Terminal, bytes: string | Uint8Array | number[]): void {
-    // Nothing reads a dormant pane's input.
-    if (this.pane(term.id)?.dormant) return;
+    // Nothing reads a dormant pane's input, nor an offline machine's; a
+    // paste that began before it went offline still goes whole.
+    if (this.pane(term.id)?.dormant || (this.sync_notice?.drops_input && this.input_state.paste === null)) return;
     this.marked_unread.delete(term.id);
     if (bytes.length > 0) {
       this.flushPendingCopy();
@@ -4055,6 +4056,16 @@ export class Controller {
       this.dirty = true;
     }
     term.send(bytes);
+  }
+  /** Re-encodes a host SGR report for the app in `rect`, in the protocol it
+   * chose. Points outside `rect` reach the app only while a button is held. */
+  private sendMouse(term: Terminal, rect: Rect, button: number, x: number, y: number, release: boolean): void {
+    if (this.sync_notice?.drops_input) return;
+    const report = viewerNative.encodeMouse(term.handle, button, x - rect.x, y - rect.y, release);
+    // Only a hover, with no button held (extra buttons set bit 128), may give
+    // way to the next: a drag's every point stays, as do presses and the wheel.
+    if (!release && isHover(button) && (button & 128) === 0) term.move(report, button);
+    else term.send(report);
   }
   private queueEffect(effect: Effect): void {
     this.effects.push(effect);
@@ -6765,8 +6776,8 @@ export class Controller {
     if (this.editingName()) return "name";
     if (this.reviewKeys() && this.review.typing) return "review";
     if (this.hasMenu() || this.reviewKeys()) return "discard";
-    // A pane still opening takes no pastes.
-    if (this.openingFocus()) return "discard";
+    // A pane still opening takes no pastes, nor an offline machine's.
+    if (this.openingFocus() || this.sync_notice?.drops_input) return "discard";
     const p = this.focused();
     return p ? { pane: p.id } : "discard";
   }
@@ -8271,7 +8282,7 @@ export class Controller {
         if (p.id !== id) continue;
         const held = this.pane(id);
         if (!held) break;
-        sendMouse(held.terminal, p.rect, button, x, y, release);
+        this.sendMouse(held.terminal, p.rect, button, x, y, release);
       }
       return;
     }
@@ -8819,7 +8830,7 @@ export class Controller {
       // Hover never moves focus. The encoder drops it unless the app
       // tracks all motion.
       if (hover) {
-        if (app_mouse) sendMouse(term, p.rect, button, x, y, release);
+        if (app_mouse) this.sendMouse(term, p.rect, button, x, y, release);
         return;
       }
       const clicks = release ? 0 : this.countClick(series, p.id, p.rect, term, button, x, y);
@@ -8873,7 +8884,7 @@ export class Controller {
       }
       if (app_mouse) {
         if (!release && isButton(button)) cl.pane_press = p.id;
-        sendMouse(term, p.rect, button, x, y, release);
+        this.sendMouse(term, p.rect, button, x, y, release);
         return;
       }
       if (release) {
@@ -10486,15 +10497,6 @@ function gitPushMessage(err: string): string {
     default:
       return err;
   }
-}
-/** Re-encodes a host SGR report for the app in `rect`, in the protocol it
- * chose. Points outside `rect` reach the app only while a button is held. */
-function sendMouse(term: Terminal, rect: Rect, button: number, x: number, y: number, release: boolean): void {
-  const report = viewerNative.encodeMouse(term.handle, button, x - rect.x, y - rect.y, release);
-  // Only a hover, with no button held (extra buttons set bit 128), may give
-  // way to the next: a drag's every point stays, as do presses and the wheel.
-  if (!release && isHover(button) && (button & 128) === 0) term.move(report, button);
-  else term.send(report);
 }
 /** What the prompt calls a pane: its label, its agent, or what runs in it. */
 function paneName(p: Pane): string {

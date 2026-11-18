@@ -82,7 +82,8 @@ export async function run(
   let active = endpoints.find(e => e.name === selected);
   if (!active) throw Error("UnknownMachine");
   // Typing waits in the panes it's meant for until their machine catches
-  // up; one still behind after a moment says so.
+  // up; one still behind after a moment says so, and while it isn't online
+  // its panes drop input rather than hold it.
   let behind = null as { endpoint: Endpoint; since: number; shown: boolean } | null;
   const noticeDue = () => (behind && !behind.shown ? behind.since + behind_after_ms : Infinity);
   const syncNotice = (now: number): SyncNotice | null => {
@@ -94,7 +95,6 @@ export async function run(
     if (behind?.endpoint !== shown) behind = { endpoint: shown, since: now, shown: false };
     if (now < behind.since + behind_after_ms) return null;
     behind.shown = true;
-    const keys = shown.waiting();
     const status =
       shown.status === "online"
         ? shown.error || `Syncing… ${Math.floor((now - behind.since) / 1000)}s`
@@ -103,10 +103,7 @@ export async function run(
       ? ["Ctrl+R retry", ...(shown.status === "paused" ? [] : ["Ctrl+X pause"]), ...(shown.error ? ["! details"] : [])]
       : [];
     if (!shown.reached) hints.push("Ctrl+C quit");
-    return {
-      status: `${shown.name}: ${status}${keys ? ` · ${keys} ${keys === 1 ? "key" : "keys"} waiting` : ""}`,
-      keys: hints.join(" · "),
-    };
+    return { status: `${shown.name}: ${status}`, keys: hints.join(" · "), drops_input: shown.status !== "online" };
   };
   active.folder = options.folder ?? null;
   endpoints[0].onboarding = options.onboarding ?? false;
@@ -144,6 +141,8 @@ export async function run(
     const typed = endpoint === active ? new Uint8Array() : active!.takeInput();
     active!.deactivate();
     active = endpoint;
+    // The notice was the last machine's.
+    view.sync_notice = null;
     view.switchMachine(endpoint.machine);
     if (focus !== null) active.choose(focus, active.instance);
     else active.activate();
@@ -401,6 +400,8 @@ export async function run(
         return;
       }
     }
+    // With nothing on screen yet, nothing else takes it either.
+    if (view.sync_notice?.drops_input && !active!.reached) return;
     active!.enqueue(input.bytes);
   };
   const feed = (bytes: Uint8Array) => {

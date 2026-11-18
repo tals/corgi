@@ -11,10 +11,13 @@ test("the notice covers only its pane's top rows", () => {
     screen.feed(base);
     const before = screen.surface(0).surface;
     screen.feed(
-      draw({ status: "work: Syncing… 2s · 3 keys waiting", keys: "Ctrl+R retry · Ctrl+X pause · ! details" }, pane),
+      draw(
+        { status: "work: Connection stalled (2s)", keys: "Ctrl+R retry · Ctrl+X pause · ! details", drops_input: true },
+        pane,
+      ),
     );
     const after = screen.surface(0).surface.lines.map(line => Bun.stripANSI(line));
-    expect(after[1].slice(10, 50)).toContain("work: Syncing… 2s · 3 keys waiting");
+    expect(after[1].slice(10, 50)).toContain("work: Connection stalled (2s)");
     expect(after[2].slice(10, 50)).toContain("Ctrl+R retry");
     for (const y of [1, 2]) {
       expect(after[y].slice(0, 10)).toBe(Bun.stripANSI(before.lines[y]).slice(0, 10));
@@ -29,7 +32,12 @@ test("the notice covers only its pane's top rows", () => {
 test("a one-row pane shows the status alone, clipped to its width", () => {
   const screen = new Terminal(20, 3);
   try {
-    screen.feed(draw({ status: "work: Connection stalled (12s)", keys: "Ctrl+R retry" }, new Rect(0, 0, 12, 1)));
+    screen.feed(
+      draw(
+        { status: "work: Connection stalled (12s)", keys: "Ctrl+R retry", drops_input: true },
+        new Rect(0, 0, 12, 1),
+      ),
+    );
     const lines = screen.surface(0).surface.lines.map(line => Bun.stripANSI(line));
     expect(lines[0].trimEnd()).toMatch(/…$/);
     expect(lines[1].trim()).toBe("");
@@ -39,7 +47,7 @@ test("a one-row pane shows the status alone, clipped to its width", () => {
 });
 
 test("with no keys to offer, the notice takes one row", () => {
-  const drawn = draw({ status: "local: Syncing… 2s", keys: "" }, new Rect(0, 0, 20, 2));
+  const drawn = draw({ status: "local: Syncing… 2s", keys: "", drops_input: false }, new Rect(0, 0, 20, 2));
   expect(drawn).toContain("\x1b[1;1H");
   expect(drawn).not.toContain("\x1b[2;1H");
 });

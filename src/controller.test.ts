@@ -6411,6 +6411,63 @@ test("while a pane's input waits, only hovers give way: clicks, drags and the wh
   }
 });
 
+test("while the notice says its machine is offline, a pane drops typing and the pointer rather than hold them", async () => {
+  const s: any = new Controller(transport(async () => ({ ok: true })));
+  s.width = 100;
+  s.height = 30;
+  s.sidebar_open = false;
+  s.input_state.attached = true;
+  s.receiveSnapshot({
+    workspaces: [
+      {
+        id: 1,
+        name: "one",
+        cwd: "/tmp",
+        model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 },
+      },
+    ],
+    panes: [
+      {
+        id: 1,
+        workspace: 1,
+        tab: 1,
+        cols: 100,
+        rows: 29,
+        agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
+      },
+    ],
+    conversations: [],
+    headless_sessions: [],
+  });
+  const source = new NativeTerminal(100, 29);
+  try {
+    source.feed("\x1b[?1003h\x1b[?1006h");
+    s.runtime.pane(1).terminal.receive(source.surface(1));
+    s.frame();
+    const place = s.layoutView().placements(s.area())[0].rect;
+    const at = (button: number, x: number) => `\x1b[<${button};${place.x + x + 1};${place.y + 3}M`;
+    const pending = () => Buffer.from(s.runtime.pane(1).terminal.pending).toString();
+    s.sync_notice = { status: "work: Reconnecting… 3s", keys: "", drops_input: true };
+    await s.input(bytes("ls" + at(35, 1) + at(0, 2)));
+    expect(pending()).toBe("");
+    // Behind but online, typing waits for it.
+    s.sync_notice = { status: "work: Syncing… 2s", keys: "", drops_input: false };
+    await s.input(bytes("pwd"));
+    expect(pending()).toBe("pwd");
+    // A paste goes whole or not at all: one begun before the machine went
+    // offline finishes, and one begun after goes nowhere.
+    await s.input(bytes("\x1b[200~one"));
+    s.sync_notice = { status: "work: Reconnecting… 3s", keys: "", drops_input: true };
+    await s.input(bytes(" two\x1b[201~\x1b[200~three"));
+    s.sync_notice = null;
+    await s.input(bytes(" four\x1b[201~"));
+    expect(pending()).toBe("pwdone two");
+  } finally {
+    source.destroy();
+    viewer.close(s);
+  }
+});
+
 test("a paste cut off by an input reset, or failing part-way, never leaves its pane refusing pastes", async () => {
   const { s, answer } = slowDaemon();
   try {

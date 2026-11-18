@@ -149,7 +149,6 @@ test("terminal input waits in its pane before its surface and after navigating a
     view.switchWorkspace(2);
     pane.terminal.send("late");
     expect(Buffer.from(pane.terminal.pending).toString()).toBe("earlylate");
-    expect(endpoint.waiting()).toBe(9);
     endpoint.render();
     expect(endpoint.ready).toBe(false);
   } finally {

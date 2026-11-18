@@ -1027,10 +1027,6 @@ export class Endpoint {
     });
     return changed;
   }
-  /** Keys typed into this machine's panes that haven't reached them. */
-  waiting(): number {
-    return this.machine.runtime.panes.reduce((keys, pane) => keys + pane.terminal.waiting(), 0);
-  }
   /** Ends pastes and uploads, and unless kept, keys the view hasn't routed;
    * keys already typed into panes still go once the machine is reachable. */
   private interruptInput(keepUnrouted = false): void {

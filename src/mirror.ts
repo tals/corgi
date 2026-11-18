@@ -108,8 +108,6 @@ export class Terminal {
   private paste_sending = 0;
   /** Part of the open paste has already gone. */
   private paste_split = false;
-  /** Keys sent and not yet answered. */
-  private sending = 0;
   private links: Link[] | null = null;
   private installed: surface.View | null = null;
   private changed_rows = new Uint16Array(0);
@@ -347,8 +345,7 @@ export class Terminal {
       data = Buffer.from(sent).toString();
     // Over a link the input lands once, even across a reconnect; without one
     // its delivery is uncertain after a disconnect, so it's never sent again.
-    const keys = keyCount(sent),
-      waiting = this.paste_in === this.pending,
+    const waiting = this.paste_in === this.pending,
       carried = waiting && end > this.paste_at;
     this.pending = this.pending.slice(end);
     if (waiting) {
@@ -360,19 +357,13 @@ export class Terminal {
       this.paste_sending++;
       this.paste_split ||= this.paste_open;
     }
-    this.sending += keys;
     try {
       await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
     } catch (error) {
       if (!errors.is(error, "NoPane")) throw error;
     } finally {
-      this.sending -= keys;
       if (carried) this.paste_sending--;
     }
-  }
-  /** Keys typed here that the program hasn't been given yet. */
-  waiting(): number {
-    return keyCount(this.pending) + this.sending;
   }
   receive(value: protocol.Reply<"viewer.sync">["surfaces"][number]): void {
     if (this.closed) throw Error("TerminalClosed");
@@ -871,17 +862,4 @@ function account(value: any): Account[] {
   const provider = Provider.parse(value?.provider);
   if (!provider || typeof value.account !== "string" || !value.account || typeof value.name !== "string") return [];
   return [{ provider, account: value.account, name: value.name, managed: value.managed === true }];
-}
-/** Keys in typed bytes: each character or escape sequence is one. */
-export function keyCount(bytes: number[]): number {
-  let keys = 0;
-  for (let i = 0; i < bytes.length; i++) {
-    // UTF-8 continuation bytes belong to the character before.
-    if ((bytes[i] & 0xc0) === 0x80) continue;
-    keys++;
-    if (bytes[i] !== 0x1b || (bytes[i + 1] !== 0x5b && bytes[i + 1] !== 0x4f)) continue;
-    i += 2;
-    while (i < bytes.length && (bytes[i] < 0x40 || bytes[i] > 0x7e)) i++;
-  }
-  return keys;
 }

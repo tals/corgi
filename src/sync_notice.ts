@@ -4,10 +4,12 @@ import * as text from "./text";
 
 /** A machine that hasn't caught up for a while, said over the focused pane. */
 export interface State {
-  /** The machine, what it's doing and the typing it holds. */
+  /** The machine and what it's doing. */
   status: string;
   /** The keys that act on it meanwhile. */
   keys: string;
+  /** The machine isn't online: its panes drop input rather than hold it. */
+  drops_input: boolean;
 }
 
 /** The focused pane's top `rows` rows, or the panes' area's without one. */

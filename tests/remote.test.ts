@@ -254,11 +254,11 @@ class Remote extends Runtime {
     });
   }
   async online(name = "work", timeout = 8) {
-    // A machine says it's behind only after a second; until then it looks caught up.
+    // A machine says it's behind only after a second; until then it looks
+    // caught up. While it says so, its panes drop typing.
     const settled = performance.now() + 1300;
     const shown = () =>
-      this.text().includes(`▌${name === "local" ? "LOCAL" : "REMOTE"}_WORKSPACE`) &&
-      !this.text().includes("Ctrl+R retry");
+      this.text().includes(`▌${name === "local" ? "LOCAL" : "REMOTE"}_WORKSPACE`) && !this.text().includes(" ⟳ ");
     try {
       await this.until(shown, timeout);
       if (performance.now() < settled) {
@@ -1022,7 +1022,7 @@ process.stdin.on("data", chunk => {
       this.terminal.write("w\r");
       await this.until(() => screen().includes("work ▾") && !screen().includes("All workspaces"));
       this.clickWorkspace("REMOTE");
-      // Stalled, retrying or offline: input waits either way.
+      // While the notice says it can't be reached, the pane drops typing.
       await this.until(() => screen().includes("Ctrl+R retry"), 12);
       this.terminal.write("TYPED_WHILE_OFFLINE\r\x1d");
       await this.until(() => screen().includes("All workspaces"), 2);
@@ -1037,12 +1037,8 @@ process.stdin.on("data", chunk => {
       async () => (await this.remote!.command("pane.read", { target: 1 })).text.includes("AFTER_RECONNECT"),
       5,
     );
-    // Typing waits in its pane through the outage, then goes once, as the line typed after it does.
-    await this.remote!.until(async () => {
-      const typed = (await this.remote!.command("pane.read", { target: 1 })).text,
-        count = (marker: string) => typed.split(marker).length - 1;
-      return count("TYPED_WHILE_OFFLINE") > 0 && count("TYPED_WHILE_OFFLINE") === count("AFTER_RECONNECT");
-    }, 5);
+    // Held, it would have gone ahead of the line typed after the outage.
+    this.assertNotIn("TYPED_WHILE_OFFLINE", (await this.remote!.command("pane.read", { target: 1 })).text);
   }
   async test_shared_master_and_failed_recovery_handshake_keep_navigation_responsive() {
     await this.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
@@ -1057,7 +1053,7 @@ process.stdin.on("data", chunk => {
     this.network!.strandNext(1);
     this.network!.strand();
     await this.until(() => this.text().includes("Connection stalled"), 6);
-    this.terminal!.write("HELD_DURING_MASTER_STALL\r");
+    this.terminal!.write("DROPPED_DURING_MASTER_STALL\r");
     await this.until(() => this.network!.accepted > shared, 8);
     // The first fresh TCP connection cannot finish SSH either. Local work still responds.
     for (let round = 0; round < 3; round++) {
@@ -1089,13 +1085,9 @@ process.stdin.on("data", chunk => {
     await this.online(undefined, 8);
     await this.sendRemote("AFTER_SECOND_MASTER_STALL");
     const output = (await this.remote!.command("pane.read", { target: 1 })).text;
-    for (const marker of [
-      "BEFORE_MASTER_STALL",
-      "HELD_DURING_MASTER_STALL",
-      "AFTER_FAILED_RECOVERY",
-      "AFTER_SECOND_MASTER_STALL",
-    ])
+    for (const marker of ["BEFORE_MASTER_STALL", "AFTER_FAILED_RECOVERY", "AFTER_SECOND_MASTER_STALL"])
       this.assertEqual(output.split(marker).length - 1, 1);
+    this.assertNotIn("DROPPED_DURING_MASTER_STALL", output);
   }
   async test_a_pane_exit_with_a_live_stream_keeps_the_machine_usable() {
     await this.remote!.command("pane.create", {
@@ -1137,7 +1129,7 @@ process.stdin.on("data", chunk => {
     this.network!.latency_ms = 120;
     await this.test_remote_reload_rebuilds_the_stream_without_replacing_its_panes();
   }
-  async test_short_network_hiccup_shows_stall_holds_input_and_recovers_on_the_same_connection() {
+  async test_short_network_hiccup_shows_stall_drops_input_and_recovers_on_the_same_connection() {
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; printf '\\n\\n\\n'; cat" });
     await this.startViewer();
     await this.online();
@@ -1154,10 +1146,10 @@ process.stdin.on("data", chunk => {
     const started = performance.now();
     await this.until(() => this.text().includes("Connection stalled"), 6);
     this.assertTrue(performance.now() - started < 6000);
-    // A stall leaves Ctrl+R to the pane, as a shell's history search.
+    // A stall offers no retry: the link may yet recover.
     this.assertNotIn("Ctrl+R retry", this.text());
     this.assertIn("BEFORE_HICCUP", this.text());
-    this.terminal!.write("HELD_DURING_HICCUP\r\x1d");
+    this.terminal!.write("DROPPED_DURING_HICCUP\r\x1d");
     await this.until(() => this.text().includes("All workspaces"), 1);
     this.network!.set("healthy");
     this.terminal!.write("\x1d");
@@ -1165,8 +1157,8 @@ process.stdin.on("data", chunk => {
     await this.sendRemote("AFTER_HICCUP");
     this.assertEqual(this.network!.accepted, connections);
     const text = (await this.remote!.command("pane.read", { target: 1 })).text;
-    for (const marker of ["SENT_WITH_REPLY_BLOCKED", "HELD_DURING_HICCUP"])
-      this.assertEqual(text.split(marker).length - 1, 1);
+    this.assertEqual(text.split("SENT_WITH_REPLY_BLOCKED").length - 1, 1);
+    this.assertNotIn("DROPPED_DURING_HICCUP", text);
   }
   async test_spotty_connection_repeatedly_recovers_without_freezing_navigation_or_duplicating_input() {
     await this.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
@@ -1178,7 +1170,8 @@ process.stdin.on("data", chunk => {
     await this.startViewer();
     await this.online(undefined, 12);
     const timings: { fault: string; navigation_ms: number; recovery_ms: number }[] = [];
-    const markers: string[] = [];
+    const markers: string[] = [],
+      dropped: string[] = [];
     for (const [index, fault] of ["replies", "blackhole", "strand", "cut", "blackhole"].entries()) {
       const before = `BEFORE_FAULT_${index}`;
       markers.push(before);
@@ -1201,9 +1194,9 @@ process.stdin.on("data", chunk => {
       if (fault !== "cut") {
         await this.until(() => this.text().includes("Connection stalled"), 6);
         this.assertNotIn("Ctrl+R retry", this.text());
-        const held = `HELD_WHILE_STALLED_${index}`;
-        markers.push(held);
-        this.terminal!.write(held + "\r");
+        const typed = `DROPPED_WHILE_STALLED_${index}`;
+        dropped.push(typed);
+        this.terminal!.write(typed + "\r");
       }
       const navigation = performance.now();
       this.terminal!.write("\x1d");
@@ -1231,6 +1224,7 @@ process.stdin.on("data", chunk => {
     }
     const text = (await this.remote!.command("pane.read", { target: 1 })).text;
     for (const marker of markers) this.assertEqual(text.split(marker).length - 1, 1);
+    for (const marker of dropped) this.assertNotIn(marker, text);
     console.error("Spotty SSH at 160ms RTT / 128KiB/s:", JSON.stringify(timings));
   }
   async test_typing_whose_reply_a_cut_connection_lost_lands_once_after_the_link_resumes() {
@@ -1318,7 +1312,7 @@ process.stdin.on("data", chunk => {
     const text = (await this.remote!.command("pane.read", { target: 1 })).text;
     this.assertEqual(text.split("RACED_THROUGH").length - 1, 1);
   }
-  async test_blackhole_times_out_and_reconnects_automatically_delivering_held_input_once() {
+  async test_blackhole_times_out_and_reconnects_automatically_dropping_input_typed_while_stalled() {
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
     const pid = (await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid;
     await this.startViewer();
@@ -1326,14 +1320,14 @@ process.stdin.on("data", chunk => {
     const connections = this.network!.accepted;
     this.network!.set("blackhole");
     await this.until(() => this.text().includes("Connection stalled"), 6);
-    this.terminal!.write("HELD_THROUGH_BLACKHOLE\r");
+    this.terminal!.write("DROPPED_DURING_BLACKHOLE\r");
     // A second connection is tried beside the silent one, and again once it times out.
     await this.until(() => this.network!.accepted > connections, 12);
     this.network!.set("healthy");
     await this.online(undefined, 12);
     await this.sendRemote("AUTOMATICALLY_RECOVERED");
     const text = (await this.remote!.command("pane.read", { target: 1 })).text;
-    this.assertEqual(text.split("HELD_THROUGH_BLACKHOLE").length - 1, 1);
+    this.assertNotIn("DROPPED_DURING_BLACKHOLE", text);
     this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid, pid);
   }
   async test_pause_and_retry_abort_an_inflight_request_and_a_hung_ssh_handshake_immediately() {
@@ -1392,7 +1386,7 @@ process.stdin.on("data", chunk => {
     }
     this.network!.set("blackhole");
     await this.until(() => this.text().includes("Connection stalled"), 6);
-    // Ctrl+C is the agent's; the prefix still detaches while stalled.
+    // The prefix still detaches while stalled.
     this.terminal!.write("\x02d");
     await deadline(this.ui!.exited, 1500);
     this.assertEqual(this.ui!.exitCode, 0);
