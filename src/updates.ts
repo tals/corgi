@@ -745,11 +745,11 @@ async function select(
       if (explicit) throw Error("UpdateCheckFailed");
       return old;
     }
-    let safe =
-      !h || h.update_abi === m.update_abi || (transfer.compatible(h) && (await transfer.discover(target)) !== null);
-    if (safe) {
+    let safe = !h || h.update_abi === m.update_abi;
+    if (safe || transfer.compatible(h)) {
       try {
-        await activate(root, daemon, candidate, target, !!h);
+        if (!safe) safe = (await transfer.discover(target)) !== null;
+        if (safe) await activate(root, daemon, candidate, target, !!h);
       } catch (error) {
         recordError(root, error);
         // A core handoff never falls back to restarting the running session.

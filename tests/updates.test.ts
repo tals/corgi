@@ -619,9 +619,12 @@ test.skipIf(!process.env.CORGI_OLD_EXE)(
   },
   30_000,
 );
-test.skipIf(!!process.env.CORGI_OLD_EXE)(
-  "a failed live core handoff is deferred until an explicit retry",
-  async () => {
+test.skipIf(!!process.env.CORGI_OLD_EXE).each(["discovery", "handoff"])(
+  "a failed core %s is deferred until an explicit retry",
+  async stage => {
+    const discovery = stage === "discovery",
+      perAttempt = discovery ? 1 : 2,
+      failure = discovery ? "ReloadCandidateFailed" : "InvalidCheckpoint";
     await cli(["start"]);
     const before = await rpc({ op: "hello" });
     await cli(["update", "--download-only"]);
@@ -631,9 +634,9 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
       wrapper = `#!/bin/sh
 case "$1" in
   __update-check) printf '{"ok":true}\\n'; exit 0 ;;
-  __handoff)
+  ${discovery ? "__handoff-info" : "__handoff"})
     printf 'attempt\\n' >> ${quote(attempts)}
-    printf 'InvalidCheckpoint\\n' >&4
+    printf 'InvalidCheckpoint\\n' >&${discovery ? 2 : 4}
     exit 1 ;;
   *) exec ${quote(EXE)} "$@" ;;
 esac
@@ -641,6 +644,7 @@ esac
     await writeFile(target, wrapper, { mode: 0o755 });
     const manifest = JSON.parse(manifests.get("1.0.1")!),
       payload = JSON.parse(manifest.payload);
+    if (discovery) payload.update_abi = "different-abi";
     payload.targets[host].sha256 = sha(Buffer.from(wrapper));
     payload.targets[host].size = Buffer.byteLength(wrapper);
     manifest.payload = JSON.stringify(payload);
@@ -650,7 +654,7 @@ esac
     await cli(["update", "auto", "on"]);
     await cli(["start"]);
     const first = await readFile(attempts, "utf8");
-    expect(first.trim().split("\n")).toHaveLength(2);
+    expect(first.trim().split("\n")).toHaveLength(perAttempt);
     expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
     await cli(["start"]);
     expect(await readFile(attempts, "utf8")).toBe(first);
@@ -658,9 +662,9 @@ esac
     unavailable = false;
     const retry = await cli(["update"], false);
     expect(retry.code).not.toBe(0);
-    expect(retry.err).toContain("InvalidCheckpoint");
+    expect(retry.err).toContain(failure);
     const retried = await readFile(attempts, "utf8");
-    expect(retried.trim().split("\n")).toHaveLength(4);
+    expect(retried.trim().split("\n")).toHaveLength(2 * perAttempt);
     await cli(["start"]);
     expect(await readFile(attempts, "utf8")).toBe(retried);
     expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
