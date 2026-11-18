@@ -31,6 +31,7 @@ viewers reconnect with SSH keys/agent or noninteractive corporate SSH authentica
 In the viewer, Ctrl+] or clicking the machine name opens the machine picker.
 `;
 export async function manage(args: string[]): Promise<void> {
+  process.stderr.write("Remote machines are experimental; bug reports are appreciated (corgi bugreport).\n");
   switch (args[0]) {
     case "add": {
       const rest = args.slice(1);
