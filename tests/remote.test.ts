@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { userInfo } from "node:os";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
@@ -79,9 +79,16 @@ class Remote extends Runtime {
     await this.remote.command("workspace.edit", { target: 1, name: "REMOTE_WORKSPACE" });
   }
   async test_cold_remote_listing_allows_ssh_authentication_on_a_slow_link() {
-    this.network!.cut();
+    // A new state directory gives this CLI its own SSH master namespace.
+    const state = join(this.temp.name, "cold-state"),
+      connections = this.network!.accepted;
+    cpSync(this.env.XDG_STATE_HOME!, state, { recursive: true });
     this.network!.latency_ms = 800;
-    const result = await run([EXE, "list", "--all-machines"], { env: this.env, timeout: 40000 });
+    const result = await run([EXE, "list", "--all-machines"], {
+      env: { ...this.env, XDG_STATE_HOME: state },
+      timeout: 40000,
+    });
+    this.assertEqual(this.network!.accepted, connections + 1);
     const remote = JSON.parse(result.stdout).machines.find(
       (machine: { machine: string }) => machine.machine === "work",
     );
@@ -275,6 +282,12 @@ class Remote extends Runtime {
       async () => (await this.remote!.command("pane.read", { target: 1 })).text.includes(marker),
       5,
     );
+  }
+  async withholdReply() {
+    this.network!.set("replies");
+    // Produce a frame instead of waiting for an idle heartbeat to arrive.
+    await this.remote!.command("pane.input", { target: 1, data: "\r" });
+    await this.until(() => this.network!.withheld > 0);
   }
   click(x: number, y: number) {
     this.terminal!.write(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
@@ -1154,8 +1167,7 @@ process.stdin.on("data", chunk => {
     await this.sendRemote("BEFORE_HICCUP");
     await this.until(() => this.text().includes("BEFORE_HICCUP"));
     const connections = this.network!.accepted;
-    this.network!.set("replies");
-    await this.until(() => this.network!.withheld > 0, 1);
+    await this.withholdReply();
     this.terminal!.write("SENT_WITH_REPLY_BLOCKED\r");
     // Input no longer waits for the outstanding screen/command response.
     await this.remote!.until(async () =>
@@ -1251,8 +1263,7 @@ process.stdin.on("data", chunk => {
     await this.online();
     await this.sendRemote("BEFORE_CUT");
     const connections = this.network!.accepted;
-    this.network!.set("replies");
-    await this.until(() => this.network!.withheld > 0, 1);
+    await this.withholdReply();
     this.terminal!.write("ONCE_ACROSS_THE_CUT\r");
     // The daemon has the input and ran it; only its reply is held back.
     await this.remote!.until(async () =>
@@ -1415,9 +1426,11 @@ process.stdin.on("data", chunk => {
     await this.startViewer();
     await this.online();
     await this.sendRemote("OLD_DAEMON_FRAME");
+    await this.until(() => this.text().includes("OLD_DAEMON_FRAME"));
     const instance = (await this.remote!.rpc({ op: "hello", protocol: 1 })).instance;
     this.network!.set("blackhole");
-    await this.until(() => this.text().includes("Connection stalled"), 6);
+    // Restart isolation also holds when startup has raised the adaptive stall budget to 30 s.
+    await this.until(() => this.text().includes("Connection stalled"), 35);
     this.terminal!.write("OLD_DAEMON_INPUT\r");
     await this.remote!.run_cli("shutdown");
     await this.remote!.until(() => !existsSync(this.remote!.path));
