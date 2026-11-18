@@ -1,5 +1,5 @@
 import { processPath } from "../src/os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, rmSync, copyFileSync } from "node:fs";
 import { Runtime, EXE, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
@@ -255,16 +255,22 @@ else if (args[0] === 'api') {
   }
   async test_mise_after_exec_is_reported_and_can_be_killed() {
     // A real executable named mise remains in the pane, as an installing shim does.
-    const mise = join(this.temp.name, "mise");
-    copyFileSync("/bin/sleep", mise);
-    const command = `/bin/bash -c ${quote(`exec -a pi ${quote(mise)} 60`)}`;
+    const mise = join(this.temp.name, "mise"),
+      ready = join(this.temp.name, "mise.pid");
+    // macOS sh re-execs another shell; bash keeps the copied executable's identity.
+    copyFileSync("/bin/bash", mise);
+    const idle = `printf '%s' "$$" > ${quote(ready)}; read -r line`,
+      command = `/bin/bash -c ${quote(`exec -a pi ${quote(mise)} -c ${quote(idle)}`)}`;
     const { pane } = await this.command("pane.create", { workspace: 1, command });
+    const pid = await this.until(async () => (existsSync(ready) ? Number(await Bun.file(ready).text()) : 0));
+    this.assertEqual(basename(processPath(pid) ?? ""), "mise");
     await this.until(async () => (await this.session()).startup_waits?.some((w: any) => w.pane === pane));
     const wait = (await this.session()).startup_waits.find((w: any) => w.pane === pane);
     this.assertEqual(wait.phase, "agent");
     this.assertEqual(wait.provider, "pi");
     await this.rpc({ op: "startup.kill", id: wait.id });
     await this.until(async () => !(await this.session()).startup_waits.some((w: any) => w.id === wait.id));
+    await this.until(() => processPath(pid) === null);
   }
   async test_manager_keeps_configured_opencode_visible_without_account_creation() {
     writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
