@@ -1,24 +1,16 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Terminal } from "../pane/terminal";
 import { Writer } from "../text";
 import * as panel from "./panel";
+import { runGit } from "../fixtures/git";
+import { text } from "../fixtures/screen";
 import * as i18n from "../i18n";
 
 let root = "";
-const run = (...args: string[]) =>
-  execFileSync("git", ["-C", root, ...args], {
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: "t",
-      GIT_AUTHOR_EMAIL: "t@t",
-      GIT_COMMITTER_NAME: "t",
-      GIT_COMMITTER_EMAIL: "t@t",
-    },
-  }).toString();
+const run = (...args: string[]) => runGit(root, ...args);
 const write = (path: string, text: string) => writeFileSync(join(root, path), text);
 const lines = (n: number, f: (i: number) => string) => Array.from({ length: n }, (_, i) => f(i)).join("\n") + "\n";
 
@@ -47,15 +39,9 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 /** The panel as a terminal shows it, row by row. */
 function screen(p: panel.Panel, width = 70, height = 34): string[] {
-  const w = new Writer(),
-    terminal = new Terminal(width, height);
-  try {
-    p.draw(w, 0, 0, width, height, true);
-    terminal.feed(w.buffered());
-    return terminal.text().split("\n");
-  } finally {
-    terminal.destroy();
-  }
+  const w = new Writer();
+  p.draw(w, 0, 0, width, height, true);
+  return text(w.buffered(), width, height).split("\n");
 }
 const settle = async (p: panel.Panel) => {
   // A refresh already in flight queues another; wait for that one too.
@@ -714,19 +700,13 @@ test("the note box edits like a text box: words, lines, selection and paste", as
 
 /** The ghost as a terminal shows it, row by row. */
 function ghostScreen(p: panel.Panel, width = 70, height = 34): string[] {
-  const w = new Writer(),
-    terminal = new Terminal(width, height);
-  try {
-    p.drawGhost(w, 0, 0, width, height);
-    terminal.feed(w.buffered());
-    return terminal.text().split("\n");
-  } finally {
-    terminal.destroy();
-  }
+  const w = new Writer();
+  p.drawGhost(w, 0, 0, width, height);
+  return text(w.buffered(), width, height).split("\n");
 }
 test("a ghost shows another scope dimmed and leaves the followed review alone", async () => {
   const p = new panel.Panel();
-  const hash = run("rev-parse", "--short", "HEAD").trim();
+  const hash = run("rev-parse", "--short", "HEAD");
   // Closed, a ghost still reads and draws its checkout.
   p.preview({ cwd: root, name: "w", scope: "commits", pick: hash });
   await settle(p);
@@ -758,7 +738,7 @@ test("wide source wraps and scrolls in cells without writing into the pane besid
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-review-wide-")));
   const p = new panel.Panel();
   try {
-    execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+    runGit(dir, "init", "-q", "-b", "main");
     writeFileSync(
       join(dir, "wide.ts"),
       [

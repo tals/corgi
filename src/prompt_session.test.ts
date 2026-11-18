@@ -1,46 +1,28 @@
 import { expect, test } from "bun:test";
 import * as errors from "./errors";
-import { Conversation, clean, fast_ms, shownLine, slow_ms, type Daemon, type Start } from "./prompt_session";
+import { Conversation, clean, fast_ms, shownLine, slow_ms, type Start } from "./prompt_session";
+import { HeadlessDaemon } from "./fixtures/headless_daemon";
 
-/** A daemon that keeps one session's journal and records what it was asked. */
-class Fake implements Daemon {
-  calls: { op: string; payload: any }[] = [];
-  starts: any[] = [];
-  journal: { seq: number; event: unknown }[] = [];
-  pending: unknown[] = [];
+/** A daemon whose sessions start as s1, which also says where their transcript is and the journal's extent,
+ * can fail its reads, and refuses a second answer to a request. */
+class Fake extends HeadlessDaemon {
   transcript = "";
-  /** The next reply to `start`, or a session named s1. */
-  starting: Promise<{ provider: any; session: string }> | null = null;
   /** Fails every events call with this name. */
   failing: string | null = null;
   /** Requests already answered, which the daemon refuses to answer again. */
   answered = new Set<string>();
+  constructor() {
+    super("s1");
+  }
   async call(op: string, payload: any) {
-    this.calls.push({ op, payload });
+    const reply = super.call(op, payload);
     if (op === "headless.send" && payload.input.kind === "answer") {
       if (this.answered.has(payload.input.request)) throw Error("NoRequest");
       this.answered.add(payload.input.request);
     }
-    if (op !== "headless.events") return { ok: true };
+    if (op !== "headless.events") return reply;
     if (this.failing) throw Error(this.failing);
-    return {
-      ok: true,
-      transcript: this.transcript,
-      events: this.journal.filter(e => BigInt(e.seq) > BigInt(payload.after)),
-      pending_requests: this.pending,
-      next_seq: this.journal.length + 1,
-      first_seq: 1,
-    };
-  }
-  start(payload: any) {
-    this.starts.push(payload);
-    return this.starting ?? Promise.resolve({ provider: payload.provider, session: "s1" });
-  }
-  add(...events: unknown[]) {
-    for (const event of events) this.journal.push({ seq: this.journal.length + 1, event });
-  }
-  sent() {
-    return this.calls.filter(c => c.op === "headless.send").map(c => c.payload.input);
+    return { ...(await reply), transcript: this.transcript, next_seq: this.journal.length + 1, first_seq: 1 };
   }
 }
 const start = (over: Partial<Start> = {}): Start => ({

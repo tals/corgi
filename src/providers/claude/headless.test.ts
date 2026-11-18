@@ -3,25 +3,11 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Claude, sessionArgs } from "./headless";
-import type { Stdio } from "../stdio";
+import { stdio } from "../../fixtures/stdio";
 import type { Host } from "../adapter";
 /** A Claude client reading `lines` as its output, recording what it writes. */
 function client(lines: unknown[], summary: { schema: boolean } | null = null) {
-  const written: unknown[] = [];
-  const io = {
-    exited: false,
-    pid: -1,
-    read: () => lines.splice(0),
-    write: (value: unknown) => written.push(value),
-    reply: (value: unknown) => {
-      written.push(value);
-      return true;
-    },
-    wait: async () => {},
-    close() {},
-    adopt() {},
-    save: () => ({ state: {}, handles: [] }),
-  } as unknown as Stdio;
+  const { io, written } = stdio(lines);
   return { claude: new Claude(io, summary, !summary), written };
 }
 const usage = { input_tokens: 10, cache_read_input_tokens: 30, cache_creation_input_tokens: 20, output_tokens: 5 };

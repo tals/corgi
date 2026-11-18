@@ -4,7 +4,7 @@ import { Rect } from "./layout";
 import { place, draw, linkAt, styles } from "./paste_card";
 import { State, download_url } from "./host_clipboard";
 import * as i18n from "./i18n";
-import { Terminal } from "./pane/terminal";
+import * as screen from "./fixtures/screen";
 import { displayWidth } from "./text";
 
 function sample() {
@@ -91,42 +91,36 @@ test("translated clipboard hints wrap in split panes and keep their links clicka
         const notice = sample(),
           at = place(notice, new Rect(2, 0, width, 26), { x: 5, y: 24 });
         expect(at).not.toBeNull();
-        const terminal = new Terminal(90, 26);
-        try {
-          terminal.feed(draw(notice, at!, false));
-          const lines = terminal.text().split("\n"),
-            card = lines.slice(at!.y, at!.y + at!.h),
-            prose = card
-              .slice(1, -1)
-              .map(line => line.trim().slice(1, -1).trim())
-              .join("");
-          expect(prose.replace(/\s/g, "")).toContain(notice.body.text().replace(/\s/g, ""));
-          const fix = notice
-            .fix()
-            .map(part => part.text.text())
+        const lines = screen.lines(draw(notice, at!, false), 90, 26),
+          card = lines.slice(at!.y, at!.y + at!.h),
+          prose = card
+            .slice(1, -1)
+            .map(line => line.trim().slice(1, -1).trim())
             .join("");
-          expect(prose.replace(/\s/g, "")).toContain(fix.replace(/\s/g, ""));
-          expect(card[0]).toContain("esc");
-          for (const line of card) expect(displayWidth(line.trimEnd())).toBe(at!.x + at!.w);
-          let linkedCells = 0,
-            linkedText = "";
-          for (let y = at!.y + 1; y < at!.y + at!.h - 1; y++) {
-            let x = 0;
-            for (const char of lines[y]) {
-              if (linkAt(notice, at!, x, y)) {
-                expect(char).not.toBe("│");
-                linkedCells++;
-                linkedText += char;
-              }
-              x += displayWidth(char);
+        expect(prose.replace(/\s/g, "")).toContain(notice.body.text().replace(/\s/g, ""));
+        const fix = notice
+          .fix()
+          .map(part => part.text.text())
+          .join("");
+        expect(prose.replace(/\s/g, "")).toContain(fix.replace(/\s/g, ""));
+        expect(card[0]).toContain("esc");
+        for (const line of card) expect(displayWidth(line.trimEnd())).toBe(at!.x + at!.w);
+        let linkedCells = 0,
+          linkedText = "";
+        for (let y = at!.y + 1; y < at!.y + at!.h - 1; y++) {
+          let x = 0;
+          for (const char of lines[y]) {
+            if (linkAt(notice, at!, x, y)) {
+              expect(char).not.toBe("│");
+              linkedCells++;
+              linkedText += char;
             }
+            x += displayWidth(char);
           }
-          expect(linkedCells).toBeGreaterThanOrEqual(displayWidth("Ghostty 1.4"));
-          expect(linkedText.replace(/\s/g, "")).toContain("Ghostty1.4");
-          expect(linkAt(notice, at!, at!.x + at!.w - 1, at!.y + 4)).toBe(false);
-        } finally {
-          terminal.destroy();
         }
+        expect(linkedCells).toBeGreaterThanOrEqual(displayWidth("Ghostty 1.4"));
+        expect(linkedText.replace(/\s/g, "")).toContain("Ghostty1.4");
+        expect(linkAt(notice, at!, at!.x + at!.w - 1, at!.y + 4)).toBe(false);
       }
     }
   } finally {

@@ -12,17 +12,17 @@ import * as visibility from "./launch/visibility";
 import { catalog } from "./launcher_config";
 import { Runtime } from "./runtime";
 import { byProvider, type Provider } from "./providers";
+import { scopedEnv } from "./fixtures/env";
 
-const base = process.env.CORGI_ENV_BASE;
-let state = "";
+let state = "",
+  env: Disposable;
 beforeEach(() => {
   state = mkdtempSync(join(tmpdir(), "corgi-launcher-config-"));
-  process.env.CORGI_ENV_BASE = state;
+  env = scopedEnv({ CORGI_ENV_BASE: state });
   accounts.reset();
 });
 afterEach(() => {
-  if (base === undefined) delete process.env.CORGI_ENV_BASE;
-  else process.env.CORGI_ENV_BASE = base;
+  env[Symbol.dispose]();
   accounts.reset();
   rmSync(state, { recursive: true, force: true });
 });

@@ -3,12 +3,7 @@ import * as moonlander from "./moonlander";
 import * as hull from "./hull";
 import * as scene from "./scene";
 import * as animation from "../corgi_animation";
-
-function create() {
-  const engine = moonlander.create({ size: () => ({ cols: 72, rows: 40 }), aspect: 2.2, random: () => 0.5 });
-  engine.launch(1);
-  return engine;
-}
+import { flight, mesa, over, seeded } from "../fixtures/moonlander";
 
 function hud(engine: moonlander.Engine) {
   const screen = scene.render(engine);
@@ -19,9 +14,9 @@ const flameDots = (engine: moonlander.Engine) =>
   hud(engine).reduce((n, cell) => n + cell.dots.toString(2).replaceAll("0", "").length, 0);
 
 test("the success card builds upward in 400ms after the bone, with sky background and matching occlusion", () => {
-  const engine = create(),
+  const engine = flight(),
     pad = engine.world.pads[0];
-  Object.assign(engine.lander!, { x: (pad.x0 + pad.x1) / 2, y: pad.y - 10 * engine.world.K - 0.1, vx: 0, vy: 2 });
+  over(engine, pad);
   engine.tick(moonlander.STEP);
   for (let i = 0; i < 30 / moonlander.STEP && !engine.settled(); i++) engine.tick(moonlander.STEP);
   expect(engine.settled()).toBe(true);
@@ -80,7 +75,7 @@ test("the success card builds upward in 400ms after the bone, with sky backgroun
 });
 
 test("the camera pans foreground graphics while the HUD and controls stay fixed", () => {
-  const engine = create(),
+  const engine = flight(),
     R = 4 * engine.world.K,
     L = engine.lander!;
   engine.world.stars = [{ dx: 4, dy: 48, color: "faint" }];
@@ -112,7 +107,7 @@ test("the camera pans foreground graphics while the HUD and controls stay fixed"
 });
 
 test("the stars, twinkles and crescent pan together and wrap at high altitudes", () => {
-  const engine = create(),
+  const engine = flight(),
     { world: w } = engine,
     R = 4 * w.K;
   w.stars = [
@@ -146,7 +141,7 @@ test("the stars, twinkles and crescent pan together and wrap at high altitudes",
 });
 
 test("the fuel flame reverses smoothly through rapid thrust toggles in the flight simulation", () => {
-  const engine = create(),
+  const engine = flight(),
     lander = engine.lander!;
   const run = (steps: number, burning: boolean) => {
     const before = lander.flame;
@@ -184,8 +179,8 @@ test("the fuel flame reverses smoothly through rapid thrust toggles in the fligh
 });
 
 test("fuel flame timing is independent of rendering cadence and renders do not advance it", () => {
-  const slow = create(),
-    fast = create();
+  const slow = flight(),
+    fast = flight();
   for (const steps of [8, 4, 4, 4, 32, 64]) {
     slow.press("thrust");
     fast.press("thrust");
@@ -206,7 +201,7 @@ test("fuel flame timing is independent of rendering cadence and renders do not a
 });
 
 test("the flame grows directly from a solid heated cap, including half-filled edge cells", () => {
-  const engine = create();
+  const engine = flight();
   engine.lander!.fuel = 420;
   engine.press("thrust");
   for (let i = 0; i < 4; i++) engine.tick(moonlander.STEP);
@@ -220,7 +215,7 @@ test("the flame grows directly from a solid heated cap, including half-filled ed
 });
 
 test("fuel flame fades after fuel exhaustion and resets on restart", () => {
-  const engine = create();
+  const engine = flight();
   engine.press("thrust");
   for (let i = 0; i < 8; i++) engine.tick(0.1);
   const flame = engine.lander!.flame;
@@ -242,7 +237,7 @@ test("fuel flame fades after fuel exhaustion and resets on restart", () => {
 });
 
 test("a braille hull of any style moves as one piece, a whole dot at a time", () => {
-  const engine = create(),
+  const engine = flight(),
     K = engine.world.K;
   Object.assign(engine.world, { stars: [], twinkles: [], earth: { x: 0, y: 0, r: 0 } });
   let style: hull.Braille = "fixed";
@@ -283,7 +278,7 @@ test("a braille hull of any style moves as one piece, a whole dot at a time", ()
 });
 
 test("as the camera pans, a pad slides with the ground's dots and its label blurs across rows", () => {
-  const engine = create(),
+  const engine = flight(),
     R = 4 * engine.world.K,
     L = engine.lander!,
     lines = ["▔", ...Array.from({ length: 6 }, (_, i) => String.fromCodePoint(0x1fb76 + i)), "▁"];
@@ -344,18 +339,9 @@ test("facing left, a pose is the sidebar's corgi mirrored", () => {
 });
 
 test("the bone shows as it is dug clear and goes from the corgi's side as it chews", () => {
-  let seed = 7919;
-  const engine = moonlander.create({
-    size: () => ({ cols: 100, rows: 40 }),
-    aspect: 2.2,
-    random: () => {
-      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      return seed / 4294967296;
-    },
-  });
+  const engine = moonlander.create({ size: () => ({ cols: 100, rows: 40 }), aspect: 2.2, random: seeded(7919) });
   engine.launch(1);
-  const pad = engine.world.pads[0];
-  Object.assign(engine.lander!, { x: (pad.x0 + pad.x1) / 2, y: pad.y - 10 * engine.world.K - 0.1, vx: 0, vy: 2, a: 0 });
+  over(engine);
   const seen: string[] = [];
   for (let i = 0; i < 20 / moonlander.STEP; i++) {
     engine.tick(moonlander.STEP);
@@ -374,21 +360,6 @@ test("the bone shows as it is dug clear and goes from the corgi's side as it che
   expect(seen).toContain("ε=з");
   expect(chewed.slice(1)).toEqual(engine.corgi!.facing > 0 ? [" =з", "  з", "   "] : ["ε= ", "ε  ", "   "]);
 });
-
-/** Pads on mesas over a chasm too deep to climb out of. */
-function mesa() {
-  const engine = moonlander.create({ size: () => ({ cols: 100, rows: 40 }), aspect: 2.2, random: () => 0.5 });
-  engine.launch(1);
-  const { world } = engine,
-    pad = world.pads.reduce((a, b) => (b.x1 - b.x0 > a.x1 - a.x0 ? b : a));
-  for (const p of world.pads) {
-    p.y = world.H * 0.5;
-    for (let i = p.x0; i <= p.x1; i++) world.g[i] = p.y;
-  }
-  for (let i = 0; i <= world.W; i++) if (!world.pads.some(p => i >= p.x0 && i <= p.x1)) world.g[i] = world.H - world.K;
-  Object.assign(engine.lander!, { x: (pad.x0 + pad.x1) / 2, y: pad.y - 10 * world.K - 0.1, vx: 0, vy: 2, a: 0 });
-  return { engine, pad };
-}
 
 test("over the ship come the dirt the corgi dug, then the corgi, cut out of the hull's image", () => {
   // On a mesa over a chasm, the corgi digs into its pad's end beside the ship.

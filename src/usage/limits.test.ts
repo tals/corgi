@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { State, cells as cells_count, update } from "./limits";
 import { Info, Text, Window } from "./account";
 import type { Reading } from "./spend";
+import { scopedEnv } from "../fixtures/env";
 test("a new reset starts a new spark while drift within a slot does not", () => {
   const state = new State(),
     week = new Window({ minutes: 10080, used: 30, reset_at: 10080 * 60 });
@@ -93,9 +94,8 @@ test("last month's cells are marked and keep its running spend", () => {
   expect(state.spend.at(-1)).toEqual([139, 100 * day, 209]);
 });
 test("histories move from an email's file to the login's, eleven cells to fourteen", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "corgi-limits-")),
-    prior = process.env.XDG_STATE_HOME;
-  process.env.XDG_STATE_HOME = dir;
+  const dir = mkdtempSync(join(tmpdir(), "corgi-limits-"));
+  using env = scopedEnv({ XDG_STATE_HOME: dir });
   try {
     const folder = join(dir, "corgi", "limit-history"),
       file = (key: string) => join(folder, `claude-${createHash("sha256").update(key).digest("hex")}.json`);
@@ -110,8 +110,6 @@ test("histories move from an email's file to the login's, eleven cells to fourte
     expect(sparks[1]).toEqual([12, 1, 2, 3, null, 4, 5, 6, 7, null, 8, 9, 10, 11]);
     expect(existsSync(file("login:user/org"))).toBe(true);
   } finally {
-    if (prior === undefined) delete process.env.XDG_STATE_HOME;
-    else process.env.XDG_STATE_HOME = prior;
     rmSync(dir, { recursive: true, force: true });
   }
 });

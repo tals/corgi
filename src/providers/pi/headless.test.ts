@@ -3,17 +3,9 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pi, sessionArgs, summaryArgs, toolName } from "./headless";
-import type { Stdio } from "../stdio";
+import { stdio } from "../../fixtures/stdio";
 function client() {
-  const lines: unknown[] = [],
-    written: unknown[] = [];
-  const io = {
-    exited: false,
-    pid: -1,
-    read: () => lines.splice(0),
-    write: (v: unknown) => written.push(v),
-    save: () => ({ state: {}, handles: [] }),
-  } as unknown as Stdio;
+  const { io, lines, written } = stdio();
   const c = new Pi(io, "/tmp");
   lines.push({ type: "response", id: "corgi-state", success: true, data: { sessionId: "s" } });
   c.take();

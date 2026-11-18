@@ -9,7 +9,7 @@ import { View, workspaceEntry, worktreeAt, worktreeLabel, worktreeBadge, writeEx
 import { bgRgb, colors, fg, fgRgb } from "./palette";
 import * as launcherResume from "./launcher_resume";
 import { Writer, ellipsis } from "./text";
-import { Terminal } from "./pane/terminal";
+import * as screen from "./fixtures/screen";
 import { parseInventory } from "./trackers/worktrees";
 import * as clock from "./clock";
 import * as i18n from "./i18n";
@@ -56,21 +56,15 @@ test("the count and table hide dead worktrees but retain locked and temporarily 
   const ws = workspaceEntry({ id: 1, name: "repo", cwd: "/repo", active: true, worktrees: data });
   expect(worktreeLabel(ws)).toBe("4 worktrees");
   const state = new State(),
-    w = new Writer(),
-    terminal = new Terminal(100, 30);
+    w = new Writer();
   state.selected = data.entries[1].path;
-  try {
-    draw(w, geometry(100, 30, 28, 3, 4)!, "repo", "/repo", data, state);
-    terminal.feed(w.buffered());
-    const text = terminal.text();
-    expect(text).toContain("4 worktrees");
-    expect(text).not.toContain("topic-0");
-    expect(text).not.toContain("topic-1");
-    for (const label of ["topic-2", "topic-3", "topic-4", "topic-5"]) expect(text).toContain(label);
-    expect(data.entries).toHaveLength(7);
-  } finally {
-    terminal.destroy();
-  }
+  draw(w, geometry(100, 30, 28, 3, 4)!, "repo", "/repo", data, state);
+  const text = screen.text(w.buffered(), 100, 30);
+  expect(text).toContain("4 worktrees");
+  expect(text).not.toContain("topic-0");
+  expect(text).not.toContain("topic-1");
+  for (const label of ["topic-2", "topic-3", "topic-4", "topic-5"]) expect(text).toContain(label);
+  expect(data.entries).toHaveLength(7);
 });
 test("a locked worktree with a long name gives up room for its lock", () => {
   const data = parseInventory(
@@ -78,16 +72,10 @@ test("a locked worktree with a long name gives up room for its lock", () => {
         "worktree /repo/.worktrees/long\0branch refs/heads/worktree-a-very-long-branch-name-for-locks\0\0",
     ),
     state = new State(),
-    w = new Writer(),
-    terminal = new Terminal(100, 30);
+    w = new Writer();
   data[1].locked = "on a USB disk";
-  try {
-    draw(w, geometry(100, 30, 28, 3, 1)!, "repo", "/repo", { ...snapshot(0), entries: data }, state);
-    terminal.feed(w.buffered());
-    expect(terminal.text()).toContain("› worktree-a-ver…  locked  0");
-  } finally {
-    terminal.destroy();
-  }
+  draw(w, geometry(100, 30, 28, 3, 1)!, "repo", "/repo", { ...snapshot(0), entries: data }, state);
+  expect(screen.text(w.buffered(), 100, 30)).toContain("› worktree-a-ver…  locked  0");
 });
 test("rows show agents at work, the comparison, age, last edit and line counts", () => {
   const data = snapshot(2),
@@ -107,28 +95,22 @@ test("rows show agents at work, the comparison, age, last edit and line counts",
   });
   const state = new State();
   state.agents = new Map([[topic.path, { agents: 4, working: 1, attention: 1 }]]);
-  const w = new Writer(),
-    terminal = new Terminal(140, 30);
-  try {
-    draw(w, geometry(140, 30, 28, 3, 2)!, "repo", "/repo", data, state, null, now);
-    terminal.feed(w.buffered());
-    const text = terminal.text();
-    for (const header of ["AGENTS", "VS MAIN", "AGE", "EDITED", "UNCOMMITTED CHANGES"]) expect(text).toContain(header);
-    const row = (label: string) => text.split("\n").find(l => l.includes(label));
-    expect(row("topic-0")).toMatch(/1▶ 1● 2○ +↑6 ↓12 +3d +12m ago +3 files {2}\+142 −38/);
-    expect(row("topic-1")).toMatch(/0 +↑0 ↓5 +— +— +Clean/);
-    // Working agents as the sidebar marks them; lines added and removed as a diff colors them.
-    expect(w.buffered()).toContain(`\x1b[1m${fgRgb(colors.accent)}1▶`);
-    // The selected worktree is filled.
-    expect(w.buffered()).toContain(bgRgb(colors.selected));
-    expect(w.buffered()).toContain(`${fgRgb(colors.accent)}+142`);
-    expect(w.buffered()).toContain(`${fgRgb(colors.hot)}−38`);
-    // Commits main doesn't have are warm.
-    expect(w.buffered()).toContain(`${fgRgb(colors.warm)}↑6`);
-    expect(w.buffered()).not.toContain(`${fgRgb(colors.warm)}↑0`);
-  } finally {
-    terminal.destroy();
-  }
+  const w = new Writer();
+  draw(w, geometry(140, 30, 28, 3, 2)!, "repo", "/repo", data, state, null, now);
+  const text = screen.text(w.buffered(), 140, 30);
+  for (const header of ["AGENTS", "VS MAIN", "AGE", "EDITED", "UNCOMMITTED CHANGES"]) expect(text).toContain(header);
+  const row = (label: string) => text.split("\n").find(l => l.includes(label));
+  expect(row("topic-0")).toMatch(/1▶ 1● 2○ +↑6 ↓12 +3d +12m ago +3 files {2}\+142 −38/);
+  expect(row("topic-1")).toMatch(/0 +↑0 ↓5 +— +— +Clean/);
+  // Working agents as the sidebar marks them; lines added and removed as a diff colors them.
+  expect(w.buffered()).toContain(`\x1b[1m${fgRgb(colors.accent)}1▶`);
+  // The selected worktree is filled.
+  expect(w.buffered()).toContain(bgRgb(colors.selected));
+  expect(w.buffered()).toContain(`${fgRgb(colors.accent)}+142`);
+  expect(w.buffered()).toContain(`${fgRgb(colors.hot)}−38`);
+  // Commits main doesn't have are warm.
+  expect(w.buffered()).toContain(`${fgRgb(colors.warm)}↑6`);
+  expect(w.buffered()).not.toContain(`${fgRgb(colors.warm)}↑0`);
 });
 test("headings sort the rows, the sorted one marked and turned around by a second click", () => {
   const data = snapshot(3),
@@ -142,15 +124,9 @@ test("headings sort the rows, the sorted one marked and turned around by a secon
     x = columnsFor(rect.w).x,
     order = () => state.entries(data).map(worktrees.label),
     heading = () => {
-      const w = new Writer(),
-        terminal = new Terminal(140, 30);
-      try {
-        draw(w, rect, "repo", "/repo", data, state, null, now);
-        terminal.feed(w.buffered());
-        return terminal.text().split("\n")[rect.y + 4];
-      } finally {
-        terminal.destroy();
-      }
+      const w = new Writer();
+      draw(w, rect, "repo", "/repo", data, state, null, now);
+      return screen.lines(w.buffered(), 140, 30)[rect.y + 4];
     };
   // The latest edit first, worktrees without one last.
   expect(order()).toEqual(["topic-0", "topic-2", "topic-1"]);
@@ -215,16 +191,7 @@ test("the overview counts each worktree's agents, and those working, as the side
     view.input_state.attached = true;
     view.worktree_card.workspace = 1;
     view.worktree_card.pinned = true;
-    const terminal = new Terminal(140, 30);
-    try {
-      terminal.feed(view.frame());
-      return terminal
-        .text()
-        .split("\n")
-        .find(l => l.includes("topic-1"))!;
-    } finally {
-      terminal.destroy();
-    }
+    return screen.lines(view.frame(), 140, 30).find(l => l.includes("topic-1"))!;
   };
   expect(row("idle")).toMatch(/\.\/\.worktrees\/1 +1○ +—/);
   expect(row("working")).toMatch(/\.\/\.worktrees\/1 +1▶ +—/);
@@ -249,27 +216,21 @@ test("with briefs on, each worktree's second line holds its brief in the state i
     ].map(b => [b.path, b as Brief]),
   );
   const w = new Writer(),
-    terminal = new Terminal(140, 30),
     rect = geometry(140, 30, 28, 3, 5, 0, state.lines())!;
   expect(rect.h).toBe(8 + 5 * 2);
-  try {
-    draw(w, rect, "repo", "/repo", data, state, null, now);
-    terminal.feed(w.buffered());
-    const lines = terminal.text().split("\n");
-    const under = (label: string) => lines[lines.findIndex(l => l.includes(label)) + 1];
-    expect(under("topic-0")).toContain("╰ Search queries");
-    expect(under("topic-1")).toMatch(/╰ Fuzzy search +│/);
-    expect(under("topic-2")).toContain("...");
-    expect(under("topic-3")).toContain("Brief failed");
-    expect(under("topic-4")).toContain("Nothing beyond main");
-    expect(lines.join("\n")).toContain("hold ⌫ remove · r refresh · Esc close");
-    // The selected row's hit area covers both its lines.
-    state.select(linked[0].path);
-    expect(state.hit(data, rect, rect.x + 4, rect.y + 6)).toBe(linked[0].path);
-    expect(state.hit(data, rect, rect.x + 4, rect.y + 7)).toBe(linked[1].path);
-  } finally {
-    terminal.destroy();
-  }
+  draw(w, rect, "repo", "/repo", data, state, null, now);
+  const lines = screen.lines(w.buffered(), 140, 30);
+  const under = (label: string) => lines[lines.findIndex(l => l.includes(label)) + 1];
+  expect(under("topic-0")).toContain("╰ Search queries");
+  expect(under("topic-1")).toMatch(/╰ Fuzzy search +│/);
+  expect(under("topic-2")).toContain("...");
+  expect(under("topic-3")).toContain("Brief failed");
+  expect(under("topic-4")).toContain("Nothing beyond main");
+  expect(lines.join("\n")).toContain("hold ⌫ remove · r refresh · Esc close");
+  // The selected row's hit area covers both its lines.
+  state.select(linked[0].path);
+  expect(state.hit(data, rect, rect.x + 4, rect.y + 6)).toBe(linked[0].path);
+  expect(state.hit(data, rect, rect.x + 4, rect.y + 7)).toBe(linked[1].path);
 });
 test("r asks the daemon to brief the overview's worktrees again", async () => {
   const requests: any[] = [];
@@ -310,28 +271,22 @@ test("translated worktree columns keep name room and never overwrite their neigh
       for (const width of [52, 60, 80, 100]) {
         const rect = geometry(width + 3, 30, 0, 3, 1)!,
           layout = columnsFor(rect.w);
-        const w = new Writer(),
-          terminal = new Terminal(width + 3, 30);
-        try {
-          draw(w, rect, "repo", "/repo", snapshot(1), new State());
-          terminal.feed(w.buffered());
-          const heading = terminal.text().split("\n")[rect.y + 4];
-          expect(layout.room).toBeGreaterThanOrEqual(24);
-          for (const [name, label] of [
-            ["agents", i18n.t`AGENTS`],
-            ["main", i18n.t`VS MAIN`],
-            ["age", i18n.t`AGE`],
-            ["edited", i18n.t`EDITED`],
-            ["changes", i18n.t`UNCOMMITTED CHANGES`],
-          ] as const) {
-            if (layout.x[name] === undefined) continue;
-            expect(heading).toContain(ellipsis(label, layout.widths[name]! - Number(name !== "changes")));
-            expect(sortAt(rect, rect.x + layout.x[name]!, rect.y + 4)).toBe(name);
-          }
-          expect(heading.trimEnd().endsWith("│")).toBe(true);
-        } finally {
-          terminal.destroy();
+        const w = new Writer();
+        draw(w, rect, "repo", "/repo", snapshot(1), new State());
+        const heading = screen.lines(w.buffered(), width + 3, 30)[rect.y + 4];
+        expect(layout.room).toBeGreaterThanOrEqual(24);
+        for (const [name, label] of [
+          ["agents", i18n.t`AGENTS`],
+          ["main", i18n.t`VS MAIN`],
+          ["age", i18n.t`AGE`],
+          ["edited", i18n.t`EDITED`],
+          ["changes", i18n.t`UNCOMMITTED CHANGES`],
+        ] as const) {
+          if (layout.x[name] === undefined) continue;
+          expect(heading).toContain(ellipsis(label, layout.widths[name]! - Number(name !== "changes")));
+          expect(sortAt(rect, rect.x + layout.x[name]!, rect.y + 4)).toBe(name);
         }
+        expect(heading.trimEnd().endsWith("│")).toBe(true);
       }
     }
   } finally {
@@ -346,15 +301,9 @@ test("animated and settled worktree briefs preserve wide glyphs and combining ma
       entry = data.entries[1];
     entry.comparison = { ahead: 1n, behind: 0n };
     state.briefs = new Map([[entry.path, { path: entry.path, label: "Cafe\u0301 中文 か\u3099完了", phase }]]);
-    const w = new Writer(),
-      terminal = new Terminal(140, 30);
-    try {
-      draw(w, geometry(140, 30, 28, 3, 1, 0, 2)!, "repo", "/repo", data, state);
-      terminal.feed(w.buffered());
-      expect(terminal.text().normalize("NFC")).toContain("╰ Café 中文 が完了");
-    } finally {
-      terminal.destroy();
-    }
+    const w = new Writer();
+    draw(w, geometry(140, 30, 28, 3, 1, 0, 2)!, "repo", "/repo", data, state);
+    expect(screen.text(w.buffered(), 140, 30).normalize("NFC")).toContain("╰ Café 中文 が完了");
   }
 });
 test("paths read from the main checkout, a temporary directory or home", () => {
@@ -374,34 +323,20 @@ test("the table renders unknown values distinctly and retains selection by check
   data.entries[1].changes = { total: 0, staged: 0, modified: 0, untracked: 0, conflicted: 0, added: 0, removed: 0 };
   const w = new Writer();
   draw(w, rect, "repo", "/repo", data, state);
-  const terminal = new Terminal(100, 30);
-  try {
-    terminal.feed(w.buffered());
-    const text = terminal.text();
-    for (const label of [
-      "20 worktrees",
-      "AGENTS",
-      "EDITED",
-      "UNCOMMITTED CHANGES",
-      "Clean",
-      "Missing",
-      "./.worktrees/0",
-    ])
-      expect(text).toContain(label);
-    expect(text).not.toContain("merged");
-    expect(text).not.toContain("Summary");
-    expect(text).not.toContain("staged");
-    expect(text).not.toContain("/repo/.worktrees/");
-    state.move(data, 15);
-    expect(state.hit(data, rect, rect.x + 4, rect.y + 5)).toBe(
-      data.entries[state.offset(data.entries.slice(1), rect) + 1].path,
-    );
-    const selected = state.selected;
-    data.entries.splice(2, 1);
-    expect(data.entries.slice(1)[state.index(data.entries.slice(1))].path).toBe(selected!);
-  } finally {
-    terminal.destroy();
-  }
+  const text = screen.text(w.buffered(), 100, 30);
+  for (const label of ["20 worktrees", "AGENTS", "EDITED", "UNCOMMITTED CHANGES", "Clean", "Missing", "./.worktrees/0"])
+    expect(text).toContain(label);
+  expect(text).not.toContain("merged");
+  expect(text).not.toContain("Summary");
+  expect(text).not.toContain("staged");
+  expect(text).not.toContain("/repo/.worktrees/");
+  state.move(data, 15);
+  expect(state.hit(data, rect, rect.x + 4, rect.y + 5)).toBe(
+    data.entries[state.offset(data.entries.slice(1), rect) + 1].path,
+  );
+  const selected = state.selected;
+  data.entries.splice(2, 1);
+  expect(data.entries.slice(1)[state.index(data.entries.slice(1))].path).toBe(selected!);
   expect(geometry(50, 30, 28, 3, 4)).toBeNull();
   expect(geometry(100, 11, 28, 3, 4)).toBeNull();
 });
@@ -452,32 +387,24 @@ async function removing() {
     });
   report(snapshot(2), null);
   await view.perform({ name: "worktrees", value: 1 });
-  const screen = () => {
-    const terminal = new Terminal(100, 30);
-    try {
-      terminal.feed(view.frame());
-      return terminal.text();
-    } finally {
-      terminal.destroy();
-    }
-  };
+  const shown = () => screen.text(view.frame(), 100, 30);
   /** Holds ⌫ until the hold completes, as key repeat would. */
   const hold = async () => {
     await (view as any).key(127);
     clock.advance(300);
     for (let i = 0; i < 60 && view.worktree_card.removal.phase === "held"; i++) {
       await (view as any).key(127);
-      if (i === 10) expect(screen()).toContain("Removing topic-0 · branch kept");
+      if (i === 10) expect(shown()).toContain("Removing topic-0 · branch kept");
       clock.advance(50);
     }
     await view.tasks.idle();
   };
-  return { view, requests, report, screen, hold };
+  return { view, requests, report, shown, hold };
 }
 test("holding ⌫ removes the selected worktree; the footer says what goes", async () => {
-  const { view, requests, report, screen, hold } = await removing();
+  const { view, requests, report, shown, hold } = await removing();
   try {
-    expect(screen()).toContain("hold ⌫ remove");
+    expect(shown()).toContain("hold ⌫ remove");
     await hold();
     expect(requests.filter(r => r.op === "worktree.remove")).toEqual([
       { op: "worktree.remove", workspace: 1, path: "/repo/.worktrees/0" },
@@ -504,15 +431,15 @@ test("holding ⌫ removes the selected worktree; the footer says what goes", asy
   }
 });
 test("a big worktree shows Git still deleting it once the ending has played, and Esc stops it", async () => {
-  const { view, requests, report, screen, hold } = await removing();
+  const { view, requests, report, shown, hold } = await removing();
   try {
     await hold();
     report(snapshot(2), { id: 7, path: "/repo/.worktrees/0", phase: "deleting", error: "" });
     // During the ending, the row comes apart; after it, Git is still at work.
-    expect(screen()).not.toContain("Deleting...");
+    expect(shown()).not.toContain("Deleting...");
     clock.advance(3000);
     await view.expireInput();
-    const text = screen();
+    const text = shown();
     expect(text).toContain("Deleting...");
     expect(text).toContain("━━━━━━━━");
     expect(text).toContain("Removing topic-0 · Esc stop");
@@ -523,8 +450,8 @@ test("a big worktree shows Git still deleting it once the ending has played, and
     report(snapshot(2), { id: 7, path: "/repo/.worktrees/0", phase: "stopped", error: "" });
     await view.expireInput();
     expect(view.worktree_card.removal.phase).toBe("stopped");
-    expect(screen()).toContain("Stopped removing topic-0 · some of its files may be gone");
-    expect(screen()).toContain("topic-0");
+    expect(shown()).toContain("Stopped removing topic-0 · some of its files may be gone");
+    expect(shown()).toContain("topic-0");
     // Esc again closes it.
     await (view as any).key(27);
     expect(view.worktreeDetail()).toBeNull();
@@ -533,27 +460,27 @@ test("a big worktree shows Git still deleting it once the ending has played, and
   }
 });
 test("holding ⌫ on a locked worktree ends on its band; Esc keeps it and Enter removes it", async () => {
-  const { view, requests, report, screen } = await removing();
+  const { view, requests, report, shown } = await removing();
   const lock = "claude session topic-0 (pid 20579 start Sat Oct 31 20:02:56 2026)";
   try {
     const data = snapshot(2);
     data.entries[1].locked = lock;
     data.entries[1].holder = "exited";
     report(data, null);
-    expect(screen()).toContain("› topic-0  locked  ./…/0");
+    expect(shown()).toContain("› topic-0  locked  ./…/0");
     const hold = async () => {
       await (view as any).key(127);
       clock.advance(300);
       for (let i = 0; i < 60 && view.worktree_card.removal.phase === "held"; i++) {
         await (view as any).key(127);
-        if (i === 10) expect(screen()).toContain("Removing topic-0 · locked · branch kept");
+        if (i === 10) expect(shown()).toContain("Removing topic-0 · locked · branch kept");
         clock.advance(50);
       }
     };
     await hold();
     expect(view.worktree_card.removal.phase).toBe("confirm");
     clock.advance(1000);
-    const text = screen();
+    const text = shown();
     expect(text).toContain("› topic-0  locked");
     expect(text).toMatch(/▎  LOCKED .* Enter  remove/);
     expect(text).toContain("▎  claude session topic-0 · exited");
@@ -565,8 +492,8 @@ test("holding ⌫ on a locked worktree ends on its band; Esc keeps it and Enter 
     clock.advance(1000);
     await view.expireInput();
     expect(view.worktree_card.removal.phase).toBe("idle");
-    expect(screen()).toContain("› topic-0  locked");
-    expect(screen()).not.toContain("LOCKED");
+    expect(shown()).toContain("› topic-0  locked");
+    expect(shown()).not.toContain("LOCKED");
     // A lock that changed while its band showed isn't the one Enter confirms.
     await hold();
     const relocked = snapshot(2);
@@ -575,7 +502,7 @@ test("holding ⌫ on a locked worktree ends on its band; Esc keeps it and Enter 
     await (view as any).key(13);
     expect(requests.some(r => r.op === "worktree.remove")).toBe(false);
     expect(view.worktree_card.removal.phase).toBe("failed");
-    expect(screen()).toContain("Couldn't remove topic-0 · its lock changed");
+    expect(shown()).toContain("Couldn't remove topic-0 · its lock changed");
     report(data, null);
     clock.advance(worktreeRemoval.message_ms + 100);
     await view.expireInput();
@@ -607,15 +534,9 @@ test("after a removal the cursor stays on its line while the row below moves up 
   const frame = (at: number) => {
     const shown = listing(after, state, at),
       rect = geometry(100, 30, 28, 3, shown.entries.length, shown.closed)!,
-      w = new Writer(),
-      terminal = new Terminal(100, 30);
-    try {
-      draw(w, rect, "repo", "/repo", after, state, null, at);
-      terminal.feed(w.buffered());
-      return { lines: terminal.text().split("\n"), row: rect.y + 6, h: rect.h };
-    } finally {
-      terminal.destroy();
-    }
+      w = new Writer();
+    draw(w, rect, "repo", "/repo", after, state, null, at);
+    return { lines: screen.lines(w.buffered(), 100, 30), row: rect.y + 6, h: rect.h };
   };
   // While the ending plays, no row has the cursor; the row before has its own.
   const playing = frame(end - 10);
@@ -736,70 +657,58 @@ test("Enter on a worktree with no agent opens the agent picker there", async () 
     panes: [],
   });
   await view.perform({ name: "worktrees", value: 1 });
-  const terminal = new Terminal(100, 30);
-  try {
-    terminal.feed(view.frame());
-    expect(terminal.text()).toContain("Enter new agent");
-  } finally {
-    terminal.destroy();
-  }
+  expect(screen.text(view.frame(), 100, 30)).toContain("Enter new agent");
   await (view as any).key(13);
   expect(view.worktreeDetail()).toBeNull();
   expect(view.agent_launcher?.cwd).toBe("/repo/.worktrees/0");
 });
 test("a ghost previews a worktree's newest conversations as agents; Enter brings them back asleep", async () => {
   const { view, requests } = browsing(),
-    terminal = new Terminal(100, 30),
     path = "/repo/.worktrees/0";
-  try {
-    let entries = (view as any).sidebarEntries();
-    expect(entries[0].worktree.ghost).toBe(true);
-    expect(entries[0].enter).toBe(0);
-    view.worktree_agents.appeared_at -= 300;
-    expect((view as any).sidebarEntries()[0].enter).toBeNull();
-    expect(entries.filter((e: any) => "asleep" in e.target).map((e: any) => e.name)).toEqual([
-      "Recent 0",
-      "Recent 1",
-      "Recent 2",
-    ]);
-    expect(entries.some((e: any) => e.name === "Search agent")).toBe(true);
-    terminal.feed(view.frame());
-    const text = terminal.text();
-    expect(text).toContain("Recent 0");
-    expect(text).not.toContain("Recent 3");
-    expect(text).not.toContain("more");
-    expect(text).toContain("Search agent");
-    expect(text).toContain("╭┄┄┄");
-    expect(text).toContain("Enter resume agents");
-    expect(text).toContain("⌥ topic-0");
-    await view.input(Buffer.from("\r"));
-    await view.tasks.idle();
-    expect(view.worktreeDetail()).toBeNull();
-    expect(requests.filter(r => r.op === "session.command").map(r => r.command)).toEqual(
-      [0, 1, 2].map(i => ({
-        "agent.resume": {
-          workspace: 1,
-          cwd: path,
-          provider: "claude",
-          session: `session-${i}`,
-          asleep: true,
-          name: `Recent ${i}`,
-        },
-      })),
-    );
-    entries = (view as any).sidebarEntries();
-    expect(entries.some((e: any) => e.worktree?.ghost || "asleep" in e.target)).toBe(false);
-    const group = entries.findIndex((e: any) => e.target.checkout === path);
-    expect(entries.slice(group + 1, group + 4).map((e: any) => [e.target, e.name])).toEqual([
-      [{ pane: 2 }, "Recent 0"],
-      [{ pane: 3 }, "Recent 1"],
-      [{ pane: 4 }, "Recent 2"],
-    ]);
-    // They stay asleep: focus stays on the shell.
-    expect(view.focused()?.id).toBe(1);
-  } finally {
-    terminal.destroy();
-  }
+  let entries = (view as any).sidebarEntries();
+  expect(entries[0].worktree.ghost).toBe(true);
+  expect(entries[0].enter).toBe(0);
+  view.worktree_agents.appeared_at -= 300;
+  expect((view as any).sidebarEntries()[0].enter).toBeNull();
+  expect(entries.filter((e: any) => "asleep" in e.target).map((e: any) => e.name)).toEqual([
+    "Recent 0",
+    "Recent 1",
+    "Recent 2",
+  ]);
+  expect(entries.some((e: any) => e.name === "Search agent")).toBe(true);
+  const text = screen.text(view.frame(), 100, 30);
+  expect(text).toContain("Recent 0");
+  expect(text).not.toContain("Recent 3");
+  expect(text).not.toContain("more");
+  expect(text).toContain("Search agent");
+  expect(text).toContain("╭┄┄┄");
+  expect(text).toContain("Enter resume agents");
+  expect(text).toContain("⌥ topic-0");
+  await view.input(Buffer.from("\r"));
+  await view.tasks.idle();
+  expect(view.worktreeDetail()).toBeNull();
+  expect(requests.filter(r => r.op === "session.command").map(r => r.command)).toEqual(
+    [0, 1, 2].map(i => ({
+      "agent.resume": {
+        workspace: 1,
+        cwd: path,
+        provider: "claude",
+        session: `session-${i}`,
+        asleep: true,
+        name: `Recent ${i}`,
+      },
+    })),
+  );
+  entries = (view as any).sidebarEntries();
+  expect(entries.some((e: any) => e.worktree?.ghost || "asleep" in e.target)).toBe(false);
+  const group = entries.findIndex((e: any) => e.target.checkout === path);
+  expect(entries.slice(group + 1, group + 4).map((e: any) => [e.target, e.name])).toEqual([
+    [{ pane: 2 }, "Recent 0"],
+    [{ pane: 3 }, "Recent 1"],
+    [{ pane: 4 }, "Recent 2"],
+  ]);
+  // They stay asleep: focus stays on the shell.
+  expect(view.focused()?.id).toBe(1);
 });
 test("clicking a ghost's agent brings its group back and wakes it; entering a live group focuses its agent", async () => {
   const { view, requests } = browsing();
@@ -1027,12 +936,9 @@ test("a remote machine's overview shows its own workspace, not this computer's w
   view.input_state.attached = true;
   view.worktree_card.workspace = 1;
   view.worktree_card.pinned = true;
-  const terminal = new Terminal(140, 30);
   try {
-    terminal.feed(view.frame());
-    expect(terminal.text()).toContain("topic-1");
+    expect(screen.text(view.frame(), 140, 30)).toContain("topic-1");
   } finally {
-    terminal.destroy();
     view.runtime.destroy();
   }
 });

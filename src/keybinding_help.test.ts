@@ -17,6 +17,16 @@ function screen(s: State, cols = 148, rows = 48): string[] {
     terminal.destroy();
   }
 }
+/** The help's rows as cells: each a character, its color and its background. */
+function cells(s: State, cols = 148, rows = 48) {
+  const terminal = new Terminal(cols, rows);
+  try {
+    terminal.feed(s.frame(cols, rows, "corgi", "ctrl_b", 0));
+    return terminal.surface(0).surface.lines.map(line => terminalCells.row(line, cols));
+  } finally {
+    terminal.destroy();
+  }
+}
 function click(s: State, text: string, cols = 148, rows = 48) {
   const lines = screen(s, cols, rows),
     y = s.edit ? lines.findLastIndex(line => line.includes(text)) : lines.findIndex(line => line.includes(text));
@@ -600,26 +610,19 @@ test("dropdown borders do not activate the controls underneath", () => {
 });
 
 test("editor outlines, fields and buttons share the dialog background", () => {
-  const s = editor(),
-    terminal = new Terminal(148, 48);
-  try {
-    terminal.feed(s.frame(148, 48, "corgi", "ctrl_b", 0));
-    const cells = terminal.surface(0).surface.lines.map(line => terminalCells.row(line, 148));
-    const lines = cells.map(row => row.map(cell => cell[0]).join(""));
-    const top = lines.findIndex(line => line.includes("┌" + "─".repeat(58) + "┐"));
-    const left = lines[top].indexOf("┌");
-    expect(top).toBeGreaterThan(0);
-    for (let y = top; y < top + 21; y++)
-      expect(cells[y].slice(left, left + 60).every(cell => cell[2] === "surface")).toBe(true);
-    const recordY = lines.findLastIndex(line => line.includes("Record Enter"));
-    const recordX = lines[recordY - 1].lastIndexOf("┌");
-    expect(cells[recordY - 1][recordX][1]).toBe("accent");
-    expect(lines.join("\n")).not.toContain("Arrows move");
-    expect(lines.join("\n")).not.toContain("⇧ Shift");
-    expect(lines.join("\n")).not.toContain("Hide alts");
-  } finally {
-    terminal.destroy();
-  }
+  const drawn = cells(editor()),
+    lines = drawn.map(row => row.map(cell => cell[0]).join(""));
+  const top = lines.findIndex(line => line.includes("┌" + "─".repeat(58) + "┐"));
+  const left = lines[top].indexOf("┌");
+  expect(top).toBeGreaterThan(0);
+  for (let y = top; y < top + 21; y++)
+    expect(drawn[y].slice(left, left + 60).every(cell => cell[2] === "surface")).toBe(true);
+  const recordY = lines.findLastIndex(line => line.includes("Record Enter"));
+  const recordX = lines[recordY - 1].lastIndexOf("┌");
+  expect(drawn[recordY - 1][recordX][1]).toBe("accent");
+  expect(lines.join("\n")).not.toContain("Arrows move");
+  expect(lines.join("\n")).not.toContain("⇧ Shift");
+  expect(lines.join("\n")).not.toContain("Hide alts");
 });
 
 test.each([
@@ -707,24 +710,17 @@ test("range delimiters are dim while the range and shared modifiers stay readabl
   click(s, "[ ] Alt");
   click(s, "[ ] Shift");
   s.key(27);
-  const terminal = new Terminal(112, 40);
-  try {
-    terminal.feed(s.frame(112, 40, "corgi", "ctrl_b", 0));
-    const cells = terminal.surface(0).surface.lines.map(line => terminalCells.row(line, 112));
-    const row = cells.find(row =>
-      row
-        .map(c => c[0])
-        .join("")
-        .includes("Ctrl+Alt+⇧+[1..9]"),
-    )!;
-    const x = row
+  const row = cells(s, 112, 40).find(row =>
+    row
       .map(c => c[0])
       .join("")
-      .indexOf("[1..9]");
-    expect(row[x][1]).toBe("faint");
-    expect(row[x + 1][1]).toBe("strong");
-    expect(row[x + 5][1]).toBe("faint");
-  } finally {
-    terminal.destroy();
-  }
+      .includes("Ctrl+Alt+⇧+[1..9]"),
+  )!;
+  const x = row
+    .map(c => c[0])
+    .join("")
+    .indexOf("[1..9]");
+  expect(row[x][1]).toBe("faint");
+  expect(row[x + 1][1]).toBe("strong");
+  expect(row[x + 5][1]).toBe("faint");
 });

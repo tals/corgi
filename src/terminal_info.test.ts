@@ -1,8 +1,6 @@
 import { test, expect } from "bun:test";
 import * as terminal_info from "./terminal_info";
-function fragmented(p: terminal_info.Probe, bytes: string) {
-  return Buffer.concat(Array.from(Buffer.from(bytes), byte => p.feed(Buffer.from([byte])))).toString();
-}
+import { fragmented } from "./fixtures/probe";
 test("pasted Escape prefixes stay literal and do not swallow the terminator", () => {
   const paste = "\x1b[200~hello\x1b[200~\x1b[20\x1b[0n\x1b]11;rgb:ff/ff/ff\x07\x1b\x1b[201~",
     data = Buffer.from(paste + "\x1b[0n");

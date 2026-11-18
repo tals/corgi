@@ -1,36 +1,19 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { source } from "./integration";
 import { Agent } from "../../agents";
 import { adapter } from "./index";
 import { Registry } from "../../conversations";
+import * as extension from "../../fixtures/extension";
 
 /** Runs Corgi's extension under a stand-in for omp's extension API; the hooks it sent. */
 async function drive(script: string) {
-  const root = await mkdtemp(join(tmpdir(), "omp-extension-"));
-  const extension = join(root, "extension.mjs"),
-    sender = join(root, "hook"),
-    driver = join(root, "driver.mjs"),
-    log = join(root, "hooks.jsonl");
-  await writeFile(extension, source);
-  await writeFile(
-    sender,
-    `#!${process.execPath}
-import {appendFileSync} from "node:fs";
-let text="";for await(const chunk of process.stdin)text+=chunk;
-appendFileSync(${JSON.stringify(log)},JSON.stringify({argv:process.argv.slice(2),...JSON.parse(text)})+"\\n");
-`,
-    { mode: 0o755 },
-  );
-  await writeFile(
-    driver,
-    `
-import extension from ${JSON.stringify(extension)};
+  await using folder = await extension.Folder.create("omp-extension-", source);
+  const proc = await folder.run(`
+import extension from ${JSON.stringify(folder.extension)};
 import {writeFileSync,readFileSync,watch} from "node:fs";
 const hooks = new Map(), entries = [], events = new Map();
-const childPath=${JSON.stringify(join(root, "child.jsonl"))};
+const childPath=${JSON.stringify(join(folder.root, "child.jsonl"))};
 let name, session="s1";
 extension({on:(event,handler)=>hooks.set(event,handler),events:{on:(event,handler)=>{events.set(event,handler);return ()=>events.delete(event)}},getSessionName:()=>name,setSessionName:async n=>{name=n},appendEntry:(type,data)=>entries.push({type,data}),sendUserMessage:(prompt,options)=>entries.push({type:"prompt",data:{prompt,options}})});
 const publish=(event,data)=>events.get("task:subagent:"+event)?.(data);
@@ -41,43 +24,21 @@ const emit=(event,e={},c=ctx)=>hooks.get(event)?.(e,c);
 const waitForHook=predicate=>{
   const {promise,resolve}=Promise.withResolvers();
   const check=()=>{
-    let sent=[];try{sent=readFileSync(${JSON.stringify(log)},"utf8").trim().split("\\n").map(line=>JSON.parse(line))}catch{}
+    let sent=[];try{sent=readFileSync(${JSON.stringify(folder.log)},"utf8").trim().split("\\n").map(line=>JSON.parse(line))}catch{}
     if(sent.some(predicate)){watcher.close();resolve()}
   };
-  const watcher=watch(${JSON.stringify(root)},check);
+  const watcher=watch(${JSON.stringify(folder.root)},check);
   check();
   return promise;
 };
 ${script}
 await emit("session_shutdown");
 console.log(JSON.stringify(entries));
-`,
-  );
-  const proc = Bun.spawn([process.execPath, driver], {
-    env: {
-      ...process.env,
-      CORGI_OMP_OWNER: "",
-      CORGI_PANE: "1",
-      CORGI_SOCKET: "/tmp/unused",
-      CORGI_BIN: sender,
-      PI_CODING_AGENT_DIR: root,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  try {
-    expect(await proc.exited, await new Response(proc.stderr).text()).toBe(0);
-    const entries = JSON.parse(await new Response(proc.stdout).text());
-    const hooks = (await readFile(log, "utf8"))
-      .trim()
-      .split("\n")
-      .map(l => JSON.parse(l));
-    return { hooks: hooks.filter(h => h.event !== "Todos"), todos: hooks.filter(h => h.event === "Todos"), entries };
-  } finally {
-    proc.kill();
-    await proc.exited;
-    await rm(root, { recursive: true, force: true });
-  }
+`);
+  expect(await proc.exited, await new Response(proc.stderr).text()).toBe(0);
+  const entries = JSON.parse(await new Response(proc.stdout).text()),
+    hooks = await folder.hooks();
+  return { hooks: hooks.filter(h => h.event !== "Todos"), todos: hooks.filter(h => h.event === "Todos"), entries };
 }
 test("omp reports a turn once its agent yields, and only for the pane's own session", async () => {
   const { hooks, entries } = await drive(`

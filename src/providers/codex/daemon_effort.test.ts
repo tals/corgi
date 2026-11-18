@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { deferred, joins, reachable, settle } from "./daemon_effort";
 import { adapter } from "./index";
+import * as codexServer from "../../fixtures/codex_server";
 const xhigh = 'model_reasoning_effort="xhigh"';
 test("an effort override comes off where the rest keeps Codex on its shared server", () => {
   expect(deferred(["-c", xhigh])).toEqual({ args: [], effort: "xhigh" });
@@ -115,31 +116,19 @@ test("the effort is set once the shared server runs the thread its title names",
     updates: unknown[] = [],
     threads = new Map([[one, { status: "notLoaded", effort: "medium" }]]);
   let loaded = [one, two];
-  const server = Bun.serve({
-    unix: path,
-    fetch(req, server) {
-      return server.upgrade(req) ? undefined : new Response("bad", { status: 400 });
-    },
-    websocket: {
-      message(ws, message) {
-        const value = JSON.parse(String(message)),
-          thread = threads.get(value.params?.threadId);
-        if (!value.id) return;
-        if (value.method === "thread/settings/update") {
-          updates.push(value.params);
-          thread!.effort = value.params.effort;
-        }
-        const reply =
-          value.method === "thread/loaded/list"
-            ? { result: { data: loaded, nextCursor: null } }
-            : value.method !== "thread/read"
-              ? { result: {} }
-              : thread
-                ? { result: { thread: { status: { type: thread.status }, reasoningEffort: thread.effort } } }
-                : { error: { code: -32600, message: "no thread" } };
-        ws.send(JSON.stringify({ id: value.id, ...reply }));
-      },
-    },
+  const server = codexServer.serve(path, ({ method, params }) => {
+    const thread = threads.get(params?.threadId);
+    if (method === "thread/settings/update") {
+      updates.push(params);
+      thread!.effort = params.effort;
+    }
+    return method === "thread/loaded/list"
+      ? { result: { data: loaded, nextCursor: null } }
+      : method !== "thread/read"
+        ? { result: {} }
+        : thread
+          ? { result: { thread: { status: { type: thread.status }, reasoningEffort: thread.effort } } }
+          : { error: { code: -32600, message: "no thread" } };
   });
   try {
     expect(await settle(path, one, "low")).toBeNull();

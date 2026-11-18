@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Slide, duration_ms } from "./card_transition";
 import { Rect } from "./layout";
 import { Style } from "./palette";
-import { Terminal } from "./pane/terminal";
+import * as screen from "./fixtures/screen";
 import { Writer } from "./text";
 
 function card(box: Rect, label: string): string {
@@ -21,31 +21,23 @@ function draw(slide: Slide, box: Rect, label: string, cols = 50): string {
   slide.draw(w, card(box, label), box, cols, 24);
   return w.s;
 }
-function screen(raw: string): string {
-  const terminal = new Terminal(50, 24);
-  try {
-    terminal.feed(raw);
-    return terminal.text();
-  } finally {
-    terminal.destroy();
-  }
-}
+const shown = (raw: string) => screen.text(raw, 50, 24);
 
 test("the slide preserves its first frame and settles on the destination without advancing during draws", () => {
   const slide = new Slide(),
     from = new Rect(4, 10, 40, 6),
     to = new Rect(4, 4, 40, 16);
-  const initial = screen(draw(slide, from, "New tab 界"));
+  const initial = shown(draw(slide, from, "New tab 界"));
   slide.start(1, 0);
-  expect(screen(draw(slide, to, "Manage 界"))).toBe(initial);
+  expect(shown(draw(slide, to, "Manage 界"))).toBe(initial);
   slide.tick(85);
   const moving = draw(slide, to, "Manage 界");
   expect(draw(slide, to, "Manage 界")).toBe(moving);
-  expect(screen(moving)).not.toBe(initial);
-  expect(screen(moving)).not.toBe(screen(card(to, "Manage 界")));
+  expect(shown(moving)).not.toBe(initial);
+  expect(shown(moving)).not.toBe(shown(card(to, "Manage 界")));
   expect(slide.tick(duration_ms)).toBe(true);
   expect(slide.active).toBe(false);
-  expect(screen(draw(slide, to, "Manage 界"))).toBe(screen(card(to, "Manage 界")));
+  expect(shown(draw(slide, to, "Manage 界"))).toBe(shown(card(to, "Manage 界")));
   expect(slide.tick(duration_ms + 1)).toBe(false);
 });
 
@@ -62,7 +54,7 @@ test("rapid reversals stay bounded and a resize settles at the new geometry", ()
     slide.tick(i * 100 + 80);
     const raw = draw(slide, box, label);
     expect(raw.length).toBeLessThan(15_000);
-    const lines = screen(raw).split("\n");
+    const lines = shown(raw).split("\n");
     for (const line of lines) {
       expect(line.slice(0, 4).trim()).toBe("");
       expect(line.slice(44).trim()).toBe("");
@@ -82,7 +74,7 @@ test("an embedded settings slide clips to its area without adding a card border"
   slide.tick(100);
   const w = new Writer();
   slide.draw(w, text("After"), box, 50, 24, false);
-  const lines = screen(w.s).split("\n");
+  const lines = shown(w.s).split("\n");
   expect(w.s).not.toMatch(/[╭╰│━]/);
   for (let y = 0; y < lines.length; y++) {
     if (y < box.y || y >= box.y + box.h) expect(lines[y].trim()).toBe("");

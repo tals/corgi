@@ -7,6 +7,7 @@ import { open } from "./launcher";
 import { Info } from "../../usage/account";
 import { Quit } from "../../subprocess";
 import * as models from "./models";
+import { scopedEnv } from "../../fixtures/env";
 
 const usage = {
   plan_type: "pro",
@@ -15,19 +16,16 @@ const usage = {
     secondary_window: { used_percent: 37, limit_window_seconds: 604800, reset_at: 1800500000 },
   },
 };
-let root: string, account: string, executable: string | undefined, state: string | undefined;
+let root: string, account: string, env: Disposable;
 let request: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
 let available: ReturnType<typeof spyOn<typeof models, "availability">>;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "corgi-pi-usage-"));
   account = join(root, "account");
   mkdirSync(account);
-  executable = process.env.CORGI_PI_BIN;
-  state = process.env.XDG_STATE_HOME;
-  process.env.XDG_STATE_HOME = root;
-  process.env.CORGI_PI_BIN = join(root, "pi");
+  env = scopedEnv({ XDG_STATE_HOME: root, CORGI_PI_BIN: join(root, "pi") });
   writeFileSync(
-    process.env.CORGI_PI_BIN,
+    join(root, "pi"),
     `#!${process.execPath}
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -43,10 +41,7 @@ console.log("fresh-secret-token");
 afterEach(() => {
   request.mockRestore();
   available.mockRestore();
-  if (executable === undefined) delete process.env.CORGI_PI_BIN;
-  else process.env.CORGI_PI_BIN = executable;
-  if (state === undefined) delete process.env.XDG_STATE_HOME;
-  else process.env.XDG_STATE_HOME = state;
+  env[Symbol.dispose]();
   rmSync(root, { recursive: true, force: true });
 });
 function auth(provider = "openai-codex", type = "oauth", email = "user@example.com") {

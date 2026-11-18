@@ -9,6 +9,7 @@ import * as errors from "../errors";
 import * as os from "../os";
 import * as appServer from "../providers/codex/app_server";
 import * as sim from "../providers/sim";
+import { until } from "../fixtures/until";
 const fixture = resolve(import.meta.dir, "../../tests/inference_harness.ts");
 function pool(provider: "codex" | "claude", timeout_ms = 3000) {
   return new Pool({ config: { provider, executable: fixture, timeout_ms } });
@@ -118,15 +119,13 @@ test("closing an app server stops one still starting", async () => {
     pending = appServer.model(server, "/tmp");
   pending.catch(() => {});
   try {
-    const deadline = Date.now() + 2500;
-    while (!existsSync(pidFile) && Date.now() < deadline) await Bun.sleep(5);
+    await until(() => existsSync(pidFile), 2500);
     expect(existsSync(pidFile)).toBe(true);
-    const pid = Number(readFileSync(pidFile, "utf8")),
-      closed = Date.now();
+    const pid = Number(readFileSync(pidFile, "utf8"));
     expect(pid).toBeGreaterThan(0);
     server.close();
     await expect(pending).rejects.toThrow("Cancelled");
-    while (os.running(pid) && Date.now() < closed + 2500) await Bun.sleep(5);
+    await until(() => !os.running(pid), 2500);
     expect(os.running(pid)).toBe(false);
   } finally {
     server.close();

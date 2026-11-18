@@ -6,7 +6,10 @@ import * as protocol from "./protocol";
 import * as json from "./json";
 import { Terminal } from "./pane/terminal";
 import * as surface from "./pane/surface";
-import { Channel } from "./wire_compression";
+import { resetting } from "./fixtures/zstd_daemon";
+import { lines } from "./fixtures/lines";
+import { listen } from "./fixtures/tcp";
+import { until } from "./fixtures/until";
 
 function frame(hash = 1): protocol.Reply<"viewer.sync"> {
   return {
@@ -29,28 +32,11 @@ async function fixture(changed: () => void = () => {}, incremental = false) {
   const requests: Record<string, any>[] = [];
   const server = createServer(peer => {
     socket = peer;
-    let buffer = "";
-    peer.on("data", chunk => {
-      buffer += chunk;
-      for (;;) {
-        const end = buffer.indexOf("\n");
-        if (end < 0) break;
-        requests.push(json.parse(buffer.slice(0, end)));
-        buffer = buffer.slice(end + 1);
-      }
-    });
+    lines(peer, line => requests.push(json.parse(line)));
   });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address() as import("node:net").AddressInfo;
-  const connection = new Connection(createConnection(address.port, "127.0.0.1"), 1000);
+  const port = await listen(server);
+  const connection = new Connection(createConnection(port, "127.0.0.1"), 1000);
   const stream = new Stream(connection, changed, incremental);
-  const until = async (done: () => boolean) => {
-    const end = performance.now() + 1000;
-    while (!done()) {
-      if (performance.now() > end) throw Error("TestTimedOut");
-      await Bun.sleep(1);
-    }
-  };
   const pending = new Set<number>();
   return {
     stream,
@@ -318,63 +304,30 @@ test("a coalesced RPC reply and subsequent push are applied in wire order", asyn
 });
 
 test("writes triggered by the last frames cannot interrupt decoding after a TCP reset", async () => {
-  let encoder: Channel | null = null;
-  const server = createServer(socket => {
-    let input = "",
-      compressed = false;
-    const read = (bytes: Buffer) => {
-      input += bytes.toString();
-      for (;;) {
-        const end = input.indexOf("\n");
-        if (end < 0) return;
-        const request = JSON.parse(input.slice(0, end));
-        input = input.slice(end + 1);
-        if (request.op === "hello") {
-          socket.write(
-            JSON.stringify({ type: "hello", content_encoding: "zstd", request_id: request.request_id }) + "\n",
-          );
-          encoder = new Channel(
-            bytes => socket.write(bytes),
-            read,
-            () => socket.destroy(),
-          );
-          compressed = true;
-        } else if (request.op === "viewer.stream") {
-          // The decoder emits the first frame before it finishes the larger second frame.
-          const messages = [
-            {
-              type: "viewer.stream",
-              viewer_protocol: protocol.viewer_version,
-              sequence: request.sequence,
-              frame: 1,
-              view: frame(1),
-              request_id: request.request_id,
-            },
-            {
-              type: "viewer.frame",
-              sequence: request.sequence,
-              frame: 2,
-              view: frame(2),
-              padding: "x".repeat(1024 * 1024),
-            },
-            { type: "viewer.wake" },
-          ];
-          encoder!.encode(Buffer.from(messages.map(value => JSON.stringify(value) + "\n").join("")), () =>
-            socket.resetAndDestroy(),
-          );
-        }
-      }
-    };
-    socket.on("data", bytes => (compressed ? encoder!.decode(Buffer.from(bytes)) : read(Buffer.from(bytes))));
-    socket.on("error", () => {});
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw Error("NoAddress");
-  const connection = new Connection(createConnection(address.port, "127.0.0.1"), {
-    compression: true,
-    timeout_ms: 1000,
-  });
+  // The decoder emits the first frame before it finishes the larger second frame.
+  const daemon = await resetting(request =>
+    request.op === "viewer.stream"
+      ? [
+          {
+            type: "viewer.stream",
+            viewer_protocol: protocol.viewer_version,
+            sequence: request.sequence,
+            frame: 1,
+            view: frame(1),
+            request_id: request.request_id,
+          },
+          {
+            type: "viewer.frame",
+            sequence: request.sequence,
+            frame: 2,
+            view: frame(2),
+            padding: "x".repeat(1024 * 1024),
+          },
+          { type: "viewer.wake" },
+        ]
+      : null,
+  );
+  const connection = daemon.connect();
   const events: string[] = [];
   let offered = false,
     started = 0;
@@ -409,7 +362,6 @@ test("writes triggered by the last frames cannot interrupt decoding after a TCP 
     expect(started).toBe(0);
   } finally {
     connection.close();
-    (encoder as Channel | null)?.close();
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    await daemon.close();
   }
 });

@@ -2,6 +2,8 @@ import { Machine } from "./machine";
 import type { Progress as ImageProgress } from "./image_upload";
 import * as protocol from "./protocol";
 import { transport } from "./fixtures/transport";
+import * as worktrees from "./fixtures/worktrees";
+import { scopedEnv } from "./fixtures/env";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { Controller, agentMessage, cardEffect, forkName, breadcrumbs } from "./controller";
 import * as sim from "./providers/sim";
@@ -44,13 +46,13 @@ import * as subprocess from "./subprocess";
 import * as machine_input from "./machine_input";
 import * as terminal_info from "./terminal_info";
 
-/** A controller with no daemon: these tests send no requests. */
-function controller(): any {
-  const s: any = new Controller({
-    request: transport(async () => {
-      throw Error("UnexpectedRequest");
-    }).request,
-  });
+/** A controller whose daemon answers with `daemon`; by default it expects no requests. */
+function controller(
+  daemon: Parameters<typeof transport>[0] = async () => {
+    throw Error("UnexpectedRequest");
+  },
+): any {
+  const s: any = new Controller({ request: transport(daemon).request });
   s.machine.profiles.loaded = true;
   s.model_cache = new agentModels.Cache(
     () => {},
@@ -59,6 +61,24 @@ function controller(): any {
   return s;
 }
 const bytes = (text: string) => new TextEncoder().encode(text);
+/** A remote machine called "work" whose daemon answers every request with nothing. */
+function workMachine(): Machine {
+  return new Machine({ request: transport(async () => ({})).request }, "work", true);
+}
+/** A temporary folder for saved accounts, with `env` set from it, until disposed. */
+function accountsFolder(prefix: string, env: (base: string) => Record<string, string | undefined>) {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), prefix))),
+    restore = scopedEnv({ CORGI_ENV_BASE: base, ...env(base) });
+  accounts.reset();
+  return {
+    base,
+    [Symbol.dispose]() {
+      restore[Symbol.dispose]();
+      accounts.reset();
+      rmSync(base, { recursive: true, force: true });
+    },
+  };
+}
 
 test("notices keep Unicode while stripping controls and truncating at UTF-8 boundaries", () => {
   const s = controller();
@@ -458,6 +478,15 @@ function folders(...cwds: string[]) {
       rows: 24,
       agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
     })),
+    conversations: [],
+    headless_sessions: [],
+  };
+}
+/** One workspace on /workspace with no panes. */
+function paneless() {
+  return {
+    workspaces: [{ id: 1, name: "one", cwd: "/workspace", model: { nodes: [], tabs: [], revision: 0 } }],
+    panes: [],
     conversations: [],
     headless_sessions: [],
   };
@@ -961,12 +990,7 @@ test.each([false, true])("a failed fallback terminal keeps the empty launcher at
       throw Error("UnexpectedRequest");
     }),
   );
-  s.receiveSnapshot({
-    workspaces: [{ id: 1, name: "one", cwd: "/workspace", model: { nodes: [], tabs: [], revision: 0 } }],
-    panes: [],
-    conversations: [],
-    headless_sessions: [],
-  });
+  s.receiveSnapshot(paneless());
   s.input_state.attached = true;
   s.agent_launcher = new LauncherMenu({ workspace: 1, cwd: "/other-checkout", pinned: true });
   try {
@@ -995,12 +1019,7 @@ test.each([false, true])("a failed fallback terminal keeps the empty launcher at
 
 test.each([false, true])("empty viewers ignore the legacy detach flag (%s)", async detach => {
   const s = new Controller(transport(async () => ({ viewer_protocol: protocol.viewer_version, detach })));
-  s.receiveSnapshot({
-    workspaces: [{ id: 1, name: "one", cwd: "/workspace", model: { nodes: [], tabs: [], revision: 0 } }],
-    panes: [],
-    conversations: [],
-    headless_sessions: [],
-  });
+  s.receiveSnapshot(paneless());
   s.input_state.attached = true;
   try {
     expect(await viewer.sync(s, { seq: 0n }, false)).toBe(true);
@@ -1012,12 +1031,7 @@ test.each([false, true])("empty viewers ignore the legacy detach flag (%s)", asy
 });
 
 test("the launcher reopens on the row from before a terminal", async () => {
-  const snapshot = folders("/src/app");
-  const s: any = new Controller({
-    request: transport(async op => (op === "session.command" ? { result: { pane: 1 } } : snapshot)).request,
-  });
-  s.receiveSnapshot(snapshot);
-  s.input_state.attached = true;
+  const { s } = recording(folders("/src/app"));
   s.launch_previews.preview = agentLauncher.preview({ pending: false });
   s.launch_previews.cwd = "/src/app";
   s.openLauncher(true);
@@ -1189,17 +1203,7 @@ test("change folder works in a terminal too short for the folder list", async ()
   mkdirSync(join(root, "app/next"), { recursive: true });
   const snapshot: any = folders(join(root, "app"));
   snapshot.workspaces[0].name = "app";
-  const commands: any[] = [];
-  const s: any = new Controller({
-    request: transport(async (op, fields) => {
-      if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
-      if (op !== "session.command") return snapshot;
-      commands.push(protocol.decode("session.command", fields).command);
-      return { result: {} };
-    }).request,
-  });
-  s.receiveSnapshot(snapshot);
-  s.input_state.attached = true;
+  const { s, sent: commands } = recording(snapshot);
   s.height = 12;
   try {
     s.tab_menu = new TabMenu({ tab: 1, workspace: true, anchor_x: 0 });
@@ -1230,17 +1234,7 @@ test("change folder browses from the workspace's folder and moves it there", asy
   const snapshot: any = folders(join(root, "app"), join(root, "other"));
   snapshot.workspaces[0].name = "app";
   snapshot.workspaces[1].name = "custom";
-  const commands: any[] = [];
-  const s: any = new Controller({
-    request: transport(async (op, fields) => {
-      if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
-      if (op !== "session.command") return snapshot;
-      commands.push(protocol.decode("session.command", fields).command);
-      return { result: {} };
-    }).request,
-  });
-  s.receiveSnapshot(snapshot);
-  s.input_state.attached = true;
+  const { s, sent: commands } = recording(snapshot);
   try {
     await s.perform({ name: "edit-workspace" });
     expect(s.tab_menu.details.get("change-folder").runs).toEqual([[join(root, "app"), "faint"]]);
@@ -1822,30 +1816,8 @@ test("the keyboard has one holder: the sidebar, the review panel and a press han
 });
 
 test("the launcher names a new worktree, then adds it before starting the agent there", async () => {
-  const checkout = (path: string, branch: string, primary: boolean) => ({
-    path,
-    head: "4f1c2a9e0b",
-    branch: `refs/heads/${branch}`,
-    primary,
-    bare: false,
-    detached: false,
-    locked: null,
-    prunable: null,
-    available: true,
-    comparison: null,
-    changes: null,
-    stale: false,
-  });
   const snapshot = folders("/src/app");
-  Object.assign(snapshot.workspaces[0], {
-    worktrees: {
-      common_dir: "/src/app/.git",
-      base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
-      entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
-      agents: [],
-      stale: false,
-    },
-  });
+  Object.assign(snapshot.workspaces[0], { worktrees: worktrees.app() });
   const sent: [string, any][] = [];
   let refuse: string | null = "BranchExists";
   const s: any = new Controller({
@@ -1945,31 +1917,23 @@ test("the launcher names a new worktree, then adds it before starting the agent 
  * pane 1, unless `fail` names the error one gets instead. */
 function recording(snapshot: any, fail?: (command: any) => string | undefined) {
   const sent: any[] = [];
-  const s: any = new Controller({
-    request: transport(async (op, fields: any) => {
-      const runtime = {
-        panes: s.runtime.panes.map((p: Pane) => ({ agent: () => p.agent, account: () => p.account })),
-        workspaces: s.runtime.workspaces,
-        sessions: [],
-        account_hidden: s.runtime.account_hidden,
-        changed() {},
-      } as unknown as Runtime;
-      if (op === "account.remove")
-        return { deleted: await accountService.remove(runtime, fields.provider, fields.account) };
-      if (op === "account.restore")
-        return { account: accountService.restore(runtime, fields.provider, fields.account) };
-      if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
-      if (op !== "session.command") return snapshot;
-      sent.push(fields.command);
-      const err = fail?.(fields.command);
-      return err === undefined ? { result: { pane: 1 } } : { err };
-    }).request,
+  const s = controller(async (op, fields: any) => {
+    const runtime = {
+      panes: s.runtime.panes.map((p: Pane) => ({ agent: () => p.agent, account: () => p.account })),
+      workspaces: s.runtime.workspaces,
+      sessions: [],
+      account_hidden: s.runtime.account_hidden,
+      changed() {},
+    } as unknown as Runtime;
+    if (op === "account.remove")
+      return { deleted: await accountService.remove(runtime, fields.provider, fields.account) };
+    if (op === "account.restore") return { account: accountService.restore(runtime, fields.provider, fields.account) };
+    if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
+    if (op !== "session.command") return snapshot;
+    sent.push(fields.command);
+    const err = fail?.(fields.command);
+    return err === undefined ? { result: { pane: 1 } } : { err };
   });
-  s.machine.profiles.loaded = true;
-  s.model_cache = new agentModels.Cache(
-    () => {},
-    async () => [],
-  );
   s.receiveSnapshot(snapshot);
   s.input_state.attached = true;
   return { s, sent };
@@ -2060,77 +2024,56 @@ test("an account's row starts its agent there, and resuming keeps a conversation
 test.each(["launcher", "settings"] as const)(
   "%s management saves names, flags and environment in the shared model",
   async source => {
-    const saved = { CORGI_ENV_BASE: process.env.CORGI_ENV_BASE, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR },
-      base = realpathSync(mkdtempSync(join(tmpdir(), "corgi-manage-")));
-    process.env.CORGI_ENV_BASE = base;
-    process.env.CLAUDE_CONFIG_DIR = join(base, "default");
-    accounts.reset();
-    try {
-      const { s, sent } = recording(folders("/src/app"));
-      s.launch_previews.preview = agentLauncher.preview({ pending: false });
-      s.launch_previews.cwd = "/src/app";
-      const launch = await openManagement(s, source);
-      launch.manager.at = agentManager.agentKey("claude", "");
-      await s.key(13);
-      for (const ch of "home") await s.key(ch.charCodeAt(0));
-      await s.key(9);
-      await s.key(9);
-      for (const ch of "--model sonnet") await s.key(ch.charCodeAt(0));
-      await s.key(9);
-      await s.key(13);
-      for (const ch of "API_TIMEOUT_MS") await s.key(ch.charCodeAt(0));
-      await s.key(9);
-      for (const ch of "60000") await s.key(ch.charCodeAt(0));
-      await s.key(13);
-      expect(accounts.launchOptions("claude", "")).toEqual({ flags: "", env: [] });
-      await s.input(bytes("\x1b[B"));
-      await s.key(13);
-      expect(sent).toEqual([
-        {
-          "agent.launcher.configure": {
-            row: "claude",
-            name: "home",
-            model: "auto",
-            effort: "default",
-            flags: "--model sonnet",
-            env: '{"API_TIMEOUT_MS":"60000"}',
-          },
+    using _folder = accountsFolder("corgi-manage-", base => ({ CLAUDE_CONFIG_DIR: join(base, "default") }));
+    const { s, sent } = recording(folders("/src/app"));
+    s.launch_previews.preview = agentLauncher.preview({ pending: false });
+    s.launch_previews.cwd = "/src/app";
+    const launch = await openManagement(s, source);
+    launch.manager.at = agentManager.agentKey("claude", "");
+    await s.key(13);
+    for (const ch of "home") await s.key(ch.charCodeAt(0));
+    await s.key(9);
+    await s.key(9);
+    for (const ch of "--model sonnet") await s.key(ch.charCodeAt(0));
+    await s.key(9);
+    await s.key(13);
+    for (const ch of "API_TIMEOUT_MS") await s.key(ch.charCodeAt(0));
+    await s.key(9);
+    for (const ch of "60000") await s.key(ch.charCodeAt(0));
+    await s.key(13);
+    expect(accounts.launchOptions("claude", "")).toEqual({ flags: "", env: [] });
+    await s.input(bytes("\x1b[B"));
+    await s.key(13);
+    expect(sent).toEqual([
+      {
+        "agent.launcher.configure": {
+          row: "claude",
+          name: "home",
+          model: "auto",
+          effort: "default",
+          flags: "--model sonnet",
+          env: '{"API_TIMEOUT_MS":"60000"}',
         },
-      ]);
-      // The viewer sends one save; only the daemon writes shared configuration.
-      expect(accounts.launchOptions("claude", "")).toEqual({ flags: "", env: [] });
-      expect(launch.label("claude")).toBe("Claude Code · home");
-      expect(launch.manager.page).toBe("list");
-    } finally {
-      for (const [key, value] of Object.entries(saved))
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      accounts.reset();
-      rmSync(base, { recursive: true, force: true });
-    }
+      },
+    ]);
+    // The viewer sends one save; only the daemon writes shared configuration.
+    expect(accounts.launchOptions("claude", "")).toEqual({ flags: "", env: [] });
+    expect(launch.label("claude")).toBe("Claude Code · home");
+    expect(launch.manager.page).toBe("list");
   },
 );
 
 test.each(["launcher", "settings"] as const)(
   "cancelling sign-in returns to %s management with its search and selection",
   async source => {
-    const saved = {
-        CORGI_ENV_BASE: process.env.CORGI_ENV_BASE,
-        CORGI_CLAUDE_BIN: process.env.CORGI_CLAUDE_BIN,
-        CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
-      },
-      base = realpathSync(mkdtempSync(join(tmpdir(), "corgi-manage-")));
     // Its folder is staged at once, so in a state folder of its own, sharing
     // a default account's setup of its own.
-    process.env.CORGI_ENV_BASE = base;
-    process.env.CORGI_CLAUDE_BIN = "/usr/bin/true";
-    process.env.CLAUDE_CONFIG_DIR = join(base, "claude");
-    accounts.reset();
-    let s: any = null;
+    using folder = accountsFolder("corgi-manage-", base => ({
+      CORGI_CLAUDE_BIN: "/usr/bin/true",
+      CLAUDE_CONFIG_DIR: join(base, "claude"),
+    }));
+    const { s, sent } = recording(folders("/src/app"));
     try {
-      const recorded = recording(folders("/src/app")),
-        sent = recorded.sent;
-      s = recorded.s;
       s.remoteSignin = (provider: Provider, account: string, adding: boolean, host: signin.Host) =>
         signin.adding(provider, null, host);
       await openManagement(s, source);
@@ -2148,7 +2091,7 @@ test.each(["launcher", "settings"] as const)(
       expect(s.agent_launcher).toBeNull();
       // It signs in straight away, with no agent or name to ask for.
       expect(s.signin).toMatchObject({ adding: true, provider: "claude", name: null, cwd: "/src/app" });
-      expect(s.signin.staged.dir).toBe(join(base, "corgi", "accounts", "claude", "1"));
+      expect(s.signin.staged.dir).toBe(join(folder.base, "corgi", "accounts", "claude", "1"));
       expect(s.signin.stage.kind === "signin" || s.signin.stage.dialog.heading.includes("didn't start")).toBe(true);
       expect(sent.length).toBe(before);
       const staged = s.signin.staged;
@@ -2163,12 +2106,7 @@ test.each(["launcher", "settings"] as const)(
       expect(existsSync(staged.dir)).toBe(false);
       expect(existsSync(staged.temp)).toBe(false);
     } finally {
-      s?.signin?.abandon();
-      for (const [key, value] of Object.entries(saved))
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      accounts.reset();
-      rmSync(base, { recursive: true, force: true });
+      s.signin?.abandon();
     }
   },
 );
@@ -2255,13 +2193,9 @@ const work = agentLauncher.Row.of("claude", "/accounts/work");
 test.each([false, true])(
   "Manage deletes secondary accounts, guarding running agents and external folders (created: %s)",
   async created => {
-    const previous = process.env.CORGI_ENV_BASE,
-      previousClaude = process.env.CLAUDE_CONFIG_DIR,
-      signOut = spyOn(signin, "signOut").mockResolvedValue(undefined),
-      base = realpathSync(mkdtempSync(join(tmpdir(), "corgi-manage-remove-"))),
-      dir = join(base, "imported");
-    process.env.CORGI_ENV_BASE = base;
-    accounts.reset();
+    using folder = accountsFolder("corgi-manage-remove-", () => ({ CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR }));
+    const signOut = spyOn(signin, "signOut").mockResolvedValue(undefined),
+      dir = join(folder.base, "imported");
     mkdirSync(dir);
     try {
       const account = created ? accounts.adopt(accounts.stage("claude", "work")) : accounts.add("claude", "work", dir);
@@ -2324,33 +2258,21 @@ test.each([false, true])(
     } finally {
       setSystemTime();
       signOut.mockRestore();
-      if (previousClaude === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-      else process.env.CLAUDE_CONFIG_DIR = previousClaude;
-      if (previous === undefined) delete process.env.CORGI_ENV_BASE;
-      else process.env.CORGI_ENV_BASE = previous;
-      accounts.reset();
-      rmSync(base, { recursive: true, force: true });
     }
   },
 );
 
 test("a signed-out account's row signs in to it over the panes instead of starting its agent", async () => {
-  const saved = process.env.CORGI_CLAUDE_BIN;
-  process.env.CORGI_CLAUDE_BIN = "/usr/bin/true";
-  try {
-    const { s, sent } = withWork({ signed_in: false });
-    s.remoteSignin = (provider: Provider, account: string, adding: boolean, host: signin.Host) =>
-      signin.signingIn({ provider, dir: account, name: "work", managed: true }, host);
-    s.agent_launcher.selected = work;
-    await s.key(13);
-    expect(sent).toEqual([]);
-    expect(s.agent_launcher).toBeNull();
-    expect(s.signin).toMatchObject({ adding: false, provider: "claude", name: "work", dir: "/accounts/work" });
-    s.signin.abandon();
-  } finally {
-    if (saved === undefined) delete process.env.CORGI_CLAUDE_BIN;
-    else process.env.CORGI_CLAUDE_BIN = saved;
-  }
+  using _bin = scopedEnv({ CORGI_CLAUDE_BIN: "/usr/bin/true" });
+  const { s, sent } = withWork({ signed_in: false });
+  s.remoteSignin = (provider: Provider, account: string, adding: boolean, host: signin.Host) =>
+    signin.signingIn({ provider, dir: account, name: "work", managed: true }, host);
+  s.agent_launcher.selected = work;
+  await s.key(13);
+  expect(sent).toEqual([]);
+  expect(s.agent_launcher).toBeNull();
+  expect(s.signin).toMatchObject({ adding: false, provider: "claude", name: "work", dir: "/accounts/work" });
+  s.signin.abandon();
 });
 
 test("space in Manage hides a row in the current workspace's picker only", async () => {
@@ -2457,32 +2379,9 @@ test("dragging a signed-out default from Add agent remembers the explicit choice
 });
 
 test("the launcher lights the checkout it starts agents in, as the overview lights a worktree", () => {
-  const checkout = (path: string, branch: string, primary: boolean) => ({
-    path,
-    head: "4f1c2a9e0b",
-    branch: `refs/heads/${branch}`,
-    primary,
-    bare: false,
-    detached: false,
-    locked: null,
-    prunable: null,
-    available: true,
-    comparison: null,
-    changes: null,
-    stale: false,
-  });
   const snapshot = folders("/src/app");
-  Object.assign(snapshot.workspaces[0], {
-    worktrees: {
-      common_dir: "/src/app/.git",
-      base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
-      entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
-      agents: [],
-      stale: false,
-    },
-  });
-  const s: any = new Controller({ request: transport(async () => snapshot).request });
-  s.receiveSnapshot(snapshot);
+  Object.assign(snapshot.workspaces[0], { worktrees: worktrees.app() });
+  const { s } = recording(snapshot);
   s.openLauncher(true, "/src/app-topic");
   expect(s.spotlight()).toEqual({ workspace: 1, path: "/src/app-topic" });
   expect(s.agent_launcher.place().aside).toBe(true);
@@ -2525,20 +2424,6 @@ test("the launcher lights the checkout it starts agents in, as the overview ligh
 });
 
 test("an agent's review and the launcher's Where read the checkout the list puts it under", () => {
-  const checkout = (path: string, branch: string, primary: boolean) => ({
-    path,
-    head: "4f1c2a9e0b",
-    branch: `refs/heads/${branch}`,
-    primary,
-    bare: false,
-    detached: false,
-    locked: null,
-    prunable: null,
-    available: true,
-    comparison: null,
-    changes: null,
-    stale: false,
-  });
   // Two workspaces on one repository, each with a Codex pane started on main.
   const snapshot = folders("/src/app", "/src/app");
   snapshot.panes.forEach((pane, i) =>
@@ -2547,19 +2432,9 @@ test("an agent's review and the launcher's Where read the checkout the list puts
       agent: { ...pane.agent, provider: "codex", cwd: "/src/app", session: `s${i + 1}` },
     }),
   );
-  for (const ws of snapshot.workspaces)
-    Object.assign(ws, {
-      worktrees: {
-        common_dir: "/src/app/.git",
-        base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
-        entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
-        agents: [],
-        stale: false,
-      },
-    });
-  const s: any = new Controller({ request: transport(async () => snapshot).request });
+  for (const ws of snapshot.workspaces) Object.assign(ws, { worktrees: worktrees.app() });
+  const { s } = recording(snapshot);
   const placed = () => s.running.map((o: launcherResume.Open) => [o.session, o.folder]);
-  s.receiveSnapshot(snapshot);
   expect(s.reviewTarget().cwd).toBe("/src/app");
   expect(placed()).toEqual([
     ["s1", "/src/app"],
@@ -2588,33 +2463,13 @@ test("an agent's review and the launcher's Where read the checkout the list puts
 });
 
 test("a worktree's menu shows its diff line and opens its folder in a waiting shell or a new tab", async () => {
-  const checkout = (path: string, branch: string, primary: boolean) => ({
-    path,
-    head: "4f1c2a9e0b",
-    branch: `refs/heads/${branch}`,
-    primary,
-    bare: false,
-    detached: false,
-    locked: null,
-    prunable: null,
-    available: true,
-    comparison: null,
-    changes: null,
-    stale: false,
-  });
   const snapshot = folders("/src/app");
   Object.assign(snapshot.panes[0], {
     cwd: "/src/app-topic",
     agent: { ...snapshot.panes[0].agent, provider: "codex", cwd: "/src/app-topic" },
   });
   Object.assign(snapshot.workspaces[0], {
-    worktrees: {
-      common_dir: "/src/app/.git",
-      base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
-      entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
-      agents: [{ target: { pane: 1 }, path: "/src/app-topic", source: "write", stale: false }],
-      stale: false,
-    },
+    worktrees: worktrees.app([{ target: { pane: 1 }, path: "/src/app-topic", source: "write", stale: false }]),
   });
   const sent: [string, any][] = [];
   let waiting: number[] = [];
@@ -3247,11 +3102,7 @@ test("presses on one pane cell within the double-click window count up to three"
 
 test("the card takes its conversation back only when the daemon refuses the pane", async () => {
   const snapshot = folders("/a");
-  const s: any = new Controller({
-    request: transport(async op => (op === "session.command" ? { err: "NoWorkspace" } : snapshot)).request,
-  });
-  s.receiveSnapshot(snapshot);
-  s.input_state.attached = true;
+  const { s } = recording(snapshot, () => "NoWorkspace");
   const reclaim = spyOn(s.prompt, "reclaim").mockImplementation(() => {}),
     effect = { kind: "pane", argv: ["corgi", "__chat"], cwd: "/w", handoff: "/tmp/h.json" };
   try {
@@ -3315,10 +3166,9 @@ test("the prompt's conversation is a Corgi agent while a Corgi pane holds it, an
       attention: "needs_input",
       observation: { completed: 2, read: 0 },
     },
-    agent = { id: 8, workspace: 1, provider: "codex", session: "x1", state: "idle", attention: "none" },
-    saved = process.env.CORGI_PROMPT_SESSION;
+    agent = { id: 8, workspace: 1, provider: "codex", session: "x1", state: "idle", attention: "none" };
   // The viewer reloaded while its prompt's session ran.
-  process.env.CORGI_PROMPT_SESSION = "claude:c1";
+  using _session = scopedEnv({ CORGI_PROMPT_SESSION: "claude:c1" });
   s.receiveSnapshot({ ...folders("/a"), headless_sessions: [corgi, agent] });
   try {
     // In the card: the status line speaks for it, not the agent list.
@@ -3345,8 +3195,6 @@ test("the prompt's conversation is a Corgi agent while a Corgi pane holds it, an
     expect(s.agentEntries().some((e: sidebar.Entry) => e.name === "Corgi")).toBe(false);
     expect(s.tabMenuStale(menu)).toBe(true);
   } finally {
-    if (saved === undefined) delete process.env.CORGI_PROMPT_SESSION;
-    else process.env.CORGI_PROMPT_SESSION = saved;
     viewer.close(s);
   }
 });
@@ -3593,23 +3441,11 @@ test.each([
   }
 });
 
-/** A controller whose focused pane shows "  hello there", whose daemon answers every
- * pick with "hello" at its cells but the shown text in `reply.shown`, and
- * records each pick it was asked in `asks`. */
-function picking() {
-  const reply = { shown: "hello" };
-  const asks: any[] = [];
-  const s: any = new Controller({
-    request: transport(async (op, fields) => {
-      // A sync sees nothing new, and focus changes are accepted.
-      if (op === "viewer.sync") return { ok: true, viewer_protocol: 4 };
-      if (op === "session.command") return { ok: true, result: protocol.emptyResult() };
-      if (op !== "viewer.pick") throw Error("UnexpectedRequest");
-      asks.push(fields);
-      return { ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: reply.shown, copy: "hello" };
-    }).request,
-  });
-  s.receiveSnapshot(folders("/a", "/b"));
+/** An attached 100×30 controller on `snapshot` whose daemon answers with `daemon`,
+ * its clock held at 1 s and its first pane showing `text`. `done` puts it away. */
+function showing(text: string, daemon: Parameters<typeof transport>[0], snapshot = folders("/a", "/b")) {
+  const s: any = new Controller({ request: transport(daemon).request });
+  s.receiveSnapshot(snapshot);
   s.width = 100;
   s.height = 30;
   s.input_state.attached = true;
@@ -3617,19 +3453,36 @@ function picking() {
   const rect = s.layoutView().placements(s.area())[0].rect;
   const native = NativeTerminal.create(rect.w, rect.h);
   const term = s.pane(1).terminal;
-  native.feed("  hello there");
+  native.feed(text);
   term.receive(native.surface(1));
-  const at = `${rect.x + 4};${rect.y + 1}`;
-  const doubleClick = async () => {
-    clock.advance(clock.double_click_ms + 1);
-    s.clearEffects();
-    await s.input(bytes(`\x1b[<0;${at}M\x1b[<0;${at}m\x1b[<0;${at}M\x1b[<0;${at}m`));
-  };
   const done = () => {
     native.destroy();
     setSystemTime();
     clock.reset();
     viewer.close(s);
+  };
+  return { s, term, rect, done };
+}
+
+/** A controller whose focused pane shows "  hello there", whose daemon answers every
+ * pick with "hello" at its cells but the shown text in `reply.shown`, and
+ * records each pick it was asked in `asks`. */
+function picking() {
+  const reply = { shown: "hello" };
+  const asks: any[] = [];
+  const { s, term, rect, done } = showing("  hello there", async (op, fields) => {
+    // A sync sees nothing new, and focus changes are accepted.
+    if (op === "viewer.sync") return { ok: true, viewer_protocol: 4 };
+    if (op === "session.command") return { ok: true, result: protocol.emptyResult() };
+    if (op !== "viewer.pick") throw Error("UnexpectedRequest");
+    asks.push(fields);
+    return { ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: reply.shown, copy: "hello" };
+  });
+  const at = `${rect.x + 4};${rect.y + 1}`;
+  const doubleClick = async () => {
+    clock.advance(clock.double_click_ms + 1);
+    s.clearEffects();
+    await s.input(bytes(`\x1b[<0;${at}M\x1b[<0;${at}m\x1b[<0;${at}M\x1b[<0;${at}m`));
   };
   return { s, term, rect, reply, asks, doubleClick, done };
 }
@@ -3792,25 +3645,14 @@ test("a drag past its pane's edges asks for the pane's edge cells", async () => 
 
 test("a pick answered after its pane closed changes nothing", async () => {
   const answers: (() => void)[] = [];
-  const s: any = new Controller({
-    request: transport(async op => {
-      if (op !== "viewer.pick") throw Error("UnexpectedRequest");
-      return new Promise(resolve =>
-        answers.push(() =>
-          resolve({ ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: "hello", copy: "hello" }),
-        ),
-      );
-    }).request,
+  const { s, rect, done } = showing("  hello there", async op => {
+    if (op !== "viewer.pick") throw Error("UnexpectedRequest");
+    return new Promise(resolve =>
+      answers.push(() =>
+        resolve({ ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: "hello", copy: "hello" }),
+      ),
+    );
   });
-  s.receiveSnapshot(folders("/a", "/b"));
-  s.width = 100;
-  s.height = 30;
-  s.input_state.attached = true;
-  setSystemTime(new Date(1000));
-  const rect = s.layoutView().placements(s.area())[0].rect;
-  const native = NativeTerminal.create(rect.w, rect.h);
-  native.feed("  hello there");
-  s.pane(1).terminal.receive(native.surface(1));
   const at = `${rect.x + 4};${rect.y + 1}`;
   try {
     await s.input(bytes(`\x1b[<0;${at}M\x1b[<0;${at}m\x1b[<0;${at}M`));
@@ -3826,10 +3668,7 @@ test("a pick answered after its pane closed changes nothing", async () => {
     expect(select).not.toHaveBeenCalled();
     expect(s.effects).toEqual([]);
   } finally {
-    native.destroy();
-    setSystemTime();
-    clock.reset();
-    viewer.close(s);
+    done();
   }
 });
 
@@ -3839,7 +3678,6 @@ test("the prompt's picker offers each installed agent's models per account, with
   const s = controller(),
     read: string[] = [];
   // As the viewer's own cache does, a catalog arriving has the prompt told again.
-  s.machine.profiles.loaded = true;
   s.model_cache = new agentModels.Cache(
     () => (s.prompt_stale = true),
     async (provider, account) => {
@@ -4061,8 +3899,9 @@ test("a double-click opens no field on a headless row", async () => {
 
 test("a drag keeps one pick out and copies the answer for where it ended", async () => {
   const asks: { to_x: number | null; answer: (copy: string) => void }[] = [];
-  const s: any = new Controller({
-    request: transport(async (op, fields: any) => {
+  const { s, rect, done } = showing(
+    "  hello there",
+    async (op, fields: any) => {
       if (op !== "viewer.pick") throw Error("UnexpectedRequest");
       return new Promise(resolve =>
         asks.push({
@@ -4070,17 +3909,9 @@ test("a drag keeps one pick out and copies the answer for where it ended", async
           answer: copy => resolve({ ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: "hello", copy }),
         }),
       );
-    }).request,
-  });
-  s.receiveSnapshot(folders("/a"));
-  s.width = 100;
-  s.height = 30;
-  s.input_state.attached = true;
-  setSystemTime(new Date(1000));
-  const rect = s.layoutView().placements(s.area())[0].rect;
-  const native = NativeTerminal.create(rect.w, rect.h);
-  native.feed("  hello there");
-  s.pane(1).terminal.receive(native.surface(1));
+    },
+    folders("/a"),
+  );
   const cell = (dx: number) => `${rect.x + 4 + dx};${rect.y + 1}`;
   try {
     await s.input(bytes(`\x1b[<0;${cell(0)}M\x1b[<0;${cell(0)}m\x1b[<0;${cell(0)}M`));
@@ -4097,10 +3928,7 @@ test("a drag keeps one pick out and copies the answer for where it ended", async
     expect(s.effects).toEqual([{ write_terminal: `\x1b]52;c;${Buffer.from("dragged").toString("base64")}\x07` }]);
     expect(asks.length).toBe(2);
   } finally {
-    native.destroy();
-    setSystemTime();
-    clock.reset();
-    viewer.close(s);
+    done();
   }
 });
 
@@ -4143,21 +3971,9 @@ test("only a double-click on the name renames, not one elsewhere on the row", as
  * of the link's second cell. */
 function linking() {
   const url = "https://example.com/hello";
-  const s: any = new Controller({
-    request: transport(async op => {
-      throw Error(op === "viewer.pick" ? "UnknownOperation" : "UnexpectedRequest");
-    }).request,
+  const { s, term, rect, done } = showing(`  \x1b]8;;${url}\x1b\\hello\x1b]8;;\x1b\\ there`, async op => {
+    throw Error(op === "viewer.pick" ? "UnknownOperation" : "UnexpectedRequest");
   });
-  s.receiveSnapshot(folders("/a", "/b"));
-  s.width = 100;
-  s.height = 30;
-  s.input_state.attached = true;
-  setSystemTime(new Date(1000));
-  const rect = s.layoutView().placements(s.area())[0].rect;
-  const native = NativeTerminal.create(rect.w, rect.h);
-  const term = s.pane(1).terminal;
-  native.feed(`  \x1b]8;;${url}\x1b\\hello\x1b]8;;\x1b\\ there`);
-  term.receive(native.surface(1));
   const mouse = (button: number, dx = 0, release = false) =>
     s.mouse(`\x1b[<${button};${rect.x + 4 + dx};${rect.y + 1}${release ? "m" : "M"}`);
   const click = async (button = 0, dx = 0) => {
@@ -4170,12 +3986,6 @@ function linking() {
     const urls = s.effects.filter((effect: any) => "open_url" in effect).map((effect: any) => effect.open_url);
     s.clearEffects();
     return urls;
-  };
-  const done = () => {
-    native.destroy();
-    setSystemTime();
-    clock.reset();
-    viewer.close(s);
   };
   return { s, url, term, mouse, click, opened, done };
 }
@@ -4353,7 +4163,6 @@ test("Esc calls off a retry still waiting, and goes to the agent once the retry 
 test("the prompt's catalogs are read ahead of it, once, only where the launcher lists an agent or the user picked one", async () => {
   const s = controller(),
     read: string[] = [];
-  s.machine.profiles.loaded = true;
   s.model_cache = new agentModels.Cache(
     () => {},
     async (provider, account) => {
@@ -4409,7 +4218,6 @@ test("the prompt's catalogs are read ahead of it, once, only where the launcher 
 test("the prompt offers an agent hidden in Manage agents that the user runs, and every one when it would offer none", async () => {
   const s = controller(),
     read: string[] = [];
-  s.machine.profiles.loaded = true;
   s.model_cache = new agentModels.Cache(
     () => {},
     async (provider, account) => {
@@ -4605,27 +4413,17 @@ test("a reloaded viewer goes on with its own prompt session; another viewer's st
     { id: 7, workspace: 1, provider: "claude", corgi: true, session: "mine", pane: null, state: "idle" },
     { id: 8, workspace: 1, provider: "claude", corgi: true, session: "theirs", pane: null, state: "idle" },
   ];
-  const viewers = (count: number) => {
-    const s: any = new Controller({
-      request: transport(async op => {
-        if (op === "viewer.list") return { viewers: Array.from({ length: count }, (_, i) => ({ id: i + 1 })) };
-        throw Error("UnexpectedRequest");
-      }).request,
+  const viewers = (count: number) =>
+    controller(async op => {
+      if (op === "viewer.list") return { viewers: Array.from({ length: count }, (_, i) => ({ id: i + 1 })) };
+      throw Error("UnexpectedRequest");
     });
-    s.machine.profiles.loaded = true;
-    s.model_cache = new agentModels.Cache(
-      () => {},
-      async () => [],
-    );
-    return s;
-  };
-  const saved = process.env.CORGI_PROMPT_SESSION;
   const reloaded = viewers(2),
     second = viewers(2),
     only = viewers(1);
   try {
     // The reload exec'd it in place; its environment names its session.
-    process.env.CORGI_PROMPT_SESSION = "claude:mine";
+    using _session = scopedEnv({ CORGI_PROMPT_SESSION: "claude:mine" });
     reloaded.receiveSnapshot({ ...folders("/a"), headless_sessions: sessions });
     await Bun.sleep(1);
     expect(reloaded.prompt.conversation.session).toBe("mine");
@@ -4639,8 +4437,6 @@ test("a reloaded viewer goes on with its own prompt session; another viewer's st
     await Bun.sleep(1);
     expect(only.prompt.conversation.session).toBe("theirs");
   } finally {
-    if (saved === undefined) delete process.env.CORGI_PROMPT_SESSION;
-    else process.env.CORGI_PROMPT_SESSION = saved;
     for (const s of [reloaded, second, only]) viewer.close(s);
   }
 });
@@ -5092,7 +4888,7 @@ test("a remembered name prefills the next rename until Escape, success or the pa
 
 test("switching machines shows the other's data and closes what named the old one's ids", () => {
   const s = controller();
-  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  const other = workMachine();
   s.adopt(other);
   s.receiveSnapshot(folders("/a", "/b"));
   s.receiveSnapshot(folders("/w"), other);
@@ -5121,16 +4917,25 @@ test("switching machines shows the other's data and closes what named the old on
   }
 });
 
-test("the prompt's conversation stays on the machine it started on when another is shown", async () => {
+/** A controller on "here" that has adopted "work", whose daemons note each op in
+ * `asked` with the machine's name and answer with `reply`. */
+function twoMachines(reply: (op: string) => unknown) {
   const asked: [string, string][] = [];
   const daemon = (name: string) =>
     transport(async (op: string) => {
       asked.push([name, op]);
-      return op === "headless.start" ? { provider: "codex", session: "s" } : { events: [] };
+      return reply(op);
     });
   const s = new Controller(daemon("here"));
   const other = new Machine({ request: daemon("work").request }, "work", true);
   s.adopt(other);
+  return { s, other, asked };
+}
+
+test("the prompt's conversation stays on the machine it started on when another is shown", async () => {
+  const { s, other, asked } = twoMachines(op =>
+    op === "headless.start" ? { provider: "codex", session: "s" } : { events: [] },
+  );
   try {
     const prompt = Reflect.get(s, "promptDaemon").call(s);
     s.switchMachine(other);
@@ -5194,15 +4999,9 @@ test("an image pasted into the prompt goes to the machine its conversation runs 
 });
 
 test("clearing a prompt conversation stops it on its own machine, whichever is shown", async () => {
-  const asked: [string, string][] = [];
-  const daemon = (name: string) =>
-    transport(async (op: string) => {
-      asked.push([name, op]);
-      return op === "headless.start" ? { provider: "codex", session: "s" } : { events: [], next_seq: 1 };
-    });
-  const s = new Controller(daemon("here"));
-  const other = new Machine({ request: daemon("work").request }, "work", true);
-  s.adopt(other);
+  const { s, other, asked } = twoMachines(op =>
+    op === "headless.start" ? { provider: "codex", session: "s" } : { events: [], next_seq: 1 },
+  );
   try {
     s.switchMachine(other);
     const conversation = s.prompt.conversation;
@@ -5220,15 +5019,7 @@ test("clearing a prompt conversation stops it on its own machine, whichever is s
 });
 
 test("a prompt conversation resumed after a reload stays on its machine when another is shown", async () => {
-  const asked: [string, string][] = [];
-  const daemon = (name: string) =>
-    transport(async (op: string) => {
-      asked.push([name, op]);
-      return op === "viewer.list" ? { viewers: [{}] } : { events: [] };
-    });
-  const s = new Controller(daemon("here"));
-  const other = new Machine({ request: daemon("work").request }, "work", true);
-  s.adopt(other);
+  const { s, other, asked } = twoMachines(op => (op === "viewer.list" ? { viewers: [{}] } : { events: [] }));
   s.receiveSnapshot(folders("/a"));
   s.receiveSnapshot(
     {
@@ -5255,7 +5046,7 @@ test("a prompt conversation resumed after a reload stays on its machine when ano
 
 test("a remote machine's checkouts aren't read with this computer's git", () => {
   const s = controller();
-  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  const other = workMachine();
   s.adopt(other);
   s.receiveSnapshot(folders("/a"));
   s.receiveSnapshot(folders("/a"), other);
@@ -5337,7 +5128,7 @@ test("a remote machine's launcher lists the agents saved on that computer, not t
 
 test("all agents lists each online machine's under its name, and its rows switch to it", () => {
   const s = controller();
-  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  const other = workMachine();
   let online = true;
   other.presence = () => ({
     online,
@@ -5432,7 +5223,7 @@ test("a paste whose machine is no longer shown isn't typed into the shown one's 
       throw Error("UnexpectedRequest");
     }),
   );
-  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  const other = workMachine();
   s.adopt(other);
   s.receiveSnapshot(folders("/a"));
   s.receiveSnapshot(folders("/w"), other);
@@ -6198,28 +5989,9 @@ test("while a pane's input waits, only hovers give way: clicks, drags and the wh
   s.height = 30;
   s.sidebar_open = false;
   s.input_state.attached = true;
-  s.receiveSnapshot({
-    workspaces: [
-      {
-        id: 1,
-        name: "one",
-        cwd: "/tmp",
-        model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 },
-      },
-    ],
-    panes: [
-      {
-        id: 1,
-        workspace: 1,
-        tab: 1,
-        cols: 100,
-        rows: 29,
-        agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
-      },
-    ],
-    conversations: [],
-    headless_sessions: [],
-  });
+  const snapshot = folders("/tmp");
+  Object.assign(snapshot.panes[0], { cols: 100, rows: 29 });
+  s.receiveSnapshot(snapshot);
   const source = new NativeTerminal(100, 29);
   try {
     // A program that tracks every motion, reported as SGR.
@@ -6422,11 +6194,8 @@ test("closing the workspace shown settles on the next, unless the user went else
       viewer.close(s);
     }
   }
-  const s: any = new Controller({
-    request: transport(async op => (op === "session.snapshot" ? pair() : { ok: true, result: {} })).request,
-  });
+  const { s } = recording(pair());
   try {
-    s.receiveSnapshot(pair());
     s.switchWorkspace(1);
     const settle = spyOn(s, "switchWorkspace");
     s.closeWorkspace(2, false);
@@ -6477,11 +6246,7 @@ test("a delayed command refreshes its owning machine after the viewer switches",
 
 test("activity sections keep same-numbered agents on different machines distinct", () => {
   const s = controller();
-  const other = new Machine(
-    transport(async () => ({})),
-    "work",
-    true,
-  );
+  const other = workMachine();
   s.adopt(other);
   const snapshot = (cwd: string) => {
     const value = folders(cwd);
@@ -6573,11 +6338,7 @@ test("a remote resource card sends signals and pane navigation to its owner", as
 test("switching machines during an awaited key discards the old batch's tail", async () => {
   const s = controller(),
     pending = Promise.withResolvers<void>();
-  const other = new Machine(
-    transport(async () => ({})),
-    "work",
-    true,
-  );
+  const other = workMachine();
   s.adopt(other);
   s.receiveSnapshot(folders("/local"));
   s.receiveSnapshot(folders("/remote"), other);

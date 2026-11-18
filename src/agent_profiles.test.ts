@@ -5,17 +5,17 @@ import { join } from "node:path";
 import * as profiles from "./agent_profiles";
 import * as accounts from "./accounts";
 import { Launch } from "./runtime";
+import { scopedEnv } from "./fixtures/env";
 
-let directory = "";
-const base = process.env.CORGI_ENV_BASE;
+let directory = "",
+  env: Disposable;
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "corgi-profiles-"));
-  process.env.CORGI_ENV_BASE = directory;
+  env = scopedEnv({ CORGI_ENV_BASE: directory });
   accounts.reset();
 });
 afterEach(() => {
-  if (base === undefined) delete process.env.CORGI_ENV_BASE;
-  else process.env.CORGI_ENV_BASE = base;
+  env[Symbol.dispose]();
   accounts.reset();
   rmSync(directory, { recursive: true, force: true });
 });

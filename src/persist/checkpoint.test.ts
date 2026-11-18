@@ -22,6 +22,7 @@ import { snapshot } from "../session";
 import { Tokens, View } from "../usage/live";
 import * as common from "../providers/common";
 import * as checklist from "../activity/checklist";
+import { FakeClient } from "../fixtures/headless_client";
 const fixtures = resolve(import.meta.dir, "../fixtures");
 const fresh = () => {
   const r = new Runtime(),
@@ -956,14 +957,7 @@ test.each([false, true])(
 );
 test("the Corgi prompt's sessions survive a handoff but never a cold recovery", async () => {
   const { Session } = await import("../headless");
-  const client = {
-    ready: true,
-    send() {},
-    take: () => [],
-    async wait() {},
-    close() {},
-    save: () => ({ state: null, handles: [] }),
-  };
+  const client = new FakeClient();
   using original = fresh();
   const prompt = new Session(1, "codex", "/tmp", client),
     agent = new Session(2, "codex", "/tmp", client);

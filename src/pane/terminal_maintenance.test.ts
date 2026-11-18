@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { n, ptr, symbols } from "../native_bridge";
 import { closeReadiness, Terminal } from "./terminal";
+import { until } from "../fixtures/until";
 
 test("maintenance preserves JSON tick state and leaves clipboard data held", () => {
   const tick = n.terminal_maintain;
@@ -103,15 +104,6 @@ test("readiness owns reads across maintenance pause resume and descriptor handof
   const send = (text: string) => {
     const bytes = Buffer.from(text);
     expect(n.probe_write(slave, ptr(bytes), bytes.length)).toBe(bytes.length);
-  };
-  const until = async (ready: () => boolean) => {
-    const deadline = Date.now() + 2000;
-    let done = ready();
-    while (!done && Date.now() < deadline) {
-      await Bun.sleep(5);
-      done = ready();
-    }
-    expect(done).toBe(true);
   };
   try {
     terminal.adopt(master, -1);

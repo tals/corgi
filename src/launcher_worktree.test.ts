@@ -7,31 +7,15 @@ import { Rect } from "./layout";
 import { Writer, displayWidth } from "./text";
 import { default_template } from "./worktree_folder";
 import type * as worktrees from "./worktrees";
+import { checkout } from "./fixtures/worktrees";
 
-const checkout = (path: string, branch: string, primary = false, total = 0): worktrees.Checkout => ({
-  path,
-  head: "4f1c2a9e0b",
-  branch: `refs/heads/${branch}`,
-  primary,
-  bare: false,
-  detached: false,
-  locked: null,
-  holder: null,
-  prunable: null,
-  available: true,
-  comparison: null,
-  changes: { total, staged: 0, modified: total, untracked: 0, conflicted: 0, added: 0, removed: 0 },
-  created: null,
-  edited: null,
-  stale: false,
-});
 const snapshot: worktrees.Snapshot = {
   common_dir: "/src/app/.git",
   base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
   entries: [
     checkout("/src/app/.claude/worktrees/fix", "worktree-fix", false, 1),
     checkout("/src/app", "main", true, 2),
-    checkout("/src/app-topic", "topic"),
+    checkout("/src/app-topic", "topic", false, 0),
   ],
   agents: [
     { target: { pane: 1 }, path: "/src/app-topic", source: "cwd", stale: false },
@@ -168,7 +152,10 @@ test("partial matches offer creation, exact names switch, and editing resumes fi
 test("reopening a planned worktree shows main even with more checkouts than fit", () => {
   const many = {
     ...snapshot,
-    entries: [...snapshot.entries, ...Array.from({ length: 10 }, (_, i) => checkout(`/src/other-${i}`, `other-${i}`))],
+    entries: [
+      ...snapshot.entries,
+      ...Array.from({ length: 10 }, (_, i) => checkout(`/src/other-${i}`, `other-${i}`, false, 0)),
+    ],
   };
   const c = new launcherWorktree.Chooser();
   c.planned = { branch: "next", base: "refs/heads/topic", base_name: "topic", path: "/src/app-next" };

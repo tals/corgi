@@ -5,6 +5,7 @@ import { join } from "node:path";
 import * as accounts from "./accounts";
 import * as i18n from "./i18n";
 import { parseInventory } from "./trackers/worktrees";
+import * as worktrees from "./fixtures/worktrees";
 import { Menu, Row, commandEntry, keyAgent, preview, resolution, returned } from "./agent_launcher";
 import { View as SidebarView } from "./sidebar";
 import { analyze } from "./launch/command";
@@ -309,15 +310,9 @@ test("single-line limit groups survive narrow terminal rendering", () => {
   }
   for (const cols of [60, 80, 100, 124]) {
     const side = SidebarView.init(cols, 24, true, 0, 0);
-    const w = new Writer();
-    m.draw(w, cols, 24, side);
-    const host = new Terminal(cols, 24);
-    host.feed(w.s);
-    const rendered = host.text();
-    host.destroy();
     const found = [0, 0];
     const rows: string[] = ["", ""];
-    for (const line of rendered.split("\n")) {
+    for (const line of screen(m, cols, 24, side)) {
       if (line.includes("Codex")) {
         found[0] += 1;
         rows[0] = line;
@@ -592,41 +587,10 @@ test("custom picker cells preserve account scope and permission state", () => {
 });
 
 test("the title names the worktree once, on a button that drops the checkouts and the new-worktree form", () => {
-  const checkout = (path: string, branch: string, primary: boolean) => ({
-    path,
-    head: "4f1c2a9e0b",
-    branch: `refs/heads/${branch}`,
-    primary,
-    bare: false,
-    detached: false,
-    locked: null,
-    holder: null,
-    prunable: null,
-    available: true,
-    comparison: null,
-    changes: null,
-    created: null,
-    edited: null,
-    stale: false,
-  });
   const m = menu({ cwd: "/src/app-topic" });
-  m.worktrees = {
-    common_dir: "/src/app/.git",
-    base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
-    entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
-    agents: [],
-    stale: false,
-  };
+  m.worktrees = worktrees.app();
   const side = SidebarView.init(100, 30, true, 0, 0);
-  const render = () => {
-    const w = new Writer();
-    m.draw(w, 100, 30, side);
-    const host = new Terminal(100, 30);
-    host.feed(w.s);
-    const text = host.text();
-    host.destroy();
-    return text;
-  };
+  const render = () => screen(m, 100, 30, side).join("\n");
   let text = render();
   expect(text).toContain("New agent  in    w  ⌥ topic ▾");
   expect(text).not.toContain("app-topic");

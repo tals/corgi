@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { Terminal, closeReadiness } from "./terminal";
 import { Theme } from "../theme";
 import { n } from "../native_bridge";
+import { until } from "../fixtures/until";
 const info = (t: Terminal) => t.native({ op: "info" });
 const pending = (t: Terminal) => t.native({ op: "takePending" }) as string;
 test("user input and terminal replies share an ordered bounded queue", () => {
@@ -213,7 +214,7 @@ test("a command exits only once its status arrives, not when its PTY hangs up", 
     while (!t.hung_up && !t.exited && Date.now() < deadline) t.read();
     expect(t.hung_up).toBe(true);
     expect(t.exited).toBe(false);
-    while (!t.exited && Date.now() < deadline) await Bun.sleep(10);
+    await until(() => t.exited, deadline - Date.now());
     expect(t.exit_status).toBe(3 << 8);
   } finally {
     t.destroy();

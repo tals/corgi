@@ -5,6 +5,7 @@ import { Style, colors, fg, fgRgb, bgRgb, mix, underline } from "./palette";
 import * as corgiAnimation from "./corgi_animation";
 import * as corgiFrames from "./corgi_frames";
 import { Terminal } from "./pane/terminal";
+import * as screen from "./fixtures/screen";
 import { View as ContextView } from "./usage/context_window";
 import * as agentSections from "./agent_sections";
 import * as sidebarRows from "./sidebar_rows";
@@ -75,13 +76,7 @@ const shifted = (bytes: string, columns: number) =>
 /** The herd's frame at `tick` on a row of the 28-column lists, without its colors. */
 const herd = (tick: number) => corgiAnimation.writeHerd(22, tick).replace(/\x1b\[[^m]*m/g, "");
 
-function hostText(bytes: string, cols = 100, rows = 30): string {
-  const host = new Terminal(cols, rows);
-  host.feed(bytes);
-  const text = host.text();
-  host.destroy();
-  return text;
-}
+const hostText = (bytes: string, cols = 100, rows = 30) => screen.text(bytes, cols, rows);
 const H = (tag: string, value?: number): Hit =>
   value === undefined ? ({ tag } as Hit) : ({ tag, [tag]: value } as Hit);
 const hot = work({ id: 1, known: true, cpu: 182, memory: 3n * 2n ** 30n, read: 0n, written: 0n, cpu_pressure: true });

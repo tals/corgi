@@ -1,6 +1,5 @@
 import { expect, setSystemTime, test } from "bun:test";
-import { Controller } from "./controller";
-import { transport } from "./fixtures/transport";
+import { attached, mouse, onePane } from "./fixtures/viewer";
 import * as gitTooltip from "./git_tooltip";
 import { workspaceEntry } from "./sidebar";
 import * as viewer from "./viewer";
@@ -33,42 +32,11 @@ test("the push card's rows are its heading, then two lines per commit", () => {
   expect(card.selected).toBe(2);
 });
 
-const mouse = (button: number, x: number, y: number) => Buffer.from(`\x1b[<${button};${x + 1};${y + 1}M`);
-
 test("hovering the push card shows a row's review dimmed, and Enter opens it", async () => {
-  const s = new Controller({
-    request: transport(async () => {
-      throw Error("UnexpectedRequest");
-    }).request,
-  });
-  s.width = 120;
-  s.height = 30;
-  s.input_state.attached = true;
-  s.receiveSnapshot({
-    workspaces: [
-      {
-        id: 1,
-        name: "test",
-        cwd: "/tmp",
-        git_ahead: 2,
-        git_commits: [commit("abc1234", "Grow"), commit("def5678", "Shrink")],
-        model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 },
-      },
-    ],
-    panes: [
-      {
-        id: 1,
-        workspace: 1,
-        tab: 1,
-        cols: 80,
-        rows: 29,
-        cwd: "/tmp",
-        agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
-      },
-    ],
-    conversations: [],
-    headless_sessions: [],
-  } as any);
+  const s = attached(120, 30);
+  s.receiveSnapshot(
+    onePane({ git_ahead: 2, git_commits: [commit("abc1234", "Grow"), commit("def5678", "Shrink")] }, { cwd: "/tmp" }),
+  );
   try {
     // The push label "↑2" ends the first workspace's row, at columns 24 and 25.
     setSystemTime(new Date(1000));

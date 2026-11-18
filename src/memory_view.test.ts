@@ -7,24 +7,7 @@ import { Memory } from "./prompt_memory";
 import { Rect } from "./layout";
 import { Writer } from "./text";
 import { flock } from "./native_bridge";
-
-/** The screen's text after replaying the cursor moves in `ansi`. */
-function screen(ansi: string, cols: number, rows: number): string[] {
-  const grid = Array.from({ length: rows }, () => Array(cols).fill(" "));
-  let x = 0,
-    y = 0;
-  for (const m of ansi.matchAll(/\x1b\[([\d;?]*)([A-Za-z])|\x1b\][^\x1b]*\x1b\\|([\s\S])/gu)) {
-    if (m[2] === "H") {
-      const [r, c] = (m[1] || "1;1").split(";").map(Number);
-      y = r - 1;
-      x = c - 1;
-    } else if (m[3] !== undefined) {
-      if (y < rows && x < cols) grid[y][x] = m[3];
-      x++;
-    }
-  }
-  return grid.map(row => row.join(""));
-}
+import * as screen from "./fixtures/screen";
 
 const folders: string[] = [];
 afterEach(() => {
@@ -46,7 +29,7 @@ function memory() {
 function draw(view: View, w = 70, h = 16): string[] {
   const out = new Writer();
   view.draw(out, new Rect(0, 0, w, h));
-  return screen(out.s, w, h).map(l => l.trimEnd());
+  return screen.lines(out.s, w, h).map(l => l.trimEnd());
 }
 const type = (view: View, text: string) => {
   for (const c of text) view.key(c.charCodeAt(0));

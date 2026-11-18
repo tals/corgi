@@ -1,5 +1,6 @@
 import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { createServer, type Server as SocketServer, type Socket } from "./fixtures/websocket_server";
+import { lines } from "./fixtures/lines";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,13 +11,14 @@ import * as sidebar from "./sidebar";
 import * as subagentTooltip from "./subagent_tooltip";
 import * as json from "./json";
 import * as protocol from "./protocol";
-import { Runtime, Pane } from "./runtime";
+import { Runtime } from "./runtime";
 import { Workspace } from "./workspace";
-import { Terminal } from "./pane/terminal";
 import { Text, type Agent as DaemonAgent } from "./agents";
 import { snapshot } from "./session";
 import { Controller } from "./controller";
 import { transport } from "./fixtures/transport";
+import { addPane } from "./fixtures/runtime";
+import { until } from "./fixtures/until";
 
 /** A daemon with two workspaces: three agents and a shell in "api", none in "docs". */
 function daemon() {
@@ -25,11 +27,7 @@ function daemon() {
     docs = new Workspace(2, "/tmp", "docs");
   r.workspaces.items = [api, docs];
   const open = (fields: Partial<DaemonAgent> = {}, name = "", activity = "") => {
-    api.model.next_id = r.workspaces.next_pane_id;
-    const id = api.model.newTab("");
-    r.workspaces.next_pane_id = api.model.next_id;
-    const p = new Pane(id, Terminal.create(20, 4), "/tmp");
-    r.panes.push(p);
+    const p = addPane(r, api);
     Object.assign(p.agent(), fields, { name: new Text(name) });
     if (activity) p.agent().activity = new Text(activity);
     return p;
@@ -374,16 +372,10 @@ class FakeDaemon {
   ) {
     this.server = createServer(socket => {
       this.clients.push(socket);
-      let buffer = "";
-      socket.setEncoding("utf8");
-      socket.on("data", chunk => {
-        buffer += chunk;
-        for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
-          const request = JSON.parse(buffer.slice(0, end));
-          buffer = buffer.slice(end + 1);
-          const reply = { ...this.reply(request), request_id: request.request_id };
-          socket.write([reply, ...this.along.splice(0)].map(v => JSON.stringify(v) + "\n").join(""));
-        }
+      lines(socket, line => {
+        const request = JSON.parse(line),
+          reply = { ...this.reply(request), request_id: request.request_id };
+        socket.write([reply, ...this.along.splice(0)].map(v => JSON.stringify(v) + "\n").join(""));
       });
       socket.on("error", () => {});
     });
@@ -445,7 +437,7 @@ function watching(path: string, intensity: () => number = () => 1) {
     lines,
     failed: () => failed,
     async next(count: number) {
-      for (let i = 0; i < 200 && lines.length < count && failed === null; i++) await Bun.sleep(10);
+      await until(() => lines.length >= count || failed !== null, 2000);
       if (failed !== null) throw failed;
       expect(lines.length).toBe(count);
       return lines[count - 1];
@@ -559,7 +551,7 @@ test("a daemon that refuses the subscription ends the watch", async () => {
   cleanup.push(() => fake.stop());
   await fake.listen();
   const w = watching(path);
-  for (let i = 0; i < 100 && w.failed() === null; i++) await Bun.sleep(10);
+  await until(() => w.failed() !== null, 1000);
   expect((w.failed() as Error).message).toBe("UnsupportedProtocol");
   expect(w.lines).toEqual([]);
 });
@@ -577,7 +569,7 @@ test("a daemon that hangs up on the subscription gets the grace period before it
 
 test("a socket that can't be opened for another reason ends the watch", async () => {
   const w = watching(join(folder(), "x".repeat(300)));
-  for (let i = 0; i < 100 && w.failed() === null; i++) await Bun.sleep(10);
+  await until(() => w.failed() !== null, 1000);
   expect((w.failed() as any)?.code).toBe("ENAMETOOLONG");
   expect(w.lines).toEqual([]);
 });

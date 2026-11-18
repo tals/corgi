@@ -599,6 +599,26 @@ test("real file usage reader accepts large Codex metadata and counts later activ
   }
 });
 
+/** A Claude message's line that used `input` and `output` tokens. */
+const usageLine = (id: string, input: number, output: number) =>
+  JSON.stringify({
+    type: "assistant",
+    sessionId: "s",
+    timestamp: "1970-01-01T00:00:02.000Z",
+    message: { id, usage: { input_tokens: input, output_tokens: output } },
+  }) + "\n";
+/** A tail that has counted the first message of a Claude transcript in `root`. */
+async function counting(root: string) {
+  const file = join(root, "s.jsonl"),
+    req = request("claude"),
+    tail = new Tail();
+  writeFileSync(file, usageLine("m1", 7, 1));
+  req.agent.session = new Text("s");
+  req.agent.transcript = new Path(file);
+  tail.actor = 1;
+  await tail.poll(req, reader(req));
+  return { file, req, tail };
+}
 /** Carries `tail` through a handoff and returns the next daemon's tail. */
 async function handOver(tail: Tail) {
   const before = new Worker();
@@ -610,22 +630,8 @@ async function handOver(tail: Tail) {
 test("a handoff's usage tail counts on from where the last daemon stopped", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-usage-"));
   try {
-    const file = join(root, "s.jsonl"),
-      line = (id: string, input: number, output: number) =>
-        JSON.stringify({
-          type: "assistant",
-          sessionId: "s",
-          timestamp: "1970-01-01T00:00:02.000Z",
-          message: { id, usage: { input_tokens: input, output_tokens: output } },
-        }) + "\n";
-    writeFileSync(file, line("m1", 7, 1));
-    const req = request("claude");
-    req.agent.session = new Text("s");
-    req.agent.transcript = new Path(file);
-    const tail = new Tail();
-    tail.actor = 1;
-    await tail.poll(req, reader(req));
-    appendFileSync(file, line("m2", 10, 2) + `{"type":"assistant","sessionId":"s"`);
+    const { file, req, tail } = await counting(root);
+    appendFileSync(file, usageLine("m2", 10, 2) + `{"type":"assistant","sessionId":"s"`);
     await tail.poll(req, reader(req));
     expect(tail.live.meter.value.tokens.input).toBe(10n);
     const next = await handOver(tail);
@@ -636,11 +642,11 @@ test("a handoff's usage tail counts on from where the last daemon stopped", asyn
     expect(after.live.meter.value.tokens.input).toBe(30n);
     expect(after.live.meter.value.tokens.output).toBe(5n);
     expect(after.live.meter.value.partial).toBe(false);
-    appendFileSync(file, line("m4", 1, 1));
+    appendFileSync(file, usageLine("m4", 1, 1));
     await after.poll(req, reader(req));
     expect(after.live.meter.value.tokens.input).toBe(31n);
     const moved = join(root, "moved.jsonl");
-    writeFileSync(moved, line("m1", 7, 1));
+    writeFileSync(moved, usageLine("m1", 7, 1));
     req.agent.transcript = new Path(moved);
     const replaced = next();
     await replaced.poll(req, reader(req));
@@ -822,26 +828,12 @@ test("a handoff keeps the tools a turn ran and finished", async () => {
 test("a handoff from an older build counts on from where it stopped counting", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-usage-"));
   try {
-    const file = join(root, "s.jsonl"),
-      line = (id: string, input: number, output: number) =>
-        JSON.stringify({
-          type: "assistant",
-          sessionId: "s",
-          timestamp: "1970-01-01T00:00:02.000Z",
-          message: { id, usage: { input_tokens: input, output_tokens: output } },
-        }) + "\n";
-    writeFileSync(file, line("m1", 7, 1));
-    const req = request("claude");
-    req.agent.session = new Text("s");
-    req.agent.transcript = new Path(file);
-    const tail = new Tail();
-    tail.actor = 1;
-    await tail.poll(req, reader(req));
-    appendFileSync(file, line("m2", 10, 2));
+    const { file, req, tail } = await counting(root);
+    appendFileSync(file, usageLine("m2", 10, 2));
     await tail.poll(req, reader(req));
     // What builds before whole tails carried.
     const saved = json.clone([{ actor: 1, meter: tail.live.meter, position: tail.position() }]);
-    appendFileSync(file, line("m3", 20, 3));
+    appendFileSync(file, usageLine("m3", 20, 3));
     const after = Worker.restore(saved).watchers.get(1)!;
     await after.poll(req, reader(req));
     expect(after.live.meter.value.tokens.input).toBe(30n);

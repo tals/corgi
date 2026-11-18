@@ -1,7 +1,7 @@
 import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { State, geometry, copyAt, draw, filePath } from "./link_tooltip";
-import { Controller } from "./controller";
-import { transport } from "./fixtures/transport";
+import type { Controller } from "./controller";
+import { attached, mouse, onePane } from "./fixtures/viewer";
 import * as viewer from "./viewer";
 import * as viewerNative from "./viewer_native";
 import * as native from "./native_ffi";
@@ -99,37 +99,9 @@ test("both link popover labels keep the right border aligned and stay inside the
 
 const url = "https://example.com/docs";
 function linkViewer(output = url, host: "pane" | "signin" = "pane") {
-  const s = new Controller({
-    request: transport(async () => {
-      throw Error("UnexpectedRequest");
-    }).request,
-  });
-  s.width = 100;
-  s.height = 30;
+  const s = attached(100, 30);
   s.sidebar_open = false;
-  s.input_state.attached = true;
-  s.receiveSnapshot({
-    workspaces: [
-      {
-        id: 1,
-        name: "test",
-        cwd: "/tmp",
-        model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 },
-      },
-    ],
-    panes: [
-      {
-        id: 1,
-        workspace: 1,
-        tab: 1,
-        cols: 100,
-        rows: 29,
-        agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
-      },
-    ],
-    conversations: [],
-    headless_sessions: [],
-  });
+  s.receiveSnapshot(onePane({}, { cols: 100 }));
   if (host === "signin") {
     const signin = new Signin(true, false, { changed() {}, done() {} });
     signin.provider = "claude";
@@ -154,8 +126,6 @@ function close(s: Controller) {
   s.signin = null;
   viewer.close(s);
 }
-const mouse = (button: number, x: number, y: number, release = false) =>
-  Buffer.from(`\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`);
 
 test.each(["pane", "signin"] as const)(
   "%s link popover waits, stays reachable, copies, and confirms inline",

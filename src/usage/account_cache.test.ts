@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { State, Cache } from "./account_cache";
 import { Info, Window, expired } from "./account";
 import { Text } from "../providers/common";
+import { scopedEnv } from "../fixtures/env";
 const monthly = {
   used_minor: 59,
   limit_minor: 1000000,
@@ -38,9 +39,8 @@ test("partial account refresh retains usage until a fresh reading or sign-out", 
   expect(s.info.limits).toBe("none");
 });
 test("locked account cache restores metadata and discards obsolete fetch state", async () => {
-  const dir = mkdtempSync(tmpdir() + "/corgi-ts-cache-"),
-    prior = process.env.XDG_STATE_HOME;
-  process.env.XDG_STATE_HOME = dir;
+  const dir = mkdtempSync(tmpdir() + "/corgi-ts-cache-");
+  using env = scopedEnv({ XDG_STATE_HOME: dir });
   try {
     const c = await Cache.open("claude", "user");
     c.state.info.account = new Text("user");
@@ -58,8 +58,6 @@ test("locked account cache restores metadata and discards obsolete fetch state",
     expect(next.state.display(1700000000).usage_error.text()).toBe("");
     next.close();
   } finally {
-    if (prior === undefined) delete process.env.XDG_STATE_HOME;
-    else process.env.XDG_STATE_HOME = prior;
     rmSync(dir, { recursive: true, force: true });
   }
 });

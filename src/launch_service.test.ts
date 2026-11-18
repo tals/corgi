@@ -11,24 +11,31 @@ import * as accounts from "./accounts";
 import * as discovery from "./discovery";
 import * as integration from "./integration";
 import * as os from "./os";
+import { scopedEnv } from "./fixtures/env";
 /** A runtime's launcher list with nothing taken out. */
 const nothingRemoved = () => ({
   agent_hidden: byProvider(() => false),
   account_hidden: [] as string[],
   agent_commands: [] as Entry[],
 });
+/** A viewer's connection queueing what it is sent to `messages`, subscribed to `preview` in `cwd` when given. */
+function subscriber(messages: unknown[], preview: Preview | null = null, cwd = "/tmp"): any {
+  return {
+    dead: false,
+    output: Buffer.alloc(0),
+    queue: (value: unknown) => messages.push(value),
+    launch_preview: preview && { cwd, preview, checked: 0, history_asked: false, history_epoch: 0n, history_sent: 0n },
+  };
+}
 // Previews list the user's accounts; these tests see none.
-const saved = { HOME: process.env.HOME, CORGI_ENV_BASE: process.env.CORGI_ENV_BASE },
-  home = mkdtempSync(join(tmpdir(), "corgi-launch-service-"));
+const home = mkdtempSync(join(tmpdir(), "corgi-launch-service-"));
+let env: Disposable;
 beforeAll(() => {
-  process.env.HOME = home;
-  process.env.CORGI_ENV_BASE = home;
+  env = scopedEnv({ HOME: home, CORGI_ENV_BASE: home });
   accounts.reset();
 });
 afterAll(() => {
-  for (const [key, value] of Object.entries(saved))
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
+  env[Symbol.dispose]();
   accounts.reset();
   rmSync(home, { recursive: true, force: true });
 });
@@ -79,14 +86,8 @@ test("cached previews neither create jobs nor refresh old ones", async () => {
 test("new preview subscribers refresh sign-in after a pending pass", async () => {
   const server: any = { runtime: { ...nothingRemoved(), getWorkspace: () => ({ cwd: "/tmp" }) } },
     messages: any[] = [],
-    client = (): any => ({
-      dead: false,
-      output: Buffer.alloc(0),
-      queue: (v: any) => messages.push(v),
-      launch_preview: null,
-    }),
-    first = client(),
-    second = client(),
+    first = subscriber(messages),
+    second = subscriber(messages),
     s = service(server),
     before = new Preview();
   before.pending = false;
@@ -154,24 +155,11 @@ test("new preview subscribers refresh sign-in after a pending pass", async () =>
 test("preview subscriptions schedule stale refreshes and publish completion without another request", () => {
   const server: any = {},
     messages: any[] = [],
-    client: any = {
-      dead: false,
-      output: Buffer.alloc(0),
-      queue: (v: any) => messages.push(v),
-      launch_preview: null,
-    },
     s = service(server),
     before = new Preview();
   before.pending = false;
   before.options.claude.model = new Text("before");
-  client.launch_preview = {
-    cwd: "/",
-    preview: before,
-    checked: 0,
-    history_asked: false,
-    history_epoch: 0n,
-    history_sent: 0n,
-  };
+  const client = subscriber(messages, before, "/");
   s.launch_previews.pump = async () => {};
   s.launch_previews.jobs = [
     {
@@ -223,19 +211,7 @@ test("restored preview subscriptions restart their workers without a new request
     before = new Preview();
   before.pending = false;
   before.options.claude.model = new Text("before reload");
-  const client: any = {
-    dead: false,
-    output: Buffer.alloc(0),
-    queue: (value: any) => messages.push(value),
-    launch_preview: {
-      cwd: "/tmp",
-      preview: before,
-      checked: 0,
-      history_asked: false,
-      history_epoch: 0n,
-      history_sent: 0n,
-    },
-  };
+  const client = subscriber(messages, before);
   const pump = PreviewWorker.prototype.pump;
   PreviewWorker.prototype.pump = async () => {};
   try {
@@ -299,12 +275,7 @@ test("unchanged preview identities skip serialization and equal replacements bec
     messages: any[] = [],
     s = service(server);
   let preview = new Preview().with({ pending: false });
-  const client: any = {
-    dead: false,
-    output: Buffer.alloc(0),
-    queue: (value: any) => messages.push(value),
-    launch_preview: { cwd: "/tmp", preview, checked: 0, history_asked: false, history_epoch: 0n, history_sent: 0n },
-  };
+  const client = subscriber(messages, preview);
   s.launch_previews.preview = () => preview;
   const serialize = spyOn(preview.options.codex, "toJSON"),
     check = () => {
@@ -340,19 +311,7 @@ test("a pending preview the worker hasn't replaced skips serialization", async (
     s = service(server);
   const sent = new Preview().with({ pending: false }),
     pending = new Preview().with({ pending: true });
-  const client: any = {
-    dead: false,
-    output: Buffer.alloc(0),
-    queue: (value: any) => messages.push(value),
-    launch_preview: {
-      cwd: "/tmp",
-      preview: sent,
-      checked: 0,
-      history_asked: false,
-      history_epoch: 0n,
-      history_sent: 0n,
-    },
-  };
+  const client = subscriber(messages, sent);
   s.launch_previews.preview = () => pending;
   const check = () => {
     client.launch_preview.checked = 0;
@@ -379,19 +338,7 @@ test("a subscription is due only while the worker holds a preview it wasn't sent
     s = service(server);
   s.launch_previews.pump = async () => {};
   const sent = new Preview().with({ pending: false }),
-    client: any = {
-      dead: false,
-      output: Buffer.alloc(0),
-      queue: (value: any) => messages.push(value),
-      launch_preview: {
-        cwd: "/tmp",
-        preview: sent,
-        checked: 0,
-        history_asked: false,
-        history_epoch: 0n,
-        history_sent: 0n,
-      },
-    },
+    client = subscriber(messages, sent),
     job = { cwd: "/tmp", preview: sent, updated: 0, used: 0, queued: false, accessing: false, request_access: false };
   s.launch_previews.jobs = [job];
   s.launch_previews.preview = () => job.preview;

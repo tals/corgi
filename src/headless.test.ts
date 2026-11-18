@@ -19,6 +19,7 @@ import * as accounts from "./accounts";
 import { chatFlag } from "./prompt_tools";
 import * as json from "./json";
 import * as protocol from "./protocol";
+import { scopedEnv } from "./fixtures/env";
 import type { Runtime } from "./runtime";
 import type { Server } from "./server";
 import type { Client as Peer } from "./peer";
@@ -29,29 +30,11 @@ import { clone } from "./json";
 import { Tokens } from "./usage/live";
 import { Stdio } from "./providers/stdio";
 import { Codex } from "./providers/codex/headless";
-import { max_image_bytes, type Client, type Event, type Input, type Saved } from "./providers/adapter";
+import { max_image_bytes, type Event } from "./providers/adapter";
+import { FakeClient } from "./fixtures/headless_client";
 /** A client that plays back the events a test gives it. */
-class Fake implements Client {
-  ready = true;
-  closed = false;
-  sent: Input[] = [];
-  queued: Event[] = [];
-  send(input: Input) {
-    this.sent.push(input);
-  }
-  take() {
-    return this.queued.splice(0);
-  }
-  async wait() {}
-  close() {
-    this.closed = true;
-  }
-  save(): Saved {
-    return { state: null, handles: [] };
-  }
-}
 function session(provider: "codex" | "claude" = "codex") {
-  return new Session(1, provider, "/tmp", new Fake());
+  return new Session(1, provider, "/tmp", new FakeClient());
 }
 function start(s: Session, registry: Registry, thread: string, turn: string) {
   return s.apply(registry, { kind: "turn", session: thread, turn, phase: "started" });
@@ -76,7 +59,7 @@ const approval = (session: string, id: string): Event => ({
 });
 test("native activity follows its headless turn without changing approvals or reopening completion", () => {
   const registry = new Registry(),
-    s = new Session(1, "omp", "/tmp", new Fake());
+    s = new Session(1, "omp", "/tmp", new FakeClient());
   shown(s, registry, "a");
   start(s, registry, "a", "turn");
   const actor = registry.find("omp", "a")!;
@@ -104,7 +87,7 @@ test("native activity follows its headless turn without changing approvals or re
 
 test("a session hurries the daemon only while it starts, works, or was just sent something", () => {
   const registry = new Registry(),
-    client = new Fake(),
+    client = new FakeClient(),
     s = new Session(1, "codex", "/tmp", client),
     later = 1e15;
   expect(s.urgent(later)).toBe(false);
@@ -157,7 +140,7 @@ test("headless approval replies target their original conversation and duplicate
   shown(s, registry, "b");
   s.apply(registry, approval("b", "10"));
   s.send({ kind: "answer", request: "9", allow: true });
-  expect((s.client as Fake).sent).toEqual([{ kind: "answer", request: "9", allow: true, message: undefined }]);
+  expect((s.client as FakeClient).sent).toEqual([{ kind: "answer", request: "9", allow: true, message: undefined }]);
   expect(registry.find("codex", "a")!.state.state).toBe("working");
   expect(registry.find("codex", "b")!.state.state).toBe("blocked");
   expect(s.attention()).toBe("needs_input");
@@ -428,7 +411,7 @@ for (const failure of ["exit", "timeout"] as const)
     finishStarts(p.server, failure === "exit" ? 0 : 1000);
     expect(p.replies).toEqual([{ err: failure === "exit" ? "HeadlessExited" : "HeadlessStartTimeout" }]);
     expect(p.server.runtime.sessions).toEqual([]);
-    expect((s.client as Fake).closed).toBe(true);
+    expect((s.client as FakeClient).closed).toBe(true);
     expect(p.completed()).toBe(1);
   });
 
@@ -448,8 +431,8 @@ test("headless commands route by both provider and session and cannot switch ide
       input: { kind: "prompt", text: "hello" },
     },
   });
-  expect((codex.client as Fake).sent).toEqual([]);
-  expect((claude.client as Fake).sent).toEqual([{ kind: "prompt", text: "hello", session: "same-id" }]);
+  expect((codex.client as FakeClient).sent).toEqual([]);
+  expect((claude.client as FakeClient).sent).toEqual([{ kind: "prompt", text: "hello", session: "same-id" }]);
   await expect(
     request(p.server, p.peer, {
       op: "headless.send",
@@ -517,7 +500,7 @@ test("a partial replaces the one before it, so streaming never evicts real event
 test("a poll keeps only the newest of a run of partials", () => {
   const registry = new Registry(),
     s = session();
-  (s.client as Fake).queued.push(
+  (s.client as FakeClient).queued.push(
     { kind: "partial", session: "a", text: "1" },
     { kind: "partial", session: "a", text: "12" },
     { kind: "partial", session: "a", text: "123" },
@@ -528,7 +511,7 @@ test("a poll keeps only the newest of a run of partials", () => {
 });
 test("a tool's name and summary are kept as one short line, relative to the session's folder", () => {
   const registry = new Registry(),
-    s = new Session(1, "claude", "/repo", new Fake());
+    s = new Session(1, "claude", "/repo", new FakeClient());
   start(s, registry, "a", "t");
   const tool = (id: string, summary: string): Event => ({
     kind: "tool",
@@ -564,13 +547,10 @@ test("a start asks for a known effort and account, and leaves out what it doesn'
     persist: false,
   });
   expect(() => start({ effort: "turbo" })).toThrow("InvalidEffort");
-  const saved = { ...process.env },
-    home = realpathSync(mkdtempSync(join(tmpdir(), "corgi-headless-accounts-"))),
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "corgi-headless-accounts-"))),
     work = join(home, ".claude-work");
+  using env = scopedEnv({ HOME: home, CORGI_ENV_BASE: join(home, "state"), CLAUDE_CONFIG_DIR: undefined });
   try {
-    process.env.HOME = home;
-    process.env.CORGI_ENV_BASE = join(home, "state");
-    delete process.env.CLAUDE_CONFIG_DIR;
     mkdirSync(work);
     mkdirSync(join(home, "state", "corgi"), { recursive: true });
     writeFileSync(
@@ -588,9 +568,6 @@ test("a start asks for a known effort and account, and leaves out what it doesn'
       startOptions(protocol.decode("headless.start", { provider: "opencode2", prompt: "hi", account: work })),
     ).toThrow("HeadlessAccountUnsupported");
   } finally {
-    for (const key of ["HOME", "CORGI_ENV_BASE", "CLAUDE_CONFIG_DIR"])
-      if (saved[key] === undefined) delete process.env[key];
-      else process.env[key] = saved[key];
     accounts.reset();
     rmSync(home, { recursive: true, force: true });
   }
@@ -624,7 +601,7 @@ test("a session that exits says so once in its journal", () => {
   const registry = new Registry(),
     s = session();
   shown(s, registry, "a");
-  (s.client as Fake).queued.push({ kind: "ended" });
+  (s.client as FakeClient).queued.push({ kind: "ended" });
   s.poll(registry);
   expect(s.events.some(e => e.event.kind === "ended")).toBe(false);
   expect(s.reap()).toBe(true);
@@ -665,7 +642,7 @@ test("the prompt's ended sessions go once their end is read, or a minute after",
   });
   expect((p.replies[0] as any).events.at(-1).event).toEqual({ kind: "ended" });
   expect(p.server.runtime.sessions).toEqual([unread, ordinary, running]);
-  expect((read.client as Fake).closed).toBe(true);
+  expect((read.client as FakeClient).closed).toBe(true);
   // A reader that fetched only what came before the end hasn't seen it.
   await request(p.server, p.peer, {
     op: "headless.events",
@@ -697,7 +674,7 @@ test("a prompt session left unread while a viewer is attached stops, unless a pa
   until(now + unread_ms, true);
   expect(retire(runtime, true, now)).toBe(true);
   expect(runtime.sessions).toEqual([held, ordinary]);
-  expect((left.client as Fake).closed).toBe(true);
+  expect((left.client as FakeClient).closed).toBe(true);
 });
 test("reading from a pane claims the session for it", async () => {
   const registry = new Registry(),

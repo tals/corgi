@@ -11,14 +11,8 @@ import { Probe } from "./terminal_info";
 import * as socket_server from "./socket_server";
 import * as viewer from "./viewer_protocol";
 import * as protocol from "./protocol";
+import { until } from "./fixtures/until";
 
-async function until(done: () => boolean) {
-  const end = performance.now() + 3000;
-  while (!done()) {
-    if (performance.now() >= end) throw Error("TestTimedOut");
-    await Bun.sleep(2);
-  }
-}
 function fixture() {
   const directory = mkdtempSync("/tmp/corgi-viewer-data-"),
     path = directory + "/s",

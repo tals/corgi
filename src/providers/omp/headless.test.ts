@@ -1,17 +1,9 @@
 import { test, expect } from "bun:test";
 import { Omp, messageIntent, nativeIntent, summaryArgs } from "./headless";
 import { Pi } from "../pi/headless";
-import type { Stdio } from "../stdio";
+import { stdio } from "../../fixtures/stdio";
 function client(ready = true) {
-  const lines: unknown[] = [],
-    written: unknown[] = [];
-  const io = {
-    exited: false,
-    pid: -1,
-    read: () => lines.splice(0),
-    write: (v: unknown) => written.push(v),
-    save: () => ({ state: {}, handles: [] }),
-  } as unknown as Stdio;
+  const { io, lines, written } = stdio();
   const c = new Omp(io, "/tmp");
   if (ready) {
     lines.push(

@@ -17,6 +17,7 @@ import * as session from "./session";
 import * as worktreeAdd from "./worktree_add";
 import * as link from "./link";
 import * as client_socket from "./fixtures/client_socket";
+import { scopedEnv } from "./fixtures/env";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -24,6 +25,28 @@ function fixture() {
     dispose: () => {
       server.runtime.destroy();
       (server as any).loop.close();
+    },
+  };
+}
+/** A daemon whose model reads wait until the test settles `pending`, and a
+ * client whose requests wait until it resumes. */
+function modelReads() {
+  const { server, dispose } = fixture(),
+    pending = Promise.withResolvers<agentModels.Choice[]>(),
+    reader = spyOn(agentModels, "read").mockReturnValue(pending.promise),
+    socket = new client_socket.Recorder(),
+    cl = server.addClient(socket, false);
+  return {
+    server,
+    pending,
+    reader,
+    socket,
+    cl,
+    close() {
+      pending.resolve([]);
+      reader.mockRestore();
+      cl.close();
+      dispose();
     },
   };
 }
@@ -466,11 +489,7 @@ test("model requests use their workspace or cwd and keep legacy requests valid",
 });
 
 test("a model read doesn't hold its connection, and requests for the same list share it", async () => {
-  const { server, dispose } = fixture(),
-    pending = Promise.withResolvers<agentModels.Choice[]>(),
-    reader = spyOn(agentModels, "read").mockReturnValue(pending.promise),
-    socket = new client_socket.Recorder(),
-    cl = server.addClient(socket, false);
+  const { server, pending, reader, socket, cl, close } = modelReads();
   try {
     cl.pending.push(
       { op: "launcher.models", row: "codex", protocol: protocol.version, request_id: 17 },
@@ -488,10 +507,7 @@ test("a model read doesn't hold its connection, and requests for the same list s
       { ok: true, models: [{ id: "gpt", name: "GPT" }], request_id: 18 },
     ]);
   } finally {
-    pending.resolve([]);
-    reader.mockRestore();
-    cl.close();
-    dispose();
+    close();
   }
 });
 
@@ -531,11 +547,7 @@ test("pending model discovery releases the shared request queue", async () => {
 
 for (const failure of [false, true]) {
   test(`model discovery preserves pipelined reply order on ${failure ? "failure" : "success"}`, async () => {
-    const { server, dispose } = fixture(),
-      pending = Promise.withResolvers<agentModels.Choice[]>(),
-      reader = spyOn(agentModels, "read").mockReturnValue(pending.promise),
-      socket = new client_socket.Recorder(),
-      cl = server.addClient(socket, false);
+    const { server, pending, reader, socket, cl, close } = modelReads();
     try {
       cl.pending.push(
         { op: "launcher.models", row: "codex", protocol: protocol.version },
@@ -564,9 +576,7 @@ for (const failure of [false, true]) {
     } finally {
       pending.resolve([]);
       await (server as any).jobs;
-      reader.mockRestore();
-      cl.close();
-      dispose();
+      close();
     }
   });
 }
@@ -576,11 +586,7 @@ for (const [request_id, failure] of [
   [41, true],
 ] as const) {
   test(`a handoff cancels a ${request_id ? "tagged" : "untagged"} model read and ignores its late ${failure ? "failure" : "success"}`, async () => {
-    const { server, dispose } = fixture(),
-      pending = Promise.withResolvers<agentModels.Choice[]>(),
-      reader = spyOn(agentModels, "read").mockReturnValue(pending.promise),
-      socket = new client_socket.Recorder(),
-      cl = server.addClient(socket, false);
+    const { server, pending, reader, socket, cl, close } = modelReads();
     try {
       cl.pending.push(
         {
@@ -612,10 +618,7 @@ for (const [request_id, failure] of [
       expect(replies).toHaveLength(2);
       expect(replies.filter(r => r.ok)).toHaveLength(1);
     } finally {
-      pending.resolve([]);
-      reader.mockRestore();
-      cl.close();
-      dispose();
+      close();
     }
   });
 }
@@ -666,9 +669,8 @@ test("startup waits are shared, cancellable, and removed when their reporter dis
 test("a numbered command sent again over a link gets its reply without running twice", async () => {
   const { server, dispose } = fixture();
   // The new workspace is saved; keep it out of the user's state.
-  const state = mkdtempSync(join(tmpdir(), "corgi-link-state-")),
-    env = process.env.CORGI_ENV_DIR;
-  process.env.CORGI_ENV_DIR = state;
+  const state = mkdtempSync(join(tmpdir(), "corgi-link-state-"));
+  using env = scopedEnv({ CORGI_ENV_DIR: state });
   try {
     const cl = server.addClient(null, false),
       queued = spyOn(cl, "queue");
@@ -689,8 +691,6 @@ test("a numbered command sent again over a link gets its reply without running t
     expect(replies[1].ok).toBe(true);
   } finally {
     await (server as any).workspaceWrites;
-    if (env === undefined) delete process.env.CORGI_ENV_DIR;
-    else process.env.CORGI_ENV_DIR = env;
     dispose();
     rmSync(state, { recursive: true, force: true });
   }

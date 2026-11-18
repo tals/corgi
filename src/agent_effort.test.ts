@@ -1,5 +1,5 @@
 import { test, expect, spyOn } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { WantedEffort, advance } from "./agent_effort";
 import { Launch, Pane, Runtime } from "./runtime";
@@ -8,6 +8,7 @@ import { Terminal } from "./pane/terminal";
 import { Workspace } from "./workspace";
 import * as checkpoint from "./persist/checkpoint";
 import * as json from "./json";
+import * as codexServer from "./fixtures/codex_server";
 async function settled(wanted: WantedEffort) {
   while (wanted.busy) await Bun.sleep(2);
 }
@@ -16,33 +17,19 @@ function sharedServer(account: string) {
   const loaded = new Set<string>(),
     efforts = new Map<string, string>(),
     updates: unknown[] = [];
-  mkdirSync(account + "/app-server-control");
-  const server = Bun.serve({
-    unix: account + "/app-server-control/app-server-control.sock",
-    fetch(req, server) {
-      return server.upgrade(req) ? undefined : new Response("bad", { status: 400 });
-    },
-    websocket: {
-      message(ws, message) {
-        const value = JSON.parse(String(message)),
-          thread = value.params?.threadId;
-        if (!value.id) return;
-        if (value.method === "thread/settings/update") {
-          updates.push(value.params);
-          efforts.set(thread, value.params.effort);
-        }
-        const type = loaded.has(thread) ? "idle" : "notLoaded";
-        ws.send(
-          JSON.stringify({
-            id: value.id,
-            result:
-              value.method === "thread/loaded/list"
-                ? { data: [...loaded], nextCursor: null }
-                : { thread: { status: { type }, reasoningEffort: efforts.get(thread) ?? null } },
-          }),
-        );
-      },
-    },
+  const server = codexServer.serve(account + "/app-server-control/app-server-control.sock", ({ method, params }) => {
+    const thread = params?.threadId;
+    if (method === "thread/settings/update") {
+      updates.push(params);
+      efforts.set(thread, params.effort);
+    }
+    const type = loaded.has(thread) ? "idle" : "notLoaded";
+    return {
+      result:
+        method === "thread/loaded/list"
+          ? { data: [...loaded], nextCursor: null }
+          : { thread: { status: { type }, reasoningEffort: efforts.get(thread) ?? null } },
+    };
   });
   return { server, loaded, efforts, updates };
 }

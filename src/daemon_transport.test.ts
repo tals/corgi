@@ -1,10 +1,30 @@
 import { test, expect } from "bun:test";
-import { createServer, type Socket } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { nativeRoot } from "./native_paths";
 import { Preamble } from "./daemon_transport";
+import { until } from "./fixtures/until";
 
 const marker = Buffer.from("\ncorgi-bridge-v1\n");
+
+/** The native bridge, run with piped stdio, to `server` listening on a fresh socket. */
+async function bridge(server: Server) {
+  const dir = mkdtempSync("/tmp/corgi-bridge-test-");
+  await new Promise<void>(resolve => server.listen(dir + "/s", resolve));
+  const child = Bun.spawn([nativeRoot + "/bin/corgi-remote-bridge", dir + "/s"], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    child,
+    close() {
+      child.kill();
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
 
 test("bridge framing discards fragmented banners and preserves binary bytes", async () => {
   const stream = new Preamble();
@@ -29,7 +49,6 @@ test("bridge framing rejects unbounded banners and early EOF", async () => {
 });
 
 test("native bridge carries binary data and drains replies after stdin EOF", async () => {
-  const dir = mkdtempSync("/tmp/corgi-bridge-test-");
   const input = Buffer.alloc(512 * 1024);
   for (let i = 0; i < input.length; i++) input[i] = i % 256;
   const received: Buffer[] = [];
@@ -37,12 +56,7 @@ test("native bridge carries binary data and drains replies after stdin EOF", asy
     socket.on("data", chunk => received.push(Buffer.from(chunk)));
     socket.on("end", () => socket.end(Buffer.concat([Buffer.concat(received), Buffer.from("tail")])));
   });
-  await new Promise<void>(resolve => server.listen(dir + "/s", resolve));
-  const child = Bun.spawn([nativeRoot + "/bin/corgi-remote-bridge", dir + "/s"], {
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const { child, close } = await bridge(server);
   try {
     const output = new Response(child.stdout).arrayBuffer();
     child.stdin.write(input);
@@ -50,14 +64,11 @@ test("native bridge carries binary data and drains replies after stdin EOF", asy
     expect(Buffer.from(await output)).toEqual(Buffer.concat([marker, input, Buffer.from("tail")]));
     expect(await child.exited).toBe(0);
   } finally {
-    child.kill();
-    server.close();
-    rmSync(dir, { recursive: true, force: true });
+    close();
   }
 });
 
 test("native bridge accepts input while stdout is backpressured", async () => {
-  const dir = mkdtempSync("/tmp/corgi-bridge-test-");
   let peer: Socket | undefined;
   let received = "";
   const server = createServer(socket => {
@@ -68,25 +79,17 @@ test("native bridge accepts input while stdout is backpressured", async () => {
     });
     socket.write(Buffer.alloc(8 * 1024 * 1024, 65));
   });
-  await new Promise<void>(resolve => server.listen(dir + "/s", resolve));
-  const child = Bun.spawn([nativeRoot + "/bin/corgi-remote-bridge", dir + "/s"], {
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const { child, close } = await bridge(server);
   try {
     await Bun.sleep(100);
     child.stdin.write("INPUT_WHILE_OUTPUT_BLOCKED");
     await child.stdin.flush();
-    const until = performance.now() + 2000;
-    while (!received && performance.now() < until) await Bun.sleep(10);
+    await until(() => received !== "", 2000);
     expect(received).toBe("INPUT_WHILE_OUTPUT_BLOCKED");
     child.kill();
     await child.exited;
   } finally {
-    child.kill();
     peer?.destroy();
-    server.close();
-    rmSync(dir, { recursive: true, force: true });
+    close();
   }
 });

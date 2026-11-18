@@ -8,38 +8,22 @@ import * as codex from "./codex/launcher";
 import * as claude from "./claude/launcher";
 import * as opencode from "./opencode2/launcher";
 import { API } from "./opencode2/api";
+import * as mise from "../fixtures/mise";
 
 async function isolated(run: (root: string) => Promise<void>) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-workspace-launcher-"))),
-    keys = [
-      "PATH",
-      "HOME",
-      "XDG_STATE_HOME",
-      "XDG_DATA_HOME",
-      "MISE_DATA_DIR",
-      "MISE_CONFIG_DIR",
-      "MISE_SHIMS_DIR",
-      "CORGI_TEST_SYSTEM_ROOT",
-      "CORGI_CODEX_BIN",
-      "CORGI_CLAUDE_BIN",
-      "CODEX_HOME",
-      "CLAUDE_CONFIG_DIR",
-      "ANTHROPIC_MODEL",
-    ],
-    saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-workspace-launcher-")));
   try {
-    for (const key of keys) delete process.env[key];
-    process.env.HOME = root;
-    process.env.XDG_STATE_HOME = join(root, "state");
-    process.env.CORGI_TEST_SYSTEM_ROOT = join(root, "system");
-    process.env.MISE_SHIMS_DIR = join(root, "shims");
-    process.env.PATH = join(root, "bin") + ":" + process.env.MISE_SHIMS_DIR;
-    for (const name of ["bin", "shims", "first", "second", "shared"]) mkdirSync(join(root, name));
+    using env = mise.home(root, {
+      XDG_STATE_HOME: join(root, "state"),
+      CORGI_CODEX_BIN: undefined,
+      CORGI_CLAUDE_BIN: undefined,
+      CODEX_HOME: undefined,
+      CLAUDE_CONFIG_DIR: undefined,
+      ANTHROPIC_MODEL: undefined,
+    });
+    for (const name of ["first", "second", "shared"]) mkdirSync(join(root, name));
     await run(root);
   } finally {
-    for (const [key, value] of Object.entries(saved))
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
     rmSync(root, { recursive: true, force: true });
   }
 }
@@ -49,10 +33,9 @@ test.each(["codex", "claude"] as const)(
   async provider => {
     await isolated(async root => {
       const calls = join(root, "calls"),
-        shim = join(root, "shim-called"),
+        shim = mise.shim(root, provider),
         launcher = provider === "codex" ? codex.open("") : claude.open(""),
         quit = new Quit();
-      writeFileSync(join(root, "shims", provider), `#!/bin/sh\n: > '${shim}'\nexit 1\n`, { mode: 0o755 });
       writeFileSync(
         join(root, "bin", "mise"),
         `#!/bin/sh

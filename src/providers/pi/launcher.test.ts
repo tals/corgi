@@ -5,16 +5,16 @@ import { join } from "node:path";
 import { open } from "./launcher";
 import { Option } from "../../launch/preview";
 import { Quit } from "../../subprocess";
+import { scopedEnv } from "../../fixtures/env";
 
-let root: string, account: string, executable: string | undefined;
+let root: string, account: string, env: Disposable;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "corgi-pi-launcher-"));
   account = join(root, "account");
   mkdirSync(account);
-  executable = process.env.CORGI_PI_BIN;
-  process.env.CORGI_PI_BIN = join(root, "pi");
+  env = scopedEnv({ CORGI_PI_BIN: join(root, "pi") });
   writeFileSync(
-    process.env.CORGI_PI_BIN,
+    join(root, "pi"),
     `#!${process.execPath}
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,8 +38,7 @@ createInterface({ input: process.stdin }).on("line", line => {
   );
 });
 afterEach(() => {
-  if (executable === undefined) delete process.env.CORGI_PI_BIN;
-  else process.env.CORGI_PI_BIN = executable;
+  env[Symbol.dispose]();
   rmSync(root, { recursive: true, force: true });
 });
 function settings(value: object) {

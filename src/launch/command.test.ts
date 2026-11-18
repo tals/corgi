@@ -15,15 +15,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findExecutable, loginShell } from "../os";
 import * as settings from "../settings";
+import { scopedEnv } from "../fixtures/env";
 
 test("stopping command previews cancels and reaps an active shell lookup", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-command-stop-")),
-    saved = process.env.CORGI_ENV_DIR,
     worker = Worker.start(),
     pidFile = join(root, "pid"),
     executable = join(root, "bash");
+  using env = scopedEnv({ CORGI_ENV_DIR: root });
   try {
-    process.env.CORGI_ENV_DIR = root;
     // Renamed into place, so the file never exists without its PID.
     writeFileSync(
       executable,
@@ -44,8 +44,6 @@ test("stopping command previews cancels and reaps an active shell lookup", async
     expect(() => worker.request(2n, "another_alias", root)).toThrow("Cancelled");
   } finally {
     await worker.stop();
-    if (saved === undefined) delete process.env.CORGI_ENV_DIR;
-    else process.env.CORGI_ENV_DIR = saved;
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -127,11 +125,9 @@ test("opaque shell expansion leaves account undetermined", () => {
   expect(unknown.account).toBe("Account cannot be determined");
 });
 test("panes use the configured shell, then an absolute SHELL, then the account's", () => {
-  const saved = { SHELL: process.env.SHELL, CORGI_ENV_DIR: process.env.CORGI_ENV_DIR },
-    root = mkdtempSync(join(tmpdir(), "corgi-shell-"));
+  const root = mkdtempSync(join(tmpdir(), "corgi-shell-"));
+  using env = scopedEnv({ CORGI_ENV_DIR: root, SHELL: "/bin/bash" });
   try {
-    process.env.CORGI_ENV_DIR = root;
-    process.env.SHELL = "/bin/bash";
     expect(shell()).toBe("/bin/bash");
     for (const value of [undefined, "", "zsh"]) {
       if (value === undefined) delete process.env.SHELL;
@@ -148,9 +144,6 @@ test("panes use the configured shell, then an absolute SHELL, then the account's
       expect(shell()).toBe("/bin/bash");
     }
   } finally {
-    for (const [key, value] of Object.entries(saved))
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -163,11 +156,9 @@ test("panes start login shells only on macOS", () => {
   expect(shellArgs("ls", true, "linux")).toEqual(["-ic", "ls"]);
 });
 test("the shell status says what panes run with and without the setting", () => {
-  const saved = { SHELL: process.env.SHELL, CORGI_ENV_DIR: process.env.CORGI_ENV_DIR },
-    root = mkdtempSync(join(tmpdir(), "corgi-shell-"));
+  const root = mkdtempSync(join(tmpdir(), "corgi-shell-"));
+  using env = scopedEnv({ CORGI_ENV_DIR: root, SHELL: "/bin/bash" });
   try {
-    process.env.CORGI_ENV_DIR = root;
-    process.env.SHELL = "/bin/bash";
     expect(shellStatus()).toEqual({
       setting: "",
       path: "/bin/bash",
@@ -187,9 +178,6 @@ test("the shell status says what panes run with and without the setting", () => 
     delete process.env.SHELL;
     expect(shellStatus().default_source).toBe(loginShell() ? "account" : "fallback");
   } finally {
-    for (const [key, value] of Object.entries(saved))
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
     rmSync(root, { recursive: true, force: true });
   }
 });

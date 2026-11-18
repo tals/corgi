@@ -5,36 +5,19 @@ import { join } from "node:path";
 import { adapter } from "../../providers";
 import * as discovery from "../../discovery";
 import * as integration from "./integration";
+import * as mise from "../../fixtures/mise";
 
 test("Codex startup sets up titles with the workspace's executable without running its shim", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-codex-title-"))),
-    keys = [
-      "PATH",
-      "HOME",
-      "CODEX_HOME",
-      "CORGI_CODEX_BIN",
-      "CORGI_TEST_SYSTEM_ROOT",
-      "MISE_DATA_DIR",
-      "MISE_CONFIG_DIR",
-      "MISE_SHIMS_DIR",
-      "XDG_DATA_HOME",
-    ],
-    saved = Object.fromEntries(keys.map(key => [key, process.env[key]])),
     cwd = join(root, "workspace"),
     account = join(root, "account"),
     executable = join(root, "installed", "codex"),
-    shim = join(root, "shim-ran"),
     edit = join(root, "edit.json"),
     title = spyOn(integration, "installTitle");
   try {
-    for (const key of keys) delete process.env[key];
-    process.env.HOME = root;
-    process.env.CODEX_HOME = join(root, "default");
-    process.env.CORGI_TEST_SYSTEM_ROOT = join(root, "system");
-    process.env.MISE_SHIMS_DIR = join(root, "shims");
-    process.env.PATH = join(root, "bin") + ":" + process.env.MISE_SHIMS_DIR;
-    for (const directory of ["bin", "shims", "installed", "workspace", "account"]) mkdirSync(join(root, directory));
-    writeFileSync(join(root, "shims", "codex"), `#!/bin/sh\n: > '${shim}'\nexit 1\n`, { mode: 0o755 });
+    using env = mise.home(root, { CODEX_HOME: join(root, "default"), CORGI_CODEX_BIN: undefined });
+    for (const directory of ["installed", "workspace", "account"]) mkdirSync(join(root, directory));
+    const shim = mise.shim(root, "codex");
     writeFileSync(
       join(root, "bin", "mise"),
       `#!/bin/sh\n[ "$PWD" = '${cwd}' ] && [ "$1:$2" = 'which:codex' ] || exit 1\n` +
@@ -72,9 +55,6 @@ for await (const line of createInterface({ input: process.stdin })) {
     expect(existsSync(shim)).toBe(false);
   } finally {
     title.mockRestore();
-    for (const [key, value] of Object.entries(saved))
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
     rmSync(root, { recursive: true, force: true });
   }
 });
