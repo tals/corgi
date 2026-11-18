@@ -754,6 +754,7 @@ async function select(
         recordError(root, error);
         // A core handoff never falls back to restarting the running session.
         if (transfer.compatible(h)) {
+          if (deferred) write(root, deferred, candidate);
           if (explicit) throw error;
           return old;
         }

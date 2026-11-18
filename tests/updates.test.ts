@@ -7,7 +7,7 @@ import { closeSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
-import { EXE, Lines, Pty, deadline, versioned } from "./support";
+import { EXE, Lines, Pty, deadline, versioned, quote } from "./support";
 import { running } from "./runtime";
 import { installer, manifests as releaseManifests } from "../scripts/publish.ts";
 import { Scope } from "../scripts/process_scope";
@@ -616,6 +616,54 @@ test.skipIf(!process.env.CORGI_OLD_EXE)(
     expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
     expect((await cli(["start"])).err).not.toContain("Enter / Esc");
     expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
+  },
+  30_000,
+);
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a failed live core handoff is deferred until an explicit retry",
+  async () => {
+    await cli(["start"]);
+    const before = await rpc({ op: "hello" });
+    await cli(["update", "--download-only"]);
+    const directory = join(root, "releases/1.0.1"),
+      target = join(directory, "corgi"),
+      attempts = join(home, "handoff-attempts"),
+      wrapper = `#!/bin/sh
+case "$1" in
+  __update-check) printf '{"ok":true}\\n'; exit 0 ;;
+  __handoff)
+    printf 'attempt\\n' >> ${quote(attempts)}
+    printf 'InvalidCheckpoint\\n' >&4
+    exit 1 ;;
+  *) exec ${quote(EXE)} "$@" ;;
+esac
+`;
+    await writeFile(target, wrapper, { mode: 0o755 });
+    const manifest = JSON.parse(manifests.get("1.0.1")!),
+      payload = JSON.parse(manifest.payload);
+    payload.targets[host].sha256 = sha(Buffer.from(wrapper));
+    payload.targets[host].size = Buffer.byteLength(wrapper);
+    manifest.payload = JSON.stringify(payload);
+    manifest.signature = sign(null, Buffer.from(manifest.payload), keys.privateKey).toString("hex");
+    await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest));
+    unavailable = true;
+    await cli(["update", "auto", "on"]);
+    await cli(["start"]);
+    const first = await readFile(attempts, "utf8");
+    expect(first.trim().split("\n")).toHaveLength(2);
+    expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
+    await cli(["start"]);
+    expect(await readFile(attempts, "utf8")).toBe(first);
+    expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
+    unavailable = false;
+    const retry = await cli(["update"], false);
+    expect(retry.code).not.toBe(0);
+    expect(retry.err).toContain("InvalidCheckpoint");
+    const retried = await readFile(attempts, "utf8");
+    expect(retried.trim().split("\n")).toHaveLength(4);
+    await cli(["start"]);
+    expect(await readFile(attempts, "utf8")).toBe(retried);
+    expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
   },
   30_000,
 );
