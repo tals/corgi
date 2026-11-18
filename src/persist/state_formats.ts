@@ -22,6 +22,7 @@ import * as r_726fa383fd91 from "./revisions/20261117_222255_726fa383fd91_remote
 import * as r_ce6d04179c29 from "./revisions/20261117_235930_ce6d04179c29_retained_resume_commands";
 import * as r_b6611ab7ace3 from "./revisions/20261118_090242_b6611ab7ace3_preserve_generated_resume_commands";
 import * as r_ae2a33f3c3f8 from "./revisions/20261118_094344_ae2a33f3c3f8_retain_provider_resume_settings";
+import * as r_c52d95a61ae4 from "./revisions/20261119_012512_c52d95a61ae4_list_saved_fields_the_schemas_missed";
 
 export const revisions = [
   r_1dfaa1773956.revision,
@@ -46,9 +47,10 @@ export const revisions = [
   r_ce6d04179c29.revision,
   r_b6611ab7ace3.revision,
   r_ae2a33f3c3f8.revision,
+  r_c52d95a61ae4.revision,
 ];
 export const heads = {
-  state: r_ae2a33f3c3f8.revision.id,
+  state: r_c52d95a61ae4.revision.id,
   checkpoint: r_1dfaa1773956.revision.id,
   handoff: r_3a005bd21b0d.revision.id,
   workspaces: r_f4c12b1642bd.revision.id,

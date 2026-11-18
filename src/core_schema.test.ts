@@ -25,7 +25,7 @@ import { Option } from "./inference/models";
 import { Provider } from "./providers";
 
 const schemas = Object.fromEntries(
-  ["protocol", "viewer", "handoff"].map(name => [
+  ["protocol", "viewer", "handoff", "checkpoint"].map(name => [
     name,
     readFileSync(new URL(`./fixtures/${name}.schema`, import.meta.url), "utf8"),
   ]),
@@ -39,58 +39,75 @@ function members(type: string): string[] {
     .flatMap(m => (m === "provider" ? Provider.all : [m]));
 }
 // Runtime conformance replaces Zig's compile-time reflected-type comparison.
-// Branches absent from the captured value are covered by their module tests.
-function validate(schema: string, value: unknown): void {
-  for (const line of schema.trim().split("\n")) {
-    const [path, type] = line.split(": ");
-    let values: any[] = [value];
-    for (const token of path.slice(1).matchAll(/\.([^.[?|{]+)|\[(\d*)\]|(\?)|\|([^.[?|{]+)|(\{provider\})/g)) {
-      if (token[5]) {
-        values = values.flatMap(item => {
-          expect(typeof item, path).toBe("object");
-          for (const key of Object.keys(item)) expect(Provider.parse(key), `${path}: ${key}`).not.toBeNull();
-          return Object.values(item);
-        });
-      } else if (token[1] || token[4]) {
-        const name = token[1] ?? token[4];
-        values = values.flatMap(item => (item && Object.hasOwn(item, name) ? [item[name]] : []));
-      } else if (token[2] !== undefined) {
-        values = values.flatMap(item => {
-          expect(Array.isArray(item), path).toBe(true);
-          if (token[2]) expect(item.length, path).toBe(Number(token[2]));
-          return item;
-        });
-      } else values = values.filter(item => item !== null);
-    }
-    for (const item of values) {
-      if (type === "any" || type === "optional" || type.startsWith("versioned ")) continue;
-      if (type === "one of") {
-        expect(typeof item, path).toBe("object");
-        expect(Object.keys(item), path).toHaveLength(1);
-        const tags = schema
-          .split("\n")
-          .filter(line => line.startsWith(path + "|"))
-          .map(line => line.slice(path.length + 1).split(/[.:|?\[]/)[0]);
-        expect(tags, path).toContain(Object.keys(item)[0]);
-      } else if (type === "provider") expect(Provider.parse(item), path).not.toBeNull();
-      else if (type.startsWith("enum ")) expect(members(type), path).toContain(item);
-      else if (type === "bool") expect(typeof item, path).toBe("boolean");
-      else if (type === "{}") expect(item, path).toEqual({});
-      else if (type === "string" || type.startsWith("custom bounded_text.")) {
-        expect(typeof item === "string" || Array.isArray(item), path).toBe(true);
-        const length = typeof item === "string" ? Buffer.byteLength(item) : item.length;
-        const capacity = type.match(/\((\d+)\)/);
-        if (capacity) expect(length, path).toBeLessThanOrEqual(Number(capacity[1]));
-      } else if (/^(?:[ui]\d+|usize|c_int)$/.test(type)) {
-        expect(typeof item === "bigint" || (typeof item === "number" && Number.isInteger(item)), path).toBe(true);
-        const bits = type === "usize" ? 64 : type === "c_int" ? 32 : Number(type.slice(1));
-        const signed = type.startsWith("i") || type === "c_int";
-        const n = BigInt(item);
-        expect(n, path).toBeGreaterThanOrEqual(signed ? -(1n << BigInt(bits - 1)) : 0n);
-        expect(n, path).toBeLessThanOrEqual((1n << BigInt(signed ? bits - 1 : bits)) - 1n);
-      } else if (/^f\d+$/.test(type)) expect(typeof item, path).toBe("number");
+// Every object in the captured value carries exactly the fields its schema
+// lists, so adding, removing or renaming a field fails here until the
+// schema says so. Branches absent from the captured value are covered by
+// their module tests. A partial value holds only some of the root's fields.
+function validate(schema: string, value: unknown, root: "whole" | "partial" = "whole"): void {
+  const types = new Map(
+    schema
+      .trim()
+      .split("\n")
+      .map(line => line.split(": ") as [string, string]),
+  );
+  const below = (path: string) => [...types.keys()].filter(p => p.startsWith(path) && ".[?|{".includes(p[path.length]));
+  function walk(item: any, path: string): void {
+    const type = types.get(path);
+    if (type === undefined) return structure(item, path);
+    if (type === "any" || type.startsWith("versioned ")) return;
+    if (type === "optional") {
+      if (item !== null) walk(item, path + "?");
+    } else if (type === "one of") {
+      expect(typeof item, path).toBe("object");
+      expect(Object.keys(item), path).toHaveLength(1);
+      const tag = Object.keys(item)[0];
+      expect(below(`${path}|${tag}`).length || types.has(`${path}|${tag}`), `${path}|${tag}`).toBeTruthy();
+      walk(item[tag], `${path}|${tag}`);
+    } else if (type === "provider") expect(Provider.parse(item), path).not.toBeNull();
+    else if (type.startsWith("enum ")) expect(members(type), path).toContain(item);
+    else if (type === "bool") expect(typeof item, path).toBe("boolean");
+    else if (type === "{}") expect(item, path).toEqual({});
+    else if (type === "string" || type.startsWith("custom bounded_text.")) {
+      expect(typeof item === "string" || Array.isArray(item), path).toBe(true);
+      const length = typeof item === "string" ? Buffer.byteLength(item) : item.length;
+      const capacity = type.match(/\((\d+)\)/);
+      if (capacity) expect(length, path).toBeLessThanOrEqual(Number(capacity[1]));
+    } else if (/^(?:[ui]\d+|usize|c_int)$/.test(type)) {
+      expect(typeof item === "bigint" || (typeof item === "number" && Number.isInteger(item)), path).toBe(true);
+      const bits = type === "usize" ? 64 : type === "c_int" ? 32 : Number(type.slice(1));
+      const signed = type.startsWith("i") || type === "c_int";
+      const n = BigInt(item);
+      expect(n, path).toBeGreaterThanOrEqual(signed ? -(1n << BigInt(bits - 1)) : 0n);
+      expect(n, path).toBeLessThanOrEqual((1n << BigInt(signed ? bits - 1 : bits)) - 1n);
+    } else if (/^f\d+$/.test(type)) expect(typeof item, path).toBe("number");
+    else expect(type, path).toStartWith("custom ");
+  }
+  function structure(item: any, path: string): void {
+    const paths = below(path);
+    expect(paths.length, `${path} is not in the schema`).toBeGreaterThan(0);
+    const next = paths[0].slice(path.length);
+    if (next.startsWith("[")) {
+      const index = next.slice(0, next.indexOf("]") + 1);
+      expect(Array.isArray(item), path).toBe(true);
+      if (index !== "[]") expect(item.length, path).toBe(Number(index.slice(1, -1)));
+      for (const element of item) walk(element, path + index);
+    } else if (next.startsWith("{provider}")) {
+      expect(typeof item, path).toBe("object");
+      for (const [key, entry] of Object.entries(item)) {
+        expect(Provider.parse(key), `${path}: ${key}`).not.toBeNull();
+        walk(entry, path + "{provider}");
+      }
+    } else {
+      expect(item !== null && typeof item === "object" && !Array.isArray(item), path).toBe(true);
+      const fields = new Set(paths.map(p => p.slice(path.length + 1).match(/^[^.[?|{]+/)![0]));
+      const keys = Object.keys(item);
+      for (const key of keys) expect(fields.has(key), `${path}.${key} is not in the schema`).toBe(true);
+      if (path !== "$" || root === "whole")
+        for (const field of fields) expect(keys.includes(field), `${path}.${field} is missing`).toBe(true);
+      for (const key of keys) walk(item[key], `${path}.${key}`);
     }
   }
+  walk(value, "$");
 }
 
 function fixture() {
@@ -147,6 +164,10 @@ function fixture() {
     period_start: 1790812800,
     reset_at: 1793491200,
   };
+  preview.names.claude = "Personal";
+  preview.accounts = [
+    { provider: "claude", account: "work", name: "Work", managed: true, option: preview.options.claude },
+  ];
   client.launch_preview = {
     cwd: "/tmp",
     preview,
@@ -170,15 +191,15 @@ test("the runtime wire matches protocol.version", () => {
   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
   expect(protocol.management_version).toBe(1);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "d09cac30cf182a878a612de2bcfa4a9819e6840ec9a89fc3acbcf0735ecd31b8",
+    "f5b35030d0b216a46caeea4e33db4dea5e38406d213bead6fdc83e4309dcec1c",
   );
   const { server, client, dispose } = fixture();
   try {
-    validate(schemas.protocol, { envelope: { request_id: 42 } });
+    validate(schemas.protocol, { envelope: { request_id: 42 } }, "partial");
     const snapshot = json.parse(json.stringify(session.snapshot(server.runtime)));
-    validate(schemas.protocol, { snapshot });
+    validate(schemas.protocol, { snapshot }, "partial");
     const preview = json.parse(json.stringify(client.launch_preview!.preview));
-    validate(schemas.protocol, { launch_preview: preview });
+    validate(schemas.protocol, { launch_preview: preview }, "partial");
     expect(restorePreview(preview).on_demand.pi).toBe(false);
     expect(restorePreview(preview).options.claude.spend).toEqual(client.launch_preview!.preview.options.claude.spend);
     expect(restorePreview(preview).options.codex.spend).toEqual(client.launch_preview!.preview.options.codex.spend);
@@ -196,14 +217,14 @@ test("the runtime wire matches protocol.version", () => {
     expect(snapshot.conversations[0].model_price).toEqual({ label: "catalog", input: 1250, output: 5000 });
     const wrong = structuredClone(snapshot);
     wrong.panes[0].id = -1;
-    expect(() => validate(schemas.protocol, { snapshot: wrong })).toThrow();
+    expect(() => validate(schemas.protocol, { snapshot: wrong }, "partial")).toThrow();
     for (const event of [null, 3, "event", [1, {}], { arbitrary: true }]) {
       const request = protocol.decode("hook", {
         provider: "codex",
         pane: 1,
         event,
       });
-      validate(schemas.protocol, { requests: { hook: request } });
+      validate(schemas.protocol, { requests: { hook: request } }, "partial");
       expect(request.event).toEqual(event);
     }
   } finally {
@@ -235,7 +256,7 @@ test("every agent view a snapshot carries lists the same fields", () => {
 test("the viewer wire matches viewer_version.version", async () => {
   expect(protocol.viewer_version).toBe(4);
   expect(createHash("sha256").update(schemas.viewer).digest("hex")).toBe(
-    "02c529552ab0ee6562f3fcc15cb1a8cbfd55d73983b5a725035cea17361d60d9",
+    "2a51d64882d5d03ae1694ddf1ec1abca8d9f71050a503f6928a07ec5f5c45814",
   );
   const { server, client, dispose } = fixture();
   let view: any;
@@ -263,10 +284,10 @@ test("the viewer wire matches viewer_version.version", async () => {
         worktree_detail: null,
       }),
     );
-    validate(schemas.viewer, { view });
+    validate(schemas.viewer, { view }, "partial");
     expect(view.surfaces).toHaveLength(1);
     expect(view.surfaces[0].surface.lines.join("\n")).toContain("schema boundary");
-    expect(() => validate(schemas.viewer, { view: { ...view, viewer_protocol: -1 } })).toThrow();
+    expect(() => validate(schemas.viewer, { view: { ...view, viewer_protocol: -1 } }, "partial")).toThrow();
   } finally {
     dispose();
   }
@@ -276,7 +297,7 @@ test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(7);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "74744ef8d5c36923fb220e6737b152ab7efa90b96c0eeecf3b5deaa9e9ceb79f",
+    "3d56d0b3727f4d6294a3aa7d5fdbc2d9fb3ce93bd387027365f171960b7fc8a7",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();
@@ -316,6 +337,7 @@ test("saved handoff format matches its version", async () => {
     expect(captured.requester).toBe(9);
     expect(captured.start_lock).toBe(5);
     validateCheckpoint(captured.runtime);
+    validate(schemas.checkpoint, captured.runtime);
     expect(captured.runtime.panes[0].binding.actor).toBe(1);
     expect(captured.summaries.pool.slots).toHaveLength(4);
     expect(captured.usage[0].position.offset).toBe(42);
@@ -332,4 +354,12 @@ test("a schema shows a JSON value a provider or command defines as any", () => {
   const schema = "$.event: any\n$.seq: optional\n$.seq?: i64\n";
   for (const event of [null, false, 3, "event", [], { nested: [1] }]) validate(schema, { event, seq: null });
   expect(() => validate(schema, { event: {}, seq: "not an integer" })).toThrow();
+});
+
+test("a value matches its schema only with exactly the fields the schema lists", () => {
+  const schema = "$.pane.id: u32\n$.pane.name: optional\n$.pane.name?: string\n";
+  validate(schema, { pane: { id: 1, name: null } });
+  expect(() => validate(schema, { pane: { id: 1, name: null, added: true } })).toThrow();
+  expect(() => validate(schema, { pane: { id: 1 } })).toThrow();
+  expect(() => validate(schema, { pane: { id: 1, title: null } })).toThrow();
 });

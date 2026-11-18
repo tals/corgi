@@ -502,6 +502,7 @@ $.snapshot.system_usage.losses: u32
 $.snapshot.system_usage.since: i64
 $.snapshot.system_usage.updated_at: i64
 $.snapshot.system_usage.recent_tokens: u64
+$.snapshot.system_usage.tools: u64
 $.snapshot.last_agent: provider
 $.snapshot.agent_yolo{provider}: bool
 $.snapshot.agent_hidden{provider}: bool
@@ -543,6 +544,7 @@ $.snapshot.conversations[].timeline.points[].usage.losses: u32
 $.snapshot.conversations[].timeline.points[].usage.since: i64
 $.snapshot.conversations[].timeline.points[].usage.updated_at: i64
 $.snapshot.conversations[].timeline.points[].usage.recent_tokens: u64
+$.snapshot.conversations[].timeline.points[].usage.tools: u64
 $.snapshot.conversations[].timeline.pending.tokens.input: u64
 $.snapshot.conversations[].timeline.pending.tokens.cached_input: u64
 $.snapshot.conversations[].timeline.pending.tokens.output: u64
@@ -552,6 +554,7 @@ $.snapshot.conversations[].timeline.pending.losses: u32
 $.snapshot.conversations[].timeline.pending.since: i64
 $.snapshot.conversations[].timeline.pending.updated_at: i64
 $.snapshot.conversations[].timeline.pending.recent_tokens: u64
+$.snapshot.conversations[].timeline.pending.tools: u64
 $.snapshot.conversations[].model: string
 $.snapshot.conversations[].model_name: string
 $.snapshot.conversations[].model_price: optional
@@ -573,6 +576,7 @@ $.snapshot.conversations[].usage.losses: u32
 $.snapshot.conversations[].usage.since: i64
 $.snapshot.conversations[].usage.updated_at: i64
 $.snapshot.conversations[].usage.recent_tokens: u64
+$.snapshot.conversations[].usage.tools: u64
 $.snapshot.conversations[].context.used: u64
 $.snapshot.conversations[].context.window: u64
 $.snapshot.conversations[].context.compacts_at: u64
@@ -1122,6 +1126,55 @@ $.launch_preview.installed{provider}: bool
 $.launch_preview.configured{provider}: bool
 $.launch_preview.outdated{provider}: string
 $.launch_preview.on_demand{provider}: bool
+$.launch_preview.names{provider}: string
+$.launch_preview.accounts[].provider: provider
+$.launch_preview.accounts[].account: string
+$.launch_preview.accounts[].name: string
+$.launch_preview.accounts[].managed: bool
+$.launch_preview.accounts[].option.pending: optional
+$.launch_preview.accounts[].option.pending?: bool
+$.launch_preview.accounts[].option.signed_in: optional
+$.launch_preview.accounts[].option.signed_in?: bool
+$.launch_preview.accounts[].option.model: custom bounded_text.BoundedText(160)
+$.launch_preview.accounts[].option.model_name: custom bounded_text.BoundedText(160)
+$.launch_preview.accounts[].option.source: custom bounded_text.BoundedText(160)
+$.launch_preview.accounts[].option.account: custom bounded_text.BoundedText(160)
+$.launch_preview.accounts[].option.plan: custom bounded_text.BoundedText(160)
+$.launch_preview.accounts[].option.login: optional
+$.launch_preview.accounts[].option.login?.id: string
+$.launch_preview.accounts[].option.login?.email: string
+$.launch_preview.accounts[].option.login?.service: enum chatgpt claude
+$.launch_preview.accounts[].option.login?.workspace: string
+$.launch_preview.accounts[].option.limits: one of
+$.launch_preview.accounts[].option.limits|none: {}
+$.launch_preview.accounts[].option.limits|metered: {}
+$.launch_preview.accounts[].option.limits|rate_limited: {}
+$.launch_preview.accounts[].option.limits|windows[2]: optional
+$.launch_preview.accounts[].option.limits|windows[2]?.minutes: optional
+$.launch_preview.accounts[].option.limits|windows[2]?.minutes?: i64
+$.launch_preview.accounts[].option.limits|windows[2]?.used: u8
+$.launch_preview.accounts[].option.limits|windows[2]?.reset_at: optional
+$.launch_preview.accounts[].option.limits|windows[2]?.reset_at?: i64
+$.launch_preview.accounts[].option.spend: optional
+$.launch_preview.accounts[].option.spend?.used_minor: f64
+$.launch_preview.accounts[].option.spend?.limit_minor: optional
+$.launch_preview.accounts[].option.spend?.limit_minor?: f64
+$.launch_preview.accounts[].option.spend?.currency: optional
+$.launch_preview.accounts[].option.spend?.currency?: string
+$.launch_preview.accounts[].option.spend?.exponent: u8
+$.launch_preview.accounts[].option.spend?.period_start: i64
+$.launch_preview.accounts[].option.spend?.reset_at: i64
+$.launch_preview.accounts[].option.usage_fetched_at: i64
+$.launch_preview.accounts[].option.usage_error: custom bounded_text.BoundedText(160)
+$.launch_preview.accounts[].option.usage_needs_consent: bool
+$.launch_preview.accounts[].option.history[2][14]: optional
+$.launch_preview.accounts[].option.history[2][14]?: u8
+$.launch_preview.accounts[].option.spend_history[14].minor: optional
+$.launch_preview.accounts[].option.spend_history[14].minor?: f64
+$.launch_preview.accounts[].option.spend_history[14].earlier: bool
+$.launch_preview.accounts[].option.spend_daily[].day: i64
+$.launch_preview.accounts[].option.spend_daily[].period_start: i64
+$.launch_preview.accounts[].option.spend_daily[].used_minor: f64
 $.launch_history.epoch: u64
 $.launch_history.revision: u64
 $.launch_history.full: bool
@@ -1138,7 +1191,6 @@ $.launch_history.removed[].provider: provider
 $.launch_history.removed[].session: string
 $.replies.viewer.image.data: optional
 $.replies.viewer.image.data?: string
-$.snapshot.startup_waits: array
 $.snapshot.startup_waits[].id: string
 $.snapshot.startup_waits[].pane: u32
 $.snapshot.startup_waits[].provider: enum claude codex pi omp opencode2
