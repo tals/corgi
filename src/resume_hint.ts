@@ -75,6 +75,8 @@ export class ResumeHint {
       session: this.session.text(),
       account: this.account,
       executable: this.executable,
+      permissions: this.permissions,
+      model: this.model.text(),
     };
   }
 }
