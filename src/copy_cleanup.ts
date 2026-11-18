@@ -192,9 +192,12 @@ function isCommand(s: Snapshot): boolean {
 }
 
 /** The command on one line: indents, a `$ ` prompt and backslash
- * continuations go, and rows join with a space, or with none inside a path
- * or URL the harness split. */
+ * continuations go, and rows join with a space, or with none inside a word
+ * the harness split or a backslash continued, as a shell would read it. */
 function flatten(s: Snapshot): string {
+  // Each row without the indent the rows share, so a continuation's own
+  // indent still shows.
+  const own = dedent(s);
   let out = "";
   // The token a split carried onto this row, if any.
   let carry = "";
@@ -202,7 +205,15 @@ function flatten(s: Snapshot): string {
     let line = raw.trim();
     if (i === 0) line = withoutPrompt(line);
     const backslash = continued(line);
-    if (backslash) line = line.slice(0, -1).trimEnd();
+    // A shell deletes backslash-newline, so a word goes on unless whitespace
+    // stood before the backslash or starts the next row.
+    let tight = false;
+    if (backslash) {
+      const body = line.slice(0, -1);
+      const next = own[i + 1] ?? "";
+      tight = body !== "" && !/\s$/.test(body) && next !== "" && !/^\s/.test(next);
+      line = body.trimEnd();
+    }
     if (line === "") {
       carry = "";
       return;
@@ -211,8 +222,9 @@ function flatten(s: Snapshot): string {
     if (i === s.lines.length - 1) return;
     const words = line.split(/\s+/);
     const token = (words.length === 1 ? carry : "") + words[words.length - 1];
-    carry = !backslash && splits(s, i, token) ? token : "";
-    if (!carry) out += " ";
+    const joined = backslash ? tight : splits(s, i, token);
+    carry = !backslash && joined ? token : "";
+    if (!joined) out += " ";
   });
   return out.trimEnd();
 }
@@ -226,7 +238,8 @@ function splits(s: Snapshot, i: number, token: string): boolean {
   if (end === null || end < wrapColumn(s.width)) return false;
   const next = s.lines[i + 1];
   const word = firstWord(next);
-  if (/^(-|\||&&|;|>|<|2>|&>)/.test(word)) return false;
+  // A flag is `-` and a letter or a second `-`; `-0123…` can go on a URL.
+  if (/^(-[A-Za-z-]|\||&&|;|>|<|2>|&>)/.test(word)) return false;
   // A relative or home path never goes on from a split word.
   if (/^(~\/|\.\/|\.\.\/)/.test(word)) return false;
   // Two slashes meet only in a scheme, as in `https:/` + `/host`.
