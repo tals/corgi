@@ -38,7 +38,7 @@ import * as pasteProgress from "./paste_progress";
 import * as resourceTooltip from "./resource_tooltip";
 import * as connectivityCard from "./connectivity_card";
 import * as syncNotice from "./sync_notice";
-import type { Images as SignalBars } from "./signal_bars";
+import * as signalBars from "./signal_bars";
 import type { Quality } from "./connection_stats";
 import * as gitTooltip from "./git_tooltip";
 import * as linkTooltip from "./link_tooltip";
@@ -225,7 +225,9 @@ export interface Ui {
   sync_notice: syncNotice.State | null;
   /** A pane an action is opening has the keyboard: no pane shows focus. */
   pane_opening: boolean;
-  signal_bars: SignalBars | null;
+  signal_bars: signalBars.Images | null;
+  /** The bars keep their room but aren't placed, under menus drawn over the frame. */
+  signal_bars_hidden: boolean;
   git_hover: number | null;
   /** Panes whose grips showed last frame. */
   grip_hover: readonly number[];
@@ -336,6 +338,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     sync_notice: null,
     pane_opening: false,
     signal_bars: null,
+    signal_bars_hidden: false,
     git_hover: null,
     grip_hover: [],
     git_card: null,
@@ -837,10 +840,10 @@ export function frame(
   const dragging = u.dragged_agent !== null || u.dragged_workspace !== null || u.docking?.dragging === true;
   const side = sidebarView(u, width, height);
   const signals: { quality: Quality; x: number; y: number }[] = [];
-  if (u.signal_bars && u.cell_pixels)
+  if (u.signal_bars && u.cell_pixels && signalBars.fits(u.cell_pixels))
     side.signal_marks = (quality, x, y) => {
       signals.push({ quality, x, y });
-      return u.signal_bars!.ready(quality, u.cell_pixels!);
+      u.signal_bars!.ready(quality, u.cell_pixels!);
     };
   // Mouse tracking modes replace one another. Disabling first makes the host
   // briefly switch to a text pointer on every redraw.
@@ -1442,7 +1445,7 @@ export function frame(
         u.cell_pixels!,
       ),
     );
-  if (u.signal_bars && u.cell_pixels && !u.signin_draw && !u.signin_exit)
+  if (u.signal_bars && u.cell_pixels && !u.signal_bars_hidden && !u.signin_draw && !u.signin_exit)
     for (const { quality, x, y } of signals) w.write(u.signal_bars.place(quality, x, y, u.cell_pixels, covered));
   if (u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
     for (const { brand, x, y } of archive_marks)

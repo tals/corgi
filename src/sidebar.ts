@@ -1,6 +1,7 @@
 //! The sidebar: workspaces above, agents below. Mirrors sidebar.zig.
 import * as i18n from "./i18n";
 import type { Quality } from "./connection_stats";
+import * as signalBars from "./signal_bars";
 import * as palette from "./palette";
 import { Provider, adapter } from "./providers";
 import { Style, colors, fg, bg, fgRgb, bgRgb, mix, underline } from "./palette";
@@ -675,7 +676,8 @@ export class View {
   /** The host's cell in pixels, for images placed by the pixel. */
   cell: Cell | null = null;
   archive_marks: ((brand: Brand, col: number, row: number) => void) | null = null;
-  signal_marks: ((quality: Quality, col: number, row: number) => boolean) | null = null;
+  /** Places reception bars as an image `signalBars.cells` wide; without it they're blocks. */
+  signal_marks: ((quality: Quality, col: number, row: number) => void) | null = null;
   cols = 0;
   rows = 0;
   width = 0;
@@ -1555,6 +1557,7 @@ export class View {
         w.splat(" ", sat(v.width, 1));
         w.write(`${w.cup(y, 2)}${fg("muted")}${ws.collapsed ? "▸" : "▾"}  ${fg(hovered ? "strong" : "text")}`);
         const quality = ws.link_quality;
+        const bars = v.signal_marks ? signalBars.cells : 4;
         const status = ws.connection_status;
         const timer = !status || status.seconds === null ? "" : ` ${status.seconds}s`;
         const status_room = sat(v.width, 12);
@@ -1563,14 +1566,16 @@ export class View {
         writeEllipsis(
           w,
           v.workspace_machines[absolute],
-          sat(v.width, status ? status_width + 8 : quality === null ? 6 : 12),
+          sat(v.width, status ? status_width + 8 : quality === null ? 6 : 8 + bars),
         );
         if (status) {
           w.write(w.cup(y, v.width - status_width - 1) + fg(status.color) + label);
         } else if (quality !== null) {
-          w.write(w.cup(y, v.width - 5));
-          if (v.signal_marks?.(quality, w.column + v.width - 6, y - 1)) w.splat(" ", 4);
-          else {
+          w.write(w.cup(y, v.width - 1 - bars));
+          if (v.signal_marks) {
+            v.signal_marks(quality, w.column + v.width - 2 - bars, y - 1);
+            w.splat(" ", bars);
+          } else {
             const color = quality >= 3 ? "accent" : "warm";
             for (const [i, bar] of [..."▂▄▆█"].entries()) w.write(fg(i < quality ? color : "line") + bar);
           }
