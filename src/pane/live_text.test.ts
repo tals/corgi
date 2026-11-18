@@ -16,9 +16,6 @@ class ReadingTerminal extends Terminal {
   get reads(): number {
     return reading.mock.calls.filter(call => call[0] === this.handle).length;
   }
-  uncachedText(): string {
-    return super.native({ op: "liveText" });
-  }
 }
 
 test("live text is retained until feed, resize or restore changes the terminal revision", () => {
@@ -26,14 +23,14 @@ test("live text is retained until feed, resize or restore changes the terminal r
   try {
     let reads = 0;
     const capture = () => {
-      const expected = terminal.uncachedText();
-      expect(terminal.liveText()).toBe(expected);
-      expect(terminal.liveText()).toBe(expected);
+      const text = terminal.liveText();
+      expect(terminal.liveText()).toBe(text);
       expect(terminal.reads).toBe(++reads);
+      return text;
     };
     capture();
     terminal.feed("abcdefghi 界é");
-    capture();
+    expect(capture()).toContain("abcdefgh");
     terminal.resize(20, 5);
     capture();
     expect(terminal.liveText()).toContain("abcdefghi 界é");
@@ -78,7 +75,6 @@ test("cached live text follows active output during synchronized and alternate s
     terminal.feed("PRIMARY");
     expect(terminal.liveText()).toContain("PRIMARY");
     terminal.feed("\x1b[?2026h\x1b[2J\x1b[HMID_UPDATE");
-    expect(terminal.liveText()).toBe(terminal.uncachedText());
     expect(terminal.liveText()).toContain("MID_UPDATE");
     terminal.feed("\x1b[?2026l\x1b[?1049hALTERNATE");
     expect(terminal.liveText()).toContain("ALTERNATE");
@@ -95,13 +91,14 @@ test("viewer scrollback captures do not change the cached active screen", () => 
   try {
     terminal.feed("HISTORY\r\n1\r\n2\r\n3\r\nACTIVE");
     const text = terminal.liveText(),
-      revision = terminal.surface_revision;
+      revision = terminal.surface_revision,
+      screen = terminal.snapshot();
     expect(text).toContain("ACTIVE");
     expect(text).not.toContain("HISTORY");
     terminal.surface(1, 0);
     expect(terminal.surface_revision).toBe(revision);
+    expect(terminal.snapshot()).toEqual(screen);
     expect(terminal.liveText()).toBe(text);
-    expect(terminal.liveText()).toBe(terminal.uncachedText());
     expect(terminal.reads).toBe(1);
   } finally {
     terminal.destroy();

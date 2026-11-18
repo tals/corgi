@@ -168,14 +168,8 @@ export function native(request: object, start: number, bytes: number): void {
     case "info":
       name = "native.info";
       break;
-    case "tick":
-      name = "native.tick";
-      break;
     case "surface":
       name = "native.surface";
-      break;
-    case "liveText":
-      name = "native.live_text";
       break;
     default:
       name = "native.other";

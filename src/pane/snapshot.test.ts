@@ -13,22 +13,21 @@ const fixtures = [
   },
 ];
 
-test.each(fixtures)("raw recovery snapshot preserves legacy bytes: $name", ({ text }) => {
+test.each(fixtures)("a recovery snapshot replays without input modes: $name", ({ text }) => {
   const source = new Terminal(132, 47),
     restored = new Terminal(132, 47);
   try {
     source.feed(text);
     for (const resize of [false, true]) {
       if (resize) source.resize(80, 24);
-      const legacy = Buffer.from(source.native({ op: "snapshot" })),
-        owned = source.snapshot(),
+      const owned = source.snapshot(),
+        expected = Buffer.from(owned),
         encoded = source.snapshotBase64();
-      expect(owned).toEqual(legacy);
-      expect(encoded).toBe(legacy.toString("base64"));
+      expect(encoded).toBe(expected.toString("base64"));
       expect(Screen.capture(source, false).data).toBe(encoded);
       // A second capture frees its own native storage, never a returned Buffer's.
-      source.snapshot();
-      expect(owned).toEqual(legacy);
+      expect(source.snapshot()).toEqual(expected);
+      expect(owned).toEqual(expected);
       restored.feed(owned);
       expect(restored.native({ op: "info" }).active_screen).toBe("primary");
       expect(restored.bracketed_paste).toBe(false);

@@ -4,7 +4,6 @@ import type { Controller } from "./controller";
 import { attached, mouse, onePane } from "./fixtures/viewer";
 import * as viewer from "./viewer";
 import * as viewerNative from "./viewer_native";
-import * as native from "./native_ffi";
 import { Writer } from "./text";
 import { png_base64 } from "./assets/corgi_badge";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -68,8 +67,7 @@ test("the link popover fits at screen edges and only its middle row copies", () 
 });
 
 test("both link popover labels keep the right border aligned and stay inside the box", () => {
-  const terminal = native.terminal();
-  terminal.resize(40, 10);
+  const terminal = new Terminal(40, 10);
   try {
     for (const x of [2, 39]) {
       const rect = geometry(40, 10, { x, y: 5 })!;
@@ -93,7 +91,7 @@ test("both link popover labels keep the right border aligned and stay inside the
       }
     }
   } finally {
-    terminal.close();
+    terminal.destroy();
   }
 });
 
@@ -150,15 +148,14 @@ test.each(["pane", "signin"] as const)(
         await s.expireInput();
         expect(s.dirty).toBe(true);
         const frame = s.frame();
-        const rendered = native.terminal();
-        rendered.resize(s.width, s.height);
+        const rendered = new Terminal(s.width, s.height);
         try {
           rendered.feed(frame);
           expect(rendered.text()).toContain("Copy link");
           viewerNative.updateRender(rendered.handle);
           expect(viewerNative.cursor(rendered.handle)).toBeNull();
         } finally {
-          rendered.close();
+          rendered.destroy();
         }
         await s.input(mouse(35, 2, 2)); // Cross the top border.
         expect(s.frame()).toContain("Copy link");
