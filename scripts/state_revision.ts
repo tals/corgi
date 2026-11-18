@@ -6,6 +6,12 @@ import { pathToFileURL } from "node:url";
 import type { Kind, Revision } from "../src/persist/formats";
 import * as formats from "../src/persist/formats";
 
+function binding(name: string): string {
+  const match = /^\d{8}_\d{6}_([a-f0-9]{12})_[a-z0-9_]+$/.exec(name);
+  if (!match) throw Error("InvalidStateRevision");
+  return `r_${match[1]}`;
+}
+
 export function structures(root: string): Record<string, string> {
   return Object.fromEntries(
     ["checkpoint", "handoff", "protocol", "viewer"].map(name => {
@@ -29,7 +35,8 @@ export function draft(parent: string, description: string, kind: "state" | "work
         .replace(/[^a-z0-9]+/g, "_")
         .replace(/^_|_$/g, "")
         .slice(0, 48) || "state_change",
-    name = `r_${id}_${slug}`;
+    timestamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "_"),
+    name = `${timestamp}_${id}_${slug}`;
   return {
     id,
     name,
@@ -52,16 +59,16 @@ export function registry(names: readonly string[], heads: Record<Kind, string>):
 import * as formats from "./formats";
 ${[...names]
   .sort()
-  .map(name => `import * as ${name} from "./revisions/${name}";`)
+  .map(name => `import * as ${binding(name)} from "./revisions/${name}";`)
   .join("\n")}
 
 export const revisions = [${[...names]
     .sort()
-    .map(name => `${name}.revision`)
+    .map(name => `${binding(name)}.revision`)
     .join(", ")}];
 export const heads = {
 ${Object.entries(heads)
-  .map(([kind, name]) => `  ${kind}: ${name}.revision.id,`)
+  .map(([kind, name]) => `  ${kind}: ${binding(name)}.revision.id,`)
   .join("\n")}
 };
 export const current = heads.state;
@@ -75,11 +82,13 @@ export const workspaces = histories.workspaces;
 export async function create(root: string, description: string, kind: "state" | "workspaces" = "state") {
   const directory = join(root, "src/persist/revisions"),
     names = readdirSync(directory)
-      .filter(name => /^r_[a-f0-9]{12}_[a-z0-9_]+\.ts$/.test(name))
+      .filter(name => name.endsWith(".ts"))
       .map(name => name.slice(0, -3)),
     entries = await Promise.all(
       names.map(async name => {
+        const alias = binding(name);
         const module = await import(pathToFileURL(join(directory, name + ".ts")).href);
+        if (alias !== `r_${module.revision.id}`) throw Error("InvalidStateRevision");
         return { name, revision: module.revision as Revision };
       }),
     );
@@ -88,7 +97,11 @@ export async function create(root: string, description: string, kind: "state" | 
       ...readFileSync(join(root, "src/persist/state_formats.ts"), "utf8").matchAll(
         /\b(state|checkpoint|handoff|workspaces): (\w+)\.revision\.id/g,
       ),
-    ].map(match => [match[1], match[2]]),
+    ].map(match => {
+      const entry = entries.find(entry => binding(entry.name) === match[2]);
+      if (!entry) throw Error("MissingStateHead");
+      return [match[1], entry.name];
+    }),
   ) as Record<Kind, string>;
   if (["state", "checkpoint", "handoff", "workspaces"].some(kind => !heads[kind as Kind]))
     throw Error("MissingStateHead");

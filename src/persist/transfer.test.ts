@@ -12,7 +12,7 @@ import * as transfer from "./transfer";
 import * as state_formats from "./state_formats";
 import * as handoff_rollback from "./handoff_rollback";
 import * as migrations from "./migrations";
-import * as root from "./revisions/r_68139a93dee0_terminal_core_handoff_baseline";
+import * as root from "./revisions/20261114_015701_68139a93dee0_terminal_core_baseline";
 import baselineFixture from "../fixtures/transfer-v1.json";
 
 function createHistory(current: string, revisions: formats.Revision[]) {

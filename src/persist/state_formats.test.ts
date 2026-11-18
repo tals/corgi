@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, test } from "bun:test";
 import {
   appendFileSync,
   cpSync,
@@ -78,13 +78,18 @@ test("the generator appends migrations and schema checks without rewriting previ
     mkdirSync(join(directory, "src/fixtures"), { recursive: true });
     for (const name of ["checkpoint", "handoff", "protocol", "viewer"])
       cpSync(join(root, "src/fixtures", name + ".schema"), join(directory, "src/fixtures", name + ".schema"));
+    setSystemTime(new Date("2026-11-18T23:55:00-08:00"));
     const first = await state_revision.create(directory, "Store last_seen in milliseconds"),
       fixture = join(directory, "src/fixtures/state_revisions", first.id + ".json"),
       recorded = readFileSync(fixture, "utf8");
+    expect(first.name).toBe(`20261119_075500_${first.id}_store_last_seen_in_milliseconds`);
     appendFileSync(join(directory, "src/fixtures/checkpoint.schema"), "\n$.new_field: string\n");
     expect(JSON.parse(recorded).structures).not.toEqual(state_revision.structures(directory));
+    // Clock order must not change the parent selected from the registry.
+    setSystemTime(new Date("2026-11-18T07:55:00Z"));
     const second = await state_revision.create(directory, "Add a new field"),
       next = JSON.parse(readFileSync(join(directory, "src/fixtures/state_revisions", second.id + ".json"), "utf8"));
+    expect(second.name).toBe(`20261118_075500_${second.id}_add_a_new_field`);
     expect(next.parent).toBe(first.id);
     expect(next.structures).toEqual(state_revision.structures(directory));
     expect(readFileSync(fixture, "utf8")).toBe(recorded);
@@ -101,6 +106,7 @@ test("the generator appends migrations and schema checks without rewriting previ
     expect(updated.checkpoint.current).toBe(state_formats.checkpoint.current);
     expect(updated.handoff.current).toBe(state_formats.handoff.current);
   } finally {
+    setSystemTime();
     rmSync(directory, { recursive: true, force: true });
   }
 });

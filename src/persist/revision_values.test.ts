@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
-import * as checkpoint_text from "./revisions/r_d58e69e6af6c_replace_fixed_byte_strings_and_index_providers_b";
-import * as handoff_text from "./revisions/r_35327c122041_normalize_handoff_strings_and_provider_maps";
+import * as checkpoint_text from "./revisions/20261114_015701_d58e69e6af6c_checkpoint_strings_and_providers";
+import * as handoff_text from "./revisions/20261114_015701_35327c122041_handoff_strings_and_providers";
 import * as values from "./revision_values";
 test("checkpoint 4 to 5 writes text alone and names providers", () => {
   const value: Record<string, unknown> = {

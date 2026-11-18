@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { baseline, History, histories, parse, supported, select } from "./formats";
 import type { Revision } from "./formats";
-import * as root from "./revisions/r_68139a93dee0_terminal_core_handoff_baseline";
+import * as root from "./revisions/20261114_015701_68139a93dee0_terminal_core_baseline";
 
 function createHistory(current: string, revisions: Revision[]) {
   return new History(current, [root.revision, ...revisions]);

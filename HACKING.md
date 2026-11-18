@@ -515,6 +515,9 @@ Saved-state migrations use explicit revisions modeled on
 IDs are generated once and checked in; they are independent of Git commits,
 release labels, schema contents and descriptions.
 They are 12-character random hex identifiers.
+Revision filenames are `YYYYMMDD_HHMMSS_<id>_<description>.ts`, using UTC.
+The timestamp is set once; keep it through rebases and cherry-picks. It makes
+files sortable by creation time; parent links determine migration order.
 
 ```sh
 bun tools/state_revision.ts "Store activity timestamps in milliseconds"
