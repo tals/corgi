@@ -6411,7 +6411,7 @@ test("while a pane's input waits, only hovers give way: clicks, drags and the wh
   }
 });
 
-test("while the notice says its machine is offline, a pane drops typing and the pointer rather than hold them", async () => {
+test("input that came while its machine dropped it reaches no pane, pairing presses with releases", async () => {
   const s: any = new Controller(transport(async () => ({ ok: true })));
   s.width = 100;
   s.height = 30;
@@ -6445,23 +6445,37 @@ test("while the notice says its machine is offline, a pane drops typing and the 
     s.runtime.pane(1).terminal.receive(source.surface(1));
     s.frame();
     const place = s.layoutView().placements(s.area())[0].rect;
-    const at = (button: number, x: number) => `\x1b[<${button};${place.x + x + 1};${place.y + 3}M`;
-    const pending = () => Buffer.from(s.runtime.pane(1).terminal.pending).toString();
-    s.sync_notice = { status: "work: Reconnecting… 3s", keys: "", drops_input: true };
-    await s.input(bytes("ls" + at(35, 1) + at(0, 2)));
-    expect(pending()).toBe("");
-    // Behind but online, typing waits for it.
-    s.sync_notice = { status: "work: Syncing… 2s", keys: "", drops_input: false };
+    const at = (button: number, x: number, release = false) =>
+      `\x1b[<${button};${place.x + x + 1};${place.y + 3}${release ? "m" : "M"}`;
+    const terminal = s.runtime.pane(1).terminal,
+      pane = s.runtime.pane(1);
+    const take = () => {
+      const text = Buffer.from(terminal.pending).toString();
+      terminal.pending = [];
+      return text;
+    };
+    const dropped = (text: string) => s.input(bytes(text), () => true, true);
+    pane.agent.attention = "needs_input";
+    await dropped("y" + at(35, 1));
+    expect(take()).toBe("");
+    // A key that never reached the agent doesn't answer it.
+    expect(pane.agent.attention).toBe("needs_input");
     await s.input(bytes("pwd"));
-    expect(pending()).toBe("pwd");
-    // A paste goes whole or not at all: one begun before the machine went
-    // offline finishes, and one begun after goes nowhere.
-    await s.input(bytes("\x1b[200~one"));
-    s.sync_notice = { status: "work: Reconnecting… 3s", keys: "", drops_input: true };
+    expect(take()).toBe("pwd");
+    // A press that went keeps its drag and release; one dropped drops them.
+    await s.input(bytes(at(0, 3)));
+    await dropped(at(32, 4) + at(0, 4, true));
+    expect(
+      [...take().matchAll(/\x1b\[<(\d+);(\d+);\d+([Mm])/g)].map(([, b, x, k]) => `${b}@${Number(x) - 1}${k}`),
+    ).toEqual(["0@3M", "32@4M", "0@4m"]);
+    await dropped(at(0, 5));
+    await s.input(bytes(at(32, 6) + at(0, 6, true)));
+    expect(take()).toBe("");
+    // A paste goes or is dropped whole, as its start was.
+    await dropped("\x1b[200~one");
     await s.input(bytes(" two\x1b[201~\x1b[200~three"));
-    s.sync_notice = null;
     await s.input(bytes(" four\x1b[201~"));
-    expect(pending()).toBe("pwdone two");
+    expect(take()).toBe("three four");
   } finally {
     source.destroy();
     viewer.close(s);

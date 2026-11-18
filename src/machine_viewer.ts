@@ -82,28 +82,34 @@ export async function run(
   let active = endpoints.find(e => e.name === selected);
   if (!active) throw Error("UnknownMachine");
   // Typing waits in the panes it's meant for until their machine catches
-  // up; one still behind after a moment says so, and while it isn't online
-  // its panes drop input rather than hold it.
+  // up; one still behind after a moment says so.
   let behind = null as { endpoint: Endpoint; since: number; shown: boolean } | null;
   const noticeDue = () => (behind && !behind.shown ? behind.since + behind_after_ms : Infinity);
-  const syncNotice = (now: number): SyncNotice | null => {
+  /** When the shown machine fell behind, if it has; tracked whenever asked. */
+  const behindSince = (now: number): number | null => {
     const shown = active!;
-    if (shown.status === "online" && shown.fresh && !shown.error) {
-      behind = null;
-      return null;
-    }
-    if (behind?.endpoint !== shown) behind = { endpoint: shown, since: now, shown: false };
-    if (now < behind.since + behind_after_ms) return null;
-    behind.shown = true;
+    if (shown.status === "online" && shown.fresh && !shown.error) behind = null;
+    else if (behind?.endpoint !== shown) behind = { endpoint: shown, since: now, shown: false };
+    return behind?.since ?? null;
+  };
+  // While the notice says the machine isn't online, input is dropped as it
+  // comes: none of it reaches a pane, then or later.
+  const drops = (now = Date.now()): boolean => {
+    const since = behindSince(now);
+    return since !== null && now >= since + behind_after_ms && active!.status !== "online";
+  };
+  const syncNotice = (now: number): SyncNotice | null => {
+    const since = behindSince(now);
+    if (since === null || now < since + behind_after_ms) return null;
+    const shown = active!;
+    behind!.shown = true;
     const status =
-      shown.status === "online"
-        ? shown.error || `Syncing… ${Math.floor((now - behind.since) / 1000)}s`
-        : shown.description();
+      shown.status === "online" ? shown.error || `Syncing… ${Math.floor((now - since) / 1000)}s` : shown.description();
     const hints = unreachable(shown)
       ? ["Ctrl+R retry", ...(shown.status === "paused" ? [] : ["Ctrl+X pause"]), ...(shown.error ? ["! details"] : [])]
       : [];
     if (!shown.reached) hints.push("Ctrl+C quit");
-    return { status: `${shown.name}: ${status}`, keys: hints.join(" · "), drops_input: shown.status !== "online" };
+    return { status: `${shown.name}: ${status}`, keys: hints.join(" · ") };
   };
   active.folder = options.folder ?? null;
   endpoints[0].onboarding = options.onboarding ?? false;
@@ -146,7 +152,7 @@ export async function run(
     view.switchMachine(endpoint.machine);
     if (focus !== null) active.choose(focus, active.instance);
     else active.activate();
-    if (typed.length) active.enqueue(typed);
+    if (typed.length) active.enqueue(typed, drops());
   };
   view.onMachine = (machine, focus) => {
     const endpoint = endpoints.find(e => e.machine === machine);
@@ -155,7 +161,8 @@ export async function run(
   let differ: Differ | null = null;
   let previous: composition.Output = "";
   const parser = new Parser();
-  let paste_owner: { endpoint: Endpoint; epoch: number } | null = null;
+  // A paste goes, or is dropped, whole, as its start was.
+  let paste_owner: { endpoint: Endpoint; epoch: number; dropped: boolean } | null = null;
   const openers = new Openers();
   const clipboard: { owner: { endpoint: Endpoint; generation: number; epoch: number } | null } = {
     owner: null,
@@ -232,10 +239,6 @@ export async function run(
       if (output) viewer.writeAll(output);
     };
   }
-  // Input the notice drops can't wait in a reload's buffer, or before the
-  // first frame, to be routed once it's gone: it's dropped as it's typed.
-  // A paste already under way goes on whole.
-  const holdsDropped = () => view.sync_notice?.drops_input === true && active!.holdsInput();
   const accept = (input: Input) => {
     const value = Buffer.from(input.bytes).toString();
     const key = keyboard.decode(value);
@@ -297,14 +300,14 @@ export async function run(
     if (!input.paste && cp === 27 && view.cancelWorkspaceDrag()) return;
     if (input.paste) {
       if (value === "\x1b[200~")
-        paste_owner = !workspaces.open && !holdsDropped() ? { endpoint: active!, epoch: active!.input_epoch } : null;
+        paste_owner = !workspaces.open ? { endpoint: active!, epoch: active!.input_epoch, dropped: drops() } : null;
       if (
         paste_owner &&
         paste_owner.endpoint === active &&
         paste_owner.epoch === active!.input_epoch &&
         !workspaces.open
       )
-        active!.enqueue(input.bytes);
+        active!.enqueue(input.bytes, paste_owner.dropped);
       else paste_owner = null;
       if (value === "\x1b[201~") paste_owner = null;
       return;
@@ -404,11 +407,14 @@ export async function run(
         return;
       }
     }
-    if (holdsDropped()) return;
-    active!.enqueue(input.bytes);
+    active!.enqueue(input.bytes, drops());
   };
   const feed = (bytes: Uint8Array) => {
-    for (const input of parser.feed(probe.feed(bytes))) accept(input);
+    const waiting = probe.clipboard.event.phase === "ready",
+      fed = probe.feed(bytes);
+    // A paste the host announces while input is dropped is dropped with it.
+    if (!waiting && probe.clipboard.event.phase === "ready" && drops()) probe.clipboard.takeEvent();
+    for (const input of parser.feed(fed)) accept(input);
     notify();
   };
   probe.clipboard.folder = join(dirname(local), "paste");

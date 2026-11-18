@@ -160,9 +160,8 @@ comes, Corgi says so: the request may have run, so check before trying again.
 A machine still behind a second after a switch, a stall or a reconnect says so
 on the focused pane's top rows: **work: Syncing… 2s**, or the stall, countdown
 or error instead. While that notice shows a machine that isn't online, its
-panes drop typing, clicks and pointer moves rather than hold them for later.
-**Ctrl+]** still works, as do Corgi's other keys, such as the prefix, except
-during a reload, when nothing else is routed until the viewer is back. Once the
+panes drop typing, clicks and pointer moves rather than hold them for later;
+Corgi's own keys, such as the prefix and **Ctrl+]**, still work. Once the
 machine can't be reached (down, paused or failing to reconnect), **Ctrl+R**
 cancels the current request or SSH handshake and starts a new attempt
 immediately, **Ctrl+X** pauses retries, and **!** shows details. Before the

@@ -8,8 +8,6 @@ export interface State {
   status: string;
   /** The keys that act on it meanwhile. */
   keys: string;
-  /** The machine isn't online: its panes drop input rather than hold it. */
-  drops_input: boolean;
 }
 
 /** The focused pane's top `rows` rows, or the panes' area's without one. */

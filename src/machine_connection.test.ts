@@ -763,6 +763,8 @@ test("a spare that takes over brings its own data connection, already dialed", a
   }
 });
 
+const typedBytes = (typed: { bytes: number[] }[]) => typed.flatMap(t => t.bytes);
+
 test("planned reconnect bounds input already queued and releases a full hold without spreading arguments", async () => {
   for (const bytes of [64 * 1024, 256 * 1024]) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
@@ -770,7 +772,7 @@ test("planned reconnect bounds input already queued and releases a full hold wit
       endpoint.enqueue(new Uint8Array(bytes).fill(120));
       Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
       const held = Reflect.get(endpoint, "handoff");
-      expect(held.input.length).toBe(bytes === 64 * 1024 ? bytes : 0);
+      expect(typedBytes(held.input).length).toBe(bytes === 64 * 1024 ? bytes : 0);
       expect(Reflect.get(endpoint, "input")).toEqual([]);
       if (bytes > 64 * 1024) {
         expect(endpoint.error).toBe("Input queue full; unsent input discarded");
@@ -781,7 +783,7 @@ test("planned reconnect bounds input already queued and releases a full hold wit
       Reflect.set(endpoint, "resumed", true);
       Reflect.get(endpoint, "pumpUi").call(endpoint);
       expect(Reflect.get(endpoint, "handoff")).toBeNull();
-      expect(Reflect.get(endpoint, "input")).toEqual(bytes === 64 * 1024 ? Array(bytes).fill(120) : [121]);
+      expect(typedBytes(Reflect.get(endpoint, "input"))).toEqual(bytes === 64 * 1024 ? Array(bytes).fill(120) : [121]);
     } finally {
       await endpoint.close();
     }
@@ -805,16 +807,32 @@ test("typing into an idle viewer goes at once, not at the idle step's pace", asy
   }
 });
 
-test("keys wait unrouted across a reload and before the first frame, not after it", async () => {
+test("keys keep whether they came while dropping, through a reload, and the view routes them so", async () => {
   const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
   try {
-    expect(endpoint.holdsInput()).toBe(true);
+    const view = Reflect.get(endpoint, "view").call(endpoint);
+    view.input_state.attached = true;
     Reflect.set(endpoint, "settled", true);
-    expect(endpoint.holdsInput()).toBe(false);
+    const routed: [string, boolean][] = [],
+      expired: boolean[] = [];
+    view.input = async (data: Uint8Array, _current: () => boolean, dropped: boolean) =>
+      void routed.push([Buffer.from(data).toString(), dropped]);
+    view.expireInput = async (_current: () => boolean, dropped: boolean) => void expired.push(dropped);
+    endpoint.enqueue(Buffer.from("a"));
     Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
-    expect(endpoint.holdsInput()).toBe(true);
-    endpoint.pause();
-    expect(endpoint.holdsInput()).toBe(false);
+    endpoint.enqueue(Buffer.from("b"), true);
+    endpoint.enqueue(Buffer.from("c"), true);
+    endpoint.generation++;
+    endpoint.ready = true;
+    Reflect.set(endpoint, "resumed", true);
+    Reflect.get(endpoint, "pumpUi").call(endpoint);
+    await Reflect.get(endpoint, "ui_task");
+    expect(routed).toEqual([
+      ["a", false],
+      ["bc", true],
+    ]);
+    // What the view holds back of the last keys came while dropping too.
+    expect(expired).toEqual([true]);
   } finally {
     await endpoint.close();
   }
@@ -829,7 +847,7 @@ test("keys held through a reload still go after a retry or a pause", async () =>
       endpoint.enqueue(Uint8Array.of(98));
       endpoint[action]();
       expect(Reflect.get(endpoint, "handoff")).toBeNull();
-      expect(Reflect.get(endpoint, "input")).toEqual([97, 98]);
+      expect(typedBytes(Reflect.get(endpoint, "input"))).toEqual([97, 98]);
     } finally {
       await endpoint.close();
     }
