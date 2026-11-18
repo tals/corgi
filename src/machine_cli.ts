@@ -16,24 +16,32 @@ import { Connection } from "./rpc";
 
 export const help = `
 Machines (SSH):
-  corgi machine add NAME [SSH_TARGET] [--executable /path/to/corgi]
+  corgi machine add NAME [SSH_TARGET] [--executable /path/to/corgi] [--force]
   corgi machine list
   corgi machine status NAME
   corgi machine reconnect NAME
-  corgi machine check NAME
+  corgi machine check NAME [--force]
   corgi machine remove NAME
   corgi --machine NAME [attach | open PATH | COMMAND...]
   corgi list --all-machines
 
 SSH_TARGET defaults to NAME. "local" always selects this machine.
-Setup upgrades the older Corgi installation. Add uses normal SSH prompts;
+Setup upgrades the older Corgi installation; --force installs this computer's
+build there instead, whichever is newer. Add uses normal SSH prompts;
 viewers reconnect with SSH keys/agent or noninteractive corporate SSH authentication.
 In the viewer, Ctrl+] or clicking the machine name opens the machine picker.
 `;
+/** Takes `name` out of `args`; whether it was there. */
+function flag(args: string[], name: string): boolean {
+  const at = args.indexOf(name);
+  if (at >= 0) args.splice(at, 1);
+  return at >= 0;
+}
 export async function manage(args: string[]): Promise<void> {
   switch (args[0]) {
     case "add": {
       const rest = args.slice(1);
+      const force = flag(rest, "--force");
       const name = machines.name(rest.shift() ?? "");
       const target = machines.target(rest[0] && !rest[0].startsWith("--") ? rest.shift()! : name);
       let executable = "corgi";
@@ -41,7 +49,7 @@ export async function manage(args: string[]): Promise<void> {
       if (rest.length) throw Error("Usage");
       if (machines.read().some(p => p.name === name)) throw Error("MachineExists");
       process.stderr.write(`Checking ${target} through SSH…\n`);
-      executable = await setup.reconcile(target, executable, args);
+      executable = await setup.reconcile(target, executable, args, "", force);
       const info = await machines.discover(target, executable);
       const profile = {
         name,
@@ -89,9 +97,11 @@ export async function manage(args: string[]): Promise<void> {
       process.stdout.write(json.stringify({ machines: [{ name: "local" }, ...machines.read()] }) + "\n");
       return;
     case "check": {
-      if (args.length !== 2) throw Error("Usage");
-      const old = machines.find(args[1]);
-      const executable = await setup.reconcile(old.target, old.executable, args, old.socket);
+      const rest = args.slice(1),
+        force = flag(rest, "--force");
+      if (rest.length !== 1) throw Error("Usage");
+      const old = machines.find(rest[0]);
+      const executable = await setup.reconcile(old.target, old.executable, args, old.socket, force);
       const info = await machines.discover(old.target, executable, old.socket);
       const refreshed = {
         ...old,
@@ -109,7 +119,7 @@ export async function manage(args: string[]): Promise<void> {
           return refreshed;
         }),
       );
-      process.stdout.write(json.stringify({ ok: true, machine: args[1] }) + "\n");
+      process.stdout.write(json.stringify({ ok: true, machine: old.name }) + "\n");
       return;
     }
     default:
