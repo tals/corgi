@@ -53,7 +53,7 @@ test("the count includes empty linked worktrees and has its own hit area", () =>
   const worktrees = snapshot(),
     ws = workspaceEntry({ id: viewerRef.workspace(1, 1), name: "repo", cwd: "/repo", active: true, worktrees });
   const view = View.init(120, 40, true, 0, 0).withWorkspaces(1, 0);
-  expect(worktreeLabel(ws)).toBe("⑂4");
+  expect(worktreeLabel(ws)).toBe("4⑂");
   expect(worktreeAt(view, [ws], 24, 3)).toBe(ws);
   expect(worktreeAt(view, [ws], 20, 3)).toBeNull();
   expect(worktreeAt(view, [ws], 20, 2)).toBeNull();
@@ -79,7 +79,7 @@ test("the worktree count yields so the activity indicator stays", () => {
   for (const unread of [0, 2]) {
     ws.unread = unread;
     expect(statusRow(ws, 27)).toContain("▶1");
-    expect(statusRow(ws, 27)).toContain("⑂18");
+    expect(statusRow(ws, 27)).toContain("18⑂");
     const badge = worktreeBadge(narrow, [ws], ws.id)!;
     expect(badge.w).toBe(3);
     expect(worktreeAt(narrow, [ws], badge.x, badge.y)).toBe(ws);
@@ -125,7 +125,7 @@ test("the count and table hide dead worktrees but retain locked and temporarily 
     active: true,
     worktrees: data,
   });
-  expect(worktreeLabel(ws)).toBe("⑂4");
+  expect(worktreeLabel(ws)).toBe("4⑂");
   const state = new State(),
     w = new Writer();
   state.selected = data.entries[1].path;
