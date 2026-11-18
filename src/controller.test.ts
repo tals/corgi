@@ -47,6 +47,7 @@ import * as viewer from "./viewer";
 import { agent, type Pane } from "./mirror";
 import * as summaries from "./review/summaries";
 import * as sidebar from "./sidebar";
+import * as workspaceRows from "./workspace_rows";
 import * as render from "./render";
 import * as modelPicker from "./model_picker";
 import * as subprocess from "./subprocess";
@@ -683,6 +684,93 @@ test("a workspace auto-order archives is named in a notice, on any machine", () 
   } finally {
     viewer.close(s);
     other.runtime.destroy();
+  }
+});
+test("a workspace auto-order moves fades out and in; a drag drop and an auto-archive behave as the user sees them", async () => {
+  const s: any = new Controller(transport(async () => ({ ok: true, result: {} })));
+  s.machine.profiles.loaded = true;
+  const order = { enabled: true, pause_after: 5, stale_after: 10, archive_after: 480 },
+    snapshot = (...ids: number[]) => {
+      const all = folders("/a", "/b", "/c", "/d");
+      return { ...all, workspaces: ids.map(id => all.workspaces[id - 1]), workspace_auto_order: order };
+    },
+    shown = () => s.workspaceRows().map((row: sidebar.WorkspaceEntry) => [row.name, row.fade]),
+    frame = (ms: number) => {
+      clock.advance(ms);
+      s.frame();
+    },
+    d = workspaceRows.State.duration_ms;
+  setSystemTime(new Date(1000));
+  try {
+    s.receiveSnapshot(snapshot(1, 2, 3, 4));
+    s.frame();
+    expect(shown()).toEqual([
+      ["/a", null],
+      ["/b", null],
+      ["/c", null],
+      ["/d", null],
+    ]);
+    expect(s.frameDelay()).not.toBe(30);
+    // /b goes stale: it fades out where it was, the others hold still.
+    s.receiveSnapshot(snapshot(1, 3, 4, 2));
+    expect(shown()).toEqual([
+      ["/a", null],
+      ["/b", 0],
+      ["/c", null],
+      ["/d", null],
+    ]);
+    expect(s.frameDelay()).toBe(30);
+    frame(d / 2);
+    expect(shown()[1]).toEqual(["/b", 0.5]);
+    // Clicks meanwhile find the cards where they are drawn.
+    expect(s.workspaceIds()).toEqual([1, 2, 3, 4]);
+    frame(d / 2);
+    expect(shown()).toEqual([
+      ["/a", null],
+      ["/c", null],
+      ["/d", null],
+      ["/b", 1],
+    ]);
+    frame(d / 2);
+    expect(shown()[3]).toEqual(["/b", 0.5]);
+    frame(d / 2);
+    expect(shown().map(([, fade]: [string, number | null]) => fade)).toEqual([null, null, null, null]);
+    expect(s.frameDelay()).not.toBe(30);
+    // A drop shows where it lands at once.
+    const ids = s.workspaceIds();
+    Reflect.get(s, "dropWorkspace").call(s, {
+      drop: { index: 0, y: 0 },
+      ids,
+      source: 1,
+      before: () => ids[0],
+    });
+    expect(shown()).toEqual([
+      ["/c", null],
+      ["/a", null],
+      ["/d", null],
+      ["/b", null],
+    ]);
+    expect(s.frameDelay()).not.toBe(30);
+    await s.tasks.idle();
+    s.receiveSnapshot(snapshot(3, 1, 4, 2));
+    expect(shown().map(([, fade]: [string, number | null]) => fade)).toEqual([null, null, null, null]);
+    // An auto-archived workspace fades out before the gap closes.
+    const archived = snapshot(3, 1, 4, 2);
+    Object.assign(archived.workspaces[3], { archived: true, auto_archived: true });
+    s.receiveSnapshot(archived);
+    expect(shown()).toEqual([
+      ["/c", null],
+      ["/a", null],
+      ["/d", null],
+      ["/b", 0],
+    ]);
+    frame(d);
+    expect(shown().map(([name]: [string]) => name)).toEqual(["/c", "/a", "/d"]);
+    expect(s.frameDelay()).not.toBe(30);
+  } finally {
+    setSystemTime();
+    clock.reset();
+    viewer.close(s);
   }
 });
 test("attention passes over archived workspaces", async () => {

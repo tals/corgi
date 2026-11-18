@@ -617,6 +617,9 @@ export interface WorkspaceEntry<Id = viewerRef.Workspace> {
   stats: Stats;
   /** The auto-order fade: 0 for the usual name color, 1 to 5 ever darker while stale. */
   stale_step: number;
+  /** How far the card fades toward the background as auto-order moves it,
+   * as `writeExit` takes it; null when it doesn't. */
+  fade: number | null;
 }
 export type ArchivedWorkspace = Pick<WorkspaceEntry, "id" | "name" | "active"> & { summary?: ArchiveSummary | null };
 export function workspaceEntry<Id>(
@@ -646,6 +649,7 @@ export function workspaceEntry<Id>(
     attention: 0,
     stats: { tools: 0, input: 0, output: 0, tokens_known: false },
     stale_step: 0,
+    fade: null,
     ...fields,
   };
 }
@@ -1751,7 +1755,10 @@ export class View {
       }
       if (ws.collapsed) return;
       const out = w;
-      if (ws.unavailable) w = new Writer(out.column);
+      // A disconnected machine's card dims by half, one auto-order moves
+      // by its fade; the stronger wins.
+      const dim = Math.max(ws.fade ?? 0, ws.unavailable ? 0.5 : 0);
+      if (ws.unavailable || ws.fade !== null) w = new Writer(out.column);
       const ghost = v.dragged_workspace === v.workspace_offset + index;
       const tinted = ws.active || ghost;
       // A stale name fades with idle time; a selected or dragged one stays readable.
@@ -1844,10 +1851,10 @@ export class View {
       }
       if (rename !== null && rename.message !== null)
         v.drawMessage(w, rename.message, y + 1, tinted ? selected_bg : bg("bg"));
-      if (ws.unavailable) {
-        writeExit(out, w.buffered(), 0.5);
+      if (ws.unavailable || ws.fade !== null) {
+        writeExit(out, w.buffered(), dim);
         w = out;
-        if (ws.connecting) {
+        if (ws.unavailable && ws.connecting && ws.fade === null) {
           // Keep the cached card dim; let the workspace name glimmer at full brightness.
           w.write(`${w.cup(y + 1, 2)}`);
           writeExit(w, style, 0.5);
