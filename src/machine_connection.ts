@@ -258,6 +258,11 @@ export class Endpoint {
     this.interruptInput(true);
     this.next = 0;
   }
+  /** Keys typed now wait unrouted: across a reload, or with nothing drawn
+   * yet and no pane to take them. */
+  holdsInput(): boolean {
+    return this.handoff !== null || (!this.settled && !this.view().focused());
+  }
   /** Keys the view hasn't routed yet, taken to go elsewhere. */
   takeInput(): Uint8Array {
     return Uint8Array.from(this.input.splice(0));

@@ -805,6 +805,21 @@ test("typing into an idle viewer goes at once, not at the idle step's pace", asy
   }
 });
 
+test("keys wait unrouted across a reload and before the first frame, not after it", async () => {
+  const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
+  try {
+    expect(endpoint.holdsInput()).toBe(true);
+    Reflect.set(endpoint, "settled", true);
+    expect(endpoint.holdsInput()).toBe(false);
+    Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
+    expect(endpoint.holdsInput()).toBe(true);
+    endpoint.pause();
+    expect(endpoint.holdsInput()).toBe(false);
+  } finally {
+    await endpoint.close();
+  }
+});
+
 test("keys held through a reload still go after a retry or a pause", async () => {
   for (const action of ["retry", "pause"] as const) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());

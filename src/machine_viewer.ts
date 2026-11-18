@@ -232,6 +232,10 @@ export async function run(
       if (output) viewer.writeAll(output);
     };
   }
+  // Input the notice drops can't wait in a reload's buffer, or before the
+  // first frame, to be routed once it's gone: it's dropped as it's typed.
+  // A paste already under way goes on whole.
+  const holdsDropped = () => view.sync_notice?.drops_input === true && active!.holdsInput();
   const accept = (input: Input) => {
     const value = Buffer.from(input.bytes).toString();
     const key = keyboard.decode(value);
@@ -293,7 +297,7 @@ export async function run(
     if (!input.paste && cp === 27 && view.cancelWorkspaceDrag()) return;
     if (input.paste) {
       if (value === "\x1b[200~")
-        paste_owner = !workspaces.open ? { endpoint: active!, epoch: active!.input_epoch } : null;
+        paste_owner = !workspaces.open && !holdsDropped() ? { endpoint: active!, epoch: active!.input_epoch } : null;
       if (
         paste_owner &&
         paste_owner.endpoint === active &&
@@ -400,8 +404,7 @@ export async function run(
         return;
       }
     }
-    // With nothing on screen yet, nothing else takes it either.
-    if (view.sync_notice?.drops_input && !active!.reached) return;
+    if (holdsDropped()) return;
     active!.enqueue(input.bytes);
   };
   const feed = (bytes: Uint8Array) => {

@@ -1132,6 +1132,21 @@ process.stdin.on("data", chunk => {
     this.network!.latency_ms = 120;
     await this.test_remote_reload_rebuilds_the_stream_without_replacing_its_panes();
   }
+  async test_typing_while_a_reload_shows_its_notice_is_dropped_not_replayed() {
+    await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
+    // Over a slow link, the same viewer comes back a while after the notice shows.
+    this.network!.cut();
+    this.network!.latency_ms = 1000;
+    await this.startViewer();
+    await this.online(undefined, 60);
+    await this.sendRemote("BEFORE_RELOAD");
+    await this.remote!.rpc({ op: "server.reload", executable: EXE });
+    await this.until(() => this.text().includes("Reconnecting"), 10);
+    this.terminal!.write("DROPPED_DURING_RELOAD\r");
+    await this.online(undefined, 60);
+    await this.sendRemote("AFTER_RELOAD");
+    this.assertNotIn("DROPPED_DURING_RELOAD", (await this.remote!.command("pane.read", { target: 1 })).text);
+  }
   async test_short_network_hiccup_shows_stall_drops_input_and_recovers_on_the_same_connection() {
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; printf '\\n\\n\\n'; cat" });
     await this.startViewer();
