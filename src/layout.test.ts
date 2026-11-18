@@ -14,25 +14,6 @@ test("nested split close preserves stable identities and collapses tree", () => 
   m.close(c);
   expect(m.count).toBe(0);
 });
-test("layout JSON validates identity, tree ownership, ratios and cycles", () => {
-  const m = new Model();
-  m.split(m.newTab("hello"), "horizontal");
-  expect(Model.fromData(m.toJSON()).toJSON()).toEqual(m.toJSON());
-  expect(() =>
-    Model.fromData({
-      nodes: [{ pane: 0 }],
-      tabs: [{ id: 2, root: 0, title: "" }],
-      revision: 0,
-    } as any),
-  ).toThrow("UnexpectedToken");
-  expect(() =>
-    Model.fromData({
-      nodes: [{ split: { axis: "horizontal", ratio: 500, first: 0, second: 0 } }],
-      tabs: [{ id: 2, root: 0, title: "" }],
-      revision: 0,
-    } as any),
-  ).toThrow("UnexpectedToken");
-});
 test("a workspace holds any number of tabs, and one tab at most max_panes", () => {
   const m = new Model();
   for (let i = 0; i < 300; i++) m.newTab("");
@@ -193,8 +174,21 @@ test("only split layouts reserve an outer frame and closing restores the area", 
   s.reconcile(m);
   expect(v.placements(area)[0].rect).toEqual(area);
 });
-test("shared model decoder rejects cycles orphan nodes and duplicate panes", () => {
+test("layout JSON round-trips, and the decoder rejects pane 0, cycles, orphan nodes and duplicate panes", () => {
+  const m = new Model();
+  m.split(m.newTab("hello"), "horizontal");
+  expect(Model.fromData(m.toJSON()).toJSON()).toEqual(m.toJSON());
   for (const d of [
+    {
+      nodes: [{ pane: 0 }],
+      tabs: [{ id: 2, root: 0, title: "" }],
+      revision: 0,
+    },
+    {
+      nodes: [{ split: { axis: "horizontal", ratio: 500, first: 0, second: 0 } }],
+      tabs: [{ id: 2, root: 0, title: "" }],
+      revision: 0,
+    },
     {
       nodes: [{ split: { axis: "horizontal", ratio: 500, first: 0, second: 1 } }, { pane: 1 }],
       tabs: [{ id: 2, root: 0, title: "" }],

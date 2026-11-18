@@ -11,7 +11,7 @@ function equivalent(terminal: Terminal) {
   return expected;
 }
 
-test("direct title reads match the full info reply for empty, fragmented and Unicode titles", () => {
+test("direct title reads match the full info reply for empty, fragmented and Unicode titles, and fail once closed", () => {
   const terminal = new Terminal(20, 4);
   try {
     expect(equivalent(terminal).text).toBe("");
@@ -26,6 +26,10 @@ test("direct title reads match the full info reply for empty, fragmented and Uni
   } finally {
     terminal.destroy();
   }
+  expect(() => terminal.titleInfo()).toThrow("TerminalClosed");
+  expect(() => terminal.title).toThrow("TerminalClosed");
+  expect(() => terminal.title_pid).toThrow("TerminalClosed");
+  expect(() => terminal.title_revision).toThrow("TerminalClosed");
 });
 
 test("title text stays fresh when a status changes without changing its session revision", () => {
@@ -59,30 +63,6 @@ test("title metadata preserves signed restored process IDs", () => {
   } finally {
     terminal.destroy();
   }
-});
-
-test("direct title strings own their bytes across mutation, other terminals and destruction", () => {
-  const first = new Terminal(20, 4),
-    second = new Terminal(20, 4);
-  let held = "";
-  try {
-    first.feed("\x1b]2;Owned 界🐕\x07");
-    held = first.titleInfo().text;
-    for (let i = 0; i < 30; i++) {
-      second.restore(Buffer.from(`\x1b]2;other ${i}\x07`), i);
-      equivalent(second);
-      first.feed(`\x1b]2;replacement ${i}\x07`);
-      equivalent(first);
-    }
-  } finally {
-    first.destroy();
-    second.destroy();
-  }
-  expect(held).toBe("Owned 界🐕");
-  expect(() => first.titleInfo()).toThrow("TerminalClosed");
-  expect(() => first.title).toThrow("TerminalClosed");
-  expect(() => first.title_pid).toThrow("TerminalClosed");
-  expect(() => first.title_revision).toThrow("TerminalClosed");
 });
 
 test("title readers do not request a serialized terminal info object", () => {

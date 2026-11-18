@@ -1,4 +1,3 @@
-// Mirrors the tests in commands.zig.
 import { expect, test } from "bun:test";
 import type * as dropdown from "./dropdown";
 import * as palette from "./palette";

@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import * as accounts from "./accounts";
+import { join } from "node:path";
 import { Memory, caps } from "./prompt_memory";
 import { flock } from "./native_bridge";
 
@@ -68,10 +67,6 @@ test("erasing a log line also removes only its unchanged promoted copy", () => {
   expect(other.search("first")).toEqual([]);
 });
 /** Sets a file's modification time to local `date`. */
-
-test("the root sits beside accounts.json", () => {
-  expect(Memory.root()).toBe(join(dirname(accounts.path()), "memory"));
-});
 
 test("daily logs are named by local date", () => {
   expect(memory.today(now)).toBe(join(memory.dir, "2026-10-30.md"));

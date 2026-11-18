@@ -142,7 +142,7 @@ test("codex reads the last call and the reported window, ignoring null info", ()
   expect(reading.used).toBe(93668n);
   expect(reading.view(new Points()).percent()).toBe(36n);
 });
-test("pressure follows a learned compaction point shared by model", () => {
+test("pressure follows the reading's compaction point, else one learned for its model, and bands at 70% and 85%", () => {
   const points = new Points(),
     reading = new Reading();
   Object.assign(reading, {
@@ -155,5 +155,9 @@ test("pressure follows a learned compaction point shared by model", () => {
   points.learn("claude-opus-5-5", 400000n);
   expect(reading.view(points).pressure()).toBe(0.75);
   expect(reading.view(points).percent()).toBe(30n);
+  reading.auto_compaction = 350000n;
+  expect(reading.view(points).compacts_at).toBe(350000n);
   expect(new View().pressure()).toBeNull();
+  expect(new View({ used: 70n, window: 100n, at: 1 }).band()).toBe("near");
+  expect(new View({ used: 85n, window: 100n, at: 1 }).band()).toBe("high");
 });

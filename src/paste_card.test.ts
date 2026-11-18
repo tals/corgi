@@ -1,4 +1,3 @@
-// Mirrors the tests in paste_card.zig.
 import { expect, test } from "bun:test";
 import { keycap } from "./palette";
 import { Rect } from "./layout";

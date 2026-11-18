@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { Omp, summaryArgs } from "./headless";
+import { Omp, messageIntent, nativeIntent, summaryArgs } from "./headless";
 import { Pi } from "../pi/headless";
 import type { Stdio } from "../stdio";
 function client(ready = true) {
@@ -94,6 +94,46 @@ test("omp's summaries use only flags omp knows", () => {
   expect(args.slice(-2)).toEqual(["--model", "openai-codex/gpt-6-luna"]);
 });
 
+test("native intents keep omp's wording without control text or trailing periods, within 160 bytes", () => {
+  for (const [value, text] of [
+    [
+      "  \x1b[31mInspecting\x1b[0m\nall\tseven words without any inference rewriting...  ",
+      "Inspecting all seven words without any inference rewriting",
+    ],
+    ["Writing native labels.", "Writing native labels"],
+    ["界".repeat(100), "界".repeat(53)],
+    ["...\n\t", ""],
+    [false, ""],
+    [42, ""],
+  ] as const)
+    expect(nativeIntent(value)).toBe(text);
+});
+
+test("a message's intent is the last assistant tool call with a native label", () => {
+  const assistant = (...content: object[]) => ({ role: "assistant", content });
+  expect(
+    messageIntent(
+      assistant(
+        { type: "toolCall", id: "first", arguments: { i: "Reading earlier data" } },
+        { type: "toolCall", id: "last", intent: "Reading latest data", arguments: {} },
+        { type: "text", text: "Do not use assistant commentary as activity" },
+        { type: "toolCall", id: "empty", arguments: { i: 42 } },
+      ),
+    ),
+  ).toEqual({ id: "last", text: "Reading latest data" });
+  expect(messageIntent(assistant({ type: "toolCall", id: "write", arguments: { i: "Writing." } }))).toEqual({
+    id: "write",
+    text: "Writing",
+  });
+  expect(messageIntent(assistant({ type: "text", text: "Prose" }))).toBeNull();
+  expect(
+    messageIntent({
+      role: "user",
+      content: [{ type: "toolCall", id: "user", arguments: { i: "Not an assistant intent" } }],
+    }),
+  ).toBeNull();
+});
+
 function streaming(id: string, intent: unknown, content = "") {
   return {
     type: "message_update",
@@ -165,32 +205,6 @@ test("OMP publishes native write intent while arguments stream and amends only t
   });
 });
 
-test("OMP accepts execution-provided intents and preserves native wording without inference rules", () => {
-  const { c, lines } = client();
-  lines.push(
-    { type: "agent_start" },
-    {
-      type: "tool_execution_start",
-      toolCallId: "native",
-      toolName: "custom",
-      args: {},
-      intent: "  \x1b[31mInspecting\x1b[0m\nall\tseven words without any inference rewriting...  ",
-    },
-  );
-  expect(c.take().filter(e => e.kind === "activity")).toEqual([
-    {
-      kind: "activity",
-      session: "s",
-      turn: c.turn,
-      text: "Inspecting all seven words without any inference rewriting",
-      amend: false,
-    },
-  ]);
-  lines.push(streaming("wide", "界".repeat(100)));
-  const activity = c.take().find(e => e.kind === "activity")!;
-  expect(activity.kind === "activity" && activity.text).toBe("界".repeat(53));
-});
-
 test("OMP native activities require a ready session and active turn and reset after settlement", () => {
   const { c, lines } = client(false);
   lines.push(streaming("write", "Too early"));
@@ -229,43 +243,6 @@ test("OMP native activities require a ready session and active turn and reset af
     text: "Writing labels",
     amend: false,
   });
-});
-
-test("OMP selects the last native tool intent and ignores non-native prose and invalid labels", () => {
-  const { c, lines } = client();
-  lines.push(
-    { type: "agent_start" },
-    {
-      type: "message_update",
-      message: {
-        role: "assistant",
-        content: [
-          { type: "toolCall", id: "first", arguments: { i: "Reading earlier data" } },
-          { type: "toolCall", id: "last", intent: "Reading latest data", arguments: {} },
-          { type: "text", text: "Do not use assistant commentary as activity" },
-          { type: "toolCall", id: "empty", arguments: { i: 42 } },
-        ],
-      },
-    },
-    streaming("invalid", false),
-    streaming("blank", "...\n\t"),
-    {
-      type: "message_update",
-      message: {
-        role: "user",
-        content: [{ type: "toolCall", id: "user", arguments: { i: "Not an assistant intent" } }],
-      },
-    },
-  );
-  expect(c.take().filter(e => e.kind === "activity")).toEqual([
-    {
-      kind: "activity",
-      session: "s",
-      turn: c.turn,
-      text: "Reading latest data",
-      amend: false,
-    },
-  ]);
 });
 
 test("Pi continues to ignore OMP-native intent fields", () => {

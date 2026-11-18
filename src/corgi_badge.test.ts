@@ -88,44 +88,40 @@ test("missing upload and placement acknowledgements fall back without losing cap
   expect(s.mode()).toBe("emoji");
   expect(s.supports_kitty_graphics).toBe(true);
 });
-test("placement missing-image replies retry only a bounded number of uploads", async () => {
+test.each([
+  [
+    "an unanswered placement",
+    async (s: State, now: number) => {
+      await upload(s, now + 3000);
+    },
+  ],
+  [
+    "an acknowledged upload",
+    async (s: State) => {
+      expect(s.mode()).toBe("pending");
+      s.accept(reply("i=730031;OK"));
+      expect(s.mode()).toBe("image");
+    },
+  ],
+  [
+    "a hidden confirmation probe",
+    async (s: State, now: number) => {
+      expect(await upload(s, now + 3000)).toContain(hide);
+      s.accept(reply("p=1,i=730031;OK"));
+    },
+  ],
+] as const)("three missing images use up the badge's retries, even after %s", async (_, between) => {
   const s = new State();
   s.accept(reply("i=730031;OK"));
   for (let i = 0; i < 3; i++) {
     expect((await upload(s, i * 3000)).length).toBeGreaterThan(100);
-    await upload(s, i * 3000 + 3000);
-    s.accept(reply("p=1,i=730031;ENOENT:missing"));
-  }
-  expect(await upload(s, 9000)).toBe("");
-  expect(s.mode()).toBe("emoji");
-  expect(s.supports_kitty_graphics).toBe(true);
-});
-test("successful uploads do not reset failed placement retries", async () => {
-  const s = new State();
-  s.accept(reply("i=730031;OK"));
-  for (let i = 0; i < 3; i++) {
-    expect((await upload(s, i * 100)).length).toBeGreaterThan(100);
-    expect(s.mode()).toBe("pending");
-    s.accept(reply("i=730031;OK"));
-    expect(s.mode()).toBe("image");
+    await between(s, i * 3000);
     s.accept(reply("p=1,i=730031;ENOENT:missing"));
     expect(s.mode()).toBe(i < 2 ? "pending" : "emoji");
   }
-  expect(await upload(s, 1000)).toBe("");
+  expect(await upload(s, 10000)).toBe("");
   expect(s.status).toBe("unavailable");
   expect(s.supports_kitty_graphics).toBe(true);
-});
-test("a hidden confirmation probe does not reset failed visible placements", async () => {
-  const s = new State();
-  s.accept(reply("i=730031;OK"));
-  for (let i = 0; i < 3; i++) {
-    expect((await upload(s, i * 3000)).length).toBeGreaterThan(100);
-    expect(await upload(s, i * 3000 + 3000)).toContain(hide);
-    s.accept(reply("p=1,i=730031;OK"));
-    s.accept(reply("p=1,i=730031;ENOENT:missing"));
-  }
-  expect(await upload(s, 10000)).toBe("");
-  expect(s.mode()).toBe("emoji");
 });
 test("successful visible placements restore the retry budget after image loss", async () => {
   const s = new State();

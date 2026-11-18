@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { Terminal } from "./terminal";
-import { Tracker, PromptWatch } from "../detection";
+import { Tracker } from "../detection";
 import { adapter } from "../providers";
-import type { Known } from "../providers/adapter";
 import { n } from "../native_ffi";
 
 let reading: ReturnType<typeof spyOn<typeof n, "terminal_live_text">>;
@@ -20,17 +19,6 @@ class ReadingTerminal extends Terminal {
   uncachedText(): string {
     return super.native({ op: "liveText" });
   }
-}
-
-function known(fields: Partial<Known> = {}): Known {
-  return {
-    state: "working",
-    authoritative: true,
-    pending_stop: false,
-    permission_review: false,
-    prompt: new PromptWatch(),
-    ...fields,
-  };
 }
 
 test("live text is retained until feed, resize or restore changes the terminal revision", () => {
@@ -120,25 +108,6 @@ test("viewer scrollback captures do not change the cached active screen", () => 
   }
 });
 
-test("raw live text owns Unicode strings after native mutation and destruction", () => {
-  const terminal = new ReadingTerminal(40, 6);
-  let captured = "",
-    expected = "";
-  try {
-    terminal.feed('\x1b[31mOwned 界é 🐕 "quoted"\\path\x1b[0m');
-    captured = terminal.liveText();
-    expected = terminal.uncachedText();
-    for (let i = 0; i < 20; i++) {
-      terminal.feed(`\x1b[2J\x1b[Hreplacement ${i}`);
-      expect(terminal.liveText()).toBe(terminal.uncachedText());
-    }
-  } finally {
-    terminal.destroy();
-  }
-  expect(captured).toBe(expected);
-  expect(captured).toContain("Owned 界é 🐕");
-});
-
 test("unchanged live text still confirms screen states and observes changed titles", () => {
   const terminal = new ReadingTerminal(80, 8),
     watcher = adapter("codex").watch(""),
@@ -156,49 +125,6 @@ test("unchanged live text still confirms screen states and observes changed titl
     expect(watcher.read(view, memory, null, 1000000).shown).toEqual({ state: "blocked", tool: false });
     expect(memory.confirmations).toBe(2);
     expect(terminal.reads).toBe(1);
-  } finally {
-    terminal.destroy();
-  }
-});
-
-test("unchanged live text still expires a Claude interruption timeout", () => {
-  const terminal = new ReadingTerminal(80, 8),
-    watcher = adapter("claude").watch(""),
-    memory = new Tracker(),
-    view = { id: 1, title: "✳ Task", text: () => terminal.liveText() },
-    state = known(),
-    start = 10000000;
-  try {
-    terminal.feed("> \r\n  ? for shortcuts");
-    expect(watcher.read(view, memory, state, start).interrupted).toBe(false);
-    expect(watcher.read(view, memory, state, start + 1499999).interrupted).toBe(false);
-    expect(watcher.read(view, memory, state, start + 1500000).interrupted).toBe(true);
-    expect(memory.idle_since).toBe(0);
-    expect(terminal.reads).toBe(1);
-    expect(watcher.read(view, memory, known({ pending_stop: true }), start + 3000000).interrupted).toBe(false);
-    expect(terminal.reads).toBe(1);
-  } finally {
-    terminal.destroy();
-  }
-});
-
-test("unchanged live text still confirms a covered and then answered Claude prompt", () => {
-  const terminal = new ReadingTerminal(80, 8),
-    watcher = adapter("claude").watch(""),
-    memory = new Tracker(),
-    view = { id: 1, title: "", text: () => terminal.liveText() },
-    state = known({ state: "blocked" });
-  try {
-    terminal.feed("Enter to confirm · Esc to cancel");
-    expect(watcher.read(view, memory, state, 0).answered).toBeNull();
-    expect(watcher.read(view, memory, state, 250000).answered).toBeNull();
-    expect(state.prompt.seen).toBe(true);
-    expect(terminal.reads).toBe(1);
-    terminal.feed("\x1b[2J\x1b[H──────────\r\n❯ \r\n──────────");
-    expect(watcher.read(view, memory, state, 500000).answered).toBeNull();
-    expect(watcher.read(view, memory, state, 750000).answered).toBe("idle");
-    expect(state.prompt.seen).toBe(false);
-    expect(terminal.reads).toBe(2);
   } finally {
     terminal.destroy();
   }

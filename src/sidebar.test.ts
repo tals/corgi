@@ -1,4 +1,3 @@
-// Mirrors the tests in sidebar.zig.
 import { expect, test } from "bun:test";
 import * as i18n from "./i18n";
 import * as palette from "./palette";
@@ -73,20 +72,8 @@ const draw = (view: View, entries: Entry[], workspaces: WorkspaceEntry[], now?: 
 };
 const shifted = (bytes: string, columns: number) =>
   bytes.replace(/\x1b\[(\d+);(\d+)H/g, (_, row, column) => `\x1b[${row};${Number(column) + columns}H`);
-/** The previous framing boundary: render a local list, then rewrite its CUPs. */
-function bufferedSidebar(view: View, entries: Entry[], workspaces: WorkspaceEntry[], now: number): string {
-  const writer = new Writer(),
-    lists = new Writer();
-  for (let row = 0; row < view.rows; row++) writer.write(`\x1b[${row + 1};1H${panel}` + " ".repeat(lists_x));
-  view.lists().drawAt(lists, entries, workspaces, now);
-  writer.write(shifted(lists.s, lists_x));
-  // Keep the outer box identical while exercising the replaced boundary independently.
-  (view as unknown as { drawBox(writer: Writer): void }).drawBox(writer);
-  const badges = new Writer();
-  (view.lists() as unknown as { drawBadges(writer: Writer): void }).drawBadges(badges);
-  writer.write(shifted(badges.s, lists_x));
-  return writer.s;
-}
+/** The herd's frame at `tick` on a row of the 28-column lists, without its colors. */
+const herd = (tick: number) => corgiAnimation.writeHerd(22, tick).replace(/\x1b\[[^m]*m/g, "");
 
 function hostText(bytes: string, cols = 100, rows = 30): string {
   const host = new Terminal(cols, rows);
@@ -499,9 +486,9 @@ test("compaction herds on the second agent row ahead of waiting and summaries", 
   // The herd starts scattered beside the pile; the corgi pushes it together
   // and curls into the ellipsis, which stays. Then the time taken shows.
   const cases: [number, string][] = [
-    [1000, "⣿  C o  mp  a ct  i n  g "],
-    [1000 + 12 * 110, "Compacting‹o[/\\]~     "],
-    [1000 + 28 * 110, "Compacting...         "],
+    [1000, "⣿  " + herd(0)],
+    [1000 + 12 * 110, herd(12)],
+    [1000 + 28 * 110, herd(28)],
     [1000 + 29 * 110, "Compacting…         3s"],
     [93_000, "Compacting…     1m 32s"],
   ];
@@ -531,11 +518,11 @@ test("compaction follows its start across scrolling, narrow rows and unseen rest
   view.count = entries.length;
   draw(view, [], [], 0);
   // First seen partway through, not at the scattered opening frame.
-  expect(hostText(draw(view, entries, [], 2320))).toContain("Compacting‹o[/\\]~     ");
+  expect(hostText(draw(view, entries, [], 2320))).toContain(herd(12));
   view.offset = 1;
   expect(hostText(draw(view, entries, [], 2400))).not.toContain("Compacting agent");
   view.offset = 0;
-  expect(hostText(draw(view, entries, [], 2430))).toContain("Compacting ~ᐯ•ᴥ•ᐯ");
+  expect(hostText(draw(view, entries, [], 2430))).toContain(herd(13));
   const settled = draw(view, entries, [], 4190);
   expect(hostText(settled)).toContain("Compacting…         3s");
   view.offset = 1;
@@ -546,7 +533,7 @@ test("compaction follows its start across scrolling, narrow rows and unseen rest
   expect(hostText(draw(view, entries, [], 4500))).toContain("Compacting…         3s");
   // A second compaction can begin without a visible non-compacting frame.
   e.compacting_since = 5_000_000;
-  expect(hostText(draw(view, entries, [], 5000))).toContain("C o  mp  a ct  i n  g ");
+  expect(hostText(draw(view, entries, [], 5000))).toContain(herd(0));
 });
 
 const endpoint = (fields: Record<string, unknown>) => ({
@@ -1829,7 +1816,7 @@ test("clicks follow the top row when successive reorders overlap animations", ()
 });
 
 test.each(["normal", "search", "fade", "ghost", "graphics", "agents", "workspaces"] as const)(
-  "positioned sidebar matches buffered output for %s rows",
+  "a positioned sidebar draws %s rows as at the left edge, shifted",
   mode => {
     const checkout = { workspace: 1, path: "/repo/branch", ghost: false },
       entries = [
@@ -1889,19 +1876,18 @@ test.each(["normal", "search", "fade", "ghost", "graphics", "agents", "workspace
       view = view.withEntries(entries);
     }
     if (mode === "agents" || mode === "workspaces") view.drawer = mode;
-    for (const origin of [0, 7]) {
-      const expected = bufferedSidebar(view, entries, workspaces, 5000),
-        writer = new Writer(origin);
-      writer.write("prefix");
-      view.drawAt(writer, entries, workspaces, 5000);
-      expect(writer.s).toBe("prefix" + shifted(expected, origin));
-      expect(writer.column).toBe(origin);
-      writer.clear();
-      view.searchCursor(writer);
-      const cursor = new Writer();
-      view.searchCursor(cursor);
-      expect(writer.s).toBe(shifted(cursor.s, origin));
-    }
+    const plain = new Writer(),
+      writer = new Writer(7);
+    view.drawAt(plain, entries, workspaces, 5000);
+    writer.write("prefix");
+    view.drawAt(writer, entries, workspaces, 5000);
+    expect(writer.s).toBe("prefix" + shifted(plain.s, 7));
+    expect(writer.column).toBe(7);
+    writer.clear();
+    view.searchCursor(writer);
+    const cursor = new Writer();
+    view.searchCursor(cursor);
+    expect(writer.s).toBe(shifted(cursor.s, 7));
   },
 );
 
@@ -1946,10 +1932,11 @@ test("positioned activity sections and overflow badges keep their column offsets
     ],
     view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
   view.corgi_intensity = 0;
-  const expected = bufferedSidebar(view, entries, [], 5000),
+  const plain = new Writer(),
     writer = new Writer(7);
+  view.drawAt(plain, entries, [], 5000);
   view.drawAt(writer, entries, [], 5000);
-  expect(writer.s).toBe(shifted(expected, 7));
+  expect(writer.s).toBe(shifted(plain.s, 7));
 });
 test("an agent waiting on a retry shows a warm pause and counts down", () => {
   const e = entry({ target: { pane: 1 }, name: "Agent title", provider: "codex", state: "working", retry_at: 60_000 });

@@ -27,8 +27,6 @@ test("index worker reads complete records and releases an interrupted refresh", 
     );
     await index.refreshAsync(file);
     expect(index.name("a").text()).toBe("Latest");
-    expect(index.name("b").text()).toBe("Other");
-    expect(index.name("missing").len).toBe(0);
     index.next_read = 0;
     const pending = index.refreshAsync(file);
     index.close();

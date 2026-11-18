@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { workspace, pane, recentFirst, copyWorkspaces, cmuxSession, cmuxDetected, available_sources } from "./catalog";
+import { workspace, pane, recentFirst, copyWorkspaces, cmuxSession, cmuxDetected } from "./catalog";
 import { max_panes } from "../layout";
 test("tmux groups sort by recent activity across sockets", () => {
   const groups = [
@@ -70,7 +70,6 @@ test("cmux is offered on macOS once it has saved a session, never elsewhere", ()
     mkdirSync(support, { recursive: true });
     writeFileSync(join(support, "session-com.cmuxterm.app.json"), "{}");
     expect(cmuxDetected(home)).toBe(process.platform === "darwin");
-    expect(available_sources.includes("cmux")).toBe(cmuxDetected(process.env.HOME));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

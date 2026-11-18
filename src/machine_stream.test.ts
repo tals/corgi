@@ -140,24 +140,36 @@ test("incremental frames decode before UI coalescing and rebuild after a daemon 
     f.close();
   }
 });
-test("only frames that change something wake the viewer", async () => {
-  let woken = 0;
-  const f = await fixture(() => woken++);
+test("frames that change something and failures wake the viewer; unchanged frames and acknowledgements do not", async () => {
+  let wakes = 0;
+  const f = await fixture(() => wakes++);
   try {
     f.stream.configure({ interests: [] }, 1);
     await f.until(() => f.requests.length === 1);
     const sequence = f.requests[0].sequence;
     f.send({ type: "viewer.stream", viewer_protocol: protocol.viewer_version, sequence, view: frame() });
     await f.until(() => f.stream.fresh);
-    expect(woken).toBe(1);
+    expect(wakes).toBe(1);
     expect(f.stream.take()?.news).toBe(true);
     // An answer that changes nothing waits for the next step.
     f.send({ type: "viewer.frame", sequence, view: frame() });
     await f.until(() => f.stream.age() < 5 && f.stream.take() !== null);
-    expect(woken).toBe(1);
-    f.send({ type: "viewer.frame", sequence, view: { ...frame(), bell_seq: 1 } });
-    await f.until(() => woken === 2);
-    expect(f.stream.take()?.news).toBe(true);
+    expect(wakes).toBe(1);
+    let acknowledged = false;
+    f.stream.send(async () => {
+      await f.connection.call("ping");
+      acknowledged = true;
+    });
+    await f.until(() => f.requests.length === 2);
+    f.send({ ok: true, pid: 1 });
+    await f.until(() => acknowledged);
+    expect(wakes).toBe(1);
+    f.send({ type: "viewer.frame", sequence, view: frame(2) });
+    await f.until(() => wakes === 2);
+    expect(f.stream.take()).toMatchObject({ frame: { session_hash: 2 }, news: true });
+    f.connection.close();
+    await f.until(() => wakes === 3);
+    expect(() => f.stream.check()).toThrow("ConnectionClosed");
   } finally {
     f.close();
   }
@@ -219,35 +231,6 @@ test("input past the cap waits for room rather than failing, and the write that 
   }
 });
 
-test("frames and failures wake the viewer, but successful acknowledgements do not spin it", async () => {
-  let wakes = 0;
-  const f = await fixture(() => wakes++);
-  try {
-    f.stream.configure({ interests: [] }, 1);
-    await f.until(() => f.requests.length === 1);
-    const sequence = f.requests[0].sequence;
-    f.send({ type: "viewer.stream", viewer_protocol: protocol.viewer_version, sequence, view: frame() });
-    await f.until(() => f.stream.fresh);
-    expect(wakes).toBe(1);
-    let acknowledged = false;
-    f.stream.send(async () => {
-      await f.connection.call("ping");
-      acknowledged = true;
-    });
-    await f.until(() => f.requests.length === 2);
-    f.send({ ok: true, pid: 1 });
-    await f.until(() => acknowledged);
-    expect(wakes).toBe(1);
-    f.send({ type: "viewer.frame", sequence, view: frame(2) });
-    await f.until(() => wakes === 2);
-    expect(f.stream.take()?.frame.session_hash).toBe(2);
-    f.connection.close();
-    await f.until(() => wakes === 3);
-    expect(() => f.stream.check()).toThrow("ConnectionClosed");
-  } finally {
-    f.close();
-  }
-});
 test("a reset rejects an old in-flight frame and requests a full replacement", async () => {
   const f = await fixture();
   try {

@@ -11,17 +11,6 @@ test("no preset binds a key twice", () => {
     }
   }
 });
-test("presets preserve first shortcuts and held chords", () => {
-  expect(find("corgi", { name: "new" })?.key).toBe(99);
-  expect(lookup("corgi", true, 118)).toEqual({ name: "split", value: "right" });
-  expect(lookup("tmux", true, 48)).toEqual({ name: "tab", value: 1 });
-  expect(chord("cmux", false, { codepoint: 116, mods: { super: true } })).toEqual({ name: "new" });
-  expect(prefixedSequence("tmux", "\x1b[1;5D")).toEqual({
-    name: "resize",
-    value: "left",
-  });
-});
-
 test("each action shows its first binding", () => {
   const cases: [Preset, import("./action").Action, number, import("./keyboard").Mods, boolean][] = [
     ["corgi", { name: "new" }, 99, {}, true],
@@ -111,6 +100,8 @@ test("keys that arrive as bytes", () => {
   expect(lookup("tmux", true, 57)).toEqual({ name: "tab", value: 10 });
   expect(lookup("herdr", true, 103)).toEqual({ name: "choose-workspace" });
   expect(lookup("corgi", true, 37)).toEqual({ name: "split", value: "right" });
+  expect(lookup("corgi", true, 118)).toEqual({ name: "split", value: "right" });
+  expect(lookup("tmux", true, 48)).toEqual({ name: "tab", value: 1 });
   expect(lookup("corgi", false, 20)).toEqual({ name: "new" });
   expect(lookup("cmux", false, 20)).toBeNull();
   expect(lookup("tmux", true, 118)).toBeNull();

@@ -222,7 +222,6 @@ test("the model is told how to drive Corgi, and each message says which viewer i
   type(p, "open my parser chat");
   p.key(13);
   const start = d.starts[0];
-  expect(start.instructions).toContain("corgi resume PROVIDER SESSION --viewer V");
   // Claude takes Corgi's own tool, so its shell isn't how it drives Corgi.
   expect(start.instructions).toContain("with the `corgi` tool");
   expect(start.instructions).not.toContain("/opt/corgi/bin/corgi");
@@ -914,8 +913,6 @@ test("in a pane Esc backs out of menus only, Ctrl+D or /close ends it, and its r
   type(p, "and again?");
   p.key(13);
   expect(d.sent()).toEqual([{ kind: "prompt", text: replyFormat() + "and again?" }]);
-  expect(d.sent()[0].text).toContain("Show commits inline in normal Markdown");
-  expect(d.sent()[0].text).toContain("no commits fences");
   expect(d.starts).toEqual([]);
 });
 

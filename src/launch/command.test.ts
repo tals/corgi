@@ -71,17 +71,6 @@ test("wrapper bodies preserve quoting and reject complex functions", () => {
   expect(wrapperBody('c ()\n{\n claude --model sonnet "$@";\n}')).toBe("claude --model sonnet");
   expect(() => wrapperBody('c ()\n{\n echo first; claude "$@";\n}')).toThrow("ComplexShellFunction");
 });
-test("command semantics isolate explicit credential and profile settings", () => {
-  const a = analyze("ANTHROPIC_API_KEY=private claude --model sonnet --dangerously-skip-permissions", ".");
-  expect(a.provider).toBe("claude");
-  expect(a.account).toBe("API key - identity unavailable");
-  expect(a.yolo).toBe(true);
-  expect(a.modelLabel()).toBe("Sonnet");
-  const b = analyze("codex --profile alternate", ".");
-  expect(b.default_account).toBe(false);
-  expect(b.account).toBe("Profile selected; identity unknown");
-});
-
 test("command semantics distinguish default accounts from auth overrides", () => {
   const base = analyze("command claude --model sonnet --dangerously-skip-permissions", "/tmp");
   expect(base.default_account).toBe(true);
@@ -94,17 +83,16 @@ test("command semantics distinguish default accounts from auth overrides", () =>
   expect(api.default_account).toBe(false);
   expect(api.account).toBe("API key - identity unavailable");
   expect(api.account).not.toContain("private-value");
-  expect(analyze("codex --profile work", "/tmp").account).toBe("Profile selected; identity unknown");
+  expect(analyze("codex --profile work", "/tmp")).toMatchObject({
+    default_account: false,
+    account: "Profile selected; identity unknown",
+  });
 });
 
-test("explicit Codex home uses only that profile's cached public identity", async () => {
-  const { mkdtemp, writeFile, rm } = await import("node:fs/promises"),
-    { tmpdir } = await import("node:os"),
-    { join } = await import("node:path");
-  const root = await mkdtemp(join(tmpdir(), "corgi-profile-"));
+test("explicit Codex home uses only that profile's cached public identity", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-profile-"));
   try {
-    await writeFile(join(root, "auth.json"), '{{"tokens":{}}}'.slice(1));
-    await writeFile(
+    writeFileSync(
       join(root, "auth.json"),
       JSON.stringify({
         tokens: { id_token: "x.eyJlbWFpbCI6IndvcmtAZXhhbXBsZS5jb20ifQ.x" },
@@ -114,16 +102,13 @@ test("explicit Codex home uses only that profile's cached public identity", asyn
     expect(s.default_account).toBe(false);
     expect(s.account).toBe("work@example.com (cached)");
   } finally {
-    await rm(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
 });
-test("Claude HOME override reads the home identity cache", async () => {
-  const { mkdtemp, writeFile, rm } = await import("node:fs/promises"),
-    { tmpdir } = await import("node:os"),
-    { join } = await import("node:path");
-  const root = await mkdtemp(join(tmpdir(), "corgi-profile-"));
+test("Claude HOME override reads the home identity cache", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-profile-"));
   try {
-    await writeFile(
+    writeFileSync(
       join(root, ".claude.json"),
       JSON.stringify({
         oauthAccount: { emailAddress: "claude-work@example.com" },
@@ -133,7 +118,7 @@ test("Claude HOME override reads the home identity cache", async () => {
     expect(s.default_account).toBe(false);
     expect(s.account).toBe("claude-work@example.com (cached)");
   } finally {
-    await rm(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
 });
 test("opaque shell expansion leaves account undetermined", () => {

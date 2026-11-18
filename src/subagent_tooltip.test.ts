@@ -1174,7 +1174,7 @@ test("the subtitle pairs provider and model with the context meter, and activity
   expect(hot).toContain("\x1b[1m" + palette.fg("hot") + "38%");
   all[0].agent.compacting = true;
   const output = render(w => draw(w, all, e, 100, 30, 0, 2));
-  expect(output).toContain("\x1b[1m" + palette.fgRgb(palette.mix(palette.colors.hot, palette.colors.bg, 60)) + "38%");
+  expect(output).toContain("\x1b[1m" + palette.fgRgb(sidebar.contextColor("high", true, palette.colors.bg)) + "38%");
   expect(output).toContain("┼");
 });
 

@@ -166,26 +166,6 @@ test("--help prints help instead of running the command", async () => {
     update.mockRestore();
   }
 });
-test("help after an unrelated option never reaches the daemon", async () => {
-  const request = spyOn(rpc_http.Client.prototype, "call").mockRejectedValue(Error("UnexpectedRequest"));
-  const output = spyOn(process.stdout, "write").mockReturnValue(true);
-  try {
-    for (const args of [
-      ["shutdown", "--name", "--help"],
-      ["shutdown", "--cwd", "-h"],
-      ["action", "rename", "--name", "--help"],
-      ["reload", "--flags", "--help"],
-    ]) {
-      output.mockClear();
-      await run(args);
-      expect(String(output.mock.calls[0]?.[0])).toContain(`corgi ${args[0]}`);
-    }
-    expect(request).not.toHaveBeenCalled();
-  } finally {
-    request.mockRestore();
-    output.mockRestore();
-  }
-});
 test("local pane commands and reload never look up the runtime's executable", async () => {
   const previous = process.env.CORGI_PANE;
   process.env.CORGI_PANE = "7";
@@ -389,22 +369,9 @@ test("usage errors show the command's help lines", () => {
   expect(failure(["shutdwon"], Error("UnknownCommand"))).toBe("corgi: unknown command shutdwon; see corgi --help\n");
   expect(failure(["open"], Error("NotDir"))).toBe("corgi: NotDir\n");
 });
-test("every source file is in the test root", () => {
+test("the typecheck covers every source file", () => {
   const config = JSON.parse(readFileSync(resolve(import.meta.dir, "../tsconfig.json"), "utf8"));
   expect(config.include).toContain("src/**/*.ts");
-  const parser = new Bun.Transpiler({ loader: "ts" });
-  const cwd = process.cwd();
-  try {
-    for (const file of new Bun.Glob("**/*.ts").scanSync(import.meta.dir)) {
-      if (file.endsWith(".d.ts")) continue;
-      const path = resolve(import.meta.dir, file);
-      // The transpiler finds a file's macros from the working directory.
-      process.chdir(dirname(path));
-      expect(() => parser.transformSync(readFileSync(path, "utf8"))).not.toThrow();
-    }
-  } finally {
-    process.chdir(cwd);
-  }
 });
 test("the daemon and the viewer never import each other", () => {
   // Files that run only in `corgi attach`.

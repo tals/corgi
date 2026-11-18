@@ -2,10 +2,6 @@ import { test, expect } from "bun:test";
 import { Tracker, Call } from "./tools";
 import * as claudeUsage from "../providers/claude/usage";
 import * as codexUsage from "../providers/codex/usage";
-import { parseLabel } from "./summary";
-import * as prompt from "./prompt";
-import { classify } from "./background_tasks";
-import * as claudeConversation from "../providers/claude/conversation";
 test("completed tools are deduplicated, historical calls do not advance waves, and turns reset", () => {
   const t = new Tracker(),
     call = {
@@ -55,85 +51,6 @@ test("code-mode evidence keeps commands and patch files while dropping wrapper",
   expect(t.view().evidence.text()).toContain("rg focus src");
   expect(t.view().evidence.text()).not.toContain("max_output_tokens");
 });
-test("Claude tool progress joins hook turn and text commentary", () => {
-  const t = new Tracker();
-  t.bind("p");
-  claudeUsage.progress(
-    t,
-    {
-      type: "assistant",
-      message: {
-        content: [
-          { type: "text", text: "Inspecting parser" },
-          {
-            type: "tool_use",
-            id: "c1",
-            name: "Read",
-            input: { file_path: "/repo/src/parse.zig" },
-          },
-        ],
-      },
-    },
-    true,
-  );
-  expect(t.view().running).toBe(1);
-  expect(t.view().evidence.text()).toContain("src/parse.zig");
-  claudeUsage.progress(
-    t,
-    {
-      type: "user",
-      message: { content: [{ type: "tool_result", tool_use_id: "c1" }] },
-    },
-    true,
-  );
-  expect(t.view().completed).toBe(1n);
-  expect(t.view().commentary.text()).toContain("Inspecting parser");
-});
-test("abstention is valid and invalid labels fail separately", () => {
-  expect(prompt.parse('{"action":"none","label":null}', null).label).toBeNull();
-  expect(prompt.parse('{"action":"new","label":" Null "}', null).label).toBeNull();
-  expect(prompt.parse('{"action":"new","label":"Running tests"}', null).label?.text()).toBe("Running tests");
-  for (const raw of [
-    "{}",
-    "null",
-    '{"action":"new","label":false}',
-    '{"action":"none","label":null,"reason":"unknown"}',
-  ])
-    expect(() => prompt.parse(raw, null)).toThrow("InvalidDecision");
-  expect(() => prompt.parse('{"action":"new","label":""}', null)).toThrow("EmptyLabel");
-  expect(parseLabel("Running\ncommands")).toBeNull();
-  expect(parseLabel("This label has far too many words")).toBeNull();
-});
-test("provider task identities and categories remain bounded", () => {
-  const inv = claudeConversation.inventory(
-    [
-      {
-        id: "1",
-        type: "shell",
-        status: "running",
-        description: "Check parser",
-        command: "bun test",
-      },
-      { id: "1", type: "shell", command: "bun test" },
-      { id: "2", type: "subagent" },
-      { id: "3", type: "shell", status: "completed", command: "bun build" },
-    ],
-    123,
-  )!;
-  expect(inv.len).toBe(1);
-  expect(inv.items[0].label.text()).toBe("Check parser");
-  expect(inv.items[0].group).toBe("tests");
-  expect(classify("./scripts/zig build test")).toBe("tests");
-  expect(classify("bun run dev")).toBe("servers");
-  expect(classify("echo 'test server'")).toBe("commands");
-  const children = claudeConversation.children([
-    { id: "a1", type: "subagent" },
-    { id: "a1", type: "subagent" },
-    { id: "b1", type: "shell" },
-  ])!;
-  expect(children.running).toBe(1);
-});
-
 test("tool lines keep the command and drop wrappers, scripts and patch bodies", () => {
   function call(name: string) {
     const value = new Call();
@@ -227,6 +144,7 @@ test("Claude text and completed tools become evidence for the bound turn", () =>
           name: "Bash",
           input: { command: "rg routeHook", description: "Find hook routing" },
         },
+        { type: "tool_use", id: "t2", name: "Read", input: { file_path: "/repo/src/hooks.ts" } },
       ],
     },
   };
@@ -256,6 +174,8 @@ test("Claude text and completed tools become evidence for the bound turn", () =>
     true,
   );
   expect(tracker.commentary.text()).toBe("Latest agent update: Tracing the hook router");
+  expect(tracker.view().running).toBe(2);
+  expect(tracker.view().evidence.text()).toContain("Read: src/hooks.ts");
   claudeUsage.progress(tracker, result, true);
   claudeUsage.progress(tracker, result, true);
   expect(tracker.completed).toBe(1n);

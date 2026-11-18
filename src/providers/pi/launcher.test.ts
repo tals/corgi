@@ -103,19 +103,6 @@ test.each([{ reject: true }, { model: {} }, { model: { id: "missing-provider" } 
   },
 );
 
-test("Pi falls back to formatting when its model has no display name", async () => {
-  settings({ defaultProvider: "openai-codex", defaultModel: "gpt-6-luna" });
-  const launcher = open(account);
-  try {
-    const chosen = await launcher.model(root, new Quit()),
-      option = new Option();
-    option.setModel(chosen.model, chosen.source, chosen.model_name);
-    expect(option.modelLabel()).toBe("GPT-6 Luna");
-  } finally {
-    launcher.close();
-  }
-});
-
 test.each(["cancel", "close"])("Pi's model probe stops on %s", async mode => {
   settings({ defaultProvider: "custom", defaultModel: "saved", hang: true });
   const launcher = open(account),

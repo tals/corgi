@@ -80,20 +80,6 @@ test("inference rotates retained histories and uses fresh recovery input", async
   for (let i = 0; i < 32; i++) expect((await p.infer(r)).fresh).toBe(i === 0);
   expect((await p.infer(r)).fresh).toBe(true);
 });
-test("inference rejects oversize output and recovers after failure", async () => {
-  for (const provider of ["codex", "claude"] as const) {
-    using p = pool(provider);
-    await expect(p.infer({ instructions: "x", content: "oversize", conversation: "a" })).rejects.toThrow(
-      "OutputTooLarge",
-    );
-    expect((await p.infer({ instructions: "x", content: "ok", conversation: "a" })).fresh).toBe(true);
-  }
-});
-test("inference timeout destroys the failed conversation", async () => {
-  using p = pool("codex", 150);
-  await expect(p.infer({ instructions: "x", content: "hang" })).rejects.toThrow("Timeout");
-  expect(p.slots.every(s => !s)).toBe(true);
-});
 test("Codex metadata reads its own app server, not a summary", async () => {
   const server = new appServer.AppServer(3000, fixture);
   try {
@@ -235,14 +221,18 @@ test("structured inference uses provider output and rejects invalid schemas befo
 test("inference failures kill the affected conversation and recover", async () => {
   for (const provider of ["codex", "claude"] as const) {
     using p = pool(provider);
-    for (const content of ["crash", "fail", "oversize"]) {
+    for (const [content, error] of [
+      ["crash", "HarnessExited"],
+      ["fail", "InferenceFailed"],
+      ["oversize", "OutputTooLarge"],
+    ]) {
       await expect(
         p.infer({
           instructions: "Return JSON",
           content,
           conversation: "same",
         }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(error);
       const recovered = JSON.parse(
         (
           await p.infer({
@@ -262,6 +252,7 @@ test("inference failures kill the affected conversation and recover", async () =
         conversation: "same",
       }),
     ).rejects.toThrow("Timeout");
+    expect(p.slots.every(s => !s)).toBe(true);
     await expect(
       p.infer({ instructions: "Return JSON", content: "snapshot" }, {
         value: true,

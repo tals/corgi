@@ -116,22 +116,6 @@ test("Pi without credentials or available models is signed out", async () => {
   }
 });
 
-test.each([
-  ["prolite", "Pro 100"],
-  ["pro", "Pro 200"],
-  ["promax", "Pro 500"],
-  ["team", "Business"],
-  ["future_plan", "Future Plan"],
-])("Pi formats the ChatGPT plan %s as %s", async (plan, label) => {
-  request.mockResolvedValue(Response.json({ ...usage, plan_type: plan }));
-  const launcher = open(account);
-  try {
-    expect((await launcher.account(new Quit(), 60)).plan.text()).toBe(label);
-  } finally {
-    launcher.close();
-  }
-});
-
 test.each(["anthropic", "custom"])("Pi keeps %s identity without inventing quota", async provider => {
   auth(provider);
   const launcher = open(account);

@@ -27,6 +27,17 @@ test("a new reset starts a new spark while drift within a slot does not", () => 
   expect(fresh[1][0]).toBe(2);
   expect(fresh[1][4]).toBeNull();
 });
+test("readings fill their slot and leave unread slots as gaps", () => {
+  const state = new State(),
+    window = new Window({ minutes: 300, used: 12, reset_at: 18000 });
+  state.record([window, null], 60);
+  window.used = 40;
+  const sparks = state.record([window, null], 9000);
+  expect(sparks[0][0]).toBe(12);
+  expect(sparks[0][1]).toBeNull();
+  expect(sparks[0][7]).toBe(40);
+  expect(sparks[1][0]).toBeNull();
+});
 test("windows follow their length across provider slots and unknown resets have no spark", () => {
   const state = new State(),
     week = new Window({ minutes: 10080, used: 84, reset_at: 10080 * 60 });

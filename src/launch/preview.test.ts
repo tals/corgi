@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync,
 import type { FSWatcher } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { OneAtATime, Option, Worker, active_every, idle_every } from "./preview";
+import { OneAtATime, Worker, active_every, idle_every } from "./preview";
 import { Info, Window } from "../usage/account";
 import { Provider, Text, byProvider } from "../providers";
 import * as accounts from "../accounts";
@@ -64,14 +64,6 @@ async function waitForWatcher(watcher: FSWatcher, directory: string, deadline: n
     rmSync(probe, { force: true });
   }
 }
-test("a launch preview names the model it shows and where it came from", () => {
-  const o = new Option();
-  o.setModel("opus", "Project");
-  expect(o.model.text()).toBe("opus");
-  expect(o.modelLabel()).toBe("Opus");
-  expect(o.source.text()).toBe("Project");
-});
-
 test("saved accounts behind install-on-use shims settle without starting a provider", async () => {
   listed(["work"]);
   const worker = new Worker(),
@@ -101,39 +93,15 @@ test("saved accounts behind install-on-use shims settle without starting a provi
   }
 });
 
-test("account reads retain the workspace context during background refreshes", async () => {
+test("account reads and availability stay scoped to each workspace through background refreshes", async () => {
   const worker = new Worker(),
+    other = join(root, "other"),
     reads: (string | undefined)[] = [];
   worker.launcher = async () => ({
-    account: async (_quit, _max_age, cwd?: string) => {
+    account: async (_quit, _max_age, cwd) => {
       reads.push(cwd);
-      return new Info();
+      return Object.assign(new Info(), { signed_in: cwd === root });
     },
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
-  try {
-    worker.preview(root);
-    await worker.pump();
-    expect(reads.length).toBeGreaterThan(0);
-    expect(new Set(reads)).toEqual(new Set([root]));
-    reads.length = 0;
-    setSystemTime(new Date(Date.now() + idle_every * 2000));
-    worker.sample(idle_every);
-    await worker.pump();
-    expect(reads.length).toBeGreaterThan(0);
-    expect(new Set(reads)).toEqual(new Set([root]));
-  } finally {
-    await worker.stop();
-    setSystemTime();
-  }
-});
-
-test("account availability stays scoped to each workspace through background refreshes", async () => {
-  const worker = new Worker(),
-    other = join(root, "other");
-  worker.launcher = async () => ({
-    account: async (_quit, _max_age, cwd) => Object.assign(new Info(), { signed_in: cwd === root }),
     model: async () => ({ model: "", source: "test" }),
     close() {},
   });
@@ -142,11 +110,14 @@ test("account availability stays scoped to each workspace through background ref
     await worker.pump();
     worker.preview(other);
     await worker.pump();
+    expect(new Set(reads)).toEqual(new Set([root, other]));
     expect(worker.preview(root).options.pi.signed_in).toBe(true);
     expect(worker.preview(other).options.pi.signed_in).toBe(false);
+    reads.length = 0;
     setSystemTime(new Date(Date.now() + idle_every * 2000));
     worker.sample(idle_every);
     await worker.pump();
+    expect(new Set(reads)).toEqual(new Set([root, other]));
     expect(worker.preview(root).options.pi.signed_in).toBe(true);
     expect(worker.preview(other).options.pi.signed_in).toBe(false);
   } finally {

@@ -1,4 +1,3 @@
-// Mirrors the tests in agent_launcher.zig.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -304,7 +303,7 @@ test("single-line limit groups survive narrow terminal rendering", () => {
   } as any;
   for (const o of [m.preview.options.codex, m.preview.options.claude]) {
     o.usage_fetched_at = at;
-    o.account = "toasty.tal@gmail.com";
+    o.account = "ada@example.com";
     o.model = "gpt-6-astra";
     o.plan = "pro";
   }
@@ -990,54 +989,13 @@ test("both cards keep the same width with expanded history and on narrow termina
   }
 });
 
-test("Removing and restoring keeps both cards and their columns the same width", () => {
-  const m = menu(),
-    at = now();
-  m.preview = preview({
-    pending: false,
-    accounts: [workAccount({ account: "work@example.com", model: "a-long-account-model-name" })],
-    options: {
-      claude: {
-        account: "personal@example.com",
-        model: "a-long-claude-model-name",
-        usage_fetched_at: at,
-        limits: {
-          windows: [
-            { minutes: 300, used: 3, reset_at: at + 3 * 3600 },
-            { minutes: 10080, used: 67, reset_at: at + 3 * 86400 },
-          ],
-        },
-      },
-    },
-  });
-  m.commands[0].set("claude --model an-even-longer-saved-command-model-name");
-  for (const cols of [80, 120, 200]) {
-    const side = SidebarView.init(cols, 40, true, 0, 0);
-    m.hidden.claude = false;
-    m.account_hidden = [];
-    m.commands[0].hidden = false;
-    const expected = m.bounds(cols, 40, side),
-      widths = m.columns(expected.w);
-    for (const hidden of [true, false, true]) {
-      m.hidden.claude = hidden;
-      m.account_hidden = hidden ? ["/accounts/work"] : [];
-      m.commands[0].hidden = hidden;
-      for (const managing of [true, false]) {
-        m.managing = managing;
-        const actual = m.bounds(cols, 40, side);
-        expect([actual.x, actual.w]).toEqual([expected.x, expected.w]);
-        expect(m.columns(actual.w)).toEqual(widths);
-      }
-    }
-  }
-});
-
-test("both cards keep their bounds and columns as account details and usage arrive", () => {
-  for (const cols of [60, 80, 120, 180]) {
+test("both cards keep their bounds and columns as account details and usage arrive, and as rows are removed and restored", () => {
+  for (const cols of [60, 80, 120, 180, 200]) {
     const m = menu(),
       side = SidebarView.init(cols, 40, true, 0, 0);
     m.preview = preview({ accounts: [workAccount()] });
     for (const provider of Provider.all) m.preview.options[provider].signed_in = true;
+    m.commands[0].set("claude --model an-even-longer-saved-command-model-name");
     const before = m.bounds(cols, 40, side),
       widths = m.columns(before.w);
     m.manage();
@@ -1064,6 +1022,17 @@ test("both cards keep their bounds and columns as account details and usage arri
       m.manage();
       expect(m.bounds(cols, 40, side)).toEqual(managing);
       m.back();
+    }
+    for (const hidden of [true, false, true]) {
+      m.hidden.claude = hidden;
+      m.account_hidden = hidden ? ["/accounts/work"] : [];
+      m.commands[0].hidden = hidden;
+      for (const open of [true, false]) {
+        m.managing = open;
+        const actual = m.bounds(cols, 40, side);
+        expect([actual.x, actual.w]).toEqual([before.x, before.w]);
+        expect(m.columns(actual.w)).toEqual(widths);
+      }
     }
   }
 });

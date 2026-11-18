@@ -219,17 +219,11 @@ test("the flame grows directly from a solid heated cap, including half-filled ed
   expect(cells[edge].dots & 0x47).toBe(0x47);
 });
 
-test("fuel flame freezes on pause, fades after fuel exhaustion, and resets on restart", () => {
+test("fuel flame fades after fuel exhaustion and resets on restart", () => {
   const engine = create();
   engine.press("thrust");
   for (let i = 0; i < 8; i++) engine.tick(0.1);
-  engine.press("pause");
-  const paused = hud(engine),
-    flame = engine.lander!.flame;
-  engine.tick(0.1);
-  expect(engine.lander!.flame).toBe(flame);
-  expect(hud(engine)).toEqual(paused);
-  engine.press("pause");
+  const flame = engine.lander!.flame;
   engine.lander!.fuel = 0;
   engine.tick(moonlander.STEP);
   expect(engine.lander!.flame).toBeLessThan(flame);

@@ -320,15 +320,6 @@ test("a process handed over is left alone until adopted", () => {
   io.close();
   expect(io.pid).toBe(process.pid);
 });
-test("a client that ends is reaped once", () => {
-  const registry = new Registry(),
-    s = session();
-  (s.client as Fake).queued.push({ kind: "ended" });
-  s.poll(registry);
-  expect(s.reap()).toBe(true);
-  expect(s.exited).toBe(true);
-  expect(s.reap()).toBe(false);
-});
 test("headless events snapshots and hooks share exactly one receipt regardless of arrival order", () => {
   const identity = "01901234-1234-1234-1234-123456789abc";
   for (const outcome of ["completed", "interrupted", "failed"] as const)
@@ -604,34 +595,31 @@ test("a start asks for a known effort and account, and leaves out what it doesn'
     rmSync(home, { recursive: true, force: true });
   }
 });
-test("the Corgi prompt's own session stays marked across checkpoints and in the list", async () => {
-  const registry = new Registry(),
-    s = session();
-  s.corgi = true;
-  shown(s, registry, "a");
-  for (const live of [true, false]) expect(Session.restore(clone(s.capture(live)), registry, live).corgi).toBe(true);
-  const old = clone(s.capture(false)) as any;
-  delete old.corgi;
-  expect(Session.restore(old, registry, false).corgi).toBe(false);
-  const p = pendingStart(s);
-  await request(p.server, p.peer, { op: "headless.list", payload: {} });
-  expect((p.replies[0] as any).sessions[0]).toMatchObject({ session: "a", provider: "codex", corgi: true });
-});
-test("a session reports what it started with across checkpoints, defaulting for old ones", async () => {
-  const registry = new Registry(),
-    s = session();
-  shown(s, registry, "a");
-  Object.assign(s, { corgi: true, account: "/accounts/work", model: "gpt-6", effort: "xhigh", persist: false });
-  const started = { account: "/accounts/work", model: "gpt-6", effort: "xhigh", persist: false };
-  for (const live of [true, false])
-    expect(Session.restore(clone(s.capture(live)), registry, live)).toMatchObject(started);
-  const old = clone(s.capture(false)) as any;
-  for (const key of ["account", "model", "effort", "persist"]) delete old[key];
-  expect(Session.restore(old, registry, false)).toMatchObject({ account: "", model: "", effort: null, persist: true });
-  const p = pendingStart(s);
-  await request(p.server, p.peer, { op: "headless.list", payload: {} });
-  expect((p.replies[0] as any).sessions[0]).toMatchObject(started);
-});
+test.each([
+  ["the Corgi prompt's mark", { corgi: true }, { corgi: false }],
+  [
+    "what it started with",
+    { account: "/accounts/work", model: "gpt-6", effort: "xhigh", persist: false },
+    { account: "", model: "", effort: null, persist: true },
+  ],
+  ["the pane that claimed it", { pane: 7 }, { pane: null }],
+] as const)(
+  "a session keeps %s across checkpoints and in the list, defaulting for old ones",
+  async (_, kept, defaults) => {
+    const registry = new Registry(),
+      s = session();
+    shown(s, registry, "a");
+    Object.assign(s, kept);
+    for (const live of [true, false])
+      expect(Session.restore(clone(s.capture(live)), registry, live)).toMatchObject(kept);
+    const old = clone(s.capture(false)) as any;
+    for (const key of Object.keys(kept)) delete old[key];
+    expect(Session.restore(old, registry, false)).toMatchObject(defaults);
+    const p = pendingStart(s);
+    await request(p.server, p.peer, { op: "headless.list", payload: {} });
+    expect((p.replies[0] as any).sessions[0]).toMatchObject({ session: "a", provider: "codex", ...kept });
+  },
+);
 test("a session that exits says so once in its journal", () => {
   const registry = new Registry(),
     s = session();
@@ -640,6 +628,7 @@ test("a session that exits says so once in its journal", () => {
   s.poll(registry);
   expect(s.events.some(e => e.event.kind === "ended")).toBe(false);
   expect(s.reap()).toBe(true);
+  expect(s.reap()).toBe(false);
   s.markExited();
   expect(s.events.filter(e => e.event.kind === "ended")).toEqual([{ seq: s.ended_seq!, event: { kind: "ended" } }]);
   expect(s.events.at(-1)!.event).toEqual({ kind: "ended" });
@@ -710,7 +699,7 @@ test("a prompt session left unread while a viewer is attached stops, unless a pa
   expect(runtime.sessions).toEqual([held, ordinary]);
   expect((left.client as Fake).closed).toBe(true);
 });
-test("reading from a pane claims the session for it, across checkpoints and in the list", async () => {
+test("reading from a pane claims the session for it", async () => {
   const registry = new Registry(),
     s = session();
   s.corgi = true;
@@ -727,12 +716,6 @@ test("reading from a pane claims the session for it, across checkpoints and in t
     payload: { provider: "codex", session: "a", after: 0n, pane: 7 },
   });
   expect(s.pane).toBe(7);
-  await request(p.server, p.peer, { op: "headless.list", payload: {} });
-  expect((p.replies.at(-1) as any).sessions[0]).toMatchObject({ session: "a", corgi: true, pane: 7 });
-  for (const live of [true, false]) expect(Session.restore(clone(s.capture(live)), registry, live).pane).toBe(7);
-  const old = clone(s.capture(false)) as any;
-  delete old.pane;
-  expect(Session.restore(old, registry, false).pane).toBeNull();
 });
 
 test("a prompt session reaches this Corgi through its socket and its own corgi, as no pane", () => {

@@ -132,7 +132,7 @@ test("launcher shows the shared ChatGPT account for an OpenAI model", async () =
       return { data: [] };
     });
   shared.signed_in = true;
-  shared.account = new AccountText("toasty.tal@gmail.com");
+  shared.account = new AccountText("ada@example.com");
   shared.plan = new AccountText("Pro 500");
   shared.limits = {
     windows: [
@@ -143,7 +143,7 @@ test("launcher shows the shared ChatGPT account for an OpenAI model", async () =
   try {
     const launcher = open("", async () => shared),
       info = await launcher.account(new Quit(), 600);
-    expect(info.account.text()).toBe("toasty.tal@gmail.com");
+    expect(info.account.text()).toBe("ada@example.com");
     expect(info.plan.text()).toBe("Pro 500");
     expect(info.limits).toMatchObject({
       windows: [

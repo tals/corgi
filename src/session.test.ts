@@ -417,7 +417,7 @@ test("a viewer's snapshot stays byte-stable while only output and stamps move", 
     actor.observed_at += 1000000;
     actor.children_observed_at = actor.observed_at;
     expect(stringify(viewerSnapshot(r))).toBe(before);
-    expect(stringify(snapshot(r))).not.toBe(before);
+    expect(snapshot(r).conversations[0].observed_at).toBe(actor.observed_at);
     actor.observed_at += 5000000;
     expect(stringify(viewerSnapshot(r))).not.toBe(before);
   } finally {

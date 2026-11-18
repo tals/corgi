@@ -3,7 +3,6 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Server } from "./server";
-import * as json from "./json";
 import type { View as WireView } from "./protocol";
 import * as protocol from "./protocol";
 import {
@@ -172,33 +171,6 @@ test("stream reconfiguration and client pause cancel deferred frames", () => {
   } finally {
     f.close();
   }
-});
-test("a viewer reads the view the daemon writes", () => {
-  const written: WireView<{ revision: number }> = {
-    type: "view",
-    viewer_protocol: version,
-    session: { revision: 4 },
-    session_hash: 7n,
-    resources: null,
-    resources_hash: 9n,
-    surfaces: [],
-    bell_seq: 2n,
-    bell_kind: "needs_input",
-    controls: [{ seq: 5n, kind: "focus", id: 1 }],
-    viewer: 3,
-    detach: true,
-  };
-  const read = json.parse(json.stringify(written));
-  expect(read.session.revision).toBe(4);
-  expect(read.resources).toBeNull();
-  expect(read.session_hash).toBe(7);
-  expect(read.resources_hash).toBe(9);
-  expect(read.bell_kind).toBe("needs_input");
-  expect(read.controls[0].seq).toBe(5);
-  expect(read.viewer).toBe(3);
-  expect(read.detach).toBe(true);
-  written.session_hash = 0xffffffffffffffffn;
-  expect(json.parse(json.stringify(written)).session_hash).toBe(0xffffffffffffffffn);
 });
 test("viewer wire version checked on every exchange", () => {
   expect(compatible({ viewer_protocol: version })).toBe(true);

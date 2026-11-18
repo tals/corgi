@@ -14,20 +14,29 @@ import { Signin } from "./signin";
 import { Terminal } from "./pane/terminal";
 import { Menu } from "./corgi_setup";
 const source = { updateRender() {}, hyperlinks: () => [] };
-test("the resource card opens and wakes the viewer after 150 ms", () => {
-  const s = new State(),
-    target = { resource: 1 };
-  s.move();
-  expect(s.ready(target, 100)).toBe(false);
-  expect(s.due(249)).toBe(false);
-  expect(s.ready(target, 249)).toBe(false);
-  expect(s.due(250)).toBe(true);
-  expect(s.ready(target, 250)).toBe(true);
-  expect(s.due(251)).toBe(false);
-  expect(s.ready({ resource: 2 }, 251)).toBe(false);
-  expect(s.due(400)).toBe(false);
-  expect(s.ready({ resource: 2 }, 401)).toBe(true);
-});
+const pointed = { source, id: 1n, uri: "https://example.com", x: 5, y: 2 },
+  retargeted = { ...pointed, uri: "https://other.example.com" };
+test.each([
+  ["resource card", { resource: 1 }, { resource: 2 }, { resource: 1 }],
+  // The same URL in another pane is another link.
+  ["link", { link: pointed }, { link: retargeted }, { link: { ...retargeted, source: { ...source } } }],
+] as const)(
+  "a %s wakes the viewer after 150 ms, and each new target restarts the delay",
+  (_, target, changed, next) => {
+    const s = new State();
+    s.move();
+    expect(s.ready(target, 100)).toBe(false);
+    expect(s.due(249)).toBe(false);
+    expect(s.ready(target, 249)).toBe(false);
+    expect(s.due(250)).toBe(true);
+    expect(s.ready(target, 250)).toBe(true);
+    expect(s.due(251)).toBe(false);
+    expect(s.ready(changed, 251)).toBe(false);
+    expect(s.due(400)).toBe(false);
+    expect(s.ready(changed, 401)).toBe(true);
+    expect(s.ready(next, 402)).toBe(false);
+  },
+);
 test("tooltip waits for rest and requires fresh movement after interaction", () => {
   const s = new State(),
     target = { git: 1 };
@@ -44,22 +53,6 @@ test("tooltip waits for rest and requires fresh movement after interaction", () 
   expect(s.ready({ git: 2 }, 2502)).toBe(false);
   expect(s.ready(null, 4000)).toBe(false);
   expect(s.ready(target, 4001)).toBe(false);
-});
-
-test("link hover wakes at 150 ms and changing the URL restarts the delay", () => {
-  const s = new State();
-  const link = { source, id: 1n, uri: "https://example.com", x: 5, y: 2 };
-  s.move();
-  expect(s.ready({ link }, 100)).toBe(false);
-  expect(s.due(249)).toBe(false);
-  expect(s.ready({ link }, 249)).toBe(false);
-  expect(s.due(250)).toBe(true);
-  expect(s.ready({ link }, 250)).toBe(true);
-  const changed = { link: { ...link, uri: "https://other.example.com" } };
-  expect(s.ready(changed, 251)).toBe(false);
-  expect(s.due(400)).toBe(false);
-  expect(s.ready(changed, 401)).toBe(true);
-  expect(s.ready({ link: { ...changed.link, source: { ...source } } }, 402)).toBe(false);
 });
 
 test("the link popover fits at screen edges and only its middle row copies", () => {

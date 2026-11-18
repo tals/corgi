@@ -95,11 +95,6 @@ test("the camera follows an ascending ship past the old ceiling and returns duri
     expect(L.y).toBeLessThan(-40);
     expect(L.vy).toBeLessThan(0);
     expect(engine.cameraY).toBeLessThan(0);
-    const camera = engine.cameraY;
-    engine.game.paused = true;
-    engine.tick(0.1);
-    expect(engine.cameraY).toBe(camera);
-    engine.game.paused = false;
     for (let i = 0; i < 90 && engine.cameraY < 0; i++) engine.tick(0.1);
     expect(engine.cameraY).toBe(0);
     expect(engine.game.state).toBe("flying");

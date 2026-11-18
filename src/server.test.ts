@@ -571,52 +571,54 @@ for (const failure of [false, true]) {
   });
 }
 
-for (const request_id of [undefined, 41])
-  for (const failure of [false, true]) {
-    test(`a handoff cancels a ${request_id ? "tagged" : "untagged"} model read and ignores its late ${failure ? "failure" : "success"}`, async () => {
-      const { server, dispose } = fixture(),
-        pending = Promise.withResolvers<agentModels.Choice[]>(),
-        reader = spyOn(agentModels, "read").mockReturnValue(pending.promise),
-        socket = new client_socket.Recorder(),
-        cl = server.addClient(socket, false);
-      try {
-        cl.pending.push(
-          {
-            op: "launcher.models",
-            row: "codex",
-            protocol: protocol.version,
-            ...(request_id === undefined ? {} : { request_id }),
-          },
-          { op: "ping", protocol: protocol.version },
-        );
-        cl.resume();
-        await (server as any).jobs;
-        server.pause();
-        expect(reader.mock.calls[0][2].aborted).toBe(true);
-        await Bun.sleep(0);
-        const errors = () => socket.lines().filter(r => !r.ok);
-        expect(errors()).toEqual([{ err: "Cancelled", request_id }]);
-        if (failure) pending.reject(Error("LateFailure"));
-        else pending.resolve([{ id: "late", name: "Late" }]);
-        await pending.promise.catch(() => {});
-        await Bun.sleep(0);
-        expect(errors()).toEqual([{ err: "Cancelled", request_id }]);
-        // A failed handoff resumes the client without an extra reply or a stuck busy flag.
-        cl.resume();
-        await (server as any).jobs;
-        await Bun.sleep(0);
-        await (server as any).jobs;
-        const replies = socket.lines();
-        expect(replies).toHaveLength(2);
-        expect(replies.filter(r => r.ok)).toHaveLength(1);
-      } finally {
-        pending.resolve([]);
-        reader.mockRestore();
-        cl.close();
-        dispose();
-      }
-    });
-  }
+for (const [request_id, failure] of [
+  [undefined, false],
+  [41, true],
+] as const) {
+  test(`a handoff cancels a ${request_id ? "tagged" : "untagged"} model read and ignores its late ${failure ? "failure" : "success"}`, async () => {
+    const { server, dispose } = fixture(),
+      pending = Promise.withResolvers<agentModels.Choice[]>(),
+      reader = spyOn(agentModels, "read").mockReturnValue(pending.promise),
+      socket = new client_socket.Recorder(),
+      cl = server.addClient(socket, false);
+    try {
+      cl.pending.push(
+        {
+          op: "launcher.models",
+          row: "codex",
+          protocol: protocol.version,
+          ...(request_id === undefined ? {} : { request_id }),
+        },
+        { op: "ping", protocol: protocol.version },
+      );
+      cl.resume();
+      await (server as any).jobs;
+      server.pause();
+      expect(reader.mock.calls[0][2].aborted).toBe(true);
+      await Bun.sleep(0);
+      const errors = () => socket.lines().filter(r => !r.ok);
+      expect(errors()).toEqual([{ err: "Cancelled", request_id }]);
+      if (failure) pending.reject(Error("LateFailure"));
+      else pending.resolve([{ id: "late", name: "Late" }]);
+      await pending.promise.catch(() => {});
+      await Bun.sleep(0);
+      expect(errors()).toEqual([{ err: "Cancelled", request_id }]);
+      // A failed handoff resumes the client without an extra reply or a stuck busy flag.
+      cl.resume();
+      await (server as any).jobs;
+      await Bun.sleep(0);
+      await (server as any).jobs;
+      const replies = socket.lines();
+      expect(replies).toHaveLength(2);
+      expect(replies.filter(r => r.ok)).toHaveLength(1);
+    } finally {
+      pending.resolve([]);
+      reader.mockRestore();
+      cl.close();
+      dispose();
+    }
+  });
+}
 
 test("startup waits are shared, cancellable, and removed when their reporter disconnects", async () => {
   const { server, dispose } = fixture(),

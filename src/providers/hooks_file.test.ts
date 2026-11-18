@@ -56,9 +56,9 @@ test("hook status counts the events that run Corgi's handler", () => {
   const all = merged("{}", claude.events, ours)!,
     some = JSON.parse(all);
   delete some.hooks.Stop;
-  expect(counted(all, claude.events, ours)).toEqual([12, 12]);
-  expect(counted(JSON.stringify(some), claude.events, ours)).toEqual([11, 12]);
-  expect(counted("{}", claude.events, ours)).toEqual([0, 12]);
+  expect(counted(all, claude.events, ours)).toEqual([claude.events.length, claude.events.length]);
+  expect(counted(JSON.stringify(some), claude.events, ours)).toEqual([claude.events.length - 1, claude.events.length]);
+  expect(counted("{}", claude.events, ours)).toEqual([0, claude.events.length]);
 });
 test("installing leaves hook settings that already have every hook untouched", () => {
   const directory = mkdtempSync(join(tmpdir(), "corgi-hooks-")),
@@ -73,7 +73,10 @@ test("installing leaves hook settings that already have every hook untouched", (
     delete all.hooks.SubagentStop;
     writeFileSync(file.path, JSON.stringify({ theme: "dark", hooks: all.hooks }));
     expect(file.install().outcome).toBe("added");
-    expect(counted(readFileSync(file.path, "utf8"), claude.events, ours)).toEqual([12, 12]);
+    expect(counted(readFileSync(file.path, "utf8"), claude.events, ours)).toEqual([
+      claude.events.length,
+      claude.events.length,
+    ]);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -91,7 +94,10 @@ test("an account whose settings link to the default's gets its hooks there, and 
     const file = new File("claude", work, "settings.json", claude.events, home);
     expect(file.install().outcome).toBe("added");
     expect(lstatSync(join(work, "settings.json")).isSymbolicLink()).toBe(true);
-    expect(counted(readFileSync(join(home, "settings.json"), "utf8"), claude.events, ours)).toEqual([12, 12]);
+    expect(counted(readFileSync(join(home, "settings.json"), "utf8"), claude.events, ours)).toEqual([
+      claude.events.length,
+      claude.events.length,
+    ]);
     expect(new File("claude", home, "settings.json", claude.events).install().outcome).toBe("present");
     expect(readdirSync(work)).toEqual(["settings.json"]);
     // A link anywhere else stays as it is.

@@ -38,6 +38,7 @@ test("unsupported and malformed CSI-u remains untouched", () => {
     "\x1b[55296u",
     "\x1b[1114112u",
     "\x1b[13;17u",
+    "\x1b[97;33u",
   ])
     expect(decode(seq)).toBeNull();
 });

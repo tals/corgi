@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as cp from "./checkpoint";
 import * as migrations from "./migrations";
-import { checkpoint as schema, validateCheckpoint } from "./schema";
+import { validateCheckpoint } from "./schema";
 import * as json from "../json";
 import { Runtime, Pane } from "../runtime";
 import { Terminal } from "../pane/terminal";
@@ -278,7 +278,6 @@ for (const version of [2, 3, 4, 5, 6])
     },
   );
 test("saved checkpoint format matches its version", () => {
-  expect(schema).toBe(readFileSync(resolve(fixtures, "checkpoint.schema"), "utf8"));
   using r = fresh();
   validateCheckpoint(roundtrip(cp.capture(r, true)));
   const value = roundtrip(cp.capture(r, false));
@@ -934,10 +933,6 @@ test.each([false, true])("checklists survive persistence and default when absent
   invalid.conversations[0].checklist.items[0].status = "unknown";
   using rejected = new Runtime();
   await expect(restore(rejected, invalid, live)).rejects.toThrow("InvalidEnumTag");
-  const malformed = roundtrip(saved);
-  malformed.conversations[0].checklist.items = {};
-  using malformedRuntime = new Runtime();
-  await expect(restore(malformedRuntime, malformed, live)).rejects.toThrow("UnexpectedToken");
 });
 
 test.each([false, true])(

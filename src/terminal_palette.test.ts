@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Rgb, Token } from "./palette";
+import { colors, use, type Rgb, type Token } from "./palette";
 import { contrast, onBackground, tokens, type Colors } from "./terminal_palette";
 
 const hex = (value: string): Rgb => [0, 2, 4].map(i => parseInt(value.slice(i + 1, i + 3), 16)) as Rgb;
@@ -144,20 +144,11 @@ test("statuses stay apart when a theme colors them alike", () => {
   }
 });
 
-const corgi: Record<Token, Rgb> = {
-  bg: [24, 27, 32],
-  surface: [35, 40, 47],
-  selected: [51, 57, 65],
-  line: [80, 90, 101],
-  faint: [131, 144, 158],
-  muted: [165, 174, 184],
-  text: [209, 214, 219],
-  strong: [238, 241, 244],
-  accent: [123, 241, 168],
-  warm: [229, 195, 139],
-  hot: [237, 163, 152],
-  gold: [242, 196, 72],
-};
+/** Corgi's own colors, as it draws without the terminal's. */
+const corgi = (() => {
+  use("corgi");
+  return structuredClone(colors);
+})();
 test("Corgi keeps a dark terminal background and its own colors on it", () => {
   const kept = onBackground(corgi, themes.tokyo_night.background)!;
   expect(kept.bg).toEqual([26, 27, 38]);

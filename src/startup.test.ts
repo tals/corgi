@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import * as startup from "./startup";
 import * as card from "./startup_card";
 import * as i18n from "./i18n";
-import { Writer } from "./text";
+import { Writer, displayWidth } from "./text";
 import { Terminal } from "./pane/terminal";
 
 const wait = (id: string): startup.Wait => ({
@@ -73,10 +73,11 @@ test("the waits panel keeps selection by identity, scrolls, and kills the displa
           state.draw(w, rect, waits, 13000);
           terminal.feed(w.buffered());
           expect(state.key("x")).toEqual({ name: "startup-kill", value: "8" });
-          expect(state.hit(rect, waits, rect.x + rect.w - 4, rect.y + rect.h - 2)).toEqual({
-            name: "startup-kill",
-            value: "8",
-          });
+          const footer = rect.y + rect.h - 2,
+            row = terminal.text().split("\n")[footer],
+            kill = displayWidth(row.slice(0, row.indexOf(i18n.t`[x Kill]`)));
+          expect(state.hit(rect, waits, kill, footer)).toEqual({ name: "startup-kill", value: "8" });
+          expect(state.hit(rect, waits, kill - 1, footer)).toEqual({ name: "startup-go", value: "8" });
           expect(terminal.surface(0).surface.lines.length).toBe(20);
           expect(card.geometry(width, 9, waits.length)).toBeNull();
         } finally {

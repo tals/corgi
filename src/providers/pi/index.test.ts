@@ -55,14 +55,15 @@ test("Pi keeps account and extension settings without replaying prompts or sessi
     }).args,
   ).toEqual(["--provider", "openai-codex", "--thinking", "low", "-e", "custom.ts"]);
 });
-test("Pi extension installation is idempotent and preserves other extensions", () => {
-  const root = mkdtempSync(join(tmpdir(), "corgi-pi-install-")),
+test("Pi extension installation creates a fresh configuration, is idempotent and preserves other extensions", () => {
+  const parent = mkdtempSync(join(tmpdir(), "corgi-pi-install-")),
+    root = join(parent, "agent"),
     old = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = root;
   try {
-    mkdirSync(join(root, "extensions"));
-    writeFileSync(join(root, "extensions", "other.js"), "other");
+    expect(extension("status").outcome).toBe("no_config");
     expect(extension("install").outcome).toBe("added");
+    writeFileSync(join(root, "extensions", "other.js"), "other");
     expect(extension("install").outcome).toBe("present");
     expect(extension("status").outcome).toBe("present");
     expect(readFileSync(join(root, "extensions", "corgi.js"), "utf8")).toBe(source);
@@ -74,7 +75,7 @@ test("Pi extension installation is idempotent and preserves other extensions", (
   } finally {
     if (old === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = old;
-    rmSync(root, { recursive: true, force: true });
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 test("Pi history uses header identity and latest display name", () => {
@@ -128,23 +129,6 @@ test("Pi settlement finishes ephemeral sessions, but idle dialogs do not create 
   apply("Idle", 5);
   expect(a.state).toBe("idle");
   expect(a.observation.completed).toBe(1n);
-});
-
-test("Pi integration creates a fresh configuration before its first launch", () => {
-  const parent = mkdtempSync(join(tmpdir(), "corgi-pi-fresh-")),
-    root = join(parent, "agent"),
-    old = process.env.PI_CODING_AGENT_DIR;
-  process.env.PI_CODING_AGENT_DIR = root;
-  try {
-    expect(extension("status").outcome).toBe("no_config");
-    expect(extension("install").outcome).toBe("added");
-    expect(readFileSync(join(root, "extensions/corgi.js"), "utf8")).toBe(source);
-    expect(extension("status").outcome).toBe("present");
-  } finally {
-    if (old === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = old;
-    rmSync(parent, { recursive: true, force: true });
-  }
 });
 
 test("Pi discovers configured and observed custom session directories and resumes by path", async () => {

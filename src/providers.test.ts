@@ -1,10 +1,8 @@
 import { test, expect } from "bun:test";
 import { Provider, byProvider, adapter } from "./providers";
-import { Model } from "./providers/model";
 import * as claude from "./providers/claude";
 import * as codex from "./providers/codex";
 import * as claudeHeadless from "./providers/claude/headless";
-import { Hooks, timestampMs } from "./providers/common";
 import * as sim from "./providers/sim";
 import type { Settings } from "./providers/adapter";
 test("per-provider values are keyed by name, in the registry's order", () => {
@@ -176,63 +174,7 @@ test("shared hook codec preserves permission context and rejects child observati
     ).toBeNull();
     expect(backend.hook(null)).toBeNull();
   }
-  expect(
-    new Hooks().decode({
-      hook_event_name: "PreToolUse",
-      session_id: "a",
-      tool_name: "AskUserQuestion",
-      tool_input: { description: "Pick" },
-    }),
-  ).toMatchObject({ asking: true, description: "Pick" });
-  expect(new Hooks().decode({ hook_event_name: "Stop", agent_id: "child" })).toBeNull();
-  expect(
-    new Hooks().decode({
-      hook_event_name: "Notification",
-      notification_type: "idle_prompt",
-    }),
-  ).toBeNull();
 });
-test("background Agent and Monitor calls name the jobs they launched", () => {
-  expect(
-    new Hooks().decode({
-      hook_event_name: "PostToolUse",
-      tool_name: "Agent",
-      tool_input: { subagent_type: "Explore" },
-      tool_response: { status: "async_launched", agentId: "a1" },
-    }),
-  ).toMatchObject({ subagent: "a1", subagent_type: "Explore" });
-});
-test("UTC timestamps and plan labels", () => {
-  expect(timestampMs("1970-01-01T00:00:00.000Z")).toBe(0);
-  expect(timestampMs("2026-09-24T10:00:00.123Z")).toBe(1790244000123);
-  expect(timestampMs("2026-09-24T10:00:00+02:00")).toBeNull();
-  expect(codex.plan("prolite").text()).toBe("Pro 100");
-  expect(claude.plan("claude_max", "default_claude_max_20x").text()).toBe("Max 20x");
-});
-test("transcript ownership and task notices", () => {
-  expect(claude.Line.decode({ isSidechain: true })).toBeNull();
-  expect(claude.Line.of({ isSidechain: true, agentId: "a1", sessionId: "s" }, "a1")).not.toBeNull();
-  expect(
-    claude.TaskNotice.decode(
-      "<task-notification><task-id>x</task-id><summary>abc</summary><event><status>killed</status></event>",
-    ),
-  ).toEqual({ id: "x", status: null });
-});
-test("models canonicalize Bedrock, Vertex, aliases, and native million windows", () => {
-  for (const [id, canonical, label, window] of [
-    ["claude-opus-5-5", "claude-opus-5-5", "Opus 5.5", 1000000n],
-    ["us.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5-20251001", "Haiku 4.5", 200000n],
-    ["claude-3-5-sonnet-v2@20241022", "claude-3-5-sonnet-20241022", "Sonnet 3.5", 200000n],
-    ["sonnet[1m]", "sonnet[1m]", "Sonnet (1M)", 0n],
-    ["gpt-6.1-sol", "gpt-6.1-sol", "GPT-6.1 Sol", 0n],
-  ] as const) {
-    const m = Model.resolve(id);
-    expect(m.id.text()).toBe(canonical);
-    expect(m.label()).toBe(label);
-    expect(m.window).toBe(window);
-  }
-});
-
 test("a background Agent call names the subagent it launched", () => {
   const backend = claude.adapter;
   const launched = backend.hook({

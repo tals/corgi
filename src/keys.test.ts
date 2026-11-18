@@ -1,6 +1,5 @@
 import { test, expect } from "bun:test";
 import { parse, logicalKey, mouseReport, paste_start, paste_end, parseChord } from "./keys";
-import { decode } from "./keyboard";
 test("chords reject inherited names as keys and modifiers", () => {
   for (const name of Object.getOwnPropertyNames(Object.prototype)) {
     expect(parseChord(name)).toBeNull();
@@ -16,7 +15,9 @@ test("parse recognizes CSI and SS3 forms, and rejects the unmapped", () => {
     ["\x1bOC", "right"],
     ["\x1b[D", "left"],
     ["\x1bOD", "left"],
+    ["\x1b[H", "home"],
     ["\x1b[1~", "home"],
+    ["\x1b[F", "end"],
     ["\x1b[4~", "end"],
     ["\x1b[3~", "delete"],
     ["\x1b[Z", "shift_tab"],
@@ -38,9 +39,4 @@ test("logical CLI modifiers parse once", () => {
     mods: { ctrl: true, alt: true },
   });
   expect(() => logicalKey("meta+x")).toThrow("InvalidKey");
-});
-test("kitty decoder preserves unsupported extensions", () => {
-  expect(decode("\x1b[97;5u")?.mods.ctrl).toBe(true);
-  for (const seq of ["\x1b[97;0u", "\x1b[97;33u", "\x1b[97;5:2u", "\x1b[57390u", "\x1b[R"])
-    expect(decode(seq)).toBeNull();
 });

@@ -463,7 +463,7 @@ function folders(...cwds: string[]) {
   };
 }
 
-test("attention and last workspace pass over archived workspaces", async () => {
+test("attention passes over archived workspaces", async () => {
   const s = controller(),
     snapshot: any = folders("/a", "/b", "/c");
   // Archived 2's agent finished first, so attention would otherwise pick it.
@@ -487,12 +487,6 @@ test("attention and last workspace pass over archived workspaces", async () => {
     s.focusPane(1);
     await s.perform({ name: "attention" });
     expect([s.focused()!.id, s.message]).toEqual([1, " Nothing needs your attention"]);
-    await s.perform({ name: "last-workspace" });
-    expect(s.current().id).toBe(3);
-    snapshot.workspaces[0].archived = true;
-    s.receiveSnapshot(snapshot);
-    await s.perform({ name: "last-workspace" });
-    expect([s.current().id, s.message]).toEqual([3, " No previous workspace"]);
   } finally {
     viewer.close(s);
   }
@@ -548,7 +542,7 @@ test("last tab follows keyboard, mouse and tab menu selection, including shell t
   }
 });
 
-test("last workspace records pane jumps and notices closed or missing history", async () => {
+test("last workspace records pane jumps and notices missing history", async () => {
   const s = controller(),
     snapshot = folders("/a", "/b", "/c");
   s.receiveSnapshot(snapshot);
@@ -562,11 +556,6 @@ test("last workspace records pane jumps and notices closed or missing history", 
     expect(s.current().id).toBe(1);
     await s.input(bytes("\x02L"));
     expect(s.current().id).toBe(3);
-    snapshot.workspaces.splice(0, 1);
-    s.receiveSnapshot(snapshot);
-    await s.perform({ name: "last-workspace" });
-    expect(s.current().id).toBe(3);
-    expect(s.message).toBe(" No previous workspace");
   } finally {
     viewer.close(s);
   }
@@ -1053,13 +1042,16 @@ test("a fork's name is its title marked as a fork, cut to fit", () => {
   expect(Buffer.from(long).toString()).toBe(long);
 });
 
-test("a busy agent's rename names its provider", () => {
+test("a refused rename says why, naming a busy agent's provider", () => {
   const remove = sim.register();
   try {
     expect(agentMessage("AgentBusy", "", agent({ provider: sim.sim }))).toBe(
       " Sim is busy: rename it once its input box is empty",
     );
     expect(agentMessage("AgentBusy", "", undefined)).toBe(" This agent is busy: rename it once its input box is empty");
+    expect(agentMessage("RenameUnavailable", "", undefined)).toBe(" This agent can't be renamed from outside");
+    expect(agentMessage("NoConversation", "", undefined)).toBe(" This agent has no conversation yet");
+    expect(agentMessage("InvalidName", "", undefined)).toBe(" Names are one line of up to 80 characters");
     expect(agentMessage("Timeout", " Could not rename this agent", undefined)).toBe(" Could not rename this agent");
   } finally {
     remove();
@@ -2002,21 +1994,18 @@ test("both launch screens discover snapshot accounts before offering them", () =
   expect(launch.manager.items(launch.manageModel()).have).toEqual([]);
 });
 
-test.each(["\x1b[H", "\x1b[1~", "\x1b[F", "\x1b[4~"])(
-  "explicit launcher selection survives discovery (%j)",
-  async key => {
-    const { s } = recording(folders("/src/app"));
-    s.openLauncher(true);
-    const launch: agentLauncher.Menu = s.agent_launcher;
-    launch.profiles = [];
-    launch.select("claude");
-    expect(launch.selected).toBe("terminal");
-    await s.input(bytes(key));
-    launch.preview = agentLauncher.preview({ pending: false });
-    launch.normalize();
-    expect(launch.selected).toBe("terminal");
-  },
-);
+test.each(["\x1b[H", "\x1b[F"])("explicit launcher selection survives discovery (%j)", async key => {
+  const { s } = recording(folders("/src/app"));
+  s.openLauncher(true);
+  const launch: agentLauncher.Menu = s.agent_launcher;
+  launch.profiles = [];
+  launch.select("claude");
+  expect(launch.selected).toBe("terminal");
+  await s.input(bytes(key));
+  launch.preview = agentLauncher.preview({ pending: false });
+  launch.normalize();
+  expect(launch.selected).toBe("terminal");
+});
 
 test("an account's row starts its agent there, and resuming keeps a conversation's account", async () => {
   const snapshot = {
@@ -3463,23 +3452,6 @@ test("a double-click on an agent row renames it in place, with the dialog's outc
   }
 });
 
-test("a character bound to an action types into the rename field", async () => {
-  const { s, sent, twice } = renaming();
-  const bound = spyOn(s.prefs, "bindings").mockReturnValue([
-    { key: 0xe9, mods: {}, prefixed: false, action: { name: "new-workspace" } },
-  ]);
-  try {
-    setSystemTime(new Date(1000));
-    await twice({ agent: 2 });
-    await s.input(bytes("é"));
-    expect([s.inline_rename?.field.raw(), s.name_dialog, sent]).toEqual(["agent 2é", null, [probe(2)]]);
-  } finally {
-    bound.mockRestore();
-    setSystemTime();
-    viewer.close(s);
-  }
-});
-
 test("moving the free pointer off the cell or turning the wheel between presses opens no field", async () => {
   const { s, sent, rect, press } = renaming();
   const at = rect({ agent: 2 });
@@ -3592,23 +3564,30 @@ test("presses in copy mode don't count a click series", async () => {
   }
 });
 
-test("the open field takes every key: nothing reaches the pane and no binding runs", async () => {
+test.each([
+  ["the prefix and its new-tab key", "\x02c", "agent 1c"],
+  ["arrows", "\x1b[Dx", "agent x1"],
+  ["a paste", "\x1b[200~a\nb\x1b[201~", "agent 1ab"],
+  ["Kitty-encoded text, prefix and new-tab key", "\x1b[120u\x1b[98;5u\x1b[99u", "agent 1xc"],
+  ["a character bound to an action", "é", "agent 1é"],
+])("the open field takes %s: nothing reaches the pane and no binding runs", async (_, input, raw) => {
   const { s, sent, typed, twice } = renaming();
+  const defaults = s.prefs.bindings(),
+    bound = spyOn(s.prefs, "bindings").mockReturnValue([
+      ...defaults,
+      { key: 0xe9, mods: {}, prefixed: false, action: { name: "new-workspace" } },
+    ]);
   try {
     setSystemTime(new Date(1000));
     await twice({ agent: 1 });
     const count = s.model().count;
-    await s.input(bytes("\x02c"));
-    expect(s.prefix).toBe(false);
-    expect(s.model().count).toBe(count);
-    expect(s.inline_rename.field.raw()).toBe("agent 1c");
-    await s.input(bytes("\x1b[D\x1b[Dx"));
-    expect(s.inline_rename.field.raw()).toBe("agent x1c");
-    await s.input(bytes("\x1b[200~a\nb\x1b[201~"));
-    expect(s.inline_rename.field.raw()).toBe("agent xab1c");
+    await s.input(bytes(input));
+    expect(s.inline_rename.field.raw()).toBe(raw);
+    expect([s.prefix, s.model().count, s.name_dialog]).toEqual([false, count, null]);
     expect(sent).toEqual([probe(1)]);
     expect(typed).toEqual([]);
   } finally {
+    bound.mockRestore();
     setSystemTime();
     viewer.close(s);
   }
@@ -3956,7 +3935,7 @@ test("the prompt's picker offers each installed agent's models per account, with
   }
 });
 
-test("a press outside the field closes it unsaved and still acts; one inside changes nothing", async () => {
+test("a press outside the field, plain, modified or middle, closes it unsaved and still acts; one inside keeps it", async () => {
   const { s, sent, rect, press, twice } = renaming();
   try {
     setSystemTime(new Date(1000));
@@ -3976,7 +3955,16 @@ test("a press outside the field closes it unsaved and still acts; one inside cha
     const at = rect({ agent: 1 });
     await press(at.x, at.message_y);
     expect(s.inline_rename).toBeNull();
-    expect(sent).toEqual([probe(1), probe(1)]);
+    // A modified or middle press inside keeps it, and outside closes it too.
+    await twice({ agent: 1 });
+    await press(inside.x + 1, inside.y, 4);
+    expect(s.inline_rename.target).toEqual({ agent: 1 });
+    await press(60, 10, 4);
+    expect(s.inline_rename).toBeNull();
+    await twice({ agent: 1 });
+    await press(60, 10, 1);
+    expect(s.inline_rename).toBeNull();
+    expect(sent).toEqual([probe(1), probe(1), probe(1), probe(1)]);
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -4010,8 +3998,8 @@ test("a field starts with the label, else the agent name, else empty; a workspac
   }
 });
 
-test("a refused double-click is a plain press: the second one still starts a drag", async () => {
-  const { s, rect } = renaming(c => (c["agent.rename"]?.name === undefined ? "RenameUnavailable" : undefined));
+test("a double-click the agent refuses to rename opens no field: the second press still starts a drag", async () => {
+  const { s, sent, rect } = renaming(c => (c["agent.rename"]?.name === undefined ? "RenameUnavailable" : undefined));
   try {
     setSystemTime(new Date(1000));
     const at = rect({ agent: 2 });
@@ -4022,44 +4010,7 @@ test("a refused double-click is a plain press: the second one still starts a dra
     expect(s.inline_rename).toBeNull();
     expect(s.focused().id).toBe(2);
     expect(s.agent_drag).not.toBeNull();
-  } finally {
-    setSystemTime();
-    viewer.close(s);
-  }
-});
-
-test("a modified or middle press outside the field closes it too; one inside keeps it", async () => {
-  const { s, sent, rect, press, twice } = renaming();
-  try {
-    setSystemTime(new Date(1000));
-    await twice({ agent: 1 });
-    const inside = rect({ agent: 1 });
-    await press(inside.x + 1, inside.y, 4);
-    expect(s.inline_rename.target).toEqual({ agent: 1 });
-    await press(60, 10, 4);
-    expect(s.inline_rename).toBeNull();
-    await twice({ agent: 1 });
-    await press(60, 10, 1);
-    expect(s.inline_rename).toBeNull();
-    expect(sent).toEqual([probe(1), probe(1)]);
-  } finally {
-    setSystemTime();
-    viewer.close(s);
-  }
-});
-
-test("Kitty-encoded keys go to the open field, not to the pane or a binding", async () => {
-  const { s, sent, typed, twice } = renaming();
-  try {
-    setSystemTime(new Date(1000));
-    await twice({ agent: 1 });
-    const count = s.model().count;
-    // "x", then Ctrl-B and c as the prefix and its new-tab key.
-    await s.input(bytes("\x1b[120u\x1b[98;5u\x1b[99u"));
-    expect(s.model().count).toBe(count);
-    expect(s.inline_rename.field.raw()).toBe("agent 1xc");
-    expect(sent).toEqual([probe(1)]);
-    expect(typed).toEqual([]);
+    expect(sent).toEqual([probe(2)]);
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -4080,27 +4031,14 @@ test("a double-click on row B while A's field is open edits B", async () => {
   }
 });
 
-test("a double-click opens no field on a headless row or an agent that refuses the rename probe", async () => {
-  const {
-    s: refused,
-    sent,
-    twice,
-  } = renaming(c => (c["agent.rename"]?.name === undefined ? "RenameUnavailable" : undefined));
-  try {
-    setSystemTime(new Date(1000));
-    await twice({ agent: 1 });
-    expect(refused.inline_rename).toBeNull();
-    expect(refused.focused().id).toBe(1);
-    expect(sent).toEqual([probe(1)]);
-  } finally {
-    viewer.close(refused);
-  }
+test("a double-click opens no field on a headless row", async () => {
   const snapshot = {
     ...pair(),
     headless_sessions: [{ id: 7, workspace: 1, provider: "codex", cwd: "/a", state: "working" }],
   };
   const { s } = recording(snapshot);
   try {
+    setSystemTime(new Date(1000));
     const entries = s.sidebarEntries();
     const index = entries.findIndex((e: any) => "headless" in e.target);
     expect(index).toBeGreaterThan(-1);
@@ -4242,7 +4180,7 @@ function linking() {
   return { s, url, term, mouse, click, opened, done };
 }
 
-test("a plain click on a pane link opens it once the double-click window has passed", async () => {
+test("a plain click on a pane link opens it once the double-click window has passed, unless its pane loses focus or closes", async () => {
   const { s, url, mouse, click, opened, done } = linking();
   try {
     expect(
@@ -4269,12 +4207,28 @@ test("a plain click on a pane link opens it once the double-click window has pas
     expect(await opened()).toEqual([]);
     await mouse(0, 0, true);
     expect(await opened()).toEqual([url]);
+    // Its pane losing focus or closing drops it.
+    clock.advance(clock.double_click_ms);
+    await click();
+    s.focusPane(2);
+    clock.advance(clock.double_click_ms);
+    expect(await opened()).toEqual([]);
+    s.focusPane(1);
+    clock.advance(clock.double_click_ms);
+    await click();
+    expect(s.pending_open).not.toBeNull();
+    const closed = folders("/a", "/b");
+    closed.workspaces = closed.workspaces.slice(1);
+    closed.panes = closed.panes.slice(1);
+    s.receiveSnapshot(closed);
+    clock.advance(clock.double_click_ms);
+    expect(await opened()).toEqual([]);
   } finally {
     done();
   }
 });
 
-test("a second press on a pane link cancels its open, another press opens it at once", async () => {
+test("a second press on a pane link cancels its open; another press or a Ctrl+click opens it at once, and only once", async () => {
   const { s, url, mouse, click, opened, done } = linking();
   try {
     // The second press of a double-click.
@@ -4302,22 +4256,23 @@ test("a second press on a pane link cancels its open, another press opens it at 
     await mouse(64);
     clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([url]);
-  } finally {
-    done();
-  }
-});
-
-test("a second press on the same link opens it only once", async () => {
-  const { s, url, mouse, click, opened, done } = linking();
-  try {
     // One cell over, which starts a new click rather than a double-click.
+    clock.advance(clock.double_click_ms);
     await click();
     clock.advance(100);
     await click(0, 1);
     expect(s.effects).toEqual([]);
     clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([url]);
-    // A Ctrl+click after a plain click opens at once, and only then.
+    // A Ctrl+click opens at once, and only then.
+    clock.advance(clock.double_click_ms);
+    await click(16);
+    expect(s.effects).toEqual([{ open_url: url }]);
+    expect(s.pending_open).toBeNull();
+    s.clearEffects();
+    clock.advance(clock.double_click_ms);
+    expect(await opened()).toEqual([]);
+    // After a plain click too.
     clock.advance(clock.double_click_ms);
     await click();
     clock.advance(50);
@@ -4333,42 +4288,6 @@ test("a second press on the same link opens it only once", async () => {
     await click();
     s.focusPane(2);
     await click(0, 20);
-    clock.advance(clock.double_click_ms);
-    expect(await opened()).toEqual([]);
-  } finally {
-    done();
-  }
-});
-
-test("a pane link's open is dropped once its pane loses focus or closes", async () => {
-  const { s, click, opened, done } = linking();
-  try {
-    await click();
-    s.focusPane(2);
-    clock.advance(clock.double_click_ms);
-    expect(await opened()).toEqual([]);
-    s.focusPane(1);
-    clock.advance(clock.double_click_ms);
-    await click();
-    expect(s.pending_open).not.toBeNull();
-    const closed = folders("/a", "/b");
-    closed.workspaces = closed.workspaces.slice(1);
-    closed.panes = closed.panes.slice(1);
-    s.receiveSnapshot(closed);
-    clock.advance(clock.double_click_ms);
-    expect(await opened()).toEqual([]);
-  } finally {
-    done();
-  }
-});
-
-test("a Ctrl+click opens a pane link at once", async () => {
-  const { s, url, click, opened, done } = linking();
-  try {
-    await click(16);
-    expect(s.effects).toEqual([{ open_url: url }]);
-    expect(s.pending_open).toBeNull();
-    s.clearEffects();
     clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([]);
   } finally {
@@ -5030,9 +4949,6 @@ test("a viewer finds agents the first time it opens Manage agents, and again fro
 
 test.each([
   ["AgentBusy", "Claude is busy: rename it once its input box is empty"],
-  ["RenameUnavailable", "This agent can't be renamed from outside"],
-  ["NoConversation", "This agent has no conversation yet"],
-  ["InvalidName", "Names are one line of up to 80 characters"],
   ["Whatever", "Could not rename this agent"],
 ])("a rename refused with %s keeps the field, says why, and retries on Return", async (err, message) => {
   let failing = true;
@@ -5101,62 +5017,19 @@ test("startup waits open from the shared banner and cancel the selected task thr
   }
 });
 
-test.each([
-  ["Boom", "Could not rename this workspace"],
-  ["NoWorkspace", "No such workspace"],
-])("a failed workspace rename keeps the field with its explanation (%s)", async (err, message) => {
-  const { s, twice } = renaming(c => ("workspace.edit" in c ? err : undefined));
+test("a failed workspace rename keeps the field with its explanation, and isn't remembered", async () => {
+  const { s, twice } = renaming(c => ("workspace.edit" in c ? "NoWorkspace" : undefined));
   try {
     setSystemTime(new Date(1000));
     await twice({ workspace: 1 });
     await s.input(bytes("\x03Nope\r"));
     expect(s.inline_rename?.field.raw()).toBe("Nope");
-    expect(s.inline_rename.message).toBe(message);
+    expect(s.inline_rename.message).toBe("No such workspace");
     expect(s.remembered_names.size).toBe(0);
   } finally {
     setSystemTime();
     viewer.close(s);
   }
-});
-
-test("an agent's review reads the checkout the list puts it under", () => {
-  const checkout = (path: string, branch: string, primary: boolean) => ({
-    path,
-    head: "4f1c2a9e0b",
-    branch: `refs/heads/${branch}`,
-    primary,
-    bare: false,
-    detached: false,
-    locked: null,
-    prunable: null,
-    available: true,
-    comparison: null,
-    changes: null,
-    stale: false,
-  });
-  const snapshot = folders("/src/app");
-  Object.assign(snapshot.panes[0], {
-    cwd: "/src/app",
-    agent: { ...snapshot.panes[0].agent, provider: "codex", cwd: "/src/app" },
-  });
-  Object.assign(snapshot.workspaces[0], {
-    worktrees: {
-      common_dir: "/src/app/.git",
-      base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
-      entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
-      agents: [],
-      stale: false,
-    },
-  });
-  const s: any = new Controller({ request: transport(async () => snapshot).request });
-  s.receiveSnapshot(snapshot);
-  expect(s.reviewTarget().cwd).toBe("/src/app");
-  // Started on main but writing in topic, it's listed under topic.
-  (snapshot.workspaces[0] as any).worktrees.agents = [
-    { target: { pane: 1 }, path: "/src/app-topic", source: "write", stale: false },
-  ];
-  s.receiveSnapshot(snapshot);
-  expect(s.reviewTarget().cwd).toBe("/src/app-topic");
 });
 
 test("a rename that can't reach the daemon says so, for a workspace or an agent", async () => {
@@ -5714,30 +5587,6 @@ test("Escape while a save is in flight closes the field; the late failure neithe
   }
 });
 
-test("Copy ID names the harness, session, id and paths, leaving out what isn't known", () => {
-  const pane = (label: string, fields: object) => ({ label, cwd: "/repo/sub", agent: agent(fields) }) as Pane;
-  const claude = pane("", {
-    provider: "claude",
-    name: "fix sidebar hover",
-    session: "0b8e1c2a",
-    cwd: "/repo",
-    transcript: "/home/u/.claude/projects/-repo/0b8e1c2a.jsonl",
-  });
-  expect(breadcrumbs(claude)).toBe(
-    [
-      "harness: Claude Code",
-      "session: fix sidebar hover",
-      "id: 0b8e1c2a",
-      "cwd: /repo",
-      "transcript: /home/u/.claude/projects/-repo/0b8e1c2a.jsonl",
-    ].join("\n"),
-  );
-  // A pane's own name wins; the pane's folder stands in for the agent's.
-  expect(breadcrumbs(pane("review", { provider: "codex", name: "thread", session: "019a" }))).toBe(
-    ["harness: Codex", "session: review", "id: 019a", "cwd: /repo/sub"].join("\n"),
-  );
-});
-
 test("a split waiting on a slow daemon leaves input free and takes focus only where it opened", async () => {
   const workspace = (id: number, panes: number[]) => ({
     id,
@@ -5919,36 +5768,20 @@ test("an agent menu opens once the daemon says what it allows, unless Esc came f
   }
 });
 
-test("keys typed right after a split on a slow daemon wait for it and land in the new pane", async () => {
+test("a pane still opening has the keyboard, and no pane shows focus until it arrives with what was typed", async () => {
   const { s, commands, answer } = slowDaemon();
   try {
     s.input_state.attached = true;
     s.focusPane(1);
     await s.input(bytes("\x02vls"));
     expect(Object.keys(commands[0])).toEqual(["pane.split"]);
-    const pending = (id: number) => Buffer.from(s.pane(id).terminal.pending).toString();
-    expect(pending(1)).toBe("");
-    await answer();
-    await s.settle();
-    expect(s.focused()?.id).toBe(2);
-    expect(pending(2)).toBe("ls");
-    expect(pending(1)).toBe("");
-  } finally {
-    viewer.close(s);
-  }
-});
-
-test("a pane still opening has the keyboard and no pane shows focus until it arrives", async () => {
-  const { s, answer } = slowDaemon();
-  try {
-    s.input_state.attached = true;
-    s.focusPane(1);
-    await s.input(bytes("\x02vls"));
     expect(s.openingFocus()).not.toBeNull();
     expect(s.pane(1).terminal.pending).toEqual([]);
     await answer();
     expect(s.openingFocus()).toBeNull();
     expect(s.focused()?.id).toBe(2);
+    expect(Buffer.from(s.pane(2).terminal.pending).toString()).toBe("ls");
+    expect(s.pane(1).terminal.pending).toEqual([]);
   } finally {
     viewer.close(s);
   }

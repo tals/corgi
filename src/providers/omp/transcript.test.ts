@@ -175,10 +175,7 @@ test("OMP persisted native intent replaces inference without falling back to ass
       id: "native",
       message: {
         role: "assistant",
-        content: [
-          { type: "toolCall", id: "earlier", arguments: { i: "Earlier intent" } },
-          { type: "toolCall", id: "latest", intent: "Inspecting persisted native intent.", arguments: {} },
-        ],
+        content: [{ type: "toolCall", id: "latest", intent: "Inspecting persisted native intent", arguments: {} }],
       },
     },
     true,
@@ -258,7 +255,7 @@ test("OMP old completed messages and delayed tool-start persistence cannot clobb
       data: {
         toolCallId: "next",
         toolName: "write",
-        intent: "Writing current child output...",
+        intent: "Writing current child output",
         startedAt: "1970-01-01T00:00:03.000Z",
       },
     },
@@ -275,30 +272,13 @@ test("OMP old completed messages and delayed tool-start persistence cannot clobb
   expect(req.agent.state).toBe("idle");
 });
 
-test("OMP missing or invalid native intents never replace runner labels with prose", () => {
+test("OMP native intents without a timestamp never replace runner labels", () => {
   const tail = new Tail(),
     req = request(),
     reader = transcript.reader(() => []);
   reader.open(tail, req, null, false);
   req.agent.state = "working";
   req.agent.setActivity("Runner label");
-  reader.record(
-    tail,
-    req,
-    {
-      type: "message",
-      id: "no-intent",
-      message: {
-        role: "assistant",
-        content: [
-          { type: "text", text: "Do not infer from this." },
-          { type: "toolCall", id: "invalid", arguments: { i: 123 } },
-        ],
-      },
-    },
-    true,
-    1000,
-  );
   reader.record(
     tail,
     req,

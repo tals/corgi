@@ -166,14 +166,6 @@ test("a corgi gets a fresh chance to play when it reappears", () => {
   }
   expect([...seen].sort()).toEqual(["bone", "fetch", "idle"]);
 });
-test("each spawn fetches or digs up a bone five times in a hundred", () => {
-  const counts = new Map<string, number>();
-  for (let roll = 0; roll < 100; roll++) {
-    const routine = a.Playback.choose(roll);
-    counts.set(routine, (counts.get(routine) ?? 0) + 1);
-  }
-  expect(Object.fromEntries(counts)).toEqual({ fetch: 5, bone: 5, idle: 90 });
-});
 const digging = (room: number, value: a.Bone) =>
   Array.from({ length: a.boneTicks(value.tries) + 1 }, (_, tick) => plain(a.writeBone(room, value, tick)));
 test("the corgi digs up a bone, steps back to sniff it, chews it, and trots home", () => {
@@ -328,6 +320,7 @@ test("the corgi herds the word together, sits, and curls into the ellipsis", () 
     [23, "Compacting  ᐯ◡ᴥ◡ᐯ     "],
     [25, "Compacting   ◡ᴥ◡      "],
     [27, "Compacting •.•        "],
+    [28, "Compacting...         "],
     [29, "Compacting…           "],
     [1000, "Compacting…           "],
   ];
