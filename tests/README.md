@@ -18,6 +18,12 @@ one slice. `--retry` reruns failed files once more, alone in fresh processes,
 and reports recovered suites as flaky. The subprocess watchdog still checks
 for leaked daemons before the run succeeds.
 
+The suites that never start corgi-test (the harness's own, the release
+script's and the sleep budget) run apart, without a build:
+`bun integration.ts --standalone`. CI runs them beside the unit tests, and the
+integration shards leave them out. List a new suite in `standalones` in
+`run.ts` if it needs no binary.
+
 Local durations live in `.zig-cache/integration-timings/local.json`, in Bun's
 `--timings` format (milliseconds). CI restores the previous run's per-platform
 timings once in the build job and ships that same baseline to every shard.

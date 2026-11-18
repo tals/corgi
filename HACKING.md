@@ -199,6 +199,7 @@ bun typecheck.ts             # types and formatting
 bun format.ts                # format TypeScript
 bun build.ts --test          # dist/corgi-test
 bun integration.ts           # process, socket and PTY suites
+bun integration.ts --standalone  # suites that need no build
 ```
 
 Use `bun build.ts` when native code changes. Iterate with a focused unit test or

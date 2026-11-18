@@ -13,7 +13,8 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
 - **Format:** `bun format.ts` runs the pinned Prettier (Bun's own settings,
   `.prettierrc`) over the TypeScript; `--check` only lists files.
 - **Integration tests:** `bun build.ts --test`, then
-  `bun integration.ts` (or name suites). See `tests/README.md`.
+  `bun integration.ts` (or name suites). See `tests/README.md`. The
+  harness's own suites need no build: `bun integration.ts --standalone`.
   Parallel runs are flaky under load; rerun a failing suite with `--jobs 1`
   before investigating.
 - **Run it:** `./go.ts` (`--temp`, `--env NAME`, `--reload`; see README).

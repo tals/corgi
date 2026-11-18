@@ -15,11 +15,12 @@ let list = false,
   external = false,
   dev = false,
   retry = false,
+  standalone = false,
   shard: [number, number] | null = null,
   jobs = Math.max(1, Math.min(2, Math.floor(availableParallelism() / 4)));
 function usage(): never {
   console.log(
-    "Usage: bun run tests/run.ts [suite ...] [--list|--check] [--jobs N] [--shard K/N] [--retry] [--external] [--dev] [--corgi PATH] [--herdr PATH] [-- bun-test-options]\nWithout suite names, runs normal suites with Bun file isolation (--jobs N workers); --list lists eligible suites before sharding; --shard K/N delegates partitioning to Bun; --retry runs each failed suite once more, alone. Herdr handoff, real-Codex and developer-launch suites are opt-in.",
+    "Usage: bun run tests/run.ts [suite ...] [--list|--check] [--jobs N] [--shard K/N] [--retry] [--external] [--dev] [--standalone] [--corgi PATH] [--herdr PATH] [-- bun-test-options]\nWithout suite names, runs normal suites with Bun file isolation (--jobs N workers); --list lists eligible suites before sharding; --shard K/N delegates partitioning to Bun; --retry runs each failed suite once more, alone. Herdr handoff, real-Codex and developer-launch suites are opt-in. --standalone runs the suites that need no build instead.",
   );
   process.exit(0);
 }
@@ -35,6 +36,7 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === "--external") external = true;
   else if (arg === "--dev") dev = true;
   else if (arg === "--retry") retry = true;
+  else if (arg === "--standalone") standalone = true;
   else if (arg === "--jobs" || arg === "-j") {
     jobs = Number(args[++i]);
     if (!Number.isInteger(jobs) || jobs < 1) throw new Error(`${arg} requires a positive integer`);
@@ -51,12 +53,21 @@ for (let i = 0; i < args.length; i++) {
 }
 /** Suites that run other people's programs: Herdr, and Codex on a fake model. */
 const externals = ["herdr_handoff.test.ts", "codex_overload.test.ts"];
+/** Suites that never start corgi-test, so need no build. CI runs them with the unit tests. */
+const standalones = ["process_scope", "progress", "provider_sim", "release", "sleep_budget", "support"].map(
+  name => name + ".test.ts",
+);
 const available = readdirSync(import.meta.dir)
   .filter(file => file.endsWith(".test.ts"))
   .sort();
 const suites = selected.length
   ? available.filter(file => selected.includes(file.slice(0, -8)))
-  : available.filter(file => (external || !externals.includes(file)) && (dev || file !== "dev.test.ts"));
+  : standalone
+    ? standalones
+    : available.filter(
+        file =>
+          !standalones.includes(file) && (external || !externals.includes(file)) && (dev || file !== "dev.test.ts"),
+      );
 for (const name of selected) if (!available.includes(name + ".test.ts")) throw new Error(`Unknown suite: ${name}`);
 if (list) {
   console.log(suites.join("\n"));
