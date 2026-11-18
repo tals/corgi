@@ -1337,12 +1337,14 @@ test("uninstall refuses while Corgi runs from the install", async () => {
   await symlink(home, alias, "dir");
   const running = join(await realpath(root), "releases/1.2.3/corgi");
   await rm(running);
-  await symlink("/bin/sleep", running);
-  const p = Bun.spawn([running, "30"]);
+  // Wait in the aliased executable; multicall sleep rejects being invoked as corgi.
+  await symlink("/bin/sh", running);
+  const p = Bun.spawn([running, "-c", "read -r line"], { stdin: "pipe" });
   // A group of its own, so the sleep it starts goes with it.
   const pane = Bun.spawn(["/bin/sh", "-c", `sleep 30; : ${running}`], { detached: true });
   try {
     await Bun.sleep(100);
+    expect(p.exitCode).toBeNull();
     const result = uninstall(alias);
     expect(result.code).toBe(1);
     expect(result.err).toContain(`Corgi is running from ~/.local/share/corgi (PIDs ${p.pid}).`);
@@ -1354,6 +1356,7 @@ test("uninstall refuses while Corgi runs from the install", async () => {
     expect(await Bun.file(join(root, "current")).exists()).toBe(false);
   } finally {
     p.kill();
+    await p.exited;
     process.kill(-pane.pid);
     await rm(home, { recursive: true, force: true });
   }
