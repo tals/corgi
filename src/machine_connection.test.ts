@@ -1,3 +1,4 @@
+import { Parser, type Input } from "./terminal_input";
 import { sshEndpoint } from "./ssh_path";
 import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -11,10 +12,11 @@ import { Probe } from "./terminal_info";
 import { Host } from "./host";
 import * as protocol from "./protocol";
 import * as machine_path from "./machine_path";
+import { transport } from "./fixtures/transport";
 
 /** A daemon that keeps links, and drops the connection the first time it gets
  * a command, after running it, the way a network fails between the two. */
-async function flakyDaemon(remote = false) {
+async function flakyDaemon(remote = false, resumed = false) {
   const dir = mkdtempSync(join(tmpdir(), "corgi-link-"));
   const path = join(dir, "control.sock");
   const seen: { op: string; seq?: number }[] = [];
@@ -64,7 +66,7 @@ async function flakyDaemon(remote = false) {
           break;
         case "link.resume":
           reply(
-            request.link === `link-${instance}` ? { ok: true, link: request.link, viewer: false } : { err: "NoLink" },
+            request.link === `link-${instance}` ? { ok: true, link: request.link, viewer: resumed } : { err: "NoLink" },
           );
           break;
         case "session.command":
@@ -146,7 +148,7 @@ test("input arriving during an endpoint task runs immediately after completion",
     endpoint.ready = endpoint.fresh = true;
     endpoint.pump(true);
     endpoint.status = "online";
-    endpoint.enqueue(Uint8Array.of(120));
+    enqueue(endpoint, Uint8Array.of(120));
     endpoint.pump(true);
     expect(step).toHaveBeenCalledTimes(1);
     finish();
@@ -189,6 +191,62 @@ test("a machine keeps its data across reconnects to its daemon but not the daemo
     await daemon.close();
   }
 });
+
+test("resetting a viewer cancels a suspended paste and its later queued Enter", async () => {
+  for (const [connected, resumed] of [
+    [false, false],
+    [true, false],
+    [true, true],
+  ]) {
+    const daemon = await flakyDaemon(false, resumed),
+      endpoint = daemon.endpoint;
+    if (connected) await daemon.connect();
+    const view = Reflect.get(endpoint, "view").call(endpoint) as NonNullable<Endpoint["controller"]>,
+      seen: string[] = [];
+    let finish!: () => void;
+    const event = spyOn(view as any, "inputEvent").mockImplementation(async (input: Input) => {
+      seen.push(input.kind);
+      if (seen.length === 1) await new Promise<void>(resolve => (finish = resolve));
+    });
+    try {
+      endpoint.machine.viewer_id = connected ? 1 : 0;
+      view.input_state.attached = true;
+      Reflect.set(endpoint, "settled", true);
+      enqueue(endpoint, Buffer.from("\x02\x1b[200~hello\x1b[201~"));
+      Reflect.get(endpoint, "pumpUi").call(endpoint);
+      expect(seen).toEqual(["text"]);
+      enqueue(endpoint, Buffer.from("\r"));
+      const epoch = endpoint.input_epoch;
+      if (connected) daemon.disconnect();
+      await daemon.connect();
+      expect(Buffer.from(queued(endpoint)).toString()).toBe(resumed ? "\r" : "");
+      expect(endpoint.input_epoch === epoch).toBe(resumed);
+      finish();
+      await Reflect.get(endpoint, "ui_task");
+      expect(seen).toEqual(resumed ? ["text", "paste_start", "paste", "paste_end"] : ["text"]);
+    } finally {
+      finish?.();
+      await daemon.close();
+      event.mockRestore();
+    }
+  }
+});
+
+test.each(["", "first", "older"])(
+  "initial connection retains a paste before the first frame with cached instance '%s'",
+  async instance => {
+    const daemon = await flakyDaemon(),
+      paste = "\x1b[200~hello\x1b[201~\r";
+    try {
+      daemon.endpoint.instance = instance;
+      enqueue(daemon.endpoint, Buffer.from(paste));
+      await daemon.connect();
+      expect(Buffer.from(queued(daemon.endpoint)).toString()).toBe(paste);
+    } finally {
+      await daemon.close();
+    }
+  },
+);
 
 test("a command whose reply a dropped connection lost is sent again with its number and answered once", async () => {
   const daemon = await flakyDaemon();
@@ -371,7 +429,7 @@ test("typing into an SSH machine that's backing off waits for its next dial", as
     endpoint.status = "offline";
     const next = performance.now() + 8000;
     Reflect.set(endpoint, "next", next);
-    endpoint.enqueue(Uint8Array.of(120));
+    enqueue(endpoint, Uint8Array.of(120));
     expect(Reflect.get(endpoint, "next")).toBe(next);
   } finally {
     await endpoint.close();
@@ -713,27 +771,25 @@ test("a spare that takes over brings its own data connection, already dialed", a
   }
 });
 
-const typedBytes = (typed: { bytes: number[] }[]) => typed.flatMap(t => t.bytes);
-
 test("planned reconnect bounds input already queued and releases a full hold without spreading arguments", async () => {
   for (const bytes of [64 * 1024, 256 * 1024]) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
     try {
-      endpoint.enqueue(new Uint8Array(bytes).fill(120));
+      enqueue(endpoint, new Uint8Array(bytes).fill(120));
       Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
       const held = Reflect.get(endpoint, "handoff");
-      expect(typedBytes(held.input).length).toBe(bytes === 64 * 1024 ? bytes : 0);
-      expect(Reflect.get(endpoint, "input")).toEqual([]);
+      expect(held.input.bytes).toBe(bytes === 64 * 1024 ? bytes : 0);
+      expect(queued(endpoint)).toEqual([]);
       if (bytes > 64 * 1024) {
         expect(endpoint.error).toBe("Input queue full; unsent input discarded");
-        endpoint.enqueue(Uint8Array.of(121));
+        enqueue(endpoint, Uint8Array.of(121));
       }
       endpoint.generation++;
       endpoint.ready = true;
       Reflect.set(endpoint, "resumed", true);
       Reflect.get(endpoint, "pumpUi").call(endpoint);
       expect(Reflect.get(endpoint, "handoff")).toBeNull();
-      expect(typedBytes(Reflect.get(endpoint, "input"))).toEqual(bytes === 64 * 1024 ? Array(bytes).fill(120) : [121]);
+      expect(queued(endpoint)).toEqual(bytes === 64 * 1024 ? Array(bytes).fill(120) : [121]);
     } finally {
       await endpoint.close();
     }
@@ -746,7 +802,7 @@ test("typing into an idle viewer goes at once, not at the idle step's pace", asy
     const view = Reflect.get(endpoint, "view").call(endpoint);
     view.input_state.attached = true;
     Reflect.set(endpoint, "settled", true);
-    endpoint.enqueue(Uint8Array.of(120));
+    enqueue(endpoint, Uint8Array.of(120));
     // An idle step ran meanwhile and put the next one half a second off.
     Reflect.set(endpoint, "next", performance.now() + 500);
     Reflect.get(endpoint, "pumpUi").call(endpoint);
@@ -765,13 +821,13 @@ test("keys keep whether they came while dropping, through a reload, and the view
     Reflect.set(endpoint, "settled", true);
     const routed: [string, boolean][] = [],
       expired: boolean[] = [];
-    view.input = async (data: Uint8Array, _current: () => boolean, dropped: boolean) =>
-      void routed.push([Buffer.from(data).toString(), dropped]);
+    view.input = async (data: readonly Input[], _current: () => boolean, dropped: boolean) =>
+      void routed.push([Buffer.concat(data.map(input => input.bytes)).toString(), dropped]);
     view.expireInput = async (_current: () => boolean, dropped: boolean) => void expired.push(dropped);
-    endpoint.enqueue(Buffer.from("a"));
+    enqueue(endpoint, Buffer.from("a"));
     Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
-    endpoint.enqueue(Buffer.from("b"), true);
-    endpoint.enqueue(Buffer.from("c"), true);
+    enqueue(endpoint, Buffer.from("b"), true);
+    enqueue(endpoint, Buffer.from("c"), true);
     endpoint.generation++;
     endpoint.ready = true;
     Reflect.set(endpoint, "resumed", true);
@@ -796,15 +852,15 @@ test("switching machines while routing reload input discards later batches", asy
     Reflect.set(endpoint, "settled", true);
     const routed: [string, boolean][] = [],
       expired: boolean[] = [];
-    view.input = async (data: Uint8Array, _current: () => boolean, dropped: boolean) => {
-      routed.push([Buffer.from(data).toString(), dropped]);
+    view.input = async (data: readonly Input[], _current: () => boolean, dropped: boolean) => {
+      routed.push([Buffer.concat(data.map(input => input.bytes)).toString(), dropped]);
       endpoint.deactivate();
     };
     view.expireInput = async (_current: () => boolean, dropped: boolean) => void expired.push(dropped);
-    endpoint.enqueue(Buffer.from("switch"));
+    enqueue(endpoint, Buffer.from("switch"));
     Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
-    endpoint.enqueue(Buffer.from("dropped"), true);
-    endpoint.enqueue(Buffer.from("later"));
+    enqueue(endpoint, Buffer.from("dropped"), true);
+    enqueue(endpoint, Buffer.from("later"));
     endpoint.generation++;
     endpoint.ready = true;
     Reflect.set(endpoint, "resumed", true);
@@ -812,9 +868,127 @@ test("switching machines while routing reload input discards later batches", asy
     await Reflect.get(endpoint, "ui_task");
     expect(routed).toEqual([["switch", false]]);
     expect(expired).toEqual([]);
-    expect(Reflect.get(endpoint, "input")).toEqual([]);
+    expect(queued(endpoint)).toEqual([]);
   } finally {
     await endpoint.close();
+  }
+});
+
+test("leaving an endpoint drops a cancelled paste and the queued keys following it", async () => {
+  for (const change of ["switch", "deactivate"]) {
+    for (const active_paste of [false, true]) {
+      const endpoint = localEndpoint("/tmp/corgi-paste-owner/control.sock", new Probe(), new Host());
+      try {
+        const view = Reflect.get(endpoint, "view").call(endpoint),
+          parser = new Parser();
+        if (active_paste) view.input_state.paste = "discard";
+        for (const input of parser.feed(Buffer.from(active_paste ? "\r" : "echo \x1b[200~hello\x1b[201~\r")))
+          endpoint.enqueue(input);
+        let retained: number[];
+        if (change === "switch") retained = Array.from(Buffer.concat(endpoint.takeInput().map(input => input.bytes)));
+        else {
+          endpoint.deactivate();
+          retained = queued(endpoint);
+        }
+        expect(Buffer.from(retained).toString()).toBe(active_paste ? "" : "echo ");
+      } finally {
+        await endpoint.close();
+      }
+    }
+  }
+});
+
+test("cancelling a suspended batch drops typing queued after its unprocessed paste", async () => {
+  for (const change of ["switch", "deactivate"]) {
+    const endpoint = localEndpoint("/tmp/corgi-paste-batch/control.sock", new Probe(), new Host()),
+      view = Reflect.get(endpoint, "view").call(endpoint);
+    let finish!: () => void;
+    const event = spyOn(view, "inputEvent").mockImplementationOnce(
+      () => new Promise<void>(resolve => (finish = resolve)),
+    );
+    try {
+      view.input_state.attached = true;
+      Reflect.set(endpoint, "settled", true);
+      enqueue(endpoint, Buffer.from("\x02\x1b[200~hello\x1b[201~"));
+      Reflect.get(endpoint, "pumpUi").call(endpoint);
+      expect(event).toHaveBeenCalledTimes(1);
+      expect(view.input_state.paste).toBeNull();
+      enqueue(endpoint, Buffer.from("\r"));
+      if (change === "switch") expect(endpoint.takeInput()).toEqual([]);
+      endpoint.deactivate();
+      expect(queued(endpoint)).toEqual([]);
+      finish();
+      await Reflect.get(endpoint, "ui_task");
+      expect(event).toHaveBeenCalledTimes(1);
+      enqueue(endpoint, Buffer.from("later"));
+      expect(Buffer.concat(endpoint.takeInput().map(input => input.bytes)).toString()).toBe("later");
+    } finally {
+      finish?.();
+      await endpoint.close();
+      event.mockRestore();
+    }
+  }
+});
+
+test("a completed paste does not discard typing while unrelated UI work waits", async () => {
+  for (const change of ["switch", "deactivate"]) {
+    const endpoint = localEndpoint("/tmp/corgi-paste-complete/control.sock", new Probe(), new Host()),
+      view = Reflect.get(endpoint, "view").call(endpoint);
+    let ready!: () => void, finish!: () => void;
+    const waiting = new Promise<void>(resolve => (ready = resolve)),
+      expire = spyOn(view, "expireInput").mockImplementation(() => {
+        ready();
+        return new Promise<void>(resolve => (finish = resolve));
+      });
+    try {
+      view.input_state.attached = true;
+      Reflect.set(endpoint, "settled", true);
+      enqueue(endpoint, Buffer.from("\x1b[200~hello\x1b[201~"));
+      Reflect.get(endpoint, "pumpUi").call(endpoint);
+      await waiting;
+      expect(view.input_state.paste).toBeNull();
+      enqueue(endpoint, Buffer.from("later\r"));
+      if (change === "switch")
+        expect(Buffer.concat(endpoint.takeInput().map(input => input.bytes)).toString()).toBe("later\r");
+      else {
+        endpoint.deactivate();
+        expect(Buffer.from(queued(endpoint)).toString()).toBe("later\r");
+      }
+    } finally {
+      finish?.();
+      await endpoint.close();
+      expire.mockRestore();
+    }
+  }
+});
+
+test("queue overflow closes a paste whose start already reached the child", async () => {
+  for (const overflow of ["normal", "held", "holding"] as const) {
+    const endpoint = localEndpoint("/tmp/corgi-paste-overflow/control.sock", new Probe(), new Host());
+    try {
+      const view = Reflect.get(endpoint, "view").call(endpoint);
+      endpoint.machine.runtime.receive(
+        transport(async () => ({ ok: true })),
+        {
+          panes: [{ id: 1, cols: 80, rows: 24 }],
+        },
+      );
+      const terminal = endpoint.machine.runtime.pane(1)!.terminal;
+      terminal.inner.feed("\x1b[?2004h");
+      view.input_state.paste = { pane: 1 };
+      expect(terminal.pasteStart()).toBe(true);
+      terminal.send("\x1b[200~first");
+      await terminal.flush();
+      terminal.send("unsent");
+      if (overflow === "held") Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
+      endpoint.enqueue({ kind: "text", bytes: new Uint8Array(overflow === "normal" ? 1024 * 1024 + 1 : 128 * 1024) });
+      if (overflow === "holding") Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
+      expect(endpoint.error).toBe("Input queue full; unsent input discarded");
+      expect(Buffer.from(terminal.pending).toString()).toBe("\x1b[201~");
+      expect(view.input_state.paste).toBeNull();
+    } finally {
+      await endpoint.close();
+    }
   }
 });
 
@@ -822,12 +996,12 @@ test("keys held through a reload still go after a retry or a pause", async () =>
   for (const action of ["retry", "pause"] as const) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
     try {
-      endpoint.enqueue(Uint8Array.of(97));
+      enqueue(endpoint, Uint8Array.of(97));
       Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
-      endpoint.enqueue(Uint8Array.of(98));
+      enqueue(endpoint, Uint8Array.of(98));
       endpoint[action]();
       expect(Reflect.get(endpoint, "handoff")).toBeNull();
-      expect(typedBytes(Reflect.get(endpoint, "input"))).toEqual([97, 98]);
+      expect(queued(endpoint)).toEqual([97, 98]);
     } finally {
       await endpoint.close();
     }
@@ -838,7 +1012,7 @@ test("planned reconnect input is discarded when selection changes or the hold ex
   for (const change of ["selection", "deadline"] as const) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
     try {
-      endpoint.enqueue(Uint8Array.of(120));
+      enqueue(endpoint, Uint8Array.of(120));
       Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
       if (change === "selection") endpoint.deactivate();
       else Reflect.get(endpoint, "handoff").until = 0;
@@ -847,9 +1021,17 @@ test("planned reconnect input is discarded when selection changes or the hold ex
       Reflect.set(endpoint, "resumed", true);
       Reflect.get(endpoint, "pumpUi").call(endpoint);
       expect(Reflect.get(endpoint, "handoff")).toBeNull();
-      expect(Reflect.get(endpoint, "input")).toEqual([]);
+      expect(queued(endpoint)).toEqual([]);
     } finally {
       await endpoint.close();
     }
   }
 });
+
+function enqueue(endpoint: Endpoint, bytes: Uint8Array, dropped = false): void {
+  for (const input of new Parser().feed(bytes)) endpoint.enqueue(input, dropped);
+}
+function queued(endpoint: Endpoint): number[] {
+  const events: Input[] = Reflect.get(Reflect.get(endpoint, "input"), "events");
+  return Array.from(Buffer.concat(events.map(input => input.bytes)));
+}

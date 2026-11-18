@@ -1,5 +1,6 @@
 //! Live information and replies from the terminal running Corgi.
 import { Theme } from "./theme";
+import type { Input } from "./terminal_input";
 import * as corgi_badge from "./corgi_badge";
 import * as host_clipboard from "./host_clipboard";
 import * as frame_pacing from "./frame_pacing";
@@ -28,10 +29,9 @@ const modes = [2026, 2027, 1004, 1006, 2004, 2031] as const;
 const caps = ["kitty-query-font_family", "kitty-query-font_size", "Smulx"] as const;
 /** How long a query waits for the device attributes. */
 const wait_ms = 5000;
-/** How long answers that come after it gave up are still taken, and dropped,
- * so a slow link's late replies don't reach a pane as typed input. */
+/** Cursor-position replies share a keyboard encoding, so their late window is bounded. */
 const late_ms = 10_000;
-/** Reply shapes still drained after a query times out. */
+/** Unambiguous measurement replies remain replies after a query ends. */
 const answer_shapes = [
   /^\x1b\[\?[\d;]*c$/,
   /^\x1b\[>[\d;]*c$/,
@@ -44,14 +44,9 @@ const answer_shapes = [
 const hex = (text: string) => Buffer.from(text).toString("hex");
 const unhex = (text: string) => (/^([0-9a-f]{2})*$/i.test(text) ? Buffer.from(text, "hex").toString() : "");
 
-const clipboard_prefix = "\x1b]5522;",
-  mode_prefix = "\x1b[?5522;",
+const clipboard_prefix = host_clipboard.packet_prefix,
   version_prefix = "\x1bP>|",
-  /** Mode 2031's report that the terminal switched between light and dark. */
-  scheme_prefix = "\x1b[?997;",
   max_packet = 16 * 1024;
-const paste_start = "\x1b[200~",
-  paste_end = "\x1b[201~";
 /** A sample and the number of columns the terminal used to draw it. */
 export interface Width {
   kind: string;
@@ -115,7 +110,7 @@ export interface Snapshot {
   info: Info;
 }
 
-/** Byte strings preserve UTF-8 across arbitrary read boundaries. */
+/** Live terminal state, updated only by complete input events. */
 export class Probe {
   theme = new Theme();
   badge = new corgi_badge.State();
@@ -132,163 +127,54 @@ export class Probe {
   changed = false;
   /** The terminal reported a new color scheme; its colors need asking again. */
   scheme_changed = false;
-  paste = false;
-  pending = "";
-  touched = 0;
-  packet = "";
-  in_packet = false;
-  packet_escape = false;
-  feed(bytes: Uint8Array | string, now = Date.now()): Buffer {
-    const input = typeof bytes === "string" ? Buffer.from(bytes) : Buffer.from(bytes),
-      out: number[] = [];
-    for (const byte of input) {
-      if (this.in_packet) {
-        this.touched = now;
-        if (this.packet_escape) {
-          this.packet_escape = false;
-          if (byte === 92) {
-            this.finishPacket(now);
-            continue;
-          }
-          this.in_packet = false;
-          this.pending = "\x1b";
-        } else {
-          if (byte === 7) this.finishPacket(now);
-          else if (byte === 27) this.packet_escape = true;
-          else if (this.packet.length <= max_packet) this.packet += String.fromCharCode(byte);
-          continue;
-        }
-      }
-      this.scan(byte, out, now);
+  /** Consume a host reply; all other events retain their original framing. */
+  accept(input: Input, now = Date.now()): boolean {
+    if (input.kind !== "sequence") return false;
+    const sequence = Buffer.from(input.bytes).toString("latin1");
+    if (sequence.startsWith(corgi_badge.reply_prefix) && sequence.endsWith("\x1b\\")) {
+      if (!this.badge.accept(sequence) && this.graphics.length < 128) this.graphics.push(sequence);
+      return true;
     }
-    return Buffer.from(out);
+    if (sequence.startsWith(clipboard_prefix)) {
+      const length = sequence.endsWith("\x1b\\") ? 2 : sequence.endsWith("\x07") ? 1 : 0;
+      const packet = sequence.slice(clipboard_prefix.length, -length);
+      if (length && packet.length <= max_packet) this.clipboard.packet(packet, now);
+      return true;
+    }
+    const mode = /^\x1b\[\?5522;(\d+)\$y$/.exec(sequence);
+    if (mode) {
+      const value = Number(mode[1]);
+      this.clipboard.modeReport(value <= 255 ? value : 0, now);
+      return true;
+    }
+    if (/^\x1b\[\?997;\d+n$/.test(sequence)) {
+      this.scheme_changed = true;
+      return true;
+    }
+    if (sequence.startsWith(version_prefix) && sequence.endsWith("\x1b\\")) {
+      this.clipboard.terminalName(sequence.slice(version_prefix.length, -2));
+      return true;
+    }
+    const sized = this.size.accept(sequence);
+    if (this.acceptInfo(sequence, now) || sized) return true;
+    if (sequence === frame_pacing.answer) {
+      this.pacer.answered(now);
+      return true;
+    }
+    if (sequence.startsWith("\x1b]")) {
+      const length = sequence.endsWith("\x1b\\") ? 2 : sequence.endsWith("\x07") ? 1 : 0;
+      if (length && this.theme.accept(sequence.slice(2, -length))) {
+        this.changed = true;
+        return true;
+      }
+    }
+    return false;
   }
-  private scan(byte: number, out: number[], now: number) {
-    if (this.paste) {
-      // Only the exact terminator has meaning inside a paste.
-      if (!paste_end.startsWith(this.pending + String.fromCharCode(byte))) this.flush(out);
-      if (this.pending || byte === 27) {
-        this.pending += String.fromCharCode(byte);
-        if (this.pending === paste_end) {
-          this.paste = false;
-          this.flush(out);
-        }
-      } else out.push(byte);
-      return;
-    }
-    // A typed Escape must not consume the Escape starting a terminal reply.
-    if (!this.paste && this.pending === "\x1b" && byte === 27) this.flush(out);
-    if (!this.pending && byte !== 27) {
-      out.push(byte);
-      return;
-    }
-    const sequence = (this.pending += String.fromCharCode(byte));
-    this.touched = now;
-    if (sequence === paste_start || sequence === paste_end) {
-      this.paste = sequence === paste_start;
-      this.flush(out);
-      return;
-    }
-    if (paste_start.startsWith(sequence) || paste_end.startsWith(sequence)) return;
-    if (!this.paste) {
-      if (corgi_badge.reply_prefix.startsWith(sequence)) return;
-      if (sequence.startsWith(corgi_badge.reply_prefix)) {
-        if (sequence.endsWith("\x1b\\")) {
-          if (!this.badge.accept(sequence) && this.graphics.length < 128) this.graphics.push(sequence);
-          this.pending = "";
-          return;
-        }
-        if (sequence.length < 128) return;
-      }
-      if (sequence === clipboard_prefix) {
-        this.pending = "";
-        this.in_packet = true;
-        this.packet = "";
-        return;
-      }
-      if (sequence.startsWith(mode_prefix)) {
-        if (byte === 121) {
-          const digits = sequence.slice(mode_prefix.length).split("$", 1)[0],
-            value = /^\d+$/.test(digits) ? Number(digits) : 0;
-          this.clipboard.modeReport(value <= 255 ? value : 0, now);
-          this.pending = "";
-          return;
-        }
-        if (sequence.length < 16) return;
-      }
-      if (sequence.startsWith(scheme_prefix)) {
-        if (byte === 110) {
-          this.scheme_changed = true;
-          this.pending = "";
-          return;
-        }
-        if (sequence.length < 16) return;
-      }
-      if (sequence.startsWith(version_prefix)) {
-        if (sequence.endsWith("\x1b\\")) {
-          this.clipboard.terminalName(sequence.slice(version_prefix.length, -2));
-          this.pending = "";
-          return;
-        }
-        if (sequence.length < 128) return;
-      }
-      const sized = this.size.accept(sequence);
-      if (this.acceptInfo(sequence) || sized) {
-        this.pending = "";
-        return;
-      }
-      if (this.wantsInfo(sequence) || this.size.wants(sequence)) return;
-      if (sequence === frame_pacing.answer) {
-        this.pacer.answered(now);
-        this.pending = "";
-        return;
-      }
-      const prefixes = [
-        "\x1b]10;",
-        "\x1b]11;",
-        "\x1b]4;",
-        clipboard_prefix,
-        mode_prefix,
-        version_prefix,
-        scheme_prefix,
-        frame_pacing.answer,
-        "\x1b[4;",
-        "\x1b[6;",
-      ];
-      if (prefixes.some(prefix => prefix.startsWith(sequence))) return;
-      if (prefixes.slice(0, 3).some(prefix => sequence.startsWith(prefix))) {
-        const terminator = byte === 7 ? 1 : sequence.endsWith("\x1b\\") ? 2 : 0;
-        if (terminator) {
-          if (this.theme.accept(sequence.slice(2, -terminator))) {
-            this.changed = true;
-            this.pending = "";
-            return;
-          }
-        } else if (sequence.length < 128) return;
-      }
-    }
-    this.flush(out);
-  }
-  private finishPacket(now: number) {
-    this.in_packet = false;
-    if (this.packet.length <= max_packet) this.clipboard.packet(this.packet, now);
-  }
-  private flush(out: number[]) {
-    for (let i = 0; i < this.pending.length; i++) out.push(this.pending.charCodeAt(i));
-    this.pending = "";
-  }
-  expire(now = Date.now()): Buffer {
-    const out: number[] = [];
+  tick(now = Date.now()): void {
     if (this.info.status === "pending" && now >= this.deadline) {
       this.info.status = "done";
       this.late_until = now + late_ms;
     }
-    if (!this.paste && this.pending && now - this.touched >= 100) this.flush(out);
-    if (this.in_packet && now - this.touched >= 10_000) {
-      this.in_packet = false;
-      this.packet_escape = false;
-    }
-    return Buffer.from(out);
   }
 
   /** Ask for terminal capabilities and each sample's width, finishing with DA1. */
@@ -311,13 +197,8 @@ export class Probe {
       "\x1b[c"
     );
   }
-  private wantsInfo(sequence: string): boolean {
-    if (this.info.status !== "pending" && Date.now() >= this.late_until) return false;
-    if (sequence.startsWith("\x1bP")) return !sequence.endsWith("\x1b\\") && sequence.length < 512;
-    return sequence.startsWith("\x1b[") && sequence.length < 64 && !/[@-~]$/.test(sequence.slice(2));
-  }
-  private acceptInfo(sequence: string): boolean {
-    if (this.info.status !== "pending") return Date.now() < this.late_until && this.dropLateInfo(sequence);
+  private acceptInfo(sequence: string, now: number): boolean {
+    if (this.info.status !== "pending") return this.dropLateInfo(sequence, now);
     const a = this.info;
     let m: RegExpExecArray | null;
     if ((m = /^\x1b\[\?([\d;]*)c$/.exec(sequence))) {
@@ -343,9 +224,9 @@ export class Probe {
     return true;
   }
   /** Drain late replies without recording them or treating them as typed input. */
-  private dropLateInfo(sequence: string): boolean {
+  private dropLateInfo(sequence: string, now: number): boolean {
     const position = /^\x1b\[(\d+);\d+R$/.exec(sequence);
-    if (position) return this.width_row > 0 && Number(position[1]) === this.width_row;
+    if (position) return now < this.late_until && this.width_row > 0 && Number(position[1]) === this.width_row;
     if (!answer_shapes.some(shape => shape.test(sequence))) return false;
     if (/^\x1b\[\?[\d;]*c$/.test(sequence)) this.late_until = 0;
     return true;
@@ -426,11 +307,6 @@ export class Size {
     return size_query;
   }
 
-  wants(sequence: string): boolean {
-    return this.asked && /^\x1b\[[46];[\d;]*$/.test(sequence) && sequence.length < 64;
-  }
-
-  /** Keep late replies out of pane input and let them enable raster drawing. */
   accept(sequence: string): boolean {
     if (!this.asked) return false;
     const m = /^\x1b\[([46]);(\d+);(\d+)t$/.exec(sequence);

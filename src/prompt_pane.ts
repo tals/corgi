@@ -13,6 +13,7 @@ import * as modelSuggest from "./model_suggest";
 import * as promptModels from "./prompt_models";
 import * as hostClipboard from "./host_clipboard";
 import * as keyboard from "./keyboard";
+import { Parser, type Input } from "./terminal_input";
 import * as launcherResume from "./launcher_resume";
 import * as os from "./os";
 import * as preferences from "./preferences";
@@ -27,87 +28,11 @@ import type { Daemon } from "./prompt_session";
 import { Writer } from "./text";
 import * as viewerNative from "./viewer_native";
 
-/** Terminal input as the card takes it: a byte, an escape sequence, a
- * paste, a mouse report or a clipboard packet (after its `5522;`). */
-export type Token =
-  | { kind: "byte"; byte: number }
-  | { kind: "sequence"; text: string }
-  | { kind: "paste"; text: string }
-  | { kind: "mouse"; button: number; x: number; y: number; release: boolean }
-  | { kind: "clipboard"; text: string };
-
-const paste_start = "\x1b[200~",
-  paste_end = [0x1b, 0x5b, 0x32, 0x30, 0x31, 0x7e],
-  clipboard_prefix = "\x1b]5522;";
-const latin1 = (bytes: number[]) => String.fromCharCode(...bytes);
-/** Splits terminal input; `rest` is an unfinished sequence to wait on. */
-export function tokens(input: ArrayLike<number>): { tokens: Token[]; rest: number[] } {
-  const bytes = Array.from(input),
-    out: Token[] = [];
-  let i = 0;
-  while (i < bytes.length) {
-    if (bytes[i] !== 0x1b) {
-      out.push({ kind: "byte", byte: bytes[i++] });
-      continue;
-    }
-    // A lone Esc waits: it may start a sequence.
-    if (i + 1 >= bytes.length) break;
-    const next = bytes[i + 1];
-    if (next === 0x1b) {
-      out.push({ kind: "byte", byte: bytes[i++] });
-      continue;
-    }
-    const head = latin1(bytes.slice(i, i + clipboard_prefix.length));
-    if (head === clipboard_prefix) {
-      // A clipboard packet ends at ST or BEL.
-      let end = i + head.length;
-      while (end < bytes.length && bytes[end] !== 0x07 && !(bytes[end] === 0x1b && bytes[end + 1] === 0x5c)) end++;
-      if (end >= bytes.length) break;
-      out.push({ kind: "clipboard", text: Buffer.from(bytes.slice(i + head.length, end)).toString("latin1") });
-      i = end + (bytes[end] === 0x07 ? 1 : 2);
-      continue;
-    }
-    if (clipboard_prefix.startsWith(head) && i + head.length >= bytes.length) break;
-    if (next !== 0x5b && next !== 0x4f) {
-      // Alt and a key.
-      out.push({ kind: "sequence", text: latin1([0x1b, next]) });
-      i += 2;
-      continue;
-    }
-    if (latin1(bytes.slice(i, i + 6)) === paste_start) {
-      let end = -1;
-      for (let k = i + 6; k + paste_end.length <= bytes.length && end < 0; k++)
-        if (paste_end.every((b, n) => bytes[k + n] === b)) end = k;
-      if (end < 0) break;
-      out.push({ kind: "paste", text: Buffer.from(bytes.slice(i + 6, end)).toString() });
-      i = end + paste_end.length;
-      continue;
-    }
-    let j = i + 2;
-    while (j < bytes.length && !(bytes[j] >= 0x40 && bytes[j] <= 0x7e)) j++;
-    if (j >= bytes.length) break;
-    const text = latin1(bytes.slice(i, j + 1)),
-      mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(text);
-    out.push(
-      mouse
-        ? { kind: "mouse", button: +mouse[1], x: +mouse[2] - 1, y: +mouse[3] - 1, release: mouse[4] === "m" }
-        : { kind: "sequence", text },
-    );
-    i = j + 1;
-  }
-  return { tokens: out, rest: bytes.slice(i) };
-}
-/** A key in Kitty's encoding as the card reads keys: the sequence Corgi's
- * text boxes take for one legacy encoding loses, as Ctrl+/, else the legacy
- * bytes, as the viewer passes keys to the card. Other tokens stay. */
-export function legacy(token: Token): Token[] {
-  const key = token.kind === "sequence" ? keyboard.decode(token.text) : null;
-  if (!key) return [token];
-  const edit = keyboard.editSequence(key),
-    bytes = Array.from(edit !== null ? Buffer.from(edit, "latin1") : Buffer.from(viewerNative.encodeKey(null, key)));
-  if (bytes.length === 1) return [{ kind: "byte", byte: bytes[0] }];
-  const split = tokens(bytes);
-  return [...split.tokens, ...split.rest.map((byte): Token => ({ kind: "byte", byte }))];
+/** Encode a decoded key for the prompt's text fields. */
+export function legacy(input: Input): Uint8Array {
+  if (input.kind !== "key") return input.bytes;
+  const edit = keyboard.editSequence(input.key);
+  return edit !== null ? Buffer.from(edit, "latin1") : Buffer.from(viewerNative.encodeKey(null, input.key));
 }
 /** A clipboard packet for the card, or null to check on a read. A paste
  * event reads its text, else its image, and the read's end pastes the text
@@ -344,9 +269,9 @@ export async function run(argv: string[]): Promise<void> {
   const models = new Models({ request: (op, ...args) => call(op, args[0] ?? {}) }, prompt, context);
 
   const out = process.stdout;
+  const parser = new Parser();
   let dirty = true,
     title = "",
-    pending: number[] = [],
     esc: ReturnType<typeof setTimeout> | null = null,
     done = false;
   prompt.changed = () => {
@@ -436,57 +361,84 @@ export async function run(argv: string[]): Promise<void> {
         return;
     }
   };
-  const take = async (token: Token) => {
-    switch (token.kind) {
-      case "byte":
-        if (token.byte === 22) return clipboardKey();
-        return apply(prompt.key(token.byte));
-      case "sequence":
-        return apply(prompt.sequence(token.text));
+  const take = async (input: Input) => {
+    switch (input.kind) {
+      case "paste_start":
+        prompt.pasteStart();
+        return;
       case "paste":
-        prompt.paste(token.text);
+        for (const byte of input.bytes) prompt.pasteByte(byte);
+        return;
+      case "paste_end":
+        prompt.pasteEnd();
         dirty = true;
         return;
-      case "clipboard":
-        return pasted(token.text);
-      case "mouse":
-        if ((token.button & 64) !== 0) prompt.scroll((token.button & 1) !== 0, token.x, token.y);
-        else if ((token.button & 32) !== 0) {
-          // A move with the button down drags a selection; others hover.
-          if ((token.button & 3) === 0 ? prompt.drag(token.x, token.y) : prompt.hover(token.x, token.y)) dirty = true;
+      case "mouse": {
+        const { button, x, y, release } = input.mouse;
+        if ((button & 64) !== 0) prompt.scroll((button & 1) !== 0, x, y);
+        else if ((button & 32) !== 0) {
+          if ((button & 3) === 0 ? prompt.drag(x, y) : prompt.hover(x, y)) dirty = true;
           return;
-        } else if ((token.button & 3) === 0)
-          return apply(token.release ? prompt.release() : prompt.click(token.x, token.y));
+        } else if ((button & 3) === 0) return apply(release ? prompt.release() : prompt.click(x, y));
         dirty = true;
         return;
+      }
+      case "sequence": {
+        const text = Buffer.from(input.bytes).toString("latin1");
+        if (text.startsWith(hostClipboard.packet_prefix))
+          return pasted(text.slice(hostClipboard.packet_prefix.length, text.endsWith("\x07") ? -1 : -2));
+        return apply(prompt.sequence(text));
+      }
+      case "key":
+        if (hostClipboard.pasteKey(input.key)) return clipboardKey();
+        break;
+    }
+    const bytes = legacy(input);
+    if (bytes.length > 1 && bytes[0] === 27) return apply(prompt.sequence(Buffer.from(bytes).toString("latin1")));
+    for (const byte of bytes) {
+      if (byte === 22) await clipboardKey();
+      else await apply(prompt.key(byte));
     }
   };
-  const feed = async (chunk: ArrayLike<number>) => {
+  // Frame at arrival; asynchronous actions cannot extend an Escape's deadline.
+  let input = Promise.resolve();
+  let discard_paste = false;
+  const queue = (events: Input[]) => {
+    input = input.then(async () => {
+      for (const event of events) {
+        if (discard_paste) {
+          if (event.kind === "paste_end") discard_paste = false;
+          continue;
+        }
+        try {
+          await take(event);
+        } catch {
+          discard_paste = event.kind === "paste_start" || event.kind === "paste";
+          if (discard_paste) prompt.pasteAbort();
+          else break;
+        }
+      }
+    });
+  };
+  const schedule = () => {
     if (esc) clearTimeout(esc);
     esc = null;
-    const split = tokens([...pending, ...Array.from(chunk)]);
-    pending = split.rest;
-    for (const token of split.tokens) {
-      const key = token.kind === "sequence" ? keyboard.decode(token.text) : null;
-      if (key && hostClipboard.pasteKey(key)) await clipboardKey();
-      else for (const each of legacy(token)) await take(each);
-    }
-    // A lone Esc that nothing follows is the key.
-    if (pending.length === 1 && pending[0] === 0x1b)
-      esc = setTimeout(() => {
-        pending = [];
-        queue(() => take({ kind: "byte", byte: 0x1b }));
-      }, 30);
+    const due = parser.due();
+    if (due !== Infinity)
+      esc = setTimeout(
+        () => {
+          queue(parser.expire());
+          schedule();
+        },
+        Math.max(1, due - performance.now()),
+      );
   };
-  // Input goes in order: keys typed while Ctrl+V reads the clipboard wait for its image.
-  let input = Promise.resolve();
-  const queue = (work: () => Promise<void>) => {
-    input = input.then(work).catch(() => {});
-  };
-
   process.stdin.setRawMode?.(true);
   process.stdin.resume();
-  process.stdin.on("data", (chunk: Buffer) => queue(() => feed(chunk)));
+  process.stdin.on("data", (chunk: Buffer) => {
+    queue(parser.feed(chunk));
+    schedule();
+  });
   out.on("resize", () => {
     out.write("\x1b[2J");
     dirty = true;

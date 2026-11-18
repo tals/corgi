@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { Controller } from "./controller";
+import { Controller } from "./fixtures/input";
 import { transport } from "./fixtures/transport";
 import { Dialog } from "./workspace_archive";
 

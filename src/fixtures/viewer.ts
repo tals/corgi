@@ -1,4 +1,4 @@
-import { Controller } from "../controller";
+import { Controller } from "./input";
 import { transport } from "./transport";
 
 /** An attached `cols` × `rows` viewer whose daemon refuses every request. */

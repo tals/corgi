@@ -1146,6 +1146,9 @@ export class Prompt {
   pasteStart(): void {
     this.pasted = [];
   }
+  pasteAbort(): void {
+    this.pasted = null;
+  }
   pasteEnd(): void {
     const pasted = this.pasted;
     this.pasted = null;

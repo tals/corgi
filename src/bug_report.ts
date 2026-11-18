@@ -380,9 +380,16 @@ export async function here(env: Record<string, string | undefined> = process.env
   const stdin = process.stdin,
     stdout = process.stdout;
   if (!canAsk(env)) return null;
-  const [{ Probe, pty }, corgiBadge] = await Promise.all([import("./terminal_info"), import("./corgi_badge")]),
+  const [{ Probe, pty }, corgiBadge, { Parser }] = await Promise.all([
+      import("./terminal_info"),
+      import("./corgi_badge"),
+      import("./terminal_input"),
+    ]),
+    parser = new Parser(),
     probe = new Probe(),
-    listen = (bytes: Buffer) => void probe.feed(bytes);
+    listen = (bytes: Buffer) => {
+      for (const input of parser.feed(bytes)) probe.accept(input);
+    };
   stdin.setRawMode(true);
   stdin.on("data", listen);
   stdin.resume();
@@ -392,7 +399,8 @@ export async function here(env: Record<string, string | undefined> = process.env
     stdout.write(probe.query() + "\x1b[>0q" + corgiBadge.query + probe.size.update(pty()) + probe.measure(null));
     while (probe.info.status !== "done") {
       await Bun.sleep(10);
-      probe.expire(Date.now());
+      probe.tick();
+      for (const input of parser.expire()) probe.accept(input);
     }
   } finally {
     stdin.off("data", listen);

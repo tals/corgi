@@ -7,77 +7,20 @@ import * as agentLauncher from "./agent_launcher";
 import { byProvider } from "./providers";
 import type { Transport } from "./mirror";
 import { Prompt } from "./prompt";
-import { Models, clipboardPacket, legacy, tokens } from "./prompt_pane";
+import { Models, clipboardPacket, legacy } from "./prompt_pane";
 import { Writer } from "./text";
+import { Parser } from "./terminal_input";
 
 const bytes = (text: string) => Buffer.from(text);
 
-test("input splits into keys, sequences, pastes and mouse reports", () => {
-  expect(tokens(bytes("hé\x1b[A\x1bb\x1b\r")).tokens).toEqual([
-    { kind: "byte", byte: 0x68 },
-    { kind: "byte", byte: 0xc3 },
-    { kind: "byte", byte: 0xa9 },
-    { kind: "sequence", text: "\x1b[A" },
-    { kind: "sequence", text: "\x1bb" },
-    { kind: "sequence", text: "\x1b\r" },
-  ]);
-  expect(tokens(bytes("\x1b[200~line one\r\nlíne two\x1b[201~x")).tokens).toEqual([
-    { kind: "paste", text: "line one\r\nlíne two" },
-    { kind: "byte", byte: 0x78 },
-  ]);
-  expect(tokens(bytes("\x1b[<0;10;5M\x1b[<0;10;5m\x1b[<65;3;4M\x1b[<35;7;8M")).tokens).toEqual([
-    { kind: "mouse", button: 0, x: 9, y: 4, release: false },
-    { kind: "mouse", button: 0, x: 9, y: 4, release: true },
-    { kind: "mouse", button: 65, x: 2, y: 3, release: false },
-    { kind: "mouse", button: 35, x: 6, y: 7, release: false },
-  ]);
-  expect(tokens(bytes("\x1bOB")).tokens).toEqual([{ kind: "sequence", text: "\x1bOB" }]);
-});
-
-test("an unfinished sequence or paste waits for the rest", () => {
-  for (const partial of ["\x1b", "\x1b[", "\x1b[1;5", "\x1b[200~half a pas"]) {
-    const split = tokens(bytes("a" + partial));
-    expect(split.tokens).toEqual([{ kind: "byte", byte: 0x61 }]);
-    expect(Buffer.from(split.rest).toString()).toBe(partial);
-  }
-  const first = tokens(bytes("\x1b[200~abc"));
-  expect(tokens([...first.rest, ...bytes("def\x1b[201~")]).tokens).toEqual([{ kind: "paste", text: "abcdef" }]);
-});
-
-test("Kitty's key reports reach the card as the viewer passes keys to it, Ctrl+/ included", () => {
-  const keys = (text: string) => tokens(bytes(text)).tokens.flatMap(legacy);
-  expect(keys("\x1b[47;5u")).toEqual([{ kind: "byte", byte: 0x1f }]);
-  expect(keys("\x1b[99;5u")).toEqual([{ kind: "byte", byte: 3 }]);
-  expect(keys("\x1b[27u")).toEqual([{ kind: "byte", byte: 0x1b }]);
-  expect(keys("\x1b[13;2u")).toEqual([{ kind: "sequence", text: "\x1b\r" }]);
-  expect(keys("\x1b[A\x1b[1;5D")).toEqual([
-    { kind: "sequence", text: "\x1b[A" },
-    { kind: "sequence", text: "\x1b[1;5D" },
-  ]);
-  expect(keys("a\x1b[<0;10;5M")).toEqual([
-    { kind: "byte", byte: 0x61 },
-    { kind: "mouse", button: 0, x: 9, y: 4, release: false },
-  ]);
-});
-
-test("clipboard packets end at ST or BEL, and wait for the rest", () => {
-  expect(
-    tokens(bytes("\x1b]5522;type=read:status=OK:pw=b3Rw\x1b\\a\x1b]5522;type=read:status=DONE\x07")).tokens,
-  ).toEqual([
-    { kind: "clipboard", text: "type=read:status=OK:pw=b3Rw" },
-    { kind: "byte", byte: 0x61 },
-    { kind: "clipboard", text: "type=read:status=DONE" },
-  ]);
-  for (const partial of ["\x1b]", "\x1b]55", "\x1b]5522;type=read", "\x1b]5522;type=read\x1b"]) {
-    const split = tokens(bytes("a" + partial));
-    expect(split.tokens).toEqual([{ kind: "byte", byte: 0x61 }]);
-    expect(Buffer.from(split.rest).toString()).toBe(partial);
-  }
-  // Alt and ] from a legacy terminal stay a key.
-  expect(tokens(bytes("\x1b]x")).tokens).toEqual([
-    { kind: "sequence", text: "\x1b]" },
-    { kind: "byte", byte: 0x78 },
-  ]);
+test("Kitty keys are encoded for the prompt without reparsing their bytes", () => {
+  const keys = (text: string) => new Parser().feed(bytes(text)).map(input => Buffer.from(legacy(input)).toString());
+  expect(keys("\x1b[47;5u")).toEqual(["\x1f"]);
+  expect(keys("\x1b[99;5u")).toEqual(["\x03"]);
+  expect(keys("\x1b[27u")).toEqual(["\x1b"]);
+  expect(keys("\x1b[13;2u")).toEqual(["\x1b\r"]);
+  expect(keys("\x1b[A\x1b[1;5D")).toEqual(["\x1b[A", "\x1b[1;5D"]);
+  expect(keys("a\x1b[<0;10;5M")).toEqual(["a", "\x1b[<0;10;5M"]);
 });
 
 const folders: string[] = [];
@@ -117,21 +60,25 @@ test("Escape before a fragmented paste cannot submit the standalone prompt", asy
     );
     prompt.show({ cwd: "", workspace: "", workspace_id: null, branch: "", focus: null, herd: [], mentions: [] });
     try {
-      const first = tokens(data.subarray(0, split)),
-        second = tokens([...first.rest, ...data.subarray(split)]),
-        input = [...first.tokens, ...second.tokens];
-      for (const token of input.flatMap(legacy)) {
-        if (token.kind === "paste") prompt.paste(token.text);
-        else if (token.kind === "byte") prompt.key(token.byte);
-        else if (token.kind === "sequence") prompt.sequence(token.text);
+      const parser = new Parser(),
+        input = [...parser.feed(data.subarray(0, split)), ...parser.feed(data.subarray(split))];
+      for (const event of input) {
+        if (event.kind === "paste_start") prompt.pasteStart();
+        else if (event.kind === "paste_end") prompt.pasteEnd();
+        else if (event.kind === "paste") for (const byte of event.bytes) prompt.pasteByte(byte);
+        else {
+          const value = legacy(event);
+          if (value.length > 1 && value[0] === 27) prompt.sequence(Buffer.from(value).toString("latin1"));
+          else for (const byte of value) prompt.key(byte);
+        }
       }
       expect(prompt.conversation.items.filter(item => item.kind === "user")).toEqual([]);
       expect(prompt.textField()?.text).toBe("first\nsecond");
-      expect(input).toEqual([
-        { kind: "byte", byte: 27 },
-        { kind: "paste", text: payload },
-      ]);
-      expect(second.rest).toEqual([]);
+      expect(input[0]).toMatchObject({ kind: "key", key: { codepoint: 27 } });
+      expect(Buffer.concat(input.filter(event => event.kind === "paste").map(event => event.bytes)).toString()).toBe(
+        payload,
+      );
+      expect(parser.due()).toBe(Infinity);
     } finally {
       await prompt.conversation.stop();
     }

@@ -1,4 +1,5 @@
 import * as telemetry from "./telemetry";
+import { Queue, pasting, type Input } from "./terminal_input";
 import { Stats } from "./connection_stats";
 import type { Output } from "./composition";
 import { Controller } from "./controller";
@@ -34,17 +35,8 @@ const handoff_input_limit = 64 * 1024;
 const handoff_ms = 30_000;
 
 export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" | "incompatible" | "attention";
-/** Keys as they came, and whether the machine was dropping input then. */
-interface Typed {
-  bytes: number[];
-  dropped: boolean;
-}
-const typedLength = (typed: Typed[]) => typed.reduce((n, t) => n + t.bytes.length, 0);
-function addTyped(typed: Typed[], bytes: Uint8Array, dropped: boolean): void {
-  let last = typed.at(-1);
-  if (last?.dropped !== dropped) typed.push((last = { bytes: [], dropped }));
-  for (const byte of bytes) last.bytes.push(byte);
-}
+/** Parsed input and whether its machine was dropping input when it arrived. */
+type Typed = Input & { dropped: boolean };
 /** How often an idle viewer's machines are stepped. */
 export const quiet_ms = 500;
 /** A remote machine silent this long gets a second connection beside the first. */
@@ -163,8 +155,7 @@ export class Endpoint {
   private next = 0;
   private opened = false;
   private connected = false;
-  private input: Typed[] = [];
-  /** The keys last routed came while dropping: what the view still holds of them did too. */
+  private input = new Queue<Typed>();
   private last_dropped = false;
   private handoff: {
     instance: string;
@@ -173,9 +164,10 @@ export class Endpoint {
     pane: number | null;
     generation: number;
     until: number;
-    input: Typed[];
+    input: Queue<Typed>;
   } | null = null;
   private ui_task: Promise<void> | null = null;
+  private ui_paste = false;
   private resource_detail: number | null = null;
   private bell = { seq: 0n };
   private retries = 0;
@@ -278,9 +270,12 @@ export class Endpoint {
     this.interruptInput(true);
     this.next = 0;
   }
-  /** Keys the view hasn't routed yet, taken to go elsewhere. */
-  takeInput(): Uint8Array {
-    return Uint8Array.from(this.input.splice(0).flatMap(typed => typed.bytes));
+  /** Retain unrouted keys only before a cancelled paste; a later Enter must not submit its partial text. */
+  takeInput(): Typed[] {
+    const input = this.input.take();
+    if (this.ui_paste || (this.controller && this.shown && this.controller.input_state.paste !== null)) return [];
+    const paste = input.findIndex(pasting);
+    return paste < 0 ? input : input.slice(0, paste);
   }
   choose(at: Focus, instance: string): void {
     this.focus = null;
@@ -315,23 +310,16 @@ export class Endpoint {
     if (!(this.remote && this.status === "offline")) this.next = 0;
     this.onChange();
   }
-  /** Input for the view to route; `dropped` says it came while the
-   * machine's notice dropped input, so none of it reaches a pane. */
-  enqueue(bytes: Uint8Array, dropped = false): void {
-    if (this.handoff) {
-      if (typedLength(this.handoff.input) + bytes.length <= handoff_input_limit)
-        addTyped(this.handoff.input, bytes, dropped);
-      else this.clearInput();
-      this.wake();
-      return;
-    }
-    if (typedLength(this.input) + bytes.length > 1024 * 1024) {
+  enqueue(input: Input, dropped = false): void {
+    const queue = this.handoff?.input ?? this.input;
+    const limit = this.handoff ? handoff_input_limit : 1024 * 1024;
+    if (queue.bytes + input.bytes.length > limit) {
       this.error = "Input queue full; unsent input discarded";
       this.clearInput();
       this.fresh = false;
       return;
     }
-    addTyped(this.input, bytes, dropped);
+    queue.push({ ...input, dropped });
     this.wake();
   }
   private syncNavigation(): void {
@@ -361,23 +349,31 @@ export class Endpoint {
     }
     const view = this.view(),
       selection = this.selection,
+      epoch = this.input_epoch,
       dirty = view.dirty;
     // Before the machine's state is first drawn, a view with no pane in
     // focus has nowhere for keys to go: they wait for the pane it's making.
     if (!view.input_state.attached || (!this.settled && !view.focused())) return;
-    const current = () => this.shown && selection === this.selection && !this.stopped;
-    const input = this.input.splice(0);
+    const current = () => this.shown && selection === this.selection && epoch === this.input_epoch && !this.stopped;
+    const input = this.input.take();
+    this.ui_paste = input.some(pasting);
     this.ui_task = (async () => {
       try {
-        for (const typed of input) {
+        for (let start = 0; start < input.length;) {
           if (!current()) return;
-          await view.input(Uint8Array.from(typed.bytes), current, typed.dropped);
+          const dropped = input[start].dropped;
+          let end = start + 1;
+          while (end < input.length && input[end].dropped === dropped) end++;
+          await view.input(input.slice(start, end), current, dropped);
+          this.last_dropped = dropped;
+          start = end;
         }
-        if (input.length) this.last_dropped = input.at(-1)!.dropped;
+        this.ui_paste = false;
         if (current()) await view.expireInput(current, this.last_dropped);
       } catch (error) {
         if (current()) view.notice(errors.name(error) ?? "ActionFailed");
       } finally {
+        this.ui_paste = false;
         this.ui_task = null;
         // Typing waits in its pane for the next step, which an idle viewer
         // paces at `quiet_ms`: it goes now.
@@ -658,13 +654,16 @@ export class Endpoint {
   /** Keys held for a reload go on as typed: a retry or a pause ends the
    * wait, not them. */
   private releaseHandoff(): void {
-    if (this.handoff) this.input = this.handoff.input.concat(this.input);
+    if (this.handoff) {
+      for (const input of this.input.take()) this.handoff.input.push(input);
+      this.input = this.handoff.input;
+    }
     this.handoff = null;
   }
   private holdHandoffInput(): void {
     const input = this.input;
-    this.input = [];
-    if (typedLength(input) > handoff_input_limit) {
+    this.input = new Queue<Typed>();
+    if (input.bytes > handoff_input_limit) {
       this.clearInput();
       this.error = "Input queue full; unsent input discarded";
     }
@@ -675,13 +674,14 @@ export class Endpoint {
       pane: this.view().focused()?.id ?? null,
       generation: this.generation,
       until: performance.now() + handoff_ms,
-      input: typedLength(input) <= handoff_input_limit ? input : [],
+      input: input.bytes <= handoff_input_limit ? input : new Queue<Typed>(),
     };
     this.ready = this.fresh = false;
     this.wake();
   }
   private async connect(): Promise<void> {
     const previous = this.instance;
+    const had_viewer = this.machine.viewer_id !== 0;
     const generation = ++this.generation;
     this.trace("remote.connection", "start");
     let conn: Connection, hello: machine_path.Hello;
@@ -764,7 +764,10 @@ export class Endpoint {
     this.resumed = resumed;
     this.trace("remote.connection", "linked", { resumed: Number(this.resumed) });
     this.current(generation);
-    if (!this.resumed) view.resetConnection(this.machine);
+    if (!this.resumed) {
+      if (had_viewer || this.ui_paste || (this.shown && view.input_state.paste !== null)) this.interruptInput(true);
+      view.resetConnection(this.machine);
+    }
     this.trace("remote.connection", "snapshot");
     view.receiveSnapshot(snapshot, this.machine);
     this.machine.runtime.receiveResources(snapshot.resources);
@@ -1082,13 +1085,16 @@ export class Endpoint {
     this.cancellation.abort();
     this.cancellation = new AbortController();
     this.ready = false;
-    if (!keepUnrouted) this.input = [];
+    if (keepUnrouted) {
+      for (const input of this.takeInput()) this.input.push(input);
+    } else this.input = new Queue<Typed>();
+    if (this.controller && this.shown) this.controller.cancelPaste();
   }
   private clearInput(): void {
-    this.interruptInput();
     for (const pane of this.machine.runtime.panes) {
       pane.terminal.pending = [];
     }
+    this.interruptInput();
     // Keys on their way belong to the machine shown.
     if (!this.controller || !this.shown) return;
     const view = this.controller;
