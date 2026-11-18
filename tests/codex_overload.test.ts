@@ -95,9 +95,6 @@ class Overload extends Runtime {
       this.model?.stop(true);
     }
   }
-  async screen(pane: number) {
-    return (await this.command("pane.read", { target: pane, view: "screen" })).text as string;
-  }
   async history(pane: number) {
     return (await this.command("pane.read", { target: pane, view: "history", lines: 400 })).text as string;
   }

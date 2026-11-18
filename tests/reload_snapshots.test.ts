@@ -67,13 +67,10 @@ process.stdin.on('data', data => {
         })
       ).pane;
       panes.push(pane);
-      await this.until(
-        async () => (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("READY"),
-        30,
-      );
+      await this.until(async () => (await this.screen(pane)).includes("READY"), 30);
     }
     const pane = panes.at(-1)!;
-    const text = async () => (await this.command("pane.read", { target: pane, view: "screen" })).text;
+    const text = async () => await this.screen(pane);
     const before = await this.session();
     const pid = before.panes.find((p: any) => p.id === pane).pid;
     const geometry = before.panes.find((p: any) => p.id === pane);

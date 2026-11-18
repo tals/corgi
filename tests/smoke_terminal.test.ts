@@ -496,9 +496,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
         command: "echo OUT; exec /bin/sh",
       })
     ).pane;
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("OUT"),
-    );
+    await this.until(async () => (await this.screen(pane)).includes("OUT"));
     const malformed = new websocket_socket.Socket(this.path),
       replies = lines(malformed);
     malformed.write("[]\n");
@@ -791,9 +789,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
   }
   async test_real_client_passes_the_pane_cursor_shape_to_the_host() {
     const pane = (await this.open_pane({ command: "printf '\\033[6 qBAR_CURSOR'; sleep 30" })).pane;
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("BAR_CURSOR"),
-    );
+    await this.until(async () => (await this.screen(pane)).includes("BAR_CURSOR"));
     // The sidebar can show before the pane's first frame; detach once the pane has drawn.
     const output = await this.checkRealClientExit(async pty => {
       await pty.waitFor("BAR_CURSOR", 4000);
@@ -808,9 +804,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
         command: "printf '\\033[?25lCURSOR_HIDDEN'; sleep 30",
       })
     ).pane;
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("CURSOR_HIDDEN"),
-    );
+    await this.until(async () => (await this.screen(pane)).includes("CURSOR_HIDDEN"));
     const output = await this.checkRealClientExit("\x02q", 1);
     const frames = [...output.matchAll(/\x1b\[\?2026h(.*?)\x1b\[\?2026l/gs)].map(match => match[1]);
     this.assertTrue(frames.length > 0);
@@ -831,7 +825,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     this.assertEqual(pty.output.length, held);
     pty.write("\x1b[0n");
     await pty.waitFor(output => output.length > held, 2000);
-    this.assertNotIn("[0n", (await this.command("pane.read", { target: pane, view: "screen" })).text);
+    this.assertNotIn("[0n", await this.screen(pane));
     pty.write("\x02q");
     this.assertEqual(await deadline(pty.proc.exited, 4000, "Corgi did not detach"), 0);
   }
@@ -844,7 +838,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     for (let i = 0; i < 16; i++) pty.write(`\x1b]4;${i};rgb:11/cc/33\x1b\\`);
     await pty.waitFor("EARLY_INPUT_OK", 4000);
     await pty.waitFor("48;2;30;30;30m", 4000);
-    this.assertNotIn("rgb:", (await this.command("pane.read", { target: 1, view: "screen" })).text);
+    this.assertNotIn("rgb:", await this.screen(1));
     const probe = join(import.meta.dir, "fixtures/color_probe.ts"),
       result = join(this.temp.name, "colors.json");
     const ident = (

@@ -7,7 +7,7 @@ import { closeSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
-import { EXE, Lines, Pty, deadline, versioned, quote } from "./support";
+import { EXE, Lines, Pty, deadline, versioned, quote, waitUntil } from "./support";
 import { running } from "./runtime";
 import { installer, manifests as releaseManifests } from "../scripts/publish.ts";
 import { Scope } from "../scripts/process_scope";
@@ -80,13 +80,7 @@ async function cli(args: string[], ok = true) {
 async function rpc(value: { op: string; [field: string]: unknown }) {
   return JSON.parse((await cli(["rpc", JSON.stringify(versioned(value))])).out);
 }
-async function waitFor(fn: () => Promise<boolean>) {
-  for (let i = 0; i < 150; i++) {
-    if (await fn()) return;
-    await Bun.sleep(100);
-  }
-  throw new Error("Timed out");
-}
+const waitFor = (fn: () => Promise<boolean>) => waitUntil(fn, 15, "Timed out");
 beforeAll(async () => {
   base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
   const current = await readFile(EXE);

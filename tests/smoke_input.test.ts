@@ -29,13 +29,7 @@ class SmokeInput extends Runtime {
       expected = Buffer.concat([expected, Buffer.from(`\x1b[<${button};3;1M`)]);
     }
     await this.until(() => readFileSync(log).equals(expected));
-    await this.rpc({
-      op: "hook",
-      pane: first,
-      provider: "claude",
-      seq: 1,
-      event: { hook_event_name: "SessionStart", session_id: "geometry" },
-    });
+    await this.session_start(first, "geometry");
     let frame = (await this.get_type("frame")).data;
     while (!frame.includes("Claude")) frame = (await this.get_type("frame")).data;
     this.assertIn("\x1b[2;30H\x1b[?25h", frame);
@@ -216,13 +210,7 @@ class SmokeInput extends Runtime {
         name: `Agent-${index}`,
         target: pane,
       });
-      await this.rpc({
-        op: "hook",
-        pane,
-        provider: "claude",
-        seq: 1,
-        event: { hook_event_name: "SessionStart", session_id: String(index) },
-      });
+      await this.session_start(pane, String(index));
     }
     await this.attach();
     let screen = await this.scrollbar_with("┃┃┃┃┃││││││");
@@ -304,13 +292,7 @@ class SmokeInput extends Runtime {
   async test_launched_and_restored_agents_scroll_into_view() {
     for (let index = 0; index < 7; index++) {
       const pane = (await this.open_pane({ cwd: this.temp.name, command: "sleep 30" })).pane;
-      await this.rpc({
-        op: "hook",
-        pane,
-        provider: "claude",
-        seq: 1,
-        event: { hook_event_name: "SessionStart", session_id: String(index) },
-      });
+      await this.session_start(pane, String(index));
     }
     await this.attach();
     await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
@@ -325,13 +307,7 @@ class SmokeInput extends Runtime {
       return pane !== undefined;
     });
     await this.command("pane.rename", { name: "Launched", target: pane });
-    await this.rpc({
-      op: "hook",
-      pane,
-      provider: "claude",
-      seq: 1,
-      event: { hook_event_name: "SessionStart", session_id: "launched" },
-    });
+    await this.session_start(pane, "launched");
     const screen = await this.scrollbar_with("┃┃┃┃┃┃┃┃│││");
     this.assertIn(
       "Launched",
@@ -351,13 +327,7 @@ class SmokeInput extends Runtime {
       return pane !== undefined;
     });
     await this.command("pane.rename", { name: "Reopened", target: pane });
-    await this.rpc({
-      op: "hook",
-      pane,
-      provider: "claude",
-      seq: 1,
-      event: { hook_event_name: "SessionStart", session_id: "restored" },
-    });
+    await this.session_start(pane, "restored");
     // The restore notice covers the bottom row, and so the scrollbar's end.
     await this.until(async () =>
       screen_text((await this.client!.poll()).data, 80, 24)
@@ -369,13 +339,7 @@ class SmokeInput extends Runtime {
     const project = join(this.temp.name, "frontend");
     mkdirSync(project);
     const pane = (await this.open_pane({ cwd: this.temp.name, title: "Unrelated tab name" })).pane;
-    await this.rpc({
-      op: "hook",
-      pane,
-      provider: "claude",
-      seq: 1,
-      event: { hook_event_name: "SessionStart", session_id: "directory" },
-    });
+    await this.session_start(pane, "directory");
     await this.attach();
     await this.agent_frame("claude", "○");
     await this.command("pane.input", {

@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Runtime, screen_text } from "./runtime";
+import { screen_text } from "./runtime";
+import { Viewers } from "./viewers";
 import { Viewer } from "./viewer_client";
 import {
   EXE,
@@ -8,6 +9,7 @@ import {
   clicks,
   copied,
   highlighted as highlightedIn,
+  mouse,
   quote,
   registerCase,
   shellJoin,
@@ -21,19 +23,10 @@ const opens = (state: any) => state.effects.some((effect: any) => "open_url" in 
 const highlighted = (data: string, left: number, plain: { x: number; y: number }) =>
   highlightedIn(data, { cols, rows }, left, plain);
 
-class Links extends Runtime {
+class Links extends Viewers {
   async setUp() {
     await super.setUp();
     for (const key of ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY", "CORGI_PANE"]) delete this.env[key];
-  }
-  async new(command = "sleep 60") {
-    return (
-      await this.command("pane.create", {
-        workspace: (await this.session()).workspaces[0].id,
-        cwd: this.temp.name,
-        command,
-      })
-    ).pane;
   }
   opener(opened: string) {
     const bindir = join(this.temp.name, "bin");
@@ -47,9 +40,7 @@ class Links extends Runtime {
     const url = "https://example.com/corgi-link-test";
     const output = `\x1b]8;id=docs;${url}\x1b\\\x1b[1;4;38;5;33mNamed docs\x1b]8;;\x1b\\\x1b[0m ordinary\r\n`;
     const pane = await this.new(`printf %s ${quote(output)}; exec /bin/sh`);
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("Named docs"),
-    );
+    await this.until(async () => (await this.screen(pane)).includes("Named docs"));
     const surface = (await this.rpc({ op: "pane.surface", pane })).surface;
     this.assertIn(`;${url}\x1b\\`, surface.lines.join(""));
     const viewer = await Viewer.create(this);
@@ -99,9 +90,7 @@ class Links extends Runtime {
   async test_pointer_names_follow_each_viewers_terminal() {
     const url = "https://example.com/pointer";
     const pane = await this.new(`printf %s ${quote(url + "\r\n")}; exec /bin/sh`);
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes(url),
-    );
+    await this.until(async () => (await this.screen(pane)).includes(url));
     const ghostty = await Viewer.create(this);
     this.env.TERM_PROGRAM = "iTerm.app";
     const iterm = await Viewer.create(this);
@@ -122,9 +111,7 @@ class Links extends Runtime {
     this.opener(opened);
     const url = "https://example.com/plain";
     const pane = await this.new(`printf %s ${quote(url + "\r\n")}; exec /bin/sh`);
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes(url),
-    );
+    await this.until(async () => (await this.screen(pane)).includes(url));
     const viewer = await Viewer.create(this),
       other = await Viewer.create(this);
     let frame = (await viewer.poll()).data;
@@ -133,47 +120,46 @@ class Links extends Runtime {
     const rows = screen_text(frame, 120, 40);
     const y = rows.findIndex(row => row.includes(url)),
       x = rows[y].indexOf(url);
-    const mouse = (code: number, dx = 0, release = false) =>
-      viewer.input(`\x1b[<${code};${x + dx + 1};${y + 1}${release ? "m" : "M"}`);
+    const pointer = (code: number, dx = 0, release = false) => viewer.input(mouse(code, x + dx, y, release));
     this.assertIn("\x1b[?1003h", viewer.state.data);
-    await mouse(35);
+    await pointer(35);
     this.assertIn("\x1b]22;pointer\x1b\\", viewer.state.data);
     this.assertIn("\x1b]22;default\x1b\\", (await other.poll()).data);
     this.assertIn("\x1b[4m", viewer.state.data);
     this.assertNotIn("\x1b[4m", (await other.poll()).data);
-    await mouse(51);
+    await pointer(51);
     this.assertIn("\x1b[4m", viewer.state.data);
-    await mouse(35, url.length + 2);
+    await pointer(35, url.length + 2);
     this.assertIn("\x1b]22;default\x1b\\", viewer.state.data);
     this.assertNotIn("\x1b[4m", viewer.state.data);
-    await mouse(0);
-    await mouse(32, 5);
+    await pointer(0);
+    await pointer(32, 5);
     this.assertIn("38;2;0;0;0;48;2;255;255;255m", viewer.state.data);
-    await mouse(0, 5, true);
+    await pointer(0, 5, true);
     // A plain click opens only once the double-click window has passed.
     this.assertFalse(opens(viewer.state));
     this.assertFalse(opens(await viewer.advance(0.31)));
-    await mouse(0);
-    await mouse(32, 5);
-    await mouse(32);
-    await mouse(0, 0, true);
+    await pointer(0);
+    await pointer(32, 5);
+    await pointer(32);
+    await pointer(0, 0, true);
     this.assertFalse(opens(viewer.state));
     this.assertFalse(opens(await viewer.advance(0.31)));
-    await mouse(0, url.length + 2);
-    await mouse(32, url.length + 1);
-    await mouse(32, 3);
-    await mouse(0, 3, true);
+    await pointer(0, url.length + 2);
+    await pointer(32, url.length + 1);
+    await pointer(32, 3);
+    await pointer(0, 3, true);
     this.assertFalse(opens(viewer.state));
     this.assertFalse(opens(await viewer.advance(0.31)));
     // A plain click opens once the double-click window has passed.
-    await mouse(0);
-    await mouse(0, 0, true);
+    await pointer(0);
+    await pointer(0, 0, true);
     this.assertEqual(viewer.state.effects, []);
     this.assertEqual((await viewer.advance(0.31)).effects, [{ open_url: url }]);
     this.assertEqual((await viewer.advance(0.4)).effects, []);
     // Ctrl+click opens at once.
-    await mouse(16);
-    await mouse(16, 0, true);
+    await pointer(16);
+    await pointer(16, 0, true);
     this.assertEqual(viewer.state.effects, [{ open_url: url }]);
     await viewer.close();
     await other.close();
@@ -328,9 +314,7 @@ writeFileSync(process.argv[2], String(server.port));
   async test_link_popover_appears_while_idle_and_copies_in_attached_client() {
     const url = "https://example.com/copy-this-link";
     const pane = await this.new(`printf %s ${quote(url + "\r\n")}; exec /bin/sh`);
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes(url),
-    );
+    await this.until(async () => (await this.screen(pane)).includes(url));
     const other = await Viewer.create(this);
     const pty = await Pty.spawn([EXE, "attach"], {
       env: this.env,

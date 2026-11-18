@@ -14,7 +14,7 @@ import { EXE, lines, quote, registerCase, run, shellJoin, sleep, versioned, writ
 import * as websocket_socket from "../src/websocket_socket";
 import * as protocol from "../src/protocol";
 import { byProvider } from "../src/providers";
-import { Runtime } from "./runtime";
+import { Viewers } from "./viewers";
 import * as rpc from "../src/rpc";
 import { Viewer } from "./viewer_client";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
@@ -94,7 +94,7 @@ function handoffV3(m) {
 }
 `;
 
-class Reloads extends Runtime {
+class Reloads extends Viewers {
   async pair(pane: number, session: string) {
     const terminal = write_codex_terminal(join(this.temp.name, "codex"), session);
     const observer = new CodexObserver(this.env.CODEX_HOME!, [session]);
@@ -108,15 +108,8 @@ class Reloads extends Runtime {
     }
   }
 
-  async new(command = "exec /bin/sh", title = "") {
-    return (
-      await this.command("pane.create", {
-        workspace: (await this.session()).workspaces[0].id,
-        cwd: this.temp.name,
-        command,
-        title,
-      })
-    ).pane;
+  new(command = "exec /bin/sh", title = "") {
+    return super.new(command, title);
   }
   reload(exe = EXE) {
     return this.rpc({ op: "server.reload", executable: exe });
@@ -230,9 +223,6 @@ libc.symbols.lseek(fd, 0n, 0);
     );
     chmodSync(candidate, 0o700);
     return candidate;
-  }
-  async screen(pane: number) {
-    return (await this.command("pane.read", { target: pane, view: "screen" })).text;
   }
   /** Its output with wrapped lines joined, so a long prompt can't split a command. */
   async history(pane: number) {

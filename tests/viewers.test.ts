@@ -11,7 +11,7 @@ import {
 import { join } from "node:path";
 import { Viewers } from "./viewers";
 import { PALETTE, screen_text, layout_tree } from "./runtime";
-import { EXE, quote, registerCase, shellJoin, sleep, versioned, writeExecutable } from "./support";
+import { EXE, copied, quote, registerCase, shellJoin, sleep, versioned, writeExecutable } from "./support";
 import * as rpc from "../src/rpc";
 
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
@@ -891,9 +891,7 @@ class ViewerScenarios extends Viewers {
     const first = await this.new(
       "i=0; while [ $i -lt 80 ]; do printf 'ROW_%03d\\n' $i; i=$((i+1)); done; exec /bin/sh",
     );
-    await this.until(async () =>
-      (await this.command("pane.read", { target: first, view: "screen" })).text.includes("ROW_079"),
-    );
+    await this.until(async () => (await this.screen(first)).includes("ROW_079"));
     const a = await this.newViewer(),
       b = await this.newViewer();
     await a.focus(first);
@@ -902,7 +900,7 @@ class ViewerScenarios extends Viewers {
     this.assertIn("ROW_000", a.state.data);
     this.assertNotIn("ROW_000", (await b.poll()).data);
     this.assertIn("ROW_079", b.state.data);
-    this.assertIn("ROW_079", (await this.command("pane.read", { target: first, view: "screen" })).text);
+    this.assertIn("ROW_079", await this.screen(first));
     await a.input("yy");
     this.assertEqual(a.state.effects.length, 2);
     this.assertEqual(a.state.effects[0], a.state.effects[1]);
@@ -927,10 +925,8 @@ class ViewerScenarios extends Viewers {
     this.assertEqual((await b.poll()).pane, first);
     await a.input("STAYS_HERE\\n\x1b[201~\r");
     await this.command("pane.input", { target: first, data: "\r" });
-    await this.until(async () =>
-      (await this.command("pane.read", { target: first, view: "screen" })).text.includes("PASTE_STAYS_HERE"),
-    );
-    this.assertNotIn("PASTE_STAYS_HERE", (await this.command("pane.read", { target: second, view: "screen" })).text);
+    await this.until(async () => (await this.screen(first)).includes("PASTE_STAYS_HERE"));
+    this.assertNotIn("PASTE_STAYS_HERE", await this.screen(second));
   }
 
   async test_independent_edits_from_stale_viewers_compose() {
@@ -1042,9 +1038,7 @@ class ViewerScenarios extends Viewers {
     const first = await this.new(
       "printf 'SEARCH_MARKER_unique\\n'; i=0; while [ $i -lt 80 ]; do printf 'tail_%03d\\n' $i; i=$((i+1)); done; exec /bin/sh",
     );
-    await this.until(async () =>
-      (await this.command("pane.read", { target: first, view: "screen" })).text.includes("tail_079"),
-    );
+    await this.until(async () => (await this.screen(first)).includes("tail_079"));
     const a = await this.newViewer(),
       b = await this.newViewer();
     await a.focus(first);
@@ -1052,9 +1046,7 @@ class ViewerScenarios extends Viewers {
     await a.input("\x02s/SEARCH_MARKER_unique\r");
     this.assertIn("SEARCH_MARKER_unique", a.state.data);
     await a.input("y");
-    const effect = a.state.effects[0].write_terminal;
-    const encoded = effect.split("52;c;", 2)[1].split("\x07", 1)[0];
-    this.assertEqual(Buffer.from(encoded, "base64").toString(), "SEARCH_MARKER_unique");
+    this.assertEqual(copied(a.state), "SEARCH_MARKER_unique");
     this.assertNotIn("SEARCH_MARKER_unique", (await b.poll()).data);
   }
 
@@ -1067,7 +1059,7 @@ class ViewerScenarios extends Viewers {
     await this.command("pane.close", { target: first });
     await a.input("_SHOULD_DISAPPEAR\x1b[201~");
     this.assertEqual(a.state.pane, second);
-    this.assertNotIn("SHOULD_DISAPPEAR", (await this.command("pane.read", { target: second, view: "screen" })).text);
+    this.assertNotIn("SHOULD_DISAPPEAR", await this.screen(second));
   }
 
   async test_viewer_encodes_keys_and_mouse_for_child_modes() {
@@ -1086,9 +1078,7 @@ process.stdin.resume();
 `,
     );
     const first = await this.new(shellJoin(["bun", fixture, capture]));
-    await this.until(async () =>
-      (await this.command("pane.read", { target: first, view: "screen" })).text.includes("READY"),
-    );
+    await this.until(async () => (await this.screen(first)).includes("READY"));
     const a = await this.newViewer();
     await a.focus(first);
     await a.input("\x1b[97;5u");

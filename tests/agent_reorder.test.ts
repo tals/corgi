@@ -3,13 +3,10 @@ import { join } from "node:path";
 import { Viewers } from "./viewers";
 import { PALETTE, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { EXE, registerCase } from "./support";
+import { EXE, mouse, registerCase } from "./support";
 
 // The dragged agent row's strong bar.
 const ghost = `\x1b[0;38;2;${PALETTE.strong};48;2;${PALETTE.selected}m▌\x1b[0m`;
-
-const mouse = (button: number, x: number, y: number, release = false) =>
-  `\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`;
 
 // The list sorted by hand, the integration suites' default.
 class AgentReorder extends Viewers {

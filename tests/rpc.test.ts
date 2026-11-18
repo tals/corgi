@@ -3,21 +3,15 @@ import { join } from "node:path";
 import { Connection } from "../src/rpc";
 import * as protocol from "../src/protocol";
 import { Runtime } from "./runtime";
-import { EXE, deadline, lines, registerCase, run, versioned, writeExecutable } from "./support";
+import { EXE, deadline, gitRepository, lines, registerCase, run, versioned, writeExecutable } from "./support";
 import * as viewer_connection from "../src/viewer_connection";
 import * as websocket_socket from "../src/websocket_socket";
 
 class Rpc extends Runtime {
   private gate!: string;
   async configure() {
+    await gitRepository(this.temp.name, this.env);
     const git = Bun.which("git")!;
-    for (const args of [
-      ["init", "-b", "main"],
-      ["config", "user.name", "Test"],
-      ["config", "user.email", "test@example.invalid"],
-      ["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "base"],
-    ])
-      await run([git, "-C", this.temp.name, ...args], { env: this.env });
     this.gate = join(this.temp.name, "git-gate");
     mkdirSync(this.gate);
     const bin = join(this.temp.name, "bin");

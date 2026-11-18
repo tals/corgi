@@ -307,9 +307,7 @@ process.stdin.resume();
 `,
     );
     const pane = await this.new(shellJoin(["bun", fixture, capture]));
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("pick/me.ts"),
-    );
+    await this.until(async () => (await this.screen(pane)).includes("pick/me.ts"));
     const viewer = await this.newViewer();
     await viewer.focus(pane);
     // A plain double-click is the app's: both presses and releases reach it.
@@ -349,9 +347,7 @@ process.stdin.resume();
 `,
     );
     const pane = await this.new(shellJoin(["bun", fixture, capture]));
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("SELECT_ME"),
-    );
+    await this.until(async () => (await this.screen(pane)).includes("SELECT_ME"));
     await this.mark_agent(pane, "Mouse agent");
     const viewer = await this.newViewer();
     await viewer.focus(pane);
@@ -368,10 +364,7 @@ process.stdin.resume();
     await viewer.input("\x1b[<4;29;2M");
     await viewer.input("\x1b[<36;37;2M");
     await viewer.input("\x1b[<4;37;2m");
-    const effects = viewer.state.effects;
-    this.assertTrue(effects.length, "shift drag did not copy");
-    const encoded = effects[0].write_terminal.split("52;c;", 2)[1].split("\x07", 1)[0];
-    this.assertEqual(Buffer.from(encoded, "base64").toString(), "SELECT_ME");
+    this.assertEqual(copied(viewer.state), "SELECT_ME", "shift drag did not copy");
     this.assertIn("Copied to clipboard", viewer.state.data);
     await viewer.input("\x1b[<64;29;2M");
     await this.until(() => readFileSync(capture).includes(Buffer.from("\x1b[<64;1;1M")));
@@ -393,9 +386,7 @@ process.stdin.resume();
 
   async test_drag_freezes_text_and_release_copies_then_resumes() {
     const pane = await this.new("printf 'SELECT_ME\\n'; exec /bin/sh");
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("SELECT_ME"),
-    );
+    await this.until(async () => (await this.screen(pane)).includes("SELECT_ME"));
     const a = await this.newViewer(),
       b = await this.newViewer();
     await a.focus(pane);
@@ -406,15 +397,11 @@ process.stdin.resume();
       data: "printf 'NEW_OUTPUT\\n'\n",
       target: pane,
     });
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("NEW_OUTPUT"),
-    );
+    await this.until(async () => (await this.screen(pane)).includes("NEW_OUTPUT"));
     this.assertEqual((await a.poll()).data, held);
     this.assertIn("NEW_OUTPUT", (await b.poll()).data);
     await a.input("\x1b[<0;1;3m");
-    const effect = a.state.effects[0].write_terminal;
-    const encoded = effect.split("52;c;", 2)[1].split("\x07", 1)[0];
-    this.assertEqual(Buffer.from(encoded, "base64").toString(), "SELECT_ME");
+    this.assertEqual(copied(a.state), "SELECT_ME");
     this.assertIn("Copied to clipboard", a.state.data);
     this.assertIn("NEW_OUTPUT", a.state.data);
     this.assertNotIn("Copied to clipboard", (await b.poll()).data);

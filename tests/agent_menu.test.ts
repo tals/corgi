@@ -4,12 +4,10 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { join } from "node:path";
 import { Viewers } from "./viewers";
 import { PALETTE, screen_text } from "./runtime";
-import { registerCase, run, writeExecutable } from "./support";
+import { gitRepository, mouse, registerCase, run, writeExecutable } from "./support";
 import { CodexObserver } from "./provider_sim";
 import type { Viewer } from "./viewer_client";
 
-const mouse = (button: number, x: number, y: number, release = false) =>
-  `\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`;
 /** Two left press+release pairs on the cell, within the double-click interval. */
 const doubleClick = async (viewer: Viewer, x: number, y: number) => {
   for (let press = 0; press < 2; press++) {
@@ -63,25 +61,13 @@ class AgentMenu extends Viewers {
     await this.until(
       async () => (await this.session()).panes.find((p: any) => p.id === pane)?.agent.session === session,
     );
-    await this.hook(pane, "codex", session);
+    await this.session_start(pane, session, "codex");
   }
   async stopCodexDaemon() {
     await this.codexObserver!.close();
     this.codexObserver = null;
     await this.rpc({ op: "test.advance", ms: 6000 });
     await this.settle();
-  }
-  async hook(pane: number, provider: string, session: string) {
-    await this.rpc({
-      op: "hook",
-      pane,
-      provider,
-      seq: 1,
-      event: { hook_event_name: "SessionStart", session_id: session },
-    });
-  }
-  async screen(pane: number) {
-    return (await this.command("pane.read", { target: pane, view: "screen" })).text as string;
   }
   /** A command whose refusal the test expects: the reply, `err` and all. */
   async attempt(operation: string, payload: any) {
@@ -163,10 +149,7 @@ class AgentMenu extends Viewers {
       linked = join(root, "linked worktree"),
       log = join(root, "fork.json"),
       git = (...args: string[]) => run(["git", "-C", root, ...args], { env: this.env });
-    await git("init", "-b", "main");
-    await git("config", "user.name", "Test");
-    await git("config", "user.email", "test@example.invalid");
-    await git("-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "base");
+    await gitRepository(root, this.env);
     await git("worktree", "add", "-b", "feature", linked);
     const script = writeExecutable(
       join(root, "codex"),
@@ -198,7 +181,7 @@ class AgentMenu extends Viewers {
 
   async test_claude_renames_itself_when_its_messaging_socket_asks() {
     const pane = await this.new();
-    await this.hook(pane, "claude", CLAUDE_ID);
+    await this.session_start(pane, CLAUDE_ID);
     await this.command("pane.rename", { target: pane, name: "Pane name" });
     // Without a live session record, Claude offers no way in.
     this.assertEqual((await this.attempt("agent.rename", { target: pane })).err, "RenameUnavailable");

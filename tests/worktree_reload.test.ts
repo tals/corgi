@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Runtime } from "./runtime";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
 import { Viewer } from "./viewer_client";
-import { EXE, registerCase, run, shellJoin } from "./support";
+import { EXE, gitRepository, registerCase, run, shellJoin } from "./support";
 
 const session = "01901234-1234-1234-1234-123456789abc";
 class WorktreeReload extends Runtime {
@@ -12,10 +12,7 @@ class WorktreeReload extends Runtime {
     const root = realpathSync(this.temp.name),
       child = join(root, "linked");
     const git = (...args: string[]) => run(["git", "-C", root, ...args], { env: this.env });
-    await git("init", "-b", "main");
-    await git("config", "user.name", "Test");
-    await git("config", "user.email", "test@example.invalid");
-    await git("-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "base");
+    await gitRepository(root, this.env);
     await git("worktree", "add", "-b", "feature", child);
     this.env.CORGI_CODEX_BIN = write_codex_terminal(join(root, "codex"), session);
   }

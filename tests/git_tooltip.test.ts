@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { registerCase, run } from "./support";
+import { gitRepository, registerCase, run } from "./support";
 
 class GitTooltip extends Runtime {
   viewers: Viewer[] = [];
@@ -33,10 +33,8 @@ class GitTooltip extends Runtime {
   }
   async test_hover_metadata_is_local_and_refreshes_after_push() {
     mkdirSync(this.repo);
-    await this.git("init", "-b", "main");
+    await gitRepository(this.repo, this.env);
     await this.git("config", "user.name", "Corgi Author");
-    await this.git("config", "user.email", "test@example.invalid");
-    await this.git("-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "base");
     await this.git("branch", "upstream");
     await this.git("branch", "--set-upstream-to=upstream");
     for (let i = 0; i < 14; i++)

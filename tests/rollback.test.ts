@@ -55,9 +55,7 @@ process.exit(1);
       await client.call("session.command", {
         command: { "pane.input": { target: pane, data: "printf 'STILL_%s\\n' ALIVE\r" } },
       });
-      await this.until(async () =>
-        (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("STILL_ALIVE"),
-      );
+      await this.until(async () => (await this.screen(pane)).includes("STILL_ALIVE"));
     } finally {
       client.close();
       observer.close();
@@ -187,11 +185,7 @@ process.exit(1);
       this.assertEqual((await this.session()).panes[0].pid, before.panes[0].pid);
       await this.attach();
       await this.input("printf 'ROUND_TRIP_%s\\n' ALIVE\r");
-      await this.until(async () =>
-        (await this.command("pane.read", { target: after.panes[0].id, view: "screen" })).text.includes(
-          "ROUND_TRIP_ALIVE",
-        ),
-      );
+      await this.until(async () => (await this.screen(after.panes[0].id)).includes("ROUND_TRIP_ALIVE"));
     } finally {
       if (watch.exitCode === null) watch.kill();
       await deadline(watch.exited, 3000);

@@ -2,12 +2,12 @@ import { realpathSync } from "node:fs";
 import { Viewers } from "./viewers";
 import { Viewer } from "./viewer_client";
 import { screen_text } from "./runtime";
-import { registerCase } from "./support";
+import { mouse, registerCase } from "./support";
 import * as layout from "../src/layout";
 
 class Docking extends Viewers {
   mouse(view: Viewer, button: number, x: number, y: number, release = false) {
-    return view.input(`\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`);
+    return view.input(mouse(button, x, y, release));
   }
   tab(view: Viewer, title: string) {
     const x = screen_text(view.state.data, 120, 36)[0].indexOf(title);
@@ -32,9 +32,7 @@ class Docking extends Viewers {
     const a = await this.new("sleep 60", "Alpha"),
       b = await this.new("printf 'BETA_OUTPUT\\n'; sleep 60", "Beta"),
       view = await this.view(a);
-    await this.until(async () =>
-      (await this.command("pane.read", { target: b, view: "screen" })).text.includes("BETA_OUTPUT"),
-    );
+    await this.until(async () => (await this.screen(b)).includes("BETA_OUTPUT"));
     const before = await this.session(),
       pids = before.panes.map((p: any) => p.pid);
     await this.mouse(view, 0, this.tab(view, "Beta"), 0);
@@ -130,13 +128,9 @@ class Docking extends Viewers {
     this.assertNotEqual(created, a);
     const shell = (await this.session()).panes.find((p: any) => p.id === created);
     this.assertEqual(shell.cwd, realpathSync(this.temp.name));
-    await this.until(async () =>
-      (await this.command("pane.read", { target: created, view: "screen" })).text.includes("TYPED_EARLY"),
-    );
+    await this.until(async () => (await this.screen(created)).includes("TYPED_EARLY"));
     await this.command("pane.send", { target: created, text: "printf SHELL_READY", enter: true });
-    await this.until(async () =>
-      (await this.command("pane.read", { target: created, view: "screen" })).text.includes("SHELL_READY"),
-    );
+    await this.until(async () => (await this.screen(created)).includes("SHELL_READY"));
     await view.action("undo-layout");
     let now = await this.session();
     this.assertEqual(now.workspaces[0].model.tabs.length, 2);

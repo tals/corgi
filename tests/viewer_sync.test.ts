@@ -1,8 +1,9 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Runtime } from "./runtime";
+import type { Runtime } from "./runtime";
+import { Viewers } from "./viewers";
 import { Viewer } from "./viewer_client";
-import { EXE, Lines, lines, registerCase, shellJoin, sleep, versioned, writeExecutable } from "./support";
+import { EXE, Lines, copied, lines, registerCase, shellJoin, sleep, versioned, writeExecutable } from "./support";
 import * as websocket_socket from "../src/websocket_socket";
 
 /** A daemon connection's bytes, for checking the wire itself. */
@@ -126,16 +127,7 @@ class WireViewer {
   }
 }
 
-class ViewerSync extends Runtime {
-  async new(command = "printf 'IDLE_SURFACE'; sleep 60") {
-    return (
-      await this.command("pane.create", {
-        workspace: (await this.session()).workspaces[0].id,
-        cwd: this.temp.name,
-        command,
-      })
-    ).pane;
-  }
+class ViewerSync extends Viewers {
   async ready(viewer: WireViewer, text: string) {
     await this.until(async () => {
       await viewer.sync();
@@ -181,7 +173,7 @@ process.stdout.write("READY\\r\\n");
   }
 
   async test_idle_sync_omits_surfaces_and_metadata_but_delivers_controls() {
-    const pane = await this.new(),
+    const pane = await this.new("printf 'IDLE_SURFACE'; sleep 60"),
       viewer = await WireViewer.create(this, pane);
     await this.ready(viewer, "IDLE_SURFACE");
     const reply = await this.until(async () => {
@@ -347,9 +339,7 @@ await Bun.sleep(60000);
     await this.settle();
     await this.watchWakes(watch);
     await this.command("pane.input", { target: hidden, data: "HIDDEN_OUTPUT" });
-    await this.until(async () =>
-      (await this.command("pane.read", { target: hidden, view: "screen" })).text.includes("HIDDEN_OUTPUT"),
-    );
+    await this.until(async () => (await this.screen(hidden)).includes("HIDDEN_OUTPUT"));
     await this.settle();
     this.assertEqual(await this.watchWakes(watch), 0);
     // Hidden surfaces stay quiet, but their metadata is still visible.
@@ -402,9 +392,7 @@ await Bun.sleep(60000);
     const first = (await viewer.input("\x02s/NEEDLE\r")).data;
     const second = (await viewer.input("n")).data;
     this.assertNotEqual(first, second);
-    const copied = (await viewer.input("y")).effects[0].write_terminal;
-    const encoded = copied.split("52;c;", 2)[1].split("\x07", 1)[0];
-    this.assertEqual(Buffer.from(encoded, "base64").toString(), "NEEDLE");
+    this.assertEqual(copied(await viewer.input("y")), "NEEDLE");
   }
 }
 registerCase("ViewerSync", ViewerSync);

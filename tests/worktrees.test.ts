@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { registerCase, run } from "./support";
+import { gitRepository, registerCase, run } from "./support";
 
 class Worktrees extends Runtime {
   async git(cwd: string, ...args: string[]) {
@@ -10,11 +10,7 @@ class Worktrees extends Runtime {
   }
   async configure() {
     const root = this.temp.name;
-    await this.git(root, "init", "-b", "main");
-    await this.git(root, "config", "user.name", "Test");
-    await this.git(root, "config", "user.email", "test@example.invalid");
-    await this.git(root, "config", "commit.gpgsign", "false");
-    await this.git(root, "commit", "--allow-empty", "-m", "base");
+    await gitRepository(root, this.env);
     mkdirSync(join(root, ".worktrees"));
     await this.git(root, "worktree", "add", "-b", "feat/search", join(root, ".worktrees/search"));
     await this.git(root, "worktree", "add", "-b", "fix/clipboard", join(root, ".worktrees/clipboard"));

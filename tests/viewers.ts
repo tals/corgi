@@ -22,12 +22,6 @@ export class Viewers extends Runtime {
   }
   async mark_agent(pane: number, name: string) {
     await this.command("pane.rename", { target: pane, name });
-    await this.rpc({
-      op: "hook",
-      pane,
-      provider: "claude",
-      seq: 1,
-      event: { hook_event_name: "SessionStart", session_id: String(pane) },
-    });
+    await this.session_start(pane, String(pane));
   }
 }
