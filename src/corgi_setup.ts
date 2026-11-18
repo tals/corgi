@@ -52,7 +52,7 @@ import * as modelSuggest from "./model_suggest";
 import { routeName } from "./model_series";
 import { milliTimestamp } from "./clock";
 import type { ShellStatus } from "./launch/command";
-import type * as workspaceActivity from "./workspace_activity";
+import * as workspaceActivity from "./workspace_activity";
 import {
   preferred_width as launcher_width,
   type Menu as LauncherMenu,
@@ -1826,6 +1826,8 @@ export class Menu implements LinkSource {
               mark: minutes === order[field] ? "on" : "off",
               apply: minutes === order[field] ? null : { kind: "auto_order_threshold", field, minutes },
               action: i18n.t`use`,
+              // Pause, stale and archive must stay in that order.
+              disabled: !workspaceActivity.valid({ ...order, [field]: minutes }),
             }),
           ),
         ];

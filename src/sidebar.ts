@@ -88,6 +88,8 @@ export let panel: string,
   ghost_bar: string,
   rule_underline: string,
   dotted_underline: string,
+  /** The divider under the last active workspace, above the stale ones. */
+  dashed_underline: string,
   /** A seen agent's nap "z" on a plain row, dimmer than faint. */
   nap_fg: string,
   /** The agent row under the pointer, halfway from the panel to `selected`. */
@@ -131,6 +133,7 @@ palette.derived(() => {
   ghost_bar = new Style({ fg: "strong", bg: "selected" }).sgr() + "▌";
   rule_underline = "\x1b[4m" + underline("line");
   dotted_underline = "\x1b[4:4m" + underline("line");
+  dashed_underline = "\x1b[4:5m" + underline("line");
   ghost_underline = "\x1b[4m" + underline("strong");
   const nap = mix(colors.faint, colors.bg, 50);
   nap_fg = fgRgb(nap);
@@ -1795,9 +1798,13 @@ export class View {
         w.splat(" ", v.width - 1);
       }
       const divider = index + 1 < Math.min(workspaces.length - v.workspace_offset, v.workspaceCapacity());
+      // The last active workspace above a stale one on its machine gets a dashed divider.
+      const next = workspaces[absolute + 1],
+        boundary = ws.stale_step === 0 && next !== undefined && next.stale_step > 0 && next.machine === ws.machine,
+        divider_rule = boundary ? dashed_underline : rule_underline;
       // Without a resource row, the separator underlines the status row,
       // text included, as between agents.
-      const rule = divider && v.workspaceRows() === 2 ? rule_underline : "";
+      const rule = divider && v.workspaceRows() === 2 ? divider_rule : "";
       w.write(`${w.cup(y + 2, 2)}${meta}${rule}`);
       if (rule.length > 0) {
         w.splat(" ", v.width - 3);
@@ -1843,7 +1850,7 @@ export class View {
           w.splat(" ", v.width - 1);
         }
         w.write(`${w.cup(y + 3, 2)}${meta}`);
-        if (divider) w.write(rule_underline);
+        if (divider) w.write(divider_rule);
         drawResources(w, ws.resources, v, v.resource_hover === ws.id, tinted);
         w.write("\x1b[24;59m");
         w.write(panel);

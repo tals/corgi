@@ -1045,7 +1045,10 @@ test("workspace order offers auto-order and each threshold's presets, with a val
   expect(pick(1)).toEqual({ kind: "auto_order_threshold", field: "pause_after", minutes: 1 });
   // The one in use does nothing.
   expect(pick(3)).toBeNull();
-  expect(pick(6)).toEqual({ kind: "auto_order_threshold", field: "stale_after", minutes: 3 });
+  // Stale 3 and 5 would not be longer than pause 5: they are disabled.
+  expect(pick(6)).toBeNull();
+  expect(pick(7)).toBeNull();
+  expect(pick(6 + 3)).toEqual({ kind: "auto_order_threshold", field: "stale_after", minutes: 15 });
   expect(pick(1 + 5 + 6 + 6)).toEqual({ kind: "auto_order_threshold", field: "archive_after", minutes: null });
   // A value the file holds outside the presets shows, chosen, in its place.
   menu.auto_order = { enabled: true, pause_after: 5, stale_after: 7, archive_after: null };

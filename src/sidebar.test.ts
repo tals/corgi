@@ -47,6 +47,7 @@ import {
   ghost_bar,
   rule_underline,
   dotted_underline,
+  dashed_underline,
   lists_x,
   spotlight_dim,
   unlit,
@@ -410,6 +411,27 @@ test("a paused agent takes the pause glyph, green while unread and gray once rea
   e.state = "working";
   out = draw(view, [e], []);
   expect(has(out, "‖")).toBe(false);
+});
+
+test("a dashed divider separates the last active workspace from the stale ones on its machine", () => {
+  const card = (id: number, name: string, stale_step: number, machine = "") =>
+    workspaceEntry({ id, name, cwd: "/tmp", active: false, stale_step, machine });
+  const rows = [card(1, "alpha", 0), card(2, "bravo", 0), card(3, "charlie", 2), card(4, "delta", 4)];
+  const view = View.init(100, 60, true, 0, 0).withWorkspaces(rows.length, 0);
+  let out = draw(view, [], rows);
+  expect(count(out, dashed_underline)).toBe(1);
+  // Between the active ones, and between the stale ones, the usual solid divider.
+  expect(count(out, rule_underline)).toBeGreaterThanOrEqual(2);
+  // No stale workspace, no boundary.
+  out = draw(
+    view,
+    [],
+    rows.map(r => ({ ...r, stale_step: 0 })),
+  );
+  expect(count(out, dashed_underline)).toBe(0);
+  // Another machine's stale workspace below is no boundary of this one.
+  out = draw(view, [], [card(1, "alpha", 0, "home"), card(2, "bravo", 2, "lab")]);
+  expect(count(out, dashed_underline)).toBe(0);
 });
 
 test("a stale workspace's name fades by step; badges, status and a selected row keep their colors", () => {

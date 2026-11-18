@@ -71,6 +71,8 @@ most recently used first.
   lands; one you drag moves at once.
 - **Fade**: a stale workspace's name darkens in five steps, closer together in
   the first hour, down to the gray of a napping agent. Only the name fades.
+  A dashed line under the last active workspace marks where the stale ones
+  begin.
 - **Archive after** (default 8 hours, or Off): a stale workspace idle this
   long is archived as if you had chosen **Archive workspace**, without the
   review. It waits while it runs a program or serves a link, its process list
@@ -82,6 +84,9 @@ most recently used first.
   long (no agent working, no typing, no prompt sent to Corgi), every idle
   clock stops until something does. Lunch, nights, a stopped Corgi and a
   sleeping computer don't age anything.
+
+Setup keeps the three in order, pause shorter than stale and stale shorter
+than archive, and grays out the choices that would break it.
 
 You can still drag workspaces within the active group, including to the slot
 right below it. A stale workspace stays where its idle time puts it, and
