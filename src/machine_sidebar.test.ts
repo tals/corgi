@@ -67,7 +67,10 @@ test("all workspaces list each machine's rows by their own ids, cached ones unti
   expect(a.id).toBe(1);
   expect(view.rowOf(b.id)).toEqual({ machine: remote.machine, id: 1 });
   expect(b.unavailable).toContain("Connecting");
-  expect(b.connecting).toBe(true);
+  // It glimmers once connecting has taken a second.
+  expect(b.connecting).toBe(false);
+  Reflect.set(remote, "connecting", { since: performance.now() - 1000, from: null });
+  expect(view.workspaceRows()[1].connecting).toBe(true);
   expect(b.active).toBe(false);
   view.selectRow(b.id);
   expect(chosen).toEqual([{ machine: "work", workspace: 1 }]);
@@ -215,10 +218,11 @@ test("machine filter colors connection states and measured reception, including 
   local.status = "online";
   remote.updated = 1;
   workspaces.show();
+  // A connect after a stall shows at once.
   const cases: [Status, palette.Token, string][] = [
     ["online", "accent", "▂▄▆█"],
-    ["connecting", "warm", "Connecting"],
     ["stalled", "warm", "Connection"],
+    ["connecting", "warm", "Connecting"],
     ["offline", "hot", "offline"],
     ["paused", "muted", "Paused"],
     ["incompatible", "hot", "Incompatible"],
@@ -237,6 +241,11 @@ test("machine filter colors connection states and measured reception, including 
       }
     }
   }
+  // One from online still looks online for its first second, as the sidebar does.
+  const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(64);
+  remote.status = "online";
+  remote.status = "connecting";
+  expect(frame(side, [], workspaces.draw(side)).text.split("\n")[5]).toContain("▂▄▆█ online");
   expect(view.machine_filter).toBeNull();
 });
 
@@ -313,6 +322,8 @@ test("header quality comes from the current connection, without rating local or 
     view,
   } = world("local", "work");
   local.updated = remote.updated = 1;
+  // Nothing is measured, nor shown, in a first connect's first second.
+  expect(view.workspaceRows().map(row => row.link_quality)).toEqual([null, null]);
   local.status = remote.status = "online";
   expect(view.workspaceRows().map(row => row.link_quality)).toEqual([null, null]);
   local.stats.answer(20, false);
@@ -332,6 +343,7 @@ test("machine headers keep their timer visible when a state or machine name is c
   remote.status = "connecting";
   Reflect.set(remote, "task", Promise.resolve());
   Reflect.set(remote, "task_started", performance.now() - 123000);
+  Reflect.set(remote, "connecting", { since: performance.now() - 123000, from: null });
   const row = view.workspaceRows()[1];
   expect(row.connection_status?.seconds).toBe(123);
   for (const width of [24, 28, 44]) {

@@ -531,6 +531,38 @@ test("out-of-order numbered replies only acknowledge a contiguous prefix", async
   }
 });
 
+test("a connect from online or at startup shows nothing for its first second", async () => {
+  const endpoint = localEndpoint("/tmp/corgi-status-test/control.sock", new Probe(), new Host());
+  const presence = () => {
+    const { online, connecting, stopped, connection_status } = endpoint.machine.presence();
+    // Rows stay in keyboard navigation throughout.
+    expect(stopped).toBe(false);
+    return { online, connecting, label: connection_status?.label ?? null };
+  };
+  const age = (ms: number) => {
+    const spell = Reflect.get(endpoint, "connecting");
+    Reflect.set(endpoint, "connecting", { ...spell, since: spell.since - ms });
+  };
+  try {
+    expect(presence()).toEqual({ online: false, connecting: false, label: null });
+    age(1000);
+    expect(presence()).toEqual({ online: false, connecting: true, label: "connecting" });
+    endpoint.status = "online";
+    Reflect.set(endpoint, "connected", true);
+    // A reconnect looks online until it's taken a second.
+    endpoint.status = "connecting";
+    expect(presence()).toEqual({ online: true, connecting: false, label: null });
+    age(1000);
+    expect(presence()).toEqual({ online: false, connecting: true, label: "reconnecting" });
+    // After an outage that showed, it says so at once.
+    endpoint.status = "offline";
+    endpoint.status = "connecting";
+    expect(presence()).toEqual({ online: false, connecting: true, label: "reconnecting" });
+  } finally {
+    await endpoint.close();
+  }
+});
+
 test("cached identity does not describe the first connection as a reconnect", async () => {
   const endpoint = localEndpoint("/tmp/corgi-status-test/control.sock", new Probe(), new Host());
   try {
@@ -733,6 +765,8 @@ test("a spare that takes over brings its own data connection, already dialed", a
   }
 });
 
+const typedBytes = (typed: { bytes: number[] }[]) => typed.flatMap(t => t.bytes);
+
 test("planned reconnect bounds input already queued and releases a full hold without spreading arguments", async () => {
   for (const bytes of [64 * 1024, 256 * 1024]) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
@@ -740,7 +774,7 @@ test("planned reconnect bounds input already queued and releases a full hold wit
       endpoint.enqueue(new Uint8Array(bytes).fill(120));
       Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
       const held = Reflect.get(endpoint, "handoff");
-      expect(held.input.length).toBe(bytes === 64 * 1024 ? bytes : 0);
+      expect(typedBytes(held.input).length).toBe(bytes === 64 * 1024 ? bytes : 0);
       expect(Reflect.get(endpoint, "input")).toEqual([]);
       if (bytes > 64 * 1024) {
         expect(endpoint.error).toBe("Input queue full; unsent input discarded");
@@ -751,7 +785,7 @@ test("planned reconnect bounds input already queued and releases a full hold wit
       Reflect.set(endpoint, "resumed", true);
       Reflect.get(endpoint, "pumpUi").call(endpoint);
       expect(Reflect.get(endpoint, "handoff")).toBeNull();
-      expect(Reflect.get(endpoint, "input")).toEqual(bytes === 64 * 1024 ? Array(bytes).fill(120) : [121]);
+      expect(typedBytes(Reflect.get(endpoint, "input"))).toEqual(bytes === 64 * 1024 ? Array(bytes).fill(120) : [121]);
     } finally {
       await endpoint.close();
     }
@@ -775,6 +809,67 @@ test("typing into an idle viewer goes at once, not at the idle step's pace", asy
   }
 });
 
+test("keys keep whether they came while dropping, through a reload, and the view routes them so", async () => {
+  const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
+  try {
+    const view = Reflect.get(endpoint, "view").call(endpoint);
+    view.input_state.attached = true;
+    Reflect.set(endpoint, "settled", true);
+    const routed: [string, boolean][] = [],
+      expired: boolean[] = [];
+    view.input = async (data: Uint8Array, _current: () => boolean, dropped: boolean) =>
+      void routed.push([Buffer.from(data).toString(), dropped]);
+    view.expireInput = async (_current: () => boolean, dropped: boolean) => void expired.push(dropped);
+    endpoint.enqueue(Buffer.from("a"));
+    Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
+    endpoint.enqueue(Buffer.from("b"), true);
+    endpoint.enqueue(Buffer.from("c"), true);
+    endpoint.generation++;
+    endpoint.ready = true;
+    Reflect.set(endpoint, "resumed", true);
+    Reflect.get(endpoint, "pumpUi").call(endpoint);
+    await Reflect.get(endpoint, "ui_task");
+    expect(routed).toEqual([
+      ["a", false],
+      ["bc", true],
+    ]);
+    // What the view holds back of the last keys came while dropping too.
+    expect(expired).toEqual([true]);
+  } finally {
+    await endpoint.close();
+  }
+});
+
+test("switching machines while routing reload input discards later batches", async () => {
+  const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
+  try {
+    const view = Reflect.get(endpoint, "view").call(endpoint);
+    view.input_state.attached = true;
+    Reflect.set(endpoint, "settled", true);
+    const routed: [string, boolean][] = [],
+      expired: boolean[] = [];
+    view.input = async (data: Uint8Array, _current: () => boolean, dropped: boolean) => {
+      routed.push([Buffer.from(data).toString(), dropped]);
+      endpoint.deactivate();
+    };
+    view.expireInput = async (_current: () => boolean, dropped: boolean) => void expired.push(dropped);
+    endpoint.enqueue(Buffer.from("switch"));
+    Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
+    endpoint.enqueue(Buffer.from("dropped"), true);
+    endpoint.enqueue(Buffer.from("later"));
+    endpoint.generation++;
+    endpoint.ready = true;
+    Reflect.set(endpoint, "resumed", true);
+    Reflect.get(endpoint, "pumpUi").call(endpoint);
+    await Reflect.get(endpoint, "ui_task");
+    expect(routed).toEqual([["switch", false]]);
+    expect(expired).toEqual([]);
+    expect(Reflect.get(endpoint, "input")).toEqual([]);
+  } finally {
+    await endpoint.close();
+  }
+});
+
 test("keys held through a reload still go after a retry or a pause", async () => {
   for (const action of ["retry", "pause"] as const) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
@@ -784,7 +879,7 @@ test("keys held through a reload still go after a retry or a pause", async () =>
       endpoint.enqueue(Uint8Array.of(98));
       endpoint[action]();
       expect(Reflect.get(endpoint, "handoff")).toBeNull();
-      expect(Reflect.get(endpoint, "input")).toEqual([97, 98]);
+      expect(typedBytes(Reflect.get(endpoint, "input"))).toEqual([97, 98]);
     } finally {
       await endpoint.close();
     }

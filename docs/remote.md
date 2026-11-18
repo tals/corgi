@@ -143,7 +143,9 @@ can recover before the original request deadline, while a daemon that is only
 busy keeps its connection. Cached workspaces do not mean the current viewer has
 connected: initial attempts say **Connecting… 4s**, including retries before the
 first success. **Reconnecting… 4s** follows a previously working link. The timer
-shows time spent in the current attempt.
+shows time spent in the current attempt. Most connects finish within a second,
+so one at startup or from a working link shows nothing until then; one after
+an outage that was already showing says so at once.
 Numbered actions retain their replies across that handover. A worktree checkout
 uses a separate connection and is not automatically replayed; if that connection
 is lost, check the remote worktree before retrying.
@@ -156,16 +158,16 @@ the machine but doesn't move you back. If the connection goes before the reply
 comes, Corgi says so: the request may have run, so check before trying again.
 
 A machine still behind a second after a switch, a stall or a reconnect says so
-on the focused pane's top rows: **work: Syncing… 2s · 3 keys waiting**, or the
-stall, countdown or error instead. Once the machine can't be reached (down,
-paused or failing to reconnect), **Ctrl+R** cancels the current request or SSH
-handshake and starts a new attempt immediately, **Ctrl+X** pauses retries, and
-**!** shows details. While it's only stalled or reloading, those keys wait in
-the pane like the rest, so a shell's history search doesn't tear down a slow
-link. **Ctrl+C** still goes to the agent, except before the machine has first
-come online, when it detaches the viewer. These controls also work in the
-machine dropdown, which remains responsive during an outage: open it with
-**Ctrl+]** to manage connections there.
+on the focused pane's top rows: **work: Syncing… 2s**, or the stall, countdown
+or error instead. While that notice shows a machine that isn't online, its
+panes drop typing, clicks and pointer moves rather than hold them for later;
+Corgi's own keys, such as the prefix and **Ctrl+]**, still work. Once the
+machine can't be reached (down, paused or failing to reconnect), **Ctrl+R**
+cancels the current request or SSH handshake and starts a new attempt
+immediately, **Ctrl+X** pauses retries, and **!** shows details. Before the
+machine has first come online, **Ctrl+C** detaches the viewer. These controls
+also work in the machine dropdown, which remains responsive during an outage:
+open it with **Ctrl+]** to manage connections there.
 
 Each connection carries a link the daemon keeps for ten minutes after the
 connection goes, as EternalTerminal keeps a session. Typing and actions already
@@ -176,10 +178,10 @@ controls. Only when the link has expired, or the daemon has restarted, can a
 request's outcome be unknown; Corgi then says so, and you check before repeating
 it.
 
-Typing is never dropped while a machine catches up. Keys go to the pane they
-were typed into and wait there through a switch, a stall or a reconnect, and
-are sent once the machine is back online, even if you've moved on to another machine. A paste interrupted
-by an outage finishes after it. Keys meant for a daemon that has since been
+Keys typed before the notice shows go to the pane they were typed into and
+wait there through a switch, a stall or a reconnect, and are sent once the
+machine is back online, even if you've moved on to another machine. A paste
+interrupted by an outage finishes after it. Keys meant for a daemon that has since been
 replaced are never sent to the new one. A daemon incarnation identifies which
 cached selections can be restored.
 Pausing or detaching closes only the viewer's connections; remote agents keep

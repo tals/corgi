@@ -5470,6 +5470,7 @@ test("all agents lists each online machine's under its name, and its rows switch
     online,
     link_quality: null,
     connecting: false,
+    stopped: false,
     connection_status: null,
     description: "",
     cached: [],
@@ -6411,6 +6412,77 @@ test("while a pane's input waits, only hovers give way: clicks, drags and the wh
   }
 });
 
+test("input that came while its machine dropped it reaches no pane, pairing presses with releases", async () => {
+  const s: any = new Controller(transport(async () => ({ ok: true })));
+  s.width = 100;
+  s.height = 30;
+  s.sidebar_open = false;
+  s.input_state.attached = true;
+  s.receiveSnapshot({
+    workspaces: [
+      {
+        id: 1,
+        name: "one",
+        cwd: "/tmp",
+        model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 },
+      },
+    ],
+    panes: [
+      {
+        id: 1,
+        workspace: 1,
+        tab: 1,
+        cols: 100,
+        rows: 29,
+        agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
+      },
+    ],
+    conversations: [],
+    headless_sessions: [],
+  });
+  const source = new NativeTerminal(100, 29);
+  try {
+    source.feed("\x1b[?1003h\x1b[?1006h");
+    s.runtime.pane(1).terminal.receive(source.surface(1));
+    s.frame();
+    const place = s.layoutView().placements(s.area())[0].rect;
+    const at = (button: number, x: number, release = false) =>
+      `\x1b[<${button};${place.x + x + 1};${place.y + 3}${release ? "m" : "M"}`;
+    const terminal = s.runtime.pane(1).terminal,
+      pane = s.runtime.pane(1);
+    const take = () => {
+      const text = Buffer.from(terminal.pending).toString();
+      terminal.pending = [];
+      return text;
+    };
+    const dropped = (text: string) => s.input(bytes(text), () => true, true);
+    pane.agent.attention = "needs_input";
+    await dropped("y" + at(35, 1));
+    expect(take()).toBe("");
+    // A key that never reached the agent doesn't answer it.
+    expect(pane.agent.attention).toBe("needs_input");
+    await s.input(bytes("pwd"));
+    expect(take()).toBe("pwd");
+    // A press that went keeps its drag and release; one dropped drops them.
+    await s.input(bytes(at(0, 3)));
+    await dropped(at(32, 4) + at(0, 4, true));
+    expect(
+      [...take().matchAll(/\x1b\[<(\d+);(\d+);\d+([Mm])/g)].map(([, b, x, k]) => `${b}@${Number(x) - 1}${k}`),
+    ).toEqual(["0@3M", "32@4M", "0@4m"]);
+    await dropped(at(0, 5));
+    await s.input(bytes(at(32, 6) + at(0, 6, true)));
+    expect(take()).toBe("");
+    // A paste goes or is dropped whole, as its start was.
+    await dropped("\x1b[200~one");
+    await s.input(bytes(" two\x1b[201~\x1b[200~three"));
+    await s.input(bytes(" four\x1b[201~"));
+    expect(take()).toBe("three four");
+  } finally {
+    source.destroy();
+    viewer.close(s);
+  }
+});
+
 test("a paste cut off by an input reset, or failing part-way, never leaves its pane refusing pastes", async () => {
   const { s, answer } = slowDaemon();
   try {
@@ -6695,6 +6767,33 @@ test("switching machines during an awaited key discards the old batch's tail", a
     expect(s.input_state.keybuf).toEqual([]);
   } finally {
     pending.resolve();
+    other.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
+test.each([false, true])("stale input cannot enter the selected machine's buffer (dropped: %s)", async dropped => {
+  const s = controller(),
+    local = s.machine,
+    other = new Machine(
+      transport(async () => ({})),
+      "work",
+      true,
+    );
+  s.receiveSnapshot(folders("/local"));
+  s.adopt(other);
+  s.receiveSnapshot(folders("/remote"), other);
+  s.input_state.attached = true;
+  try {
+    s.switchMachine(other);
+    await s.input(bytes("stale"), () => s.machine === local, dropped);
+    expect(s.input_state.keybuf).toEqual([]);
+    expect(s.input_state.active).toBe(false);
+    await s.expireInput();
+    await s.input(bytes("fresh"));
+    expect(Buffer.from(other.runtime.pane(1)!.terminal.pending).toString()).toBe("fresh");
+    expect(local.runtime.pane(1)!.terminal.pending).toEqual([]);
+  } finally {
     other.runtime.destroy();
     viewer.close(s);
   }

@@ -287,34 +287,6 @@ test("terminal input with uncertain delivery is not replayed", async () => {
   }
 });
 
-test("typing counts as waiting until its send is answered", async () => {
-  let answer = () => {};
-  const terminal = new mirror.Terminal(
-    transport(async () => {
-      await new Promise<void>(resolve => (answer = resolve));
-      return { result: {} };
-    }),
-    1,
-    80,
-    24,
-  );
-  try {
-    terminal.send("hé");
-    terminal.send("\x1b[A");
-    terminal.send("\x1b[200~pasted\x1b[201~");
-    // Two characters, one arrow, and a paste between its two markers.
-    expect(terminal.waiting()).toBe(2 + 1 + 8);
-    const sent = terminal.flush();
-    expect(terminal.pending).toEqual([]);
-    expect(terminal.waiting()).toBe(11);
-    answer();
-    await sent;
-    expect(terminal.waiting()).toBe(0);
-  } finally {
-    terminal.destroy();
-  }
-});
-
 test("an inactive viewer keeps resource telemetry without screen interests or read receipts", async () => {
   let request: unknown;
   const view = new Controller(

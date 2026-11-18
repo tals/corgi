@@ -11,10 +11,10 @@ test("the notice covers only its pane's top rows", () => {
     screen.feed(base);
     const before = screen.surface(0).surface;
     screen.feed(
-      draw({ status: "work: Syncing… 2s · 3 keys waiting", keys: "Ctrl+R retry · Ctrl+X pause · ! details" }, pane),
+      draw({ status: "work: Connection stalled (2s)", keys: "Ctrl+R retry · Ctrl+X pause · ! details" }, pane),
     );
     const after = screen.surface(0).surface.lines.map(line => Bun.stripANSI(line));
-    expect(after[1].slice(10, 50)).toContain("work: Syncing… 2s · 3 keys waiting");
+    expect(after[1].slice(10, 50)).toContain("work: Connection stalled (2s)");
     expect(after[2].slice(10, 50)).toContain("Ctrl+R retry");
     for (const y of [1, 2]) {
       expect(after[y].slice(0, 10)).toBe(Bun.stripANSI(before.lines[y]).slice(0, 10));

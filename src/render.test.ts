@@ -55,7 +55,7 @@ test("the empty sidebar's New keycap prefers short direct bindings and falls bac
   expect(frame(emptyView(), [], 100, 30, u)).toContain(palette.keycap + " Ctrl+A c ");
 });
 
-test("machine reception uses cached Kitty pixels, falls back to blocks, and yields to retry text and cards", () => {
+test("machine reception uses cached Kitty pixels, falls back to blocks, and yields to retry text, cards and menus", () => {
   const images = new SignalBars();
   const row = sidebar.workspaceEntry({
     id: 1,
@@ -74,10 +74,17 @@ test("machine reception uses cached Kitty pixels, falls back to blocks, and yiel
     cell_pixels: { width: 10, height: 20 },
   });
   const draw = () => frame(null, [], 120, 40, u);
-  expect(draw()).toContain("█");
+  // The first frame keeps the bars' room while their image uploads.
+  expect(draw()).not.toContain("█");
   expect(images.end()).toContain("f=32");
   const withImage = draw();
   expect(withImage).toContain("a=p,i=730404");
+  // Under a menu drawn over the frame, they keep their room but aren't placed.
+  u.signal_bars_hidden = true;
+  const hidden = draw();
+  expect(hidden).not.toContain("a=p,i=730404");
+  expect(hidden).not.toContain("█");
+  u.signal_bars_hidden = false;
   row.connecting = true;
   row.connection_status = { label: "connecting", seconds: 4, color: "warm" };
   expect(draw()).toContain("connecting 4s");
@@ -93,7 +100,7 @@ test("machine reception uses cached Kitty pixels, falls back to blocks, and yiel
 
 test("setup clips signal bars at its border and restores them when closed", () => {
   const images = new SignalBars(),
-    host = Terminal.create(130, 30);
+    host = Terminal.create(134, 30);
   const u = ui({
     message: "",
     copy_mode: false,
@@ -105,19 +112,19 @@ test("setup clips signal bars at its border and restores them when closed", () =
     cell_pixels: { width: 8, height: 16 },
   });
   const draw = () => {
-    host.feed(images.begin() + frame(null, [], 130, 30, u) + images.end());
-    return host.surface(1).surface.images!.filter(p => p.image.width === 32);
+    host.feed(images.begin() + frame(null, [], 134, 30, u) + images.end());
+    return host.surface(1).surface.images!.filter(p => p.image.width === 16);
   };
   try {
     draw();
     const [shown] = draw();
-    expect(shown.source_width).toBe(32);
+    expect(shown.source_width).toBe(16);
     u.corgi_setup = SetupMenu.open();
     const [clipped] = draw();
     expect(clipped.x).toBe(shown.x);
     expect(clipped.source_width).toBe(8);
     u.corgi_setup = null;
-    expect(draw()[0].source_width).toBe(32);
+    expect(draw()[0].source_width).toBe(16);
   } finally {
     host.destroy();
   }

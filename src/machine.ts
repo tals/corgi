@@ -34,6 +34,8 @@ export interface Presence {
   online: boolean;
   link_quality: WorkspaceEntry["link_quality"];
   connecting: boolean;
+  /** Retries have stopped: it's paused, failed or incompatible, and waits for you. */
+  stopped: boolean;
   connection_status: WorkspaceEntry["connection_status"];
   /** Why it isn't online. */
   description: string;
@@ -104,6 +106,7 @@ export class Machine {
     online: true,
     link_quality: null,
     connecting: false,
+    stopped: false,
     connection_status: null,
     description: "",
     cached: [],

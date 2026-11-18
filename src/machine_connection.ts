@@ -34,10 +34,23 @@ const handoff_input_limit = 64 * 1024;
 const handoff_ms = 30_000;
 
 export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" | "incompatible" | "attention";
+/** Keys as they came, and whether the machine was dropping input then. */
+interface Typed {
+  bytes: number[];
+  dropped: boolean;
+}
+const typedLength = (typed: Typed[]) => typed.reduce((n, t) => n + t.bytes.length, 0);
+function addTyped(typed: Typed[], bytes: Uint8Array, dropped: boolean): void {
+  let last = typed.at(-1);
+  if (last?.dropped !== dropped) typed.push((last = { bytes: [], dropped }));
+  for (const byte of bytes) last.bytes.push(byte);
+}
 /** How often an idle viewer's machines are stepped. */
 export const quiet_ms = 500;
 /** A remote machine silent this long gets a second connection beside the first. */
 export const race_ms = 4000;
+/** Most connects are done by then: until it, a machine looks as it did. */
+const quiet_connect_ms = 1000;
 /** The longest a failing connection waits before trying again. */
 const max_retry_ms = 15_000;
 /** An outage this long is no blip: fresh dials beside it slow to the retries' pace. */
@@ -54,7 +67,29 @@ export class Endpoint {
     const control = now - Math.max(this.task_started, this.stats.lastReceived ?? this.task_started);
     return this.stream?.age(now) ?? Math.max(control, this.data?.age(now) ?? 0);
   }
-  status: Status = "connecting";
+  private current_status: Status = "connecting";
+  /** When the machine began connecting, and its status before; none at startup. */
+  private connecting: { since: number; from: Status | null } = { since: performance.now(), from: null };
+  get status(): Status {
+    return this.current_status;
+  }
+  /** The status the viewer shows, and whether it's a connect's `quiet`
+   * first second. Most connects are done by then, so meanwhile one from
+   * online still looks online, and one at startup shows no progress yet.
+   * One after an outage that showed shows at once. */
+  display(now = performance.now()): { status: Status; quiet: boolean } {
+    const from = this.connecting.from,
+      quiet =
+        this.status === "connecting" &&
+        (from === null || from === "online") &&
+        now - this.connecting.since < quiet_connect_ms;
+    return { status: quiet && from === "online" ? "online" : this.status, quiet };
+  }
+  set status(value: Status) {
+    if (value === "connecting" && this.current_status !== "connecting")
+      this.connecting = { since: performance.now(), from: this.current_status };
+    this.current_status = value;
+  }
   error = "";
   issue: Exclude<machine_path.Issue, "fatal"> = "error";
   generation = 0;
@@ -128,7 +163,9 @@ export class Endpoint {
   private next = 0;
   private opened = false;
   private connected = false;
-  private input: number[] = [];
+  private input: Typed[] = [];
+  /** The keys last routed came while dropping: what the view still holds of them did too. */
+  private last_dropped = false;
   private handoff: {
     instance: string;
     selection: number;
@@ -136,7 +173,7 @@ export class Endpoint {
     pane: number | null;
     generation: number;
     until: number;
-    input: number[];
+    input: Typed[];
   } | null = null;
   private ui_task: Promise<void> | null = null;
   private resource_detail: number | null = null;
@@ -169,16 +206,20 @@ export class Endpoint {
     // Links point at the daemon's machine: another one, or this one when the
     // viewer itself runs over SSH.
     this.machine.remote_links = remote || sshViewer();
-    this.machine.presence = () => ({
-      online: this.status === "online",
-      link_quality: remote ? (this.status === "online" ? this.stats.quality : 0) : null,
-      connecting: this.status === "connecting" || this.status === "stalled" || this.status === "offline",
-      connection_status: this.headerStatus(),
-      description: this.description(),
-      cached: this.workspaces,
-      seen: this.updated > 0,
-      stale: this.workspaces_instance !== "" && this.workspaces_instance !== this.instance,
-    });
+    this.machine.presence = () => {
+      const { status, quiet } = this.display();
+      return {
+        online: status === "online",
+        link_quality: remote ? (status === "online" ? this.stats.quality : quiet ? null : 0) : null,
+        connecting: !quiet && (status === "connecting" || status === "stalled" || status === "offline"),
+        stopped: status === "paused" || status === "attention" || status === "incompatible",
+        connection_status: quiet ? null : this.headerStatus(),
+        description: this.description(),
+        cached: this.workspaces,
+        seen: this.updated > 0,
+        stale: this.workspaces_instance !== "" && this.workspaces_instance !== this.instance,
+      };
+    };
     this.cache = new Cache(identity);
     const cached = this.cache.read();
     if (cached) {
@@ -239,7 +280,7 @@ export class Endpoint {
   }
   /** Keys the view hasn't routed yet, taken to go elsewhere. */
   takeInput(): Uint8Array {
-    return Uint8Array.from(this.input.splice(0));
+    return Uint8Array.from(this.input.splice(0).flatMap(typed => typed.bytes));
   }
   choose(at: Focus, instance: string): void {
     this.focus = null;
@@ -274,21 +315,23 @@ export class Endpoint {
     if (!(this.remote && this.status === "offline")) this.next = 0;
     this.onChange();
   }
-  enqueue(bytes: Uint8Array): void {
+  /** Input for the view to route; `dropped` says it came while the
+   * machine's notice dropped input, so none of it reaches a pane. */
+  enqueue(bytes: Uint8Array, dropped = false): void {
     if (this.handoff) {
-      if (this.handoff.input.length + bytes.length <= handoff_input_limit)
-        for (const byte of bytes) this.handoff.input.push(byte);
+      if (typedLength(this.handoff.input) + bytes.length <= handoff_input_limit)
+        addTyped(this.handoff.input, bytes, dropped);
       else this.clearInput();
       this.wake();
       return;
     }
-    if (this.input.length + bytes.length > 1024 * 1024) {
+    if (typedLength(this.input) + bytes.length > 1024 * 1024) {
       this.error = "Input queue full; unsent input discarded";
       this.clearInput();
       this.fresh = false;
       return;
     }
-    for (const byte of bytes) this.input.push(byte);
+    addTyped(this.input, bytes, dropped);
     this.wake();
   }
   private syncNavigation(): void {
@@ -326,8 +369,12 @@ export class Endpoint {
     const input = this.input.splice(0);
     this.ui_task = (async () => {
       try {
-        if (input.length) await view.input(Uint8Array.from(input), current);
-        if (current()) await view.expireInput(current);
+        for (const typed of input) {
+          if (!current()) return;
+          await view.input(Uint8Array.from(typed.bytes), current, typed.dropped);
+        }
+        if (input.length) this.last_dropped = input.at(-1)!.dropped;
+        if (current()) await view.expireInput(current, this.last_dropped);
       } catch (error) {
         if (current()) view.notice(errors.name(error) ?? "ActionFailed");
       } finally {
@@ -617,7 +664,7 @@ export class Endpoint {
   private holdHandoffInput(): void {
     const input = this.input;
     this.input = [];
-    if (input.length > handoff_input_limit) {
+    if (typedLength(input) > handoff_input_limit) {
       this.clearInput();
       this.error = "Input queue full; unsent input discarded";
     }
@@ -628,7 +675,7 @@ export class Endpoint {
       pane: this.view().focused()?.id ?? null,
       generation: this.generation,
       until: performance.now() + handoff_ms,
-      input: input.length <= handoff_input_limit ? input : [],
+      input: typedLength(input) <= handoff_input_limit ? input : [],
     };
     this.ready = this.fresh = false;
     this.wake();
@@ -1026,10 +1073,6 @@ export class Endpoint {
       metadata: metadata(machine.runtime),
     });
     return changed;
-  }
-  /** Keys typed into this machine's panes that haven't reached them. */
-  waiting(): number {
-    return this.machine.runtime.panes.reduce((keys, pane) => keys + pane.terminal.waiting(), 0);
   }
   /** Ends pastes and uploads, and unless kept, keys the view hasn't routed;
    * keys already typed into panes still go once the machine is reachable. */
