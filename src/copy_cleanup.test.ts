@@ -169,7 +169,9 @@ test("a backslash continues a line only when it isn't escaped", () => {
   const two = (first: string) =>
     copyCleanup.clean({ lines: [`  ${first}`, "  rm -rf build"], start_x: 0, first_indent: 2, width: 80 }, "clean");
   expect(two("echo C:\\\\")).toEqual({ text: "echo C:\\\\\nrm -rf build", kind: "document" });
-  expect(two("echo a \\\\\\")).toEqual({ text: "echo a \\\\ rm -rf build", kind: "command" });
+  // As a shell reads it: nothing separates the escaped backslash from the next row.
+  expect(two("echo a \\\\\\")).toEqual({ text: "echo a \\\\rm -rf build", kind: "command" });
+  expect(two("echo a \\\\ \\")).toEqual({ text: "echo a \\\\ rm -rf build", kind: "command" });
 });
 
 test("cleaning up a full 200x60 selection takes under 2 ms", () => {
