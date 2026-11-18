@@ -346,7 +346,7 @@ $.panes[].launch?|agent.effort: string
 $.panes[].launch?|agent.args[]: string
 $.panes[].launch?|agent.env[][]: string
 $.panes[].launch?|agent.observed: bool
-$.panes[].launch?|command: custom bounded_text.BoundedText(2048)
+$.panes[].launch?|command: string
 $.panes[].dormant: bool
 $.panes[].manual_resume: bool
 $.panes[].effort: optional
@@ -354,9 +354,9 @@ $.panes[].effort?.value: string
 $.panes[].effort?.done[]: string
 $.panes[].effort?.last: string
 $.panes[].manual_command: optional
-$.panes[].manual_command?: custom bounded_text.BoundedText(2048)
+$.panes[].manual_command?: string
 $.panes[].recovery_command: optional
-$.panes[].recovery_command?: custom bounded_text.BoundedText(2048)
+$.panes[].recovery_command?: string
 $.closed[].label: custom bounded_text.BoundedText(80)
 $.closed[].cwd: string
 $.closed[].screen.cols: u16
@@ -392,7 +392,7 @@ $.closed[].launch?|agent.effort: string
 $.closed[].launch?|agent.args[]: string
 $.closed[].launch?|agent.env[][]: string
 $.closed[].launch?|agent.observed: bool
-$.closed[].launch?|command: custom bounded_text.BoundedText(2048)
+$.closed[].launch?|command: string
 $.closed[].pane: u32
 $.closed[].tab_index: optional
 $.closed[].tab_index?: u8

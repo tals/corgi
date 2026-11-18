@@ -20,6 +20,7 @@ import * as r_f598c67a8c73 from "./revisions/20261114_015701_f598c67a8c73_provid
 import * as r_e4d557bcd1e4 from "./revisions/20261116_042114_e4d557bcd1e4_separate_recovery_metadata";
 import * as r_726fa383fd91 from "./revisions/20261117_222255_726fa383fd91_remote_account_and_model_rpcs";
 import * as r_ce6d04179c29 from "./revisions/20261117_235930_ce6d04179c29_retained_resume_commands";
+import * as r_b6611ab7ace3 from "./revisions/20261118_090242_b6611ab7ace3_preserve_generated_resume_commands";
 
 export const revisions = [
   r_1dfaa1773956.revision,
@@ -42,9 +43,10 @@ export const revisions = [
   r_e4d557bcd1e4.revision,
   r_726fa383fd91.revision,
   r_ce6d04179c29.revision,
+  r_b6611ab7ace3.revision,
 ];
 export const heads = {
-  state: r_ce6d04179c29.revision.id,
+  state: r_b6611ab7ace3.revision.id,
   checkpoint: r_1dfaa1773956.revision.id,
   handoff: r_3a005bd21b0d.revision.id,
   workspaces: r_f4c12b1642bd.revision.id,

@@ -562,6 +562,9 @@ are fixed; new daemon changes go in the shared state history.
    an active custom launch opens a fresh shell after a crash. If metadata loss
    leaves a dormant command's purpose ambiguous, preserve it at the prompt for
    Enter instead of automatically running it.
+   Resume commands include account selection and resolved transcript paths. Saved
+   commands may exceed the launcher's input limit; older metadata revisions drop
+   oversized command fields while the fixed core retains the complete command.
 5. `state_formats.test.ts` compares the current structures with the fixture
    recorded for that revision in `fixtures/state_revisions/`. Schema changes
    require a new revision; never refresh an existing revision's fixture to

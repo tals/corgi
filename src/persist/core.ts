@@ -1,12 +1,14 @@
 //! Version-one process continuity. Keep this contract independent of metadata schemas.
 import { isAbsolute } from "node:path";
-import type { Runtime } from "../runtime";
+import { Launch, type Runtime } from "../runtime";
 import { ResumeHint } from "../resume_hint";
 import * as checkpoint from "./checkpoint";
 import * as json from "../json";
 import * as errors from "../errors";
 import * as layout from "../layout";
 import * as common from "../providers/common";
+import * as accounts from "../accounts";
+import * as os from "../os";
 
 export type Screen = {
   cols: number;
@@ -63,6 +65,8 @@ export function capture(runtime: Runtime, saved: ReturnType<typeof checkpoint.ca
           pane.manual_command,
           pane.recovery_command,
           pane.launch,
+          p.cwd,
+          pane.account(),
         ),
       };
     }),
@@ -105,7 +109,8 @@ export function fromCheckpoint(value: unknown): Core {
             manual,
             pane.manual_command,
             pane.recovery_command,
-            pane.launch,
+            pane.launch ? Launch.from(pane.launch) : null,
+            pane.cwd,
           ),
           screen: {
             cols: screen.cols,
@@ -129,15 +134,30 @@ export function fromCheckpoint(value: unknown): Core {
   }
 }
 
+function resumeCommand(
+  hint: ResumeHint,
+  launch: Launch | null,
+  cwd: string,
+  account = launch?.account(hint.provider, cwd) ?? "",
+): string | null {
+  if (!hint.args(account)) return null;
+  const command = hint.command(account),
+    env = accounts.env(hint.provider!, account);
+  return env.length ? os.shellWords(["env", ...env.map(([key, value]) => `${key}=${value}`)]) + " " + command : command;
+}
+
 function recoveryCommand(
   hint: ResumeHint,
   dormant: boolean,
   manual: boolean,
   command: unknown,
   recovered: unknown,
-  launch: { command?: string } | null,
+  launch: Launch | null,
+  cwd: string,
+  account?: string,
 ): string | null {
-  if (hint.args()) return hint.command();
+  const resume = resumeCommand(hint, launch, cwd, account);
+  if (resume !== null) return resume;
   if (manual && typeof command === "string") return command;
   // An active custom launch is not a command to replay after a crash.
   return dormant || manual || (typeof recovered === "string" && launch?.command === recovered)
@@ -277,25 +297,31 @@ export function restore(core: Core, metadata: unknown): ReturnType<typeof checkp
         recovery_command = null,
         manual_resume = p.manual_resume;
       if (p.command !== null) {
-        const hint = checkpoint.hydrate(new ResumeHint(), resume_hint);
+        const hint = checkpoint.hydrate(new ResumeHint(), resume_hint),
+          original = launch ? Launch.from(launch) : null;
         // Only a matching hint may supply the protected resume arguments.
-        if (hint.args() === null || hint.command() !== p.command) {
+        if (resumeCommand(hint, original, p.cwd) !== p.command) {
           const retained = extra.recovery_command === p.command,
-            ordinary = !retained && (extra.launch?.command === p.command || extra.manual_command === p.command);
-          launch = { command: p.command };
-          resume_hint = {};
+            ordinary =
+              !retained &&
+              (extra.launch?.command === p.command || (p.manual_resume && extra.manual_command === p.command));
           // A dormant command without metadata may be an ordinary launch.
           if (p.dormant && !ordinary && !retained) manual_resume = true;
+          if (!ordinary) launch = manual_resume ? null : { command: p.command };
+          if (!ordinary || hint.args() !== null) resume_hint = {};
           if (!ordinary && !manual_resume) recovery_command = p.command;
         } else if (typeof extra.recovery_command === "string" && launch?.command === extra.recovery_command)
-          launch = null;
+          launch = new Launch({
+            provider: hint.provider!,
+            env: accounts.env(hint.provider!, original?.account(hint.provider, p.cwd) ?? ""),
+          });
       }
       return {
         binding: {},
         ...extra,
         launch,
         resume_hint,
-        manual_command: p.command,
+        manual_command: manual_resume ? p.command : null,
         recovery_command,
         id: p.id,
         cwd: p.cwd,

@@ -43,9 +43,9 @@ export class ResumeHint {
       args = launch.attach?.(this.session.text(), account);
     return args ? shellWords([command, ...args]) : null;
   }
-  command(): string {
-    const args = this.args();
-    return this.attach() ?? (args && this.provider ? shellWords([this.provider, ...args]) : "");
+  command(account = ""): string {
+    const args = this.args(account);
+    return this.attach(account) ?? (args && this.provider ? shellWords([this.provider, ...args]) : "");
   }
   banner(now: number): string {
     let out = "\x1b[0m\r\n\r\n";

@@ -388,7 +388,10 @@ export class Pane {
       this.launch?.command === this.recovery_command &&
       this.resume_hint.args() !== null
     )
-      return new Launch({ provider: this.resume_hint.provider! });
+      return new Launch({
+        provider: this.resume_hint.provider!,
+        env: accounts.env(this.resume_hint.provider!, this.launch.account(this.resume_hint.provider, this.cwd)),
+      });
     return this.launch ?? (this.resume_hint.provider ? new Launch({ provider: this.resume_hint.provider }) : null);
   }
   /** Shows its saved screen, faded, with nothing running until `Runtime.wake`. */
