@@ -277,9 +277,8 @@ export function load(): Preferences {
     }
   }
 }
-/** Brings both files to this build's revision and refreshes viewer.json's
- * copy of the settings, as every save does: for a viewer starting, and after
- * config.json changes on disk. Throws when another viewer holds the lock. */
+/** Brings both files to this build's revision, as every save does.
+ * Throws when another viewer holds the lock. */
 export function migrate(where = paths()): void {
   save(where, () => {});
 }
@@ -357,10 +356,8 @@ type Plan = {
   /** Files this build can't read, which it never writes. */
   unreadable: { viewer: boolean; config: boolean };
 };
-/** Both files as saving `edit` leaves them: stepped to this build's revision,
- * edited, and with viewer.json's copy of the settings refreshed. A file this
- * build can't read is never written, so an edit to it throws, and nothing is
- * stepped while either can't be read: the settings may still be in viewer.json. */
+/** Steps both files, then applies the edit. An unreadable file is never written
+ * and blocks migration, since viewer.json may still hold settings. */
 function plan(where: Paths, edit: Edit, options: Options = {}): Plan {
   const attempt = (file: string): { raw: Raw | null; error: Error | null } => {
     try {
@@ -400,8 +397,6 @@ function plan(where: Paths, edit: Edit, options: Options = {}): Plan {
   readState(files.viewer, prefs);
   const added = readSettings(files.config ?? {}, prefs).find(p => !skipped.includes(p.field));
   if (options.strict !== false && added !== undefined) throw Error(`${added.field}: ${added.reason}`);
-  // What viewer.json copies must be what config.json holds.
-  if (steps) mirror(files.viewer, prefs);
   return { disk, files, prefs, unreadable: { viewer: viewer.error !== null, config: config.error !== null } };
 }
 /** Saves `edit` under the locks: config.json first, so a viewer that stops
@@ -437,19 +432,6 @@ function cantRead(file: string, error: Error): Error {
   const name = basename(file),
     reason = error.message;
   return Error(i18n.t`Can't read ${name} (${reason}); repair it before saving preferences.`);
-}
-// XXX: Remove for next protocol bump. Releases before config.json read their
-// settings from viewer.json, and reject the whole file over one they can't
-// use: it keeps a copy of the ones this build uses, in their spelling.
-function mirror(viewer: Raw, prefs: Preferences): void {
-  viewer.preset = prefs.preset;
-  viewer.prefix = prefs.prefix;
-  viewer.keys = keybindings.legacy(prefs.keys);
-  assign(viewer, "language", prefs.language);
-  assign(viewer, "theme", prefs.theme);
-  viewer.corgi_intensity = prefs.corgi_intensity;
-  viewer.resources = prefs.resources;
-  viewer.worktree_folder = prefs.worktree_folder;
 }
 /** The file's JSON object, or null when there is no file. */
 function readRaw(file: string): Raw | null {

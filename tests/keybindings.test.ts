@@ -74,9 +74,11 @@ class Keybindings extends Viewers {
     await a.input("/Next tab\r\r\r");
     this.assertIn("Press a shortcut", screen_text(a.state.data, 148, 48).join("\n"));
     await a.input("y\r");
-    const file = this.configFile();
+    const file = this.configFile(),
+      stateFile = join(this.env.XDG_STATE_HOME!, "corgi/viewer.json");
     let saved = JSON.parse(readFileSync(file, "utf8"));
     this.assertEqual(saved.keys.next, ["prefix+y"]);
+    this.assertFalse("keys" in JSON.parse(readFileSync(stateFile, "utf8")));
     await a.input("\x1b[27u\x1b[27u\x1b[27u");
     await a.focus(first);
     this.assertEqual((await a.input("\x02y")).pane, second);
@@ -105,6 +107,7 @@ class Keybindings extends Viewers {
     this.assertEqual((await reopened.input("\x02é")).pane, first);
     saved = JSON.parse(readFileSync(file, "utf8"));
     this.assertEqual(saved.keys.tab, { keys: ["prefix+é", "prefix+f12"] });
+    this.assertFalse("keys" in JSON.parse(readFileSync(stateFile, "utf8")));
   }
 }
 registerCase("Keybindings", Keybindings, { inherited: false });

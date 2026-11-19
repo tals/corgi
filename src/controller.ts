@@ -1441,13 +1441,9 @@ export class Controller {
     try {
       const where = preferences.paths();
       this.reportPreferences(preferences.inspect(where).problems);
-      const settings = keybindingFile.observe(where.config, () => {
-          this.reloadSettings(preferences.inspectConfig(where.config));
-          // Best effort: viewer.json's copy for older releases follows the edit.
-          try {
-            preferences.migrate(where);
-          } catch {}
-        }),
+      const settings = keybindingFile.observe(where.config, () =>
+          this.reloadSettings(preferences.inspectConfig(where.config)),
+        ),
         state = keybindingFile.observe(where.viewer, () => {
           // One being rewritten by hand keeps the order this viewer has.
           const saved = preferences.inspectViewer(where.viewer);

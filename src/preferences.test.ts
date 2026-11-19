@@ -243,18 +243,13 @@ test("the old sleeping-corgi switch becomes brightness, which moves to config.js
       });
       expect(before).not.toHaveProperty("sleeping_corgis");
       migrate(where);
-      // config.json takes what differs from the old defaults; viewer.json keeps all of it.
+      // config.json takes what differs from the old defaults.
       expect(await json(where.config)).toEqual({
         theme: "animal_style",
         resources: { enabled: false },
         ...(intensity === 50 ? {} : { corgi_intensity: intensity }),
       });
-      expect(await json(where.viewer)).toMatchObject({
-        sidebar_width: 44,
-        format: current,
-        corgi_intensity: intensity,
-      });
-      expect(await json(where.viewer)).not.toHaveProperty("sleeping_corgis");
+      expect(await json(where.viewer)).toEqual({ sidebar_width: 44, format: current });
       expect(read(where)).toEqual(before);
     }
     // As before, a brightness the old builds couldn't read leaves the switch in charge.
@@ -354,14 +349,7 @@ test("saving rewrites only what changed and keeps what this build skipped", asyn
     await put(where.config, written);
     update({ theme: "animal_style", sidebar_width: 50 }, where);
     expect(await json(where.config)).toEqual({ ...written, theme: "animal_style" });
-    // Its copy for older releases holds only what this build uses.
-    expect(await json(where.viewer)).toMatchObject({
-      format: current,
-      sidebar_width: 50,
-      prefix: "ctrl_b",
-      theme: "animal_style",
-      keys: { new: "prefix+y" },
-    });
+    expect(await json(where.viewer)).toEqual({ format: current, sidebar_width: 50 });
     // The editor's shortcuts come first, so a skipped one can't take their keys.
     updateKeys(read(where), { new: "prefix+z" }, where);
     const saved = await json(where.config);
@@ -391,7 +379,7 @@ test("onboarding's choices go to config.json, and choosing what it holds writes 
   try {
     update({ preset: "tmux", prefix: "ctrl_a", onboarding_complete: true }, where);
     expect(await json(where.config)).toEqual({ preset: "tmux", prefix: "ctrl_a" });
-    expect(await json(where.viewer)).toMatchObject({ format: current, onboarding_complete: true, preset: "tmux" });
+    expect(await json(where.viewer)).toEqual({ format: current, onboarding_complete: true });
     // A config.json linked read-only, as home-manager links one, still lets setup finish.
     await put(where.viewer, { format: current });
     chmodSync(where.config, 0o400);
@@ -457,7 +445,7 @@ test("a file that can't be read keeps setup done and is never overwritten", asyn
   }
 });
 
-test("viewer.json's settings are copied to config.json once, and a config.json already there wins", async () => {
+test("viewer.json's settings move to config.json once, and a config.json already there wins", async () => {
   const { root, where } = await scratch("preferences-split");
   try {
     await put(where.viewer, {
@@ -473,13 +461,11 @@ test("viewer.json's settings are copied to config.json once, and a config.json a
     migrate(where);
     // As written, without the old defaults: what this build skips stays for the person to fix.
     expect(await json(where.config)).toEqual({ preset: "tmux", keys: { new: "prefix+y", bogus: "ctrl+x" } });
-    expect(await json(where.viewer)).toMatchObject({
+    expect(await json(where.viewer)).toEqual({
       onboarding_complete: true,
       sidebar_width: 40,
       future: 1,
       format: current,
-      preset: "tmux",
-      keys: { new: "prefix+y" },
     });
     expect(read(where)).toEqual(before);
     const settled = await readFile(where.viewer, "utf8");
@@ -490,7 +476,7 @@ test("viewer.json's settings are copied to config.json once, and a config.json a
     expect(read(where)).toMatchObject({ sidebar_width: 41, preset: "tmux" });
     migrate(where);
     expect(await json(where.config)).toMatchObject({ preset: "tmux" });
-    expect(await json(where.viewer)).toMatchObject({ sidebar_width: 41, preset: "tmux", format: current });
+    expect(await json(where.viewer)).toEqual({ onboarding_complete: true, sidebar_width: 41, format: current });
     // A newer build's file is read as far as this build can, and left alone.
     const newer = { format: "f".repeat(12), sidebar_width: 42, preset: "herdr" };
     await put(where.viewer, newer);
@@ -504,7 +490,7 @@ test("viewer.json's settings are copied to config.json once, and a config.json a
   }
 });
 
-test("a save copies the settings first, so a viewer that missed the copy at start loses none", async () => {
+test("a save migrates settings first, so a viewer that missed migration at start loses none", async () => {
   const { root, where } = await scratch("preferences-late");
   try {
     await put(where.viewer, { onboarding_complete: true, preset: "tmux", keys: { new: "prefix+y" } });
@@ -516,41 +502,43 @@ test("a save copies the settings first, so a viewer that missed the copy at star
   }
 });
 
-test("viewer.json keeps the settings, as an older release reads them", async () => {
-  const { root, where } = await scratch("preferences-older");
+test("migration removes existing settings copies, and later saves keep them only in config.json", async () => {
+  const { root, where } = await scratch("preferences-no-copy");
   try {
-    await put(where.config, {
+    const config = {
+      preset: "tmux",
       prefix: "ctrl_a",
+      language: "ja",
       theme: "animal_style",
+      corgi_intensity: 75,
+      resources: { enabled: false },
       keys: { worktrees: "ctrl+alt+g", bogus: "ctrl+x" },
       worktree_folder: "{nope}",
+    };
+    await put(where.config, config);
+    await put(where.viewer, {
+      ...config,
+      format: "3bc5f3ca7f53",
+      onboarding_complete: true,
+      sidebar_width: 40,
+      theme: "corgi",
     });
     migrate(where);
-    // Only what this build uses, so the older release's all-or-nothing read keeps setup done.
-    expect(await json(where.viewer)).toEqual({
-      format: current,
-      preset: "corgi",
-      prefix: "ctrl_a",
-      keys: { "worktrees:0": "ctrl+alt+g" },
-      theme: "animal_style",
-      corgi_intensity: 50,
-      resources: { enabled: true },
-      worktree_folder: "$PROJECT_ROOT/.worktrees/$NAME",
+    const state = { format: current, onboarding_complete: true, sidebar_width: 40 };
+    expect(await json(where.viewer)).toEqual(state);
+    expect(await json(where.config)).toEqual(config);
+    const inode = statSync(where.viewer).ino;
+    update({ theme: "corgi" }, where);
+    updateKeys(read(where), { worktrees: "alt+w" }, where);
+    expect(statSync(where.viewer).ino).toBe(inode);
+    expect(await json(where.viewer)).toEqual(state);
+    expect(await json(where.config)).toEqual({
+      ...config,
+      theme: "corgi",
+      keys: { worktrees: "alt+w", bogus: "ctrl+x" },
     });
-    // Whatever config.json holds, the copy names actions as older releases do, and resolves.
-    for (const keys of [
-      { worktrees: "alt+w", "worktrees:0": "ctrl+b", resources: [] },
-      { new: "prefix+1", tab: [], close: "prefix+1", bogus: "x" },
-      { new: "ctrl+a" },
-    ]) {
-      await put(where.config, { prefix: "ctrl_a", keys });
-      migrate(where);
-      const copy = (await json(where.viewer)).keys;
-      expect(Object.keys(copy)).not.toContain("worktrees");
-      for (const name of Object.keys(copy)) expect(keybindings.canonical(name)).not.toBeNull();
-      expect(() => keybindings.validatePrefix(keybindings.parse(copy), "ctrl_a")).not.toThrow();
-      expect(() => keybindings.resolve("corgi", keybindings.parse(copy))).not.toThrow();
-    }
+    update({ sidebar_width: 45 }, where);
+    expect(await json(where.viewer)).toEqual({ ...state, sidebar_width: 45 });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

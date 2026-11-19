@@ -546,15 +546,13 @@ and developer environments. The lock beside `viewer.json` also coordinates
 with older viewers. A save requires both locks and atomically replaces each
 file. Nothing steps while either file can't be read. A
 revision they don't know came from a newer build: they read what they can,
-step and copy nothing, and save only the fields they change.
+step nothing, and save only the fields they change.
 
-Nothing steps these files down. Older releases, whether rolled back to or
-still open after an update, read `viewer.json` directly and reject it whole
-over a value they can't use. So a revision that moves a field keeps a copy
-where they read it, as the move to `config.json` does: viewers rewrite
-`viewer.json`'s settings, in the older spelling, from what `config.json`
-holds. An older viewer's save drops `format`, so `up` steps must also work on
-a file stepped up once already.
+Settings live only in `config.json` after migration. Down steps reconstruct
+the older viewer fields when converting to an older revision. An older
+viewer's save can drop `format`, so up steps must also work on a file stepped
+up once already. Releases predating viewer migrations need a reverse
+migration before they can read settings from this layout.
 
 1. Keep the envelope and core in `persist/core.ts` and the
    `fixtures/transfer-v1.json` fixture fixed. Core is the permanent common

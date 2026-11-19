@@ -526,12 +526,10 @@ to `~/.local/state/corgi`:
 | `accounts.json`, `accounts/` | Provider accounts besides the default, and the folders Corgi made for them; shared by every environment. A new one waits in a private `corgi-account-*` folder in the temporary directory until it's signed in |
 
 Settings you choose, including shortcuts, live in `config.json` under
-`$XDG_CONFIG_HOME/corgi`, defaulting to `~/.config/corgi`. Corgi copies those
+`$XDG_CONFIG_HOME/corgi`, defaulting to `~/.config/corgi`. Corgi moves those
 you changed there from an older `viewer.json`; a `config.json` already there,
-such as one restored from dotfiles, wins. `viewer.json` keeps a copy of the
-settings for older releases, after `corgi update rollback` or in a viewer
-still open from before an update; Corgi reads them only from `config.json`,
-so changes an older release makes there don't carry forward.
+such as one restored from dotfiles, wins. `viewer.json` then contains only
+viewer state. Converting to an older file format is handled by migrations.
 
 An explicit `CORGI_SOCKET` selects another runtime; its workspace/settings
 files live beside the socket. Viewer preferences remain shared. Developer

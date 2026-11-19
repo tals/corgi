@@ -33,7 +33,6 @@ test("actions that default to the current target bind by their bare name", () =>
   // Older releases spell the current worktree's action only `worktrees:0`.
   expect(custom.parse({ "worktrees:0": "ctrl+alt+g" })).toEqual({ worktrees: "ctrl+alt+g" });
   expect(custom.canonical("worktrees:0")).toBe("worktrees");
-  expect(custom.legacy({ worktrees: "ctrl+alt+g", new: [] })).toEqual({ "worktrees:0": "ctrl+alt+g", new: [] });
   expect(() => custom.parse({ "resources:0": [] })).toThrow("Use resources");
   expect(custom.canonical("bogus")).toBeNull();
   // One that unbinds a preset's shortcut overrides it under the name it was given.

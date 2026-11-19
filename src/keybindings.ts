@@ -128,13 +128,6 @@ export function canonical(name: string): string | null {
   // Before the bare name worked, `worktrees:0` was its only spelling.
   return id(a) === name || name === "worktrees:0" ? id(a) : null;
 }
-// XXX: Remove for next protocol bump. Releases before config.json name the
-// current worktree's action only `worktrees:0`.
-export function legacy(config: Config): Config {
-  return Object.fromEntries(
-    Object.entries(config).map(([name, value]) => [name === "worktrees" ? "worktrees:0" : name, value]),
-  );
-}
 export function overlaps(a: Shortcut, b: Shortcut): boolean {
   return a.prefixed === b.prefixed && a.keys.some(k => b.keys.some(other => keys.same(k, other)));
 }
