@@ -7,6 +7,13 @@ import { Probe } from "./terminal_info";
 import { Terminal } from "./pane/terminal";
 import * as ssh from "./ssh";
 
+/** An SSH machine named "work". */
+const work = () =>
+  sshEndpoint(
+    { name: "work", target: "work", executable: "/corgi", socket: "/socket", home: "/home" },
+    new Probe(),
+    new Host(),
+  );
 test("SSH diagnostics distinguish authentication and host identity from transient failures", () => {
   expect(ssh.failure("Permission denied (publickey,password).")).toBe("auth");
   expect(ssh.failure("sign_and_send_pubkey: signing failed: agent refused operation")).toBe("auth");
@@ -17,11 +24,7 @@ test("SSH diagnostics distinguish authentication and host identity from transien
 });
 
 test("diagnostics remain readable after recovery and scroll to a usable repair command", () => {
-  const endpoint = sshEndpoint(
-    { name: "work", target: "work", executable: "/corgi", socket: "/socket", home: "/home" },
-    new Probe(),
-    new Host(),
-  );
+  const endpoint = work();
   endpoint.status = "attention";
   endpoint.issue = "auth";
   endpoint.error = "Permission denied (publickey). " + "long diagnostic ".repeat(40);
@@ -43,11 +46,7 @@ test("diagnostics remain readable after recovery and scroll to a usable repair c
 });
 
 test("incompatible diagnostics suggest a read-only status check", () => {
-  const endpoint = sshEndpoint(
-    { name: "work", target: "work", executable: "/corgi", socket: "/socket", home: "/home" },
-    new Probe(),
-    new Host(),
-  );
+  const endpoint = work();
   endpoint.status = "incompatible";
   endpoint.error = "IncompatibleRemoteCorgi";
   const notice = new Notice();
@@ -63,11 +62,7 @@ test("incompatible diagnostics suggest a read-only status check", () => {
 });
 
 test("with no problem to show, details don't open and the key stays the pane's", () => {
-  const endpoint = sshEndpoint(
-    { name: "work", target: "work", executable: "/corgi", socket: "/socket", home: "/home" },
-    new Probe(),
-    new Host(),
-  );
+  const endpoint = work();
   endpoint.status = "paused";
   endpoint.error = "";
   const notice = new Notice();

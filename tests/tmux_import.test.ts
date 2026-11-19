@@ -79,13 +79,14 @@ class TmuxImport extends TestCase {
   }
 
   async tearDown() {
+    // Before the fixture removes the folder holding the server's socket.
     try {
-      await this.fixture.close();
-    } finally {
       await run([...this.tmuxBase, "kill-server"], {
         env: this.fixture.env,
         check: false,
       });
+    } finally {
+      await this.fixture.close();
     }
   }
 

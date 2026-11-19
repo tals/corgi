@@ -11,19 +11,24 @@ const git = async (cwd: string, ...args: string[]) => {
   const { stdout } = await promisify(execFile)("git", ["-C", cwd, ...args]);
   return stdout.trim();
 };
+/** A repository in `root` on main, tracking an origin/main at its first commit. */
+async function tracking(root: string) {
+  const repo = join(root, "repo");
+  await mkdir(repo);
+  await git(repo, "init", "-b", "main");
+  await git(repo, "config", "user.email", "test@example.com");
+  await git(repo, "config", "user.name", "Test");
+  await git(repo, "commit", "--allow-empty", "-m", "base");
+  await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
+  await git(repo, "config", "remote.origin.url", join(root, "remote"));
+  await git(repo, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+  await git(repo, "branch", "--set-upstream-to=origin/main");
+  return repo;
+}
 test("upstream counts follow commits and packed refs, deduplicate subdirectories and isolate worktrees", async () => {
   const root = await mkdtemp(join(tmpdir(), "corgi-git-"));
   try {
-    const repo = join(root, "repo");
-    await mkdir(repo);
-    await git(repo, "init", "-b", "main");
-    await git(repo, "config", "user.email", "test@example.com");
-    await git(repo, "config", "user.name", "Test");
-    await git(repo, "commit", "--allow-empty", "-m", "base");
-    await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
-    await git(repo, "config", "remote.origin.url", join(root, "remote"));
-    await git(repo, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
-    await git(repo, "branch", "--set-upstream-to=origin/main");
+    const repo = await tracking(root);
     await git(repo, "commit", "--allow-empty", "-m", "ahead");
     await mkdir(join(repo, "nested"));
     const t = new Tracker();
@@ -113,16 +118,7 @@ test("test clock advance makes a tracker refresh deadline due", async () => {
 test("an unchanged repository reuses its answer until its refs move", async () => {
   const root = await mkdtemp(join(tmpdir(), "corgi-git-"));
   try {
-    const repo = join(root, "repo");
-    await mkdir(repo);
-    await git(repo, "init", "-b", "main");
-    await git(repo, "config", "user.email", "test@example.com");
-    await git(repo, "config", "user.name", "Test");
-    await git(repo, "commit", "--allow-empty", "-m", "base");
-    await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
-    await git(repo, "config", "remote.origin.url", join(root, "remote"));
-    await git(repo, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
-    await git(repo, "branch", "--set-upstream-to=origin/main");
+    const repo = await tracking(root);
     await git(repo, "commit", "--allow-empty", "-m", "one");
     await git(repo, "commit", "--allow-empty", "-m", "two");
     const t = new Tracker();

@@ -38,9 +38,7 @@ class ReloadCompatibility extends Runtime {
     this.assertNotEqual(after.server_pid, before.server_pid);
     this.assertEqual(after.panes.find((p: any) => p.id === pane).pid, before.panes.find((p: any) => p.id === pane).pid);
     await this.command("pane.input", { target: pane, data: "printf 'CROSS_VERSION_ALIVE\\n'\r" });
-    await this.until(async () =>
-      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("CROSS_VERSION_ALIVE"),
-    );
+    await this.until(async () => (await this.screen(pane)).includes("CROSS_VERSION_ALIVE"));
   }
   async test_dev_upgrades_old_protocol_and_attaches() {
     await this.upgrade("dev");

@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Scope } from "../scripts/process_scope";
-import { deadline, quote, tempDir, writeExecutable } from "./support";
+import { deadline, quote, tempDir, waitUntil, writeExecutable } from "./support";
 
 function alive(pid: number) {
   const status = Bun.spawnSync(["ps", "-p", String(pid), "-o", "stat="], { stderr: "ignore" })
@@ -10,13 +10,7 @@ function alive(pid: number) {
     .trim();
   return status !== "" && !status.startsWith("Z");
 }
-async function until(check: () => boolean) {
-  const end = Date.now() + 10_000;
-  while (!check()) {
-    if (Date.now() >= end) throw new Error("Process cleanup timed out");
-    await Bun.sleep(30);
-  }
-}
+const until = (check: () => boolean) => waitUntil(check, 10, "Process cleanup timed out");
 
 test("scope cleanup detects detached descendants and leaves other scopes alone", async () => {
   const scope = await Scope.start(),

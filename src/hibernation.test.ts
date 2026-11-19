@@ -4,6 +4,7 @@ import { Workspace } from "./workspace";
 import { Terminal } from "./pane/terminal";
 import { Text } from "./providers";
 import { Session } from "./headless";
+import { FakeClient } from "./fixtures/headless_client";
 import * as checkpoint from "./persist/checkpoint";
 import * as protocol from "./protocol";
 import * as cli from "./cli";
@@ -191,14 +192,7 @@ test("archive program counts combine agents and other programs, largest first", 
 
 test("archiving converts headless agents into dormant panes with their session and output", () => {
   using r = world();
-  const session = new Session(1, "claude", "/tmp", {
-    ready: true,
-    send() {},
-    take: () => [],
-    async wait() {},
-    close() {},
-    save: () => ({ state: null, handles: [] }),
-  });
+  const session = new Session(1, "claude", "/tmp", new FakeClient());
   session.workspace_id = 1;
   r.sessions.push(session);
   session.attachment.provisional.session = new Text("headless-session");
@@ -216,14 +210,7 @@ test("archiving converts headless agents into dormant panes with their session a
 
 test("the Corgi prompt's session isn't a workspace's agent: archiving and closing leave it running", () => {
   using r = world();
-  const prompt = new Session(1, "claude", "/tmp", {
-    ready: true,
-    send() {},
-    take: () => [],
-    async wait() {},
-    close() {},
-    save: () => ({ state: null, handles: [] }),
-  });
+  const prompt = new Session(1, "claude", "/tmp", new FakeClient());
   prompt.workspace_id = 2;
   prompt.corgi = true;
   r.sessions.push(prompt);
@@ -249,14 +236,7 @@ test("archiving headless subagents preserves only their other live attachments",
     p.terminal.exited = exited;
     p.attachment.select(actor);
     r.panes.push(p);
-    const session = new Session(1, "claude", "/tmp", {
-      ready: true,
-      send() {},
-      take: () => [],
-      async wait() {},
-      close() {},
-      save: () => ({ state: null, handles: [] }),
-    });
+    const session = new Session(1, "claude", "/tmp", new FakeClient());
     session.workspace_id = 1;
     session.members.push(actor);
     r.sessions.push(session);

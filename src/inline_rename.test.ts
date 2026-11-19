@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ClickHistory, InlineRename, double_click_ms, sameRenameTarget } from "./inline_rename";
+import { ClickHistory, InlineRename, double_click_ms, sameRenameTarget, type RenameTarget } from "./inline_rename";
 import { name_limit } from "./name_dialog";
 
 const c = (s: string) => s.charCodeAt(0);
@@ -12,128 +12,74 @@ test("same target: kind and id", () => {
   expect(sameRenameTarget({ workspace: 1 }, { agent: 1 })).toBe(false);
 });
 
-test("a second press on the same row within the window is a double-click", () => {
-  const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(true);
-  expect(h.press({ agent: 1 }, 2000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 2000 + double_click_ms - 1, 3, 4)).toBe(true);
-});
-
-test("a press at the window's edge starts over", () => {
+test("a second press on the same cell within the window is a double-click, and the next press starts over", () => {
   const h = new ClickHistory();
   expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
   expect(h.press({ agent: 1 }, 1000 + double_click_ms, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1000 + 2 * double_click_ms - 1, 3, 4)).toBe(true);
+  expect(h.target).toBe(null);
+  expect(h.press({ agent: 1 }, 2000, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 2001, 3, 4)).toBe(true);
+  // A press on another cell is the first of a new double-click there.
+  expect(h.press({ agent: 1 }, 3000, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 3001, 5, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 3002, 5, 4)).toBe(true);
 });
 
-test("a press on another row is no double-click", () => {
-  const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 2 }, 1001, 3, 4)).toBe(false);
-  h.reset();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ workspace: 1 }, 1001, 3, 4)).toBe(false);
+test("another row, another cell, a drag or the pointer leaving the cell ends the double-click", () => {
+  const cases: [(h: ClickHistory) => void, RenameTarget, number, number, boolean][] = [
+    [() => {}, { agent: 1 }, 3, 4, true],
+    [h => h.motion(3, 4), { agent: 1 }, 3, 4, true],
+    [() => {}, { agent: 2 }, 3, 4, false],
+    [() => {}, { workspace: 1 }, 3, 4, false],
+    [() => {}, { agent: 1 }, 5, 4, false],
+    [h => h.move(), { agent: 1 }, 3, 4, false],
+    [h => h.motion(4, 4), { agent: 1 }, 3, 4, false],
+    [h => h.motion(3, 5), { agent: 1 }, 3, 4, false],
+  ];
+  for (const [between, target, x, y, double] of cases) {
+    const h = new ClickHistory();
+    expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
+    between(h);
+    expect(h.press(target, 1001, x, y)).toBe(double);
+  }
 });
 
-test("a drag after the press ends the double-click", () => {
-  const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  h.move();
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(false);
-});
-
-test("the pointer leaving the pressed cell ends the double-click", () => {
-  const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  h.motion(4, 4);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(false);
-  h.reset();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  h.motion(3, 5);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(false);
-});
-
-test("a second press on another cell of the same row starts over", () => {
-  const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1001, 5, 4)).toBe(false);
-  // It counts as the first press of a new double-click there.
-  expect(h.press({ agent: 1 }, 1002, 5, 4)).toBe(true);
-});
-
-test("motion within the pressed cell keeps the double-click", () => {
-  const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  h.motion(3, 4);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(true);
-});
-
-test("motion before any press is nothing", () => {
+test("motion before a press and a reset leave nothing to double-click", () => {
   const h = new ClickHistory();
   h.motion(9, 9);
   expect(h.moved).toBe(false);
   expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(true);
-});
-
-test("a third press right after a double-click starts a new sequence", () => {
-  const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(true);
-  expect(h.target).toBe(null);
-  expect(h.press({ agent: 1 }, 1002, 3, 4)).toBe(false);
-  expect(h.press({ agent: 1 }, 1003, 3, 4)).toBe(true);
-});
-
-test("reset forgets the press", () => {
-  const h = new ClickHistory();
-  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
   h.move();
   h.reset();
   expect(h.target).toBe(null);
   expect(h.moved).toBe(false);
   expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1002, 3, 4)).toBe(true);
 });
 
-test("an open field keeps the name, with the caret at its end and nothing selected", () => {
-  const r = InlineRename.open({ agent: 7 }, "review the diff", "claude");
+test("an open field keeps the name, with the caret after its last character and nothing selected", () => {
+  const r = InlineRename.open({ agent: 7 }, "café", "claude");
   expect(r.target).toEqual({ agent: 7 });
   expect(r.fallback).toBe("claude");
   expect(r.message).toBe(null);
   expect(r.saving).toBe(false);
   expect(r.drawer).toBe(false);
-  expect(r.field.raw()).toBe("review the diff");
-  expect(r.field.cursor).toBe(r.field.len);
+  expect(r.field.raw()).toBe("café");
+  expect(r.field.len).toBe(5);
+  expect(r.field.cursor).toBe(5);
   expect(r.field.selection()).toBe(null);
   expect(r.field.selected).toBe(false);
   // Typing adds to the name rather than replacing it.
-  r.field.typeByte(c("!"));
-  expect(r.field.raw()).toBe("review the diff!");
-});
-
-test("an open field on an empty name has nothing selected either", () => {
-  const r = InlineRename.open({ workspace: 3 }, "", "corgi");
-  expect(r.field.raw()).toBe("");
-  expect(r.field.cursor).toBe(0);
-  expect(r.field.selected).toBe(false);
-  expect(r.field.selection()).toBe(null);
-});
-
-test("the caret stands after a multi-byte name's last character", () => {
-  const r = InlineRename.open({ agent: 7 }, "café", "claude");
-  expect(r.field.len).toBe(5);
-  expect(r.field.cursor).toBe(5);
-  r.field.typeByte(c("s"));
-  expect(r.field.raw()).toBe("cafés");
-});
-
-test("a workspace field keeps UTF-8, as an agent field does", () => {
-  const ws = InlineRename.open({ workspace: 3 }, "home", "corgi");
-  for (const byte of Buffer.from("é")) ws.field.typeByte(byte);
-  expect(ws.field.raw()).toBe("homeé");
-  const agent = InlineRename.open({ agent: 7 }, "caf", "claude");
-  for (const byte of Buffer.from("é")) agent.field.typeByte(byte);
-  expect(agent.field.raw()).toBe("café");
+  for (const byte of Buffer.from("é")) r.field.typeByte(byte);
+  expect(r.field.raw()).toBe("caféé");
+  const empty = InlineRename.open({ workspace: 3 }, "", "corgi");
+  expect(empty.field.cursor).toBe(0);
+  expect(empty.field.selected).toBe(false);
+  expect(empty.field.selection()).toBe(null);
+  // A workspace's field keeps UTF-8, as an agent's does.
+  for (const byte of Buffer.from("é")) empty.field.typeByte(byte);
+  expect(empty.field.raw()).toBe("é");
 });
 
 test("an edit clears the message and the overflow", () => {

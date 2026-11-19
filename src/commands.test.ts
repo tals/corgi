@@ -1,4 +1,3 @@
-// Mirrors the tests in commands.zig.
 import { expect, test } from "bun:test";
 import type * as dropdown from "./dropdown";
 import * as palette from "./palette";
@@ -8,6 +7,18 @@ import { Terminal } from "./pane/terminal";
 import { Writer } from "./text";
 
 const c = (s: string) => s.charCodeAt(0);
+/** The rows `menu` draws on a `cols` × `rows` screen. */
+function screen(menu: TabMenu, cols: number, rows: number): string[] {
+  const w = new Writer(),
+    terminal = new Terminal(cols, rows);
+  try {
+    menu.draw(w, cols, rows);
+    terminal.feed(w.buffered());
+    return terminal.text().split("\n");
+  } finally {
+    terminal.destroy();
+  }
+}
 
 test("menu keys pick the rows each menu shows", () => {
   const tab = new TabMenu({ tab: 1, anchor_x: 0 });
@@ -65,18 +76,10 @@ test("Copy full path keeps the checkout name in a narrow preview and its second 
   const menu = new TabMenu({ tab: 1, anchor_x: 0, worktree: "/repo/.worktrees/topic", title: "topic" });
   menu.setDetail("copy-path", [["./.claude/worktrees/a-long-parent/topic", "faint"]]);
   for (const width of [80, 32]) {
-    const w = new Writer(),
-      terminal = new Terminal(width, 24);
-    try {
-      menu.draw(w, width, 24);
-      terminal.feed(w.buffered());
-      const rows = terminal.text().split("\n"),
-        at = rows.findIndex(row => row.includes("Copy full path"));
-      expect(rows[at + 1]).toContain(width === 80 ? "./.claude/worktrees/a-long-parent/topic" : "./.claude/…/topic");
-      expect(menu.hit(width, 24, menu.bounds(width, 24).x + 3, at + 1)).toBe(2);
-    } finally {
-      terminal.destroy();
-    }
+    const rows = screen(menu, width, 24),
+      at = rows.findIndex(row => row.includes("Copy full path"));
+    expect(rows[at + 1]).toContain(width === 80 ? "./.claude/worktrees/a-long-parent/topic" : "./.claude/…/topic");
+    expect(menu.hit(width, 24, menu.bounds(width, 24).x + 3, at + 1)).toBe(2);
   }
 });
 
@@ -137,18 +140,10 @@ test("a row with a detail takes two lines, both of them its own", () => {
   // Copy details sits right under it, then a rule.
   expect(menu.hit(80, 30, b.x + 3, first + 2)).toBe(review + 1);
   expect(menu.hit(80, 30, b.x + 3, first + 3)).toBeNull();
-  const w = new Writer(),
-    terminal = new Terminal(80, 30);
-  try {
-    menu.draw(w, 80, 30);
-    terminal.feed(w.buffered());
-    const rows = terminal.text().split("\n"),
-      at = rows.findIndex(row => row.includes("Review changes"));
-    expect(rows[at + 1]).toContain("2 files  +3 −1");
-    expect(rows[at + 1].indexOf("2 files")).toBe(rows[at].indexOf("Review changes"));
-  } finally {
-    terminal.destroy();
-  }
+  const rows = screen(menu, 80, 30),
+    at = rows.findIndex(row => row.includes("Review changes"));
+  expect(rows[at + 1]).toContain("2 files  +3 −1");
+  expect(rows[at + 1].indexOf("2 files")).toBe(rows[at].indexOf("Review changes"));
 });
 
 test("a detail shows placeholder bars until it arrives, then fades in over them", () => {
@@ -191,15 +186,7 @@ test("a workspace's menu shows its folder under Change folder, shortened rather 
   expect(menu.entries().map(entry => entry.rule)).toEqual([false, false, false, true]);
   menu.setDetail("change-folder", [["/private/var/folders/07/mt7yltxj1gz0pdpmw4nnz9pc0000gn/T/project", "faint"]]);
   expect(menu.bounds(120, 24).width).toBe(50);
-  const w = new Writer(),
-    terminal = new Terminal(120, 24);
-  try {
-    menu.draw(w, 120, 24);
-    terminal.feed(w.buffered());
-    const rows = terminal.text().split("\n"),
-      at = rows.findIndex(row => row.includes("Change folder"));
-    expect(rows[at + 1]).toContain("/private/var/…/T/project");
-  } finally {
-    terminal.destroy();
-  }
+  const rows = screen(menu, 120, 24),
+    at = rows.findIndex(row => row.includes("Change folder"));
+  expect(rows[at + 1]).toContain("/private/var/…/T/project");
 });

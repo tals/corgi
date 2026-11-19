@@ -254,21 +254,8 @@ test("a new account is named for who signed in: the company at work, the mailbox
   expect(accounts.suggest("claude", login("me@acme.com"), s.dir)).toBe("acme");
 });
 
-test.each([
-  "AOL.com",
-  "hotmail.co.uk",
-  "yahoo.co.jp",
-  "pm.me",
-  "fastmail.fm",
-  "tuta.com",
-  "gmx.de",
-  "qq.com",
-  "comcast.net",
-])("a personal address at %s uses its mailbox for the account name", domain => {
-  expect(accounts.suggest("claude", { email: ` Tal.Side@${domain} `, id: "id" })).toBe("tal.side");
-});
-
-test("personal mail hosts only match exact domains", () => {
+test("a personal mail host matches by its exact domain, in any case", () => {
+  expect(accounts.suggest("claude", { email: " Tal.Side@AOL.com ", id: "id" })).toBe("tal.side");
   expect(accounts.suggest("claude", { email: "tal@gmail.corp", id: "id" })).toBe("gmail");
   expect(accounts.suggest("claude", { email: "tal@acme.co.uk", id: "id" })).toBe("acme");
 });

@@ -19,54 +19,15 @@ import * as launcherResume from "./launcher_resume";
 import * as palette from "./palette";
 import { fast_ms } from "./prompt_session";
 import type { Choice, Entry } from "./model_picker";
-import type { Daemon } from "./prompt_session";
 import { Writer } from "./text";
 import { replyFormat } from "./prompt_tools";
+import * as host from "./fixtures/screen";
+import { HeadlessDaemon } from "./fixtures/headless_daemon";
 
-/** The screen's text after replaying the cursor moves in `ansi`. */
-function screen(ansi: string, cols: number, rows: number): string[] {
-  const grid = Array.from({ length: rows }, () => Array(cols).fill(" "));
-  let x = 0,
-    y = 0;
-  for (const m of ansi.matchAll(/\x1b\[([\d;?]*)([A-Za-z])|\x1b\][^\x1b]*\x1b\\|([\s\S])/gu)) {
-    if (m[2] === "H") {
-      const [r, c] = (m[1] || "1;1").split(";").map(Number);
-      y = r - 1;
-      x = c - 1;
-    } else if (m[3] !== undefined) {
-      if (y < rows && x < cols) grid[y][x] = m[3];
-      x++;
-    }
-  }
-  return grid.map(row => row.join("").trimEnd());
-}
-class Fake implements Daemon {
-  calls: { op: string; payload: any }[] = [];
-  starts: any[] = [];
-  journal: { seq: number; event: unknown }[] = [];
-  pending: unknown[] = [];
-  async call(op: string, payload: any) {
-    this.calls.push({ op, payload });
-    if (op !== "headless.events") return { ok: true };
-    return {
-      ok: true,
-      events: this.journal.filter(e => BigInt(e.seq) > BigInt(payload.after)),
-      pending_requests: this.pending,
-    };
-  }
-  /** Sessions the next starts make, then 0193-session. */
-  ids: string[] = [];
-  async start(payload: any) {
-    this.starts.push(payload);
-    return { provider: payload.provider, session: this.ids.shift() ?? "0193-session" };
-  }
-  add(...events: unknown[]) {
-    for (const event of events) this.journal.push({ seq: this.journal.length + 1, event });
-  }
-  sent() {
-    return this.calls.filter(c => c.op === "headless.send").map(c => c.payload.input);
-  }
-}
+/** The screen's rows after `ansi`, without trailing blanks. */
+const screen = (ansi: string, cols: number, rows: number) => host.lines(ansi, cols, rows).map(l => l.trimEnd());
+/** A daemon whose sessions start as 0193-session. */
+const daemon = () => new HeadlessDaemon("0193-session");
 const opus: Choice = { provider: "claude", account: "", model: "claude-opus-5-5", name: "Opus 5.5", effort: "high" };
 const entries: Entry[] = [
   {
@@ -114,7 +75,7 @@ function folder() {
   return dir;
 }
 function prompt(over: Partial<Deps> = {}) {
-  const d = new Fake(),
+  const d = daemon(),
     clock = { now: Date.UTC(2026, 9, 30, 12) },
     root = folder(),
     p = new Prompt({ daemon: d, memory_root: root, clock: () => clock.now, ...over });
@@ -215,14 +176,13 @@ test("the first message starts a session with memory and context", async () => {
 });
 
 test("the model is told how to drive Corgi, and each message says which viewer is looking", async () => {
-  const d = new Fake(),
+  const d = daemon(),
     p = new Prompt({ daemon: d, memory_root: folder(), viewer: () => 7, binary: "/opt/corgi/bin/corgi" });
   p.catalog(entries, [opus], []);
   p.show({ ...context, mentions: [] });
   type(p, "open my parser chat");
   p.key(13);
   const start = d.starts[0];
-  expect(start.instructions).toContain("corgi resume PROVIDER SESSION --viewer V");
   // Claude takes Corgi's own tool, so its shell isn't how it drives Corgi.
   expect(start.instructions).toContain("with the `corgi` tool");
   expect(start.instructions).not.toContain("/opt/corgi/bin/corgi");
@@ -822,7 +782,7 @@ test("corgi __chat takes the handoff and what the session runs with", () => {
 });
 
 /** A Corgi pane's prompt, as `corgi __chat` makes it, going on with a handed-over chat. */
-function pane(d = new Fake()) {
+function pane(d = daemon()) {
   const p = new Prompt({
     daemon: d,
     memory_root: folder(),
@@ -914,8 +874,6 @@ test("in a pane Esc backs out of menus only, Ctrl+D or /close ends it, and its r
   type(p, "and again?");
   p.key(13);
   expect(d.sent()).toEqual([{ kind: "prompt", text: replyFormat() + "and again?" }]);
-  expect(d.sent()[0].text).toContain("Show commits inline in normal Markdown");
-  expect(d.sent()[0].text).toContain("no commits fences");
   expect(d.starts).toEqual([]);
 });
 
@@ -1291,7 +1249,7 @@ function box(lines: string[]) {
   const bottom = lines.findIndex((line, y) => y > best.y && line[best.x] === "╰");
   return { top: best.y, left: best.x, width: best.w, bottom };
 }
-async function midConversation(p: Prompt, d: Fake) {
+async function midConversation(p: Prompt, d: HeadlessDaemon) {
   type(p, "hello");
   p.key(13);
   await settle();
@@ -1514,7 +1472,7 @@ test("Backspace in an empty box drops the last chip; reopening elsewhere replace
 });
 
 test("a message carries a context block per attachment; the thread shows what went with it", async () => {
-  const d = new Fake(),
+  const d = daemon(),
     resolved: string[] = [],
     p = new Prompt({
       daemon: d,
@@ -1571,7 +1529,7 @@ test("a message carries a context block per attachment; the thread shows what we
 });
 
 test("a message waits for an attachment still being read", async () => {
-  const d = new Fake();
+  const d = daemon();
   let release!: (text: string) => void;
   const p = new Prompt({
     daemon: d,
@@ -1593,7 +1551,7 @@ test("a message waits for an attachment still being read", async () => {
 });
 
 test("a chat can't be ended or handed on while its message reads an attachment", async () => {
-  const d = new Fake();
+  const d = daemon();
   let release!: (text: string) => void;
   const p = new Prompt({
     daemon: d,
@@ -1622,7 +1580,7 @@ test("a chat can't be ended or handed on while its message reads an attachment",
 });
 
 test("a model picked while a message reads its attachments takes the next one, after it", async () => {
-  const d = new Fake();
+  const d = daemon();
   let release!: (text: string) => void;
   const p = new Prompt({
     daemon: d,

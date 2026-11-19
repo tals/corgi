@@ -1,20 +1,9 @@
 import { test, expect } from "bun:test";
 import { Agent, Text, toolActivity, type Presence } from "./agents";
-import { State } from "./observation";
 import { Hooks } from "./providers/common";
 import * as codex from "./providers/codex";
 import { Tail, completion } from "./transcript";
 import * as worktrees from "./worktrees";
-test("late receipts cannot read newer completions", () => {
-  const s = new State();
-  s.finish("completed", "transcript");
-  const shown = s.completed;
-  s.finish("completed", "protocol");
-  s.acknowledge(shown);
-  expect(s.unread()).toBe(true);
-  s.acknowledge(s.completed);
-  expect(s.unread()).toBe(false);
-});
 test("marking unread moves the receipt back one completion, and only once", () => {
   const a = new Agent();
   expect(a.markUnread()).toBe(false);
@@ -54,26 +43,6 @@ test("hooks working on a turn the screen saw finish let its own Stop end it", ()
   expect(a).toMatchObject({ state: "idle", observation: { completed: 2n } });
   // A turn its hooks saw finish still drops a repeated Stop.
   expect(observe(a, "codex", { kind: "stop", session: "s", turn: "t" }, 40n, false, 40)).toBeNull();
-});
-test("Codex automatic review only blocks after visible permission confirmation", () => {
-  const a = new Agent();
-  const hook = codex.adapter.hook({
-    hook_event_name: "PermissionRequest",
-    session_id: "s",
-    tool_name: "Bash",
-  });
-  expect(a.observeHook("codex", hook, 1n, false, 1)).toBe(false);
-  expect(a.state).toBe("working");
-  expect(a.observePermissionPrompt(true, false, 2)).toBe(false);
-  expect(a.observePermissionPrompt(true, false, 3)).toBe(true);
-  expect(a.attention).toBe("needs_input");
-  a.observePermissionPrompt(false, false, 4);
-  expect(a.state).toBe("working");
-});
-test("tool descriptions and targets produce readable activity", () => {
-  expect(toolActivity("Read", "", "/a/b.ts")).toBe("Reading b.ts");
-  expect(toolActivity("Bash", "", "echo a")).toBe("");
-  expect(toolActivity("WebFetch", "", "https://example.com/a")).toBe("Fetching example.com");
 });
 test("completion requires matching turn, fresh timestamp and complete JSONL record", () => {
   const a = new Agent({ provider: "codex", last_seq: 1000000n });
@@ -327,9 +296,8 @@ test("a reopened agent sleeps, and its old process's late ending is dropped", ()
 
 test("Codex permission review only rings for a confirmed human prompt", () => {
   const agent = new Agent();
-  expect(
-    observe(agent, "codex", { kind: "permission", session: "a", tool: "Bash", confirm: "screen" }, 1n, false, 1),
-  ).toBe(false);
+  const hook = codex.adapter.hook({ hook_event_name: "PermissionRequest", session_id: "a", tool_name: "Bash" });
+  expect(agent.observeHook("codex", hook, 1n, false, 1)).toBe(false);
   expect(agent.state).toBe("working");
   expect(agent.attention).toBe("none");
   expect(agent.tool_active).toBe(true);

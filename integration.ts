@@ -2,7 +2,9 @@ import { existsSync } from "node:fs";
 import { Scope } from "./scripts/process_scope";
 const repo = import.meta.dir;
 const executable = process.env.CORGI_TEST_BIN ?? `${import.meta.dir}/dist/corgi-test`;
-if (!existsSync(executable)) throw Error("Build the test executable first: bun build.ts --test");
+// The standalone suites never start it.
+if (!process.argv.includes("--standalone") && !existsSync(executable))
+  throw Error("Build the test executable first: bun build.ts --test");
 const scope = await Scope.start({ ...process.env, CORGI_TEST_BIN: executable });
 const child = Bun.spawn([process.execPath, `${repo}/tests/run.ts`, ...process.argv.slice(2)], {
   cwd: repo,

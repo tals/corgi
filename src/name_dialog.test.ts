@@ -1,4 +1,3 @@
-// Mirrors the tests in name_dialog.zig.
 import { expect, test } from "bun:test";
 import { Dialog, View, selection, writeField } from "./name_dialog";
 import { Writer } from "./text";

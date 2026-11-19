@@ -21,6 +21,7 @@ import { failure } from "../state_report";
 import * as json from "../json";
 import * as checkpoint from "./checkpoint";
 import * as recovery from "./recovery";
+import { scopedEnv } from "../fixtures/env";
 
 test("atomic writes avoid stale temp collisions and preserve private permissions", () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-atomic-review-")),
@@ -62,9 +63,8 @@ test("atomic writes reject an unsafe parent directory", () => {
 });
 test("successful migrated recovery keeps its backup when the final rewrite fails", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-recovery-review-")),
-    prior = process.env.XDG_STATE_HOME,
     r = new Runtime();
-  process.env.XDG_STATE_HOME = root;
+  using env = scopedEnv({ XDG_STATE_HOME: root });
   const source = recovery.path(join(root, "control.sock")),
     bytes = json.stringify({
       ...json.parse(readFileSync(new URL("../fixtures/checkpoint-v4.json", import.meta.url), "utf8")),
@@ -87,8 +87,6 @@ test("successful migrated recovery keeps its backup when the final rewrite fails
     restore.mockRestore();
     error.mockRestore();
     r.destroy();
-    if (prior === undefined) delete process.env.XDG_STATE_HOME;
-    else process.env.XDG_STATE_HOME = prior;
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -107,11 +105,10 @@ test("inference settings preserve ordinary config directory permissions", () => 
 });
 test("hook settings preserve ordinary config directory and file permissions", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-config-review-")),
-    parent = join(root, "claude"),
-    prior = process.env.CLAUDE_CONFIG_DIR;
+    parent = join(root, "claude");
+  using env = scopedEnv({ CLAUDE_CONFIG_DIR: parent });
   try {
     mkdirSync(parent, { mode: 0o755 });
-    process.env.CLAUDE_CONFIG_DIR = parent;
     const file = join(parent, "settings.json");
     writeFileSync(file, "{}", { mode: 0o644 });
     await claude.adapter.integration.install("");
@@ -120,16 +117,13 @@ test("hook settings preserve ordinary config directory and file permissions", as
     expect(statSync(file).mode & 0o777).toBe(0o644);
     expect(statSync(parent).mode & 0o777).toBe(0o755);
   } finally {
-    if (prior === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-    else process.env.CLAUDE_CONFIG_DIR = prior;
     rmSync(root, { recursive: true, force: true });
   }
 });
 test("a load that repairs the saved session leaves a report for the next viewer, once", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-recovery-repair-")),
-    prior = process.env.XDG_STATE_HOME,
     socket = join(root, "control.sock");
-  process.env.XDG_STATE_HOME = root;
+  using env = scopedEnv({ XDG_STATE_HOME: root });
   const warn = spyOn(console, "warn").mockImplementation(() => {});
   using before = new Runtime();
   using after = new Runtime();
@@ -155,8 +149,6 @@ test("a load that repairs the saved session leaves a report for the next viewer,
     expect(recovery.takeRepairs(socket)).toBeNull();
   } finally {
     warn.mockRestore();
-    if (prior === undefined) delete process.env.XDG_STATE_HOME;
-    else process.env.XDG_STATE_HOME = prior;
     rmSync(root, { recursive: true, force: true });
   }
 });

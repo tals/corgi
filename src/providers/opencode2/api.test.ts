@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { API, eventSession, sse, windows } from "./api";
 import * as server from "./server";
+import { scopedEnv } from "../../fixtures/env";
 let cleanup: (() => void)[] = [];
 afterEach(() => {
   for (const undo of cleanup.splice(0).reverse()) undo();
@@ -13,27 +14,21 @@ afterEach(() => {
 /** A service.json in a private state directory, as the service writes it. */
 function advertise(url: string, password: string) {
   const root = mkdtempSync(join(tmpdir(), "corgi-opencode-api-")),
-    previous = process.env.XDG_STATE_HOME;
-  process.env.XDG_STATE_HOME = root;
+    scoped = scopedEnv({ XDG_STATE_HOME: root });
   mkdirSync(join(root, "opencode"));
   const write = (url: string, password: string) =>
     writeFileSync(join(root, "opencode", "service.json"), JSON.stringify({ url, password }));
   write(url, password);
   cleanup.push(() => {
-    if (previous === undefined) delete process.env.XDG_STATE_HOME;
-    else process.env.XDG_STATE_HOME = previous;
+    scoped[Symbol.dispose]();
     rmSync(root, { recursive: true, force: true });
   });
   return write;
 }
 /** Sets `name` until the test ends. */
 function env(name: string, value: string) {
-  const previous = process.env[name];
-  process.env[name] = value;
-  cleanup.push(() => {
-    if (previous === undefined) delete process.env[name];
-    else process.env[name] = previous;
-  });
+  const scoped = scopedEnv({ [name]: value });
+  cleanup.push(() => scoped[Symbol.dispose]());
 }
 /** OpenCode's database, with a stored login or without, and an `opencode`
  * that notes each run and serves nothing. */

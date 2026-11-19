@@ -3,7 +3,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import * as codex from "./index";
 import { Text } from "../common";
-import { childName, evidence, unique, threadState, location, snapshot, Worker } from "./observer";
+import { childName, evidence, unique, threadState, isActiveWait, location, snapshot, Worker } from "./observer";
 
 test("title UUID parsing handles truncation and refuses ambiguity", () => {
   const id = "01901234-1234-1234-1234-123456789abc";
@@ -13,6 +13,7 @@ test("title UUID parsing handles truncation and refuses ambiguity", () => {
   expect(codex.titleSession(id + " " + id)).toBeNull();
   const prefix = codex.titleSession("01901234-1234-1234-1234-12345...")!;
   expect(unique([id, "01901234-1234-1234-1234-123456789def"], prefix)).toBeNull();
+  expect(unique([id, "01901234-1234-1234-1234-123456789def"], new Text(id))).toBe(id);
 });
 
 test("unloaded child threads read as idle", () => {
@@ -25,6 +26,16 @@ test("unloaded child threads read as idle", () => {
     [{ type: "future" }, "unknown"],
   ] as const)
     expect(threadState(value)).toBe(state);
+});
+
+test("a wait reads as active only while the session waits on it in the current turn", () => {
+  const wait = {
+    turnId: "a",
+    item: { type: "collabAgentToolCall", tool: "wait", status: "inProgress", senderThreadId: "s" },
+  };
+  expect(isActiveWait(wait, "a", "s")).toBe(true);
+  expect(isActiveWait(wait, "b", "s")).toBe(false);
+  expect(isActiveWait({ ...wait, item: { ...wait.item, status: "completed" } }, "a", "s")).toBe(false);
 });
 
 test("child threads are named by their task, then nickname", () => {
@@ -184,8 +195,10 @@ test("a turn's evidence leads with the latest agent message", () => {
   expect(text).toContain("User request: Fix tabs");
 });
 test("a turn that failed on an overloaded model reads as one a retry may get past", async () => {
+  const methods: string[] = [];
   const failed = (codexErrorInfo: string) => ({
     async call(method: string) {
+      methods.push(method);
       if (method === "thread/read") return { result: { thread: { id: "t", status: { type: "idle" } } } };
       if (method === "thread/turns/list")
         return {
@@ -205,4 +218,6 @@ test("a turn that failed on an overloaded model reads as one a retry may get pas
     outcome: "failed",
     transient_failure_at: 0,
   });
+  // Reading a thread mustn't select it.
+  expect(methods).not.toContain("thread/resume");
 });

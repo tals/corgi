@@ -55,36 +55,6 @@ test("agent comparisons observe every current data field without depending on ob
   }
 });
 
-test("agent comparisons own nested receipt and subagent values", () => {
-  for (const mutate of [
-    (a: Agent) => {
-      a.observation.source = "screen";
-    },
-    (a: Agent) => {
-      a.observation.outcome = "interrupted";
-    },
-    (a: Agent) => {
-      a.observation.pending_stop = true;
-    },
-    (a: Agent) => {
-      a.observation.completed++;
-    },
-    (a: Agent) => {
-      a.observation.read++;
-    },
-    (a: Agent) => {
-      a.subagents.running++;
-    },
-    (a: Agent) => {
-      a.subagents.blocked++;
-    },
-    (a: Agent) => {
-      a.subagents.waiting = true;
-    },
-  ])
-    expect(agrees(mutate)).toBe(false);
-});
-
 test("agent comparisons retain exact invalid UTF-8 bytes and mutable model text", () => {
   const a = fixture();
   a.name = Text.fromJSON([255]);

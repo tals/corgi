@@ -1,41 +1,30 @@
 import { expect, spyOn, test } from "bun:test";
 import { n, ptr, symbols } from "../native_bridge";
 import { closeReadiness, Terminal } from "./terminal";
+import { until } from "../fixtures/until";
 
-test("maintenance preserves JSON tick state and leaves clipboard data held", () => {
-  const tick = n.terminal_maintain;
-  const direct = new Terminal(20, 4),
-    reference = new Terminal(20, 4);
+test("maintenance reports released output, pending work and held clipboard data", () => {
+  const terminal = new Terminal(20, 4);
   try {
-    for (const [input, exited] of [
-      ["text", false],
-      ["\x1b[?2026hpartial", false],
-      ["\x1b]52;c;aGVsZA==\x07", false],
-      ["", true],
-      ["\x1b[?2026hnext\x1b[?2026l", false],
+    for (const [input, exited, changed, expecting, copied] of [
+      ["text", false, false, false, null],
+      ["\x1b[?2026hpartial", false, false, true, null],
+      ["\x1b]52;c;aGVsZA==\x07", false, false, true, "held"],
+      // Exit releases the unfinished synchronized update.
+      ["", true, true, false, null],
+      ["\x1b[?2026hnext\x1b[?2026l", false, false, false, null],
     ] as const) {
-      direct.feed(input);
-      reference.feed(input);
-      const expected = reference.native({ op: "tick", exited });
-      const flags = tick(direct.handle, exited);
-      expect((flags & 1) !== 0).toBe(expected.changed);
-      expect((flags & 2) !== 0).toBe(expected.expecting);
-      const copied = reference.takeCopied();
-      expect((flags & 4) !== 0).toBe(copied !== null);
-      expect(n.terminal_has_copied(direct.handle)).toBe(copied !== null);
-      expect(direct.takeCopied()).toBe(copied);
-      expect(n.terminal_has_copied(direct.handle)).toBe(false);
-      expect(direct.liveText()).toBe(reference.liveText());
-      expect(direct.vt.modes.get("synchronized_output")).toBe(reference.vt.modes.get("synchronized_output"));
+      terminal.feed(input);
+      const flags = n.terminal_maintain(terminal.handle, exited);
+      expect(flags).toBe(Number(changed) | (Number(expecting) << 1) | (Number(copied !== null) << 2));
+      expect(n.terminal_has_copied(terminal.handle)).toBe(copied !== null);
+      expect(terminal.takeCopied()).toBe(copied);
+      expect(n.terminal_has_copied(terminal.handle)).toBe(false);
     }
-    direct.prefill("make");
-    reference.prefill("make");
-    const expected = reference.native({ op: "tick", exited: false });
-    expect(tick(direct.handle, false) & 3).toBe(Number(expected.changed) | (Number(expected.expecting) << 1));
-    expect(expected.expecting).toBe(true);
+    terminal.prefill("make");
+    expect(n.terminal_maintain(terminal.handle, false) & 3).toBe(2);
   } finally {
-    direct.destroy();
-    reference.destroy();
+    terminal.destroy();
   }
 });
 
@@ -103,15 +92,6 @@ test("readiness owns reads across maintenance pause resume and descriptor handof
   const send = (text: string) => {
     const bytes = Buffer.from(text);
     expect(n.probe_write(slave, ptr(bytes), bytes.length)).toBe(bytes.length);
-  };
-  const until = async (ready: () => boolean) => {
-    const deadline = Date.now() + 2000;
-    let done = ready();
-    while (!done && Date.now() < deadline) {
-      await Bun.sleep(5);
-      done = ready();
-    }
-    expect(done).toBe(true);
   };
   try {
     terminal.adopt(master, -1);

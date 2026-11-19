@@ -3,7 +3,7 @@ const pane = @import("pane");
 const a = std.heap.c_allocator;
 const Theme = @typeInfo(@TypeOf(pane.Terminal.applyTheme)).@"fn".param_types[1].?;
 const Request = struct {
-    op: enum { info, surface, image, pixels, search, pick, select, selection, clearSelection, liveText, text, history, snapshot, fadedSnapshot, theme, paste, prefill, flush, refreshRedraw, tick, takeCopied, takePending, pending, restore, adopt, stop, reap, links, probeFormat },
+    op: enum { info, surface, image, pixels, search, pick, select, selection, clearSelection, text, history, snapshot, fadedSnapshot, theme, paste, prefill, refreshRedraw, takeCopied, takePending, pending, restore, adopt, stop, reap, links },
     pane: u32 = 0,
     offset: ?usize = null,
     text: []const u8 = "",
@@ -73,15 +73,6 @@ fn perform(t: *pane.Terminal, alloc: std.mem.Allocator, req: Request, out: [*]u8
             try t.updateRender();
             return result(alloc, t.hyperlinks(), out, cap);
         },
-        .probeFormat => {
-            var writer: std.Io.Writer.Allocating = .init(alloc);
-            var formatter = pane.terminal.vt.formatter.TerminalFormatter.init(&t.vt, .{ .emit = .vt, .trim = false });
-            formatter.extra = .all;
-            try formatter.format(&writer.writer);
-            const cursor = t.vt.screens.active.cursor;
-            try writer.writer.print("\x1b[{d};{d}H", .{ cursor.y + 1, cursor.x + 1 });
-            return result(alloc, writer.written(), out, cap);
-        },
         .search => return result(alloc, try t.search(req.text, req.skip), out, cap),
         .pick => {
             const offset = req.offset orelse return error.MissingOffset;
@@ -107,8 +98,8 @@ fn perform(t: *pane.Terminal, alloc: std.mem.Allocator, req: Request, out: [*]u8
             defer a.free(text);
             return result(alloc, text, out, cap);
         },
-        .text, .liveText => {
-            const text = if (req.op == .text) try t.text() else try t.liveText();
+        .text => {
+            const text = try t.text();
             defer a.free(text);
             return result(alloc, text, out, cap);
         },
@@ -127,18 +118,12 @@ fn perform(t: *pane.Terminal, alloc: std.mem.Allocator, req: Request, out: [*]u8
             return result(alloc, try t.pasteEvent(&.{.{ .mime = "text/plain", .data = req.text }}), out, cap);
         },
         .prefill => try t.prefill(req.text),
-        .flush => t.flush(),
         .refreshRedraw => {
             const owner = t.owner;
             t.owner = .runtime;
             defer t.owner = owner;
             t.refreshRedraw(req.now);
             return result(alloc, t.redraw_pending or t.redraw_restore_at != null, out, cap);
-        },
-        .tick => {
-            t.exited = req.exited;
-            const changed = t.read();
-            return result(alloc, .{ .changed = changed, .expecting = t.expecting() }, out, cap);
         },
         .reap => {
             t.pid = req.pid;

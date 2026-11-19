@@ -15,15 +15,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findExecutable, loginShell } from "../os";
 import * as settings from "../settings";
+import { scopedEnv } from "../fixtures/env";
 
 test("stopping command previews cancels and reaps an active shell lookup", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-command-stop-")),
-    saved = process.env.CORGI_ENV_DIR,
     worker = Worker.start(),
     pidFile = join(root, "pid"),
     executable = join(root, "bash");
+  using env = scopedEnv({ CORGI_ENV_DIR: root });
   try {
-    process.env.CORGI_ENV_DIR = root;
     // Renamed into place, so the file never exists without its PID.
     writeFileSync(
       executable,
@@ -44,8 +44,6 @@ test("stopping command previews cancels and reaps an active shell lookup", async
     expect(() => worker.request(2n, "another_alias", root)).toThrow("Cancelled");
   } finally {
     await worker.stop();
-    if (saved === undefined) delete process.env.CORGI_ENV_DIR;
-    else process.env.CORGI_ENV_DIR = saved;
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -71,17 +69,6 @@ test("wrapper bodies preserve quoting and reject complex functions", () => {
   expect(wrapperBody('c ()\n{\n claude --model sonnet "$@";\n}')).toBe("claude --model sonnet");
   expect(() => wrapperBody('c ()\n{\n echo first; claude "$@";\n}')).toThrow("ComplexShellFunction");
 });
-test("command semantics isolate explicit credential and profile settings", () => {
-  const a = analyze("ANTHROPIC_API_KEY=private claude --model sonnet --dangerously-skip-permissions", ".");
-  expect(a.provider).toBe("claude");
-  expect(a.account).toBe("API key - identity unavailable");
-  expect(a.yolo).toBe(true);
-  expect(a.modelLabel()).toBe("Sonnet");
-  const b = analyze("codex --profile alternate", ".");
-  expect(b.default_account).toBe(false);
-  expect(b.account).toBe("Profile selected; identity unknown");
-});
-
 test("command semantics distinguish default accounts from auth overrides", () => {
   const base = analyze("command claude --model sonnet --dangerously-skip-permissions", "/tmp");
   expect(base.default_account).toBe(true);
@@ -94,17 +81,16 @@ test("command semantics distinguish default accounts from auth overrides", () =>
   expect(api.default_account).toBe(false);
   expect(api.account).toBe("API key - identity unavailable");
   expect(api.account).not.toContain("private-value");
-  expect(analyze("codex --profile work", "/tmp").account).toBe("Profile selected; identity unknown");
+  expect(analyze("codex --profile work", "/tmp")).toMatchObject({
+    default_account: false,
+    account: "Profile selected; identity unknown",
+  });
 });
 
-test("explicit Codex home uses only that profile's cached public identity", async () => {
-  const { mkdtemp, writeFile, rm } = await import("node:fs/promises"),
-    { tmpdir } = await import("node:os"),
-    { join } = await import("node:path");
-  const root = await mkdtemp(join(tmpdir(), "corgi-profile-"));
+test("explicit Codex home uses only that profile's cached public identity", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-profile-"));
   try {
-    await writeFile(join(root, "auth.json"), '{{"tokens":{}}}'.slice(1));
-    await writeFile(
+    writeFileSync(
       join(root, "auth.json"),
       JSON.stringify({
         tokens: { id_token: "x.eyJlbWFpbCI6IndvcmtAZXhhbXBsZS5jb20ifQ.x" },
@@ -114,16 +100,13 @@ test("explicit Codex home uses only that profile's cached public identity", asyn
     expect(s.default_account).toBe(false);
     expect(s.account).toBe("work@example.com (cached)");
   } finally {
-    await rm(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
 });
-test("Claude HOME override reads the home identity cache", async () => {
-  const { mkdtemp, writeFile, rm } = await import("node:fs/promises"),
-    { tmpdir } = await import("node:os"),
-    { join } = await import("node:path");
-  const root = await mkdtemp(join(tmpdir(), "corgi-profile-"));
+test("Claude HOME override reads the home identity cache", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-profile-"));
   try {
-    await writeFile(
+    writeFileSync(
       join(root, ".claude.json"),
       JSON.stringify({
         oauthAccount: { emailAddress: "claude-work@example.com" },
@@ -133,7 +116,7 @@ test("Claude HOME override reads the home identity cache", async () => {
     expect(s.default_account).toBe(false);
     expect(s.account).toBe("claude-work@example.com (cached)");
   } finally {
-    await rm(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
 });
 test("opaque shell expansion leaves account undetermined", () => {
@@ -142,11 +125,9 @@ test("opaque shell expansion leaves account undetermined", () => {
   expect(unknown.account).toBe("Account cannot be determined");
 });
 test("panes use the configured shell, then an absolute SHELL, then the account's", () => {
-  const saved = { SHELL: process.env.SHELL, CORGI_ENV_DIR: process.env.CORGI_ENV_DIR },
-    root = mkdtempSync(join(tmpdir(), "corgi-shell-"));
+  const root = mkdtempSync(join(tmpdir(), "corgi-shell-"));
+  using env = scopedEnv({ CORGI_ENV_DIR: root, SHELL: "/bin/bash" });
   try {
-    process.env.CORGI_ENV_DIR = root;
-    process.env.SHELL = "/bin/bash";
     expect(shell()).toBe("/bin/bash");
     for (const value of [undefined, "", "zsh"]) {
       if (value === undefined) delete process.env.SHELL;
@@ -163,9 +144,6 @@ test("panes use the configured shell, then an absolute SHELL, then the account's
       expect(shell()).toBe("/bin/bash");
     }
   } finally {
-    for (const [key, value] of Object.entries(saved))
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -178,11 +156,9 @@ test("panes start login shells only on macOS", () => {
   expect(shellArgs("ls", true, "linux")).toEqual(["-ic", "ls"]);
 });
 test("the shell status says what panes run with and without the setting", () => {
-  const saved = { SHELL: process.env.SHELL, CORGI_ENV_DIR: process.env.CORGI_ENV_DIR },
-    root = mkdtempSync(join(tmpdir(), "corgi-shell-"));
+  const root = mkdtempSync(join(tmpdir(), "corgi-shell-"));
+  using env = scopedEnv({ CORGI_ENV_DIR: root, SHELL: "/bin/bash" });
   try {
-    process.env.CORGI_ENV_DIR = root;
-    process.env.SHELL = "/bin/bash";
     expect(shellStatus()).toEqual({
       setting: "",
       path: "/bin/bash",
@@ -202,9 +178,6 @@ test("the shell status says what panes run with and without the setting", () => 
     delete process.env.SHELL;
     expect(shellStatus().default_source).toBe(loginShell() ? "account" : "fallback");
   } finally {
-    for (const [key, value] of Object.entries(saved))
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
     rmSync(root, { recursive: true, force: true });
   }
 });

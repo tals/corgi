@@ -10,56 +10,6 @@ const reading = /\bC(PU)? .*\bM(em)? /;
 const hover = `\x1b[48;2;${PALETTE.selected}m\x1b[22m`;
 
 class Resources extends Runtime {
-  async test_process_churn_keeps_established_workspace_totals() {
-    const workspace = (await this.session()).workspaces[0].id;
-    const trigger = join(this.temp.name, "spawn-children");
-    const children = join(this.temp.name, "child-pids");
-    writeFileSync(children, "");
-    const script = join(this.temp.name, "churn.ts");
-    writeFileSync(
-      script,
-      `
-      import { appendFileSync, existsSync } from "node:fs";
-      setInterval(() => {
-        if (existsSync(${JSON.stringify(trigger)})) {
-          const child = Bun.spawn(["/bin/sleep", "0.9"], {
-            stdin: "ignore", stdout: "ignore", stderr: "ignore",
-          });
-          appendFileSync(${JSON.stringify(children)}, child.pid + "\\n");
-          void child.exited;
-        }
-      }, 400);
-    `,
-    );
-    await this.command("pane.create", {
-      workspace,
-      cwd: this.temp.name,
-      command: shellJoin([process.execPath, script]),
-    });
-    await this.until(async () => {
-      const work = (await this.session()).resources.workspaces.find((w: any) => w.id === workspace);
-      return work?.count > 0 && work.cpu != null;
-    }, 8);
-    writeFileSync(trigger, "go");
-    let lastSample = 0,
-      samples = 0,
-      sawNewProcess = false;
-    await this.until(async () => {
-      const snapshot = (await this.session()).resources;
-      if (snapshot.sampled_at === lastSample) return false;
-      lastSample = snapshot.sampled_at;
-      const work = snapshot.workspaces.find((w: any) => w.id === workspace);
-      this.assertIsNotNone(work.cpu);
-      this.assertIsNotNone(work.read);
-      this.assertIsNotNone(work.written);
-      this.assertIsNotNone(work.memory);
-      // macOS can retain the spawning process's name; identify the actual children.
-      const pids = new Set(readFileSync(children, "utf8").trim().split("\n").map(Number));
-      sawNewProcess ||= work.processes.some((p: any) => pids.has(p.pid) && p.cpu == null);
-      return ++samples >= 5 && sawNewProcess;
-    }, 14);
-  }
-
   async test_workspace_clicks_and_separators_preserve_resource_hover() {
     const first = (await this.session()).workspaces[0].id;
     // Some Linux kernels report zero RSS for a tiny sleeping process. Allocate

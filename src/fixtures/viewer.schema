@@ -60,6 +60,7 @@ $.view.surfaces[].surface.lines[]: string
 $.view.surfaces[].surface.cursor: optional
 $.view.surfaces[].surface.cursor?.x: u16
 $.view.surfaces[].surface.cursor?.y: u16
+$.view.surfaces[].surface.cursor_style: enum default blinking_block steady_block blinking_underline steady_underline blinking_bar steady_bar
 $.view.surfaces[].surface.images[].image.id: string
 $.view.surfaces[].surface.images[].image.width: u32
 $.view.surfaces[].surface.images[].image.height: u32

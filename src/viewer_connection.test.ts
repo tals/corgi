@@ -1,11 +1,36 @@
 import { test, expect } from "bun:test";
 import { createServer, type Socket } from "./fixtures/websocket_server";
+import { lines } from "./fixtures/lines";
+import { until } from "./fixtures/until";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Connection } from "./viewer_connection";
 import * as json from "./json";
 import * as protocol from "./protocol";
+
+/** A fake daemon at a fresh path; `connected` gives each client socket its
+ * handler for the requests it sends. */
+async function daemon(connected: (socket: Socket) => (request: any) => void) {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-viewer-rpc-")),
+    path = join(dir, "rpc.sock"),
+    sockets: Socket[] = [];
+  const server = createServer(socket => {
+    sockets.push(socket);
+    const request = connected(socket);
+    lines(socket, line => request(json.parse(line)));
+  });
+  await new Promise<void>(resolve => server.listen(path, resolve));
+  return {
+    path,
+    sockets,
+    async close() {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
 
 /** Syncs until the daemon has accepted the watch and a sync has caught up. */
 async function watched(connection: Connection, sent = () => true) {
@@ -18,56 +43,42 @@ async function watched(connection: Connection, sent = () => true) {
 }
 
 test("a viewer shares two connections across requests, subscriptions, and pane content", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "corgi-viewer-rpc-")),
-    path = join(dir, "rpc.sock"),
-    sockets: Socket[] = [],
-    received: { socket: Socket; op: string; surfaces?: boolean }[] = [],
+  const received: { socket: Socket; op: string; surfaces?: boolean }[] = [],
     events: protocol.Event[] = [],
     held = Promise.withResolvers<void>();
   let finish!: () => void,
     hold = false;
-  const server = createServer(socket => {
-    sockets.push(socket);
-    let buffer = "";
-    socket.setEncoding("utf8");
-    socket.on("data", chunk => {
-      buffer += chunk;
-      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
-        const q = json.parse(buffer.slice(0, end));
-        buffer = buffer.slice(end + 1);
-        received.push({ socket, op: q.op, surfaces: q.surfaces });
-        const send = (value: object) => socket.write(json.stringify(value) + "\n"),
-          reply = (value: object) => send({ request_id: q.request_id, ...value });
-        switch (q.op) {
-          case "viewer.sync":
-            reply({ type: "view", viewer_protocol: protocol.viewer_version, viewer: 1, surfaces: [] });
-            break;
-          case "viewer.surfaces":
-            if (!hold) {
-              reply({ ok: true, surfaces: [] });
-              break;
-            }
-            // A delayed content response must not hold control replies or events.
-            finish = () => reply({ ok: true, surfaces: [{ surface: { pane: 1 } }] });
-            send({ type: "viewer.wake" });
-            held.resolve();
-            break;
-          case "agent.subscribe":
-            reply({ type: "agent.preview", cwd: q.cwd, preview: {} });
-            send({ type: "agent.preview", cwd: q.cwd, preview: {} });
-            break;
-          case "agent.history":
-            reply({ ok: true });
-            send({ type: "agent.history", update: { full: true, entries: [], removed: [] } });
-            break;
-          default:
-            reply({ ok: true });
+  const server = await daemon(socket => q => {
+    received.push({ socket, op: q.op, surfaces: q.surfaces });
+    const send = (value: object) => socket.write(json.stringify(value) + "\n"),
+      reply = (value: object) => send({ request_id: q.request_id, ...value });
+    switch (q.op) {
+      case "viewer.sync":
+        reply({ type: "view", viewer_protocol: protocol.viewer_version, viewer: 1, surfaces: [] });
+        break;
+      case "viewer.surfaces":
+        if (!hold) {
+          reply({ ok: true, surfaces: [] });
+          break;
         }
-      }
-    });
+        // A delayed content response must not hold control replies or events.
+        finish = () => reply({ ok: true, surfaces: [{ surface: { pane: 1 } }] });
+        send({ type: "viewer.wake" });
+        held.resolve();
+        break;
+      case "agent.subscribe":
+        reply({ type: "agent.preview", cwd: q.cwd, preview: {} });
+        send({ type: "agent.preview", cwd: q.cwd, preview: {} });
+        break;
+      case "agent.history":
+        reply({ ok: true });
+        send({ type: "agent.history", update: { full: true, entries: [], removed: [] } });
+        break;
+      default:
+        reply({ ok: true });
+    }
   });
-  await new Promise<void>(resolve => server.listen(path, resolve));
-  const connection = new Connection(path),
+  const connection = new Connection(server.path),
     unsubscribe = connection.onEvent(event => events.push(event));
   let syncing: Promise<protocol.Response<"viewer.sync">> | null = null;
   try {
@@ -86,7 +97,7 @@ test("a viewer shares two connections across requests, subscriptions, and pane c
     await connection.request("ping");
     finish();
     expect(await syncing).toMatchObject({ surfaces: [{ surface: { pane: 1 } }] });
-    expect(sockets).toHaveLength(2);
+    expect(server.sockets).toHaveLength(2);
     const control = received.find(r => r.op === "viewer.open")!.socket,
       data = received.find(r => r.op === "viewer.watch")!.socket;
     expect(control).not.toBe(data);
@@ -110,68 +121,54 @@ test("a viewer shares two connections across requests, subscriptions, and pane c
     unsubscribe();
     connection.close();
     await syncing?.catch(() => {});
-    for (const socket of sockets) socket.destroy();
-    await new Promise<void>(resolve => server.close(() => resolve()));
-    rmSync(dir, { recursive: true, force: true });
+    await server.close();
   }
 });
 
 test("a refused watch uses control for surfaces and images until a later sync attaches data", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "corgi-viewer-rpc-")),
-    path = join(dir, "rpc.sock"),
-    sockets: Socket[] = [],
-    surfaces: Socket[] = [],
+  const surfaces: Socket[] = [],
     images: Socket[] = [],
     frames = [{ surface: { pane: 1 } }];
   let watches = 0;
   let control!: Socket, data!: Socket;
-  const server = createServer(socket => {
-    sockets.push(socket);
-    let buffer = "";
+  const server = await daemon(socket => {
     let attached = false,
       watching = false;
-    socket.setEncoding("utf8");
-    socket.on("data", chunk => {
-      buffer += chunk;
-      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
-        const q = json.parse(buffer.slice(0, end));
-        buffer = buffer.slice(end + 1);
-        const reply = (value: object) => socket.write(json.stringify({ request_id: q.request_id, ...value }) + "\n");
-        switch (q.op) {
-          case "viewer.open":
-            control = socket;
-            attached = true;
-            reply({ ok: true, viewer_protocol: protocol.viewer_version });
-            break;
-          case "viewer.sync":
-            reply({
-              type: "view",
-              viewer_protocol: protocol.viewer_version,
-              viewer: 1,
-              surfaces: q.surfaces === false ? [] : frames,
-            });
-            break;
-          case "viewer.watch":
-            data = socket;
-            watching = ++watches > 1;
-            reply(watching ? { ok: true } : { err: "NoViewer" });
-            break;
-          case "viewer.surfaces":
-            surfaces.push(socket);
-            reply(attached || watching ? { ok: true, surfaces: frames } : { err: "NotAttached" });
-            break;
-          case "viewer.image":
-            images.push(socket);
-            reply(attached || watching ? { ok: true, data: "pixels" } : { err: "NotAttached" });
-            break;
-          default:
-            reply({ ok: true });
-        }
+    return q => {
+      const reply = (value: object) => socket.write(json.stringify({ request_id: q.request_id, ...value }) + "\n");
+      switch (q.op) {
+        case "viewer.open":
+          control = socket;
+          attached = true;
+          reply({ ok: true, viewer_protocol: protocol.viewer_version });
+          break;
+        case "viewer.sync":
+          reply({
+            type: "view",
+            viewer_protocol: protocol.viewer_version,
+            viewer: 1,
+            surfaces: q.surfaces === false ? [] : frames,
+          });
+          break;
+        case "viewer.watch":
+          data = socket;
+          watching = ++watches > 1;
+          reply(watching ? { ok: true } : { err: "NoViewer" });
+          break;
+        case "viewer.surfaces":
+          surfaces.push(socket);
+          reply(attached || watching ? { ok: true, surfaces: frames } : { err: "NotAttached" });
+          break;
+        case "viewer.image":
+          images.push(socket);
+          reply(attached || watching ? { ok: true, data: "pixels" } : { err: "NotAttached" });
+          break;
+        default:
+          reply({ ok: true });
       }
-    });
+    };
   });
-  await new Promise<void>(resolve => server.listen(path, resolve));
-  const connection = new Connection(path);
+  const connection = new Connection(server.path);
   try {
     await connection.request("viewer.open");
     expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ viewer: 1, surfaces: frames });
@@ -196,81 +193,67 @@ test("a refused watch uses control for surfaces and images until a later sync at
     expect(control).not.toBe(data);
   } finally {
     connection.close();
-    for (const socket of sockets) socket.destroy();
-    await new Promise<void>(resolve => server.close(() => resolve()));
-    rmSync(dir, { recursive: true, force: true });
+    await server.close();
   }
 });
 
 test.each(["watch", "idle", "surfaces", "image"] as const)(
   "a data socket lost during %s falls back to control and reconnects on sync",
   async failure => {
-    const dir = mkdtempSync(join(tmpdir(), "corgi-viewer-rpc-")),
-      path = join(dir, "rpc.sock"),
-      sockets: Socket[] = [],
-      watches: Socket[] = [],
+    const watches: Socket[] = [],
       reads: Socket[] = [],
       events: protocol.Event[] = [],
       frames = [{ surface: { pane: 1 } }];
     let control!: Socket;
     let fail: string | null = failure === "watch" ? "viewer.watch" : null;
-    const server = createServer(socket => {
-      sockets.push(socket);
-      let buffer = "";
+    const server = await daemon(socket => {
       let attached = false,
         watching = false;
-      socket.setEncoding("utf8");
-      socket.on("data", chunk => {
-        buffer += chunk;
-        for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
-          const q = json.parse(buffer.slice(0, end));
-          buffer = buffer.slice(end + 1);
-          const send = (value: object) => socket.write(json.stringify(value) + "\n"),
-            reply = (value: object) => send({ request_id: q.request_id, ...value });
-          if (q.op === "viewer.watch") watches.push(socket);
-          if (q.op === fail && !attached) {
-            fail = null;
-            socket.destroy();
-            return;
-          }
-          switch (q.op) {
-            case "viewer.open":
-              control = socket;
-              attached = true;
-              reply({ ok: true, viewer_protocol: protocol.viewer_version });
-              break;
-            case "viewer.sync":
-              reply({
-                type: "view",
-                viewer_protocol: protocol.viewer_version,
-                viewer: 1,
-                surfaces: q.surfaces === false ? [] : frames,
-              });
-              break;
-            case "viewer.watch":
-              watching = true;
-              reply({ ok: true });
-              send({ type: "viewer.wake" });
-              break;
-            case "viewer.surfaces":
-            case "viewer.image":
-              reads.push(socket);
-              reply(
-                attached || watching
-                  ? q.op === "viewer.surfaces"
-                    ? { ok: true, surfaces: frames }
-                    : { ok: true, data: "pixels" }
-                  : { err: "NotAttached" },
-              );
-              break;
-            default:
-              reply({ ok: true });
-          }
+      return q => {
+        const send = (value: object) => socket.write(json.stringify(value) + "\n"),
+          reply = (value: object) => send({ request_id: q.request_id, ...value });
+        if (q.op === "viewer.watch") watches.push(socket);
+        if (q.op === fail && !attached) {
+          fail = null;
+          socket.destroy();
+          return;
         }
-      });
+        switch (q.op) {
+          case "viewer.open":
+            control = socket;
+            attached = true;
+            reply({ ok: true, viewer_protocol: protocol.viewer_version });
+            break;
+          case "viewer.sync":
+            reply({
+              type: "view",
+              viewer_protocol: protocol.viewer_version,
+              viewer: 1,
+              surfaces: q.surfaces === false ? [] : frames,
+            });
+            break;
+          case "viewer.watch":
+            watching = true;
+            reply({ ok: true });
+            send({ type: "viewer.wake" });
+            break;
+          case "viewer.surfaces":
+          case "viewer.image":
+            reads.push(socket);
+            reply(
+              attached || watching
+                ? q.op === "viewer.surfaces"
+                  ? { ok: true, surfaces: frames }
+                  : { ok: true, data: "pixels" }
+                : { err: "NotAttached" },
+            );
+            break;
+          default:
+            reply({ ok: true });
+        }
+      };
     });
-    await new Promise<void>(resolve => server.listen(path, resolve));
-    const connection = new Connection(path),
+    const connection = new Connection(server.path),
       unsubscribe = connection.onEvent(event => events.push(event));
     try {
       await connection.request("viewer.open");
@@ -279,8 +262,7 @@ test.each(["watch", "idle", "surfaces", "image"] as const)(
       expect(connection.watches()).toBe(failure !== "watch");
       if (failure === "idle") {
         watches[0].destroy();
-        const until = Date.now() + 1000;
-        while (connection.watches() && Date.now() < until) await Bun.sleep(1);
+        await until(() => !connection.watches(), 1000);
         expect(connection.watches()).toBe(false);
       } else if (failure !== "watch") fail = `viewer.${failure}`;
       if (failure === "image")
@@ -295,7 +277,7 @@ test.each(["watch", "idle", "surfaces", "image"] as const)(
       const before = events.length;
       await watched(connection);
       expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ surfaces: frames });
-      expect(sockets).toHaveLength(3);
+      expect(server.sockets).toHaveLength(3);
       expect(watches).toHaveLength(2);
       expect(watches[1]).not.toBe(watches[0]);
       expect(reads.at(-1)).toBe(watches[1]);
@@ -307,41 +289,25 @@ test.each(["watch", "idle", "surfaces", "image"] as const)(
     } finally {
       unsubscribe();
       connection.close();
-      for (const socket of sockets) socket.destroy();
-      await new Promise<void>(resolve => server.close(() => resolve()));
-      rmSync(dir, { recursive: true, force: true });
+      await server.close();
     }
   },
 );
 
 test("closing a viewer while it reconnects after a reload rejects the commands it held to send again", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "corgi-viewer-close-")),
-    path = join(dir, "rpc.sock"),
-    sockets: Socket[] = [],
-    reconnecting = Promise.withResolvers<void>();
+  const reconnecting = Promise.withResolvers<void>();
   let reloaded = false;
-  const server = createServer(socket => {
-    sockets.push(socket);
-    let buffer = "";
-    socket.setEncoding("utf8");
-    socket.on("data", chunk => {
-      buffer += chunk;
-      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
-        const q = json.parse(buffer.slice(0, end));
-        buffer = buffer.slice(end + 1);
-        // The new daemon takes the connection but hasn't answered yet.
-        if (reloaded) reconnecting.resolve();
-        else if (q.op === "link.open")
-          socket.write(json.stringify({ request_id: q.request_id, ok: true, link: "kept" }) + "\n");
-        else if (q.op === "session.command") {
-          reloaded = true;
-          socket.close(1012, "reloading");
-        } else socket.write(json.stringify({ request_id: q.request_id, ok: true }) + "\n");
-      }
-    });
+  const server = await daemon(socket => q => {
+    // The new daemon takes the connection but hasn't answered yet.
+    if (reloaded) reconnecting.resolve();
+    else if (q.op === "link.open")
+      socket.write(json.stringify({ request_id: q.request_id, ok: true, link: "kept" }) + "\n");
+    else if (q.op === "session.command") {
+      reloaded = true;
+      socket.close(1012, "reloading");
+    } else socket.write(json.stringify({ request_id: q.request_id, ok: true }) + "\n");
   });
-  await new Promise<void>(resolve => server.listen(path, resolve));
-  const connection = new Connection(path);
+  const connection = new Connection(server.path);
   try {
     const outcome = connection.request("session.command", { command: { "pane.close": { target: 1 } } } as never).then(
       () => "answered",
@@ -352,8 +318,6 @@ test("closing a viewer while it reconnects after a reload rejects the commands i
     expect(await Promise.race([outcome, Bun.sleep(1000).then(() => "still waiting")])).toBe("ConnectionClosed");
   } finally {
     connection.close();
-    for (const socket of sockets) socket.destroy();
-    await new Promise<void>(resolve => server.close(() => resolve()));
-    rmSync(dir, { recursive: true, force: true });
+    await server.close();
   }
 });

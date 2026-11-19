@@ -5,34 +5,36 @@ import * as rpc from "./rpc";
 import * as start_lock from "./start_lock";
 import * as websocket from "./wire_websocket";
 import { Stream } from "./machine_stream";
+import { createServer, type Server, type Socket } from "./fixtures/websocket_server";
+import { lines } from "./fixtures/lines";
+
+/** A daemon at `path` that answers each request with its `pid`, then hands
+ * the socket to `answered`. */
+function daemon(path: string, pid = 7, answered: (socket: Socket) => void = () => {}) {
+  const server = createServer(socket =>
+    lines(socket, line => {
+      socket.write(JSON.stringify({ request_id: JSON.parse(line).request_id, ok: true, pid }) + "\n");
+      answered(socket);
+    }),
+  );
+  server.listen(path, () => {});
+  return server;
+}
+const stop = (server: Server) => new Promise<void>(resolve => server.close(resolve));
 
 test.each(["plain", "with space", "with#hash", "with%percent", "with?query", "with:colon", "日本語"])(
   "native WS preserves filesystem path %s and its final reply before EOF",
   async name => {
     const dir = fs.mkdtempSync("/tmp/corgi-ws-client-"),
       path = dir + "/" + name;
-    const server = Bun.serve({
-      unix: path,
-      fetch(req, server) {
-        if (server.upgrade(req, { headers: { "Sec-WebSocket-Protocol": websocket.protocol } })) return;
-        return new Response(null, { status: 400 });
-      },
-      websocket: {
-        perMessageDeflate: false,
-        message(ws, bytes) {
-          const value = JSON.parse(bytes.toString());
-          ws.send(Buffer.from(JSON.stringify({ request_id: value.request_id, ok: true, pid: 7 }) + "\n"));
-          ws.close(1000);
-        },
-      },
-    });
+    const server = daemon(path, 7, socket => socket.close(1000));
     const conn = new rpc.Connection(path, { timeout_ms: 1000 });
     try {
       expect(await conn.call("ping")).toEqual({ ok: true, pid: 7 });
       expect(Reflect.get(conn.socket, "alias")).toBeNull();
     } finally {
       conn.close();
-      await server.stop(true);
+      await stop(server);
       fs.rmSync(dir, { recursive: true, force: true });
     }
   },
@@ -48,20 +50,7 @@ test("closing before WebSocket opens settles pending RPC and releases its socket
 test("rollback close preserves the final reply and reaches an idle machine stream", async () => {
   const directory = fs.mkdtempSync("/tmp/corgi-ws-rollback-"),
     path = directory + "/s";
-  const server = Bun.serve({
-    unix: path,
-    fetch(req, server) {
-      if (server.upgrade(req, { headers: { "Sec-WebSocket-Protocol": websocket.protocol } })) return;
-      return new Response(null, { status: 400 });
-    },
-    websocket: {
-      message(ws, bytes) {
-        const value = JSON.parse(bytes.toString());
-        ws.send(Buffer.from(JSON.stringify({ request_id: value.request_id, ok: true, pid: 7 }) + "\n"));
-        ws.close(websocket.rolled_back);
-      },
-    },
-  });
+  const server = daemon(path, 7, socket => socket.close(websocket.rolled_back));
   const connection = new rpc.Connection(path, { timeout_ms: 1000 }),
     stream = new Stream(connection);
   try {
@@ -72,85 +61,39 @@ test("rollback close preserves the final reply and reaches an idle machine strea
     expect(() => stream.check()).toThrow("ServerRolledBack");
   } finally {
     connection.close();
-    await server.stop(true);
+    await stop(server);
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
-test("a request written while the socket is closing for a reload fails as the reload", async () => {
-  const directory = fs.mkdtempSync("/tmp/corgi-ws-closing-"),
-    path = directory + "/s";
-  let daemon: Bun.ServerWebSocket<undefined> | null = null;
-  const server = Bun.serve({
-    unix: path,
-    fetch(req, server) {
-      if (server.upgrade(req, { data: undefined, headers: { "Sec-WebSocket-Protocol": websocket.protocol } })) return;
-      return new Response(null, { status: 400 });
-    },
-    websocket: {
-      open(ws) {
-        daemon = ws;
-      },
-      message(ws, bytes) {
-        const value = JSON.parse(bytes.toString());
-        ws.send(Buffer.from(JSON.stringify({ request_id: value.request_id, ok: true, pid: 7 }) + "\n"));
-      },
-    },
-  });
-  const connection = new rpc.Connection(path, { timeout_ms: 1000 });
-  try {
-    expect(await connection.call("ping")).toEqual({ ok: true, pid: 7 });
-    // Bun says it's closing before `onclose` brings the code.
-    const ws = Reflect.get(connection.socket, "ws");
-    Object.defineProperty(ws, "readyState", { configurable: true, value: WebSocket.CLOSING });
-    const pending = connection.call("ping").catch(error => error);
-    await Bun.sleep(10);
-    daemon!.close(websocket.reloading);
-    expect((await pending).message).toBe("ServerReloading");
-    expect(connection.failure?.message).toBe("ServerReloading");
-  } finally {
-    connection.close();
-    await server.stop(true);
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
+test.each([
+  ["a reload", websocket.reloading, "ServerReloading"],
+  ["a shutdown", websocket.shutting_down, "ServerShutdown"],
+] as const)(
+  "a request written while the socket is closing for %s fails with its close code's error",
+  async (_, code, name) => {
+    const directory = fs.mkdtempSync("/tmp/corgi-ws-closing-"),
+      path = directory + "/s";
+    let accepted: Socket | null = null;
+    const server = daemon(path, 7, socket => (accepted = socket));
+    const connection = new rpc.Connection(path, { timeout_ms: 1000 });
+    try {
+      expect(await connection.call("ping")).toEqual({ ok: true, pid: 7 });
+      // Bun says it's closing before `onclose` brings the code.
+      const ws = Reflect.get(connection.socket, "ws");
+      Object.defineProperty(ws, "readyState", { configurable: true, value: WebSocket.CLOSING });
+      const pending = connection.call("ping").catch(error => error);
+      await Bun.sleep(10);
+      accepted!.close(code);
+      expect((await pending).message).toBe(name);
+      expect(connection.failure?.message).toBe(name);
+    } finally {
+      connection.close();
+      await stop(server);
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
 
-test("a daemon shutting down closes with its own code, which says so", async () => {
-  const directory = fs.mkdtempSync("/tmp/corgi-ws-closing-"),
-    path = directory + "/s";
-  let daemon: Bun.ServerWebSocket<undefined> | null = null;
-  const server = Bun.serve({
-    unix: path,
-    fetch(req, server) {
-      if (server.upgrade(req, { data: undefined, headers: { "Sec-WebSocket-Protocol": websocket.protocol } })) return;
-      return new Response(null, { status: 400 });
-    },
-    websocket: {
-      open(ws) {
-        daemon = ws;
-      },
-      message(ws, bytes) {
-        const value = JSON.parse(bytes.toString());
-        ws.send(Buffer.from(JSON.stringify({ request_id: value.request_id, ok: true, pid: 7 }) + "\n"));
-      },
-    },
-  });
-  const connection = new rpc.Connection(path, { timeout_ms: 1000 });
-  try {
-    expect(await connection.call("ping")).toEqual({ ok: true, pid: 7 });
-    // Bun says it's closing before `onclose` brings the code.
-    const ws = Reflect.get(connection.socket, "ws");
-    Object.defineProperty(ws, "readyState", { configurable: true, value: WebSocket.CLOSING });
-    const pending = connection.call("ping").catch(error => error);
-    await Bun.sleep(10);
-    daemon!.close(websocket.shutting_down);
-    expect((await pending).message).toBe("ServerShutdown");
-    expect(connection.failure?.message).toBe("ServerShutdown");
-  } finally {
-    connection.close();
-    await server.stop(true);
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
 test("failed WebSocket connect preserves errno and removes its path alias", async () => {
   const directory = fs.mkdtempSync("/tmp/corgi-ws-absent-");
   const connection = new rpc.Connection(directory + "/absent socket");
@@ -209,23 +152,10 @@ test("while a daemon is starting, a refused WebSocket opens once it answers", as
     lock = (await start_lock.take(path))!;
   // Something that answers, but not with WebSockets, as an older build does.
   const older = Bun.serve({ unix: path, fetch: () => new Response(null, { status: 400 }) });
-  let server: ReturnType<typeof Bun.serve> | null = null;
+  let server: Server | null = null;
   setTimeout(() => {
     void older.stop(true);
-    server = Bun.serve({
-      unix: path,
-      fetch(req, server) {
-        if (server.upgrade(req, { data: undefined, headers: { "Sec-WebSocket-Protocol": websocket.protocol } })) return;
-        return new Response(null, { status: 400 });
-      },
-      websocket: {
-        perMessageDeflate: false,
-        message(ws, bytes) {
-          const value = JSON.parse(bytes.toString());
-          ws.send(Buffer.from(JSON.stringify({ request_id: value.request_id, ok: true, pid: 8 }) + "\n"));
-        },
-      },
-    });
+    server = daemon(path, 8);
     start_lock.release(lock);
   }, 150);
   const conn = new rpc.Connection(path, { timeout_ms: 3000 });
@@ -233,7 +163,7 @@ test("while a daemon is starting, a refused WebSocket opens once it answers", as
     expect(await conn.call("ping")).toEqual({ ok: true, pid: 8 });
   } finally {
     conn.close();
-    await (server as ReturnType<typeof Bun.serve> | null)?.stop(true);
+    if (server) await stop(server);
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });

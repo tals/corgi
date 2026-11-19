@@ -1,24 +1,10 @@
 import { test, expect } from "bun:test";
 import { Codex, bareCommand, sessionThread, tool } from "./headless";
-import type { Stdio } from "../stdio";
+import { stdio } from "../../fixtures/stdio";
 import type { Host } from "../adapter";
 /** A Codex client reading `lines` as its app server's output, recording what it writes. */
 function client(lines: unknown[], summary = false, options: Codex["options"] = {}) {
-  const written: unknown[] = [];
-  const io = {
-    exited: false,
-    pid: -1,
-    read: () => lines.splice(0),
-    write: (value: unknown) => written.push(value),
-    reply: (value: unknown) => {
-      written.push(value);
-      return true;
-    },
-    wait: async () => {},
-    close() {},
-    adopt() {},
-    save: () => ({ state: {}, handles: [] }),
-  } as unknown as Stdio;
+  const { io, written } = stdio(lines);
   const codex = new Codex(io, "/repo", summary ? { instructions: "x", model: null, schema: null } : null, options);
   codex.ready = true;
   return { codex, written };

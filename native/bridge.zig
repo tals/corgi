@@ -78,13 +78,6 @@ pub export fn terminal_title(t: *pane.Terminal, info: [*]u64) ?[*]const u8 {
 pub export fn terminal_surface_cache_stats(t: *pane.Terminal, out: [*]u64) void {
     out[0..4].* = t.surface_rows.stats();
 }
-pub export fn terminal_text(t: *pane.Terminal, out: [*]u8, cap: usize) i64 {
-    const text = t.text() catch return -1;
-    defer a.free(text);
-    if (text.len > cap) return -2;
-    @memcpy(out[0..text.len], text);
-    return @intCast(text.len);
-}
 pub export fn terminal_snapshot(t: *pane.Terminal, out: [*]u8, cap: usize) i64 {
     const text = t.liveSnapshot() catch return -1;
     defer a.free(text);

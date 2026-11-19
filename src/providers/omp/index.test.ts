@@ -13,16 +13,11 @@ import { applyUsage, report } from "./account";
 import { Info } from "../../usage/account";
 import { Text } from "../../agents";
 import { Counts } from "../../usage/tokens";
+import { scopedEnv } from "../../fixtures/env";
 /** Runs `run` to its end with `root` as omp's agent folder. */
 async function withAgentDir<T>(root: string, run: () => T | Promise<T>): Promise<T> {
-  const old = process.env.PI_CODING_AGENT_DIR;
-  process.env.PI_CODING_AGENT_DIR = root;
-  try {
-    return await run();
-  } finally {
-    if (old === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = old;
-  }
+  using env = scopedEnv({ PI_CODING_AGENT_DIR: root });
+  return await run();
 }
 test("omp launches, resumes and forks with its own flags", () => {
   expect(adapter.launch.start({ permissions: "bypass", model: "openai-codex/gpt-6-luna", args: [] })).toEqual([

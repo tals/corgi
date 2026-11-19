@@ -1,15 +1,12 @@
 import { expect, test } from "bun:test";
 import * as moonlander from "./moonlander";
+import { flight, mesa, over, seeded } from "../fixtures/moonlander";
 
 function create(saveBest?: (score: number) => void) {
-  let seed = 12345;
   const engine = moonlander.create({
     size: () => ({ cols: 100, rows: 40 }),
     aspect: 2.2,
-    random: () => {
-      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      return seed / 4294967296;
-    },
+    random: seeded(12345),
     saveBest,
   });
   engine.title();
@@ -18,10 +15,8 @@ function create(saveBest?: (score: number) => void) {
 
 function approach(engine: moonlander.Engine) {
   engine.launch(1);
-  const pad = engine.world.pads[0],
-    lander = engine.lander!;
-  Object.assign(lander, { x: (pad.x0 + pad.x1) / 2, y: pad.y - 10 * engine.world.K - 0.1, vx: 0, vy: 2, a: 0 });
-  return { pad, lander };
+  over(engine);
+  return { pad: engine.world.pads[0], lander: engine.lander! };
 }
 
 test("terrain wraps and landing pads remain flat and inside the world", () => {
@@ -95,11 +90,6 @@ test("the camera follows an ascending ship past the old ceiling and returns duri
     expect(L.y).toBeLessThan(-40);
     expect(L.vy).toBeLessThan(0);
     expect(engine.cameraY).toBeLessThan(0);
-    const camera = engine.cameraY;
-    engine.game.paused = true;
-    engine.tick(0.1);
-    expect(engine.cameraY).toBe(camera);
-    engine.game.paused = false;
     for (let i = 0; i < 90 && engine.cameraY < 0; i++) engine.tick(0.1);
     expect(engine.cameraY).toBe(0);
     expect(engine.game.state).toBe("flying");
@@ -215,14 +205,7 @@ test("while panned, the camera keeps the ship's top within four rows below its f
 });
 
 function landOn(seed: number) {
-  const engine = moonlander.create({
-    size: () => ({ cols: 100, rows: 40 }),
-    aspect: 2.2,
-    random: () => {
-      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      return seed / 4294967296;
-    },
-  });
+  const engine = moonlander.create({ size: () => ({ cols: 100, rows: 40 }), aspect: 2.2, random: seeded(seed) });
   approach(engine);
   return engine;
 }
@@ -345,22 +328,6 @@ test("advance and thrust cannot skip the wait for the corgi to eat its bone", ()
   expect(patient.game.round).toBe(2);
 });
 
-/** A moon whose pads stand on mesas over a chasm too deep to climb out of:
- * the corgi can dig nowhere but into its own pad. */
-function mesa() {
-  const engine = moonlander.create({ size: () => ({ cols: 100, rows: 40 }), aspect: 2.2, random: () => 0.5 });
-  engine.launch(1);
-  const { world } = engine,
-    pad = world.pads.reduce((a, b) => (b.x1 - b.x0 > a.x1 - a.x0 ? b : a));
-  for (const p of world.pads) {
-    p.y = world.H * 0.5;
-    for (let i = p.x0; i <= p.x1; i++) world.g[i] = p.y;
-  }
-  for (let i = 0; i <= world.W; i++) if (!world.pads.some(p => i >= p.x0 && i <= p.x1)) world.g[i] = world.H - world.K;
-  Object.assign(engine.lander!, { x: (pad.x0 + pad.x1) / 2, y: pad.y - 10 * world.K - 0.1, vx: 0, vy: 2, a: 0 });
-  return { engine, pad };
-}
-
 test("with nowhere else to dig, the corgi digs into the end of its own pad", () => {
   const { engine, pad } = mesa(),
     { world } = engine;
@@ -383,9 +350,8 @@ test("with nowhere else to dig, the corgi digs into the end of its own pad", () 
 test("with a hill beside the pad, the corgi digs into it, the hillside slides in, and it never walks off the screen", () => {
   // A hill rising from the pad's left end, and ground falling away to the
   // right, toward the edge of the screen.
-  const engine = moonlander.create({ size: () => ({ cols: 80, rows: 40 }), aspect: 2.2, random: () => 0.5 });
-  engine.launch(1);
-  const { world } = engine,
+  const engine = flight(80),
+    { world } = engine,
     R = 4 * world.K,
     pad = { x0: world.W - 70, x1: world.W - 36, y: 24 * R, mult: 3 };
   world.pads.splice(0, world.pads.length, pad);
@@ -397,7 +363,7 @@ test("with a hill beside the pad, the corgi digs into it, the hillside slides in
           ? pad.y
           : pad.y + Math.min(9 * R, (i - pad.x1) * 0.25 * R);
   const before = Float64Array.from(world.g);
-  Object.assign(engine.lander!, { x: (pad.x0 + pad.x1) / 2, y: pad.y - 10 * world.K - 0.1, vx: 0, vy: 2, a: 0 });
+  over(engine, pad);
   let dug = false,
     buried = false;
   for (let i = 0; i < 25 / 0.05 && !(dug && !engine.bone); i++) {

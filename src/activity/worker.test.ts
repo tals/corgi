@@ -6,6 +6,26 @@ import { View as ToolView } from "./tools";
 import { clone } from "../json";
 import { Path } from "../agents";
 import { Option, Selection, compare } from "../inference/models";
+/** A working Codex conversation on turn "t" that `evidence` describes, and a
+ * request to summarize it. */
+function summarizing(evidence: string) {
+  const actor = new Registry().get("codex", "s"),
+    agent = actor.state,
+    text = new Text(evidence);
+  agent.state = "working";
+  agent.setTurn("t");
+  agent.activity_generation = hash(text);
+  const request = Object.assign(new Request(), {
+    actor: actor.id,
+    provider: "codex",
+    session: agent.session,
+    turn: agent.turn,
+    turn_epoch: agent.turn_epoch,
+    evidence: text,
+    generation: hash(text),
+  });
+  return { actor, agent, request };
+}
 test("Pi inference defaults to the cheapest subscription and pins an explicit model and account across handoff", () => {
   const worker = new Worker("pi");
   worker.catalog.refresh = async () => {};
@@ -425,26 +445,12 @@ test("summary slots exist only while their conversation is working", () => {
 });
 
 test("late results cannot overwrite another turn or changed evidence", () => {
-  const actor = new Registry().get("codex", "s");
-  const agent = actor.state;
-  agent.state = "working";
-  agent.setTurn("t");
-  const evidence = new Text("Checking input");
-  agent.activity_generation = hash(evidence);
-  const request = Object.assign(new Request(), {
-    actor: actor.id,
-    provider: "codex",
-    session: agent.session,
-    turn: agent.turn,
-    turn_epoch: agent.turn_epoch,
-    evidence,
-    generation: hash(evidence),
-  });
+  const { actor, agent, request } = summarizing("Checking input");
   const result = new Result(request, parseLabel("Checking input"));
   expect(result.apply(actor)).toBe(true);
   agent.activity_generation++;
   expect(result.apply(actor)).toBe(false);
-  agent.activity_generation = hash(evidence);
+  agent.activity_generation = request.generation;
   agent.state = "idle";
   expect(result.apply(actor)).toBe(false);
   agent.state = "working";
@@ -547,9 +553,9 @@ test("inference completing during compaction waits to resume its timeline phase"
   const actor = new Actor({ id: 1 });
   actor.state.provider = "codex";
   actor.state.state = "working";
-  actor.observeHook(
-    {
-      kind: "compact_start",
+  const compaction = (kind: "compact_start" | "compact_end") =>
+    ({
+      kind,
       session: "",
       transcript: "",
       cwd: "",
@@ -559,11 +565,8 @@ test("inference completing during compaction waits to resume its timeline phase"
       tool: "",
       description: "",
       target: "",
-    } as any,
-    1n,
-    true,
-    1000,
-  );
+    }) as any;
+  actor.observeHook(compaction("compact_start"), 1n, true, 1000);
   const request = Object.assign(new Request(), {
     actor: actor.id,
     provider: "codex",
@@ -573,42 +576,12 @@ test("inference completing during compaction waits to resume its timeline phase"
   expect(result.apply(actor)).toBe(true);
   expect(actor.activity_timeline.len).toBe(1);
   expect(actor.activity_timeline.points[0].label.text()).toBe("Compacting context");
-  actor.observeHook(
-    {
-      kind: "compact_end",
-      session: "",
-      transcript: "",
-      cwd: "",
-      model: "",
-      turn: "",
-      prompt: "",
-      tool: "",
-      description: "",
-      target: "",
-    } as any,
-    2n,
-    true,
-    2000,
-  );
+  actor.observeHook(compaction("compact_end"), 2n, true, 2000);
   expect(actor.activity_timeline.points[1].label.text()).toBe("Running tests");
 });
 
 test("results keep, amend or start the turn's phase", () => {
-  const actor = new Registry().get("codex", "s");
-  const agent = actor.state;
-  agent.state = "working";
-  agent.setTurn("t");
-  const evidence = new Text("Running tests");
-  agent.activity_generation = hash(evidence);
-  const request = Object.assign(new Request(), {
-    actor: actor.id,
-    provider: "codex",
-    session: agent.session,
-    turn: agent.turn,
-    turn_epoch: agent.turn_epoch,
-    evidence,
-    generation: hash(evidence),
-  });
+  const { actor, agent, request } = summarizing("Running tests");
   const apply = (label: string | null, action: "new" | "keep" | "amend" | "none") =>
     expect(new Result(request, label === null ? null : parseLabel(label), action).apply(actor)).toBe(true);
   const rows = () => actor.activity_timeline.points.map(p => p.label.text());

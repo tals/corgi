@@ -70,6 +70,9 @@ jobs:
         run: bun typecheck.ts --ci
       - name: Unit tests
         run: bun test src
+      # Suites that never start corgi-test; the integration shards leave them out.
+      - name: Standalone suites
+        run: bun integration.ts --standalone
       - name: Restore integration timings
         uses: actions/cache/restore@v6
         with:

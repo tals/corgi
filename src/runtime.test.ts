@@ -10,14 +10,7 @@ import { Agent } from "./agents";
 import { ResumeHint } from "./resume_hint";
 import type { Session } from "./headless";
 import * as session from "./session";
-function add(r: Runtime, w: Workspace, split: number | null = null) {
-  w.model.next_id = r.workspaces.next_pane_id;
-  const id = split === null ? w.model.newTab("") : w.model.split(split, "horizontal");
-  r.workspaces.next_pane_id = w.model.next_id;
-  const p = new Pane(id, Terminal.create(20, 4), "/tmp");
-  r.panes.push(p);
-  return p;
-}
+import { addPane } from "./fixtures/runtime";
 function setup() {
   const r = new Runtime(),
     w = new Workspace(1, "/tmp");
@@ -26,7 +19,7 @@ function setup() {
 }
 test("closing a pane drains its final output while its workspace still owns it", () => {
   const { r, w } = setup(),
-    p = add(r, w);
+    p = addPane(r, w);
   let snapshots = 0;
   p.terminal.on("change", () => {
     const snapshot = session.viewerSnapshot(r);
@@ -51,10 +44,10 @@ test("agent targets follow tab order and keep creation order within split tabs",
     other = new Workspace(2, "/other");
   r.workspaces.items.push(other);
   try {
-    const first = add(r, w),
-      second = add(r, w),
-      split = add(r, w, first.id);
-    add(r, other);
+    const first = addPane(r, w),
+      second = addPane(r, w),
+      split = addPane(r, w, first.id);
+    addPane(r, other);
     w.model.swap(first.id, split.id);
     w.model.moveTab(w.model.tabs[1].id, 0);
     const targets = [{ pane: 999 }];
@@ -70,7 +63,7 @@ test("stars follow conversations after closing and reopening, until explicitly r
   const { r, w } = setup();
   try {
     const actor = r.conversations.get("claude", "starred-session"),
-      first = add(r, w);
+      first = addPane(r, w);
     first.attachment.select(actor);
     r.starAgent(w, { pane: first.id }, true);
     r.raiseEntered();
@@ -79,12 +72,12 @@ test("stars follow conversations after closing and reopening, until explicitly r
     expect(w.pinned_agents.has({ pane: first.id })).toBe(true);
     r.close(first.id);
     // Another star change can discard the old pane's saved order.
-    const other = add(r, w);
+    const other = addPane(r, w);
     other.attachment.select(r.conversations.get("claude", "other"));
     r.starAgent(w, { pane: other.id }, true);
     expect(w.pinned_agents.has({ pane: first.id })).toBe(false);
     expect(w.starred_sessions.has("claude", "starred-session")).toBe(true);
-    const reopened = add(r, w);
+    const reopened = addPane(r, w);
     reopened.attachment.select(r.conversations.get("claude", "starred-session"));
     r.raiseEntered();
     expect(w.pinned_agents.has({ pane: reopened.id })).toBe(true);
@@ -104,7 +97,7 @@ test("stars follow conversations after closing and reopening, until explicitly r
 test("an explicit star during replacement startup follows the new conversation", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w),
+    const p = addPane(r, w),
       target = { pane: p.id };
     p.attachment.select(r.conversations.get("claude", "previous"));
     r.raiseEntered();
@@ -130,7 +123,7 @@ test("an explicit star during replacement startup follows the new conversation",
 test("a star does not pass to a replacement through an unidentified startup", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w),
+    const p = addPane(r, w),
       target = { pane: p.id };
     p.attachment.select(r.conversations.get("claude", "previous"));
     r.starAgent(w, target, true);
@@ -149,7 +142,7 @@ test("a star does not pass to a replacement through an unidentified startup", ()
 test("unstarring during an unidentified startup forgets the last conversation's star", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w),
+    const p = addPane(r, w),
       target = { pane: p.id };
     p.attachment.select(r.conversations.get("claude", "previous"));
     r.starAgent(w, target, true);
@@ -170,8 +163,8 @@ test("unstarring during an unidentified startup forgets the last conversation's 
 test("a star dropped just after the conversation changes stays where it was dropped", () => {
   const { r, w } = setup();
   try {
-    const first = add(r, w),
-      p = add(r, w),
+    const first = addPane(r, w),
+      p = addPane(r, w),
       target = { pane: p.id };
     first.attachment.select(r.conversations.get("claude", "first"));
     p.attachment.select(r.conversations.get("claude", "previous"));
@@ -211,7 +204,7 @@ test("only attached conversations and their subagents are followed", () => {
       child = r.conversations.get("claude", "child");
     r.conversations.get("claude", "other");
     child.parent = parent.id;
-    const p = add(r, w);
+    const p = addPane(r, w);
     p.attachment.select(parent);
     expect(r.followed()).toEqual(new Set([parent, child]));
     parent.parent = child.id;
@@ -233,17 +226,17 @@ test("conversations nothing refers to are forgotten; panes, closed agents and he
       headless = r.conversations.get("codex", "headless"),
       approving = r.conversations.get("codex", "approving");
     r.conversations.get("claude", "never shown");
-    const p = add(r, w);
+    const p = addPane(r, w);
     p.attachment.select(earlier);
     p.attachment.select(shown);
-    const closed = add(r, w);
+    const closed = addPane(r, w);
     closed.attachment.select(reopenable);
     r.close(closed.id);
-    const exited = add(r, w);
+    const exited = addPane(r, w);
     exited.attachment.select(quit);
     exited.terminal.exited = true;
     r.close(exited.id);
-    const asleep = add(r, w);
+    const asleep = addPane(r, w);
     asleep.resume_hint.provider = "claude";
     asleep.resume_hint.session = new Text("resumable");
     r.sessions.push({
@@ -272,7 +265,7 @@ test("output and readings bump only the revisions that hold them", () => {
 test("detection reads a quiet pane only every few seconds", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     p.detected = { output: p.terminal.surface_revision, at: 10000 };
     expect(p.detectionDue(10250)).toBe(false);
     expect(p.detectionDue(12000)).toBe(true);
@@ -288,7 +281,7 @@ test("detection reads a quiet pane only every few seconds", () => {
 test("a program in front of the shell shows on a second look, and the prompt at once", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     const front = (pgid: number, name: string) => ({ pgid, program: program([name]), job: null });
     p.detected = { output: p.terminal.surface_revision, at: 10000 };
     // A quick command seen once never shows, and a forked shell's first look is the shell's.
@@ -317,15 +310,15 @@ test("a program in front of the shell shows on a second look, and the prompt at 
 test("closing a running agent keeps it for its own workspace; shells and agents that quit are not kept", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     p.attachment.select(r.conversations.get("codex", "agent-session"));
     p.terminal.exited = false;
     r.close(p.id);
     expect(r.closedCount(w.id)).toBe(1);
-    const shell = add(r, w);
+    const shell = addPane(r, w);
     r.close(shell.id);
     expect(r.closedCount(w.id)).toBe(1);
-    const exited = add(r, w);
+    const exited = addPane(r, w);
     exited.attachment.select(r.conversations.get("codex", "exited"));
     exited.terminal.exited = true;
     r.close(exited.id);
@@ -337,7 +330,7 @@ test("closing a running agent keeps it for its own workspace; shells and agents 
 test("an agent that failed stays with how it ended; one that quit, a shell and a script do not", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     p.launch = new Launch({ provider: "codex" });
     p.terminal.runs_command = true;
     p.terminal.exited = true;
@@ -357,7 +350,7 @@ test("an agent that failed stays with how it ended; one that quit, a shell and a
 test("a fork's ghost shows the command it runs, not a resume", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w),
+    const p = addPane(r, w),
       frozen = Terminal.create(20, 4);
     p.ghost = new Ghost(frozen, p.terminal.surface_revision, "");
     p.ghost.fork = "codex fork source";
@@ -369,7 +362,7 @@ test("a fork's ghost shows the command it runs, not a resume", () => {
 test("a reopened agent that Claude's daemon runs shows the attach it runs", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     p.ghost = new Ghost(Terminal.create(20, 4), p.terminal.surface_revision, "");
     p.attached = "claude attach job";
     expect(p.restoring()).toBe("claude attach job");
@@ -380,7 +373,7 @@ test("a reopened agent that Claude's daemon runs shows the attach it runs", () =
 test("the last workspace closes with its panes", () => {
   const { r, w } = setup();
   try {
-    add(r, w);
+    addPane(r, w);
     expect(() => r.closeWorkspace(1, false)).toThrow("WorkspaceNotEmpty");
     r.closeWorkspace(1, true);
     expect([r.workspaces.items, r.panes]).toEqual([[], []]);
@@ -393,7 +386,7 @@ test("each workspace keeps its newest closed agents, and closing it drops them",
   try {
     r.workspaces.items.push(new Workspace(2, "/tmp"));
     for (let i = 0; i < 10; i++) {
-      const p = add(r, w);
+      const p = addPane(r, w);
       p.attachment.select(r.conversations.get("codex", "session-" + i));
       r.close(p.id);
     }
@@ -409,7 +402,7 @@ test("resuming a conversation finds the newest agent closed with it, in any work
   const { r, w } = setup();
   try {
     for (let i = 0; i < 2; i++) {
-      const p = add(r, w);
+      const p = addPane(r, w);
       p.attachment.select(r.conversations.get("codex", "same"));
       r.close(p.id);
     }
@@ -430,7 +423,7 @@ test("a fork starts the way its source did, copying the conversation", () => {
 test("a Codex fork explicitly selects its destination instead of the saved session's cwd", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w),
+    const p = addPane(r, w),
       session = "11111111-1111-4111-8111-111111111111";
     p.attachment.select(r.conversations.get("codex", session));
     const { branch } = Runtime.forkSource(p, null, "/tmp/linked worktree");
@@ -472,7 +465,7 @@ test("a resume comes back with the agent's live settings and the options it was 
   expect(hint.model.len).toBe(0);
 });
 function dormant(r: Runtime, w: Workspace, launch: Launch | null) {
-  const p = add(r, w);
+  const p = addPane(r, w);
   p.terminal.feed("OLD SCREEN");
   p.launch = launch;
   p.attachment.select(r.conversations.get("codex", "agent-session"));
@@ -542,7 +535,7 @@ function ghost(r: Runtime, p: Pane, old: string | null) {
 test("a reopened agent's ghost shows until the agent draws and holds still", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     ghost(r, p, "OLD");
     expect(p.watchGhost(10000)).toBe(false);
     p.terminal.feed("NEW");
@@ -556,14 +549,14 @@ test("a reopened agent's ghost shows until the agent draws and holds still", () 
 test("a ghost goes as soon as the agent repaints the old screen, or after the longest wait", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     ghost(r, p, "SCROLLED\r\n\r\n\r\n\r\nOLD");
     expect(p.terminal.liveText().trim()).toBe("");
     expect(p.terminal.history()).toContain("SCROLLED");
     expect(p.terminal.history()).not.toContain("OLD");
     p.terminal.feed("\x1b[4;1HOLD");
     expect(p.watchGhost(100)).toBe(true);
-    const busy = add(r, w);
+    const busy = addPane(r, w);
     ghost(r, busy, "OLD");
     for (let now = 100; now < 2100; now += 100) {
       busy.terminal.feed("x");
@@ -578,7 +571,7 @@ test("a ghost goes as soon as the agent repaints the old screen, or after the lo
 test("a restored agent shows once it has drawn about as much as its old screen", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     ghost(r, p, "header\r\none\r\ntwo\r\n> ");
     // A startup screen holds still, but it isn't the conversation.
     p.terminal.feed("header\r\n> ");
@@ -587,7 +580,7 @@ test("a restored agent shows once it has drawn about as much as its old screen",
     p.terminal.feed("\x1b[Hheader\r\nuno\r\ndos\r\n> ");
     expect(p.watchGhost(5100)).toBe(false);
     expect(p.watchGhost(5400)).toBe(true);
-    const stuck = add(r, w);
+    const stuck = addPane(r, w);
     ghost(r, stuck, "header\r\none\r\ntwo\r\n> ");
     stuck.terminal.feed("header");
     expect(stuck.watchGhost(100)).toBe(false);
@@ -600,7 +593,7 @@ test("a restored agent shows once it has drawn about as much as its old screen",
 test("a Codex agent shows only once it has titled its terminal", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     p.launch = new Launch({ provider: "codex" });
     ghost(r, p, "OLD");
     p.terminal.feed("NEW");
@@ -615,7 +608,7 @@ test("a Codex agent shows only once it has titled its terminal", () => {
 test("typing into a restored agent shows it, and the mouse doesn't", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     ghost(r, p, "OLD");
     expect(p.typed("\x1b[<35;5;2M")).toBe(false);
     expect(p.ghost).not.toBeNull();
@@ -629,7 +622,7 @@ test("typing into a restored agent shows it, and the mouse doesn't", () => {
 test("a blank ghost waits for the agent to hold still, even on a cleared screen", () => {
   const { r, w } = setup();
   try {
-    const p = add(r, w);
+    const p = addPane(r, w);
     ghost(r, p, null);
     p.terminal.feed("x");
     expect(p.watchGhost(100)).toBe(false);
@@ -643,9 +636,9 @@ test("a blank ghost waits for the agent to hold still, even on a cleared screen"
 test("a closed split's tab goes back after the tab it shared", () => {
   const { r, w } = setup();
   try {
-    add(r, w);
-    const left = add(r, w);
-    const right = add(r, w, left.id);
+    addPane(r, w);
+    const left = addPane(r, w);
+    const right = addPane(r, w, left.id);
     right.attachment.select(r.conversations.get("claude", "split"));
     r.close(right.id);
     expect(r.closed[0].tab_index).toBe(2);
@@ -674,7 +667,7 @@ test("idle shells come by workspace then tab, narrowed to a workspace or folder"
   const { r, w } = setup(),
     other = new Workspace(2, "/tmp");
   r.workspaces.items.push(other);
-  const [a, b, c, d] = [add(r, w), add(r, w), add(r, w), add(r, other)];
+  const [a, b, c, d] = [addPane(r, w), addPane(r, w), addPane(r, w), addPane(r, other)];
   b.cwd = "/repo";
   d.cwd = "/repo";
   let checked = 0;
@@ -712,10 +705,10 @@ test("resume without a reported model leaves the conversation's saved model alon
 test("a new agent goes on top though another changes section as it appears", () => {
   const { r, w } = setup();
   try {
-    const old = [add(r, w), add(r, w)];
+    const old = [addPane(r, w), addPane(r, w)];
     old.forEach((p, i) => p.attachment.select(r.conversations.get("claude", `old-${i}`)));
     r.raiseEntered();
-    const created = add(r, w);
+    const created = addPane(r, w);
     created.attachment.select(r.conversations.get("claude", "new"));
     // Raising the earlier tab fills the order with every live agent, the new one too.
     old[0].agent().state = "done";
@@ -729,10 +722,10 @@ test("a new agent goes on top though another changes section as it appears", () 
 test("a new agent goes on top though another was dragged before it was seen", () => {
   const { r, w } = setup();
   try {
-    const old = [add(r, w), add(r, w)];
+    const old = [addPane(r, w), addPane(r, w)];
     old.forEach((p, i) => p.attachment.select(r.conversations.get("claude", `old-${i}`)));
     r.raiseEntered();
-    const created = add(r, w);
+    const created = addPane(r, w);
     created.attachment.select(r.conversations.get("claude", "new"));
     // As agent.place does; the move fills the order with the new agent too.
     w.activity_order.move(r.agentTargets(w), { pane: old[0].id }, null);
@@ -746,8 +739,8 @@ test("a new agent goes on top though another was dragged before it was seen", ()
 test("closing the pane that holds a prompt session stops it; others stay", () => {
   const { r, w } = setup();
   try {
-    const chat = add(r, w),
-      other = add(r, w),
+    const chat = addPane(r, w),
+      other = addPane(r, w),
       stopped: string[] = [];
     const held = (name: string, pane: number | null) =>
       ({

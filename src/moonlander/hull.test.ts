@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import * as moonlander from "./moonlander";
+import { flight } from "../fixtures/moonlander";
 import * as faces from "./faces";
 import * as hull from "./hull";
 import * as palette from "../palette";
@@ -12,21 +12,16 @@ afterEach(() => {
   for (const close of cleanup.splice(0)) close();
 });
 
-function create() {
-  const engine = moonlander.create({ size: () => ({ cols: 72, rows: 40 }), aspect: 2.2, random: () => 0.5 });
-  engine.launch(1);
-  return engine;
-}
 const key = (dots: hull.Dot[]) => dots.map(d => `${d.x},${d.y},${d.level}`).sort();
 
 test("every braille style draws the upright ship the same, and solid", () => {
-  const engine = create(),
+  const engine = flight(),
     upright = key(hull.dots(engine, "fixed", 0));
   for (const style of ["turned", "turned-gray"] as const) expect(key(hull.dots(engine, style, 0))).toEqual(upright);
 });
 
 test("turned styles turn the upright dots, the gray one with partly lit edges", () => {
-  const engine = create();
+  const engine = flight();
   for (let k = 1; k <= hull.turns; k++) {
     const turned = hull.dots(engine, "turned", k * hull.step),
       gray = hull.dots(engine, "turned-gray", k * hull.step);
@@ -39,7 +34,7 @@ test("turned styles turn the upright dots, the gray one with partly lit edges", 
 });
 
 test("each tilt's tile is the upright dots turned, crisp upright and antialiased turned", () => {
-  const engine = create(),
+  const engine = flight(),
     upright = hull.sprite(engine, 10, 22, hull.tile(0)),
     dots = engine.shipDots(0).length;
   // Braille-sized squares a braille dot apart, every pixel solid or empty.
@@ -52,7 +47,7 @@ test("each tilt's tile is the upright dots turned, crisp upright and antialiased
 });
 
 test("the hull's crops move with the ship to the pixel and wrap at the edges", () => {
-  const engine = create(),
+  const engine = flight(),
     L = engine.lander!,
     tile = hull.sprite(engine, 10, 22, hull.tile(0));
   Object.assign(L, { x: 70, a: 0 });
@@ -197,7 +192,7 @@ test("a gray hull mixes its dim cells into the background", () => {
 });
 
 test("the face and the hull image move as one piece at any tilt", () => {
-  const engine = create(),
+  const engine = flight(),
     atlas = faces.layout(20, 44);
   for (const k of [3, 6, 9, 13]) {
     const a = k * hull.step,

@@ -71,16 +71,36 @@ test("a registered provider represents only its own subscription", () => {
   }
 });
 
-test("window histories retain their samples, gaps and provider order", () => {
+test("an account carries its preview's limits, spend, histories and fetch error", () => {
   const history: usageReport.Account["history"] = [
     [5, 9, null, 7],
     [10, 20, 15, ...Array(17).fill(30)],
   ];
-  const [codex] = report({
-    options: { codex: { account: "a@x.dev", ...limits(42, 31), history } },
+  const spend = { used_minor: 500, limit_minor: 5000, currency: "USD", exponent: 2, ...month },
+    // Unlimited, and from a billing period that has ended.
+    unlimited = { ...spend, limit_minor: null, period_start: now - 31 * 86400, reset_at: now - 86400 },
+    spend_daily = Array.from({ length: 30 }, (_, i) => ({
+      day: Math.floor((now - (29 - i) * 86400) / 86400) * 86400,
+      period_start: i < 19 ? month.period_start - 30 * 86400 : month.period_start,
+      used_minor: i === 20 ? 100 : i * 4000,
+    }));
+  const [codex, claude, pi] = report({
+    options: {
+      codex: { account: "a@x.dev", ...limits(42, 31), history, spend, spend_daily },
+      claude: {
+        account: "b@x.dev",
+        usage_fetched_at: now - 3600,
+        limits: "metered",
+        spend: unlimited,
+        usage_error: "fetch failed",
+      },
+      pi: { account: "c@x.dev", ...limits(1, 2) },
+    },
   });
-  expect(codex.limits).toEqual(limits(42, 31).limits);
-  expect(codex.history).toEqual(history);
+  expect(codex).toMatchObject({ limits: limits(42, 31).limits, history, spend, spend_history: spend_daily });
+  expect(claude).toMatchObject({ limits: "metered", spend: unlimited, spend_history: [], usage_error: "fetch failed" });
+  // An older preview has no histories.
+  expect([pi.provider, pi.history, pi.spend_history]).toEqual(["pi", [[], []], []]);
 });
 
 test("accounts follow the workspace's launcher order", () => {
@@ -116,71 +136,6 @@ test("signed-out accounts and ones without readings are left out, stale readings
   expect(accounts).toHaveLength(1);
   expect(accounts[0].provider).toBe("codex");
   expect(accounts[0].usage_fetched_at).toBe(now - 3600);
-});
-
-test("spend retains daily readings across billing periods without scaling or smoothing", () => {
-  const spend = { used_minor: 38800, limit_minor: 25000000, currency: null, exponent: 2, ...month };
-  const spend_daily = Array.from({ length: 30 }, (_, i) => ({
-    day: Math.floor((now - (29 - i) * 86400) / 86400) * 86400,
-    period_start: i < 19 ? month.period_start - 30 * 86400 : month.period_start,
-    used_minor: i === 20 ? 100 : i * 4000,
-  }));
-  const [codex] = report({
-    options: {
-      codex: {
-        account: "me@acme.dev",
-        plan: "Enterprise",
-        usage_fetched_at: now,
-        limits: "metered",
-        spend,
-        spend_daily,
-      },
-    },
-  });
-  expect(codex.limits).toBe("metered");
-  expect(codex.spend).toEqual(spend);
-  expect(codex.spend_history).toEqual(spend_daily);
-  expect(codex.spend_history).toHaveLength(30);
-  expect(codex).not.toHaveProperty("amount");
-  expect(codex).not.toHaveProperty("windows");
-});
-
-test("spend without a limit retains its units and billing period", () => {
-  const spend = { used_minor: 1234, limit_minor: null, currency: "USD", exponent: 2, ...month };
-  const [claude] = report({
-    options: { claude: { account: "me@acme.dev", usage_fetched_at: now, limits: "metered", spend } },
-  });
-  expect(claude.spend).toEqual(spend);
-  expect(claude.spend_history).toEqual([]);
-});
-
-test("limits and spend are both returned when the provider reports both", () => {
-  const spend = { used_minor: 500, limit_minor: 5000, currency: "USD", exponent: 2, ...month };
-  const [claude] = report({ options: { claude: { account: "me@home.dev", ...limits(20, 60), spend } } });
-  expect(claude.limits).toEqual(limits(20, 60).limits);
-  expect(claude.spend).toEqual(spend);
-});
-
-test("an expired billing period and a fetch error do not erase cached data", () => {
-  const spend = {
-    used_minor: 500,
-    limit_minor: 5000,
-    currency: "USD",
-    exponent: 2,
-    period_start: now - 31 * 86400,
-    reset_at: now - 86400,
-  };
-  const [claude] = report({
-    options: { claude: { usage_fetched_at: now - 3600, limits: "metered", spend, usage_error: "fetch failed" } },
-  });
-  expect(claude.spend).toEqual(spend);
-  expect(claude.usage_error).toBe("fetch failed");
-});
-
-test("older previews without history do not invent readings", () => {
-  const [codex] = report({ options: { codex: { ...limits(42, 31) } } });
-  expect(codex.history).toEqual([[], []]);
-  expect(codex.spend_history).toEqual([]);
 });
 
 test("unnamed workspaces cannot bridge distinct subscriptions in any launcher order", () => {

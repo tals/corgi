@@ -24,6 +24,7 @@ import * as keys from "./keys";
 import * as trackers from "./trackers";
 import { Model as AgentModel } from "./providers/model";
 import { Status as InferenceStatus } from "./inference/setup";
+import { View as UsageView } from "./usage/live";
 import { index, key as agentKey, live as liveAgents, section, type Section, type Target } from "./agent_order";
 import type { Session } from "./headless";
 import { Briefs } from "./worktree_briefs";
@@ -536,7 +537,7 @@ export class Runtime {
   staged_version = "";
   inference = new InferenceStatus();
   system_working = false;
-  system_usage = { known: true };
+  system_usage = new UsageView({ known: true });
   revision = 1n;
   durable = 1n;
   shown = 1n;

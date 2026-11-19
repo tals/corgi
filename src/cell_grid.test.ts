@@ -2,18 +2,12 @@ import { expect, test } from "bun:test";
 import * as palette from "./palette";
 import { Grid } from "./cell_grid";
 import { Writer } from "./text";
-import { Terminal } from "./pane/terminal";
+import * as screen from "./fixtures/screen";
 
 function shown(g: Grid): string {
-  const w = new Writer(),
-    terminal = new Terminal(g.w, g.h);
-  try {
-    g.write(w, 0, 0, "\x1b[0m");
-    terminal.feed(w.buffered());
-    return terminal.text();
-  } finally {
-    terminal.destroy();
-  }
+  const w = new Writer();
+  g.write(w, 0, 0, "\x1b[0m");
+  return screen.text(w.buffered(), g.w, g.h);
 }
 test("text fills cells, wide glyphs take two, and the edge cuts", () => {
   const g = new Grid(8, 2, palette.colors.text);

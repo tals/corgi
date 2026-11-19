@@ -2,9 +2,24 @@ import { test, expect } from "bun:test";
 import { geometry, aimed, draw, hoverAt, State, buttonAt, rowAt } from "./resource_tooltip";
 import { Rect } from "./layout";
 import { Writer } from "./text";
-import { Terminal } from "./pane/terminal";
+import * as screen from "./fixtures/screen";
 import * as sim from "./providers/sim";
 import { Provider, adapter } from "./providers";
+
+/** The rows a `cols` × `rows` host shows once the card draws. */
+function card(
+  cols: number,
+  rows: number,
+  rect: Rect,
+  name: string,
+  snapshot: Parameters<typeof draw>[3],
+  state: State,
+  pointer: { x: number; y: number } | null = null,
+): string[] {
+  const w = new Writer();
+  draw(w, rect, name, snapshot, state, pointer);
+  return screen.lines(w.buffered(), cols, rows);
+}
 test("resource card stays within terminal bounds", () => {
   for (const cols of [68, 88, 120, 200])
     for (const rows of [24, 30, 40]) {
@@ -77,17 +92,7 @@ test("a second click on the sorted heading turns the order around, unsampled pro
       { pid: 3, start: 30n, name: "quiet", cpu: 10 },
     ],
     work = { id: 1, known: true, processes },
-    heading = () => {
-      const w = new Writer(),
-        terminal = new Terminal(120, 30);
-      try {
-        draw(w, rect, "repo", { workspaces: [work] }, state);
-        terminal.feed(w.buffered());
-        return terminal.text().split("\n")[rect.y + 14];
-      } finally {
-        terminal.destroy();
-      }
-    };
+    heading = () => card(120, 30, rect, "repo", { workspaces: [work] }, state)[rect.y + 14];
   state.update(work, false);
   expect(state.order.map(p => p.pid)).toEqual([1, 3, 2]);
   expect(heading()).toMatch(/↓CPU % +GiB +R MB\/s +W MB\/s/);
@@ -145,23 +150,13 @@ test("a host with GPUs gets a GPU row and columns that stay while workspaces go 
       gpus: [0, 1].map(index => ({ index, name: "GPU", util: 50, used: 10n << 30n, total: 48n << 30n })),
       workspaces: [work],
     },
-    screen = (pointer: { x: number; y: number } | null = null) => {
-      const w = new Writer(),
-        terminal = new Terminal(160, 40);
-      try {
-        draw(w, rect, "repo", snapshot, state, pointer);
-        terminal.feed(w.buffered());
-        return terminal.text().split("\n");
-      } finally {
-        terminal.destroy();
-      }
-    },
+    shown = (pointer: { x: number; y: number } | null = null) => card(160, 40, rect, "repo", snapshot, state, pointer),
     state = new State();
   expect([rect.w, rect.h]).toEqual([82, 32]);
   expect(geometry(160, 40, 28, 4)!.h).toBe(24);
   expect(geometry(160, 40, 28, 4, 8)!.h).toBe(36);
   state.update(work, false, 2);
-  let lines = screen();
+  let lines = shown();
   const top = rect.y + 11;
   expect(lines[rect.y + 3]).toMatch(/cpu .* memory /);
   // The history's span and its ceiling sit in the dashed border over it.
@@ -181,7 +176,7 @@ test("a host with GPUs gets a GPU row and columns that stay while workspaces go 
   // Pointing at the older point gives its figures in every graph.
   const gpuChart = rect.x + 2 + 17,
     chartEnd = rect.x + 2 + Math.floor((rect.w - 5) / 2) - 3;
-  lines = screen({ x: chartEnd - 1, y: top + 3 });
+  lines = shown({ x: chartEnd - 1, y: top + 3 });
   expect(lines[top]).toContain("5s ago");
   expect(lines[top + 1]).toContain("200%");
   expect(lines[top + 3]).toMatch(/├ 0 █ 100%/);
@@ -197,11 +192,11 @@ test("a host with GPUs gets a GPU row and columns that stay while workspaces go 
   expect(lines[header0 + 2]).toMatch(/old-cache gpu 1 .* 10\.0/);
   expect(lines[rect.y + rect.h - 2]).toContain("2 leading processes 5s ago");
   // Over the vram box they sort by memory instead.
-  lines = screen({ x: chartEnd + 38, y: top + 3 });
+  lines = shown({ x: chartEnd + 38, y: top + 3 });
   expect(lines[header0]).toMatch(/GPU % +↓VRAM/);
   expect(lines[header0 + 1]).toMatch(/old-cache gpu 1 /);
   const header = rect.y + 22;
-  lines = screen();
+  lines = shown();
   expect(lines[header]).toMatch(/↓CPU % +GiB +GPU % +VRAM +R MB\/s +W MB\/s/);
   state.click(rect, rect.x + rect.w - 30, header);
   state.update(work, false, 2);
@@ -211,13 +206,13 @@ test("a host with GPUs gets a GPU row and columns that stay while workspaces go 
   state.update(work, false, 2);
   expect(state.sort).toBe("gpu_memory");
   expect(state.order.map(p => p.pid)).toEqual([2, 1, 3]);
-  lines = screen();
+  lines = shown();
   expect(lines[header + 1]).toMatch(/kv-cache .* 0\.0 +12\.00/);
   // Once the hold lapses only the figures go; the layout and sort stay.
   work.gpu_shown = false;
   state.update(work, false, 2);
   expect(state.sort).toBe("gpu_memory");
-  lines = screen();
+  lines = shown();
   expect(lines[top]).toMatch(/gpu .* vram /);
   expect(lines[top + 1]).toContain("no use");
   expect(lines[header]).toMatch(/CPU % +GiB +GPU % +↓VRAM +R MB\/s +W MB\/s/);
@@ -240,21 +235,13 @@ test("GPU trees pack devices that outnumber their lines", () => {
       gpu_devices: Array.from({ length: 12 }, (_, index) => ({ index, util: 10, memory: 1n })),
     },
     snapshot = { gpus: Array.from({ length: 12 }, (_, index) => ({ index, total: 1n << 30n })), workspaces: [work] },
-    state = new State(),
-    w = new Writer(),
-    terminal = new Terminal(160, 44);
+    state = new State();
   state.update(work, false, 12);
-  try {
-    draw(w, rect, "repo", snapshot, state);
-    terminal.feed(w.buffered());
-    const lines = terminal.text().split("\n");
-    // Twelve devices over eight lines: two a line.
-    expect(lines[rect.y + 13]).toMatch(/├ 0▁ 1▁ /);
-    expect(lines[rect.y + 17]).toMatch(/├ 8▁ 9▁ /);
-    expect(lines[rect.y + 18]).toMatch(/└ 10▁ 11▁/);
-  } finally {
-    terminal.destroy();
-  }
+  const lines = card(160, 44, rect, "repo", snapshot, state);
+  // Twelve devices over eight lines: two a line.
+  expect(lines[rect.y + 13]).toMatch(/├ 0▁ 1▁ /);
+  expect(lines[rect.y + 17]).toMatch(/├ 8▁ 9▁ /);
+  expect(lines[rect.y + 18]).toMatch(/└ 10▁ 11▁/);
 });
 
 test("pointing at a graph's history shows that point's figures and leaders", () => {
@@ -291,34 +278,24 @@ test("pointing at a graph's history shows that point's figures and leaders", () 
     },
     snapshot = { workspaces: [work] },
     state = new State(),
-    screen = (pointer: { x: number; y: number } | null) => {
-      const w = new Writer(),
-        terminal = new Terminal(120, 40);
-      try {
-        draw(w, rect, "repo", snapshot, state, pointer);
-        terminal.feed(w.buffered());
-        return terminal.text().split("\n");
-      } finally {
-        terminal.destroy();
-      }
-    };
+    shown = (pointer: { x: number; y: number } | null) => card(120, 40, rect, "repo", snapshot, state, pointer);
   state.update(work, false);
   const end = rect.x + 2 + 25 - 3,
     header = rect.y + 14;
   expect(hoverAt(rect, 0, end - 1, rect.y + 5)).toEqual({ metric: "cpu", age: 1, line: null });
   expect(hoverAt(rect, 0, end + 1, rect.y + 5)).toBeNull();
-  let lines = screen(null);
+  let lines = shown(null);
   expect(lines[rect.y + 4]).toContain("5%");
   expect(lines[header + 1]).toContain("shell");
   // Over the cpu graph, five seconds back: its figure, and its leaders by CPU.
-  lines = screen({ x: end - 1, y: rect.y + 5 });
+  lines = shown({ x: end - 1, y: rect.y + 5 });
   expect(lines[rect.y + 4]).toContain("80%");
   expect(lines[header]).toMatch(/↓CPU %/);
   expect(lines[header + 1]).toMatch(/build +70\.0/);
   expect(lines[header + 2]).toMatch(/cache +10\.0/);
   expect(lines[rect.y + rect.h - 2]).toContain("2 leading processes 5s ago");
   // Over the memory graph the same point's leaders sort by memory.
-  lines = screen({ x: end + 26 - 1, y: rect.y + 5 });
+  lines = shown({ x: end + 26 - 1, y: rect.y + 5 });
   expect(lines[rect.y + 4]).toContain("3.00 GiB");
   expect(lines[header]).toMatch(/↓GiB/);
   expect(lines[header + 1]).toMatch(/cache /);
@@ -355,28 +332,18 @@ test("a GPU heatmap cell lists the processes on the GPUs at its line", () => {
       workspaces: [work],
     },
     state = new State(),
-    screen = (pointer: { x: number; y: number }) => {
-      const w = new Writer(),
-        terminal = new Terminal(160, 40);
-      try {
-        draw(w, rect, "repo", snapshot, state, pointer);
-        terminal.feed(w.buffered());
-        return terminal.text().split("\n");
-      } finally {
-        terminal.destroy();
-      }
-    };
+    shown = (pointer: { x: number; y: number }) => card(160, 40, rect, "repo", snapshot, state, pointer);
   state.update(work, false, 4);
   // Five lines of heatmap under the box's top: 95% reaches the top one, 40% the second.
   const top = rect.y + 11,
     newest = rect.x + 2 + Math.floor((rect.w - 5) / 2) - 3,
     header = rect.y + 22;
   expect(hoverAt(rect, 4, newest, top + 4)).toEqual({ metric: "gpu", age: 0, line: 1 });
-  let lines = screen({ x: newest, y: top + 4 });
+  let lines = shown({ x: newest, y: top + 4 });
   expect(lines[header + 1]).toMatch(/rank3 gpu 3 /);
   expect(lines[header + 2]).not.toContain("rank");
   expect(lines[rect.y + rect.h - 2]).toContain("1 process on gpu 3 0s ago");
-  lines = screen({ x: newest, y: top + 1 });
+  lines = shown({ x: newest, y: top + 1 });
   expect(lines[header + 3]).toMatch(/rank\d gpu [0-2] /);
   expect(lines[header + 4]).not.toContain("rank");
   expect(lines[rect.y + rect.h - 2]).toContain("3 processes on gpu 0-2 0s ago");
@@ -399,15 +366,7 @@ test("a pinned card keeps its rows put: new processes join at the foot, gone one
   expect(state.selected?.pid).toBe(2);
   processes.shift();
   state.update(work, true);
-  const w = new Writer(),
-    terminal = new Terminal(120, 30);
-  try {
-    draw(w, new Rect(0, 0, 82, 24), "repo", { workspaces: [work] }, state);
-    terminal.feed(w.buffered());
-    expect(terminal.text().split("\n")[15]).toMatch(/1 exited/);
-  } finally {
-    terminal.destroy();
-  }
+  expect(card(120, 30, new Rect(0, 0, 82, 24), "repo", { workspaces: [work] }, state)[15]).toMatch(/1 exited/);
   // Sorting again moves the rows, and the selection goes with its process.
   state.step(true);
   state.update(work, true);
@@ -450,20 +409,10 @@ test("the pinned card's bar names where the process runs, then asks before a sig
   const processes = [{ pid: 98112, start: 1n, name: "vite", cpu: 20, pane: 3 }],
     rect = new Rect(0, 0, 82, 24),
     state = new State({ place: "api › tab 2" }),
-    screen = () => {
-      const w = new Writer(),
-        terminal = new Terminal(120, 30);
-      try {
-        draw(w, rect, "api", { workspaces: [{ id: 1, known: true, processes }] }, state);
-        terminal.feed(w.buffered());
-        return terminal.text().split("\n");
-      } finally {
-        terminal.destroy();
-      }
-    };
+    shown = () => card(120, 30, rect, "api", { workspaces: [{ id: 1, known: true, processes }] }, state);
   state.update({ id: 1, processes }, true);
   state.pin();
-  let lines = screen();
+  let lines = shown();
   expect(lines[21]).toMatch(/vite · api › tab 2 +↵ go to pane +t term +k kill/);
   expect(lines[22]).toContain("↑↓ select  ←→ sort  space tag");
   const kill = lines[21].indexOf("k kill");
@@ -472,6 +421,6 @@ test("the pinned card's bar names where the process runs, then asks before a sig
   expect(buttonAt(rect, kill, 20)).toBe(null);
   expect(rowAt(rect, 20, 15)).toBe(0);
   state.confirm = "kill";
-  lines = screen();
+  lines = shown();
   expect(lines[21]).toContain("Kill vite (98112) with SIGKILL? k again · esc");
 });

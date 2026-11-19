@@ -26,6 +26,16 @@ const others: Record<string, Found> = {
 /** The tree's folders and others; one called "locked" is there but can't be read. */
 const at = (path: string) => (path in tree || path.endsWith("/locked") ? folder : (others[path] ?? null));
 const browse = (cwd = "/home/me") => Browser.init(cwd, "/home/me", fake, at);
+/** Pastes `text` into the browser's field a byte at a time. */
+const paste = (b: Browser, text: string) => {
+  for (const byte of Buffer.from(text)) b.paste(byte);
+};
+/** What the dialog draws on a 100×30 screen. */
+function draw(d: Dialog): string {
+  const w = new Writer();
+  d.view(100, 30)!.draw(d, w, 1);
+  return w.s;
+}
 
 test("the browser starts at the folder and lists the folders in it", () => {
   const b = browse("/home/me/code");
@@ -109,7 +119,7 @@ test("right opens the highlighted folder and left goes up, each picking the firs
 
 test("opening a folder writes it plainly", () => {
   const b = browse("/home/me/code");
-  for (const byte of Buffer.from("../")) b.paste(byte);
+  paste(b, "../");
   b.move(1);
   expect(b.field.raw()).toBe("~/code/../code");
   b.open();
@@ -126,7 +136,7 @@ test("the field resolves home, relative names and dot-dots", () => {
     ["", "/home/me/code"],
   ]) {
     b.field.clear();
-    for (const byte of Buffer.from(text)) b.paste(byte);
+    paste(b, text);
     expect(b.folder()).toBe(folder);
   }
   expect(label("/home/meow", "/home/me")).toBe("/home/meow");
@@ -134,14 +144,11 @@ test("the field resolves home, relative names and dot-dots", () => {
 
 test("an unreadable folder says so", () => {
   const b = browse("/home/me");
-  for (const byte of Buffer.from("locked/")) b.paste(byte);
+  paste(b, "locked/");
   expect(b.readable).toBe(false);
   expect(b.entries).toEqual([]);
   expect(b.create).toBeNull();
-  const d = new Dialog(b);
-  const w = new Writer();
-  d.view(100, 30)!.draw(d, w, 1);
-  expect(w.s).toContain("Can't read this folder");
+  expect(draw(new Dialog(b))).toContain("Can't read this folder");
 });
 
 test("clicking an entry highlights it, and clicking it again opens it", () => {
@@ -254,12 +261,11 @@ test("folder names never reach the terminal as controls", () => {
   d.browser.focused = true;
   d.browser.move(1);
   expect(d.browser.field.raw()).toBe("/evil/" + evil);
-  const w = new Writer();
-  d.view(100, 30)!.draw(d, w, 1);
-  expect(w.s).not.toContain("\x07");
-  expect(w.s).not.toContain("\u009b");
-  expect(w.s).not.toContain("\x1b]0;");
-  expect(w.s).toContain("/evil/?]0;x??2J");
+  const drawn = draw(d);
+  expect(drawn).not.toContain("\x07");
+  expect(drawn).not.toContain("\u009b");
+  expect(drawn).not.toContain("\x1b]0;");
+  expect(drawn).toContain("/evil/?]0;x??2J");
 });
 
 test("a missing folder is made, with the folders above it, when the workspace is created", () => {
@@ -267,7 +273,7 @@ test("a missing folder is made, with the folders above it, when the workspace is
   writeFileSync(join(root, "file"), "");
   const b = Browser.init(root, "/nowhere", subfolders);
   expect(b.confirm()).toBe(root);
-  for (const byte of Buffer.from("new/deeper")) b.paste(byte);
+  paste(b, "new/deeper");
   expect(b.create).toBe("new/deeper");
   expect(b.confirm()).toBe(join(root, "new/deeper"));
   expect(isFolder(join(root, "new/deeper"))).toBe(true);
@@ -275,7 +281,7 @@ test("a missing folder is made, with the folders above it, when the workspace is
   symlinkSync(join(root, "new"), join(root, "link"));
   expect(Browser.init(join(root, "link"), "/nowhere", subfolders).confirm()).toBe(join(root, "new"));
   b.field.clear();
-  for (const byte of Buffer.from("file")) b.paste(byte);
+  paste(b, "file");
   expect(b.create).toBeNull();
   expect(b.confirm()).toBeNull();
   expect(b.problem).toBe("not_folder");
@@ -285,22 +291,20 @@ test("a missing folder is made, with the folders above it, when the workspace is
 
 test("a folder that isn't there is offered to create, nested too", () => {
   const b = browse("/home/me/code");
-  for (const byte of Buffer.from("co")) b.paste(byte);
+  paste(b, "co");
   expect(b.entries).toEqual(["corgi"]);
   expect(b.create).toBe("co");
-  for (const byte of Buffer.from("/new/deeper")) b.paste(byte);
+  paste(b, "/new/deeper");
   expect(b.entries).toEqual([]);
   expect(b.create).toBe("co/new/deeper");
   expect(b.count()).toBe(1);
-  const d = new Dialog(b);
-  const w = new Writer();
-  d.view(100, 30)!.draw(d, w, 1);
-  expect(w.s).toContain("Create ");
-  expect(w.s).toContain("co/new/deeper");
-  expect(w.s).not.toContain("Can't read this folder");
+  const drawn = draw(new Dialog(b));
+  expect(drawn).toContain("Create ");
+  expect(drawn).toContain("co/new/deeper");
+  expect(drawn).not.toContain("Can't read this folder");
   // A folder that is there offers nothing.
   for (let i = 0; i < "/new/deeper".length; i++) b.key(127);
-  for (const byte of Buffer.from("rgi")) b.paste(byte);
+  paste(b, "rgi");
   expect(b.create).toBeNull();
 });
 
@@ -310,7 +314,7 @@ test("translated Create rows preserve the folder list border when the path fills
     for (const locale of i18n.locales) {
       i18n.setLanguage(locale);
       const b = browse("/home/me/code");
-      for (const byte of Buffer.from("folder".repeat(20))) b.paste(byte);
+      paste(b, "folder".repeat(20));
       const d = new Dialog(b),
         w = new Writer(),
         view = d.view(80, 30)!,
@@ -339,7 +343,7 @@ test("translated Create rows preserve the folder list border when the path fills
 test("opening the offer makes the folders and lists the last", () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-folders-")));
   const b = Browser.init(root, "/nowhere", subfolders);
-  for (const byte of Buffer.from("a/b")) b.paste(byte);
+  paste(b, "a/b");
   b.move(1);
   expect(b.highlight).toBe(0);
   expect(b.field.raw()).toBe(root + "/a/b");
@@ -473,19 +477,17 @@ test("the arrows are keys of their own, quiet until the folder has the keys", ()
 
 test("something else where the field names a folder is shown, with its size and age", () => {
   const b = browse("/home/me/code");
-  for (const byte of Buffer.from("notes")) b.paste(byte);
+  paste(b, "notes");
   expect(b.create).toBeNull();
   expect(b.blocked?.name).toBe("notes");
   // Under it too.
-  for (const byte of Buffer.from("/sub")) b.paste(byte);
+  paste(b, "/sub");
   expect(b.blocked?.name).toBe("notes");
   expect(b.create).toBeNull();
-  const d = new Dialog(b);
-  const w = new Writer();
-  d.view(100, 30)!.draw(d, w, 1);
-  expect(w.s).toContain("notes is a file, not a folder");
-  expect(w.s).toContain("2.0 KB · modified 3 days ago");
-  expect(w.s).not.toContain("No folders match");
+  const drawn = draw(new Dialog(b));
+  expect(drawn).toContain("notes is a file, not a folder");
+  expect(drawn).toContain("2.0 KB · modified 3 days ago");
+  expect(drawn).not.toContain("No folders match");
 });
 
 test("stat tells what a path holds, a link to nothing included", () => {

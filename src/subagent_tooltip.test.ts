@@ -30,7 +30,7 @@ import { Writer } from "./text";
 import * as palette from "./palette";
 import * as i18n from "./i18n";
 import * as sidebar from "./sidebar";
-import { Terminal } from "./pane/terminal";
+import * as screen from "./fixtures/screen";
 import { microTimestamp } from "./clock";
 import type { Agent } from "./mirror";
 import { Model as ProviderModel } from "./providers/model";
@@ -316,27 +316,21 @@ test("translated usage headings and timeline stamps get their own cell widths", 
       i18n.setLanguage(language);
       for (const width of [54, 88]) {
         const w = new Writer(),
-          terminal = new Terminal(width, 6),
           card = new Card(w, 0, width);
         card.counted = true;
-        try {
-          card.tokenColumns(0, null, false, "faint");
-          card.drawPoint(1, i18n.t`  now`, "Current activity", usage(), true, "working");
-          card.drawPoint(2, i18n.t` last`, "Last activity", usage(), false, "faint");
-          card.drawPoint(3, "13:59", "Clock activity", usage(), false, "faint");
-          terminal.feed(w.buffered());
-          const rows = terminal.text().split("\n"),
-            gap = width < 70 ? " " : "  ";
-          expect(rows[0]).toContain(i18n.t`Tokens`);
-          expect(rows[0]).toContain(i18n.t`Cached`);
-          if (width >= 70) expect(rows[0]).toContain(i18n.t`Tools`);
-          expect(rows[1]).toContain(`${i18n.t`  now`}${gap}●${gap}Current activity`);
-          expect(rows[2]).toContain(`${i18n.t` last`}${gap}○${gap}Last activity`);
-          expect(rows[3]).toContain(`13:59${gap}○${gap}Clock activity`);
-          for (const row of rows.slice(0, 4)) expect(row.endsWith("  ")).toBe(true);
-        } finally {
-          terminal.destroy();
-        }
+        card.tokenColumns(0, null, false, "faint");
+        card.drawPoint(1, i18n.t`  now`, "Current activity", usage(), true, "working");
+        card.drawPoint(2, i18n.t` last`, "Last activity", usage(), false, "faint");
+        card.drawPoint(3, "13:59", "Clock activity", usage(), false, "faint");
+        const rows = screen.lines(w.buffered(), width, 6),
+          gap = width < 70 ? " " : "  ";
+        expect(rows[0]).toContain(i18n.t`Tokens`);
+        expect(rows[0]).toContain(i18n.t`Cached`);
+        if (width >= 70) expect(rows[0]).toContain(i18n.t`Tools`);
+        expect(rows[1]).toContain(`${i18n.t`  now`}${gap}●${gap}Current activity`);
+        expect(rows[2]).toContain(`${i18n.t` last`}${gap}○${gap}Last activity`);
+        expect(rows[3]).toContain(`13:59${gap}○${gap}Clock activity`);
+        for (const row of rows.slice(0, 4)) expect(row.endsWith("  ")).toBe(true);
       }
     }
   } finally {
@@ -598,15 +592,12 @@ test("account limits include monthly spend, optional caps and calendar reset", (
   };
   const accounts = new Accounts({ now, accounts: [a] });
   const draw = () => unstyled(render(w => drawOverview(w, [], new UsageView(), false, "", "", {}, accounts, 130, 40)));
-  const frame = draw(),
-    host = Terminal.create(130, 40);
-  let lines: string[];
-  try {
-    host.feed(render(w => drawOverview(w, [], new UsageView(), false, "", "", {}, accounts, 130, 40)));
-    lines = host.text().split("\n");
-  } finally {
-    host.destroy();
-  }
+  const frame = draw();
+  const lines = screen.lines(
+    render(w => drawOverview(w, [], new UsageView(), false, "", "", {}, accounts, 130, 40)),
+    130,
+    40,
+  );
   const row = lines.findIndex(line => line.includes(" mo "));
   expect(frame).toContain("Claude side · tal@side.dev · Enterprise");
   // The spark row lines up with 5h and 7d; the amounts sit beneath it.
@@ -1035,14 +1026,11 @@ test("overview footer names a development build's commit", () => {
 });
 
 function screenLines(all: Conversation[], e: sidebar.Entry, cols: number, accounts = new Accounts()): string[] {
-  const output = render(w => draw(w, all, e, cols, 30, 0, 2, accounts));
-  const host = Terminal.create(cols, 30);
-  try {
-    host.feed(output);
-    return host.text().split("\n").slice(0, 30);
-  } finally {
-    host.destroy();
-  }
+  return screen.lines(
+    render(w => draw(w, all, e, cols, 30, 0, 2, accounts)),
+    cols,
+    30,
+  );
 }
 const lineWith = (lines: string[], needle: string) => {
   const i = lines.findIndex(line => line.includes(needle));
@@ -1075,17 +1063,15 @@ test("the TODOs section draws each group once with a mark per status", () => {
     { text: "Wait on review", status: "blocked", group: "Implement" },
     { text: "Ship", status: "pending", group: "Release" },
   ]);
-  const host = Terminal.create(90, 12);
-  try {
-    host.feed(render(w => new Card(w, 0, 88).checklist(0, list, checklist_view.window(list))));
-    const lines = host.text().split("\n");
-    expect(lines[2]).toContain("TODOs");
-    expect(lines[2]).toContain("1/4 done");
-    const rows = ["Prepare", "  ✓ Plan", "Implement", "  ▶ Build", "  ! Wait on review", "Release", "  ☐ Ship"];
-    expect(lines.slice(3, 10).map(line => line.trimEnd())).toEqual(rows.map(row => `   ${row}`));
-  } finally {
-    host.destroy();
-  }
+  const lines = screen.lines(
+    render(w => new Card(w, 0, 88).checklist(0, list, checklist_view.window(list))),
+    90,
+    12,
+  );
+  expect(lines[2]).toContain("TODOs");
+  expect(lines[2]).toContain("1/4 done");
+  const rows = ["Prepare", "  ✓ Plan", "Implement", "  ▶ Build", "  ! Wait on review", "Release", "  ☐ Ship"];
+  expect(lines.slice(3, 10).map(line => line.trimEnd())).toEqual(rows.map(row => `   ${row}`));
 });
 
 test("the card shows a finished checklist until it retires", () => {
@@ -1174,7 +1160,7 @@ test("the subtitle pairs provider and model with the context meter, and activity
   expect(hot).toContain("\x1b[1m" + palette.fg("hot") + "38%");
   all[0].agent.compacting = true;
   const output = render(w => draw(w, all, e, 100, 30, 0, 2));
-  expect(output).toContain("\x1b[1m" + palette.fgRgb(palette.mix(palette.colors.hot, palette.colors.bg, 60)) + "38%");
+  expect(output).toContain("\x1b[1m" + palette.fgRgb(sidebar.contextColor("high", true, palette.colors.bg)) + "38%");
   expect(output).toContain("┼");
 });
 

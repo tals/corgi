@@ -120,6 +120,7 @@ $.summaries?.pool.system_usage.meter.value.losses: u32
 $.summaries?.pool.system_usage.meter.value.since: i64
 $.summaries?.pool.system_usage.meter.value.updated_at: i64
 $.summaries?.pool.system_usage.meter.value.recent_tokens: u64
+$.summaries?.pool.system_usage.meter.value.tools: u64
 $.summaries?.pool.system_usage.meter.buckets[5].minute: i64
 $.summaries?.pool.system_usage.meter.buckets[5].tokens: u64
 $.summaries?.pool.system_usage.reports: u64
@@ -177,11 +178,13 @@ $.usage?[].progress.commentary: custom bounded_text.BoundedText(2048)
 $.usage?[].progress.turn: custom bounded_text.BoundedText(160)
 $.usage?[].progress.ended: bool
 $.usage?[].progress.completed: u64
+$.usage?[].progress.pending[64]: optional
 $.usage?[].progress.pending[64]?.id: u64
 $.usage?[].progress.pending[64]?.live: bool
 $.usage?[].progress.pending[64]?.value: string
 $.usage?[].progress.next_pending: usize
 $.usage?[].progress.seen[]: u64
+$.usage?[].progress.recent[3]: optional
 $.usage?[].progress.recent[3]?.id: u64
 $.usage?[].progress.recent[3]?.live: bool
 $.usage?[].progress.recent[3]?.value: string

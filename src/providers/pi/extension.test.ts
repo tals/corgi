@@ -1,29 +1,13 @@
 import { test, expect } from "bun:test";
-import { mkdir, mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { source } from "./integration";
+import * as extension from "../../fixtures/extension";
 
 test("Pi sends opening text before a transcript exists and never sends image data", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pi-prompt-"));
-  const extension = join(root, "extension.mjs"),
-    sender = join(root, "hook"),
-    driver = join(root, "driver.mjs"),
-    log = join(root, "hooks.jsonl");
-  await writeFile(extension, source);
-  await writeFile(
-    sender,
-    `#!${process.execPath}
-import {appendFileSync} from "node:fs";
-let text="";for await(const chunk of process.stdin)text+=chunk;
-appendFileSync(${JSON.stringify(log)},text+"\\n");
-`,
-    { mode: 0o755 },
-  );
-  await writeFile(
-    driver,
-    `
-import extension from ${JSON.stringify(extension)};
+  await using folder = await extension.Folder.create("pi-prompt-", source);
+  const proc = await folder.run(`
+import extension from ${JSON.stringify(folder.extension)};
 const hooks = new Map();
 extension({on:(name,handler)=>hooks.set(name,handler),getSessionName:()=>undefined});
 const session=crypto.randomUUID();
@@ -33,46 +17,20 @@ await hooks.get("session_start")({},ctx);
 await hooks.get("before_agent_start")({messageType:"user",prompt:"Fix keyboard shortcuts",images:[{data:"private-image"}]},ctx);
 await hooks.get("agent_start")({},ctx);
 await hooks.get("session_shutdown")({},ctx);
-`,
-  );
-  const proc = Bun.spawn([process.execPath, driver], {
-    env: {
-      ...process.env,
-      CORGI_PI_OWNER: "",
-      CORGI_PANE: "1",
-      CORGI_SOCKET: "/tmp/unused",
-      CORGI_BIN: sender,
-      PI_CODING_AGENT_DIR: root,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  try {
-    expect(await proc.exited, await new Response(proc.stderr).text()).toBe(0);
-    const text = await readFile(log, "utf8"),
-      events = text
-        .trim()
-        .split("\n")
-        .map(l => JSON.parse(l));
-    expect(events.find(e => e.event === "UserPromptSubmit").initial_request).toBe("Fix keyboard shortcuts");
-    expect(text).not.toContain("private-image");
-  } finally {
-    proc.kill();
-    await proc.exited;
-    await rm(root, { recursive: true, force: true });
-  }
+`);
+  expect(await proc.exited, await new Response(proc.stderr).text()).toBe(0);
+  const events = await folder.hooks();
+  expect(events.find(e => e.event === "UserPromptSubmit").initial_request).toBe("Fix keyboard shortcuts");
+  expect(await readFile(folder.log, "utf8")).not.toContain("private-image");
 });
 
 /** Runs `script` against copies of Corgi's extension, one per session as Pi loads
  * them, beside a stand-in for Pi's SDK; the subagent hooks they sent, and what
  * the script printed. */
 async function drive(script: string, env: Record<string, string> = {}) {
-  const root = await mkdtemp(join(tmpdir(), "pi-subagents-"));
-  const sdk = join(root, "node_modules", "@earendil-works", "pi-coding-agent"),
-    extension = join(root, "extension.mjs"),
-    sender = join(root, "hook"),
-    driver = join(root, "driver.mjs"),
-    log = join(root, "hooks.jsonl");
+  await using folder = await extension.Folder.create("pi-subagents-", source);
+  const root = folder.root,
+    sdk = join(root, "node_modules", "@earendil-works", "pi-coding-agent");
   await mkdir(sdk, { recursive: true });
   await writeFile(
     join(sdk, "package.json"),
@@ -95,18 +53,7 @@ export class AgentSession {
 }
 `,
   );
-  await writeFile(extension, source);
-  await writeFile(
-    sender,
-    `#!${process.execPath}
-import {appendFileSync} from "node:fs";
-let text="";for await(const chunk of process.stdin)text+=chunk;
-appendFileSync(${JSON.stringify(log)},text+"\\n");
-`,
-    { mode: 0o755 },
-  );
-  await writeFile(
-    driver,
+  const proc = await folder.run(
     `
 import { AgentSession } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
@@ -116,7 +63,7 @@ let copies = 0;
 const load = async () => {
   const handlers = new Map();
   let name;
-  const { default: extension } = await import(${JSON.stringify(extension)} + "?" + copies++);
+  const { default: extension } = await import(${JSON.stringify(folder.extension)} + "?" + copies++);
   extension({ on: (event, handler) => handlers.set(event, handler), getSessionName: () => name, appendEntry: () => {} });
   return { emit: (event, ctx, e = {}) => handlers.get(event)?.(e, ctx), name: n => { name = n; } };
 };
@@ -130,46 +77,21 @@ const work = (stopReason = "stop") => async session => {
   session.emit({ type: "message_end", message: { role: "assistant", stopReason } });
   session.emit({ type: "agent_settled", aborted: stopReason === "aborted" });
 };
-const sent = () => { try { return readFileSync(${JSON.stringify(log)}, "utf8").trim().split("\\n").map(l => JSON.parse(l)); } catch { return []; } };
+const sent = () => { try { return readFileSync(${JSON.stringify(folder.log)}, "utf8").trim().split("\\n").map(l => JSON.parse(l)); } catch { return []; } };
 const until = async predicate => { for (let i = 0; i < 500 && !predicate(sent()); i++) await new Promise(r => setTimeout(r, 10)); };
 // The session a Pi process started now would report under.
 const parent = () => console.log(JSON.parse(process.env.CORGI_PI_PARENT).session);
 ${script}
 `,
+    { CORGI_PI_PARENT: "", ...env },
+    root,
   );
-  const proc = Bun.spawn([process.execPath, driver], {
-    cwd: root,
-    env: {
-      ...process.env,
-      CORGI_PI_OWNER: "",
-      CORGI_PI_PARENT: "",
-      CORGI_PANE: "1",
-      CORGI_SOCKET: "/tmp/unused",
-      CORGI_BIN: sender,
-      PI_CODING_AGENT_DIR: root,
-      ...env,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  try {
-    expect(await proc.exited, await new Response(proc.stderr).text()).toBe(0);
-    const text = await readFile(log, "utf8").catch(() => "");
-    return {
-      root,
-      printed: (await new Response(proc.stdout).text()).trim().split("\n").filter(Boolean),
-      subagents: text
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .map(l => JSON.parse(l))
-        .filter(h => h.event.startsWith("Subagent")),
-    };
-  } finally {
-    proc.kill();
-    await proc.exited;
-    await rm(root, { recursive: true, force: true });
-  }
+  expect(await proc.exited, await new Response(proc.stderr).text()).toBe(0);
+  return {
+    root,
+    printed: (await new Response(proc.stdout).text()).trim().split("\n").filter(Boolean),
+    subagents: (await folder.hooks()).filter(h => h.event.startsWith("Subagent")),
+  };
 }
 
 test("subagents the pane's turn starts report under the pane's session, labeled by their plugin", async () => {

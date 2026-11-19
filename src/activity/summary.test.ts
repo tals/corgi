@@ -15,7 +15,8 @@ test("strict labels and bounded evidence", () => {
 });
 test("abstention is a valid decision distinct from invalid output", () => {
   expect(prompt.parse('{"action":"none","label":null}', null).label).toBeNull();
-  expect(prompt.parse('{"action":"new","label":"null"}', null).label).toBeNull();
+  for (const label of ["null", " Null "])
+    expect(prompt.parse(JSON.stringify({ action: "new", label }), null).label).toBeNull();
   expect(prompt.parse('{"action":"new","label":"Tracing focus changes"}', null).label?.text()).toBe(
     "Tracing focus changes",
   );
@@ -24,11 +25,14 @@ test("abstention is a valid decision distinct from invalid output", () => {
     '{"label":"Tracing focus changes"}',
     '{"action":"skip","label":null}',
     '{"action":"new","label":null}',
+    '{"action":"new","label":false}',
     '{"action":"none","label":null,"reason":"none"}',
     "{}",
     "[]",
+    "null",
   ])
-    expect(() => prompt.parse(output, null)).toThrow();
+    expect(() => prompt.parse(output, null)).toThrow("InvalidDecision");
+  expect(() => prompt.parse('{"action":"new","label":""}', null)).toThrow("EmptyLabel");
 });
 test("decisions are read against the current phase", () => {
   const parse = (action: string, label: string | null, phase: string | null) => {

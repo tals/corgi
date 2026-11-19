@@ -5,6 +5,7 @@ import { Sandbox } from "../tools/sandbox";
 import { world } from "../tools/sandboxes/remote";
 import { request } from "../src/remote_lab";
 import { EXE } from "./runtime";
+import { waitUntil } from "./support";
 import { Terminal } from "../src/pane/terminal";
 import { Connection } from "../src/rpc";
 
@@ -14,14 +15,8 @@ test.skipIf(!Bun.which("claude") || !Bun.which("codex"))(
     const sandbox = new Sandbox(`remote-test-${process.pid}`, world, resolve(import.meta.dir, ".."), EXE);
     let ui: ReturnType<typeof Bun.spawn> | undefined;
     const screen = new Terminal(100, 35);
-    const until = async (predicate: () => boolean | Promise<boolean>) => {
-      const end = Date.now() + 30000;
-      while (Date.now() < end) {
-        if (await predicate()) return;
-        await Bun.sleep(30);
-      }
-      throw Error("Remote sandbox condition timed out: " + screen.text());
-    };
+    const until = (predicate: () => boolean | Promise<boolean>) =>
+      waitUntil(predicate, 30, () => "Remote sandbox condition timed out: " + screen.text());
     try {
       sandbox.prepareHome();
       world.seed(sandbox);

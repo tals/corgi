@@ -40,6 +40,20 @@ export async function deadline<T>(promise: Promise<T>, milliseconds: number, mes
     clearTimeout(timer!);
   }
 }
+/** The first truthy result of `predicate`, checked every 30 ms for up to `seconds`. */
+export async function waitUntil<T>(
+  predicate: () => T | Promise<T>,
+  seconds: number,
+  message: string | (() => string) = "Condition timed out",
+): Promise<T> {
+  const end = performance.now() + seconds * 1000;
+  for (;;) {
+    const value = await predicate();
+    if (value) return value;
+    if (performance.now() >= end) throw new Error(typeof message === "string" ? message : message());
+    await Bun.sleep(30);
+  }
+}
 export async function run(
   argv: string[],
   options: {
@@ -75,6 +89,18 @@ export async function run(
     await proc.exited;
     throw error;
   }
+}
+
+/** Makes `dir` a repository on main whose one commit, "base", is empty. */
+export async function gitRepository(dir: string, env: Record<string, string | undefined>) {
+  for (const args of [
+    ["init", "-b", "main"],
+    ["config", "user.name", "Test"],
+    ["config", "user.email", "test@example.invalid"],
+    ["config", "commit.gpgsign", "false"],
+    ["commit", "--allow-empty", "-m", "base"],
+  ])
+    await run(["git", "-C", dir, ...args], { env });
 }
 
 /** Queues whole lines without losing coalesced or fragmented stream chunks. */
@@ -377,6 +403,10 @@ export function registerCase(
 }
 
 // Viewer frames and mouse input, shared by the selection and link suites.
+/** An SGR mouse report: `button` pressed, or with `release` released, on the 0-based cell `x`, `y`. */
+export function mouse(button: number, x: number, y: number, release = false) {
+  return `\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`;
+}
 /** What the last OSC 52 effect in the viewer's last reply copied, if any. */
 export function copied(state: any): string | null {
   let text: string | null = null;
@@ -464,8 +494,7 @@ export async function clicks(
   count: number,
   button = 0,
 ): Promise<any> {
-  const at = `${button};${x + 1};${y + 1}`;
-  const clicked = await viewer.input(`\x1b[<${at}M\x1b[<${at}m`.repeat(count));
+  const clicked = await viewer.input((mouse(button, x, y) + mouse(button, x, y, true)).repeat(count));
   if (count < 2) return clicked;
   const settled = await viewer.advance(0.31);
   return { ...settled, effects: [...clicked.effects, ...settled.effects] };

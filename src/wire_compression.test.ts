@@ -8,13 +8,12 @@ import * as socket_server from "./socket_server";
 import * as websocket_socket from "./websocket_socket";
 import * as protocol from "./protocol";
 import { mkdtempSync, rmSync } from "node:fs";
+import { resetting } from "./fixtures/zstd_daemon";
+import { listen } from "./fixtures/tcp";
+import { lines } from "./fixtures/lines";
+import { until } from "./fixtures/until";
 import { createServer, createConnection } from "node:net";
 
-async function until(check: () => boolean): Promise<void> {
-  const end = performance.now() + 3000;
-  while (!check() && performance.now() < end) await Bun.sleep(1);
-  expect(check()).toBe(true);
-}
 test("live history survives byte fragmentation and flushes each message with exact costs", async () => {
   const wire: Buffer[] = [],
     decoded: Buffer[] = [],
@@ -97,47 +96,13 @@ test("EOF waits for the last compressed message to be decoded", async () => {
   }
 });
 test("a TCP reset preserves a complete compressed reply and the final reconnect notice", async () => {
-  let encoder: wire_compression.Channel | null = null;
-  const server = createServer(socket => {
-    let input = "",
-      compressed = false,
-      answered = false;
-    const read = (bytes: Buffer) => {
-      input += bytes.toString();
-      for (;;) {
-        const end = input.indexOf("\n");
-        if (end < 0) return;
-        const request = JSON.parse(input.slice(0, end));
-        input = input.slice(end + 1);
-        if (request.op === "hello") {
-          socket.write(
-            JSON.stringify({ type: "hello", content_encoding: "zstd", request_id: request.request_id }) + "\n",
-          );
-          encoder = new wire_compression.Channel(
-            bytes => socket.write(bytes),
-            read,
-            () => socket.destroy(),
-          );
-          compressed = true;
-        } else if (!answered) {
-          answered = true;
-          const reply =
-            JSON.stringify({ ok: true, padding: "x".repeat(1024 * 1024), request_id: request.request_id }) + "\n";
-          encoder!.encode(Buffer.from(reply + '{"type":"viewer.wake"}\n'), () => socket.resetAndDestroy());
-        }
-      }
-    };
-    socket.on("data", bytes => (compressed ? encoder!.decode(Buffer.from(bytes)) : read(Buffer.from(bytes))));
-    socket.on("error", () => {});
+  let answered = false;
+  const daemon = await resetting(request => {
+    if (answered) return null;
+    answered = true;
+    return [{ ok: true, padding: "x".repeat(1024 * 1024), request_id: request.request_id }, { type: "viewer.wake" }];
   });
-
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw Error("NoAddress");
-  const conn = new rpc.Connection(createConnection(address.port, "127.0.0.1"), {
-    compression: true,
-    timeout_ms: 1000,
-  });
+  const conn = daemon.connect();
   const events: string[] = [];
   conn.onEvent(event => events.push(event.type));
   const stream = new machine_stream.Stream(conn, () => {
@@ -158,8 +123,7 @@ test("a TCP reset preserves a complete compressed reply and the final reconnect 
     await expect(conn.call("ping")).rejects.toThrow("ECONNRESET");
   } finally {
     conn.close();
-    (encoder as wire_compression.Channel | null)?.close();
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    await daemon.close();
   }
 });
 for (const supported of [false, true])
@@ -276,10 +240,8 @@ for (const offer of [undefined, ["future"], ["zstd"]])
           );
         });
       });
-      await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-      const address = server.address();
-      if (!address || typeof address === "string") throw Error("NoAddress");
-      const conn = new rpc.Connection(createConnection(address.port, "127.0.0.1"), { timeout_ms: 2000 });
+      const port = await listen(server);
+      const conn = new rpc.Connection(createConnection(port, "127.0.0.1"), { timeout_ms: 2000 });
       try {
         await expect(conn.call("hello", offer === undefined ? {} : { accept_encoding: offer })).rejects.toThrow(
           "InvalidEncodingNegotiation",
@@ -327,10 +289,8 @@ for (const fragmented of [false, true])
         });
       });
     });
-    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-    const address = server.address();
-    if (!address || typeof address === "string") throw Error("NoAddress");
-    const conn = new rpc.Connection(createConnection(address.port, "127.0.0.1"), {
+    const port = await listen(server);
+    const conn = new rpc.Connection(createConnection(port, "127.0.0.1"), {
       compression: true,
       timeout_ms: 2000,
     });
@@ -352,16 +312,7 @@ for (const mode of ["pipelined", "partial", "late"] as const)
     const fixture = daemon(),
       socket = new websocket_socket.Socket(fixture.path),
       replies: Record<string, unknown>[] = [];
-    let input = "";
-    socket.on("data", (bytes: Buffer) => {
-      input += bytes.toString();
-      for (;;) {
-        const end = input.indexOf("\n");
-        if (end < 0) return;
-        replies.push(JSON.parse(input.slice(0, end)));
-        input = input.slice(end + 1);
-      }
-    });
+    lines(socket, line => replies.push(JSON.parse(line)));
     const hello = JSON.stringify(protocol.envelope("hello", { accept_encoding: ["zstd"] })) + "\n";
     try {
       if (mode === "late") {

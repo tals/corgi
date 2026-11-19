@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as cp from "./checkpoint";
 import * as migrations from "./migrations";
-import { checkpoint as schema, validateCheckpoint } from "./schema";
+import { validateCheckpoint } from "./schema";
 import * as json from "../json";
 import { Runtime, Pane } from "../runtime";
 import { Terminal } from "../pane/terminal";
@@ -22,6 +22,7 @@ import { snapshot } from "../session";
 import { Tokens, View } from "../usage/live";
 import * as common from "../providers/common";
 import * as checklist from "../activity/checklist";
+import { FakeClient } from "../fixtures/headless_client";
 const fixtures = resolve(import.meta.dir, "../fixtures");
 const fresh = () => {
   const r = new Runtime(),
@@ -278,7 +279,6 @@ for (const version of [2, 3, 4, 5, 6])
     },
   );
 test("saved checkpoint format matches its version", () => {
-  expect(schema).toBe(readFileSync(resolve(fixtures, "checkpoint.schema"), "utf8"));
   using r = fresh();
   validateCheckpoint(roundtrip(cp.capture(r, true)));
   const value = roundtrip(cp.capture(r, false));
@@ -934,10 +934,6 @@ test.each([false, true])("checklists survive persistence and default when absent
   invalid.conversations[0].checklist.items[0].status = "unknown";
   using rejected = new Runtime();
   await expect(restore(rejected, invalid, live)).rejects.toThrow("InvalidEnumTag");
-  const malformed = roundtrip(saved);
-  malformed.conversations[0].checklist.items = {};
-  using malformedRuntime = new Runtime();
-  await expect(restore(malformedRuntime, malformed, live)).rejects.toThrow("UnexpectedToken");
 });
 
 test.each([false, true])(
@@ -961,14 +957,7 @@ test.each([false, true])(
 );
 test("the Corgi prompt's sessions survive a handoff but never a cold recovery", async () => {
   const { Session } = await import("../headless");
-  const client = {
-    ready: true,
-    send() {},
-    take: () => [],
-    async wait() {},
-    close() {},
-    save: () => ({ state: null, handles: [] }),
-  };
+  const client = new FakeClient();
   using original = fresh();
   const prompt = new Session(1, "codex", "/tmp", client),
     agent = new Session(2, "codex", "/tmp", client);

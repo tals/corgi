@@ -1,10 +1,11 @@
 import { readFileSync, writeFileSync, chmodSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { Runtime, screen_text } from "./runtime";
+import { screen_text } from "./runtime";
+import { Viewers } from "./viewers";
 import { Viewer } from "./viewer_client";
-import { registerCase, run } from "./support";
+import { gitRepository, registerCase, run } from "./support";
 
-class GitPush extends Runtime {
+class GitPush extends Viewers {
   root!: string;
   remote!: string;
   gitViewer!: Viewer;
@@ -12,10 +13,7 @@ class GitPush extends Runtime {
   async setUp() {
     await super.setUp();
     this.root = this.temp.name;
-    await this.git("init", "-b", "main");
-    await this.git("config", "user.name", "Push Test");
-    await this.git("config", "user.email", "test@example.invalid");
-    await this.commit("base");
+    await gitRepository(this.root, this.env);
     this.remote = join(this.root, "remote.git");
     await this.git("init", "--bare", this.remote);
     await this.git("remote", "add", "origin", this.remote);
@@ -39,15 +37,6 @@ class GitPush extends Runtime {
   }
   async commit(message: string) {
     await this.git("-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", message);
-  }
-  async new() {
-    return (
-      await this.command("pane.create", {
-        workspace: (await this.session()).workspaces[0].id,
-        cwd: this.temp.name,
-        command: "sleep 60",
-      })
-    ).pane;
   }
   async workspace() {
     return (await this.session()).workspaces[0];

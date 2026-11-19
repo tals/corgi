@@ -18,6 +18,7 @@ import { Stdio } from "../stdio";
 import { OpenCode2 } from "./headless";
 import * as catalog from "./catalog";
 import { Quit } from "../../subprocess";
+import { scopedEnv } from "../../fixtures/env";
 const id = "ses_test123",
   usage = { input: 10, output: 5, reasoning: 3, cache: { read: 7, write: 2 } };
 const info = {
@@ -30,13 +31,11 @@ const info = {
 };
 function preference(recent: unknown[], variant: Record<string, string> = {}) {
   const root = mkdtempSync(join(tmpdir(), "corgi-opencode-")),
-    previous = process.env.XDG_STATE_HOME;
-  process.env.XDG_STATE_HOME = root;
+    env = scopedEnv({ XDG_STATE_HOME: root });
   mkdirSync(join(root, "opencode"));
   writeFileSync(join(root, "opencode", "model.json"), JSON.stringify({ recent, variant }));
   return () => {
-    if (previous === undefined) delete process.env.XDG_STATE_HOME;
-    else process.env.XDG_STATE_HOME = previous;
+    env[Symbol.dispose]();
     rmSync(root, { recursive: true, force: true });
   };
 }
@@ -132,7 +131,7 @@ test("launcher shows the shared ChatGPT account for an OpenAI model", async () =
       return { data: [] };
     });
   shared.signed_in = true;
-  shared.account = new AccountText("toasty.tal@gmail.com");
+  shared.account = new AccountText("ada@example.com");
   shared.plan = new AccountText("Pro 500");
   shared.limits = {
     windows: [
@@ -143,7 +142,7 @@ test("launcher shows the shared ChatGPT account for an OpenAI model", async () =
   try {
     const launcher = open("", async () => shared),
       info = await launcher.account(new Quit(), 600);
-    expect(info.account.text()).toBe("toasty.tal@gmail.com");
+    expect(info.account.text()).toBe("ada@example.com");
     expect(info.plan.text()).toBe("Pro 500");
     expect(info.limits).toMatchObject({
       windows: [
@@ -256,8 +255,7 @@ test("private inference denies tools and reports usage before completing its JSO
   }
 });
 test("terminal preparation forks through the API and strips internal options", async () => {
-  const saved = process.env.OPENCODE_CLI_CONFIG_CONTENT;
-  delete process.env.OPENCODE_CLI_CONFIG_CONTENT;
+  using env = scopedEnv({ OPENCODE_CLI_CONFIG_CONTENT: undefined });
   const calls: unknown[][] = [];
   const mock = spyOn(API.prototype, "call").mockImplementation(async (...args) => {
     calls.push(args);
@@ -280,7 +278,6 @@ test("terminal preparation forks through the API and strips internal options", a
     ]);
   } finally {
     mock.mockRestore();
-    if (saved !== undefined) process.env.OPENCODE_CLI_CONFIG_CONTENT = saved;
   }
 });
 test("help and auth do not create sessions; unsupported transports fail before mutation", async () => {
@@ -296,15 +293,12 @@ test("help and auth do not create sessions; unsupported transports fail before m
   }
 });
 test("an inline CLI config the user set is left alone", async () => {
-  const saved = process.env.OPENCODE_CLI_CONFIG_CONTENT;
-  process.env.OPENCODE_CLI_CONFIG_CONTENT = '{"session":{"sidebar":"auto"}}';
+  using env = scopedEnv({ OPENCODE_CLI_CONFIG_CONTENT: '{"session":{"sidebar":"auto"}}' });
   const mock = spyOn(API.prototype, "call").mockImplementation(async () => ({ data: info }));
   try {
     expect((await prepare([], "opencode")).env).toEqual([]);
   } finally {
     mock.mockRestore();
-    if (saved === undefined) delete process.env.OPENCODE_CLI_CONFIG_CONTENT;
-    else process.env.OPENCODE_CLI_CONFIG_CONTENT = saved;
   }
 });
 test("history normalizes milliseconds and excludes children and invalid identities", () => {

@@ -9,6 +9,7 @@ import * as errors from "../errors";
 import * as os from "../os";
 import * as appServer from "../providers/codex/app_server";
 import * as sim from "../providers/sim";
+import { until } from "../fixtures/until";
 const fixture = resolve(import.meta.dir, "../../tests/inference_harness.ts");
 function pool(provider: "codex" | "claude", timeout_ms = 3000) {
   return new Pool({ config: { provider, executable: fixture, timeout_ms } });
@@ -80,20 +81,6 @@ test("inference rotates retained histories and uses fresh recovery input", async
   for (let i = 0; i < 32; i++) expect((await p.infer(r)).fresh).toBe(i === 0);
   expect((await p.infer(r)).fresh).toBe(true);
 });
-test("inference rejects oversize output and recovers after failure", async () => {
-  for (const provider of ["codex", "claude"] as const) {
-    using p = pool(provider);
-    await expect(p.infer({ instructions: "x", content: "oversize", conversation: "a" })).rejects.toThrow(
-      "OutputTooLarge",
-    );
-    expect((await p.infer({ instructions: "x", content: "ok", conversation: "a" })).fresh).toBe(true);
-  }
-});
-test("inference timeout destroys the failed conversation", async () => {
-  using p = pool("codex", 150);
-  await expect(p.infer({ instructions: "x", content: "hang" })).rejects.toThrow("Timeout");
-  expect(p.slots.every(s => !s)).toBe(true);
-});
 test("Codex metadata reads its own app server, not a summary", async () => {
   const server = new appServer.AppServer(3000, fixture);
   try {
@@ -132,15 +119,13 @@ test("closing an app server stops one still starting", async () => {
     pending = appServer.model(server, "/tmp");
   pending.catch(() => {});
   try {
-    const deadline = Date.now() + 2500;
-    while (!existsSync(pidFile) && Date.now() < deadline) await Bun.sleep(5);
+    await until(() => existsSync(pidFile), 2500);
     expect(existsSync(pidFile)).toBe(true);
-    const pid = Number(readFileSync(pidFile, "utf8")),
-      closed = Date.now();
+    const pid = Number(readFileSync(pidFile, "utf8"));
     expect(pid).toBeGreaterThan(0);
     server.close();
     await expect(pending).rejects.toThrow("Cancelled");
-    while (os.running(pid) && Date.now() < closed + 2500) await Bun.sleep(5);
+    await until(() => !os.running(pid), 2500);
     expect(os.running(pid)).toBe(false);
   } finally {
     server.close();
@@ -235,14 +220,18 @@ test("structured inference uses provider output and rejects invalid schemas befo
 test("inference failures kill the affected conversation and recover", async () => {
   for (const provider of ["codex", "claude"] as const) {
     using p = pool(provider);
-    for (const content of ["crash", "fail", "oversize"]) {
+    for (const [content, error] of [
+      ["crash", "HarnessExited"],
+      ["fail", "InferenceFailed"],
+      ["oversize", "OutputTooLarge"],
+    ]) {
       await expect(
         p.infer({
           instructions: "Return JSON",
           content,
           conversation: "same",
         }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(error);
       const recovered = JSON.parse(
         (
           await p.infer({
@@ -262,6 +251,7 @@ test("inference failures kill the affected conversation and recover", async () =
         conversation: "same",
       }),
     ).rejects.toThrow("Timeout");
+    expect(p.slots.every(s => !s)).toBe(true);
     await expect(
       p.infer({ instructions: "Return JSON", content: "snapshot" }, {
         value: true,

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { State, cells as cells_count, update } from "./limits";
 import { Info, Text, Window } from "./account";
 import type { Reading } from "./spend";
+import { scopedEnv } from "../fixtures/env";
 test("a new reset starts a new spark while drift within a slot does not", () => {
   const state = new State(),
     week = new Window({ minutes: 10080, used: 30, reset_at: 10080 * 60 });
@@ -26,6 +27,17 @@ test("a new reset starts a new spark while drift within a slot does not", () => 
   const fresh = state.record([null, next], week.reset_at! + 60);
   expect(fresh[1][0]).toBe(2);
   expect(fresh[1][4]).toBeNull();
+});
+test("readings fill their slot and leave unread slots as gaps", () => {
+  const state = new State(),
+    window = new Window({ minutes: 300, used: 12, reset_at: 18000 });
+  state.record([window, null], 60);
+  window.used = 40;
+  const sparks = state.record([window, null], 9000);
+  expect(sparks[0][0]).toBe(12);
+  expect(sparks[0][1]).toBeNull();
+  expect(sparks[0][7]).toBe(40);
+  expect(sparks[1][0]).toBeNull();
 });
 test("windows follow their length across provider slots and unknown resets have no spark", () => {
   const state = new State(),
@@ -82,9 +94,8 @@ test("last month's cells are marked and keep its running spend", () => {
   expect(state.spend.at(-1)).toEqual([139, 100 * day, 209]);
 });
 test("histories move from an email's file to the login's, eleven cells to fourteen", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "corgi-limits-")),
-    prior = process.env.XDG_STATE_HOME;
-  process.env.XDG_STATE_HOME = dir;
+  const dir = mkdtempSync(join(tmpdir(), "corgi-limits-"));
+  using env = scopedEnv({ XDG_STATE_HOME: dir });
   try {
     const folder = join(dir, "corgi", "limit-history"),
       file = (key: string) => join(folder, `claude-${createHash("sha256").update(key).digest("hex")}.json`);
@@ -99,8 +110,6 @@ test("histories move from an email's file to the login's, eleven cells to fourte
     expect(sparks[1]).toEqual([12, 1, 2, 3, null, 4, 5, 6, 7, null, 8, 9, 10, 11]);
     expect(existsSync(file("login:user/org"))).toBe(true);
   } finally {
-    if (prior === undefined) delete process.env.XDG_STATE_HOME;
-    else process.env.XDG_STATE_HOME = prior;
     rmSync(dir, { recursive: true, force: true });
   }
 });

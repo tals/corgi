@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { State, bounds, presetLayout } from "./onboarding";
 import * as palette from "./palette";
 import * as i18n from "./i18n";
-import { Terminal } from "./pane/terminal";
+import * as screen from "./fixtures/screen";
 import { Worker, workspace, pane, available_sources } from "./import/catalog";
 const conn: any = {
   call: () => {
@@ -15,20 +15,14 @@ test("translated welcome hints leave room before the continue button", () => {
     for (const language of i18n.locales) {
       i18n.setLanguage(language);
       for (const cols of [76, 80, 112]) {
-        const state = new State(),
-          terminal = new Terminal(cols, 26);
+        const state = new State();
         try {
-          terminal.feed(state.frame(cols, 26));
           const label = i18n.t`[ Enter Continue → ]`,
-            row = terminal
-              .text()
-              .split("\n")
-              .find(row => row.includes(label))!;
+            row = screen.lines(state.frame(cols, 26), cols, 26).find(row => row.includes(label))!;
           expect(row).toBeDefined();
           expect(row.slice(0, row.indexOf(label))).toEndWith("  ");
           expect(row.slice(row.indexOf(label) + label.length)).toMatch(/^\s*│\s*$/);
         } finally {
-          terminal.destroy();
           state.close();
         }
       }

@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Quit } from "../../subprocess";
+import { scopedEnv } from "../../fixtures/env";
 import * as subprocess from "../../subprocess";
 import * as discovery from "../../discovery";
 import { Client } from "./account";
@@ -17,9 +18,8 @@ const model = (provider: string, id: string, cost: unknown = { input: 1, output:
 });
 test("discovery checks each login with refresh and rejects stale OAuth before exposing models", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-pi-models-")),
-    previous = process.env.CORGI_PI_BIN;
-  const bin = join(root, "pi");
-  process.env.CORGI_PI_BIN = bin;
+    bin = join(root, "pi");
+  using env = scopedEnv({ CORGI_PI_BIN: bin });
   writeFileSync(
     join(root, "auth.json"),
     JSON.stringify({ "openai-codex": { type: "oauth" }, anthropic: { type: "oauth", access: "expired" } }),
@@ -58,8 +58,6 @@ createInterface({input:process.stdin}).on("line",line=>{
     expect(calls[0]).toContain("--no-session");
     expect(calls[0]).toContain("--offline");
   } finally {
-    if (previous === undefined) delete process.env.CORGI_PI_BIN;
-    else process.env.CORGI_PI_BIN = previous;
     rmSync(root, { recursive: true, force: true });
   }
 });

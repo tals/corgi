@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync,
 import type { FSWatcher } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { OneAtATime, Option, Worker, active_every, idle_every } from "./preview";
+import { OneAtATime, Worker, active_every, idle_every } from "./preview";
 import { Info, Window } from "../usage/account";
 import { Provider, Text, byProvider } from "../providers";
 import * as accounts from "../accounts";
@@ -12,24 +12,26 @@ import * as limitHistory from "../usage/limits";
 import * as profiles from "../agent_profiles";
 import * as visibility from "./visibility";
 import type { Launcher } from "../providers/adapter";
+import { scopedEnv } from "../fixtures/env";
 
 const bin = (p: Provider) => `CORGI_${p.toUpperCase()}_BIN`;
 /** The providers these tests find installed. */
 const installed: Provider[] = Provider.all.filter(p => p !== "opencode2");
-const variables = ["CORGI_ENV_BASE", "XDG_STATE_HOME", "PI_CODING_AGENT_DIR", ...Provider.all.map(bin)];
-let saved: NodeJS.ProcessEnv, root: string;
+let env: Disposable, root: string;
 beforeEach(() => {
-  saved = { ...process.env };
   root = mkdtempSync(join(tmpdir(), "corgi-preview-"));
-  process.env.CORGI_ENV_BASE = root;
-  process.env.XDG_STATE_HOME = root;
-  for (const p of Provider.all) process.env[bin(p)] = installed.includes(p) ? process.execPath : `/nonexistent/${p}`;
+  env = scopedEnv({
+    CORGI_ENV_BASE: root,
+    XDG_STATE_HOME: root,
+    PI_CODING_AGENT_DIR: undefined,
+    ...Object.fromEntries(
+      Provider.all.map(p => [bin(p), installed.includes(p) ? process.execPath : `/nonexistent/${p}`]),
+    ),
+  });
   accounts.reset();
 });
 afterEach(() => {
-  for (const key of variables)
-    if (saved[key] === undefined) delete process.env[key];
-    else process.env[key] = saved[key];
+  env[Symbol.dispose]();
   accounts.reset();
   rmSync(root, { recursive: true, force: true });
 });
@@ -44,6 +46,10 @@ function listed(names: string[]) {
   accounts.reset();
 }
 const turn = () => new Promise<void>(resolve => setImmediate(resolve));
+/** A launcher that reads its account with `account` and would start `model`. */
+function stub(account: Launcher["account"], model = ""): Launcher {
+  return { account, model: async () => ({ model, source: "test" }), close() {} };
+}
 /** Observe a probe event before testing a change through this watcher. */
 async function waitForWatcher(watcher: FSWatcher, directory: string, deadline: number) {
   const name = `.watch-ready-${crypto.randomUUID()}`,
@@ -64,14 +70,6 @@ async function waitForWatcher(watcher: FSWatcher, directory: string, deadline: n
     rmSync(probe, { force: true });
   }
 }
-test("a launch preview names the model it shows and where it came from", () => {
-  const o = new Option();
-  o.setModel("opus", "Project");
-  expect(o.model.text()).toBe("opus");
-  expect(o.modelLabel()).toBe("Opus");
-  expect(o.source.text()).toBe("Project");
-});
-
 test("saved accounts behind install-on-use shims settle without starting a provider", async () => {
   listed(["work"]);
   const worker = new Worker(),
@@ -101,52 +99,28 @@ test("saved accounts behind install-on-use shims settle without starting a provi
   }
 });
 
-test("account reads retain the workspace context during background refreshes", async () => {
+test("account reads and availability stay scoped to each workspace through background refreshes", async () => {
   const worker = new Worker(),
+    other = join(root, "other"),
     reads: (string | undefined)[] = [];
-  worker.launcher = async () => ({
-    account: async (_quit, _max_age, cwd?: string) => {
+  worker.launcher = async () =>
+    stub(async (_quit, _max_age, cwd) => {
       reads.push(cwd);
-      return new Info();
-    },
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
-  try {
-    worker.preview(root);
-    await worker.pump();
-    expect(reads.length).toBeGreaterThan(0);
-    expect(new Set(reads)).toEqual(new Set([root]));
-    reads.length = 0;
-    setSystemTime(new Date(Date.now() + idle_every * 2000));
-    worker.sample(idle_every);
-    await worker.pump();
-    expect(reads.length).toBeGreaterThan(0);
-    expect(new Set(reads)).toEqual(new Set([root]));
-  } finally {
-    await worker.stop();
-    setSystemTime();
-  }
-});
-
-test("account availability stays scoped to each workspace through background refreshes", async () => {
-  const worker = new Worker(),
-    other = join(root, "other");
-  worker.launcher = async () => ({
-    account: async (_quit, _max_age, cwd) => Object.assign(new Info(), { signed_in: cwd === root }),
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
+      return Object.assign(new Info(), { signed_in: cwd === root });
+    });
   try {
     worker.preview(root);
     await worker.pump();
     worker.preview(other);
     await worker.pump();
+    expect(new Set(reads)).toEqual(new Set([root, other]));
     expect(worker.preview(root).options.pi.signed_in).toBe(true);
     expect(worker.preview(other).options.pi.signed_in).toBe(false);
+    reads.length = 0;
     setSystemTime(new Date(Date.now() + idle_every * 2000));
     worker.sample(idle_every);
     await worker.pump();
+    expect(new Set(reads)).toEqual(new Set([root, other]));
     expect(worker.preview(root).options.pi.signed_in).toBe(true);
     expect(worker.preview(other).options.pi.signed_in).toBe(false);
   } finally {
@@ -379,14 +353,11 @@ test("cached previews retain each workspace's installations without starting rea
       cwd === root ? p === "codex" : p === "claude",
     );
   let reads = 0;
-  worker.launcher = async () => ({
-    account: async () => {
+  worker.launcher = async () =>
+    stub(async () => {
       reads++;
       return reading(42);
-    },
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
+    });
   const snapshots = () => {
     expect(worker.cached(root).installed.codex).toBe(true);
     expect(worker.cached(root).installed.claude).toBe(false);
@@ -423,14 +394,11 @@ test("a project model keeps an agent visible after a failed account read", async
   mkdirSync(join(root, ".pi"));
   writeFileSync(join(root, ".pi", "settings.json"), JSON.stringify({ defaultModel: "project-model" }));
   const worker = new Worker();
-  worker.launcher = async provider => ({
-    account: async () => {
+  worker.launcher = async provider =>
+    stub(async () => {
       if (provider === "pi") throw Error("Unavailable");
       return Object.assign(new Info(), { signed_in: provider === "codex" });
-    },
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
+    });
   try {
     worker.preview(root);
     await worker.pump();
@@ -457,11 +425,9 @@ test.each([
     found = spyOn(discovery, "installed").mockImplementation(p => p === "codex"),
     lazy = spyOn(discovery, "onDemand").mockImplementation(p => p === provider),
     check = spyOn(discovery, "check").mockResolvedValue(),
-    launcher = spyOn(worker, "launcher").mockImplementation(async () => ({
-      account: async () => Object.assign(new Info(), { signed_in: true }),
-      model: async () => ({ model: "", source: "test" }),
-      close() {},
-    }));
+    launcher = spyOn(worker, "launcher").mockImplementation(async () =>
+      stub(async () => Object.assign(new Info(), { signed_in: true })),
+    );
   const snapshots = () => {
     for (const cwd of [root, other]) {
       const preview = worker.cached(cwd);
@@ -497,11 +463,8 @@ test("discovery settles absent providers and reads account availability for each
     checked = Promise.withResolvers<void>(),
     signIn = Promise.withResolvers<Info>(),
     check = spyOn(discovery, "check").mockImplementation(() => checked.promise);
-  worker.launcher = async p => ({
-    account: async () => (p === "pi" || p === "omp" ? signIn.promise : Object.assign(new Info(), { signed_in: true })),
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
+  worker.launcher = async p =>
+    stub(async () => (p === "pi" || p === "omp" ? signIn.promise : Object.assign(new Info(), { signed_in: true })));
   try {
     const first = worker.preview(root);
     expect(first.options.pi.pending).toBe(true);
@@ -536,11 +499,7 @@ test("discovery settles absent providers and reads account availability for each
 test("unchanged launch previews retain identity across polling and installation refreshes", async () => {
   const worker = new Worker(),
     monotonic = spyOn(performance, "now").mockReturnValue(0);
-  worker.launcher = async () => ({
-    account: async () => new Info(),
-    model: async () => ({ model: "stable", source: "test" }),
-    close() {},
-  });
+  worker.launcher = async () => stub(async () => new Info(), "stable");
   try {
     const start = 1_000_000_000;
     setSystemTime(new Date(start));
@@ -578,11 +537,7 @@ test("install discovery expires despite wall-clock rollback and refresh sees cha
   const found = spyOn(discovery, "installed").mockImplementation(() => available),
     monotonic = spyOn(performance, "now").mockReturnValue(0),
     worker = new Worker();
-  worker.launcher = async () => ({
-    account: async () => new Info(),
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
+  worker.launcher = async () => stub(async () => new Info());
   try {
     setSystemTime(new Date(1_000_000_000));
     worker.preview(root);
@@ -658,15 +613,12 @@ test("accounts are listed before provider reads, and a slow account doesn't dela
   const worker = new Worker(),
     slow = Promise.withResolvers<Info>(),
     started: string[] = [];
-  worker.launcher = async (provider, account = "") => ({
-    account: async () => {
+  worker.launcher = async (provider, account = "") =>
+    stub(async () => {
       started.push(provider + account);
       if (account === join(root, "slow")) return slow.promise;
       return Object.assign(new Info(), { signed_in: true, account: new Text("fast@example.com") });
-    },
-    model: async () => ({ model: "opus", source: "test" }),
-    close() {},
-  });
+    }, "opus");
   try {
     const first = worker.preview("/project");
     expect(first.pending).toBe(true);
@@ -699,11 +651,7 @@ test("account edits update a pending list and a failed reader doesn't block comp
     hold = Promise.withResolvers<Info>();
   worker.launcher = async (provider, account = "") => {
     if (provider === "codex") throw Error("Unavailable");
-    return {
-      account: async () => (account === join(root, "removed") ? hold.promise : new Info()),
-      model: async () => ({ model: "", source: "test" }),
-      close() {},
-    };
+    return stub(async () => (account === join(root, "removed") ? hold.promise : new Info()));
   };
   try {
     worker.preview("/project");
@@ -748,11 +696,7 @@ test("taking a row out closes its launcher at once, with nothing asking for a pr
   for (const p of installed)
     worker.launchers.set(
       p + "\0",
-      Promise.resolve({
-        account: async () => new Info(),
-        model: async () => ({ model: "", source: "test" }),
-        close: () => void closed.push(p),
-      }),
+      Promise.resolve({ ...stub(async () => new Info()), close: () => void closed.push(p) }),
     );
   try {
     worker.follow({ ...worker.removed, agent_hidden: byProvider(p => p === "pi") });
@@ -767,11 +711,7 @@ test("taking a row out closes its launcher at once, with nothing asking for a pr
 test("deleting the saved agent that kept a removed row read closes its launcher on the daemon's schedule", async () => {
   const worker = new Worker(),
     closed: Provider[] = [];
-  worker.launcher = async provider => ({
-    account: async () => reading(84),
-    model: async () => ({ model: "", source: "test" }),
-    close: () => void closed.push(provider),
-  });
+  worker.launcher = async provider => ({ ...stub(async () => reading(84)), close: () => void closed.push(provider) });
   mkdirSync(dirname(profiles.path()), { recursive: true });
   writeFileSync(
     profiles.path(),
@@ -798,8 +738,8 @@ test("sign-in refreshes during a pass run again as soon as it finishes", async (
     started = Promise.withResolvers<void>(),
     release = Promise.withResolvers<void>();
   let reads = 0;
-  worker.launcher = async provider => ({
-    account: async () => {
+  worker.launcher = async provider =>
+    stub(async () => {
       if (provider !== "codex") return new Info();
       const first = ++reads === 1;
       if (first) {
@@ -810,10 +750,7 @@ test("sign-in refreshes during a pass run again as soon as it finishes", async (
         signed_in: !first,
         account: new Text(first ? "" : "codex@example.com"),
       });
-    },
-    model: async () => ({ model: "test", source: "test" }),
-    close() {},
-  });
+    }, "test");
   try {
     worker.preview(root);
     await started.promise;
@@ -837,8 +774,8 @@ test("folders signed in to one account share a read, through the folder that wor
   const worker = new Worker(),
     stale = realpathSync(join(root, "stale")),
     calls: [string, number][] = [];
-  worker.launcher = async (provider, account = "") => ({
-    account: async (_quit, max_age) => {
+  worker.launcher = async (provider, account = "") =>
+    stub(async (_quit, max_age) => {
       if (provider !== "claude" || !account) return new Info();
       calls.push([account === stale ? "stale" : "fresh", max_age]);
       // The first folder's login wasn't renewed.
@@ -849,10 +786,7 @@ test("folders signed in to one account share a read, through the folder that wor
           usage_error: new Text("usage unavailable for this login"),
         });
       return reading(40);
-    },
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
+    });
   try {
     worker.preview("/project");
     await worker.pump();
@@ -891,8 +825,8 @@ test("previews carry each cached spend day across a billing reset", async () => 
   let at = 99 * day + day / 2,
     period_start = 70 * day,
     used_minor = 12000;
-  worker.launcher = async (provider, account = "") => ({
-    account: async () =>
+  worker.launcher = async (provider, account = "") =>
+    stub(async () =>
       provider === "claude" && account
         ? Object.assign(reading(0), {
             usage_fetched_at: at,
@@ -907,9 +841,7 @@ test("previews carry each cached spend day across a billing reset", async () => 
             },
           })
         : new Info(),
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
+    );
   try {
     for (const values of [
       [99, 70, 12000],
@@ -941,14 +873,11 @@ test("tracking usage in a newly visited workspace forces its first account read"
   const worker = new Worker(),
     other = join(root, "other"),
     reads: { cwd: string | undefined; maxAge: number | undefined }[] = [];
-  worker.launcher = async () => ({
-    account: async (_quit, maxAge, cwd) => {
+  worker.launcher = async () =>
+    stub(async (_quit, maxAge, cwd) => {
       reads.push({ cwd, maxAge });
       return reading(10);
-    },
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
+    });
   try {
     worker.preview(root);
     await worker.pump();
@@ -965,14 +894,11 @@ test("tracking usage in a newly visited workspace forces its first account read"
 test("accounts are read on the daemon's schedule with no one subscribed", async () => {
   const worker = new Worker();
   let reads = 0;
-  worker.launcher = async provider => ({
-    account: async () => {
+  worker.launcher = async provider =>
+    stub(async () => {
       if (provider === "claude") reads++;
       return reading(10 + reads);
-    },
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
+    });
   try {
     setSystemTime(new Date(1_000_000_000));
     worker.sample(idle_every);
@@ -1062,12 +988,10 @@ test("a removed row shows who its last read found when its files don't say, and 
   const work = join(root, "work"),
     worker = new Worker(),
     removed = { ...worker.removed, account_hidden: [work] };
-  worker.launcher = async provider => ({
-    account: async () =>
+  worker.launcher = async provider =>
+    stub(async () =>
       Object.assign(reading(84), { account: new Text(provider === "opencode2" ? "me@chatgpt.dev" : "me@work.dev") }),
-    model: async () => ({ model: "", source: "test" }),
-    close() {},
-  });
+    );
   try {
     worker.follow(removed);
     await worker.pump();
@@ -1102,11 +1026,10 @@ test("a removed agent isn't read, shows only who signed in, and is read again on
     none = { agent_hidden: byProvider(() => false), account_hidden: [], commands: [] },
     removed = { ...none, agent_hidden: byProvider(p => p === "pi") };
   const fake = (provider: Provider) => ({
-    account: async () => {
+    ...stub(async () => {
       reads.push(provider);
       return reading(84);
-    },
-    model: async () => ({ model: "", source: "test" }),
+    }),
     close: () => void closed.push(provider),
   });
   worker.launcher = async provider => fake(provider);
@@ -1164,14 +1087,11 @@ test("a saved command that runs in a removed default keeps it read", async () =>
   const worker = new Worker(),
     reads: Provider[] = [],
     removed = { agent_hidden: byProvider(p => p === "pi"), account_hidden: [], commands: [] };
-  worker.launcher = async provider => ({
-    account: async () => {
+  worker.launcher = async provider =>
+    stub(async () => {
       reads.push(provider);
       return reading(84);
-    },
-    model: async () => ({ model: "pi-model", source: "test" }),
-    close() {},
-  });
+    }, "pi-model");
   try {
     worker.follow({ ...removed, commands: [{ provider: "pi", account: "" }] });
     await worker.pump();

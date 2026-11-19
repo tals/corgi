@@ -46,6 +46,27 @@ function snapshot(count: number) {
   };
 }
 
+/** A mirror no surface has reached yet, a terminal to feed it from, and
+ * spies on its native terminal's creation and freeing. */
+function untouched() {
+  const source = new Terminal(20, 4),
+    pane = new mirror.Terminal(connection, 1, 80, 24),
+    create = spyOn(Terminal, "create"),
+    free = spyOn(n, "terminal_free");
+  return {
+    source,
+    pane,
+    create,
+    free,
+    close() {
+      pane.destroy();
+      create.mockRestore();
+      free.mockRestore();
+      source.destroy();
+    },
+  };
+}
+
 test("snapshot metadata keeps hidden native terminals unallocated", () => {
   const runtime = new mirror.Runtime(),
     source = new Terminal(84, 19),
@@ -99,10 +120,7 @@ test("a first input-mode query initializes the same default terminal once", () =
 });
 
 test("clearing, sending, holding and destroying an untouched mirror do not initialize it", async () => {
-  const source = new Terminal(20, 4),
-    pane = new mirror.Terminal(connection, 1, 80, 24),
-    create = spyOn(Terminal, "create"),
-    free = spyOn(n, "terminal_free");
+  const { source, pane, create, free, close } = untouched();
   try {
     pane.clearSelection();
     pane.scrollViewport("bottom");
@@ -122,18 +140,12 @@ test("clearing, sending, holding and destroying an untouched mirror do not initi
     expect(() => pane.receive(source.surface(1))).toThrow("TerminalClosed");
     expect(create).not.toHaveBeenCalled();
   } finally {
-    pane.destroy();
-    create.mockRestore();
-    free.mockRestore();
-    source.destroy();
+    close();
   }
 });
 
 test("first surface installs modes and later resize preserves one native lifetime", () => {
-  const source = new Terminal(20, 4),
-    pane = new mirror.Terminal(connection, 1, 80, 24),
-    create = spyOn(Terminal, "create"),
-    free = spyOn(n, "terminal_free");
+  const { source, pane, create, free, close } = untouched();
   try {
     source.feed("\x1b[?1h\x1b[?2004h\x1b[?1003hfirst\x1b[2;3H");
     const first = source.surface(1);
@@ -160,10 +172,7 @@ test("first surface installs modes and later resize preserves one native lifetim
     expect(() => pane.receive(resized)).toThrow("TerminalClosed");
     expect(create).toHaveBeenCalledTimes(1);
   } finally {
-    pane.destroy();
-    create.mockRestore();
-    free.mockRestore();
-    source.destroy();
+    close();
   }
 });
 

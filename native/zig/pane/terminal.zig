@@ -669,21 +669,6 @@ pub const Terminal = struct {
         if (!t.exited) t.fillInput();
         return t.expireSynchronizedOutput(os.milliTimestamp());
     }
-    pub fn read(t: *Terminal) bool {
-        var bytes: [16384]u8 = undefined;
-        var dirty = false;
-        // Bound each pane's slice so a noisy process can't starve hooks or input.
-        for (0..8) |_| {
-            const n = c.read(t.fd, &bytes, bytes.len);
-            if (n <= 0) {
-                if (t.imported and (n == 0 or std.posix.errno(n) == .IO)) t.exited = true;
-                break;
-            }
-            t.feed(bytes[0..@intCast(n)]);
-            dirty = true;
-        }
-        return t.maintain() or dirty;
-    }
     /// True once, when the shell exits. Only this reaps our own shell; an
     /// imported shell belongs to another parent and is probed instead.
     pub fn reap(t: *Terminal) bool {

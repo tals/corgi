@@ -46,16 +46,14 @@ export type Result = {
   delivery?: protocol.Delivery;
   queued?: boolean;
 };
-export function location(r: Runtime, pane: number): protocol.Result {
+/** The tab and workspace that hold `pane`. */
+function placement(r: Runtime, pane: number) {
   const ws = r.workspaces.owner(pane);
   if (!ws) throw Error("NoPane");
-  return {
-    text: null,
-    closed_panes: [],
-    pane,
-    tab: ws.model.tabs[ws.model.tabForPane(pane)!].id,
-    workspace: ws.id,
-  };
+  return { tab: ws.model.tabs[ws.model.tabForPane(pane)!].id, workspace: ws.id };
+}
+export function location(r: Runtime, pane: number): protocol.Result {
+  return { text: null, closed_panes: [], pane, ...placement(r, pane) };
 }
 /** Where shells wait at their prompt: in `workspace` and `cwd` unless they're
  * 0 and "", and only the first when asked. */
@@ -730,7 +728,7 @@ function build(r: Runtime, viewer: boolean) {
       model: w.model,
     })),
     panes: r.panes.map(p => ({
-      ...location(r, p.id),
+      ...placement(r, p.id),
       id: p.id,
       binding: p.attachment.generation,
       name: p.label,

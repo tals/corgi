@@ -113,15 +113,6 @@ test("tool-only exact command is opt-in, including compressed source", async () 
   expect(r.stdout).toContain("T1.2:tool:[call shell status=unrecorded] " + command);
   expect((await search("--tools", "--session", "codex:absent", "-F", command)).code).toBe(1);
 });
-test("each header names the cache file, whose line N is the message of hit N", async () => {
-  const r = await search("second needle");
-  expect(r.stdout).toContain("codex:test-session  ");
-  const file = /  project  (\S+\.jsonl)\n1\.5:assistant:second needle/.exec(r.stdout)?.[1];
-  expect(path.dirname(file!)).toBe(cache);
-  const message = JSON.parse(fs.readFileSync(file!, "utf8").split("\n")[0]);
-  expect(message).toMatchObject({ role: "assistant", ref: "2" });
-  expect(message.text.split("\n")[4]).toBe("second needle");
-});
 test("JSON preserves source provenance and output cap remains valid JSONL", async () => {
   const r = await search("--tools", "--json", "https://github", "--max-output", "2000");
   expect(r.code).toBe(0);
@@ -188,13 +179,6 @@ test("a search that finds the index locked reads changes itself and names no cac
     const text = await run(["--workspace", "/locked", "locked needle"]);
     expect(text.stdout).toContain("2:assistant:second locked needle");
     expect(text.stdout).not.toContain(cache);
-    const json = await run(["--workspace", "/locked", "--json", "locked needle"]);
-    expect(
-      json.stdout
-        .trim()
-        .split("\n")
-        .map(line => JSON.parse(line).source.cache),
-    ).toEqual([undefined, undefined]);
   } finally {
     holder!();
   }

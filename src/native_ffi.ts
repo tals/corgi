@@ -14,7 +14,6 @@ const term = dlopen(`${nativeRoot}/lib/libcorgi_term.${suffix}`, {
   terminal_surface_identity: { args: ["ptr"], returns: "u64" },
   terminal_surface_revision: { args: ["ptr"], returns: "u64" },
   terminal_title: { args: ["ptr", "ptr"], returns: "ptr" },
-  terminal_text: { args: ["ptr", "ptr", "usize"], returns: FFIType.i64_fast },
   terminal_snapshot: { args: ["ptr", "ptr", "usize"], returns: FFIType.i64_fast },
   terminal_recovery_snapshot: { args: ["ptr", "ptr"], returns: "ptr" },
   terminal_live_text: { args: ["ptr", "ptr"], returns: "ptr" },
@@ -94,11 +93,6 @@ export function terminal() {
     feed(data: Uint8Array | string) {
       const b = typeof data === "string" ? Buffer.from(data) : data;
       if (b.length) n.terminal_feed(handle, ptr(b), b.length);
-    },
-    text() {
-      const size = Number(n.terminal_text(handle, ptr(buffer), buffer.length));
-      if (size < 0) throw Error(`text: ${size}`);
-      return buffer.subarray(0, size).toString();
     },
     snapshot() {
       const size = Number(n.terminal_snapshot(handle, ptr(buffer), buffer.length));

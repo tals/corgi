@@ -1,10 +1,9 @@
 import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { State, geometry, copyAt, draw, filePath } from "./link_tooltip";
-import { Controller } from "./controller";
-import { transport } from "./fixtures/transport";
+import type { Controller } from "./controller";
+import { attached, mouse, onePane } from "./fixtures/viewer";
 import * as viewer from "./viewer";
 import * as viewerNative from "./viewer_native";
-import * as native from "./native_ffi";
 import { Writer } from "./text";
 import { png_base64 } from "./assets/corgi_badge";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -14,20 +13,29 @@ import { Signin } from "./signin";
 import { Terminal } from "./pane/terminal";
 import { Menu } from "./corgi_setup";
 const source = { updateRender() {}, hyperlinks: () => [] };
-test("the resource card opens and wakes the viewer after 150 ms", () => {
-  const s = new State(),
-    target = { resource: 1 };
-  s.move();
-  expect(s.ready(target, 100)).toBe(false);
-  expect(s.due(249)).toBe(false);
-  expect(s.ready(target, 249)).toBe(false);
-  expect(s.due(250)).toBe(true);
-  expect(s.ready(target, 250)).toBe(true);
-  expect(s.due(251)).toBe(false);
-  expect(s.ready({ resource: 2 }, 251)).toBe(false);
-  expect(s.due(400)).toBe(false);
-  expect(s.ready({ resource: 2 }, 401)).toBe(true);
-});
+const pointed = { source, id: 1n, uri: "https://example.com", x: 5, y: 2 },
+  retargeted = { ...pointed, uri: "https://other.example.com" };
+test.each([
+  ["resource card", { resource: 1 }, { resource: 2 }, { resource: 1 }],
+  // The same URL in another pane is another link.
+  ["link", { link: pointed }, { link: retargeted }, { link: { ...retargeted, source: { ...source } } }],
+] as const)(
+  "a %s wakes the viewer after 150 ms, and each new target restarts the delay",
+  (_, target, changed, next) => {
+    const s = new State();
+    s.move();
+    expect(s.ready(target, 100)).toBe(false);
+    expect(s.due(249)).toBe(false);
+    expect(s.ready(target, 249)).toBe(false);
+    expect(s.due(250)).toBe(true);
+    expect(s.ready(target, 250)).toBe(true);
+    expect(s.due(251)).toBe(false);
+    expect(s.ready(changed, 251)).toBe(false);
+    expect(s.due(400)).toBe(false);
+    expect(s.ready(changed, 401)).toBe(true);
+    expect(s.ready(next, 402)).toBe(false);
+  },
+);
 test("tooltip waits for rest and requires fresh movement after interaction", () => {
   const s = new State(),
     target = { git: 1 };
@@ -46,22 +54,6 @@ test("tooltip waits for rest and requires fresh movement after interaction", () 
   expect(s.ready(target, 4001)).toBe(false);
 });
 
-test("link hover wakes at 150 ms and changing the URL restarts the delay", () => {
-  const s = new State();
-  const link = { source, id: 1n, uri: "https://example.com", x: 5, y: 2 };
-  s.move();
-  expect(s.ready({ link }, 100)).toBe(false);
-  expect(s.due(249)).toBe(false);
-  expect(s.ready({ link }, 249)).toBe(false);
-  expect(s.due(250)).toBe(true);
-  expect(s.ready({ link }, 250)).toBe(true);
-  const changed = { link: { ...link, uri: "https://other.example.com" } };
-  expect(s.ready(changed, 251)).toBe(false);
-  expect(s.due(400)).toBe(false);
-  expect(s.ready(changed, 401)).toBe(true);
-  expect(s.ready({ link: { ...changed.link, source: { ...source } } }, 402)).toBe(false);
-});
-
 test("the link popover fits at screen edges and only its middle row copies", () => {
   const below = geometry(100, 30, { x: 40, y: 5 })!;
   expect(below).toMatchObject({ x: 40, y: 6, w: 17, h: 3 });
@@ -75,8 +67,7 @@ test("the link popover fits at screen edges and only its middle row copies", () 
 });
 
 test("both link popover labels keep the right border aligned and stay inside the box", () => {
-  const terminal = native.terminal();
-  terminal.resize(40, 10);
+  const terminal = new Terminal(40, 10);
   try {
     for (const x of [2, 39]) {
       const rect = geometry(40, 10, { x, y: 5 })!;
@@ -100,43 +91,15 @@ test("both link popover labels keep the right border aligned and stay inside the
       }
     }
   } finally {
-    terminal.close();
+    terminal.destroy();
   }
 });
 
 const url = "https://example.com/docs";
 function linkViewer(output = url, host: "pane" | "signin" = "pane") {
-  const s = new Controller({
-    request: transport(async () => {
-      throw Error("UnexpectedRequest");
-    }).request,
-  });
-  s.width = 100;
-  s.height = 30;
+  const s = attached(100, 30);
   s.sidebar_open = false;
-  s.input_state.attached = true;
-  s.receiveSnapshot({
-    workspaces: [
-      {
-        id: 1,
-        name: "test",
-        cwd: "/tmp",
-        model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 },
-      },
-    ],
-    panes: [
-      {
-        id: 1,
-        workspace: 1,
-        tab: 1,
-        cols: 100,
-        rows: 29,
-        agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
-      },
-    ],
-    conversations: [],
-    headless_sessions: [],
-  });
+  s.receiveSnapshot(onePane({}, { cols: 100 }));
   if (host === "signin") {
     const signin = new Signin(true, false, { changed() {}, done() {} });
     signin.provider = "claude";
@@ -161,8 +124,6 @@ function close(s: Controller) {
   s.signin = null;
   viewer.close(s);
 }
-const mouse = (button: number, x: number, y: number, release = false) =>
-  Buffer.from(`\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`);
 
 test.each(["pane", "signin"] as const)(
   "%s link popover waits, stays reachable, copies, and confirms inline",
@@ -187,15 +148,14 @@ test.each(["pane", "signin"] as const)(
         await s.expireInput();
         expect(s.dirty).toBe(true);
         const frame = s.frame();
-        const rendered = native.terminal();
-        rendered.resize(s.width, s.height);
+        const rendered = new Terminal(s.width, s.height);
         try {
           rendered.feed(frame);
           expect(rendered.text()).toContain("Copy link");
           viewerNative.updateRender(rendered.handle);
           expect(viewerNative.cursor(rendered.handle)).toBeNull();
         } finally {
-          rendered.close();
+          rendered.destroy();
         }
         await s.input(mouse(35, 2, 2)); // Cross the top border.
         expect(s.frame()).toContain("Copy link");

@@ -1,12 +1,13 @@
 /** Terminal evidence to inference to named workspace link and click. */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Runtime, EXE, screen_text } from "./runtime";
+import { EXE, screen_text } from "./runtime";
+import { Viewers } from "./viewers";
 import { Viewer } from "./viewer_client";
 import { registerCase, shellJoin, sleep, tempDir } from "./support";
 import { inferenceProgram, lines } from "./activity_summary";
 
-class LinkLabels extends Runtime {
+class LinkLabels extends Viewers {
   inference_temp!: ReturnType<typeof tempDir>;
   log!: string;
   control!: string;
@@ -37,16 +38,6 @@ class LinkLabels extends Runtime {
     } finally {
       this.inference_temp?.cleanup();
     }
-  }
-  async new(command: string) {
-    const ws = (await this.session()).workspaces[0].id;
-    return (
-      await this.command("pane.create", {
-        workspace: ws,
-        cwd: this.temp.name,
-        command,
-      })
-    ).pane;
   }
   async start_server() {
     const script = join(this.temp.name, "finance.ts"),

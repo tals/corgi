@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import * as noWorkspace from "./no_workspace";
 import { Rect } from "./layout";
 import { Writer } from "./text";
+import * as screen from "./fixtures/screen";
 
 test("the button stays centered, with the pictures of its steps only where they fit", () => {
   const roomy = noWorkspace.layout(new Rect(30, 1, 80, 31))!;
@@ -46,25 +47,9 @@ test("the sketches write the example's name where a press on it lands", () => {
   const area = new Rect(30, 1, 80, 31),
     w = new Writer();
   noWorkspace.draw(w, area, true);
-  const cells = screen(w.buffered(), 110, 32);
+  const cells = screen.lines(w.buffered(), 110, 32);
   expect(cells.join("\n")).toContain("Create workspace");
   expect(cells.join("\n")).toContain("~/moonlander/");
   for (const name of noWorkspace.layout(area)!.steps!.names)
     expect(cells[name.y].slice(name.x, name.x + name.w)).toBe("moonlander");
 });
-/** The text `bytes` writes with cursor moves on a `cols` × `rows` screen of single-width cells. */
-function screen(bytes: string, cols: number, rows: number): string[] {
-  const cells = Array.from({ length: rows }, () => Array<string>(cols).fill(" "));
-  let x = 0,
-    y = 0;
-  for (const part of bytes.split(/(\x1b\[[\d;:]*[A-Za-z])/)) {
-    const move = /^\x1b\[(\d+);(\d+)H$/.exec(part);
-    if (move) [y, x] = [Number(move[1]) - 1, Number(move[2]) - 1];
-    else if (!part.startsWith("\x1b"))
-      for (const ch of part) {
-        if (y < rows && x < cols) cells[y][x] = ch;
-        x++;
-      }
-  }
-  return cells.map(row => row.join(""));
-}

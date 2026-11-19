@@ -6,9 +6,6 @@ import { View as ToolView } from "../activity/tools";
 import { test, expect, spyOn } from "bun:test";
 import { Tail, Worker, Result as UsageResult, type Request } from "./worker";
 import { Agent, Text, Path } from "../agents";
-import { Result as ActivityResult, Request as ActivityRequest, Slot } from "../activity/worker";
-import { Actor } from "../conversations";
-import { hash } from "../activity/summary";
 import * as claudeUsage from "../providers/claude/usage";
 import * as codexUsage from "../providers/codex/usage";
 import * as json from "../json";
@@ -169,79 +166,6 @@ test("usage tail frames records, ignores history and advances baselines while wa
   expect(delta.input).toBe(30n);
   expect(delta.output).toBe(5n);
 });
-test("Claude chosen names outrank generated names and continued session clears on resumed speech", () => {
-  const t = new Tail();
-  const said = request("claude");
-  said.agent.session = new Text("s");
-  const note = (v: any) => readers.claude.record(t, said, v, true, null);
-  note({
-    type: "ai-title",
-    sessionId: "s",
-    aiTitle: "Generated",
-  });
-  expect(t.name.text()).toBe("Generated");
-  note({
-    type: "custom-title",
-    sessionId: "s",
-    customTitle: "Chosen",
-  });
-  note({ type: "ai-title", sessionId: "s", aiTitle: "Later" });
-  expect(t.name.text()).toBe("Chosen");
-  note({
-    type: "continued-in",
-    sessionId: "s",
-    continuedInSessionId: "new",
-  });
-  expect(t.continued.text()).toBe("new");
-  note({
-    type: "assistant",
-    sessionId: "s",
-    timestamp: "1970-01-01T00:00:02.000Z",
-    message: { content: [{ type: "text", text: "# Reading source\nMore" }] },
-  });
-  expect(t.continued.len).toBe(0);
-  expect(t.update.text()).toBe("Reading source");
-  expect(t.update_at).toBe(2000000);
-});
-test("late activity results cannot overwrite another turn or changed evidence", () => {
-  const actor = new Actor({
-    id: 1,
-    state: new Agent({
-      provider: "codex",
-      state: "working",
-      session: new Text("s"),
-    }),
-  });
-  actor.state.setTurn("t");
-  const evidence = new Text("Checking input");
-  actor.state.activity_generation = hash(evidence);
-  const req = Object.assign(new ActivityRequest(), {
-      actor: 1,
-      provider: "codex",
-      session: actor.state.session,
-      turn: actor.state.turn,
-      turn_epoch: actor.state.turn_epoch,
-      evidence,
-      generation: hash(evidence),
-    }),
-    result = new ActivityResult(req, new Text("Checking input"));
-  expect(result.apply(actor)).toBe(true);
-  actor.state.setTurn("next");
-  expect(result.apply(actor)).toBe(false);
-});
-test("unchanged evidence does not schedule paid summaries and tool changes wait for quiet", () => {
-  const req = new ActivityRequest();
-  req.evidence = new Text("Inspecting source");
-  const slot = new Slot(req);
-  slot.commentary = req.evidence;
-  expect(slot.ready(1, false)).toBe(true);
-  slot.attempt(1);
-  expect(slot.ready(10000, false)).toBe(false);
-  slot.updateTools(new Text("Running tests\n"), 10000);
-  expect(slot.ready(14000, false)).toBe(false);
-  expect(slot.ready(15000, false)).toBe(true);
-});
-
 function ingestLine(tail: Tail, req: Request, value: any) {
   return tail.ingest(req, reader(req), JSON.stringify(value) + "\n", 0);
 }
@@ -426,6 +350,12 @@ test("Claude transcripts supply chosen names over generated titles and report co
   });
   expect(tail.name.text()).toBe("Generated");
   ingestLine(tail, req, {
+    type: "custom-title",
+    customTitle: "Custom",
+    sessionId: "a",
+  });
+  expect(tail.name.text()).toBe("Custom");
+  ingestLine(tail, req, {
     type: "agent-name",
     agentName: "Chosen",
     sessionId: "a",
@@ -450,6 +380,9 @@ test("Claude transcripts supply chosen names over generated titles and report co
   });
   expect(tail.continued.text()).toBe("c");
   ingestLine(tail, req, { type: "user", sessionId: "a", message: {} });
+  expect(tail.continued.len).toBe(0);
+  ingestLine(tail, req, { type: "continued-in", sessionId: "a", continuedInSessionId: "d" });
+  ingestLine(tail, req, { type: "assistant", sessionId: "a", message: { content: [] } });
   expect(tail.continued.len).toBe(0);
   const result = new UsageResult();
   result.name = tail.name;
@@ -666,6 +599,26 @@ test("real file usage reader accepts large Codex metadata and counts later activ
   }
 });
 
+/** A Claude message's line that used `input` and `output` tokens. */
+const usageLine = (id: string, input: number, output: number) =>
+  JSON.stringify({
+    type: "assistant",
+    sessionId: "s",
+    timestamp: "1970-01-01T00:00:02.000Z",
+    message: { id, usage: { input_tokens: input, output_tokens: output } },
+  }) + "\n";
+/** A tail that has counted the first message of a Claude transcript in `root`. */
+async function counting(root: string) {
+  const file = join(root, "s.jsonl"),
+    req = request("claude"),
+    tail = new Tail();
+  writeFileSync(file, usageLine("m1", 7, 1));
+  req.agent.session = new Text("s");
+  req.agent.transcript = new Path(file);
+  tail.actor = 1;
+  await tail.poll(req, reader(req));
+  return { file, req, tail };
+}
 /** Carries `tail` through a handoff and returns the next daemon's tail. */
 async function handOver(tail: Tail) {
   const before = new Worker();
@@ -677,22 +630,8 @@ async function handOver(tail: Tail) {
 test("a handoff's usage tail counts on from where the last daemon stopped", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-usage-"));
   try {
-    const file = join(root, "s.jsonl"),
-      line = (id: string, input: number, output: number) =>
-        JSON.stringify({
-          type: "assistant",
-          sessionId: "s",
-          timestamp: "1970-01-01T00:00:02.000Z",
-          message: { id, usage: { input_tokens: input, output_tokens: output } },
-        }) + "\n";
-    writeFileSync(file, line("m1", 7, 1));
-    const req = request("claude");
-    req.agent.session = new Text("s");
-    req.agent.transcript = new Path(file);
-    const tail = new Tail();
-    tail.actor = 1;
-    await tail.poll(req, reader(req));
-    appendFileSync(file, line("m2", 10, 2) + `{"type":"assistant","sessionId":"s"`);
+    const { file, req, tail } = await counting(root);
+    appendFileSync(file, usageLine("m2", 10, 2) + `{"type":"assistant","sessionId":"s"`);
     await tail.poll(req, reader(req));
     expect(tail.live.meter.value.tokens.input).toBe(10n);
     const next = await handOver(tail);
@@ -703,11 +642,11 @@ test("a handoff's usage tail counts on from where the last daemon stopped", asyn
     expect(after.live.meter.value.tokens.input).toBe(30n);
     expect(after.live.meter.value.tokens.output).toBe(5n);
     expect(after.live.meter.value.partial).toBe(false);
-    appendFileSync(file, line("m4", 1, 1));
+    appendFileSync(file, usageLine("m4", 1, 1));
     await after.poll(req, reader(req));
     expect(after.live.meter.value.tokens.input).toBe(31n);
     const moved = join(root, "moved.jsonl");
-    writeFileSync(moved, line("m1", 7, 1));
+    writeFileSync(moved, usageLine("m1", 7, 1));
     req.agent.transcript = new Path(moved);
     const replaced = next();
     await replaced.poll(req, reader(req));
@@ -889,26 +828,12 @@ test("a handoff keeps the tools a turn ran and finished", async () => {
 test("a handoff from an older build counts on from where it stopped counting", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-usage-"));
   try {
-    const file = join(root, "s.jsonl"),
-      line = (id: string, input: number, output: number) =>
-        JSON.stringify({
-          type: "assistant",
-          sessionId: "s",
-          timestamp: "1970-01-01T00:00:02.000Z",
-          message: { id, usage: { input_tokens: input, output_tokens: output } },
-        }) + "\n";
-    writeFileSync(file, line("m1", 7, 1));
-    const req = request("claude");
-    req.agent.session = new Text("s");
-    req.agent.transcript = new Path(file);
-    const tail = new Tail();
-    tail.actor = 1;
-    await tail.poll(req, reader(req));
-    appendFileSync(file, line("m2", 10, 2));
+    const { file, req, tail } = await counting(root);
+    appendFileSync(file, usageLine("m2", 10, 2));
     await tail.poll(req, reader(req));
     // What builds before whole tails carried.
     const saved = json.clone([{ actor: 1, meter: tail.live.meter, position: tail.position() }]);
-    appendFileSync(file, line("m3", 20, 3));
+    appendFileSync(file, usageLine("m3", 20, 3));
     const after = Worker.restore(saved).watchers.get(1)!;
     await after.poll(req, reader(req));
     expect(after.live.meter.value.tokens.input).toBe(30n);

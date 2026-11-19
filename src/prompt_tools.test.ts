@@ -2,10 +2,8 @@ import { test, expect } from "bun:test";
 import { chatFlag, instructions, tool, toolArgs, toolLine, where } from "./prompt_tools";
 
 const bin = "/Users/me/.local/bin/corgi";
-test("the instructions name the binary and the commands that show the user something", () => {
+test("the instructions carry the reply format, then the Corgi skill, and each message names its viewer", () => {
   const text = instructions(bin);
-  expect(text).toContain(bin);
-  expect(text).toContain("corgi resume PROVIDER SESSION --viewer V");
   expect(text.slice(0, text.indexOf("<corgi_skill>"))).toContain(
     "Show commits inline in normal Markdown with descriptive links",
   );

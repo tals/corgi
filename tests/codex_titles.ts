@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { realpathSync } from "node:fs";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { shellJoin, run } from "./support";
+import { gitRepository, shellJoin, run } from "./support";
 import { CodexObserver, TerminalAttachment, write_codex_terminal } from "./provider_sim";
 
 export const A = "01901234-1234-1234-1234-123456789abc";
@@ -149,7 +149,7 @@ export class Titles extends Runtime {
     this.assertEqual((await second.state()).state, "working");
   }
   async test_resume_passthrough_and_focus_completion() {
-    const text = (await this.command("pane.read", { target: this.pane, view: "screen" })).text;
+    const text = await this.screen(this.pane);
     this.assertIn('ARGS:["--dangerously-bypass-approvals-and-sandbox", "resume"]', text);
     this.assertNotIn("--remote", text);
     this.assertEqual((await this.state()).completed, 0);
@@ -301,11 +301,7 @@ export class Titles extends Runtime {
       one = join(repo, "one"),
       two = join(repo, "two");
     const git = (...args: string[]) => run(["git", "-C", repo, ...args], { env: this.env });
-    await git("init", "-b", "main");
-    await git("config", "user.name", "Test");
-    await git("config", "user.email", "test@example.invalid");
-    await git("config", "commit.gpgsign", "false");
-    await git("commit", "--allow-empty", "-m", "base");
+    await gitRepository(repo, this.env);
     await git("worktree", "add", "-b", "one", one);
     await git("worktree", "add", "-b", "two", two);
     const fake = write_codex_terminal(join(repo, "worktree-agent", "codex"), A),

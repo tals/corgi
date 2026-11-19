@@ -60,13 +60,12 @@ test("Pi can summarize tool evidence without assistant commentary", () => {
   expect(agent.activity.text()).toBe("read src/agents.ts");
 });
 
-test.each(["idle", "blocked", "ended", "old turn", "no turn", "no evidence", "no progress"])(
+test.each(["idle", "ended", "old turn", "no turn", "no evidence", "no progress"])(
   "Pi does not schedule transcript summaries with %s",
   condition => {
     const { agent, result, progress } = evidence();
     switch (condition) {
       case "idle":
-      case "blocked":
         agent.state = condition;
         break;
       case "ended":

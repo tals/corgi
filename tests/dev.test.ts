@@ -3,7 +3,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Runtime, EXE, ROOT } from "./runtime";
-import { Pty, deadline, registerCase, run, sleep } from "./support";
+import { Pty, deadline, registerCase, run } from "./support";
 const developerScript = process.env.CORGI_DEV_SCRIPT || join(ROOT, "go.ts");
 
 class Dev extends Runtime {
@@ -29,13 +29,13 @@ class Dev extends Runtime {
     return this.wait_viewer();
   }
   async wait_viewer(old?: number) {
-    const end = Date.now() + 15_000;
-    while (Date.now() < end) {
+    const attached = async () => {
       const viewers = (await this.rpc({ op: "viewer.list" })).viewers;
-      if (viewers.length === 1 && viewers[0].id !== old && viewers[0].pane) return viewers[0];
-      await sleep(0.03);
-    }
-    this.fail(`viewer did not attach/relaunch: ${this.pty.output.slice(-4000)}`);
+      return viewers.length === 1 && viewers[0].id !== old && viewers[0].pane ? viewers[0] : null;
+    };
+    return this.until(attached, 15).catch(() =>
+      this.fail(`viewer did not attach/relaunch: ${this.pty.output.slice(-4000)}`),
+    );
   }
   async test_unchanged_daemon_and_nested_client_relaunch() {
     const before = await this.rpc({ op: "hello" });

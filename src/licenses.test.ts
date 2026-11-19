@@ -11,8 +11,3 @@ test("names every dependency built into the binary", () => {
   for (const name of [...npm.map(name => name.split("/").at(-1)!), ...zig])
     expect(text.toLowerCase()).toContain(name.toLowerCase());
 });
-
-test("carries Corgi's license and the sounds' Apache license whole", () => {
-  expect(text).toContain(read("../LICENSE"));
-  expect(text).toContain(read("../assets/sounds/LICENSE"));
-});

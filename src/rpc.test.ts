@@ -3,58 +3,66 @@ import { createConnection, createServer, type Socket } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Connection } from "./rpc";
+import { Connection, type ConnectionInit } from "./rpc";
+import { lines } from "./fixtures/lines";
+import { listen } from "./fixtures/tcp";
+import { until } from "./fixtures/until";
 import * as rpc_http from "./rpc_http";
 import * as json from "./json";
 import * as protocol from "./protocol";
 
-test("a timed out request closes its generation and never accepts a late reply", async () => {
-  const sockets = new Set<import("node:net").Socket>();
-  let received = "";
+/** A daemon on a local TCP port that hands `receive` each request it reads,
+ * and a connection to it. */
+async function peer(
+  receive: (message: any, socket: Socket, line: string) => void,
+  options: ConnectionInit | number = {},
+) {
+  const sockets = new Set<Socket>();
   const server = createServer(socket => {
     sockets.add(socket);
-    socket.on("data", bytes => {
-      received += bytes.toString();
-    });
+    lines(socket, line => receive(json.parse(line), socket, line));
   });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address() as import("node:net").AddressInfo;
-  const conn = new Connection(createConnection(address.port, "127.0.0.1"), 25);
+  const port = await listen(server);
+  const connect = (init = options) => new Connection(createConnection(port, "127.0.0.1"), init);
+  const conn = connect();
+  return {
+    conn,
+    connect,
+    async close() {
+      conn.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
+    },
+  };
+}
+function send(socket: Socket, message: object) {
+  socket.write(json.stringify(message) + "\n");
+}
+
+test("a timed out request closes its generation and never accepts a late reply", async () => {
+  const received: unknown[] = [];
+  const remote = await peer(message => received.push(message), 25),
+    conn = remote.conn;
   try {
     const first = conn.call("ping"),
       second = conn.call("hello");
     const results = await Promise.allSettled([first, second]);
     expect(results.every(r => r.status === "rejected" && r.reason.message === "RequestTimedOut")).toBe(true);
     await expect(conn.call("ping")).rejects.toThrow("RequestTimedOut");
-    expect(received.trim().split("\n").length).toBe(2);
+    expect(received).toHaveLength(2);
     expect(conn.socket.destroyed).toBe(true);
   } finally {
-    conn.close();
-    for (const socket of sockets) socket.destroy();
-    server.close();
+    await remote.close();
   }
 });
 
 test("a slow request waits while its daemon is heard from, and the connection fails once it falls silent", async () => {
-  const sockets = new Set<Socket>();
-  const server = createServer(socket => {
-    sockets.add(socket);
-    let buffer = "";
-    socket.on("data", bytes => {
-      buffer += bytes.toString();
-      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
-        const request = JSON.parse(buffer.slice(0, end));
-        buffer = buffer.slice(end + 1);
-        // Pings are answered; `hello` never is.
-        if (request.op === "ping") socket.write(JSON.stringify({ ok: true, request_id: request.request_id }) + "\n");
-      }
-    });
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address() as import("node:net").AddressInfo;
-  // Pings 10 ms apart keep it waiting through twice its timeout, with room
-  // for a slow machine to miss a few.
-  const conn = new Connection(createConnection(address.port, "127.0.0.1"), 200);
+  // Pings are answered; `hello` never is. Pings 10 ms apart keep it waiting
+  // through twice its timeout, with room for a slow machine to miss a few.
+  const remote = await peer((request, socket) => {
+      if (request.op === "ping") send(socket, { ok: true, request_id: request.request_id });
+    }, 200),
+    conn = remote.conn;
   try {
     let slow = "waiting";
     conn.call("hello").then(
@@ -67,44 +75,26 @@ test("a slow request waits while its daemon is heard from, and the connection fa
       await Bun.sleep(10);
     }
     expect(slow).toBe("waiting");
-    const quiet = performance.now();
-    while (slow === "waiting" && performance.now() - quiet < 2000) await Bun.sleep(10);
+    await until(() => slow !== "waiting", 2000);
     expect(slow).toBe("RequestTimedOut");
     expect(conn.socket.destroyed).toBe(true);
   } finally {
-    conn.close();
-    for (const socket of sockets) socket.destroy();
-    server.close();
+    await remote.close();
   }
 });
 
 test("lost mutation acknowledgments are not replayed and cancellation rejects every pending call", async () => {
-  const sockets = new Set<import("node:net").Socket>();
   let applied = 0;
   let mutation: (() => void) | null = null;
   const received = new Promise<void>(resolve => (mutation = resolve));
-  const server = createServer(socket => {
-    sockets.add(socket);
-    let buffer = "";
-    socket.on("data", chunk => {
-      buffer += chunk;
-      for (;;) {
-        const newline = buffer.indexOf("\n");
-        if (newline < 0) break;
-        const request = json.parse(buffer.slice(0, newline));
-        buffer = buffer.slice(newline + 1);
-        if (request.op === "session.command") {
-          applied++;
-          mutation!();
-          // The daemon applied the command, but its acknowledgment never reaches the client.
-        } else if (request.op === "ping")
-          socket.write(json.stringify({ ok: true, pid: 7, request_id: request.request_id }) + "\n");
-      }
-    });
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address() as import("node:net").AddressInfo;
-  const conn = new Connection(createConnection(address.port, "127.0.0.1"), 10_000);
+  const remote = await peer((request, socket) => {
+      if (request.op === "session.command") {
+        applied++;
+        mutation!();
+        // The daemon applied the command, but its acknowledgment never reaches the client.
+      } else if (request.op === "ping") send(socket, { ok: true, pid: 7, request_id: request.request_id });
+    }, 10_000),
+    conn = remote.conn;
   let replacement: Connection | null = null;
   try {
     const results = Promise.allSettled([
@@ -114,14 +104,12 @@ test("lost mutation acknowledgments are not replayed and cancellation rejects ev
     await received;
     conn.close();
     expect((await results).every(r => r.status === "rejected" && r.reason.message === "ConnectionClosed")).toBe(true);
-    replacement = new Connection(createConnection(address.port, "127.0.0.1"), 1000);
+    replacement = remote.connect(1000);
     expect(await replacement.call("ping")).toEqual({ ok: true, pid: 7 });
     expect(applied).toBe(1);
   } finally {
-    conn.close();
     replacement?.close();
-    for (const socket of sockets) socket.destroy();
-    server.close();
+    await remote.close();
   }
 });
 
@@ -179,40 +167,6 @@ function requestTypes(conn: Connection) {
 }
 void requestTypes;
 
-async function peer(receive: (message: any, socket: Socket) => void, requestIds = true) {
-  const sockets = new Set<Socket>();
-  const server = createServer(socket => {
-    sockets.add(socket);
-    let buffer = "";
-    socket.setEncoding("utf8");
-    socket.on("data", chunk => {
-      buffer += chunk;
-      for (;;) {
-        const newline = buffer.indexOf("\n");
-        if (newline < 0) break;
-        const message = json.parse(buffer.slice(0, newline));
-        buffer = buffer.slice(newline + 1);
-        receive(message, socket);
-      }
-    });
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw Error("NoAddress");
-  const conn = new Connection(createConnection(address.port, "127.0.0.1"), { requestIds });
-  return {
-    conn,
-    async close() {
-      conn.close();
-      for (const socket of sockets) socket.destroy();
-      await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
-    },
-  };
-}
-function send(socket: Socket, message: object) {
-  socket.write(json.stringify(message) + "\n");
-}
-
 test.each([false, true])(
   "RPC correlates deferred replies and errors without consuming events (error=%s)",
   async error => {
@@ -248,11 +202,14 @@ test.each([false, true])(
 );
 
 test.each(["hello", "server.reload"] as const)("management can %s an older daemon without correlation", async op => {
-  const remote = await peer((message, socket) => {
-    expect(message).not.toHaveProperty("request_id");
-    expect(message.protocol).toBe(1);
-    send(socket, { ok: true });
-  }, false);
+  const remote = await peer(
+    (message, socket) => {
+      expect(message).not.toHaveProperty("request_id");
+      expect(message.protocol).toBe(1);
+      send(socket, { ok: true });
+    },
+    { requestIds: false },
+  );
   try {
     const [first, second] = await Promise.allSettled([remote.conn.call(op), remote.conn.call(op)]);
     expect(first as unknown).toEqual({ status: "fulfilled", value: { ok: true } });
@@ -265,10 +222,13 @@ test.each(["hello", "server.reload"] as const)("management can %s an older daemo
 test.each([false, true])("raw RPC preserves caller-supplied ids without correlation (error=%s)", async error => {
   const query = { op: "ping", request_id: 41 };
   const reply = { request_id: 41, ...(error ? { err: "TestFailure" } : { ok: true, pid: 7 }) };
-  const remote = await peer((message, socket) => {
-    expect(message).toEqual(query);
-    send(socket, reply);
-  }, false);
+  const remote = await peer(
+    (message, socket) => {
+      expect(message).toEqual(query);
+      send(socket, reply);
+    },
+    { requestIds: false },
+  );
   try {
     expect(await remote.conn.rawRequest(query)).toEqual(reply);
   } finally {
@@ -381,28 +341,14 @@ test("raw requests must be objects so they can carry correlation ids", async () 
 
 test("RPC keeps envelopes, errors, and raw requests at the socket boundary", async () => {
   const received: unknown[] = [];
-  const server = createServer(socket => {
-    let buffer = "";
-    socket.setEncoding("utf8");
-    socket.on("data", chunk => {
-      buffer += chunk;
-      for (;;) {
-        const newline = buffer.indexOf("\n");
-        if (newline < 0) break;
-        const value = json.parse(buffer.slice(0, newline));
-        buffer = buffer.slice(newline + 1);
-        received.push(value);
-        send(socket, {
-          request_id: value.request_id,
-          ...(received.length === 2 ? { err: "NoPane" } : { ok: true, pid: 7 }),
-        });
-      }
-    });
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw Error("NoAddress");
-  const conn = new Connection(createConnection(address.port, "127.0.0.1"));
+  const remote = await peer((value, socket) => {
+      received.push(value);
+      send(socket, {
+        request_id: value.request_id,
+        ...(received.length === 2 ? { err: "NoPane" } : { ok: true, pid: 7 }),
+      });
+    }),
+    conn = remote.conn;
   try {
     expect(await conn.call("ping")).toEqual({ ok: true, pid: 7 });
     await expect(conn.call("viewer.search", { pane: 1, needle: "x", skip: 3n })).rejects.toThrow("NoPane");
@@ -413,8 +359,7 @@ test("RPC keeps envelopes, errors, and raw requests at the socket boundary", asy
       { op: "invalid", arbitrary: true, request_id: 3 },
     ]);
   } finally {
-    conn.close();
-    await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
+    await remote.close();
   }
 });
 
@@ -425,24 +370,11 @@ test("RPC retains raw integer tokens until the receiving model normalizes them",
     '{"ok":true,"offset":18446744073709551615}',
     '{"ok":true,"events":[],"pending_requests":[],"next_seq":2,"first_seq":18446744073709551615}',
   ];
-  const server = createServer(socket => {
-    let buffer = "";
-    socket.setEncoding("utf8");
-    socket.on("data", chunk => {
-      buffer += chunk;
-      for (;;) {
-        const newline = buffer.indexOf("\n");
-        if (newline < 0) break;
-        packets.push(buffer.slice(0, newline));
-        buffer = buffer.slice(newline + 1);
-        socket.write(replies[packets.length - 1].replace("{", `{"request_id":${packets.length},`) + "\n");
-      }
-    });
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw Error("NoAddress");
-  const conn = new Connection(createConnection(address.port, "127.0.0.1"));
+  const remote = await peer((_, socket, line) => {
+      packets.push(line);
+      socket.write(replies[packets.length - 1].replace("{", `{"request_id":${packets.length},`) + "\n");
+    }),
+    conn = remote.conn;
   try {
     expect((await conn.call("viewer.search", { pane: 1, needle: "x", skip: 2n })).offset).toBe(2);
     expect((await conn.call("viewer.search", { pane: 1, needle: "x", skip: 0xffffffffffffffffn })).offset).toBe(
@@ -457,8 +389,7 @@ test("RPC retains raw integer tokens until the receiving model normalizes them",
       `{"op":"headless.events","protocol":${protocol.version},"provider":"codex","session":"t","after":0,"request_id":3}`,
     ]);
   } finally {
-    conn.close();
-    await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
+    await remote.close();
   }
 });
 

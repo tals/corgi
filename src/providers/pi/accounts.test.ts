@@ -12,11 +12,11 @@ import { ResumeHint } from "../../resume_hint";
 import { Text } from "../../providers";
 import { Quit } from "../../subprocess";
 import { Signin } from "../../signin";
+import { scopedEnv } from "../../fixtures/env";
 
 test("Pi account credentials select their own auth check and remove only their local login", async () => {
-  const root = mkdtempSync(join(tmpdir(), "corgi-pi-accounts-")),
-    executable = process.env.CORGI_PI_BIN;
-  process.env.CORGI_PI_BIN = join(root, "missing-pi");
+  const root = mkdtempSync(join(tmpdir(), "corgi-pi-accounts-"));
+  using env = scopedEnv({ CORGI_PI_BIN: join(root, "missing-pi") });
   try {
     const a = join(root, "a"),
       b = join(root, "b");
@@ -64,18 +64,13 @@ test("Pi account credentials select their own auth check and remove only their l
     expect(view.check).toEqual(["auth", "check", "--provider", "anthropic"]);
     expect(identity(a)?.id).not.toContain("test-key");
   } finally {
-    if (executable === undefined) delete process.env.CORGI_PI_BIN;
-    else process.env.CORGI_PI_BIN = executable;
     rmSync(root, { recursive: true, force: true });
   }
 });
 
 test("Pi account hooks, exact resume files and history stay in their own directories", async () => {
-  const root = mkdtempSync(join(tmpdir(), "corgi-pi-account-history-")),
-    old = process.env.PI_CODING_AGENT_SESSION_DIR,
-    oldDir = process.env.PI_CODING_AGENT_DIR;
-  process.env.PI_CODING_AGENT_DIR = join(root, "default");
-  delete process.env.PI_CODING_AGENT_SESSION_DIR;
+  const root = mkdtempSync(join(tmpdir(), "corgi-pi-account-history-"));
+  using env = scopedEnv({ PI_CODING_AGENT_DIR: join(root, "default"), PI_CODING_AGENT_SESSION_DIR: undefined });
   try {
     const dirs = [join(root, "a"), join(root, "b")],
       store = new Store();
@@ -110,10 +105,6 @@ test("Pi account hooks, exact resume files and history stay in their own directo
     expect(extension("uninstall", dirs[0]).outcome).toBe("removed");
     expect(readFileSync(join(dirs[1], "extensions/corgi.js"), "utf8")).toContain("Corgi's Pi integration");
   } finally {
-    if (oldDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = oldDir;
-    if (old === undefined) delete process.env.PI_CODING_AGENT_SESSION_DIR;
-    else process.env.PI_CODING_AGENT_SESSION_DIR = old;
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -140,13 +131,11 @@ test.each(["environment", "settings"])(
   "Pi shared %s session roots retain the observed account across refreshes",
   async mode => {
     const root = mkdtempSync(join(tmpdir(), "corgi-pi-shared-history-")),
-      saved = { ...process.env },
       home = join(root, "default"),
       a = join(root, "a"),
       b = join(root, "b"),
       shared = join(root, "sessions");
-    process.env.PI_CODING_AGENT_DIR = home;
-    delete process.env.PI_CODING_AGENT_SESSION_DIR;
+    using env = scopedEnv({ PI_CODING_AGENT_DIR: home, PI_CODING_AGENT_SESSION_DIR: undefined });
     try {
       for (const dir of [home, a, b, shared]) mkdirSync(dir);
       if (mode === "environment") process.env.PI_CODING_AGENT_SESSION_DIR = shared;
@@ -194,9 +183,6 @@ test.each(["environment", "settings"])(
       expect(adapter.launch.resume("shared-0", b)).toEqual(["--session", join(shared, "shared-0.jsonl")]);
       for (const h of readers) h.close();
     } finally {
-      for (const key of ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"])
-        if (saved[key] === undefined) delete process.env[key];
-        else process.env[key] = saved[key];
       rmSync(root, { recursive: true, force: true });
     }
   },

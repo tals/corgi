@@ -1,23 +1,12 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as git from "./git";
+import { runGit } from "../fixtures/git";
 
 let root = "";
-const run = (...args: string[]) =>
-  execFileSync("git", ["-C", root, ...args], {
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: "t",
-      GIT_AUTHOR_EMAIL: "t@t",
-      GIT_COMMITTER_NAME: "t",
-      GIT_COMMITTER_EMAIL: "t@t",
-    },
-  })
-    .toString()
-    .trim();
+const run = (...args: string[]) => runGit(root, ...args);
 const write = (path: string, text: string) => writeFileSync(join(root, path), text);
 
 beforeAll(() => {
@@ -125,18 +114,7 @@ test("finds the checkout, its base, and the branch's own commits", async () => {
 
 test("the base is main, from whichever copy the branch forked from latest", async () => {
   const repo = realpathSync(mkdtempSync(join(tmpdir(), "corgi-review-base-")));
-  const at = (...args: string[]) =>
-    execFileSync("git", ["-C", repo, ...args], {
-      env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: "t",
-        GIT_AUTHOR_EMAIL: "t@t",
-        GIT_COMMITTER_NAME: "t",
-        GIT_COMMITTER_EMAIL: "t@t",
-      },
-    })
-      .toString()
-      .trim();
+  const at = (...args: string[]) => runGit(repo, ...args);
   try {
     at("init", "-q", "-b", "main");
     at("commit", "-q", "--allow-empty", "-m", "pushed");
@@ -171,16 +149,7 @@ test("the base is main, from whichever copy the branch forked from latest", asyn
 
 test("a merge stands for the commits it brought in", async () => {
   const repo = realpathSync(mkdtempSync(join(tmpdir(), "corgi-review-merge-")));
-  const at = (...args: string[]) =>
-    execFileSync("git", ["-C", repo, ...args], {
-      env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: "t",
-        GIT_AUTHOR_EMAIL: "t@t",
-        GIT_COMMITTER_NAME: "t",
-        GIT_COMMITTER_EMAIL: "t@t",
-      },
-    });
+  const at = (...args: string[]) => runGit(repo, ...args);
   try {
     at("init", "-q", "-b", "main");
     at("commit", "-q", "--allow-empty", "-m", "base");
@@ -282,7 +251,7 @@ test("a file over the budget is never read", async () => {
 
 test("a diff driver with a funcname rule names folds with git's headers", async () => {
   const repo = realpathSync(mkdtempSync(join(tmpdir(), "corgi-review-funcname-")));
-  const at = (...args: string[]) => execFileSync("git", ["-C", repo, ...args]).toString();
+  const at = (...args: string[]) => runGit(repo, ...args);
   const lines = (head: string) => [head, ...Array.from({ length: 12 }, (_, i) => `x${i}`), "old", ""].join("\n");
   try {
     at("init", "-q");

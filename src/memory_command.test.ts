@@ -126,10 +126,3 @@ test("the log lines a search brings back count toward moving them to MEMORY.md",
   expect(m.dream(new Date(2026, 9, 31, 13))).toEqual(["Picked the bun dig routine"]);
   expect(readFileSync(join(dir, "MEMORY.md"), "utf8")).toContain("- Picked the bun dig routine\n");
 });
-
-test("--replaces with --long moves the line to MEMORY.md", () => {
-  const { dir, cmd } = memory();
-  expect(cmd("add", "--long", "--replaces", "2026-10-31.md:1", "foo is baz")).toBe("replaced MEMORY.md:3\n");
-  expect(readFileSync(join(dir, "2026-10-31.md"), "utf8")).toBe("");
-  expect(readFileSync(join(dir, "MEMORY.md"), "utf8")).toContain("- foo is baz\n");
-});

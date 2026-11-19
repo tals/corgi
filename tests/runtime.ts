@@ -343,6 +343,20 @@ export class Runtime extends TestCase {
       })
     ).result;
   }
+  /** The text `pane`'s screen shows. */
+  async screen(pane: number): Promise<string> {
+    return (await this.command("pane.read", { target: pane, view: "screen" })).text;
+  }
+  /** Has `provider`'s hook report that the agent in `pane` started session `session`. */
+  session_start(pane: number, session: string, provider = "claude") {
+    return this.rpc({
+      op: "hook",
+      pane,
+      provider,
+      seq: 1,
+      event: { hook_event_name: "SessionStart", session_id: session },
+    });
+  }
   raw_rpc(value: any): Promise<any> {
     return this.http.post(versioned(value), 8000);
   }

@@ -21,7 +21,7 @@ class Remote extends Runtime {
   sshlog: Promise<string> = Promise.resolve("");
   sshconfig = "";
   hostkey = "";
-  screen: Terminal | null = null;
+  emulator: Terminal | null = null;
   terminal: Bun.Terminal | null = null;
   ui: ReturnType<typeof Bun.spawn> | null = null;
   network: TcpFault | null = null;
@@ -226,7 +226,7 @@ class Remote extends Runtime {
         await deadline(this.ui.exited, 5000);
       }
       this.terminal?.close();
-      this.screen?.destroy();
+      this.emulator?.destroy();
       await this.network?.close();
       this.sshd?.kill();
       if (this.sshd) await this.sshd.exited;
@@ -242,15 +242,15 @@ class Remote extends Runtime {
     return JSON.parse(result.stdout);
   }
   text() {
-    return this.screen!.text();
+    return this.emulator!.text();
   }
   async startViewer(selected = "work", cols = 100, rows = 30, onData: (data: Uint8Array) => void = () => {}) {
-    this.screen = new Terminal(cols, rows);
+    this.emulator = new Terminal(cols, rows);
     this.terminal = new Bun.Terminal({
       cols,
       rows,
       data: (_tty, data) => {
-        this.screen!.feed(data);
+        this.emulator!.feed(data);
         onData(data);
       },
     });
@@ -369,7 +369,7 @@ class Remote extends Runtime {
     this.ui!.kill();
     await this.ui!.exited;
     this.terminal!.close();
-    this.screen!.destroy();
+    this.emulator!.destroy();
     this.network!.set("blackhole");
     await this.startViewer("local");
     await this.online("local", 4);
@@ -387,7 +387,7 @@ class Remote extends Runtime {
       2,
     );
     const first = status();
-    const style = () => this.screen!.surface(0).surface.lines[remoteRow];
+    const style = () => this.emulator!.surface(0).surface.lines[remoteRow];
     const first_style = style();
     await this.until(() => style() !== first_style, 1);
     this.assertEqual(status(), first);
@@ -431,7 +431,7 @@ class Remote extends Runtime {
       // CPU labels shorten with the sidebar width.
       await this.until(() => /\bC(PU)? \d+%/.test(this.text().split("\n")[y]));
       this.terminal!.write(`\x1b[<35;5;${y + 1}M`);
-      await this.until(() => this.screen!.surface(0).surface.lines[y].includes(`38;2;${PALETTE.text}`));
+      await this.until(() => this.emulator!.surface(0).surface.lines[y].includes(`38;2;${PALETTE.text}`));
       await this.until(() => this.text().includes("TOP PROCESSES"));
       const pid = name === "LOCAL" ? localPane.pid : remotePane.pid;
       await this.until(() => new RegExp(`\\b${pid}\\b`).test(this.text()));
@@ -868,7 +868,7 @@ class Remote extends Runtime {
     const saved = await paste("progress", png);
     const samples: number[] = [];
     const bar = () => {
-      const screen = this.screen!.surface(0).surface;
+      const screen = this.emulator!.surface(0).surface;
       const y = screen.lines.findIndex(line => /↑ [▰▱]+\s+\d+%/.test(Bun.stripANSI(line)));
       if (y < 0) return null;
       const row = Bun.stripANSI(screen.lines[y]);
@@ -890,9 +890,9 @@ class Remote extends Runtime {
     await this.until(() => this.text().includes("PASTE_READYMOVED"));
     const moved = bar()!;
     this.assertTrue(moved !== null, this.text());
-    this.assertEqual(moved.x, this.screen!.surface(0).surface.cursor!.x);
+    this.assertEqual(moved.x, this.emulator!.surface(0).surface.cursor!.x);
     if (process.env.CORGI_PROGRESS_CAPTURE)
-      await Bun.write(process.env.CORGI_PROGRESS_CAPTURE, JSON.stringify(this.screen!.surface(0).surface));
+      await Bun.write(process.env.CORGI_PROGRESS_CAPTURE, JSON.stringify(this.emulator!.surface(0).surface));
     // Wrap while the file is still in flight; the bar follows the next row.
     const wrap = "x".repeat(65);
     this.terminal!.write(wrap);
@@ -999,10 +999,10 @@ process.stdin.on("data", chunk => {
   async test_workspace_filters_keep_local_interaction_live_while_a_host_is_down() {
     await this.command("pane.create", { workspace: 1, command: "cat" });
     await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
-    this.screen = new Terminal(100, 30);
-    this.terminal = new Bun.Terminal({ cols: 100, rows: 30, data: (_tty, data) => this.screen!.feed(data) });
+    this.emulator = new Terminal(100, 30);
+    this.terminal = new Bun.Terminal({ cols: 100, rows: 30, data: (_tty, data) => this.emulator!.feed(data) });
     this.ui = Bun.spawn([EXE, "--no-update"], { env: this.env, cwd: this.temp.name, terminal: this.terminal });
-    const screen = () => this.screen!.text();
+    const screen = () => this.emulator!.text();
     await this.until(() => screen().includes("▌LOCAL_WORKSPACE"), 8);
     await this.until(() => screen().includes("all ▾"), 8);
     this.terminal.write("\x1d");
@@ -1126,6 +1126,8 @@ process.stdin.on("data", chunk => {
     await this.until(() => this.text().includes("AFTER_EXIT_INPUT"));
   }
   async test_remote_reload_rebuilds_the_stream_without_replacing_its_panes() {
+    // On a slow link, typing after the reload waits for the same viewer.
+    this.network!.latency_ms = 120;
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
     await this.startViewer();
     await this.online();
@@ -1140,10 +1142,6 @@ process.stdin.on("data", chunk => {
       before,
     );
     this.assertEqual((await this.remote!.command("pane.read", { target: 1 })).text.split("AFTER_RELOAD").length - 1, 1);
-  }
-  async test_typing_after_a_remote_reload_waits_for_the_same_viewer_on_a_slow_link() {
-    this.network!.latency_ms = 120;
-    await this.test_remote_reload_rebuilds_the_stream_without_replacing_its_panes();
   }
   async test_typing_while_a_reload_shows_its_notice_is_dropped_not_replayed() {
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });

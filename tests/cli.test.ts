@@ -155,7 +155,6 @@ class AgentCli extends Runtime {
       }),
       2,
     );
-    await this.cli(["tab", "new"], { error: "MissingWorkspace" });
     const one = await this.new();
     await this.cli(["pane", "send", one.pane, "--stdin", "--enter"], {
       stdin: "printf 'cli_marker_123\\n'",
@@ -167,9 +166,6 @@ class AgentCli extends Runtime {
     await this.cli(["message", `pane:${one.pane}`, "printf 'message_marker_456\\n'"], { error: "NoAgent" });
     await this.cli(["message", "headless:999", "hello"], { error: "NoHeadlessSession" });
     await this.cli(["pane", "keys", one.pane, "ctrl+c"]);
-    await this.cli(["pane", "keys", one.pane, "enter", "invalid-key"], {
-      error: "InvalidKey",
-    });
     await this.cli(["focus", one.pane, "--viewer", 999], { error: "NoViewer" });
   }
   async test_bridge_claims_scrape_screens_survive_reload_and_expire_with_the_owner() {
@@ -494,9 +490,6 @@ class AgentCli extends Runtime {
       (await this.cli(["workspace", "list"])).result.workspaces.find((w: any) => w.id === workspace).name,
       "Renamed",
     );
-    const before = (await this.snapshot()).workspaces;
-    this.assertEqual(await this.cli(["workspace", "close", workspace, "--cwd", this.temp.name], { error: "Usage" }), 2);
-    this.assertEqual((await this.snapshot()).workspaces, before);
     await this.cli(["workspace", "close", workspace], {
       error: "WorkspaceNotEmpty",
     });

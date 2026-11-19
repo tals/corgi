@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { Runtime, EXE, running } from "./runtime";
 import { Pty, deadline, registerCase, writeExecutable, quote } from "./support";
 import * as rpc from "../src/rpc";
@@ -16,14 +16,15 @@ class Rollback extends Runtime {
     return (await this.older({ op: "session.command", command: { "pane.read": { target: pane, view: "screen" } } }))
       .result.text;
   }
-  async rejectedRollback(reason: string) {
+  async test_a_rejected_format_6_candidate_is_tried_once_and_keeps_the_daemon_and_WS_clients_alive() {
     const workspace = (await this.session()).workspaces[0].id,
       pane = (await this.command("pane.create", { workspace, command: "exec /bin/sh" })).pane,
       before = await this.session(),
       attempts = join(this.temp.name, "attempts"),
-      candidate = writeExecutable(
-        join(this.temp.name, "reject"),
-        `
+      reject = (reason: string) =>
+        writeExecutable(
+          join(this.temp.name, `reject-${reason}`),
+          `
 import { readFileSync, writeSync, appendFileSync } from "node:fs";
 if (process.argv[2] === "__handoff-info") { console.error("corgi: UnknownCommand"); process.exit(1); }
 const state = JSON.parse(readFileSync(3, "utf8"));
@@ -31,7 +32,7 @@ appendFileSync(${JSON.stringify(attempts)}, state.version + "\\n");
 writeSync(4, state.version === 7 ? "UnsupportedStateVersion\\n" : ${JSON.stringify(reason + "\n")});
 process.exit(1);
 `,
-      ),
+        ),
       client = new rpc.Connection(this.path),
       observer = new rpc.Connection(this.path, { compression: true });
     try {
@@ -39,8 +40,12 @@ process.exit(1);
       await observer.call("link.open");
       await observer.call("viewer.open");
       await client.call("viewer.open");
-      this.assertEqual(await client.request("server.reload", { executable: candidate }), { err: reason });
-      this.assertEqual(readFileSync(attempts, "utf8"), "7\n6\n");
+      // Format 6 reports its own refusal, and an older format is never tried.
+      for (const reason of ["InvalidCheckpoint", "UnsupportedStateVersion"]) {
+        rmSync(attempts, { force: true });
+        this.assertEqual(await client.request("server.reload", { executable: reject(reason) }), { err: reason });
+        this.assertEqual(readFileSync(attempts, "utf8"), "7\n6\n");
+      }
       this.assertFalse(client.disconnected);
       this.assertEqual((await client.call("ping")).pid, before.server_pid);
       this.assertEqual((await this.session()).panes[0].pid, before.panes[0].pid);
@@ -50,19 +55,11 @@ process.exit(1);
       await client.call("session.command", {
         command: { "pane.input": { target: pane, data: "printf 'STILL_%s\\n' ALIVE\r" } },
       });
-      await this.until(async () =>
-        (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("STILL_ALIVE"),
-      );
+      await this.until(async () => (await this.screen(pane)).includes("STILL_ALIVE"));
     } finally {
       client.close();
       observer.close();
     }
-  }
-  async test_rejected_format_6_keeps_the_daemon_and_WS_clients_alive() {
-    await this.rejectedRollback("InvalidCheckpoint");
-  }
-  async test_older_formats_are_not_retried_beyond_format_6() {
-    await this.rejectedRollback("UnsupportedStateVersion");
   }
   async requestRollback(compression: boolean) {
     const workspace = (await this.session()).workspaces[0].id,
@@ -188,11 +185,7 @@ process.exit(1);
       this.assertEqual((await this.session()).panes[0].pid, before.panes[0].pid);
       await this.attach();
       await this.input("printf 'ROUND_TRIP_%s\\n' ALIVE\r");
-      await this.until(async () =>
-        (await this.command("pane.read", { target: after.panes[0].id, view: "screen" })).text.includes(
-          "ROUND_TRIP_ALIVE",
-        ),
-      );
+      await this.until(async () => (await this.screen(after.panes[0].id)).includes("ROUND_TRIP_ALIVE"));
     } finally {
       if (watch.exitCode === null) watch.kill();
       await deadline(watch.exited, 3000);

@@ -6,6 +6,30 @@ import { clip, source, Store, Worker, type Entry } from "./history";
 import * as accounts from "../accounts";
 import * as profiles from "../agent_profiles";
 import { byProvider } from "../providers";
+import { scopedEnv } from "../fixtures/env";
+
+/** A fresh home holding the providers' folders and Corgi's state, until disposed. */
+function isolatedHome() {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "corgi-history-"))),
+    env = scopedEnv({
+      HOME: home,
+      CORGI_ENV_BASE: join(home, "state"),
+      CLAUDE_CONFIG_DIR: join(home, ".claude"),
+      CODEX_HOME: join(home, ".codex"),
+      XDG_STATE_HOME: join(home, ".local/state"),
+      CORGI_CODEX_BIN: "/nonexistent/codex",
+      CORGI_OPENCODE2_BIN: "/nonexistent/opencode",
+    });
+  accounts.reset();
+  return {
+    home,
+    [Symbol.dispose]() {
+      env[Symbol.dispose]();
+      accounts.reset();
+      rmSync(home, { recursive: true, force: true });
+    },
+  };
+}
 test("clip keeps one line within its byte limit at a UTF-8 boundary", () => {
   const out = clip("  a\tb\n\nc\x1b é", 7);
   expect(out.slice(0, 6)).toBe("a b c ");
@@ -79,18 +103,8 @@ test("a listing drops only the sessions of the accounts it read", () => {
   expect(store.get("claude", "a")).not.toBeNull();
 });
 test("an account that shares the default's history lists each session once, as the default's", async () => {
-  const saved = { ...process.env },
-    home = realpathSync(mkdtempSync(join(tmpdir(), "corgi-history-")));
-  Object.assign(process.env, {
-    HOME: home,
-    CORGI_ENV_BASE: join(home, "state"),
-    CLAUDE_CONFIG_DIR: join(home, ".claude"),
-    CODEX_HOME: join(home, ".codex"),
-    XDG_STATE_HOME: join(home, ".local/state"),
-    CORGI_CODEX_BIN: "/nonexistent/codex",
-    CORGI_OPENCODE2_BIN: "/nonexistent/opencode",
-  });
-  accounts.reset();
+  using isolated = isolatedHome();
+  const { home } = isolated;
   const project = join(home, ".claude", "projects", "app");
   mkdirSync(project, { recursive: true });
   writeFileSync(
@@ -110,35 +124,12 @@ test("an account that shares the default's history lists each session once, as t
     ]);
   } finally {
     await w.stop();
-    for (const key of [
-      "HOME",
-      "CORGI_ENV_BASE",
-      "CLAUDE_CONFIG_DIR",
-      "CODEX_HOME",
-      "XDG_STATE_HOME",
-      "CORGI_CODEX_BIN",
-      "CORGI_OPENCODE2_BIN",
-    ])
-      if (saved[key] === undefined) delete process.env[key];
-      else process.env[key] = saved[key];
-    accounts.reset();
-    rmSync(home, { recursive: true, force: true });
   }
 });
 test("a removed agent's sessions leave the list, and come back when it's added back or something saved runs in it", async () => {
-  const saved = { ...process.env },
-    home = realpathSync(mkdtempSync(join(tmpdir(), "corgi-history-"))),
+  using isolated = isolatedHome();
+  const { home } = isolated,
     session = "33333333-3333-4333-8333-333333333333";
-  Object.assign(process.env, {
-    HOME: home,
-    CORGI_ENV_BASE: join(home, "state"),
-    CLAUDE_CONFIG_DIR: join(home, ".claude"),
-    CODEX_HOME: join(home, ".codex"),
-    XDG_STATE_HOME: join(home, ".local/state"),
-    CORGI_CODEX_BIN: "/nonexistent/codex",
-    CORGI_OPENCODE2_BIN: "/nonexistent/opencode",
-  });
-  accounts.reset();
   const project = join(home, ".claude", "projects", "app");
   mkdirSync(project, { recursive: true });
   writeFileSync(
@@ -174,34 +165,11 @@ test("a removed agent's sessions leave the list, and come back when it's added b
     expect(w.snapshot().entries).toEqual([]);
   } finally {
     await w.stop();
-    for (const key of [
-      "HOME",
-      "CORGI_ENV_BASE",
-      "CLAUDE_CONFIG_DIR",
-      "CODEX_HOME",
-      "XDG_STATE_HOME",
-      "CORGI_CODEX_BIN",
-      "CORGI_OPENCODE2_BIN",
-    ])
-      if (saved[key] === undefined) delete process.env[key];
-      else process.env[key] = saved[key];
-    accounts.reset();
-    rmSync(home, { recursive: true, force: true });
   }
 });
 test("an account added later lists its sessions once it has any, and takes them when it goes", async () => {
-  const saved = { ...process.env },
-    home = realpathSync(mkdtempSync(join(tmpdir(), "corgi-history-")));
-  Object.assign(process.env, {
-    HOME: home,
-    CORGI_ENV_BASE: join(home, "state"),
-    CLAUDE_CONFIG_DIR: join(home, ".claude"),
-    CODEX_HOME: join(home, ".codex"),
-    XDG_STATE_HOME: join(home, ".local/state"),
-    CORGI_CODEX_BIN: "/nonexistent/codex",
-    CORGI_OPENCODE2_BIN: "/nonexistent/opencode",
-  });
-  accounts.reset();
+  using isolated = isolatedHome();
+  const { home } = isolated;
   mkdirSync(join(home, ".claude", "projects"), { recursive: true });
   const w = Worker.start();
   try {
@@ -225,18 +193,5 @@ test("an account added later lists its sessions once it has any, and takes them 
     expect(w.snapshot().entries).toEqual([]);
   } finally {
     await w.stop();
-    for (const key of [
-      "HOME",
-      "CORGI_ENV_BASE",
-      "CLAUDE_CONFIG_DIR",
-      "CODEX_HOME",
-      "XDG_STATE_HOME",
-      "CORGI_CODEX_BIN",
-      "CORGI_OPENCODE2_BIN",
-    ])
-      if (saved[key] === undefined) delete process.env[key];
-      else process.env[key] = saved[key];
-    accounts.reset();
-    rmSync(home, { recursive: true, force: true });
   }
 });

@@ -1,5 +1,3 @@
-// Mirrors the tests in launcher_usage.zig (the account-cache case covers
-// what the viewer draws: cached and fresh readings render the same).
 import { expect, test } from "bun:test";
 import { Cell, Grid } from "./launcher_usage";
 import { Terminal } from "./pane/terminal";
@@ -29,32 +27,7 @@ test("usage groups put the weekly limit first and show its reset", () => {
   expect(other.windows[1]).toBeNull();
 });
 
-test("cached readings have no extra indicator and statuses remain readable", () => {
-  const fresh = Cell.init(
-    [
-      { minutes: 300, used: 12, reset_at: null },
-      { minutes: 10080, used: 48, reset_at: null },
-    ],
-    1100,
-  );
-  const cached = Cell.init(
-    [
-      { minutes: 300, used: 12, reset_at: null },
-      { minutes: 10080, used: 48, reset_at: null },
-    ],
-    1100,
-  );
-  const grid = new Grid();
-  grid.add(fresh);
-  expect(grid.holds(cached)).toBe(true);
-  for (const width of [25, grid.minimumWidth(), grid.preferredWidth()]) {
-    const a = new Writer();
-    const b = new Writer();
-    cached.write(a, grid, width, "\x1b[0m", false);
-    fresh.write(b, grid, width, "\x1b[0m", false);
-    expect(a.s).toBe(b.s);
-    expect(a.s).not.toContain("cached");
-  }
+test("status cells show their text instead of limits", () => {
   for (const text of ["Reading…", "Track usage", "Metered", "—"]) {
     const cell = Cell.status(text);
     expect(cell.limited()).toBe(false);

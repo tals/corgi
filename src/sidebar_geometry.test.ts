@@ -42,27 +42,38 @@ test("archived workspaces fold at the bottom, scroll independently, and do not o
 });
 
 test("sidebar geometry preserves compact, search, width, panel and drawer boundaries", () => {
+  // The controller computes the geometry without a view.
+  const width = (cols: number, rows: number, open: boolean, searching: boolean, preferred: number) =>
+    View.fitWidth(cols, View.widthFor(cols, open, rows, searching), preferred);
+  // Open from 64 columns, or 40 while searching, on 13 rows or more.
+  expect(width(63, 13, true, false, 28)).toBe(0);
+  expect(width(64, 13, true, false, 28)).toBe(28);
+  expect(width(64, 12, true, true, 28)).toBe(0);
+  expect(width(39, 13, false, true, 28)).toBe(0);
+  expect(width(40, 13, false, true, 28)).toBe(20);
+  // At least 20 wide, and at least 20 columns left for the panes.
+  expect(width(47, 13, true, true, 28)).toBe(27);
+  expect(width(160, 48, true, false, 300)).toBe(140);
+  expect(width(160, 48, true, false, 0)).toBe(20);
+  // Panes start past the sidebar, or at the edge under a drawer, and leave a panel its columns.
+  expect(View.paneArea(80, 24, 28, 40, null)).toEqual(new Rect(28, 1, 12, 23));
+  expect(View.paneArea(80, 24, 28, 40, "agents")).toEqual(new Rect(0, 1, 40, 23));
+  expect(View.paneArea(80, 0, 28, 200, null)).toEqual(new Rect(28, 1, 0, 0));
+  // A view agrees at every boundary.
   for (const cols of [0, 19, 39, 40, 47, 63, 64, 80, 160])
     for (const rows of [0, 12, 13, 48])
       for (const open of [false, true])
         for (const searching of [false, true])
           for (const preferred of [0, 19, 20, 28, 300]) {
-            let width = rows >= 13 && open && cols >= 64 ? 28 : 0;
-            if (searching && cols >= 40 && rows >= 13) width = Math.min(28, cols - 20);
-            if (width > 0) width = Math.max(20, Math.min(preferred, cols - 20));
-            const computed = View.fitWidth(cols, View.widthFor(cols, open, rows, searching), preferred);
-            expect(computed).toBe(width);
+            const expected = width(cols, rows, open, searching, preferred);
             const view = View.init(cols, rows, open, 0, 0)
               .withSearch(searching ? { text: "", cursor: 0, selection: null } : null)
               .withWidth(preferred);
-            expect(view.width).toBe(width);
+            expect(view.width).toBe(expected);
             for (const drawer of [null, "agents", "workspaces"] as const)
               for (const panel of [0, 40, 200]) {
-                const x = drawer === null ? width : 0;
-                const expected = new Rect(x, 1, Math.max(0, cols - x - panel), Math.max(0, rows - 1));
                 view.drawer = drawer;
-                expect(view.withPanel(panel).area()).toEqual(expected);
-                expect(View.paneArea(cols, rows, computed, panel, drawer)).toEqual(expected);
+                expect(view.withPanel(panel).area()).toEqual(View.paneArea(cols, rows, expected, panel, drawer));
               }
           }
 });

@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import * as i18n from "./i18n";
-import { Terminal } from "./pane/terminal";
 import { Menu, items, status, type Hit } from "./corgi_setup";
 import { Menu as LauncherMenu, preferred_width, preview } from "./agent_launcher";
 import { Rect } from "./layout";
@@ -15,28 +14,12 @@ import { Writer } from "./text";
 import * as releaseLabel from "./release_label";
 import type { Connection } from "./rpc";
 import { Style } from "./palette";
+import * as screen from "./fixtures/screen";
 
-/** The screen's text after replaying the cursor moves in `ansi`. */
-function screen(ansi: string, cols: number, rows: number): string[] {
-  const grid = Array.from({ length: rows }, () => Array(cols).fill(" "));
-  let x = 0,
-    y = 0;
-  for (const m of ansi.matchAll(/\x1b\[([\d;?]*)([A-Za-z])|\x1b\][^\x1b]*\x1b\\|([\s\S])/gu)) {
-    if (m[2] === "H") {
-      const [r, c] = (m[1] || "1;1").split(";").map(Number);
-      y = r - 1;
-      x = c - 1;
-    } else if (m[3] !== undefined) {
-      if (y < rows && x < cols) grid[y][x] = m[3];
-      x++;
-    }
-  }
-  return grid.map(row => row.join(""));
-}
 function draw(menu: Menu, cols = 100, rows = 30, now = 0, s = status(), prefs = new Preferences()): string[] {
   const w = new Writer();
   menu.drawAt(w, s, prefs, cols, rows, now);
-  return screen(w.s, cols, rows);
+  return screen.lines(w.s, cols, rows);
 }
 function hits(menu: Menu, cols = 100, rows = 30, s = status(), prefs = new Preferences()): Hit[] {
   const out: Hit[] = [];
@@ -61,10 +44,10 @@ function modelHit(
   cols = 100,
   rows = 30,
 ): Hit {
-  const screen = draw(menu, cols, rows, 0, s, prefs),
-    y = screen.findIndex(row => match.test(row));
+  const shown = draw(menu, cols, rows, 0, s, prefs),
+    y = shown.findIndex(row => match.test(row));
   expect(y).toBeGreaterThanOrEqual(0);
-  const x = screen[y].search(match),
+  const x = shown[y].search(match),
     hit = menu.hit(cols, rows, x, y, s, prefs);
   expect(hit).toEqual({ models: { x, y } });
   return hit!;
@@ -409,30 +392,14 @@ test("translated setup titles and chart labels leave their borders intact", () =
         s = status(),
         prefs = new Preferences();
       menu.openOptions(s, prefs);
-      const narrow = new Terminal(50, 30),
-        chart = new Terminal(80, 40);
-      try {
-        let w = new Writer();
-        menu.drawAt(w, s, prefs, 50, 30, 0);
-        narrow.feed(w.s);
-        expect(narrow.text()).toContain(`${i18n.t`Corgi setup`} › ${i18n.t`Clever Corgi`}`);
-        menu.item = "terminal";
-        menu.pacing = new Pacer();
-        menu.pacing.stamp(1000);
-        menu.pacing.answered(1024);
-        w = new Writer();
-        menu.drawAt(w, s, prefs, 80, 40, 0);
-        chart.feed(w.s);
-        const axis = chart
-          .text()
-          .split("\n")
-          .find(row => row.includes("└─"))!;
-        expect(axis).toContain(i18n.t` now`);
-        expect(axis.slice(axis.indexOf(i18n.t` now`) + i18n.t` now`.length)).toMatch(/^\s*│\s*$/);
-      } finally {
-        narrow.destroy();
-        chart.destroy();
-      }
+      expect(draw(menu, 50, 30, 0, s, prefs).join("\n")).toContain(`${i18n.t`Corgi setup`} › ${i18n.t`Clever Corgi`}`);
+      menu.item = "terminal";
+      menu.pacing = new Pacer();
+      menu.pacing.stamp(1000);
+      menu.pacing.answered(1024);
+      const axis = draw(menu, 80, 40, 0, s, prefs).find(row => row.includes("└─"))!;
+      expect(axis).toContain(i18n.t` now`);
+      expect(axis.slice(axis.indexOf(i18n.t` now`) + i18n.t` now`.length)).toMatch(/^\s*│\s*$/);
     }
   } finally {
     i18n.setLanguage(previous);
@@ -1692,7 +1659,7 @@ test("expanded settings and the popup render the same account rows and usage bar
   const expanded = draw(menu, 180, 36, 1300);
   const w = new Writer();
   launch.manager.draw(w, new Rect(0, 0, preferred_width, 30), launch.manageModel());
-  const popup = screen(w.s, 180, 36);
+  const popup = screen.lines(w.s, 180, 36);
   // Claude's accounts, by the mark each wears.
   const accountRows = (rows: string[]) =>
     rows

@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { retry, transient } from "./retry";
+import * as codexServer from "../../fixtures/codex_server";
 const overloaded = (id: string) => ({
   id,
   status: "failed",
@@ -24,26 +25,17 @@ test("a failed turn starts again, with no new input, only while it is the thread
     clear = () => true;
   let status = "idle",
     latest: unknown = overloaded("one");
-  const server = Bun.serve({
-    unix: path,
-    fetch(req, server) {
-      return server.upgrade(req) ? undefined : new Response("bad", { status: 400 });
-    },
-    websocket: {
-      message(ws, message) {
-        const value = JSON.parse(String(message));
-        if (!value.id) return;
-        calls.push(value.method);
-        if (value.method === "turn/start") started.push(value.params);
-        const result =
-          value.method === "thread/read"
-            ? { thread: { id: "s", status: { type: status } } }
-            : value.method === "thread/turns/list"
-              ? { data: [latest], nextCursor: null }
-              : {};
-        ws.send(JSON.stringify({ id: value.id, result }));
-      },
-    },
+  const server = codexServer.serve(path, ({ method, params }) => {
+    calls.push(method);
+    if (method === "turn/start") started.push(params);
+    return {
+      result:
+        method === "thread/read"
+          ? { thread: { id: "s", status: { type: status } } }
+          : method === "thread/turns/list"
+            ? { data: [latest], nextCursor: null }
+            : {},
+    };
   });
   try {
     expect(await retry(path, "s", "one", clear)).toBe("started");

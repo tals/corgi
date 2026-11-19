@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import {
   advance,
@@ -17,6 +17,7 @@ import {
 import { Snapshot, Turn } from "./providers/snapshot";
 import { Text } from "./providers";
 import type { Runtime } from "./runtime";
+import * as codexServer from "./fixtures/codex_server";
 const session = "01a19ea6-a077-75d3-b8dc-54b7dc1279b2",
   wall = 1793663100;
 function world(account = "") {
@@ -124,36 +125,21 @@ test("a due retry starts the failed turn once, through the account's shared serv
   /** When someone last worked in the pane, and whether they do as it checks the thread. */
   let typed_at = 0,
     typing = false;
-  mkdirSync(account + "/app-server-control");
-  const server = Bun.serve({
-    unix: account + "/app-server-control/app-server-control.sock",
-    fetch(req, server) {
-      return server.upgrade(req) ? undefined : new Response("bad", { status: 400 });
-    },
-    websocket: {
-      message(ws, message) {
-        const value = JSON.parse(String(message));
-        if (!value.id) return;
-        if (value.method === "turn/start") starts.push(value.params);
-        if (value.method === "thread/turns/list" && typing) typed_at = Date.now();
-        const result =
-          value.method === "thread/read"
-            ? { thread: { status: { type: "idle" } } }
-            : value.method === "thread/turns/list"
-              ? {
-                  data: [
-                    {
-                      id: "one",
-                      status: "failed",
-                      completedAt: wall - 1,
-                      error: { codexErrorInfo: "serverOverloaded" },
-                    },
-                  ],
-                }
-              : {};
-        ws.send(JSON.stringify({ id: value.id, result }));
-      },
-    },
+  const server = codexServer.serve(account + "/app-server-control/app-server-control.sock", ({ method, params }) => {
+    if (method === "turn/start") starts.push(params);
+    if (method === "thread/turns/list" && typing) typed_at = Date.now();
+    return {
+      result:
+        method === "thread/read"
+          ? { thread: { status: { type: "idle" } } }
+          : method === "thread/turns/list"
+            ? {
+                data: [
+                  { id: "one", status: "failed", completedAt: wall - 1, error: { codexErrorInfo: "serverOverloaded" } },
+                ],
+              }
+            : {},
+    };
   });
   const { runtime, show } = world(account),
     input_at = () => typed_at,

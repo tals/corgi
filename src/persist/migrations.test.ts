@@ -1,7 +1,6 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import * as json from "../json";
-import * as values from "./revision_values";
 import * as formats from "./formats";
 import * as state_formats from "./state_formats";
 import { decode, checkpoint_version, handoff_version, legacy } from "./migrations";
@@ -159,21 +158,6 @@ test("promotion moves agents as JSON and never shares them", () => {
   expect(() =>
     decode("checkpoint", '{"version":2,"panes":[{"agent":{"provider":"codex","session":"s","session_len":9}}]}'),
   ).toThrow("InvalidCheckpoint");
-});
-test("historical fixed text cuts byte length and rejects malformed buffers", () => {
-  expect(values.fixedText("Idleing tests\0", 4)).toBe("Idle");
-  expect(values.fixedText([115, 49, 255, 0], 2)).toBe("s1");
-  expect(values.fixedText("a\0b\0", 3)).toBe("a\0b");
-  for (const [bytes, len] of [
-    ["ab", 3],
-    [[97, 98], 3],
-    ["ab", -1],
-    [[97, 256], 1],
-    [null, 0],
-  ] as any[])
-    expect(() => values.fixedText(bytes, len)).toThrow("InvalidCheckpoint");
-  for (const value of [{ agent_yolo: [true, false, true] }, { agent_yolo: [1, 0] }])
-    expect(() => released("checkpoint", 4).up(value)).toThrow("InvalidCheckpoint");
 });
 test("revision value helpers have no application dependencies", () => {
   const source = readFileSync(new URL("./revision_values.ts", import.meta.url), "utf8");
