@@ -14,8 +14,10 @@ import {
 import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import * as keymap from "./keymap";
+import * as keys from "./keys";
 import * as bindings from "./bindings";
 import type { Action } from "./action";
+import type { Key } from "./keyboard";
 export type State = "unavailable" | "disabled" | "enabled" | "failed";
 export type Keys = { preset: keymap.Preset; prefix: keymap.Prefix; bindings?: readonly bindings.Binding[] };
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n",
@@ -88,16 +90,22 @@ const host_keys: { host: string; action: Action }[] = [
 export function commandKeys(
   preset: keymap.Preset,
   source: bindings.Source = preset,
+  prefix?: keymap.Prefix,
 ): { host: string; action: Action }[] {
+  const prefix_key = prefix === undefined ? null : keymap.prefixKey(prefix),
+    prefix_host = prefix_key ? trigger({ key: prefix_key.codepoint, mods: prefix_key.mods }) : null;
+  if (prefix_key)
+    source = bindings.table(source).filter(b => !keys.same(prefix_key, { codepoint: b.key, mods: b.mods }));
   if (preset === "cmux")
     return bindings
       .table(source)
       .filter(b => !b.prefixed)
       .flatMap(b => {
         const host = trigger(b);
-        return host === null ? [] : [{ host, action: b.action }];
+        return host === null || host === prefix_host ? [] : [{ host, action: b.action }];
       });
   return host_keys.filter(host => {
+    if (prefix_key && keys.same(prefix_key, keys.parseChord(host.host.replace("digit_", ""))!)) return false;
     return bindings.first(source, host.action, true) !== null || bindings.first(source, host.action, false) !== null;
   });
 }
@@ -139,7 +147,7 @@ export function macLabel(host: string): string {
     (label ?? (key.startsWith("digit_") ? key.slice(6) : key.toUpperCase()))
   );
 }
-function trigger(binding: bindings.Binding) {
+function trigger(binding: Pick<bindings.Binding, "key" | "mods">) {
   const m = binding.mods;
   // These characters delimit Ghostty's keybind syntax.
   const shifted: Record<number, number> = { 43: 61, 58: 59, 62: 46 };
@@ -185,41 +193,53 @@ export function validate(source: bindings.Source): void {
     seen.set(host, binding);
   }
 }
-export function transform(bytes: string, keys: Keys | null): string {
+export function transform(bytes: string, chosen: Keys | null): string {
   const existing = block(bytes);
   let out = existing ? bytes.slice(0, existing.start) + bytes.slice(existing.stop) : bytes;
-  if (!keys) return out;
+  if (!chosen) return out;
   if (out && !out.endsWith("\n")) out += "\n";
   out += begin;
-  const source = keys.bindings ?? keys.preset;
-  if (keys.preset === "cmux") {
+  const source = chosen.bindings ?? chosen.preset,
+    prefix_key = keymap.prefixKey(chosen.prefix),
+    prefix_host = trigger({ key: prefix_key.codepoint, mods: prefix_key.mods }),
+    prefix_hosts = new Set(
+      host_keys
+        .filter(host => keys.same(prefix_key, keys.parseChord(host.host.replace("digit_", ""))!))
+        .map(host => host.host),
+    );
+  if (prefix_key.mods.super && prefix_host !== null) prefix_hosts.add(prefix_host);
+  if (chosen.preset === "cmux") {
     validate(source);
     out += "# cmux preset; applies throughout Ghostty. Reload with Cmd+Shift+comma.\n";
     for (const b of bindings.table(source))
       if (!b.prefixed) {
         const host = trigger(b);
         if (host === null) continue;
+        if (host === prefix_host) prefix_hosts.add(host);
+        if (prefix_hosts.has(host)) continue;
         const m = b.mods,
           mods = Number(!!m.shift) + 2 * Number(!!m.alt) + 4 * Number(!!m.ctrl) + 8 * Number(!!m.super);
         out += `keybind = ${host}=text:\\x1b[${b.key};${mods + 1}u\n`;
       }
   } else {
     out += "# Applies throughout Ghostty. Reload with Cmd+Shift+comma.\n";
-    for (const host of commandKeys(keys.preset, source)) {
-      const b = bindings.first(source, host.action, true) ?? bindings.first(source, host.action, false)!;
-      const mods =
-        Number(!!b.mods.shift) + 2 * Number(!!b.mods.alt) + 4 * Number(!!b.mods.ctrl) + 8 * Number(!!b.mods.super);
-      const key =
-        mods || b.key >= 128
-          ? `\\x1b[${b.key};${mods + 1}u`
-          : b.key > 32 && b.key < 127 && b.key !== 92
-            ? String.fromCodePoint(b.key)
-            : "\\x" + b.key.toString(16).padStart(2, "0");
-      const prefix = b.prefixed ? `\\x${keymap.prefixByte(keys.prefix).toString(16).padStart(2, "0")}` : "";
+    const reachable = bindings.table(source).filter(b => !keys.same(prefix_key, { codepoint: b.key, mods: b.mods }));
+    for (const host of commandKeys(chosen.preset, source, chosen.prefix)) {
+      const b = bindings.first(reachable, host.action, true) ?? bindings.first(reachable, host.action, false);
+      if (!b) continue;
+      const key = keyText({ codepoint: b.key, mods: b.mods });
+      const prefix = b.prefixed ? keyText(keymap.prefixKey(chosen.prefix)) : "";
       out += `keybind = ${host.host}=text:${prefix}${key}\n`;
     }
   }
+  for (const host of prefix_hosts) out += `keybind = ${host}=text:${keyText(prefix_key)}\n`;
   return out + end;
+}
+function keyText({ codepoint, mods: m }: Key): string {
+  const mods = Number(!!m.shift) + 2 * Number(!!m.alt) + 4 * Number(!!m.ctrl) + 8 * Number(!!m.super);
+  if (mods || codepoint >= 128) return `\\x1b[${codepoint};${mods + 1}u`;
+  if (codepoint > 32 && codepoint < 127 && codepoint !== 92) return String.fromCodePoint(codepoint);
+  return "\\x" + codepoint.toString(16).padStart(2, "0");
 }
 function apply(keys: Keys | null, existing_only: boolean): boolean {
   if (!available()) throw Error("LocalMacOSOnly");

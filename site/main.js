@@ -1606,7 +1606,7 @@ function drawKeys() {
   if (K.painted && !visible.has(keysStage)) return;
   K.painted = true;
   const k = keysNow(), { cols, rows } = k;
-  const g = terminal.grid(keysHelp.frame(cols, rows, K.preset, "ctrl_b", Date.now()), cols, rows).map((row) => row.map(([ch, ...look]) => [ch, style(...look)]));
+  const g = terminal.grid(keysHelp.frame(cols, rows, K.preset, "ctrl+b", Date.now()), cols, rows).map((row) => row.map(([ch, ...look]) => [ch, style(...look)]));
   // What a key or a click ran stays lit a moment, its label through its key;
   // Ctrl-B lights the prefix's keycap.
   if (K.lit && performance.now() - K.litAt < LIT_FOR) {

@@ -1,16 +1,32 @@
 import * as i18n from "./i18n";
+import * as keys from "./keys";
+import * as bindings from "./bindings";
+import type { Key } from "./keyboard";
 export type Preset = "corgi" | "tmux" | "herdr" | "cmux";
-export type Prefix = "ctrl_b" | "ctrl_a";
+/** A key chord in the same grammar as custom shortcuts. */
+export type Prefix = string;
+export const defaultPrefix: Prefix = "ctrl+b";
+const prefixes = new Map<string, Key>();
+export function parsePrefix(value: unknown): Prefix | null {
+  if (typeof value !== "string") return null;
+  const key = keys.parseChord(value);
+  if (!key || key.codepoint === 27) return null;
+  if (prefixes.size >= 32) prefixes.clear();
+  prefixes.set(value, key);
+  return value;
+}
+export function prefixKey(prefix: Prefix): Key {
+  if (!prefixes.has(prefix) && parsePrefix(prefix) === null) throw Error("InvalidPrefix");
+  return prefixes.get(prefix)!;
+}
 export const available_presets: Preset[] =
   process.platform === "darwin" ? ["corgi", "tmux", "herdr", "cmux"] : ["corgi", "tmux", "herdr"];
 export function supportedPreset(preset: Preset): Preset {
   return preset === "cmux" && process.platform !== "darwin" ? "corgi" : preset;
 }
-export function prefixByte(prefix: Prefix): number {
-  return prefix === "ctrl_a" ? 1 : 2;
-}
 export function prefixName(prefix: Prefix): string {
-  return prefix === "ctrl_a" ? "Ctrl+A" : "Ctrl+B";
+  const key = prefixKey(prefix);
+  return bindings.format({ key: key.codepoint, mods: key.mods, prefixed: false, action: { name: "help" } });
 }
 export function name(preset: Preset): string {
   return { corgi: "Corgi", tmux: "tmux", herdr: "Herdr", cmux: "cmux" }[preset];

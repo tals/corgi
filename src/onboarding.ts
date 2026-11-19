@@ -22,7 +22,7 @@ export type Column = "presets" | "theme";
 const Message = BoundedText(256);
 export class State {
   preset: km.Preset = "corgi";
-  prefix: km.Prefix = "ctrl_b";
+  prefix: km.Prefix = km.defaultPrefix;
   /** The theme picked here, which the screen shows as it goes; unset, the terminal picks. */
   theme: palette.Theme | undefined = undefined;
   column: Column = "presets";
@@ -65,6 +65,9 @@ export class State {
     const themes = palette.available_themes,
       index = themes.indexOf(palette.chosen(this.theme));
     this.theme = themes[(index + (down ? 1 : themes.length - 1)) % themes.length];
+  }
+  private togglePrefix() {
+    this.prefix = keys.same(km.prefixKey(this.prefix), km.prefixKey(km.defaultPrefix)) ? "ctrl+a" : km.defaultPrefix;
   }
   enterKeymap() {
     this.step = "keymap";
@@ -111,12 +114,12 @@ export class State {
       else if (b === 108 && this.themed()) this.column = "theme";
       else if (b === 104) this.column = "presets";
       else if (b >= 49 && b <= 52 && b - 49 < presets.length) this.preset = presets[b - 49];
-      else if ([112, 80, 32].includes(b)) this.prefix = this.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b";
+      else if ([112, 80, 32].includes(b)) this.togglePrefix();
       else if (b === 63) this.enterKeymap();
       else if (b === 9) this.focus = (this.focus + 1) % 3;
       else if (b === 27 && this.dismissable) return this.cancel();
       else if (b === 13) {
-        if (this.focus === 1) this.prefix = this.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b";
+        if (this.focus === 1) this.togglePrefix();
         else if (this.focus === 2) this.enterKeymap();
         else if (this.preset === "cmux") this.step = "connect";
         else if (this.mode === "keyboard") return true;

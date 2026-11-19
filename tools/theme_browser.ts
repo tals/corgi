@@ -76,7 +76,7 @@ async function record(
   try {
     writeFileSync(
       join(s.home, ".local/state/corgi/viewer.json"),
-      JSON.stringify({ onboarding_complete: true, preset: "corgi", prefix: "ctrl_b", theme }),
+      JSON.stringify({ onboarding_complete: true, preset: "corgi", prefix: "ctrl+b", theme }),
     );
     mkdirSync(join(s.home, "bin"), { recursive: true });
     writeFileSync(join(s.home, "bin", "demo"), demo);

@@ -8,7 +8,7 @@ building and working on Corgi are covered in [HACKING](../HACKING.md).
 
 Run `corgi` to start or attach. `corgi onboard` reopens setup; inside Corgi,
 click the corgi badge or press **prefix i**. Choose a shortcut preset and a
-Ctrl+B or Ctrl+A prefix. The cmux preset is available on macOS.
+prefix. The cmux preset is available on macOS.
 
 **prefix** means press the prefix, release it, then press the next key.
 Press it twice to send it to the program. **prefix ?** opens the current
@@ -100,12 +100,7 @@ Recovery cannot restore arbitrary process memory. See
 
 ### Customize shortcuts
 
-Open **prefix ?**, then **Ctrl+E**, or **Corgi setup → Keymap → Customize**.
-Use `/` to filter by action or key, arrows or Tab to select a shortcut, and
-Enter to edit it. Click an alternate to edit that exact binding; `+` adds
-another. **Ctrl+L** hides or shows alternatives. The `◇` symbol means your
-prefix; direct bindings have no diamond. All text uses ordinary terminal
-cells, including the stacked Focus and Swap keycaps.
+Open **prefix ?**, then **Ctrl+E**, or **Corgi setup → Keymap → Customize**. Use `/` to filter by action name, arrows or Tab to select a shortcut, and Enter to edit it. Click an alternate to edit that exact binding; `+` adds another. **Ctrl+L** hides or shows alternatives. The `◇` symbol means your prefix; direct bindings have no diamond. All text uses ordinary terminal cells, including the stacked Focus and Swap keycaps.
 
 Help caps at 112 columns and adapts to the available space. Focus and Swap
 stack when necessary while keeping their directional arrangement. In very
@@ -150,7 +145,7 @@ Add a `keys` object:
 ```json
 {
   "preset": "corgi",
-  "prefix": "ctrl_b",
+  "prefix": "ctrl+b",
   "keys": {
     "new": ["prefix+y", "ctrl+alt+n"],
     "split:right": "prefix+v",
@@ -159,6 +154,12 @@ Add a `keys` object:
   }
 }
 ```
+
+To change the prefix, search for **Prefix key** in **prefix ?**, click its header label, or press **F2** there. In **Customize Keys**, **Up** from the first shortcut selects the prefix header; **Enter** opens it. It uses the same editor as other shortcuts: use the arrows to move between controls, press **Enter** on the shortcut field to record a key, then **Save**. **Esc** cancels. **Corgi setup → Keymap → Prefix** opens the same editor.
+
+You can also set `"prefix": "f9"` in `config.json`. The prefix uses the same single-key grammar as shortcuts: for example `"ctrl+space"`, `"ctrl+\\"`, `"alt+x"`, or a Unicode character. Escape stays reserved for canceling. The prefix takes precedence over preset shortcuts on that key; custom shortcuts cannot reuse it. Pressing the prefix twice sends it to the pane. Printable prefixes remain ordinary text in setup and launcher form fields.
+
+Existing `ctrl_a` and `ctrl_b` settings migrate to `ctrl+a` and `ctrl+b`. Downgrading is intentionally asymmetric: `ctrl+a` becomes `ctrl_a`, and any other explicit prefix becomes the old default, `ctrl_b`. A custom prefix is lost on downgrade.
 
 An omitted action inherits the preset. A string replaces all its shortcuts;
 an array supplies alternatives; `[]` unbinds it. Action names are those used

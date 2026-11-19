@@ -556,6 +556,8 @@ viewer's save can drop `format`, so up steps must also work on a file stepped
 up once already. Releases predating viewer migrations need a reverse
 migration before they can read settings from this layout.
 
+Viewer revision `7f791e9ff70d` stores the prefix as a key chord. Its up step rewrites only `ctrl_a` and `ctrl_b`; other values pass through. The down step keeps `ctrl+a` and uses the old Ctrl+B default for every other explicit prefix. This is intentionally asymmetric: downgrading loses a custom prefix.
+
 1. Keep the envelope and core in `persist/core.ts` and the
    `fixtures/transfer-v1.json` fixture fixed. Core is the permanent common
    revision; all future binaries must import and export it. Import limits must

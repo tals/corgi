@@ -8,7 +8,7 @@ import { flock } from "./native_bridge";
 
 /** config.json as live reload reads it, each time it changes. */
 const watch = (file: string, changed: (p: preferences.Preferences | null) => void) =>
-  observe(file, () => changed(preferences.inspectConfig(file).prefs));
+  observe(file, () => changed(preferences.inspectConfig({ config: file, viewer: file + ".viewer" }).prefs));
 const scratch = (dir: string): preferences.Paths => ({
   viewer: join(dir, "viewer.json"),
   config: join(dir, "config.json"),

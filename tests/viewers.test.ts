@@ -23,6 +23,34 @@ const activeBar = `\x1b[0;38;2;${PALETTE.accent};48;2;${PALETTE.selected}m▌`;
 const ghostBar = `\x1b[0;38;2;${PALETTE.strong};48;2;${PALETTE.selected}m▌`;
 
 class ViewerScenarios extends Viewers {
+  async test_custom_prefix_editor_saves_and_routes_pane_input() {
+    const file = join(this.temp.name, "keys"),
+      script = join(this.temp.name, "keys.ts");
+    writeExecutable(
+      script,
+      `import { appendFileSync } from "node:fs";
+process.stdin.setRawMode(true);
+process.stdin.on("data", chunk => appendFileSync(${JSON.stringify(file)}, chunk));
+process.stdout.write("PREFIX_READY");
+`,
+    );
+    await this.open_pane({ command: `exec ${quote(script)}`, cwd: this.temp.name });
+    const viewer = await this.newViewer();
+    await this.until(async () => (await viewer.poll()).data.includes("PREFIX_READY"));
+    await viewer.input("\x02?\x05\x1b[A\r");
+    this.assertIn("Prefix key", viewer.state.data);
+    this.assertIn("Record Enter", viewer.state.data);
+    await viewer.input("\x1b[27u\x05/prefix\x1b[B\r");
+    this.assertIn("Record Enter", viewer.state.data);
+    await viewer.input("\x1b[B\x1b[C\x1b[A\r\x1b[20~\r");
+    this.assertEqual(JSON.parse(readFileSync(this.configFile(), "utf8")).prefix, "f9");
+    await viewer.input("\x1b[27u\x1b[27u");
+    await viewer.input("\x1b[20~\x1b[20~\x02\x01");
+    await this.until(() => existsSync(file) && readFileSync(file, "utf8") === "\x1b[20~\x02\x01");
+    await viewer.input("\x1b[20~?");
+    this.assertIn("Prefix = F9", screen_text(viewer.state.data, 100, 30).join("\n"));
+  }
+
   async test_ghostty_setup_toggle_preserves_config_and_routes_tabs() {
     delete this.env.SSH_CONNECTION;
     delete this.env.SSH_TTY;
@@ -55,7 +83,7 @@ class ViewerScenarios extends Viewers {
     this.assertEqual(statSync(config).mode & 0o777, 0o640);
     this.assertTrue(enabled.startsWith(original));
     for (let i = 1; i <= 9; i++) {
-      this.assertIn(`keybind = cmd+digit_${i}=text:\\x02${i}`, enabled);
+      this.assertIn(`keybind = cmd+digit_${i}=text:\\x1b[98;5u${i}`, enabled);
       this.assertEqual((await viewer.input(`\x02${i}`)).pane, panes[i - 1]);
     }
     this.assertEqual((await viewer.input("\x02n")).pane, panes[0]);

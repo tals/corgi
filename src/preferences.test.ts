@@ -19,6 +19,8 @@ import {
   write,
   update,
   updateKeys,
+  updatePrefix,
+  inspectConfig,
   inspect,
   load,
   migrate,
@@ -28,6 +30,34 @@ import {
 import * as state_formats from "./persist/state_formats";
 import * as keybindings from "./keybindings";
 import { flock } from "./native_bridge";
+
+test("prefix settings migrate before live reload and reject stale editor writes", async () => {
+  const { root, where } = await scratch("preferences-prefix");
+  try {
+    await put(where.viewer, { format: "50cd70f93bfd", onboarding_complete: true });
+    await put(where.config, { prefix: "ctrl_a", theme: "corgi" });
+    expect(inspectConfig(where).prefs?.prefix).toBe("ctrl+a");
+    migrate(where);
+    expect(await json(where.config)).toEqual({ prefix: "ctrl+a", theme: "corgi" });
+    const before = read(where);
+    update({ preset: "tmux" }, where);
+    expect(() => updatePrefix(before, "f9", where)).toThrow("Shortcuts changed on disk");
+    expect(read(where).prefix).toBe("ctrl+a");
+    const saved = updatePrefix(read(where), "f9", where);
+    expect(saved).toMatchObject({ preset: "tmux", prefix: "f9", theme: "corgi" });
+    expect(inspectConfig(where).prefs?.prefix).toBe("f9");
+    await put(where.config, { prefix: "not-a-key", theme: "corgi" });
+    const reading = inspectConfig(where);
+    expect(reading.prefs).toMatchObject({ prefix: "ctrl+b", theme: "corgi" });
+    expect(reading.problems[0].text).toContain("prefix");
+    await put(where.config, { prefix: "f9" });
+    await writeFile(where.viewer, "{");
+    expect(inspectConfig(where).prefs?.prefix).toBe("f9");
+    expect(inspectConfig(where).problems[0].file).toBe(where.viewer);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 const current = state_formats.viewer.current;
 async function scratch(name: string): Promise<{ root: string; where: Paths }> {
@@ -94,7 +124,7 @@ test.each([false, true])("legacy setup carries over while the files are locked (
   try {
     expect(flock(fd)).toBe(true);
     // A config.json already there keeps its own choices; only setup being done carries.
-    const expected = Object.assign(new Preferences(), existing ? shared : { preset: "tmux", prefix: "ctrl_a" }, {
+    const expected = Object.assign(new Preferences(), existing ? shared : { preset: "tmux", prefix: "ctrl+a" }, {
       onboarding_complete: true,
     });
     expect(attempt()).toEqual(JSON.parse(JSON.stringify(expected)));
@@ -104,7 +134,7 @@ test.each([false, true])("legacy setup carries over while the files are locked (
     expect(attempt()).toEqual(JSON.parse(JSON.stringify(expected)));
     expect(read(where)).toEqual(expected);
     expect(await json(where.config)).toMatchObject(
-      existing ? { preset: "corgi" } : { preset: "tmux", prefix: "ctrl_a" },
+      existing ? { preset: "corgi" } : { preset: "tmux", prefix: "ctrl+a" },
     );
     expect(await json(where.viewer)).toMatchObject({ onboarding_complete: true, format: current });
   } finally {
@@ -169,14 +199,17 @@ test("legacy setup applies the old keymap and skips only the shortcuts it clashe
       },
       async () => {
         for (const [preset, prefix, chord] of [
-          ["corgi", "ctrl_a", "ctrl+a"],
-          ["tmux", "ctrl_b", "prefix+0"],
-          ["corgi", "ctrl_a", "prefix+y"],
+          ["corgi", "ctrl+a", "ctrl+a"],
+          ["tmux", "ctrl+b", "prefix+0"],
+          ["corgi", "ctrl+a", "prefix+y"],
         ] as const) {
           // A shared viewer.json from before config.json, and none yet.
           rmSync(where.config, { force: true });
           await put(where.viewer, { keys: { new: chord }, sidebar_width: 45 });
-          writeFileSync(socket + ".viewer.json", JSON.stringify({ preset, prefix, onboarding_complete: true }));
+          writeFileSync(
+            socket + ".viewer.json",
+            JSON.stringify({ preset, prefix: prefix.replace("+", "_"), onboarding_complete: true }),
+          );
           const migrated = load();
           expect(() => migrated.bindings()).not.toThrow();
           expect(migrated).toMatchObject({ preset, prefix, onboarding_complete: true, sidebar_width: 45 });
@@ -355,7 +388,7 @@ test("a setting or shortcut this build can't use falls back alone and is named",
     });
     const { prefs, problems } = inspect(where);
     // viewer.json's fields are the viewers' own, and fall back quietly.
-    expect(prefs).toMatchObject({ onboarding_complete: true, prefix: "ctrl_b", sidebar_width: 28, review_width: 50 });
+    expect(prefs).toMatchObject({ onboarding_complete: true, prefix: "ctrl+b", sidebar_width: 28, review_width: 50 });
     expect(prefs.keys).toEqual({ worktrees: "ctrl+alt+g", new: "prefix+y" });
     expect(problems.every(p => p.file === where.config)).toBe(true);
     expect(problems.map(p => p.text.slice(0, p.text.indexOf(":")))).toEqual([
@@ -472,12 +505,12 @@ test("saving rewrites only what changed and keeps what this build skipped", asyn
     expect(saved).toMatchObject({ future: { kept: true }, prefix: "hyper_q", theme: "animal_style" });
     // A save that would make a working shortcut fall back is refused.
     await put(where.config, { keys: { new: "ctrl+a" } });
-    expect(() => update({ prefix: "ctrl_a" }, where)).toThrow("keys.new");
-    expect(read(where).prefix).toBe("ctrl_b");
+    expect(() => update({ prefix: "ctrl+a" }, where)).toThrow("keys.new");
+    expect(read(where).prefix).toBe("ctrl+b");
     // One already skipped may fall back for a new reason.
     await put(where.config, { keys: { new: ["ctrl+a", "ctrl+b"] } });
-    update({ prefix: "ctrl_a" }, where);
-    expect(read(where).prefix).toBe("ctrl_a");
+    update({ prefix: "ctrl+a" }, where);
+    expect(read(where).prefix).toBe("ctrl+a");
     // A skipped shortcut the editor's change frees comes back with the save.
     await put(where.config, { keys: { new: "alt+x", close: "alt+x" } });
     const before = read(where);
@@ -491,21 +524,21 @@ test("saving rewrites only what changed and keeps what this build skipped", asyn
 test("onboarding's choices go to config.json, and choosing what it holds writes nothing there", async () => {
   const { root, where } = await scratch("preferences-onboarding");
   try {
-    update({ preset: "tmux", prefix: "ctrl_a", onboarding_complete: true }, where);
-    expect(await json(where.config)).toEqual({ preset: "tmux", prefix: "ctrl_a" });
+    update({ preset: "tmux", prefix: "ctrl+a", onboarding_complete: true }, where);
+    expect(await json(where.config)).toEqual({ preset: "tmux", prefix: "ctrl+a" });
     expect(await json(where.viewer)).toEqual({ format: current, onboarding_complete: true });
     // A config.json linked read-only, as home-manager links one, still lets setup finish.
     await put(where.viewer, { format: current });
     chmodSync(where.config, 0o400);
     chmodSync(dirname(where.config), 0o500);
     try {
-      update({ preset: "tmux", prefix: "ctrl_a", onboarding_complete: true }, where);
+      update({ preset: "tmux", prefix: "ctrl+a", onboarding_complete: true }, where);
       expect(() => update({ preset: "herdr" }, where)).toThrow();
     } finally {
       chmodSync(dirname(where.config), 0o700);
       chmodSync(where.config, 0o600);
     }
-    expect(read(where)).toMatchObject({ preset: "tmux", prefix: "ctrl_a", onboarding_complete: true });
+    expect(read(where)).toMatchObject({ preset: "tmux", prefix: "ctrl+a", onboarding_complete: true });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -621,7 +654,7 @@ test("migration removes existing settings copies, and later saves keep them only
   try {
     const config = {
       preset: "tmux",
-      prefix: "ctrl_a",
+      prefix: "ctrl+a",
       language: "ja",
       theme: "animal_style",
       corgi_intensity: 75,

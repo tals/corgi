@@ -7,7 +7,6 @@ import { Host } from "./host";
 import { State } from "./navigation";
 import { Runtime } from "./mirror";
 import { transport } from "./fixtures/transport";
-import { prefixByte } from "./keymap";
 import * as viewer from "./viewer";
 import * as protocol from "./protocol";
 import * as sidebar from "./sidebar";
@@ -114,7 +113,7 @@ test("workspace and tab input runs while a network update is unresolved, and she
     endpoint.pump(true);
     await Reflect.get(endpoint, "ui_task");
     expect(view.current().id).toBe(3);
-    endpoint.enqueue(Uint8Array.from([prefixByte(view.prefs.prefix), 110, 120]));
+    endpoint.enqueue(Uint8Array.from([2, 110, 120]));
     endpoint.pump(true);
     await Reflect.get(endpoint, "ui_task");
     expect(endpoint.machine.navigation.tabs(endpoint.machine.runtime.workspaces).active).toBe(1);

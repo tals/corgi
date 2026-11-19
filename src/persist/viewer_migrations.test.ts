@@ -6,6 +6,22 @@ import type { ViewerFiles } from "./revision_values";
 const history = state_formats.viewer,
   copied = "3bc5f3ca7f53";
 
+test.each([
+  ["ctrl_a", "ctrl+a", "ctrl_a"],
+  ["ctrl_b", "ctrl+b", "ctrl_b"],
+  ["f9", "f9", "ctrl_b"],
+  ["ctrl+space", "ctrl+space", "ctrl_b"],
+  ["ctrl+\\", "ctrl+\\", "ctrl_b"],
+  ["not-a-key", "not-a-key", "ctrl_b"],
+])("prefix migration preserves %s on upgrade and uses the old choices on downgrade", (before, after, down) => {
+  const original = { viewer: { onboarding_complete: true }, config: { prefix: before, future: true } },
+    up = history.up(original, "50cd70f93bfd") as ViewerFiles;
+  expect(up).toEqual({ ...original, config: { prefix: after, future: true } });
+  expect(history.up(up, "50cd70f93bfd")).toEqual(up);
+  expect(history.down(up, "50cd70f93bfd")).toEqual({ ...original, config: { prefix: down, future: true } });
+  expect(original.config.prefix).toBe(before);
+});
+
 test.each([copied, "d495e64414cb", "67a3f5d4cd43"])(
   "viewer migration restores settings only when downgrading to %s",
   target => {
@@ -23,7 +39,7 @@ test.each([copied, "d495e64414cb", "67a3f5d4cd43"])(
       config = { ...settings, future_config: 1 },
       original = { viewer: { ...state, ...settings, theme: "corgi" }, config };
     const up = history.up(original, copied) as ViewerFiles;
-    expect(up).toEqual({ viewer: state, config });
+    expect(up).toEqual({ viewer: state, config: { ...config, prefix: "ctrl+a" } });
     expect(original.viewer.theme).toBe("corgi");
     const down = history.down(up, target) as ViewerFiles;
     expect(down.config).toEqual(config);
@@ -55,10 +71,15 @@ test.each([copied, "d495e64414cb", "67a3f5d4cd43"])(
       },
       files = { viewer: state, config },
       down = preferences.downgrade(files, target);
-    const expected = { onboarding_complete: true, sidebar_width: 45, keys: { new: "alt+x", "worktrees:0": "alt+w" } };
+    const expected = {
+      onboarding_complete: true,
+      sidebar_width: 45,
+      prefix: "ctrl_b",
+      keys: { new: "alt+x", "worktrees:0": "alt+w" },
+    };
     expect(down.viewer).toEqual(target === "67a3f5d4cd43" ? expected : { ...expected, format: target });
-    expect(down.config).toEqual(config);
-    expect((history.up(down, target) as ViewerFiles).config).toEqual(config);
+    expect(down.config).toEqual({ ...config, prefix: "ctrl_b" });
+    expect((history.up(down, target) as ViewerFiles).config).toEqual({ ...config, prefix: "ctrl+b" });
     expect(files.viewer.format).toBe(history.current);
   },
 );

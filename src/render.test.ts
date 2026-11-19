@@ -77,7 +77,7 @@ function stubPane(fields: Partial<Omit<Pane, "terminal">>, terminal = stubTermin
 
 test("the empty sidebar's New keycap prefers short direct bindings and falls back to the prefix", () => {
   const u = ui({ sidebar_open: true, message: "", copy_mode: false });
-  u.prefs.prefix = "ctrl_a";
+  u.prefs.prefix = "ctrl+a";
   expect(frame(emptyView(), [], 100, 30, u)).toContain(palette.keycap + " Ctrl+T ");
   u.prefs.keys = { new: ["Prefix+c", "Ctrl+Shift+n", "Alt+n"] };
   expect(frame(emptyView(), [], 100, 30, u)).toContain(palette.keycap + " Opt+N ");
@@ -842,7 +842,7 @@ function testVisible(bytes: string): string {
 test("the prefix bar spans the pane area's bottom row and drops hints that do not fit", () => {
   const cases: { width: number; prefix?: Prefix; text: string }[] = [
     { width: 60, text: " PREFIX  Esc cancel  Ctrl+B send prefix  ? shortcuts        " },
-    { width: 60, prefix: "ctrl_a", text: " PREFIX  Esc cancel  Ctrl+A send prefix  ? shortcuts        " },
+    { width: 60, prefix: "ctrl+a", text: " PREFIX  Esc cancel  Ctrl+A send prefix  ? shortcuts        " },
     { width: 40, text: " PREFIX  Esc cancel  ? shortcuts        " },
     { width: 25, text: " PREFIX  ? shortcuts     " },
     { width: 12, text: " PREFIX     " },
@@ -850,7 +850,7 @@ test("the prefix bar spans the pane area's bottom row and drops hints that do no
   ];
   for (const c of cases) {
     const out = new Writer();
-    drawPrefixBar(out, new Rect(30, 1, c.width, 20), "corgi", c.prefix ?? "ctrl_b");
+    drawPrefixBar(out, new Rect(30, 1, c.width, 20), "corgi", c.prefix ?? "ctrl+b");
     expect(out.buffered().startsWith("\x1b[21;31H")).toBe(true);
     expect(testVisible(out.buffered())).toBe(c.text);
   }

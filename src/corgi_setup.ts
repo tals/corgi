@@ -726,7 +726,7 @@ export class Menu implements LinkSource {
       this.after_prefix = false;
       return bindings.lookup(prefs.bindings(), true, key.codepoint, key.mods)?.name === "detach" ? "detach" : "taken";
     }
-    if (!keys.same(key, { codepoint: km.prefixByte(prefs.prefix), mods: {} })) return null;
+    if (!keys.same(key, km.prefixKey(prefs.prefix))) return null;
     this.after_prefix = true;
     return "taken";
   }
@@ -1902,8 +1902,6 @@ export class Menu implements LinkSource {
         ];
       }
       case "keyboard": {
-        const other = prefs.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b",
-          prefixName = km.prefixName(other);
         return [
           title(i18n.t`Keymap`),
           fit.keys
@@ -1925,7 +1923,7 @@ export class Menu implements LinkSource {
             detail: km.prefixName(prefs.prefix),
             mark: "none",
             apply: { kind: "prefix" },
-            action: i18n.t`switch to ${prefixName}`,
+            action: i18n.t`edit`,
           }),
           option({
             label: i18n.t`Customize`,
@@ -2296,7 +2294,7 @@ const commandJobs = (): { job: string; actions: string[] }[] => [
 ];
 /** Command keys' active jobs; consecutive numbered keys show as ⌘1–9. */
 function commandRows(prefs: Preferences): [string, string][] {
-  const bound = ghosttyIntegration.commandKeys(prefs.preset, prefs.bindings()),
+  const bound = ghosttyIntegration.commandKeys(prefs.preset, prefs.bindings(), prefs.prefix),
     key = (name: string) => {
       const labels = [
         ...new Set(bound.filter(b => b.action.name === name).map(b => ghosttyIntegration.macLabel(b.host))),

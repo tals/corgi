@@ -310,7 +310,7 @@ export function restore(preset: Preset, config: Config, name: string): Config {
   return next;
 }
 export function validatePrefix(config: Config, prefix: keymap.Prefix): void {
-  const key = { codepoint: keymap.prefixByte(prefix), mods: {} };
+  const key = keymap.prefixKey(prefix);
   for (const [name, value] of Object.entries(config)) {
     const indexed = name === "tab" || name === "goto-workspace";
     for (const v of Array.isArray(value) ? value : [value])

@@ -9,6 +9,20 @@ const conn: any = {
     throw Error("UnexpectedRpc");
   },
 };
+test.each(["ctrl+b", "control+b", "Ctrl+B"])("prefix toggles compare the logical key for %s", async prefix => {
+  for (const key of ["p", " ", "\r"]) {
+    const state = State.start("keyboard", "corgi", prefix);
+    try {
+      state.focus = 1;
+      await state.key(key, conn);
+      expect(state.prefix).toBe("ctrl+a");
+      await state.key(key, conn);
+      expect(state.prefix).toBe("ctrl+b");
+    } finally {
+      state.close();
+    }
+  }
+});
 test("translated welcome hints leave room before the continue button", () => {
   const previous = i18n.language();
   try {
@@ -125,10 +139,10 @@ test("workspace previews keep recovery rows and handoff selection aligned while 
   state.close();
 });
 test("keyboard setup saves without chaining and Esc closes it; first run cannot be dismissed", async () => {
-  const keyboard = State.start("keyboard", "tmux", "ctrl_b");
+  const keyboard = State.start("keyboard", "tmux", "ctrl+b");
   expect(await keyboard.key(13, conn)).toBe(true);
   expect(keyboard.step).toBe("presets");
-  const escape = State.start("keyboard", "corgi", "ctrl_b");
+  const escape = State.start("keyboard", "corgi", "ctrl+b");
   expect(await escape.key(27, conn)).toBe(true);
   expect(escape.cancelled).toBe(true);
   const welcome = new State();
@@ -142,7 +156,7 @@ test("welcome's arrows move between the presets and the themes beside them", asy
   // 3024 Day: dark text on a light background.
   palette.use(undefined, { foreground: [74, 69, 67], background: [247, 247, 247], ansi: Array(16).fill(null) });
   const welcome = new State(),
-    keyboard = State.start("keyboard", "corgi", "ctrl_b");
+    keyboard = State.start("keyboard", "corgi", "ctrl+b");
   try {
     expect(welcome.frame(112, 36)).toContain(" Theme ");
     expect(palette.chosen(welcome.theme)).toBe("animal_style");

@@ -143,7 +143,7 @@ async function run(binary: string, directory: string): Promise<Frame[]> {
     JSON.stringify({
       onboarding_complete: true,
       preset: "corgi",
-      prefix: "ctrl_b",
+      prefix: "ctrl+b",
       corgi_intensity: 0,
       resources: { enabled: false },
     }),
