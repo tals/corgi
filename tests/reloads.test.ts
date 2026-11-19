@@ -229,7 +229,11 @@ ftruncateSync(fd, 0); writeSync(fd, JSON.stringify(m));
 libc.symbols.lseek(fd, 0n, 0);
 `,
     );
-    writeFileSync(candidate, `#!/bin/sh\nbun ${quote(transformer)} "$2"\nexec ${quote(EXE)} "$@"\n`, { mode: 0o700 });
+    writeFileSync(
+      candidate,
+      `#!/bin/sh\nif [ "$1" = __handoff-info ]; then echo "corgi: UnknownCommand" >&2; exit 1; fi\nbun ${quote(transformer)} "$2"\nexec ${quote(EXE)} "$@"\n`,
+      { mode: 0o700 },
+    );
     chmodSync(candidate, 0o700);
     return candidate;
   }
@@ -459,6 +463,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       }
     });
     const original = JSON.parse(readFileSync(saved, "utf8"));
+    delete original.transfer;
     new Function("state", `${DOWNGRADE}checkpointV4(state);`)(original);
     original.version = 2;
     original.panes[0].agent.provider = "other";
@@ -665,10 +670,68 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     }
   }
   async test_cold_recovery_resumes_the_agent_in_its_pane_once_focused() {
+    await this.cold_resume();
+  }
+  async test_cold_recovery_without_metadata_resumes_the_original_agent_once_focused() {
+    await this.cold_resume(true);
+  }
+  async test_cold_recovery_does_not_replay_custom_launcher_commands() {
+    await this.cold_command();
+  }
+  async test_cold_recovery_without_metadata_does_not_replay_custom_launcher_commands() {
+    await this.cold_command(true);
+  }
+  async test_cold_recovery_does_not_replay_a_command_woken_after_handoff() {
+    await this.cold_command(false, true);
+  }
+  async cold_command(discardMetadata = false, hibernate = false) {
+    const runs = join(this.temp.name, "command-runs"),
+      command = `printf 'RUN\\n' >> ${quote(runs)}; exec /bin/sh`;
+    await this.command("agent.command", { index: 0, command, resolve: false });
+    const { pane } = await this.command("agent.command.create", {
+      workspace: (await this.session()).workspaces[0].id,
+      cwd: this.temp.name,
+      index: 0,
+    });
+    await this.until(() => existsSync(runs));
+    this.assertEqual(readFileSync(runs, "utf8"), "RUN\n");
+    if (hibernate) {
+      await this.command("pane.hibernate", { targets: [pane] });
+      await this.reload();
+      const viewer = await Viewer.create(this);
+      await viewer.focus(pane);
+      await this.until(() => readFileSync(runs, "utf8") === "RUN\nRUN\n");
+      await viewer.close();
+    }
+    await this.restart_recovery(discardMetadata);
+    const recovered = (await this.session()).panes.find((p: any) => p.id === pane);
+    this.assertFalse(recovered.dormant);
+    this.assertGreater(recovered.pid, 0);
+    const viewer = await Viewer.create(this);
+    await viewer.focus(pane);
+    await this.command("pane.input", { target: pane, data: "printf 'FRESH_%s\\n' SHELL\r" });
+    await this.until(async () => (await this.screen(pane)).includes("FRESH_SHELL"));
+    this.assertEqual(readFileSync(runs, "utf8"), hibernate ? "RUN\nRUN\n" : "RUN\n");
+  }
+  async restart_recovery(discardMetadata: boolean) {
+    const saved = await this.rpc({ op: "recovery.save" });
+    if (!discardMetadata) return this.restart_runtime();
+    await this.run_cli("shutdown");
+    await this.until(() => !existsSync(this.path));
+    const state = JSON.parse(readFileSync(saved.path, "utf8"));
+    state.transfer.format = "f".repeat(12);
+    writeFileSync(saved.path, JSON.stringify(state));
+    await this.run_cli("start");
+  }
+  async cold_resume(discardMetadata = false) {
     const resumes = join(this.temp.name, "resumes.jsonl"),
-      session = "01901234-1234-1234-1234-123456789aaa";
+      session = "01901234-1234-1234-1234-123456789aaa",
+      bin = join(this.temp.name, "resume-bin");
+    mkdirSync(bin);
+    this.env.PATH = `${bin}:${this.env.PATH}`;
+    writeExecutable(join(bin, "codex"), "console.log('WRONG_BINARY_ON_PATH');");
     this.env.CORGI_CODEX_BIN = writeExecutable(
-      join(this.temp.name, "codex-resume"),
+      join(bin, "selected-codex"),
       `import { appendFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 if (!args.includes('resume')) process.exit(0);
@@ -681,16 +744,19 @@ await Bun.sleep(120000);
     const first = await this.new("printf 'BEFORE_%s\\n' CRASH; exec /bin/sh");
     await this.until(async () => (await this.screen(first)).includes("BEFORE_CRASH"));
     await this.pair(first, session);
-    await this.rpc({ op: "recovery.save" });
-    await this.restart_runtime();
+    await this.restart_recovery(discardMetadata);
     const pane = async () => (await this.session()).panes.find((p: any) => p.id === first);
     this.assertEqual([(await pane()).dormant, (await pane()).pid], [true, -1]);
-    this.assertEqual((await pane()).restoring, `codex resume ${session}`);
+    this.assertEqual(
+      (await pane()).restoring,
+      discardMetadata ? `${this.env.CORGI_CODEX_BIN} resume ${session}` : `codex resume ${session}`,
+    );
     await this.reload();
     this.assertTrue((await pane()).dormant);
     const viewer = await Viewer.create(this);
     await viewer.focus(first);
-    await this.until(() => existsSync(resumes));
+    await this.until(async () => existsSync(resumes) || (await this.screen(first)).includes("WRONG_BINARY_ON_PATH"));
+    this.assertTrue(existsSync(resumes), "provider override was bypassed");
     this.assertEqual(JSON.parse(readFileSync(resumes, "utf8")).slice(-2), ["resume", session]);
     const woken = await pane();
     this.assertEqual([woken.dormant, woken.pid > 0], [false, true]);
@@ -727,7 +793,7 @@ await Bun.sleep(120000);
     });
     await this.until(async () => (await this.screen(first)).includes("ROLLBACK_OK"));
   }
-  async test_reload_drops_input_a_blocked_pane_never_read() {
+  async test_reload_preserves_input_a_blocked_pane_has_not_read() {
     const program = join(this.temp.name, "blocked.ts"),
       gate = join(this.temp.name, "gate"),
       received = join(this.temp.name, "received");
@@ -757,7 +823,7 @@ process.stdin.resume();
     writeFileSync(gate, "");
     await this.command("pane.input", { data: "END", target: first });
     await this.until(() => existsSync(received) && readFileSync(received).toString().endsWith("END"));
-    this.assertTrue(statSync(received).size < 8 * 65536 + 3);
+    this.assertEqual(readFileSync(received).toString(), "a".repeat(8 * 65536) + "END");
   }
   async test_headless_cold_recovery_displays_resume_without_starting_agent() {
     this.env.SHELL = "/bin/bash";

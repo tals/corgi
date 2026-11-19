@@ -946,6 +946,8 @@ $.replies.hello.build_id: string
 $.replies.hello.executable: string
 $.replies.hello.release_version: string
 $.replies.hello.update_abi: string
+$.replies.hello.handoff: optional
+$.replies.hello.handoff?: u32
 $.replies.hello.content_encoding: optional
 $.replies.hello.content_encoding?: enum zstd
 $.replies.session.command.result.pane: u32

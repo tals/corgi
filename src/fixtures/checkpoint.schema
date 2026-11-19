@@ -314,6 +314,7 @@ $.panes[].screen.exit_status: i32
 $.panes[].screen.runs_command: bool
 $.panes[].screen.initial_input: optional
 $.panes[].screen.initial_input?: string
+$.panes[].screen.pending: string
 $.panes[].detection.claim: optional
 $.panes[].detection.claim?.provider: provider
 $.panes[].detection.claim?.owner: i32
@@ -333,6 +334,10 @@ $.panes[].resume_hint.touched_at: i64
 $.panes[].resume_hint.provider: optional
 $.panes[].resume_hint.provider?: provider
 $.panes[].resume_hint.session: custom bounded_text.BoundedText(160)
+$.panes[].resume_hint.account: optional
+$.panes[].resume_hint.account?: string
+$.panes[].resume_hint.executable: optional
+$.panes[].resume_hint.executable?: string
 $.panes[].resume_hint.permissions: optional
 $.panes[].resume_hint.permissions?: enum default bypass
 $.panes[].resume_hint.model: custom bounded_text.BoundedText(160)
@@ -345,7 +350,7 @@ $.panes[].launch?|agent.effort: string
 $.panes[].launch?|agent.args[]: string
 $.panes[].launch?|agent.env[][]: string
 $.panes[].launch?|agent.observed: bool
-$.panes[].launch?|command: custom bounded_text.BoundedText(2048)
+$.panes[].launch?|command: string
 $.panes[].dormant: bool
 $.panes[].manual_resume: bool
 $.panes[].effort: optional
@@ -353,7 +358,9 @@ $.panes[].effort?.value: string
 $.panes[].effort?.done[]: string
 $.panes[].effort?.last: string
 $.panes[].manual_command: optional
-$.panes[].manual_command?: custom bounded_text.BoundedText(2048)
+$.panes[].manual_command?: string
+$.panes[].recovery_command: optional
+$.panes[].recovery_command?: string
 $.closed[].label: custom bounded_text.BoundedText(80)
 $.closed[].cwd: string
 $.closed[].screen.cols: u16
@@ -367,6 +374,7 @@ $.closed[].screen.exit_status: i32
 $.closed[].screen.runs_command: bool
 $.closed[].screen.initial_input: optional
 $.closed[].screen.initial_input?: string
+$.closed[].screen.pending: string
 $.closed[].tab.id: u32
 $.closed[].tab.root: u32
 $.closed[].tab.title: custom bounded_text.BoundedText(80)
@@ -376,6 +384,10 @@ $.closed[].resume_hint.touched_at: i64
 $.closed[].resume_hint.provider: optional
 $.closed[].resume_hint.provider?: provider
 $.closed[].resume_hint.session: custom bounded_text.BoundedText(160)
+$.closed[].resume_hint.account: optional
+$.closed[].resume_hint.account?: string
+$.closed[].resume_hint.executable: optional
+$.closed[].resume_hint.executable?: string
 $.closed[].resume_hint.permissions: optional
 $.closed[].resume_hint.permissions?: enum default bypass
 $.closed[].resume_hint.model: custom bounded_text.BoundedText(160)
@@ -388,7 +400,7 @@ $.closed[].launch?|agent.effort: string
 $.closed[].launch?|agent.args[]: string
 $.closed[].launch?|agent.env[][]: string
 $.closed[].launch?|agent.observed: bool
-$.closed[].launch?|command: custom bounded_text.BoundedText(2048)
+$.closed[].launch?|command: string
 $.closed[].pane: u32
 $.closed[].tab_index: optional
 $.closed[].tab_index?: u8
@@ -490,6 +502,10 @@ $.sessions[].resume_hint.touched_at: i64
 $.sessions[].resume_hint.provider: optional
 $.sessions[].resume_hint.provider?: provider
 $.sessions[].resume_hint.session: custom bounded_text.BoundedText(160)
+$.sessions[].resume_hint.account: optional
+$.sessions[].resume_hint.account?: string
+$.sessions[].resume_hint.executable: optional
+$.sessions[].resume_hint.executable?: string
 $.sessions[].resume_hint.permissions: optional
 $.sessions[].resume_hint.permissions?: enum default bypass
 $.sessions[].resume_hint.model: custom bounded_text.BoundedText(160)

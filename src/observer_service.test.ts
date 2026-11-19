@@ -119,11 +119,15 @@ test("foreground detection checks installation again when the agent keeps its PI
 test("agent detection consumes a staged restore before hooks can save its state", () => {
   const { server, pane } = fixture();
   pane.manual_resume = true;
+  pane.manual_command = "codex 'initial prompt'";
+  pane.recovery_command = pane.manual_command;
   detectPane(server, pane, null);
   expect(pane.manual_resume).toBe(true);
   const durable = server.runtime.durable;
   detectPane(server, pane, { provider: "codex", pid: 42 });
   expect(pane.manual_resume).toBe(false);
+  expect(pane.manual_command).toBeNull();
+  expect(pane.recovery_command).toBeNull();
   expect(server.runtime.durable).toBeGreaterThan(durable);
 });
 

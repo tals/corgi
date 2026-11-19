@@ -7,6 +7,9 @@ export class ResumeHint {
   touched_at = 0;
   provider: Provider | null = null;
   session = new Text();
+  account: string | null = null;
+  /** Verifies the saved core command; launches still follow current configuration. */
+  executable: string | null = null;
   /** The permission checks and model the agent last reported, which it
    * comes back with. */
   permissions: Permissions | null = null;
@@ -20,6 +23,8 @@ export class ResumeHint {
         this.touched_at = 0;
         this.permissions = null;
         this.model = new Text();
+        this.account = null;
+        this.executable = null;
       }
       if (agent.name.len) this.name = new Text(agent.name.text());
       if (agent.permissions) this.permissions = agent.permissions;
@@ -30,22 +35,22 @@ export class ResumeHint {
     } else if (!this.provider) this.provider = provider;
   }
   /** The arguments that resume its session, after the ones it started with. */
-  args(account = ""): string[] | null {
+  args(account = this.account ?? ""): string[] | null {
     const session = this.session.text();
     if (!this.provider || !validRef({ id: session })) return null;
     return adapter(this.provider).launch.resume(session, account);
   }
   /** The command that attaches to its session where that already runs in
    * `account`; it runs with the variables that pick the account. */
-  attach(account = ""): string | null {
+  attach(account = this.account ?? ""): string | null {
     if (!this.provider || this.args(account) === null) return null;
     const { command, launch } = adapter(this.provider),
       args = launch.attach?.(this.session.text(), account);
     return args ? shellWords([command, ...args]) : null;
   }
-  command(): string {
-    const args = this.args();
-    return this.attach() ?? (args && this.provider ? shellWords([this.provider, ...args]) : "");
+  command(account = this.account ?? ""): string {
+    const args = this.args(account);
+    return this.attach(account) ?? (args && this.provider ? shellWords([this.provider, ...args]) : "");
   }
   banner(now: number): string {
     let out = "\x1b[0m\r\n\r\n";
@@ -68,6 +73,8 @@ export class ResumeHint {
       touched_at: this.touched_at,
       provider: this.provider,
       session: this.session.text(),
+      account: this.account,
+      executable: this.executable,
     };
   }
 }

@@ -1,4 +1,5 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
+import * as transfer from "./persist/transfer";
 import {
   chmodSync,
   closeSync,
@@ -745,11 +746,18 @@ async function select(
       return old;
     }
     let safe = !h || h.update_abi === m.update_abi;
-    if (safe) {
+    if (safe || transfer.compatible(h)) {
       try {
-        await activate(root, daemon, candidate, target, !!h);
+        if (!safe) safe = (await transfer.discover(target)) !== null;
+        if (safe) await activate(root, daemon, candidate, target, !!h);
       } catch (error) {
         recordError(root, error);
+        // A core handoff never falls back to restarting the running session.
+        if (transfer.compatible(h)) {
+          if (deferred) write(root, deferred, candidate);
+          if (explicit) throw error;
+          return old;
+        }
         // The runtime is still running; restarting would hand the same state to a cold start.
         if (errors.is(error, "InvalidCheckpoint")) {
           await refuse(
@@ -938,6 +946,10 @@ export function verifyArtifact(exe: string, manifest: string): void {
 }
 export async function internal(args: string[], exe: string): Promise<boolean> {
   switch (args[0]) {
+    case "__handoff-info":
+      if (args.length !== 1) throw Error("Usage");
+      console.log(json.stringify((await import("./persist/transfer")).info()));
+      return true;
     case "__update-info": {
       const r = release(exe);
       console.log(

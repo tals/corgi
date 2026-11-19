@@ -22,6 +22,8 @@ import * as json from "../json";
 import * as worktrees from "../worktrees";
 import * as breadcrumbs from "../breadcrumbs";
 import * as agentEffort from "../agent_effort";
+import * as discovery from "../discovery";
+import { adapter } from "../providers";
 import { validateCheckpoint } from "./schema";
 import { testBuild } from "../build_assets";
 
@@ -89,6 +91,7 @@ export class Screen {
       exit_status: t.exit_status,
       runs_command: t.runs_command,
       initial_input: live ? t.initial_input : null,
+      pending: live ? t.pendingInput() : "",
     };
   }
   static restore(screen: any, live: boolean): Terminal {
@@ -105,6 +108,7 @@ export class Screen {
       t = Terminal.create(screen.cols, screen.rows);
     t.restore(bytes, live ? (screen.title_pid ?? 0) : 0);
     if (live) {
+      if (screen.pending) t.send(binary.decode(screen.pending));
       if (screen.initial_input) t.prefill(screen.initial_input);
       Object.assign(t, {
         fd: screen.fd ?? -1,
@@ -218,6 +222,11 @@ export function capture(r: Runtime, live: boolean) {
     panes: r.panes.map(p => {
       p.refreshCwd();
       if (!p.detection.claim) p.resume_hint.observe(p.agent());
+      if (p.resume_hint.provider) {
+        p.resume_hint.account = p.account();
+        p.resume_hint.executable =
+          discovery.override(p.resume_hint.provider) || adapter(p.resume_hint.provider).command;
+      }
       const binding = captureBinding(p.attachment, live);
       if (p.detection.claim && !live) {
         const observation = binding.provisional.observation;
@@ -236,6 +245,7 @@ export function capture(r: Runtime, live: boolean) {
         manual_resume: p.manual_resume,
         effort: live ? agentEffort.save(r, p) : null,
         manual_command: p.manual_command,
+        recovery_command: p.recovery_command,
       };
     }),
     closed: r.closed.map(p => ({
@@ -305,10 +315,6 @@ export async function restore(
     () => "workspaces, panes or closed isn't a list",
   );
   check(!Array.isArray(state.sessions), () => "sessions isn't a list");
-  check(
-    state.workspaces.length > max_workspaces,
-    () => `${state.workspaces.length} workspaces, over ${max_workspaces}`,
-  );
   check(
     state.closed.length > closed_per_workspace * max_workspaces,
     () => `${state.closed.length} closed tabs, over ${closed_per_workspace * max_workspaces}`,
@@ -454,6 +460,7 @@ export async function restore(
     check(!r.workspaces.owner(p.id), () => `pane ${p.id} isn't in any workspace's layout`);
     check(!isAbsolute(p.cwd), () => `pane ${p.id}'s folder isn't an absolute path`);
     const pane = new Pane(p.id, Screen.restore(p.screen, live), p.cwd);
+    r.panes.push(pane);
     pane.label = p.label ?? "";
     pane.attachment = restoreBinding(r.conversations, p.binding, live, { what: `pane ${p.id}`, repairs, strict });
     pane.detection = live ? hydrate(new Tracker(), p.detection) : new Tracker();
@@ -462,7 +469,7 @@ export async function restore(
     pane.dormant = p.dormant === true;
     pane.manual_resume = p.manual_resume === true || r.workspaces.owner(p.id)!.archived;
     pane.manual_command = pane.manual_resume && typeof p.manual_command === "string" ? p.manual_command : null;
-    r.panes.push(pane);
+    pane.recovery_command = typeof p.recovery_command === "string" ? p.recovery_command : null;
     if (live) agentEffort.restore(r, pane, p.effort);
   }
   for (const w of r.workspaces.items)

@@ -7,7 +7,7 @@ import * as breadcrumbs from "../breadcrumbs";
 import * as checkpoint from "./checkpoint";
 import { checkpoint as schema } from "./schema";
 import { Provider } from "../providers";
-import * as migrations from "./migrations";
+import * as cold from "./cold";
 import * as errors from "../errors";
 import * as json from "../json";
 
@@ -51,7 +51,7 @@ export async function run(path: string, socket: string, executable: string): Pro
     try {
       state = json.parse(bytes);
     } catch {}
-    const decoded = migrations.decode("checkpoint", bytes);
+    const decoded = await cold.read(bytes, socket, executable);
     state = decoded.value;
     await checkpoint.restore(r, decoded.value, false, socket, executable, false, repairs);
     return { ok: true };
@@ -240,7 +240,8 @@ export function anonymize(state: any): unknown {
     (Array.isArray(v) && !v.length) ||
     (!!v && typeof v === "object" && !Array.isArray(v) && !Object.keys(v).length);
   const walk = (value: unknown, key: string, path: string): unknown => {
-    if (payloads.has(path)) return empty(value) ? null : token(key, json.stringify(value), "payload");
+    if (path === "$.transfer.payload" || payloads.has(path))
+      return empty(value) ? null : token(key, json.stringify(value), "payload");
     if (typeof value === "bigint") value = Number(value);
     if (typeof value === "string") return value === "" || kept.get(key)?.has(value) ? value : token(key, value);
     if (typeof value === "number") return saved && timed(key) && value > 1e8 ? before(value) : value;

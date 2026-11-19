@@ -1,0 +1,39 @@
+{
+  "transfer": 1,
+  "format": "68139a93dee0",
+  "core": {
+    "live": true,
+    "saved_at": 1700000000,
+    "next_workspace": 2,
+    "next_pane": 3,
+    "workspaces": [{ "id": 1, "name": "workspace", "cwd": "/tmp" }],
+    "panes": [{
+      "id": 1,
+      "workspace": 1,
+      "cwd": "/tmp",
+      "label": "",
+      "screen": {
+        "cols": 20,
+        "rows": 4,
+        "data": "",
+        "pid": -1,
+        "title_pid": 0,
+        "fd": -1,
+        "exited": true,
+        "exit_status": 0,
+        "runs_command": false,
+        "initial_input": null,
+        "pending": ""
+      },
+      "dormant": false,
+      "manual_resume": false,
+      "command": null
+    }]
+  },
+  "payload": null,
+  "requester": -1,
+  "request_id": null,
+  "start_lock": -1,
+  "older_updater": false,
+  "handles": []
+}

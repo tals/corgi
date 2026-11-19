@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store, Workspace } from "./workspace";
 import * as layout from "./layout";
+import * as state_formats from "./persist/state_formats";
 test("a workspace takes its folder's name at creation and keeps it", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "corgi-ws-")));
   try {
@@ -18,7 +19,11 @@ test("a workspace takes its folder's name at creation and keeps it", async () =>
     s.rename(id, "My project");
     const file = join(root, "workspaces.json");
     await s.save(file, id);
-    expect(JSON.parse(await readFile(file, "utf8")).workspaces[0].name).toBe("My project");
+    const saved = JSON.parse(await readFile(file, "utf8"));
+    expect(saved.workspaces[0].name).toBe("My project");
+    expect(saved.format).toBe(state_formats.workspaces.current);
+    delete saved.version;
+    await writeFile(file, JSON.stringify(saved));
     const restored = new Store();
     expect(await restored.load(file)).toBe(id);
     expect(restored.items[0].name()).toBe("My project");

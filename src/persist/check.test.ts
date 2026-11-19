@@ -40,7 +40,7 @@ test("a checkpoint the release turns down names the check, without paths or sess
   const result = await check.run(write(state), "/tmp/unused.sock", "/tmp/corgi");
   if (result.ok) throw Error("expected a failure");
   expect(result.error).toBe("InvalidCheckpoint");
-  expect(result.why).toBe("workspace 1 isn't between 1 and next_workspace 1");
+  expect(result.why).toBe("invalid terminal core");
   expect(result.state.summary).toBe(
     "cold checkpoint v6: 1 workspace, 1 pane, 0 closed tabs, 0 native sessions, 1 conversation (codex 1)",
   );
@@ -96,4 +96,22 @@ test.each([false, true])("provider payloads are private in reports, live=%s", li
   expect(back.client.state).toMatch(/^<payload \d+>$/);
   expect(back.events[0].seq).toBe(7);
   expect(back.events[0].event).toMatch(/^<payload \d+>$/);
+});
+
+test("failed core decoding cannot expose private metadata from the recovery envelope", async () => {
+  const state = {
+    ...saved(),
+    transfer: {
+      protocol: 1,
+      format: "f".repeat(12),
+      core: {},
+      payload: { runtime: { sessions: [{ client: { state: { customer_account: 123456789, acme_merger: true } } }] } },
+    },
+  };
+  const result = await check.run(write(state), "/tmp/unused.sock", "/tmp/corgi");
+  expect(result.ok).toBe(false);
+  if (result.ok) throw Error("expected a failure");
+  for (const secret of ["customer_account", "123456789", "acme_merger"])
+    expect(result.state.anonymized).not.toContain(secret);
+  expect(json.parse(result.state.anonymized).transfer.payload).toMatch(/^<payload \d+>$/);
 });

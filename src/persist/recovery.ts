@@ -4,6 +4,8 @@ import { Runtime } from "../runtime";
 import { atomicWrite } from "../os";
 import * as checkpoint from "./checkpoint";
 import * as json from "../json";
+import * as transfer from "./transfer";
+import * as cold from "./cold";
 export { atomicWrite };
 export function path(socket: string): string {
   const root = process.env.XDG_STATE_HOME ?? join(process.env.HOME ?? "/", ".local", "state");
@@ -18,7 +20,7 @@ export function path(socket: string): string {
 export async function save(r: Runtime, socket: string): Promise<void> {
   const dest = path(socket);
   mkdirSync(dirname(dest), { recursive: true, mode: 0o700 });
-  atomicWrite(dest, json.stringify(checkpoint.capture(r, false)));
+  atomicWrite(dest, json.stringify(transfer.recovery(r, checkpoint.capture(r, false))));
 }
 /** Where the daemon records a load that repaired the saved session, for the next viewer to report. */
 const repairedPath = (socket: string) => `${path(socket)}.repaired.json`;
@@ -60,15 +62,14 @@ export async function load(r: Runtime, socket: string, executable: string): Prom
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
   }
-  if (Buffer.byteLength(bytes) > 256 * 1024 * 1024) throw Error("FileTooBig");
-  const { decode } = await import("./migrations");
-  const decoded = decode("checkpoint", bytes);
+  const decoded = await cold.read(bytes, socket, executable);
   const repairs = await checkpoint.restore(r, decoded.value, false, socket, executable);
+  if (decoded.discarded) repairs.push("discarded incompatible auxiliary state; restored the terminal core");
   await recordRepairs(socket, decoded.value, repairs, executable);
   if (decoded.migrated) {
     atomicWrite(`${source}.v${decoded.from}`, bytes);
     try {
-      atomicWrite(source, json.stringify(decoded.value));
+      await save(r, socket);
     } catch (error) {
       console.error(`recovery snapshot ${source} could not be rewritten after migration:`, error);
     }

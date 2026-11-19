@@ -72,34 +72,16 @@ export function released(v: string): boolean {
     return false;
   }
 }
-/** Positive means local is newer. Unordered development builds are never guessed by wall-clock time. */
-export async function compare(
-  local: Build,
-  remote: Build,
-  ancestor: (older: string, newer: string) => Promise<boolean>,
-): Promise<number> {
-  if (released(local.version) && released(remote.version)) {
-    const order = updates.compare(local.version, remote.version);
-    if (order) return order;
+/** Setup selects the invoking build, regardless of branch ancestry or release order. */
+export function matches(local: Build, remote: Build): boolean {
+  if (released(local.version) || released(remote.version)) {
+    if (local.version !== remote.version) return false;
     if (local.commit !== remote.commit) throw Error("ConflictingReleaseBuilds");
-    return 0;
+    return true;
   }
-  if (local.build_id && local.build_id === remote.build_id) return 0;
-  if (local.source_hash && local.source_hash === remote.source_hash && local.commit === remote.commit) return 0;
-  const commit = (build: Build) => (/^[a-f0-9]{40}(?:-dirty)?$/.test(build.commit) ? build.commit.slice(0, 40) : "");
-  const a = commit(local),
-    b = commit(remote);
-  if (!a || !b) throw Error("UnorderedDevelopmentBuilds");
-  const dirtyA = local.commit.endsWith("-dirty"),
-    dirtyB = remote.commit.endsWith("-dirty");
-  if (a === b) {
-    if (dirtyA !== dirtyB) return dirtyA ? 1 : -1;
-    if (!dirtyA && (!local.source_hash || !remote.source_hash)) return 0;
-    throw Error("UnorderedDevelopmentBuilds");
-  }
-  if (!dirtyB && (await ancestor(b, a))) return 1;
-  if (!dirtyA && (await ancestor(a, b))) return -1;
-  throw Error("UnorderedDevelopmentBuilds");
+  if (local.build_id && local.build_id === remote.build_id) return true;
+  if (local.source_hash && remote.source_hash) return local.source_hash === remote.source_hash;
+  return false;
 }
 
 /** Installation slots stay readable by older updater binaries. This is not the build's release version. */

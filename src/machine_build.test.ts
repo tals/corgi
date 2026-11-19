@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { version } from "./updates";
-import { compare, parse, slot, type Build } from "./machine_build";
+import { matches, parse, slot, type Build } from "./machine_build";
 const a = "a".repeat(40),
   b = "b".repeat(40);
 const build = (values: Partial<Build> = {}): Build => ({
@@ -14,29 +14,35 @@ const build = (values: Partial<Build> = {}): Build => ({
   update_abi: "1",
   ...values,
 });
-test("machine setup upgrades the older release in either direction", async () => {
+test("machine setup selects the invoking release in either direction", () => {
   const old = build({ version: "1.0.0" }),
     next = build({ version: "1.0.1", commit: b });
-  expect(await compare(next, old, async () => false)).toBeGreaterThan(0);
-  expect(await compare(old, next, async () => false)).toBeLessThan(0);
-  await expect(compare(next, { ...next, commit: a }, async () => false)).rejects.toThrow("ConflictingReleaseBuilds");
+  expect(matches(next, old)).toBe(false);
+  expect(matches(old, next)).toBe(false);
+  expect(matches(next, next)).toBe(true);
+  expect(() => matches(next, { ...next, commit: a })).toThrow("ConflictingReleaseBuilds");
 });
-test("development builds need identity or proved ancestry", async () => {
-  const older = build(),
-    newer = build({ commit: b });
-  expect(await compare(newer, older, async (x, y) => x === a && y === b)).toBe(1);
-  expect(await compare(older, newer, async (x, y) => x === a && y === b)).toBe(-1);
-  await expect(compare(newer, older, async () => false)).rejects.toThrow("UnorderedDevelopmentBuilds");
-  await expect(
-    compare({ ...older, commit: a + "-dirty" }, { ...newer, commit: b + "-dirty" }, async () => true),
-  ).rejects.toThrow("UnorderedDevelopmentBuilds");
-});
-test("dirty cross-platform copies use source identity and cannot overwrite divergent work", async () => {
+test("branches and dirty builds compare source identity without Git ancestry", () => {
   const local = build({ commit: a + "-dirty", source_hash: "a".repeat(64) });
-  expect(await compare(local, { ...local, target: "darwin-arm64" }, async () => false)).toBe(0);
-  await expect(compare(local, { ...local, source_hash: "b".repeat(64) }, async () => false)).rejects.toThrow(
-    "UnorderedDevelopmentBuilds",
-  );
+  expect(matches(local, { ...local, commit: b, target: "darwin-arm64" })).toBe(true);
+  expect(matches(local, { ...local, source_hash: "b".repeat(64) })).toBe(false);
+  expect(matches(local, build({ commit: b + "-dirty" }))).toBe(false);
+  expect(matches(build({ build_id: "c".repeat(64) }), build({ build_id: "c".repeat(64) }))).toBe(true);
+});
+test("release identity takes precedence over identical source and binary hashes", () => {
+  const old = build({ version: "1.0.0", source_hash: "c".repeat(64), build_id: "d".repeat(64) }),
+    next = { ...old, version: "1.0.1" },
+    development = { ...old, version: "0.1.0-dev" };
+  for (const pair of [
+    [old, next],
+    [old, development],
+    [next, development],
+  ]) {
+    expect(matches(pair[0], pair[1])).toBe(false);
+    expect(matches(pair[1], pair[0])).toBe(false);
+  }
+  expect(matches(old, { ...old, target: "darwin-arm64", build_id: "e".repeat(64) })).toBe(true);
+  expect(() => matches(old, { ...old, commit: b })).toThrow("ConflictingReleaseBuilds");
 });
 test("remote metadata accepts old additive fields and rejects unsafe paths and hashes", () => {
   expect(parse({ version: "1.0.0", commit: a, update_abi: "1" }, "linux-x64", "/bin/corgi").executable).toBe(

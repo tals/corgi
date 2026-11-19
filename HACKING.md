@@ -86,19 +86,35 @@ The optional `bridge` path is additive in the version 1 machine catalog and
 remote-info response. Runtime/viewer protocols and checkpoint/handoff formats
 are unchanged; the bridge forwards their existing bytes.
 
-Machine add/check reconcile builds before connecting. Setup installs into an
-existing canonical executable or, when absent, `~/.local/bin/corgi`. Managed
-installations keep their launcher and release history. Signed releases are fetched
-at the exact version using the local installation's update trust; development
-builds use binary/source identity and Git ancestry, never build timestamps.
+Machine add/check select the invoking build for the remote installation, in
+either direction and across branches. Setup keeps the canonical executable,
+managed launcher and release history. Signed releases use the local update
+trust; development artifacts match by source identity, without Git ancestry.
 Cross-platform development setup requires a matching `dist/corgi-<target>` and
-its build metadata. Divergent development builds stop with an explicit error.
-When the remote is newer, setup upgrades the local installation and re-executes
-it to finish the command. State preflight and live handoff preserve running
-shells; setup refuses incompatible handoffs instead of restarting agents.
-Transfers and RPCs have deadlines. Upgrade work runs only in setup commands,
-not in the viewer's reconnect or render path. `__update-info` gains additive
-build metadata; wire and persisted-state versions do not change.
+its build metadata. Setup never installs a remote build onto the local machine.
+Transfers and RPCs have deadlines; reconnecting viewers never switch builds.
+
+Daemons from the branch-aware handoff baseline advertise `handoff: 1` in
+management hello and answer `__handoff-info` with their readable state revision IDs.
+The source selects the nearest common revision from its own migration lineage,
+exports metadata down to it, and transfers that revision ID with the payload. The
+candidate imports metadata up its own lineage before acknowledging readiness.
+The fixed core travels separately: PTYs, process identities, pending input,
+workspace membership and dormant/manual-resume intent cannot be changed by a
+metadata migration. Every supported lineage includes the core-only baseline.
+Unknown metadata can be discarded and layouts rebuilt with one tab per pane.
+Headless provider clients retain their existing compatibility requirements; a
+candidate must account for every active headless session before commit.
+
+A rejected metadata import is retried once with only core. Baseline transfers
+carry null metadata and bypass auxiliary migration functions in both directions.
+A failed candidate leaves the old daemon running. A negotiated core handoff
+never falls back to restarting shells. Update preflight and cold recovery read
+the same core envelope, so a checkpoint from an unknown branch recovers its
+panes without understanding that branch's metadata. Recognized metadata that
+fails validation is also discarded, with a fresh runtime validating the core
+before recovery starts any process. During baseline rollout,
+recovery files also retain the legacy checkpoint fields for older readers.
 
 Pane surfaces carry Kitty image placements; `viewer.image` transfers decoded
 pixels in bounded chunks. [pane_images.ts](src/pane_images.ts) gives each viewer
@@ -313,8 +329,8 @@ or in a container with the dependencies installed.
 
 Before live handoff commits, the replacement must restore and validate its state.
 Failure resumes the old daemon; it never falls back to killing the session.
-The transfer retains PTYs, native pipes, viewer sockets and buffered protocol
-state. Terminal restoration requests a repaint; parser fragments and some
+The transfer retains PTYs, native pipes and buffered input. Viewers reconnect
+after handoff; compatible metadata retains their resumable links. Terminal restoration requests a repaint; parser fragments and some
 terminal state are approximate, so applications can retain display artifacts.
 
 Cold recovery restores layout, directories, retained output and agent identities,
@@ -334,7 +350,8 @@ These are separate compatibility boundaries:
 | Boundary | Definition |
 | --- | --- |
 | Management, runtime and viewer wire formats | [protocol.ts](src/protocol.ts), [viewer_version.ts](src/viewer_version.ts) |
-| Checkpoint and live handoff JSON | [persist/migrations.ts](src/persist/migrations.ts), [persist/steps.ts](src/persist/steps.ts) |
+| Core and branch metadata | [persist/core.ts](src/persist/core.ts), [persist/formats.ts](src/persist/formats.ts), [persist/state_formats.ts](src/persist/state_formats.ts) |
+| Saved-state revisions and decoding | [persist/revisions/](src/persist/revisions/), [persist/formats.ts](src/persist/formats.ts), [persist/migrations.ts](src/persist/migrations.ts) |
 | Live terminal/update compatibility | `terminal_abi` and `update_abi` in [persist/handoff.ts](src/persist/handoff.ts) |
 
 Wire renames, required-field or type changes require the corresponding protocol
@@ -493,30 +510,110 @@ running is answered with `Reloading` and dropped. Handoff
 retains the reload request id and pending headless-start ids as optional fields
 defaulting to null, so the saved-format versions are unchanged.
 
-For saved data, a defaulted addition needs an updated schema snapshot; a rename,
-removal or change of meaning needs a migration:
+Saved-state migrations use explicit revisions modeled on
+[Alembic's revision records](https://alembic.sqlalchemy.org/en/latest/tutorial.html#create-a-migration-script).
+IDs are generated once and checked in; they are independent of Git commits,
+release labels, schema contents and descriptions.
+They are 12-character random hex identifiers.
+Revision filenames are `YYYYMMDD_HHMMSS_<id>_<description>.ts`, using UTC.
+The timestamp is set once; keep it through rebases and cherry-picks. It makes
+files sortable by creation time; parent links determine migration order.
 
-1. Append a pure JSON step to the appropriate list in `persist/steps.ts`.
-   Its position defines the version. Never edit a released step or import
-   changing runtime types into it.
-2. Preserve old fixtures and add input/output examples under
-   [src/fixtures/steps/](src/fixtures/steps/). Cover the upgrade, current round
-   trip, malformed data and rejection of future versions in persistence tests.
-3. Update the relevant `.schema` under [src/fixtures/](src/fixtures/) and review
-   its conformance assertions in [core_schema.test.ts](src/core_schema.test.ts).
-   These tests include pinned schema hashes; there is no current automatic
-   `CORGI_UPDATE_SCHEMA` regeneration command.
-4. For live changes, verify process/client continuity and rollback with the
-   isolated `reloads` integration suite. State migrations cannot repair an
-   incompatible terminal ABI or inherited process interface.
+```sh
+bun tools/state_revision.ts "Store activity timestamps in milliseconds"
+```
 
-Terminal ABI changes describe whether old terminal snapshots can be restored;
-they are independent of JSON schema versions. Update compatibility also gates
-live replacement. Check both when changing the native boundary.
+The command creates a migration in `src/persist/revisions/`, records its
+structure fixture, and selects it in `persist/state_formats.ts`. Every revision
+has an ID, parent, description and pure-JSON `up`/`down` functions. Generated
+steps discard auxiliary state; replace those resets when retaining metadata
+matters. An additive field with defaults can use identity steps in both directions.
+For `workspaces.json`, pass `--workspaces`; its generated steps preserve the
+workspace list by default. The generator selects that history without changing
+the daemon-state head. Checkpoint and handoff histories before the core baseline
+are fixed; new daemon changes go in the shared state history.
 
-Recovery migration writes a backup of the original bytes only after restoration
-succeeds, then rewrites the snapshot. Failed decoding or restoration leaves the
-source untouched. Migrations run forward only.
+1. Keep the envelope and core in `persist/core.ts` and the
+   `fixtures/transfer-v1.json` fixture fixed. Core is the permanent common
+   revision; all future binaries must import and export it. Import limits must
+   never drop existing panes or workspaces.
+2. Once used by a binary, keep a revision's ID, parent and state meaning fixed.
+   Add a revision for semantic changes even when fields and types stay the same,
+   including during uncommitted development. Descriptions explain the change;
+   correcting their wording does not change identity. Rebases, cherry-picks and
+   release tagging preserve IDs when their migration contracts stay the same.
+3. Each checkout must contain one linear history per saved format. The runner
+   rejects forks, and the registry rejects unselected revisions or extra roots.
+   The generator only appends to the current head. When merging code branches
+   with conflicting migrations, retain one chain and select its head in the
+   registry. Remove the other branch's divergent revision files, fixtures and
+   registry entries, then add new sequential revisions for the combined state.
+   Do not reparent existing IDs; a different parent or state meaning requires
+   a new ID. Previously built binaries retain their own chain.
+   Switching branches or reverting code rolls metadata down to the nearest
+   shared revision, then up the target binary's chain. Each binary advertises
+   its head followed by its ancestors; running processes stay in the fixed core.
+4. Down steps may discard metadata. Up steps must supply defaults for missing
+   data. Migrations cannot access core; the receiver restores core identities,
+   membership and screens after importing metadata. Frozen core fields must not
+   acquire new meanings. Live auxiliary processes must be accounted for in the
+   candidate's readiness receipt.
+   Core recovery commands retain agent resumes and dormant or archived commands;
+   an active custom launch opens a fresh shell after a crash. If metadata loss
+   leaves a dormant command's purpose ambiguous, preserve it at the prompt for
+   Enter instead of automatically running it.
+   Resume commands include account selection and resolved transcript paths. The
+   core retains durable session IDs rather than expiring background-job IDs;
+   current metadata retains launcher options, the observed account and the
+   executable used to generate the command. Saved
+   commands may exceed the launcher's input limit; older metadata revisions drop
+   oversized command fields. Exports preserve long commands through short shell
+   references to private, content-addressed files in the state directory's
+   `corgi/resume-commands/`. Older readers can execute these references; new readers
+   recover the original command. Keep these files while saved sessions may refer
+   to them, including across downgrades and cold recovery.
+5. `state_formats.test.ts` compares the current structures with the fixture
+   recorded for that revision in `fixtures/state_revisions/`. Schema changes
+   require a new revision; never refresh an existing revision's fixture to
+   silence this check. These fingerprints are test-only. Existing schema
+   coverage still has opaque payloads and custom types: changes to those,
+   defaults or meanings need explicit revisions even when the test passes.
+6. Keep schema snapshots and migration fixtures, and test divergent siblings,
+   downgrade/upgrade cycles, unknown cold formats, descriptor ownership,
+   pending input and pre-commit failure. `branch_handoff` exercises real shell
+   continuity; set `CORGI_BRANCH_EXE` to a different-format build for the
+   compiled-binary round trip.
+
+Historical transformations live in ordinary revision files. Down steps reach
+release `20261106T233845Z-03c72b717526`: checkpoint 6, handoff 6 and workspaces 2.
+Earlier steps have `down: null`; their up steps remain supported.
+The same runner applies both directions. Numeric versions in existing JSON
+are decoded through a fixed number-to-revision lookup; they do not select a
+second migration implementation. New workspace files record their revision ID,
+as recovery and modern handoff envelopes already do. Numeric headers remain
+for older readers during rollout, and never advance to identify new revisions.
+Keep the historical transformations and their input/output fixtures fixed.
+Historical checkpoint, handoff and workspace roots are independent of the
+terminal baseline and are never advertised for live handoff negotiation.
+Old checkpoint and handoff payloads continue through later state revisions
+after the historical steps, with their terminal core and transport handles
+kept outside those metadata transformations.
+Exports to pre-baseline builds first reverse shared state revisions to the initial
+metadata format, with terminal core and transport handles kept outside the steps.
+The format-6 transport adapter then supplies a listener and runs the handoff
+revision's down step. The old release gets a reply client; viewer connections and resumable
+links are discarded. This adapter is separate from core handoff negotiation.
+Terminal/update ABI checks still protect that legacy path. The fixed core
+uses VT terminal data; parser fragments and some display state remain
+approximate, independently of metadata compatibility.
+
+Recovery backs up the original bytes after successful migration and writes a
+fresh core envelope. Its payload keeps current metadata as a JSON string so older
+issue reporters redact it as one opaque value. The top-level checkpoint is migrated
+down to the initial format for pre-baseline readers. Readers also accept earlier
+envelopes with object payloads or metadata at the top level. A failed restore
+leaves the source untouched. An unknown metadata revision can recover through
+the baseline; malformed core fails without starting a partial session.
 
 ## Debug
 

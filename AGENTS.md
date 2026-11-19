@@ -102,8 +102,10 @@ that produced the code.
 
 **Saved formats.** Anything serialized into a checkpoint or handoff is
 checked by the schema snapshots in `src/fixtures/`. A new field
-with a default only needs a refreshed snapshot. A rename, removal or change
-of meaning needs a migration step; see [HACKING.md](HACKING.md#change-protocols-or-saved-formats).
+needs an explicit state revision and a refreshed snapshot. A rename, removal
+or change of meaning also needs a revision, even when the structure stays the
+same. Use `bun tools/state_revision.ts "Describe the saved-state change"`;
+see [HACKING.md](HACKING.md#change-protocols-or-saved-formats).
 Mark code kept only for older peers with `XXX: Remove for next protocol bump.`,
 and before bumping any version, run `git grep -n "XXX: Remove for next"`.
 

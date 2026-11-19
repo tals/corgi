@@ -1,0 +1,9 @@
+{
+  "parent": "ce6d04179c29",
+  "structures": {
+    "checkpoint": "14a3d072f4b1ba26e8baf42744250a18372ef56ea35427892077e65071dfb623",
+    "handoff": "bb850cc4b435ceed80b5e48c7ba487b1e3e44c344c7a526b7b969af679aa63eb",
+    "protocol": "d1f47cfd5e251c0e912921a8e24ef7e7b05fa019bdc7131df84605525e2d19bf",
+    "viewer": "42fd3889a5b78d2bb6409c0cce410ad2a99225db10f80391afcb44795a973ea3"
+  }
+}

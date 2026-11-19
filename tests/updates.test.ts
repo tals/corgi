@@ -7,7 +7,7 @@ import { closeSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
-import { EXE, Lines, Pty, deadline, versioned } from "./support";
+import { EXE, Lines, Pty, deadline, versioned, quote } from "./support";
 import { running } from "./runtime";
 import { installer, manifests as releaseManifests } from "../scripts/publish.ts";
 import { Scope } from "../scripts/process_scope";
@@ -552,15 +552,30 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
   },
   30_000,
 );
-test("incompatible update defers noninteractively and keeps running executable", async () => {
+test("core handoff crosses legacy ABI changes; older daemons defer without restarting", async () => {
   await cli(["start"]);
   const before = await rpc({ op: "hello" });
+  const session = await rpc({ op: "session.snapshot", protocol: before.protocol });
+  await rpc({
+    op: "session.command",
+    protocol: before.protocol,
+    command: { "pane.create": { workspace: session.workspaces[0].id, command: "exec /bin/sh" } },
+  });
+  const panes = (await rpc({ op: "session.snapshot", protocol: before.protocol })).panes;
   badAbi = true;
   const result = await cli(["update"], false);
-  expect(result.code).not.toBe(0);
-  expect(result.err).toContain("UpdateDeferred");
-  expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
-  expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
+  if (before.handoff === 1) {
+    expect(result.code).toBe(0);
+    const after = await rpc({ op: "session.snapshot" });
+    expect(after.server_pid).not.toBe(before.server_pid);
+    expect(after.panes[0].pid).toBe(panes[0].pid);
+    expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
+  } else {
+    expect(result.code).not.toBe(0);
+    expect(result.err).toContain("UpdateDeferred");
+    expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
+    expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
+  }
 }, 30_000);
 test("help and ordinary RPC never check the network; auto off prevents activation", async () => {
   await cli(["update", "--download-only"]);
@@ -581,25 +596,81 @@ test("cold activation starts the staged runtime before changing the current poin
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
   expect((await rpc({ op: "hello" })).release_version).toBe("1.0.1");
 }, 30_000);
-test("interactive Escape skips once per runtime without stopping processes", async () => {
-  await cli(["start"]);
-  const before = await rpc({ op: "hello" });
-  badAbi = true;
-  await cli(["update", "--download-only"]);
-  await cli(["update", "auto", "on"]);
-  const terminal = await Pty.spawn([bin, "start"], { env });
-  try {
-    await terminal.waitFor("Enter / Esc", 10_000);
-    terminal.write("\x1b");
-    expect(await deadline(terminal.proc.exited, 3000, "Escape did not exit the update prompt")).toBe(0);
-    expect(terminal.output).toContain("Restarting will stop ALL shells");
-  } finally {
-    await terminal.close();
-  }
-  expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
-  expect((await cli(["start"])).err).not.toContain("Enter / Esc");
-  expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
-}, 30_000);
+test.skipIf(!process.env.CORGI_OLD_EXE)(
+  "legacy interactive Escape skips without stopping processes",
+  async () => {
+    await cli(["start"]);
+    const before = await rpc({ op: "hello" });
+    badAbi = true;
+    await cli(["update", "--download-only"]);
+    await cli(["update", "auto", "on"]);
+    const terminal = await Pty.spawn([bin, "start"], { env });
+    try {
+      await terminal.waitFor("Enter / Esc", 10_000);
+      terminal.write("\x1b");
+      expect(await deadline(terminal.proc.exited, 3000, "Escape did not exit the update prompt")).toBe(0);
+      expect(terminal.output).toContain("Restarting will stop ALL shells");
+    } finally {
+      await terminal.close();
+    }
+    expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
+    expect((await cli(["start"])).err).not.toContain("Enter / Esc");
+    expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
+  },
+  30_000,
+);
+test.skipIf(!!process.env.CORGI_OLD_EXE).each(["discovery", "handoff"])(
+  "a failed core %s is deferred until an explicit retry",
+  async stage => {
+    const discovery = stage === "discovery",
+      perAttempt = discovery ? 1 : 2,
+      failure = discovery ? "ReloadCandidateFailed" : "InvalidCheckpoint";
+    await cli(["start"]);
+    const before = await rpc({ op: "hello" });
+    await cli(["update", "--download-only"]);
+    const directory = join(root, "releases/1.0.1"),
+      target = join(directory, "corgi"),
+      attempts = join(home, "handoff-attempts"),
+      wrapper = `#!/bin/sh
+case "$1" in
+  __update-check) printf '{"ok":true}\\n'; exit 0 ;;
+  ${discovery ? "__handoff-info" : "__handoff"})
+    printf 'attempt\\n' >> ${quote(attempts)}
+    printf 'InvalidCheckpoint\\n' >&${discovery ? 2 : 4}
+    exit 1 ;;
+  *) exec ${quote(EXE)} "$@" ;;
+esac
+`;
+    await writeFile(target, wrapper, { mode: 0o755 });
+    const manifest = JSON.parse(manifests.get("1.0.1")!),
+      payload = JSON.parse(manifest.payload);
+    if (discovery) payload.update_abi = "different-abi";
+    payload.targets[host].sha256 = sha(Buffer.from(wrapper));
+    payload.targets[host].size = Buffer.byteLength(wrapper);
+    manifest.payload = JSON.stringify(payload);
+    manifest.signature = sign(null, Buffer.from(manifest.payload), keys.privateKey).toString("hex");
+    await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest));
+    unavailable = true;
+    await cli(["update", "auto", "on"]);
+    await cli(["start"]);
+    const first = await readFile(attempts, "utf8");
+    expect(first.trim().split("\n")).toHaveLength(perAttempt);
+    expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
+    await cli(["start"]);
+    expect(await readFile(attempts, "utf8")).toBe(first);
+    expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
+    unavailable = false;
+    const retry = await cli(["update"], false);
+    expect(retry.code).not.toBe(0);
+    expect(retry.err).toContain(failure);
+    const retried = await readFile(attempts, "utf8");
+    expect(retried.trim().split("\n")).toHaveLength(2 * perAttempt);
+    await cli(["start"]);
+    expect(await readFile(attempts, "utf8")).toBe(retried);
+    expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
+  },
+  30_000,
+);
 test.skipIf(!!process.env.CORGI_OLD_EXE)(
   "a release that can't load the saved state is held back for an hour",
   async () => {
@@ -608,6 +679,7 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     const saved = join(home, "state/corgi/recovery", `runtime-${Bun.hash.wyhash(socket, 0n).toString(16)}.json`),
       state = JSON.parse(await readFile(saved, "utf8"));
     state.next_workspace = 1;
+    state.transfer.core.next_workspace = 1;
     await writeFile(saved, JSON.stringify(state));
     await cli(["update", "--download-only"]);
     const result = await cli(["update"], false);
