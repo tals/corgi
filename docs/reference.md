@@ -529,7 +529,8 @@ Settings you choose, including shortcuts, live in `config.json` under
 `$XDG_CONFIG_HOME/corgi`, defaulting to `~/.config/corgi`. Corgi moves those
 you changed there from an older `viewer.json`; a `config.json` already there,
 such as one restored from dotfiles, wins. `viewer.json` then contains only
-viewer state. Converting to an older file format is handled by migrations.
+viewer state. Close older viewers before upgrading; they read settings from
+the old file. Downgrading requires a reverse migration.
 
 An explicit `CORGI_SOCKET` selects another runtime; its workspace/settings
 files live beside the socket. Viewer preferences remain shared. Developer

@@ -399,18 +399,45 @@ test("an unusable shortcut does not suppress a later working one", async () => {
   }
 });
 
-test("editing shortcuts preserves a skipped duplicate spelling", async () => {
-  const { root, where } = await scratch("preferences-skipped-alias");
+test.each([false, true])(
+  "editing shortcuts preserves a skipped duplicate spelling (legacy first: %s)",
+  async legacyFirst => {
+    const { root, where } = await scratch("preferences-skipped-alias");
+    try {
+      const accepted = legacyFirst ? "worktrees:0" : "worktrees",
+        skipped = legacyFirst ? "worktrees" : "worktrees:0";
+      await put(where.config, { keys: { [accepted]: "alt+w", [skipped]: "ctrl+b" } });
+      const before = read(where);
+      const saved = updateKeys(before, { ...before.keys, new: "prefix+y" }, where);
+      expect(saved.keys).toEqual({ worktrees: "alt+w", new: "prefix+y" });
+      expect((await json(where.config)).keys).toEqual({
+        [accepted]: "alt+w",
+        new: "prefix+y",
+        [skipped]: "ctrl+b",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test("startup migration keeps onboarding completed when viewer.json cannot be read", async () => {
+  const { root, where } = await scratch("preferences-broken-startup");
   try {
-    await put(where.config, { keys: { worktrees: "alt+w", "worktrees:0": "ctrl+b" } });
-    const before = read(where);
-    const saved = updateKeys(before, { ...before.keys, new: "prefix+y" }, where);
-    expect(saved.keys).toEqual({ worktrees: "alt+w", new: "prefix+y" });
-    expect((await json(where.config)).keys).toEqual({
-      worktrees: "alt+w",
-      new: "prefix+y",
-      "worktrees:0": "ctrl+b",
-    });
+    await put(where.viewer, "{incomplete");
+    await put(where.config, { theme: "animal_style" });
+    await withEnv(
+      {
+        XDG_STATE_HOME: join(root, "state"),
+        XDG_CONFIG_HOME: join(root, "config"),
+        CORGI_ENV_DIR: undefined,
+        CORGI_SOCKET: undefined,
+      },
+      () => {
+        expect(load(true)).toMatchObject({ onboarding_complete: true, theme: "animal_style" });
+      },
+    );
+    expect(await readFile(where.viewer, "utf8")).toBe("{incomplete");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

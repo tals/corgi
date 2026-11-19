@@ -348,10 +348,19 @@ export function updateKeys(expected: Preferences, keys: keybindings.Config, wher
       throw Error("Shortcuts changed on disk. Reopen the editor before saving.");
     const next: Raw = { ...keybindings.parse(keys) };
     const written = files.config?.keys;
-    if (object(written))
+    if (object(written)) {
+      // Keep an accepted alias's spelling so a skipped canonical entry keeps its slot.
+      for (const name of Object.keys(written)) {
+        const id = keybindings.canonical(name);
+        if (id && name !== id && !skipped.includes(`keys.${name}`) && Object.hasOwn(next, id)) {
+          next[name] = next[id];
+          delete next[id];
+        }
+      }
       for (const [name, value] of Object.entries(written)) {
         if (skipped.includes(`keys.${name}`) && !Object.hasOwn(next, name)) next[name] = value;
       }
+    }
     files.config = { ...files.config, keys: next };
   });
 }
@@ -424,6 +433,7 @@ function plan(where: Paths, edit: Edit, options: Options = {}): Plan {
   }
   const prefs = new Preferences();
   readState(files.viewer, prefs);
+  if (viewer.error) prefs.onboarding_complete = true;
   const added = readSettings(files.config ?? {}, prefs).find(p => !skipped.includes(p.field));
   if (options.strict !== false && added !== undefined) throw Error(`${added.field}: ${added.reason}`);
   return { disk, files, prefs, unreadable: { viewer: viewer.error !== null, config: config.error !== null } };
