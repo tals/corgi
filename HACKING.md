@@ -540,10 +540,11 @@ as one value, `{ viewer, config }`, so a revision can move a field from
 `viewer.json` to `config.json`; `config` is null when there is none.
 `viewer.json` records the revision it holds as `format`, unset before the
 first. Viewers step both files up when they start and before every save,
-writing `config.json` first. They hold the lock beside `viewer.json` and one
-for `config.json`, in the runtime folder and named for the file its path
-resolves to, so viewers sharing it through other state folders or links
-exclude each other. Nothing steps while either file can't be read. A
+writing `config.json` first. They hold one shared `preferences.lock` in the
+user's runtime folder, so saves serialize across config paths, linked folders
+and developer environments. The lock beside `viewer.json` also coordinates
+with older viewers. A save requires both locks and atomically replaces each
+file. Nothing steps while either file can't be read. A
 revision they don't know came from a newer build: they read what they can,
 step and copy nothing, and save only the fields they change.
 

@@ -132,10 +132,10 @@ test("live reload follows directory removal, recreation and replacement", async 
   }
 });
 
-test("another process cannot save preferences while a writer holds the lock", () => {
+test.each(["viewer", "shared"])("another process cannot save preferences while the %s lock is held", lock => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-keys-lock-")),
     where = scratch(dir);
-  const fd = openSync(where.viewer + ".lock", "a", 0o600);
+  const fd = openSync(lock === "viewer" ? where.viewer + ".lock" : preferences.sharedLock(), "a", 0o600);
   const module = new URL("./preferences.ts", import.meta.url).href;
   const attempt = (keys: boolean) => {
     const source = `import * as p from ${JSON.stringify(module)};

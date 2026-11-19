@@ -22,7 +22,7 @@ import {
   inspect,
   load,
   migrate,
-  configLock,
+  sharedLock,
   type Paths,
 } from "./preferences";
 import * as state_formats from "./persist/state_formats";
@@ -556,20 +556,21 @@ test("viewer.json keeps the settings, as an older release reads them", async () 
   }
 });
 
-test("viewers with their own state folders share config.json's lock", async () => {
+test("viewers with their own state folders and config paths share the preferences lock", async () => {
   const { root, where } = await scratch("preferences-shared");
   const other = { viewer: join(root, "other", "viewer.json"), config: where.config };
   try {
     update({ theme: "animal_style" }, where);
-    // A link to the same file shares it too.
-    const link = join(root, "linked", "config.json");
+    const link = join(root, "linked", "config.json"),
+      folder = join(root, "linked-folder");
     await mkdir(dirname(link), { recursive: true });
     symlinkSync(where.config, link);
-    expect(configLock(link)).toBe(configLock(where.config));
-    const held = openSync(configLock(where.config), "a");
+    symlinkSync(dirname(where.config), folder, "dir");
+    const held = openSync(sharedLock(), "a");
     try {
       expect(flock(held)).toBe(true);
-      expect(() => update({ theme: "corgi" }, other)).toThrow("another viewer");
+      for (const config of [where.config, link, join(folder, "config.json"), join(root, "separate", "config.json")])
+        expect(() => update({ theme: "corgi" }, { ...other, config })).toThrow("another viewer");
     } finally {
       closeSync(held);
     }
@@ -578,7 +579,25 @@ test("viewers with their own state folders share config.json's lock", async () =
     update({ sidebar_width: 30 }, bare.where);
     expect(existsSync(dirname(bare.where.config))).toBe(false);
     await rm(bare.root, { recursive: true, force: true });
-    update({ language: "ja" }, other);
+    update({ language: "ja" }, { ...other, config: join(folder, "config.json") });
+    expect(await json(where.config)).toEqual({ theme: "animal_style", language: "ja" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a save that cannot open the shared lock leaves preferences unchanged and releases the viewer lock", async () => {
+  const { root, where } = await scratch("preferences-lock-unavailable");
+  try {
+    update({ theme: "animal_style" }, where);
+    const before = await Promise.all([readFile(where.viewer, "utf8"), readFile(where.config, "utf8")]);
+    const blocked = join(root, "blocked");
+    await writeFile(blocked, "not a directory");
+    await withEnv({ XDG_RUNTIME_DIR: blocked }, () => {
+      expect(() => update({ language: "ja" }, where)).toThrow();
+    });
+    expect(await Promise.all([readFile(where.viewer, "utf8"), readFile(where.config, "utf8")])).toEqual(before);
+    update({ language: "ja" }, where);
     expect(await json(where.config)).toEqual({ theme: "animal_style", language: "ja" });
   } finally {
     await rm(root, { recursive: true, force: true });

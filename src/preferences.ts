@@ -20,7 +20,7 @@ import {
   fchmodSync,
   constants,
 } from "node:fs";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { supportedPreset, type Preset, type Prefix } from "./keymap";
 import * as palette from "./palette";
 import { Provider } from "./providers";
@@ -630,38 +630,34 @@ function promptModel(value: any): PromptModel | "auto" | null {
   if (!provider || typeof account !== "string" || typeof model !== "string" || typeof name !== "string") return null;
   return { provider, account, model, name, effort: effort.parse(value.effort) };
 }
-/** Holds the lock beside viewer.json, then the one for config.json. Atomic
+/** Holds the older viewers' lock, then the shared preferences lock. Atomic
  * replacement changes the files' own inodes, so neither can hold a lock. */
 function locked<T>(where: Paths, body: () => T): T {
   mkdirSync(dirname(where.viewer), { recursive: true });
   const busy = () => Error("Preferences are being saved by another viewer. Try again.");
+  // XXX: Remove for next protocol bump. Older viewers only take this lock.
   const state = openSync(`${where.viewer}.lock`, "a", 0o600);
   let shared: number | null = null;
   try {
     if (!flock(state)) throw busy();
-    try {
-      shared = openSync(configLock(where.config), "a", 0o600);
-    } catch {
-      // Without a private folder for it, viewers sharing a config.json don't exclude each other.
-    }
-    if (shared !== null && !flock(shared)) throw busy();
+    shared = openSync(sharedLock(), "a", 0o600);
+    if (!flock(shared)) throw busy();
     return body();
   } finally {
     if (shared !== null) closeSync(shared);
     closeSync(state);
   }
 }
-/** The lock for the file `config` resolves to, shared by every viewer that
- * writes it, whatever state folder they use or link they reach it through.
- * It lives in a private local folder: never in ~/.config, which may be read
- * only or on NFS, where a lock needs a file open for writing. */
-export function configLock(config: string): string {
+/** One named lock in the user's runtime directory serializes preference saves,
+ * including separate configs and paths through linked folders. It stays outside
+ * ~/.config, which may be read-only or on NFS. */
+export function sharedLock(): string {
   const runtime = process.env.XDG_RUNTIME_DIR,
     folder = runtime
       ? join(runtime, "corgi", "locks")
       : join(tmpdir(), `corgi-${process.getuid?.() ?? userInfo().uid}`, "locks");
   os.privateDirectory(folder);
-  return join(folder, `config-${createHash("sha256").update(target(config)).digest("hex").slice(0, 16)}.lock`);
+  return join(folder, "preferences.lock");
 }
 /** Where writing `file` belongs: a config.json linked from dotfiles stays a
  * link, through a chain of them, even when the last target doesn't exist yet. */
