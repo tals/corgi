@@ -164,9 +164,25 @@ export function isWrap(s: Snapshot, i: number, margin = wrap_margin): boolean {
   return end + 1 + word > column;
 }
 
-/** Whether `line` ends in a backslash continuation; an escaped backslash
- * doesn't continue it. */
-const continued = (line: string): boolean => line.endsWith("\\") && !escaped(line, line.length - 1);
+/** For each row, whether its trailing backslash continues it onto the next
+ * selected row, as a shell reads it: not escaped, not inside single quotes,
+ * where backslash and newline stay literal, and not on the last row, whose
+ * newline the selection doesn't hold. Quotes carry across rows. */
+export function continuations(lines: readonly string[]): boolean[] {
+  let quote: "'" | '"' | null = null;
+  return lines.map((line, row) => {
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (quote === "'") {
+        if (c === "'") quote = null;
+      } else if (c === "\\") i++;
+      else if (quote === '"') {
+        if (c === '"') quote = null;
+      } else if (c === "'" || c === '"') quote = c;
+    }
+    return row < lines.length - 1 && quote !== "'" && line.endsWith("\\") && !escaped(line, line.length - 1);
+  });
+}
 function withoutPrompt(line: string): string {
   return line.startsWith("$ ") ? line.slice(2).trimStart() : line;
 }
@@ -178,7 +194,8 @@ const signals: readonly RegExp[] = [
 function isCommand(s: Snapshot): boolean {
   const { lines } = s;
   const breaks = lines.slice(1).map((_, i) => i);
-  if (lines.some(continued) && breaks.every(i => continued(lines[i]) || isWrap(s, i))) return true;
+  const continues = continuations(lines);
+  if (continues.some(Boolean) && breaks.every(i => continues[i] || isWrap(s, i))) return true;
   if (lines.length > 3 || !breaks.every(i => isWrap(s, i))) return false;
   const first = lines[0].trimStart();
   const prompt = first.startsWith("$ ");
@@ -198,13 +215,14 @@ function flatten(s: Snapshot): string {
   // Each row without the indent the rows share, so a continuation's own
   // indent still shows.
   const own = dedent(s);
+  const continues = continuations(s.lines);
   let out = "";
   // The token a split carried onto this row, if any.
   let carry = "";
   s.lines.forEach((raw, i) => {
     let line = raw.trim();
     if (i === 0) line = withoutPrompt(line);
-    const backslash = continued(line);
+    const backslash = continues[i];
     // A shell deletes backslash-newline, so a word goes on unless whitespace
     // stood before the backslash or starts the next row.
     let tight = false;

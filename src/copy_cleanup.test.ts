@@ -200,3 +200,9 @@ test("the copy toast's note says what cleanup changed", () => {
   expect(note(["spec:", "  replicas: 3"])).toBeNull();
   expect(note(["  ls -la  "])).toBeNull();
 });
+
+test("a backslash continues only outside single quotes and before a selected row", () => {
+  expect(copyCleanup.continuations(["echo 'a\\", "b' \\", "c"])).toEqual([false, true, false]);
+  expect(copyCleanup.continuations(['echo "a\\', 'b"'])).toEqual([true, false]);
+  expect(copyCleanup.continuations(["echo it\\'s \\", "ok \\"])).toEqual([true, false]);
+});
