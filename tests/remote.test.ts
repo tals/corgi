@@ -1287,7 +1287,10 @@ process.stdin.on("data", chunk => {
     this.network!.set("blackhole");
     // Typed before the stall shows, so the viewer sends it into the void.
     this.terminal!.write("LANDS_AFTER_RESUME\r");
-    await this.until(() => this.text().includes("Connection stalled"), 6);
+    // The learned stall budget can reach 30 s; the notice waits another second.
+    await this.until(() => this.text().includes("Connection stalled"), 35).catch(error => {
+      throw new Error(`Expected the remote to stall:\n${this.text()}`, { cause: error });
+    });
     this.assertNotIn("LANDS_AFTER_RESUME", (await this.remote!.command("pane.read", { target: 1 })).text);
     this.network!.cut();
     this.network!.set("healthy");
