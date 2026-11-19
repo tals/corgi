@@ -14,7 +14,8 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
   `.prettierrc`) over the TypeScript; `--check` only lists files.
 - **Integration tests:** `bun build.ts --test`, then
   `bun integration.ts` (or name suites). See `tests/README.md`. The
-  harness's own suites need no build: `bun integration.ts --standalone`.
+  harness's own suites need only the native layer, as the unit tests do:
+  `bun integration.ts --standalone`.
   Parallel runs are flaky under load; rerun a failing suite with `--jobs 1`
   before investigating.
 - **Run it:** `./go.ts` (`--temp`, `--env NAME`, `--reload`; see README).

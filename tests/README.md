@@ -19,8 +19,9 @@ and reports recovered suites as flaky. The subprocess watchdog still checks
 for leaked daemons before the run succeeds.
 
 The suites that never start corgi-test (the harness's own, the release
-script's and the sleep budget) run apart, without a build:
-`bun integration.ts --standalone`. CI runs them beside the unit tests, and the
+script's and the sleep budget) run apart: `bun integration.ts --standalone`.
+Like the unit tests, they need only the native layer
+(`bun build.ts --native-only`). CI runs them beside the unit tests, and the
 integration shards leave them out. List a new suite in `standalones` in
 `run.ts` if it needs no binary.
 

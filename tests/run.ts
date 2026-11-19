@@ -20,7 +20,7 @@ let list = false,
   jobs = Math.max(1, Math.min(2, Math.floor(availableParallelism() / 4)));
 function usage(): never {
   console.log(
-    "Usage: bun run tests/run.ts [suite ...] [--list|--check] [--jobs N] [--shard K/N] [--retry] [--external] [--dev] [--standalone] [--corgi PATH] [--herdr PATH] [-- bun-test-options]\nWithout suite names, runs normal suites with Bun file isolation (--jobs N workers); --list lists eligible suites before sharding; --shard K/N delegates partitioning to Bun; --retry runs each failed suite once more, alone. Herdr handoff, real-Codex and developer-launch suites are opt-in. --standalone runs the suites that need no build instead.",
+    "Usage: bun run tests/run.ts [suite ...] [--list|--check] [--jobs N] [--shard K/N] [--retry] [--external] [--dev] [--standalone] [--corgi PATH] [--herdr PATH] [-- bun-test-options]\nWithout suite names, runs normal suites with Bun file isolation (--jobs N workers); --list lists eligible suites before sharding; --shard K/N delegates partitioning to Bun; --retry runs each failed suite once more, alone. Herdr handoff, real-Codex and developer-launch suites are opt-in. --standalone runs the suites that don't need corgi-test instead.",
   );
   process.exit(0);
 }
@@ -53,7 +53,7 @@ for (let i = 0; i < args.length; i++) {
 }
 /** Suites that run other people's programs: Herdr, and Codex on a fake model. */
 const externals = ["herdr_handoff.test.ts", "codex_overload.test.ts"];
-/** Suites that never start corgi-test, so need no build. CI runs them with the unit tests. */
+/** Suites that never start corgi-test, so need only the native layer. CI runs them with the unit tests. */
 const standalones = ["process_scope", "progress", "provider_sim", "release", "sleep_budget", "support"].map(
   name => name + ".test.ts",
 );
