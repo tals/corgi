@@ -23,6 +23,7 @@ import {
   debugTools,
   tagRelease,
   requirePushed,
+  publishedToTest,
   type Store,
 } from "../scripts/publish.ts";
 import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, stat, symlink, realpath } from "node:fs/promises";
@@ -32,6 +33,7 @@ import { dirname, join } from "node:path";
 import { n, pair, readUntil, write } from "../src/native_ffi";
 import { nativeRoot } from "../src/native_paths";
 import * as locale from "../src/locale";
+import type { Channel } from "../src/release_channel";
 const bytes = (s: string) => new TextEncoder().encode(s);
 class MemoryStore implements Store {
   files = new Map<string, Uint8Array>();
@@ -60,7 +62,7 @@ const assets = ["macos", "linux", "manifest.json"].map(name => ({
   bytes: bytes(name),
   type: "application/octet-stream",
 }));
-const feeds = (feed: string, channel: "stable" | "test" = "stable") =>
+const feeds = (feed: string, channel: Channel = "stable") =>
   channelKeys(channel).map(key => ({ key, bytes: bytes(`${feed} ${key}`), type: "application/json" }));
 test("publication verifies every platform before advancing the channels", async () => {
   const store = new MemoryStore();
@@ -534,6 +536,22 @@ test("only commits on origin's main are published", async () => {
     expect(() => requirePushed(dir, unpushed)).toThrow(`Push ${unpushed.slice(0, 12)} to origin main`);
     git("push", "origin", "HEAD:refs/heads/main");
     requirePushed(dir, unpushed);
+  });
+});
+
+test("only a release test published from its commit counts as tested", async () => {
+  await releaseFixture(async (dir, git) => {
+    const remote = join(dir, ".git/origin.git");
+    git("init", "--bare", remote);
+    git("remote", "add", "origin", remote);
+    const commit = git("rev-parse", "HEAD");
+    const version = timestampVersion(commit);
+    // The local clone has the commit, which a fetch by hash can't tell from origin having it.
+    expect(publishedToTest(dir, version, commit)).toBe(false);
+    tagRelease(dir, `test/${version}`, commit);
+    expect(publishedToTest(dir, version, commit)).toBe(true);
+    git("commit", "--allow-empty", "-m", "other");
+    expect(publishedToTest(dir, version, git("rev-parse", "HEAD"))).toBe(false);
   });
 });
 

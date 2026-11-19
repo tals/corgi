@@ -138,7 +138,9 @@ saved release again:
 bun run publish VERSION --publish-only
 ```
 
-Promoting needs the commit only on origin, not on `main`.
+A release test published can be promoted from any branch, as its `test/VERSION`
+tag keeps the commit on origin; other stable releases come from `main`. Test
+releases report crashes to Sentry like stable ones.
 
 ## Omarchy
 
