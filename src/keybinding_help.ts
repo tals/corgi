@@ -10,7 +10,11 @@ import { Style, type Token } from "./palette";
 import { Fetch } from "./corgi_animation";
 
 export type Result =
-  { name: "close" } | { name: "action"; action: action.Action } | { name: "save"; config: model.Config } | null;
+  | { name: "close" }
+  | { name: "action"; action: action.Action }
+  | { name: "save"; config: model.Config }
+  | { name: "prefix"; prefix: keymap.Prefix }
+  | null;
 type Target =
   | { name: "binding"; id: string; index: number }
   | { name: "label"; id: string }
@@ -21,6 +25,7 @@ type Target =
       name:
         | "close"
         | "customize"
+        | "prefix"
         | "search"
         | "alts"
         | "add"
@@ -52,6 +57,7 @@ interface Hit {
   rect: Rect;
   target: Target;
 }
+type Entry = Omit<model.Entry, "action"> & { action: action.Action | null };
 interface Edit {
   id: string;
   index: number;
@@ -77,6 +83,21 @@ const modifiers: readonly (readonly [string, keyof keyboard.Mods])[] = [
 ];
 function copy(shortcut: model.Shortcut): model.Shortcut {
   return structuredClone(shortcut);
+}
+function entries(preset: keymap.Preset, prefix: keymap.Prefix, config: model.Config): Entry[] {
+  const shortcut = (prefix: keymap.Prefix): model.Shortcut => ({ prefixed: false, keys: [keymap.prefixKey(prefix)] });
+  return [
+    {
+      id: "prefix",
+      action: null,
+      title: i18n.t`Prefix key`,
+      indexed: false,
+      shortcuts: [shortcut(prefix)],
+      defaults: [shortcut(keymap.defaultPrefix)],
+      custom: !keys.same(keymap.prefixKey(prefix), keymap.prefixKey(keymap.defaultPrefix)),
+    },
+    ...model.entries(preset, config),
+  ];
 }
 /** The empty Corgi prompt's placeholder, cut short. */
 const promptPlaceholder = "Ask Corgi anything…";
@@ -147,27 +168,36 @@ export class State {
   edit: Edit | null = null;
   error = "";
   private preset: keymap.Preset = "corgi";
-  private prefix: keymap.Prefix = "ctrl_b";
+  private prefix: keymap.Prefix = keymap.defaultPrefix;
   private config: model.Config = {};
   private locale = i18n.language();
-  private entries = model.entries("corgi", {});
+  private entries = entries("corgi", this.prefix, {});
   private hits: Hit[] = [];
   private controls: Control[] = [];
   private dropdown: Rect | null = null;
   private cells: Cell[] = [];
+  private readonly prefix_cell: Cell = {
+    column: 0,
+    x: -1,
+    y: -2,
+    text: "",
+    token: "muted",
+    width: 0,
+    target: { name: "binding", id: "prefix", index: 0 },
+  };
   private selected_occurrence = 0;
   private panel = new Rect(0, 0, 0, 0);
   private contentTop = 0;
   private dimmed = false;
   private fits = true;
   configure(preset: keymap.Preset, prefix: keymap.Prefix, config: model.Config) {
-    this.prefix = prefix;
     const locale = i18n.language();
-    if (this.preset === preset && this.config === config && this.locale === locale) return;
+    if (this.preset === preset && this.prefix === prefix && this.config === config && this.locale === locale) return;
+    this.prefix = prefix;
     this.preset = preset;
     this.config = config;
     this.locale = locale;
-    this.entries = model.entries(preset, config);
+    this.entries = entries(preset, prefix, config);
     const selected = this.entries.find(e => e.id === this.selected.id) ?? this.entries.find(e => e.id === "new")!;
     this.selected = {
       id: selected.id,
@@ -178,6 +208,9 @@ export class State {
     this.configure(this.preset, this.prefix, config);
     this.edit = null;
     this.error = "";
+  }
+  editPrefix() {
+    this.start("prefix", 0);
   }
   move(down: boolean, rows: number) {
     this.scroll = Math.max(0, Math.min(this.max_scroll, this.scroll + (down ? rows : -rows)));
@@ -194,6 +227,7 @@ export class State {
       keys.normalize(key).codepoint === 27 ||
       keys.same(key, keys.parseChord("ctrl+e")!) ||
       keys.same(key, keys.parseChord("ctrl+l")!) ||
+      keys.same(key, keys.parseChord("f2")!) ||
       plain(key) === "/"
     );
   }
@@ -254,8 +288,12 @@ export class State {
   private conflicts() {
     const e = this.edit!,
       shortcuts = this.working();
+    if (e.id === "prefix") return [];
     return this.entries.filter(
-      other => other.id !== e.id && other.shortcuts.some(s => shortcuts.some(k => model.overlaps(s, k))),
+      other =>
+        other.action !== null &&
+        other.id !== e.id &&
+        other.shortcuts.some(s => shortcuts.some(k => model.overlaps(s, k))),
     );
   }
   private closeMenu() {
@@ -308,6 +346,9 @@ export class State {
   }
   private activate(t: Target): Result {
     switch (t.name) {
+      case "prefix":
+        this.editPrefix();
+        return null;
       case "close":
         return { name: "close" };
       case "play":
@@ -328,9 +369,9 @@ export class State {
         return this.activate({ name: "binding", id: t.id, index: 0 });
       case "binding": {
         this.selected = { id: t.id, index: t.index };
-        if (this.customizing) this.start(t.id, t.index);
+        const e = this.entry(t.id);
+        if (this.customizing || e.action === null) this.start(t.id, t.index);
         else {
-          const e = this.entry(t.id);
           return { name: "action", action: e.indexed ? { name: e.action.name, value: 1 } : e.action };
         }
         return null;
@@ -339,6 +380,7 @@ export class State {
         if (this.edit) this.selectAlternative(t.index);
         return null;
       case "add":
+        if (this.selected.id === "prefix") return null;
         if (this.edit) {
           this.keepDraft();
           this.selectAlternative(this.edit.shortcuts.length);
@@ -361,7 +403,7 @@ export class State {
         return null;
       }
       case "toggle-prefix":
-        if (this.edit) {
+        if (this.edit && this.edit.id !== "prefix") {
           this.edit.prefixed = !this.edit.prefixed;
           this.edit.restore = false;
           this.error = "";
@@ -411,6 +453,11 @@ export class State {
         const e = this.edit;
         if (!e || (e.index >= 0 && !this.draft()) || e.listening) return null;
         try {
+          if (e.id === "prefix") {
+            const prefix = keys.chordName(e.recorded[0]);
+            model.validatePrefix(this.config, prefix);
+            return { name: "prefix", prefix };
+          }
           return {
             name: "save",
             config: e.restore
@@ -424,7 +471,7 @@ export class State {
       }
       case "remove": {
         const e = this.edit;
-        if (!e || e.index < 0 || e.index >= e.shortcuts.length) return null;
+        if (!e || e.id === "prefix" || e.index < 0 || e.index >= e.shortcuts.length) return null;
         this.keepDraft();
         e.deleted.push({ index: e.index, shortcut: e.shortcuts.splice(e.index, 1)[0] });
         e.index = Math.min(e.index, e.shortcuts.length - 1);
@@ -452,7 +499,7 @@ export class State {
       case "restore": {
         if (!this.edit) return null;
         try {
-          model.restore(this.preset, this.config, this.edit.id);
+          if (this.edit.id !== "prefix") model.restore(this.preset, this.config, this.edit.id);
           const e = this.edit;
           e.shortcuts = this.entry(e.id).defaults.map(copy);
           e.index = e.shortcuts.length ? 0 : -1;
@@ -517,7 +564,7 @@ export class State {
           return null;
         }
         const k = keys.normalize(raw);
-        if (e.prefixed && keys.same(k, { codepoint: keymap.prefixByte(this.prefix), mods: {} })) return null;
+        if (e.prefixed && keys.same(k, keymap.prefixKey(this.prefix))) return null;
         if (cp >= 57441 && cp <= 57454) return null;
         try {
           model.chord(keys.chordName(k));
@@ -568,6 +615,7 @@ export class State {
     }
     if (keys.same(raw, keys.parseChord("ctrl+l")!)) return this.activate({ name: "alts" });
     if (keys.same(raw, keys.parseChord("ctrl+e")!)) return this.activate({ name: "customize" });
+    if (keys.same(raw, keys.parseChord("f2")!)) return this.activate({ name: "prefix" });
     if (this.searching) {
       if (cp === 13 || cp === keyboard.arrow_down) {
         this.searching = false;
@@ -600,7 +648,9 @@ export class State {
       this.move(cp === 57355, this.page_rows);
       return null;
     }
-    const selected = this.cells.some(c => sameTarget(c.target ?? null, { name: "binding", ...this.selected }));
+    const selected = this.navigationCells().some(c =>
+      sameTarget(c.target ?? null, { name: "binding", ...this.selected }),
+    );
     if (cp === 13 && (this.query || this.customizing) && selected)
       return this.activate({ name: "binding", ...this.selected });
     if (this.customizing && text === "+" && selected) return this.activate({ name: "add" });
@@ -648,10 +698,11 @@ export class State {
     }
     const horizontal = cp === keyboard.arrow_left || cp === keyboard.arrow_right;
     const sign = cp === keyboard.arrow_left || cp === keyboard.arrow_up ? -1 : 1;
-    const candidates = this.cells.filter(
+    const candidates = this.navigationCells().filter(
       c =>
         c.target?.name === "binding" &&
-        (horizontal || c.column === current.column) &&
+        (!horizontal || (c !== this.prefix_cell && current !== this.prefix_cell)) &&
+        (horizontal || c === this.prefix_cell || current === this.prefix_cell || c.column === current.column) &&
         (horizontal || c.lane === undefined || current.lane === undefined || c.lane === current.lane) &&
         (horizontal ? c.x - current.x : c.y - current.y) * sign > 0,
     );
@@ -667,22 +718,33 @@ export class State {
     const next = candidates[0];
     if (next) this.selectCell(next);
   }
+  private navigationCells(): Cell[] {
+    return this.query ? this.cells : [this.prefix_cell, ...this.cells];
+  }
   private selectedCell(): Cell | undefined {
-    const matches = this.cells.filter(c => sameTarget(c.target ?? null, { name: "binding", ...this.selected }));
+    const matches = this.navigationCells().filter(c =>
+      sameTarget(c.target ?? null, { name: "binding", ...this.selected }),
+    );
     return matches[this.selected_occurrence] ?? matches[0];
   }
   private selectCell(cell: Cell) {
     if (cell.target?.name !== "binding") return;
     this.selected = { id: cell.target.id, index: cell.target.index };
-    this.selected_occurrence = this.cells.filter(c => sameTarget(c.target ?? null, cell.target!)).indexOf(cell);
+    this.selected_occurrence = this.navigationCells()
+      .filter(c => sameTarget(c.target ?? null, cell.target!))
+      .indexOf(cell);
     this.reveal(cell);
   }
   private reveal(cell: Cell) {
+    if (cell === this.prefix_cell) {
+      this.scroll = 0;
+      return;
+    }
     if (cell.y < this.scroll) this.scroll = cell.y;
     if (cell.y >= this.scroll + this.page_rows) this.scroll = cell.y - this.page_rows + 1;
   }
   private select(delta: number) {
-    const targets = this.cells.filter(c => c.target?.name === "binding");
+    const targets = this.navigationCells().filter(c => c.target?.name === "binding");
     if (!targets.length) return;
     const current = this.selectedCell();
     const at = targets.findIndex(c => c === current);
@@ -716,7 +778,7 @@ export class State {
       return this.activate(hit.target);
     }
     if (this.edit) {
-      if (this.edit.menu && !this.dropdown?.contains(x, y)) this.closeMenu();
+      if (this.edit?.menu && !this.dropdown?.contains(x, y)) this.closeMenu();
       return null;
     }
     return this.panel.contains(x, y) ? null : { name: "close" };
@@ -771,7 +833,7 @@ export class State {
     const tabular = (shortcut: model.Shortcut | null) =>
       shortcut ? (shortcut.prefixed ? "◇ " : "  ") + model.display({ ...shortcut, prefixed: false }) : "  —";
     const row = (col: number, label: string, ids: string[]) => {
-      const entries = ids.map(id => this.entries.find(e => e.id === id)).filter((e): e is model.Entry => !!e);
+      const entries = ids.map(id => this.entries.find(e => e.id === id)).filter((e): e is Entry => !!e);
       if (!entries.length) return;
       const shown = entries.flatMap(e =>
         (e.shortcuts.length ? e.shortcuts : [null])
@@ -839,17 +901,7 @@ export class State {
     if (this.query) {
       heading(0, i18n.t`MATCHING SHORTCUTS`);
       const q = this.query.toLocaleLowerCase();
-      const matches = this.entries.filter(e =>
-        (
-          e.title +
-          " " +
-          e.id +
-          " " +
-          e.shortcuts.map(s => JSON.stringify(model.serialize(s, e.indexed)) + " " + model.display(s)).join(" ")
-        )
-          .toLocaleLowerCase()
-          .includes(q),
-      );
+      const matches = this.entries.filter(e => (e.title + " " + e.id).toLocaleLowerCase().includes(q));
       for (const e of matches) row(0, e.title, [e.id]);
       if (!matches.length) add(0, 1, ys[0]++, i18n.t`No matching actions.`, "muted");
       return { cells, total: ys[0] };
@@ -872,7 +924,7 @@ export class State {
     const sideBySide = colWidth >= 2 * (capWidth * 3 + 2) + 3;
     const compassWidth = sideBySide ? Math.floor((colWidth - 3) / 2) : colWidth;
     const slot = Math.max(3, Math.floor((compassWidth - 2) / 3));
-    const capLines = (entry: model.Entry) =>
+    const capLines = (entry: Entry) =>
       (entry.shortcuts.length ? entry.shortcuts : [null])
         .slice(0, this.show_alts ? undefined : 1)
         .flatMap((s, index) => wrapped("[" + (s ? model.display(s) : "—") + "]", slot).map(text => ({ text, index })));
@@ -965,7 +1017,9 @@ export class State {
     row(col, i18n.t`Review changes`, ["review"]);
     row(col, i18n.t`Setup`, ["setup"]);
     row(col, i18n.t`Shortcuts`, ["help"]);
-    const remaining = this.entries.filter(e => !shownIds.has(e.id) && (e.shortcuts.length || e.custom));
+    const remaining = this.entries.filter(
+      e => e.id !== "prefix" && !shownIds.has(e.id) && (e.shortcuts.length || e.custom),
+    );
     if (remaining.length) {
       ys[col]++;
       heading(col, i18n.t`MORE`);
@@ -1013,7 +1067,8 @@ export class State {
   }
   private popup(w: Writer) {
     const e = this.edit!,
-      entry = this.entry(e.id);
+      entry = this.entry(e.id),
+      prefix = e.id === "prefix";
     const bordered = this.panel.h >= 23 && this.panel.w >= 56;
     const width = Math.min(60, this.panel.w - 2),
       height = bordered ? 21 : Math.min(15, this.panel.h - 2);
@@ -1084,34 +1139,43 @@ export class State {
       button(chipX, chipCenter, "›", { name: "alternative", index: page + pageSize }, 1, false, false, "plain");
       chipX += 2;
     }
-    button(chipX, chipCenter, "+", { name: "add" }, 1, e.shortcuts.length >= 16, false, "plain");
-    button(
-      b.w - removeWidth - 2,
-      chipCenter,
-      i18n.t`Remove`,
-      { name: "remove" },
-      removeWidth,
-      e.index < 0 || e.index >= e.shortcuts.length,
-      false,
-      "plain",
-      bordered ? "Backspace" : "",
-    );
+    if (!prefix) {
+      button(chipX, chipCenter, "+", { name: "add" }, 1, e.shortcuts.length >= 16, false, "plain");
+      button(
+        b.w - removeWidth - 2,
+        chipCenter,
+        i18n.t`Remove`,
+        { name: "remove" },
+        removeWidth,
+        e.index < 0 || e.index >= e.shortcuts.length,
+        false,
+        "plain",
+        bordered ? "Backspace" : "",
+      );
+    }
     const half = Math.floor((b.w - 5) / 2);
     let keysRect: Rect | null = null,
       modsRect: Rect | null = null;
     if (e.index < 0) draw(2, labelY, i18n.t`Add a shortcut with +`, "muted");
     else {
-      button(
-        2,
-        scopeY,
-        (e.prefixed ? "[x]" : "[ ]") + i18n.t` Use prefix`,
-        { name: "toggle-prefix" },
-        28,
-        e.listening,
-        e.prefixed,
-        "plain",
-        "◇ " + keymap.prefixName(this.prefix),
-      );
+      if (prefix) {
+        for (const [i, line] of wrapped(i18n.t`Tip: tap twice to send it to the pane.`, b.w - 4)
+          .slice(0, 2)
+          .entries())
+          draw(2, scopeY + i, line, "faint");
+      } else {
+        button(
+          2,
+          scopeY,
+          (e.prefixed ? "[x]" : "[ ]") + i18n.t` Use prefix`,
+          { name: "toggle-prefix" },
+          28,
+          e.listening,
+          e.prefixed,
+          "plain",
+          "◇ " + keymap.prefixName(this.prefix),
+        );
+      }
       if (e.listening) {
         draw(2, labelY, entry.indexed ? i18n.t`Press keys in order…` : i18n.t`Press a shortcut…`, "accent");
         const capture = new Rect(b.x + 2, b.y + fieldY, b.w - 4, bordered ? 3 : 1);
@@ -1179,11 +1243,13 @@ export class State {
         : "");
     if (message) draw(2, bordered ? 15 : 9, message, "warm");
     draw(2, footerY - 1, "─".repeat(b.w - 4), "line");
-    button(2, footerY, i18n.t`Cancel`, { name: "cancel" }, 14, false, false, "button", "Esc");
+    const cancel = i18n.t`Cancel`,
+      cancelWidth = Math.max(14, displayWidth(cancel) + (bordered ? 8 : 6));
+    button(2, footerY, cancel, { name: "cancel" }, cancelWidth, false, false, "button", "Esc");
     if (e.deleted.length && !e.listening) {
-      const room = Math.min(16, b.w - 32);
+      const room = Math.min(16, b.w - cancelWidth - 18);
       button(
-        18,
+        cancelWidth + 4,
         footerY + (bordered ? 1 : 0),
         i18n.t`Undo`,
         { name: "undo" },
@@ -1302,7 +1368,7 @@ export class State {
     this.draw(w, b.x + Math.floor((b.w - displayWidth(title)) / 2), b.y + 1, title, "strong");
     const prefixName = keymap.prefixName(prefix),
       shortPrefix = `◇ ${prefixName}`,
-      fullPrefix = i18n.t`◇ Prefix = ${prefixName}`,
+      fullPrefix = i18n.t`◇ Prefix = ${prefixName}` + "  F2",
       fullCustomize = this.customizing ? i18n.t`Done` : i18n.t`Customize Keys`,
       customize =
         displayWidth(fullCustomize) + 9 + displayWidth(shortPrefix) + 6 > b.w
@@ -1317,7 +1383,17 @@ export class State {
     this.draw(w, customizeX, b.y + 3, " Ctrl+E ", "strong", 8, undefined, true, "line");
     this.draw(w, customizeX + 9, b.y + 3, customize, "muted", customizeWidth - 9);
     this.hits.push({ rect: new Rect(customizeX, b.y + 3, customizeWidth, 1), target: { name: "customize" } });
-    this.draw(w, b.x + 2, b.y + 3, prefixLabel, "faint", prefixWidth);
+    const prefixSelected = this.customizing && !this.query && this.selected.id === "prefix";
+    this.draw(
+      w,
+      b.x + 2,
+      b.y + 3,
+      prefixLabel,
+      prefixSelected ? "accent" : "muted",
+      prefixWidth,
+      { name: "prefix" },
+      prefixSelected,
+    );
     const searchHint = i18n.t`to search all`,
       search = this.query || (this.searching ? "▏" : searchHint),
       sameRow = b.w >= 75 && customizeX - b.x - prefixWidth - 8 >= displayWidth(searchHint) + 4,
@@ -1352,7 +1428,7 @@ export class State {
     this.page_rows = b.h - 9;
     this.max_scroll = sat(layout.total, this.page_rows);
     this.scroll = Math.min(this.scroll, this.max_scroll);
-    const selected = this.customizing ? this.selectedCell() : undefined;
+    const selected = this.customizing || this.query ? this.selectedCell() : undefined;
     if (resized && selected && !this.edit) this.reveal(selected);
     for (const c of this.cells)
       if (c.y >= this.scroll && c.y < this.scroll + this.page_rows) {

@@ -21,7 +21,7 @@ import {
   constants,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { supportedPreset, type Preset, type Prefix } from "./keymap";
+import { supportedPreset, parsePrefix, defaultPrefix, type Preset, type Prefix } from "./keymap";
 import * as palette from "./palette";
 import { Provider } from "./providers";
 import * as effort from "./providers/effort";
@@ -65,7 +65,7 @@ export class Preferences {
   /** Machine-qualified workspace order in the combined sidebar. */
   workspace_order: string[] = [];
   preset: Preset = "corgi";
-  prefix: Prefix = "ctrl_b";
+  prefix: Prefix = defaultPrefix;
   /** Action overrides; omitted actions inherit the selected preset. */
   keys: keybindings.Config = {};
   onboarding_complete = false;
@@ -186,10 +186,16 @@ export function downgrade(files: Files, target: string): Files {
     for (const [key, value] of Object.entries(prefs))
       if (settings.includes(key) && Object.hasOwn(files.config, key) && !skipped.has(key) && value !== undefined)
         config[key] = value;
+    // The prefix revision chooses the old default for values older builds cannot use.
+    if (Object.hasOwn(files.config, "prefix")) config.prefix = files.config.prefix;
     input = { viewer: files.viewer, config };
   }
   const output = history.down(input, target) as Files;
-  if (legacy) output.config = structuredClone(files.config);
+  if (legacy) {
+    const prefix = output.config?.prefix;
+    output.config = structuredClone(files.config);
+    if (output.config && prefix !== undefined) output.config.prefix = prefix;
+  }
   if (target === unstamped) delete output.viewer.format;
   else output.viewer.format = target;
   return output;
@@ -224,15 +230,27 @@ export function inspect(where = paths()): Reading {
   return { prefs, problems };
 }
 /** config.json alone, as live reload reads it; prefs is null when it can't be read. */
-export function inspectConfig(file = configPath()): { prefs: Preferences | null; problems: Problem[] } {
+export function inspectConfig(where = paths()): { prefs: Preferences | null; problems: Problem[] } {
   let raw: Raw | null;
   try {
-    raw = readRaw(file);
+    raw = readRaw(where.config);
   } catch (error) {
-    return { prefs: null, problems: [unreadable(file, error)] };
+    return { prefs: null, problems: [unreadable(where.config, error)] };
+  }
+  const problems: Problem[] = [];
+  try {
+    raw = upgrade({ viewer: readRaw(where.viewer) ?? {}, config: raw }).config;
+  } catch (error) {
+    problems.push(unreadable(where.viewer, error));
   }
   const prefs = new Preferences();
-  return { prefs, problems: readSettings(raw ?? {}, prefs).map(p => ({ file, text: `${p.field}: ${p.reason}` })) };
+  return {
+    prefs,
+    problems: [
+      ...problems,
+      ...readSettings(raw ?? {}, prefs).map(p => ({ file: where.config, text: `${p.field}: ${p.reason}` })),
+    ],
+  };
 }
 /** viewer.json alone, as live reload reads it, with defaults for settings;
  * null when it can't be read. */
@@ -280,8 +298,9 @@ export function load(migrating = false): Preferences {
   }
   if (old === null) return finish();
   const legacy = new Preferences();
-  readState(old, legacy);
-  readSettings(old, legacy);
+  const imported = upgrade({ viewer: old, config: null });
+  readState(imported.viewer, legacy);
+  readSettings(imported.config ?? {}, legacy);
   if (!legacy.onboarding_complete) return finish();
   // Its keymap carries forward only into a config.json it makes: one already
   // there, such as one restored from dotfiles, keeps its own choices. Without
@@ -364,6 +383,14 @@ export function updateKeys(expected: Preferences, keys: keybindings.Config, wher
       }
     }
     files.config = { ...files.config, keys: next };
+  });
+}
+/** The prefix editor shares the binding editor's stale-read check. */
+export function updatePrefix(expected: Preferences, prefix: Prefix, where = paths()): Preferences {
+  return save(where, (files, { current }) => {
+    if (current.preset !== expected.preset || current.prefix !== expected.prefix || !same(current.keys, expected.keys))
+      throw Error("Shortcuts changed on disk. Reopen the editor before saving.");
+    files.config = { ...files.config, prefix };
   });
 }
 /** Writes `value` whole: its settings to config.json and the rest to viewer.json. */
@@ -521,7 +548,6 @@ function readState(d: Record<string, any>, v: Preferences): void {
 }
 const enums = {
   preset: ["corgi", "tmux", "herdr", "cmux"],
-  prefix: ["ctrl_b", "ctrl_a"],
 } as const;
 /** config.json's fields, each read alone: one this build can't use keeps its
  * default and names itself, without costing the others. */
@@ -541,6 +567,11 @@ function readSettings(d: Record<string, any>, v: Preferences): Skipped[] {
       const list = values.join(", ");
       skip(key, i18n.t`use one of ${list}`);
     }
+  }
+  if ("prefix" in d) {
+    const prefix = parsePrefix(d.prefix);
+    if (prefix !== null) v.prefix = prefix;
+    else skip("prefix", i18n.t`use a single key chord, such as f9 or ctrl+space; Escape is reserved`);
   }
   if ("corgi_intensity" in d) {
     const intensity = d.corgi_intensity,

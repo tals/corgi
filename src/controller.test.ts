@@ -34,7 +34,6 @@ import { join } from "node:path";
 import { Menu as SetupMenu, items as setupItems } from "./corgi_setup";
 import * as hostClipboard from "./host_clipboard";
 import * as promptAttach from "./prompt_attach";
-import * as keymap from "./keymap";
 import * as bindings from "./bindings";
 import * as viewer from "./viewer";
 import { agent, type Pane } from "./mirror";
@@ -131,7 +130,7 @@ test.each(["typing", "kitty key", "click", "resize", "flourishes off"])(
 test("a sign-in takes the prefix only to detach or to type it", async () => {
   const s = controller(),
     open = spyOn(signin.Signin.prototype, "open").mockResolvedValue(undefined),
-    prefix = String.fromCharCode(keymap.prefixByte(s.prefs.prefix)),
+    prefix = "\x02",
     detach = String.fromCharCode(bindings.find(s.prefs.preset, { name: "detach" })!.key),
     close = String.fromCharCode(bindings.find(s.prefs.preset, { name: "close" })!.key);
   s.receiveSnapshot(folders("/a"));
@@ -674,7 +673,7 @@ test("the button and the sidebar's add button light together while either is cho
 });
 test("the tab menu starts a prefix only with the configured prefix key", async () => {
   const s = controller();
-  s.prefs = Object.assign(new preferences.Preferences(), { prefix: "ctrl_a" });
+  s.prefs = Object.assign(new preferences.Preferences(), { prefix: "ctrl+a" });
   s.tab_menu = new TabMenu({ tab: 1, anchor_x: 0 });
   await s.key(2);
   expect(s.prefix).toBe(false);
@@ -682,6 +681,204 @@ test("the tab menu starts a prefix only with the configured prefix key", async (
   await s.key(1);
   expect(s.prefix).toBe(true);
   expect(s.tab_menu).toBeNull();
+});
+
+test.each([
+  ["f9", "\x1b[20~", "\x1b[57372u", "\x1b[20~"],
+  ["ctrl+space", "\x00", "\x1b[32;5u", "\x00"],
+  ["ctrl+\\", "\x1c", "\x1b[92;5u", "\x1c"],
+  ["ctrl+a", "\x01", "\x1b[97;5u", "\x01"],
+  ["alt+x", "\x1bx", "\x1b[120;3u", "\x1bx"],
+  ["é", "é", "\x1b[233u", "é"],
+  ["alt+é", "\x1bé", "\x1b[233;3u", "\x1bé"],
+  ["X", "X", "\x1b[88;2u", "X"],
+  ["f1", "\x1bOP", "\x1b[57364u", "\x1bOP"],
+  ["ctrl+t", "\x14", "\x1b[116;5u", "\x14"],
+])(
+  "custom prefix %s runs shortcuts and types itself twice across keyboard encodings",
+  async (prefix, raw, enhanced, typed) => {
+    const s = controller();
+    s.receiveSnapshot(folders("/a"));
+    s.input_state.attached = true;
+    s.prefs.prefix = prefix;
+    const term = s.focused().terminal,
+      perform = spyOn(s, "perform").mockResolvedValue(undefined);
+    try {
+      await s.input(bytes(raw));
+      expect(s.prefix).toBe(true);
+      expect(term.pending).toHaveLength(0);
+      await s.input(bytes("b"));
+      expect(perform).toHaveBeenLastCalledWith({ name: "sidebar" });
+      expect(s.prefix).toBe(false);
+      perform.mockClear();
+      await s.input(bytes(raw + enhanced));
+      expect(s.prefix).toBe(false);
+      expect(Buffer.from(term.pending).toString()).toBe(typed);
+      expect(perform).not.toHaveBeenCalled();
+      term.pending = [];
+      await s.input(bytes(enhanced + "\x1b[98u"));
+      expect(perform).toHaveBeenLastCalledWith({ name: "sidebar" });
+      expect(s.prefix).toBe(false);
+      expect(term.pending).toHaveLength(0);
+    } finally {
+      viewer.close(s);
+    }
+  },
+);
+
+test("a doubled function prefix follows the child's keyboard protocol, and paste stays literal", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.prefix = "f9";
+  const term = s.focused().terminal;
+  term.inner.feed("\x1b[>1u\x1b[?2004h");
+  try {
+    await s.input(bytes("\x1b[20~\x1b[20~"));
+    expect(Buffer.from(term.pending).toString()).toBe("\x1b[20~");
+    term.pending = [];
+    const paste = "\x1b[200~\x1b[20~b\x1b[201~";
+    await s.input(bytes(paste));
+    expect(Buffer.from(term.pending).toString()).toBe(paste);
+    expect(s.prefix).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each([
+  ["ctrl+b", "\x02", "\x1b[98;5u"],
+  ["ctrl+space", "\x00", "\x1b[32;5u"],
+  ["ctrl+\\", "\x1c", "\x1b[92;5u"],
+])("a doubled raw %s uses the child's enhanced keyboard protocol", async (prefix, input, expected) => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.prefix = prefix;
+  const term = s.focused().terminal;
+  term.inner.feed("\x1b[>1u");
+  try {
+    await s.input(bytes(input + input));
+    expect(Buffer.from(term.pending).toString()).toBe(expected);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each([
+  ["ctrl+b", "\x1b[98;6u"],
+  ["tab", "\x1b[105;5u"],
+  ["x", "\x1b[120;3u"],
+])("unrelated enhanced keys cannot become prefix %s through legacy encoding", async (prefix, input) => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.prefix = prefix;
+  try {
+    await s.input(bytes(input));
+    expect(s.prefix).toBe(false);
+    expect(s.focused().terminal.pending.length).toBeGreaterThan(0);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each(["\x1b[20~", "\x1b[57372u"])("custom prefixes work over setup and the prompt (%s)", async prefix => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.prefix = "f9";
+  try {
+    await s.input(bytes(prefix + " "));
+    expect(s.prompt.open).toBe(true);
+    await s.input(bytes(prefix + " "));
+    expect(s.prompt.open).toBe(false);
+    s.openSetup();
+    await s.input(bytes(prefix + "q"));
+    expect(s.input_state.attached).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each(["é", "🐶"])("a doubled Unicode prefix %s types complete text into the prompt", async prefix => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.prefix = prefix;
+  const key = spyOn(s.prompt, "key");
+  try {
+    await s.input(bytes(prefix + " " + prefix + prefix));
+    expect(s.prompt.open).toBe(true);
+    expect(s.prefix).toBe(false);
+    expect(key.mock.calls.map(call => call[0])).toEqual(Array.from(bytes(prefix)));
+    expect(s.focused().terminal.pending).toHaveLength(0);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("UTF-8 continuation bytes never arm the setup prefix", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.prefix = "©";
+  s.openSetup();
+  try {
+    await s.input(bytes("é"));
+    expect(s.corgi_setup.after_prefix).toBe(false);
+    await s.input(bytes("©"));
+    expect(s.corgi_setup.after_prefix).toBe(true);
+    await s.input(bytes("q"));
+    expect(s.input_state.attached).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each([
+  ["setup", "`", "`"],
+  ["setup", "²", "²"],
+  ["setup", "`", "\x1b[96u"],
+  ["launcher", "`", "`"],
+  ["launcher", "`", "\x1b[96u"],
+])("%s fields receive printable prefix %s as text (%s)", async (host, prefix, input) => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.prefix = prefix;
+  try {
+    if (host === "setup") {
+      s.openSetup();
+      s.corgi_setup.editing = Dialog.init({ agent_command: 0 }, "");
+      await s.input(bytes(input + input));
+      expect(s.corgi_setup.editing.name()).toBe(prefix + prefix);
+      expect(s.corgi_setup.after_prefix).toBe(false);
+    } else {
+      s.openLauncher(true);
+      s.agent_launcher.worktree.open(null, "/a");
+      await s.input(bytes(input + input));
+      expect(s.agent_launcher.worktree.field.name()).toBe(prefix + prefix);
+      expect(s.agent_launcher.prefix).toBe(false);
+    }
+    expect(s.focused().terminal.pending).toHaveLength(0);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a control prefix can still detach while editing a setup field", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  try {
+    s.openSetup();
+    s.corgi_setup.editing = Dialog.init({ agent_command: 0 }, "");
+    await s.input(bytes("\x02q"));
+    expect(s.input_state.attached).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
 });
 
 test("the full-screen help covers the panes, a prefix alone does not", () => {
@@ -2912,7 +3109,7 @@ test("custom keys resolve legacy, CSI-u, Alt and fragmented UTF-8 input", async 
   }
 });
 
-const prefixed = (s: any, key: string) => String.fromCharCode(keymap.prefixByte(s.prefs.prefix)) + key;
+const prefixed = (s: any, key: string) => "\x02" + key;
 
 test("prefix Space opens the prompt over the panes, and closes it again", async () => {
   const s = controller();
@@ -2987,7 +3184,7 @@ test("while the prompt shows it takes keys, sequences, pastes and the pointer ah
     expect(key.mock.calls.map(c => c[0])).toEqual([104, 105]);
     // The prefix twice types it into the prompt, not the pane behind.
     await s.input(bytes(prefixed(s, prefixed(s, ""))));
-    expect(key).toHaveBeenLastCalledWith(keymap.prefixByte(s.prefs.prefix));
+    expect(key).toHaveBeenLastCalledWith(2);
     await s.input(bytes("\x1b[A"));
     expect(sequence).toHaveBeenLastCalledWith("\x1b[A");
     // Alt+Enter from a legacy terminal and Shift+Enter from a Kitty one make a new line.

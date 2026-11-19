@@ -43,7 +43,7 @@ test.skipIf(!Bun.which("claude") || !Bun.which("codex"))(
         },
       });
       await until(() => screen.text().includes("slowloris"));
-      ui.terminal!.write((sandbox.prefix === "ctrl_a" ? "\x01" : "\x02") + "~");
+      ui.terminal!.write((sandbox.prefix === "ctrl+a" ? "\x01" : "\x02") + "~");
       await until(() => screen.text().includes("Developer") && screen.text().includes("Remote"));
       // Select slowloris from the machine navigation.
       ui.terminal!.write("\x1b[B\t");

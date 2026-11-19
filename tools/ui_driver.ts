@@ -176,7 +176,7 @@ export class Session {
     mkdirSync(this.cwd);
     writeFileSync(
       join(this.home, ".local/state/corgi/viewer.json"),
-      JSON.stringify({ onboarding_complete: true, preset: "corgi", prefix: "ctrl_b" }),
+      JSON.stringify({ onboarding_complete: true, preset: "corgi", prefix: "ctrl+b" }),
     );
     this.screen = new Terminal(cols, rows);
     this.terminal = new Bun.Terminal({

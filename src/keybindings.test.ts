@@ -101,7 +101,7 @@ test("restoring an action removes only its override and preserves other customiz
 
 test("reserved keys and prototype action names are rejected", () => {
   expect(() => custom.parse({ new: "esc" })).toThrow("reserved");
-  expect(() => custom.validatePrefix({ new: "ctrl+b" }, "ctrl_b")).toThrow("reserved");
+  expect(() => custom.validatePrefix({ new: "ctrl+b" }, "ctrl+b")).toThrow("reserved");
   expect(() => custom.parse({ toString: "x" })).toThrow("Unknown");
   expect(() => custom.restore("corgi", { new: "prefix+x", close: [] }, "close")).toThrow("used by");
 });

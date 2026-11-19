@@ -64,7 +64,7 @@ test("agents list closing and reopening; panes list closing only", () => {
 
 test("the footer corgi wags until a click or the secret t throws it a ball", () => {
   const help = Object.assign(new State(), { command_mode: true });
-  const idle = help.frame(120, 40, "corgi", "ctrl_b", 0, "default");
+  const idle = help.frame(120, 40, "corgi", "ctrl+b", 0, "default");
   expect(idle).toContain("~ᐯ•.•ᐯ");
   const b = bounds(120, 40);
   const footer = b.y + b.h - 2;
@@ -78,11 +78,11 @@ test("the footer corgi wags until a click or the secret t throws it a ball", () 
   const thrown = help.corgi.thrown_ms!;
   help.play(thrown + 100);
   expect(help.corgi.thrown_ms).toBe(thrown);
-  const fetching = help.frame(120, 40, "corgi", "ctrl_b", thrown + 300, "default");
+  const fetching = help.frame(120, 40, "corgi", "ctrl+b", thrown + 300, "default");
   // A smash lands at once, so the corgi may already be up.
   expect(fetching.includes("•ᴥ•") || fetching.includes("]o>")).toBe(true);
   expect(fetching).not.toContain("•.•");
-  const back = help.frame(120, 40, "corgi", "ctrl_b", thrown + 9_600, "default");
+  const back = help.frame(120, 40, "corgi", "ctrl+b", thrown + 9_600, "default");
   // Only the prompt's little card sleeps on.
   expect(back.replace("~ᐯ◡ᴥ◡ᐯ", "")).not.toContain("ᴥ");
   help.play(thrown + 9_600);
@@ -90,7 +90,7 @@ test("the footer corgi wags until a click or the secret t throws it a ball", () 
 
   // Too narrow for a fetch, the corgi stays put.
   const narrow = Object.assign(new State(), { command_mode: true });
-  narrow.frame(60, 40, "corgi", "ctrl_b", 0, "default");
+  narrow.frame(60, 40, "corgi", "ctrl+b", 0, "default");
   narrow.play(0);
   expect(narrow.corgi.thrown_ms).toBeNull();
 });
@@ -111,7 +111,7 @@ test("the pointer is a hand over what a click acts on", () => {
     }
   expect(keys_at).not.toBeNull();
   const shown = Object.assign(new State(), { command_mode: true });
-  expect(shown.frame(120, 40, "corgi", "ctrl_b", 0, "pointer").endsWith("\x1b]22;pointer\x1b\\\x1b[?2026l")).toBe(true);
+  expect(shown.frame(120, 40, "corgi", "ctrl+b", 0, "pointer").endsWith("\x1b]22;pointer\x1b\\\x1b[?2026l")).toBe(true);
 });
 
 test("the corgi's secret key shadows no shortcut", () => {

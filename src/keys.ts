@@ -160,6 +160,10 @@ export function normalize(key: LogicalKey): LogicalKey {
     codepoint = codepoint === 0 ? 32 : codepoint + 96;
     mods.ctrl = true;
   }
+  if (codepoint >= 28 && codepoint <= 31) {
+    codepoint += 64;
+    mods.ctrl = true;
+  }
   return { codepoint, mods };
 }
 export function same(a: LogicalKey, b: LogicalKey): boolean {

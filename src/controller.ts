@@ -1284,19 +1284,20 @@ export class Controller {
    * detach runs over a sign-in: other commands act on what it covers and
    * puts back when it closes. The prefix twice types it. */
   private async signinPrefix(byte: number, key_event: keyboard.Key | null): Promise<boolean> {
-    const prefix_byte = keymap.prefixByte(this.prefs.prefix);
+    const matches = keys.same(key_event ?? { codepoint: byte, mods: {} }, keymap.prefixKey(this.prefs.prefix));
     if (!this.prefix) {
-      if (byte !== prefix_byte) return false;
+      if (!matches) return false;
       this.prefix = true;
       return true;
     }
     this.prefix = false;
-    if (byte === prefix_byte) return false;
+    if (matches) return false;
     const act = bindings.lookup(this.prefs.bindings(), true, key_event?.codepoint ?? byte, key_event?.mods ?? {});
     if (act?.name === "detach") await this.perform(act);
     return true;
   }
   private async setupPrefix(key: keyboard.Key): Promise<boolean> {
+    if (!this.corgi_setup?.after_prefix && this.typingPrefix(key)) return false;
     const chord = this.corgi_setup?.prefixKey(key.codepoint, this.prefs, key);
     if (chord == null) return false;
     if (chord === "detach") await this.applySetup({ kind: "detach" });
@@ -1438,7 +1439,7 @@ export class Controller {
       const where = preferences.paths();
       this.reportPreferences(preferences.inspect(where).problems);
       const settings = keybindingFile.observe(where.config, () =>
-          this.reloadSettings(preferences.inspectConfig(where.config)),
+          this.reloadSettings(preferences.inspectConfig(where)),
         ),
         state = keybindingFile.observe(where.viewer, () => {
           // One being rewritten by hand keeps the order this viewer has.
@@ -2714,6 +2715,53 @@ export class Controller {
     this.prefix = true;
     this.help = new shortcutHelp.State();
   }
+  /** Take the logical prefix before shortcuts or terminal encoding lose its modifiers. */
+  private async prefixKey(key: keyboard.Key): Promise<boolean> {
+    if (!keys.same(key, keymap.prefixKey(this.prefs.prefix))) return false;
+    if (
+      this.editingName() ||
+      this.typingPrefix(key) ||
+      this.search_mode ||
+      (this.hasMenu() &&
+        !this.prefix &&
+        !this.prompt.open &&
+        !this.sidebar_focus &&
+        !this.tab_menu &&
+        !this.scope_menu &&
+        !this.agent_launcher)
+    )
+      return false;
+    this.repeat_until = 0;
+    this.dirty = true;
+    if (this.agent_launcher?.pinned) {
+      this.agent_launcher.prefix = true;
+    } else if (this.prefix) {
+      this.prefix = false;
+      if (key.codepoint < 32) key = keys.normalize(key);
+      if (this.prompt.open) {
+        const plain = viewerNative.encodeKey(null, key);
+        if (plain.startsWith("\x1b")) await this.promptEffect(this.prompt.sequence(plain));
+        else for (const byte of Buffer.from(plain)) await this.promptEffect(this.prompt.key(byte));
+      } else {
+        const handle = this.openingFocus() ? null : (this.focused()?.terminal.handle ?? null);
+        this.typeFocused(Array.from(Buffer.from(viewerNative.encodeKey(handle, key))));
+      }
+    } else this.beginPrefix();
+    return true;
+  }
+  /** Printable prefixes remain text in form fields, as they do when renaming. */
+  private typingPrefix(key: keyboard.Key): boolean {
+    return (
+      !this.prompt.open &&
+      key.codepoint >= 32 &&
+      key.codepoint !== 127 &&
+      !(key.codepoint >= 57344 && key.codepoint <= 63743) &&
+      !key.mods.ctrl &&
+      !key.mods.alt &&
+      !key.mods.super &&
+      this.textField() !== null
+    );
+  }
   /** Whether a full-screen view hides every pane, so nothing on them was seen. */
   coversPanes(): boolean {
     return this.moonlander !== null || this.onboarding !== null || (this.prefix && this.help_visible);
@@ -2737,9 +2785,15 @@ export class Controller {
         }
         break;
       case "save":
+      case "prefix":
         try {
-          const saved = preferences.updateKeys(this.prefs, result.config);
+          const saved =
+            result.name === "prefix"
+              ? preferences.updatePrefix(this.prefs, result.prefix)
+              : preferences.updateKeys(this.prefs, result.config);
+          this.prefs.prefix = saved.prefix;
           this.prefs.keys = saved.keys;
+          this.help.configure(this.prefs.preset, this.prefs.prefix, this.prefs.keys);
           this.help.accept(saved.keys);
           if (
             !this.remote_links &&
@@ -6021,7 +6075,9 @@ export class Controller {
         }
         return this.saveKeys(apply.preset, this.host.prefs.prefix);
       case "prefix":
-        return this.saveKeys(this.host.prefs.preset, this.host.prefs.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b");
+        this.openHelp();
+        this.help.editPrefix();
+        return;
       case "readings":
         this.host.prefs.resources.enabled = apply.on;
         try {
@@ -6298,7 +6354,7 @@ export class Controller {
     if (index < 0) index = 0;
     this.focusPane(list[next ? (index + 1) % list.length : (index + list.length - 1) % list.length].id);
   }
-  private async key(byte: number, literal = false): Promise<void> {
+  private async key(byte: number, literal = false, event: keyboard.Key = { codepoint: byte, mods: {} }): Promise<void> {
     if (byte === 27 && this.rename_pending !== null) {
       this.rename_pending = null;
       return;
@@ -6318,7 +6374,7 @@ export class Controller {
     if (await this.helpKey({ codepoint: byte, mods: {} })) return;
     // A sign-in has the keyboard; what its agent is sent passes through it.
     if (this.signin) {
-      if (await this.signinPrefix(byte, null)) return;
+      if (!literal && (await this.signinPrefix(byte, event))) return;
       await this.signin.input(Uint8Array.of(byte));
       this.dirty = true;
       return;
@@ -6328,8 +6384,8 @@ export class Controller {
       this.dirty = true;
       return;
     }
+    if (!literal && (await this.prefixKey(event))) return;
     if (this.prompt.open && !this.prefix) {
-      if (byte === keymap.prefixByte(this.prefs.prefix)) return this.beginPrefix();
       // Ctrl+V pastes the clipboard's image, as it does in the agents.
       if (byte === 22) return this.promptClipboardImage();
       return this.promptEffect(this.prompt.key(byte));
@@ -6393,7 +6449,7 @@ export class Controller {
       const setup = this.corgi_setup,
         s = this.runtime.inference,
         shortcuts = setup.item === "keyboard" && setup.focus === "options";
-      if (await this.setupPrefix({ codepoint: byte, mods: {} })) return;
+      if (!literal && (await this.setupPrefix(event))) return;
       if (setup.managing()) {
         const launch = setup.agents!;
         return this.manageAction(launch.manager.key(byte, launch.manageModel()));
@@ -6444,10 +6500,6 @@ export class Controller {
     }
     if (this.agent_launcher) {
       const launch = this.agent_launcher;
-      if (launch.pinned && byte === keymap.prefixByte(this.prefs.prefix)) {
-        launch.prefix = true;
-        return;
-      }
       const after_prefix = launch.prefix;
       launch.prefix = false;
       if (after_prefix && (byte === 99 || byte === 97 || byte === 65)) return;
@@ -6568,8 +6620,6 @@ export class Controller {
         case 107: // k
           await this.steerSidebar("up");
           break;
-        default:
-          if (byte === keymap.prefixByte(this.prefs.prefix)) this.beginPrefix();
       }
       this.dirty = true;
       return;
@@ -6633,7 +6683,6 @@ export class Controller {
         default: {
           const item = context.itemFor(byte);
           if (item) await this.tabMenuAction(item);
-          else if (byte === keymap.prefixByte(this.host.prefs.prefix)) this.beginPrefix();
         }
       }
       return;
@@ -6691,17 +6740,8 @@ export class Controller {
       }
       this.prefix = false;
       this.dirty = true;
-      if (byte === keymap.prefixByte(this.prefs.prefix)) {
-        if (this.prompt.open) return this.promptEffect(this.prompt.key(byte));
-        this.typeFocused([byte]);
-        return;
-      }
       const act = bindings.lookup(this.prefs.bindings(), true, byte, {});
       if (act) await this.runPrefixed(act, false);
-      return;
-    }
-    if (byte === keymap.prefixByte(this.host.prefs.prefix)) {
-      this.beginPrefix();
       return;
     }
     if (!this.copy_mode && !literal) {
@@ -7233,7 +7273,7 @@ export class Controller {
             if (
               decoded.key &&
               ((this.signin && (await this.signinPrefix(decoded.key.codepoint, decoded.key))) ||
-                (!this.signin && (await this.setupPrefix(decoded.key))))
+                (!this.signin && ((await this.setupPrefix(decoded.key)) || (await this.prefixKey(decoded.key)))))
             ) {
               this.dirty = true;
               used += decoded.length;
@@ -7284,20 +7324,6 @@ export class Controller {
           used += 1;
           continue;
         }
-        if (
-          cl.paste === null &&
-          buf[used + 1] !== 0x5b &&
-          buf[used + 1] !== 0x4f &&
-          !this.help_visible &&
-          !this.corgi_setup?.after_prefix &&
-          !(this.signin && this.prefix) &&
-          (this.hasMenu() || this.editingName()) &&
-          !this.promptAlt(buf.slice(used, used + 2))
-        ) {
-          await this.key(27);
-          used += 1;
-          continue;
-        }
         let len = 2;
         if (buf[used + 1] === 0x5b || buf[used + 1] === 0x4f) {
           while (len < buf.length - used && !(buf[used + len] >= 0x40 && buf[used + len] <= 0x7e)) len += 1;
@@ -7314,6 +7340,20 @@ export class Controller {
               ...decoded.key,
               mods: { alt: true, shift: decoded.key.codepoint >= 65 && decoded.key.codepoint <= 90 },
             };
+        }
+        if (
+          cl.paste === null &&
+          alt_key &&
+          !keys.same(alt_key, keymap.prefixKey(this.prefs.prefix)) &&
+          !this.help_visible &&
+          !this.corgi_setup?.after_prefix &&
+          !(this.signin && this.prefix) &&
+          (this.hasMenu() || this.editingName()) &&
+          !this.promptAlt(buf.slice(used, used + 2))
+        ) {
+          await this.key(27);
+          used += 1;
+          continue;
         }
         let seq: number[] = buf.slice(used, used + len);
         if (this.paste_card !== null) {
@@ -7362,7 +7402,7 @@ export class Controller {
             continue;
           }
           if (key_event) {
-            if (await this.setupPrefix(key_event)) {
+            if ((await this.setupPrefix(key_event)) || (await this.prefixKey(key_event))) {
               used += len;
               continue;
             }
@@ -7401,10 +7441,19 @@ export class Controller {
               !this.editingName() &&
               (this.prefix || (!this.hasMenu() && !this.copy_mode && !this.search_mode))
             ) {
-              const act = bindings.chord(this.prefs.bindings(), this.prefix, key_event);
+              const act =
+                bindings.chord(this.prefs.bindings(), this.prefix, key_event) ??
+                (this.prefix
+                  ? bindings.lookup(this.prefs.bindings(), true, key_event.codepoint, key_event.mods)
+                  : null);
               if (act) {
                 if (this.prefix) await this.runPrefixed(act, repeated !== null);
                 else await this.perform(act);
+                used += len;
+                continue;
+              }
+              if (this.prefix && !this.help_visible) {
+                this.prefix = false;
                 used += len;
                 continue;
               }
@@ -7422,9 +7471,7 @@ export class Controller {
               owned ||
               // With no workspace, Enter goes to the button that creates one.
               !this.current().id ||
-              (legacy.length === 1 &&
-                (legacy[0] === keymap.prefixByte(this.prefs.prefix) ||
-                  bindings.lookup(this.prefs.bindings(), false, legacy[0], {}) !== null))
+              (legacy.length === 1 && bindings.lookup(this.prefs.bindings(), false, legacy[0], {}) !== null)
             ) {
               seq = legacy;
             } else if (this.openingFocus()) {
@@ -7444,7 +7491,7 @@ export class Controller {
               continue;
             }
             if (seq.length === 1) {
-              await this.key(seq[0]);
+              await this.key(seq[0], false, key_event);
               used += len;
               continue;
             }

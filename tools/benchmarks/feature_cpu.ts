@@ -59,7 +59,7 @@ writeFileSync(
   JSON.stringify({
     onboarding_complete: true,
     preset: "corgi",
-    prefix: "ctrl_b",
+    prefix: "ctrl+b",
     corgi_intensity: intensity,
     resources: { enabled: resources },
   }),

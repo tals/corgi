@@ -43,7 +43,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { Sandbox, type World } from "./sandbox";
+import type { Sandbox, World } from "./sandbox";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PREFIX = "corgi-ghostty-";
@@ -300,6 +300,7 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
       return readFileSync(displayFile, "utf8").trim();
     }, o.wait);
     if (!o.command) {
+      const { Sandbox } = await import("./sandbox");
       if (!/^[a-z0-9_-]+$/.test(o.sandbox)) throw Error("invalid sandbox name");
       const { world } = (await import(join(ROOT, "tools/sandboxes", `${o.sandbox}.ts`))) as { world: World };
       // A unique sandbox name also isolates its socket from any interactive sandbox.
@@ -320,7 +321,7 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
         join(sandbox.home, ".local/state/corgi/viewer.json"),
         JSON.stringify({ onboarding_complete: true }),
       );
-      sandbox.settings({ preset: "corgi", prefix: "ctrl_b", corgi_intensity: 0 });
+      sandbox.settings({ preset: "corgi", prefix: "ctrl+b", corgi_intensity: 0 });
       sandbox.run([o.corgi, "start", "--update-routed"]);
       await world.arrange(sandbox);
       await prepare?.(sandbox);

@@ -11,7 +11,7 @@ import * as i18n from "./i18n";
 function screen(s: State, cols = 148, rows = 48): string[] {
   const terminal = new Terminal(cols, rows);
   try {
-    terminal.feed(s.frame(cols, rows, "corgi", "ctrl_b", 0));
+    terminal.feed(s.frame(cols, rows, "corgi", "ctrl+b", 0));
     return terminal.text().split("\n");
   } finally {
     terminal.destroy();
@@ -21,7 +21,7 @@ function screen(s: State, cols = 148, rows = 48): string[] {
 function cells(s: State, cols = 148, rows = 48) {
   const terminal = new Terminal(cols, rows);
   try {
-    terminal.feed(s.frame(cols, rows, "corgi", "ctrl_b", 0));
+    terminal.feed(s.frame(cols, rows, "corgi", "ctrl+b", 0));
     return terminal.surface(0).surface.lines.map(line => terminalCells.row(line, cols));
   } finally {
     terminal.destroy();
@@ -41,6 +41,186 @@ function editor(id = "new") {
   s.key(13);
   return s;
 }
+
+test("the prefix editor records a key, saves explicitly, and cancels without changing it", () => {
+  const s = new State();
+  click(s, "Prefix =");
+  expect(s.edit?.id).toBe("prefix");
+  expect(s.edit?.listening).toBe(false);
+  expect(screen(s).join("\n")).toContain("Record Enter");
+  s.key(13);
+  expect(s.edit?.listening).toBe(true);
+  expect(s.owns(keys.parseChord("f9")!)).toBe(true);
+  expect(s.sequence("\x1b[20~")).toBeNull();
+  expect(screen(s).join("\n")).toContain("F9");
+  expect(s.key(13)).toEqual({ name: "prefix", prefix: "f9" });
+  s.key(27);
+  expect(s.edit).toBeNull();
+  expect(screen(s).join("\n")).toContain("Ctrl+B");
+  s.event(keys.parseChord("f2")!);
+  s.key(13);
+  s.event(keys.parseChord("ctrl+space")!);
+  expect(click(s, "Save")).toEqual({ name: "prefix", prefix: "ctrl+space" });
+  s.accept({});
+  expect(s.edit).toBeNull();
+});
+
+test("prefix recording can capture Enter and reports a conflicting custom shortcut", () => {
+  const s = new State();
+  s.configure("corgi", "ctrl+b", { new: "f9" });
+  screen(s);
+  s.editPrefix();
+  s.key(13);
+  s.key(13);
+  expect(s.key(13)).toEqual({ name: "prefix", prefix: "enter" });
+  click(s, "Record Enter");
+  s.sequence("\x1b[20~");
+  expect(s.key(13)).toBeNull();
+  expect(s.error).toContain("reserved for the prefix");
+  expect(s.edit).not.toBeNull();
+});
+
+test("prefix buttons fit narrow translated screens and keep mouse targets", () => {
+  const original = i18n.language();
+  try {
+    for (const locale of i18n.locales) {
+      i18n.setLanguage(locale);
+      for (const [cols, rows] of [
+        [42, 18],
+        [80, 30],
+      ]) {
+        const s = new State();
+        s.editPrefix();
+        screen(s, cols, rows);
+        s.key(13);
+        s.event(keys.parseChord("f9")!);
+        const lines = screen(s, cols, rows),
+          label = i18n.t`Save`,
+          y = lines.findIndex(line => line.includes(label));
+        expect(y).toBeGreaterThanOrEqual(0);
+        expect(s.click(lines[y].indexOf(label) + text.displayWidth(label) - 1, y)).toEqual({
+          name: "prefix",
+          prefix: "f9",
+        });
+        expect(lines.join("\n")).toContain(i18n.t`Cancel`);
+      }
+    }
+  } finally {
+    i18n.setLanguage(original);
+  }
+});
+
+test.each([
+  [42, 18],
+  [80, 30],
+  [148, 48],
+])("prefix uses the shortcut editor's arrow navigation at %i × %i", (cols, rows) => {
+  const s = new State();
+  screen(s, cols, rows);
+  s.editPrefix();
+  for (const [direction, target] of [
+    ["down", "cancel"],
+    ["right", "save"],
+    ["up", "record"],
+  ] as const) {
+    s.event(keys.parseChord(direction)!);
+    expect(s.edit?.focus.name).toBe(target);
+  }
+  s.key(13);
+  expect(s.edit?.listening).toBe(true);
+  s.event(keys.parseChord("down")!);
+  expect(s.edit?.listening).toBe(false);
+  expect(s.key(13)).toEqual({ name: "prefix", prefix: "down" });
+  const drawn = screen(s, cols, rows).join("\n");
+  expect(drawn).toContain("Record Enter");
+  expect(drawn).toContain("Tip: tap twice");
+  expect(drawn).not.toContain("Use prefix");
+  expect(drawn).not.toContain("Remove");
+  click(s, "Use defaults", cols, rows);
+  expect(s.key(13)).toEqual({ name: "prefix", prefix: "ctrl+b" });
+  s.key(127);
+  expect(s.edit?.shortcuts).toHaveLength(1);
+});
+
+test("search finds the prefix row by name and opens its shared editor", () => {
+  const s = new State();
+  screen(s);
+  s.key(47);
+  for (const char of "prefix") s.key(char.charCodeAt(0));
+  const drawn = screen(s).join("\n");
+  expect(drawn).toContain("Prefix key");
+  expect(drawn).not.toContain("New tab");
+  expect(drawn).not.toContain("Split");
+  s.event(keys.parseChord("down")!);
+  expect(s.selected).toEqual({ id: "prefix", index: 0 });
+  s.key(13);
+  expect(s.edit?.id).toBe("prefix");
+  expect(s.edit?.focus.name).toBe("record");
+  expect(s.edit?.listening).toBe(false);
+  s.key(27);
+  expect(s.query).toBe("prefix");
+});
+
+test.each([42, 80, 148])("Up from the first shortcut focuses the prefix header at %i columns", cols => {
+  for (const index of [0, 1]) {
+    const s = new State();
+    s.customizing = true;
+    s.selected = { id: "new", index };
+    screen(s, cols, 30);
+    s.event(keys.parseChord("up")!);
+    if (s.selected.id === "new") {
+      expect(s.selected.index).toBe(0);
+      s.event(keys.parseChord("up")!);
+    }
+    expect(s.selected).toEqual({ id: "prefix", index: 0 });
+    expect(s.scroll).toBe(0);
+    const drawn = cells(s, cols, 30),
+      row = drawn.find(row =>
+        row
+          .map(cell => cell[0])
+          .join("")
+          .includes("Ctrl+B"),
+      )!;
+    expect(row.find(cell => cell[0] === "◇")?.[1]).toBe("accent");
+    s.key(13);
+    expect(s.edit?.id).toBe("prefix");
+    expect(s.edit?.listening).toBe(false);
+    s.key(27);
+    s.event(keys.parseChord("down")!);
+    expect(s.selected).toEqual({ id: "new", index: 0 });
+    s.event(keys.parseChord("shift+tab")!);
+    expect(s.selected).toEqual({ id: "prefix", index: 0 });
+    s.key(9);
+    expect(s.selected).toEqual({ id: "new", index: 0 });
+  }
+});
+
+test("Up from the top of the pane controls also reaches the prefix header", () => {
+  const s = new State();
+  s.customizing = true;
+  s.selected = { id: "focus:up", index: 0 };
+  screen(s);
+  s.event(keys.parseChord("up")!);
+  expect(s.selected).toEqual({ id: "prefix", index: 0 });
+  s.key(13);
+  expect(s.edit?.id).toBe("prefix");
+});
+
+test.each(["ctrl+t", "prefix+c", "◇"])("search does not match shortcut text %s", query => {
+  const s = new State();
+  s.query = query;
+  expect(screen(s).join("\n")).toContain("No matching actions.");
+});
+
+test("changing the prefix refreshes the list entry without changing other shortcuts", () => {
+  const s = new State(),
+    config = {};
+  s.configure("corgi", "ctrl+b", config);
+  s.configure("corgi", "f9", config);
+  s.editPrefix();
+  expect(s.edit?.recorded.map(keys.chordName)).toEqual(["f9"]);
+  expect(s.edit?.shortcuts).toHaveLength(1);
+});
 
 test("unchanged shortcut preferences refresh their action titles after a language change", () => {
   const original = i18n.language();
@@ -151,7 +331,7 @@ test("adaptive layouts keep keycaps intact and spatial without overlapping", () 
     for (const cols of [112, 100, 98, 97, 96, 80, 64, 63, 60, 50, 48, 42])
       for (const alts of [true, false]) {
         const s = new State();
-        s.configure("corgi", "ctrl_b", config);
+        s.configure("corgi", "ctrl+b", config);
         s.show_alts = alts;
         screen(s, cols, 24);
         const { cells } = s["content"](cols - 6);
@@ -381,7 +561,7 @@ test.each([148, 100])("navigation remembers which Close row is focused at %i col
 
 test("uneven alternate counts do not move focus into the neighboring diagram", () => {
   const s = new State();
-  s.configure("corgi", "ctrl_b", { "focus:up": "prefix+up", "split:right": "prefix+v" });
+  s.configure("corgi", "ctrl+b", { "focus:up": "prefix+up", "split:right": "prefix+v" });
   s.customizing = true;
   s.selected = { id: "focus:up", index: 0 };
   screen(s);
@@ -534,7 +714,7 @@ test("range modifiers toggle independently and stay open", () => {
 
 test("mixed modifiers preserve other modifiers and Command bindings", () => {
   const s = new State();
-  s.configure("corgi", "ctrl_b", { tab: { keys: ["prefix+cmd+ctrl+f13", "prefix+cmd+f14"] } });
+  s.configure("corgi", "ctrl+b", { tab: { keys: ["prefix+cmd+ctrl+f13", "prefix+cmd+f14"] } });
   s.customizing = true;
   s.selected = { id: "tab", index: 0 };
   screen(s);
