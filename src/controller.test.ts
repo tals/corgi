@@ -539,10 +539,11 @@ test("setup's auto-order choices go to the daemon, and thresholds out of order a
     expect(s.message).toBe(" Auto-order workspaces on");
     await apply({ kind: "auto_order_threshold", field: "archive_after", minutes: null });
     expect(s.runtime.workspace_auto_order.archive_after).toBeNull();
-    await apply({ kind: "auto_order_threshold", field: "pause_after", minutes: 10 });
-    expect(s.message).toBe(" Pause after must be shorter than stale after, and stale after shorter than archive after");
-    expect(s.runtime.workspace_auto_order.pause_after).toBe(5);
-    expect(sent).toEqual([{ enabled: true }, { archive_after: 0 }, { pause_after: 10 }]);
+    // Setup grays such a choice out; one that slips through is refused and explained.
+    await apply({ kind: "auto_order_threshold", field: "stale_after", minutes: 5 });
+    expect(s.message).toBe(" Stale after must be longer than the pause and shorter than archive after");
+    expect(s.runtime.workspace_auto_order.stale_after).toBe(10);
+    expect(sent).toEqual([{ enabled: true }, { archive_after: 0 }, { stale_after: 5 }]);
   } finally {
     viewer.close(s);
   }

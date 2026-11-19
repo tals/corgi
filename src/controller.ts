@@ -7012,7 +7012,7 @@ export class Controller {
     } catch (error) {
       this.notice(
         errors.is(error, "InvalidThresholds")
-          ? i18n.t` Pause after must be shorter than stale after, and stale after shorter than archive after`
+          ? i18n.t` Stale after must be longer than the pause and shorter than archive after`
           : i18n.t` Corgi setup: the runtime did not accept the change`,
       );
       return;

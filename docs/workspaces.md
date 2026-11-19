@@ -80,13 +80,14 @@ most recently used first.
   is the last workspace left. A notice names each one archived, and
   `server.log` records why one waited. Switching auto-order on, or lowering
   this, holds archiving back for one full period.
-- **Pause after** (default 5 minutes): when nothing happens anywhere for this
-  long (no agent working, no typing, no prompt sent to Corgi), every idle
-  clock stops until something does. Lunch, nights, a stopped Corgi and a
-  sleeping computer don't age anything.
+- **Pause**: when nothing happens anywhere for 5 minutes (no agent working,
+  no typing, no prompt sent to Corgi), every idle clock stops until something
+  does. Lunch, nights, a stopped Corgi and a sleeping computer don't age
+  anything. Setup doesn't offer it; `workspace_pause_after` in `settings.json`
+  changes it.
 
-Setup keeps the three in order, pause shorter than stale and stale shorter
-than archive, and grays out the choices that would break it.
+Setup offers stale times from 10 minutes up, so stale stays longer than the
+pause, and grays out archive times that aren't longer than the stale time.
 
 You can still drag workspaces within the active group, including to the slot
 right below it. A stale workspace stays where its idle time puts it, and
