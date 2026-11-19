@@ -12,6 +12,7 @@ const build = (values: Partial<Build> = {}): Build => ({
   source_hash: "",
   socket: "/tmp/corgi.sock",
   update_abi: "1",
+  delta_transfer: "rsync-zstd-v1",
   ...values,
 });
 test("machine setup selects the invoking release in either direction", () => {
@@ -45,6 +46,9 @@ test("release identity takes precedence over identical source and binary hashes"
   expect(() => matches(old, { ...old, commit: b })).toThrow("ConflictingReleaseBuilds");
 });
 test("remote metadata accepts old additive fields and rejects unsafe paths and hashes", () => {
+  expect(parse({ version: "1.0.0", commit: a, update_abi: "1" }, "linux-x64", "/bin/corgi").delta_transfer).toBe("");
+  expect(parse({ ...build(), delta_transfer: "future-protocol" }, "linux-x64", "/bin/corgi").delta_transfer).toBe("");
+  expect(parse(build(), "linux-x64", "/bin/corgi").delta_transfer).toBe("rsync-zstd-v1");
   expect(parse({ version: "1.0.0", commit: a, update_abi: "1" }, "linux-x64", "/bin/corgi").executable).toBe(
     "/bin/corgi",
   );

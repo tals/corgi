@@ -116,8 +116,9 @@ either direction and across branches. Setup keeps the canonical executable,
 managed launcher and release history. Signed releases use the local update
 trust; development artifacts match by source identity, without Git ancestry.
 Cross-platform development setup requires a matching `dist/corgi-<target>` and
-its build metadata. Setup never installs a remote build onto the local machine.
-Transfers and RPCs have deadlines; reconnecting viewers never switch builds.
+its build metadata; `./go.ts` builds that target automatically when needed.
+Setup never installs a remote build onto the local machine. Transfers and RPCs
+have deadlines.
 
 Daemons from the branch-aware handoff baseline advertise `handoff: 1` in
 management hello and answer `__handoff-info` with their readable state revision IDs.
@@ -140,6 +141,44 @@ panes without understanding that branch's metadata. Recognized metadata that
 fails validation is also discarded, with a fresh runtime validating the core
 before recovery starts any process. During baseline rollout,
 recovery files also retain the legacy checkpoint fields for older readers.
+
+Development launches through `./go.ts` automatically update saved SSH machines
+before their first connection, including repeated dirty edits on the same commit.
+The same applies to remote CLI commands and machine add/check; no deploy command
+is needed. Local startup waits only for the local incremental build and daemon.
+Once the viewer opens, background helpers build remote targets, upload, install
+and reload while local panes remain responsive. Build/platform and upload progress
+appears in the machine's connection status and picker. Each viewer shares one check between its
+control/data connections and reuses it across ordinary reconnects.
+
+The first dev connection chooses this checkout. Later updates check a per-checkout
+receipt in `dist/dev-deploy/`, so another writer's remote changes stop the update.
+`./go.ts --deploy NAME --replace` remains available to take over deliberately.
+Removing `dist/dev-deploy/` forgets the receipts. Pause/quit cancels transfers;
+a build or atomic install already in progress finishes before the helper exits. Helpers serialize target
+builds and updates to the same machine.
+
+`go.ts` uses `bun build.ts --incremental`: unchanged artifacts are reused, and
+TypeScript-only changes skip Zig. Each target keeps one artifact and native output;
+the native key includes the target, native sources, build script, pinned toolchain
+and SDK identity. Binaries publish by atomic rename after checking that sources
+didn't change during compilation. Concurrent builds in the checkout fail on
+`dist/.build-lock`; after an unclean termination, remove it once the builder stops.
+Cross-building macOS needs an SDK at `.tools/macos-sdk` (the main checkout's copy
+also works) or `CORGI_PROBE_SYSROOT`; the normal pinned Zig/Bun pipeline handles
+the rest. The remote needs neither Bun nor a compiler.
+
+New binaries advertise `delta_transfer: "rsync-zstd-v1"` in `__update-info`.
+The installed binary returns block checksums; the sender uploads a compressed
+delta over a dedicated duplex SSH channel. No previous local build is needed.
+The Bun port of Apache-2.0 `fast_rsync` and its framed session also accept arbitrary
+Web streams. Old peers and first installs receive a full binary. A failed delta
+stops without installing; the receiver removes its partial candidate, and retry
+starts a new transfer. Both the basis and reconstructed candidate are hashed;
+the existing installer still checks the installation hasn't changed, verifies
+signed release manifests, preflights state, and hands off live shells. The transfer
+uses the current executable only; managed installations retain their existing
+release-history policy.
 
 Pane surfaces carry Kitty image placements; `viewer.image` transfers decoded
 pixels in bounded chunks. [pane_images.ts](src/pane_images.ts) gives each viewer

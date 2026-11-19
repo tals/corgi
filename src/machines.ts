@@ -116,17 +116,18 @@ export async function edit(change: (profiles: Profile[]) => Profile[], file = ca
     closeSync(fd);
   }
 }
-export async function discover(host: string, executable = "corgi", socket = ""): Promise<Info> {
+export async function discover(host: string, executable = "corgi", socket = "", signal?: AbortSignal): Promise<Info> {
   const child = spawn(
     "ssh",
     [
-      ...ssh.args(host, true),
+      ...ssh.args(host, !process.env.CORGI_MACHINE_SYNC),
       socket
         ? ssh.command("env", [`CORGI_SOCKET=${socket}`, executable, "__remote-info"])
         : ssh.command(executable, ["__remote-info"]),
     ],
     {
       stdio: ["inherit", "pipe", "inherit"],
+      signal,
     },
   );
   let output = "";

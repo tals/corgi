@@ -8,6 +8,7 @@ import * as integration from "./integration";
 import * as accountCommand from "./account_command";
 import * as protocol from "./protocol";
 import * as errors from "./errors";
+import * as machineUpdate from "./machine_update";
 import * as text from "./text";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -38,6 +39,15 @@ test("rollback explains how to reattach without restarting programs", () => {
   const message = failure(["attach"], Error("ServerRolledBack"));
   expect(message).toContain("Reattach using the selected Corgi version");
   expect(message).toContain("running shells and agents were preserved");
+});
+test("automatic machine update failures retain actionable diagnostics", () => {
+  const error = new machineUpdate.Failure("Remote changed since the last dev deployment.");
+  expect(failure(["ping"], error)).toContain(error.detail);
+  expect(JSON.parse(failure(["ping", "--json"], error))).toEqual({
+    ok: false,
+    err: "MachineUpdateFailed",
+    detail: error.detail,
+  });
 });
 test("a busy reload says what it waits for", () => {
   const busy = errors.fromReply({ err: "ReloadBusy", busy: { op: "worktree.add", path: "/src/feature" } });

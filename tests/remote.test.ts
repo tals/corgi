@@ -1,9 +1,18 @@
-import { cpSync, existsSync, readFileSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  realpathSync,
+  copyFileSync,
+  renameSync,
+} from "node:fs";
 import { userInfo } from "node:os";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
-import { Runtime, EXE, PALETTE } from "./runtime";
+import { Runtime, EXE, ROOT, PALETTE } from "./runtime";
 import { registerCase, run, quote, writeExecutable, deadline } from "./support";
 import { Terminal } from "../src/pane/terminal";
 import { TcpFault } from "./tcp_fault";
@@ -192,7 +201,9 @@ class Remote extends Runtime {
     this.assertTrue(this.text().indexOf("REMOTE_RESTARTED") < this.text().indexOf("SECOND_LOCAL"));
   }
   async test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells() {
+    await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
     const before = await this.remote!.rpc({ op: "session.snapshot" });
+    this.assertTrue(before.panes.length > 0);
     await this.cli(["machine", "remove", "work"]);
     const ssh = Bun.which("ssh")!;
     const prefix = `export HOME=${quote(this.remote!.temp.name)}; export CORGI_SOCKET=${quote(this.remote!.path)}; `;
@@ -219,6 +230,179 @@ class Remote extends Runtime {
     // The shells survived a handoff to the installed binary, not the absence of one.
     this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).executable, realpathSync(destination));
   }
+  async developmentBinary(name: string, delta = true) {
+    const info = JSON.parse((await run([EXE, "__remote-info"], { env: this.env })).stdout);
+    const native = dirname(dirname(info.bridge));
+    const file = join(this.temp.name, name);
+    const config = readFileSync(join(ROOT, "src/build_config.ts"), "utf8")
+      .replace('"bun-port"', JSON.stringify("a".repeat(40) + "-dirty"))
+      .replace(
+        'export const sourceHash = ""',
+        `export const sourceHash = "${createHash("sha256").update(name).digest("hex")}"`,
+      );
+    const result = await Bun.build({
+      entrypoints: ["src/main.ts", "src/providers/codex/files_worker.ts", "src/trackers/resources_worker.ts"].map(p =>
+        join(ROOT, p),
+      ),
+      target: "bun",
+      compile: { outfile: file },
+      plugins: [
+        {
+          name: "dev-deployment-fixture",
+          setup(build) {
+            // These real compiled variants share the test binary's already extracted native code.
+            build.onLoad({ filter: /\/native_paths\.ts$/ }, () => ({
+              contents: `export const nativeRoot = ${JSON.stringify(native)};`,
+              loader: "ts",
+            }));
+            build.onLoad({ filter: /\/build_config\.ts$/ }, () => ({ contents: config, loader: "ts" }));
+            if (!delta)
+              build.onLoad({ filter: /\/machine_build\.ts$/ }, () => ({
+                contents: readFileSync(join(ROOT, "src/machine_build.ts"), "utf8").replace(
+                  'delta_transfer: "rsync-zstd-v1",',
+                  'delta_transfer: "",',
+                ),
+                loader: "ts",
+              }));
+          },
+        },
+      ],
+    });
+    this.assertTrue(result.success, result.logs);
+    return file;
+  }
+  async test_dev_deploy_negotiates_delta_and_full_upload_and_preserves_live_shells() {
+    await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
+    const destination = join(this.remote!.temp.name, ".local/bin/corgi");
+    const before = await this.remote!.rpc({ op: "session.snapshot" });
+    const a = await this.developmentBinary("dev-a", false),
+      b = await this.developmentBinary("dev-b");
+    writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture: no cross build needed.\n");
+    const env = { ...this.env, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath };
+    const deploy = (file: string, replace = false, check = true) =>
+      run([file, "machine", "deploy", "work", ...(replace ? ["--replace"] : [])], { env, check, timeout: 60000 });
+    const first = await deploy(a);
+    this.assertIn("Preparing delta", first.stderr);
+    this.assertIn("Uploading delta", first.stderr);
+    const full = await deploy(b);
+    this.assertIn("Uploading Corgi", full.stderr);
+    this.assertNotIn("Uploading delta", full.stderr);
+    const delta = await deploy(a);
+    for (const stage of ["Preparing delta", "Uploading delta", "Uploaded", "Installing", "Verifying", "Connecting"])
+      this.assertIn(stage, delta.stderr);
+    this.assertEqual(JSON.parse(delta.stdout).ok, true);
+    const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
+    this.assertEqual(hash(destination), hash(a));
+    this.assertIn("builds match", (await deploy(a)).stderr);
+    const after = await this.remote!.rpc({ op: "session.snapshot" });
+    this.assertEqual(
+      after.panes.map((p: { pid: number }) => p.pid),
+      before.panes.map((p: { pid: number }) => p.pid),
+    );
+    this.assertNotEqual(after.server_pid, before.server_pid);
+    // Another writer changes the installation after the receipt was recorded.
+    copyFileSync(EXE, destination + ".other");
+    renameSync(destination + ".other", destination);
+    const refused = await deploy(b, false, false);
+    this.assertNotEqual(refused.code, 0);
+    this.assertIn("Remote changed", refused.stderr);
+    this.assertEqual(hash(destination), hash(EXE));
+    await deploy(b, true);
+    this.assertEqual(hash(destination), hash(b));
+  }
+  async test_dev_connections_update_automatically_and_show_progress_without_blocking_local_input() {
+    await this.command("pane.create", { workspace: 1, command: "cat" });
+    await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
+    const destination = join(this.remote!.temp.name, ".local/bin/corgi");
+    const before = await this.remote!.rpc({ op: "session.snapshot" });
+    const a = await this.developmentBinary("auto-a"),
+      b = await this.developmentBinary("auto-b");
+    writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture.\n");
+    Object.assign(this.env, { CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath });
+    const command = () => run([a, "--machine", "work", "ping"], { env: this.env, timeout: 60000 });
+    const first = await command();
+    this.assertIn("Uploading delta", first.stderr);
+    const pid = (await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid;
+    this.assertNotIn("Uploading", (await command()).stderr);
+    this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid, pid);
+    this.network!.cut();
+    this.network!.bytes_per_second = 128 * 1024;
+    this.network!.latency_ms = 60;
+    const shown = new Set<string>();
+    await this.startViewer(
+      "work",
+      110,
+      36,
+      () => {
+        for (const stage of ["Preparing delta", "Uploading delta", "Installing Corgi", "Verifying Corgi"])
+          if (this.text().includes(stage)) shown.add(stage);
+      },
+      b,
+    );
+    await this.until(() => shown.has("Preparing delta") || shown.has("Uploading delta"), 30);
+    this.clickWorkspace("LOCAL");
+    this.terminal!.write("LOCAL_DURING_UPDATE\r");
+    await this.until(() => this.text().includes("LOCAL_DURING_UPDATE"), 1);
+    await this.until(
+      async () => (await this.command("pane.read", { target: 1 })).text.includes("LOCAL_DURING_UPDATE"),
+      2,
+    );
+    const expected = createHash("sha256").update(readFileSync(b)).digest("hex");
+    await this.until(async () => (await this.remote!.rpc({ op: "hello", protocol: 1 })).build_id === expected, 30);
+    await this.until(() => this.text().includes("REMOTE_WORKSPACE"), 15);
+    this.clickWorkspace("REMOTE");
+    await this.sendRemote("REMOTE_AFTER_AUTO_UPDATE");
+    await this.until(() => this.text().includes("REMOTE_AFTER_AUTO_UPDATE"), 3);
+    const after = await this.remote!.rpc({ op: "session.snapshot" });
+    this.assertEqual(
+      after.panes.map((p: { pid: number }) => p.pid),
+      before.panes.map((p: { pid: number }) => p.pid),
+    );
+    this.assertEqual(createHash("sha256").update(readFileSync(destination)).digest("hex"), expected);
+    this.assertTrue(shown.size > 0);
+  }
+  async test_cancel_during_automatic_install_finishes_the_receipt_and_allows_reconnection() {
+    await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
+    const a = await this.developmentBinary("cancel-a"),
+      b = await this.developmentBinary("cancel-b");
+    writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture.\n");
+    const env = { ...this.env, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath };
+    await run([a, "--machine", "work", "ping"], { env, timeout: 60000 });
+    const wrapper = join(this.temp.name, "bin/ssh"),
+      marker = join(this.temp.name, "install-started");
+    writeFileSync(
+      wrapper,
+      readFileSync(wrapper, "utf8").replace(
+        "const p = Bun.spawn(",
+        `if (args.at(-1).includes("__machine-install")) { await Bun.write(${JSON.stringify(marker)}, ""); await Bun.sleep(1000); } const p = Bun.spawn(`,
+      ),
+    );
+    const helper = Bun.spawn([b, "__machine-sync", "work", "corgi-test-host", this.remote!.path], {
+      env: { ...env, CORGI_MACHINE_SYNC: "1" },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const output = new Response(helper.stdout).text(),
+      diagnostic = new Response(helper.stderr).text();
+    try {
+      await this.until(() => existsSync(marker), 30);
+      helper.kill("SIGTERM");
+      this.assertNotEqual(await deadline(helper.exited, 30000), 0);
+      this.assertIn("MachineUpdateCancelled", await diagnostic);
+      this.assertNotIn('"type":"ready"', await output);
+    } finally {
+      if (helper.exitCode === null) helper.kill("SIGKILL");
+      await helper.exited;
+    }
+    const result = await run([b, "--machine", "work", "ping"], { env, timeout: 60000 });
+    this.assertNotIn("Uploading", result.stderr);
+    const destination = join(this.remote!.temp.name, ".local/bin/corgi");
+    this.assertEqual(
+      createHash("sha256").update(readFileSync(destination)).digest("hex"),
+      createHash("sha256").update(readFileSync(b)).digest("hex"),
+    );
+  }
   async tearDown() {
     try {
       if (this.ui?.exitCode === null) {
@@ -244,7 +428,13 @@ class Remote extends Runtime {
   text() {
     return this.emulator!.text();
   }
-  async startViewer(selected = "work", cols = 100, rows = 30, onData: (data: Uint8Array) => void = () => {}) {
+  async startViewer(
+    selected = "work",
+    cols = 100,
+    rows = 30,
+    onData: (data: Uint8Array) => void = () => {},
+    executable = EXE,
+  ) {
     this.emulator = new Terminal(cols, rows);
     this.terminal = new Bun.Terminal({
       cols,
@@ -254,7 +444,7 @@ class Remote extends Runtime {
         onData(data);
       },
     });
-    this.ui = Bun.spawn(selected === "local" ? [EXE, "--no-update"] : [EXE, "--machine", selected], {
+    this.ui = Bun.spawn(selected === "local" ? [executable, "--no-update"] : [executable, "--machine", selected], {
       env: this.env,
       cwd: this.temp.name,
       terminal: this.terminal,

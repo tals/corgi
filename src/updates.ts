@@ -1016,6 +1016,18 @@ export async function internal(args: string[], exe: string): Promise<boolean> {
       console.log(JSON.stringify({ executable: target }));
       return true;
     }
+    case "__machine-receive": {
+      if (args.length !== 4) throw Error("Usage");
+      const transfer = await import("./machine_transfer_file");
+      await transfer.receive(
+        { readable: Bun.stdin.stream(), writable: new WritableStream({ write: bytes => transfer.write(1, bytes) }) },
+        exe,
+        args[1],
+        args[2],
+        args[3],
+      );
+      return true;
+    }
     case "__update-check": {
       if (args.length !== 3) return false;
       const check = await import("./persist/check");

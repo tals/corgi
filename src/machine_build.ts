@@ -13,6 +13,7 @@ export interface Build {
   source_hash: string;
   socket: string;
   update_abi: string;
+  delta_transfer: "rsync-zstd-v1" | "";
 }
 export function target(value: string): Target {
   switch (value) {
@@ -36,6 +37,7 @@ export function describe(executable: string): Build {
     source_hash: config.sourceHash,
     socket: os.socketPath(),
     update_abi: updates.abi,
+    delta_transfer: "rsync-zstd-v1",
   };
 }
 export function parse(value: unknown, platform: Target, executable: string): Build {
@@ -48,7 +50,7 @@ export function parse(value: unknown, platform: Target, executable: string): Bui
     if (typeof v[key] !== "string") throw Error("InvalidRemoteBuild");
     return v[key] as string;
   };
-  const result = {
+  const result: Build = {
     version: v.version as string,
     commit: v.commit as string,
     update_abi: v.update_abi as string,
@@ -57,6 +59,8 @@ export function parse(value: unknown, platform: Target, executable: string): Bui
     build_id: optional("build_id"),
     source_hash: optional("source_hash"),
     socket: optional("socket"),
+    // Absent on older binaries. Only the exact advertised protocol is usable.
+    delta_transfer: v.delta_transfer === "rsync-zstd-v1" ? "rsync-zstd-v1" : "",
   };
   for (const path of [result.executable, result.socket])
     if (path && (!path.startsWith("/") || /[\x00-\x1f\x7f]/.test(path))) throw Error("InvalidRemotePath");

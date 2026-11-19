@@ -4,6 +4,7 @@ import * as currentRelease from "./current_release";
 import { homedir } from "node:os";
 import * as machines from "./machines";
 import * as setup from "./machine_setup";
+import * as dev from "./machine_deploy";
 import * as ssh from "./ssh";
 import * as protocol from "./protocol";
 import * as machine_path from "./machine_path";
@@ -13,6 +14,7 @@ import type * as rpc_http from "./rpc_http";
 import * as agentMode from "./agent_mode";
 import * as os from "./os";
 import { Connection } from "./rpc";
+import * as machineUpdate from "./machine_update";
 
 export const help = `
 Machines (SSH):
@@ -21,6 +23,7 @@ Machines (SSH):
   corgi machine status NAME
   corgi machine reconnect NAME
   corgi machine check NAME
+  ./go.ts --deploy NAME [--replace]  Deploy this development checkout
   corgi machine remove NAME
   corgi --machine NAME [attach | open PATH | COMMAND...]
   corgi list --all-machines
@@ -29,6 +32,7 @@ SSH_TARGET defaults to NAME. "local" always selects this machine.
 Setup matches the remote Corgi installation to this build, upgrading or downgrading it.
 Add uses normal SSH prompts; viewers reconnect with SSH keys/agent or noninteractive
 corporate SSH authentication.
+Development launches through ./go.ts update machines automatically before connecting.
 In the viewer, Ctrl+] or clicking the machine name opens the machine picker.
 `;
 export async function manage(args: string[]): Promise<void> {
@@ -43,7 +47,7 @@ export async function manage(args: string[]): Promise<void> {
       if (rest.length) throw Error("Usage");
       if (machines.read().some(p => p.name === name)) throw Error("MachineExists");
       process.stderr.write(`Checking ${target} through SSH…\n`);
-      executable = await setup.reconcile(target, executable, args);
+      executable = await setup.reconcile(target, executable, args, "", dev.enabled() ? dev.initial() : undefined);
       const info = await machines.discover(target, executable);
       const profile = {
         name,
@@ -64,7 +68,7 @@ export async function manage(args: string[]): Promise<void> {
     case "status":
     case "reconnect": {
       if (args.length !== 2) throw Error("Usage");
-      const profile = machines.find(args[1]);
+      let profile = machines.find(args[1]);
       if (args[0] === "reconnect") {
         const child = Bun.spawn(["ssh", ...ssh.args(profile.target, true), "true"], {
           stdin: "inherit",
@@ -73,6 +77,7 @@ export async function manage(args: string[]): Promise<void> {
         });
         if (await child.exited) throw Error("SshAuthenticationFailed");
       }
+      profile = await machineUpdate.prepare(profile);
       await check(profile);
       process.stdout.write(json.stringify({ ok: true, machine: profile.name, status: "reachable" }) + "\n");
       return;
@@ -90,10 +95,18 @@ export async function manage(args: string[]): Promise<void> {
       if (args.length !== 1) throw Error("Usage");
       process.stdout.write(json.stringify({ machines: [{ name: "local" }, ...machines.read()] }) + "\n");
       return;
+    case "deploy":
     case "check": {
-      if (args.length !== 2) throw Error("Usage");
+      const deploy = args[0] === "deploy";
+      if (args.length !== 2 && !(deploy && args.length === 3 && args[2] === "--replace")) throw Error("Usage");
       const old = machines.find(args[1]);
-      const executable = await setup.reconcile(old.target, old.executable, args, old.socket);
+      const deployment = deploy || dev.enabled() ? dev.open(old, args[2] === "--replace") : undefined;
+      let executable: string;
+      try {
+        executable = await setup.reconcile(old.target, old.executable, args, old.socket, deployment);
+      } finally {
+        deployment?.close();
+      }
       const info = await machines.discover(old.target, executable, old.socket);
       const refreshed = {
         ...old,
@@ -119,7 +132,39 @@ export async function manage(args: string[]): Promise<void> {
       if (args.length && args[0] !== "--help") process.exitCode = 2;
   }
 }
+/** Runs in a helper process so builds, hashes and uploads leave the viewer responsive. */
+export async function synchronize(
+  name: string,
+  target: string,
+  socket: string,
+  progress: (message: string) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!dev.enabled()) throw Error("DevelopmentBuildRequired");
+  const old = machines.find(name);
+  if (old.target !== target || old.socket !== socket) throw Error("MachineChanged");
+  const deployment = await dev.acquire(old, signal);
+  try {
+    const executable = await setup.reconcile(old.target, old.executable, [], old.socket, deployment, {
+      progress,
+      signal,
+    });
+    signal.throwIfAborted();
+    progress(`Connecting to ${old.name}…`);
+    const info = await machines.discover(old.target, executable, old.socket, signal);
+    await machines.edit(profiles =>
+      profiles.map(p => {
+        if (p.name !== old.name) return p;
+        if (p.target !== old.target || p.socket !== old.socket) throw Error("MachineChanged");
+        return { ...old, executable: info.executable, bridge: info.bridge };
+      }),
+    );
+  } finally {
+    deployment.close();
+  }
+}
 async function check(profile: machines.Profile, fresh = false): Promise<void> {
+  process.stderr.write(`Connecting to ${profile.name}…\n`);
   const tunnel = new Remote(profile, fresh);
   let conn: Connection | null = null;
   try {
@@ -207,7 +252,20 @@ export async function run(path: string, args: string[], conn: Connection): Promi
 }
 export async function all(local: string): Promise<void> {
   const profiles: (machines.Profile | null)[] = [null, ...machines.read()];
-  const results = await Promise.all(profiles.map(p => machines.listing(p, local)));
+  const results = await Promise.all(
+    profiles.map(async p => {
+      try {
+        return await machines.listing(p ? await machineUpdate.prepare(p) : null, local);
+      } catch (error) {
+        return {
+          machine: p?.name ?? "local",
+          ok: false,
+          err: error instanceof Error ? error.message : "ConnectionFailed",
+          ...(error instanceof machineUpdate.Failure ? { detail: error.detail } : {}),
+        };
+      }
+    }),
+  );
   process.stdout.write(json.stringify({ machines: results }) + "\n");
   if (results.some(r => r && typeof r === "object" && "ok" in r && r.ok === false)) process.exitCode = 1;
 }

@@ -203,6 +203,31 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     await remote.manage(args.slice(1));
     return;
   }
+  if (args[0] === "__machine-sync") {
+    if (args.length !== 4) throw Error("Usage");
+    const cancellation = new AbortController();
+    const abort = () => cancellation.abort(Error("MachineUpdateCancelled"));
+    process.on("SIGTERM", abort);
+    process.on("SIGINT", abort);
+    try {
+      await (
+        await import("./machine_cli")
+      ).synchronize(
+        args[1],
+        args[2],
+        args[3],
+        message => {
+          if (!cancellation.signal.aborted) process.stdout.write(JSON.stringify({ type: "progress", message }) + "\n");
+        },
+        cancellation.signal,
+      );
+      process.stdout.write(JSON.stringify({ type: "ready" }) + "\n");
+    } finally {
+      process.off("SIGTERM", abort);
+      process.off("SIGINT", abort);
+    }
+    return;
+  }
   if (args[0] === "__remote-info") {
     if (args.length !== 1) throw Error("Usage");
     const remote = await import("./machine_cli");
@@ -277,7 +302,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   }
   if (selected && selected !== "local") {
     const machines = await import("./machines");
-    const profile = machines.find(selected);
+    let profile = machines.find(selected);
     const command = args[0] ?? "attach";
     if (command === "attach" || command === "open") {
       if (process.env.CORGI_PANE) throw Error("NestedCorgi");
@@ -289,6 +314,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     } else {
       const remote = await import("./machine_cli");
       if (!remote.remoteCommand(args)) throw Error("UnsupportedRemoteCommand");
+      profile = await (await import("./machine_update")).prepare(profile);
       const mode = agent_mode.flags(args);
       const command = cli.handles(mode.args)
         ? [
@@ -662,12 +688,22 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
 /** What corgi prints when the command line `args` failed with `error`. */
 export function failure(args: string[], error: unknown): string {
   const name = errors.name(error) ?? String(error);
+  const reply = errors.reply(error);
+  const detail =
+    name === "MachineUpdateFailed" && reply && "detail" in reply && typeof reply.detail === "string"
+      ? reply.detail
+      : null;
   if (replies.includes(args[0]) && asksJson(args)) {
     const lines = name === "Usage" ? cli.usage(help, args).map(line => line.trim()) : [];
     const busy = protocol.busy(errors.reply(error));
     return (
-      json.stringify({ ok: false, err: name, ...(lines.length ? { usage: lines } : {}), ...(busy ? { busy } : {}) }) +
-      "\n"
+      json.stringify({
+        ok: false,
+        err: name,
+        ...(lines.length ? { usage: lines } : {}),
+        ...(busy ? { busy } : {}),
+        ...(detail ? { detail } : {}),
+      }) + "\n"
     );
   }
   switch (name) {
@@ -677,6 +713,8 @@ export function failure(args: string[], error: unknown): string {
       if (args[0] === "action") lines.push("", actionNames);
       return `corgi: usage:\n${lines.join("\n")}\n`;
     }
+    case "MachineUpdateFailed":
+      return detail ? `corgi: machine update failed:\n${detail}\n` : `corgi: ${name}\n`;
     case "UnknownCommand":
       return `corgi: unknown command ${args[0]}; see corgi --help\n`;
     case "ProviderOnDemand": {

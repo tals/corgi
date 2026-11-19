@@ -18,8 +18,12 @@ const usage = `Usage: bun run go.ts [--temp | --env NAME | --sandbox NAME] [--no
   --reload        Rebuild and reload the selected runtime without stopping panes
   --restart       Confirm before stopping and restarting the selected runtime;
                   a sandbox starts over from its seed without asking
+  --deploy NAME   Update one machine explicitly, without opening a viewer
+  --replace       With --deploy, replace a remote changed since the last deploy
 
 With no command, start or attach. Use "onboard" to reopen onboarding.
+SSH machines update to this checkout automatically when connecting. Target builds
+are cached, and the viewer shows build/upload progress while local work stays usable.
 Launching the main environment stops all other Corgi daemons owned by you.
 Launching --temp stops only your other temporary runtimes. --no-kill skips cleanup.
 Temporary runtimes keep running after detach; shutdown still asks for confirmation.`;
@@ -71,6 +75,8 @@ let environment: "temp" | "named" | "sandbox" | undefined;
 let environmentName = "";
 let action: "--reload" | "--restart" | undefined;
 let noKill = false;
+let deploy = "";
+let replace = false;
 while (args.length) {
   const [arg] = args;
   if (arg === "--temp" || arg === "--env" || arg === "--sandbox") {
@@ -88,6 +94,13 @@ while (args.length) {
     }
     if (environmentName.length > 32) fail("names must be at most 32 characters");
     args = args.slice(2);
+  } else if (arg === "--deploy") {
+    if (deploy || !args[1] || args[1].startsWith("--")) fail("--deploy requires one machine name");
+    deploy = args[1];
+    args = args.slice(2);
+  } else if (arg === "--replace") {
+    replace = true;
+    args = args.slice(1);
   } else if (arg === "--no-kill") {
     noKill = true;
     args = args.slice(1);
@@ -103,6 +116,9 @@ while (args.length) {
     break;
   }
 }
+if (replace && !deploy) fail("--replace requires --deploy");
+if (deploy && (action || args.length || environment === "sandbox" || environment === "temp"))
+  fail("--deploy accepts a machine name and optional --env NAME / --replace");
 
 if (environment === "temp" || environment === "named") {
   // Retain the original state root in child shells so selecting another named
@@ -143,7 +159,12 @@ if (environment === "temp" || environment === "named") {
   }
 }
 
-must([process.execPath, join(root, "build.ts")]);
+Object.assign(env, { CORGI_DEV_ROOT: root, CORGI_DEV_BUN: process.execPath });
+must([process.execPath, join(root, "build.ts"), "--incremental"]);
+if (deploy) {
+  must([binary, "machine", "deploy", deploy, ...(replace ? ["--replace"] : [])]);
+  process.exit(0);
+}
 // A sandbox has its own HOME, so it switches over after the build, which needs yours.
 let sandbox: Sandbox | undefined;
 if (environment === "sandbox") {

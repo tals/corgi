@@ -7,6 +7,10 @@ import * as buildId from "./build_id";
 import * as updates from "./updates";
 import * as ssh from "./ssh";
 import * as os from "./os";
+import * as transfer from "./machine_transfer";
+import * as transferFile from "./machine_transfer_file";
+import * as progress from "./machine_progress";
+import * as dev from "./machine_deploy";
 import type { FileSink, Subprocess } from "bun";
 
 const quote = os.shellQuote;
@@ -20,11 +24,14 @@ const stalled_ms = 120_000;
 /** How long a step may take in all, or, for a copy, without progress. */
 type Limit = { total: number } | { idle: number };
 /** Writes `input` to a command as it takes it, saying so after each piece. */
-async function feed(sink: FileSink, input: Blob, moved: () => void): Promise<void> {
+async function feed(sink: FileSink, input: Blob, moved: () => void, uploaded?: (bytes: number) => void): Promise<void> {
+  let bytes = 0;
   for await (const chunk of input.stream()) {
     sink.write(chunk);
     await sink.flush();
     moved();
+    bytes += chunk.byteLength;
+    uploaded?.(bytes);
   }
   await sink.end();
 }
@@ -50,11 +57,18 @@ function deadline(child: Pick<Subprocess, "kill">, limit: Limit) {
     clear: () => clearTimeout(timer),
   };
 }
-export async function run(command: string[], input?: Blob, limit: Limit = { total: step_ms }): Promise<string> {
-  const child = Bun.spawn(command, { stdin: input ? "pipe" : "ignore", stdout: "pipe", stderr: "inherit" });
+export async function run(
+  command: string[],
+  input?: Blob,
+  limit: Limit = { total: step_ms },
+  uploaded?: (bytes: number) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
+  const child = Bun.spawn(command, { stdin: input ? "pipe" : "ignore", stdout: "pipe", stderr: "inherit", signal });
   const timer = deadline(child, limit);
   // A command that stops reading fails on its own; its exit says so.
-  if (input) void feed(child.stdin as FileSink, input, timer.moved).catch(() => {});
+  if (input) void feed(child.stdin as FileSink, input, timer.moved, uploaded).catch(() => {});
   try {
     let output = "";
     for await (const chunk of child.stdout) {
@@ -66,15 +80,82 @@ export async function run(command: string[], input?: Blob, limit: Limit = { tota
       }
     }
     const code = await child.exited;
+    signal?.throwIfAborted();
     if (timer.expired) throw Error("MachineSetupTimedOut");
     if (code) throw Error("MachineSetupCommandFailed");
     return output;
   } finally {
     timer.clear();
+    if (child.exitCode === null) child.kill("SIGKILL");
+    await child.exited;
   }
 }
-function remote(host: string, script: string, input?: Blob, fresh = false, limit: Limit = { total: step_ms }) {
-  return run(["ssh", ...ssh.args(host, true, fresh), ssh.shell(script)], input, limit);
+function executeRemote(
+  host: string,
+  script: string,
+  input?: Blob,
+  fresh = false,
+  limit: Limit = { total: step_ms },
+  uploaded?: (bytes: number) => void,
+  signal?: AbortSignal,
+) {
+  return run(
+    ["ssh", ...ssh.args(host, !process.env.CORGI_MACHINE_SYNC, fresh), ssh.shell(script)],
+    input,
+    limit,
+    uploaded,
+    signal,
+  );
+}
+export async function sendDelta(
+  command: string[],
+  file: string | Buffer,
+  hash: string,
+  report: transfer.Progress,
+  idle = stalled_ms,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  const child = Bun.spawn(command, { stdin: "pipe", stdout: "pipe", stderr: "inherit", signal });
+  const timer = deadline(child, { idle });
+  try {
+    const result = await transfer.send(
+      {
+        readable: child.stdout.pipeThrough(
+          new TransformStream({
+            transform(bytes, controller) {
+              timer.moved();
+              controller.enqueue(bytes);
+            },
+          }),
+        ),
+        writable: new WritableStream({
+          async write(bytes) {
+            child.stdin.write(bytes);
+            await child.stdin.flush();
+            timer.moved();
+          },
+          abort() {
+            child.kill("SIGKILL");
+          },
+        }),
+      },
+      typeof file === "string" ? transferFile.input(file) : file,
+      hash,
+      report,
+    );
+    await child.stdin.end();
+    if (await child.exited) throw Error("MachineTransferFailed");
+    return result;
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (timer.expired) throw Error("MachineSetupTimedOut");
+    throw error;
+  } finally {
+    timer.clear();
+    child.kill("SIGKILL");
+    await child.exited;
+  }
 }
 function lastJSON(output: string): unknown {
   return JSON.parse(output.trim().split("\n").at(-1) ?? "");
@@ -91,7 +172,12 @@ function platform(target: build.Target): updates.Platform {
       throw Error("UnsupportedReleasePlatform");
   }
 }
-async function artifact(local: build.Build, wanted: build.Build, directory: string): Promise<string> {
+async function artifact(
+  local: build.Build,
+  wanted: build.Build,
+  directory: string,
+  options: Options = {},
+): Promise<string> {
   if (build.released(wanted.version)) {
     const file = await updates.artifact(
       updates.release(local.executable),
@@ -110,7 +196,10 @@ async function artifact(local: build.Build, wanted: build.Build, directory: stri
   if (wanted.commit !== local.commit || wanted.source_hash !== local.source_hash)
     throw Error("DevelopmentArtifactUnavailable");
   if (wanted.target === local.target) return local.executable;
-  const file = join(dirname(local.executable), `corgi-${wanted.target}`);
+  options.progress?.(`Building for ${wanted.target}…`);
+  const file = process.env.CORGI_DEV_ROOT
+    ? await dev.artifact(wanted.target, options.signal)
+    : join(dirname(local.executable), `corgi-${wanted.target}`);
   if (!existsSync(file + ".build.json"))
     throw Error(`Build the matching remote artifact with bun build.ts --target ${wanted.target}`);
   const metadata = JSON.parse(readFileSync(file + ".build.json", "utf8"));
@@ -124,11 +213,33 @@ async function artifact(local: build.Build, wanted: build.Build, directory: stri
     throw Error("RemoteArtifactDoesNotMatchLocalBuild");
   return file;
 }
-/** Setup owns upgrades; the viewer's reconnect loop never waits for installation. */
-export async function reconcile(host: string, requested: string, _retryArgs: string[], socket = ""): Promise<string> {
+export interface Options {
+  progress?: (message: string) => void;
+  signal?: AbortSignal;
+}
+/** The viewer runs setup in a helper, so builds and checksums never block drawing. */
+export async function reconcile(
+  host: string,
+  requested: string,
+  _retryArgs: string[],
+  socket = "",
+  deployment?: dev.Deployment,
+  options: Options = {},
+): Promise<string> {
+  const remote = (
+    host: string,
+    script: string,
+    input?: Blob,
+    fresh = false,
+    limit: Limit = { total: step_ms },
+    uploaded?: (bytes: number) => void,
+  ) => executeRemote(host, script, input, fresh, limit, uploaded, options.signal);
   // A source run has no commit or artifact to compare or install.
   if (!import.meta.filename.startsWith("/$bunfs/")) throw Error("BuildCorgiBeforeMachineSetup");
   const local = build.describe(buildId.self());
+  if (deployment && build.released(local.version)) throw Error("DevelopmentBuildRequired");
+  const status = new progress.Progress(options.progress);
+  status.show(`Checking Corgi on ${host}`);
   const launcherRoot = "s/^root='\\(.*\\)'$/\\1/p";
   const output = await remote(
     host,
@@ -174,15 +285,22 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
     executable = installed.executable;
     if (!installed.socket && socket) installed.socket = socket;
   }
-  if (installed && build.matches(local, installed)) {
-    process.stderr.write(`Corgi builds match on ${host}.\n`);
-    return lines[3] || executable;
-  }
   const directory = mkdtempSync(join(tmpdir(), "corgi-setup-"));
   try {
+    const prepared = deployment ? await artifact(local, { ...local, target }, directory, options) : "";
+    const preparedData = prepared ? transferFile.input(prepared) : null;
+    const preparedHash = preparedData ? createHash("sha256").update(preparedData).digest("hex") : "";
+    const matches = installed && (deployment ? installed.build_id === preparedHash : build.matches(local, installed));
+    if (matches) {
+      if (installed.build_id) deployment?.record(installed.build_id);
+      process.stderr.write(`Corgi builds match on ${host}.\n`);
+      return lines[3] || executable;
+    }
+    deployment?.accept(installed?.build_id ?? "");
     process.stderr.write(`${installed ? "Switching to" : "Installing"} Corgi ${local.version} on ${host}…\n`);
-    const file = await artifact(local, { ...local, target }, directory);
-    const hash = createHash("sha256").update(readFileSync(file)).digest("hex");
+    const file = prepared || (await artifact(local, { ...local, target }, directory, options));
+    const data = preparedData ?? transferFile.input(file);
+    const hash = preparedHash || createHash("sha256").update(data).digest("hex");
     let expected = installed?.build_id ?? "";
     if (installed && !expected) {
       expected = (
@@ -202,17 +320,42 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
     if (!staging.startsWith(home + "/.corgi-setup.") || /[\x00-\x1f\x7f]/.test(staging))
       throw Error("InvalidRemoteStagingPath");
     try {
-      await remote(
-        host,
-        `set -eu; cat > ${quote(staging + "/corgi")}; chmod 700 ${quote(staging + "/corgi")}`,
-        Bun.file(file),
-        false,
-        { idle: stalled_ms },
-      );
+      if (installed?.delta_transfer && expected) {
+        const result = await sendDelta(
+          [
+            "ssh",
+            ...ssh.args(host, !process.env.CORGI_MACHINE_SYNC, false, "data"),
+            ssh.command(executable, ["__machine-receive", staging + "/corgi", expected, hash]),
+          ],
+          data,
+          hash,
+          (stage, sent) => {
+            status.show(stage === "signature" ? `Preparing delta for ${host}` : `Uploading delta to ${host}`);
+            status.uploaded(sent);
+          },
+          stalled_ms,
+          options.signal,
+        );
+        process.stderr.write(
+          `Uploaded ${progress.size(result.sent_bytes)}; received ${progress.size(result.received_bytes)} of signatures.\n`,
+        );
+      } else {
+        status.show(`Uploading Corgi to ${host}`);
+        await remote(
+          host,
+          `set -eu; cat > ${quote(staging + "/corgi")}; chmod 700 ${quote(staging + "/corgi")}`,
+          Bun.file(file),
+          false,
+          { idle: stalled_ms },
+          bytes => status.uploaded(bytes),
+        );
+      }
       const manifest = join(directory, "manifest.json");
       if (existsSync(manifest)) await remote(host, `cat > ${quote(staging + "/manifest.json")}`, Bun.file(manifest));
+      options.signal?.throwIfAborted();
+      status.show(`Installing Corgi on ${host} and reloading the daemon`);
       const result = lastJSON(
-        await remote(
+        await executeRemote(
           host,
           `set -eu
 if command -v sha256sum >/dev/null; then actual=$(sha256sum ${quote(staging + "/corgi")}); else actual=$(shasum -a 256 ${quote(staging + "/corgi")}); fi
@@ -224,18 +367,24 @@ ${installed?.socket ? "CORGI_SOCKET=" + quote(installed.socket) + " " : ""}${ssh
         ),
       ) as { executable: string };
       executable = result.executable;
+      status.show(`Verifying Corgi on ${host}`);
+      // Once installed, finish verification and its receipt even if the viewer detached.
       const verified = build.parse(
-        lastJSON(await remote(host, ssh.command(executable, ["__update-info"]))),
+        lastJSON(await executeRemote(host, ssh.command(executable, ["__update-info"]))),
         target,
         executable,
       );
       if (verified.build_id !== hash) throw Error("RemoteUpgradeVerificationFailed");
+      deployment?.record(hash);
       process.stderr.write(`Corgi is ready on ${host}: ${executable}.\n`);
       return executable;
     } finally {
-      await remote(
+      await executeRemote(
         host,
         `rm -f ${quote(staging + "/corgi")} ${quote(staging + "/manifest.json")}; rmdir ${quote(staging)}`,
+        undefined,
+        false,
+        { total: 10_000 },
       ).catch(() => {});
     }
   } finally {
