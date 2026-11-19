@@ -1815,11 +1815,12 @@ export class Menu implements LinkSource {
               mark: minutes === order[field] ? "on" : "off",
               apply: minutes === order[field] ? null : { kind: "auto_order_threshold", field, minutes },
               action: i18n.t`use`,
-              // Pause, stale and archive must stay in that order.
+              // Stale stays longer than the pause and shorter than archive.
               disabled: !workspaceActivity.valid({ ...order, [field]: minutes }),
             }),
           ),
         ];
+        const pause = minutesLabel(order.pause_after);
         return [
           title(i18n.t`Workspace order`),
           lead(i18n.t`Busy workspaces stay on top in a steady order; idle ones sink, fade and are archived.`),
@@ -1832,13 +1833,12 @@ export class Menu implements LinkSource {
             action: order.enabled ? i18n.t`turn off` : i18n.t`turn on`,
             toggle: order.enabled,
           }),
-          ...threshold("pause_after", i18n.t`Pause after no activity anywhere for`),
           ...threshold("stale_after", i18n.t`Stale after idle for`),
           ...threshold("archive_after", i18n.t`Archive after idle for`),
           blank,
           {
             tag: "note",
-            text: i18n.t`Each must be shorter than the next. A workspace running a program, waiting on you or on screen is never archived.`,
+            text: i18n.t`Idle is the time since a workspace's last activity. It stops growing after ${pause} with no activity anywhere, so breaks don't age anything. Once it passes the stale time, the workspace drops below the busy ones and fades. A workspace running a program, waiting on you or on screen is never archived.`,
           },
         ];
       }
@@ -2320,12 +2320,12 @@ function pickerArea(l: Layout, line: number): Rect {
     right = l.options.x + l.options.w - 1;
   return new Rect(x0, l.b.y + 2 + line, right - x0, l.body - line);
 }
-/** A workspace auto-order threshold. */
-export type Threshold = "pause_after" | "stale_after" | "archive_after";
+/** A workspace auto-order threshold setup offers; the pause stays at its
+ * default unless settings.json sets it. */
+export type Threshold = "stale_after" | "archive_after";
 /** The preset minutes each threshold offers; null is Off. */
 const threshold_presets: Record<Threshold, (number | null)[]> = {
-  pause_after: [1, 2, 5, 10, 15],
-  stale_after: [3, 5, 10, 15, 30, 60],
+  stale_after: [10, 15, 30, 60],
   archive_after: [60, 120, 240, 480, 720, 1440, null],
 };
 /** A threshold's presets, with `current` among them in order when the

@@ -187,8 +187,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Notes · "," "]': v0 => ` 批注 · ${v0} `,
     '[" Nothing needs your attention"]': () => ` 暂无待处理事项`,
     '[" PREFIX "]': () => ` 前缀键 `,
-    '[" Pause after must be shorter than stale after, and stale after shorter than archive after"]': () =>
-      ` 暂停时间必须短于闲置时间，闲置时间必须短于归档时间`,
     '[" Push "]': () => ` 推送 `,
     '[" Pushed ✓"]': () => ` 已推送 ✓`,
     '[" Pushing ",""]': v0 => ` 正在推送 ${v0}`,
@@ -215,6 +213,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () => ` 智能链接已关闭：Corgi 不会连接窗格中的端口`,
     '[" Smart Links on"]': () => ` 智能链接已开启`,
     '[" Split "]': () => ` 分屏 `,
+    '[" Stale after must be longer than the pause and shorter than archive after"]': () =>
+      ` 视为不活跃的闲置时间必须长于暂停时间，并短于归档前的闲置时间`,
     '[" Startup waits (",") "]': v0 => ` 启动等待（${v0}） `,
     '[" Still sending the last paste; paste again once it lands"]': () => ` 上一次粘贴仍在发送中；送达后再粘贴`,
     '[" Summaries and link names: ",""]': v0 => ` 摘要与链接名称：${v0}`,
@@ -577,8 +577,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Drop an agent here"]': () => `将智能体拖到这里`,
     '["Duplicate variable: ",""]': v0 => `重复变量：${v0}`,
     '["EDITED"]': () => `上次修改`,
-    '["Each must be shorter than the next. A workspace running a program, waiting on you or on screen is never archived."]':
-      () => `每项都必须短于下一项。正在运行程序、等待你回复或显示在屏幕上的工作区不会被归档。`,
     '["Edit"]': () => `编辑`,
     '["Edit ",""]': v0 => `编辑 ${v0}`,
     '["Edit agent"]': () => `编辑智能体`,
@@ -657,6 +655,9 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["IDs come from list; current means CORGI_PANE, never UI focus."]': () =>
       `ID 来自 list；current 指 CORGI_PANE，始终不表示界面焦点。`,
     '["Idle"]': () => `空闲`,
+    '["Idle is the time since a workspace\'s last activity. It stops growing after "," with no activity anywhere, so breaks don\'t age anything. Once it passes the stale time, the workspace drops below the busy ones and fades. A workspace running a program, waiting on you or on screen is never archived."]':
+      v0 =>
+        `闲置时间是工作区自上次活动以来经过的时间。任何地方都没有活动达到 ${v0} 后，它就不再增长，所以休息不会让工作区变旧。超过视为不活跃的时间后，工作区会移到忙碌的工作区下方并变暗。正在运行程序、等待你回复或显示在屏幕上的工作区永远不会被归档。`,
     '["Image paste"]': () => `粘贴图片`,
     '["Images over 32 MB don\'t paste"]': () => `无法粘贴超过 32 MB 的图片`,
     '["Images paste into a pane"]': () => `图片只能粘贴到窗格中`,
@@ -850,7 +851,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Paste images from your Mac with ","."]': v0 => `用 ${v0} 从 Mac 粘贴图片。`,
     '["Paste images with ","."]': v0 => `用 ${v0} 粘贴图片。`,
     '["Paste refused: it contains an end-of-paste marker"]': () => `无法粘贴：内容含有粘贴结束标记`,
-    '["Pause after no activity anywhere for"]': () => `各处都无活动多久后暂停`,
     '["Pi provider selection"]': () => `由 Pi 选择服务商`,
     '["Pick a commit with g."]': () => `按 g 选择提交。`,
     '["Pin review"]': () => `固定审查面板`,
@@ -1666,8 +1666,6 @@ ${v1} 使用该账号。
     '[" Notes · "," "]': v0 => ` コメント · ${v0} `,
     '[" Nothing needs your attention"]': () => ` 確認が必要なものはありません`,
     '[" PREFIX "]': () => ` プレフィックス `,
-    '[" Pause after must be shorter than stale after, and stale after shorter than archive after"]': () =>
-      ` 「一時停止まで」は「非アクティブまで」より短く、「非アクティブまで」は「アーカイブまで」より短くしてください`,
     '[" Push "]': () => ` プッシュ `,
     '[" Pushed ✓"]': () => ` プッシュ済み ✓`,
     '[" Pushing ",""]': v0 => ` プッシュ中 ${v0}`,
@@ -1696,6 +1694,8 @@ ${v1} 使用该账号。
       ` スマートリンクはオフです。ペインのポートには接続しません`,
     '[" Smart Links on"]': () => ` スマートリンクはオンです`,
     '[" Split "]': () => ` 分割 `,
+    '[" Stale after must be longer than the pause and shorter than archive after"]': () =>
+      ` 「非アクティブになるまでの放置時間」は一時停止より長く、「アーカイブまでの放置時間」より短くしてください`,
     '[" Startup waits (",") "]': v0 => ` 起動待ち（${v0}） `,
     '[" Still sending the last paste; paste again once it lands"]': () =>
       ` 前回の貼り付けをまだ送信中です。届いてから貼り付け直してください`,
@@ -2074,9 +2074,6 @@ ${v1} 使用该账号。
     '["Drop an agent here"]': () => `ここにエージェントをドロップ`,
     '["Duplicate variable: ",""]': v0 => `変数が重複しています：${v0}`,
     '["EDITED"]': () => `最終編集`,
-    '["Each must be shorter than the next. A workspace running a program, waiting on you or on screen is never archived."]':
-      () =>
-        `それぞれ次の時間より短くしてください。プログラムを実行中、あなたの返答待ち、または画面に表示中のワークスペースはアーカイブされません。`,
     '["Edit"]': () => `編集`,
     '["Edit ",""]': v0 => `${v0}を編集`,
     '["Edit agent"]': () => `エージェントを編集`,
@@ -2155,6 +2152,9 @@ ${v1} 使用该账号。
     '["IDs come from list; current means CORGI_PANE, never UI focus."]': () =>
       `IDはlistで確認できます。currentはCORGI_PANEを指し、画面のフォーカスとは無関係です。`,
     '["Idle"]': () => `待機中`,
+    '["Idle is the time since a workspace\'s last activity. It stops growing after "," with no activity anywhere, so breaks don\'t age anything. Once it passes the stale time, the workspace drops below the busy ones and fades. A workspace running a program, waiting on you or on screen is never archived."]':
+      v0 =>
+        `放置時間は、ワークスペースで最後に動きがあってからの時間です。どこにも動きがない状態が ${v0} 続くと増えなくなるので、休憩中に古くなることはありません。非アクティブになるまでの時間を過ぎると、ワークスペースは作業中のものより下に移り、薄くなります。プログラムを実行中、あなたの返答待ち、または画面に表示中のワークスペースはアーカイブされません。`,
     '["Image paste"]': () => `画像の貼り付け`,
     '["Images over 32 MB don\'t paste"]': () => `32 MBを超える画像は貼り付けられません`,
     '["Images paste into a pane"]': () => `画像の貼り付けにはペインが必要です`,
@@ -2355,7 +2355,6 @@ ${v1} 使用该账号。
     '["Paste images with ","."]': v0 => `${v0}で画像を貼り付けられます。`,
     '["Paste refused: it contains an end-of-paste marker"]': () =>
       `貼り付け終了マーカーが含まれるため、貼り付けできません`,
-    '["Pause after no activity anywhere for"]': () => `どこにも動きがないときの一時停止まで`,
     '["Pi provider selection"]': () => `Piの設定に従う`,
     '["Pick a commit with g."]': () => `gでコミットを選択してください。`,
     '["Pin review"]': () => `レビューを固定`,
@@ -3180,8 +3179,6 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Notes · "," "]': v0 => ` 메모 · ${v0} `,
     '[" Nothing needs your attention"]': () => ` 확인이 필요한 항목이 없습니다`,
     '[" PREFIX "]': () => ` 접두 키 `,
-    '[" Pause after must be shorter than stale after, and stale after shorter than archive after"]': () =>
-      ` 일시 정지 시간은 비활성 시간보다, 비활성 시간은 보관 시간보다 짧아야 합니다`,
     '[" Push "]': () => ` 푸시 `,
     '[" Pushed ✓"]': () => ` 푸시 완료 ✓`,
     '[" Pushing ",""]': v0 => ` 푸시 중 ${v0}`,
@@ -3209,6 +3206,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
       ` 스마트 링크 꺼짐: Corgi가 패널의 포트에 연결하지 않습니다`,
     '[" Smart Links on"]': () => ` 스마트 링크 켜짐`,
     '[" Split "]': () => ` 분할 `,
+    '[" Stale after must be longer than the pause and shorter than archive after"]': () =>
+      ` 비활성까지의 유휴 시간은 일시 정지보다 길고 보관까지의 유휴 시간보다 짧아야 합니다`,
     '[" Startup waits (",") "]': v0 => ` 시작 대기 (${v0}) `,
     '[" Still sending the last paste; paste again once it lands"]': () =>
       ` 이전 붙여넣기를 아직 보내는 중입니다. 도착한 뒤 다시 붙여넣으세요`,
@@ -3588,9 +3587,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Drop an agent here"]': () => `에이전트를 여기로 끌어오세요`,
     '["Duplicate variable: ",""]': v0 => `중복 변수: ${v0}`,
     '["EDITED"]': () => `수정됨`,
-    '["Each must be shorter than the next. A workspace running a program, waiting on you or on screen is never archived."]':
-      () =>
-        `각 값은 다음 값보다 짧아야 합니다. 프로그램을 실행 중이거나, 응답을 기다리거나, 화면에 표시된 작업 공간은 보관되지 않습니다.`,
     '["Edit"]': () => `편집`,
     '["Edit ",""]': v0 => `${v0} 편집`,
     '["Edit agent"]': () => `에이전트 편집`,
@@ -3670,6 +3666,9 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["IDs come from list; current means CORGI_PANE, never UI focus."]': () =>
       `ID는 list에서 확인합니다. current는 CORGI_PANE이며 UI 포커스를 뜻하지 않습니다.`,
     '["Idle"]': () => `대기 중`,
+    '["Idle is the time since a workspace\'s last activity. It stops growing after "," with no activity anywhere, so breaks don\'t age anything. Once it passes the stale time, the workspace drops below the busy ones and fades. A workspace running a program, waiting on you or on screen is never archived."]':
+      v0 =>
+        `유휴 시간은 작업 공간에서 마지막 활동 이후 지난 시간입니다. 어디에서도 활동이 없는 상태가 ${v0} 이어지면 더 늘어나지 않으므로, 쉬는 동안에는 오래되지 않습니다. 비활성까지의 시간이 지나면 작업 공간은 바쁜 작업 공간 아래로 내려가 흐려집니다. 프로그램을 실행 중이거나, 응답을 기다리거나, 화면에 보이는 작업 공간은 보관되지 않습니다.`,
     '["Image paste"]': () => `이미지 붙여넣기`,
     '["Images over 32 MB don\'t paste"]': () => `32 MB가 넘는 이미지는 붙여넣을 수 없습니다`,
     '["Images paste into a pane"]': () => `이미지는 패널에 붙여넣으세요`,
@@ -3866,7 +3865,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Paste images from your Mac with ","."]': v0 => `${v0} 키로 Mac의 이미지를 붙여넣으세요.`,
     '["Paste images with ","."]': v0 => `${v0} 키로 이미지를 붙여넣으세요.`,
     '["Paste refused: it contains an end-of-paste marker"]': () => `붙여넣기 거부: 붙여넣기 종료 표식이 들어 있습니다`,
-    '["Pause after no activity anywhere for"]': () => `아무 활동이 없을 때 일시 정지까지`,
     '["Pi provider selection"]': () => `Pi 제공업체 선택`,
     '["Pick a commit with g."]': () => `g로 커밋을 선택하세요.`,
     '["Pin review"]': () => `리뷰 고정`,
@@ -4697,8 +4695,6 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Notes · "," "]': v0 => ` Заметки · ${v0} `,
     '[" Nothing needs your attention"]': () => ` Ничто не требует вашего внимания`,
     '[" PREFIX "]': () => ` ПРЕФИКС `,
-    '[" Pause after must be shorter than stale after, and stale after shorter than archive after"]': () =>
-      ` Пауза должна наступать раньше простоя, а простой раньше архивации`,
     '[" Push "]': () => ` Отправить `,
     '[" Pushed ✓"]': () => ` Отправлено ✓`,
     '[" Pushing ",""]': v0 => ` Отправка ${v0}`,
@@ -4752,6 +4748,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       ` Умные ссылки выключены: Corgi не будет подключаться к портам панелей`,
     '[" Smart Links on"]': () => ` Умные ссылки включены`,
     '[" Split "]': () => ` Разделить `,
+    '[" Stale after must be longer than the pause and shorter than archive after"]': () =>
+      ` Время до простоя должно быть больше паузы и меньше времени до архивации`,
     '[" Startup waits (",") "]': v0 => ` Ожидание запуска (${v0}) `,
     '[" Still sending the last paste; paste again once it lands"]': () =>
       ` Предыдущая вставка ещё отправляется; вставьте снова, когда она дойдёт`,
@@ -5550,9 +5548,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Drop an agent here"]': () => `Перетащите агента сюда`,
     '["Duplicate variable: ",""]': v0 => `Повторяющаяся переменная: ${v0}`,
     '["EDITED"]': () => `ИЗМЕНЕНО`,
-    '["Each must be shorter than the next. A workspace running a program, waiting on you or on screen is never archived."]':
-      () =>
-        `Каждое значение должно быть меньше следующего. Рабочее пространство, где идёт программа, ждут вашего ответа или которое открыто на экране, не архивируется.`,
     '["Edit"]': () => `Изменить`,
     '["Edit ",""]': v0 => `Изменить ${v0}`,
     '["Edit agent"]': () => `Изменить агента`,
@@ -5633,6 +5628,9 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["IDs come from list; current means CORGI_PANE, never UI focus."]': () =>
       `ID берутся из list; current означает CORGI_PANE, а не выбранную в интерфейсе панель.`,
     '["Idle"]': () => `Бездействует`,
+    '["Idle is the time since a workspace\'s last activity. It stops growing after "," with no activity anywhere, so breaks don\'t age anything. Once it passes the stale time, the workspace drops below the busy ones and fades. A workspace running a program, waiting on you or on screen is never archived."]':
+      v0 =>
+        `Простой означает время с последней активности в рабочем пространстве. Он перестаёт расти, если нигде нет активности ${v0}, поэтому перерывы ничего не старят. Когда простой превысит заданное время, рабочее пространство опускается ниже активных и тускнеет. Рабочее пространство, в котором работает программа, которое ждёт вашего ответа или видно на экране, никогда не архивируется.`,
     '["Image paste"]': () => `Вставка изображений`,
     '["Images over 32 MB don\'t paste"]': () => `Изображения больше 32 MB не вставляются`,
     '["Images paste into a pane"]': () => `Изображения вставляются в панель`,
@@ -5846,7 +5844,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Paste images with ","."]': v0 => `Вставляйте изображения через ${v0}.`,
     '["Paste refused: it contains an end-of-paste marker"]': () =>
       `Вставка отклонена: текст содержит маркер конца вставки`,
-    '["Pause after no activity anywhere for"]': () => `Пауза, если нигде нет активности`,
     '["Pi provider selection"]': () => `Выбор провайдера в Pi`,
     '["Pick a commit with g."]': () => `Выберите коммит клавишей g.`,
     '["Pin review"]': () => `Закрепить просмотр`,
