@@ -50,10 +50,6 @@ export function completion(agent: Agent, line: string): Outcome | null {
   const r = fresh(agent, line);
   return r ? r.transcript.completion(agent, r.v) : null;
 }
-export function settling(agent: Agent, line: string) {
-  const r = fresh(agent, line);
-  return r ? (r.transcript.settling?.(agent, r.v) ?? null) : null;
-}
 export class Tail {
   actor = 0;
   seq = 0n;
@@ -85,10 +81,10 @@ export class Tail {
       }
       if (!this.discard) this.partial = Buffer.concat([this.partial, segment]);
       if (complete) {
-        if (!this.discard) {
-          const line = this.partial.toString();
-          found = completion(agent, line) ?? found;
-          const s = settling(agent, line);
+        const r = this.discard ? null : fresh(agent, this.partial.toString());
+        if (r) {
+          found = r.transcript.completion(agent, r.v) ?? found;
+          const s = r.transcript.settling?.(agent, r.v);
           if (s) this.settling_at = s === "settles" ? now : 0;
         }
         this.partial = Buffer.alloc(0);
