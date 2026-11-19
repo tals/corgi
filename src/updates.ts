@@ -424,7 +424,10 @@ async function feed(
     // A stale feed doesn't take back a newer update, such as one the installer staged.
     const staged = pointer(root, "staged");
     if (followed && staged && compare(m.version, staged) < 0) return true;
-    if (explicit) console.error(`Corgi ${m.version} is available.${download ? " Downloading…" : ""}`);
+    if (explicit)
+      console.error(
+        `Corgi ${m.version} is available${followed ? "" : ` on ${channel}`}.${download ? " Downloading…" : ""}`,
+      );
     if (!download) return true;
     const dest = executable(root, m.version),
       dir = dirname(dest);

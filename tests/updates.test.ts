@@ -344,7 +344,7 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     expect(await staged()).toBe("1.0.2");
     // A check only looks, whatever stable has waiting.
     latestTest = "1.0.1";
-    expect((await cli(["update", "--channel", "test", "--check"])).err).toContain("Corgi 1.0.1 is available.");
+    expect((await cli(["update", "--channel", "test", "--check"])).err).toContain("Corgi 1.0.1 is available on test.");
     expect(await channel()).toBe("stable");
     // A release both channels have stays downloaded.
     latestTest = "1.0.2";

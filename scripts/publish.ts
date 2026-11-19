@@ -707,8 +707,8 @@ async function main() {
   // Publishing ends with the tag, so a push GitHub would refuse stops it before the build.
   if (mode !== "--build-only") {
     // Stable comes from main, or is a release test published, from any branch.
-    if (!stable) git(repo, "fetch", "--quiet", "origin", commit);
-    else if (mode !== "--publish-only" || !publishedToTest(repo, version, commit)) requirePushed(repo, commit);
+    if (stable && !(mode === "--publish-only" && publishedToTest(repo, version, commit))) requirePushed(repo, commit);
+    else git(repo, "fetch", "--quiet", "origin", commit);
     tagRelease(repo, tag(version), commit, true);
   }
   const key = createPrivateKey(await readFile(config.signingKey));

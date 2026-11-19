@@ -18,8 +18,9 @@ reject them, so a new target can join the manifest only once those are gone.
 Use an Apple Silicon Mac (or Linux, [below](#publishing-from-linux)) with Bun, the [pinned Zig toolchain](../AGENTS.md#zig-toolchain),
 Xcode's SDK and a persistent macOS signing identity. Keep signing keys and storage
 credentials outside the repository. Use one publishing host at a time. The host
-needs push access to `origin` on GitHub, and the release commit must already be on
-origin's `main`; both are checked before building.
+needs push access to `origin` on GitHub, and a stable release's commit must already
+be on origin's `main` (see [Channels](#channels) for test releases); both are
+checked before building.
 The publisher also needs push access to `tals/corgi-omarchy` (SSH by default).
 
 Create and back up the release signing key:
