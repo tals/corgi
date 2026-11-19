@@ -18,6 +18,7 @@ import * as corgiFrames from "../src/corgi_frames";
 import * as corgiBadge from "../src/assets/corgi_badge";
 import * as palette from "../src/palette";
 import * as panel from "../src/review/panel";
+import * as reviewService from "../src/review/service";
 import * as resourceTooltip from "../src/resource_tooltip";
 import * as shortcutHelp from "../src/shortcut_help";
 import * as worktreeTooltip from "../src/worktree_tooltip";
@@ -2175,8 +2176,15 @@ const REVIEWED = [
   ["/thrusters", { cwd: "~/moonlander", name: i18n.t`Tune the thruster physics` }],
   ["/sprite", { cwd: "~/moonlander/.claude/worktrees/sprite", name: i18n.t`Draw the lander sprite` }],
 ];
+// The daemon's review service, run in the page on those recordings.
+const reviewReader = {
+  read: (request) => reviewService.read(request),
+  diffs: (request) => reviewService.diffs(request),
+  summary: (cwd) => reviewService.summary(cwd),
+  recognize: async (cwd, hashes) => new Map(await reviewService.recognize(cwd, hashes)),
+};
 function reviewPanel(target = REVIEWED[0][1]) {
-  const p = new panel.Panel();
+  const p = new panel.Panel(reviewReader);
   p.open = true;
   p.keysHelp = false;
   p.follow({ pane: 0, ...target });

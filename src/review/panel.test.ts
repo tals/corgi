@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Terminal } from "../pane/terminal";
@@ -7,6 +7,8 @@ import { Writer } from "../text";
 import * as panel from "./panel";
 import { runGit } from "../fixtures/git";
 import { text } from "../fixtures/screen";
+import { local } from "../fixtures/review";
+import * as errors from "../errors";
 import * as i18n from "../i18n";
 
 let root = "";
@@ -52,7 +54,7 @@ const key = (p: panel.Panel, k: string | panel.Named) =>
   p.key(k.length === 1 ? { text: k } : { named: k as panel.Named });
 
 test("references open a commit outside the branch list and a range without dirty files", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   try {
     p.openReference(root, { kind: "commit", hash: "main" });
     await settle(p);
@@ -88,8 +90,26 @@ test("references open a commit outside the branch list and a range without dirty
   }
 });
 
+test("a reference read again unchanged shows its own error, not the last one's", async () => {
+  const p = new panel.Panel(local());
+  try {
+    p.openReference(root, { kind: "commit", hash: "HEAD" });
+    await settle(p);
+    p.openReference(root, { kind: "commit", hash: "missing-revision" });
+    await settle(p);
+    expect(screen(p).join("\n")).toContain("No commit: missing-revision");
+    p.openReference(root, { kind: "commit", hash: "HEAD" });
+    await settle(p);
+    const text = screen(p).join("\n");
+    expect(text).not.toContain("missing-revision");
+    expect(text).toContain("More.");
+  } finally {
+    p.hide();
+  }
+});
+
 test("opens on all: commits and working copy together", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 1, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -127,7 +147,7 @@ test("opens on all: commits and working copy together", async () => {
 });
 
 test("walks hunks across files and writes a note that sends", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 7, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -160,7 +180,7 @@ test("walks hunks across files and writes a note that sends", async () => {
 });
 
 test("a generated file waits for Enter, and scopes and commits switch", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 2, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -192,7 +212,7 @@ test("a generated file waits for Enter, and scopes and commits switch", async ()
 });
 
 test("find opens the fold its match is in", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 3, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -205,7 +225,7 @@ test("find opens the fold its match is in", async () => {
 });
 
 test("outside a checkout it says so", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 4, cwd: tmpdir(), name: "shell" });
   p.show();
   await settle(p);
@@ -224,7 +244,7 @@ test("files sort by last edit, newest first, with how long ago", async () => {
   utimesSync(join(root, "notes.md"), now - 2 * 86400, now - 2 * 86400);
   utimesSync(join(root, "app.ts"), now - 3 * 3600, now - 3 * 3600);
   utimesSync(join(root, "bun.lock"), now - 300, now - 300);
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 9, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -252,7 +272,7 @@ test("files sort by last edit, newest first, with how long ago", async () => {
 test("last-edit ages use the current language for hours and days", async () => {
   const now = Date.now() / 1000,
     original = i18n.language(),
-    p = new panel.Panel();
+    p = new panel.Panel(local());
   utimesSync(join(root, "notes.md"), now - 2 * 86400, now - 2 * 86400);
   utimesSync(join(root, "app.ts"), now - 3 * 3600, now - 3 * 3600);
   try {
@@ -279,7 +299,7 @@ test("last-edit ages use the current language for hours and days", async () => {
 });
 
 test("pinned, the review stays put and its notes go to the focused pane", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 11, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -311,7 +331,7 @@ test("pinned, the review stays put and its notes go to the focused pane", async 
 });
 
 test("up and down move between the file list and the diff under it, and stop past either", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 15, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -335,7 +355,7 @@ test("the wheel scrolls the file list under the pointer", async () => {
   const extra = Array.from({ length: 6 }, (_, i) => `z${i}.txt`);
   for (const name of extra) write(name, "new\n");
   try {
-    const p = new panel.Panel();
+    const p = new panel.Panel(local());
     p.tree_rows = 6;
     p.follow({ pane: 13, cwd: root, name: "Fix app" });
     p.show();
@@ -358,7 +378,7 @@ test("the wheel scrolls the file list under the pointer", async () => {
 });
 
 test("all files reads every file in one flow, each under its heading", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 21, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -391,7 +411,7 @@ test("all files reads every file in one flow, each under its heading", async () 
 });
 
 test("a file picked in the list shows alone, and all files comes back on it", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 22, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -414,7 +434,7 @@ test("a file picked in the list shows alone, and all files comes back on it", as
 });
 
 test("find on all files reaches into every file", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 23, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -428,7 +448,7 @@ test("find on all files reaches into every file", async () => {
 });
 
 test("dragging the rule under the file list sets its height", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   let saved = 0;
   p.resized = rows => (saved = rows);
   p.follow({ pane: 24, cwd: root, name: "Fix app" });
@@ -455,7 +475,7 @@ test("dragging the rule under the file list sets its height", async () => {
 });
 
 test("a file's heading folds it to its counts, and unfolds it", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 25, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -486,7 +506,7 @@ test("a file's heading folds it to its counts, and unfolds it", async () => {
 });
 
 test("test diffs fold at the ratio for the current scope, and explicit choices survive refresh", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   const testLines = (n: number) =>
     write(
       "app.test.ts",
@@ -533,7 +553,7 @@ test("test diffs fold at the ratio for the current scope, and explicit choices s
 });
 
 test("single-file view, find and note navigation reveal automatically folded tests", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   write(
     "app.test.ts",
     lines(24, i => `test_only_${i}();`),
@@ -578,7 +598,7 @@ test("single-file view, find and note navigation reveal automatically folded tes
 });
 
 test("? shows every key in one box of groups over a dimmed panel, and any key closes it", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 26, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -607,7 +627,7 @@ test("? shows every key in one box of groups over a dimmed panel, and any key cl
 });
 
 test("space pages down and - pages up, as in tig", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 27, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -626,7 +646,7 @@ test("space pages down and - pages up, as in tig", async () => {
 });
 
 test("shift and an arrow select lines as a drag does", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 28, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -661,7 +681,7 @@ test("shift and an arrow select lines as a drag does", async () => {
 });
 
 test("the note box edits like a text box: words, lines, selection and paste", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   p.follow({ pane: 29, cwd: root, name: "Fix app" });
   p.show();
   await settle(p);
@@ -705,7 +725,7 @@ function ghostScreen(p: panel.Panel, width = 70, height = 34): string[] {
   return text(w.buffered(), width, height).split("\n");
 }
 test("a ghost shows another scope dimmed and leaves the followed review alone", async () => {
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   const hash = run("rev-parse", "--short", "HEAD");
   // Closed, a ghost still reads and draws its checkout.
   p.preview({ cwd: root, name: "w", scope: "commits", pick: hash });
@@ -736,7 +756,7 @@ test("a ghost shows another scope dimmed and leaves the followed review alone", 
 
 test("wide source wraps and scrolls in cells without writing into the pane beside it", async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-review-wide-")));
-  const p = new panel.Panel();
+  const p = new panel.Panel(local());
   try {
     runGit(dir, "init", "-q", "-b", "main");
     writeFileSync(
@@ -790,5 +810,267 @@ test("wide source wraps and scrolls in cells without writing into the pane besid
   } finally {
     p.hide();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a long file's diff arrives in slices, and a poll that finds nothing new sends no listing", async () => {
+  const asked: string[] = [];
+  const reader = local(),
+    counted = {
+      ...reader,
+      read: (request: Parameters<typeof reader.read>[0]) =>
+        reader.read(request).then(reply => {
+          asked.push(reply.same ? "same" : "read");
+          return reply;
+        }),
+      diffs: (request: Parameters<typeof reader.diffs>[0]) => {
+        asked.push(`diffs ${request.files.map(f => `${f.path}@${f.offset}`).join(" ")}`);
+        return reader.diffs(request);
+      },
+    };
+  const p = new panel.Panel(counted);
+  write(
+    "long.ts",
+    lines(20_000, i => `export const long_${i} = "a line that makes the file longer than one reply";`),
+  );
+  try {
+    p.follow({ pane: 40, cwd: root, name: "Fix app" });
+    p.showScope("uncommitted", null);
+    p.show();
+    await settle(p);
+    // Its first slice comes with the other file; each next one comes alone.
+    expect(asked[0]).toBe("read");
+    expect(asked[1]).toBe("diffs app.ts@0 long.ts@0");
+    const rest = asked.slice(2).filter(a => a.startsWith("diffs"));
+    expect(rest.length).toBeGreaterThan(2);
+    expect(rest.every(a => /^diffs long\.ts@[1-9]\d*$/.test(a))).toBe(true);
+    // Picked alone, it shows its last line: every slice is in.
+    const at = screen(p).findIndex(row => row.includes("long.ts"));
+    p.mouse("press", 10, at);
+    p.mouse("release", 10, at);
+    key(p, "end");
+    expect(screen(p).join("\n")).toContain("long_19999");
+    // Nothing changed: the listing isn't sent again, and no diff is read again.
+    asked.length = 0;
+    await settle(p);
+    expect(asked).toEqual(["same", "same"]);
+  } finally {
+    p.hide();
+    rmSync(join(root, "long.ts"));
+  }
+});
+
+test("a long diff whose file changes between its slices is read again from the start", async () => {
+  const base = local();
+  let release!: () => void,
+    continued!: () => void,
+    edited = false;
+  const gate = new Promise<void>(resolve => (release = resolve)),
+    asked = new Promise<void>(resolve => (continued = resolve));
+  const p = new panel.Panel({
+    ...base,
+    // Once the panel has the edited file's listing, the slice on its way arrives.
+    read: async (request: Parameters<typeof base.read>[0]) => {
+      const reply = await base.read(request);
+      if (edited) setTimeout(release, 0);
+      return reply;
+    },
+    diffs: async (request: Parameters<typeof base.diffs>[0]) => {
+      if (request.files.some(f => f.path === "long.ts" && f.offset > 0)) {
+        continued();
+        await gate;
+      }
+      return base.diffs(request);
+    },
+  });
+  const long = (name: string) => lines(20_000, i => `export const ${name}_${i} = "a line longer than one reply";`);
+  write("long.ts", long("old"));
+  try {
+    p.follow({ pane: 45, cwd: root, name: "Fix app" });
+    p.showScope("uncommitted", null);
+    p.show();
+    const settling = settle(p);
+    await asked;
+    // A poll reads the edited file's listing while its slices are on the way.
+    write("long.ts", long("edited") + "// longer now\n");
+    edited = true;
+    void Reflect.get(p, "read").call(p, Reflect.get(p, "target"));
+    await settling;
+    await settle(p);
+    const at = screen(p).findIndex(row => row.includes("long.ts"));
+    p.mouse("press", 10, at);
+    p.mouse("release", 10, at);
+    key(p, "end");
+    const text = screen(p).join("\n");
+    expect(text).toContain("longer now");
+    expect(text).not.toContain("old_19999");
+  } finally {
+    release();
+    p.hide();
+    rmSync(join(root, "long.ts"));
+  }
+});
+
+test("a diffs request the daemon refused while reloading is asked again at the next poll", async () => {
+  const base = local();
+  let refuse = true;
+  const p = new panel.Panel({
+    ...base,
+    diffs: (request: Parameters<typeof base.diffs>[0]) => {
+      if (refuse) {
+        refuse = false;
+        return Promise.reject(errors.fromReply({ err: "Reloading" }));
+      }
+      return base.diffs(request);
+    },
+  });
+  const app = (v30: number) =>
+    write(
+      "app.ts",
+      lines(40, i =>
+        i === 5 ? "export const v5 = 50;" : i === 30 ? `export const v30 = ${v30};` : `export const v${i} = ${i};`,
+      ),
+    );
+  try {
+    p.follow({ pane: 46, cwd: root, name: "Fix app" });
+    p.show();
+    await settle(p);
+    expect(screen(p).join("\n")).toContain("Reloading");
+    await settle(p);
+    let text = screen(p).join("\n");
+    expect(text).not.toContain("Reloading");
+    expect(text).toContain("export const v30 = 300;");
+    // A file read before keeps its diff on screen while a read of its change is refused.
+    app(3000);
+    refuse = true;
+    await p.refresh();
+    text = screen(p).join("\n");
+    expect(text).not.toContain("Reloading");
+    expect(text).toContain("export const v30 = 300;");
+    await settle(p);
+    expect(screen(p).join("\n")).toContain("export const v30 = 3000;");
+  } finally {
+    app(300);
+    p.hide();
+  }
+});
+
+test("all files reads a window around what's on screen, and more as it moves", async () => {
+  const read = new Set<string>();
+  const reader = local(),
+    counted = {
+      ...reader,
+      diffs: (request: Parameters<typeof reader.diffs>[0]) => {
+        for (const f of request.files) read.add(f.path);
+        return reader.diffs(request);
+      },
+    };
+  const p = new panel.Panel(counted);
+  const names = Array.from({ length: 40 }, (_, i) => `many/f${String(i).padStart(2, "0")}.ts`);
+  mkdirSync(join(root, "many"), { recursive: true });
+  for (const name of names)
+    write(
+      name,
+      lines(30, i => `export const line_${i} = ${i};`),
+    );
+  try {
+    p.follow({ pane: 41, cwd: root, name: "Fix app" });
+    p.showScope("uncommitted", null);
+    p.show();
+    await settle(p);
+    screen(p);
+    await settle(p);
+    const first = [...read].filter(path => path.startsWith("many/"));
+    expect(first.length).toBeGreaterThan(0);
+    expect(first.length).toBeLessThan(20);
+    expect(read.has(names[39])).toBe(false);
+    // The end of the flow brings its files into the window.
+    key(p, "tab");
+    key(p, "end");
+    screen(p);
+    await settle(p);
+    expect(read.has(names[39])).toBe(true);
+    expect([...read].filter(path => path.startsWith("many/")).length).toBeLessThan(40);
+  } finally {
+    p.hide();
+    rmSync(join(root, "many"), { recursive: true, force: true });
+  }
+});
+
+test("a file picked in the list reads those next to it, so the next one shows without a wait", async () => {
+  const read = new Set<string>();
+  const reader = local(),
+    counted = {
+      ...reader,
+      diffs: (request: Parameters<typeof reader.diffs>[0]) => {
+        for (const f of request.files) read.add(f.path);
+        return reader.diffs(request);
+      },
+    };
+  const p = new panel.Panel(counted);
+  // Folders of ten, so none starts folded.
+  const dirs = ["wa", "wb", "wc", "wd"];
+  for (const dir of dirs) {
+    mkdirSync(join(root, dir), { recursive: true });
+    for (let i = 0; i < 10; i++)
+      write(
+        `${dir}/f0${i}.ts`,
+        lines(30, j => `export const ${dir}_f0${i}_${j} = ${j};`),
+      );
+  }
+  try {
+    p.follow({ pane: 43, cwd: root, name: "Fix app" });
+    p.showScope("uncommitted", null);
+    p.show();
+    await settle(p);
+    const y = screen(p).findIndex(row => row.includes("f02.ts"));
+    expect(y).toBeGreaterThan(0);
+    p.mouse("press", 10, y);
+    p.mouse("release", 10, y);
+    await settle(p);
+    screen(p);
+    await settle(p);
+    // Those after it and before it, and those listed, but not the rest.
+    for (const path of ["wa/f00.ts", "wa/f03.ts", "wa/f06.ts", "wb/f00.ts"]) expect(read.has(path)).toBe(true);
+    expect(read.has("wd/f09.ts")).toBe(false);
+    // The next file is already read when the list moves to it.
+    key(p, "down");
+    const rows = screen(p).join("\n");
+    expect(rows).toContain("wa_f03_0");
+    expect(rows).not.toContain(i18n.t`Reading the diff…`);
+  } finally {
+    p.hide();
+    for (const dir of dirs) rmSync(join(root, dir), { recursive: true, force: true });
+  }
+});
+
+test("find on all files reads past the window until every file is searched", async () => {
+  const p = new panel.Panel(local());
+  const names = Array.from({ length: 40 }, (_, i) => `many/f${String(i).padStart(2, "0")}.ts`);
+  mkdirSync(join(root, "many"), { recursive: true });
+  for (const [i, name] of names.entries())
+    write(
+      name,
+      lines(30, j => (i === 39 && j === 10 ? "export const needle = 39;" : `export const line_${j} = ${j};`)),
+    );
+  try {
+    p.follow({ pane: 42, cwd: root, name: "Fix app" });
+    p.showScope("uncommitted", null);
+    p.show();
+    await settle(p);
+    screen(p);
+    await settle(p);
+    key(p, "tab");
+    key(p, "/");
+    for (const ch of "needle") key(p, ch);
+    expect(screen(p).at(-2)).toContain(i18n.t`searching…`);
+    await settle(p);
+    const rows = screen(p);
+    expect(rows.join("\n")).toContain("export const needle = 39;");
+    expect(rows.at(-2)).toContain("1/1");
+    expect(rows.at(-2)).not.toContain(i18n.t`searching…`);
+  } finally {
+    p.hide();
+    rmSync(join(root, "many"), { recursive: true, force: true });
   }
 });

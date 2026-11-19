@@ -1319,8 +1319,7 @@ test("an agent's menu leaves Review changes out outside git, even when git answe
   let answer = (_root: string | null) => {};
   const changed = s.review_summaries.changed;
   s.review_summaries = new summaries.Summaries(
-    async () => [],
-    () => new Promise<string | null>(resolve => (answer = resolve)),
+    () => new Promise(resolve => (answer = root => resolve({ root, runs: [] }))),
   );
   s.review_summaries.changed = changed;
   const items = () => s.tab_menu.entries().map((entry: any) => entry.item);
@@ -2818,10 +2817,7 @@ test("a worktree's menu shows its diff line and opens its folder in a waiting sh
     }).request,
   });
   const changed = s.review_summaries.changed;
-  s.review_summaries = new summaries.Summaries(
-    async root => [[`${root} changed`, "faint"]],
-    async cwd => cwd,
-  );
+  s.review_summaries = new summaries.Summaries(async cwd => ({ root: cwd, runs: [[`${cwd} changed`, "faint"]] }));
   s.review_summaries.changed = changed;
   s.width = 120;
   s.height = 40;
@@ -2893,13 +2889,10 @@ test("the agent menu's diff line is read ahead for the focused agent, its neighb
     });
   const s = controller(),
     reads: string[] = [];
-  s.review_summaries = new summaries.Summaries(
-    async root => {
-      reads.push(root);
-      return [[root, "faint"]];
-    },
-    async cwd => cwd,
-  );
+  s.review_summaries = new summaries.Summaries(async cwd => {
+    reads.push(cwd);
+    return { root: cwd, runs: [[cwd, "faint"]] };
+  });
   s.width = 120;
   s.height = 40;
   s.input_state.attached = true;
@@ -5365,6 +5358,36 @@ test("clearing a prompt conversation stops it on its own machine, whichever is s
   }
 });
 
+test("a prompt conversation's commit references read its own machine's checkout, whichever is shown", async () => {
+  const { s, other, asked } = twoMachines(op =>
+    op === "headless.start" ? { provider: "codex", session: "s" } : { events: [], next_seq: 1 },
+  );
+  try {
+    const daemon = Reflect.get(s, "promptDaemon").call(s);
+    // With no conversation, they read the machine shown.
+    await daemon.review("review.recognize", { cwd: "/a", hashes: [] });
+    expect(asked.filter(([, op]) => op.startsWith("review."))).toEqual([["here", "review.recognize"]]);
+    s.switchMachine(other);
+    const conversation = s.prompt.conversation;
+    conversation.session = (await daemon.start({})).session;
+    conversation.attach({ provider: "codex", account: "", persist: false, cwd: "/w/app" } as any, "s", false);
+    s.switchMachine(s.machines[0]);
+    s.prompt.show({ cwd: "/a", mentions: [] } as any);
+    asked.length = 0;
+    await daemon.review("review.recognize", { cwd: "/w/app", hashes: [] });
+    expect(asked).toEqual([["work", "review.recognize"]]);
+    // And name its folder there, not the workspace the prompt opened in.
+    const resolved = Reflect.get(s.prompt, "resolveReview").call(s.prompt, {
+      folder: "",
+      source: { kind: "commit", hash: "abc1234" },
+    });
+    expect(resolved.cwd).toBe("/w/app");
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 test("a prompt conversation resumed after a reload stays on its machine when another is shown", async () => {
   const { s, other, asked } = twoMachines(op => (op === "viewer.list" ? { viewers: [{}] } : { events: [] }));
   s.receiveSnapshot(folders("/a"));
@@ -5391,27 +5414,40 @@ test("a prompt conversation resumed after a reload stays on its machine when ano
   }
 });
 
-test("a remote machine's checkouts aren't read with this computer's git", async () => {
-  const s = controller();
-  const other = workMachine();
+test("a remote machine's review reads go to its own daemon, and its panel keeps its own notes", async () => {
+  const asked: [string, string][] = [];
+  const daemon = (name: string) =>
+    transport(async (op: string) => {
+      asked.push([name, op]);
+      if (op === "review.summary") return { root: "/a", base: "main", totals: { files: 2, adds: 5, dels: 1 } };
+      if (op === "review.read") return { root: null, hash: "", same: false, checkout: null };
+      throw Error("UnexpectedRequest");
+    });
+  const s = new Controller(daemon("here"));
+  const other = new Machine({ request: daemon("work").request }, "work", true);
   s.adopt(other);
   s.receiveSnapshot(folders("/a"));
   s.receiveSnapshot(folders("/a"), other);
   try {
-    // This computer has /a too: its changes aren't the remote agent's.
-    const wanted = spyOn(s.review_summaries, "want");
+    const here = s.review;
+    // This computer has /a too: the remote agent's line is the remote checkout's.
     s.switchMachine(other);
+    expect(s.review).not.toBe(here);
     Reflect.get(s, "openReview").call(s);
+    expect(s.review.open).toBe(true);
+    s.review_summaries.ask("/a");
+    await s.review.refresh();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(asked.filter(([name]) => name === "here")).toEqual([]);
+    expect(new Set(asked.map(([, op]) => op))).toEqual(new Set(["review.read", "review.summary"]));
+    const line = s.review_summaries.get("/a") ?? [];
+    expect(line.map(([text]) => text).join("")).toBe("2 files  +5 −1");
+    // Switching back closes it and shows this computer's panel.
+    s.switchMachine(s.machines[0]);
+    expect(s.review).toBe(here);
     expect(s.review.open).toBe(false);
-    expect(s.message).toContain("Review changes on the remote machine");
-    Reflect.get(s, "readAhead").call(s, s.sidebarEntries());
-    expect(wanted).not.toHaveBeenCalled();
-    // Its agent menu leaves Review changes out rather than crossing it out.
-    await s.openAgentMenu(1, 0, 0);
-    await s.tasks.idle();
-    expect(s.tab_menu.entries().map((entry: any) => entry.item)).not.toContain("review");
-    expect(s.tab_menu.highlightedItem()).toBe("copy-details");
   } finally {
+    s.review.hide();
     viewer.close(s);
     other.runtime.destroy();
   }

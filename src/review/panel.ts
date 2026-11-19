@@ -2,11 +2,12 @@
 //! folded diff, with notes that paste into that pane. The viewer draws it at
 //! the window's right edge, outside the layout, so it follows whichever pane
 //! is focused. Browsing follows herdr-reviewr: scopes, hunk walking across
-//! files, folds, changed words, find, and a commit picker.
+//! files, folds, changed words, find, and a commit picker. The daemon of the
+//! machine the checkout is on reads git (reader.ts); the panel asks for one
+//! batch of diffs at a time.
 import * as i18n from "../i18n";
-import { stat } from "node:fs/promises";
-import { join } from "node:path";
 import * as dropdown from "../dropdown";
+import * as errors from "../errors";
 import { Rect, type Direction } from "../layout";
 import * as palette from "../palette";
 import { codepointWidth, compactCount, displayWidth, wrap, Writer } from "../text";
@@ -15,12 +16,14 @@ import * as folding from "./folding";
 import * as funcname from "./funcname";
 import * as git from "./git";
 import * as notes from "./notes";
+import * as reader from "./reader";
+import * as service from "./service";
 import * as syntax from "./syntax";
 import * as tree from "./tree";
 import * as textArea from "../text_area";
 import type * as keys from "../keys";
 
-export type Scope = "all" | "uncommitted" | "commits";
+export type Scope = git.Scope;
 /** A key the panel reads: an edit, as every text box reads it, or one of its own. */
 export type Named =
   | textArea.Edit
@@ -92,8 +95,9 @@ const wrap_cap = 6;
 export const min_width = 40;
 /** Rows the diff keeps however far the file list is dragged. */
 const min_diff_rows = 5;
-/** Diffs "All files" reads at once. */
-const parallel_reads = 4;
+/** Files "All files" reads past the last one on screen, and before the first. */
+const read_ahead = 8;
+const read_behind = 3;
 /** Keys under a heading: what each row does, and its keys. */
 type KeyGroup = [string, [string, string][]];
 const keyGroups = (): KeyGroup[] => [
@@ -236,10 +240,23 @@ class Review {
   status: { text: string; warm: boolean } | null = null;
 }
 interface Listing {
+  /** The first files the daemon lists; `totals` counts every one. */
   changes: git.Change[];
+  totals: service.Totals;
   auto_collapsed: Set<string>;
   /** When each file in the working tree was last written; none for a commit. */
   edited: Map<string, number> | null;
+  /** Each working-tree file's size and last write, which say when to read its diff again. */
+  stamps: Map<string, string> | null;
+}
+function listing(l: service.Listing): Listing {
+  return {
+    changes: l.changes,
+    totals: l.totals,
+    auto_collapsed: folding.tests(l.changes),
+    edited: l.stats && new Map(l.stats.map(([path, , mtime]) => [path, mtime])),
+    stamps: l.stats && new Map(l.stats.map(([path, size, mtime]) => [path, `${size}:${mtime}`])),
+  };
 }
 interface Loaded {
   sig: string;
@@ -247,6 +264,8 @@ interface Loaded {
   old: syntax.Highlighter;
   new: syntax.Highlighter;
 }
+/** Why a checkout shows no listing: git's message, or a daemon that didn't answer. */
+export type Failure = { from: "git"; message: string } | { from: "daemon" };
 class Checkout {
   branch: string | null = null;
   head: string | null = null;
@@ -254,7 +273,7 @@ class Checkout {
   commits: git.Commit[] = [];
   listings = new Map<string, Listing>();
   files = new Map<string, Loaded>();
-  error: string | null = null;
+  error: Failure | null = null;
   /** Whether git has answered for it once. */
   read = false;
   constructor(readonly root: string) {}
@@ -268,8 +287,7 @@ interface Now extends Listing {
   change: git.Change | null;
   file: Loaded | null;
 }
-const sourceKey = (s: git.Source) =>
-  s.kind === "worktree" ? `w:${s.against}` : `${s.kind === "commit" ? "c" : "r"}:${git.revisionLabel(s)}`;
+const sourceKey = git.sourceKey;
 const revOf = (s: git.Source): notes.Rev => (s.kind === "worktree" ? { kind: "worktree" } : s);
 
 // Colors that mix the palette for diffs: row tints, the brighter tint on
@@ -471,6 +489,25 @@ export class Panel {
   private reference_panes = new Map<string, number>();
   private checkouts = new Map<string, Checkout>();
   private roots = new Map<string, string | null>();
+  /** The last reply each read had, by what it asked: what it resolved the
+   * review's commits to and git's error; asked again, an unchanged one isn't resent. */
+  private known = new Map<
+    string,
+    { hash: string; reference: git.Revision | null; pick: string | null; error: string | null }
+  >();
+  /** The reviews whose diffs are wanted, the followed one first; one
+   * request at a time reads them, and `pumping` settles once it has. */
+  private wanted = new Map<number, { co: Checkout; r: Review }>();
+  private pumping: Promise<void> | null = null;
+  private wanted_late = false;
+  /** Long diffs whose text is arriving a slice at a time, and the file as
+   * listed when the first came: one changed since starts over. */
+  private partials = new Map<string, { slices: reader.Partial; sig: string }>();
+  /** The first and last file each review's diff area showed when last drawn. */
+  private shown = new WeakMap<Review, { from: string; to: string }>();
+  /** The files each review's list showed when last drawn. */
+  private list_shown = new WeakMap<Review, string[]>();
+  constructor(private readonly reader: reader.Reader) {}
   /** The pane whose checkout is shown. */
   get pane(): number | null {
     return this.target?.pane ?? null;
@@ -484,8 +521,6 @@ export class Panel {
   /** The refresh under way; another asked for meanwhile runs after it. */
   private flight: Promise<void> | null = null;
   private again = false;
-  /** The latest read asked for per diff, so an older one never replaces it. */
-  private reading = new Map<string, number>();
   /** Diffs read so far, so a refresh can tell it read one. */
   private loads = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -546,6 +581,7 @@ export class Panel {
         flow = now ? this.sections(r, now) : [];
       this.findIndex(r, flow);
       this.findStep(r, flow, 1);
+      this.loadSelected();
     }
   }
   /** The row of the rule under the file list, which drags its height; null without one. */
@@ -698,10 +734,7 @@ export class Panel {
     return root ? (this.checkouts.get(root) ?? null) : null;
   }
   private source(co: Checkout, r: Review): git.Source | null {
-    if (r.reference) return r.reference;
-    if (r.scope === "commits") return r.pick ? { kind: "commit", hash: r.pick } : null;
-    if (r.scope === "all" && co.base) return { kind: "worktree", against: co.base.merge_base };
-    return { kind: "worktree", against: co.head ?? git.empty_tree };
+    return git.sourceOf(r.scope, r.pick, r.reference, co.head, co.base);
   }
   private listing(co: Checkout, r: Review): (Listing & { source: git.Source }) | null {
     const source = this.source(co, r);
@@ -759,105 +792,223 @@ export class Panel {
       this.loads,
     ]);
   }
+  /** Asks the daemon for `t`'s checkout and the files its review lists,
+   * then reads the diffs on show. */
   private async read(t: Target | null): Promise<void> {
     if (!t) return;
-    let root = this.roots.get(t.cwd);
-    if (root === undefined) {
-      root = await git.toplevel(t.cwd);
-      this.roots.set(t.cwd, root);
-    }
-    if (!root) return;
-    let co = this.checkouts.get(root);
-    if (!co) {
-      co = new Checkout(root);
-      this.checkouts.set(root, co);
-    }
-    const r = this.review(t.pane);
+    const r = this.review(t.pane),
+      asked = { scope: r.scope, pick: r.pick, reference: r.reference },
+      key = JSON.stringify([t.cwd, asked.scope, asked.pick, asked.reference]),
+      known = this.known.get(key);
+    let reply: service.Read;
     try {
-      [co.head, co.branch, co.base] = await Promise.all([git.head(root), git.branch(root), git.base(root)]);
-      co.commits = await git.commits(root, co.base);
-      if (r.reference) r.reference = await git.resolveRevision(root, r.reference);
-      // A pick from elsewhere may name its commit short.
-      const picked = r.pick && co.commits.find(cm => cm.hash.startsWith(r.pick!));
-      if (picked) r.pick = picked.hash;
-      const source = this.source(co, r);
-      if (source) {
-        const listed = await list(root, source);
-        co.listings.set(sourceKey(source), listed);
-        if (r.scope === "all") this.summarized(root, summaryRuns(listed.changes, co.base));
-      }
-      // The branch also reads the working copy alone, to say where each file's change is.
-      const working: git.Source = { kind: "worktree", against: co.head ?? git.empty_tree };
-      if (source && r.scope === "all" && sourceKey(source) !== sourceKey(working))
-        co.listings.set(sourceKey(working), await list(root, working));
-      co.error = null;
+      reply = await this.reader.read({ cwd: t.cwd, ...asked, known: known?.hash ?? "" });
     } catch (error) {
-      co.error = (error as Error).message;
+      // The next answer comes whole.
+      this.known.delete(key);
+      const root = this.roots.get(t.cwd);
+      // A connection that dropped leaves what was read; the next poll reads again.
+      if (root && this.checkouts.get(root)?.read && (errors.unreachable(error) || errors.is(error, "StaleConnection")))
+        return;
+      // Where git's answer would go, say why there is none.
+      if (!root) this.roots.set(t.cwd, t.cwd);
+      const co = this.checkouts.get(root || t.cwd) ?? new Checkout(root || t.cwd);
+      this.checkouts.set(co.root, co);
+      co.error = { from: "daemon" };
+      co.read = true;
+      return;
+    }
+    this.roots.set(t.cwd, reply.root);
+    if (!reply.root) return;
+    let co = this.checkouts.get(reply.root);
+    if (!co) {
+      co = new Checkout(reply.root);
+      this.checkouts.set(reply.root, co);
+    }
+    // What the review was asked for may have changed while it was read.
+    const current = r.scope === asked.scope && r.pick === asked.pick && r.reference === asked.reference;
+    const got = reply.checkout;
+    if (got) {
+      [co.head, co.branch, co.base, co.commits] = [got.head, got.branch, got.base, got.commits];
+      for (const l of got.listings) co.listings.set(sourceKey(l.source), listing(l));
+      co.error = got.error === null ? null : { from: "git", message: got.error };
+      this.known.set(key, { hash: reply.hash, reference: got.reference, pick: got.pick, error: got.error });
+      if (current) [r.reference, r.pick] = [got.reference, got.pick];
+      const scoped = got.listings[0];
+      if (asked.scope === "all" && !got.reference && scoped)
+        this.summarized(reply.root, summaryRuns(scoped.totals, got.base?.name ?? null));
+    } else if (!reply.same || !known) co.error = { from: "daemon" };
+    else {
+      // The checkout's error is the last read's, maybe another review's.
+      co.error = known.error === null ? null : { from: "git", message: known.error };
+      if (current) [r.reference, r.pick] = [known.reference, known.pick];
     }
     co.read = true;
     await this.loadFiles(co, r);
   }
-  /** Reads the diffs on show that aren't current: the selected file's, or on
-   * "All files" every file's, the cursor's first, a few at a time. */
-  private async loadFiles(co: Checkout, r: Review): Promise<void> {
+  /** Reads the diffs on show that aren't current, and those a move or a
+   * click would show next (see `window`). */
+  private loadFiles(co: Checkout, r: Review): Promise<void> {
     const listed = this.listing(co, r);
-    if (!listed) return;
+    if (!listed) return Promise.resolve();
     const paths = listed.changes.map(c => c.path),
       order = this.fileOrder(r, paths, listed.edited);
     if (!r.path || !paths.includes(r.path)) {
       if (r.all) [r.path, r.cur, r.anchor] = [order[0] ?? null, 0, null];
       else this.select(r, order[0] ?? null, paths, false);
     }
-    const changes = new Map(listed.changes.map(c => [c.path, c]));
-    if (!r.all) {
-      const change = r.path ? changes.get(r.path) : undefined;
-      if (change) await this.loadFile(co, r, listed.source, change);
-      return;
+    const pane = [...this.reviews].find(([, review]) => review === r)?.[0];
+    if (pane === undefined) return Promise.resolve();
+    this.wanted.set(pane, { co, r });
+    if (this.pumping) {
+      this.wanted_late = true;
+      return this.pumping;
     }
-    const from = Math.max(0, order.indexOf(r.path ?? "")),
-      queue = [...order.slice(from), ...order.slice(0, from)].map(path => changes.get(path)!);
-    const reader = async () => {
-      for (let change = queue.shift(); change; change = queue.shift())
-        await this.loadFile(co, r, listed.source, change);
-    };
-    await Promise.all(Array.from({ length: parallel_reads }, reader));
-  }
-  /** Reads one file's diff unless it is current. */
-  private async loadFile(co: Checkout, r: Review, source: git.Source, change: git.Change): Promise<void> {
-    if (change.generated && !r.loaded.has(change.path)) return;
-    let stamp = "";
-    if (source.kind === "worktree" && change.kind !== "deleted")
+    this.pumping = (async () => {
       try {
-        const info = await stat(join(co.root, change.path));
-        stamp = `${info.size}:${info.mtimeMs}`;
-      } catch {}
-    const sig = `${change.kind}|${change.from}|${change.adds}|${change.dels}|${stamp}`;
-    const key = `${sourceKey(source)}\0${change.path}`;
-    if (co.files.get(key)?.sig === sig) return;
-    const ticket = (this.reading.get(key) ?? 0) + 1;
-    this.reading.set(key, ticket);
-    const loaded = await git.fileDiff(co.root, source, change);
-    if (this.reading.get(key) !== ticket && co.files.has(key)) return;
-    const lang = syntax.language(change.path);
+        // What's wanted while a pump finishes is read before it settles.
+        do {
+          this.wanted_late = false;
+          await this.pump();
+        } while (this.wanted_late);
+      } finally {
+        this.pumping = null;
+      }
+    })();
+    return this.pumping;
+  }
+  /** What a review wants read next: the files in its window whose diff isn't current. */
+  private due(
+    co: Checkout,
+    r: Review,
+    only?: string[],
+  ): { source: git.Source; changes: { change: git.Change; sig: string }[] } | null {
+    const listed = this.listing(co, r);
+    if (!listed) return null;
+    const changes = new Map(listed.changes.map(c => [c.path, c])),
+      paths = only ?? this.window(r, this.fileOrder(r, [...changes.keys()], listed.edited));
+    const out: { change: git.Change; sig: string }[] = [];
+    for (const path of paths) {
+      const change = changes.get(path);
+      if (!change || (change.generated && !r.loaded.has(path))) continue;
+      const stamp = listed.stamps?.get(path) ?? "",
+        sig = `${change.kind}|${change.from}|${change.adds}|${change.dels}|${stamp}`;
+      if (co.files.get(`${sourceKey(listed.source)}\0${path}`)?.sig !== sig) out.push({ change, sig });
+      if (out.length >= service.max_files) break;
+    }
+    return out.length ? { source: listed.source, changes: out } : null;
+  }
+  /** The files a review reads, most wanted first: the cursor's, those on
+   * screen, the next `read_ahead`, then the `read_behind` before. On "All
+   * files" the screen is the diff area's, and a search reads on through every
+   * file, onward from it. A file shown alone reads the files either side of
+   * it, then those its list shows, so the next one clicked is there at once. */
+  private window(r: Review, order: string[]): string[] {
+    const at = (path: string | null | undefined) => (path ? order.indexOf(path) : -1),
+      cursor = at(r.path),
+      seen = r.all ? this.shown.get(r) : undefined;
+    let from = at(seen?.from),
+      to = at(seen?.to);
+    // Before the first draw, and for a file alone, the screen is the cursor's file.
+    if (from < 0 || to < from) from = to = Math.max(0, cursor);
+    const out = new Set<string>();
+    if (cursor >= 0) out.add(order[cursor]);
+    for (let i = from; i <= Math.min(order.length - 1, to + read_ahead); i++) out.add(order[i]);
+    for (let i = from - 1; i >= Math.max(0, from - read_behind); i--) out.add(order[i]);
+    if (!r.all) for (const path of this.list_shown.get(r) ?? []) out.add(path);
+    else if (r.find?.query.text) for (let i = 1; i <= order.length; i++) out.add(order[(to + i) % order.length]);
+    return [...out];
+  }
+  /** Reads what the wanted reviews are due, one request at a time, until
+   * none wants more. */
+  private async pump(): Promise<void> {
+    for (;;) {
+      // The followed review first, then the ghosts in the order they show.
+      const order = [this.target?.pane, this.next_ghost?.target.pane, this.ghost?.target.pane];
+      const jobs = [...this.wanted].sort(([a], [b]) => rank(order, a) - rank(order, b));
+      let job: { co: Checkout; r: Review; due: NonNullable<ReturnType<Panel["due"]>> } | null = null;
+      for (const [pane, { co, r }] of jobs) {
+        const due = this.reviews.get(pane) === r ? this.due(co, r) : null;
+        if (due) {
+          job = { co, r, due };
+          break;
+        }
+        this.wanted.delete(pane);
+      }
+      if (!job) return;
+      const { co, r, due } = job,
+        prefix = `${sourceKey(due.source)}\0`;
+      let files = due.changes.map(({ change, sig }) => {
+        const kept = this.partials.get(prefix + change.path),
+          partial = kept?.sig === sig ? kept.slices : null;
+        return {
+          path: change.path,
+          from: change.from,
+          kind: change.kind,
+          binary: change.binary,
+          funcname: change.funcname,
+          offset: partial?.offset ?? 0,
+          hash: partial?.hash ?? "",
+        };
+      });
+      // A long file's next slice fills a reply, so it goes alone.
+      const continuing = files.find(file => file.offset > 0);
+      if (continuing) files = [continuing];
+      // Slices of what's no longer asked for start over if it is again.
+      for (const key of this.partials.keys())
+        if (!files.some(file => prefix + file.path === key)) this.partials.delete(key);
+      let reply: service.Diffs;
+      try {
+        reply = await this.reader.diffs({ root: co.root, source: due.source, files });
+      } catch (error) {
+        // A connection that dropped reads them at the next poll.
+        if (errors.unreachable(error) || errors.is(error, "StaleConnection")) return;
+        // Unread files say why, and the next poll asks again: the daemon
+        // may have been reloading, or run out of time. A file read before
+        // keeps showing that diff meanwhile.
+        const message = errors.name(error) ?? String(error);
+        for (const { change } of due.changes)
+          if (!co.files.has(prefix + change.path))
+            this.keepFile(co, r, prefix + change.path, change, "", { kind: "failed", message });
+        this.changed();
+        return;
+      }
+      if (!reply.files.length) return;
+      const sigs = new Map(due.changes.map(({ change, sig }) => [change.path, { change, sig }]));
+      for (const { path, slice } of reply.files) {
+        const asked = sigs.get(path);
+        if (!asked) continue;
+        let text: git.Text | null = slice;
+        if (slice.kind === "text") {
+          const kept = this.partials.get(prefix + path),
+            partial = kept?.sig === asked.sig ? kept.slices : new reader.Partial();
+          text = partial.add(slice);
+          if (text) this.partials.delete(prefix + path);
+          else this.partials.set(prefix + path, { slices: partial, sig: asked.sig });
+        }
+        if (text) this.keepFile(co, r, prefix + path, asked.change, asked.sig, text);
+      }
+      this.loads++;
+      this.refind(r);
+      this.changed();
+    }
+  }
+  private keepFile(co: Checkout, r: Review, key: string, change: git.Change, sig: string, text: git.Text): void {
+    const loaded = git.parseText(text),
+      lang = syntax.language(change.path);
     co.files.set(key, {
       sig,
       loaded,
       old: new syntax.Highlighter(lang, loaded.kind === "diff" ? loaded.diff.old : []),
       new: new syntax.Highlighter(lang, loaded.kind === "diff" ? loaded.diff.new : []),
     });
-    this.loads++;
     if (loaded.kind === "diff" && r.path === change.path && r.cur === 0)
       r.cur = this.firstChange(r, loaded.diff, change.path);
-    this.changed();
   }
   private loadSelected(): void {
     const co = this.checkout(),
       t = this.target;
-    if (!co || !t) return;
-    const r = this.review(t.pane),
-      listed = this.listing(co, r),
-      change = listed?.changes.find(c => c.path === r.path);
-    if (listed && change) void this.loadFile(co, r, listed.source, change);
+    if (co && t) void this.loadFiles(co, this.review(t.pane));
   }
   private current(): Now | null {
     const co = this.checkout(),
@@ -1091,6 +1242,7 @@ export class Panel {
       if (r.find && f.query.text !== before) {
         this.findIndex(r, flow);
         if (text) this.findStep(r, flow, 1);
+        this.loadSelected();
       }
       return { kind: "none" };
     }
@@ -1491,6 +1643,19 @@ export class Panel {
         }
       });
   }
+  /** Finds the query again in the files read since: on the hit shown, or
+   * with that one gone, the first after the cursor. */
+  private refind(r: Review): void {
+    const f = r.find,
+      t = this.target;
+    if (!f?.query.text || !t || this.reviews.get(t.pane) !== r) return;
+    const now = this.current(),
+      flow = now ? this.sections(r, now) : [],
+      was = f.hits[f.at];
+    this.findIndex(r, flow);
+    if (was) f.at = f.hits.findIndex(h => h.path === was.path && h.row === was.row && h.start === was.start);
+    if (f.at < 0) this.findStep(r, flow, 1);
+  }
   private findStep(r: Review, sections: Section[], step: 1 | -1): void {
     const f = r.find;
     if (!f || !r.path || f.hits.length === 0) return;
@@ -1880,11 +2045,10 @@ export class Panel {
     const own = co.commits.length;
     const listed = this.listing(co, r);
     let room = c.w - 2;
-    if (listed && listed.changes.length) {
-      const adds = listed.changes.reduce((s, ch) => s + (ch.adds ?? 0), 0),
-        dels = listed.changes.reduce((s, ch) => s + (ch.dels ?? 0), 0);
+    if (listed && listed.totals.files) {
+      const { files, adds, dels } = listed.totals;
       const parts: [string, palette.Rgb][] = [
-        [plural(listed.changes.length, "file") + " ", colors.faint],
+        [plural(files, "file") + " ", colors.faint],
         ["+" + adds.toLocaleString("en-US"), colors.accent],
         [" −" + dels.toLocaleString("en-US"), colors.hot],
       ];
@@ -1899,7 +2063,7 @@ export class Panel {
     // What the scope compares; the part after the names goes first when it's tight.
     let parts: [string, palette.Rgb][],
       extra: [string, palette.Rgb] | null = null;
-    if (co.error) parts = [[`git: ${co.error}`, colors.hot]];
+    if (co.error) parts = [[failureText(co.error), colors.hot]];
     else if (r.scope === "commits") {
       const picked = co.commits.find(cm => cm.hash === r.pick);
       parts = picked
@@ -1982,7 +2146,7 @@ export class Panel {
       // The rule under the list drags its height, keeping some of the diff in view.
       const room = Math.max(2, c.h - ty - 2 - min_diff_rows),
         top = ty;
-      ty = this.drawTree(c, r, changes, paths, listed.edited, ty, room, focused);
+      ty = this.drawTree(c, co, r, changes, paths, listed.edited, listed.totals.files, ty, room, focused);
       this.split = { y: c.y + ty, top: c.y + top, room };
     }
     for (let i = 0; i < c.w; i++) c.put(i, ty, "─", colors.line);
@@ -2042,10 +2206,13 @@ export class Panel {
   }
   private drawTree(
     c: Canvas,
+    co: Checkout,
     r: Review,
     changes: git.Change[],
     paths: string[],
     edited: Map<string, number> | null,
+    /** Files changed, listed or not. */
+    total: number,
     ty: number,
     room: number,
     focused: boolean,
@@ -2063,7 +2230,15 @@ export class Panel {
     r.tree_top = Math.min(Math.max(0, r.tree_top), Math.max(0, rows.length - height));
     c.hit(0, ty, c.w, height, { wheel: "tree" });
     const byPath = new Map(changes.map(ch => [ch.path, ch]));
-    rows.slice(r.tree_top, r.tree_top + height).forEach((row, i) => {
+    const visible = rows.slice(r.tree_top, r.tree_top + height),
+      listed = visible.flatMap(row => (row.kind === "file" ? [row.path] : [])),
+      was = this.list_shown.get(r);
+    // The files listed on screen are read ahead of a click on one.
+    if (was?.length !== listed.length || was.some((path, i) => path !== listed[i])) {
+      this.list_shown.set(r, listed);
+      if (!r.all) void this.loadFiles(co, r);
+    }
+    visible.forEach((row, i) => {
       const y = ty + i,
         on = i + r.tree_top === sel,
         active = on && focused && r.part === "tree",
@@ -2075,6 +2250,12 @@ export class Panel {
       if (row.kind === "all") {
         c.text(indent, y, "≡", on ? colors.strong : colors.muted, bg, true);
         c.text(indent + 2, y, i18n.t`All files`, on ? colors.strong : colors.text, bg, on);
+        // Past the daemon's limit, the list holds the first files.
+        if (total > changes.length) {
+          const shown = changes.length.toLocaleString("en-US"),
+            all = total.toLocaleString("en-US");
+          right.push([i18n.t`first ${shown} of ${all}`, colors.faint]);
+        }
         c.hit(0, y, c.w, 1, {
           act: () => {
             r.part = "tree";
@@ -2311,6 +2492,15 @@ export class Panel {
     const shown = items[first]?.s.change.path,
       shown_head = shown === undefined ? undefined : heads.get(shown);
     r.landmark = shown !== undefined && shown_head !== undefined ? { path: shown, y: ys[shown_head] } : null;
+    // What's on screen says which diffs to read; a scroll or a move reads more.
+    let last = first;
+    while (last + 1 < items.length && ys[last + 1] < top + dh) last++;
+    const was = this.shown.get(r),
+      to = items[last]?.s.change.path;
+    if (r.all && shown !== undefined && to !== undefined && (was?.from !== shown || was?.to !== to)) {
+      this.shown.set(r, { from: shown, to });
+      void this.loadFiles(now.co, r);
+    }
     const sel = r.compose
         ? r.compose.range
         : r.anchor !== null
@@ -2749,12 +2939,16 @@ export class Panel {
       const q = r.find.query,
         caret = focused ? q.position().col : null,
         x = this.drawTyped(c, q, q.lines()[0], keycap(1, "/") + 1, y, caret, colors.strong, null) + 1;
-      const count = q.text
-        ? r.find.hits.length
-          ? `${r.find.at + 1}/${r.find.hits.length}`
-          : i18n.t`no match`
-        : i18n.t`type to find`;
-      c.text(x + 1, y, count, q.text && !r.find.hits.length ? colors.hot : colors.faint);
+      // Until every file searched is read, a miss may be in one still to come.
+      const searched = r.all ? undefined : r.path ? [r.path] : [],
+        searching = !!q.text && !!now && this.due(now.co, r, searched) !== null,
+        found = r.find.hits.length ? `${r.find.at + 1}/${r.find.hits.length}` : "",
+        count = !q.text
+          ? i18n.t`type to find`
+          : searching
+            ? [found, i18n.t`searching…`].filter(Boolean).join(" ")
+            : found || i18n.t`no match`;
+      c.text(x + 1, y, count, q.text && !found && !searching ? colors.hot : colors.faint);
       return;
     }
     if (r.status)
@@ -2869,47 +3063,25 @@ function commitColumns(list: git.Commit[], now: number): { heading: string; note
     ]),
   };
 }
-/** What reviewing the checkout at `root` would open on, as runs for a menu
- * row: its files and lines changed since it left the base branch, uncommitted
- * ones included. */
-export async function summary(root: string): Promise<dropdown.Run[]> {
-  try {
-    const [base, head] = await Promise.all([git.base(root), git.head(root)]);
-    return summaryRuns(
-      await git.changes(root, { kind: "worktree", against: base?.merge_base ?? head ?? git.empty_tree }),
-      base,
-    );
-  } catch {
-    return [[i18n.t`git didn't answer`, "faint"]];
-  }
-}
-/** `summary` from changes already read, as the panel's "all" scope reads them. */
-export function summaryRuns(changes: git.Change[], base: git.Base | null): dropdown.Run[] {
-  const branch = base?.name ?? "";
-  if (changes.length === 0) return [[base ? i18n.t`No changes since ${branch}` : i18n.t`No changes`, "faint"]];
-  const adds = changes.reduce((s, ch) => s + (ch.adds ?? 0), 0),
-    dels = changes.reduce((s, ch) => s + (ch.dels ?? 0), 0);
+/** What reviewing a checkout would open on, as runs for a menu row: its
+ * files and lines changed since it left `branch`, uncommitted ones included. */
+export function summaryRuns(totals: service.Totals, branch: string | null): dropdown.Run[] {
+  if (totals.files === 0) return [[branch ? i18n.t`No changes since ${branch}` : i18n.t`No changes`, "faint"]];
   return [
-    [`${plural(changes.length, "file")}  `, "faint"],
-    [`+${adds.toLocaleString("en-US")}`, "accent"],
-    [` −${dels.toLocaleString("en-US")}`, "hot"],
+    [`${plural(totals.files, "file")}  `, "faint"],
+    [`+${totals.adds.toLocaleString("en-US")}`, "accent"],
+    [` −${totals.dels.toLocaleString("en-US")}`, "hot"],
   ];
 }
-/** A source's changed files, with when each was last written for the working tree. */
-async function list(root: string, source: git.Source): Promise<Listing> {
-  const changes = await git.changes(root, source);
-  return {
-    changes,
-    auto_collapsed: folding.tests(changes),
-    edited:
-      source.kind === "worktree"
-        ? await git.edited(
-            root,
-            changes.map(ch => ch.path),
-          )
-        : null,
-  };
+/** Why a checkout shows no files, in a line. */
+export function failureText(error: Failure): string {
+  return error.from === "git" ? `git: ${error.message}` : i18n.t`git didn't answer`;
 }
+/** Where `pane` comes in `order`, the rest after. */
+const rank = (order: (number | undefined)[], pane: number) => {
+  const at = order.indexOf(pane);
+  return at < 0 ? order.length : at;
+};
 /** A commit's age, short enough for a dropdown note. */
 function age(seconds: number): string {
   if (seconds < 90) return i18n.t`now`;

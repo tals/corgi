@@ -1,9 +1,12 @@
 //! The agent menu's "N files +a −d" line for each checkout, read ahead of the
 //! menu so it opens with the numbers in place. A checkout's line is kept until
-//! something says it changed: a turn starting or ending in it, or age.
+//! something says it changed: a turn starting or ending in it, or age. The
+//! daemon reads it, counts only, on the machine the checkout is on.
 import * as dropdown from "../dropdown";
-import * as git from "./git";
-import { summary } from "./panel";
+import * as errors from "../errors";
+import * as i18n from "../i18n";
+import { summaryRuns } from "./panel";
+import type { Reader } from "./reader";
 
 /** A line older than this is read again the next time it is wanted. */
 export const fresh_ms = 15_000;
@@ -14,6 +17,15 @@ interface Line {
   runs: dropdown.Run[];
   at: number;
   stale: boolean;
+}
+/** Reads the line for `cwd`'s checkout: the checkout, or null outside git, and its runs. */
+export type Read = (cwd: string) => Promise<{ root: string | null; runs: dropdown.Run[] }>;
+/** Lines as a daemon counts them. */
+export function reading(reader: Reader): Read {
+  return async cwd => {
+    const summary = await reader.summary(cwd);
+    return { root: summary.root, runs: summary.totals ? summaryRuns(summary.totals, summary.base) : [] };
+  };
 }
 interface Job {
   cwd: string;
@@ -26,14 +38,15 @@ export class Summaries {
   changed: () => void = () => {};
   /** Each directory's checkout, or null outside git. */
   private roots = new Map<string, string | null>();
+  /** Directories whose checkout is unknown since their read failed: their line is their own. */
+  private failed = new Set<string>();
   private lines = new Map<string, Line>();
   private slow = new Set<string>();
   private queue: Job[] = [];
   private running: string | null = null;
 
   constructor(
-    private read: (root: string) => Promise<dropdown.Run[]> = summary,
-    private toplevel: (cwd: string) => Promise<string | null> = git.toplevel,
+    private read: Read,
     private now: () => number = Date.now,
   ) {}
 
@@ -70,7 +83,8 @@ export class Summaries {
 
   private key(cwd: string): string | null {
     const root = this.roots.get(cwd);
-    return root === undefined ? null : (root ?? cwd);
+    if (root === undefined) return this.failed.has(cwd) ? cwd : null;
+    return root ?? cwd;
   }
   private good(key: string): boolean {
     const line = this.lines.get(key);
@@ -98,18 +112,30 @@ export class Summaries {
     }
   }
   private async run(job: Job): Promise<void> {
-    let root = this.roots.get(job.cwd);
-    // A directory outside git is checked again, since `git init` can make it a checkout.
-    if (root === undefined || (root === null && (job.asked || !this.good(job.cwd)))) {
-      root = await this.toplevel(job.cwd).catch(() => null);
-      this.roots.set(job.cwd, root);
-    }
-    const key = root ?? job.cwd;
-    // Another directory in the same checkout may have read it meanwhile.
-    if (!job.asked && (this.slow.has(key) || this.good(key))) return;
-    if (root === null) return this.keep(key, [["Not in a git checkout", "faint"]]);
+    // Another directory in the same checkout may have read it meanwhile. A
+    // directory outside git is read again too, since `git init` can make it one.
+    const known = this.key(job.cwd);
+    if (!job.asked && known !== null && (this.slow.has(known) || this.good(known))) return;
     const start = this.now();
-    const runs = await this.read(root);
+    let read: Awaited<ReturnType<Read>>;
+    try {
+      read = await this.read(job.cwd);
+    } catch (error) {
+      const name = errors.name(error) ?? "",
+        line = known === null ? undefined : this.lines.get(known);
+      // A link that dropped or a daemon reloading keeps what was read, to read again.
+      if (line && (!errors.reply(error) || name === "Reloading")) {
+        line.stale = true;
+        return;
+      }
+      // Its checkout unknown, the line stands for the directory until a read says.
+      if (known === null) this.failed.add(job.cwd);
+      return this.keep(known ?? job.cwd, [[i18n.t`git didn't answer`, "faint"]]);
+    }
+    const { root, runs } = read;
+    this.roots.set(job.cwd, root);
+    this.failed.delete(job.cwd);
+    if (root === null) return this.keep(job.cwd, [["Not in a git checkout", "faint"]]);
     if (this.now() - start > slow_ms) this.slow.add(root);
     else this.slow.delete(root);
     this.keep(root, runs);

@@ -37,6 +37,7 @@ import type * as worktrees from "../src/worktrees";
 import type { FileDiff } from "../src/review/diff";
 import * as reviewGit from "../src/review/git";
 import * as reviewPanel from "../src/review/panel";
+import * as reviewService from "../src/review/service";
 import { Menu as LauncherMenu, option, type Row } from "../src/agent_launcher";
 import { historyEntry } from "../src/launcher_resume";
 import { Snapshot as PortsSnapshot } from "../src/trackers/ports";
@@ -1551,11 +1552,11 @@ async function checkoutFixture(root: string, hours: number, build: (tools: Tools
         changes = await reviewGit.changes(repo, source);
       fixture.listings[key] = changes;
       for (const change of changes) {
-        const loaded = await reviewGit.fileDiff(repo, source, change);
+        const loaded = reviewGit.parseText(await reviewGit.fileText(repo, source, change));
         fixture.diffs[`${key}\0${change.path}`] = loaded.kind === "diff" ? patch(loaded.diff) : loaded;
       }
       if (source.kind === "worktree")
-        for (const [path, ms] of await reviewGit.edited(
+        for (const [path, , ms] of await reviewGit.stats(
           repo,
           changes.map(c => c.path),
         ))
@@ -1641,7 +1642,10 @@ const review = [await thrustersFixture(), await spriteFixture()];
   [moonPath("sprite"), review[1]],
 ].map(([path, f]: any) => [
   path,
-  reviewPanel.summaryRuns(f.listings[sourceKey({ kind: "worktree", against: f.base?.merge_base ?? "" })], f.base),
+  reviewPanel.summaryRuns(
+    reviewService.totals(f.listings[sourceKey({ kind: "worktree", against: f.base?.merge_base ?? "" })]),
+    f.base?.name ?? null,
+  ),
 ]);
 if (unknown.size) console.log("unhandled sequences:", [...unknown].join(", "));
 

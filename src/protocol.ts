@@ -156,6 +156,10 @@ export const operations = [
   "process.signal",
   "worktree.add",
   "git.branches",
+  "review.read",
+  "review.diffs",
+  "review.summary",
+  "review.recognize",
   "onboarding.status",
   "onboarding.handoff",
   "onboarding.copy",
@@ -809,6 +813,17 @@ const requests = {
   "worktree.brief": { workspace: "u32" },
   "worktree.add": { workspace: "u32", path: "string", branch: "string", base: "string" },
   "git.branches": { workspace: "u32" },
+  // The review panel's reads; review/service.ts decodes the JSON fields.
+  "review.read": {
+    cwd: "string",
+    scope: "all|uncommitted|commits",
+    pick: ["?string", null],
+    reference: ["?json", null],
+    known: ["string", ""],
+  },
+  "review.diffs": { root: "string", source: "json", files: "json" },
+  "review.summary": { cwd: "string" },
+  "review.recognize": { cwd: "string", hashes: "[]string" },
   "onboarding.status": { operation: "u64" },
   "onboarding.handoff": { operation: "u64", viewer_pgid: "i32", socket: ["string", ""] },
   "onboarding.copy": {
@@ -971,6 +986,10 @@ export interface ReplyPayloads {
   "retry.cancel": Ok;
   "worktree.remove": Ok & { removal: number };
   "git.branches": Ok & { branches: Awaited<ReturnType<typeof import("./worktree_add").branches>> };
+  "review.read": Ok & import("./review/service").Read;
+  "review.diffs": Ok & import("./review/service").Diffs;
+  "review.summary": Ok & import("./review/service").Summary;
+  "review.recognize": Ok & { found: [string, string][] };
   "onboarding.status": Ok & {
     progress: import("./import/onboarding").Progress | ReturnType<import("./import/herdr").Manager["status"]>;
   };

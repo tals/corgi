@@ -8,6 +8,9 @@ import { runGit } from "../fixtures/git";
 let root = "";
 const run = (...args: string[]) => runGit(root, ...args);
 const write = (path: string, text: string) => writeFileSync(join(root, path), text);
+/** A file's diff as the daemon reads it and the panel parses it. */
+const fileDiff = async (at: string, source: git.Source, change: git.Change) =>
+  git.parseText(await git.fileText(at, source, change));
 
 beforeAll(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-review-git-")));
@@ -48,7 +51,7 @@ test("a resolved range compares its endpoints and excludes the dirty worktree", 
   expect(source).toEqual({ kind: "range", from: run("rev-parse", "main"), to: run("rev-parse", "HEAD") });
   const changes = await git.changes(root, source);
   expect(changes.map(c => c.path)).toEqual(["keep.ts"]);
-  const loaded = await git.fileDiff(root, source, changes[0]);
+  const loaded = await fileDiff(root, source, changes[0]);
   expect(loaded.kind === "diff" && [loaded.diff.old, loaded.diff.new]).toEqual([["const a = 1;"], ["const a = 2;"]]);
   expect(await git.changes(root, await git.resolveRevision(root, { kind: "range", from: "HEAD", to: "HEAD" }))).toEqual(
     [],
@@ -206,7 +209,7 @@ test("a commit lists only what it changed", async () => {
   const head = (await git.head(root))!;
   const listed = await git.changes(root, { kind: "commit", hash: head });
   expect(listed.map(c => c.path)).toEqual(["keep.ts"]);
-  const loaded = await git.fileDiff(root, { kind: "commit", hash: head }, listed[0]);
+  const loaded = await fileDiff(root, { kind: "commit", hash: head }, listed[0]);
   expect(loaded.kind === "diff" && loaded.diff.new).toEqual(["const a = 2;"]);
 });
 
@@ -215,7 +218,7 @@ test("each kind of change loads a whole-file diff", async () => {
   const source: git.Source = { kind: "worktree", against: base.merge_base };
   const listed = await git.changes(root, source);
   const load = async (path: string) =>
-    git.fileDiff(
+    fileDiff(
       root,
       source,
       listed.find(c => c.path === path)!,
@@ -242,7 +245,7 @@ test("a file over the budget is never read", async () => {
     generated: false,
     funcname: false,
   };
-  expect(await git.fileDiff(root, { kind: "worktree", against: "HEAD" }, change)).toEqual({
+  expect(await fileDiff(root, { kind: "worktree", against: "HEAD" }, change)).toEqual({
     kind: "too_large",
     bytes: 2_100_000,
   });
@@ -267,7 +270,7 @@ test("a diff driver with a funcname rule names folds with git's headers", async 
     const by = Object.fromEntries((await git.changes(repo, source)).map(c => [c.path, c]));
     expect([by["a.tex"].funcname, by["a.cfg"].funcname, by["a.dat"].funcname]).toEqual([true, true, false]);
     const headers = async (name: string) => {
-      const loaded = await git.fileDiff(repo, source, by[name]);
+      const loaded = await fileDiff(repo, source, by[name]);
       return loaded.kind === "diff" ? loaded.diff.headers : undefined;
     };
     expect(await headers("a.tex")).toEqual(new Map([[11, "\\section{Intro}"]]));

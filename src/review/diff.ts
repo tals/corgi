@@ -90,6 +90,17 @@ export class FileDiff {
 
 /** Parses `git diff` output for one file, run with enough context to hold
  * the whole file. Returns "binary" when git found no text diff. */
+/** The lines `parse` gives both sides of `patch` together, the measure
+ * `max_lines` limits, counted no further than past `limit`: a context line
+ * is on both sides. */
+export function sideLines(patch: string, limit = max_lines): number {
+  let n = 0;
+  for (let at = patch.indexOf("\n@@"); at >= 0 && n <= limit; at = patch.indexOf("\n", at + 1)) {
+    const mark = patch[at + 1];
+    n += mark === " " ? 2 : mark === "+" || mark === "-" ? 1 : 0;
+  }
+  return n;
+}
 export function parse(patch: string): FileDiff | "binary" {
   const diff = new FileDiff();
   let old_no = 0,

@@ -6,7 +6,7 @@
 //! same card fills the pane and goes on with a conversation handed to it.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { double_click_ms } from "./clock";
 import * as frames from "./corgi_frames";
@@ -30,6 +30,7 @@ import * as conversations from "./prompt_conversations";
 import * as markdown from "./prompt_markdown";
 import * as reviewPanel from "./review/panel";
 import * as reference from "./review/reference";
+import * as reviewReader from "./review/reader";
 import { Memory, flush as memoryFlush } from "./prompt_memory";
 import * as promptTools from "./prompt_tools";
 import * as promptSearch from "./prompt_search";
@@ -809,8 +810,14 @@ export class Prompt {
   private ui: Target["act"] | null = null;
   private ui_row = -1;
   private history: { at: number; texts: string[]; drafts: Map<number, TextArea> } | null = null;
-  private readonly review = new reviewPanel.Panel();
-  private readonly references = new reference.Recognizer();
+  /** For each machine the conversation ran on, the review of commits its
+   * replies name and which hashes are commits there. */
+  private readonly reviews = new Map<string, { panel: reviewPanel.Panel; known: reference.Recognizer }>();
+  /** The machine whose review was last shown. */
+  private review_machine = "";
+  private review_changed = () => {
+    this.review_dirty = true;
+  };
   private review_focused = false;
   private review_dirty = false;
   private review_box: Rect | null = null;
@@ -836,17 +843,48 @@ export class Prompt {
       clock: this.clock,
     });
     this.conversation.claim = deps.pane ?? null;
-    this.references.changed = this.review.changed = () => {
-      this.review_dirty = true;
-    };
   }
   /** Called when a reply arrives while the viewer waits on input. */
   set changed(f: () => void) {
     this.conversation.changed = f;
-    this.references.changed = this.review.changed = () => {
+    this.review_changed = () => {
       this.review_dirty = true;
       f();
     };
+  }
+  /** The review on the machine the conversation runs on now. Each machine's
+   * reads ask only while it is still that one, so a late answer from another
+   * can't fill in, or say missing, what is here. */
+  private get machine_review(): { panel: reviewPanel.Panel; known: reference.Recognizer } {
+    const machine = this.deps.daemon.machine?.() ?? "";
+    let place = this.reviews.get(machine);
+    if (!place) {
+      const read = reviewReader.daemon(async (op, payload) => {
+        if ((this.deps.daemon.machine?.() ?? "") !== machine) throw Error("StaleConnection");
+        return this.deps.daemon.review(op, payload);
+      });
+      place = {
+        panel: new reviewPanel.Panel(read),
+        known: new reference.Recognizer((cwd, h) => read.recognize(cwd, h)),
+      };
+      place.panel.changed = place.known.changed = () => this.review_changed();
+      this.reviews.set(machine, place);
+    }
+    // The review left on another machine closes, as the viewer's does on a switch.
+    if (machine !== this.review_machine) {
+      const left = this.reviews.get(this.review_machine)?.panel;
+      left?.hide();
+      left?.preview(null);
+      this.review_machine = machine;
+      this.review_focused = false;
+    }
+    return place;
+  }
+  private get review(): reviewPanel.Panel {
+    return this.machine_review.panel;
+  }
+  private get references(): reference.Recognizer {
+    return this.machine_review.known;
   }
   /** Models, suggestions, account briefs and what Auto runs, as they arrive. */
   catalog(entries: Entry[], suggested: Choice[], briefs: Brief[], auto: Choice | null = null, loading = false): void {
@@ -892,7 +930,7 @@ export class Prompt {
     };
   }
   show(context: Context): void {
-    this.references.forgetMissing();
+    for (const { known } of this.reviews.values()) known.forgetMissing();
     this.open = true;
     this.context = context;
     this.back = 0;
@@ -1454,9 +1492,10 @@ export class Prompt {
     this.input_first = 0;
   }
   private resolveReview(ref: reference.Reference): reference.Resolved {
-    const folder =
-      ref.folder === "~" ? homedir() : ref.folder.startsWith("~/") ? join(homedir(), ref.folder.slice(2)) : ref.folder;
-    return { cwd: resolve(this.context?.cwd || this.conversation.started?.cwd || ".", folder), source: ref.source };
+    // A folder in the home is the conversation machine's home, which its daemon expands.
+    if (ref.folder === "~" || ref.folder.startsWith("~/")) return { cwd: ref.folder, source: ref.source };
+    // The conversation's folder, on its machine, wherever the prompt opened since.
+    return { cwd: resolve(this.conversation.started?.cwd || this.context?.cwd || ".", ref.folder), source: ref.source };
   }
   private recognizedReview(ref: reference.Reference, request = false): reference.Resolved | null {
     const resolved = this.resolveReview(ref);
@@ -2000,7 +2039,7 @@ export class Prompt {
   /** Sends `text` with its attachments once they're read, or after a few
    * seconds with what's there. Messages go in the order they were sent. */
   private post(text: string, chips: Chip[], choice: Choice): void {
-    this.references.forgetMissing();
+    for (const { known } of this.reviews.values()) known.forgetMissing();
     const send = () => {
       // Images go as images; the rest go as context blocks before the text.
       const images = chips.flatMap(chip =>

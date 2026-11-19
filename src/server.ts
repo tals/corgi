@@ -40,6 +40,7 @@ import * as updates from "./updates";
 import * as errors from "./errors";
 import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
+import * as reviewService from "./review/service";
 import { testBuild } from "./build_assets";
 import * as agentRetry from "./agent_retry";
 import * as link from "./link";
@@ -1217,6 +1218,13 @@ export class Server {
         this.defer(cl, reply, null, async () => ({
           branches: await worktreeAdd.branches(this.runtime, request.payload.workspace),
         }));
+        return;
+      // Git reads that can take seconds run beside the job chain.
+      case "review.read":
+      case "review.diffs":
+      case "review.summary":
+      case "review.recognize":
+        this.defer(cl, reply, null, () => reviewService.answer(request));
         return;
       case "worktree.add":
         this.defer(cl, reply, { op: "worktree.add", path: request.payload.path }, async () => {

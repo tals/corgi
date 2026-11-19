@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as errors from "../errors";
 import * as reference from "./reference";
 
 test("references separate a revision or range from its repository", () => {
@@ -128,4 +129,23 @@ test("candidates arriving during a lookup are read afterwards, and failed reads 
   cache.resolve("/repo", first, true);
   await cache.settled();
   expect(calls).toHaveLength(2);
+});
+
+test("a lookup the link dropped or the daemon reloaded through is asked again, not taken as no commit", async () => {
+  for (const away of [Error("ConnectionClosed"), errors.fromReply({ err: "Reloading" })]) {
+    let down = true;
+    const full = "1234567890123456789012345678901234567890";
+    const cache = new reference.Recognizer(async (_cwd, hashes) => {
+      if (down) throw away;
+      return new Map(hashes.map(hash => [hash, full]));
+    });
+    const source = { kind: "commit", hash: "12345678" } as const;
+    cache.resolve("/repo", source, true);
+    await cache.settled();
+    expect(cache.resolve("/repo", source)).toBeNull();
+    down = false;
+    cache.resolve("/repo", source, true);
+    await cache.settled();
+    expect(cache.resolve("/repo", source)).toEqual({ kind: "commit", hash: full });
+  }
 });

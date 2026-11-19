@@ -18,6 +18,16 @@ test("parses both sides and numbers each row", () => {
   expect([d.adds, d.dels]).toEqual([2, 1]);
 });
 
+test("the lines both sides hold count as the parse does, a context line twice", () => {
+  const small = patch([" a", "-b", "+c", "\\ No newline at end of file", " d"]),
+    parsed = diff.parse(small);
+  if (parsed === "binary") throw Error("binary");
+  expect(diff.sideLines(small)).toBe(parsed.old.length + parsed.new.length);
+  // Half the budget in unchanged lines is past it.
+  const context = Array.from({ length: diff.max_lines / 2 }, (_, i) => ` line ${i}`);
+  expect(diff.sideLines(patch([...context, "+new"]))).toBeGreaterThan(diff.max_lines);
+});
+
 test("a new file starts its numbering at one", () => {
   const d = diff.parse(patch(["+x", "+y"], "@@ -0,0 +1,2 @@")) as diff.FileDiff;
   expect(d.rows.map(r => r.new_no)).toEqual([1, 2]);

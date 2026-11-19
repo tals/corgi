@@ -1,4 +1,5 @@
 import type { Daemon } from "../prompt_session";
+import * as review from "./review";
 
 /** A daemon that keeps one session's journal and records what it was asked. */
 export class HeadlessDaemon implements Daemon {
@@ -23,6 +24,11 @@ export class HeadlessDaemon implements Daemon {
   start(payload: any): Promise<{ provider: any; session: string }> {
     this.starts.push(payload);
     return this.starting ?? Promise.resolve({ provider: payload.provider, session: this.ids.shift() ?? this.session });
+  }
+  /** Review reads go to the service, as a daemon would answer them. */
+  review(op: string, payload: any): Promise<any> {
+    this.calls.push({ op, payload });
+    return review.call(op, payload);
   }
   add(...events: unknown[]): void {
     for (const event of events) this.journal.push({ seq: this.journal.length + 1, event });
