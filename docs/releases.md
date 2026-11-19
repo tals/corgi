@@ -131,11 +131,14 @@ test channel drops a test release waiting to apply; the running one stays until
 stable passes it. To resume a failed test publication, add `--channel test` to
 `VERSION --publish-only`.
 
-Once the commit is on origin's `main`, promote the saved release to stable:
+To promote a test release to stable as it is, without rebuilding, publish the
+saved release again:
 
 ```sh
 bun run publish VERSION --publish-only
 ```
+
+Promoting needs the commit only on origin, not on `main`.
 
 ## Omarchy
 

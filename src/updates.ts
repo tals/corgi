@@ -151,18 +151,22 @@ export function currentOf(exe: string): (() => string | null) | null {
 export function channelOf(root: string): Channel {
   return release_channel.parse(read(root, "channel")?.trim() ?? "") ?? "stable";
 }
-/** Has the installation at `root` follow `channel`, under the download lock.
- * An update staged from the channel it leaves goes; the current release stays
- * until `channel` passes it. */
-async function follow(root: string, channel: Channel) {
+/** Has the installation at `root` follow `channel`, whose latest release is
+ * `latest`, under the download lock. An update staged from the channel it
+ * leaves goes, unless it's `latest`; the current release stays until `channel`
+ * passes it. */
+async function follow(root: string, channel: Channel, latest: string) {
+  const stored = read(root, "channel");
   // A name this release doesn't know reads as stable, but isn't a choice of it.
-  if ((read(root, "channel")?.trim() ?? "stable") === channel) return;
+  if ((stored === null ? "stable" : release_channel.parse(stored.trim())) === channel) return;
   const unlock = (await lock(root, "activation.lock", true))!;
   try {
     if (channel === "stable") remove(root, "channel");
     else write(root, "channel", channel);
-    remove(root, "staged");
-    prune(root, true);
+    if (pointer(root, "staged") !== latest) {
+      remove(root, "staged");
+      prune(root, true);
+    }
   } finally {
     unlock();
   }
@@ -400,14 +404,16 @@ async function feed(
       m = parse(rel, bytes),
       current = pointer(root, "current");
     if (!current) throw Error("MissingInstalledVersion");
-    if (choice && download) await follow(root, choice);
+    if (choice && download) await follow(root, choice, m.version);
+    // A check of another channel only says what it has.
+    const followed = channel === channelOf(root);
     if (compare(m.version, current) <= 0) {
       const newer = `Corgi ${current} is newer than ${m.version}, the latest on ${channel}`;
       if (explicit)
         console.log(
           compare(m.version, current) === 0
             ? "Corgi is up to date."
-            : channel === channelOf(root)
+            : followed
               ? `${newer}; it stays until ${channel} passes it.`
               : `${newer}.`,
         );
@@ -417,7 +423,7 @@ async function feed(
     if (!explicit && suppressed && compare(m.version, suppressed) <= 0) return true;
     // A stale feed doesn't take back a newer update, such as one the installer staged.
     const staged = pointer(root, "staged");
-    if (staged && compare(m.version, staged) < 0) return true;
+    if (followed && staged && compare(m.version, staged) < 0) return true;
     if (explicit) console.error(`Corgi ${m.version} is available.${download ? " Downloading…" : ""}`);
     if (!download) return true;
     const dest = executable(root, m.version),

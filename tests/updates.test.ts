@@ -334,20 +334,31 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
   async () => {
     const staged = () => readFile(join(root, "staged"), "utf8"),
       channel = () => readFile(join(root, "channel"), "utf8").catch(() => "stable");
+    let downloads = 0;
+    beforeDownload = async () => void downloads++;
+    latest = "1.0.2";
     await cli(["update", "--download-only"]);
     // A channel without a release yet changes nothing.
     expect((await cli(["update", "--channel", "test", "--download-only"], false)).code).not.toBe(0);
     expect(await channel()).toBe("stable");
-    expect(await staged()).toBe("1.0.1");
-    latestTest = "1.0.3";
-    // A check only looks.
-    expect((await cli(["update", "--channel", "test", "--check"])).err).toContain("Corgi 1.0.3 is available.");
+    expect(await staged()).toBe("1.0.2");
+    // A check only looks, whatever stable has waiting.
+    latestTest = "1.0.1";
+    expect((await cli(["update", "--channel", "test", "--check"])).err).toContain("Corgi 1.0.1 is available.");
     expect(await channel()).toBe("stable");
+    // A release both channels have stays downloaded.
+    latestTest = "1.0.2";
+    downloads = 0;
     await cli(["update", "--channel", "test", "--download-only"]);
     expect(await channel()).toBe("test");
+    expect(await staged()).toBe("1.0.2");
+    expect(downloads).toBe(0);
+    latestTest = "1.0.3";
+    await cli(["update", "--download-only"]);
     expect(await staged()).toBe("1.0.3");
     expect((await cli(["update", "status"])).err).toContain("Channel: test");
     // The test release waiting to apply goes with the channel.
+    latest = "1.0.1";
     await cli(["update", "--channel", "stable", "--download-only"]);
     expect(await Bun.file(join(root, "channel")).exists()).toBe(false);
     expect(await staged()).toBe("1.0.1");
