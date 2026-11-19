@@ -443,6 +443,19 @@ test("startup migration keeps onboarding completed when viewer.json cannot be re
   }
 });
 
+test.each([false, true])("resetting an action removes its skipped aliases (legacy first: %s)", async legacyFirst => {
+  const { root, where } = await scratch("preferences-reset-alias");
+  try {
+    const accepted = legacyFirst ? "worktrees:0" : "worktrees",
+      skipped = legacyFirst ? "worktrees" : "worktrees:0";
+    await put(where.config, { keys: { [accepted]: "alt+w", [skipped]: "alt+q", new: "alt+n" } });
+    expect(updateKeys(read(where), { new: "alt+n" }, where).keys).toEqual({ new: "alt+n" });
+    expect((await json(where.config)).keys).toEqual({ new: "alt+n" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("saving rewrites only what changed and keeps what this build skipped", async () => {
   const { root, where } = await scratch("preferences-save");
   try {

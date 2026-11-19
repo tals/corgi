@@ -339,14 +339,14 @@ function assign(raw: Raw, key: string, value: unknown): void {
   if (value === undefined) delete raw[key];
   else raw[key] = value;
 }
-/** An editor must not overwrite shortcuts changed by another viewer. Shortcuts
- * this build skipped stay in config.json, after the editor's, for the person to
- * fix; what the file then holds comes back, as one of them may now apply. */
+/** An editor must not overwrite shortcuts changed by another viewer. Skipped
+ * entries stay unless the editor changes their action; some may now apply. */
 export function updateKeys(expected: Preferences, keys: keybindings.Config, where = paths()): Preferences {
   return save(where, (files, { current, skipped }) => {
     if (current.preset !== expected.preset || current.prefix !== expected.prefix || !same(current.keys, expected.keys))
       throw Error("Shortcuts changed on disk. Reopen the editor before saving.");
-    const next: Raw = { ...keybindings.parse(keys) };
+    const chosen = keybindings.parse(keys),
+      next: Raw = { ...chosen };
     const written = files.config?.keys;
     if (object(written)) {
       // Keep an accepted alias's spelling so a skipped canonical entry keeps its slot.
@@ -358,7 +358,9 @@ export function updateKeys(expected: Preferences, keys: keybindings.Config, wher
         }
       }
       for (const [name, value] of Object.entries(written)) {
-        if (skipped.includes(`keys.${name}`) && !Object.hasOwn(next, name)) next[name] = value;
+        const id = keybindings.canonical(name) ?? name;
+        if (skipped.includes(`keys.${name}`) && !Object.hasOwn(next, name) && same(current.keys[id], chosen[id]))
+          next[name] = value;
       }
     }
     files.config = { ...files.config, keys: next };
