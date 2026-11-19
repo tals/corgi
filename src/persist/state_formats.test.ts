@@ -94,15 +94,20 @@ test("the generator appends migrations and schema checks without rewriting previ
     expect(next.structures).toEqual(state_revision.structures(directory));
     expect(readFileSync(fixture, "utf8")).toBe(recorded);
     const workspace = await state_revision.create(directory, "Name workspace groups", "workspaces"),
+      viewer = await state_revision.create(directory, "Rename a setting", "viewer"),
       updated = await import(
         pathToFileURL(join(directory, "src/persist/state_formats.ts")).href + `?revision=${workspace.id}`
       ),
-      saved = { workspaces: [{ id: 1, name: "retained" }] };
+      saved = { workspaces: [{ id: 1, name: "retained" }] },
+      files = { viewer: { sidebar_width: 30 }, config: { theme: "animal_style" } };
     expect(updated.current).toBe(second.id);
     expect(updated.history.ancestors.slice(0, 3)).toEqual([second.id, first.id, state_formats.current]);
     expect(updated.workspaces.current).toBe(workspace.id);
     expect(updated.workspaces.up(saved, state_formats.workspaces.current)).toEqual(saved);
     expect(updated.workspaces.down(saved, state_formats.workspaces.current)).toEqual(saved);
+    expect(updated.viewer.current).toBe(viewer.id);
+    expect(updated.viewer.ancestors[1]).toBe(state_formats.viewer.current);
+    expect(updated.viewer.up(files, state_formats.viewer.current)).toEqual(files);
     expect(updated.checkpoint.current).toBe(state_formats.checkpoint.current);
     expect(updated.handoff.current).toBe(state_formats.handoff.current);
   } finally {
@@ -133,7 +138,7 @@ test("the generator rejects unresolved merged histories before writing files", a
       );
       const before = readdirSync(revisions);
       // Neither saved format can append while the checkout has unresolved revisions.
-      for (const kind of ["state", "workspaces"] as const)
+      for (const kind of ["state", "workspaces", "viewer"] as const)
         await expect(state_revision.create(directory, "Next migration", kind)).rejects.toThrow(
           scenario === "fork" ? "ForkedStateHistory" : "InvalidStateHeads",
         );

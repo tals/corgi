@@ -138,8 +138,14 @@ A conflicting key
 shows its current owner before **Move** saves it. A member of an indexed set
 cannot be reassigned separately.
 
-Overrides live in `$XDG_STATE_HOME/corgi/viewer.json`, normally
-`~/.local/state/corgi/viewer.json`. Add a `keys` object to the existing file:
+Overrides live in `$XDG_CONFIG_HOME/corgi/config.json`, normally
+`~/.config/corgi/config.json`, beside the other settings you choose: `preset`,
+`prefix`, `language`, `theme`, `corgi_intensity`, `resources` and
+`worktree_folder`. Corgi writes the file only when you change one of these in
+onboarding, setup or the shortcut editor, so it can live with your dotfiles,
+symlinked or not. It writes through a link, keeps the file's mode, and
+leaves a read-only file as it is.
+Add a `keys` object:
 
 ```json
 {
@@ -180,13 +186,19 @@ from Enter. The recorder shows what Corgi actually receives. Command/Super
 also requires host forwarding. Its toggle appears only for an existing or
 recorded Command binding; ordinary modifier choices do not assume support.
 
-Valid edits reload in open viewers. Invalid JSON, unknown actions and
-conflicting custom shortcuts leave the working bindings active. A custom shortcut
-replaces an ordinary preset binding only when both its chord (key and modifiers)
-and prefix mode match. Direct and prefixed shortcuts coexist. Indexed sets must be
-changed as a whole. Viewers refuse to save over a malformed file or a stale
-editor. If you unbind help, run `corgi action keybindings` from a pane to reopen
-the editor. Remove an action's override to inherit its preset again.
+Edits reload in open viewers. Corgi reads each shortcut on its own, in file
+order: one it can't use, such as an unknown action, a malformed key or a key an
+earlier override already took, is skipped with a notice that names it, and the
+rest apply. Other settings fall back the same way, one at a time. Saving
+rewrites only what changed, so a skipped entry stays in the file until you fix
+it. Invalid JSON leaves the working bindings active; viewers refuse to save
+over it or over a stale editor.
+
+A custom shortcut replaces an ordinary preset binding only when both its chord
+(key and modifiers) and prefix mode match. Direct and prefixed shortcuts
+coexist. Indexed sets must be changed as a whole. If you unbind help, run
+`corgi action keybindings` from a pane to reopen the editor. Remove an action's
+override to inherit its preset again.
 
 ### All shortcuts
 
@@ -506,12 +518,19 @@ to `~/.local/state/corgi`:
 
 | File or folder | Purpose |
 | --- | --- |
-| `viewer.json` | Setup completion, keymap, appearance and worktree folder preferences |
+| `viewer.json` | What viewers remember: setup completion, sidebar and review panel sizes, agent list scroll and order, the prompt's last model |
 | `workspaces.json` | Saved workspace configuration |
 | `settings.json` | Runtime settings, including shell and inference choices |
 | `recovery/` | Saved layout, terminal output and agent recovery context |
 | `account-previews/`, `limit-history/` | Each account's latest usage reading, and its limit and spend history |
 | `accounts.json`, `accounts/` | Provider accounts besides the default, and the folders Corgi made for them; shared by every environment. A new one waits in a private `corgi-account-*` folder in the temporary directory until it's signed in |
+
+Settings you choose, including shortcuts, live in `config.json` under
+`$XDG_CONFIG_HOME/corgi`, defaulting to `~/.config/corgi`. Corgi moves those
+you changed there from an older `viewer.json`; a `config.json` already there,
+such as one restored from dotfiles, wins. `viewer.json` then contains only
+viewer state. Close older viewers before upgrading; they read settings from
+the old file. Downgrading requires a reverse migration.
 
 An explicit `CORGI_SOCKET` selects another runtime; its workspace/settings
 files live beside the socket. Viewer preferences remain shared. Developer

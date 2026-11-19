@@ -173,6 +173,8 @@ export class Runtime extends TestCase {
     delete this.env.CODEX_THREAD_ID;
     delete this.env.CLAUDE_CODE_SESSION_KIND;
     delete this.env.CORGI_PANE;
+    // A developer environment's own files must not stand in for the test's.
+    delete this.env.CORGI_ENV_DIR;
     Object.assign(this.env, this.extraEnv);
     const preferences = join(this.env.XDG_STATE_HOME!, "corgi/viewer.json");
     mkdirSync(join(preferences, ".."), { recursive: true });
@@ -185,6 +187,20 @@ export class Runtime extends TestCase {
     if (this.configure) await this.configure();
     await this.run_cli("start");
     this.started = true;
+  }
+  /** config.json, where viewers keep shortcuts and the other settings a person chooses. */
+  configFile(): string {
+    return join(this.env.XDG_CONFIG_HOME!, "corgi/config.json");
+  }
+  /** Sets `changes` in config.json, as a hand edit would, keeping the rest. */
+  writeConfig(changes: Record<string, unknown>): void {
+    const file = this.configFile();
+    let saved: Record<string, unknown> = {};
+    try {
+      saved = JSON.parse(readFileSync(file, "utf8"));
+    } catch {}
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, JSON.stringify({ ...saved, ...changes }));
   }
   async tearDown() {
     const errors: unknown[] = [];

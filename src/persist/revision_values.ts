@@ -1,4 +1,7 @@
 //! JSON operations shared by saved-state revisions.
+/** The value viewer revisions step: viewer.json and config.json, null when
+ * there is none. The reader has checked both are objects. */
+export type ViewerFiles = { viewer: Record<string, unknown>; config: Record<string, unknown> | null };
 class RawBytes extends String {
   constructor(public bytes: Buffer) {
     super(bytes.toString("utf8"));

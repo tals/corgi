@@ -977,6 +977,7 @@ export interface Extras {
   updates: string[];
   settings: string;
   preferences: string;
+  config: string;
   warnings: string[];
 }
 export async function extras(r: Report, socket: string): Promise<Extras> {
@@ -984,7 +985,8 @@ export async function extras(r: Report, socket: string): Promise<Extras> {
     scrub = (text: string) => (home ? text.split(home).join("~") : text);
   let hooks: string[] = [],
     updates: string[] = [],
-    prefs = "";
+    prefs = "",
+    config = "";
   try {
     hooks = (await within((await import("./integration")).status(), timeout_ms)) ?? [
       `(timed out after ${timeout_text})`,
@@ -997,6 +999,9 @@ export async function extras(r: Report, socket: string): Promise<Extras> {
   } catch {}
   try {
     prefs = readText(preferences.path()) ?? "";
+  } catch {}
+  try {
+    config = readText(preferences.configPath()) ?? "";
   } catch {}
   return {
     discovery: Provider.all.map(p => {
@@ -1015,6 +1020,7 @@ export async function extras(r: Report, socket: string): Promise<Extras> {
     updates,
     settings: scrub(readText(settingsFile.path(socket)) ?? ""),
     preferences: scrub(prefs),
+    config: scrub(config),
     warnings: warnings(tail(r.logs.server, 1 << 20), 50),
   };
 }
@@ -1058,6 +1064,7 @@ export function full(r: Report, s: Settings, x: Extras, now = new Date()): strin
   block("Hooks", x.hooks, "(unknown)");
   block("Updates", x.updates, "(unknown)");
   block("settings.json", x.settings.trim() ? x.settings.trimEnd().split("\n") : [], "(none)");
+  block("config.json", x.config.trim() ? x.config.trimEnd().split("\n") : [], "(none)");
   block("viewer.json", x.preferences.trim() ? x.preferences.trimEnd().split("\n") : [], "(none)");
   block("Warnings and errors", x.warnings, "(none)");
   return out.join("\n");

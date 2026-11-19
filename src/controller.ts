@@ -4,7 +4,6 @@ import * as archiveSummary from "./archive_summary";
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
 import { homedir, hostname } from "node:os";
-import { existsSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as keys from "./keys";
@@ -382,6 +381,8 @@ export class Controller {
   /** Saved preferences as this viewer last loaded or set them. The sidebar
    * width is live while dragging and saved on release. */
   closePreferences: (() => void) | null = null;
+  /** The preference files' problems as last reported, one per line. */
+  private preference_problems = "";
   get prefs(): Preferences {
     return this.host.prefs;
   }
@@ -1430,54 +1431,27 @@ export class Controller {
     }
   }
   loadPreferences(): void {
-    this.prefs = preferences.load();
+    this.prefs = preferences.load(true);
     localeHost.initialize(this.prefs.language);
     this.closePreferences?.();
     try {
-      if (existsSync(preferences.path()) && preferences.readExisting(preferences.path()) === null)
-        this.notice(i18n.t`Invalid viewer.json; using default preferences until the file is repaired.`);
-      this.closePreferences = keybindingFile.observe(preferences.path(), saved => {
-        if (saved) this.prefs.workspace_order = saved.workspace_order;
-        if (saved && saved.language !== this.prefs.language) {
-          this.prefs.language = saved.language;
-          localeHost.initialize(saved.language);
-          this.help.configure(this.prefs.preset, this.prefs.prefix, this.prefs.keys);
-          this.dirty = true;
-        }
-        if (!saved) {
-          this.help.error = i18n.t`Invalid viewer.json; keeping the working shortcuts.`;
-          this.notice(this.help.error);
-        } else if (
-          saved.preset !== this.prefs.preset ||
-          saved.prefix !== this.prefs.prefix ||
-          JSON.stringify(saved.keys) !== JSON.stringify(this.prefs.keys)
-        ) {
-          this.prefs.preset = saved.preset;
-          this.prefs.prefix = saved.prefix;
-          this.prefs.keys = saved.keys;
-          this.repeat_until = 0;
-          if (this.help_visible) {
-            const editing = this.help.edit !== null;
-            this.help.configure(saved.preset, saved.prefix, saved.keys);
-            this.help.accept(saved.keys);
-            if (editing) this.help.error = i18n.t`Shortcuts changed on disk. Reopen the shortcut to edit it.`;
-          } else this.prefix = false;
-          if (!this.remote_links && ghosttyIntegration.available()) {
-            try {
-              if (
-                ghosttyIntegration.refresh({ preset: saved.preset, prefix: saved.prefix, bindings: saved.bindings() })
-              )
-                this.notice(i18n.t`Shortcuts reloaded. Reload Ghostty to update its menu shortcuts.`);
-            } catch {
-              this.notice(i18n.t`Shortcuts reloaded; could not update the Ghostty integration.`);
-            }
-          }
-          this.dirty = true;
-        }
-        this.wake?.();
-      });
+      const where = preferences.paths();
+      this.reportPreferences(preferences.inspect(where).problems);
+      const settings = keybindingFile.observe(where.config, () =>
+          this.reloadSettings(preferences.inspectConfig(where.config)),
+        ),
+        state = keybindingFile.observe(where.viewer, () => {
+          // One being rewritten by hand keeps the order this viewer has.
+          const saved = preferences.inspectViewer(where.viewer);
+          if (saved) this.prefs.workspace_order = saved.workspace_order;
+          this.wake?.();
+        });
+      this.closePreferences = () => {
+        settings();
+        state();
+      };
     } catch {
-      this.notice(i18n.t`Could not watch viewer.json for shortcut changes.`);
+      this.notice(i18n.t`Could not watch config.json for shortcut changes.`);
     }
     this.review.tree_rows = this.prefs.review_tree_rows;
     this.prompt.choice = this.prefs.prompt_model === "auto" ? null : (this.prefs.prompt_model ?? null);
@@ -1487,6 +1461,57 @@ export class Controller {
         prefix: this.prefs.prefix,
         theme: this.prefs.theme,
       });
+  }
+  /** Applies config.json as edited on disk: its language and shortcuts take effect now. */
+  private reloadSettings(reading: { prefs: Preferences | null; problems: preferences.Problem[] }): void {
+    const saved = reading.prefs;
+    if (saved && saved.language !== this.prefs.language) {
+      this.prefs.language = saved.language;
+      localeHost.initialize(saved.language);
+      this.help.configure(this.prefs.preset, this.prefs.prefix, this.prefs.keys);
+      this.dirty = true;
+    }
+    if (!saved) {
+      this.help.error = i18n.t`Invalid config.json; keeping the working shortcuts.`;
+      this.notice(this.help.error);
+    } else if (
+      saved.preset !== this.prefs.preset ||
+      saved.prefix !== this.prefs.prefix ||
+      JSON.stringify(saved.keys) !== JSON.stringify(this.prefs.keys)
+    ) {
+      this.prefs.preset = saved.preset;
+      this.prefs.prefix = saved.prefix;
+      this.prefs.keys = saved.keys;
+      this.repeat_until = 0;
+      if (this.help_visible) {
+        const editing = this.help.edit !== null;
+        this.help.configure(saved.preset, saved.prefix, saved.keys);
+        this.help.accept(saved.keys);
+        if (editing) this.help.error = i18n.t`Shortcuts changed on disk. Reopen the shortcut to edit it.`;
+      } else this.prefix = false;
+      if (!this.remote_links && ghosttyIntegration.available()) {
+        try {
+          if (ghosttyIntegration.refresh({ preset: saved.preset, prefix: saved.prefix, bindings: saved.bindings() }))
+            this.notice(i18n.t`Shortcuts reloaded. Reload Ghostty to update its menu shortcuts.`);
+        } catch {
+          this.notice(i18n.t`Shortcuts reloaded; could not update the Ghostty integration.`);
+        }
+      }
+      this.dirty = true;
+    }
+    if (saved) this.reportPreferences(reading.problems);
+    this.wake?.();
+  }
+  /** Names the first problem with the preference files once each time the
+   * list changes, so this viewer's own saves don't repeat it. */
+  private reportPreferences(problems: preferences.Problem[]): void {
+    const seen = problems.map(p => `${p.file}: ${p.text}`).join("\n");
+    if (seen === this.preference_problems) return;
+    this.preference_problems = seen;
+    if (!problems.length) return;
+    const first = `${basename(problems[0].file)}: ${problems[0].text}`,
+      more = problems.length - 1;
+    this.notice(more ? i18n.t`${first} (+${more} more)` : first);
   }
   /** Forgets what the last connection to the daemon agreed, before the next
    * one opens. The panes, selection and menus stay. */
@@ -2713,9 +2738,9 @@ export class Controller {
         break;
       case "save":
         try {
-          preferences.updateKeys(this.prefs, result.config);
-          this.prefs.keys = result.config;
-          this.help.accept(result.config);
+          const saved = preferences.updateKeys(this.prefs, result.config);
+          this.prefs.keys = saved.keys;
+          this.help.accept(saved.keys);
           if (
             !this.remote_links &&
             (await ghosttyIntegration.refresh({

@@ -77,12 +77,13 @@ test("a checkout rejects sibling revisions even when only one branch is selected
   }
 });
 
-test("checkout heads must cover exactly four complete independent histories", () => {
+test("checkout heads must cover exactly five complete independent histories", () => {
   const next = "d".repeat(12),
-    heads = { state: next, checkpoint: a, handoff: b, workspaces: c },
+    viewer = "f".repeat(12),
+    heads = { state: next, checkpoint: a, handoff: b, workspaces: c, viewer },
     revisions = [
       root.revision,
-      ...[a, b, c].map(id => ({ ...step(id, baseline, "historical root"), parent: null })),
+      ...[a, b, c, viewer].map(id => ({ ...step(id, baseline, "historical root"), parent: null })),
       step(next, baseline, "metadata"),
     ];
   expect(histories(heads, revisions).state.ancestors).toEqual([next, baseline]);

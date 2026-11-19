@@ -75,6 +75,8 @@ export async function open(name: string, root: string, exe: string, fresh: boole
   return s;
 }
 
+/** The settings preferences.ts keeps in config.json. */
+const settings = ["preset", "prefix", "keys", "language", "theme", "corgi_intensity", "resources", "worktree_folder"];
 export class Sandbox {
   readonly dir: string;
   readonly home: string;
@@ -94,13 +96,20 @@ export class Sandbox {
     this.dir = join(`/tmp/corgi-sandbox-${process.getuid?.() ?? 0}`, name);
     this.home = join(this.dir, "home");
     this.outer_prefix = (() => {
-      try {
-        const state = process.env.XDG_STATE_HOME ?? join(process.env.HOME ?? "", ".local/state");
-        const saved = JSON.parse(readFileSync(join(state, "corgi/viewer.json"), "utf8"));
-        return saved.prefix === "ctrl_a" ? "ctrl_a" : "ctrl_b";
-      } catch {
-        return "ctrl_b";
-      }
+      // Where the outer Corgi's preferences.configPath finds config.json; an older one kept it in viewer.json.
+      const e = process.env,
+        home = e.HOME ?? "";
+      for (const file of [
+        e.CORGI_ENV_DIR
+          ? join(e.CORGI_ENV_DIR, "config/corgi/config.json")
+          : join(e.XDG_CONFIG_HOME ?? join(home, ".config"), "corgi/config.json"),
+        join(e.XDG_STATE_HOME ?? join(home, ".local/state"), "corgi/viewer.json"),
+      ])
+        try {
+          const prefix = JSON.parse(readFileSync(file, "utf8")).prefix;
+          if (prefix !== undefined) return prefix === "ctrl_a" ? "ctrl_a" : "ctrl_b";
+        } catch {}
+      return "ctrl_b";
     })();
     this.prefix = this.nested && this.outer_prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b";
     const env: Record<string, string> = { ...(process.env as Record<string, string>) };
@@ -235,8 +244,29 @@ export class Sandbox {
     try {
       saved = JSON.parse(readFileSync(prefs, "utf8"));
     } catch {}
-    writeFileSync(prefs, JSON.stringify({ preset: "corgi", ...saved, onboarding_complete: true, prefix: this.prefix }));
+    writeFileSync(prefs, JSON.stringify({ ...saved, onboarding_complete: true }));
+    // A sandbox made before config.json kept its settings in viewer.json, under these names.
+    const moved = existsSync(this.config)
+      ? {}
+      : Object.fromEntries(Object.entries(saved).filter(([key]) => settings.includes(key)));
+    this.settings({ preset: "corgi", ...moved, ...this.saved(), prefix: this.prefix });
     this.world.configure?.(this);
+  }
+  /** The sandbox's config.json, where preferences.configPath finds it under CORGI_ENV_DIR. */
+  get config(): string {
+    return join(this.env.CORGI_ENV_DIR, "config/corgi/config.json");
+  }
+  private saved(): Record<string, unknown> {
+    try {
+      return JSON.parse(readFileSync(this.config, "utf8"));
+    } catch {
+      return {};
+    }
+  }
+  /** Sets `changes` in the sandbox's config.json, keeping the rest. */
+  settings(changes: Record<string, unknown>): void {
+    mkdirSync(dirname(this.config), { recursive: true });
+    writeFileSync(this.config, JSON.stringify({ ...this.saved(), ...changes }));
   }
 }
 

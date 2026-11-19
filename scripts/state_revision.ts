@@ -25,7 +25,26 @@ export function structures(root: string): Record<string, string> {
     }),
   );
 }
-export function draft(parent: string, description: string, kind: "state" | "workspaces" = "state") {
+/** The formats a new revision can change; checkpoint and handoff histories are fixed. */
+export type Open = "state" | "workspaces" | "viewer";
+const steps: Record<Open, { comment: string; up: string; down: string }> = {
+  state: {
+    comment: "Replace these resets to preserve auxiliary state across this revision.",
+    up: "() => null",
+    down: "() => null",
+  },
+  workspaces: {
+    comment: "Preserve workspace identities while transforming their saved fields.",
+    up: "value => value",
+    down: "value => value",
+  },
+  viewer: {
+    comment: "The value is { viewer, config }: viewer.json and config.json, or null without one.",
+    up: "value => value",
+    down: "value => value",
+  },
+};
+export function draft(parent: string, description: string, kind: Open = "state") {
   description = description.trim();
   if (!/^[a-f0-9]{12}$/.test(parent) || !description || /[\r\n]/.test(description)) throw Error("InvalidStateRevision");
   const id = randomBytes(6).toString("hex"),
@@ -46,9 +65,9 @@ export const revision: Revision = {
   id: ${JSON.stringify(id)},
   parent: ${JSON.stringify(parent)},
   description: ${JSON.stringify(description)},
-  // ${kind === "state" ? "Replace these resets to preserve auxiliary state across this revision." : "Preserve workspace identities while transforming their saved fields."}
-  up: ${kind === "state" ? "() => null" : "value => value"},
-  down: ${kind === "state" ? "() => null" : "value => value"},
+  // ${steps[kind].comment}
+  up: ${steps[kind].up},
+  down: ${steps[kind].down},
 };
 `,
   };
@@ -77,9 +96,10 @@ export const history = histories.state;
 export const checkpoint = histories.checkpoint;
 export const handoff = histories.handoff;
 export const workspaces = histories.workspaces;
+export const viewer = histories.viewer;
 `;
 }
-export async function create(root: string, description: string, kind: "state" | "workspaces" = "state") {
+export async function create(root: string, description: string, kind: Open = "state") {
   const directory = join(root, "src/persist/revisions"),
     names = readdirSync(directory)
       .filter(name => name.endsWith(".ts"))
@@ -95,7 +115,7 @@ export async function create(root: string, description: string, kind: "state" | 
   const heads = Object.fromEntries(
     [
       ...readFileSync(join(root, "src/persist/state_formats.ts"), "utf8").matchAll(
-        /\b(state|checkpoint|handoff|workspaces): (\w+)\.revision\.id/g,
+        /\b(state|checkpoint|handoff|workspaces|viewer): (\w+)\.revision\.id/g,
       ),
     ].map(match => {
       const entry = entries.find(entry => binding(entry.name) === match[2]);
@@ -103,7 +123,7 @@ export async function create(root: string, description: string, kind: "state" | 
       return [match[1], entry.name];
     }),
   ) as Record<Kind, string>;
-  if (["state", "checkpoint", "handoff", "workspaces"].some(kind => !heads[kind as Kind]))
+  if (["state", "checkpoint", "handoff", "workspaces", "viewer"].some(kind => !heads[kind as Kind]))
     throw Error("MissingStateHead");
   const ids = Object.fromEntries(
     Object.entries(heads).map(([kind, name]) => {

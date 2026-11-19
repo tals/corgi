@@ -318,8 +318,9 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
       sandbox.dated(null);
       writeFileSync(
         join(sandbox.home, ".local/state/corgi/viewer.json"),
-        JSON.stringify({ onboarding_complete: true, preset: "corgi", prefix: "ctrl_b", corgi_intensity: 0 }),
+        JSON.stringify({ onboarding_complete: true }),
       );
+      sandbox.settings({ preset: "corgi", prefix: "ctrl_b", corgi_intensity: 0 });
       sandbox.run([o.corgi, "start", "--update-routed"]);
       await world.arrange(sandbox);
       await prepare?.(sandbox);

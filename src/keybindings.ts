@@ -24,14 +24,25 @@ export interface Entry {
 }
 export class InvalidKeys extends Error {
   name = "InvalidKeys";
+  constructor(
+    message: string,
+    /** The overrides at fault, by action id, when the error is about some. */
+    readonly ids: readonly string[] = [],
+  ) {
+    super(message);
+  }
 }
-function fail(message: string): never {
-  throw new InvalidKeys(message);
+function fail(message: string, ids: readonly string[] = []): never {
+  throw new InvalidKeys(message, ids);
 }
 export function id(a: action.Action): string {
   return a.name === "tab" || a.name === "goto-workspace"
     ? a.name
-    : a.name + (a.value === undefined || (a.name === "resources" && a.value === 0) ? "" : `:${a.value}`);
+    : a.name + (a.value === undefined || (targetless(a.name) && a.value === 0) ? "" : `:${a.value}`);
+}
+/** Actions whose bare name means "the current one", which `action.parse` reads as 0. */
+function targetless(name: string): boolean {
+  return name === "resources" || name === "worktrees";
 }
 export function target(name: string): action.Action {
   if (name === "tab" || name === "goto-workspace") return { name, value: 1 };
@@ -80,7 +91,7 @@ export function parse(raw: unknown): Config {
   for (const [name, value] of Object.entries(raw)) {
     const a = target(name),
       indexed = a.name === "tab" || a.name === "goto-workspace";
-    if (id(a) !== name) return fail(`Use ${id(a)} for this action`);
+    if (canonical(name) === null) return fail(`Use ${id(a)} for this action`);
     const list = Array.isArray(value) ? value : [value];
     if (list.length > 16) return fail(`Too many shortcuts for ${name}`);
     const valid: Value[] = list.map(v => {
@@ -102,9 +113,20 @@ export function parse(raw: unknown): Config {
       }
       return fail(`Invalid shortcut value for ${name}`);
     });
-    config[name] = Array.isArray(value) ? valid : valid[0];
+    config[id(a)] = Array.isArray(value) ? valid : valid[0];
   }
   return config;
+}
+/** The action id `name` overrides in a keys object, or null when it names no action. */
+export function canonical(name: string): string | null {
+  let a: action.Action;
+  try {
+    a = target(name);
+  } catch {
+    return null;
+  }
+  // Before the bare name worked, `worktrees:0` was its only spelling.
+  return id(a) === name || name === "worktrees:0" ? id(a) : null;
 }
 export function overlaps(a: Shortcut, b: Shortcut): boolean {
   return a.prefixed === b.prefixed && a.keys.some(k => b.keys.some(other => keys.same(k, other)));
@@ -188,14 +210,15 @@ export function entries(preset: Preset, config: Config): Entry[] {
     e.custom = true;
     e.shortcuts = (Array.isArray(value) ? value : [value]).map(v => parseShortcut(v, e.indexed));
     for (let i = 0; i < e.shortcuts.length; i++)
-      if (e.shortcuts.slice(0, i).some(s => overlaps(s, e!.shortcuts[i]))) fail(`Duplicate shortcut for ${e.title}`);
+      if (e.shortcuts.slice(0, i).some(s => overlaps(s, e!.shortcuts[i])))
+        fail(`Duplicate shortcut for ${e.title}`, [e.id]);
   }
   for (const e of list.filter(e => e.custom))
     for (const s of e.shortcuts)
       for (const other of list) {
         if (e === other || !other.shortcuts.some(k => overlaps(s, k))) continue;
-        if (other.custom) fail(`${e.title} and ${other.title} use the same shortcut`);
-        if (other.indexed) fail(`This key belongs to ${other.title}; change its whole key set first`);
+        if (other.custom) fail(`${e.title} and ${other.title} use the same shortcut`, [e.id, other.id]);
+        if (other.indexed) fail(`This key belongs to ${other.title}; change its whole key set first`, [e.id]);
         other.shortcuts = other.shortcuts.filter(k => !overlaps(s, k));
       }
   return list;
@@ -292,7 +315,7 @@ export function validatePrefix(config: Config, prefix: keymap.Prefix): void {
     const indexed = name === "tab" || name === "goto-workspace";
     for (const v of Array.isArray(value) ? value : [value])
       if (parseShortcut(v, indexed).keys.some(k => keys.same(k, key)))
-        fail(`${keymap.prefixName(prefix)} is reserved for the prefix; choose another shortcut`);
+        fail(`${keymap.prefixName(prefix)} is reserved for the prefix; choose another shortcut`, [name]);
   }
 }
 /** Compact display only; configuration always keeps explicit modifier names. */

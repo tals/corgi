@@ -378,6 +378,7 @@ const extras: bugReport.Extras = {
   updates: ["Automatic updates: on", "current: 1.2.3"],
   settings: '{\n  "shell": "/bin/zsh"\n}\n',
   preferences: "",
+  config: "",
   warnings: ["error: b", "warn(ports): a (×2)"],
 };
 

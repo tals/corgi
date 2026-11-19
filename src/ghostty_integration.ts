@@ -160,6 +160,16 @@ function trigger(binding: bindings.Binding) {
   );
 }
 /** Ghostty aliases must not turn distinct Corgi chords into the same trigger. */
+/** Two shortcuts Ghostty would take for one key. */
+export class Clash extends Error {
+  name = "GhosttyClash";
+  constructor(
+    message: string,
+    readonly actions: readonly [Action, Action],
+  ) {
+    super(message);
+  }
+}
 export function validate(source: bindings.Source): void {
   const seen = new Map<string, bindings.Binding>();
   for (const binding of bindings.table(source)) {
@@ -168,8 +178,9 @@ export function validate(source: bindings.Source): void {
     if (host === null) continue;
     const previous = seen.get(host);
     if (previous)
-      throw Error(
+      throw new Clash(
         `${bindings.format(previous)} and ${bindings.format(binding)} both use ${macLabel(host)} in Ghostty; choose another shortcut.`,
+        [previous.action, binding.action],
       );
     seen.set(host, binding);
   }

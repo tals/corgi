@@ -6,11 +6,19 @@ import * as preferences from "./preferences";
 import { observe } from "./keybinding_file";
 import { flock } from "./native_bridge";
 
+/** config.json as live reload reads it, each time it changes. */
+const watch = (file: string, changed: (p: preferences.Preferences | null) => void) =>
+  observe(file, () => changed(preferences.inspectConfig(file).prefs));
+const scratch = (dir: string): preferences.Paths => ({
+  viewer: join(dir, "viewer.json"),
+  config: join(dir, "config.json"),
+});
+
 test("directory watching survives malformed edits and atomic replacements", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-keys-")),
-    file = join(dir, "viewer.json");
+    file = join(dir, "config.json");
   let notify: ((p: preferences.Preferences | null) => void) | null = null;
-  const close = observe(file, p => notify?.(p));
+  const close = watch(file, p => notify?.(p));
   const edit = (write: () => void) =>
     new Promise<preferences.Preferences | null>((resolve, reject) => {
       const timer = setTimeout(() => reject(Error("Watcher did not fire")), 2000);
@@ -38,16 +46,16 @@ test("directory watching survives malformed edits and atomic replacements", asyn
 
 test("saving shortcut changes preserves other preferences and rejects stale or malformed files", () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-keys-")),
-    file = join(dir, "viewer.json");
+    where = scratch(dir);
   try {
     const base = new preferences.Preferences();
-    preferences.updateFile(file, { sidebar_width: 35 });
-    preferences.updateKeys(base, { new: "prefix+y" }, file);
-    expect(preferences.read(file).sidebar_width).toBe(35);
-    expect(() => preferences.updateKeys(base, { new: "prefix+z" }, file)).toThrow("changed on disk");
-    writeFileSync(file, "{");
-    expect(() => preferences.updateKeys(base, {}, file)).toThrow("repair");
-    expect(() => preferences.updateFile(file, { sidebar_width: 36 })).toThrow();
+    preferences.update({ sidebar_width: 35, theme: "animal_style" }, where);
+    preferences.updateKeys(base, { new: "prefix+y" }, where);
+    expect(preferences.read(where)).toMatchObject({ sidebar_width: 35, theme: "animal_style" });
+    expect(() => preferences.updateKeys(base, { new: "prefix+z" }, where)).toThrow("changed on disk");
+    writeFileSync(where.config, "{");
+    expect(() => preferences.updateKeys(base, {}, where)).toThrow("repair");
+    expect(() => preferences.update({ theme: "corgi" }, where)).toThrow("repair");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -55,12 +63,12 @@ test("saving shortcut changes preserves other preferences and rejects stale or m
 
 test("live reload distinguishes inaccessible paths from deleted preferences and recovers", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-keys-unreadable-")),
-    dir = join(root, "state"),
-    file = join(dir, "viewer.json");
+    dir = join(root, "config"),
+    file = join(dir, "config.json");
   mkdirSync(dir);
   writeFileSync(file, JSON.stringify({ keys: { new: "prefix+y" } }));
   const events: (preferences.Preferences | null)[] = [];
-  const close = observe(file, p => events.push(p));
+  const close = watch(file, p => events.push(p));
   const until = async (count: number) => {
     const deadline = Date.now() + 2500;
     while (events.length < count && Date.now() < deadline) await Bun.sleep(20);
@@ -68,7 +76,7 @@ test("live reload distinguishes inaccessible paths from deleted preferences and 
   };
   try {
     renameSync(dir, join(root, "old"));
-    symlinkSync("state", dir);
+    symlinkSync("config", dir);
     await until(1);
     expect(events[0]).toBeNull();
     rmSync(dir);
@@ -86,10 +94,10 @@ test("live reload distinguishes inaccessible paths from deleted preferences and 
 
 test("live reload follows directory removal, recreation and replacement", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-keys-directory-")),
-    dir = join(root, "state"),
-    file = join(dir, "viewer.json");
+    dir = join(root, "config"),
+    file = join(dir, "config.json");
   const events: (preferences.Preferences | null)[] = [];
-  const close = observe(file, p => events.push(p));
+  const close = watch(file, p => events.push(p));
   const until = async (condition: () => boolean) => {
     const deadline = Date.now() + 2500;
     while (!condition() && Date.now() < deadline) await Bun.sleep(20);
@@ -107,7 +115,7 @@ test("live reload follows directory removal, recreation and replacement", async 
     await until(() => last()?.keys.new === "ctrl+y");
     const replacement = join(root, "replacement");
     mkdirSync(replacement);
-    writeFileSync(join(replacement, "viewer.json"), JSON.stringify({ keys: { new: "alt+y" } }));
+    writeFileSync(join(replacement, "config.json"), JSON.stringify({ keys: { new: "alt+y" } }));
     renameSync(dir, join(root, "old"));
     renameSync(replacement, dir);
     await until(() => last()?.keys.new === "alt+y");
@@ -124,34 +132,35 @@ test("live reload follows directory removal, recreation and replacement", async 
   }
 });
 
-test("another process cannot save preferences while a writer holds the lock", () => {
+test.each(["viewer", "shared"])("another process cannot save preferences while the %s lock is held", lock => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-keys-lock-")),
-    file = join(dir, "viewer.json");
-  const fd = openSync(file + ".lock", "a", 0o600);
+    where = scratch(dir);
+  const fd = openSync(lock === "viewer" ? where.viewer + ".lock" : preferences.sharedLock(), "a", 0o600);
   const module = new URL("./preferences.ts", import.meta.url).href;
   const attempt = (keys: boolean) => {
     const source = `import * as p from ${JSON.stringify(module)};
       try {
-        const file = process.argv.at(-1);
-        ${keys ? 'p.updateKeys(new p.Preferences(), { new: "prefix+y" }, file)' : "p.updateFile(file, { sidebar_width: 60 })"};
+        const where = JSON.parse(process.argv.at(-1));
+        ${keys ? 'p.updateKeys(new p.Preferences(), { new: "prefix+y" }, where)' : "p.update({ sidebar_width: 60 }, where)"};
         console.log("saved");
       } catch (e) { console.log(e.message); }`;
-    const child = Bun.spawnSync([process.execPath, "-e", source, file]);
+    // The test's own variables, which keep the child off the person's files.
+    const child = Bun.spawnSync([process.execPath, "-e", source, JSON.stringify(where)], { env: process.env });
     expect(child.exitCode).toBe(0);
     return child.stdout.toString();
   };
   try {
-    preferences.write(file, new preferences.Preferences());
+    preferences.write(new preferences.Preferences(), where);
     expect(flock(fd)).toBe(true);
     expect(attempt(true)).toContain("another viewer");
     expect(attempt(false)).toContain("another viewer");
-    expect(preferences.read(file).keys).toEqual({});
-    writeFileSync(file, JSON.stringify({ keys: { new: "alt+y" } }));
+    expect(preferences.read(where).keys).toEqual({});
+    writeFileSync(where.config, JSON.stringify({ keys: { new: "alt+y" } }));
     flock(fd, false);
     expect(attempt(true)).toContain("changed on disk");
     expect(attempt(false)).toContain("saved");
-    expect(preferences.read(file).keys).toEqual({ new: "alt+y" });
-    expect(preferences.read(file).sidebar_width).toBe(60);
+    expect(preferences.read(where).keys).toEqual({ new: "alt+y" });
+    expect(preferences.read(where).sidebar_width).toBe(60);
   } finally {
     closeSync(fd);
     rmSync(dir, { recursive: true, force: true });
