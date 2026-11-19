@@ -34,8 +34,10 @@ export type Platform = (typeof platforms)[number];
 export const platform: Platform =
   process.platform === "darwin" ? "macos-aarch64" : process.arch === "arm64" ? "linux-aarch64" : "linux-x86_64";
 const parsePlatform = (name: string): Platform | null => platforms.find(p => p === name) ?? null;
-// Releases from before Linux arm64 reject a manifest naming a target they don't know, so it has its own channel.
-const channel = platform === "linux-aarch64" ? "stable-linux-aarch64" : "stable";
+const channels = ["stable", "test"] as const;
+/** The releases an installation follows, as `corgi update --channel` chose. */
+export type Channel = (typeof channels)[number];
+export const parseChannel = (name: string): Channel | null => channels.find(c => c === name) ?? null;
 export type Release = { version: string; commit: string; feed_url: string; public_key: string; test_mode: boolean };
 type Target = { url: string; sha256: string; size: number };
 type Manifest = {
@@ -146,6 +148,31 @@ export function currentOf(exe: string): (() => string | null) | null {
   const root = managed(release(exe), exe);
   return root === null ? null : () => pointer(root, "current");
 }
+/** The channel the installation at `root` follows: stable without a choice,
+ * or with one a newer release named. */
+export function channelOf(root: string): Channel {
+  return parseChannel(read(root, "channel")?.trim() ?? "") ?? "stable";
+}
+/** Has the installation at `root` follow `channel`. An update staged from the
+ * channel it leaves goes; the current release stays until `channel` passes it. */
+async function follow(root: string, channel: Channel) {
+  if (channelOf(root) === channel) return;
+  // In the order a download takes them, so none stages from the old channel meanwhile.
+  const unlockDownload = (await lock(root, "download.lock", true))!;
+  try {
+    const unlockActivation = (await lock(root, "activation.lock", true))!;
+    try {
+      if (channel === "stable") remove(root, "channel");
+      else write(root, "channel", channel);
+      remove(root, "staged");
+      prune(root, true);
+    } finally {
+      unlockActivation();
+    }
+  } finally {
+    unlockDownload();
+  }
+}
 /** The Omarchy plugin folder that installed the Corgi at `root`, as its
  * installer recorded it, or null. Corgi removes itself when that folder goes. */
 export function pluginOf(root: string): string | null {
@@ -210,9 +237,9 @@ export function parse(rel: Release, bytes: string, targetPlatform: Platform = pl
   integer(m, "schema_version", 32);
   for (const field of ["version", "commit", "update_abi"]) string(m, field);
   const targets = record(m.targets, null);
-  for (const key of Object.keys(targets)) if (parsePlatform(key) === null) throw Error("UnknownField");
   if (!Object.hasOwn(targets, targetPlatform)) throw Error("MissingField");
-  for (const key of Object.keys(targets)) {
+  // Every platform reads one manifest, so one a later release adds is left alone.
+  for (const key of Object.keys(targets).filter(key => parsePlatform(key) !== null)) {
     const target = record(targets[key], ["url", "sha256", "size"]);
     string(target, "url");
     string(target, "sha256");
@@ -346,8 +373,7 @@ function verifyFile(path: string, t: Target): Buffer {
 /** Fetch one exact signed release, using the caller's existing update trust. */
 export async function artifact(rel: Release, v: string, target: Platform, directory: string): Promise<string> {
   version(v);
-  const manifest = target === "linux-aarch64" ? "manifest-linux-aarch64.json" : "manifest.json";
-  const bytes = (await fetchBytes(rel, `${rel.feed_url}/releases/${v}/${manifest}`, 1024 * 1024)).toString();
+  const bytes = (await fetchBytes(rel, `${rel.feed_url}/releases/${v}/manifest.json`, 1024 * 1024)).toString();
   const m = parse(rel, bytes, target);
   if (m.version !== v) throw Error("WrongReleaseManifest");
   atomicWrite(join(directory, "manifest.json"), bytes, 0o600);
@@ -370,13 +396,19 @@ async function feed(
   try {
     // What a download cut short by a crash or a handoff left.
     remove(root, "download.tmp");
-    const channelUrl = `${rel.feed_url}/channels/${channel}.json`;
+    const channel = channelOf(root),
+      channelUrl = `${rel.feed_url}/channels/${channel}.json`;
     const bytes = (await fetchBytes(rel, channelUrl, 1024 * 1024, signal)).toString(),
       m = parse(rel, bytes),
       current = pointer(root, "current");
     if (!current) throw Error("MissingInstalledVersion");
     if (compare(m.version, current) <= 0) {
-      if (explicit) console.log("Corgi is up to date.");
+      if (explicit)
+        console.log(
+          compare(m.version, current) < 0
+            ? `Corgi ${current} is newer than ${m.version}, the latest on ${channel}; it stays until ${channel} passes it.`
+            : "Corgi is up to date.",
+        );
       return true;
     }
     const suppressed = pointer(root, "suppressed");
@@ -849,6 +881,7 @@ export function state(root: string): string[] {
   const plugin = pluginOf(root);
   return [
     `Automatic updates: ${existsSync(join(root, "auto-off")) ? "off" : "on"}`,
+    `Channel: ${channelOf(root)}`,
     ...(plugin ? [`Installed by the Omarchy plugin in ${plugin}; removing it removes Corgi`] : []),
     ...(["current", "staged", "previous", "suppressed"] as const).flatMap(name => {
       const v = pointer(root, name);
@@ -863,6 +896,16 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
   if (!root) {
     console.error("This is a development or unmanaged build. Install a release to enable updates.");
     throw Error("UnmanagedInstallation");
+  }
+  // A channel goes with an update, a check or a download.
+  const at = args.indexOf("--channel");
+  if (at >= 0) {
+    const channel = parseChannel(args[at + 1] ?? "");
+    args = args.filter((_, i) => i !== at && i !== at + 1);
+    if (!channel || args.length > 1 || (args.length === 1 && !["--check", "--download-only"].includes(args[0])))
+      throw Error("Usage");
+    await follow(root, channel);
+    console.log(`Following the ${channel} channel.`);
   }
   if (args.length === 2 && args[0] === "auto") {
     if (args[1] === "off") write(root, "auto-off", "off");

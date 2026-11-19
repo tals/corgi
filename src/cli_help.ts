@@ -180,6 +180,7 @@ export function main(): string {
     i18n.t`  corgi update status           show update status`,
     i18n.t`  corgi update rollback         return to the previous release`,
     "  corgi update --check|--download-only",
+    i18n.t`  corgi update --channel stable|test  follow stable or test releases`,
     i18n.t`  corgi update auto on|off      control automatic updates`,
     i18n.t`  corgi start                   start detached runtime`,
     i18n.t`  corgi action NAME [VALUE] [--viewer ID]  run a viewer action, named below`,

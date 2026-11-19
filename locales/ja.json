@@ -48,6 +48,7 @@
   "  corgi shutdown                terminate runtime and its panes": "  corgi shutdown                ランタイムとそのペインを終了",
   "  corgi start                   start detached runtime": "  corgi start                   バックグラウンドでランタイムを起動",
   "  corgi update                  download and safely apply an update": "  corgi update                  更新をダウンロードして安全に適用",
+  "  corgi update --channel stable|test  follow stable or test releases": "  corgi update --channel stable|test  安定版かテスト版のリリースを追う",
   "  corgi update auto on|off      control automatic updates": "  corgi update auto on|off      自動更新を切り替え",
   "  corgi update rollback         return to the previous release": "  corgi update rollback         前のリリースに戻す",
   "  corgi update status           show update status": "  corgi update status           更新状況を表示",

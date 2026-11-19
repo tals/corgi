@@ -102,6 +102,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
       `  corgi start                   在后台启动运行服务`,
     '["  corgi update                  download and safely apply an update"]': () =>
       `  corgi update                  下载并安全应用更新`,
+    '["  corgi update --channel stable|test  follow stable or test releases"]': () =>
+      `  corgi update --channel stable|test  跟随稳定版或测试版发布`,
     '["  corgi update auto on|off      control automatic updates"]': () =>
       `  corgi update auto on|off      开启或关闭自动更新`,
     '["  corgi update rollback         return to the previous release"]': () =>
@@ -1524,6 +1526,8 @@ ${v1} 使用该账号。
       `  corgi start                   バックグラウンドでランタイムを起動`,
     '["  corgi update                  download and safely apply an update"]': () =>
       `  corgi update                  更新をダウンロードして安全に適用`,
+    '["  corgi update --channel stable|test  follow stable or test releases"]': () =>
+      `  corgi update --channel stable|test  安定版かテスト版のリリースを追う`,
     '["  corgi update auto on|off      control automatic updates"]': () =>
       `  corgi update auto on|off      自動更新を切り替え`,
     '["  corgi update rollback         return to the previous release"]': () =>
@@ -2985,6 +2989,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
       `  corgi start                   백그라운드 서비스 시작`,
     '["  corgi update                  download and safely apply an update"]': () =>
       `  corgi update                  업데이트 다운로드 후 안전하게 적용`,
+    '["  corgi update --channel stable|test  follow stable or test releases"]': () =>
+      `  corgi update --channel stable|test  안정 또는 테스트 릴리스 따르기`,
     '["  corgi update auto on|off      control automatic updates"]': () =>
       `  corgi update auto on|off      자동 업데이트 켜기 / 끄기`,
     '["  corgi update rollback         return to the previous release"]': () =>
@@ -4444,6 +4450,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       `  corgi start                   запустить сервер в фоне`,
     '["  corgi update                  download and safely apply an update"]': () =>
       `  corgi update                  скачать и безопасно применить обновление`,
+    '["  corgi update --channel stable|test  follow stable or test releases"]': () =>
+      `  corgi update --channel stable|test  следить за стабильными или тестовыми выпусками`,
     '["  corgi update auto on|off      control automatic updates"]': () =>
       `  corgi update auto on|off      настроить автообновления`,
     '["  corgi update rollback         return to the previous release"]': () =>

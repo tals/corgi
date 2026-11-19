@@ -547,6 +547,7 @@ Saved inference choices override inference environment defaults.
 | Usage says Unavailable | Check the provider's login and the reason shown in the launcher; usage failures do not necessarily prevent launching. |
 | Installed Corgi seems out of date | `corgi update status` shows installed/running versions; `corgi update --check` checks for a release without installing it. |
 | A release needs reverting | `corgi update rollback` switches to the retained previous release, when available. |
+| You want fixes before stable gets them | `corgi update --channel test` follows test releases; `--channel stable` goes back, keeping the running release until stable passes it. |
 
 Update commands apply to installed releases. Development or unmanaged builds
 use the workflow in [HACKING](../HACKING.md).

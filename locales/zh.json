@@ -48,6 +48,7 @@
   "  corgi shutdown                terminate runtime and its panes": "  corgi shutdown                终止运行服务及其窗格",
   "  corgi start                   start detached runtime": "  corgi start                   在后台启动运行服务",
   "  corgi update                  download and safely apply an update": "  corgi update                  下载并安全应用更新",
+  "  corgi update --channel stable|test  follow stable or test releases": "  corgi update --channel stable|test  跟随稳定版或测试版发布",
   "  corgi update auto on|off      control automatic updates": "  corgi update auto on|off      开启或关闭自动更新",
   "  corgi update rollback         return to the previous release": "  corgi update rollback         回退到上一版本",
   "  corgi update status           show update status": "  corgi update status           查看更新状态",

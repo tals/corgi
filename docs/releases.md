@@ -4,10 +4,12 @@ The publisher builds committed HEAD for macOS arm64 and Linux amd64 and arm64 in
 an isolated checkout. Pending edits are excluded. Once the release is live, it
 tags the commit on `origin` with the version; local branches and tags are untouched.
 
-Linux arm64 has its own manifest and channel (`manifest-linux-aarch64.json`,
-`channels/stable-linux-aarch64.json`): releases before it reject a manifest that
-names a target they don't know, so `manifest.json` and `channels/stable.json`
-keep only macOS arm64 and Linux amd64. A new target gets its own the same way.
+Each release signs one `manifest.json` naming every target, and each
+[channel](#channels) serves it as `channels/CHANNEL.json`. Updaters pass over
+targets they don't know, so a new target joins the same manifest. Stable also
+serves it as `channels/stable-linux-aarch64.json` for Linux arm64 releases from
+before channels. Releases from before Linux arm64 reject the manifest and need
+a reinstall.
 
 ## Setup
 
@@ -103,7 +105,37 @@ deletes every saved release, published or not, and the checkouts that
 interrupted runs left behind.
 For build-only and retry options, use `bun run publish --help`.
 
-## Omarchy and test releases
+## Channels
+
+Installations follow the stable channel unless they choose another.
+`bun run publish` advances stable and the public `install.sh`. To try a build
+before stable gets it:
+
+```sh
+bun run publish --channel test
+```
+
+A test release is built, signed and stored like a stable one, so any
+installation can switch to it and back:
+
+```sh
+corgi update --channel test
+corgi update --channel stable
+```
+
+The commit must be pushed to origin, but may be on a feature branch. Its tag is
+`test/VERSION`. `install.sh` and the Omarchy plugin stay on stable. Leaving the
+test channel drops a test release waiting to apply; the running one stays until
+stable passes it. To resume a failed test publication, add `--channel test` to
+`VERSION --publish-only`.
+
+Once the commit is on origin's `main`, promote the saved release to stable:
+
+```sh
+bun run publish VERSION --publish-only
+```
+
+## Omarchy
 
 `bun run publish` first fetches `corgi-omarchy` into the saved release directory,
 before running tests or builds. Once Corgi is built, it calls the plugin's
@@ -112,6 +144,7 @@ The plugin owns regeneration, checks, and deciding whether anything needs pushin
 It keeps its installer pin for binary-only Corgi releases. Plugin preparation runs
 before Corgi is published; the plugin push follows verified Corgi downloads.
 Use `--omarchy-skip` to skip both steps. No companion checkout is required.
+Releases to the test channel skip the plugin.
 
 If the plugin push fails after Corgi is published, retry the saved release:
 
@@ -119,36 +152,10 @@ If the plugin push fails after Corgi is published, retry the saved release:
 bun run publish VERSION --publish-only
 ```
 
-To publish a build for your own testing:
-
-```sh
-bun run publish --test
-```
-
-This builds the same production binaries, with a separate update key and downloads
-under `https://corgi.computer/test`. The commit must be pushed to origin, but may be
-on a feature branch. Its tag is `test/VERSION`. Stable downloads, channels, and the
-plugin's `main` branch stay untouched. Test builds do not send crash reports.
-The output includes both installation paths:
-
-```sh
-curl -fsSL https://corgi.computer/test/install.sh | bash
-omarchy plugin add https://corgi.computer/test/corgi.computer.git --enable
-```
-
-The normal installer also selects the test plugin when it detects Omarchy.
-The test plugin points to this exact build. Subsequent test releases advance that
-channel; use `corgi update` and `omarchy plugin update corgi.computer` in the sandbox.
-To resume a failed test publication, add `--test` to `VERSION --publish-only`.
-
-Test artifacts live under `.git/corgi-test-releases/`. The persistent test signing
-key is `.git/corgi-test-signing.pem`; `--clean` removes artifacts but keeps this key.
-Back it up if you want existing test installations to keep accepting new updates.
-
-For plugin-only changes, run `./tools/release-plugin` in `corgi-omarchy`, or add
-`--test` to publish its test version. It fetches the Corgi sources it needs without
-building Corgi. See that repository's HACKING.md for the plugin's release policy.
+For plugin-only changes, run `./tools/release-plugin` in `corgi-omarchy`. It
+fetches the Corgi sources it needs without building Corgi. See that
+repository's HACKING.md for the plugin's release policy.
 
 `CORGI_OMARCHY_REMOTE` overrides the plugin Git remote for development or another
-authentication method. `--dry-run` describes the selected destination without
-building, generating keys, cloning, or changing remotes.
+authentication method. `--dry-run` describes the selected channel without
+building, cloning, or changing remotes.
