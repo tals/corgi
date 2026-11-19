@@ -1431,11 +1431,7 @@ export class Controller {
     }
   }
   loadPreferences(): void {
-    // Best effort: files this viewer can't step stay as they are, and it reads them stepped in memory.
-    try {
-      preferences.migrate();
-    } catch {}
-    this.prefs = preferences.load();
+    this.prefs = preferences.load(true);
     localeHost.initialize(this.prefs.language);
     this.closePreferences?.();
     try {

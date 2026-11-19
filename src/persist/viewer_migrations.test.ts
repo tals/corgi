@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as preferences from "../preferences";
 import * as state_formats from "./state_formats";
 import type { ViewerFiles } from "./revision_values";
 
@@ -41,3 +42,23 @@ test("an absent config does not revive copied settings", () => {
   expect(up).toEqual({ viewer: state, config: null });
   expect(history.down(up, copied)).toEqual(up);
 });
+
+test.each([copied, "d495e64414cb", "67a3f5d4cd43"])(
+  "export to %s keeps skipped settings out of the legacy viewer",
+  target => {
+    const state = { format: history.current, onboarding_complete: true, sidebar_width: 45 },
+      config = {
+        prefix: "hyper_q",
+        resources: { enabled: "maybe" },
+        keys: { new: "alt+x", bogus: "ctrl+y", close: "alt+x", worktrees: "alt+w", "worktrees:0": "ctrl+a" },
+        future_setting: true,
+      },
+      files = { viewer: state, config },
+      down = preferences.downgrade(files, target);
+    const expected = { onboarding_complete: true, sidebar_width: 45, keys: { new: "alt+x", "worktrees:0": "alt+w" } };
+    expect(down.viewer).toEqual(target === "67a3f5d4cd43" ? expected : { ...expected, format: target });
+    expect(down.config).toEqual(config);
+    expect((history.up(down, target) as ViewerFiles).config).toEqual(config);
+    expect(files.viewer.format).toBe(history.current);
+  },
+);

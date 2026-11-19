@@ -4,7 +4,7 @@
 //! never reads them. The viewer saved-state history moves fields between them.
 //! A setting or shortcut this build can't use falls back alone and is
 //! reported; saving rewrites only the fields it changes.
-import { join, dirname, basename, resolve } from "node:path";
+import { join, dirname, basename, resolve, isAbsolute, sep } from "node:path";
 import { tmpdir, userInfo } from "node:os";
 import {
   readFileSync,
@@ -173,6 +173,27 @@ function upgrade(files: Files): Files {
   if (!history.ancestors.includes(from) || from === history.current) return files;
   return history.up(files, from) as Files;
 }
+/** Exports files at this build's revision for a reader at `target`. Older
+ * viewers reject the whole file for one bad setting, so their copy contains
+ * only settings they can use. The original config stays available on upgrade. */
+export function downgrade(files: Files, target: string): Files {
+  const legacy = ["3bc5f3ca7f53", "d495e64414cb", "67a3f5d4cd43"].includes(target);
+  let input = files;
+  if (legacy && files.config !== null) {
+    const prefs = new Preferences(),
+      skipped = new Set(readSettings(files.config, prefs).map(problem => problem.field)),
+      config: Raw = {};
+    for (const [key, value] of Object.entries(prefs))
+      if (settings.includes(key) && Object.hasOwn(files.config, key) && !skipped.has(key) && value !== undefined)
+        config[key] = value;
+    input = { viewer: files.viewer, config };
+  }
+  const output = history.down(input, target) as Files;
+  if (legacy) output.config = structuredClone(files.config);
+  if (target === unstamped) delete output.viewer.format;
+  else output.viewer.format = target;
+  return output;
+}
 /** Both files as this build reads them, stepped in memory: nothing is written. */
 export function inspect(where = paths()): Reading {
   const problems: Problem[] = [];
@@ -231,7 +252,8 @@ function unreadable(file: string, error: unknown): Problem {
 export function read(where = paths()): Preferences {
   return inspect(where).prefs;
 }
-export function load(): Preferences {
+/** Loads startup preferences, optionally persisting the import and migration together. */
+export function load(migrating = false): Preferences {
   let where: Paths;
   try {
     where = paths();
@@ -239,20 +261,28 @@ export function load(): Preferences {
     return new Preferences();
   }
   const saved = read(where);
-  if (saved.onboarding_complete || !process.env.CORGI_SOCKET) return saved;
+  const finish = () => {
+    if (migrating) {
+      try {
+        return save(where, () => {});
+      } catch {}
+    }
+    return saved;
+  };
+  if (saved.onboarding_complete || !process.env.CORGI_SOCKET) return finish();
   // Older builds kept preferences beside an overridden socket. Carry a
   // completed setup forward once; the shared files then take precedence.
   let old: Raw | null;
   try {
     old = readRaw(`${process.env.CORGI_SOCKET}.viewer.json`);
   } catch {
-    return saved;
+    return finish();
   }
-  if (old === null) return saved;
+  if (old === null) return finish();
   const legacy = new Preferences();
   readState(old, legacy);
   readSettings(old, legacy);
-  if (!legacy.onboarding_complete) return saved;
+  if (!legacy.onboarding_complete) return finish();
   // Its keymap carries forward only into a config.json it makes: one already
   // there, such as one restored from dotfiles, keeps its own choices. Without
   // a shared viewer.json, the old one stands in for it.
@@ -313,15 +343,14 @@ function assign(raw: Raw, key: string, value: unknown): void {
  * this build skipped stay in config.json, after the editor's, for the person to
  * fix; what the file then holds comes back, as one of them may now apply. */
 export function updateKeys(expected: Preferences, keys: keybindings.Config, where = paths()): Preferences {
-  return save(where, (files, { current }) => {
+  return save(where, (files, { current, skipped }) => {
     if (current.preset !== expected.preset || current.prefix !== expected.prefix || !same(current.keys, expected.keys))
       throw Error("Shortcuts changed on disk. Reopen the editor before saving.");
     const next: Raw = { ...keybindings.parse(keys) };
     const written = files.config?.keys;
     if (object(written))
       for (const [name, value] of Object.entries(written)) {
-        const id = keybindings.canonical(name) ?? name;
-        if (!Object.hasOwn(current.keys, id) && !Object.hasOwn(next, id)) next[name] = value;
+        if (skipped.includes(`keys.${name}`) && !Object.hasOwn(next, name)) next[name] = value;
       }
     files.config = { ...files.config, keys: next };
   });
@@ -574,7 +603,9 @@ function shortcuts(
       note(`keys.${name}`, (error as Error).message);
     }
   }
-  const order = Object.keys(keys);
+  const order = Object.keys(keys),
+    candidates = { ...keys },
+    rejected = new Map<string, string>();
   for (;;) {
     try {
       table(preset, prefix, keys);
@@ -583,10 +614,28 @@ function shortcuts(
       const at = culprits(error).filter(id => Object.hasOwn(keys, id));
       // An error that names none still drops one, the last, so this ends.
       const id = (at.length ? at : Object.keys(keys)).reduce((a, b) => (order.indexOf(a) > order.indexOf(b) ? a : b));
-      note(`keys.${names[id]}`, (error as Error).message);
+      rejected.set(id, (error as Error).message);
       delete keys[id];
     }
   }
+  // A clash may have hidden a usable shortcut behind one that was itself rejected.
+  let restored: boolean;
+  do {
+    restored = false;
+    for (const id of order) {
+      if (!rejected.has(id)) continue;
+      const retry = { ...keys, [id]: candidates[id] };
+      try {
+        table(preset, prefix, retry);
+        keys[id] = candidates[id];
+        rejected.delete(id);
+        restored = true;
+      } catch (error) {
+        rejected.set(id, (error as Error).message);
+      }
+    }
+  } while (restored);
+  for (const [id, reason] of rejected) note(`keys.${names[id]}`, reason);
   // Problems in file order, as the person reads them.
   const position = (field: string) => Object.keys(written).indexOf(field.slice("keys.".length));
   skipped.sort((a, b) => position(a[0]) - position(b[0]));
@@ -644,15 +693,27 @@ export function sharedLock(): string {
 /** Where writing `file` belongs: a config.json linked from dotfiles stays a
  * link, through a chain of them, even when the last target doesn't exist yet. */
 function target(file: string): string {
-  let path = resolve(file);
-  for (let hops = 0; hops < 40; hops++) {
-    let link: string;
-    try {
-      link = readlinkSync(path);
-    } catch {
-      break;
+  let path = resolve(sep),
+    hops = 0;
+  const pending = (isAbsolute(file) ? file : `${process.cwd()}${sep}${file}`).split(sep);
+  while (pending.length) {
+    const part = pending.shift()!;
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      path = dirname(path);
+      continue;
     }
-    path = resolve(dirname(path), link);
+    const next = join(path, part);
+    try {
+      const link = readlinkSync(next);
+      if (++hops > 40) throw Error("Too many symbolic links");
+      if (isAbsolute(link)) path = resolve(sep);
+      pending.unshift(...link.split(sep));
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EINVAL" && code !== "ENOENT") throw error;
+      path = next;
+    }
   }
   return path;
 }

@@ -1367,8 +1367,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await view.input(`\x1b[<0;${right + 1};${sliderY + 1}m`);
     this.assertEqual(json(config).corgi_intensity, 100);
     this.assertEqual(json(file).sidebar_width, 36);
-    // viewer.json keeps a copy for older releases.
-    this.assertEqual(json(file).corgi_intensity, 100);
+    this.assertFalse("corgi_intensity" in json(file));
     this.assertEqual(json(config).resources, { enabled: false });
     await view.input("\x1b[D");
     this.assertEqual(json(config).corgi_intensity, 95);

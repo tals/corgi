@@ -548,8 +548,10 @@ file. Nothing steps while either file can't be read. A
 revision they don't know came from a newer build: they read what they can,
 step nothing, and save only the fields they change.
 
-Settings live only in `config.json` after migration. Down steps reconstruct
-the older viewer fields when converting to an older revision. An older
+Settings live only in `config.json` after migration. Export a pair at the current
+revision with `preferences.downgrade(files, target)`. The export passes the
+working settings to the down steps that reconstruct the older viewer fields,
+records the target revision, and retains the original config on downgrade. An older
 viewer's save can drop `format`, so up steps must also work on a file stepped
 up once already. Releases predating viewer migrations need a reverse
 migration before they can read settings from this layout.

@@ -112,6 +112,50 @@ test.each([false, true])("legacy setup carries over while the files are locked (
     await rm(root, { recursive: true, force: true });
   }
 });
+test("startup retries the legacy import after a busy lock without losing settings or layout", async () => {
+  const { root, where } = await scratch("legacy-startup"),
+    socket = join(root, "old.sock");
+  try {
+    await put(`${socket}.viewer.json`, {
+      onboarding_complete: true,
+      sidebar_width: 44,
+      theme: "animal_style",
+      keys: { new: "prefix+y" },
+    });
+    await withEnv(
+      {
+        XDG_STATE_HOME: join(root, "state"),
+        XDG_CONFIG_HOME: join(root, "config"),
+        XDG_RUNTIME_DIR: join(root, "runtime"),
+        CORGI_ENV_DIR: undefined,
+        CORGI_SOCKET: socket,
+      },
+      () => {
+        const held = openSync(sharedLock(), "a", 0o600);
+        try {
+          expect(flock(held)).toBe(true);
+          expect(load().sidebar_width).toBe(44);
+          expect(load().keys).toEqual({ new: "prefix+y" });
+          expect(existsSync(where.viewer)).toBe(false);
+        } finally {
+          closeSync(held);
+        }
+        const expected = {
+          onboarding_complete: true,
+          sidebar_width: 44,
+          theme: "animal_style",
+          keys: { new: "prefix+y" },
+        };
+        expect(load(true)).toMatchObject(expected);
+        expect(read(where)).toMatchObject(expected);
+      },
+    );
+    expect(await json(where.viewer)).not.toHaveProperty("theme");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("legacy setup applies the old keymap and skips only the shortcuts it clashes with", async () => {
   const { root, where } = await scratch("migrate"),
     socket = join(root, "old.sock");
@@ -337,6 +381,36 @@ test("a shortcut that a later entry frees, such as one taking a tab key, still a
     const { prefs, problems } = inspect(where);
     expect(prefs.keys).toEqual({ new: "prefix+1", tab: [] });
     expect(problems.map(p => p.text.slice(0, p.text.indexOf(":")))).toEqual(["keys.close"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an unusable shortcut does not suppress a later working one", async () => {
+  const { root, where } = await scratch("preferences-retry-shortcut");
+  try {
+    await put(where.config, { keys: { new: ["alt+w", "prefix+1"], help: "alt+w" } });
+    const { prefs, problems } = inspect(where);
+    expect(prefs.keys).toEqual({ help: "alt+w" });
+    expect(problems).toHaveLength(1);
+    expect(problems[0].text).toStartWith("keys.new:");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("editing shortcuts preserves a skipped duplicate spelling", async () => {
+  const { root, where } = await scratch("preferences-skipped-alias");
+  try {
+    await put(where.config, { keys: { worktrees: "alt+w", "worktrees:0": "ctrl+b" } });
+    const before = read(where);
+    const saved = updateKeys(before, { ...before.keys, new: "prefix+y" }, where);
+    expect(saved.keys).toEqual({ worktrees: "alt+w", new: "prefix+y" });
+    expect((await json(where.config)).keys).toEqual({
+      worktrees: "alt+w",
+      new: "prefix+y",
+      "worktrees:0": "ctrl+b",
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -715,3 +789,29 @@ test("saving a config.json linked from dotfiles replaces its target and keeps th
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test.each([false, true])(
+  "relative config links inside linked folders reach their target (existing: %s)",
+  async existing => {
+    const { root, where } = await scratch("preferences-linked-parent");
+    try {
+      const real = join(root, "real"),
+        nested = join(real, "nested"),
+        alias = join(root, "alias"),
+        destination = join(real, "settings.json");
+      await mkdir(nested, { recursive: true });
+      symlinkSync(nested, alias, "dir");
+      symlinkSync("../settings.json", join(nested, "config.json"));
+      if (existing) await put(destination, { theme: "corgi" });
+      where.config = join(alias, "config.json");
+      update({ theme: "animal_style" }, where);
+      expect(await json(destination)).toEqual({ theme: "animal_style" });
+      expect(read(where).theme).toBe("animal_style");
+      expect(existsSync(join(root, "settings.json"))).toBe(false);
+      expect(lstatSync(where.config).isSymbolicLink()).toBe(true);
+      expect(lstatSync(alias).isSymbolicLink()).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
