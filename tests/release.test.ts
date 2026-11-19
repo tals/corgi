@@ -28,7 +28,7 @@ import {
 import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, stat, symlink, realpath } from "node:fs/promises";
 import { generateKeyPairSync } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { n, pair, readUntil, write } from "../src/native_ffi";
 import { nativeRoot } from "../src/native_paths";
 import * as locale from "../src/locale";
@@ -715,12 +715,22 @@ test("binaries must match their platform", () => {
   expect(() => validateBinary("linux-x86_64", elf)).toThrow("amd64 ELF");
 });
 
+/** The publisher and what it reads from the repository, for a fixture's commit. */
+async function copyPublisher(dir: string) {
+  for (const name of [
+    "scripts/publish.ts",
+    "scripts/install.sh.in",
+    "scripts/install_i18n.generated.sh",
+    "src/release_channel.ts",
+  ]) {
+    await mkdir(dirname(join(dir, name)), { recursive: true });
+    await writeFile(join(dir, name), await Bun.file(join(import.meta.dir, "..", name)).text());
+  }
+}
 test("CLI dry run accepts dirty HEAD without creating release state", async () => {
   await releaseFixture(async (dir, git) => {
-    await mkdir(join(dir, "scripts"));
-    for (const name of ["publish.ts", "install.sh.in", "install_i18n.generated.sh"])
-      await writeFile(join(dir, "scripts", name), await Bun.file(join(import.meta.dir, "../scripts", name)).text());
-    git("add", "scripts");
+    await copyPublisher(dir);
+    git("add", "scripts", "src");
     git("commit", "-m", "publisher");
     const commit = git("rev-parse", "HEAD");
     await writeFile(join(dir, "tracked"), "pending");
@@ -741,9 +751,7 @@ test("CLI dry run accepts dirty HEAD without creating release state", async () =
 
 test("CLI runs the committed build script and cleans up after failure", async () => {
   await releaseFixture(async (dir, git) => {
-    await mkdir(join(dir, "scripts"));
-    for (const name of ["publish.ts", "install.sh.in", "install_i18n.generated.sh"])
-      await writeFile(join(dir, "scripts", name), await Bun.file(join(import.meta.dir, "../scripts", name)).text());
+    await copyPublisher(dir);
     await writeFile(
       join(dir, "build.ts"),
       'console.log("COMMITTED BUILD: " + process.cwd());\nif (await Bun.file("tracked").text() !== "committed") process.exit(1);\nif (process.env.ZIG_LOCAL_CACHE_DIR !== process.cwd() + "/native/.zig-cache") process.exit(1);\nconsole.log("ISOLATION VERIFIED");\nprocess.exit(37);\n',

@@ -5,11 +5,13 @@ an isolated checkout. Pending edits are excluded. Once the release is live, it
 tags the commit on `origin` with the version; local branches and tags are untouched.
 
 Each release signs one `manifest.json` naming every target, and each
-[channel](#channels) serves it as `channels/CHANNEL.json`. Updaters pass over
-targets they don't know, so a new target joins the same manifest. Stable also
-serves it as `channels/stable-linux-aarch64.json` for Linux arm64 releases from
-before channels. Releases from before Linux arm64 reject the manifest and need
-a reinstall.
+[channel](#channels) serves it as `channels/CHANNEL.json`. Stable also serves it
+as `channels/stable-linux-aarch64.json` for Linux arm64 releases from before
+channels. Releases from before Linux arm64 reject the manifest and need a
+reinstall.
+
+Updaters from channels on pass over targets they don't know. Earlier releases
+reject them, so a new target can join the manifest only once those are gone.
 
 ## Setup
 

@@ -332,10 +332,19 @@ test("a newer download replaces the update waiting before it", async () => {
 test.skipIf(!!process.env.CORGI_OLD_EXE)(
   "an installation follows the channel it chooses, and leaves one without going back",
   async () => {
-    const staged = () => readFile(join(root, "staged"), "utf8");
+    const staged = () => readFile(join(root, "staged"), "utf8"),
+      channel = () => readFile(join(root, "channel"), "utf8").catch(() => "stable");
+    await cli(["update", "--download-only"]);
+    // A channel without a release yet changes nothing.
+    expect((await cli(["update", "--channel", "test", "--download-only"], false)).code).not.toBe(0);
+    expect(await channel()).toBe("stable");
+    expect(await staged()).toBe("1.0.1");
     latestTest = "1.0.3";
+    // A check only looks.
+    expect((await cli(["update", "--channel", "test", "--check"])).err).toContain("Corgi 1.0.3 is available.");
+    expect(await channel()).toBe("stable");
     await cli(["update", "--channel", "test", "--download-only"]);
-    expect(await readFile(join(root, "channel"), "utf8")).toBe("test");
+    expect(await channel()).toBe("test");
     expect(await staged()).toBe("1.0.3");
     expect((await cli(["update", "status"])).err).toContain("Channel: test");
     // The test release waiting to apply goes with the channel.
@@ -346,9 +355,19 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     await cli(["update", "--channel", "test"]);
     expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.3");
     // Stable doesn't take the installation back to an older release.
-    const check = await cli(["update", "--channel", "stable", "--check"]);
-    expect(check.out).toContain("Corgi 1.0.3 is newer than 1.0.1, the latest on stable");
+    expect((await cli(["update", "--channel", "stable", "--check"])).out).toContain(
+      "Corgi 1.0.3 is newer than 1.0.1, the latest on stable.",
+    );
+    expect(await channel()).toBe("test");
+    expect((await cli(["update", "--channel", "stable", "--download-only"])).out).toContain(
+      "Corgi 1.0.3 is newer than 1.0.1, the latest on stable; it stays until stable passes it.",
+    );
+    expect(await channel()).toBe("stable");
     expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.3");
+    // Choosing stable clears a channel only a newer release knows.
+    await writeFile(join(root, "channel"), "nightly");
+    await cli(["update", "--channel", "stable", "--download-only"]);
+    expect(await Bun.file(join(root, "channel")).exists()).toBe(false);
     expect((await cli(["update", "--channel", "beta"], false)).err).toContain("corgi update --channel stable|test");
   },
   30_000,

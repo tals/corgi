@@ -27,6 +27,8 @@ import { testBuild } from "./build_assets";
 import * as config from "./build_config";
 import * as errors from "./errors";
 import * as json from "./json";
+import * as release_channel from "./release_channel";
+import type { Channel } from "./release_channel";
 import type { Failure } from "./state_report";
 export const abi = "1-a826bd22ebcdbe60";
 const platforms = ["macos-aarch64", "linux-x86_64", "linux-aarch64"] as const;
@@ -34,10 +36,6 @@ export type Platform = (typeof platforms)[number];
 export const platform: Platform =
   process.platform === "darwin" ? "macos-aarch64" : process.arch === "arm64" ? "linux-aarch64" : "linux-x86_64";
 const parsePlatform = (name: string): Platform | null => platforms.find(p => p === name) ?? null;
-const channels = ["stable", "test"] as const;
-/** The releases an installation follows, as `corgi update --channel` chose. */
-export type Channel = (typeof channels)[number];
-export const parseChannel = (name: string): Channel | null => channels.find(c => c === name) ?? null;
 export type Release = { version: string; commit: string; feed_url: string; public_key: string; test_mode: boolean };
 type Target = { url: string; sha256: string; size: number };
 type Manifest = {
@@ -151,27 +149,24 @@ export function currentOf(exe: string): (() => string | null) | null {
 /** The channel the installation at `root` follows: stable without a choice,
  * or with one a newer release named. */
 export function channelOf(root: string): Channel {
-  return parseChannel(read(root, "channel")?.trim() ?? "") ?? "stable";
+  return release_channel.parse(read(root, "channel")?.trim() ?? "") ?? "stable";
 }
-/** Has the installation at `root` follow `channel`. An update staged from the
- * channel it leaves goes; the current release stays until `channel` passes it. */
+/** Has the installation at `root` follow `channel`, under the download lock.
+ * An update staged from the channel it leaves goes; the current release stays
+ * until `channel` passes it. */
 async function follow(root: string, channel: Channel) {
-  if (channelOf(root) === channel) return;
-  // In the order a download takes them, so none stages from the old channel meanwhile.
-  const unlockDownload = (await lock(root, "download.lock", true))!;
+  // A name this release doesn't know reads as stable, but isn't a choice of it.
+  if ((read(root, "channel")?.trim() ?? "stable") === channel) return;
+  const unlock = (await lock(root, "activation.lock", true))!;
   try {
-    const unlockActivation = (await lock(root, "activation.lock", true))!;
-    try {
-      if (channel === "stable") remove(root, "channel");
-      else write(root, "channel", channel);
-      remove(root, "staged");
-      prune(root, true);
-    } finally {
-      unlockActivation();
-    }
+    if (channel === "stable") remove(root, "channel");
+    else write(root, "channel", channel);
+    remove(root, "staged");
+    prune(root, true);
   } finally {
-    unlockDownload();
+    unlock();
   }
+  console.log(`Following the ${channel} channel.`);
 }
 /** The Omarchy plugin folder that installed the Corgi at `root`, as its
  * installer recorded it, or null. Corgi removes itself when that folder goes. */
@@ -382,32 +377,39 @@ export async function artifact(rel: Release, v: string, target: Platform, direct
   verifyFile(file, m.targets[target]!);
   return file;
 }
-/** Looks for a newer release, and downloads and stages it when asked; false
- * when another download holds the lock and an automatic check gave way. */
+/** Looks for a newer release on the installation's channel, or on `choice`,
+ * and downloads and stages it when asked; false when another download holds
+ * the lock and an automatic check gave way. A download from `choice` follows
+ * it, once its feed answered; a check only looks. */
 async function feed(
   rel: Release,
   root: string,
   download: boolean,
   explicit: boolean,
   signal?: AbortSignal,
+  choice: Channel | null = null,
 ): Promise<boolean> {
   const unlock = await lock(root, "download.lock", explicit);
   if (!unlock) return false;
   try {
     // What a download cut short by a crash or a handoff left.
     remove(root, "download.tmp");
-    const channel = channelOf(root),
+    const channel = choice ?? channelOf(root),
       channelUrl = `${rel.feed_url}/channels/${channel}.json`;
     const bytes = (await fetchBytes(rel, channelUrl, 1024 * 1024, signal)).toString(),
       m = parse(rel, bytes),
       current = pointer(root, "current");
     if (!current) throw Error("MissingInstalledVersion");
+    if (choice && download) await follow(root, choice);
     if (compare(m.version, current) <= 0) {
+      const newer = `Corgi ${current} is newer than ${m.version}, the latest on ${channel}`;
       if (explicit)
         console.log(
-          compare(m.version, current) < 0
-            ? `Corgi ${current} is newer than ${m.version}, the latest on ${channel}; it stays until ${channel} passes it.`
-            : "Corgi is up to date.",
+          compare(m.version, current) === 0
+            ? "Corgi is up to date."
+            : channel === channelOf(root)
+              ? `${newer}; it stays until ${channel} passes it.`
+              : `${newer}.`,
         );
       return true;
     }
@@ -899,13 +901,12 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
   }
   // A channel goes with an update, a check or a download.
   const at = args.indexOf("--channel");
+  let choice: Channel | null = null;
   if (at >= 0) {
-    const channel = parseChannel(args[at + 1] ?? "");
+    choice = release_channel.parse(args[at + 1] ?? "");
     args = args.filter((_, i) => i !== at && i !== at + 1);
-    if (!channel || args.length > 1 || (args.length === 1 && !["--check", "--download-only"].includes(args[0])))
+    if (!choice || args.length > 1 || (args.length === 1 && !["--check", "--download-only"].includes(args[0])))
       throw Error("Usage");
-    await follow(root, channel);
-    console.log(`Following the ${channel} channel.`);
   }
   if (args.length === 2 && args[0] === "auto") {
     if (args[1] === "off") write(root, "auto-off", "off");
@@ -922,7 +923,7 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
   const rollback = args.length === 1 && args[0] === "rollback";
   if (args.length > 1 || (args.length === 1 && !rollback && !["--check", "--download-only"].includes(args[0])))
     throw Error("Usage");
-  if (!rollback) await feed(rel, root, args.length === 0 || args[0] === "--download-only", true);
+  if (!rollback) await feed(rel, root, args.length === 0 || args[0] === "--download-only", true, undefined, choice);
   if (args.length === 1 && !rollback) return;
   if (rollback && !existsSync(join(root, "previous"))) throw Error("NoPreviousRelease");
   await select(rel, root, daemon, true, true, rollback);

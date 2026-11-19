@@ -4,11 +4,10 @@ import { mkdir, mkdtemp, readFile, writeFile, rm, stat, realpath } from "node:fs
 import { dirname, join, resolve } from "node:path";
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
+import * as release_channel from "../src/release_channel";
+import type { Channel } from "../src/release_channel";
 
 const repo = resolve(import.meta.dir, "..");
-// The release lines an installation follows, as `corgi update --channel` chooses.
-export const channels = ["stable", "test"] as const;
-export type Channel = (typeof channels)[number];
 export const targets = [
   { name: "macos-aarch64", bun: "darwin-arm64" },
   { name: "linux-x86_64", bun: "linux-x64" },
@@ -83,8 +82,8 @@ export function releaseOptions(argv: string[]) {
     if (["--dry-run", "--build-only", "--publish-only"].includes(arg) && !mode) mode = arg;
     else if (arg === "--skip-tests" && !skipTests) skipTests = true;
     else if (arg === "--channel" && !channel) {
-      channel = channels.find(c => c === argv[i + 1]);
-      if (!channel) throw new Error(`--channel takes ${channels.join(" or ")}.`);
+      channel = release_channel.parse(argv[i + 1] ?? "") ?? undefined;
+      if (!channel) throw new Error(`--channel takes ${release_channel.all.join(" or ")}.`);
       i++;
     } else if (arg === "--omarchy-skip" && !omarchySkip) omarchySkip = true;
     else if (!arg.startsWith("--") && !version) version = releaseVersion(arg);
