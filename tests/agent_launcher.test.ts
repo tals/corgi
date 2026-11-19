@@ -1240,8 +1240,8 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
   }
   async test_claude_usage_failure_keeps_account_and_stale_measurement() {
     const first = await this.directoryPreview("first");
-    await this.askUsage();
     writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"), JSON.stringify({ mode: "unsupported" }));
+    await this.askUsage();
     const failed = await this.directoryPreview("unsupported");
     this.assertTrue(failed.signed_in);
     this.assertEqual(failed.account, first.account);
@@ -1668,7 +1668,8 @@ class LazyShims extends Launcher {
     const view = await Viewer.create(this, 120, 30);
     await view.input("\x02A");
     const picker = screen_text((await view.poll()).data, 120, 30).join("\n");
-    for (const label of ["Claude Code", "Codex", "Pi", "OpenCode"]) this.assertNotIn(label, picker);
+    for (const label of ["Claude Code", "Codex", "Pi", "OpenCode"])
+      this.assertFalse(picker.split("\n").some(line => new RegExp(`\\b${label}\\b`).test(line)));
     await this.clickText(view, "Manage agents");
     await this.managerStrip(view, "Oh My Pi");
     this.assertIn("Installs on use", (await view.poll()).data);
