@@ -680,7 +680,7 @@ function build(r: Runtime, viewer: boolean) {
     shell: shellStatus(),
     smart_links: r.ports.enabled,
     auto_retry: r.auto_retry,
-    voice: r.voice.projection(),
+    voice: r.voice.projection() ?? null,
     system_usage: r.system_usage,
     system_working: r.system_working,
     startup_waits: r.startup_waits,
