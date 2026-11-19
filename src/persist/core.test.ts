@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Runtime, Pane, Launch } from "../runtime";
@@ -339,7 +339,7 @@ test.each([
 });
 
 test("cold recovery keeps launcher options when a Claude background job has ended", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "corgi-resume-background-")),
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "corgi-resume-background-"))),
     account = join(directory, "work"),
     session = "0f0e0d0c-1111-2222-3333-444455556666",
     job = join(account, "sessions", "job.json");
