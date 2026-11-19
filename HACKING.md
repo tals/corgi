@@ -83,7 +83,7 @@ Agent targets use the same qualified strings (`7/p9` for a pane, `7/h3` for a
 headless session). Agent history, hover and rename carry the ID itself. Headings
 keep their section or worktree context separately; an agent shown in two checkouts
 still has two display rows. `machineAgents` reads and annotates daemon-local rows;
-`agentEntry` qualifies them once for the shared sidebar. The CLI and saved agent
+`agentRows.qualify` qualifies them once for the shared sidebar. The CLI and saved agent
 ordering continue to use daemon-local IDs.
 Background worktree scans do not mark that workspace as read.
 `action.ts` derives action names and argument types from its command table.

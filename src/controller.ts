@@ -1935,27 +1935,6 @@ export class Controller {
       (a, b) => agentOrder.rank(ws.agent_order, a.entry.target) - agentOrder.rank(ws.agent_order, b.entry.target),
     );
   }
-  /** Local rows enter the shared UI with qualified identities. */
-  private agentEntry(entry: agentRows.Listed, machine: Machine): Entry {
-    const t = entry.target;
-    const target: Target =
-      "pane" in t
-        ? viewerRef.pane(machine.id, t.pane)
-        : "headless" in t
-          ? viewerRef.headless(machine.id, t.headless)
-          : "group" in t
-            ? { group: this.workspaceRef(t.group, machine) }
-            : "workspace" in t
-              ? { ...t, workspace: this.workspaceRef(t.workspace, machine) }
-              : t;
-    return {
-      ...entry,
-      target,
-      worktree: entry.worktree
-        ? { ...entry.worktree, workspace: this.workspaceRef(entry.worktree.workspace, machine) }
-        : null,
-    };
-  }
   agentEntries(unfolded = false): Entry[] {
     const sectioned = this.prefs.agentSort() === "activity",
       grouped = !sectioned && this.prefs.agents === "all";
@@ -2011,12 +1990,12 @@ export class Controller {
           entries.push(
             ...agentSections
               .labelled(placed, null, false, (id, checkout) => this.checkoutLabel(id, checkout, false, machine))
-              .map(e => this.agentEntry(e, machine)),
+              .map(e => agentRows.qualify(e, machine.id)),
           );
           continue;
         }
         for (const { entry, start } of rows) {
-          const qualified = this.agentEntry(entry, machine),
+          const qualified = agentRows.qualify(entry, machine.id),
             key = qualified.target as viewerRef.Agent,
             pin = ws.pinned_agents.findIndex(t => agentOrder.equal(t, entry.target)),
             rank = ws.activity_order.findIndex(t => agentOrder.equal(t, entry.target)),
@@ -2095,7 +2074,7 @@ export class Controller {
             this.worktree_agents,
             true,
           )
-          .map(e => this.agentEntry(e, this.machine));
+          .map(e => agentRows.qualify(e, this.machine.id));
         // A worktree with nothing to list has no ghost; one fades in once it has.
         if (!ghost.length) this.worktree_agents.appearing = null;
         const shown = ghost.length ? this.worktree_agents.animate(ghost, selected, milliTimestamp()) : [];
@@ -2171,7 +2150,7 @@ export class Controller {
         id == null
           ? undefined
           : this.machineAgents(id)
-              .map(({ entry }) => this.agentEntry(entry, this.machine))
+              .map(({ entry }) => agentRows.qualify(entry, this.machine.id))
               .find(e => e.target === target);
       if (e && this.folded_sections.delete(this.shownSection(e))) this.sidebar_rows.reveal = true;
     }
@@ -9637,7 +9616,7 @@ export class Controller {
     const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
     for (const { entry } of this.machineAgents(selection.workspace))
       if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, entry.target, entry.cwd) === selection.path)
-        this.folded_sections.delete(this.shownSection(this.agentEntry(entry, this.machine)));
+        this.folded_sections.delete(this.shownSection(agentRows.qualify(entry, this.machine.id)));
     this.sidebar_rows.discard();
     const entries = this.sidebarEntries();
     const index = entries.findIndex(

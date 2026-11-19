@@ -26,6 +26,8 @@ import { join } from "node:path";
 import { drawRestoring, frame, ui as uiOf, type Restoring, type Ui } from "../src/render";
 import { adapter } from "../src/providers";
 import { Model, Rect, Selection, View as LayoutView } from "../src/layout";
+import * as agentRows from "../src/agent_rows";
+import * as viewerRef from "../src/viewer_ref";
 import * as sidebar from "../src/sidebar";
 import * as palette from "../src/palette";
 import * as corgiBadge from "../src/corgi_badge";
@@ -344,7 +346,7 @@ type Shown = {
   attention: sidebar.Attention;
   compacting: boolean;
 };
-function entryOf(s: Shown): sidebar.Entry {
+function entryOf(s: Shown): agentRows.Entry {
   const e = sidebar.entry({
     target: { pane: s.demo.id },
     conversation: s.demo.id,
@@ -363,7 +365,7 @@ function entryOf(s: Shown): sidebar.Entry {
   if (s.demo.id === CORGI[COMPACTOR].id) e.context = new ContextView({ used: 171_000n, window: 200_000n, at: 1 });
   return e;
 }
-function agentOf(e: sidebar.Entry) {
+function agentOf(e: agentRows.Entry) {
   return {
     provider: e.provider,
     state: e.state,
@@ -442,7 +444,7 @@ function scene(w: Watch) {
   void child;
   const workspaces = [
     sidebar.workspaceEntry({
-      id: 1,
+      id: viewerRef.workspace(1, 1),
       name: "corgi",
       cwd: "/Users/me/dev/corgi",
       active: w.corgi,
@@ -456,7 +458,7 @@ function scene(w: Watch) {
       resources: FIRST[0],
     }),
     sidebar.workspaceEntry({
-      id: 2,
+      id: viewerRef.workspace(1, 2),
       name: "moonlander",
       cwd: "/Users/me/dev/moonlander",
       active: !w.corgi,
@@ -464,7 +466,7 @@ function scene(w: Watch) {
       agents: 2,
       stats: { tools: 38, input: 0, output: 0, tokens_known: true },
       resources: FIRST[1],
-      ports: PORTS,
+      ports: { workspaces: PORTS.workspaces.map(w => ({ ...w, id: viewerRef.workspace(1, w.id) })) },
     }),
   ];
   return { entries, conversations, workspaces };
@@ -476,7 +478,7 @@ function uiFor(s: ReturnType<typeof scene>, width: number, fields: Partial<Ui> =
     corgi_badge: "image",
     supports_kitty_graphics: true,
     scope_label: "corgi",
-    agents: s.entries,
+    agents: s.entries.map(e => agentRows.qualify(e, 1)),
     workspaces: s.workspaces,
     conversations: s.conversations,
     ...fields,
@@ -512,7 +514,7 @@ function entryRow(s: ReturnType<typeof scene>, win: number, rows: number, width:
   const side = sidebar.View.init(win, rows, true, 0, s.entries.length)
     .withWidth(width)
     .withWorkspaces(s.workspaces.length, 0)
-    .withEntries(s.entries);
+    .withEntries(s.entries.map(e => agentRows.qualify(e, 1)));
   for (let y = 0; y < rows; y++) {
     const hit = side.hit(6, y);
     if (hit.tag === "entry" && hit.entry === i) return y;
@@ -778,7 +780,7 @@ function dropHints(screen: Cell[][], box: Rect, keys: string[]) {
 function pickerFrames() {
   const ws = [
     sidebar.workspaceEntry({
-      id: 1,
+      id: viewerRef.workspace(1, 1),
       name: "corgi",
       cwd: "/Users/me/dev/corgi",
       active: true,
@@ -812,7 +814,7 @@ function pickerFrames() {
       corgi_badge: "image",
       supports_kitty_graphics: true,
       scope_label: "corgi",
-      agents: entries,
+      agents: entries.map(e => agentRows.qualify(e, 1)),
       workspaces: ws,
       agent_launcher: menu,
     });
@@ -1218,7 +1220,7 @@ function worktreeFrames() {
         agents: snapshot.agents.filter(a => !gone.has(a.path)),
       };
     const s = scene({ phone: false, corgi: false, unread: 0, ahead: false, focused: false, read: false });
-    s.workspaces = s.workspaces.filter(w => w.id === 2);
+    s.workspaces = s.workspaces.filter(w => w.id === viewerRef.workspace(1, 2));
     s.entries[0].focused = true;
     s.entries.unshift({ ...resident });
     const shut = s.entries.filter(e => "pane" in e.target && closed.has(e.target.pane));
@@ -1243,11 +1245,13 @@ function worktreeFrames() {
       );
     };
     draw(`wt34_${mask}`, null);
-    linked.forEach((e, k) => !gone.has(e.path) && draw(`wt34_${mask}_${k}`, { workspace: 2, path: e.path }));
+    linked.forEach(
+      (e, k) => !gone.has(e.path) && draw(`wt34_${mask}_${k}`, { workspace: viewerRef.workspace(1, 2), path: e.path }),
+    );
     const side = sidebar.View.init(COLS, WT_ROWS, true, 0, s.entries.length)
       .withWidth(34)
       .withWorkspaces(s.workspaces.length, 0);
-    badges.push(sidebar.worktreeBadge(side, s.workspaces, 2));
+    badges.push(sidebar.worktreeBadge(side, s.workspaces, viewerRef.workspace(1, 2)));
     if (!mask) agents = worktreeAgents.counts(trees, s.entries);
   }
   keepOverview("moonlander", MOON_ROOT, snapshot, MOON_BRIEFS, agents, badges, "moonlander alone");
@@ -1272,7 +1276,7 @@ function cleverFrame() {
     .withWidth(34)
     .withWorkspaces(s.workspaces.length, 0);
   keepOverview("moonlander", MOON_ROOT, MOON_TREES, MOON_BRIEFS, worktreeAgents.counts(MOON_TREES, s.entries), [
-    sidebar.worktreeBadge(side, s.workspaces, 2),
+    sidebar.worktreeBadge(side, s.workspaces, viewerRef.workspace(1, 2)),
   ]);
 }
 /** The sidebar beside the resource band's card, on the GPU host: tall enough

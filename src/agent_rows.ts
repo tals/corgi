@@ -1,5 +1,6 @@
 //! A workspace's agent rows as the daemon's state builds them: the viewer's
 //! agent list and `corgi watch --json` start from the same rows.
+import * as viewerRef from "./viewer_ref";
 import * as agentOrder from "./agent_order";
 import * as startup from "./startup";
 import * as sidebar from "./sidebar";
@@ -12,6 +13,28 @@ export interface Row {
   entry: Entry;
   /** When the daemon says its state began, in ms. */
   start: number;
+}
+
+/** Local rows enter the shared UI with qualified identities. */
+export function qualify(entry: Listed, machine: number): sidebar.Entry {
+  const t = entry.target;
+  const target: sidebar.Target =
+    "pane" in t
+      ? viewerRef.pane(machine, t.pane)
+      : "headless" in t
+        ? viewerRef.headless(machine, t.headless)
+        : "group" in t
+          ? { group: viewerRef.workspace(machine, t.group) }
+          : "workspace" in t
+            ? { ...t, workspace: viewerRef.workspace(machine, t.workspace) }
+            : t;
+  return {
+    ...entry,
+    target,
+    worktree: entry.worktree
+      ? { ...entry.worktree, workspace: viewerRef.workspace(machine, entry.worktree.workspace) }
+      : null,
+  };
 }
 
 /** The agents' sessions, and the prompt's while a Corgi pane holds them. */
