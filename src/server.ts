@@ -55,7 +55,6 @@ import * as socket_server from "./socket_server";
 import * as legacy_socket from "./legacy_socket";
 import * as start_lock from "./start_lock";
 import * as workspaceActivity from "./workspace_activity";
-import * as errors from "./errors";
 import { getLogger } from "./log";
 
 const autoOrderLog = getLogger("auto_order");
