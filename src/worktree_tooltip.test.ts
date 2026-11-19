@@ -980,7 +980,7 @@ test("a remote machine's overview shows its own workspace, not this computer's w
   }
 });
 
-function remoteWorktrees() {
+function remoteWorktrees(remoteHost = true) {
   const localRequests: any[] = [],
     remoteRequests: any[] = [];
   let historyEvent: (event: Event) => void = () => {};
@@ -1014,7 +1014,7 @@ function remoteWorktrees() {
         return op === "worktree.remove" ? { ok: true, removal: 7 } : { ok: true };
       }),
       "work",
-      true,
+      remoteHost,
     );
   remote.connection.onEvent = listener => {
     historyEvent = listener;
@@ -1151,6 +1151,208 @@ test("entering a background worktree waits for its owner's history and never res
       expect(resumed.map(r => r.session)).toEqual(remoteHistory ? ["only-on-remote"] : []);
       expect(f.localRequests).toEqual([]);
       if (!remoteHistory) expect(f.view.agent_launcher?.cwd).toBe("/repo/.worktrees/0");
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test.each([
+  "focus",
+  "waiting-focus",
+  "review",
+  "review-focus",
+  "review-close",
+  "pane-focus",
+  "pane-selection",
+  "next",
+  "prev",
+  "tab",
+  "next-pane",
+  "prev-pane",
+])("a %s control cancels worktree entry waiting for history", async kind => {
+  for (const hovered of [false, true]) {
+    const actions: Record<string, { name: string; value?: string }> = {
+      review: { name: "review" },
+      "review-close": { name: "review" },
+      "review-focus": { name: "focus", value: "right" },
+      "pane-focus": { name: "focus", value: "left" },
+      next: { name: "next" },
+      prev: { name: "prev" },
+      tab: { name: "tab", value: "2" },
+      "next-pane": { name: "next-pane" },
+      "prev-pane": { name: "prev-pane" },
+    };
+    const f = remoteWorktrees(false),
+      addPane = () => {
+        f.remoteState.workspaces[0].model.nodes.push({ pane: 2 });
+        f.remoteState.workspaces[0].model.tabs.push({ id: 2, root: 1 });
+        f.remoteState.panes.push({ ...f.remoteState.panes[0], id: 2, tab: 2 });
+        f.view.receiveSnapshot(f.remoteState, f.remote);
+      },
+      control = () =>
+        viewer.receive(
+          f.view,
+          {
+            type: "view",
+            viewer: 1,
+            viewer_protocol: 4,
+            session: null,
+            session_hash: 0n,
+            resources: null,
+            resources_hash: 0n,
+            surfaces: [],
+            controls: [
+              actions[kind] ? { seq: 1n, kind: "action", ...actions[kind] } : { seq: 1n, kind: "focus", id: 2 },
+            ],
+            bell_seq: 0n,
+            bell_kind: "none",
+            detach: false,
+          },
+          { seq: 0n },
+          false,
+        );
+    try {
+      if (kind !== "waiting-focus") addPane();
+      f.view.switchMachine(f.remote);
+      if (kind === "review-focus" || kind === "pane-focus" || kind === "review-close") {
+        await f.view.perform({ name: "review" });
+        if (kind === "review-focus") await f.view.perform({ name: "focus", value: "left" });
+      }
+      if (hovered) {
+        await f.mouse(35);
+        await f.view.expireInput();
+        f.view.frame();
+        clock.advance(600);
+        await f.view.expireInput();
+        f.view.frame();
+      } else if (kind === "pane-focus" || kind === "review-close")
+        await f.view.perform({ name: "worktrees", value: f.view.workspaceRef(1) });
+      else await f.mouse(0);
+      await f.view.perform({ name: "worktree-enter" });
+      expect(f.view.worktree_card.pending_enter).not.toBeNull();
+      if (kind === "pane-selection") f.view.selectPane(viewerRef.pane(f.remote.id, 2));
+      else await control();
+      expect(f.view.worktreeDetail()).toBeNull();
+      expect(f.view.worktree_card.pending_enter).toBeNull();
+      f.view.frame();
+      clock.advance(600);
+      await f.view.expireInput();
+      f.view.frame();
+      expect(f.view.worktreeDetail()).toBeNull();
+      f.history();
+      if (kind === "waiting-focus") {
+        addPane();
+        await control();
+      }
+      if (kind === "review-close") expect(f.view.review.open).toBe(false);
+      else if (kind.startsWith("review")) expect(Reflect.get(f.view, "keyboard")).toBe("review");
+      else if (["pane-focus", "next-pane", "prev-pane"].includes(kind))
+        expect(Reflect.get(f.view, "keyboard")).toBe("pane");
+      else expect(f.view.focused()?.id).toBe(2);
+      await f.view.input(Buffer.from("\r"));
+      expect(f.view.agent_launcher).toBeNull();
+    } finally {
+      f.view.review.hide();
+      f.close();
+    }
+  }
+});
+
+test.each(["open", "snapshot"])("worktree entry overrides attachment defaults while %s is pending", async stage => {
+  const f = remoteWorktrees(),
+    reading = Promise.withResolvers<void>(),
+    snapshot = Promise.withResolvers<typeof f.remoteState>(),
+    defaults = { viewer_protocol: 4, workspace: 2, focus: 2, bell_seq: 0 },
+    opened = Promise.withResolvers<typeof defaults>();
+  f.remoteState.workspaces.push({
+    ...f.remoteState.workspaces[0],
+    id: 2,
+    name: "default workspace",
+    cwd: "/other",
+    worktrees: { ...f.data, entries: [] },
+    model: { nodes: [{ pane: 2 }], tabs: [{ id: 2, root: 0 }], revision: 0 },
+  });
+  f.remoteState.panes.push({ ...f.remoteState.panes[0], id: 2, workspace: 2, tab: 2, cwd: "/other" });
+  f.view.receiveSnapshot(f.remoteState, f.remote);
+  f.remote.connection.request = transport(async op => {
+    if (op === "viewer.open") {
+      if (stage !== "open") return defaults;
+      reading.resolve();
+      return opened.promise;
+    }
+    if (op === "session.snapshot") {
+      if (stage !== "snapshot") return f.remoteState;
+      reading.resolve();
+      return snapshot.promise;
+    }
+    return { ok: true };
+  }).request;
+  f.remote.viewer_id = 0;
+  f.view.switchMachine(f.remote);
+  f.view.host.prefs.onboarding_complete = true;
+  const opening = viewer.open(f.view, "/repo", {});
+  try {
+    await reading.promise;
+    await f.mouse(0);
+    await f.view.perform({ name: "worktree-enter" });
+    expect(f.view.current().id).toBe(1);
+    expect(f.view.worktree_card.pending_enter).not.toBeNull();
+    opened.resolve(defaults);
+    snapshot.resolve(f.remoteState);
+    await opening;
+    expect(f.view.current().id).toBe(1);
+    expect(f.view.worktree_card.pending_enter).not.toBeNull();
+    f.history();
+    expect(f.view.agent_launcher?.cwd).toBe("/repo/.worktrees/0");
+  } finally {
+    opened.resolve(defaults);
+    snapshot.resolve(f.remoteState);
+    await opening;
+    f.close();
+  }
+});
+
+test("scrolling a pane preserves its pinned worktree card and pending entry", async () => {
+  const f = remoteWorktrees();
+  try {
+    f.view.switchMachine(f.remote);
+    await f.mouse(0);
+    await f.view.perform({ name: "worktree-enter" });
+    const area = f.view.area();
+    await f.view.input(Buffer.from(`\x1b[<64;${area.x + 1};${area.y + area.h}M`));
+    expect(f.view.worktreeDetail()).toBe(f.view.workspaceRef(1));
+    expect(f.view.worktree_card.pending_enter).not.toBeNull();
+    f.history();
+    expect(f.view.agent_launcher?.cwd).toBe("/repo/.worktrees/0");
+  } finally {
+    f.close();
+  }
+});
+
+test("a background worktree's Enter hint stays unknown until its own history arrives", async () => {
+  for (const resumable of [false, true]) {
+    const f = remoteWorktrees(),
+      entry = launcherResume.historyEntry({
+        provider: "claude",
+        session: "local-conversation",
+        cwd: "/repo/.worktrees/0",
+        updated_at: 100,
+      });
+    try {
+      f.view.launch_previews.applyHistory({ full: true, entries: [entry] });
+      await f.view.perform({ name: "worktrees", value: f.view.workspaceRef(1) });
+      expect(screen.text(f.view.frame(), 140, 30)).toContain("Enter resume agents");
+      await f.view.perform({ name: "worktrees", value: f.view.workspaceRef(1, f.remote) });
+      const background = screen.text(f.view.frame(), 140, 30);
+      expect(background).toContain("Enter open");
+      expect(background).not.toContain("Enter resume agents");
+      expect(f.view.worktree_card.asleep).toBeNull();
+      f.view.switchMachine(f.remote);
+      await f.view.perform({ name: "worktrees", value: f.view.workspaceRef(1) });
+      expect(screen.text(f.view.frame(), 140, 30)).toContain("Enter open");
+      f.history(resumable ? [{ ...entry, session: "remote-conversation" }] : []);
+      expect(screen.text(f.view.frame(), 140, 30)).toContain(resumable ? "Enter resume agents" : "Enter new agent");
     } finally {
       f.close();
     }

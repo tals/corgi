@@ -13,11 +13,12 @@ import { Host } from "./host";
 import * as protocol from "./protocol";
 import * as machine_path from "./machine_path";
 import { Controller } from "./controller";
+import * as worktrees from "./fixtures/worktrees";
 import { transport } from "./fixtures/transport";
 
 /** A daemon that keeps links, and drops the connection the first time it gets
  * a command, after running it, the way a network fails between the two. */
-async function flakyDaemon(remote = false, resumed = false) {
+async function flakyDaemon(remote = false, resumed = false, bound = Promise.resolve()) {
   const dir = mkdtempSync(join(tmpdir(), "corgi-link-"));
   const path = join(dir, "control.sock");
   const seen: { op: string; seq?: number; worktree_detail?: number | null }[] = [];
@@ -69,6 +70,18 @@ async function flakyDaemon(remote = false, resumed = false) {
           reply(
             request.link === `link-${instance}` ? { ok: true, link: request.link, viewer: resumed } : { err: "NoLink" },
           );
+          break;
+        case "viewer.open":
+          reply({ viewer_protocol: protocol.viewer_version, workspace: 1, focus: 1, bell_seq: 0 });
+          break;
+        case "viewer.data":
+          void bound.then(() => reply({ viewer: 1 }));
+          break;
+        case "agent.history":
+          socket.write(
+            JSON.stringify({ type: "agent.history", update: { full: true, entries: [], removed: [] } }) + "\n",
+          );
+          reply({ ok: true });
           break;
         case "session.command":
           if (!dropped) {
@@ -165,6 +178,74 @@ test("input arriving during an endpoint task runs immediately after completion",
     await endpoint.close();
     clock.mockRestore();
     step.mockRestore();
+  }
+});
+
+test("binding a viewer without switching machines does not fetch history twice", async () => {
+  const bound = Promise.withResolvers<void>(),
+    daemon = await flakyDaemon(true, false, bound.promise),
+    endpoint = daemon.endpoint,
+    view = new Controller(endpoint.machine);
+  endpoint.controller = view;
+  endpoint.activate();
+  const step = Reflect.get(endpoint, "step").call(endpoint, true, Reflect.get(endpoint, "selection"));
+  try {
+    await until(
+      () =>
+        daemon.seen.some(r => r.op === "viewer.data") &&
+        !view.launch_previews.history.pending &&
+        !Reflect.get(view.launch_previews, "subscribing"),
+    );
+    bound.resolve();
+    await step;
+    view.updateLaunchPreview();
+    await until(() => !Reflect.get(view.launch_previews, "subscribing"));
+    expect(daemon.seen.filter(r => r.op === "agent.history")).toHaveLength(1);
+  } finally {
+    bound.resolve();
+    await step;
+    view.launch_previews.disconnect();
+    await daemon.close();
+  }
+});
+
+test("switching away and back during viewer binding keeps history connected", async () => {
+  const bound = Promise.withResolvers<void>(),
+    daemon = await flakyDaemon(true, false, bound.promise),
+    endpoint = daemon.endpoint,
+    view = new Controller(transport(async () => ({}))),
+    local = view.machine;
+  endpoint.controller = view;
+  view.switchMachine(endpoint.machine);
+  endpoint.activate();
+  let step: Promise<boolean> | null = null;
+  try {
+    step = Reflect.get(endpoint, "step").call(endpoint, true, Reflect.get(endpoint, "selection"));
+    await until(() => daemon.seen.some(r => r.op === "viewer.data"));
+    expect(endpoint.machine.viewer_id).toBe(0);
+    view.switchMachine(local);
+    endpoint.deactivate();
+    view.switchMachine(endpoint.machine);
+    endpoint.activate();
+    bound.resolve();
+    await step;
+    endpoint.status = "online";
+    expect(endpoint.machine.viewer_id).toBe(1);
+    view.current().worktrees = worktrees.app();
+    await view.perform({ name: "worktrees", value: view.workspaceRef(1) });
+    await view.perform({ name: "worktree-enter" });
+    expect(view.worktree_card.pending_enter).not.toBeNull();
+    await until(() => {
+      view.updateLaunchPreview();
+      return view.agent_launcher?.cwd === "/src/app-topic";
+    });
+    expect(view.worktree_card.pending_enter).toBeNull();
+  } finally {
+    bound.resolve();
+    await step;
+    view.launch_previews.disconnect();
+    await daemon.close();
+    local.runtime.destroy();
   }
 });
 

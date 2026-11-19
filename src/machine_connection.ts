@@ -924,6 +924,7 @@ export class Endpoint {
         this.onboarding = false;
       }
       machine.remote_links = this.remote || sshViewer();
+      const previews = view.launch_previews;
       let data = this.connection!;
       if (this.separate && this.link) {
         const lane = this.openData();
@@ -932,6 +933,8 @@ export class Endpoint {
         machine.viewer_id = lane.viewer;
       }
       this.opened = true;
+      // Switching machines during attachment may have replaced the history stream.
+      if (this.shown && view.launch_previews !== previews) view.launch_previews.connect(machine.connection);
       this.stream = new Stream(
         this.connection!,
         () => {

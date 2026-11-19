@@ -1085,6 +1085,7 @@ export class Controller {
   /** Moves focus one step within the region that has the keyboard, and past
    * its edge on to the region beside it. */
   private async moveFocus(to: Direction): Promise<void> {
+    this.closeWorktreeCard();
     if (this.moveWithin(to)) return;
     const at = regions.indexOf(this.region());
     switch (to === "left" ? regions[at - 1] : to === "right" ? regions[at + 1] : undefined) {
@@ -1121,6 +1122,7 @@ export class Controller {
   }
   /** Hands the keyboard to `to`. A drawer the sidebar had goes away with it. */
   private giveKeyboard(to: Keyboard): void {
+    if (to !== "pane") this.closeWorktreeCard();
     const from = this.keyboard;
     if (from === to) return;
     this.keyboard = to;
@@ -1324,6 +1326,11 @@ export class Controller {
     else this.focusPane(id);
   }
   focusPane(id: number, remember = true): void {
+    this.closeWorktreeCard();
+    this.updatePaneFocus(id, remember);
+  }
+  /** Focus restored by attachment or scrolling leaves open cards alone. */
+  updatePaneFocus(id: number, remember = true): void {
     const owner = this.runtime.workspaces.owner(id);
     if (!owner) throw Error("NoPane");
     // Focus chosen anywhere takes the keyboard from a pane still opening.
@@ -2063,8 +2070,6 @@ export class Controller {
       const snapshot = this.resolveWorkspace(selected.workspace)?.workspace?.worktrees;
       if (snapshot) {
         const asleep = worktreeAgents.conversations(snapshot, selected.path, this.mergedHistory(), this.openSessions());
-        // The overview's footer says what Enter would do with them.
-        this.worktree_card.asleep = { path: selected.path, count: asleep.length };
         const ghost = worktreeAgents
           .group(
             snapshot,
@@ -3404,10 +3409,7 @@ export class Controller {
         break;
       }
       case "worktree-close":
-        this.worktree_card.clear();
-        this.worktree_agents.previewed = null;
-        this.link_tooltip.cancel();
-        this.dirty = true;
+        this.closeWorktreeCard();
         break;
       case "resources": {
         const owner = this.resolveWorkspace(act.value);
@@ -8903,7 +8905,8 @@ export class Controller {
         return;
       }
       // The wheel scrolls the pane under it but leaves the keyboard with a pane still opening.
-      if ((button & 64) === 0 || !this.openingFocus()) this.focusPane(p.id);
+      if ((button & 64) === 0) this.focusPane(p.id);
+      else if (!this.openingFocus()) this.updatePaneFocus(p.id);
       this.dirty = true;
       // A double-click picks the word, even on a link, and a triple-click
       // or later press the line, unless the app takes the clicks; with
@@ -9266,6 +9269,12 @@ export class Controller {
       ? owner
       : null;
   }
+  closeWorktreeCard(): void {
+    this.worktree_card.clear();
+    this.worktree_agents.previewed = null;
+    this.link_tooltip.cancel();
+    this.dirty = true;
+  }
   private openWorktreeCard(owner: viewerRef.Workspace, pinned: boolean): void {
     const resolved = this.resolveWorkspace(owner);
     if (!resolved || this.stale(resolved.machine)) return;
@@ -9301,6 +9310,17 @@ export class Controller {
     this.worktree_card.briefs = owner.machine.runtime.inference.uses.worktrees
       ? new Map(ws.worktree_briefs.map(b => [b.path, b]))
       : null;
+    const card = this.worktree_card,
+      entries = card.entries(snapshot),
+      selected = entries[card.index(entries)];
+    card.asleep =
+      snapshot && selected && owner.machine === this.machine && !this.launch_previews.history.pending
+        ? {
+            path: selected.path,
+            count: worktreeAgents.conversations(snapshot, selected.path, this.mergedHistory(), this.openSessions())
+              .length,
+          }
+        : null;
     return this.worktree_card;
   }
   /** A press on the resource card: a bar button, a row to select, or a heading to sort by. */
@@ -9506,6 +9526,7 @@ export class Controller {
     this.worktree_card.pending_enter = null;
     const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace)?.worktrees;
     if (!snapshot || !worktrees.linked(snapshot).some(e => e.path === selection.path)) return;
+    this.switchWorkspace(selection.workspace);
     const live = this.machineAgents(selection.workspace).some(({ entry: e }) =>
       worktreeAgents.belongs(snapshot, selection.path, e),
     );
@@ -10386,6 +10407,7 @@ export class Controller {
   }
   /** Opens the panel, gives it the keyboard, and then closes it. */
   private toggleReview(): void {
+    this.closeWorktreeCard();
     if (!this.review.open) return this.openReview();
     if (this.keyboard !== "review") return this.giveKeyboard("review");
     this.closeReview();

@@ -65,7 +65,7 @@ export async function openMode(
     opened.focus &&
     view.runtime.workspaces.owner(opened.focus)
   )
-    view.focusPane(opened.focus);
+    view.updatePaneFocus(opened.focus);
   view.restoreAgentScroll();
   view.launch_previews.connect(view.connection);
   view.launch_previews.changedEvent = () => {
@@ -256,6 +256,7 @@ export async function receive(
   for (const [i, control] of controls.entries()) {
     const seq = BigInt(control.seq);
     if (seq <= machine.last_control) continue;
+    if (control.kind === "focus" || control.kind === "workspace") view.closeWorktreeCard();
     // Controls and session updates can take different connections: one may
     // name a pane before the session that has it. It and those after it wait
     // for that session, unless the daemon says what it names is gone.

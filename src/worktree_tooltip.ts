@@ -70,6 +70,7 @@ export class State {
     this.pinned = false;
     this.selected = null;
     this.pending_enter = null;
+    this.asleep = null;
     this.agents = null;
     this.briefs = null;
     this.writing.clear();
@@ -532,9 +533,11 @@ export function draw(
   } else {
     const enter = snapshot?.agents.some(a => a.path === selected?.path)
       ? i18n.t`focus agents`
-      : state.asleep?.path === selected?.path && state.asleep?.count
-        ? i18n.t`resume agents`
-        : i18n.t`new agent`;
+      : !state.asleep || state.asleep.path !== selected?.path
+        ? i18n.t`open`
+        : state.asleep.count
+          ? i18n.t`resume agents`
+          : i18n.t`new agent`;
     line(
       rect.h - 2,
       2,
