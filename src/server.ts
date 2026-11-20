@@ -894,6 +894,7 @@ export class Server {
         this.defer(cl, reply, null, async () => {
           const service = launch.service(this);
           service.follow(launch.removed(this.runtime));
+          await service.launch_previews.prepare(cwd);
           service.launch_previews.preview(cwd);
           await service.launch_previews.pump();
           return {

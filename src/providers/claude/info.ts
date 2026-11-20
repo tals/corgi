@@ -61,9 +61,11 @@ async function state(dir: string): Promise<State | null> {
       stamp = `${s.ino}:${s.size}:${s.mtimeNs}`,
       known = states.get(file);
     if (known?.stamp === stamp) return known.state;
+    // A read that fails isn't kept: only the file itself says no one signed in.
+    const text = await readFile(file, "utf8");
     let value: any = null;
     try {
-      value = JSON.parse(await readFile(file, "utf8"));
+      value = JSON.parse(text);
     } catch {}
     const account = value?.oauthAccount,
       email = account?.emailAddress,

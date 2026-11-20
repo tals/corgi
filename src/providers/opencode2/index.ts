@@ -32,7 +32,8 @@ export const adapter: Adapter = {
     home: env => dirname(configDir(env)),
     prefix: "",
     identity: async () => null,
-    variant: async () => "",
+    // Its server picks a model, and so a credential, for each folder.
+    variant: async cwd => cwd,
     configured: async () => configured(),
     shared: { dirs: [], files: [] },
     signin: null,

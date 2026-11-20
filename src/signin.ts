@@ -197,6 +197,9 @@ export class Signin {
   checked = 0;
   compared = false;
   busy = false;
+  /** The look at the folder under way, so that looks don't overlap and an
+   * exit waits for one. */
+  private looking: Promise<void> | null = null;
   finishing: Promise<void> | null = null;
   stopping: Promise<void> | null = null;
   discarding: Promise<void> | null = null;
@@ -404,13 +407,25 @@ export class Signin {
   }
 
   /** Reads the agent's screen for its step, and its folder for a login. */
-  async poll() {
-    if (this.over || this.busy || !this.child) return;
+  poll(): Promise<void> {
+    if (this.over || this.busy || this.looking || !this.child) return this.looking ?? Promise.resolve();
+    const looking = this.look().finally(() => {
+      if (this.looking === looking) this.looking = null;
+    });
+    return (this.looking = looking);
+  }
+  /** Whether the flow ended, or began letting its account go, while something was read. */
+  private left() {
+    return this.over || this.discarding !== null;
+  }
+  private async look() {
+    if (!this.child) return;
     const before = this.step;
     this.step = this.signin.step(this.child.text());
     if (this.step !== before) this.changed();
     const who = await accounts.identity(this.provider!, this.dir);
-    if (this.over) return;
+    // Finishing or discarding may have begun, or the agent left, while the folder was read.
+    if (this.left() || this.busy || !this.child) return;
     if (who?.email !== this.who?.email) this.changed();
     this.who = who;
     if (!who) return;
@@ -419,15 +434,20 @@ export class Signin {
       if (this.adding && !this.compared) {
         this.compared = true;
         const other = await accounts.signedInElsewhere(this.provider!, this.dir, who);
+        if (this.left()) return;
         if (other) return this.twice(who, other === "default" ? "default" : other.name);
       }
       // Its own check spawns the agent: now and then is enough.
       if (!this.signed && Date.now() - this.checked >= 3000) {
         this.checked = Date.now();
-        this.signed = (await this.account_command(await this.check(), 10000)) === 0;
+        const check = await this.check();
+        if (this.left()) return;
+        this.signed = (await this.account_command(check, 10000)) === 0;
         if (this.signed) this.changed();
       }
-      if (this.signed && (await this.signin.ready(this.dir)) && this.stage.kind === "signin") await this.finish();
+      if (this.left() || !this.signed) return;
+      const ready = await this.signin.ready(this.dir);
+      if (!this.left() && ready && this.stage.kind === "signin") await this.finish();
     } finally {
       this.busy = false;
     }
@@ -436,13 +456,20 @@ export class Signin {
     if (this.over || t !== this.child) return;
     this.child = null;
     t.destroy();
+    // A look under way ends first, rather than check the folder beside it.
+    await this.looking;
+    if (this.left() || this.finishing) return;
     this.who = await accounts.identity(this.provider!, this.dir);
-    if (
-      this.who &&
-      (await this.account_command(await this.check(), 10000)) === 0 &&
-      (await this.signin.ready(this.dir))
-    )
-      return this.finish();
+    if (this.left()) return;
+    if (this.who) {
+      const check = await this.check();
+      if (this.left()) return;
+      if ((await this.account_command(check, 10000)) === 0 && (await this.signin.ready(this.dir))) {
+        if (this.left()) return;
+        return this.finish();
+      }
+    }
+    if (this.left()) return;
     this.stopped(`${this.label} closed before you signed in.`);
   }
   /** The agent isn't running and nobody signed in: try again, or let go. */

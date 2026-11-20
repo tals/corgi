@@ -111,11 +111,12 @@ export class Client {
   private default_model = new Text();
   private defaults = new Map<string, string>();
   default_checked = false;
-  /** The default an account read saw from the executable `cwd` runs:
-   * workspaces share one read of the account, and "" where none ran it. */
+  /** The default an account read saw from the executable `cwd` runs, or
+   * the latest read's when none went through it: workspaces share one read
+   * of the account. "" where `cwd` runs none. */
   async defaultFor(cwd: string): Promise<string> {
     try {
-      return this.defaults.get(await this.resolve(cwd)) ?? "";
+      return this.defaults.get(await this.resolve(cwd)) ?? this.default_model.text();
     } catch {
       return "";
     }
@@ -170,6 +171,8 @@ export class Client {
           provider: d.apiProvider ?? "",
         }),
         identity = JSON.stringify([executable, claude.configDir(this.env), login]);
+      // Another login's defaults, whichever executables saw them, aren't this one's.
+      if (this.login !== null && this.login !== login) this.defaults.clear();
       this.login = login;
       if (this.identity !== identity) {
         this.close();
