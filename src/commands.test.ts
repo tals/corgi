@@ -51,6 +51,33 @@ test("menu keys pick the rows each menu shows", () => {
   expect(agent.itemFor(c("h"))).toBeNull();
 });
 
+test("the pane menu groups naming, layout and moves, with Close apart", () => {
+  const groups = (menu: TabMenu) => menu.entries().map(entry => (entry.rule ? `— ${entry.item}` : entry.item));
+  expect(groups(new TabMenu({ tab: 1, anchor_x: 0, pane: true, source: 2 }))).toEqual([
+    "rename",
+    "clear-name",
+    "— split-right",
+    "split-down",
+    "zoom",
+    "— swap",
+    "break",
+    "— close",
+  ]);
+  // On the focused pane, Move to new tab starts the group alone.
+  const focused = new TabMenu({ tab: 1, anchor_x: 0, pane: true });
+  expect(groups(focused)).toEqual([
+    "rename",
+    "clear-name",
+    "— split-right",
+    "split-down",
+    "zoom",
+    "— break",
+    "— close",
+  ]);
+  focused.highlightFirst();
+  expect(focused.highlightedItem()).toBe("rename");
+});
+
 test("a worktree group's menu opens on Review changes and keeps Close all below a rule", () => {
   const menu = new TabMenu({ tab: 1, anchor_x: 0, worktree: "/repo/.worktrees/one", title: "one" });
   expect(menu.entries().map(entry => entry.label)).toEqual([
