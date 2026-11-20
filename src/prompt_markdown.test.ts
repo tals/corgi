@@ -99,6 +99,8 @@ test("a quote bars every row, wrapped ones too, and copies without the bar", () 
   expect(shown(lines)).toEqual(["│ one two", "│ three", "│ ", "│ │ inner"]);
   expect((lines[1] as { cont?: object }).cont).toEqual({ join: " ", skip: 2 });
   expect(styleOf(lines, "one two")).toBe(look({ fg: "muted" }));
+  // Past the room for another bar, a deeper quote still shows its text.
+  expect(shown(markdown.layout(">".repeat(30) + " deep", 10))).toEqual(["│ │ │ │ de", "│ │ │ │ ep"]);
 });
 
 test("a table fits the room, aligns its columns and wraps its cells", () => {
@@ -141,6 +143,35 @@ test("as in Pi: two tildes strike, math shows as Unicode, prices stay text", () 
     "E = mc² and α, costs $5 and $10",
   ]);
   expect(shown(markdown.layout("$$\n\\sqrt{2}\n$$", 40))).toEqual(["√2"]);
+});
+
+test("as in Pi: emphasis works beside CJK punctuation, where a bare address ends", () => {
+  const lines = markdown.layout("これは**「重要」**です。见 https://example.com/a。然后", 80);
+  expect(shown(lines)).toEqual(["これは「重要」です。见 https://example.com/a。然后"]);
+  expect(styleOf(lines, "「重要」")).toBe(look({ fg: "strong", bold: true }));
+  expect(styleOf(lines, "https://example.com/a")).toBe(look({ fg: "text", underline: true }));
+});
+
+test("as in Pi: display math leaves the tables after it be, and shows as written when too wide", () => {
+  const table = "| a | b |\n|---|---|\n| 1 | 2 |";
+  for (const open of ["$$ x = 1", "\\[ x = 1"])
+    expect(shown(markdown.layout(`${open}\n\n${table}`, 40)).slice(-5)).toEqual([
+      "┌───┬───┐",
+      "│ a │ b │",
+      "├───┼───┤",
+      "│ 1 │ 2 │",
+      "└───┴───┘",
+    ]);
+  const fraction = "$$\n\\frac{a+b+c+d}{x}\n$$";
+  expect(shown(markdown.layout(fraction, 40))).toEqual(["a+b+c+d", "───────", "   x"]);
+  expect(shown(markdown.layout(fraction, 6)).join("")).toBe("$$\\frac{a+b+c+d}{x}$$");
+});
+
+test("HTML comments are hidden, as is a block's that streams in open", () => {
+  expect(shown(markdown.layout("a <!-- c --> b", 40))).toEqual(["a b"]);
+  expect(shown(markdown.layout("one\n\n<!-- hidden -->\n\ntwo\n\n<!-- streaming", 40))).toEqual(["one", "", "two"]);
+  expect(shown(markdown.layout("- one\n\n  <!-- c -->\n- two", 40))).toEqual(["• one", "", "• two"]);
+  expect(shown(markdown.layout("<div><!-- c -->hi</div>", 40))).toEqual(["<div>hi</div>"]);
 });
 
 test("entities show as what they name", () => {

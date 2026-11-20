@@ -1,10 +1,13 @@
 //! A reply's Markdown as thread lines. marked parses it as pi-tui sets it up
-//! for Pi: strikethrough takes two tildes, `$…$` math shows as Unicode, and
-//! a streaming code block's half-typed closing fence waits. Corgi lays it
+//! for Pi: strikethrough takes two tildes, `$…$` math shows as Unicode,
+//! emphasis works beside CJK punctuation, HTML comments are hidden, and a
+//! streaming code block's half-typed closing fence waits. Corgi lays it
 //! out: wrapped by its text area, colored from the palette, and code colored
 //! as the review panel colors it.
 import { renderLatex } from "@earendil-works/pi-tui/dist/latex.js";
-import { Marked, type MarkedToken, type Token, type TokenizerExtension, type Tokens } from "marked";
+import { cjkPunctuationRegex } from "@earendil-works/pi-tui/dist/utils.js";
+import { Marked, Tokenizer, type MarkedToken, type Token, type TokenizerExtension, type Tokens } from "marked";
+import cjk from "marked-cjk-friendly";
 import * as palette from "./palette";
 import { fence } from "./prompt_conversations";
 import * as syntax from "./review/syntax";
@@ -74,15 +77,29 @@ function inlineLatex(source: string): Latex | undefined {
   if (!text || text.includes("\n")) return undefined;
   return { type: "latex", raw: source.slice(0, end + close.length), text };
 }
+const table_delimiter = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
+/** Whether a GFM table starts in `source`: a row, then a delimiter row. One
+ * of them needs a pipe, or the delimiter is a rule. */
+function holdsTable(source: string): boolean {
+  const rows = source.split("\n");
+  return rows.some(
+    (row, i) =>
+      i + 1 < rows.length && (row.includes("|") || rows[i + 1].includes("|")) && table_delimiter.test(rows[i + 1]),
+  );
+}
+/** Display math, which never spans a table: an unclosed `$$` leaves the
+ * tables after it be. */
 function blockLatex(source: string): Latex | undefined {
   const dollars = /^ {0,3}\$\$[ \t]*(?:\n)?([\s\S]*?)\$\$[ \t]*(?:\n|$)/.exec(source);
-  if (dollars?.[1]) return { type: "latexBlock", raw: dollars[0], text: dollars[1].trim() };
+  if (dollars?.[1] && !holdsTable(dollars[1])) return { type: "latexBlock", raw: dollars[0], text: dollars[1].trim() };
   const brackets = /^ {0,3}\\\[[ \t]*(?:\n)?([\s\S]*?)\\\][ \t]*(?:\n|$)/.exec(source);
-  if (brackets?.[1]) return { type: "latexBlock", raw: brackets[0], text: brackets[1].trim() };
+  if (brackets?.[1] && !holdsTable(brackets[1]))
+    return { type: "latexBlock", raw: brackets[0], text: brackets[1].trim() };
   const open_brackets = /^ {0,3}\\\[[ \t]*(?:\n)?([\s\S]*)$/.exec(source);
-  if (open_brackets) return { type: "latexBlock", raw: open_brackets[0], text: open_brackets[1], pending: true };
+  if (open_brackets?.[1] && !holdsTable(open_brackets[1]))
+    return { type: "latexBlock", raw: open_brackets[0], text: open_brackets[1], pending: true };
   const open_dollars = /^ {0,3}\$\$[ \t]*(?:\n)?([\s\S]*)$/.exec(source);
-  if (open_dollars?.[1] && mathy(open_dollars[1]))
+  if (open_dollars?.[1] && mathy(open_dollars[1]) && !holdsTable(open_dollars[1]))
     return { type: "latexBlock", raw: open_dollars[0], text: open_dollars[1], pending: true };
   return undefined;
 }
@@ -106,7 +123,7 @@ const latex: TokenizerExtension[] = [
     tokenizer: inlineLatex,
   },
 ];
-const parser = new Marked({
+const parser = new Marked(cjk(), {
   tokenizer: {
     // Only between two tildes: "~5 to ~10 minutes" stays as typed.
     del(source) {
@@ -114,9 +131,19 @@ const parser = new Marked({
       if (!match) return undefined;
       return { type: "del", raw: match[0], text: match[2], tokens: this.lexer.inlineTokens(match[2]) };
     },
+    // A bare address ends at CJK punctuation: "见 https://example.com。然后".
+    url(source) {
+      const found = Tokenizer.prototype.url.call(this, source);
+      const end = found ? found.raw.search(cjkPunctuationRegex) : -1;
+      return found && end >= 0 ? Tokenizer.prototype.url.call(this, found.raw.slice(0, end)) : found;
+    },
   },
   extensions: latex,
 });
+const comments = /<!--[\s\S]*?(?:-->|$)/g;
+/** HTML without its comments; one still open runs to the end, as it does
+ * while streaming. */
+const uncommented = (html: string) => html.replace(comments, "");
 /** A streaming code block's half-typed closing fence, dropped so the block
  * doesn't grow a line of backticks and lose it again. */
 function trimFence(tokens: Tok[]): void {
@@ -240,7 +267,11 @@ function inline(tokens: Tok[], look: Look, out: Seg[] = [], recognize = true): S
   const put = (text: string, as = look) => {
     if (text) out.push({ text, style: sgr(as) });
   };
-  for (const t of tokens)
+  // A hidden comment that followed a space takes the next one: "a <!-- c --> b".
+  let gap = false;
+  for (let [i, t] of tokens.entries()) {
+    if (gap && t.type === "text" && !t.tokens?.length) t = { ...t, text: t.text.replace(/^[ \t]+/, "") };
+    gap = false;
     switch (t.type) {
       case "text":
         if (t.tokens?.length) inline(kids(t.tokens), look, out, recognize);
@@ -297,7 +328,8 @@ function inline(tokens: Tok[], look: Look, out: Seg[] = [], recognize = true): S
         put("\n");
         break;
       case "html":
-        put(t.raw);
+        if (t.raw.startsWith("<!--")) gap = i === 0 || /[ \t]$/.test(tokens[i - 1].raw);
+        else put(t.raw);
         break;
       case "latex":
         put(t.pending ? t.raw : (renderLatex(t.text) ?? t.raw));
@@ -307,6 +339,7 @@ function inline(tokens: Tok[], look: Look, out: Seg[] = [], recognize = true): S
       default:
         if ("text" in t && typeof t.text === "string") put(decode(t.text));
     }
+  }
   return out;
 }
 /** Runs split at their line breaks. */
@@ -371,6 +404,7 @@ function blocks(c: Ctx, tokens: Tok[], tight = false): void {
       continue;
     }
     if (t.type === "def" || t.type === "checkbox") continue;
+    if (t.type === "html" && !uncommented(t.raw).trim()) continue;
     // Blocks are a blank line apart, but not in a tight list's items, nor
     // a list from the line that runs into it.
     const runs_in = (last?.type === "paragraph" || last?.type === "text") && t.type === "list";
@@ -398,15 +432,18 @@ function block(c: Ctx, t: Tok): void {
     case "code":
       return code(c, t);
     case "latexBlock": {
-      const shown = (!t.pending && renderLatex(t.text, { display: true })) || t.raw.trim();
-      return flow(c, [{ text: shown, style: sgr(c.base) }]);
+      // Laid-out math can't wrap row by row, so math too wide shows as written.
+      const math = (!t.pending && renderLatex(t.text, { display: true })) || "",
+        fits = math && math.split("\n").every(line => displayWidth(line) <= room(c));
+      return flow(c, [{ text: fits ? math : t.raw.trim(), style: sgr(c.base) }]);
     }
     case "list":
       return list(c, t);
     case "table":
       return table(c, t);
     case "blockquote": {
-      const bar = [{ text: "│ ", style: sgr({ fg: "line" }) }],
+      // A quote too deep for another bar and a column of text goes without one.
+      const bar = room(c) < 3 ? [] : [{ text: "│ ", style: sgr({ fg: "line" }) }],
         inner = within(c, bar, bar, { fg: "muted" });
       blocks(inner, kids(t.tokens));
       c.pen.used ||= inner.pen.used;
@@ -415,7 +452,7 @@ function block(c: Ctx, t: Tok): void {
     case "hr":
       return put(c, [{ text: "─".repeat(room(c)), style: sgr({ fg: "line" }) }]);
     case "html":
-      return flow(c, [{ text: t.raw.trimEnd(), style: sgr({ fg: "muted" }) }]);
+      return flow(c, [{ text: uncommented(t.raw).trim(), style: sgr({ fg: "muted" }) }]);
     default:
       if ("text" in t && typeof t.text === "string") flow(c, [{ text: decode(t.text), style: sgr(c.base) }]);
   }
