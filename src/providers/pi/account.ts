@@ -45,9 +45,8 @@ export class Client {
   }
   async preview(quit: Quit, max_age = 0, cwd = "/tmp") {
     const root = directory(this.account),
-      c = credential(root),
-      who = identity(root),
-      provider = settingsProvider(cwd, this.account) || c?.provider || "",
+      [c, who, chosen] = await Promise.all([credential(root), identity(root), settingsProvider(cwd, this.account)]),
+      provider = chosen || c?.provider || "",
       info = new Info();
     info.account = new Text(who && c?.provider === provider ? who.email : provider);
     info.signed_in = !!c && c.provider === provider;

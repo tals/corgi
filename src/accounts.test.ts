@@ -50,6 +50,9 @@ afterEach(() => {
   accounts.reset();
   rmSync(home, { recursive: true, force: true });
 });
+/** Whether `provider` counts as set up in `cwd`, as the launcher asks it. */
+const isSetUp = async (provider: Provider, cwd = process.cwd()) =>
+  accounts.configured(provider, cwd, (await accounts.identity(provider, "")) !== null);
 const signIn = (dir: string, email: string, id = email) => {
   mkdirSync(dir, { recursive: true });
   writeFileSync(
@@ -58,7 +61,7 @@ const signIn = (dir: string, email: string, id = email) => {
   );
 };
 
-test("a ChatGPT login is one subscription for Codex, Pi and omp", () => {
+test("a ChatGPT login is one subscription for Codex, Pi and omp", async () => {
   const claims = { sub: "user-1", email: "me@home.dev", "https://api.openai.com/auth": { chatgpt_account_id: "ws-1" } },
     token = "header." + Buffer.from(JSON.stringify(claims)).toString("base64url") + ".signature";
   const codex = join(home, ".codex"),
@@ -81,10 +84,22 @@ test("a ChatGPT login is one subscription for Codex, Pi and omp", () => {
   );
   db.close();
   signIn(home, "me@home.dev", "claude-user");
-  expect(accounts.identity("codex", "")).toMatchObject({ id: "user-1/ws-1", service: "chatgpt", workspace: "ws-1" });
-  expect(accounts.identity("pi", "")).toMatchObject({ email: "me@home.dev", service: "chatgpt", workspace: "ws-1" });
-  expect(accounts.identity("omp", "")).toMatchObject({ email: "me@home.dev", service: "chatgpt", workspace: "ws-1" });
-  expect(accounts.identity("claude", "")).toEqual({
+  expect(await accounts.identity("codex", "")).toMatchObject({
+    id: "user-1/ws-1",
+    service: "chatgpt",
+    workspace: "ws-1",
+  });
+  expect(await accounts.identity("pi", "")).toMatchObject({
+    email: "me@home.dev",
+    service: "chatgpt",
+    workspace: "ws-1",
+  });
+  expect(await accounts.identity("omp", "")).toMatchObject({
+    email: "me@home.dev",
+    service: "chatgpt",
+    workspace: "ws-1",
+  });
+  expect(await accounts.identity("claude", "")).toEqual({
     email: "me@home.dev",
     id: "claude-user/org",
     service: "claude",
@@ -94,7 +109,7 @@ test("a ChatGPT login is one subscription for Codex, Pi and omp", () => {
   const keyed = join(home, ".codex-key");
   mkdirSync(keyed);
   writeFileSync(join(keyed, "auth.json"), JSON.stringify({ OPENAI_API_KEY: "sk-test" }));
-  expect(accounts.identity("codex", keyed)).not.toHaveProperty("service");
+  expect(await accounts.identity("codex", keyed)).not.toHaveProperty("service");
   const other = join(home, ".pi-other");
   mkdirSync(other);
   writeFileSync(
@@ -102,7 +117,7 @@ test("a ChatGPT login is one subscription for Codex, Pi and omp", () => {
     JSON.stringify({ "openai-codex": { type: "oauth", access: token, refresh: "r" } }),
   );
   writeFileSync(join(other, "settings.json"), JSON.stringify({ defaultProvider: "google" }));
-  expect(accounts.identity("pi", other)).not.toHaveProperty("service");
+  expect(await accounts.identity("pi", other)).not.toHaveProperty("service");
 });
 
 test("default-only providers reject account creation before creating a folder", () => {
@@ -139,19 +154,19 @@ test("Omarchy's accounts show under their labels, and a folder named like one do
     }),
   );
   expect(accounts.known()).toEqual([{ provider: "claude", dir: side, name: "Side", managed: false }]);
-  expect(accounts.identity("claude", side)?.email).toBe("me@side.com");
+  expect((await accounts.identity("claude", side))?.email).toBe("me@side.com");
   expect(accounts.named("claude/Side")?.dir).toBe(side);
   expect(accounts.named("codex/Side")).toBeNull();
   await accounts.remove(accounts.named("Side")!);
   expect(accounts.known()).toEqual([]);
 });
 
-test("the default account's login is read from HOME", () => {
+test("the default account's login is read from HOME", async () => {
   writeFileSync(join(home, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "me@home.com" } }));
-  expect(accounts.identity("claude", "")).toMatchObject({ email: "me@home.com", id: "me@home.com/" });
+  expect(await accounts.identity("claude", "")).toMatchObject({ email: "me@home.com", id: "me@home.com/" });
 });
 
-test("a new account's numbered folder waits in a private temporary folder until its sign-in works out", () => {
+test("a new account's numbered folder waits in a private temporary folder until its sign-in works out", async () => {
   writeFileSync(join(home, ".claude", "CLAUDE.md"), "be terse");
   writeFileSync(join(home, ".claude", "settings.json"), '{"model":"opus"}');
   const s = accounts.stage("claude", "work"),
@@ -170,24 +185,24 @@ test("a new account's numbered folder waits in a private temporary folder until 
   expect(existsSync(join(s.temp, "projects"))).toBe(false);
   expect(existsSync(join(s.temp, "keybindings.json"))).toBe(false);
   signIn(dir, "me@work.com");
-  const work = accounts.adopt(s);
+  const work = await accounts.adopt(s);
   expect(work).toEqual({ provider: "claude", dir, name: "work", managed: true });
   expect(lstatSync(dir).isDirectory()).toBe(true);
   expect(existsSync(s.temp)).toBe(false);
   expect(readlinkSync(join(dir, "settings.json"))).toBe(join(home, ".claude", "settings.json"));
-  expect(accounts.identity("claude", dir)?.email).toBe("me@work.com");
+  expect((await accounts.identity("claude", dir))?.email).toBe("me@work.com");
   expect(accounts.known()).toEqual([work]);
   expect(() => accounts.stage("claude", "work")).toThrow("AccountExists");
   expect(() => accounts.stage("claude", "default")).toThrow("InvalidAccountName");
   expect(() => accounts.stage("claude", " ")).toThrow("InvalidAccountName");
 });
 
-test("links its sign-in made to the staging folder lead into the folder once it moves in", () => {
+test("links its sign-in made to the staging folder lead into the folder once it moves in", async () => {
   const s = accounts.stage("codex", "work"),
     release = join(s.temp, "packages", "daemon", "releases", "1");
   mkdirSync(release, { recursive: true });
   symlinkSync(release, join(s.temp, "packages", "daemon", "current"));
-  const work = accounts.adopt(s);
+  const work = await accounts.adopt(s);
   expect(readlinkSync(join(work.dir, "packages", "daemon", "current"))).toBe(
     join(work.dir, "packages", "daemon", "releases", "1"),
   );
@@ -238,7 +253,7 @@ test("a new account takes the number a cancelled sign-in left linked, never a re
   expect(lstatSync(again.dir).isDirectory() && existsSync(join(home, ".claude"))).toBe(true);
 });
 
-test("a new account is named for who signed in: the company at work, the mailbox at home", () => {
+test("a new account is named for who signed in: the company at work, the mailbox at home", async () => {
   const login = (email: string) => ({ email, id: email });
   expect(accounts.suggest("claude", login("me@acme.com"))).toBe("acme");
   expect(accounts.suggest("claude", login("me@work.example.com"))).toBe("work");
@@ -247,7 +262,7 @@ test("a new account is named for who signed in: the company at work, the mailbox
   expect(accounts.suggest("claude", null)).toBe("account");
   const s = accounts.stage("claude");
   signIn(s.dir, "me@acme.com");
-  expect(accounts.adopt(s).name).toBe("acme");
+  expect((await accounts.adopt(s)).name).toBe("acme");
   // Another login at the same company takes the next name; Codex has its own.
   expect(accounts.suggest("claude", login("you@acme.com"))).toBe("acme-2");
   expect(accounts.suggest("codex", login("you@acme.com"))).toBe("acme");
@@ -260,10 +275,10 @@ test("a personal mail host matches by its exact domain, in any case", () => {
   expect(accounts.suggest("claude", { email: "tal@acme.co.uk", id: "id" })).toBe("acme");
 });
 
-test("renaming an account keeps its folder, and names one Omarchy keeps in Corgi's own list", () => {
+test("renaming an account keeps its folder, and names one Omarchy keeps in Corgi's own list", async () => {
   const s = accounts.stage("claude");
   signIn(s.dir, "me@acme.com");
-  const acme = accounts.adopt(s);
+  const acme = await accounts.adopt(s);
   expect(accounts.rename(acme, "big")).toEqual({ ...acme, name: "big" });
   expect(accounts.known()).toEqual([{ ...acme, name: "big" }]);
   expect(() => accounts.rename(accounts.known()[0], "default")).toThrow("InvalidAccountName");
@@ -317,7 +332,7 @@ test("removing an account deletes a folder Corgi made, and only forgets another"
   writeFileSync(join(home, ".claude", "CLAUDE.md"), "be terse");
   const s = accounts.stage("claude");
   signIn(s.dir, "me@acme.com");
-  const acme = accounts.adopt(s),
+  const acme = await accounts.adopt(s),
     mine = join(home, "accounts", "big-co");
   mkdirSync(mine, { recursive: true });
   const big = accounts.add("claude", "bigco", mine);
@@ -345,7 +360,7 @@ test("an imported folder under Corgi's account root is never owned, even if a ca
 
 test("a managed folder replaced by a link cannot transfer ownership to its target", async () => {
   const s = accounts.stage("claude"),
-    owned = accounts.adopt(s, "work"),
+    owned = await accounts.adopt(s, "work"),
     external = join(dirname(s.dir), "external");
   mkdirSync(external);
   writeFileSync(join(external, "keep"), "mine");
@@ -361,7 +376,7 @@ test("a managed folder replaced by a link cannot transfer ownership to its targe
 });
 
 test("a replacement directory and an old record without creation identity are only forgotten", async () => {
-  const owned = accounts.adopt(accounts.stage("claude"), "work");
+  const owned = await accounts.adopt(accounts.stage("claude"), "work");
   renameSync(owned.dir, owned.dir + "-original");
   mkdirSync(owned.dir);
   writeFileSync(join(owned.dir, "keep"), "replacement");
@@ -401,7 +416,7 @@ test("a removed folder, the user's or Omarchy's, is offered back until it's rest
   // One Corgi made goes with its folder, so there's nothing to offer.
   const s = accounts.stage("claude");
   signIn(s.dir, "me@acme.com");
-  await accounts.remove(accounts.adopt(s));
+  await accounts.remove(await accounts.adopt(s));
   expect(accounts.removed()).toEqual([
     { provider: "claude", dir: mine, name: "bigco", managed: false },
     { provider: "claude", dir: side, name: "Side", managed: false },
@@ -426,7 +441,7 @@ test("a removed folder, the user's or Omarchy's, is offered back until it's rest
   expect(accounts.removed()).toEqual([]);
 });
 
-test("a login one account has already is found in another", () => {
+test("a login one account has already is found in another", async () => {
   signIn(join(home, ".claude"), "me@home.com", "home-id");
   const work = join(home, "work"),
     side = join(home, "side");
@@ -435,12 +450,12 @@ test("a login one account has already is found in another", () => {
   process.env.CLAUDE_CONFIG_DIR = join(home, ".claude");
   accounts.reset();
   accounts.add("claude", "work", work);
-  expect(accounts.signedInElsewhere("claude", side, accounts.identity("claude", side)!)).toBeNull();
-  expect(accounts.signedInElsewhere("claude", work, accounts.identity("claude", work)!)).toBe("default");
+  expect(await accounts.signedInElsewhere("claude", side, (await accounts.identity("claude", side))!)).toBeNull();
+  expect(await accounts.signedInElsewhere("claude", work, (await accounts.identity("claude", work))!)).toBe("default");
   accounts.add("claude", "side", side);
   const third = join(home, "third");
   signIn(third, "me@home.com", "team-id");
-  expect(accounts.signedInElsewhere("claude", third, accounts.identity("claude", third)!)).toMatchObject({
+  expect(await accounts.signedInElsewhere("claude", third, (await accounts.identity("claude", third))!)).toMatchObject({
     name: "side",
   });
 });
@@ -448,16 +463,16 @@ test("a login one account has already is found in another", () => {
 test("a folder an agent ran in is remembered once someone signed in there, until it's removed", async () => {
   const dir = join(home, "elsewhere", ".claude-side");
   mkdirSync(dir, { recursive: true });
-  expect(accounts.remember("claude", dir)).toBe(false);
+  expect(await accounts.remember("claude", dir)).toBe(false);
   signIn(dir, "me@side.com");
-  expect(accounts.remember("claude", dir)).toBe(true);
-  expect(accounts.remember("claude", dir)).toBe(false);
-  expect(accounts.remember("claude", "")).toBe(false);
+  expect(await accounts.remember("claude", dir)).toBe(true);
+  expect(await accounts.remember("claude", dir)).toBe(false);
+  expect(await accounts.remember("claude", "")).toBe(false);
   expect(accounts.known()).toEqual([{ provider: "claude", dir, name: "side", managed: false }]);
   expect(accounts.label("claude", dir)).toBe("side");
   await accounts.remove(accounts.named("side")!);
   expect(accounts.forgotten(dir)).toBe(true);
-  expect(accounts.remember("claude", dir)).toBe(false);
+  expect(await accounts.remember("claude", dir)).toBe(false);
   expect(accounts.known()).toEqual([]);
   expect(accounts.add("claude", "side", dir).dir).toBe(dir);
   expect(accounts.forgotten(dir)).toBe(false);
@@ -475,7 +490,7 @@ test("an agent's account comes from how it was launched", () => {
 });
 
 test("deleting a folder yields and keeps account edits made during cleanup", async () => {
-  const owned = accounts.adopt(accounts.stage("claude"), "remove-me");
+  const owned = await accounts.adopt(accounts.stage("claude"), "remove-me");
   const pending = accounts.remove(owned);
   accounts.renameDefault("claude", "personal");
   const added = accounts.add("claude", "keep-me", mkdirSync(join(home, "keep"), { recursive: true })!);
@@ -556,11 +571,11 @@ test("invalid account edits are atomic, and old account files need no migration"
   expect(accounts.launchOptions("claude", "").flags).toBe("--verbose");
 });
 
-test("display names allow spaces, punctuation and Unicode without changing account folders", () => {
+test("display names allow spaces, punctuation and Unicode without changing account folders", async () => {
   const name = "Claude / Review 🤖 (work)",
     staged = accounts.stage("claude", name);
   signIn(staged.dir, "me@work.com");
-  const account = accounts.adopt(staged);
+  const account = await accounts.adopt(staged);
   expect(basename(account.dir)).toBe("1");
   expect(accounts.named(name)?.dir).toBe(account.dir);
   expect(accounts.named("claude/" + name)?.dir).toBe(account.dir);
@@ -574,18 +589,18 @@ test("display names allow spaces, punctuation and Unicode without changing accou
   expect(accounts.known()[0].name).toBe("Review: é / 中文");
 });
 
-test("provider-prefixed names resolve literally and reject ambiguous qualifiers", () => {
-  const literal = accounts.adopt(accounts.stage("claude", "claude/Review"));
+test("provider-prefixed names resolve literally and reject ambiguous qualifiers", async () => {
+  const literal = await accounts.adopt(accounts.stage("claude", "claude/Review"));
   expect(accounts.named("claude/Review")?.dir).toBe(literal.dir);
   expect(accounts.named("claude/claude/Review")?.dir).toBe(literal.dir);
-  const other = accounts.adopt(accounts.stage("claude", "Review"));
+  const other = await accounts.adopt(accounts.stage("claude", "Review"));
   expect(() => accounts.named("claude/Review")).toThrow("AmbiguousAccount");
   expect(accounts.named("Review")?.dir).toBe(other.dir);
   expect(accounts.named("claude/claude/Review")?.dir).toBe(literal.dir);
 });
 
 test("account removal refuses referenced accounts before signing out", async () => {
-  const account = accounts.adopt(accounts.stage("claude"), "referenced"),
+  const account = await accounts.adopt(accounts.stage("claude"), "referenced"),
     profile = profiles.save({
       provider: "claude",
       account: account.dir,
@@ -625,13 +640,13 @@ test("an account's folder reads from ~ when it's in the user's home, however HOM
   }
 });
 
-test("automatic defaults require a saved login or a model choice, not an empty configuration", () => {
-  for (const provider of Provider.all) expect(accounts.configured(provider)).toBe(false);
+test("automatic defaults require a saved login or a model choice, not an empty configuration", async () => {
+  for (const provider of Provider.all) expect(await isSetUp(provider)).toBe(false);
   mkdirSync(join(home, ".codex"));
   writeFileSync(join(home, ".codex", "config.toml"), 'model = "local-model"\n');
   writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ model: "opus" }));
-  expect(accounts.configured("codex")).toBe(true);
-  expect(accounts.configured("claude")).toBe(true);
+  expect(await isSetUp("codex")).toBe(true);
+  expect(await isSetUp("claude")).toBe(true);
   const pi = join(home, ".pi", "agent"),
     omp = join(home, ".omp", "agent"),
     opencode = join(home, ".local", "state", "opencode");
@@ -640,14 +655,14 @@ test("automatic defaults require a saved login or a model choice, not an empty c
   writeFileSync(join(pi, "auth.json"), "{}");
   writeFileSync(join(omp, "config.yml"), "theme: dark\n");
   writeFileSync(join(opencode, "model.json"), JSON.stringify({ recent: [] }));
-  for (const provider of ["pi", "omp", "opencode2"] as const) expect(accounts.configured(provider)).toBe(false);
+  for (const provider of ["pi", "omp", "opencode2"] as const) expect(await isSetUp(provider)).toBe(false);
   writeFileSync(join(pi, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "test" } }));
-  expect(accounts.configured("pi")).toBe(true);
+  expect(await isSetUp("pi")).toBe(true);
   rmSync(join(pi, "auth.json"));
   writeFileSync(join(pi, "settings.json"), JSON.stringify({ defaultProvider: "local", defaultModel: "local-model" }));
-  expect(accounts.configured("pi")).toBe(true);
+  expect(await isSetUp("pi")).toBe(true);
   writeFileSync(join(omp, "config.yml"), "modelRoles:\n  default: local/local-model\n");
-  expect(accounts.configured("omp")).toBe(true);
+  expect(await isSetUp("omp")).toBe(true);
   rmSync(join(omp, "config.yml"));
   const db = new Database(join(omp, "agent.db"));
   db.exec(
@@ -657,21 +672,21 @@ test("automatic defaults require a saved login or a model choice, not an empty c
     JSON.stringify({ key: "test" }),
   );
   db.close();
-  expect(accounts.configured("omp")).toBe(true);
+  expect(await isSetUp("omp")).toBe(true);
   writeFileSync(
     join(opencode, "model.json"),
     JSON.stringify({ recent: [{ providerID: "opencode", modelID: "free-model" }] }),
   );
-  expect(accounts.configured("opencode2")).toBe(true);
+  expect(await isSetUp("opencode2")).toBe(true);
   rmSync(join(opencode, "model.json"));
   const data = join(home, ".local", "share", "opencode");
   mkdirSync(data, { recursive: true });
   const credentials = new Database(join(data, "opencode.db"));
   credentials.exec("CREATE TABLE credential (id TEXT PRIMARY KEY)");
-  expect(accounts.configured("opencode2")).toBe(false);
+  expect(await isSetUp("opencode2")).toBe(false);
   credentials.exec("INSERT INTO credential VALUES ('test')");
   credentials.close();
-  expect(accounts.configured("opencode2")).toBe(true);
+  expect(await isSetUp("opencode2")).toBe(true);
 });
 
 test.each([
@@ -684,18 +699,18 @@ test.each([
   ["omp", ".omp/config.yml", "modelRoles:\n  default: local/local-model\n", "theme: dark\n"],
   ["claude", ".claude/settings.json", '{"model":"opus"}', '{"model":""}'],
   ["claude", ".claude/settings.local.json", '{"model":"sonnet"}', '{"permissions":{}}'],
-] as const)("%s recognizes model choices in %s only for that workspace", (provider, path, configured, empty) => {
+] as const)("%s recognizes model choices in %s only for that workspace", async (provider, path, configured, empty) => {
   const cwd = join(home, "project"),
     other = join(home, "other"),
     file = join(cwd, path);
   mkdirSync(dirname(file), { recursive: true });
   mkdirSync(other);
-  expect(accounts.identity(provider, "")).toBeNull();
-  expect(accounts.configured(provider, cwd)).toBe(false);
+  expect(await accounts.identity(provider, "")).toBeNull();
+  expect(await isSetUp(provider, cwd)).toBe(false);
   writeFileSync(file, empty);
-  expect(accounts.configured(provider, cwd)).toBe(false);
+  expect(await isSetUp(provider, cwd)).toBe(false);
   writeFileSync(file, configured);
-  expect(accounts.configured(provider, cwd)).toBe(true);
-  expect(accounts.configured(provider, other)).toBe(false);
-  expect(accounts.identity(provider, "")).toBeNull();
+  expect(await isSetUp(provider, cwd)).toBe(true);
+  expect(await isSetUp(provider, other)).toBe(false);
+  expect(await accounts.identity(provider, "")).toBeNull();
 });

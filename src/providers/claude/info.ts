@@ -1,7 +1,7 @@
 import type { Caps, Info, Login } from "../adapter";
 import type { Keeping, Vocabulary } from "../command_line";
-import { dirname } from "node:path";
-import { cached } from "../command_line";
+import { stat, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 export const info: Info = {
   id: "claude",
   label: "Claude Code",
@@ -43,26 +43,59 @@ export const vocabulary: Vocabulary = {
     "CLAUDE_CODE_USE_MANTLE",
     "CLAUDE_CODE_USE_GATEWAY",
   ],
-  account(root) {
-    const email = identity(root, false)?.email;
+  async account(root) {
+    const email = (await identity(root, false))?.email;
     return email ? `${email} (cached)` : null;
   },
 };
-const state = (dir: string) => cached(dir, ".claude.json", 8 * 1024 * 1024);
+/** What Corgi reads of a `.claude.json`: who signed in, and whether its first run is over. */
+type State = { login: Login | null; onboarded: boolean };
+/** Each `.claude.json` as last parsed, with the inode, size and mtime it had.
+ * Claude Code rewrites it often and it grows large, so it's parsed again only
+ * once it changes. */
+const states = new Map<string, { stamp: string; state: State }>();
+async function state(dir: string): Promise<State | null> {
+  const file = join(dir, ".claude.json");
+  try {
+    const s = await stat(file, { bigint: true }),
+      stamp = `${s.ino}:${s.size}:${s.mtimeNs}`,
+      known = states.get(file);
+    if (known?.stamp === stamp) return known.state;
+    // A read that fails isn't kept: only the file itself says no one signed in.
+    const text = await readFile(file, "utf8");
+    let value: any = null;
+    try {
+      value = JSON.parse(text);
+    } catch {}
+    const account = value?.oauthAccount,
+      email = account?.emailAddress,
+      workspace = String(account?.organizationUuid || ""),
+      state: State = {
+        login:
+          typeof email === "string" && email
+            ? { email, id: `${account.accountUuid || email}/${workspace}`, service: "claude", workspace }
+            : null,
+        onboarded: value?.hasCompletedOnboarding === true,
+      };
+    // Read after the stat, it may be newer than its stamp: the next stat differs
+    // and reads it again. A file written within the last second could change
+    // again within its mtime's clock tick, unseen, so it isn't kept until it's older.
+    if (BigInt(Date.now()) - s.mtimeNs / 1_000_000n >= 1000n) states.set(file, { stamp, state });
+    else states.delete(file);
+    return state;
+  } catch {
+    states.delete(file);
+    return null;
+  }
+}
 /** Who signed in to the settings at `root`. The default account's file
  * sits in HOME instead, `home` when `root` is that account's. */
-export function identity(root: string, home: boolean): Login | null {
-  const read = (dir: string): Login | null => {
-    const account = state(dir)?.oauthAccount,
-      email = account?.emailAddress;
-    if (typeof email !== "string" || !email) return null;
-    const workspace = String(account.organizationUuid || "");
-    return { email, id: `${account.accountUuid || email}/${workspace}`, service: "claude", workspace };
-  };
-  return read(root) ?? (home ? read(dirname(root)) : null);
+export async function identity(root: string, home: boolean): Promise<Login | null> {
+  const login = (await state(root))?.login ?? (home ? ((await state(dirname(root)))?.login ?? null) : null);
+  return login && { ...login };
 }
 /** Its first run at `root` is over: until then it asks for a theme and a login. */
-export const onboarded = (root: string) => state(root)?.hasCompletedOnboarding === true;
+export const onboarded = async (root: string) => (await state(root))?.onboarded === true;
 /** What a resume or fork keeps of a typed `claude` command. */
 export const keeping: Keeping = {
   drop: [

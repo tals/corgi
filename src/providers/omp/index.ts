@@ -56,8 +56,8 @@ export const adapter: Adapter = {
   ],
   version: v => /^omp\/\d+\.\d+\.\d+/.test(v.trim()),
   distribution: { packages: ["@oh-my-pi/pi-coding-agent"], version: v => `omp/${v}` },
-  inspect(c) {
-    const result = commandLine.inspect(c, {
+  async inspect(c) {
+    const result = await commandLine.inspect(c, {
       config_env: "PI_CODING_AGENT_DIR",
       account_home: ".omp/agent",
       yolo: "--auto-approve",
@@ -66,7 +66,7 @@ export const adapter: Adapter = {
       credential_env: ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "GEMINI_API_KEY"],
       endpoint_env: [],
       provider_env: [],
-      account: root => identity(root)?.email ?? null,
+      account: async root => identity(root)?.email ?? null,
     });
     for (let i = 0; i < c.args.length; i++) {
       const w = c.args[i];

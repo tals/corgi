@@ -1,7 +1,6 @@
 //! What a launcher command says about the agent it starts, for the command
 //! lines Claude Code and Codex share the shape of: environment overrides,
 //! `--model`, a permission-skipping flag, profiles and settings files.
-import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { CommandLine, Inspection, Kept } from "./adapter";
 export type Vocabulary = {
@@ -19,9 +18,9 @@ export type Vocabulary = {
   endpoint_env: string[];
   provider_env: string[];
   /** The account cached in a settings directory, as the launcher shows it. */
-  account(root: string): string | null;
+  account(root: string): Promise<string | null>;
 };
-export function inspect(c: CommandLine, v: Vocabulary): Inspection {
+export async function inspect(c: CommandLine, v: Vocabulary): Promise<Inspection> {
   const out: Inspection = { permissions: "default", model: "", account: "", default_account: !c.flagged };
   let credential = false,
     settings = c.flagged,
@@ -84,7 +83,7 @@ export function inspect(c: CommandLine, v: Vocabulary): Inspection {
         : home && !/[$~`]/.test(home)
           ? resolve(c.cwd, home, v.account_home)
           : null;
-    if (root) out.account = v.account(root) ?? out.account;
+    if (root) out.account = (await v.account(root)) ?? out.account;
   }
   return out;
 }
@@ -114,15 +113,6 @@ export function keep(c: CommandLine, k: Keeping): Kept {
     if (!k.drop.includes(name)) args.push(w, ...(value ? [next] : []));
   }
   return { args, env: c.env.filter(([key, value]) => k.env.test(key) && value !== process.env[key]) };
-}
-/** A JSON file in `root` no bigger than `limit`, or null. */
-export function cached(root: string, name: string, limit = 65536): any {
-  try {
-    const file = resolve(root, name);
-    return statSync(file).size <= limit ? JSON.parse(readFileSync(file, "utf8")) : null;
-  } catch {
-    return null;
-  }
 }
 /** An explicit picker choice wins over model flags in an entry's extra arguments. */
 export function withoutModel(args: string[], qualified = false): string[] {

@@ -6,9 +6,19 @@ import { configHome, Hooks, sharedPrompt } from "../common";
 import { ScreenWatcher } from "../watcher";
 import * as hooksFile from "../hooks_file";
 import * as commandLine from "../command_line";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 const events = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"],
   configDir = (env = process.env) => configHome(env, "SIM_HOME", ".sim"),
   dir = (account: string) => account || configDir(),
+  /** What its sign-in leaves in the folder, or null. */
+  loginFile = async (root: string): Promise<any> => {
+    try {
+      return JSON.parse(await readFile(join(root, "login.json"), "utf8"));
+    } catch {
+      return null;
+    }
+  },
   settings = (account: string) =>
     new hooksFile.File("sim", dir(account), "hooks.json", events, account ? configDir() : null),
   hooks = new Hooks();
@@ -37,23 +47,24 @@ export const adapter: Adapter = {
       credential_env: ["SIM_API_KEY"],
       endpoint_env: [],
       provider_env: [],
-      account: () => null,
+      account: async () => null,
     }),
   installs: ({ home }) => (home ? [home + "/.local/bin/sim"] : []),
   accounts: {
     env: "SIM_HOME",
     home: configDir,
     prefix: ".sim-",
-    identity: root => {
-      const login = commandLine.cached(root, "login.json");
+    identity: async root => {
+      const login = await loginFile(root);
       return typeof login?.email === "string" ? { email: login.email, id: String(login.id ?? login.email) } : null;
     },
+    variant: async () => "",
     shared: { dirs: ["notes"], files: ["hooks.json"] },
     signin: {
       started: text => /\S/.test(text),
       step: text => (text.includes("Paste the code") ? "code" : text.includes("Sign in how?") ? "method" : null),
       hints: { code: "Paste the code the page shows." },
-      ready: root => commandLine.cached(root, "login.json")?.ready === true,
+      ready: async root => (await loginFile(root))?.ready === true,
       check: ["status"],
       logout: ["logout"],
       first: [],

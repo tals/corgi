@@ -207,7 +207,7 @@ test.each(["complete", "close", "expire", "close-error"])(
     let flow!: Signin;
     const resolve = spyOn(discovery, "resolve").mockResolvedValue("/fake/claude"),
       stage = spyOn(accounts, "stage").mockReturnValue(staged),
-      adopt = spyOn(accounts, "adopt").mockReturnValue({
+      adopt = spyOn(accounts, "adopt").mockResolvedValue({
         provider: "claude",
         name: "work",
         dir: staged.dir,
@@ -289,7 +289,7 @@ test.each([
     gate = Promise.withResolvers<void>();
   const resolve = spyOn(discovery, "resolve").mockResolvedValue("/fake/claude"),
     stage = spyOn(accounts, "stage").mockReturnValue(staged),
-    identity = spyOn(accounts, "identity").mockReturnValue(null),
+    identity = spyOn(accounts, "identity").mockResolvedValue(null),
     unstage = spyOn(accounts, "unstage").mockImplementation(() => {}),
     start = spyOn(Signin.prototype, "start").mockImplementation(async function (this: Signin) {
       started.resolve(this);
@@ -372,14 +372,14 @@ test("a successful login check cannot adopt an account once discard starts", asy
   flow.staged = staged;
   flow.compared = true;
   flow.child = new Terminal(78, 19);
-  const identity = spyOn(accounts, "identity").mockReturnValue({ id: "work", email: "work@example.com" }),
-    ready = spyOn(claude.signin, "ready").mockReturnValue(true),
+  const identity = spyOn(accounts, "identity").mockResolvedValue({ id: "work", email: "work@example.com" }),
+    ready = spyOn(claude.signin, "ready").mockResolvedValue(true),
     check = spyOn(flow, "account_command").mockReturnValue(checked.promise),
     logout = spyOn(flow, "signOut").mockImplementation(async () => {
       loggingOut.resolve();
       await loggedOut.promise;
     }),
-    adopt = spyOn(accounts, "adopt").mockReturnValue({
+    adopt = spyOn(accounts, "adopt").mockResolvedValue({
       provider: "claude",
       name: "work",
       dir: staged.dir,

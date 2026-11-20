@@ -141,7 +141,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
         for (const w of r.workspaces.items) w.launcher_hidden = w.launcher_hidden.filter(h => h !== row);
       } else if (request.payload.semantics) e.semantics = Object.assign(new Semantics(), request.payload.semantics);
       // A viewer that can't read the provider sends none, so the stored ones stand.
-      else if (!unchanged) e.semantics = analyze(source, request.payload.cwd ?? ".");
+      else if (!unchanged) e.semantics = await analyze(source, request.payload.cwd ?? ".");
       r.agent_commands[Number(request.payload.index)].hidden = !!source && request.payload.hidden;
       r.changed();
       return {};

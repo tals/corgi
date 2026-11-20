@@ -1,7 +1,7 @@
 import { watch, type FSWatcher } from "node:fs";
 import { basename, dirname } from "node:path";
 import { Quit } from "../subprocess";
-import { Provider, adapter, byProvider, Text } from "../providers";
+import { Provider, adapter, byProvider, Text, type ByProvider } from "../providers";
 import type { Launcher, Login as Identity } from "../providers/adapter";
 import { Model } from "../providers/model";
 import { Info, serializeLimits } from "../usage/account";
@@ -16,6 +16,13 @@ export const active_every = 150,
   idle_every = 600;
 /** How often the worker looks for an account due a read, in ms. */
 const check_ms = 15000;
+/** A folder a viewer asked about this recently is on screen: a subscribed
+ * viewer asks every tick. One that isn't, and isn't a workspace's or a
+ * worktree's any longer, leaves the refresh. */
+const shown_ms = 60000;
+/** How long a folder's first preview waits for what the folder itself says:
+ * its files may sit on a mount that doesn't answer. */
+const prepare_ms = 250;
 /** What a row shows of its account's read. */
 const account_fields = [
   "signed_in",
@@ -79,14 +86,20 @@ export function installed(cwd = process.cwd()) {
   return byProvider(p => discovery.installed(p, cwd));
 }
 type Row = { provider: Provider; account: string };
-/** The folders of one provider signed in to one account. */
-type Group = { provider: Provider; id: string; folders: string[] };
+/** The folders of one provider signed in to one account, read through `cwd`'s executable. */
+type Group = {
+  provider: Provider;
+  id: string;
+  variant: string;
+  folders: string[];
+  cwd: string;
+  /** Who signed in to each folder when the rows were grouped. */
+  who: Map<string, Identity | null>;
+};
 /** An account, which several folders may be signed in to. Its usage is read
  * through one of them, the one that worked last; the rest only read their
  * sign-in. */
 class Login {
-  /** The latest workspace whose executable can read this account. */
-  cwd = process.cwd();
   /** When this worker last read it, in ms. */
   read_at = 0;
   /** Someone asked for its usage: the next read fetches it, whatever its age. */
@@ -96,8 +109,9 @@ class Login {
   stale = false;
   /** The folder whose read worked last. */
   source: string | null = null;
-  /** Each folder's own last read. */
+  /** Each folder's own last read, and who was signed in to it then. */
   infos = new Map<string, Info>();
+  who = new Map<string, Identity | null>();
   history = limitHistory.none();
   spend = limitHistory.noSpend();
   daily: limitHistory.SpendDay[] = [];
@@ -105,11 +119,6 @@ class Login {
 /** A fresh usage reading, which other folders of its account can show. */
 function usable(info: Info) {
   return info.signed_in === true && info.usage_fetched_at > 0 && !info.usage_error.len;
-}
-/** Who signed in to `account`, or the folder itself when that's unknown. */
-function loginOf(provider: Provider, account: string) {
-  const id = accounts.identity(provider, account)?.id;
-  return id ? `login:${id}` : `folder:${account}`;
 }
 /** An account's launcher, taking one call at a time: a background round and a
  * folder's preview can both read it, and an account reader isn't safe to
@@ -174,8 +183,15 @@ export class Worker {
   }[] = [];
   /** Each account's launcher, opened on first use. */
   launchers = new Map<string, Promise<Launcher | null>>();
-  /** Accounts by provider and who signed in. */
+  /** Accounts by provider and who signed in, whichever folders show them. */
   logins = new Map<string, Login>();
+  /** Who signed in to each account, by provider and folder, as last read. */
+  private identities = new Map<string, Identity | null>();
+  private identified = false;
+  /** What sets each provider up in a folder beyond a sign-in, as last read. */
+  private setups = new Map<string, Preview["configured"]>();
+  /** What in each folder changes which credential a provider uses, as last read. */
+  private variants = new Map<string, ByProvider<string>>();
   /** Seconds between account reads, which the daemon sets from its viewers. */
   every = idle_every;
   /** The rows taken out of Manage agents, which it doesn't read. */
@@ -183,14 +199,11 @@ export class Worker {
   private checked = 0;
   private sampling = false;
   private cached_accounts = new Map<string, Preview>();
-  private installs: {
-    at: number;
-    cwd: string;
-    installed: Preview["installed"];
-    configured: Preview["configured"];
-    outdated: Preview["outdated"];
-    on_demand: Preview["on_demand"];
-  } | null = null;
+  /** What each folder runs, kept a few seconds. */
+  private installs = new Map<
+    string,
+    { at: number; installed: Preview["installed"]; outdated: Preview["outdated"]; on_demand: Preview["on_demand"] }
+  >();
   /** The folder of each file a launcher reads, watched by file. */
   watching = new Map<string, FSWatcher>();
   private settle: ReturnType<typeof setTimeout> | null = null;
@@ -232,11 +245,11 @@ export class Worker {
    * others when next asked. */
   private reread() {
     if (this.stopping) return;
-    this.installs = null;
+    this.installs.clear();
     const now = Date.now();
     for (const job of this.jobs) {
       job.updated = 0;
-      if (now - job.used > 60000) continue;
+      if (now - job.used > shown_ms) continue;
       job.queued = true;
       job.preview = job.preview.with({ pending: true });
     }
@@ -288,9 +301,33 @@ export class Worker {
   preview(cwd: string, refresh = false) {
     return this.request(cwd, false, refresh);
   }
-  /** Latest account snapshot: no job, discovery, provider read or refresh. */
+  /** Latest account snapshot: no job, discovery, provider read or refresh. A
+   * folder not shown lately has its accounts' readings all the same. */
   cached(cwd: string) {
-    return this.cached_accounts.get(cwd) ?? new Preview().with({ pending: false });
+    return this.cached_accounts.get(cwd) ?? this.compose(this.list(new Preview(), cwd), this.skipped(), cwd);
+  }
+  /** The folders of the workspaces and worktrees there are. */
+  private existing = new Set<string>();
+  /** Follows the folders that are still some workspace's or worktree's:
+   * those stay in the refresh, with the rows they last had, while off screen. */
+  keep(folders: Set<string>) {
+    this.existing = folders;
+  }
+  private preparing = new Map<string, Promise<void>>();
+  /** Reads what `cwd` itself says before its first preview, so that it
+   * shows the reading of its own variant rather than another folder's. */
+  prepare(cwd: string): Promise<void> {
+    if (this.variants.has(cwd) || this.stopping || Buffer.byteLength(cwd) > 4096) return Promise.resolve();
+    let pending = this.preparing.get(cwd);
+    if (!pending) {
+      pending = (async () => {
+        if (!this.identified) await this.identify();
+        await this.survey(cwd);
+      })().finally(() => this.preparing.delete(cwd));
+      this.preparing.set(cwd, pending);
+    }
+    // Past the wait it shows its accounts' default readings until its own are read.
+    return Promise.race([pending, new Promise<void>(resolve => setTimeout(resolve, prepare_ms))]);
   }
   trackUsage(cwd: string) {
     return this.request(cwd, true);
@@ -307,13 +344,15 @@ export class Worker {
   request(cwd: string, access: boolean, refresh = false) {
     if (Buffer.byteLength(cwd) > 4096) return new Preview();
     const now = Date.now();
-    if (refresh) this.installs = null;
+    if (refresh) this.installs.clear();
     // A new subscriber reads sign-in again; asking for usage fetches it too.
     if (refresh || access)
-      for (const login of this.logins.values()) {
+      for (const [key, login] of this.logins) {
+        const [provider, , variant] = key.split("\0") as [Provider, string, string];
         login.read_at = 0;
         login.stale = true;
-        login.forced ||= access && login.cwd === cwd;
+        // Only this folder's readings: another folder's variant has its own.
+        login.forced ||= access && variant === this.variant(provider, cwd);
       }
     let job = this.jobs.find(j => j.cwd === cwd);
     if (job) {
@@ -343,10 +382,8 @@ export class Worker {
       }
       return job.preview;
     }
-    const preview = this.list(new Preview(), cwd);
     // Keep settled account availability when a different folder starts reading its models.
-    preview.options = byProvider(p => this.shown(p, "", preview.options[p], cwd));
-    preview.accounts = preview.accounts.map(a => ({ ...a, option: this.shown(a.provider, a.account, a.option, cwd) }));
+    const preview = this.compose(this.list(new Preview(), cwd), this.skipped(), cwd).with({ pending: true });
     job = {
       cwd,
       preview,
@@ -356,33 +393,32 @@ export class Worker {
       accessing: false,
       request_access: access,
     };
-    if (this.jobs.length >= 32) {
-      const [oldest] = this.jobs.splice(
-        this.jobs.reduce((best, j, i, a) => (j.used < a[best].used ? i : best), 0),
-        1,
-      );
-      this.cached_accounts.delete(oldest.cwd);
+    if (this.jobs.length >= 64) {
+      const oldest = this.jobs.reduce((best, j) => (j.used < best.used ? j : best));
+      this.forget(j => j === oldest);
     }
     this.jobs.push(job);
     void this.pump();
     return preview;
   }
-  /** Account rows come from local state, independently of provider reads. */
+  /** Account rows come from local state, independently of provider reads;
+   * what sets a provider up is as `survey` last read it. */
   private list(previous: Preview, cwd = process.cwd()): Preview {
     const now = performance.now();
-    if (!this.installs || this.installs.cwd !== cwd || now - this.installs.at >= 5000) {
-      const found = installed(cwd),
-        on_demand = byProvider(p => !found[p] && discovery.onDemand(p, cwd));
-      this.installs = {
+    let installs = this.installs.get(cwd);
+    if (!installs || now - installs.at >= 5000) {
+      const found = installed(cwd);
+      installs = {
         at: now,
-        cwd,
         installed: found,
-        configured: byProvider(p => (found[p] || on_demand[p]) && accounts.configured(p, cwd)),
-        on_demand,
+        on_demand: byProvider(p => !found[p] && discovery.onDemand(p, cwd)),
         outdated: byProvider(p => (found[p] ? "" : (discovery.outdated(p, cwd) ?? ""))),
       };
+      this.installs.set(cwd, installs);
     }
-    const { installed: available, configured, outdated, on_demand } = this.installs,
+    const { installed: available, outdated, on_demand } = installs,
+      setup = this.setups.get(cwd),
+      configured = byProvider(p => (available[p] || on_demand[p]) && (setup?.[p] ?? previous.configured[p])),
       names = accounts.defaultNames(),
       listed = accounts.known().filter(a => available[a.provider] || on_demand[a.provider]);
     if (
@@ -461,13 +497,26 @@ export class Worker {
       this.running = false;
     }
   }
+  /** The jobs being run, which a round doesn't forget from under them. */
+  private active = new Set<Worker["jobs"][number]>();
   async run(job: Worker["jobs"][number]) {
+    this.active.add(job);
+    try {
+      await this.fill(job);
+    } finally {
+      this.active.delete(job);
+    }
+  }
+  private async fill(job: Worker["jobs"][number]) {
     job.queued = false;
     job.accessing = job.request_access;
     job.request_access = false;
     await discovery.check(job.cwd);
     if (this.stopping) return;
-    this.installs = null;
+    this.installs.delete(job.cwd);
+    await this.identify();
+    await this.survey(job.cwd);
+    if (this.stopping) return;
     const skip = this.skipped();
     job.preview = this.withSkipped(this.list(job.preview, job.cwd).with({ pending: true }), skip, job.cwd);
     job.preview = job.preview.with({
@@ -478,7 +527,7 @@ export class Worker {
       ),
     });
     const rows = this.rows(job.preview, skip),
-      groups = this.groups(rows);
+      groups = this.groups(rows.map(l => ({ ...l, cwd: job.cwd })));
     // Launchers of rows it no longer reads, such as accounts gone, close.
     const live = new Set(rows.map(l => l.provider + "\0" + l.account));
     this.close(l => !live.has(l.provider + "\0" + l.account));
@@ -532,10 +581,8 @@ export class Worker {
    * account's folder that neither names is signed out. */
   private signedIn({ provider, account }: row.Launch, cwd: string): Option {
     const option = new Option(),
-      who = accounts.identity(provider, account),
-      last = who
-        ? undefined
-        : this.logins.get(provider + "\0" + loginOf(provider, account) + "\0" + cwd)?.infos.get(account);
+      who = this.who(provider, account),
+      last = who ? undefined : this.logins.get(this.loginKey(provider, account, cwd))?.infos.get(account);
     option.pending = false;
     if (who) {
       option.signed_in = true;
@@ -555,62 +602,189 @@ export class Worker {
       accounts: preview.accounts.map(a => ({ ...a, option: own(a, a.option) })),
     });
   }
-  private groups(rows: Row[]): Group[] {
+  /** Rows by who signed in: rows of one login share its reading. Each group
+   * is read through the folder of its first row. */
+  private groups(rows: (Row & { cwd: string })[]): Group[] {
     const groups: Group[] = [];
-    for (const { provider, account } of rows) {
-      const id = loginOf(provider, account),
-        group = groups.find(g => g.provider === provider && g.id === id);
-      if (group) group.folders.push(account);
-      else groups.push({ provider, id, folders: [account] });
+    for (const { provider, account, cwd } of rows) {
+      const id = this.loginOf(provider, account),
+        variant = this.variant(provider, cwd),
+        group = groups.find(g => g.provider === provider && g.id === id && g.variant === variant);
+      if (!group)
+        groups.push({
+          provider,
+          id,
+          variant,
+          folders: [account],
+          cwd,
+          who: new Map([[account, this.who(provider, account)]]),
+        });
+      else if (!group.folders.includes(account)) {
+        group.folders.push(account);
+        group.who.set(account, this.who(provider, account));
+      }
     }
     return groups;
   }
+  /** What `cwd` changes about the credential `provider` uses, as `survey` last read it. */
+  private variant(provider: Provider, cwd: string) {
+    return this.variants.get(cwd)?.[provider] ?? "";
+  }
+  /** Who signed in to `account`, as `identify` last read it. */
+  private who(provider: Provider, account: string): Identity | null {
+    return this.identities.get(provider + "\0" + account) ?? null;
+  }
+  /** Who signed in to `account`, or the folder itself when that's unknown. */
+  private loginOf(provider: Provider, account: string) {
+    const id = this.who(provider, account)?.id;
+    return id ? `login:${id}` : `folder:${account}`;
+  }
+  private loginKey(provider: Provider, account: string, cwd: string) {
+    return provider + "\0" + this.loginOf(provider, account) + "\0" + this.variant(provider, cwd);
+  }
+  /** Reads who signed in to each provider's default account and to each
+   * account Corgi knows: once a read, whatever the number of folders. */
+  private async identify() {
+    const rows: Row[] = [
+        ...Provider.all.map(provider => ({ provider, account: "" })),
+        ...accounts.known().map(a => ({ provider: a.provider, account: a.dir })),
+      ],
+      read = await Promise.all(rows.map(l => accounts.identity(l.provider, l.account)));
+    this.identities = new Map(rows.map((l, i) => [l.provider + "\0" + l.account, read[i]]));
+    this.identified = true;
+  }
+  /** Reads what sets each provider up in `cwd` beyond a sign-in. */
+  private async survey(cwd: string) {
+    const variants = await Promise.all(
+      Provider.all.map(p =>
+        adapter(p)
+          .accounts.variant(cwd)
+          .catch(() => ""),
+      ),
+    );
+    this.variants.set(
+      cwd,
+      byProvider(p => variants[Provider.all.indexOf(p)]),
+    );
+    const setup = await Promise.all(Provider.all.map(p => accounts.configured(p, cwd, this.who(p, "") !== null)));
+    this.setups.set(
+      cwd,
+      byProvider(p => setup[Provider.all.indexOf(p)]),
+    );
+  }
+  /** Drops the folders `gone` picks, and what was kept for them. */
+  private forget(gone: (job: Worker["jobs"][number]) => boolean) {
+    this.jobs = this.jobs.filter(job => {
+      if (!gone(job)) return true;
+      this.cached_accounts.delete(job.cwd);
+      this.installs.delete(job.cwd);
+      this.setups.delete(job.cwd);
+      this.variants.delete(job.cwd);
+      return false;
+    });
+  }
+  /** `listed` with what its rows' accounts read, as its folder shows them. */
+  private compose(listed: Preview, skip: (l: row.Launch) => boolean, cwd: string, keys?: Map<string, string>): Preview {
+    const shown = (l: row.Launch, option: Option) =>
+      listed.on_demand[l.provider] || skip(l)
+        ? this.signedIn(l, cwd)
+        : this.shown(
+            l.provider,
+            l.account,
+            option,
+            cwd,
+            keys?.get(l.provider + "\0" + l.account + "\0" + this.variant(l.provider, cwd)),
+          );
+    return listed.with({
+      pending: false,
+      options: byProvider(p => shown({ provider: p, account: "" }, listed.options[p])),
+      accounts: listed.accounts.map(a => ({ ...a, option: shown(a, a.option) })),
+    });
+  }
   /** Reads the accounts due a read, then shows what they read in every
-   * folder's preview, so subscribers needn't wait for their next refresh. */
+   * folder's preview, so subscribers needn't wait for their next refresh.
+   * Only the folders viewers showed lately: each folder's own reads are of
+   * what it runs and sets up; each login is read once, whatever shows it. */
   private async round() {
+    const now = Date.now(),
+      latest = this.jobs.reduce<Worker["jobs"][number] | null>((a, b) => (a && a.used >= b.used ? a : b), null),
+      // The folder shown last counts as on screen, so the accounts keep being read through it.
+      shown = (job: Worker["jobs"][number]) => job === latest || now - job.used < shown_ms;
+    this.forget(job => !shown(job) && !job.queued && !this.active.has(job) && !this.existing.has(job.cwd));
+    // What was kept for a folder that has no job, as one asked about once, goes too.
+    const held = new Set(this.jobs.map(job => job.cwd));
+    for (const map of [this.cached_accounts, this.installs, this.setups, this.variants])
+      for (const cwd of [...map.keys()]) if (!held.has(cwd) && !this.preparing.has(cwd)) map.delete(cwd);
     const skip = this.skipped(),
-      directories = new Set(this.jobs.length ? this.jobs.map(job => job.cwd) : [process.cwd()]);
-    for (const cwd of directories) {
+      // The folder a viewer asked about last comes first, so a login is read through it.
+      ordered = [...this.jobs].sort((a, b) => b.used - a.used),
+      folders = this.jobs.length ? [...new Set(ordered.filter(shown).map(job => job.cwd))] : [process.cwd()];
+    await this.identify();
+    // Only folders on screen are looked at again: what each runs and sets up.
+    for (const cwd of folders) {
       await discovery.check(cwd);
       if (this.stopping) return;
-      this.installs = null;
-      const listed = this.list(new Preview(), cwd);
-      this.close(skip);
-      await Promise.all(this.groups(this.rows(listed, skip)).map(group => this.read(group, cwd)));
+      this.installs.delete(cwd);
+      await this.survey(cwd);
       if (this.stopping) return;
-      const shown = (l: row.Launch, option: Option) =>
-        listed.on_demand[l.provider] || skip(l)
-          ? this.signedIn(l, cwd)
-          : this.shown(l.provider, l.account, option, cwd);
+    }
+    this.close(skip);
+    const fresh = new Set(folders),
+      listed = new Map(folders.map(cwd => [cwd, this.list(new Preview(), cwd)])),
+      rows = new Map<string, Row & { cwd: string }>();
+    // The rest keep the rows they last had, and their accounts are still read.
+    // An account removed since isn't read on their account.
+    const known = new Set(accounts.known().map(a => a.provider + "\0" + a.dir)),
+      current = (preview: Preview) =>
+        preview.with({ accounts: preview.accounts.filter(a => known.has(a.provider + "\0" + a.account)) });
+    for (const job of ordered) if (!listed.has(job.cwd)) listed.set(job.cwd, current(job.preview));
+    for (const [cwd, preview] of listed)
+      for (const l of this.rows(preview, skip)) {
+        const key = l.provider + "\0" + l.account + "\0" + this.variant(l.provider, cwd);
+        if (!rows.has(key)) rows.set(key, { provider: l.provider, account: l.account, cwd });
+      }
+    const groups = this.groups([...rows.values()]),
+      // Each row's reading by the key it was read under: who signed in may be read again meanwhile.
+      keys = new Map(
+        groups.flatMap(g =>
+          g.folders.map(account => [
+            g.provider + "\0" + account + "\0" + g.variant,
+            g.provider + "\0" + g.id + "\0" + g.variant,
+          ]),
+        ),
+      );
+    await Promise.all(groups.map(group => this.read(group)));
+    if (this.stopping) return;
+    for (const [cwd, preview] of listed) {
+      const jobs = this.jobs.filter(job => job.cwd === cwd);
+      // A folder off screen shows its rows as they are now: it may have come
+      // back on screen and loaded its models while the accounts were read.
+      for (const job of jobs) {
+        const rows = fresh.has(cwd) ? this.list(job.preview, cwd) : current(job.preview);
+        job.preview = this.compose(rows, skip, cwd, keys).with({ pending: job.preview.pending });
+      }
       this.cached_accounts.set(
         cwd,
-        listed.with({
-          pending: false,
-          options: byProvider(p => shown({ provider: p, account: "" }, listed.options[p])),
-          accounts: listed.accounts.map(a => ({ ...a, option: shown(a, a.option) })),
-        }),
+        fresh.has(cwd) || !jobs.length
+          ? this.compose(preview, skip, cwd, keys)
+          : jobs[0].preview.with({ pending: false }),
       );
-      for (const job of this.jobs.filter(job => job.cwd === cwd))
-        job.preview = this.list(job.preview, cwd).with({
-          options: byProvider(p => shown({ provider: p, account: "" }, job.preview.options[p])),
-          accounts: job.preview.accounts.map(a => ({ ...a, option: shown(a, a.option) })),
-        });
     }
   }
   /** Reads an account once `every` seconds have passed: its folders in turn,
    * the one that worked last first, until one reads its usage. Those after
    * it read only their sign-in, and show the reading they share. */
-  private read({ provider, id, folders }: Group, cwd = process.cwd()): Promise<void> {
-    const key = provider + "\0" + id + "\0" + cwd;
+  private read(group: Group): Promise<void> {
+    const { provider, id, variant, folders, cwd } = group,
+      key = provider + "\0" + id + "\0" + variant;
     let login = this.logins.get(key);
     if (!login) {
       login = new Login();
-      login.forced = this.jobs.some(job => job.cwd === cwd && job.accessing);
+      login.forced = this.jobs.some(job => job.accessing && this.variant(provider, job.cwd) === variant);
       this.logins.set(key, login);
     }
-    const directory = (login.cwd = cwd);
     // A fresh reading asked for since the one under way began comes after it.
-    if (login.reading && login.stale) return this.again(login.reading, { provider, id, folders }, cwd);
+    if (login.reading && login.stale) return this.again(login.reading, group);
     if (login.reading) return login.reading;
     if (Date.now() - login.read_at < this.every * 1000 && folders.every(f => login.infos.has(f)))
       return Promise.resolve();
@@ -626,12 +800,13 @@ export class Worker {
         let info = new Info();
         try {
           const launcher = await this.launcher(provider, folder);
-          if (launcher) info = await launcher.account(this.quit, max_age, directory);
+          if (launcher) info = await launcher.account(this.quit, max_age, cwd);
         } catch {
           info.usage_error = new Text("account read failed");
         }
         if (this.stopping) return;
         login.infos.set(folder, info);
+        login.who.set(folder, group.who.get(folder) ?? null);
         if (found === null && usable(info)) {
           found = info;
           login.source = folder;
@@ -651,14 +826,20 @@ export class Worker {
     return reading;
   }
   /** Reads `group` again once `reading`, which began before someone asked for a fresh one, ends. */
-  private async again(reading: Promise<void>, group: Group, cwd: string): Promise<void> {
+  private async again(reading: Promise<void>, group: Group): Promise<void> {
     await reading;
-    return this.read(group, cwd);
+    return this.read(group);
   }
   /** `base` with what `account`'s folder read, or when that has no fresh
    * usage, the reading another folder signed in to the same account got. */
-  private shown(provider: Provider, account: string, base: Option, cwd: string): Option {
-    const login = this.logins.get(provider + "\0" + loginOf(provider, account) + "\0" + cwd),
+  private shown(
+    provider: Provider,
+    account: string,
+    base: Option,
+    cwd: string,
+    key = this.loginKey(provider, account, cwd),
+  ): Option {
+    const login = this.logins.get(key),
       own = login?.infos.get(account);
     if (!login || !own) return base;
     const source = login.source !== null ? login.infos.get(login.source) : undefined,
@@ -674,7 +855,8 @@ export class Worker {
       for (const key of ["limits", "spend", "usage_fetched_at", "usage_error"] as const)
         (out as any)[key] = source[key];
     if (borrowed && source.plan.len) out.plan = source.plan;
-    out.login = accounts.identity(provider, account);
+    // Who the reading is of, not who a later look at the folder found.
+    out.login = login.who.get(account) ?? null;
     out.history = login.history;
     out.spend_history = login.spend;
     out.spend_daily = login.daily;
@@ -685,9 +867,10 @@ export class Worker {
     const launcher = await this.launcher(p, account);
     if (!launcher) return null;
     this.watch(launcher);
-    await this.read(group, cwd);
+    await this.read(group);
     if (this.stopping) return null;
-    const out = this.shown(p, account, new Option(), cwd);
+    // By the group's own key: who signed in may have been read again meanwhile.
+    const out = this.shown(p, account, new Option(), cwd, p + "\0" + group.id + "\0" + group.variant);
     const chosen = await launcher.model(cwd, this.quit);
     if (chosen.model) out.setModel(chosen.model, chosen.source, chosen.model_name);
     else out.source = new Text(chosen.source);

@@ -37,17 +37,17 @@ test("omp launches, resumes and forks with its own flags", () => {
   expect(adapter.version!("omp/18.12.6\n")).toBe(true);
   expect(adapter.version!("1.2.0")).toBe(false);
 });
-test("omp keeps account and extension options without replaying sessions or prompts", () => {
+test("omp keeps account and extension options without replaying sessions or prompts", async () => {
   const c = (args: string[]) => ({ args: ["omp", ...args], env: [], flagged: false, cwd: "/tmp" });
   expect(
     adapter.launch.keep!(
       c(["--resume", "old", "--model", "luna", "--thinking", "low", "-e", "x.ts", "--auto-approve", "prompt"]),
     ).args,
   ).toEqual(["--thinking", "low", "-e", "x.ts", "--auto-approve"]);
-  expect(adapter.inspect(c(["--auto-approve"])).permissions).toBe("bypass");
-  expect(adapter.inspect(c(["--approval-mode", "yolo"])).permissions).toBe("bypass");
-  expect(adapter.inspect(c(["--approval-mode", "write"])).permissions).toBe("default");
-  expect(adapter.inspect(c(["--provider", "anthropic", "--model", "opus"])).model).toBe("anthropic/opus");
+  expect((await adapter.inspect(c(["--auto-approve"]))).permissions).toBe("bypass");
+  expect((await adapter.inspect(c(["--approval-mode", "yolo"]))).permissions).toBe("bypass");
+  expect((await adapter.inspect(c(["--approval-mode", "write"]))).permissions).toBe("default");
+  expect((await adapter.inspect(c(["--provider", "anthropic", "--model", "opus"]))).model).toBe("anthropic/opus");
 });
 test("omp extension installs into omp's own agent folder", async () => {
   const parent = mkdtempSync(join(tmpdir(), "corgi-omp-install-")),

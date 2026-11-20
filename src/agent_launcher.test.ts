@@ -561,7 +561,7 @@ test("digit shortcuts enumerate visible agents and exclude terminal and manageme
   expect(m.shortcutRow(c("0"))).toBeNull();
 });
 
-test("custom picker cells preserve account scope and permission state", () => {
+test("custom picker cells preserve account scope and permission state", async () => {
   const m = menu({ selected: "custom0", last: "claude" });
   m.preview.pending = false;
   m.preview.options.claude.account = "personal@example.com";
@@ -569,7 +569,7 @@ test("custom picker cells preserve account scope and permission state", () => {
   m.preview.options.claude.model = "opus";
   m.preview.options.claude.model_name = "Opus";
   m.commands[0].set("claude --dangerously-skip-permissions");
-  m.commands[0].semantics = analyze(m.commands[0].text(), "/tmp");
+  m.commands[0].semantics = await analyze(m.commands[0].text(), "/tmp");
   let values = m.customCells(0);
   expect(values[2]).toBe("Opus");
   expect(values[3]).toBe("personal@example.com");
@@ -582,7 +582,7 @@ test("custom picker cells preserve account scope and permission state", () => {
   expect(values[4]).toBe("—");
   expect(m.usageCell("custom0").fallback).toBe("—");
   m.commands[1].set("claude --model sonnet[1m]");
-  m.commands[1].semantics = analyze(m.commands[1].text(), "/tmp");
+  m.commands[1].semantics = await analyze(m.commands[1].text(), "/tmp");
   expect(m.customCells(1)[2]).toBe("Sonnet (1M)");
 });
 

@@ -9,19 +9,21 @@ import type { Runtime } from "./runtime";
 import type { Provider } from "./providers";
 import { Row } from "./launch/row";
 
-export function data(r: Runtime): launcherData.Data {
+export async function data(r: Runtime): Promise<launcherData.Data> {
   return {
-    accounts: launcherConfig.catalog(r).flatMap(a =>
-      a.provider && !Row.profile(a.row)
-        ? [
-            {
-              row: a.row,
-              folder: accounts.folder(a.provider, a.account),
-              suggest: accounts.suggest(a.provider, accounts.identity(a.provider, a.account), a.account),
-              options: a.options,
-            },
-          ]
-        : [],
+    accounts: await Promise.all(
+      launcherConfig.catalog(r).flatMap(a =>
+        a.provider && !Row.profile(a.row)
+          ? [
+              (async provider => ({
+                row: a.row,
+                folder: accounts.folder(provider, a.account),
+                suggest: accounts.suggest(provider, await accounts.identity(provider, a.account), a.account),
+                options: a.options,
+              }))(a.provider),
+            ]
+          : [],
+      ),
     ),
     removed: accounts.removed().map(a => ({ provider: a.provider, account: a.dir, name: a.name })),
   };

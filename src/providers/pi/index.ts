@@ -79,8 +79,8 @@ export const adapter: Adapter = {
     version: v => v,
   },
   requires: "1.0.0 or newer",
-  inspect(c) {
-    const result = commandLine.inspect(c, {
+  async inspect(c) {
+    const result = await commandLine.inspect(c, {
       config_env: "PI_CODING_AGENT_DIR",
       account_home: ".pi/agent",
       yolo: "--approve",
@@ -89,7 +89,7 @@ export const adapter: Adapter = {
       credential_env: ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
       endpoint_env: [],
       provider_env: [],
-      account: () => null,
+      account: async () => null,
     });
     // Project trust is not tool approval. Pi's tools use extension-defined policy.
     result.permissions = "default";

@@ -2497,7 +2497,9 @@ test.each([false, true])(
       dir = join(folder.base, "imported");
     mkdirSync(dir);
     try {
-      const account = created ? accounts.adopt(accounts.stage("claude", "work")) : accounts.add("claude", "work", dir);
+      const account = created
+        ? await accounts.adopt(accounts.stage("claude", "work"))
+        : accounts.add("claude", "work", dir);
       const accountFile = readFileSync(accounts.path(), "utf8");
       const credential = join(account.dir, "test-credential");
       writeFileSync(credential, "signed in");

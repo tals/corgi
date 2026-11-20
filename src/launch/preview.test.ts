@@ -45,7 +45,14 @@ function listed(names: string[]) {
   );
   accounts.reset();
 }
-const turn = () => new Promise<void>(resolve => setImmediate(resolve));
+/** Waits until `met`, failing after `ms` of real time; `setSystemTime` moves only `Date`. */
+async function until(met: () => boolean, ms = 2000) {
+  const deadline = performance.now() + ms;
+  while (!met() && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 1));
+  expect(met()).toBe(true);
+}
+/** Long enough for the worker to have done what it shouldn't. */
+const settle = (ms = 50) => new Promise<void>(resolve => setTimeout(resolve, ms));
 /** A launcher that reads its account with `account` and would start `model`. */
 function stub(account: Launcher["account"], model = ""): Launcher {
   return { account, model: async () => ({ model, source: "test" }), close() {} };
@@ -99,13 +106,16 @@ test("saved accounts behind install-on-use shims settle without starting a provi
   }
 });
 
-test("account reads and availability stay scoped to each workspace through background refreshes", async () => {
+test("workspaces share an account's read, but one whose project picks another model provider reads its own", async () => {
   const worker = new Worker(),
     other = join(root, "other"),
-    reads: (string | undefined)[] = [];
-  worker.launcher = async () =>
+    reads: [Provider, string | undefined][] = [],
+    through = (p: Provider) => reads.filter(([provider]) => provider === p).map(([, cwd]) => cwd);
+  mkdirSync(join(other, ".pi"), { recursive: true });
+  writeFileSync(join(other, ".pi", "settings.json"), JSON.stringify({ defaultProvider: "local" }));
+  worker.launcher = async provider =>
     stub(async (_quit, _max_age, cwd) => {
-      reads.push(cwd);
+      reads.push([provider, cwd]);
       return Object.assign(new Info(), { signed_in: cwd === root });
     });
   try {
@@ -113,18 +123,97 @@ test("account reads and availability stay scoped to each workspace through backg
     await worker.pump();
     worker.preview(other);
     await worker.pump();
-    expect(new Set(reads)).toEqual(new Set([root, other]));
+    expect(through("pi")).toEqual([root, other]);
+    expect(through("claude")).toEqual([root]);
     expect(worker.preview(root).options.pi.signed_in).toBe(true);
     expect(worker.preview(other).options.pi.signed_in).toBe(false);
+    expect(worker.preview(other).options.claude.signed_in).toBe(true);
     reads.length = 0;
     setSystemTime(new Date(Date.now() + idle_every * 2000));
+    // Viewers still show both.
+    worker.preview(root);
+    worker.preview(other);
     worker.sample(idle_every);
     await worker.pump();
-    expect(new Set(reads)).toEqual(new Set([root, other]));
+    expect(new Set(through("pi"))).toEqual(new Set([root, other]));
+    expect(through("claude")).toHaveLength(1);
     expect(worker.preview(root).options.pi.signed_in).toBe(true);
     expect(worker.preview(other).options.pi.signed_in).toBe(false);
   } finally {
     await worker.stop();
+    setSystemTime();
+  }
+});
+
+test("a new folder prepared before its first preview doesn't show another variant's reading", async () => {
+  const worker = new Worker(),
+    other = join(root, "other");
+  mkdirSync(join(other, ".pi"), { recursive: true });
+  writeFileSync(join(other, ".pi", "settings.json"), JSON.stringify({ defaultProvider: "local" }));
+  worker.launcher = async () =>
+    stub(async (_quit, _max_age, cwd) => Object.assign(new Info(), { signed_in: cwd === root }));
+  try {
+    worker.preview(root);
+    await worker.pump();
+    expect(worker.preview(root).options.pi.signed_in).toBe(true);
+    await worker.prepare(other);
+    const first = worker.preview(other);
+    expect(first.options.pi.signed_in).not.toBe(true);
+    // An account that folders share still shows at once.
+    expect(first.options.claude.signed_in).toBe(true);
+    await worker.pump();
+    expect(worker.preview(other).options.pi.signed_in).toBe(false);
+  } finally {
+    await worker.stop();
+  }
+});
+
+test("each folder reads its own OpenCode account", async () => {
+  process.env.CORGI_OPENCODE2_BIN = process.execPath;
+  const worker = new Worker(),
+    other = join(root, "other"),
+    reads: [Provider, string | undefined][] = [],
+    through = (p: Provider) => reads.filter(([provider]) => provider === p).map(([, cwd]) => cwd);
+  worker.launcher = async provider =>
+    stub(async (_quit, _max_age, cwd) => {
+      reads.push([provider, cwd]);
+      return Object.assign(new Info(), { signed_in: true, account: new Text(cwd ?? "") });
+    });
+  try {
+    for (const cwd of [root, other]) {
+      worker.preview(cwd);
+      await worker.pump();
+    }
+    expect(through("opencode2")).toEqual([root, other]);
+    expect(through("claude")).toEqual([root]);
+    expect(worker.preview(root).options.opencode2.account.text()).toBe(root);
+    expect(worker.preview(other).options.opencode2.account.text()).toBe(other);
+  } finally {
+    await worker.stop();
+  }
+});
+
+test("a round drops folders not shown for a minute, but the one shown last", async () => {
+  const worker = new Worker(),
+    other = join(root, "other"),
+    check = spyOn(discovery, "check").mockResolvedValue(),
+    start = 1_000_000_000;
+  worker.launcher = async () => stub(async () => reading(42));
+  try {
+    setSystemTime(new Date(start));
+    worker.preview(root);
+    await worker.pump();
+    setSystemTime(new Date(start + 1000));
+    worker.preview(other);
+    await worker.pump();
+    setSystemTime(new Date(start + 62_000));
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(worker.jobs.map(job => job.cwd)).toEqual([other]);
+    expect(worker.cached(other).options.claude.limits).toMatchObject({ windows: [null, { used: 42 }] });
+  } finally {
+    await worker.stop();
+    check.mockRestore();
     setSystemTime();
   }
 });
@@ -166,8 +255,7 @@ test("a workspace preview queued during a slow sampling round doesn't wait for i
     const pending = worker.pump();
     expect(worker.preview(fresh).pending).toBe(true);
     // The round waits on `root`; the new folder's preview finishes meanwhile.
-    for (let i = 0; i < 50 && worker.preview(fresh).pending; i++) await turn();
-    expect(worker.preview(fresh).pending).toBe(false);
+    await until(() => !worker.preview(fresh).pending);
     expect(worker.preview(fresh).options.pi.model.text()).toBe(fresh);
     // No second round starts while one is under way.
     setSystemTime(new Date(start + 20_000));
@@ -178,7 +266,7 @@ test("a workspace preview queued during a slow sampling round doesn't wait for i
     worker.sample(active_every);
     second_done.resolve();
     await pending;
-    expect(check.mock.calls.map(([cwd]) => cwd)).toEqual([root, fresh, second]);
+    expect(check.mock.calls.map(([cwd]) => cwd)).toEqual([fresh, root, second]);
     // Sampling waits a full interval from completion, even after a long round.
     check.mockResolvedValue();
     worker.sample(active_every);
@@ -238,10 +326,9 @@ test("a round and a folder's preview never ask one launcher two things at once",
   try {
     worker.sample(idle_every);
     const pending = worker.pump();
-    for (let i = 0; i < 50 && !holding; i++) await turn();
-    expect(holding).toBe(true);
+    await until(() => holding);
     worker.preview(other);
-    for (let i = 0; i < 20; i++) await turn();
+    await settle();
     held.resolve();
     await pending;
     await worker.pump();
@@ -272,12 +359,12 @@ test("a launcher another folder no longer reads closes after the read under way"
   try {
     const reading = opened.account(worker.quit, 0);
     Reflect.get(worker, "close").call(worker, () => true);
-    await turn();
+    await settle();
     expect(events).toEqual([]);
     expect(worker.launchers.size).toBe(0);
     held.resolve();
     await reading;
-    await turn();
+    await until(() => events.length === 2);
     expect(events).toEqual(["read", "closed"]);
   } finally {
     held.resolve();
@@ -328,10 +415,9 @@ test("a fresh reading asked for while one is under way comes after it", async ()
     // A round's read is under way when a viewer asks this folder for a fresh one.
     worker.sample(idle_every);
     const pending = worker.pump();
-    for (let i = 0; i < 50 && !holding; i++) await turn();
-    expect(holding).toBe(true);
+    await until(() => holding);
     worker.preview(process.cwd(), true);
-    for (let i = 0; i < 20; i++) await turn();
+    await settle();
     expect(reads).toBe(1);
     held.resolve();
     await pending;
@@ -374,11 +460,16 @@ test("cached previews retain each workspace's installations without starting rea
     }
     snapshots();
     setSystemTime(new Date(Date.now() + idle_every * 2000));
+    // Viewers still show both.
+    for (const cwd of [root, other]) worker.preview(cwd);
     worker.sample(idle_every);
     await worker.pump();
     const before = { reads, checks: check.mock.calls.length };
     snapshots();
-    expect(worker.cached(join(root, "unvisited"))).toMatchObject({ pending: false, accounts: [] });
+    // A folder no viewer shows gets what its accounts last read, and starts nothing.
+    const unvisited = worker.cached(join(root, "unvisited"));
+    expect(unvisited.pending).toBe(false);
+    expect(unvisited.accounts[0].option.limits).toMatchObject({ windows: [null, { used: 42 }] });
     expect({ reads, checks: check.mock.calls.length }).toEqual(before);
     expect(worker.jobs).toHaveLength(2);
   } finally {
@@ -458,7 +549,7 @@ test.each([
   }
 });
 
-test("discovery settles absent providers and reads account availability for each workspace", async () => {
+test("discovery settles absent providers, and another workspace starts from the accounts' last read", async () => {
   const worker = new Worker(),
     checked = Promise.withResolvers<void>(),
     signIn = Promise.withResolvers<Info>(),
@@ -470,7 +561,9 @@ test("discovery settles absent providers and reads account availability for each
     expect(first.options.pi.pending).toBe(true);
     expect(first.options.opencode2.pending).toBe(true);
     checked.resolve();
-    await turn();
+    await until(
+      () => !worker.preview(root).options.opencode2.pending && worker.preview(root).options.codex.signed_in === true,
+    );
     const partial = worker.preview(root);
     expect(partial.options.opencode2.pending).toBe(false);
     expect(partial.installed.opencode2).toBe(false);
@@ -479,10 +572,11 @@ test("discovery settles absent providers and reads account availability for each
     signIn.resolve(Object.assign(new Info(), { signed_in: false }));
     await worker.pump();
     const next = worker.preview(join(root, "other"));
+    // Another workspace starts from what its accounts last read.
     expect(next.pending).toBe(true);
-    expect(next.options.pi.signed_in).toBeNull();
-    expect(next.options.omp.signed_in).toBeNull();
-    expect(next.options.codex.signed_in).toBeNull();
+    expect(next.options.pi.signed_in).toBe(false);
+    expect(next.options.omp.signed_in).toBe(false);
+    expect(next.options.codex.signed_in).toBe(true);
     await worker.pump();
     const refreshed = worker.preview(root, true);
     expect(refreshed.options.pi.signed_in).toBe(false);
@@ -624,7 +718,12 @@ test("accounts are listed before provider reads, and a slow account doesn't dela
     expect(first.pending).toBe(true);
     expect(first.accounts.map(a => a.name)).toEqual(["slow", "fast"]);
     expect(first.accounts.every(a => a.option.pending)).toBe(true);
-    await turn();
+    await until(() => {
+      const shown = worker.preview("/project");
+      return (
+        started.length >= installed.length + 2 && !shown.options.codex.pending && !shown.accounts[1].option.pending
+      );
+    });
     const partial = worker.preview("/project");
     expect(started).toHaveLength(installed.length + 2);
     expect(partial.pending).toBe(true);
@@ -649,13 +748,18 @@ test("account edits update a pending list and a failed reader doesn't block comp
   listed(["removed"]);
   const worker = new Worker(),
     hold = Promise.withResolvers<Info>();
+  let holding = false;
   worker.launcher = async (provider, account = "") => {
     if (provider === "codex") throw Error("Unavailable");
-    return stub(async () => (account === join(root, "removed") ? hold.promise : new Info()));
+    return stub(async () => {
+      if (account !== join(root, "removed")) return new Info();
+      holding = true;
+      return hold.promise;
+    });
   };
   try {
     worker.preview("/project");
-    await turn();
+    await until(() => holding);
     listed(["added"]);
     expect(worker.preview("/project").accounts.map(a => a.name)).toEqual(["added"]);
     hold.resolve(new Info());
@@ -700,7 +804,7 @@ test("taking a row out closes its launcher at once, with nothing asking for a pr
     );
   try {
     worker.follow({ ...worker.removed, agent_hidden: byProvider(p => p === "pi") });
-    await turn();
+    await until(() => closed.length > 0);
     expect(closed).toEqual(["pi"]);
     expect([...worker.launchers.keys()]).not.toContain("pi\0");
   } finally {
@@ -725,7 +829,7 @@ test("deleting the saved agent that kept a removed row read closes its launcher 
     rmSync(profiles.path());
     worker.sample(idle_every);
     await worker.pump();
-    await turn();
+    await until(() => closed.length > 0);
     expect(closed).toEqual(["pi"]);
   } finally {
     setSystemTime();
@@ -971,8 +1075,8 @@ test("cached readings follow account edits sampled after a workspace stops reque
     expect(renamed.names.claude).toBe("personal");
     expect(reads).toBe(initialReads + 1);
     expect(models).toBe(initialModels);
+    // No viewer shows the folder any longer, but the folder shown last stays.
     expect(worker.jobs).toHaveLength(1);
-    expect(worker.jobs[0]).toMatchObject({ used: start, updated: start, queued: false });
     expect(before.accounts.map(a => a.name)).toEqual(["kept", "removed"]);
     expect(added.accounts.map(a => a.name)).toEqual(["kept", "added"]);
   } finally {
@@ -1041,7 +1145,7 @@ test("a removed agent isn't read, shows only who signed in, and is read again on
     expect(reads).toContain("pi");
     worker.follow(removed);
     await worker.pump();
-    await turn();
+    await until(() => closed.length > 0);
     expect(closed).toEqual(["pi"]);
     const option = worker.preview("/project").options.pi;
     expect(option.pending).toBe(false);
@@ -1108,5 +1212,52 @@ test("a saved command that runs in a removed default keeps it read", async () =>
     expect(worker.preview("/project").options.pi.limits).toBe("none");
   } finally {
     await worker.stop();
+  }
+});
+
+test("a workspace's folder stays off screen with the rows it had, read but not looked at again", async () => {
+  const worker = new Worker(),
+    other = join(root, "other"),
+    check = spyOn(discovery, "check").mockResolvedValue(),
+    start = 1_000_000_000;
+  let reads = 0;
+  worker.launcher = async () => ({
+    account: async () => (reads++, reading(42)),
+    model: async cwd => ({ model: cwd, source: "workspace" }),
+    close() {},
+  });
+  try {
+    setSystemTime(new Date(start));
+    worker.keep(new Set([root, other]));
+    for (const cwd of [root, other]) {
+      worker.preview(cwd);
+      await worker.pump();
+    }
+    // A viewer goes on showing `other` alone.
+    setSystemTime(new Date(start + idle_every * 2000));
+    reads = 0;
+    worker.preview(other);
+    await worker.pump();
+    check.mockClear();
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(worker.jobs.map(job => job.cwd).sort()).toEqual([other, root].sort());
+    expect(check.mock.calls.map(([cwd]) => cwd)).toEqual([other]);
+    expect(reads).toBeGreaterThan(0);
+    // Its models are there at once when a viewer comes back.
+    expect(worker.preview(root).options.pi.model.text()).toBe(root);
+    expect(worker.cached(root).options.pi.limits).toMatchObject({ windows: [null, { used: 42 }] });
+    await worker.pump();
+    // Its workspace closed, it leaves.
+    worker.keep(new Set([other]));
+    setSystemTime(new Date(start + idle_every * 4000));
+    worker.preview(other);
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(worker.jobs.map(job => job.cwd)).toEqual([other]);
+  } finally {
+    await worker.stop();
+    check.mockRestore();
+    setSystemTime();
   }
 });

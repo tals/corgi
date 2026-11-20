@@ -23,7 +23,7 @@ export const signin: Signin = {
       "Sign in as the account you're adding. The page reports back to this computer: from another one, press Esc and pick Device Code.",
     device: "Open the link on any device, sign in as the account you're adding, and enter the code.",
   },
-  ready: root => identity(root) !== null,
+  ready: async root => (await identity(root)) !== null,
   check: ["login", "status"],
   logout: ["logout"],
   // Without its server it asks how to sign in sooner: a first start would

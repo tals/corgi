@@ -265,11 +265,11 @@ export function commandLine(source: string, cwd: string): CommandLine {
   }
   return line;
 }
-export function analyze(source: string, cwd: string) {
+export async function analyze(source: string, cwd: string) {
   const s = new Semantics();
   s.provider = identify(source);
   const line = commandLine(source, cwd),
-    seen = s.provider ? adapter(s.provider).inspect(line) : guess(line);
+    seen = s.provider ? await adapter(s.provider).inspect(line) : await guess(line);
   s.model = seen.model;
   s.account = seen.account;
   s.default_account = seen.default_account;
@@ -283,7 +283,7 @@ export function analyze(source: string, cwd: string) {
 }
 /** What a command Corgi can't place says: its model, and whether any
  * provider would read it as skipping permission checks. */
-function guess(line: CommandLine): Inspection {
+async function guess(line: CommandLine): Promise<Inspection> {
   let model = "",
     next = false;
   for (const w of line.args) {
@@ -295,7 +295,8 @@ function guess(line: CommandLine): Inspection {
     if (w === "--model" || w === "-m") next = true;
     if (w.startsWith("--model=")) model = w.slice(8);
   }
-  const bypass = Provider.all.some(p => adapter(p).inspect({ ...line, env: [] }).permissions === "bypass");
+  const seen = await Promise.all(Provider.all.map(p => adapter(p).inspect({ ...line, env: [] }))),
+    bypass = seen.some(s => s.permissions === "bypass");
   return { permissions: bypass ? "bypass" : "default", model, account: "", default_account: false };
 }
 export class Resolution {
@@ -334,10 +335,10 @@ export class Worker {
     this.jobs[this.next] = job;
     this.next = (this.next + 1) % 8;
     const pending = resolve(entry.text(), cwd, this.quit)
-      .then(s => {
+      .then(async s => {
         if (this.stopping) return;
         job.result.command.set(s);
-        job.result.semantics = analyze(s, cwd);
+        job.result.semantics = await analyze(s, cwd);
         job.result.pending = false;
       })
       .catch(e => {

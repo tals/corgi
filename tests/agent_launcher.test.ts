@@ -489,10 +489,11 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const cached = (await this.rpc({ op: "agent.preview.cached", workspace: this.ws })).preview;
     this.assertEqual(cached.options.claude.login.workspace, "personal");
     this.assertEqual(cached.accounts[0].option.login.workspace, "team");
-    const empty = (await this.rpc({ op: "agent.preview.cached", workspace: this.ws, cwd: unvisited })).preview;
-    this.assertFalse(empty.pending);
-    this.assertEqual(empty.accounts, []);
-    this.assertEqual(empty.options.claude.login, null);
+    // A folder no viewer shows gets what its accounts last read, and asks nothing.
+    const other = (await this.rpc({ op: "agent.preview.cached", workspace: this.ws, cwd: unvisited })).preview;
+    this.assertFalse(other.pending);
+    this.assertEqual(other.options.claude.login.workspace, "personal");
+    this.assertEqual(other.accounts[0].option.login.workspace, "team");
     this.assertEqual([this.metadataRequests(), lines(join(work, "metadata-requests.jsonl"))], before);
   }
   async test_signed_out_agent_is_automatic_only_after_signin_but_can_be_added_explicitly() {

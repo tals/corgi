@@ -197,6 +197,9 @@ export class Signin {
   checked = 0;
   compared = false;
   busy = false;
+  /** The look at the folder under way, so that looks don't overlap and an
+   * exit waits for one. */
+  private looking: Promise<void> | null = null;
   finishing: Promise<void> | null = null;
   stopping: Promise<void> | null = null;
   discarding: Promise<void> | null = null;
@@ -232,9 +235,10 @@ export class Signin {
     if (!signin) throw Error("AccountManagementUnsupported");
     return signin;
   }
-  get check() {
+  /** The arguments that exit 0 once someone signed in to the folder. */
+  async check(): Promise<string[]> {
     const check = this.signin.check;
-    return typeof check === "function" ? check(this.dir) : check;
+    return typeof check === "function" ? await check(this.dir) : check;
   }
   async signOut() {
     const logout = this.signin.logout;
@@ -403,12 +407,25 @@ export class Signin {
   }
 
   /** Reads the agent's screen for its step, and its folder for a login. */
-  async poll() {
-    if (this.over || this.busy || !this.child) return;
+  poll(): Promise<void> {
+    if (this.over || this.busy || this.looking || !this.child) return this.looking ?? Promise.resolve();
+    const looking = this.look().finally(() => {
+      if (this.looking === looking) this.looking = null;
+    });
+    return (this.looking = looking);
+  }
+  /** Whether the flow ended, or began letting its account go, while something was read. */
+  private left() {
+    return this.over || this.discarding !== null;
+  }
+  private async look() {
+    if (!this.child) return;
     const before = this.step;
     this.step = this.signin.step(this.child.text());
     if (this.step !== before) this.changed();
-    const who = accounts.identity(this.provider!, this.dir);
+    const who = await accounts.identity(this.provider!, this.dir);
+    // Finishing or discarding may have begun, or the agent left, while the folder was read.
+    if (this.left() || this.busy || !this.child) return;
     if (who?.email !== this.who?.email) this.changed();
     this.who = who;
     if (!who) return;
@@ -416,16 +433,21 @@ export class Signin {
     try {
       if (this.adding && !this.compared) {
         this.compared = true;
-        const other = accounts.signedInElsewhere(this.provider!, this.dir, who);
+        const other = await accounts.signedInElsewhere(this.provider!, this.dir, who);
+        if (this.left()) return;
         if (other) return this.twice(who, other === "default" ? "default" : other.name);
       }
       // Its own check spawns the agent: now and then is enough.
       if (!this.signed && Date.now() - this.checked >= 3000) {
         this.checked = Date.now();
-        this.signed = (await this.account_command(this.check, 10000)) === 0;
+        const check = await this.check();
+        if (this.left()) return;
+        this.signed = (await this.account_command(check, 10000)) === 0;
         if (this.signed) this.changed();
       }
-      if (this.signed && this.signin.ready(this.dir) && this.stage.kind === "signin") await this.finish();
+      if (this.left() || !this.signed) return;
+      const ready = await this.signin.ready(this.dir);
+      if (!this.left() && ready && this.stage.kind === "signin") await this.finish();
     } finally {
       this.busy = false;
     }
@@ -434,9 +456,20 @@ export class Signin {
     if (this.over || t !== this.child) return;
     this.child = null;
     t.destroy();
-    this.who = accounts.identity(this.provider!, this.dir);
-    if (this.who && (await this.account_command(this.check, 10000)) === 0 && this.signin.ready(this.dir))
-      return this.finish();
+    // A look under way ends first, rather than check the folder beside it.
+    await this.looking;
+    if (this.left() || this.finishing) return;
+    this.who = await accounts.identity(this.provider!, this.dir);
+    if (this.left()) return;
+    if (this.who) {
+      const check = await this.check();
+      if (this.left()) return;
+      if ((await this.account_command(check, 10000)) === 0 && (await this.signin.ready(this.dir))) {
+        if (this.left()) return;
+        return this.finish();
+      }
+    }
+    if (this.left()) return;
     this.stopped(`${this.label} closed before you signed in.`);
   }
   /** The agent isn't running and nobody signed in: try again, or let go. */
@@ -498,7 +531,7 @@ export class Signin {
     if (this.staged) {
       await stopInside([this.staged.dir, this.staged.temp]);
       if (this.over) return;
-      this.name = accounts.adopt(this.staged, this.name ?? accounts.suggest(this.provider!, this.who)).name;
+      this.name = (await accounts.adopt(this.staged, this.name ?? accounts.suggest(this.provider!, this.who))).name;
       this.staged = null;
     }
     this.account = this.dir;
@@ -507,8 +540,10 @@ export class Signin {
     this.busy = false;
     this.work(null);
     if (this.adding) return this.close(0, true, `Account added: ${this.label} / ${this.name}.`);
+    const who = this.who ?? (await accounts.identity(this.provider!, this.dir));
+    if (this.over) return;
     this.ask({
-      heading: `Signed in as ${this.who?.email ?? accounts.identity(this.provider!, this.dir)?.email ?? "?"}.`,
+      heading: `Signed in as ${who?.email ?? "?"}.`,
       lines: [`The launcher lists it as ${this.label} · ${this.name}.`],
       choices: [
         { label: `Start ${this.label}`, act: () => this.close(0, true) },
@@ -535,7 +570,10 @@ export class Signin {
     const s = this.staged;
     if (s) {
       try {
-        if (accounts.identity(this.provider!, s.dir) || (await this.account_command(this.check, 10000)) === 0)
+        if (
+          (await accounts.identity(this.provider!, s.dir)) ||
+          (await this.account_command(await this.check(), 10000)) === 0
+        )
           await this.signOut();
       } finally {
         await stopInside([s.dir, s.temp]);
@@ -559,7 +597,9 @@ export class Signin {
     const s = this.staged;
     this.staged = null;
     if (s) {
-      if (accounts.identity(this.provider!, s.dir)) {
+      // Leaving now, it can't look at the folder again: once the agent ran,
+      // someone may have signed in since the last look.
+      if (this.who || this.spawned) {
         const logout = this.signin.logout;
         if (typeof logout === "function") logout(s.dir);
         else Bun.spawnSync([this.agent, ...logout], { env: this.env(), timeout: 5000 });

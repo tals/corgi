@@ -324,11 +324,11 @@ export type Signin = {
   /** What the frame says under a step: what its own screen leaves out. */
   hints: Partial<Record<SigninStep, string>>;
   /** Its first run at `directory` is over, so a session there opens at the prompt. */
-  ready(directory: string): boolean;
+  ready(directory: string): Promise<boolean>;
   /** Arguments, run with the variable set, that exit 0 once someone signed
    * in: its own word, as a login can live outside the folder. A function
    * chooses arguments for the provider saved in that directory. */
-  check: string[] | ((directory: string) => string[]);
+  check: string[] | ((directory: string) => Promise<string[]>);
   /** Arguments that sign out, run the same way, before Corgi deletes a
    * folder a cancelled sign-in made. A provider without a logout CLI can
    * remove its local credentials directly. */
@@ -352,9 +352,13 @@ export type Accounts = {
    * names a folder an agent ran in. */
   prefix: string;
   /** Who signed in at `directory`, as it caches that; null when no one has. */
-  identity(directory: string): Login | null;
+  identity(directory: string): Promise<Login | null>;
+  /** What `cwd` itself changes about the credential an agent there uses, as
+   * a project's choice of model provider does; "" when nothing does. Folders
+   * of one variant share an account's reading. */
+  variant(cwd: string): Promise<string>;
   /** Local setup for `cwd` beyond a saved login, without starting the provider. */
-  configured?(directory: string, cwd: string): boolean;
+  configured?(directory: string, cwd: string): Promise<boolean>;
   /** What a directory Corgi makes links to in the default one: folders,
    * and files the default has. */
   shared: { dirs: string[]; files: string[] };
@@ -448,7 +452,7 @@ export type Settled = { session: string } | "changed" | null;
 /** Everything core asks a provider. Each one lives in `providers/<name>/`. */
 export interface Adapter extends Info {
   caps: Caps;
-  inspect(c: CommandLine): Inspection;
+  inspect(c: CommandLine): Promise<Inspection>;
   /** Where it may be installed besides PATH, most likely first. `root`
    * prefixes system locations so tests can stand in for them. */
   installs(at: { home: string | null; root: string }): string[];

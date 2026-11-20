@@ -82,7 +82,9 @@ export async function request(server: Server, client: Client, request: Request, 
       workspace = server.runtime.getWorkspace(q.workspace),
       cwd = q.cwd || workspace.cwd;
     if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
-    reply.ok({ preview: services.get(server)?.launch_previews.cached(cwd) ?? new Preview().with({ pending: false }) });
+    const previews = services.get(server)?.launch_previews;
+    await previews?.prepare(cwd);
+    reply.ok({ preview: previews?.cached(cwd) ?? new Preview().with({ pending: false }) });
     return;
   }
   const s = service(server);
@@ -110,6 +112,7 @@ export async function request(server: Server, client: Client, request: Request, 
     });
     return;
   }
+  await s.launch_previews.prepare(cwd);
   const subscribe = request.op === "agent.subscribe";
   if (subscribe && (client.watching || client.subscribed)) throw Error("AlreadyAttached");
   const preview =
@@ -162,6 +165,12 @@ export function sample(server: Server) {
     active = server.clients.some(c => c.viewer && !c.dead && now - c.input_at < active_ms),
     s = service(server);
   s.follow(removed(server.runtime));
+  const folders = new Set<string>();
+  for (const ws of server.runtime.workspaces.items) {
+    folders.add(ws.cwd);
+    for (const checkout of ws.worktrees?.entries ?? []) folders.add(checkout.path);
+  }
+  s.launch_previews.keep(folders);
   s.launch_previews.sample(active ? active_every : idle_every);
 }
 /** Whether the worker holds a preview this subscription wasn't sent; reads nothing. */

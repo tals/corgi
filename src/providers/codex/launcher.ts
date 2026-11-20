@@ -1,6 +1,6 @@
 //! What the launcher shows about Codex: its account, usage and effective
 //! model, read through its app server.
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Launcher } from "../adapter";
 import { Cache, cooldown } from "../../usage/account_cache";
@@ -30,10 +30,10 @@ export function open(account = ""): Launcher {
     async account(quit, max_age, cwd = process.cwd()) {
       const root = account || configDir();
       // Folders signed in to one account share its reading.
-      let login = identity(root)?.id;
+      let login = (await identity(root))?.id;
       if (!login)
         try {
-          login = readFileSync(join(root, "auth.json"), "utf8");
+          login = await readFile(join(root, "auth.json"), "utf8");
         } catch {
           login = root;
         }
