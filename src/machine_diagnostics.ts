@@ -17,7 +17,7 @@ export class Notice {
       this.message = [
         `${endpoint.name} · Update failed`,
         "",
-        endpoint.updateError,
+        ...this.updateLines(endpoint),
         "",
         "Ctrl+R in the machine picker to retry",
       ];
@@ -33,11 +33,14 @@ export class Notice {
       "",
       "Run in a terminal:",
       `corgi machine ${command} ${endpoint.name}`,
-      ...(endpoint.updateError ? ["", "Update failed", endpoint.updateError] : []),
+      ...(endpoint.updateError ? ["", "Update failed", ...this.updateLines(endpoint)] : []),
       ...(endpoint.issue === "host-key" ? ["Verify the host fingerprint before approving its key."] : []),
     ];
     this.offset = 0;
     return true;
+  }
+  private updateLines(endpoint: Endpoint): string[] {
+    return endpoint.updateLog.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, " ").split("\n");
   }
   close(): void {
     this.message = null;

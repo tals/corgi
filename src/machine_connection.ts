@@ -190,7 +190,13 @@ export class Endpoint {
   get updateMessage(): string {
     return this.updateProgress?.message ?? "";
   }
-  updateError = "";
+  private updateFailure: UpdateFailure | null = null;
+  get updateError(): string {
+    return this.updateFailure?.summary ?? "";
+  }
+  get updateLog(): string {
+    return this.updateFailure?.detail ?? "";
+  }
   folder: string | null = null;
   onChange: () => void = () => {};
   onMachines: () => void = () => {};
@@ -422,9 +428,8 @@ export class Endpoint {
       if (!this.checked && !this.handoff && !this.shut_down) this.retry();
     } catch (error) {
       if (!job.signal.aborted)
-        this.updateError = (
-          error instanceof UpdateFailure ? error.detail : errors.name(error) || "MachineUpdateFailed"
-        ).replace(/[\x00-\x1f\x7f]/g, " ");
+        this.updateFailure =
+          error instanceof UpdateFailure ? error : new UpdateFailure(errors.name(error) || "MachineUpdateFailed");
     } finally {
       if (this.updating === job) {
         this.updating = null;
@@ -441,13 +446,13 @@ export class Endpoint {
     this.updating?.abort();
     this.updating = null;
     this.updateProgress = null;
-    this.updateError = "";
+    this.updateFailure = null;
     this.clearUpdateTimer();
   }
   retry(): void {
     if (this.stopped) return;
     if (this.updateError) {
-      this.updateError = "";
+      this.updateFailure = null;
       void this.startUpdate();
       if (this.status === "online") return;
     }
@@ -809,7 +814,7 @@ export class Endpoint {
       this.currentBuild?.(hello)
     ) {
       this.update = undefined;
-      this.updateError = "";
+      this.updateFailure = null;
     } else void this.startUpdate();
     this.trace("remote.connection", "hello");
     conn.onEvent(event => {
@@ -839,7 +844,7 @@ export class Endpoint {
     this.checked = conn;
     // A failed check can follow the same network outage as the dial. Try it again once SSH is back.
     if (this.updateError) {
-      this.updateError = "";
+      this.updateFailure = null;
       void this.startUpdate();
     }
     // A view outlives its connections to one daemon. Another daemon's ids

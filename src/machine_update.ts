@@ -6,17 +6,20 @@ import * as machines from "./machines";
 import * as dev from "./machine_deploy";
 import * as progressInfo from "./machine_progress";
 
-type Event = ({ type: "progress" } & progressInfo.Status) | { type: "ready" };
+type Event = ({ type: "progress" } & progressInfo.Status) | { type: "ready" } | { type: "error"; message: string };
+function clean(value: unknown): string {
+  if (typeof value !== "string" || value.length > 4096) throw Error("InvalidMachineUpdateEvent");
+  return value.replace(/[\x00-\x1f\x7f]/g, " ");
+}
 export function event(value: unknown): Event {
   if (!value || typeof value !== "object" || !("type" in value)) throw Error("InvalidMachineUpdateEvent");
   switch (value.type) {
     case "ready":
       return { type: "ready" };
+    case "error":
+      if ("message" in value) return { type: "error", message: clean(value.message) };
+      break;
     case "progress":
-      const clean = (s: unknown) => {
-        if (typeof s !== "string" || s.length > 4096) throw Error("InvalidMachineUpdateEvent");
-        return s.replace(/[\x00-\x1f\x7f]/g, " ");
-      };
       if ("message" in value)
         return {
           type: "progress",
@@ -30,14 +33,18 @@ export function event(value: unknown): Event {
 }
 export class Failure extends Error {
   readonly reply: { err: string; detail: string };
-  constructor(readonly detail: string) {
+  constructor(
+    readonly detail: string,
+    readonly summary: string = detail,
+  ) {
     super("MachineUpdateFailed");
+    this.summary = summary.replace(/[\x00-\x1f\x7f]/g, " ");
     this.reply = { err: this.message, detail };
   }
 }
-async function readProgress(output: AsyncIterable<Uint8Array>, progress: progressInfo.Report): Promise<boolean> {
-  let ready = false,
-    pending = "";
+async function readProgress(output: AsyncIterable<Uint8Array>, progress: progressInfo.Report) {
+  let result: Extract<Event, { type: "ready" | "error" }> | null = null;
+  let pending = "";
   const decoder = new TextDecoder();
   for await (const bytes of output) {
     pending += decoder.decode(bytes, { stream: true });
@@ -52,13 +59,14 @@ async function readProgress(output: AsyncIterable<Uint8Array>, progress: progres
           progress(value.message, { metrics: value.metrics, detail: value.detail, compact: value.compact });
           break;
         case "ready":
-          ready = true;
+        case "error":
+          result = value;
           break;
       }
     }
     if (pending.length > 8192) throw Error("InvalidMachineUpdateEvent");
   }
-  return ready && !pending;
+  return pending ? null : result;
 }
 export async function prepare(
   profile: machines.Profile,
@@ -101,9 +109,12 @@ export async function prepare(
     diagnostic = (diagnostic + chunk).slice(-8192);
   });
   try {
-    const [code, ready] = await Promise.all([exited, readProgress(child.stdout, progress)]);
+    const [code, result] = await Promise.all([exited, readProgress(child.stdout, progress)]);
     signal?.throwIfAborted();
-    if (code !== 0 || !ready) throw new Failure(diagnostic.trim() || "Update helper stopped before finishing.");
+    if (code !== 0 || result?.type !== "ready") {
+      const summary = result?.type === "error" ? result.message : "Update helper stopped before finishing.";
+      throw new Failure(diagnostic.trim() || summary, summary);
+    }
     const refreshed = machines.find(profile.name);
     if (refreshed.target !== profile.target || refreshed.socket !== profile.socket) throw Error("MachineChanged");
     return refreshed;

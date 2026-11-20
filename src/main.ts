@@ -224,6 +224,10 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         cancellation.signal,
       );
       process.stdout.write(JSON.stringify({ type: "ready" }) + "\n");
+    } catch (error) {
+      const message = errors.name(error) || "Machine update failed";
+      process.stdout.write(JSON.stringify({ type: "error", message: message.slice(0, 1024) }) + "\n");
+      throw error;
     } finally {
       process.off("SIGTERM", abort);
       process.off("SIGINT", abort);
