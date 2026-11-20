@@ -545,8 +545,10 @@ export interface ConnectionStatus {
 }
 /** Keep the machine name and progress on the same row, including in a narrow sidebar. */
 function machineStatusLabel(status: ConnectionStatus, width: number, name: string): string {
-  const room = sat(width, 6 + Math.min(displayWidth(name), Math.max(4, Math.floor(width / 3))));
   const metrics = status.metrics ?? (status.seconds === null ? "" : `${status.seconds}s`);
+  const available = sat(width, 7);
+  const nameRoom = Math.max(4, Math.min(Math.floor(width / 3), available - displayWidth(metrics)));
+  const room = sat(available, Math.min(displayWidth(name), nameRoom));
   if (!metrics) return ellipsis(status.label, room);
   const label = displayWidth(status.label + " " + metrics) <= room ? status.label : (status.compact ?? status.label);
   if (displayWidth(metrics) >= room) return ellipsis(metrics, room);
@@ -1590,7 +1592,7 @@ export class View {
         writeEllipsis(
           w,
           v.workspace_machines[absolute],
-          sat(v.width, status ? status_width + 6 : quality === null ? 6 : 8 + bars),
+          sat(v.width, status ? status_width + 7 : quality === null ? 6 : 8 + bars),
         );
         if (status) {
           w.write(w.cup(y, v.width - status_width - 1) + fg(status.color) + label);

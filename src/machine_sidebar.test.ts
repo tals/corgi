@@ -388,6 +388,11 @@ test("build and upload metrics fit on the machine row at both sidebar widths", (
       expect(side.hit(3, 3)).toEqual({ tag: "workspace", workspace: 0 });
     }
   }
+  const longName = "build-server-with-a-long-name";
+  row.machine = longName;
+  row.connection_status = { label: "Uploading", compact: "↑", metrics: "42% 512 KiB/s", color: "warm", seconds: null };
+  const narrow = sidebar.View.init(100, 30, true, 0, 0).withWidth(28).withWorkspaces(1, 0, [longName]);
+  expect(screen(narrow, [row]).split("\n")[2]).toMatch(/… +(?:↑ +)?42% 512 KiB\/s/);
 });
 
 test("header quality comes from the current connection, without rating local or offline machines as healthy", () => {
