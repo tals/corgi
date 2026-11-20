@@ -4,25 +4,22 @@ import { mkdir, mkdtemp, readFile, writeFile, rm, stat, realpath } from "node:fs
 import { dirname, join, resolve } from "node:path";
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
+import * as release_channel from "../src/release_channel";
+import type { Channel } from "../src/release_channel";
 
 const repo = resolve(import.meta.dir, "..");
-// Releases from before Linux arm64 read manifest.json and reject a target they don't
-// know, so it and any later target get a manifest and channel of their own.
 export const targets = [
-  { name: "macos-aarch64", bun: "darwin-arm64", manifest: "manifest.json", channel: "channels/stable.json" },
-  { name: "linux-x86_64", bun: "linux-x64", manifest: "manifest.json", channel: "channels/stable.json" },
-  {
-    name: "linux-aarch64",
-    bun: "linux-arm64",
-    manifest: "manifest-linux-aarch64.json",
-    channel: "channels/stable-linux-aarch64.json",
-  },
+  { name: "macos-aarch64", bun: "darwin-arm64" },
+  { name: "linux-x86_64", bun: "linux-x64" },
+  { name: "linux-aarch64", bun: "linux-arm64" },
 ] as const;
-// Each manifest and the channel that serves it, with the targets it names.
-export const manifests = [...new Set(targets.map(t => t.manifest))].map(name => {
-  const named = targets.filter(t => t.manifest === name);
-  return { name, channel: named[0].channel, targets: named.map(t => t.name) };
-});
+/** Where `channel` serves a release's manifest, which names every target. */
+export function channelKeys(channel: Channel): string[] {
+  // XXX: Remove for next protocol bump. Linux arm64 releases from before
+  // channels read stable from a feed of their own.
+  if (channel === "stable") return ["channels/stable.json", "channels/stable-linux-aarch64.json"];
+  return [`channels/${channel}.json`];
+}
 type Target = (typeof targets)[number];
 // The native layer, in the paths build.ts embeds it from.
 const nativeFiles = (target: Target) => {
@@ -78,25 +75,26 @@ export function releaseOptions(argv: string[]) {
   let version: string | undefined,
     mode = "",
     skipTests = false,
-    test = false,
+    channel: Channel | undefined,
     omarchySkip = false;
-  for (const arg of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
     if (["--dry-run", "--build-only", "--publish-only"].includes(arg) && !mode) mode = arg;
     else if (arg === "--skip-tests" && !skipTests) skipTests = true;
-    else if (arg === "--test" && !test) test = true;
-    else if (arg === "--omarchy-skip" && !omarchySkip) omarchySkip = true;
+    else if (arg === "--channel" && !channel) {
+      channel = release_channel.parse(argv[i + 1] ?? "") ?? undefined;
+      if (!channel) throw new Error(`--channel takes ${release_channel.all.join(" or ")}.`);
+      i++;
+    } else if (arg === "--omarchy-skip" && !omarchySkip) omarchySkip = true;
     else if (!arg.startsWith("--") && !version) version = releaseVersion(arg);
     else throw new Error("Unknown or conflicting option; run --help.");
   }
   if (mode === "--publish-only" && !version) throw new Error("Provide the prepared VERSION with --publish-only.");
-  return { version, mode, skipTests, test, omarchySkip };
+  return { version, mode, skipTests, channel: channel ?? "stable", omarchySkip };
 }
-export function releasePaths(cwd: string, test = false) {
+export function releasePaths(cwd: string) {
   const common = realpathSync(resolve(cwd, git(cwd, "rev-parse", "--git-common-dir")));
-  return {
-    releases: join(common, test ? "corgi-test-releases" : "corgi-releases"),
-    lock: join(common, "corgi-publish.lock"),
-  };
+  return { releases: join(common, "corgi-releases"), lock: join(common, "corgi-publish.lock") };
 }
 export async function releaseCommit(cwd: string, options: ReturnType<typeof releaseOptions>, releases: string) {
   if (options.mode !== "--publish-only") return git(cwd, "rev-parse", "HEAD");
@@ -151,6 +149,11 @@ export function requirePushed(cwd: string, commit: string) {
   });
   if (p.exitCode) throw new Error(`Push ${commit.slice(0, 12)} to origin main before publishing it.`);
 }
+// Whether the test channel published `version` from `commit`: its tag on origin
+// names it, and keeps the commit there after its branch is squashed and gone.
+export function publishedToTest(cwd: string, version: string, commit: string) {
+  return git(cwd, "ls-remote", "origin", `refs/tags/test/${version}`).split("\t")[0] === commit;
+}
 // Release checkouts still registered after their run was killed.
 export function abandonedCheckouts(cwd: string) {
   return git(cwd, "worktree", "list", "--porcelain")
@@ -167,11 +170,8 @@ export async function clean(cwd: string) {
       git(cwd, "worktree", "remove", "--force", source);
       await rm(dirname(source), { recursive: true, force: true });
     }
-    let releases = 0;
-    for (const directory of [paths.releases, releasePaths(cwd, true).releases]) {
-      releases += existsSync(directory) ? readdirSync(directory).length : 0;
-      await rm(directory, { recursive: true, force: true });
-    }
+    const releases = existsSync(paths.releases) ? readdirSync(paths.releases).length : 0;
+    await rm(paths.releases, { recursive: true, force: true });
     return { releases, checkouts: checkouts.length };
   });
 }
@@ -244,17 +244,8 @@ export type Config = {
 };
 // Release builds send crash reports to this Sentry project, which gets their debug files.
 type SentryConfig = { dsn: string; org: string; project: string };
-export async function testConfiguration(config: Config, state: string): Promise<Config> {
-  const signingKey = join(state, "corgi-test-signing.pem");
-  if (!existsSync(signingKey)) {
-    const { privateKey } = generateKeyPairSync("ed25519");
-    await mkdir(state, { recursive: true });
-    await writeFile(signingKey, privateKey.export({ type: "pkcs8", format: "pem" }), { flag: "wx", mode: 0o600 });
-  }
-  return { ...config, publicBaseUrl: `${config.publicBaseUrl}/test`, signingKey, sentry: undefined };
-}
 
-async function pluginCommand(source: string, out: string, phase: "prepare" | "publish", test: boolean, base: string) {
+async function pluginCommand(source: string, out: string, phase: "prepare" | "publish", base: string) {
   const checkout = join(out, "plugin");
   const script = existsSync(join(checkout, "tools/release-plugin.ts"))
     ? "tools/release-plugin.ts"
@@ -266,9 +257,9 @@ async function pluginCommand(source: string, out: string, phase: "prepare" | "pu
       CORGI_RELEASE_PHASE: phase,
       CORGI_RELEASE_SOURCE: source,
       CORGI_RELEASE_DIR: out,
-      CORGI_TEST_BASE_URL: test ? base : `${base}/test`,
+      CORGI_TEST_BASE_URL: `${base}/test`,
     },
-    [process.execPath, script, ...(test ? ["--test"] : [])],
+    [process.execPath, script],
   );
 }
 
@@ -289,9 +280,9 @@ export async function fetchPlugin(source: string, out: string) {
   ]);
 }
 
-export async function preparePlugin(source: string, out: string, test: boolean, base: string) {
+export async function preparePlugin(source: string, out: string, base: string) {
   if (existsSync(join(out, "plugin/.git/corgi-release.json"))) return;
-  await pluginCommand(source, out, "prepare", test, base);
+  await pluginCommand(source, out, "prepare", base);
 }
 
 export async function privateFile(path: string, what: string) {
@@ -330,7 +321,9 @@ export interface Store {
   put(key: string, bytes: Uint8Array, type: string, cache: string): Promise<void>;
   publicGet(key: string): Promise<Uint8Array>;
 }
-export async function publish(store: Store, assets: Asset[], channels: Asset[], installer: Uint8Array) {
+/** Uploads a release's `assets`, then advances its channel `feeds`; the
+ * public `installer` is stable's, and other channels leave it alone. */
+export async function publish(store: Store, assets: Asset[], feeds: Asset[], installer: Uint8Array | null) {
   // Publisher invocations must be serialized (the CLI takes a local lock).
   // Existing immutable objects can be reused only when their bytes match.
   for (const asset of assets) {
@@ -341,11 +334,13 @@ export async function publish(store: Store, assets: Asset[], channels: Asset[], 
     if (sha256(await store.publicGet(asset.key)) !== sha256(asset.bytes))
       throw new Error(`Public verification failed: ${asset.key}`);
   }
-  await store.put("install.sh", installer, "text/x-shellscript", "no-cache, max-age=0");
-  if (sha256(await store.publicGet("install.sh")) !== sha256(installer))
-    throw new Error("Public installer verification failed");
+  if (installer) {
+    await store.put("install.sh", installer, "text/x-shellscript", "no-cache, max-age=0");
+    if (sha256(await store.publicGet("install.sh")) !== sha256(installer))
+      throw new Error("Public installer verification failed");
+  }
   // Single-object signed envelopes: there is no signature/manifest pairing race.
-  for (const channel of channels) {
+  for (const channel of feeds) {
     await store.put(channel.key, channel.bytes, channel.type, "no-cache, max-age=0");
     if (sha256(await store.publicGet(channel.key)) !== sha256(channel.bytes))
       throw new Error(
@@ -363,11 +358,10 @@ export function installer(
   binaries: Record<string, { sha256: string; size: number }>,
   template = installTemplate,
   i18n = readFileSync(join(import.meta.dir, "install_i18n.generated.sh"), "utf8"),
-  pluginRepository = "https://github.com/tals/corgi-omarchy",
 ) {
   const values: Record<string, string> = {
     I18N: i18n,
-    OMARCHY_REPO: shellQuote(pluginRepository),
+    OMARCHY_REPO: shellQuote("https://github.com/tals/corgi-omarchy"),
     BASE: shellQuote(base),
     VERSION: shellQuote(releaseVersion(version)),
     MAC_SHA256: shellQuote(binaries["macos-aarch64"].sha256),
@@ -617,7 +611,7 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv[0] === "--help") {
     console.log(
-      "Usage: bun run publish [VERSION] [--dry-run | --build-only | --publish-only] [--skip-tests] [--test] [--omarchy-skip]\n       bun run publish --init-key PATH\n       bun run publish --clean\n\nBuilds macOS arm64 + Linux amd64 and arm64, signs the macOS binary (keychain on a Mac, or rcodesign with\ncodesignP12 anywhere), then publishes to an S3-compatible bucket and tags the commit on origin. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.\n--skip-tests builds without running the typecheck and test suites.\n--test publishes under /test, with its own signing key, channels, and plugin.\n--omarchy-skip skips the automatic corgi-omarchy update.\n--clean deletes every saved release, published or not, and checkouts left by interrupted runs.",
+      "Usage: bun run publish [VERSION] [--dry-run | --build-only | --publish-only] [--skip-tests] [--channel stable|test] [--omarchy-skip]\n       bun run publish --init-key PATH\n       bun run publish --clean\n\nBuilds macOS arm64 + Linux amd64 and arm64, signs the macOS binary (keychain on a Mac, or rcodesign with\ncodesignP12 anywhere), then publishes to an S3-compatible bucket and tags the commit on origin. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.\n--skip-tests builds without running the typecheck and test suites.\n--channel test publishes to the test channel, which installs follow with corgi update --channel test. The commit may be on\nany pushed branch; the installer and the Omarchy plugin stay on stable. --publish-only VERSION promotes a release test published to stable,\nfrom any branch; other stable releases come from main.\n--omarchy-skip skips the automatic corgi-omarchy update.\n--clean deletes every saved release, published or not, and checkouts left by interrupted runs.",
     );
     return;
   }
@@ -645,23 +639,26 @@ async function main() {
     return;
   }
   const options = releaseOptions(argv);
-  const { mode } = options;
-  const paths = releasePaths(repo, options.test);
+  const { mode, channel } = options;
+  const stable = channel === "stable";
+  // The installer and the Omarchy plugin it adds follow stable.
+  const plugin = stable && !options.omarchySkip;
+  const tag = (version: string) => (stable ? version : `${channel}/${version}`);
+  const paths = releasePaths(repo);
   const releases = paths.releases;
   const commit = await releaseCommit(repo, options, releases);
   const version = publishedVersion(options.version || timestampVersion(commit), commit);
   const out = join(releases, version);
   if (mode === "--dry-run") {
     console.log(
-      `Release ${version}: ${options.skipTests ? "" : "test → "}build Linux amd64 and arm64 and macOS arm64 → sign macOS → smoke-test → sign manifests → ${options.test ? "" : "upload debug files to Sentry → "}upload/verify assets → publish channels → tag on origin.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nDestination: ${options.test ? "test (separate key, /test downloads and plugin)" : "stable"}\nOmarchy: ${options.omarchySkip ? "skipped" : "fetch before tests/builds; prepare/check before publication; push afterward only if the plugin decides it changed"}\nNo builds, tags, uploads, or remote changes performed.`,
+      `Release ${version}: ${options.skipTests ? "" : "test → "}build Linux amd64 and arm64 and macOS arm64 → sign macOS → smoke-test → sign manifests → upload debug files to Sentry → upload/verify assets → publish the ${channel} channel → tag ${tag(version)} on origin.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nChannel: ${channel}${stable ? ", and install.sh" : ""}\nOmarchy: ${plugin ? "fetch before tests/builds; prepare/check before publication; push afterward only if the plugin decides it changed" : "skipped"}\nNo builds, tags, uploads, or remote changes performed.`,
     );
     return;
   }
-  let config: Config = JSON.parse(
+  const config: Config = JSON.parse(
     await readFile(process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json"), "utf8"),
   );
   config.publicBaseUrl = config.publicBaseUrl.replace(/\/+$/, "");
-  if (options.test) config = await testConfiguration(config, dirname(paths.releases));
   for (const url of [config.publicBaseUrl, config.endpoint]) {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash)
@@ -709,9 +706,10 @@ async function main() {
   const credentials = mode === "--build-only" ? undefined : await loadCredentials(config);
   // Publishing ends with the tag, so a push GitHub would refuse stops it before the build.
   if (mode !== "--build-only") {
-    if (options.test) git(repo, "fetch", "--quiet", "origin", commit);
-    else requirePushed(repo, commit);
-    tagRelease(repo, options.test ? `test/${version}` : version, commit, true);
+    // Stable comes from main, or is a release test published, from any branch.
+    if (stable && !(mode === "--publish-only" && publishedToTest(repo, version, commit))) requirePushed(repo, commit);
+    else git(repo, "fetch", "--quiet", "origin", commit);
+    tagRelease(repo, tag(version), commit, true);
   }
   const key = createPrivateKey(await readFile(config.signingKey));
   if (key.asymmetricKeyType !== "ed25519") throw new Error("The release signing key must be Ed25519.");
@@ -728,7 +726,7 @@ async function main() {
     };
     checkSource();
     console.log(`Release ${version} from ${commit} (isolated committed tree).\nArtifacts: ${out}`);
-    if (!options.omarchySkip && mode !== "--build-only") {
+    if (plugin && mode !== "--build-only") {
       step("Fetching the Omarchy plugin");
       await fetchPlugin(source, out);
     }
@@ -850,31 +848,18 @@ async function main() {
         throw new Error("Release metadata mismatch or unsafe test build.");
       step(`Smoke-testing corgi-${host()}`);
       await smokeTest(local);
-      const envelopes: Record<string, string> = {};
-      for (const manifest of manifests) {
-        const payload = JSON.stringify({
-          schema_version: 1,
-          version,
-          commit,
-          update_abi: info.update_abi,
-          targets: Object.fromEntries(manifest.targets.map(name => [name, binaries[name]])),
-        });
-        envelopes[manifest.name] = JSON.stringify({
-          payload,
-          signature: sign(null, Buffer.from(payload), key).toString("hex"),
-        });
-        await writeFile(join(out, manifest.name), envelopes[manifest.name]);
-      }
+      const payload = JSON.stringify({
+        schema_version: 1,
+        version,
+        commit,
+        update_abi: info.update_abi,
+        targets: Object.fromEntries(targets.map(t => [t.name, binaries[t.name]])),
+      });
+      const envelope = JSON.stringify({ payload, signature: sign(null, Buffer.from(payload), key).toString("hex") });
+      await writeFile(join(out, "manifest.json"), envelope);
       const template = await readFile(join(source, "scripts/install.sh.in"), "utf8");
       const i18n = await readFile(join(source, "scripts/install_i18n.generated.sh"), "utf8");
-      const install = installer(
-        config.publicBaseUrl,
-        version,
-        binaries,
-        template,
-        i18n,
-        options.test ? `${config.publicBaseUrl}/corgi.computer.git` : undefined,
-      );
+      const install = installer(config.publicBaseUrl, version, binaries, template, i18n);
       await writeFile(join(out, "install.sh"), install);
       checkSource();
       await writeFile(
@@ -883,14 +868,13 @@ async function main() {
           {
             version,
             commit,
-            test: options.test,
             publicBaseUrl: config.publicBaseUrl,
             publicKey,
             publishable: mode !== "--build-only" && signer !== null,
             sentry: config.sentry?.dsn,
             hashes: {
               ...Object.fromEntries(targets.map(t => [`corgi-${t.name}`, binaries[t.name].sha256])),
-              ...Object.fromEntries(manifests.map(m => [m.name, sha256(envelopes[m.name])])),
+              "manifest.json": sha256(envelope),
               "install.sh": sha256(install),
             },
           },
@@ -909,7 +893,6 @@ async function main() {
       prepared.version !== version ||
       prepared.commit !== commit ||
       prepared.publicKey !== publicKey ||
-      (prepared.test ?? false) !== options.test ||
       prepared.publicBaseUrl !== config.publicBaseUrl
     )
       throw new Error("Prepared release does not match this release source/configuration.");
@@ -917,16 +900,19 @@ async function main() {
       throw new Error("Prepared release reports crashes to a Sentry project this configuration does not name.");
     for (const [name, digest] of Object.entries(prepared.hashes))
       if (sha256(await readFile(join(out, name))) !== digest) throw new Error(`Prepared artifact changed: ${name}`);
-    if (!options.omarchySkip) {
+    // Every platform reads the one manifest, so it must name them all.
+    const named = JSON.parse(JSON.parse(await readFile(join(out, "manifest.json"), "utf8")).payload).targets;
+    if (!targets.every(t => Object.hasOwn(named, t.name)))
+      throw new Error("The prepared manifest doesn't name every target; publish a new build.");
+    if (plugin) {
       try {
-        await preparePlugin(source, out, options.test, config.publicBaseUrl);
+        await preparePlugin(source, out, config.publicBaseUrl);
       } catch (error) {
         throw new Error(
-          `Corgi is built, but plugin preparation failed: ${(error as Error).message}\nRetry: bun run publish ${version} --publish-only${options.test ? " --test" : ""}`,
+          `Corgi is built, but plugin preparation failed: ${(error as Error).message}\nRetry: bun run publish ${version} --publish-only`,
         );
       }
     }
-    const objectKey = (path: string) => (options.test ? `test/${path}` : path);
     const s3 = new Bun.S3Client({
       endpoint: config.endpoint,
       region: config.region,
@@ -936,26 +922,26 @@ async function main() {
     const store: Store = {
       get: path =>
         retrying(`Checking the bucket for ${path}`, async () => {
-          const file = s3.file(objectKey(path));
+          const file = s3.file(path);
           return (await file.exists()) ? download(file.presign({ method: "GET", expiresIn: 3600 }), path) : null;
         }),
       put: (path, bytes, type, cache) =>
         retrying(`Uploading ${path} (${megabytes(bytes.length)})`, () => {
           checkSource();
-          const url = s3.file(objectKey(path)).presign({ method: "PUT", expiresIn: 3600 });
+          const url = s3.file(path).presign({ method: "PUT", expiresIn: 3600 });
           return upload(url, path, bytes, { "Content-Type": type, "Cache-Control": cache });
         }),
       publicGet: path =>
         retrying(`Verifying ${config.publicBaseUrl}/${path}`, () => download(`${config.publicBaseUrl}/${path}`, path)),
     };
-    const previousChannel = await store.get("channels/stable.json");
+    const previousChannel = await store.get(channelKeys(channel)[0]);
     if (previousChannel) {
       const current = JSON.parse(JSON.parse(Buffer.from(previousChannel).toString()).payload).version;
       const old = versionParts(current),
         next = versionParts(version);
       const first = next.findIndex((n, i) => n !== old[i]);
       if (first >= 0 && next[first] < old[first])
-        throw new Error(`Refusing to move stable backwards from ${current} to ${version}.`);
+        throw new Error(`Refusing to move ${channel} backwards from ${current} to ${version}.`);
     }
     // Crashes can arrive as soon as the channel moves; Sentry symbolicates
     // them with these files.
@@ -975,7 +961,7 @@ async function main() {
       ]);
     }
     const assets = await Promise.all(
-      [...targets.map(t => `corgi-${t.name}`), ...manifests.map(m => m.name), "install.sh"].map(async name => ({
+      [...targets.map(t => `corgi-${t.name}`), "manifest.json", "install.sh"].map(async name => ({
         key: `releases/${version}/${name}`,
         bytes: await readFile(join(out, name)),
         type: name.endsWith(".json")
@@ -985,31 +971,28 @@ async function main() {
             : "application/octet-stream",
       })),
     );
-    const channels = await Promise.all(
-      manifests.map(async m => ({
-        key: m.channel,
-        bytes: await readFile(join(out, m.name)),
-        type: "application/json",
-      })),
-    );
-    await publish(store, assets, channels, await readFile(join(out, "install.sh")));
-    step(`Tagging ${version} on origin`);
+    const manifest = await readFile(join(out, "manifest.json"));
+    const feeds = channelKeys(channel).map(key => ({ key, bytes: manifest, type: "application/json" }));
+    await publish(store, assets, feeds, stable ? await readFile(join(out, "install.sh")) : null);
+    step(`Tagging ${tag(version)} on origin`);
     try {
-      tagRelease(repo, options.test ? `test/${version}` : version, commit);
+      tagRelease(repo, tag(version), commit);
     } catch (error) {
       throw new Error(
-        `Published Corgi ${version}, but tagging it failed: ${(error as Error).message}\nTag it with: git push origin ${commit}:refs/tags/${options.test ? "test/" : ""}${version}`,
+        `Published Corgi ${version}, but tagging it failed: ${(error as Error).message}\nTag it with: git push origin ${commit}:refs/tags/${tag(version)}`,
       );
     }
     console.log(
-      `Published Corgi ${version}${options.test ? " to the test channel" : ""}.\nSource: ${commit}\n\nInstall Corgi:\n  curl -fsSL ${config.publicBaseUrl}/install.sh | bash${options.omarchySkip ? " -s -- --no-omarchy" : ""}`,
+      stable
+        ? `Published Corgi ${version}.\nSource: ${commit}\n\nInstall Corgi:\n  curl -fsSL ${config.publicBaseUrl}/install.sh | bash${options.omarchySkip ? " -s -- --no-omarchy" : ""}`
+        : `Published Corgi ${version} to the ${channel} channel.\nSource: ${commit}\n\nFollow it from an installed Corgi:\n  corgi update --channel ${channel}\n\nPromote it to stable:\n  bun run publish ${version} --publish-only`,
     );
-    if (!options.omarchySkip) {
+    if (plugin) {
       try {
-        await pluginCommand(source, out, "publish", options.test, config.publicBaseUrl);
+        await pluginCommand(source, out, "publish", config.publicBaseUrl);
       } catch (error) {
         throw new Error(
-          `Corgi is published, but the plugin update failed: ${(error as Error).message}\nRetry: bun run publish ${version} --publish-only${options.test ? " --test" : ""}`,
+          `Corgi is published, but the plugin update failed: ${(error as Error).message}\nRetry: bun run publish ${version} --publish-only`,
         );
       }
     }

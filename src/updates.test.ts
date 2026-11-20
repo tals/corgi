@@ -28,6 +28,8 @@ import {
   prune,
   pluginOf,
   forget,
+  channelOf,
+  state,
   type Release,
 } from "./updates";
 import { releaseVersion } from "./build_config";
@@ -75,7 +77,7 @@ test("manifests verify against the release's key", () => {
   expect(() => parse(rel(""), bytes)).toThrow("BadUpdateSignature");
   expect(() => parse(r, signedManifest(signer, 2, "https://example.invalid/corgi"))).toThrow("UnknownUpdateSchema");
 });
-test("signed manifests require every typed field, and this platform's target", () => {
+test("signed manifests require every typed field and this platform's target, and pass over unknown platforms", () => {
   const signer = keys(),
     r = rel(key(signer));
   const original = JSON.parse(JSON.parse(signedManifest(signer, 1, "https://example.invalid/corgi")).payload);
@@ -101,9 +103,8 @@ test("signed manifests require every typed field, and this platform's target", (
     if (name === platform) expect(() => parse(r, encode(value))).toThrow("MissingField");
     else expect(parse(r, encode(value)).version).toBe("1.2.4");
   }
-  expect(() => parse(r, encode({ ...original, targets: { ...original.targets, "plan9-mips": {} } }))).toThrow(
-    "UnknownField",
-  );
+  // A platform a later release adds, in whatever shape, is someone else's.
+  expect(parse(r, encode({ ...original, targets: { ...original.targets, "plan9-mips": {} } })).version).toBe("1.2.4");
   expect(() => parse(r, encode({ ...original, extra: true }))).toThrow("UnknownField");
 });
 test("local http targets need test mode", () => {
@@ -231,6 +232,19 @@ test("an installation remembers the Omarchy plugin that installed it", () => {
     expect(pluginOf(root)).toBe("/home/u/.config/omarchy/plugins/corgi.computer");
     writeFileSync(join(root, "plugin"), "plugins/corgi.computer\n");
     expect(pluginOf(root)).toBeNull();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("an installation follows stable unless it chose a channel this release knows", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-channel-"));
+  try {
+    expect(channelOf(root)).toBe("stable");
+    writeFileSync(join(root, "channel"), "test");
+    expect(channelOf(root)).toBe("test");
+    expect(state(root)).toContain("Channel: test");
+    writeFileSync(join(root, "channel"), "nightly");
+    expect(channelOf(root)).toBe("stable");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

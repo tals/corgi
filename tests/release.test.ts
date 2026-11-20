@@ -10,7 +10,6 @@ import {
   versionParts,
   releaseOptions,
   releasePaths,
-  testConfiguration,
   fetchPlugin,
   preparePlugin,
   releaseCommit,
@@ -19,20 +18,22 @@ import {
   releaseEnvironment,
   macosSdk,
   validateBinary,
-  manifests,
+  channelKeys,
   signCommands,
   debugTools,
   tagRelease,
   requirePushed,
+  publishedToTest,
   type Store,
 } from "../scripts/publish.ts";
 import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, stat, symlink, realpath } from "node:fs/promises";
 import { generateKeyPairSync } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { n, pair, readUntil, write } from "../src/native_ffi";
 import { nativeRoot } from "../src/native_paths";
 import * as locale from "../src/locale";
+import type { Channel } from "../src/release_channel";
 const bytes = (s: string) => new TextEncoder().encode(s);
 class MemoryStore implements Store {
   files = new Map<string, Uint8Array>();
@@ -61,42 +62,44 @@ const assets = ["macos", "linux", "manifest.json"].map(name => ({
   bytes: bytes(name),
   type: "application/octet-stream",
 }));
-const channels = (feed: string) =>
-  ["channels/stable.json", "channels/stable-linux-aarch64.json"].map(key => ({
-    key,
-    bytes: bytes(`${feed} ${key}`),
-    type: "application/json",
-  }));
+const feeds = (feed: string, channel: Channel = "stable") =>
+  channelKeys(channel).map(key => ({ key, bytes: bytes(`${feed} ${key}`), type: "application/json" }));
 test("publication verifies every platform before advancing the channels", async () => {
   const store = new MemoryStore();
-  await publish(store, assets, channels("signed feed"), bytes("installer"));
+  await publish(store, assets, feeds("signed feed"), bytes("installer"));
   expect(store.writes.slice(-2)).toEqual(["channels/stable.json", "channels/stable-linux-aarch64.json"]);
   expect(store.writes.slice(0, 3)).toEqual(assets.map(a => a.key));
 });
-test("targets from before Linux arm64 keep a manifest that names only them", () => {
-  expect(manifests).toEqual([
-    { name: "manifest.json", channel: "channels/stable.json", targets: ["macos-aarch64", "linux-x86_64"] },
-    {
-      name: "manifest-linux-aarch64.json",
-      channel: "channels/stable-linux-aarch64.json",
-      targets: ["linux-aarch64"],
-    },
+test("stable also serves its manifest to Linux arm64 releases from before channels", () => {
+  expect(channelKeys("stable")).toEqual(["channels/stable.json", "channels/stable-linux-aarch64.json"]);
+  expect(channelKeys("test")).toEqual(["channels/test.json"]);
+});
+test("the test channel leaves stable's feeds and installer alone", async () => {
+  const store = new MemoryStore();
+  await publish(store, assets, feeds("stable"), bytes("installer"));
+  await publish(store, assets, feeds("test", "test"), null);
+  expect(store.writes.filter(k => !k.startsWith("releases/"))).toEqual([
+    "install.sh",
+    "channels/stable.json",
+    "channels/stable-linux-aarch64.json",
+    "channels/test.json",
   ]);
+  expect(store.files.get("channels/stable.json")).toEqual(bytes("stable channels/stable.json"));
 });
 test("failed public download leaves channel untouched; retry reuses identical uploads", async () => {
   const store = new MemoryStore();
   store.files.set("channels/stable.json", bytes("old"));
   store.fail = assets[1].key;
-  await expect(publish(store, assets, channels("new"), bytes("installer"))).rejects.toThrow("Offline");
+  await expect(publish(store, assets, feeds("new"), bytes("installer"))).rejects.toThrow("Offline");
   expect(store.files.get("channels/stable.json")).toEqual(bytes("old"));
   store.fail = "";
-  await publish(store, assets, channels("new"), bytes("installer"));
+  await publish(store, assets, feeds("new"), bytes("installer"));
   expect(store.writes.filter(k => k === assets[0].key).length).toBe(1);
 });
 test("immutable release collision never changes the channel", async () => {
   const store = new MemoryStore();
   store.files.set(assets[0].key, bytes("different"));
-  await expect(publish(store, assets, channels("new"), bytes("installer"))).rejects.toThrow("Refusing to overwrite");
+  await expect(publish(store, assets, feeds("new"), bytes("installer"))).rejects.toThrow("Refusing to overwrite");
   expect(store.writes).toEqual([]);
 });
 test("versions are stable semantic versions and cannot become paths", () => {
@@ -296,14 +299,14 @@ test("release modes accept an explicit version and reject ambiguous arguments", 
       mode,
       version,
       skipTests: false,
-      test: false,
+      channel: "stable",
       omarchySkip: false,
     });
     expect(releaseOptions([version, mode])).toEqual({
       mode,
       version,
       skipTests: false,
-      test: false,
+      channel: "stable",
       omarchySkip: false,
     });
   }
@@ -311,18 +314,18 @@ test("release modes accept an explicit version and reject ambiguous arguments", 
     mode: "",
     version: undefined,
     skipTests: false,
-    test: false,
+    channel: "stable",
     omarchySkip: false,
   });
   expect(releaseOptions(["--skip-tests", version])).toEqual({
     mode: "",
     version,
     skipTests: true,
-    test: false,
+    channel: "stable",
     omarchySkip: false,
   });
-  expect(releaseOptions(["--test", "--omarchy-skip", "--dry-run"])).toMatchObject({
-    test: true,
+  expect(releaseOptions(["--channel", "test", "--omarchy-skip", "--dry-run"])).toMatchObject({
+    channel: "test",
     omarchySkip: true,
     mode: "--dry-run",
   });
@@ -331,56 +334,16 @@ test("release modes accept an explicit version and reject ambiguous arguments", 
     ["--skip-tests", "--skip-tests"],
     ["--dry-run", "--build-only"],
     ["--unknown"],
-    ["--test", "--test"],
+    ["--test"],
+    ["--channel"],
+    ["--channel", "beta"],
+    ["--channel", "test", "--channel", "test"],
     ["--omarchy-skip", "--omarchy-skip"],
     ["--publish-only"],
     [version, version],
   ]) {
     expect(() => releaseOptions(args)).toThrow();
   }
-});
-
-test("test releases have a persistent private key and separate artifact paths", async () => {
-  await releaseFixture(async dir => {
-    const config = {
-      publicBaseUrl: "https://example.invalid",
-      endpoint: "https://bucket.invalid",
-      region: "auto",
-      bucket: "release",
-      signingKey: "stable-key",
-    };
-    const state = join(dir, ".git");
-    const first = await testConfiguration(config, state);
-    const key = await readFile(first.signingKey);
-    expect(first.publicBaseUrl).toBe("https://example.invalid/test");
-    expect(first.signingKey).not.toBe(config.signingKey);
-    expect((await stat(first.signingKey)).mode & 0o777).toBe(0o600);
-    expect(await readFile((await testConfiguration(config, state)).signingKey)).toEqual(key);
-    expect(releasePaths(dir, true).releases).not.toBe(releasePaths(dir).releases);
-    expect(releasePaths(dir, true).lock).toBe(releasePaths(dir).lock);
-    expect(config.publicBaseUrl).toBe("https://example.invalid");
-    await mkdir(releasePaths(dir, true).releases);
-    await mkdir(join(releasePaths(dir, true).releases, "one"));
-    expect((await clean(dir)).releases).toBe(1);
-    expect(await readFile(first.signingKey)).toEqual(key);
-  });
-});
-
-test("test installers add the plugin from the matching channel", () => {
-  const generated = installer(
-    "https://example.invalid/test",
-    "1.2.3",
-    {
-      "macos-aarch64": { sha256: "mac", size: 1 },
-      "linux-x86_64": { sha256: "linux", size: 2 },
-      "linux-aarch64": { sha256: "arm", size: 3 },
-    },
-    undefined,
-    undefined,
-    "https://example.invalid/test/corgi.computer.git",
-  );
-  expect(generated).toContain("omarchy_repo='https://example.invalid/test/corgi.computer.git'");
-  expect(generated).not.toContain("@OMARCHY_REPO@");
 });
 
 test.each(["tools", "scripts"])(
@@ -394,7 +357,7 @@ test.each(["tools", "scripts"])(
         `
       import { join } from 'node:path';
       const env = process.env;
-      if (env.CORGI_RELEASE_PHASE !== 'prepare' || !process.argv.includes('--test')) throw Error('wrong phase');
+      if (env.CORGI_RELEASE_PHASE !== 'prepare' || process.argv.length !== 2) throw Error('wrong phase');
       const installer = await Bun.file(join(env.CORGI_RELEASE_DIR!, 'install.sh')).text();
       await Bun.write('.git/corgi-release.json', JSON.stringify({installer, source: env.CORGI_RELEASE_SOURCE, base: env.CORGI_TEST_BASE_URL}));
     `,
@@ -410,7 +373,7 @@ test.each(["tools", "scripts"])(
         expect(await Bun.file(join(out, "plugin", folder, "release-plugin.ts")).exists()).toBe(true);
         expect(await Bun.file(join(out, "plugin/.git/corgi-release.json")).exists()).toBe(false);
         await writeFile(join(out, "install.sh"), "pinned installer");
-        await preparePlugin(dir, out, true, "https://example.invalid/test");
+        await preparePlugin(dir, out, "https://example.invalid");
         const saved = join(out, "plugin/.git/corgi-release.json");
         const first = await readFile(saved, "utf8");
         expect(JSON.parse(first)).toEqual({
@@ -420,7 +383,7 @@ test.each(["tools", "scripts"])(
         });
         await writeFile(join(out, "install.sh"), "different");
         await fetchPlugin(dir, out);
-        await preparePlugin(dir, out, true, "https://example.invalid/test");
+        await preparePlugin(dir, out, "https://example.invalid");
         expect(await readFile(saved, "utf8")).toBe(first);
       } finally {
         if (old === undefined) delete process.env.CORGI_OMARCHY_REMOTE;
@@ -573,6 +536,22 @@ test("only commits on origin's main are published", async () => {
     expect(() => requirePushed(dir, unpushed)).toThrow(`Push ${unpushed.slice(0, 12)} to origin main`);
     git("push", "origin", "HEAD:refs/heads/main");
     requirePushed(dir, unpushed);
+  });
+});
+
+test("only a release test published from its commit counts as tested", async () => {
+  await releaseFixture(async (dir, git) => {
+    const remote = join(dir, ".git/origin.git");
+    git("init", "--bare", remote);
+    git("remote", "add", "origin", remote);
+    const commit = git("rev-parse", "HEAD");
+    const version = timestampVersion(commit);
+    // The local clone has the commit, which a fetch by hash can't tell from origin having it.
+    expect(publishedToTest(dir, version, commit)).toBe(false);
+    tagRelease(dir, `test/${version}`, commit);
+    expect(publishedToTest(dir, version, commit)).toBe(true);
+    git("commit", "--allow-empty", "-m", "other");
+    expect(publishedToTest(dir, version, git("rev-parse", "HEAD"))).toBe(false);
   });
 });
 
@@ -754,12 +733,22 @@ test("binaries must match their platform", () => {
   expect(() => validateBinary("linux-x86_64", elf)).toThrow("amd64 ELF");
 });
 
+/** The publisher and what it reads from the repository, for a fixture's commit. */
+async function copyPublisher(dir: string) {
+  for (const name of [
+    "scripts/publish.ts",
+    "scripts/install.sh.in",
+    "scripts/install_i18n.generated.sh",
+    "src/release_channel.ts",
+  ]) {
+    await mkdir(dirname(join(dir, name)), { recursive: true });
+    await writeFile(join(dir, name), await Bun.file(join(import.meta.dir, "..", name)).text());
+  }
+}
 test("CLI dry run accepts dirty HEAD without creating release state", async () => {
   await releaseFixture(async (dir, git) => {
-    await mkdir(join(dir, "scripts"));
-    for (const name of ["publish.ts", "install.sh.in", "install_i18n.generated.sh"])
-      await writeFile(join(dir, "scripts", name), await Bun.file(join(import.meta.dir, "../scripts", name)).text());
-    git("add", "scripts");
+    await copyPublisher(dir);
+    git("add", "scripts", "src");
     git("commit", "-m", "publisher");
     const commit = git("rev-parse", "HEAD");
     await writeFile(join(dir, "tracked"), "pending");
@@ -780,9 +769,7 @@ test("CLI dry run accepts dirty HEAD without creating release state", async () =
 
 test("CLI runs the committed build script and cleans up after failure", async () => {
   await releaseFixture(async (dir, git) => {
-    await mkdir(join(dir, "scripts"));
-    for (const name of ["publish.ts", "install.sh.in", "install_i18n.generated.sh"])
-      await writeFile(join(dir, "scripts", name), await Bun.file(join(import.meta.dir, "../scripts", name)).text());
+    await copyPublisher(dir);
     await writeFile(
       join(dir, "build.ts"),
       'console.log("COMMITTED BUILD: " + process.cwd());\nif (await Bun.file("tracked").text() !== "committed") process.exit(1);\nif (process.env.ZIG_LOCAL_CACHE_DIR !== process.cwd() + "/native/.zig-cache") process.exit(1);\nconsole.log("ISOLATION VERIFIED");\nprocess.exit(37);\n',
