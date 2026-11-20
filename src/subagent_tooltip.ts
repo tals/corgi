@@ -1,3 +1,4 @@
+import * as viewerRef from "./viewer_ref";
 //! The agent card a sidebar row opens on hover, and the usage overview the
 //! status bar opens. Mirrors subagent_tooltip.zig.
 import * as i18n from "./i18n";
@@ -19,7 +20,7 @@ import { type AccountOption, type Option, option } from "./agent_launcher";
 import * as palette from "./palette";
 import * as releaseLabel from "./release_label";
 import { type Agent, type Pane, agent as agentValue, providerName } from "./mirror";
-import { type Entry, type Subagents, contextColor } from "./sidebar";
+import { type Data, type Entry, type Subagents, contextColor } from "./sidebar";
 import { Writer, byteSlice, directoryLabel, displayWidth, ellipsis, writeEllipsis, sat } from "./text";
 import { Rect } from "./layout";
 
@@ -265,7 +266,7 @@ export function childrenAvailable(all: readonly Conversation[], parent: number, 
   return true;
 }
 const noSubagents = (): Subagents => ({ running: 0, blocked: 0, waiting: false });
-export function presentChildren(entry: Entry, all: readonly Conversation[], now: number): void {
+export function presentChildren(entry: Data, all: readonly Conversation[], now: number): void {
   entry.children = 0;
   if (childrenAvailable(all, entry.conversation, now)) {
     entry.children = childCount(all, entry.conversation);
@@ -1403,7 +1404,7 @@ export function draw(
         ? `${provider} · ${model_label}`
         : provider;
   // An agent in another account names it, and who signed in to it fainter still.
-  const pane = "pane" in entry.target ? entry.target.pane : null;
+  const pane = viewerRef.isPane(entry.target) ? viewerRef.parts(entry.target).id : null;
   const account = accounts.label(root_agent.provider, accounts.panes.find(p => p.id === pane)?.account ?? "");
   const subtitle =
     account === null ? model_line : [model_line, account.name].filter(part => part.length > 0).join(" · ");

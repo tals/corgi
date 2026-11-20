@@ -3,7 +3,7 @@ import { Writer, displayWidth, writeEllipsis, sat, wrap } from "./text";
 import { Fetch } from "./corgi_animation";
 import { milliTimestamp } from "./clock";
 import { Rect } from "./layout";
-import { Action } from "./action";
+import type { Template as Action } from "./action";
 import * as keys from "./keys";
 import * as km from "./keymap";
 import * as bindings from "./bindings";

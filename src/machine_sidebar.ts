@@ -30,6 +30,7 @@ export class Workspaces {
   }
   show(): void {
     if (!this.visible) return;
+    this.view.worktree_card.pending_enter = null;
     this.open = true;
     this.cursor = this.filter ? this.endpoints.indexOf(this.filter) + 1 : 0;
   }

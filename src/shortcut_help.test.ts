@@ -4,7 +4,7 @@ import type { Preset } from "./keymap";
 const available_presets: Preset[] = ["corgi", "tmux", "herdr", "cmux"];
 import * as bindings from "./bindings";
 import { displayWidth } from "./text";
-import type { Action } from "./action";
+import type { Template as Action } from "./action";
 
 const act = (name: string, value?: string) => (value === undefined ? { name } : { name, value }) as Action;
 const same = (a: Action | null, b: Action) => JSON.stringify(a) === JSON.stringify(b);

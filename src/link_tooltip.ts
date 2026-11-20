@@ -1,5 +1,5 @@
 import * as i18n from "./i18n";
-import type { Target as AgentTarget } from "./sidebar";
+import * as viewerRef from "./viewer_ref";
 import type { Cell } from "./fork_hero";
 import type { Link as TerminalLink } from "./pane/hyperlinks";
 import { Rect } from "./layout";
@@ -57,12 +57,12 @@ export function thumbnailCells(t: Thumbnail): { cols: number; rows: number } {
 }
 export interface Target {
   link?: Link;
-  resource?: number | null;
-  git?: number | null;
-  worktree?: number | null;
+  resource?: viewerRef.Workspace | null;
+  git?: viewerRef.Workspace | null;
+  worktree?: viewerRef.Workspace | null;
   usage?: boolean;
   conversation?: number;
-  agent?: AgentTarget | null;
+  agent?: viewerRef.Agent | null;
 }
 function same(a: Target, b: Target) {
   return (
@@ -72,7 +72,7 @@ function same(a: Target, b: Target) {
     (a.worktree ?? null) === (b.worktree ?? null) &&
     (a.usage ?? false) === (b.usage ?? false) &&
     (a.conversation ?? 0) === (b.conversation ?? 0) &&
-    JSON.stringify(a.agent ?? null) === JSON.stringify(b.agent ?? null)
+    (a.agent ?? null) === (b.agent ?? null)
   );
 }
 function delay(target: Target | null): number {

@@ -665,7 +665,7 @@ export class Server {
     let tracked = gitStatusChanged || gitPushChanged || portsChanged;
     const viewers = this.clients.filter(c => c.viewer && !c.dead);
     const overviews = new Set(
-      viewers.filter(c => c.watched && c.worktree_detail !== null).map(c => c.worktree_detail!),
+      this.clients.filter(c => !c.dead && c.worktree_detail !== null).map(c => c.worktree_detail!),
     );
     tracked = this.runtime.worktree_tracker.tick(this.runtime, overviews) || tracked;
     const inference = this.runtime.inference;
@@ -922,6 +922,8 @@ export class Server {
           cl.resource_observer = true;
           cl.resources = request.payload.resources;
         }
+        // Resumed viewers can poll before streaming; omitted interests leave their configuration alone.
+        if (!cl.viewer || "worktree_detail" in v) cl.worktree_detail = request.payload.worktree_detail;
         reply.send(session.snapshot(this.runtime));
         return;
       case "session.subscribe":

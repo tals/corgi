@@ -163,6 +163,8 @@ export class Stream {
     return changed;
   }
   applyHistory(update: { full: boolean; entries: Entry[]; removed?: { provider: string; session: string }[] }) {
+    // A reused connection can still send deltas from its previous subscription.
+    if (this.history.pending && !update.full) return;
     const key = (e: { provider: string; session: string }) => e.provider + ":" + e.session,
       replaced = new Set([...update.entries, ...(update.removed ?? [])].map(key));
     this.history = {

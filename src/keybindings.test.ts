@@ -4,6 +4,12 @@ import * as bindings from "./bindings";
 import * as keys from "./keys";
 import type { Preset } from "./keymap";
 
+test("saved workspace shortcuts retain input selectors", () => {
+  for (const name of ["worktrees", "resources"] as const) {
+    expect(custom.target(custom.id({ name, value: 1 }))).toEqual({ name, value: 1 });
+  }
+});
+
 test("every preset keeps its actions and repeat flags without overrides", () => {
   for (const preset of ["corgi", "tmux", "herdr", "cmux"] as Preset[]) {
     const compiled = custom.resolve(preset, {});
@@ -23,7 +29,7 @@ test("strings and arrays replace an action, empty arrays unbind it", () => {
   expect(bindings.lookup(table, true, 120)).toBeNull();
 });
 test("actions that default to the current target bind by their bare name", () => {
-  for (const name of ["worktrees", "resources"]) {
+  for (const name of ["worktrees", "resources"] as const) {
     const table = custom.resolve("corgi", custom.parse({ [name]: "ctrl+alt+g" }));
     const act = bindings.chord(table, false, keys.parseChord("ctrl+alt+g")!);
     expect(act?.name).toBe(name);

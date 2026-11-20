@@ -11,7 +11,7 @@ import { Fetch } from "./corgi_animation";
 
 export type Result =
   | { name: "close" }
-  | { name: "action"; action: action.Action }
+  | { name: "action"; action: action.Template }
   | { name: "save"; config: model.Config }
   | { name: "prefix"; prefix: keymap.Prefix }
   | null;
@@ -57,7 +57,7 @@ interface Hit {
   rect: Rect;
   target: Target;
 }
-type Entry = Omit<model.Entry, "action"> & { action: action.Action | null };
+type Entry = Omit<model.Entry, "action"> & { action: action.Template | null };
 interface Edit {
   id: string;
   index: number;
@@ -372,7 +372,13 @@ export class State {
         const e = this.entry(t.id);
         if (this.customizing || e.action === null) this.start(t.id, t.index);
         else {
-          return { name: "action", action: e.indexed ? { name: e.action.name, value: 1 } : e.action };
+          return {
+            name: "action",
+            action:
+              e.action.name === "tab" || e.action.name === "goto-workspace"
+                ? { name: e.action.name, value: 1 }
+                : e.action,
+          };
         }
         return null;
       }

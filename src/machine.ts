@@ -40,7 +40,7 @@ export interface Presence {
   /** Why it isn't online. */
   description: string;
   /** Its rows from the last time it answered, until it does this session. */
-  cached: WorkspaceEntry[];
+  cached: WorkspaceEntry<number>[];
   /** It has answered at some point, so rows name their machine. */
   seen: boolean;
   /** Its cached rows came from a daemon since replaced; their ids name
@@ -69,7 +69,10 @@ export class Profiles {
     return !this.reading && now >= this.retry_at && (again || !this.read);
   }
 }
+let next_machine_id = 1;
 export class Machine {
+  /** Identity within this viewer process, kept across reconnects and never reused. */
+  readonly id = next_machine_id++;
   order_scope = "";
   collapsed = false;
   runtime = new Runtime();

@@ -64,8 +64,10 @@ export function bind(socket: string, accept: Accept): Bound {
     },
     websocket: {
       perMessageDeflate: false,
-      // Viewers and subscriptions stay open while idle.
-      idleTimeout: 0,
+      // Bun pings after ~16s without incoming traffic, then allows ~16s for a pong.
+      // Pongs keep idle clients connected; unanswered pings close the connection.
+      idleTimeout: 32,
+      sendPings: true,
       maxPayloadLength: limit,
       open(ws) {
         ws.data = accept.connection({

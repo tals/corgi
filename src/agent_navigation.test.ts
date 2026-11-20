@@ -1,19 +1,20 @@
+import * as viewerRef from "./viewer_ref";
 import { test, expect } from "bun:test";
 import { relative, sameTarget, History, Picker } from "./agent_navigation";
 import { entry, type Entry, type Target } from "./sidebar";
 test("navigation distinguishes agents and headings with overlapping identities", () => {
   const targets: (Target | null)[] = [
     null,
-    { pane: 1 },
-    { headless: 1 },
-    { group: 1 },
-    { worktree: "/wt", workspace: 1 },
-    { worktree: "/wt", workspace: 2 },
+    viewerRef.pane(0, 1),
+    viewerRef.headless(0, 1),
+    { group: viewerRef.workspace(0, 1) },
+    { worktree: "/wt", workspace: viewerRef.workspace(0, 1) },
+    { worktree: "/wt", workspace: viewerRef.workspace(0, 2) },
     { asleep: "session", provider: "claude" },
     { asleep: "session", provider: "codex" },
     { section: "working" },
-    { section: "working", workspace: 1, checkout: null, run: 0 },
-    { section: "working", workspace: 1, checkout: null, run: 1 },
+    { section: "working", workspace: viewerRef.workspace(0, 1), checkout: null, run: 0 },
+    { section: "working", workspace: viewerRef.workspace(0, 1), checkout: null, run: 1 },
   ];
   targets.forEach((a, i) => targets.forEach((b, j) => expect(sameTarget(a, structuredClone(b))).toBe(i === j)));
 });
@@ -21,14 +22,14 @@ test("agent navigation wraps, excludes shells, and validates history against the
   const entries: Entry[] = [
     entry({
       name: "",
-      target: { pane: 2 },
+      target: viewerRef.pane(0, 2),
       provider: "codex",
       state: "idle",
       attention: "none",
     }),
     entry({
       name: "",
-      target: { headless: 2 },
+      target: viewerRef.headless(0, 2),
       provider: "claude",
       state: "blocked",
       attention: "needs_input",
@@ -47,14 +48,14 @@ test("picker preserves target identity across reordering and removes filtered or
   const entries: Entry[] = [
     entry({
       name: "Alpha",
-      target: { pane: 1 },
+      target: viewerRef.pane(0, 1),
       provider: "codex",
       state: "idle",
       attention: "none",
     }),
     entry({
       name: "Beta",
-      target: { headless: 1 },
+      target: viewerRef.headless(0, 1),
       provider: "claude",
       state: "blocked",
       attention: "needs_input",

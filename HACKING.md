@@ -73,6 +73,30 @@ buffers. A local socket adapter preserves the interface used by RPC and preview
 clients. Old saved profiles without a bridge path retain dedicated SSH socket forwarding;
 remove and add the machine again to discover the helper.
 
+Viewer workspace and pane references are branded strings in `viewer_ref.ts`,
+such as `7/w42` and `7/p9`. Machine IDs are unique within the viewer process
+and survive reconnects; the controller resolves their owner through its
+registry. Sidebar rows, selections and cards carry the same qualified workspace
+ID, including for local workspaces. Daemon snapshots and persisted machine
+caches keep their local numeric IDs; only local IDs cross the owner's connection.
+Agent targets use the same qualified strings (`7/p9` for a pane, `7/h3` for a
+headless session). Agent history, hover and rename carry the ID itself. Headings
+keep their section or worktree context separately; an agent shown in two checkouts
+still has two display rows. `machineAgents` reads and annotates daemon-local rows;
+`agentRows.qualify` qualifies them once for the shared sidebar. The CLI and saved agent
+ordering continue to use daemon-local IDs.
+Background worktree scans do not mark that workspace as read.
+`action.ts` derives action names and argument types from its command table.
+Executable workspace actions require a qualified target. Saved bindings and CLI
+input use `action.Template`; `invoke` binds their numeric or current-workspace
+selector to an owner before dispatching an `action.Action`. Clicks already carry
+a qualified target and dispatch directly. Viewer-local IDs are not saved as
+shortcuts. Saved IDs and CLI target syntax are unchanged.
+The optional `worktree_detail` on `session.snapshot` requests these scans before
+a viewer has opened on that daemon. Older daemons ignore the new field; both
+ends need this change for background details to refresh. Saved IDs and CLI
+target syntax are unchanged.
+
 Normal stdio attachments and CLI commands share a private Corgi OpenSSH master,
 with ten minutes of idle persistence. Bulk image uploads, explicit machine
 checks, manual retries, and recovery probes use independent connections. Closing

@@ -7,6 +7,7 @@ import * as palette from "./palette";
 import { Writer, ellipsis, directoryLabel, displayWidth, shortPath, compactCount } from "./text";
 import { Grid } from "./cell_grid";
 import * as worktrees from "./worktrees";
+import type * as viewerRef from "./viewer_ref";
 import * as worktreeRemoval from "./worktree_removal";
 import { clean } from "./trackers/git_status";
 import { milliTimestamp } from "./clock";
@@ -42,10 +43,12 @@ export function between(rect: Rect, badge: Rect, x: number, y: number): boolean 
   return slope >= top && slope <= bottom;
 }
 export class State {
-  workspace: number | null = null;
+  workspace: viewerRef.Workspace | null = null;
   pinned = false;
   anchor = 2;
   selected: string | null = null;
+  /** Enter waits here for history; closing or moving cancels it. */
+  pending_enter: (() => void) | null = null;
   /** How many conversations Enter would bring back for the browsed worktree. */
   asleep: { path: string; count: number } | null = null;
   /** Each worktree's live agents by state, counted as the sidebar's
@@ -66,6 +69,8 @@ export class State {
     this.workspace = null;
     this.pinned = false;
     this.selected = null;
+    this.pending_enter = null;
+    this.asleep = null;
     this.agents = null;
     this.briefs = null;
     this.writing.clear();
@@ -135,6 +140,7 @@ export class State {
   }
   select(path: string | null) {
     if (this.selected === path) return;
+    this.pending_enter = null;
     this.selected = path;
     // Moving off a locked worktree's note keeps it.
     this.removal.cancel(milliTimestamp());
@@ -527,9 +533,11 @@ export function draw(
   } else {
     const enter = snapshot?.agents.some(a => a.path === selected?.path)
       ? i18n.t`focus agents`
-      : state.asleep?.path === selected?.path && state.asleep?.count
-        ? i18n.t`resume agents`
-        : i18n.t`new agent`;
+      : !state.asleep || state.asleep.path !== selected?.path
+        ? i18n.t`open`
+        : state.asleep.count
+          ? i18n.t`resume agents`
+          : i18n.t`new agent`;
     line(
       rect.h - 2,
       2,

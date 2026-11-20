@@ -15,7 +15,7 @@ export interface Shortcut {
 }
 export interface Entry {
   id: string;
-  action: action.Action;
+  action: action.Template;
   title: string;
   indexed: boolean;
   shortcuts: Shortcut[];
@@ -35,7 +35,7 @@ export class InvalidKeys extends Error {
 function fail(message: string, ids: readonly string[] = []): never {
   throw new InvalidKeys(message, ids);
 }
-export function id(a: action.Action): string {
+export function id(a: action.Template): string {
   return a.name === "tab" || a.name === "goto-workspace"
     ? a.name
     : a.name + (a.value === undefined || (targetless(a.name) && a.value === 0) ? "" : `:${a.value}`);
@@ -44,7 +44,7 @@ export function id(a: action.Action): string {
 function targetless(name: string): boolean {
   return name === "resources" || name === "worktrees";
 }
-export function target(name: string): action.Action {
+export function target(name: string): action.Template {
   if (name === "tab" || name === "goto-workspace") return { name, value: 1 };
   const colon = name.indexOf(":");
   try {
@@ -119,7 +119,7 @@ export function parse(raw: unknown): Config {
 }
 /** The action id `name` overrides in a keys object, or null when it names no action. */
 export function canonical(name: string): string | null {
-  let a: action.Action;
+  let a: action.Template;
   try {
     a = target(name);
   } catch {
@@ -172,7 +172,7 @@ export function defaults(preset: Preset): Entry[] {
                 ? ["left", "right"]
                 : [];
     for (const value of values) {
-      const a = { name, ...(value === undefined ? {} : { value }) },
+      const a = action.parse(name, value === undefined ? "" : String(value)),
         nameId = id(a);
       if (!entries.has(nameId))
         entries.set(nameId, {
@@ -228,7 +228,10 @@ export function resolve(preset: Preset, config: Config): bindings.Binding[] {
   return entries(preset, config).flatMap(e =>
     e.shortcuts.flatMap(s =>
       s.keys.map((key, index) => {
-        const a = e.indexed ? { name: e.action.name, value: index + 1 } : e.action;
+        const a =
+          e.action.name === "tab" || e.action.name === "goto-workspace"
+            ? { name: e.action.name, value: index + 1 }
+            : e.action;
         const original = base.find(
           b => id(b.action) === e.id && b.prefixed === s.prefixed && keys.same(key, { codepoint: b.key, mods: b.mods }),
         );

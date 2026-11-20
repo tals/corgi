@@ -1,7 +1,37 @@
 import * as i18n from "./i18n";
+import * as viewerRef from "./viewer_ref";
 export type Direction = "left" | "right" | "up" | "down";
-export type Action = { name: string; value?: string | number };
-export const specs: Record<string, string> = {
+interface Values {
+  "void": undefined;
+  "usize": number;
+  "[]const u8": string;
+  "layout.Direction": Direction;
+  "Side": "left" | "right";
+  "Split": "right" | "down";
+  "Signal": "term" | "kill";
+  "Workspace": viewerRef.Workspace;
+}
+export type Action = {
+  [Name in keyof typeof specs]: { name: Name } & ((typeof specs)[Name] extends "Workspace"
+    ? { value: Values[(typeof specs)[Name]] }
+    : { value?: Values[(typeof specs)[Name]] });
+}[keyof typeof specs];
+/** Saved bindings and command text precede selection of a concrete target. */
+export type Template = {
+  [Name in keyof typeof specs]: {
+    name: Name;
+    value?: (typeof specs)[Name] extends "Workspace" ? number : Values[(typeof specs)[Name]];
+  };
+}[keyof typeof specs];
+export function bind(template: Template, selected: viewerRef.Workspace): Action {
+  if (specs[template.name] !== "Workspace") return template as Action;
+  const value = template.value as number | undefined;
+  return {
+    name: template.name,
+    value: value ? viewerRef.workspace(viewerRef.parts(selected).machine, value) : selected,
+  } as Action;
+}
+export const specs = {
   dock: "void",
   "cancel-dock": "void",
   "undo-layout": "void",
@@ -23,7 +53,7 @@ export const specs: Record<string, string> = {
   "workspace-prev": "void",
   "last-workspace": "void",
   "choose-workspace": "void",
-  worktrees: "usize",
+  worktrees: "Workspace",
   "worktree-next": "void",
   "worktree-prev": "void",
   "worktree-close": "void",
@@ -43,7 +73,7 @@ export const specs: Record<string, string> = {
   "startup-go": "[]const u8",
   "startup-kill": "[]const u8",
   "startup-close": "void",
-  resources: "usize",
+  resources: "Workspace",
   "resource-next": "void",
   "resource-prev": "void",
   "resource-sort": "Side",
@@ -108,19 +138,22 @@ export const specs: Record<string, string> = {
   keybindings: "void",
   onboard: "void",
   relaunch: "[]const u8",
-};
-export function parse(name: string, value = ""): Action {
-  const type = specs[name];
+} as const satisfies Record<string, keyof Values>;
+export function parse(name: string, value = ""): Template {
   if (!Object.hasOwn(specs, name)) throw new Error("UnknownAction");
-  if (type === "void") return { name };
-  if (type === "usize") {
-    if ((name === "worktrees" || name === "resources") && !value) return { name, value: 0 };
+  const parsed = parseValue(specs[name as keyof typeof specs], value);
+  return (parsed === undefined ? { name } : { name, value: parsed }) as Template;
+}
+function parseValue(type: keyof Values, value: string): string | number | undefined {
+  if (type === "void") return undefined;
+  if (type === "usize" || type === "Workspace") {
+    if (type === "Workspace" && !value) return 0;
     if (!/^\+?\d+$/.test(value)) throw new Error("BadValue");
     const number = Number(value);
     if (!Number.isSafeInteger(number)) throw new Error("BadValue");
-    return { name, value: number };
+    return number;
   }
-  if (type === "[]const u8") return { name, value };
+  if (type === "[]const u8") return value;
   const values =
     type === "layout.Direction"
       ? ["left", "down", "up", "right"]
@@ -130,9 +163,12 @@ export function parse(name: string, value = ""): Action {
   if (type === "Split") values.splice(0, 2, "right", "down");
   if (!value && (type === "Side" || type === "Split")) value = "right";
   if (!values.includes(value)) throw new Error("BadValue");
-  return { name, value };
+  return value;
 }
-export function needsPane(action: Action): boolean {
+export function same(a: Action | Template, b: Action | Template): boolean {
+  return a.name === b.name && a.value === b.value;
+}
+export function needsPane(action: Action | Template): boolean {
   return [
     "split",
     "zoom",
@@ -158,7 +194,7 @@ export function needsPane(action: Action): boolean {
     "paste",
   ].includes(action.name);
 }
-export function title(action: Action): string {
+export function title(action: Action | Template): string {
   if (action.name === "connectivity") return "Developer connectivity";
   const titles: Record<string, string> = {
     "undo-layout": i18n.t`Undo layout change`,
@@ -237,4 +273,4 @@ export function title(action: Action): string {
   if (direction) return direction;
   return titles[action.name] ?? action.name.replaceAll("-", " ");
 }
-export const Action = { parse, needsPane, title };
+export const Action = { parse, same, needsPane, title };

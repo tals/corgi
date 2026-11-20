@@ -23,7 +23,7 @@ import * as bindings from "./bindings";
 import * as onboarding from "./onboarding";
 import * as catalog from "./import/catalog";
 import * as importPicker from "./import/picker";
-import type { Action } from "./action";
+import type { Template as Action } from "./action";
 import type { Preferences } from "./preferences";
 import * as ghosttyIntegration from "./ghostty_integration";
 import type { State as IntegrationState } from "./ghostty_integration";

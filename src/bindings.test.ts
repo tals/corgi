@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { table, lookup, chord, find, prefixedSequence } from "./bindings";
+import { table, lookup, chord, find, first, prefixedSequence, type Binding } from "./bindings";
 import type { Preset } from "./keymap";
 test("no preset binds a key twice", () => {
   for (const preset of ["corgi", "tmux", "herdr", "cmux"] as Preset[]) {
@@ -12,7 +12,7 @@ test("no preset binds a key twice", () => {
   }
 });
 test("each action shows its first binding", () => {
-  const cases: [Preset, import("./action").Action, number, import("./keyboard").Mods, boolean][] = [
+  const cases: [Preset, import("./action").Template, number, import("./keyboard").Mods, boolean][] = [
     ["corgi", { name: "new" }, 99, {}, true],
     ["corgi", { name: "split", value: "right" }, 118, {}, true],
     ["corgi", { name: "detach" }, 113, {}, true],
@@ -34,6 +34,18 @@ test("each action shows its first binding", () => {
     expect(binding.prefixed).toBe(prefixed);
   }
   expect(find("tmux", { name: "resize-mode" })).toBeNull();
+});
+test("bindings match workspace templates before a machine is selected", () => {
+  const binding: Binding = {
+    key: 119,
+    mods: {},
+    prefixed: true,
+    action: { name: "worktrees", value: 1 },
+  };
+  const action = structuredClone(binding.action);
+  expect(find([binding], action)).toBe(binding);
+  expect(first([binding], action, true)).toBe(binding);
+  expect(find([binding], { name: "worktrees", value: 2 })).toBeNull();
 });
 
 test("keys are spelled the way the help screen shows them", async () => {
@@ -109,7 +121,7 @@ test("keys that arrive as bytes", () => {
 });
 
 test("keys that arrive as sequences", () => {
-  const cases: [Preset, boolean, number, import("./keyboard").Mods, import("./action").Action | null][] = [
+  const cases: [Preset, boolean, number, import("./keyboard").Mods, import("./action").Template | null][] = [
     ["cmux", false, 116, { super: true }, { name: "new" }],
     ["cmux", true, 116, { super: true }, { name: "new" }],
     ["cmux", false, 84, { super: true }, { name: "new" }],
