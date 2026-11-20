@@ -53,7 +53,8 @@ test("delta subprocess verifies the basis, removes failed candidates and stops s
     expect(phases).toContain("upload");
     fs.unlinkSync(candidate);
     const controller = new AbortController();
-    const large = Buffer.alloc(8 << 20, 0xf1);
+    // Copy commands alone fit in one frame, so cancellation has to interrupt the scan.
+    const large = Buffer.concat(Array(43).fill(before.subarray(0, 6 * 32768)));
     const largeHash = sha(large);
     const stages: string[] = [];
     await expect(
