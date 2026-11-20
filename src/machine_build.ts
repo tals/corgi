@@ -17,14 +17,33 @@ export const viewer: Identity = {
 // Pin automatic work to the running viewer even if dist/corgi is replaced while it is open.
 export const revision = JSON.stringify([viewer.version, viewer.commit, viewer.source_hash]);
 export function requireRevision(expected: string): void {
-  if (expected !== revision) throw Error("Development build changed. Restart ./go.ts to use the new revision.");
+  if (expected === revision) return;
+  if (viewer.source_hash && !released(viewer.version)) {
+    try {
+      const fields: unknown = JSON.parse(expected);
+      if (
+        Array.isArray(fields) &&
+        fields.length === 3 &&
+        typeof fields[1] === "string" &&
+        fields[0] === viewer.version &&
+        fields[2] === viewer.source_hash
+      )
+        return;
+    } catch {}
+  }
+  throw Error("Development build changed. Restart ./go.ts to use the new revision.");
 }
 /** The source hash is shared by cross-builds. Executable hashes vary by platform. */
 export function compare(a: Identity, b: Identity): "match" | "mismatch" | "unknown" {
   if (!a.version || !b.version) return "unknown";
-  if (a.version !== b.version || (a.commit && b.commit && a.commit !== b.commit)) return "mismatch";
-  if (a.source_hash && b.source_hash) return a.source_hash === b.source_hash ? "match" : "mismatch";
-  return released(a.version) ? "match" : "unknown";
+  if (a.version !== b.version) return "mismatch";
+  const release = released(a.version);
+  if (a.source_hash && b.source_hash) {
+    if (a.source_hash !== b.source_hash) return "mismatch";
+    if (!release) return "match";
+  }
+  if (a.commit && b.commit && a.commit !== b.commit) return "mismatch";
+  return release ? "match" : "unknown";
 }
 export function identity(hello: { release_version?: string; release_commit?: string; source_hash?: string }): Identity {
   const field = (v: unknown) => (typeof v === "string" && /^[a-zA-Z0-9._+-]{1,128}$/.test(v) ? v : "");

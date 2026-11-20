@@ -133,16 +133,22 @@ const imports = files
   .join("\n");
 const nativeHash = hash.digest("hex");
 const assets = `${imports}\nexport const nativeFiles={${files.map((file, i) => `${JSON.stringify(file)}:asset${i}`).join(",")}};export const nativeHash=${JSON.stringify(nativeHash)};export const testBuild=${process.argv.includes("--test")};`;
+const releaseVersion = option("release-version"),
+  releaseCommit = option("release-commit");
 const config = {
-  releaseVersion: option("release-version", "0.1.0-dev"),
-  releaseCommit: option("release-commit") || gitCommit(),
+  releaseVersion: releaseVersion || "0.1.0-dev",
+  releaseCommit: releaseCommit || gitCommit(),
   updateURL: option("update-url"),
   updatePublicKey: option("update-public-key"),
   sentryDSN: option("sentry-dsn"),
 };
 // The same inputs keep their first build's time, so the binary and the daemon's build id stay put.
+// The Git label on an ordinary dev build describes when it was compiled.
+const cacheConfig = releaseVersion || releaseCommit ? config : { ...config, releaseCommit: "" };
 const inputsSHA256 = createHash("sha256")
-  .update(JSON.stringify([buildTarget, Bun.version, process.argv.includes("--test"), sourceSHA256, nativeHash, config]))
+  .update(
+    JSON.stringify([buildTarget, Bun.version, process.argv.includes("--test"), sourceSHA256, nativeHash, cacheConfig]),
+  )
   .digest("hex");
 const previous = await Bun.file(`${outfile}.build.json`)
   .json()
@@ -192,7 +198,7 @@ const result = await Bun.build({
   ],
 });
 if (!result.success) throw new AggregateError(result.logs, "Bun compile failed");
-if (inputs.source(root) !== sourceSHA256 || (!option("release-commit") && gitCommit() !== config.releaseCommit))
+if (inputs.source(root) !== sourceSHA256 || (releaseVersion && !releaseCommit && gitCommit() !== config.releaseCommit))
   throw Error("Sources changed during the build; run it again.");
 const binaryHash = createHash("sha256")
   .update(new Uint8Array(await Bun.file(candidate).arrayBuffer()))

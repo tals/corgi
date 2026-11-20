@@ -65,6 +65,9 @@ test("development installation slots remain compatible with the existing updater
 test("dev builds compare source identity across targets and leave missing revisions unknown", () => {
   const a = { version: "0.1.0-dev", commit: "abc1234-dirty", source_hash: "a".repeat(64) };
   expect(compare(a, { ...a })).toBe("match");
+  expect(compare(a, { ...a, commit: "1234abc" })).toBe("match");
   expect(compare(a, { ...a, source_hash: "b".repeat(64) })).toBe("mismatch");
   expect(compare(a, { ...a, source_hash: "" })).toBe("unknown");
+  const release = { ...a, version: "1.0.0" };
+  expect(compare(release, { ...release, commit: "1234abc" })).toBe("mismatch");
 });
