@@ -23,6 +23,7 @@ test("menu keys pick the rows each menu shows", () => {
   const pane = new TabMenu({ tab: 1, anchor_x: 0, pane: true });
   expect(pane.itemFor(c("d"))).toBe("split-down");
   expect(pane.itemFor(c("c"))).toBe("clear-name");
+  expect(pane.itemFor(c("!"))).toBe("break");
   expect(pane.itemFor(c("-"))).toBeNull();
   expect(pane.itemFor(c("s"))).toBeNull();
   expect(pane.itemFor(c("h"))).toBeNull();

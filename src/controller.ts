@@ -2608,13 +2608,14 @@ export class Controller {
         case "split-right":
         case "split-down":
         case "zoom":
+        case "break":
           this.focusPane(pane_id);
           await this.perform(
             item === "split-right"
               ? { name: "split", value: "right" }
               : item === "split-down"
                 ? { name: "split", value: "down" }
-                : { name: "zoom" },
+                : { name: item },
           );
           break;
         default:
@@ -8806,6 +8807,9 @@ export class Controller {
           anchor_x: x,
           anchor_y: y,
         });
+        const model = this.model(),
+          tab = model.tabForPane(p.id);
+        if (tab === null || model.paneCount(model.tabs[tab].root) === 1) this.tab_menu.off.add("break");
         this.ui_mouse_down = true;
         this.dirty = true;
         return;
