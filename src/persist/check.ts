@@ -53,6 +53,7 @@ export async function run(path: string, socket: string, executable: string): Pro
     } catch {}
     const decoded = await cold.read(bytes, socket, executable);
     state = decoded.value;
+    repairs.push(...decoded.repairs);
     await checkpoint.restore(r, decoded.value, false, socket, executable, false, repairs);
     return { ok: true };
   } catch (error) {

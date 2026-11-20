@@ -293,12 +293,21 @@ pub export fn probe_macos_process(pid: c_int, values: [*]u64, cwd: [*]u8, exe: [
     return flags;
 }
 
-/// A process's working directory, NUL-terminated, or -1.
+/// A process's working directory, NUL-terminated, or -1; -2 when the kernel's
+/// path isn't that directory's.
 pub export fn probe_process_cwd(pid: c_int, cwd: [*]u8, cap: c_int) c_int {
     if (builtin.os.tag != .macos) return -1;
     var path: c.struct_proc_vnodepathinfo = undefined;
     if (c.proc_pidinfo(pid, c.PROC_PIDVNODEPATHINFO, 0, &path, @sizeOf(@TypeOf(path))) != @sizeOf(@TypeOf(path))) return -1;
     const name = std.mem.sliceTo(&path.pvi_cdir.vip_path, 0);
+    // A path too long for the kernel's buffer comes back as its last whole
+    // components, reported as success. Only a path this long can be one.
+    if (name.len >= c.MAXPATHLEN - 256) {
+        var found: c.struct_stat = undefined;
+        const own = &path.pvi_cdir.vip_vi.vi_stat;
+        if (c.stat(&path.pvi_cdir.vip_path, &found) != 0) return -2;
+        if (found.st_dev != own.vst_dev or found.st_ino != own.vst_ino) return -2;
+    }
     if (name.len >= @as(usize, @intCast(cap))) return -1;
     @memcpy(cwd[0..name.len], name);
     cwd[name.len] = 0;

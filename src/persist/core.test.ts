@@ -369,6 +369,21 @@ test("cold recovery keeps launcher options when a Claude background job has ende
   }
 });
 
+test("a pane saved with a blank directory recovers in its workspace's directory", async () => {
+  using original = fixture();
+  original.panes[0].cwd = "";
+  const saved = transfer.recovery(original, checkpoint.capture(original, false));
+  expect(saved.transfer.core.panes[0].cwd).toBe("");
+  const decoded = await cold.read(json.stringify(saved), "/tmp/unused", process.execPath);
+  expect(decoded.discarded).toBe(false);
+  expect(decoded.value.panes[0].cwd).toBe("/tmp");
+  expect(decoded.repairs).toEqual([
+    `pane ${original.panes[0].id} was saved with a blank directory; used its workspace's`,
+  ]);
+  saved.transfer.core.panes[0].cwd = "relative";
+  expect(() => transfer.recover(json.stringify(saved))).toThrow("InvalidHandoffCore");
+});
+
 test("the resume-command revision drops only metadata too long for older readers", () => {
   const long = "x".repeat(2049),
     saved = {

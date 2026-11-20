@@ -2,6 +2,7 @@ import { readFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Runtime } from "../runtime";
 import { atomicWrite } from "../os";
+import { getLogger } from "../log";
 import * as checkpoint from "./checkpoint";
 import * as json from "../json";
 import * as transfer from "./transfer";
@@ -63,7 +64,8 @@ export async function load(r: Runtime, socket: string, executable: string): Prom
     throw error;
   }
   const decoded = await cold.read(bytes, socket, executable);
-  const repairs = await checkpoint.restore(r, decoded.value, false, socket, executable);
+  for (const repair of decoded.repairs) getLogger("checkpoint").warn(repair);
+  const repairs = [...decoded.repairs, ...(await checkpoint.restore(r, decoded.value, false, socket, executable))];
   if (decoded.discarded) repairs.push("discarded incompatible auxiliary state; restored the terminal core");
   await recordRepairs(socket, decoded.value, repairs, executable);
   if (decoded.migrated) {
