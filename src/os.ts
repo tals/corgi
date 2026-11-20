@@ -21,6 +21,7 @@ import { dirname, isAbsolute } from "node:path";
 import { userInfo } from "node:os";
 import { randomUUID } from "node:crypto";
 import { n, ptr } from "./native_ffi";
+import { getLogger } from "./log";
 export const max_path_bytes = 4096;
 export const env = (name: string): string | null => process.env[name] ?? null;
 export class Stat {
@@ -78,7 +79,28 @@ export function processCwd(pid: number): string | null {
   }
   if (process.platform !== "darwin") return null;
   const len = n.probe_process_cwd(pid, ptr(cwd_buffer), cwd_buffer.length);
-  return len < 0 ? null : cwd_buffer.toString("utf8", 0, len);
+  if (len > 0) return cwd_buffer.toString("utf8", 0, len);
+  if (len === 0) unreadableCwd(pid, "a process reported a blank directory");
+  if (len === -2) unreadableCwd(pid, "a process's directory is too long for macOS to report");
+  return null;
+}
+const unreadable_cwds = new Set<number>();
+/** macOS answered for `pid` with a path that can't be used. Each process is reported once. */
+function unreadableCwd(pid: number, message: string) {
+  if (unreadable_cwds.has(pid)) return;
+  if (unreadable_cwds.size >= 256) unreadable_cwds.clear();
+  unreadable_cwds.add(pid);
+  let alive = true;
+  try {
+    process.kill(pid, 0);
+  } catch {
+    alive = false;
+  }
+  getLogger("process.cwd").warn(message, {
+    pid,
+    alive,
+    executable: processPath(pid),
+  });
 }
 /** The account's login shell, or null when the account database has none. */
 export function loginShell(): string | null {

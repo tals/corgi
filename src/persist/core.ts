@@ -198,7 +198,7 @@ function array(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw Error("InvalidHandoffCore");
   return value;
 }
-export function decode(value: unknown): Core {
+export function decode(value: unknown, repairs: string[] = []): Core {
   const v = json.object(value),
     live = boolean(v.live),
     next_workspace = integer(v.next_workspace, 1),
@@ -230,10 +230,12 @@ export function decode(value: unknown): Core {
         pending: string(s.pending),
       };
       if (!live && (screen.fd !== -1 || screen.pid !== -1 || screen.pending !== "")) throw Error("InvalidHandoffCore");
+      const id = integer(p.id, 1, next_pane - 1);
+      // Older daemons could save a blank directory; the pane's workspace stands in.
+      if (p.cwd === "") repairs.push(`pane ${id} was saved with a blank directory; used its workspace's`);
       return {
-        id: integer(p.id, 1, next_pane - 1),
+        id,
         workspace,
-        // Older daemons could save a blank directory; the pane's workspace stands in.
         cwd: p.cwd === "" ? workspace_dir : directory(p.cwd),
         label: string(p.label),
         screen,

@@ -1,9 +1,10 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import { basename, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import {
   processArgs,
+  processCwd,
   processPath,
   processJob,
   processTree,
@@ -15,6 +16,8 @@ import {
   loginShell,
   privateDirectory,
 } from "./os";
+import { n } from "./native_ffi";
+import * as log from "./log";
 
 test("the login shell comes from the account database, not SHELL", () => {
   const account =
@@ -27,6 +30,57 @@ test("the login shell comes from the account database, not SHELL", () => {
           .split(":")[6];
   expect(loginShell()).toBe(account.trim());
 });
+test.if(process.platform === "darwin")("a blank directory from macOS is unknown, and warned about once", () => {
+  const probe = spyOn(n, "probe_process_cwd").mockReturnValue(0),
+    stderr = spyOn(process.stderr, "write").mockReturnValue(true);
+  log.configure("serve", {});
+  try {
+    expect(processCwd(process.pid)).toBeNull();
+    expect(processCwd(process.pid)).toBeNull();
+    const lines = stderr.mock.calls.map(call => String(call[0]));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toStartWith("warn(process.cwd): ");
+    expect(JSON.parse(lines[0].slice(lines[0].indexOf("{")))).toMatchObject({ pid: process.pid, alive: true });
+  } finally {
+    log.configure("");
+    stderr.mockRestore();
+    probe.mockRestore();
+  }
+});
+test.if(process.platform === "darwin")(
+  "a directory too long for macOS to report is unknown, and warned about",
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "corgi-deep-")),
+      part = "d".repeat(100),
+      // One `cd` can't take a path this long.
+      child = Bun.spawn(
+        [
+          "/bin/sh",
+          "-c",
+          `cd ${root} && for i in 1 2 3 4 5 6 7 8 9 10 11 12; do mkdir ${part} && cd ${part} || exit 1; done; echo ready; sleep 30`,
+        ],
+        { stdout: "pipe" },
+      ),
+      stderr = spyOn(process.stderr, "write").mockReturnValue(true);
+    log.configure("serve", {});
+    try {
+      await child.stdout.getReader().read();
+      expect(processCwd(child.pid)).toBeNull();
+      const lines = stderr.mock.calls.map(call => String(call[0]));
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0].slice(lines[0].indexOf("{")))).toMatchObject({
+        pid: child.pid,
+        alive: true,
+        message: "a process's directory is too long for macOS to report",
+      });
+    } finally {
+      log.configure("");
+      stderr.mockRestore();
+      child.kill();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 test("a process's own arguments, executable and environment are readable", () => {
   const buf = Buffer.alloc(1024 * 1024),
     bare = processArgs(process.pid, buf)!;

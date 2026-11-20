@@ -377,6 +377,9 @@ test("a pane saved with a blank directory recovers in its workspace's directory"
   const decoded = await cold.read(json.stringify(saved), "/tmp/unused", process.execPath);
   expect(decoded.discarded).toBe(false);
   expect(decoded.value.panes[0].cwd).toBe("/tmp");
+  expect(decoded.repairs).toEqual([
+    `pane ${original.panes[0].id} was saved with a blank directory; used its workspace's`,
+  ]);
   saved.transfer.core.panes[0].cwd = "relative";
   expect(() => transfer.recover(json.stringify(saved))).toThrow("InvalidHandoffCore");
 });

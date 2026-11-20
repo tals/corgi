@@ -175,6 +175,7 @@ export function recover(bytes: string, history = state_formats.history, coreOnly
     const decoded = migrations.decode("checkpoint", bytes);
     return {
       ...decoded,
+      repairs: [] as string[],
       value: upgrade({ runtime: decoded.value }, history).runtime,
       migrated: decoded.migrated || history.current !== formats.initial,
     };
@@ -182,7 +183,8 @@ export function recover(bytes: string, history = state_formats.history, coreOnly
   const { transfer, ...payload } = saved,
     envelope = json.object(transfer);
   if (envelope.protocol !== protocol) throw Error("UnsupportedHandoffProtocol");
-  const essential = mapCommands(core.decode(envelope.core), commands.importCommand);
+  const repairs: string[] = [],
+    essential = mapCommands(core.decode(envelope.core, repairs), commands.importCommand);
   if (essential.live) throw Error("InvalidHandoffCore");
   if (!formats.id(envelope.format)) throw Error("InvalidStateFormats");
   const known =
@@ -200,6 +202,7 @@ export function recover(bytes: string, history = state_formats.history, coreOnly
     metadata = restored === null ? {} : json.object(restored);
   return {
     value: core.restore(essential, metadata.runtime),
+    repairs,
     from: saved.version,
     migrated: coreOnly || envelope.format !== history.current,
   };
