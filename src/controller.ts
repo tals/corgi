@@ -419,6 +419,8 @@ export class Controller {
   help_visible = false;
   moonlander: moonlanderTerminal.State | null = null;
   clipboard: string | null = null;
+  /** Copies made so far, so an answer for an older one can tell it lost. */
+  private copies = 0;
   menu_page = 0;
   menu_highlight: string | null = null;
   sidebar_open = true;
@@ -4225,7 +4227,10 @@ export class Controller {
     const range = term.selection;
     const mode = this.cleanupMode(term, sel.modifier ? "modifier" : "plain");
     if (mode === "raw" || range === null) return this.copyText(shown);
+    const before = this.copies;
     const picked = await term.pick("cell", range.x, range.y, { x: range.end_x, y: range.end_y });
+    // A copy made while the daemon answered, such as an Alt-drag, is newer.
+    if (this.copies !== before) return;
     if (!picked?.match || joinRows(picked.shown) !== joinRows(shown)) return this.copyText(shown);
     this.copyCleaned(this.cleaned(term, picked.copy, picked.match.x, picked.match.y, mode));
   }
@@ -4269,6 +4274,7 @@ export class Controller {
   }
   /** `copyText` without the toast, for a caller that confirms it itself. */
   private copyQuietly(text: string): void {
+    this.copies++;
     this.clipboard = text;
     this.queueEffect({ write_terminal: `\x1b]52;c;${Buffer.from(text).toString("base64")}\x07` });
     this.dirty = true;

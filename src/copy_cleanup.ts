@@ -207,18 +207,23 @@ const prose_second_words = new Set([
 function isCommandWord(word: string): boolean {
   return known_commands.has(word.replace(/\d[\d.]*$/, ""));
 }
+/** Whether `text` ends like a sentence, with one of `marks`, rather than
+ * on a `.` or `..` path as in `docker build .`. */
+function endsSentence(text: string, marks = /[.?!]$/): boolean {
+  return marks.test(text) && !/(^|\s)\.\.?$/.test(text);
+}
 /** Whether a line starts like a command: a word of command characters,
  * perhaps after `sudo`, with no full stop ending the line. */
 function isCommandLine(line: string): boolean {
   const text = line.trim();
-  if (text === "" || text.endsWith(".")) return false;
+  if (text === "" || endsSentence(text, /\.$/)) return false;
   return text.startsWith("[[") || /^(sudo\s+)?[A-Za-z0-9./~_-]+(\s|$)/.test(text);
 }
 /** Whether what follows a `$ ` is a command rather than a price or a
  * sentence. */
 function isPromptCommand(text: string): boolean {
   const trimmed = text.trim();
-  if (trimmed === "" || /[.?!]$/.test(trimmed)) return false;
+  if (trimmed === "" || endsSentence(trimmed)) return false;
   const punctuated = /[-./~$0-9]/.test(trimmed);
   return (punctuated || isCommandWord(firstWord(trimmed).toLowerCase())) && isCommandLine(trimmed);
 }
@@ -318,13 +323,20 @@ function isCommand(s: Snapshot): boolean {
   }
   return !isList(own) && looksLikeCommand(own);
 }
+/** Whether `row` ends in `|`, `&&` or `;` outside quotes, and unescaped:
+ * `find … -exec rm {} \;` ends in text. */
+function endsWithOperator(row: string): boolean {
+  const text = unquoted(row).trimEnd();
+  const operator = /(\||&&|;)$/.exec(text);
+  return operator !== null && !escaped(text, operator.index);
+}
 /** Whether the break after row `i` goes on with the same command: a
  * backslash, or `|`, `&&` or `;` ending the row, as a shell reads them; a
  * pipe opening the next row after a command or a pipe; or a harness wrap, unless the
  * next row starts a command of its own rather than the rest of a `split`
  * word. */
 function joins(s: Snapshot, own: readonly string[], continues: readonly boolean[], i: number, split: boolean): boolean {
-  if (continues[i] || /(\||&&|;)$/.test(unquoted(own[i]).trimEnd())) return true;
+  if (continues[i] || endsWithOperator(own[i])) return true;
   const next = own[i + 1].trimStart();
   const row = withoutPrompt(own[i].trimStart());
   if (/^(\||&&)/.test(next) && (isCommandLine(row) || /^(\||&&)/.test(row))) return true;
