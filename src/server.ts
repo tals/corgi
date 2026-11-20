@@ -922,8 +922,8 @@ export class Server {
           cl.resource_observer = true;
           cl.resources = request.payload.resources;
         }
-        // Attached viewers carry their interests in their stream configuration.
-        if (!cl.viewer) cl.worktree_detail = request.payload.worktree_detail;
+        // Resumed viewers can poll before streaming; omitted interests leave their configuration alone.
+        if (!cl.viewer || "worktree_detail" in v) cl.worktree_detail = request.payload.worktree_detail;
         reply.send(session.snapshot(this.runtime));
         return;
       case "session.subscribe":

@@ -78,6 +78,33 @@ test("snapshot worktree interest belongs to its client without attaching a viewe
     dispose();
   }
 });
+test("a resumed viewer can request and clear background worktree details through snapshots", async () => {
+  const { server, dispose } = fixture(),
+    old = server.addClient(null, false),
+    next = server.addClient(null, false);
+  spyOn(old, "queue").mockImplementation(() => {});
+  spyOn(next, "queue").mockImplementation(() => {});
+  server.runtime.workspaces.items.push(new Workspace(1, "/tmp"));
+  try {
+    await server.request(old, { op: "link.open", protocol: protocol.version });
+    Object.assign(old, { viewer: true, viewer_id: 5, worktree_detail: 1 });
+    await server.request(next, { op: "link.resume", protocol: protocol.version, link: old.link!.id });
+    expect(next.viewer).toBe(true);
+    expect(next.stream).toBeNull();
+    expect(next.worktree_detail).toBeNull();
+    await server.request(next, { op: "session.snapshot", protocol: protocol.version, worktree_detail: 1 });
+    expect(next.worktree_detail).toBe(1);
+    await server.request(next, { op: "session.snapshot", protocol: protocol.version });
+    expect(next.worktree_detail).toBe(1);
+    await server.request(next, { op: "session.snapshot", protocol: protocol.version, worktree_detail: null });
+    expect(next.worktree_detail).toBeNull();
+    expect(next.interests).toEqual([]);
+  } finally {
+    old.close();
+    next.close();
+    dispose();
+  }
+});
 test("session snapshots are shared by subscribers and skipped without them", () => {
   const { server, dispose } = fixture(),
     snapshot = spyOn(session, "snapshot"),

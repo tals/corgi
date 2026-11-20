@@ -109,5 +109,33 @@ class Worktrees extends Runtime {
       connection.close();
     }
   }
+  async test_resumed_viewer_requests_background_worktree_details_without_a_stream() {
+    const before = await this.session(),
+      workspace = before.workspaces[0].id;
+    await this.command("workspace.edit", { target: workspace, cwd: this.temp.name });
+    const old = new Connection(this.path, { timeout_ms: 10000 }),
+      next = new Connection(this.path, { timeout_ms: 10000 });
+    try {
+      const { link } = await old.call("link.open");
+      await old.call("viewer.open", { cwd: this.temp.name });
+      const panes = (await this.session()).panes.length;
+      old.close();
+      this.assertTrue((await next.call("link.resume", { link })).viewer);
+      writeFileSync(join(this.temp.name, ".worktrees/search/after-reconnect"), "work\n");
+      await next.call("session.snapshot", { worktree_detail: workspace });
+      await this.until(async () => {
+        const state = await this.session();
+        return (
+          state.workspaces[0].worktrees?.entries.find((entry: any) => entry.branch === "refs/heads/feat/search")
+            ?.changes?.untracked === 1
+        );
+      });
+      this.assertEqual((await this.session()).panes.length, panes);
+      await next.call("session.snapshot", { worktree_detail: null });
+    } finally {
+      old.close();
+      next.close();
+    }
+  }
 }
 registerCase("Worktrees", Worktrees);
