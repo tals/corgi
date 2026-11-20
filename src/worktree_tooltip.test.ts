@@ -1259,6 +1259,38 @@ test.each([
   }
 });
 
+test.each(["select", "next-agent", "attention"] as const)(
+  "headless navigation through %s cancels worktree entry waiting for history",
+  async action => {
+    const f = remoteWorktrees();
+    try {
+      f.view.receiveSnapshot(
+        {
+          ...f.remoteState,
+          headless_sessions: [
+            { id: 3, workspace: 1, provider: "claude", cwd: "/repo", state: "blocked", attention: "needs_input" },
+          ],
+        },
+        f.remote,
+      );
+      f.view.switchMachine(f.remote);
+      await f.view.perform({ name: "worktrees", value: f.view.workspaceRef(1) });
+      await f.view.perform({ name: "worktree-enter" });
+      expect(f.view.worktree_card.pending_enter).not.toBeNull();
+      if (action === "select") f.view.selectAgent(viewerRef.headless(f.remote.id, 3));
+      else await f.view.perform({ name: action });
+      expect(f.view.headless_notice).toBe(3);
+      expect(f.view.worktree_card.pending_enter).toBeNull();
+      expect(f.view.worktreeDetail()).toBeNull();
+      f.history();
+      expect(f.view.agent_launcher).toBeNull();
+      expect(f.view.headless_notice).toBe(3);
+    } finally {
+      f.close();
+    }
+  },
+);
+
 test.each(["open", "snapshot"])("worktree entry overrides attachment defaults while %s is pending", async stage => {
   const f = remoteWorktrees(),
     reading = Promise.withResolvers<void>(),

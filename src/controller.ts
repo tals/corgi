@@ -2288,6 +2288,7 @@ export class Controller {
     this.wake();
   }
   private noticeHeadlessSession(session: Headless): void {
+    this.closeWorktreeCard();
     const name = adapter(session.provider).name,
       id = session.session,
       state = session.state,
