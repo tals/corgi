@@ -318,6 +318,9 @@ class Remote extends Runtime {
     const status = await run([b, "machine", "status", "work"], { env });
     this.assertEqual(JSON.parse(status.stdout).status, "reachable");
     this.assertNotIn("Checking…", status.stderr);
+    const inventory = await run([b, "list", "--all-machines"], { env });
+    this.assertTrue(JSON.parse(inventory.stdout).machines.some((m: { machine: string }) => m.machine === "work"));
+    this.assertNotIn("Checking…", inventory.stderr);
     this.assertEqual(hash(destination), hash(EXE));
     const refused = await deploy(b, false, false);
     this.assertNotEqual(refused.code, 0);

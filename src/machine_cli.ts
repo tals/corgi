@@ -255,20 +255,7 @@ export async function run(path: string, args: string[], conn: Connection): Promi
 }
 export async function all(local: string): Promise<void> {
   const profiles: (machines.Profile | null)[] = [null, ...machines.read()];
-  const results = await Promise.all(
-    profiles.map(async p => {
-      try {
-        return await machines.listing(p ? await machineUpdate.prepare(p) : null, local);
-      } catch (error) {
-        return {
-          machine: p?.name ?? "local",
-          ok: false,
-          err: error instanceof Error ? error.message : "ConnectionFailed",
-          ...(error instanceof machineUpdate.Failure ? { detail: error.detail } : {}),
-        };
-      }
-    }),
-  );
+  const results = await Promise.all(profiles.map(p => machines.listing(p, local)));
   process.stdout.write(json.stringify({ machines: results }) + "\n");
   if (results.some(r => r && typeof r === "object" && "ok" in r && r.ok === false)) process.exitCode = 1;
 }
