@@ -1,5 +1,6 @@
 // One transfer per duplex stream. The inner signature/delta bytes are librsync compatible.
 import * as fs from "node:fs";
+import { setImmediate } from "node:timers/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as zlib from "node:zlib";
@@ -164,8 +165,7 @@ export async function send(
   data: Buffer,
   sha256: string,
   progress?: Progress,
-  block = 32768,
-  frameSize = 256 * 1024,
+  { block = 32768, frameSize = 256 * 1024, signal }: { block?: number; frameSize?: number; signal?: AbortSignal } = {},
 ) {
   if (!Number.isInteger(frameSize) || frameSize < 1024 || frameSize > maximumFrame) throw Error("InvalidFrameSize");
   const info = manifest({ version: 1, bytes: data.length, sha256, block });
@@ -174,6 +174,7 @@ export async function send(
   const patch = new Patch();
   let failure: unknown;
   try {
+    signal?.throwIfAborted();
     progress?.("signature", 0, 0);
     await frames.write(Buffer.from(JSON.stringify(info)));
     const signature = decompress(await frames.read(maximumSignature + 1024), maximumSignature);
@@ -197,20 +198,31 @@ export async function send(
       used = 0;
     };
     for (const piece of port.deltaChunks(signature, data)) {
+      if (!piece.length) {
+        await setImmediate();
+        signal?.throwIfAborted();
+        continue;
+      }
       let p = 0;
       while (p < piece.length) {
         const n = Math.min(output.length - used, piece.length - p);
         piece.copy(output, used, p, p + n);
         used += n;
         p += n;
-        if (used === output.length) flush();
+        if (used === output.length) {
+          flush();
+          await setImmediate();
+          signal?.throwIfAborted();
+        }
       }
     }
+    signal?.throwIfAborted();
     flush();
     patch.append(frame(Buffer.alloc(0)));
     const before = frames.sent;
     progress?.("upload", 0, patch.length);
     for await (const bytes of patch.read()) {
+      signal?.throwIfAborted();
       await frames.writeBytes(bytes);
       progress?.("upload", frames.sent - before, patch.length);
     }

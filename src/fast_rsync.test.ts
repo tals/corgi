@@ -63,6 +63,16 @@ for (const [name, basis, newer] of cases) {
     }
   });
 }
+test.test("both literal scans and coalesced copies yield before their first delta command", () => {
+  const basis = noise(4 << 20, 42);
+  const sig = port.signature(basis, 32768);
+  for (const data of [basis, Buffer.alloc(basis.length)]) {
+    const chunks = port.deltaChunks(sig, data);
+    test.expect(chunks.next().value).toEqual(Buffer.from([0x72, 0x73, 0x02, 0x36]));
+    test.expect(chunks.next().value).toHaveLength(0);
+  }
+});
+
 test.test("truncated strong hashes reconstruct the target", () => {
   for (const strong of [0, 1, 4, 8, 15, 16]) {
     const sig = port.signature(old, 256, strong);

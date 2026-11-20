@@ -143,6 +143,7 @@ export async function sendDelta(
       typeof file === "string" ? transferFile.input(file) : file,
       hash,
       report,
+      { signal },
     );
     await child.stdin.end();
     if (await child.exited) throw Error("MachineTransferFailed");

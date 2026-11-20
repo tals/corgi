@@ -12,6 +12,9 @@ export const signatureMagic = 0x72730136;
 export const deltaMagic = 0x72730236;
 const maximum = 512 * 1024 * 1024;
 const chunkSize = 64 * 1024;
+const scanBudget = 1024 * 1024;
+// A zero-length chunk gives the sender a turn to handle cancellation without changing the patch.
+const checkpoint = Buffer.alloc(0);
 
 function blockSize(block: number): void {
   if (!Number.isInteger(block) || block < 1 || block > 1024 * 1024) throw Error("InvalidBlockSize");
@@ -53,7 +56,9 @@ export function signature(old: Buffer, block: number, strong = 16): Buffer {
 }
 
 type Entry = { strong: string; index: number } | Map<string, number>;
-function indexSignature(sig: Buffer): { block: number; strong: number; blocks: Map<number, Entry> } {
+function* indexSignature(
+  sig: Buffer,
+): Generator<Buffer, { block: number; strong: number; blocks: Map<number, Entry> }> {
   if (sig.length < 12 || sig.readUInt32BE(0) !== signatureMagic) throw Error("InvalidSignature");
   const block = sig.readUInt32BE(4),
     strong = sig.readUInt32BE(8);
@@ -61,6 +66,7 @@ function indexSignature(sig: Buffer): { block: number; strong: number; blocks: M
   if (strong > 16 || (sig.length - 12) % (4 + strong) || sig.length > maximum) throw Error("InvalidSignature");
   const blocks = new Map<number, Entry>();
   for (let p = 12, i = 0; p < sig.length; p += 4 + strong, i++) {
+    if (i && i % 4096 === 0) yield checkpoint;
     const sum = sig.readUInt32BE(p),
       hash = sig.toString("hex", p + 4, p + 4 + strong);
     const entry = blocks.get(sum);
@@ -110,7 +116,7 @@ function copyCommand(offset: number, length: number): Buffer {
 /** Inputs may be mmap views. Output views borrow input bytes; retain them until consumed. */
 export function* deltaChunks(sig: Buffer, data: Buffer): Generator<Buffer> {
   if (data.length > maximum) throw Error("InputTooLarge");
-  const { block, strong, blocks } = indexSignature(sig);
+  const { block, strong, blocks } = yield* indexSignature(sig);
   const header = Buffer.allocUnsafe(4);
   header.writeUInt32BE(deltaMagic);
   yield header;
@@ -131,12 +137,19 @@ export function* deltaChunks(sig: Buffer, data: Buffer): Generator<Buffer> {
     }
   }
   const collisions = new Map<number, number>();
+  let remaining = scanBudget;
   while (data.length - here >= block) {
+    remaining -= block;
     let crc = weak(data.subarray(here, here + block));
     for (;;) {
+      if (--remaining <= 0) {
+        yield checkpoint;
+        remaining = scanBudget;
+      }
       if ((collisions.get(crc) ?? 0) < 1024) {
         const entry = blocks.get(crc);
         if (entry) {
+          remaining -= block;
           const hash = new Bun.CryptoHasher("md4")
             .update(data.subarray(here, here + block))
             .digest("hex")

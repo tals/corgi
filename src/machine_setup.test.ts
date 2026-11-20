@@ -52,6 +52,24 @@ test("delta subprocess verifies the basis, removes failed candidates and stops s
     expect(phases).toContain("signature");
     expect(phases).toContain("upload");
     fs.unlinkSync(candidate);
+    const controller = new AbortController();
+    const large = Buffer.alloc(8 << 20, 0xf1);
+    const largeHash = sha(large);
+    const stages: string[] = [];
+    await expect(
+      setup.sendDelta(
+        command(sha(before), largeHash),
+        large,
+        largeHash,
+        stage => {
+          stages.push(stage);
+          if (stage === "prepare") setImmediate(() => controller.abort(Error("Paused")));
+        },
+        5000,
+        controller.signal,
+      ),
+    ).rejects.toThrow("Paused");
+    expect(stages).toEqual(["signature", "prepare"]);
     // A destination may never be silently replaced, even by another valid transfer.
     fs.writeFileSync(candidate, "already exists");
     await expect(setup.sendDelta(command(), newer, sha(after), () => {})).rejects.toThrow();
