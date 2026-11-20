@@ -391,9 +391,8 @@ export class Worker {
       for (const queued of batch) {
         const window = this.windows.get(queued.workspace),
           req = { ...queued, since: window?.since ?? queued.since };
-        const reader = this.reader(req.agent.provider!),
-          existing = this.results.find(r => r.actor === req.actor);
-        if (!reader || (!existing && this.results.length >= 64)) continue;
+        const reader = this.reader(req.agent.provider!);
+        if (!reader || (this.results.length >= 64 && !this.results.some(r => r.actor === req.actor))) continue;
         let t = this.watchers.get(req.actor);
         if (!t) {
           t = new Tail();
@@ -424,6 +423,8 @@ export class Worker {
           !t.context.at
         )
           continue;
+        // The daemon can collect earlier results while the transcript read is in flight.
+        const existing = this.results.find(r => r.actor === req.actor);
         let r = existing;
         if (!r || r.since !== req.since || r.workspace !== req.workspace) {
           r = new Result();

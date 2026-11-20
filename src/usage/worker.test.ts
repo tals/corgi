@@ -136,6 +136,53 @@ test("usage reads count against visits after scheduling and during file I/O", as
   }
 });
 
+test("usage results collected during a transcript read do not swallow the next count", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-usage-")),
+    file = join(root, "usage.jsonl"),
+    worker = new Worker(),
+    req = request("claude"),
+    opened = Promise.withResolvers<void>(),
+    resume = Promise.withResolvers<void>(),
+    open = fs.open;
+  const line = (id: string, input: number) =>
+    JSON.stringify({
+      type: "assistant",
+      sessionId: "session",
+      timestamp: "1970-01-01T00:00:02.000Z",
+      message: { id, usage: { input_tokens: input, output_tokens: 1 } },
+    }) + "\n";
+  req.agent.transcript = new Path(file);
+  worker.requests = [req];
+  writeFileSync(file, line("baseline", 10));
+  await worker.run();
+  worker.take();
+  appendFileSync(file, line("first", 20));
+  await worker.run();
+  appendFileSync(file, line("second", 30));
+  const read = spyOn(fs, "open").mockImplementation(async (...args) => {
+    const handle = await open(...args);
+    opened.resolve();
+    await resume.promise;
+    return handle;
+  });
+  const running = worker.run();
+  try {
+    await opened.promise;
+    expect(worker.take().map(result => result.delta.input)).toEqual([20n]);
+    resume.resolve();
+    await running;
+    expect(worker.take().map(result => result.delta.input)).toEqual([30n]);
+    await worker.run();
+    expect(worker.take().every(result => !result.delta.any())).toBe(true);
+  } finally {
+    resume.resolve();
+    await running;
+    read.mockRestore();
+    worker.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("usage tail frames records, ignores history and advances baselines while watched", () => {
   const t = new Tail(),
     r = request("codex");
