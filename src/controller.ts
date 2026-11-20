@@ -2148,7 +2148,7 @@ export class Controller {
         this.noticeHeadlessSession(session);
       }
     }
-    if (this.folded_sections.size > 0) {
+    if (this.prefs.agentSort() === "activity" && this.folded_sections.size > 0) {
       const owner = this.agentWorkspace(target),
         id = owner && this.rowOf(owner)?.id;
       const e =
@@ -9634,11 +9634,13 @@ export class Controller {
     this.folded_groups = this.folded_groups.filter(id => id !== selection.workspace);
     if (this.current().id !== selection.workspace) this.switchWorkspace(selection.workspace);
     this.closeMenu();
-    // Its agents may all be in folded sections; those open.
-    const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
-    for (const { entry } of this.machineAgents(selection.workspace))
-      if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, entry.target, entry.cwd) === selection.path)
-        this.folded_sections.delete(this.shownSection(agentRows.qualify(entry, this.machine.id)));
+    if (this.prefs.agentSort() === "activity") {
+      // Its agents may all be in folded sections; those open.
+      const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
+      for (const { entry } of this.machineAgents(selection.workspace))
+        if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, entry.target, entry.cwd) === selection.path)
+          this.folded_sections.delete(this.shownSection(agentRows.qualify(entry, this.machine.id)));
+    }
     this.sidebar_rows.discard();
     const entries = this.sidebarEntries();
     const index = entries.findIndex(

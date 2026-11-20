@@ -1768,6 +1768,24 @@ test("search finds agents in folded sections and opening one unfolds its section
   }
 });
 
+test.each(["pane", "headless"])("selecting a %s in manual sorting preserves activity section folds", kind => {
+  const s = controller();
+  try {
+    s.receiveSnapshot({
+      ...pair(),
+      headless_sessions: [{ id: 7, workspace: 1, provider: "codex", state: "idle", attention: "none" }],
+    });
+    s.prefs.agent_sort = "manual";
+    s.folded_sections.add("idle");
+    s.selectAgent(kind === "pane" ? viewerRef.pane(s.machine.id, 2) : viewerRef.headless(s.machine.id, 7));
+    s.prefs.agent_sort = "activity";
+    expect(s.folded_sections.has("idle")).toBe(true);
+    expect((s.agentEntries() as sidebar.Entry[]).some(e => sidebar.isAgent(e.target))).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("/ searches the focused agent list and Esc comes back to it; letters and the workspace list don't search", async () => {
   const { s, sent } = steering();
   try {

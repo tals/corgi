@@ -809,6 +809,16 @@ test("a section header folds its agents on click; a worktree's subhead opens its
   await (view as any).selectAgent(subhead.target);
   expect(view.headless_notice).toBe(7);
 });
+test("entering a worktree in manual sorting preserves activity section folds", async () => {
+  const { view } = browsing();
+  view.prefs.agent_sort = "manual";
+  view.folded_sections.add("idle");
+  await view.perform({ name: "worktree-select", value: "/repo/.worktrees/1" });
+  await view.perform({ name: "worktree-enter" });
+  expect(view.headless_notice).toBe(7);
+  view.prefs.agent_sort = "activity";
+  expect(view.folded_sections.has("idle")).toBe(true);
+});
 test("entering a worktree whose agents are in a folded section opens it and focuses them", async () => {
   const { view } = browsing(),
     path = "/repo/.worktrees/1";
