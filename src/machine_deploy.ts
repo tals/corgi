@@ -60,7 +60,8 @@ export async function artifact(
         cwd: root,
         detached: !!signal,
         ipc(message) {
-          if (typeof message === "string") {
+          if (message === "queued") progress("Build queued…", { detail: `Waiting for another build of ${target}` });
+          else if (typeof message === "string") {
             started ??= performance.now();
             detail = message;
             report();

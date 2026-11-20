@@ -60,14 +60,24 @@ const outfile = option(
 // Serialize writers of the same native files or executable. Unrelated targets can build together.
 const locks = `${root}/dist/.build-locks`;
 mkdirSync(locks, { recursive: true });
-const libc = dlopen(process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
-  flock: { args: ["i32", "i32"], returns: "i32" },
-});
+const lockSymbols = { flock: { args: ["i32", "i32"], returns: "i32" } } as const;
+function buildLock() {
+  if (process.platform === "darwin") return dlopen("/usr/lib/libSystem.B.dylib", lockSymbols);
+  try {
+    return dlopen("libc.so.6", lockSymbols);
+  } catch {
+    return dlopen("libc.so", lockSymbols); // musl
+  }
+}
+const { flock } = buildLock().symbols;
 for (const resource of [...new Set([resolve(nativeRoot), resolve(outfile)])].sort()) {
   const name = createHash("sha256").update(resource).digest("hex");
   const fd = openSync(`${locks}/${name}`, "a", 0o600);
-  // LOCK_EX waits. The kernel releases the descriptor when the builder exits, even on a signal.
-  if (libc.symbols.flock(fd, 2) !== 0) throw Error("Could not lock build output: " + resource);
+  // LOCK_EX | LOCK_NB first, so the launcher can show why this build is waiting.
+  if (flock(fd, 6) === 0) continue;
+  process.stderr.write(`Waiting for another build of ${resource}…\n`);
+  process.send?.("queued");
+  if (flock(fd, 2) !== 0) throw Error("Could not lock build output: " + resource);
 }
 process.once("SIGTERM", () => process.exit(143));
 process.once("SIGINT", () => process.exit(130));
