@@ -63,38 +63,40 @@ process.on("exit", () => rmSync(lock, { recursive: true, force: true }));
 const translated = await translations.verify();
 process.on("exit", () => process.stderr.write(translated.text));
 if (translated.code) process.exit(translated.code);
-const args = [`${root}/scripts/zig`, "build", "--build-file", `${root}/native/build.zig`, "-Doptimize=ReleaseFast"];
-// An explicit --target builds for the oldest systems a release supports, not this machine.
-if (explicitTarget)
-  args.push(
-    `-Dtarget=${arch === "arm64" ? "aarch64" : "x86_64"}-${platform === "darwin" ? "macos.13.0" : "linux-gnu.2.28"}`,
-  );
-args.push("--prefix", nativeRoot);
-const sysroot =
-  option("sysroot", process.env.CORGI_PROBE_SYSROOT ?? "") ||
-  (platform === "darwin" && explicitTarget ? inputs.macosSdk(root) : "");
-if (sysroot) args.push("--sysroot", sysroot, `-Dsysroot=${sysroot}`);
 const sourceSHA256 = inputs.source(root);
-const nativeKey = inputs.native(root, buildTarget, explicitTarget, sysroot);
-const nativeCache = await Bun.file(`${nativeRoot}/.corgi-build.json`)
-  .json()
-  .catch(() => null);
-let nativeValid = false;
-try {
-  nativeValid = nativeCache?.input === nativeKey && nativeCache?.output === inputs.nativeOutput(nativeRoot, platform);
-} catch {}
-if (!process.argv.includes("--no-native") && !(incremental && nativeValid)) {
-  process.stderr.write(`Building native code for ${buildTarget}…\n`);
-  const native = Bun.spawn(args, { stdout: "inherit", stderr: "inherit" });
-  // Zig has already said why.
-  const status = await native.exited;
-  if (status) process.exit(status);
-  await Bun.write(
-    `${nativeRoot}/.corgi-build.json`,
-    JSON.stringify({ input: nativeKey, output: inputs.nativeOutput(nativeRoot, platform) }),
-  );
-} else if (incremental && nativeValid) {
-  process.stderr.write(`Using cached native code for ${buildTarget}.\n`);
+if (!process.argv.includes("--no-native")) {
+  const args = [`${root}/scripts/zig`, "build", "--build-file", `${root}/native/build.zig`, "-Doptimize=ReleaseFast"];
+  // An explicit --target builds for the oldest systems a release supports, not this machine.
+  if (explicitTarget)
+    args.push(
+      `-Dtarget=${arch === "arm64" ? "aarch64" : "x86_64"}-${platform === "darwin" ? "macos.13.0" : "linux-gnu.2.28"}`,
+    );
+  args.push("--prefix", nativeRoot);
+  const sysroot =
+    option("sysroot", process.env.CORGI_PROBE_SYSROOT ?? "") ||
+    (platform === "darwin" && explicitTarget ? inputs.macosSdk(root) : "");
+  if (sysroot) args.push("--sysroot", sysroot, `-Dsysroot=${sysroot}`);
+  const nativeKey = inputs.native(root, buildTarget, explicitTarget, sysroot);
+  const nativeCache = await Bun.file(`${nativeRoot}/.corgi-build.json`)
+    .json()
+    .catch(() => null);
+  let nativeValid = false;
+  try {
+    nativeValid = nativeCache?.input === nativeKey && nativeCache?.output === inputs.nativeOutput(nativeRoot, platform);
+  } catch {}
+  if (!(incremental && nativeValid)) {
+    process.stderr.write(`Building native code for ${buildTarget}…\n`);
+    const native = Bun.spawn(args, { stdout: "inherit", stderr: "inherit" });
+    // Zig has already said why.
+    const status = await native.exited;
+    if (status) process.exit(status);
+    await Bun.write(
+      `${nativeRoot}/.corgi-build.json`,
+      JSON.stringify({ input: nativeKey, output: inputs.nativeOutput(nativeRoot, platform) }),
+    );
+  } else {
+    process.stderr.write(`Using cached native code for ${buildTarget}.\n`);
+  }
 }
 if (process.argv.includes("--native-only")) process.exit(0);
 mkdirSync(`${root}/dist`, { recursive: true });
