@@ -232,7 +232,7 @@ class Remote extends Runtime {
     // The shells survived a handoff to the installed binary, not the absence of one.
     this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).executable, realpathSync(destination));
   }
-  async developmentBinary(name: string, delta = true) {
+  async developmentBinary(name: string, delta = true, source = name) {
     const info = JSON.parse((await run([EXE, "__remote-info"], { env: this.env })).stdout);
     const native = dirname(dirname(info.bridge));
     const file = join(this.temp.name, name);
@@ -240,7 +240,7 @@ class Remote extends Runtime {
       .replace('"bun-port"', JSON.stringify("a".repeat(40) + "-dirty"))
       .replace(
         'export const sourceHash = ""',
-        `export const sourceHash = "${createHash("sha256").update(name).digest("hex")}"`,
+        `export const sourceHash = "${createHash("sha256").update(source).digest("hex")}"`,
       );
     const result = await Bun.build({
       entrypoints: ["src/main.ts", "src/providers/codex/files_worker.ts", "src/trackers/resources_worker.ts"].map(p =>
@@ -357,6 +357,52 @@ class Remote extends Runtime {
     cpSync(state, cold, { recursive: true });
     await run(command, { env: { ...env, XDG_STATE_HOME: cold }, timeout: 60000 });
     this.assertEqual(this.network!.accepted, before + 2);
+  }
+  async test_dev_receipts_recover_exact_installs_and_protect_other_writers() {
+    await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
+    const root = this.temp.name;
+    writeFileSync(join(root, "build.ts"), "// Same-platform fixture.\n");
+    const env = { ...this.env, CORGI_DEV_ROOT: root, CORGI_DEV_BUN: process.execPath };
+    const local = await this.developmentBinary("receipt");
+    const foreign = await this.developmentBinary("foreign", false, "receipt");
+    const command = (args: string[], check = true) => run([local, ...args], { env, check, timeout: 60000 });
+    const ping = ["--machine", "work", "ping"];
+    await command(ping);
+    const info = JSON.parse((await command(["__update-info"])).stdout);
+    const old = createHash("sha256").update(readFileSync(EXE)).digest("hex");
+    const receipts = join(root, "dist/dev-deploy");
+    const receipt = join(
+      receipts,
+      readdirSync(receipts).find(f => /^[a-f0-9]{64}$/.test(f))!,
+    );
+    const recorded = () => readFileSync(receipt, "utf8").trim();
+    const pid = (await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid;
+    writeFileSync(receipt, old + "\n");
+    const repaired = await command(ping);
+    this.assertNotIn("Uploading", repaired.stderr);
+    this.assertEqual(recorded(), info.build_id);
+    this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid, pid);
+    // A helper with the same source can finish work started under a different Git label.
+    await command([
+      "__machine-sync",
+      "work",
+      "corgi-test-host",
+      this.remote!.path,
+      JSON.stringify([info.version, "other-commit", info.source_hash]),
+    ]);
+    const destination = join(this.remote!.temp.name, ".local/bin/corgi");
+    copyFileSync(foreign, destination + ".other");
+    renameSync(destination + ".other", destination);
+    const refused = await command(ping, false);
+    this.assertNotEqual(refused.code, 0);
+    this.assertIn("Remote changed", refused.stderr);
+    this.assertEqual(recorded(), info.build_id);
+    this.assertTrue(readFileSync(destination).equals(readFileSync(foreign)));
+    // Re-adding explicitly chooses this checkout and records the new install before attaching.
+    await command(["machine", "remove", "work"]);
+    writeFileSync(receipt, old + "\n");
+    await command(["machine", "add", "work", "corgi-test-host", "--executable", destination]);
+    this.assertEqual(recorded(), info.build_id);
   }
   async test_dev_connections_update_automatically_and_show_progress_without_blocking_local_input() {
     await this.command("pane.create", { workspace: 1, command: "cat" });

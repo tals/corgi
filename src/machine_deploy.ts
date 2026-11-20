@@ -96,9 +96,8 @@ export async function artifact(
     fs.closeSync(fd);
   }
 }
-export function allowed(previous: string | null, installed: string, replace: boolean): void {
-  if (previous !== null && previous !== installed && !replace)
-    throw Error("Remote changed since the last dev deployment; inspect it, then use --replace to deploy over it.");
+export function allowed(previous: string | null, installed: string, replace: boolean): boolean {
+  return previous === null || previous === installed || replace;
 }
 function receiptFile(profile: Profile): string {
   const { root } = checkout();
@@ -129,7 +128,7 @@ export function open(profile: Profile, replace: boolean) {
     const previous = fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : null;
     if (previous !== null && !/^[a-f0-9]{64}$/.test(previous)) throw Error("InvalidDevelopmentReceipt");
     return {
-      accept: (installed: string) => allowed(previous, installed, replace),
+      accepts: (installed: string) => allowed(previous, installed, replace),
       record: (hash: string) => {
         if (!/^[a-f0-9]{64}$/.test(hash)) throw Error("InvalidDevelopmentReceipt");
         os.atomicWrite(file, hash + "\n", 0o600);
@@ -144,14 +143,28 @@ export function open(profile: Profile, replace: boolean) {
     throw error;
   }
 }
-export type Deployment = ReturnType<typeof open>;
+export type Deployment = Pick<ReturnType<typeof open>, "accepts" | "record">;
 
-/** Adding a new dev machine chooses this checkout; attachment records its installed hash. */
-export function initial(): Deployment {
-  return { accept() {}, record() {}, close() {} };
+/** Setup learns the socket that identifies the receipt after installing the executable. */
+export function initial() {
+  let installed = "";
+  return {
+    accepts: () => true,
+    record(hash: string) {
+      installed = hash;
+    },
+    save(profile: Profile) {
+      const receipt = open(profile, true);
+      try {
+        receipt.record(installed);
+      } finally {
+        receipt.close();
+      }
+    },
+  };
 }
 
-export async function acquire(profile: Profile, signal?: AbortSignal): Promise<Deployment> {
+export async function acquire(profile: Profile, signal?: AbortSignal): Promise<ReturnType<typeof open>> {
   for (;;) {
     signal?.throwIfAborted();
     try {

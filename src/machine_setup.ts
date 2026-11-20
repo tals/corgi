@@ -289,9 +289,9 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
     options.reuseInstalledSource &&
     installed?.build_id &&
     installed.target === target &&
-    build.compare(local, installed) === "match"
+    build.compare(local, installed) === "match" &&
+    deployment.accepts(installed.build_id)
   ) {
-    deployment.accept(installed.build_id);
     deployment.record(installed.build_id);
     return lines[3] || executable;
   }
@@ -306,7 +306,8 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
       process.stderr.write(`Corgi builds match on ${host}.\n`);
       return lines[3] || executable;
     }
-    deployment?.accept(installed?.build_id ?? "");
+    if (deployment && !deployment.accepts(installed?.build_id ?? ""))
+      throw Error("Remote changed since the last dev deployment; inspect it, then use --replace to deploy over it.");
     process.stderr.write(`${installed ? "Switching to" : "Installing"} Corgi ${local.version} on ${host}…\n`);
     const file = prepared || (await artifact(local, target, directory, options));
     const data = preparedData ?? transferFile.input(file);

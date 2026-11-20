@@ -48,7 +48,8 @@ export async function manage(args: string[]): Promise<void> {
       if (rest.length) throw Error("Usage");
       if (machines.read().some(p => p.name === name)) throw Error("MachineExists");
       process.stderr.write(`Checking ${target} through SSH…\n`);
-      executable = await setup.reconcile(target, executable, args, "", dev.enabled() ? dev.initial() : undefined);
+      const deployment = dev.enabled() ? dev.initial() : undefined;
+      executable = await setup.reconcile(target, executable, args, "", deployment);
       const info = await machines.discover(target, executable);
       const profile = {
         name,
@@ -61,6 +62,7 @@ export async function manage(args: string[]): Promise<void> {
       await check(profile);
       await machines.edit(profiles => {
         if (profiles.some(p => p.name === name)) throw Error("MachineExists");
+        deployment?.save(profile);
         return [...profiles, profile];
       });
       process.stdout.write(json.stringify({ ok: true, machine: name, target }) + "\n");
