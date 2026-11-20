@@ -456,6 +456,13 @@ class ViewerScenarios extends Viewers {
     await a.input("!");
     ws = (await this.session()).workspaces[0];
     this.assertEqual(ws.model.tabs.length, 2);
+    // A split from elsewhere while the menu stays open lets it move again.
+    await this.command("pane.split", { cwd: this.temp.name, command: "sleep 60", target: right, direction: "right" });
+    await a.poll();
+    await a.input("!");
+    ws = (await this.session()).workspaces[0];
+    this.assertEqual(ws.model.tabs.length, 3);
+    this.assertEqual(layout_tree(ws, 2).pane, right);
   }
 
   async test_pane_name_survives_reload_and_reopen() {

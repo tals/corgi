@@ -8807,9 +8807,7 @@ export class Controller {
           anchor_x: x,
           anchor_y: y,
         });
-        const model = this.model(),
-          tab = model.tabForPane(p.id);
-        if (tab === null || model.paneCount(model.tabs[tab].root) === 1) this.tab_menu.off.add("break");
+        this.offerBreak(this.tab_menu);
         this.ui_mouse_down = true;
         this.dirty = true;
         return;
@@ -8969,6 +8967,13 @@ export class Controller {
     this.reconcile();
     this.observeFocus();
   }
+  /** Crosses out a pane menu's Move to new tab while the pane is alone in its tab. */
+  private offerBreak(menu: TabMenu): void {
+    const model = this.model(),
+      tab = model.tabForPane(menu.tab);
+    if (tab === null || model.paneCount(model.tabs[tab].root) === 1) menu.off.add("break");
+    else menu.off.delete("break");
+  }
   reconcile(): void {
     if (this.agent_picker && this.agent_picker.workspace !== this.current().id) this.agent_picker = null;
     if (this.agent_launcher) this.agent_launcher.worktrees = this.current().worktrees ?? null;
@@ -8983,6 +8988,7 @@ export class Controller {
     if (this.tab_menu) {
       const menu = this.tab_menu;
       if (menu.workspace) menu.archived = this.runtime.workspaces.items.find(w => w.id === menu.tab)!.archived;
+      if (menu.pane) this.offerBreak(menu);
     }
     if (this.selection && this.pane(this.selection.pane) === null) this.selection = null;
     if (this.archive_dialog) {
