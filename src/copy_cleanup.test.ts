@@ -224,3 +224,21 @@ test("a prompt is dropped only before a command", () => {
   expect(clean("$ 5 per month.")).toBe("$ 5 per month.");
   expect(clean("$ show me the docs")).toBe("$ show me the docs");
 });
+
+test("an escaped operator ending a row is text, not a join", () => {
+  const clean = (lines: string[]) => copyCleanup.clean(copyCleanup.fromColumnZero(lines, 80), "clean");
+  expect(clean(["  echo \\|", "  cat file"]).text).toBe("echo \\|\ncat file");
+  expect(clean(["  find . -name '*.o' -exec rm {} \\;", "  make"]).text).toBe(
+    "find . -name '*.o' -exec rm {} \\;\nmake",
+  );
+  // An escaped backslash before it leaves the operator.
+  expect(clean(["  printf 'a\\\\' \\\\|", "  cat"]).kind).toBe("command");
+});
+
+test("a prompt goes before a command ending in a . or .. path", () => {
+  const clean = (line: string) => copyCleanup.clean(copyCleanup.fromColumnZero([line], 80), "clean").text;
+  expect(clean("$ docker build .")).toBe("docker build .");
+  expect(clean("$ ls -la .")).toBe("ls -la .");
+  expect(clean("$ cd ..")).toBe("cd ..");
+  expect(clean("$ that is all.")).toBe("$ that is all.");
+});

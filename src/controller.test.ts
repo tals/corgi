@@ -8304,6 +8304,23 @@ test("a drag copies the text as shown when the daemon can't read it back or the 
   }
 });
 
+test("a copy made while a drag waits on the daemon wins over the drag's", async () => {
+  const { s, term, daemon, drag, raw, flat, done } = copying();
+  try {
+    let answer!: (result: protocol.PickResult) => void;
+    spyOn(term, "pick").mockReturnValueOnce(new Promise(resolve => (answer = resolve)));
+    expect((await drag(0)).copied).toBe("");
+    expect((await drag(8)).copied).toBe(raw);
+    answer(daemon.pick("cell", 0, 0, 8, 1, 0));
+    await Bun.sleep(0);
+    expect(s.clipboard).toBe(raw);
+    // Unraced, the same drag copies the joined command.
+    expect((await drag(0)).copied).toBe(flat);
+  } finally {
+    done();
+  }
+});
+
 test("a drag over a line the terminal wrapped copies it whole", async () => {
   const { s, term, daemon, rect, cell, done } = copying();
   try {
