@@ -50,8 +50,8 @@ export async function manage(args: string[]): Promise<void> {
       if (machines.read().some(p => p.name === name)) throw Error("MachineExists");
       process.stderr.write(`Checking ${target} through SSH…\n`);
       const deployment = dev.enabled() ? dev.initial() : undefined;
-      executable = await setup.reconcile(target, executable, args, "", deployment);
-      const info = await machines.discover(target, executable);
+      const installation = await setup.reconcile(target, executable, args, "", deployment);
+      const info = await machines.discover(target, installation);
       const profile = {
         name,
         target,
@@ -105,14 +105,14 @@ export async function manage(args: string[]): Promise<void> {
       if (args.length !== 2) throw Error("Usage");
       if (deploy && dev.skipUpdates()) throw Error("--no-remote-update disables deployment for this launch.");
       const old = machines.find(args[1]);
-      const deployment = deploy || dev.enabled() ? dev.open(old) : undefined;
-      let executable: string;
+      const deployment = deploy || dev.enabled() ? await dev.acquire(old) : undefined;
+      let info: machines.Info;
       try {
-        executable = await setup.reconcile(old.target, old.executable, args, old.socket, deployment);
+        const installation = await setup.reconcile(old.target, old.executable, args, old.socket, deployment);
+        info = await machines.discover(old.target, installation, old.socket);
       } finally {
         deployment?.close();
       }
-      const info = await machines.discover(old.target, executable, old.socket);
       const refreshed = {
         ...old,
         executable: info.executable,
@@ -120,7 +120,7 @@ export async function manage(args: string[]): Promise<void> {
         home: old.home,
         bridge: info.bridge,
       };
-      await check(refreshed, true);
+      await check(refreshed);
       await machines.edit(profiles =>
         profiles.map(p => {
           if (p.name !== old.name) return p;
@@ -151,14 +151,14 @@ export async function synchronize(
   progress("Checking…", { detail: "Checking the deployment receipt" });
   const deployment = await dev.acquire(old, signal);
   try {
-    const executable = await setup.reconcile(old.target, old.executable, [], old.socket, deployment, {
+    const installation = await setup.reconcile(old.target, old.executable, [], old.socket, deployment, {
       verifiedBuild: hash => dev.recorded(old, hash),
       progress,
       signal,
     });
     signal.throwIfAborted();
     progress("Refreshing…", { detail: "Reading the installed daemon and bridge paths" });
-    const info = await machines.discover(old.target, executable, old.socket, signal);
+    const info = await machines.discover(old.target, installation, old.socket, signal);
     await machines.edit(profiles =>
       profiles.map(p => {
         if (p.name !== old.name) return p;
@@ -170,9 +170,9 @@ export async function synchronize(
     deployment.close();
   }
 }
-async function check(profile: machines.Profile, fresh = false): Promise<void> {
+async function check(profile: machines.Profile): Promise<void> {
   process.stderr.write(`Connecting to ${profile.name}…\n`);
-  const tunnel = new Remote(profile, fresh);
+  const tunnel = new Remote(profile);
   let conn: Connection | null = null;
   try {
     await tunnel.open();

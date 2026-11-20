@@ -235,9 +235,11 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     return;
   }
   if (args[0] === "__remote-info") {
-    if (args.length !== 1) throw Error("Usage");
+    const activate = args.length === 3 && args[1] === "--activate" && /^[a-f0-9]{64}$/.test(args[2]);
+    if (args.length !== 1 && !activate) throw Error("Usage");
     const remote = await import("./machine_cli");
     await ensureServer(daemon);
+    if (activate) await (await import("./machine_install")).activate(daemon, executable, args[2]);
     process.stdout.write(json.stringify(remote.remoteInfo(executable)) + "\n");
     return;
   }

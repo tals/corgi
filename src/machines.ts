@@ -1,3 +1,4 @@
+import type { Installation } from "./machine_setup";
 import * as ssh from "./ssh";
 import { Remote, startup_ms } from "./daemon_transport";
 import * as preferences from "./preferences";
@@ -116,14 +117,19 @@ export async function edit(change: (profiles: Profile[]) => Profile[], file = ca
     closeSync(fd);
   }
 }
-export async function discover(host: string, executable = "corgi", socket = "", signal?: AbortSignal): Promise<Info> {
+export async function discover(
+  host: string,
+  installation: Installation,
+  socket = "",
+  signal?: AbortSignal,
+): Promise<Info> {
+  const { executable, build_id } = installation;
+  const args = build_id ? ["__remote-info", "--activate", build_id] : ["__remote-info"];
   const child = spawn(
     "ssh",
     [
       ...ssh.args(host, ssh.canPrompt()),
-      socket
-        ? ssh.command("env", [`CORGI_SOCKET=${socket}`, executable, "__remote-info"])
-        : ssh.command(executable, ["__remote-info"]),
+      socket ? ssh.command("env", [`CORGI_SOCKET=${socket}`, executable, ...args]) : ssh.command(executable, args),
     ],
     {
       stdio: ["inherit", "pipe", "inherit"],
@@ -135,7 +141,7 @@ export async function discover(host: string, executable = "corgi", socket = "", 
     output += chunk.toString();
     if (output.length > 65536) child.kill();
   });
-  const code = await exited(child, 120_000);
+  const code = await exited(child, build_id ? 600_000 : 120_000);
   if (code !== 0) throw Error("RemoteDiscoveryFailed");
   // A shell's startup banner is not part of the protocol.
   const line = output.trim().split("\n").at(-1) ?? "";

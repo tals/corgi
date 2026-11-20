@@ -24,9 +24,15 @@ const stalled_ms = 120_000;
 /** How long a step may take in all, or, for a copy, without progress. */
 type Limit = { total: number } | { idle: number };
 /** Writes `input` to a command as it takes it, saying so after each piece. */
-async function feed(sink: FileSink, input: Blob, moved: () => void, uploaded?: (bytes: number) => void): Promise<void> {
+async function feed(
+  sink: FileSink,
+  input: Uint8Array,
+  moved: () => void,
+  uploaded?: (bytes: number) => void,
+): Promise<void> {
   let bytes = 0;
-  for await (const chunk of input.stream()) {
+  for (let offset = 0; offset < input.byteLength; offset += 65536) {
+    const chunk = input.subarray(offset, offset + 65536);
     sink.write(chunk);
     await sink.flush();
     moved();
@@ -59,7 +65,7 @@ function deadline(child: Pick<Subprocess, "kill">, limit: Limit) {
 }
 export async function run(
   command: string[],
-  input?: Blob,
+  input?: Uint8Array,
   limit: Limit = { total: step_ms },
   uploaded?: (bytes: number) => void,
   signal?: AbortSignal,
@@ -93,7 +99,7 @@ export async function run(
 function executeRemote(
   host: string,
   script: string,
-  input?: Blob,
+  input?: Uint8Array,
   fresh = false,
   limit: Limit = { total: step_ms },
   uploaded?: (bytes: number) => void,
@@ -207,6 +213,10 @@ async function artifact(
     throw Error("RemoteArtifactDoesNotMatchLocalBuild");
   return file;
 }
+export interface Installation {
+  executable: string;
+  build_id?: string;
+}
 export interface Options {
   verifiedBuild?: (hash: string) => boolean;
   progress?: progress.Report;
@@ -220,11 +230,11 @@ export async function reconcile(
   socket = "",
   deployment?: dev.Deployment,
   options: Options = {},
-): Promise<string> {
+): Promise<Installation> {
   const remote = (
     host: string,
     script: string,
-    input?: Blob,
+    input?: Uint8Array,
     fresh = false,
     limit: Limit = { total: step_ms },
     uploaded?: (bytes: number) => void,
@@ -285,7 +295,7 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
   }
   if (dev.skipUpdates()) {
     if (!installed) throw Error(`Corgi is missing on ${host}; --no-remote-update skips installation.`);
-    return lines[3] || executable;
+    return { executable: lines[3] || executable };
   }
   // Older peers can confirm a previously verified build during setup.
   if (
@@ -294,7 +304,7 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
     build.compare(local, installed) === "match" &&
     options.verifiedBuild?.(installed.build_id)
   ) {
-    return lines[3] || executable;
+    return { executable: lines[3] || executable, build_id: installed.build_id };
   }
   const directory = mkdtempSync(join(tmpdir(), "corgi-setup-"));
   try {
@@ -306,7 +316,7 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
     if (matches) {
       deployment?.record({ hash: preparedHash, target, stamp });
       process.stderr.write(`Corgi builds match on ${host}.\n`);
-      return lines[3] || executable;
+      return { executable: lines[3] || executable, build_id: deployment ? preparedHash : undefined };
     }
     process.stderr.write(`${installed ? "Switching to" : "Installing"} Corgi ${local.version} on ${host}…\n`);
     const file = prepared || (await artifact(local, target, directory, options));
@@ -335,7 +345,7 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
         const result = await sendDelta(
           [
             "ssh",
-            ...ssh.args(host, ssh.canPrompt(), false, reuseLogin ? "control" : "data"),
+            ...ssh.args(host, ssh.canPrompt()),
             ssh.command(executable, ["__machine-receive", staging + "/corgi", expected, hash], ssh.deltaMarker),
           ],
           data,
@@ -361,14 +371,15 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
         await remote(
           host,
           `set -eu; cat > ${quote(staging + "/corgi")}; chmod 700 ${quote(staging + "/corgi")}`,
-          Bun.file(file),
+          data,
           false,
           { idle: stalled_ms },
           bytes => status.uploaded(bytes, data.byteLength, "full"),
         );
       }
       const manifest = join(directory, "manifest.json");
-      if (existsSync(manifest)) await remote(host, `cat > ${quote(staging + "/manifest.json")}`, Bun.file(manifest));
+      if (existsSync(manifest))
+        await remote(host, `cat > ${quote(staging + "/manifest.json")}`, readFileSync(manifest));
       options.signal?.throwIfAborted();
       status.show("Installing", "Installing the executable and handing off the running daemon");
       const install = [
@@ -401,7 +412,7 @@ ${installed?.socket ? "CORGI_SOCKET=" + quote(installed.socket) + " " : ""}${ssh
       if (verified.build_id !== hash) throw Error("RemoteUpgradeVerificationFailed");
       deployment?.record({ hash, target, stamp });
       process.stderr.write(`Corgi is ready on ${host}: ${executable}.\n`);
-      return executable;
+      return { executable, build_id: deployment ? hash : undefined };
     } finally {
       await executeRemote(
         host,

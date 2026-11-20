@@ -281,10 +281,31 @@ class Remote extends runtime.Runtime {
       this.assertNotEqual(stale.code, 0);
       this.assertIn("Development build changed", stale.stderr);
     }
+    // The explicit host-key check opens one fresh connection. Both upload paths reuse the control master.
+    const connections = this.network!.accepted;
     const first = await deploy(a);
+    this.assertEqual(this.network!.accepted, connections + 1);
     this.assertIn("Preparing delta", first.stderr);
     this.assertRegex(first.stderr, /Uploading 100% [\d.]+ [KM]?i?B\/s/);
-    const full = await deploy(b);
+    // A second local build replaces the path after setup hashes it, before the full upload starts.
+    const sending = join(this.temp.name, "full-upload");
+    const replacement = sending + ".next";
+    fs.copyFileSync(b, sending);
+    fs.copyFileSync(a, replacement);
+    const wrapper = join(this.temp.name, "bin/ssh");
+    const original = fs.readFileSync(wrapper, "utf8");
+    fs.writeFileSync(
+      wrapper,
+      original.replace(
+        "const p = Bun.spawn(",
+        `if (args.at(-1).includes("mktemp -d")) (await import("node:fs")).renameSync(${JSON.stringify(replacement)}, ${JSON.stringify(sending)}); const p = Bun.spawn(`,
+      ),
+    );
+    const full = await deploy(sending);
+    fs.writeFileSync(wrapper, original);
+    this.assertTrue(fs.readFileSync(sending).equals(fs.readFileSync(a)));
+    this.assertTrue(fs.readFileSync(destination).equals(fs.readFileSync(b)));
+    this.assertEqual(this.network!.accepted, connections + 2);
     this.assertRegex(full.stderr, /Uploading 100% [\d.]+ [KM]?i?B\/s/);
     this.assertNotIn("Preparing delta", full.stderr);
     const delta = await deploy(a);
@@ -396,6 +417,32 @@ class Remote extends runtime.Runtime {
     fs.writeFileSync(receipt, "incomplete receipt");
     await command(["machine", "add", "work", "corgi-test-host", "--executable", destination]);
     this.assertEqual(recorded().hash, info.build_id);
+  }
+  async test_dev_connections_activate_the_installed_build_when_a_different_daemon_owns_the_socket() {
+    await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
+    const local = await this.developmentBinary("installed");
+    fs.writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture.\n");
+    Object.assign(this.env, { CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath });
+    const destination = join(this.remote!.temp.name, ".local/bin/corgi");
+    const hello = () => this.remote!.rpc({ op: "hello", protocol: 1 });
+    const panes = async () =>
+      (await this.remote!.rpc({ op: "session.snapshot" })).panes.map((p: { pid: number }) => p.pid);
+    const command = () => run([local, "--machine", "work", "ping"], { env: this.env, timeout: 60000 });
+    await command();
+    const expected = (await hello()).build_id;
+    const shells = await panes();
+    const stamp = fs.statSync(destination, { bigint: true }).ctimeNs;
+    await this.remote!.rpc({ op: "server.reload", executable: runtime.EXE });
+    this.assertNotEqual((await hello()).build_id, expected);
+    const result = await command();
+    this.assertNotIn("Uploading", result.stderr);
+    this.assertEqual((await hello()).build_id, expected);
+    await this.remote!.rpc({ op: "server.reload", executable: runtime.EXE });
+    await this.startViewer("work", 110, 36, undefined, local);
+    await this.until(async () => (await hello()).build_id === expected, 30);
+    await this.online();
+    this.assertEqual(await panes(), shells);
+    this.assertEqual(fs.statSync(destination, { bigint: true }).ctimeNs, stamp);
   }
   async test_dev_connections_update_automatically_and_show_progress_without_blocking_local_input() {
     await this.command("pane.create", { workspace: 1, command: "cat" });
@@ -561,14 +608,19 @@ class Remote extends runtime.Runtime {
     );
     Object.assign(this.env, env);
     await this.startViewer("work", 110, 36, undefined, b);
+    let check: ReturnType<typeof run>;
     try {
       await this.until(() => fs.existsSync(marker), 30);
+      check = run([b, "machine", "check", "work"], { env, check: false, timeout: 60000 });
       await this.online();
       this.terminal!.write("\x02q");
       this.assertEqual(await deadline(this.ui!.exited, 2000, "viewer waited for the atomic install"), 0);
     } finally {
       fs.writeFileSync(release, "");
     }
+    const checked = await check;
+    this.assertEqual(checked.code, 0, checked.stderr);
+    this.assertNotIn("Uploading", checked.stderr);
     const receipts = join(this.temp.name, "dist/dev-deploy");
     const receipt = fs.readdirSync(receipts).find(name => /^[a-f0-9]{64}\.json$/.test(name))!;
     const expected = createHash("sha256").update(fs.readFileSync(b)).digest("hex");

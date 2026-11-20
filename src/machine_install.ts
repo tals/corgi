@@ -25,6 +25,40 @@ async function hello(daemon: rpc_http.Client) {
     throw error;
   }
 }
+async function check(daemon: rpc_http.Client, target: string, live: Awaited<ReturnType<typeof hello>>): Promise<void> {
+  if (live && !transfer.compatible(live) && live.update_abi !== updates.abi)
+    throw Error("UpdateRequiresSessionRestart");
+  if (await updates.check(daemon, target, live)) throw Error("UpdateCheckFailed");
+}
+async function reload(daemon: rpc_http.Client, target: string, expected: string): Promise<void> {
+  try {
+    await daemon.reload(target);
+  } catch (error) {
+    if ((await hello(daemon))?.build_id !== expected) throw error;
+  }
+  if ((await hello(daemon))?.build_id !== expected) throw Error("UpdateRuntimeChanged");
+}
+/** The installed file can match while another checkout serves this socket. */
+export async function activate(daemon: rpc_http.Client, executable: string, expected: string): Promise<void> {
+  if ((await hello(daemon))?.build_id === expected) return;
+  const target = realpathSync(executable);
+  const parent = dirname(dirname(target));
+  const managed = basename(parent) === "releases";
+  const unlock = await updates.setupLock(managed ? dirname(parent) : dirname(target));
+  try {
+    if (managed && readFileSync(join(dirname(parent), "current"), "utf8").trim() !== basename(dirname(target)))
+      throw Error("InstallationChanged");
+    const incoming = build.describe(target);
+    if (incoming.build_id !== expected) throw Error("InstallationChanged");
+    const live = await hello(daemon);
+    if (!live) throw Error("UpdateRuntimeChanged");
+    if (live.build_id === expected) return;
+    await check(daemon, target, live);
+    await reload(daemon, target, expected);
+  } finally {
+    unlock();
+  }
+}
 /** Runs from the transferred candidate. The selected command remains the same. */
 export async function install(
   candidate: string,
@@ -57,17 +91,8 @@ export async function install(
       if (manifest) copyFileSync(manifest, join(directory, "manifest.json"));
       const daemon = new rpc_http.Client(os.socketPath());
       const live = await hello(daemon);
-      if (live && !transfer.compatible(live) && live.update_abi !== incoming.update_abi)
-        throw Error("UpdateRequiresSessionRestart");
-      if (await updates.check(daemon, target, live)) throw Error("UpdateCheckFailed");
-      if (live) {
-        try {
-          await daemon.reload(target);
-        } catch (error) {
-          if ((await hello(daemon))?.build_id !== incoming.build_id) throw error;
-        }
-        if ((await hello(daemon))?.build_id !== incoming.build_id) throw Error("UpdateRuntimeChanged");
-      }
+      await check(daemon, target, live);
+      if (live) await reload(daemon, target, incoming.build_id);
       os.atomicWrite(join(root, "previous"), current, 0o600);
       os.atomicWrite(join(root, "current"), version, 0o600);
       return target;
@@ -93,24 +118,13 @@ export async function install(
     if (present && build.describe(canonical).build_id !== expected) throw Error("InstallationChanged");
     const daemon = new rpc_http.Client(os.socketPath());
     const live = await hello(daemon);
-    if (live && !transfer.compatible(live) && live.update_abi !== incoming.update_abi)
-      throw Error("UpdateRequiresSessionRestart");
-    const failure = await updates.check(daemon, candidate, live);
-    if (failure) throw Error("UpdateCheckFailed");
+    await check(daemon, candidate, live);
     copyFileSync(candidate, stage);
     chmodSync(stage, 0o700);
     if (present) copyFileSync(canonical, backup);
     renameSync(stage, canonical);
     replaced = true;
-    if (live) {
-      try {
-        await daemon.reload(canonical);
-      } catch (error) {
-        const current = await hello(daemon);
-        if (current?.build_id !== incoming.build_id) throw error;
-      }
-      if ((await hello(daemon))?.build_id !== incoming.build_id) throw Error("UpdateRuntimeChanged");
-    }
+    if (live) await reload(daemon, canonical, incoming.build_id);
     return canonical;
   } catch (error) {
     if (replaced && existsSync(backup)) {
