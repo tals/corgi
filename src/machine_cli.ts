@@ -77,7 +77,7 @@ export async function manage(args: string[]): Promise<void> {
           stderr: "inherit",
         });
         if (await child.exited) throw Error("SshAuthenticationFailed");
-        profile = await machineUpdate.prepare(profile, { reuseLogin: true });
+        profile = await machineUpdate.prepare(profile);
       }
       await check(profile);
       process.stdout.write(json.stringify({ ok: true, machine: profile.name, status: "reachable" }) + "\n");

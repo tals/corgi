@@ -73,11 +73,11 @@ export async function prepare(
   {
     progress = progressInfo.print,
     signal,
-    reuseLogin = false,
+    interactive = false,
   }: {
     progress?: progressInfo.Report;
     signal?: AbortSignal;
-    reuseLogin?: boolean;
+    interactive?: boolean;
   } = {},
 ): Promise<machines.Profile> {
   if (!dev.enabled()) return profile;
@@ -86,7 +86,7 @@ export async function prepare(
     buildId.self(),
     ["__machine-sync", profile.name, profile.target, profile.socket, builds.revision],
     {
-      env: { ...process.env, CORGI_MACHINE_SYNC: reuseLogin ? "reconnect" : "1" },
+      env: { ...process.env, CORGI_MACHINE_SYNC: interactive ? "interactive" : "1" },
       detached: !!signal,
       stdio: ["ignore", "pipe", "pipe"],
     },

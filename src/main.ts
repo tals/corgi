@@ -320,7 +320,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     } else {
       const remote = await import("./machine_cli");
       if (!remote.remoteCommand(args)) throw Error("UnsupportedRemoteCommand");
-      profile = await (await import("./machine_update")).prepare(profile);
+      profile = await (await import("./machine_update")).prepare(profile, { interactive: true });
       const mode = agent_mode.flags(args);
       const command = cli.handles(mode.args)
         ? [

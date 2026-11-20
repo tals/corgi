@@ -345,14 +345,18 @@ class Remote extends Runtime {
       ),
     );
     const before = this.network!.accepted;
-    const result = await run([file, "machine", "reconnect", "work"], {
-      env: { ...this.env, XDG_STATE_HOME: state, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath },
-      timeout: 60000,
-    });
+    const env = { ...this.env, XDG_STATE_HOME: state, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath };
+    const result = await run([file, "machine", "reconnect", "work"], { env, timeout: 60000 });
     this.assertEqual(JSON.parse(result.stdout).status, "reachable");
     this.assertIn("Welcome to this host", result.stderr);
     this.assertIn("Preparing delta", result.stderr);
+    const command = [file, "--machine", "work", "ping"];
+    await run(command, { env, timeout: 60000 });
     this.assertEqual(this.network!.accepted, before + 1);
+    const cold = join(this.temp.name, "command-state");
+    cpSync(state, cold, { recursive: true });
+    await run(command, { env: { ...env, XDG_STATE_HOME: cold }, timeout: 60000 });
+    this.assertEqual(this.network!.accepted, before + 2);
   }
   async test_dev_connections_update_automatically_and_show_progress_without_blocking_local_input() {
     await this.command("pane.create", { workspace: 1, command: "cat" });

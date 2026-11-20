@@ -99,13 +99,7 @@ function executeRemote(
   uploaded?: (bytes: number) => void,
   signal?: AbortSignal,
 ) {
-  return run(
-    ["ssh", ...ssh.args(host, !process.env.CORGI_MACHINE_SYNC, fresh), ssh.shell(script)],
-    input,
-    limit,
-    uploaded,
-    signal,
-  );
+  return run(["ssh", ...ssh.args(host, ssh.canPrompt(), fresh), ssh.shell(script)], input, limit, uploaded, signal);
 }
 export async function sendDelta(
   command: string[],
@@ -248,8 +242,8 @@ export async function reconcile(
   if (deployment && build.released(local.version)) throw Error("DevelopmentBuildRequired");
   const status = new progress.Progress(options.progress);
   status.show("Checking", `Reading the installed executable on ${host}`);
-  // Reconnect has already authenticated this control master, possibly with a password.
-  const reuseLogin = process.env.CORGI_MACHINE_SYNC === "reconnect";
+  // The viewer or a foreground command can already have authenticated the control master.
+  const reuseLogin = !!process.env.CORGI_MACHINE_SYNC;
   const launcherRoot = "s/^root='\\(.*\\)'$/\\1/p";
   const output = await remote(
     host,
@@ -346,7 +340,7 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
         const result = await sendDelta(
           [
             "ssh",
-            ...ssh.args(host, !process.env.CORGI_MACHINE_SYNC, false, reuseLogin ? "control" : "data"),
+            ...ssh.args(host, ssh.canPrompt(), false, reuseLogin ? "control" : "data"),
             ssh.command(executable, ["__machine-receive", staging + "/corgi", expected, hash], ssh.deltaMarker),
           ],
           data,

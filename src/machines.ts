@@ -120,7 +120,7 @@ export async function discover(host: string, executable = "corgi", socket = "", 
   const child = spawn(
     "ssh",
     [
-      ...ssh.args(host, !process.env.CORGI_MACHINE_SYNC),
+      ...ssh.args(host, ssh.canPrompt()),
       socket
         ? ssh.command("env", [`CORGI_SOCKET=${socket}`, executable, "__remote-info"])
         : ssh.command(executable, ["__remote-info"]),

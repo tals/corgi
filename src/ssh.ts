@@ -7,6 +7,11 @@ import * as os from "./os";
 export const bridgeMarker = "corgi-bridge-v1";
 export const deltaMarker = "corgi-delta-v1";
 
+export function canPrompt(): boolean {
+  const sync = process.env.CORGI_MACHINE_SYNC;
+  return !sync || sync === "interactive";
+}
+
 /** Discards shell startup output up to a line marking the start of binary stdout. */
 export class Preamble {
   private pending: Buffer | null = Buffer.alloc(0);

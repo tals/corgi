@@ -69,7 +69,7 @@ export function sshEndpoint(profile: Profile, probe: Probe, host: Host): Endpoin
     probe,
     host,
     dev.enabled()
-      ? async (signal, progress) => sshPath(await update.prepare(profile, { signal, progress, reuseLogin: true }))
+      ? async (signal, progress) => sshPath(await update.prepare(profile, { signal, progress }))
       : undefined,
     hello => builds.compare(builds.viewer, builds.identity(hello)) === "match" && dev.recorded(profile, hello.build_id),
   );
