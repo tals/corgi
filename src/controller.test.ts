@@ -5357,7 +5357,7 @@ test("a prompt conversation resumed after a reload stays on its machine when ano
   }
 });
 
-test("a remote machine's checkouts aren't read with this computer's git", () => {
+test("a remote machine's checkouts aren't read with this computer's git", async () => {
   const s = controller();
   const other = workMachine();
   s.adopt(other);
@@ -5372,6 +5372,11 @@ test("a remote machine's checkouts aren't read with this computer's git", () => 
     expect(s.message).toContain("Review changes on the remote machine");
     Reflect.get(s, "readAhead").call(s, s.sidebarEntries());
     expect(wanted).not.toHaveBeenCalled();
+    // Its agent menu leaves Review changes out rather than crossing it out.
+    await s.openAgentMenu(1, 0, 0);
+    await s.tasks.idle();
+    expect(s.tab_menu.entries().map((entry: any) => entry.item)).not.toContain("review");
+    expect(s.tab_menu.highlightedItem()).toBe("copy-details");
   } finally {
     viewer.close(s);
     other.runtime.destroy();

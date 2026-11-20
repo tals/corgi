@@ -2382,9 +2382,10 @@ export class Controller {
       anchor_y: y,
     });
     // Review changes says what it would show: the line read ahead, checked
-    // again now, or placeholder bars until git answers.
+    // again now, or placeholder bars until git answers. A remote machine's
+    // checkouts aren't read here, so its menus leave the row out.
     if (this.reviewable) this.review_summaries.ask(this.agentFolder(p));
-    else opened.off.add("review");
+    else opened.hidden.add("review");
     if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
     // The menu opens once the daemon answers, unless another click or Esc came first.
     this.menu_pending = opened;
@@ -2440,7 +2441,7 @@ export class Controller {
       anchor_y: y,
     });
     if (this.reviewable) this.review_summaries.ask(selection.path);
-    else opened.off.add("review");
+    else opened.hidden.add("review");
     opened.setDetail("review", this.summary(selection.path));
     const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
     const main = ws?.worktrees?.entries.find(e => e.primary)?.path ?? ws?.cwd ?? "";

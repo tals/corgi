@@ -72,6 +72,25 @@ test("a worktree group's menu opens on Review changes and keeps Close all below 
   expect(menu.itemFor(c("x"))).toBeNull();
 });
 
+test("a hidden Review changes leaves the menu without a rule on top", () => {
+  const menu = new TabMenu({ tab: 1, anchor_x: 0, worktree: "/repo/.worktrees/one", title: "one" });
+  menu.hidden.add("review");
+  menu.setDetail("review", null);
+  const entries = menu.entries();
+  expect(entries.map(entry => entry.item)).toEqual(["open-folder", "copy-path", "fold", "close-all"]);
+  expect(entries[0].rule).toBe(false);
+  expect(menu.itemFor(c("e"))).toBeNull();
+  menu.highlightFirst();
+  expect(menu.highlightedItem()).toBe("open-folder");
+  const rows = screen(menu, 80, 24);
+  expect(rows.some(row => row.includes("Review changes"))).toBe(false);
+  expect(rows[1]).toContain("Open folder");
+  const agent = new TabMenu({ tab: 1, anchor_x: 0, agent: true });
+  agent.hidden.add("review");
+  agent.highlightFirst();
+  expect(agent.highlightedItem()).toBe("copy-details");
+});
+
 test("Copy full path keeps the checkout name in a narrow preview and its second line is clickable", () => {
   const menu = new TabMenu({ tab: 1, anchor_x: 0, worktree: "/repo/.worktrees/topic", title: "topic" });
   menu.setDetail("copy-path", [["./.claude/worktrees/a-long-parent/topic", "faint"]]);
