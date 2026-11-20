@@ -105,6 +105,8 @@ export class Sandbox {
     for (const key of [
       "CORGI_PANE",
       "CORGI_APP_EXE",
+      "CORGI_DEV_ROOT",
+      "CORGI_DEV_BUN",
       "CORGI_ENV_BASE",
       "CODEX_THREAD_ID",
       "CLAUDE_CODE_SESSION_KIND",
