@@ -734,13 +734,10 @@ export class Worker {
       rows = new Map<string, Row & { cwd: string }>();
     // The rest keep the rows they last had, and their accounts are still read.
     // An account removed since isn't read on their account.
-    const known = new Set(accounts.known().map(a => a.provider + "\0" + a.dir));
-    for (const job of ordered)
-      if (!listed.has(job.cwd))
-        listed.set(
-          job.cwd,
-          job.preview.with({ accounts: job.preview.accounts.filter(a => known.has(a.provider + "\0" + a.account)) }),
-        );
+    const known = new Set(accounts.known().map(a => a.provider + "\0" + a.dir)),
+      current = (preview: Preview) =>
+        preview.with({ accounts: preview.accounts.filter(a => known.has(a.provider + "\0" + a.account)) });
+    for (const job of ordered) if (!listed.has(job.cwd)) listed.set(job.cwd, current(job.preview));
     for (const [cwd, preview] of listed)
       for (const l of this.rows(preview, skip)) {
         const key = l.provider + "\0" + l.account + "\0" + this.variant(l.provider, cwd);
@@ -759,11 +756,19 @@ export class Worker {
     await Promise.all(groups.map(group => this.read(group)));
     if (this.stopping) return;
     for (const [cwd, preview] of listed) {
-      this.cached_accounts.set(cwd, this.compose(preview, skip, cwd, keys));
-      for (const job of this.jobs.filter(job => job.cwd === cwd)) {
-        const composed = this.compose(fresh.has(cwd) ? this.list(job.preview, cwd) : preview, skip, cwd, keys);
-        job.preview = composed.with({ pending: job.preview.pending });
+      const jobs = this.jobs.filter(job => job.cwd === cwd);
+      // A folder off screen shows its rows as they are now: it may have come
+      // back on screen and loaded its models while the accounts were read.
+      for (const job of jobs) {
+        const rows = fresh.has(cwd) ? this.list(job.preview, cwd) : current(job.preview);
+        job.preview = this.compose(rows, skip, cwd, keys).with({ pending: job.preview.pending });
       }
+      this.cached_accounts.set(
+        cwd,
+        fresh.has(cwd) || !jobs.length
+          ? this.compose(preview, skip, cwd, keys)
+          : jobs[0].preview.with({ pending: false }),
+      );
     }
   }
   /** Reads an account once `every` seconds have passed: its folders in turn,
