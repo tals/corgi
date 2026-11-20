@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import * as copyCleanup from "./copy_cleanup";
 import { displayWidth } from "./text";
-import type { CopyCleanup, Mode, Snapshot, Trigger } from "./copy_cleanup";
+import type { Mode, Snapshot, Trigger } from "./copy_cleanup";
 
 interface Fixture {
   name: string;
@@ -42,20 +42,14 @@ function corpus(folder: "commands" | "documents"): Fixture[] {
 const commands = corpus("commands");
 const documents = corpus("documents");
 
-test("mode follows the preference for plain and modifier drags, and a mention always dedents", () => {
-  const table: Record<CopyCleanup, Record<Trigger, Mode>> = {
-    on_drag: { plain: "clean", modifier: "raw", mention: "dedent" },
-    with_modifier: { plain: "raw", modifier: "clean", mention: "dedent" },
+test("Smart Copy cleans up a plain drag only, and a mention is always dedented", () => {
+  const table: Record<"on" | "off", Record<Trigger, Mode>> = {
+    on: { plain: "clean", modifier: "raw", mention: "dedent" },
     off: { plain: "raw", modifier: "raw", mention: "dedent" },
   };
-  for (const [pref, triggers] of Object.entries(table))
+  for (const [smart, triggers] of Object.entries(table))
     for (const [trigger, mode] of Object.entries(triggers))
-      expect(copyCleanup.mode(pref as CopyCleanup, trigger as Trigger)).toBe(mode);
-});
-
-test("parse takes the three values and nothing else", () => {
-  expect(["on_drag", "with_modifier", "off"].map(copyCleanup.parse)).toEqual(["on_drag", "with_modifier", "off"]);
-  for (const value of ["On drag", "", 1, null, undefined, {}]) expect(copyCleanup.parse(value)).toBeNull();
+      expect(copyCleanup.mode(smart === "on", trigger as Trigger)).toBe(mode);
 });
 
 test("quotes count only when balanced on their line", () => {
@@ -196,7 +190,7 @@ test("the copy toast's note says what cleanup changed", () => {
   const note = (lines: string[]) =>
     copyCleanup.note(lines.join("\n"), copyCleanup.clean(copyCleanup.fromColumnZero(lines, 80), "clean"));
   expect(note(["  git push origin main \\", "    --force-with-lease"])).toBe("joined");
-  expect(note(["  spec:", "    replicas: 3"])).toBe("dedented");
+  expect(note(["  spec:", "    replicas: 3"])).toBeNull();
   expect(note(["spec:", "  replicas: 3"])).toBeNull();
   expect(note(["  ls -la  "])).toBeNull();
 });
@@ -205,4 +199,28 @@ test("a backslash continues only outside single quotes and before a selected row
   expect(copyCleanup.continuations(["echo 'a\\", "b' \\", "c"])).toEqual([false, true, false]);
   expect(copyCleanup.continuations(['echo "a\\', 'b"'])).toEqual([true, false]);
   expect(copyCleanup.continuations(["echo it\\'s \\", "ok \\"])).toEqual([true, false]);
+});
+
+test("a row ending in a pipe, && or ;, or a pipe opening the next row, goes on with the command", () => {
+  const clean = (lines: string[]) => copyCleanup.clean(copyCleanup.fromColumnZero(lines, 80), "clean");
+  expect(clean(["  cd ./build &&", "  make install"])).toEqual({ text: "cd ./build && make install", kind: "command" });
+  expect(clean(["  git log --oneline", "  | head -5"])).toEqual({
+    text: "git log --oneline | head -5",
+    kind: "command",
+  });
+  expect(clean(["  ls -la |", "  grep foo"])).toEqual({ text: "ls -la | grep foo", kind: "command" });
+  expect(clean(["  git log --oneline", "    | grep -i fix", "    | head -20"])).toEqual({
+    text: "git log --oneline | grep -i fix | head -20",
+    kind: "command",
+  });
+  // A table's rows open with a pipe, but don't follow a command.
+  expect(clean(["| a | b |", "| c | d |"]).kind).toBe("document");
+});
+
+test("a prompt is dropped only before a command", () => {
+  const clean = (line: string) => copyCleanup.clean(copyCleanup.fromColumnZero([line], 80), "clean").text;
+  expect(clean("$ git status")).toBe("git status");
+  expect(clean("$ ./run.sh --fast")).toBe("./run.sh --fast");
+  expect(clean("$ 5 per month.")).toBe("$ 5 per month.");
+  expect(clean("$ show me the docs")).toBe("$ show me the docs");
 });

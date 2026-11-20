@@ -763,7 +763,7 @@ const requests = {
   "viewer.pick": {
     pane: "u32",
     offset: "u64",
-    unit: "word|line",
+    unit: "word|line|cell",
     x: "u16",
     y: "u16",
     to_x: ["?u16", null],

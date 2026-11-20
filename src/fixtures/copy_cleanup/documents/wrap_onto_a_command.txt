@@ -1,0 +1,9 @@
+width: 60
+start_x: 2
+first_indent: 2
+
+  rm -rf ./build/output/artifacts/release/x86_64/linux/tmp
+  make install
+---
+rm -rf ./build/output/artifacts/release/x86_64/linux/tmp
+make install

@@ -25,8 +25,6 @@ import * as catalog from "./import/catalog";
 import * as importPicker from "./import/picker";
 import type { Template as Action } from "./action";
 import type { Preferences } from "./preferences";
-import * as copyCleanup from "./copy_cleanup";
-import type { CopyCleanup } from "./copy_cleanup";
 import * as ghosttyIntegration from "./ghostty_integration";
 import type { State as IntegrationState } from "./ghostty_integration";
 import type { State as ClipboardState } from "./host_clipboard";
@@ -115,7 +113,6 @@ export type Item =
   | "clever_corgi"
   | "theme"
   | "language"
-  | "copy_cleanup"
   | "shell"
   | "keyboard"
   | "agents"
@@ -138,7 +135,6 @@ const list = (): ListRow[] => [
   "clever_corgi",
   "flourishes",
   "readings",
-  "copy_cleanup",
   null,
   "theme",
   "language",
@@ -166,7 +162,6 @@ const labels = (): Record<Item, string> => ({
   clever_corgi: i18n.t`Clever Corgi`,
   theme: i18n.t`Theme`,
   language: i18n.t`Language`,
-  copy_cleanup: i18n.t`Copy cleanup`,
   shell: i18n.t`Shell`,
   keyboard: i18n.t`Keymap`,
   source_control: i18n.t`Source control`,
@@ -189,26 +184,6 @@ function importSource(item: Item): catalog.Source | null {
   return item in import_sources ? import_sources[item as ImportItem] : null;
 }
 
-function copyCleanupLabel(value: CopyCleanup): string {
-  switch (value) {
-    case "on_drag":
-      return i18n.t`On drag`;
-    case "with_modifier":
-      return i18n.t`With modifier`;
-    case "off":
-      return i18n.t`Off`;
-  }
-}
-function copyCleanupDetail(value: CopyCleanup): string {
-  switch (value) {
-    case "on_drag":
-      return i18n.t`Alt or Ctrl drag copies as shown`;
-    case "with_modifier":
-      return i18n.t`only Alt or Ctrl drag cleans up`;
-    case "off":
-      return i18n.t`always copy as shown`;
-  }
-}
 /** The settings Report a bug names, as they are now. */
 function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
   return {
@@ -221,11 +196,10 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
 export type Apply =
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
   | { kind: "inference_use"; use: Use; on: boolean }
-  | { kind: "readings" | "smart_links" | "auto_retry" | "ghostty"; on: boolean }
+  | { kind: "readings" | "smart_links" | "smart_copy" | "auto_retry" | "ghostty"; on: boolean }
   | { kind: "corgi_intensity"; value: number }
   | { kind: "theme"; theme: palette.Theme }
   | { kind: "language"; language: i18n.Locale | undefined }
-  | { kind: "copy_cleanup"; value: CopyCleanup }
   | { kind: "shell"; entry: shellPicker.Entry }
   | { kind: "preset"; preset: km.Preset }
   | { kind: "prefix" }
@@ -1831,7 +1805,7 @@ export class Menu implements LinkSource {
           { tag: "brief", text: summary(s.choice, s), tone: "muted" },
           ...(second === null ? [] : [{ tag: "brief", text: second } as Line]),
           blank,
-          ...this.clever(s).flatMap((c): Line[] => [
+          ...this.clever(s, prefs).flatMap((c): Line[] => [
             option({
               label: c.label,
               detail: "",
@@ -1840,7 +1814,7 @@ export class Menu implements LinkSource {
               action: c.on ? i18n.t`turn off` : i18n.t`turn on`,
               toggle: c.on,
             }),
-            { tag: "brief", text: c.brief },
+            ...c.briefs.map((text): Line => ({ tag: "brief", text })),
             blank,
           ]),
         ];
@@ -1885,23 +1859,6 @@ export class Menu implements LinkSource {
               action: i18n.t`use`,
             }),
           ),
-        ];
-      case "copy_cleanup":
-        return [
-          title(i18n.t`Copy cleanup`),
-          lead(i18n.t`Dragging over a wrapped command copies it as one line; other text loses its shared indent.`),
-          blank,
-          ...copyCleanup.values.map(value =>
-            option({
-              label: copyCleanupLabel(value),
-              detail: copyCleanupDetail(value),
-              mark: value === prefs.copy_cleanup ? "on" : "off",
-              apply: value === prefs.copy_cleanup ? null : { kind: "copy_cleanup", value },
-              action: i18n.t`use`,
-            }),
-          ),
-          blank,
-          { tag: "note", text: i18n.t`Keyboard copy mode always copies the text as shown.` },
         ];
       case "shell": {
         const picker = shellPicker.Picker.open(this.shell, this.shells);
@@ -2127,12 +2084,15 @@ export class Menu implements LinkSource {
       ...commandRows(prefs).map(([job, key]): Line => ({ tag: "binding", job, key, dim: !on })),
     ];
   }
-  /** Clever Corgi's settings, each turned on or off in the group's pane. */
-  /** What Corgi does with the model, Smart Links and auto-retry, each with its own switch. */
-  private clever(s: Status): { label: string; brief: string; on: boolean; apply: (on: boolean) => Apply }[] {
+  /** Clever Corgi's settings, each turned on or off in the group's pane:
+   * what Corgi does with the model, Smart Links, Smart Copy and auto-retry. */
+  private clever(
+    s: Status,
+    prefs: Preferences,
+  ): { label: string; briefs: string[]; on: boolean; apply: (on: boolean) => Apply }[] {
     const use = (use: Use, label: string, brief: string) => ({
       label,
-      brief,
+      briefs: [brief],
       on: s.uses[use],
       apply: (on: boolean): Apply => ({ kind: "inference_use", use, on }),
     });
@@ -2141,13 +2101,24 @@ export class Menu implements LinkSource {
       use("worktrees", i18n.t`Worktree briefs`, i18n.t`What each worktree holds, in a few words.`),
       {
         label: i18n.t`Smart Links`,
-        brief: i18n.t`Digs up likely HTTP links ↗`,
+        briefs: [i18n.t`Digs up likely HTTP links ↗`],
         on: this.smart_links,
         apply: (on: boolean): Apply => ({ kind: "smart_links", on }),
       },
       {
+        label: i18n.t`Smart Copy`,
+        briefs: [
+          i18n.t`Drags copy wrapped commands as one line.`,
+          i18n.t`Other text loses the indent its lines share.`,
+          i18n.t`Alt-drag copies exactly as shown.`,
+          i18n.t`After Trimmy: github.com/steipete/Trimmy`,
+        ],
+        on: prefs.smart_copy,
+        apply: (on: boolean): Apply => ({ kind: "smart_copy", on }),
+      },
+      {
         label: i18n.t`Auto-retry capacity errors`,
-        brief: i18n.t`Retries Codex at capacity; Esc stops it.`,
+        briefs: [i18n.t`Retries Codex at capacity; Esc stops it.`],
         on: this.auto_retry,
         apply: (on: boolean): Apply => ({ kind: "auto_retry", on }),
       },
@@ -2181,8 +2152,6 @@ export class Menu implements LinkSource {
         return { text: palette.themes[palette.chosen(prefs.theme)].label, tone: "muted" };
       case "language":
         return { text: prefs.language ? i18n.names[prefs.language] : i18n.t`Auto`, tone: "muted" };
-      case "copy_cleanup":
-        return { text: copyCleanupLabel(prefs.copy_cleanup), tone: "muted" };
       case "shell":
         if (shellPicker.missing(this.shell)) return { text: i18n.t`not found`, tone: "warm" };
         return { text: this.shell.path ? this.shell.path.split("/").pop()! : "", tone: "muted" };

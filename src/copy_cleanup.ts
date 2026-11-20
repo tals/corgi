@@ -1,6 +1,7 @@
-//! Cleans up text copied from a mouse selection: a command a harness wrapped
-//! or continued with backslashes becomes one line, anything else loses the
-//! indent its lines share, and a single line is trimmed.
+//! Cleans up text copied from a mouse selection: a command a harness wrapped,
+//! or continued with backslashes or operators, becomes one line, anything
+//! else loses the indent its lines share, and a single line is trimmed.
+//! Lines the terminal wrapped arrive joined.
 import { displayWidth } from "./text";
 
 /** A selection as the viewer saw it: its lines, the column of its first cell
@@ -20,24 +21,15 @@ export interface Result {
   kind: Kind;
 }
 /** What the copy toast says cleanup did: joined a command onto one line,
- * removed a shared indent, or nothing worth saying. */
-export type Note = "joined" | "dedented" | null;
+ * or nothing worth saying. */
+export type Note = "joined" | null;
 /** The toast's note for `result`, cleaned up from `raw`. */
 export function note(raw: string, result: Result): Note {
-  if (result.text === raw) return null;
-  if (result.kind === "command") return "joined";
-  return result.kind === "document" ? "dedented" : null;
+  return result.kind === "command" && result.text !== raw ? "joined" : null;
 }
-/** The "Copy cleanup" preference. */
-export type CopyCleanup = "on_drag" | "with_modifier" | "off";
 /** What asked for the copy: a plain drag or triple-click, a drag with Alt or
  * Ctrl held at the press, or a selection attached to a prompt with `@`. */
 export type Trigger = "plain" | "modifier" | "mention";
-
-export const values: readonly CopyCleanup[] = ["on_drag", "with_modifier", "off"];
-export function parse(value: unknown): CopyCleanup | null {
-  return values.find(pref => pref === value) ?? null;
-}
 
 /** Cells left of the pane's right edge where a harness stops its rows. 0 is
  * the smallest margin under which every command fixture counts as wrapped. */
@@ -46,14 +38,15 @@ export function wrapColumn(width: number, margin = wrap_margin): number {
   return width - margin;
 }
 
-export function mode(pref: CopyCleanup, trigger: Trigger): Mode {
-  if (trigger === "mention") return "dedent";
-  switch (pref) {
-    case "on_drag":
-      return trigger === "plain" ? "clean" : "raw";
-    case "with_modifier":
-      return trigger === "modifier" ? "clean" : "raw";
-    case "off":
+/** How a copy is cleaned up: Smart Copy cleans up a plain drag, never one
+ * with Alt or Ctrl held at the press; a mention is always only dedented. */
+export function mode(smart_copy: boolean, trigger: Trigger): Mode {
+  switch (trigger) {
+    case "mention":
+      return "dedent";
+    case "plain":
+      return smart_copy ? "clean" : "raw";
+    case "modifier":
       return "raw";
   }
 }
@@ -183,29 +176,159 @@ export function continuations(lines: readonly string[]): boolean[] {
     return row < lines.length - 1 && quote !== "'" && line.endsWith("\\") && !escaped(line, line.length - 1);
   });
 }
+/** `line` without a `$ ` prompt, when a command follows it. */
 function withoutPrompt(line: string): string {
-  return line.startsWith("$ ") ? line.slice(2).trimStart() : line;
+  const rest = /^\$\s+(.*)$/.exec(line)?.[1];
+  return rest !== undefined && isPromptCommand(rest) ? rest : line;
 }
-const signals: readonly RegExp[] = [
-  /^-[A-Za-z-]/, // a flag
-  /^(\/|\.\/|\.\.\/|~\/)/, // a path
-  /^(>>?|<|2>|&>)/, // a redirect
+
+// Whether text is a command follows Trimmy
+// (https://github.com/steipete/Trimmy), which judges the text alone; the
+// pane's rows then say which breaks a harness made.
+
+/** Commands a line starts with: Trimmy's, and a few it lacks. */
+const known_commands = new Set([
+  ...["sudo", "apt", "brew", "git", "python", "pip", "pnpm", "npm", "yarn", "cargo", "bundle", "rails", "go"],
+  ...["make", "xcodebuild", "swift", "kubectl", "docker", "podman", "aws", "gcloud", "az", "ls", "cd", "cat"],
+  ...["echo", "env", "export", "open", "node", "java", "ruby", "perl", "bash", "zsh", "fish", "pwsh", "sh"],
+  ...["rm", "cp", "mv", "mkdir", "curl", "wget", "ssh", "bun", "npx", "gh", "grep", "rg", "find", "tar", "chmod"],
+]);
+/** Known commands that start prose too, as in "open the door". */
+const everyday_commands = new Set([
+  ...["go", "sh", "cat", "open", "make", "cd", "ls", "az", "java", "echo", "env", "export", "node", "fish"],
+  ...["brew", "bundle", "find"],
+]);
+/** Second words that make a line led by an everyday command prose. */
+const prose_second_words = new Set([
+  ...["a", "an", "the", "my", "your", "our", "their", "this", "that", "these", "those", "we", "to", "now"],
+  ...["home", "videos", "video", "me"],
+]);
+/** Whether `word` names a known command, perhaps versioned as in `python3`. */
+function isCommandWord(word: string): boolean {
+  return known_commands.has(word.replace(/\d[\d.]*$/, ""));
+}
+/** Whether a line starts like a command: a word of command characters,
+ * perhaps after `sudo`, with no full stop ending the line. */
+function isCommandLine(line: string): boolean {
+  const text = line.trim();
+  if (text === "" || text.endsWith(".")) return false;
+  return text.startsWith("[[") || /^(sudo\s+)?[A-Za-z0-9./~_-]+(\s|$)/.test(text);
+}
+/** Whether what follows a `$ ` is a command rather than a price or a
+ * sentence. */
+function isPromptCommand(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed === "" || /[.?!]$/.test(trimmed)) return false;
+  const punctuated = /[-./~$0-9]/.test(trimmed);
+  return (punctuated || isCommandWord(firstWord(trimmed).toLowerCase())) && isCommandLine(trimmed);
+}
+/** Whether some row starts with a known command, an everyday one only
+ * where it doesn't read as prose. Unlike Trimmy, the first row gets the
+ * prose test too: a harness wraps "make sure the build is green" as well. */
+function startsWithKnownCommand(rows: readonly string[]): boolean {
+  return rows.some(row => {
+    const word = firstWord(row);
+    if (word.startsWith("./") || word.startsWith("~/")) return true;
+    const lower = word.toLowerCase();
+    if (!isCommandWord(lower)) return false;
+    if (!everyday_commands.has(lower)) return true;
+    const words = row.trim().split(/\s+/);
+    return words.length < 4 && !prose_second_words.has(words[1]?.toLowerCase() ?? "");
+  });
+}
+const command_punctuation: readonly RegExp[] = [
+  /@/,
+  /(^|\s)--[A-Za-z0-9][A-Za-z0-9_-]*/m,
+  /(^|\s)-[A-Za-z](\s|$)/m,
+  /\b[A-Za-z_][A-Za-z0-9_]*=/,
+  /(^|\s)(\.\/|~\/|\/)/m,
+  /(^|\s)\.[A-Za-z0-9_-]+/m,
+  /[<>]/,
 ];
+const code_keyword =
+  /^\s*(import|package|namespace|using|template|class|struct|enum|extension|protocol|interface|func|def|fn|let|var|public|private|internal|open|protected|if|for|while)\b/m;
+/** Whether text has braces and a declaration or control keyword. */
+function isSourceCode(text: string): boolean {
+  return (/[{}]/.test(text) || text.toLowerCase().includes("begin")) && code_keyword.test(text);
+}
+/** Whether most rows are bullets, numbered items or bare words. */
+function isList(rows: readonly string[]): boolean {
+  const filled = rows.filter(row => !blank(row));
+  if (filled.length < 2) return false;
+  const items = filled.filter(row => /^([-*•]\s+\S|[0-9]+[.)]\s+\S|[A-Za-z0-9]{4,}$)/.test(row.trim()));
+  return items.length > filled.length / 2;
+}
+/** Whether a command's later rows go on indented, or with an operator or
+ * a flag. */
+function continuesIndented(rows: readonly string[]): boolean {
+  if (rows.length < 2 || !isCommandLine(rows[0])) return false;
+  let indented = false;
+  for (const row of rows.slice(1)) {
+    if (blank(row)) continue;
+    if (/^\s/.test(row)) indented = true;
+    else if (!/^(\||&&|;|>|2>|<|-)/.test(row)) return false;
+  }
+  return indented;
+}
+/** Whether `rows`, without the indent they share, read as a shell command,
+ * scored as Trimmy scores them at its normal setting, with flags as one
+ * more signal. */
+function looksLikeCommand(rows: readonly string[]): boolean {
+  const text = rows.join("\n");
+  const continuation = text.includes("\\\n");
+  const joiner = /[|&]/.test(text);
+  const prompt = /(^|\n)\s*\$/.test(text);
+  const path = /[A-Za-z0-9._~-]+\/[A-Za-z0-9._~-]+/.test(text);
+  const strong = continuation || joiner || prompt || path;
+  if (!strong && !startsWithKnownCommand(rows) && !command_punctuation.some(re => re.test(text))) return false;
+  if (!strong && isSourceCode(text)) return false;
+  const signals = [
+    continuation,
+    joiner,
+    prompt,
+    continuesIndented(rows),
+    rows.filter(row => !blank(row)).every(isCommandLine),
+    /^\s*(sudo\s+)?[A-Za-z0-9./~_-]+/m.test(text),
+    path,
+    /(^|\s)--?[A-Za-z]/m.test(text),
+  ];
+  return signals.filter(Boolean).length >= 2;
+}
+
+/** Rows a command a harness wrapped may span; Trimmy's limit. Backslash
+ * continuations may run to `max_continued_rows`. */
+const max_wrapped_rows = 4;
+const max_continued_rows = 10;
+/** Whether the selection is one command: every row break goes on with it,
+ * and its text reads as one. */
 function isCommand(s: Snapshot): boolean {
   const { lines } = s;
-  const breaks = lines.slice(1).map((_, i) => i);
   const continues = continuations(lines);
-  if (continues.some(Boolean) && breaks.every(i => continues[i] || isWrap(s, i))) return true;
-  if (lines.length > 3 || !breaks.every(i => isWrap(s, i))) return false;
-  const first = lines[0].trimStart();
-  const prompt = first.startsWith("$ ");
-  if (!/^[A-Za-z0-9._\-/~]+$/.test(firstWord(withoutPrompt(first)))) return false;
-  if (prompt) return true;
-  return lines.some(line => {
-    const text = unquoted(line);
-    if (/\||&&/.test(text)) return true;
-    return text.split(/\s+/).some(token => signals.some(signal => signal.test(token)));
-  });
+  const limit = continues.some(Boolean) ? max_continued_rows : max_wrapped_rows;
+  if (lines.length > limit) return false;
+  const own = dedent(s);
+  // The token a split carried onto this row, if any.
+  let carry = "";
+  for (let i = 0; i + 1 < lines.length; i++) {
+    const words = own[i].trim().split(/\s+/);
+    const token = (words.length === 1 ? carry : "") + words[words.length - 1];
+    const split = splits(s, i, token);
+    if (!joins(s, own, continues, i, split)) return false;
+    carry = split ? token : "";
+  }
+  return !isList(own) && looksLikeCommand(own);
+}
+/** Whether the break after row `i` goes on with the same command: a
+ * backslash, or `|`, `&&` or `;` ending the row, as a shell reads them; a
+ * pipe opening the next row after a command or a pipe; or a harness wrap, unless the
+ * next row starts a command of its own rather than the rest of a `split`
+ * word. */
+function joins(s: Snapshot, own: readonly string[], continues: readonly boolean[], i: number, split: boolean): boolean {
+  if (continues[i] || /(\||&&|;)$/.test(unquoted(own[i]).trimEnd())) return true;
+  const next = own[i + 1].trimStart();
+  const row = withoutPrompt(own[i].trimStart());
+  if (/^(\||&&)/.test(next) && (isCommandLine(row) || /^(\||&&)/.test(row))) return true;
+  return isWrap(s, i) && (split || !(isCommandWord(firstWord(next)) || /^\$\s/.test(next)));
 }
 
 /** The command on one line: indents, a `$ ` prompt and backslash

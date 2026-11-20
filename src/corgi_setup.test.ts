@@ -133,9 +133,9 @@ test("setup keeps its options while aiming diagonally across list rows and gaps"
   expect(await menu.poll(no_setup_rpc, 100, 30, 2000)).toBe(false);
   expect(menu.item).toBe("clever_corgi");
   // Up and to the right, toward Keymap's options, crosses Shell.
-  hover(25, 11, 2100);
+  hover(25, 10, 2100);
   expect(menu.item).toBe("keyboard");
-  hover(30, 10, 2200);
+  hover(30, 9, 2200);
   expect(menu.item).toBe("keyboard");
   hover(36, 7, 2300);
   expect(menu.item).toBe("keyboard");
@@ -265,8 +265,8 @@ test("setup aims only at the options a click acts on", () => {
   }
   // Terminal capabilities has nothing to click, so nothing guards it.
   const menu = Menu.open();
-  menu.hover(100, 30, 15, 16, s, prefs, 0);
-  menu.hover(100, 30, 22, 12, s, prefs, 100);
+  menu.hover(100, 30, 15, 15, s, prefs, 0);
+  menu.hover(100, 30, 22, 11, s, prefs, 100);
   expect(menu.item).toBe("source_control");
 });
 
@@ -289,7 +289,7 @@ test("setup stops guarding when moving away, leaving the frame, or resizing", as
         break;
       case "vertical":
         menu.hover(100, 30, 15, 3, s, prefs, 150);
-        menu.hover(100, 30, 15, 8, s, prefs, 200);
+        menu.hover(100, 30, 15, 7, s, prefs, 200);
         break;
     }
     expect(menu.item).toBe(end === "outside" ? "clever_corgi" : end === "vertical" ? "theme" : "flourishes");
@@ -338,14 +338,21 @@ test("setup lists every setting beside the selected one's options", () => {
   expect(rows[top].indexOf("╭")).toBe(8);
   expect(rows[top + 2]).toMatch(/Clever Corgi\s+│\s+Clever Corgi/);
   expect(rows.join("\n")).toMatch(/Model +● Claude ▾/);
-  for (const use of ["Activity summaries", "Worktree briefs", "Smart Links", "Auto-retry capacity errors"])
+  for (const use of [
+    "Activity summaries",
+    "Worktree briefs",
+    "Smart Links",
+    "Smart Copy",
+    "Auto-retry capacity errors",
+  ])
     expect(rows.join("\n")).toMatch(new RegExp(`${use} +● On`));
+  expect(rows.join("\n")).toContain("After Trimmy: github.com/steipete/Trimmy");
   expect(rows.join("\n")).toContain("↑↓ move   enter choose   esc close");
   // List rows and options are clickable, in order.
   const s = status({ choice: "claude" });
   const found = hits(menu, 100, 30, s);
   expect(found.filter(hit => "item" in hit)).toEqual(items.map(item => ({ item })));
-  expect(found.filter(hit => "option" in hit)).toEqual([0, 1, 2, 3, 4].map(option => ({ option })));
+  expect(found.filter(hit => "option" in hit)).toEqual([0, 1, 2, 3, 4, 5].map(option => ({ option })));
   expect(menu.hit(100, 30, 0, 0, s, new Preferences())).toBeNull();
   expect(menu.contains(100, 30, 50, top + 1)).toBe(true);
   // Too small for the frame: nothing draws.
@@ -472,11 +479,11 @@ test("Model opens the prompt's model picker on the choice in use, and Left close
   expect(menu.back()).toBe(true);
   expect(menu.focus).toBe("options");
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).not.toContain("✦");
-  // The options wrap too: the model, two uses, Smart Links and auto-retry.
+  // The options wrap too: the model, two uses, Smart Links, Smart Copy and auto-retry.
   menu.move(true, s, prefs);
   expect(menu.cursor).toBe(1);
   for (let i = 0; i < 6; i++) menu.move(true, s, prefs, false);
-  expect(menu.cursor).toBe(4);
+  expect(menu.cursor).toBe(5);
   menu.move(true, s, prefs);
   expect(menu.cursor).toBe(0);
   expect(menu.back()).toBe(true);
