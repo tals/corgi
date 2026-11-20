@@ -4,6 +4,44 @@ import * as buildId from "./build_id";
 import * as os from "./os";
 
 export type Target = "darwin-arm64" | "darwin-x64" | "linux-arm64" | "linux-x64";
+export interface Identity {
+  version: string;
+  commit: string;
+  source_hash: string;
+}
+export const viewer: Identity = {
+  version: config.releaseVersion,
+  commit: config.releaseCommit,
+  source_hash: config.sourceHash,
+};
+/** The source hash is shared by cross-builds. Executable hashes vary by platform. */
+export function compare(a: Identity, b: Identity): "match" | "mismatch" | "unknown" {
+  if (!a.version || !b.version) return "unknown";
+  if (a.version !== b.version || (a.commit && b.commit && a.commit !== b.commit)) return "mismatch";
+  if (a.source_hash && b.source_hash) return a.source_hash === b.source_hash ? "match" : "mismatch";
+  return released(a.version) ? "match" : "unknown";
+}
+export function identity(hello: { release_version?: string; release_commit?: string; source_hash?: string }): Identity {
+  const field = (v: unknown) => (typeof v === "string" && /^[a-zA-Z0-9._+-]{1,128}$/.test(v) ? v : "");
+  return {
+    version: field(hello.release_version),
+    commit: field(hello.release_commit),
+    source_hash:
+      typeof hello.source_hash === "string" && /^[a-f0-9]{64}$/.test(hello.source_hash) ? hello.source_hash : "",
+  };
+}
+export function label(build: Identity): string {
+  const commit = /^[a-f0-9]{7,40}(-dirty)?$/.test(build.commit)
+    ? build.commit.slice(0, 7) + (build.commit.endsWith("-dirty") ? "-dirty" : "")
+    : "";
+  return [
+    build.version || "Unknown",
+    commit,
+    build.source_hash && !released(build.version) ? "source " + build.source_hash.slice(0, 8) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 export interface Build {
   version: string;
   commit: string;

@@ -285,12 +285,12 @@ class Remote extends Runtime {
       run([file, "machine", "deploy", "work", ...(replace ? ["--replace"] : [])], { env, check, timeout: 60000 });
     const first = await deploy(a);
     this.assertIn("Preparing delta", first.stderr);
-    this.assertIn("Uploading delta", first.stderr);
+    this.assertRegex(first.stderr, /Uploading 100% [\d.]+ [KM]?i?B\/s/);
     const full = await deploy(b);
-    this.assertIn("Uploading Corgi", full.stderr);
-    this.assertNotIn("Uploading delta", full.stderr);
+    this.assertRegex(full.stderr, /Uploading 100% [\d.]+ [KM]?i?B\/s/);
+    this.assertNotIn("Preparing delta", full.stderr);
     const delta = await deploy(a);
-    for (const stage of ["Preparing delta", "Uploading delta", "Uploaded", "Installing", "Verifying", "Connecting"])
+    for (const stage of ["Preparing delta", "Uploading 100%", "Uploaded", "Installing…", "Verifying…", "Connecting"])
       this.assertIn(stage, delta.stderr);
     this.assertEqual(JSON.parse(delta.stdout).ok, true);
     const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -333,7 +333,7 @@ class Remote extends Runtime {
       timeout: 60000,
     });
     this.assertEqual(JSON.parse(result.stdout).status, "reachable");
-    this.assertIn("Uploading delta", result.stderr);
+    this.assertIn("Preparing delta", result.stderr);
     this.assertEqual(this.network!.accepted, before + 1);
   }
   async test_dev_connections_update_automatically_and_show_progress_without_blocking_local_input() {
@@ -347,7 +347,7 @@ class Remote extends Runtime {
     Object.assign(this.env, { CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath });
     const command = () => run([a, "--machine", "work", "ping"], { env: this.env, timeout: 60000 });
     const first = await command();
-    this.assertIn("Uploading delta", first.stderr);
+    this.assertIn("Preparing delta", first.stderr);
     const pid = (await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid;
     this.assertNotIn("Uploading", (await command()).stderr);
     this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid, pid);
@@ -360,12 +360,13 @@ class Remote extends Runtime {
       110,
       36,
       () => {
-        for (const stage of ["Preparing delta", "Uploading delta", "Installing Corgi", "Verifying Corgi"])
+        for (const stage of ["Preparing delta", "Uploading", "Installing…", "Verifying…"])
           if (this.text().includes(stage)) shown.add(stage);
+        if (/work[^\n]*(?:Uploading|↑) +\d+% [\d.]+ [KM]?i?B\/s/.test(this.text())) shown.add("rate");
       },
       b,
     );
-    await this.until(() => shown.has("Preparing delta") || shown.has("Uploading delta"), 30);
+    await this.until(() => shown.has("Preparing delta") || shown.has("rate"), 30);
     this.clickWorkspace("LOCAL");
     this.terminal!.write("LOCAL_DURING_UPDATE\r");
     await this.until(() => this.text().includes("LOCAL_DURING_UPDATE"), 1);
@@ -385,7 +386,26 @@ class Remote extends Runtime {
       before.panes.map((p: { pid: number }) => p.pid),
     );
     this.assertEqual(createHash("sha256").update(readFileSync(destination)).digest("hex"), expected);
-    this.assertTrue(shown.size > 0);
+    this.assertTrue(shown.has("rate"));
+    this.terminal!.write("\x02q");
+    await deadline(this.ui!.exited, 2000);
+    this.terminal!.close();
+    this.emulator!.destroy();
+    const marker = join(this.temp.name, "redundant-setup");
+    const ssh = join(this.temp.name, "bin/ssh");
+    writeFileSync(
+      ssh,
+      readFileSync(ssh, "utf8").replace(
+        "const p = Bun.spawn(",
+        `if (args.at(-1).includes("corgi-setup-v1")) await Bun.write(${JSON.stringify(marker)}, ""); const p = Bun.spawn(`,
+      ),
+    );
+    this.network!.bytes_per_second = this.network!.latency_ms = 0;
+    await this.startViewer("work", 110, 36, undefined, b);
+    await this.online();
+    await this.sendRemote("REMOTE_REATTACHED");
+    await Bun.sleep(1600);
+    this.assertFalse(existsSync(marker), "A verified reattach ran machine setup again");
   }
   async test_dev_launcher_connects_during_a_cross_build_and_quits_with_the_build_blocked() {
     await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
@@ -413,19 +433,19 @@ class Remote extends Runtime {
       join(root, "build.ts"),
       `
       if (process.argv.includes("--target")) {
+        process.send("Compiling native code with Zig");
         await Bun.spawn(["sh", "-c", ${JSON.stringify(compiler)}], { stdio: ["ignore", "inherit", "inherit"] }).exited;
       }
     `,
     );
+    writeFileSync(
+      join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"),
+      JSON.stringify({ onboarding_complete: true, sidebar_width: 44 }),
+    );
     await this.startViewer("work", 110, 36, undefined, [process.execPath, join(root, "go.ts"), "--no-kill"]);
     await this.until(() => existsSync(started), 15);
     await this.online();
-    this.assertTrue(
-      this.text()
-        .split("\n")
-        .some(line => line.includes("work") && line.includes(`Build ${target}`)),
-      this.text(),
-    );
+    await this.until(() => new RegExp(`work[^\\n]*Building ${target}… +[1-9]\\d*s`).test(this.text()), 4);
     await this.sendRemote("REMOTE_DURING_BUILD");
     this.terminal!.write("\x02q");
     this.assertEqual(await deadline(this.ui!.exited, 2000, "go.ts waited for the cross-build"), 0);

@@ -536,10 +536,22 @@ function portEndpoints<Id>(ports: PortsSnapshot<Id>, id: Id): Endpoint[] {
   return (ports?.workspaces ?? []).find(w => w.id === id)?.endpoints ?? [];
 }
 export interface ConnectionStatus {
+  metrics?: string;
+  compact?: string;
   diagnostic?: boolean;
   label: string;
   seconds: number | null;
   color: palette.Token;
+}
+/** Keep the machine name and progress on the same row, including in a narrow sidebar. */
+function machineStatusLabel(status: ConnectionStatus, width: number, name: string): string {
+  const room = sat(width, 6 + Math.min(displayWidth(name), Math.max(4, Math.floor(width / 3))));
+  const metrics = status.metrics ?? (status.seconds === null ? "" : `${status.seconds}s`);
+  if (!metrics) return ellipsis(status.label, room);
+  const label = displayWidth(status.label + " " + metrics) <= room ? status.label : (status.compact ?? status.label);
+  if (displayWidth(metrics) >= room) return ellipsis(metrics, room);
+  const prefix = ellipsis(label, sat(room, displayWidth(metrics) + 1));
+  return [prefix, metrics].filter(Boolean).join(" ");
 }
 export interface WorkspaceEntry<Id = viewerRef.Workspace> {
   archived: boolean;
@@ -1573,9 +1585,7 @@ export class View {
         const quality = ws.link_quality;
         const bars = v.signal_marks ? signalBars.cells : 4;
         const status = ws.connection_status;
-        const timer = !status || status.seconds === null ? "" : ` ${status.seconds}s`;
-        const status_room = sat(v.width, 10);
-        const label = status ? ellipsis(status.label, sat(status_room, displayWidth(timer))) + timer : "";
+        const label = status ? machineStatusLabel(status, v.width, v.workspace_machines[absolute]) : "";
         const status_width = displayWidth(label);
         writeEllipsis(
           w,
@@ -3131,8 +3141,7 @@ export function machineDiagnosticAt(v: View, rows: WorkspaceEntry[], x: number, 
   for (let i = v.workspace_offset; i < v.workspace_offset + v.workspaceCapacity(); i++) {
     const status = rows[i]?.connection_status;
     if (!status?.diagnostic || y !== v.workspaceY(i) - 1) continue;
-    const timer = status.seconds === null ? "" : ` ${status.seconds}s`;
-    const label = ellipsis(status.label, sat(sat(v.width, 10), displayWidth(timer))) + timer;
+    const label = machineStatusLabel(status, v.width, v.workspace_machines[i]);
     return x >= v.width - displayWidth(label) - 2 && x < v.width - 2;
   }
   return false;

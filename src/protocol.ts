@@ -897,6 +897,8 @@ export interface ReplyPayloads {
     build_id: string;
     executable: string;
     release_version: string;
+    release_commit?: string;
+    source_hash?: string;
     update_abi: string;
     handoff?: number;
     transports?: { http: number; websocket: string };

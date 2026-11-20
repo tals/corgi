@@ -5,6 +5,7 @@ import { Rect } from "./layout";
 import { Terminal } from "./pane/terminal";
 import { Writer } from "./text";
 import * as sidebar from "./sidebar";
+import * as builds from "./machine_build";
 
 const connection = (name: string) => ({ name, stats: new Stats(), description: () => "online" });
 
@@ -73,4 +74,19 @@ test("machine header hover follows repeated groups, scrolling, and resources lay
         expect(sidebar.machineHeaderAt(side, 45, y)).toBeNull();
       }
     }
+});
+
+test("machine hover includes the actual daemon release and update detail beside a mismatch", () => {
+  const hover = new Hover();
+  const endpoint = {
+    ...connection("work"),
+    daemonVersion: { version: "0.0.1", commit: "12345678", source_hash: "" },
+    updateProgress: { message: "Installing…", detail: "Handing off the running daemon" },
+  };
+  hover.move({ machine: "work", rect: new Rect(2, 2, 24, 1) }, 5, 2, 0);
+  const lines = hover.update(endpoint, 100, 40, 1000)!.lines.map(line => line.text);
+  expect(lines).toContain("Version mismatch");
+  expect(lines).toContain("Daemon   0.0.1 · 1234567");
+  expect(lines).toContain("Viewer   " + builds.label(builds.viewer));
+  expect(lines).toContain("Handing off the running daemon");
 });

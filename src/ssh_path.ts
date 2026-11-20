@@ -10,6 +10,7 @@ import { Endpoint } from "./machine_connection";
 import type { Probe } from "./terminal_info";
 import type { Host } from "./host";
 import * as update from "./machine_update";
+import * as builds from "./machine_build";
 import * as dev from "./machine_deploy";
 
 function sshPath(profile: Profile): machine_path.Factory {
@@ -70,5 +71,6 @@ export function sshEndpoint(profile: Profile, probe: Probe, host: Host): Endpoin
     dev.enabled()
       ? async (signal, progress) => sshPath(await update.prepare(profile, { signal, progress, reuseLogin: true }))
       : undefined,
+    hello => builds.compare(builds.viewer, builds.identity(hello)) === "match" && dev.recorded(profile, hello.build_id),
   );
 }

@@ -1,9 +1,12 @@
 // One transfer per duplex stream. The inner signature/delta bytes are librsync compatible.
+import * as fs from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import * as zlib from "node:zlib";
 import * as port from "./fast_rsync";
 
 export type Transport = { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> };
-export type Progress = (stage: "signature" | "upload", sent: number, received: number) => void;
+export type Progress = (stage: "signature" | "prepare" | "upload", sent: number, total: number) => void;
 type Manifest = { version: 1; bytes: number; sha256: string; block: number };
 const maximumFrame = 1024 * 1024;
 const maximum = 512 * 1024 * 1024;
@@ -43,16 +46,51 @@ class Frames {
     return this.bytes(size);
   }
   async write(data: Uint8Array): Promise<void> {
-    const frame = Buffer.allocUnsafe(4 + data.byteLength);
-    frame.writeUInt32BE(data.byteLength);
-    frame.set(data, 4);
-    await this.writer.write(frame);
-    this.sent += frame.length;
+    await this.writeBytes(frame(data));
+  }
+  async writeBytes(bytes: Uint8Array): Promise<void> {
+    await this.writer.write(bytes);
+    this.sent += bytes.byteLength;
   }
   async dispose(error?: unknown): Promise<void> {
     if (error) await Promise.allSettled([this.reader.cancel(error), this.writer.abort(error)]);
     this.reader.releaseLock();
     this.writer.releaseLock();
+  }
+}
+function frame(data: Uint8Array): Buffer {
+  const bytes = Buffer.allocUnsafe(4 + data.byteLength);
+  bytes.writeUInt32BE(data.byteLength);
+  bytes.set(data, 4);
+  return bytes;
+}
+
+/** Keep small dev patches in memory. Spool large ones once so upload progress has an exact total. */
+class Patch {
+  length = 0;
+  private chunks: Buffer[] = [];
+  private directory: string | null = null;
+  private fd: number | null = null;
+  append(bytes: Buffer): void {
+    this.length += bytes.length;
+    if (this.fd === null && this.length > 4 * 1024 * 1024) {
+      this.directory = fs.mkdtempSync(join(tmpdir(), "corgi-delta-"));
+      this.fd = fs.openSync(join(this.directory, "patch"), "wx", 0o600);
+      for (const chunk of this.chunks) fs.writeFileSync(this.fd, chunk);
+      this.chunks = [];
+    }
+    if (this.fd === null) this.chunks.push(bytes);
+    else fs.writeFileSync(this.fd, bytes);
+  }
+  async *read(): AsyncGenerator<Uint8Array> {
+    if (this.directory) yield* fs.createReadStream(join(this.directory, "patch"), { highWaterMark: 65536 });
+    else
+      for (const chunk of this.chunks)
+        for (let offset = 0; offset < chunk.length; offset += 65536) yield chunk.subarray(offset, offset + 65536);
+  }
+  close(): void {
+    if (this.fd !== null) fs.closeSync(this.fd);
+    if (this.directory) fs.rmSync(this.directory, { recursive: true, force: true });
   }
 }
 function manifest(value: unknown): Manifest {
@@ -133,14 +171,15 @@ export async function send(
   const info = manifest({ version: 1, bytes: data.length, sha256, block });
   const frames = new Frames(transport),
     start = performance.now();
+  const patch = new Patch();
   let failure: unknown;
   try {
-    progress?.("signature", frames.sent, frames.received);
+    progress?.("signature", 0, 0);
     await frames.write(Buffer.from(JSON.stringify(info)));
     const signature = decompress(await frames.read(maximumSignature + 1024), maximumSignature);
     if (signature.length < 12 || signature.readUInt32BE(4) !== block || signature.readUInt32BE(8) !== 16)
       throw Error("InvalidSignature");
-    progress?.("upload", frames.sent, frames.received);
+    progress?.("prepare", 0, 0);
     const signatureSeconds = (performance.now() - start) / 1000;
     const output = Buffer.allocUnsafe(frameSize);
     let used = 0,
@@ -148,11 +187,10 @@ export async function send(
       patchBytes = 0,
       patchFrames = 0;
     const tick = performance.now();
-    const flush = async () => {
+    const flush = () => {
       if (!used) return;
       const compressed = compress(output.subarray(0, used));
-      await frames.write(compressed);
-      progress?.("upload", frames.sent, frames.received);
+      patch.append(frame(compressed));
       rawBytes += used;
       patchBytes += compressed.length;
       patchFrames++;
@@ -165,11 +203,17 @@ export async function send(
         piece.copy(output, used, p, p + n);
         used += n;
         p += n;
-        if (used === output.length) await flush();
+        if (used === output.length) flush();
       }
     }
-    await flush();
-    await frames.write(Buffer.alloc(0));
+    flush();
+    patch.append(frame(Buffer.alloc(0)));
+    const before = frames.sent;
+    progress?.("upload", 0, patch.length);
+    for await (const bytes of patch.read()) {
+      await frames.writeBytes(bytes);
+      progress?.("upload", frames.sent - before, patch.length);
+    }
     const deltaSeconds = (performance.now() - tick) / 1000;
     const result: unknown = JSON.parse((await frames.read(4096)).toString());
     if (
@@ -196,6 +240,7 @@ export async function send(
     failure = error;
     throw error;
   } finally {
+    patch.close();
     await frames.dispose(failure);
   }
 }

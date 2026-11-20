@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { version } from "./updates";
-import { matches, parse, slot, type Build } from "./machine_build";
+import { compare, matches, parse, slot, type Build } from "./machine_build";
 const a = "a".repeat(40),
   b = "b".repeat(40);
 const build = (values: Partial<Build> = {}): Build => ({
@@ -60,4 +60,11 @@ test("development installation slots remain compatible with the existing updater
   const id = slot(build({ build_id: "f".repeat(64) }));
   expect(version(id)).toEqual([0, 0, 281474976710655]);
   expect(slot(build({ version: "1.2.3" }))).toBe("1.2.3");
+});
+
+test("dev builds compare source identity across targets and leave missing revisions unknown", () => {
+  const a = { version: "0.1.0-dev", commit: "abc1234-dirty", source_hash: "a".repeat(64) };
+  expect(compare(a, { ...a })).toBe("match");
+  expect(compare(a, { ...a, source_hash: "b".repeat(64) })).toBe("mismatch");
+  expect(compare(a, { ...a, source_hash: "" })).toBe("unknown");
 });

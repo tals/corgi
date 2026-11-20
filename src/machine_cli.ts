@@ -1,3 +1,4 @@
+import type { Report } from "./machine_progress";
 import { Remote, startup_ms } from "./daemon_transport";
 import { nativeRoot } from "./native_paths";
 import * as currentRelease from "./current_release";
@@ -137,21 +138,22 @@ export async function synchronize(
   name: string,
   target: string,
   socket: string,
-  progress: (message: string) => void,
+  progress: Report,
   signal: AbortSignal,
 ): Promise<void> {
   if (!dev.enabled()) throw Error("DevelopmentBuildRequired");
   const old = machines.find(name);
   if (old.target !== target || old.socket !== socket) throw Error("MachineChanged");
-  progress("Checking deployment receipt…");
+  progress("Checking…", { detail: "Checking the deployment receipt" });
   const deployment = await dev.acquire(old, signal);
   try {
     const executable = await setup.reconcile(old.target, old.executable, [], old.socket, deployment, {
+      reuseInstalledSource: true,
       progress,
       signal,
     });
     signal.throwIfAborted();
-    progress(`Refreshing ${old.name}…`);
+    progress("Refreshing…", { detail: "Reading the installed daemon and bridge paths" });
     const info = await machines.discover(old.target, executable, old.socket, signal);
     await machines.edit(profiles =>
       profiles.map(p => {

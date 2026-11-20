@@ -1,3 +1,5 @@
+import * as builds from "./machine_build";
+import type { Status as UpdateStatus } from "./machine_progress";
 import * as palette from "./palette";
 import * as text from "./text";
 import { latencyBands, type Stats } from "./connection_stats";
@@ -6,6 +8,11 @@ export interface Connection {
   name: string;
   stats: Stats;
   description(): string;
+  connectionDescription?(): string;
+  daemonVersion?: builds.Identity | null;
+  daemonVersionLive?: boolean;
+  updateProgress?: UpdateStatus | null;
+  updateError?: string;
 }
 export interface Line {
   text: string;
@@ -27,14 +34,36 @@ export function lines(connection: Connection, width: number, now = performance.n
   const recent = history.filter(s => s.at >= Math.floor(now / 1000) - 4);
   const rate = (key: "received" | "sent") => (recent.reduce((n, s) => n + s[key], 0) / 5 / 1024).toFixed(1) + " KiB/s";
   const out: Line[] = [
-    { text: `${connection.name} · ${connection.description()}`, color: "strong", heading: true },
+    {
+      text: `${connection.name} · ${connection.connectionDescription?.() ?? connection.description()}`,
+      color: "strong",
+      heading: true,
+    },
+  ];
+  const status = connection.updateProgress;
+  if (status) {
+    out.push({ text: [status.message, status.metrics].filter(Boolean).join(" "), color: "warm" });
+    if (status.detail) out.push({ text: status.detail });
+  }
+  if (connection.updateError) out.push({ text: `Update failed · ${connection.updateError}`, color: "hot" });
+  const daemon = connection.daemonVersion;
+  if (daemon?.version) {
+    out.push({
+      text: `${connection.daemonVersionLive === false ? "Last daemon" : "Daemon"}   ${builds.label(daemon)}`,
+    });
+    const comparison = builds.compare(builds.viewer, daemon);
+    if (comparison === "mismatch") {
+      out.push({ text: "Version mismatch", color: "warm" }, { text: `Viewer   ${builds.label(builds.viewer)}` });
+    } else if (comparison === "unknown") out.push({ text: "Daemon source revision unavailable", color: "muted" });
+  } else out.push({ text: "Daemon version unavailable", color: "muted" });
+  out.push(
     { text: "" },
     { text: count ? `Response  ${ms(mean)} ± ${ms(sd)} (peak ${ms(peak)})` : "Response  —" },
     { text: `Receive   ${rate("received")}    Send ${rate("sent")}` },
     { text: `Replies   ${count}    Failed ${failures}    Pending ${connection.stats.pending}` },
     { text: "" },
     { text: "Response history · 2 min", color: "strong", heading: true },
-  ];
+  );
   const labelWidth = 11;
   const available = Math.max(1, width - labelWidth);
   const columns = [24, 12, 6, 3, 1].find(n => n <= available)!;

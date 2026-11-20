@@ -216,8 +216,9 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         args[1],
         args[2],
         args[3],
-        message => {
-          if (!cancellation.signal.aborted) process.stdout.write(JSON.stringify({ type: "progress", message }) + "\n");
+        (message, extra) => {
+          if (!cancellation.signal.aborted)
+            process.stdout.write(JSON.stringify({ type: "progress", message, ...extra }) + "\n");
         },
         cancellation.signal,
       );

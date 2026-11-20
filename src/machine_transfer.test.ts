@@ -1,5 +1,6 @@
 import * as test from "bun:test";
 import * as transfer from "./machine_transfer";
+import { randomBytes } from "node:crypto";
 
 function channel(): TransformStream<Uint8Array, Uint8Array> {
   return new TransformStream({
@@ -95,4 +96,22 @@ test.test("oversized metadata and decompression output are rejected", async () =
     };
     await test.expect(transfer.receive(transport, old, () => {})).rejects.toThrow();
   }
+});
+
+test.test("large literal deltas report their exact framed upload size through the spill file", async () => {
+  const data = randomBytes(5 * 1024 * 1024),
+    empty = Buffer.alloc(0);
+  const a = new TransformStream<Uint8Array, Uint8Array>(),
+    b = new TransformStream<Uint8Array, Uint8Array>();
+  const progress: [number, number][] = [];
+  const [result] = await Promise.all([
+    transfer.send({ readable: b.readable, writable: a.writable }, data, sha(data), (stage, sent, total) => {
+      if (stage === "upload") progress.push([sent, total]);
+    }),
+    transfer.receive({ readable: a.readable, writable: b.writable }, empty, () => {}),
+  ]);
+  const total = result.compressed_patch_bytes + (result.patch_frames + 1) * 4;
+  test.expect(progress[0]).toEqual([0, total]);
+  test.expect(progress.at(-1)).toEqual([total, total]);
+  test.expect(progress.every(([sent, size], i) => size === total && (!i || sent > progress[i - 1][0]))).toBe(true);
 });

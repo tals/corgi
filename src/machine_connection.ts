@@ -10,6 +10,8 @@ import { Connection } from "./rpc";
 import * as machine_path from "./machine_path";
 import * as viewer from "./viewer";
 import * as errors from "./errors";
+import * as buildInfo from "./machine_build";
+import type * as progress from "./machine_progress";
 import { Failure as UpdateFailure } from "./machine_update";
 import type { Probe } from "./terminal_info";
 import type { Host } from "./host";
@@ -179,7 +181,15 @@ export class Endpoint {
   private focus: { instance: string; at: Focus } | null = null;
   private cache: Cache;
   private updating: AbortController | null = null;
-  updateMessage = "";
+  daemonVersion: buildInfo.Identity | null = null;
+  get daemonVersionLive(): boolean {
+    return !!this.connection;
+  }
+  updateProgress: progress.Status | null = null;
+  private updateTimer: ReturnType<typeof setTimeout> | null = null;
+  get updateMessage(): string {
+    return this.updateProgress?.message ?? "";
+  }
   updateError = "";
   folder: string | null = null;
   onChange: () => void = () => {};
@@ -196,7 +206,8 @@ export class Endpoint {
     private newPath: machine_path.Factory,
     readonly probe: Probe,
     readonly host: Host,
-    private update?: (signal: AbortSignal, progress: (message: string) => void) => Promise<machine_path.Factory>,
+    private update?: (signal: AbortSignal, progress: progress.Report) => Promise<machine_path.Factory>,
+    private currentBuild?: (hello: machine_path.Hello) => boolean,
   ) {
     this.sample = newPath(false, false);
     this.machine = new Machine(this.transport(), this.name, remote);
@@ -397,11 +408,11 @@ export class Endpoint {
   private async startUpdate(): Promise<void> {
     if (!this.update || this.updating || this.updateError) return;
     const job = (this.updating = new AbortController());
-    this.updateMessage = "Checking build…";
+    this.updateProgress = { message: "Checking…" };
     try {
-      const factory = await this.update(job.signal, message => {
+      const factory = await this.update(job.signal, (message, extra) => {
         if (job.signal.aborted) return;
-        this.updateMessage = message;
+        this.updateProgress = { message, ...extra };
         this.onChange();
       });
       if (job.signal.aborted) return;
@@ -417,15 +428,21 @@ export class Endpoint {
     } finally {
       if (this.updating === job) {
         this.updating = null;
-        this.updateMessage = "";
+        this.updateProgress = null;
         this.onChange();
       }
     }
   }
+  private clearUpdateTimer(): void {
+    if (this.updateTimer) clearTimeout(this.updateTimer);
+    this.updateTimer = null;
+  }
   private cancelUpdate(): void {
     this.updating?.abort();
     this.updating = null;
-    this.updateMessage = this.updateError = "";
+    this.updateProgress = null;
+    this.updateError = "";
+    this.clearUpdateTimer();
   }
   retry(): void {
     if (this.stopped) return;
@@ -462,7 +479,14 @@ export class Endpoint {
     if (this.updateError && !this.error)
       return { label: "Update failed", seconds: null, color: "hot", diagnostic: true };
     if (this.updateMessage)
-      return { label: this.updateMessage, seconds: null, color: "warm", diagnostic: !!this.error };
+      return {
+        label: this.updateMessage,
+        metrics: this.updateProgress?.metrics,
+        compact: this.updateProgress?.compact,
+        seconds: null,
+        color: "warm",
+        diagnostic: !!this.error,
+      };
     const status = this.connectionStatus(now);
     // An SSH machine's failure opens its details from the header, whatever comes next.
     return status && this.remote && this.error ? { ...status, diagnostic: true } : status;
@@ -490,11 +514,11 @@ export class Endpoint {
     }
   }
   description(now = performance.now()): string {
-    const detail = this.connectionDescription(now);
-    if (this.updateMessage) return `${this.updateMessage} · ${detail}`;
-    return this.updateError ? `Update failed · ${detail}` : detail;
+    if (this.updateProgress)
+      return [this.updateProgress.message, this.updateProgress.metrics].filter(Boolean).join(" ");
+    return this.updateError ? "Update failed" : this.connectionDescription(now);
   }
-  private connectionDescription(now: number): string {
+  connectionDescription(now = performance.now()): string {
     switch (this.status) {
       case "attention":
         return `Attention · ${this.error}`;
@@ -735,7 +759,14 @@ export class Endpoint {
     this.wake();
   }
   private async connect(): Promise<void> {
-    void this.startUpdate();
+    // A quick hello can confirm the last deployment without spawning a helper.
+    // A slow or broken dial still lets the update run independently.
+    if (this.update && this.currentBuild) {
+      this.updateTimer ??= setTimeout(() => {
+        this.updateTimer = null;
+        void this.startUpdate();
+      }, 1500);
+    } else void this.startUpdate();
     const previous = this.instance;
     const had_viewer = this.machine.viewer_id !== 0;
     const generation = ++this.generation;
@@ -768,6 +799,18 @@ export class Endpoint {
       }
       this.connection = conn;
     }
+    this.clearUpdateTimer();
+    this.daemonVersion = buildInfo.identity(hello);
+    if (
+      this.update &&
+      !this.updating &&
+      hello.protocol === protocol.version &&
+      hello.viewer_protocol === protocol.viewer_version &&
+      this.currentBuild?.(hello)
+    ) {
+      this.update = undefined;
+      this.updateError = "";
+    } else void this.startUpdate();
     this.trace("remote.connection", "hello");
     conn.onEvent(event => {
       if (this.connection !== conn) return;

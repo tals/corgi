@@ -1,3 +1,4 @@
+import * as buildConfig from "./build_config";
 import * as signinService from "./signin_service";
 import * as accountService from "./account_service";
 import * as startup from "./startup_service";
@@ -807,6 +808,7 @@ export class Server {
         if (encoding && !cl.canCompress) throw Error("InvalidEncodingNegotiation");
         const compress = encoding && v.runtime_protocol === protocol.version;
         cl.protocol_version = v.runtime_protocol === protocol.version ? protocol.version : null;
+        const release = updates.release(this.executable);
         reply.send({
           type: "hello",
           protocol: protocol.version,
@@ -815,7 +817,9 @@ export class Server {
           server_pid: process.pid,
           build_id: this.build_id,
           executable: this.executable,
-          release_version: updates.release(this.executable).version,
+          release_version: release.version,
+          release_commit: release.commit,
+          source_hash: buildConfig.sourceHash,
           update_abi: updates.abi,
           handoff: transfer.protocol,
           viewer_protocol: protocol.viewer_version,

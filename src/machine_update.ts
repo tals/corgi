@@ -3,16 +3,27 @@ import type { Socket } from "node:net";
 import * as buildId from "./build_id";
 import * as machines from "./machines";
 import * as dev from "./machine_deploy";
+import * as progressInfo from "./machine_progress";
 
-type Event = { type: "progress"; message: string } | { type: "ready" };
+type Event = ({ type: "progress" } & progressInfo.Status) | { type: "ready" };
 export function event(value: unknown): Event {
   if (!value || typeof value !== "object" || !("type" in value)) throw Error("InvalidMachineUpdateEvent");
   switch (value.type) {
     case "ready":
       return { type: "ready" };
     case "progress":
-      if ("message" in value && typeof value.message === "string" && value.message.length <= 4096)
-        return { type: "progress", message: value.message.replace(/[\x00-\x1f\x7f]/g, " ") };
+      const clean = (s: unknown) => {
+        if (typeof s !== "string" || s.length > 4096) throw Error("InvalidMachineUpdateEvent");
+        return s.replace(/[\x00-\x1f\x7f]/g, " ");
+      };
+      if ("message" in value)
+        return {
+          type: "progress",
+          message: clean(value.message),
+          ...("metrics" in value ? { metrics: clean(value.metrics) } : {}),
+          ...("detail" in value ? { detail: clean(value.detail) } : {}),
+          ...("compact" in value ? { compact: clean(value.compact) } : {}),
+        };
   }
   throw Error("InvalidMachineUpdateEvent");
 }
@@ -23,7 +34,7 @@ export class Failure extends Error {
     this.reply = { err: this.message, detail };
   }
 }
-async function readProgress(output: AsyncIterable<Uint8Array>, progress: (message: string) => void): Promise<boolean> {
+async function readProgress(output: AsyncIterable<Uint8Array>, progress: progressInfo.Report): Promise<boolean> {
   let ready = false,
     pending = "";
   const decoder = new TextDecoder();
@@ -37,7 +48,7 @@ async function readProgress(output: AsyncIterable<Uint8Array>, progress: (messag
       pending = pending.slice(end + 1);
       switch (value.type) {
         case "progress":
-          progress(value.message);
+          progress(value.message, { metrics: value.metrics, detail: value.detail, compact: value.compact });
           break;
         case "ready":
           ready = true;
@@ -51,11 +62,11 @@ async function readProgress(output: AsyncIterable<Uint8Array>, progress: (messag
 export async function prepare(
   profile: machines.Profile,
   {
-    progress = (message: string) => process.stderr.write(message + "\n"),
+    progress = progressInfo.print,
     signal,
     reuseLogin = false,
   }: {
-    progress?: (message: string) => void;
+    progress?: progressInfo.Report;
     signal?: AbortSignal;
     reuseLogin?: boolean;
   } = {},

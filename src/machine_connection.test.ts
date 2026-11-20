@@ -261,7 +261,11 @@ test("failed and retried builds leave a compatible connection online", async () 
   const signals: AbortSignal[] = [];
   const daemon = await flakyDaemon(true, false, undefined, (signal, progress) => {
     signals.push(signal);
-    progress("Build linux-arm64");
+    progress("Building linux-arm64…", {
+      metrics: "12s",
+      compact: "Building…",
+      detail: "Compiling native code with Zig",
+    });
     return signals.length === 1 ? first.promise : second.promise;
   });
   const { endpoint } = daemon;
@@ -269,7 +273,10 @@ test("failed and retried builds leave a compatible connection online", async () 
     endpoint.pump(false);
     await until(() => endpoint.status === "online");
     const generation = endpoint.generation;
-    expect(endpoint.machine.presence().connection_status?.label).toBe("Build linux-arm64");
+    expect(endpoint.machine.presence().connection_status).toMatchObject({
+      label: "Building linux-arm64…",
+      metrics: "12s",
+    });
     first.reject(Error("Compiler failed"));
     await until(() => endpoint.updateError === "Compiler failed");
     expect(endpoint.error).toBe("");

@@ -1,3 +1,4 @@
+import * as updateProgress from "./machine_progress";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
@@ -21,23 +22,40 @@ export function enabled(): boolean {
 export async function artifact(
   target: Target,
   signal?: AbortSignal,
-  progress?: (message: string) => void,
+  progress: updateProgress.Report = updateProgress.print,
 ): Promise<string> {
   const { root, bun } = checkout();
   const fd = fs.openSync(path.join(root, "dist/dev-build.lock"), "a", 0o600);
   try {
     if (!flock(fd)) {
-      progress?.(`Waiting to build ${target}…`);
+      progress("Build queued…", { detail: `Waiting for the checkout build lock · ${target}` });
       do {
         signal?.throwIfAborted();
         await Bun.sleep(50);
       } while (!flock(fd));
     }
     signal?.throwIfAborted();
-    progress?.(`Build ${target}`);
+    let started: number | null = null;
+    let detail = "";
+    progress("Checking…", { detail: `Checking cached build inputs for ${target}` });
+    const report = () => {
+      if (started === null) return;
+      progress(`Building ${target}…`, {
+        metrics: updateProgress.elapsed(performance.now() - started),
+        compact: "Building…",
+        detail,
+      });
+    };
     const child = Bun.spawn([bun, path.join(root, "build.ts"), "--incremental", "--target", target], {
       cwd: root,
       detached: !!signal,
+      ipc(message) {
+        if (typeof message === "string") {
+          started ??= performance.now();
+          detail = message;
+          report();
+        }
+      },
       stdin: "ignore",
       stdout: 2,
       stderr: "inherit",
@@ -50,12 +68,14 @@ export async function artifact(
         if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
       }
     };
+    const timer = setInterval(report, 1000);
     signal?.addEventListener("abort", abort, { once: true });
     try {
       const code = await child.exited;
       signal?.throwIfAborted();
       if (code !== 0) throw Error("DevelopmentBuildFailed");
     } finally {
+      clearInterval(timer);
       signal?.removeEventListener("abort", abort);
     }
     return path.join(root, "dist", `corgi-${target}`);
@@ -68,16 +88,26 @@ export function allowed(previous: string | null, installed: string, replace: boo
   if (previous !== null && previous !== installed && !replace)
     throw Error("Remote changed since the last dev deployment; inspect it, then use --replace to deploy over it.");
 }
-/** Per-checkout receipts prevent a routine dev cycle from overwriting someone else's deployment. */
-export function open(profile: Profile, replace: boolean) {
+function receiptFile(profile: Profile): string {
   const { root } = checkout();
   const key = crypto
     .createHash("sha256")
     .update(JSON.stringify([profile.name, profile.target, profile.socket]))
     .digest("hex");
   const directory = path.join(root, "dist/dev-deploy");
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const file = path.join(directory, key);
+  return path.join(directory, key);
+}
+export function recorded(profile: Profile, hash: string): boolean {
+  try {
+    return /^[a-f0-9]{64}$/.test(hash) && fs.readFileSync(receiptFile(profile), "utf8").trim() === hash;
+  } catch {
+    return false;
+  }
+}
+/** Per-checkout receipts prevent a routine dev cycle from overwriting someone else's deployment. */
+export function open(profile: Profile, replace: boolean) {
+  const file = receiptFile(profile);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const fd = fs.openSync(file + ".lock", "a", 0o600);
   if (!flock(fd)) {
     fs.closeSync(fd);

@@ -213,7 +213,8 @@ async function artifact(
   return file;
 }
 export interface Options {
-  progress?: (message: string) => void;
+  reuseInstalledSource?: boolean;
+  progress?: progress.Report;
   signal?: AbortSignal;
 }
 /** The viewer runs setup in a helper, so builds and checksums never block drawing. */
@@ -235,11 +236,11 @@ export async function reconcile(
   ) => executeRemote(host, script, input, fresh, limit, uploaded, options.signal);
   // A source run has no commit or artifact to compare or install.
   if (!import.meta.filename.startsWith("/$bunfs/")) throw Error("BuildCorgiBeforeMachineSetup");
-  options.progress?.("Checking local build…");
+  options.progress?.("Checking…", { detail: "Reading the local build identity" });
   const local = build.describe(buildId.self());
   if (deployment && build.released(local.version)) throw Error("DevelopmentBuildRequired");
   const status = new progress.Progress(options.progress);
-  status.show(`Checking Corgi on ${host}`);
+  status.show("Checking", `Reading the installed executable on ${host}`);
   // Reconnect has already authenticated this control master, possibly with a password.
   const reuseLogin = process.env.CORGI_MACHINE_SYNC === "reconnect";
   const launcherRoot = "s/^root='\\(.*\\)'$/\\1/p";
@@ -287,6 +288,18 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
     executable = installed.executable;
     if (!installed.socket && socket) installed.socket = socket;
   }
+  // The installed build describes its source even on peers without the extended hello.
+  if (
+    deployment &&
+    options.reuseInstalledSource &&
+    installed?.build_id &&
+    installed.target === target &&
+    build.compare(local, installed) === "match"
+  ) {
+    deployment.accept(installed.build_id);
+    deployment.record(installed.build_id);
+    return lines[3] || executable;
+  }
   const directory = mkdtempSync(join(tmpdir(), "corgi-setup-"));
   try {
     const prepared = deployment ? await artifact(local, { ...local, target }, directory, options) : "";
@@ -331,9 +344,15 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
           ],
           data,
           hash,
-          (stage, sent) => {
-            status.show(stage === "signature" ? `Preparing delta for ${host}` : `Uploading delta to ${host}`);
-            status.uploaded(sent);
+          (stage, sent, total) => {
+            switch (stage) {
+              case "signature":
+                return status.show("Preparing delta", "Reading block signatures from the installed executable");
+              case "prepare":
+                return status.show("Compressing delta", "Encoding and compressing changed blocks");
+              case "upload":
+                return status.uploaded(sent, total, "delta");
+            }
           },
           stalled_ms,
           options.signal,
@@ -342,20 +361,20 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
           `Uploaded ${progress.size(result.sent_bytes)}; received ${progress.size(result.received_bytes)} of signatures.\n`,
         );
       } else {
-        status.show(`Uploading Corgi to ${host}`);
+        status.uploaded(0, data.byteLength, "full");
         await remote(
           host,
           `set -eu; cat > ${quote(staging + "/corgi")}; chmod 700 ${quote(staging + "/corgi")}`,
           Bun.file(file),
           false,
           { idle: stalled_ms },
-          bytes => status.uploaded(bytes),
+          bytes => status.uploaded(bytes, data.byteLength, "full"),
         );
       }
       const manifest = join(directory, "manifest.json");
       if (existsSync(manifest)) await remote(host, `cat > ${quote(staging + "/manifest.json")}`, Bun.file(manifest));
       options.signal?.throwIfAborted();
-      status.show(`Installing Corgi on ${host} and reloading the daemon`);
+      status.show("Installing", "Installing the executable and handing off the running daemon");
       const result = lastJSON(
         await executeRemote(
           host,
@@ -369,7 +388,7 @@ ${installed?.socket ? "CORGI_SOCKET=" + quote(installed.socket) + " " : ""}${ssh
         ),
       ) as { executable: string };
       executable = result.executable;
-      status.show(`Verifying Corgi on ${host}`);
+      status.show("Verifying", "Checking the installed executable’s SHA-256");
       // Once installed, finish verification and its receipt even if the viewer detached.
       const verified = build.parse(
         lastJSON(await executeRemote(host, ssh.command(executable, ["__update-info"]))),

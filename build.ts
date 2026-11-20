@@ -87,6 +87,7 @@ if (!process.argv.includes("--no-native")) {
     nativeValid = nativeCache?.input === nativeKey && nativeCache?.output === inputs.nativeOutput(nativeRoot, platform);
   } catch {}
   if (!(incremental && nativeValid)) {
+    process.send?.("Compiling native code with Zig");
     process.stderr.write(`Building native code for ${buildTarget}…\n`);
     const native = Bun.spawn(args, { stdout: "inherit", stderr: "inherit" });
     // Zig has already said why.
@@ -152,6 +153,7 @@ mkdirSync(dirname(outfile), { recursive: true });
 const staging = mkdtempSync(`${outfile}.build-`);
 process.on("exit", () => rmSync(staging, { recursive: true, force: true }));
 const candidate = `${staging}/${basename(outfile)}`;
+process.send?.("Compiling the Corgi executable with Bun");
 process.stderr.write(`Building Corgi for ${buildTarget}…\n`);
 const result = await Bun.build({
   entrypoints: [
