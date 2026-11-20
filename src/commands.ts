@@ -64,15 +64,16 @@ const actions = () => [
   row("rename", "r", i18n.t`Rename`),
   row("close", "x", i18n.t`Close`),
 ];
-const pane_actions = () => [
-  row("swap", "s", i18n.t`Swap with focused pane`),
+/** Naming, layout, then moves; Swap joins the moves only on a pane other than the focused one. */
+const pane_actions = (swap: boolean) => [
   row("rename", "r", i18n.t`Rename pane`),
   row("clear-name", "c", i18n.t`Clear pane name`),
-  row("split-right", "v", i18n.t`Split right`),
+  row("split-right", "v", i18n.t`Split right`, { rule: true }),
   row("split-down", "d", i18n.t`Split down`),
   row("zoom", "z", i18n.t`Zoom / unzoom`),
-  row("break", "!", i18n.t`Move to new tab`),
-  row("close", "x", i18n.t`Close pane`),
+  ...(swap ? [row("swap", "s", i18n.t`Swap with focused pane`, { rule: true })] : []),
+  row("break", "!", i18n.t`Move to new tab`, { rule: !swap }),
+  row("close", "x", i18n.t`Close pane`, { rule: true }),
 ];
 const agent_actions = () => [
   row("review", "e", i18n.t`Review changes`),
@@ -173,7 +174,7 @@ export class TabMenu {
           : [row("fold", "f", this.folded ? i18n.t`Unfold` : i18n.t`Fold`, { rule: true })]),
         row("close-all", "x", i18n.t`Close all agents for ${title}`, { rule: true }),
       ];
-    if (this.pane) return this.source !== null ? pane_actions() : pane_actions().slice(1);
+    if (this.pane) return pane_actions(this.source !== null);
     return this.workspace
       ? [
           actions()[1],
