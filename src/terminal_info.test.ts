@@ -1,21 +1,52 @@
 import { test, expect } from "bun:test";
 import * as terminal_info from "./terminal_info";
-import { fragmented } from "./fixtures/probe";
+import { Probe, fragmented } from "./fixtures/probe";
+import { Parser } from "./terminal_input";
+
+test("keys and host replies remain separate in both orders at every split", () => {
+  const keys = ["x", "🐶", "\x1b", "\x1b[", "\x1bé", "\x1b[A", "\x1b[97;5u"],
+    replies = [
+      "\x1b[0n",
+      "\x1b]10;rgb:1/2/3\x07",
+      "\x1b[?2026;1$y",
+      "\x1b[?1u",
+      "\x1bP>|ghostty\x1b\\",
+      "\x1b_Gi=1;OK\x1b\\",
+    ];
+  for (const key of keys)
+    for (const reply of replies)
+      for (const value of [key + reply, reply + key]) {
+        const bytes = Buffer.from(value);
+        for (let split = 0; split <= bytes.length; split++) {
+          const parser = new Parser(),
+            probe = new terminal_info.Probe();
+          const events = [
+            ...parser.feed(bytes.subarray(0, split), 0),
+            ...parser.feed(bytes.subarray(split), 1),
+            ...parser.expire(51),
+          ];
+          expect(
+            Buffer.concat(events.filter(event => !probe.accept(event, 51)).map(event => event.bytes)).toString(),
+          ).toBe(key);
+        }
+      }
+});
+
 test("pasted Escape prefixes stay literal and do not swallow the terminator", () => {
   const paste = "\x1b[200~hello\x1b[200~\x1b[20\x1b[0n\x1b]11;rgb:ff/ff/ff\x07\x1b\x1b[201~",
     data = Buffer.from(paste + "\x1b[0n");
   for (let split = 0; split <= data.length; split++) {
-    const p = new terminal_info.Probe();
+    const p = new Probe();
     p.pacer.stamp(0);
     const out = Buffer.concat([p.feed(data.subarray(0, split), 1), p.feed(data.subarray(split), 2)]);
     expect(out.toString()).toBe(paste);
-    expect(p.paste).toBe(false);
+    expect(p.parser.due()).toBe(Infinity);
     expect(p.pacer.unanswered()).toBe(false);
     expect(p.theme.background).toBeNull();
   }
 });
 test("paste terminators survive expiry between every byte", () => {
-  const p = new terminal_info.Probe(),
+  const p = new Probe(),
     paste = "\x1b[200~hello\x1b\x1b[201~";
   const out = [p.feed("\x1b[200~", 0)];
   for (const [i, byte] of [...Buffer.from("hello\x1b\x1b[201~")].entries()) {
@@ -23,13 +54,13 @@ test("paste terminators survive expiry between every byte", () => {
     out.push(p.expire(i * 200 + 101));
   }
   expect(Buffer.concat(out).toString()).toBe(paste);
-  expect(p.paste).toBe(false);
+  expect(p.parser.due()).toBe(Infinity);
   p.pacer.stamp(5000);
   expect(p.feed("\x1b[0n", 5001).length).toBe(0);
   expect(p.pacer.unanswered()).toBe(false);
 });
 test("host color probe separates fragmented replies from keys and paste", () => {
-  const p = new terminal_info.Probe();
+  const p = new Probe();
   expect(fragmented(p, "hi\x1b]10;rgb:aaaa/bbbb/cccc\x1b\\\x1b]11;rgb:12/34/56\x07\x1b]4;2;rgb:1/2/3\x07!")).toBe(
     "hi!",
   );
@@ -42,15 +73,15 @@ test("host color probe separates fragmented replies from keys and paste", () => 
   const unknown = "\x1b[A\x1b]11;broken\x07\x1b]52;abc\x07";
   expect(p.feed(unknown).toString()).toBe(unknown);
   expect(p.feed("\x1b").length).toBe(0);
-  expect(p.expire(p.touched + 101).toString()).toBe("\x1b");
+  expect(p.expire(p.parser.due()).toString()).toBe("\x1b");
 });
 test("a color scheme report is consumed and asks for the colors again", () => {
-  const p = new terminal_info.Probe();
+  const p = new Probe();
   expect(fragmented(p, "a\x1b[?997;1nb")).toBe("ab");
   expect(p.scheme_changed).toBe(true);
 });
 test("frame status answers are consumed across fragments but not inside pasted text", () => {
-  const p = new terminal_info.Probe();
+  const p = new Probe();
   p.pacer.stamp(0);
   expect(fragmented(p, "a\x1b[0nb")).toBe("ab");
   expect(p.pacer.stamp(10)).not.toBe("");
@@ -63,7 +94,7 @@ test("Escape before a frame status answer preserves the key without holding fram
   for (const escape of ["\x1b", "\x1b\x1b"]) {
     const input = escape + "\x1b[0n";
     for (let split = 0; split <= input.length; split++) {
-      const p = new terminal_info.Probe();
+      const p = new Probe();
       p.pacer.stamp(0);
       p.feed("\x1b[0n", 1);
       p.pacer.stamp(10);
@@ -76,7 +107,7 @@ test("Escape before a frame status answer preserves the key without holding fram
   }
 });
 test("consecutive Escapes preserve pasted replies and ordinary key sequences", () => {
-  const p = new terminal_info.Probe();
+  const p = new Probe();
   expect(fragmented(p, "\x1b\x1b[0n")).toBe("\x1b");
   const pasted = "\x1b[200~\x1b\x1b[0n\x1b[201~";
   p.pacer.stamp(10);
@@ -87,7 +118,7 @@ test("consecutive Escapes preserve pasted replies and ordinary key sequences", (
   expect(p.expire(120).toString()).toBe("\x1b");
 });
 test("badge replies are consumed across fragments but not inside pasted text", () => {
-  const p = new terminal_info.Probe(),
+  const p = new Probe(),
     reply = "\x1b_Gi=730031;OK\x1b\\";
   expect(fragmented(p, "x" + reply + "y")).toBe("xy");
   expect(p.badge.status).toBe("supported");
@@ -95,7 +126,7 @@ test("badge replies are consumed across fragments but not inside pasted text", (
   expect(p.feed(pasted).toString()).toBe(pasted);
 });
 test("graphics replies never leak into input and only matching IDs confirm the badge", async () => {
-  const p = new terminal_info.Probe();
+  const p = new Probe();
   p.badge.accept("\x1b_Gi=730031;OK\x1b\\");
   p.badge.upload(0, { width: 9, height: 18 });
   await p.badge.loading;
@@ -112,7 +143,7 @@ test("graphics replies never leak into input and only matching IDs confirm the b
   expect(fragmented(p, pasted)).toBe(pasted);
 });
 test("clipboard packets and their questions' answers never reach the keys", () => {
-  const p = new terminal_info.Probe();
+  const p = new Probe();
   p.clipboard.start(Date.now());
   p.clipboard.takeOutput();
   const replies =
@@ -128,7 +159,7 @@ test("clipboard packets and their questions' answers never reach the keys", () =
 });
 
 test("Moonlander image replies reach the viewer across fragments and stay out of keys and pastes", () => {
-  const p = new terminal_info.Probe(),
+  const p = new Probe(),
     reply = "\x1b_Gi=730202;OK\x1b\\";
   expect(fragmented(p, "x" + reply + "y")).toBe("xy");
   expect(p.graphics).toEqual([reply]);
@@ -141,7 +172,7 @@ const pty = { cols: 100, rows: 30, width: 900, height: 540 };
 const missing = { ...pty, width: 0, height: 0 };
 
 test("a terminal snapshot keeps the probe data unchanged for other clients", async () => {
-  const p = new terminal_info.Probe();
+  const p = new Probe();
   p.measure(30);
   p.feed("\x1b[6;18;9t\x1b[?62c");
   const snapshot = await p.snapshot(
@@ -158,7 +189,7 @@ test("a terminal snapshot keeps the probe data unchanged for other clients", asy
 });
 
 test("terminal measurements expose parsed data without a report consumer", () => {
-  const p = new terminal_info.Probe();
+  const p = new Probe();
   p.measure(30);
   const paste = "\x1b[200~\x1b[?2026;1$y\x1b[201~";
   expect(fragmented(p, "a\x1b[30;2R" + paste + "\x1b[30;3Rb")).toBe("a" + paste + "b");
@@ -228,7 +259,7 @@ test("size queries compare owned dimensions, including missing and mutated metad
 });
 
 test("a terminal that never answers measurement queries holds input only until it gives up", () => {
-  const p = new terminal_info.Probe(),
+  const p = new Probe(),
     now = Date.now();
   p.measure(30, now);
   expect(p.feed("x\x1b[?1;2$y").toString()).toBe("x");
@@ -246,7 +277,7 @@ test("a terminal that never answers measurement queries holds input only until i
 });
 
 test("late and fragmented size replies reach rendering without becoming pane input", () => {
-  const probe = new terminal_info.Probe(),
+  const probe = new Probe(),
     missing = { cols: 100, rows: 30, width: 0, height: 0 };
   probe.size.update(missing);
   probe.measure(30);

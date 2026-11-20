@@ -402,7 +402,7 @@ test("the daemon and the viewer never import each other", () => {
       "link_tooltip",
       "mirror",
       "machine_connection",
-      "machine_input",
+      "terminal_input",
       "machine_viewer",
       "name_dialog",
       "navigation",

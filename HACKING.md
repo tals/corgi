@@ -138,8 +138,21 @@ rather than the outer host's protocol. `TERM` stays `xterm-256color` for
 portable terminfo lookup. Already-running shells keep their old environment;
 open a new pane after updating to pick up the corrected identity.
 
-`terminal_info.ts` owns live terminal state and separates replies from typed
-input. The viewer and daemon keep its plain snapshot, including `Probe.info`,
+`terminal_input.ts` frames host stdin once into keys, mouse reports, control
+sequences and streaming paste events. The viewer's endpoint queues retain those
+events through routing and reconnects; the controller never re-frames queued input.
+The standalone prompt uses the same decoder. Only the decoder owns Escape and
+incomplete-sequence deadlines, and cancelling a paste destination does not reset
+its stream. Legacy Escape/Alt prefixes still require a timing decision.
+String replies need a recognizable header: a numeric OSC command, DCS parameters
+or intermediates, or Kitty's APC `G`. Other prefixes remain legacy Alt chords.
+Identified controls have a fixed deadline and briefly drain late tails; a missing
+terminator cannot hold normal typing indefinitely. Only a clipboard packet, which
+a slow link can take seconds to deliver, gets the long deadline; every other
+string gives up within a second. Paste delimiters never expire.
+
+`terminal_info.ts` consumes complete terminal replies and owns live terminal
+state. The viewer and daemon keep its plain snapshot, including `Probe.info`,
 without report formatting. `bug_report.ts` interprets that data only when a
 report is requested. Its reader also accepts the older `answers` payload.
 The cached terminal JSON now carries optional `info`; required wire fields and

@@ -1,6 +1,6 @@
 import { transport } from "./fixtures/transport";
 import { expect, test } from "bun:test";
-import { Controller } from "./controller";
+import { Controller } from "./fixtures/input";
 import { Machine } from "./machine";
 import { worktreeSnapshot } from "./mirror";
 import { State, between, columnsFor, displayPath, draw, geometry, listing, sortAt } from "./worktree_tooltip";
@@ -636,6 +636,14 @@ test("hovered worktrees own legacy, application and Kitty arrows before hover ca
   await view.input(Buffer.from("\x1b"));
   await view.input(Buffer.from("[B"));
   expect(view.worktree_card.selected).toBe("/repo/.worktrees/1");
+});
+test("pasting over a hovered overview pins it and keeps later typing out of the pane", async () => {
+  const { view, requests } = browsing();
+  await view.input(Buffer.from("\x1b[200~a\x1b[201~x"));
+  expect(view.worktree_card.pinned).toBe(true);
+  expect(view.worktreeDetail()).toBe(1);
+  expect(view.runtime.pane(1)!.terminal.pending).toEqual([]);
+  expect(requests).toHaveLength(0);
 });
 test("⌫ or Delete on a hovered overview starts removing rather than closing it", async () => {
   for (const key of ["\x7f", "\x08", "\x1b[3~"]) {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as bugReport from "./bug_report";
 import * as terminal_info from "./terminal_info";
-import { fragmented } from "./fixtures/probe";
+import { Probe, fragmented } from "./fixtures/probe";
 import { status } from "./corgi_setup";
 import type { Rgb } from "./palette";
 
@@ -30,7 +30,7 @@ function answers(info: terminal_info.Info): bugReport.Answers {
 }
 
 function terminal(over: Partial<bugReport.Terminal> = {}): bugReport.Terminal {
-  const probe = new terminal_info.Probe();
+  const probe = new Probe();
   probe.measure(40, 0);
   for (const reply of [
     "\x1b[40;3R",
@@ -308,7 +308,7 @@ test("each size says where it came from, so a PTY without pixels never reads lik
 });
 
 test("a terminal that never answered says so instead of listing what it can do", () => {
-  const silent = new terminal_info.Probe();
+  const silent = new Probe();
   silent.measure(40, 0);
   silent.expire(5000);
   expect(silent.info.status).toBe("done");
@@ -449,7 +449,7 @@ test("a terminal reported to the daemon comes back as it was, and junk comes bac
 });
 
 test("a plain terminal snapshot becomes report data only when read", async () => {
-  const p = new terminal_info.Probe();
+  const p = new Probe();
   p.measure(30);
   p.feed("\x1b[30;3R\x1b[6;18;9t\x1b[?62c");
   const snapshot = await p.snapshot(
@@ -634,10 +634,10 @@ test("a report reads plain terminal data and keeps its own snapshot", () => {
   expect(result).toEqual(saved);
 });
 
-test("terminal report answers are consumed while asked for, and keys pass through around them", () => {
-  const p = new terminal_info.Probe();
-  // Before the questions go out, the same bytes are typed input.
-  expect(p.feed("\x1b[?62;22c").toString()).toBe("\x1b[?62;22c");
+test("terminal report answers are consumed even outside a query, while keys pass through", () => {
+  const p = new Probe();
+  // Unambiguous replies stay out of typing before and after a query.
+  expect(p.feed("\x1b[?62;22c").toString()).toBe("");
   const asked = p.measure(30);
   expect(asked).toContain("\x1b[30;1H👍\x1b[6n");
   expect(asked.endsWith("\x1b[c")).toBe(true);
@@ -660,11 +660,11 @@ test("terminal report answers are consumed while asked for, and keys pass throug
   expect(a.font).toBe("JetBrains Mono");
   expect(a.da1).toEqual([62, 4, 22]);
   expect(a.replies[0]).toBe("\\e[30;3R");
-  // Once answered, the same replies are input again.
-  expect(p.feed("\x1b[?1u").toString()).toBe("\x1b[?1u");
+  // Later replies are consumed without changing the recorded measurements.
+  expect(p.feed("\x1b[?1u").toString()).toBe("");
 });
 test("outside Corgi the report's samples go on the cursor's line, and any row's position counts", () => {
-  const p = new terminal_info.Probe(),
+  const p = new Probe(),
     asked = p.measure(null);
   expect(asked.startsWith("\x1b7\r👍\x1b[6n\r⚠\x1b[6n")).toBe(true);
   expect(asked).toContain("\r\x1b[2K\x1b8");

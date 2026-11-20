@@ -7,19 +7,22 @@ import { Controller } from "./controller";
 import { attach } from "./host";
 import * as preferences from "./preferences";
 import { parse as parseAction } from "./action";
-import { advance } from "./clock";
+import { advance, milliTimestamp } from "./clock";
+import { Parser } from "./terminal_input";
 import type { Transport } from "./mirror";
 
 export async function runTest(connection: Transport, cwd = process.cwd()): Promise<void> {
   const view = new Controller(connection, attach(preferences.load(), null));
   const lines = new Lines();
+  const parser = new Parser();
   try {
     view.loadPreferences();
     const bell = { seq: await viewer.open(view, cwd, {}) };
     for (let line = await lines.next(); line !== null; line = await lines.next()) {
       const value = parse(line);
       const op = typeof value.op === "string" ? value.op : "";
-      if (op === "input") await view.input(Buffer.from(typeof value.data === "string" ? value.data : ""));
+      if (op === "input")
+        await view.input(parser.feed(Buffer.from(typeof value.data === "string" ? value.data : ""), milliTimestamp()));
       // Viewer-local delays (hover cards, command preview debounce).
       if (op === "advance") advance(Number(value.ms));
       if (op === "action") {
@@ -50,6 +53,7 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
         if (value.cell) view.cell_pixels = { width: Number(value.cell.width), height: Number(value.cell.height) };
         view.input_state.active = true;
       }
+      await view.input(parser.expire(milliTimestamp()));
       await view.expireInput();
       // Each reply shows what the request led to, daemon work included.
       await view.settle();

@@ -1,3 +1,4 @@
+import { Parser } from "./terminal_input";
 import { expect, spyOn, test } from "bun:test";
 import { Machine } from "./machine";
 import { Controller } from "./controller";
@@ -109,11 +110,14 @@ test("workspace and tab input runs while a network update is unresolved, and she
     endpoint.pump(true);
     await Reflect.get(endpoint, "ui_task");
     const side = view.sidebarView([]);
-    endpoint.enqueue(Buffer.from(`\x1b[<0;3;${side.workspaceY(2) + 1}M\x1b[<0;3;${side.workspaceY(2) + 1}m`));
+    for (const input of new Parser().feed(
+      Buffer.from(`\x1b[<0;3;${side.workspaceY(2) + 1}M\x1b[<0;3;${side.workspaceY(2) + 1}m`),
+    ))
+      endpoint.enqueue(input);
     endpoint.pump(true);
     await Reflect.get(endpoint, "ui_task");
     expect(view.current().id).toBe(3);
-    endpoint.enqueue(Uint8Array.from([2, 110, 120]));
+    for (const input of new Parser().feed(Uint8Array.from([2, 110, 120]))) endpoint.enqueue(input);
     endpoint.pump(true);
     await Reflect.get(endpoint, "ui_task");
     expect(endpoint.machine.navigation.tabs(endpoint.machine.runtime.workspaces).active).toBe(1);

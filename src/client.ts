@@ -4,6 +4,7 @@ import { writeAll, Stdin } from "./viewer";
 import { run, type Options } from "./machine_viewer";
 import { runTest } from "./viewer_test";
 import * as terminal_info from "./terminal_info";
+import { Parser, type Input } from "./terminal_input";
 import * as keyboard from "./keyboard";
 import * as hostBackground from "./host_background";
 import * as crash from "./crash";
@@ -90,7 +91,8 @@ async function attachOnce(path: string, selected: string, options: Options): Pro
   process.on("SIGHUP", stop);
   try {
     process.stdin.setRawMode(true);
-    const input: number[] = [];
+    const input: Input[] = [];
+    const parser = new Parser();
     const probe = new terminal_info.Probe();
     // The host's colors, read before the first frame so panes match it.
     writeAll(probe.query());
@@ -98,7 +100,7 @@ async function attachOnce(path: string, selected: string, options: Options): Pro
       150,
       () => probe.theme.complete(),
       bytes => {
-        for (const byte of probe.feed(bytes, Date.now())) input.push(byte);
+        for (const event of parser.feed(bytes)) if (!probe.accept(event)) input.push(event);
       },
     );
     // Keep parsing late replies in the normal client loop.
@@ -106,7 +108,7 @@ async function attachOnce(path: string, selected: string, options: Options): Pro
     // Mode 2031: the terminal says when it switches themes, and the viewer asks for its colors again.
     writeAll("\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?1004h\x1b[?2004h\x1b[?2031h" + keyboard.enable);
     keyboard_enabled = true;
-    return await run(path, selected, probe, input, stdin, options);
+    return await run(path, selected, probe, parser, input, stdin, options);
   } finally {
     stdin.close();
     cleanup();

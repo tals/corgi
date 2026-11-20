@@ -4,14 +4,14 @@ import { Hover as ConnectionHover } from "./connectivity_card";
 import * as composition from "./composition";
 import { dirname, join } from "node:path";
 import { Endpoint, localEndpoint, quiet_ms } from "./machine_connection";
-import { Parser, type Input } from "./machine_input";
+import * as terminalInput from "./terminal_input";
+import type { Parser, Input } from "./terminal_input";
 import * as machines from "./machines";
 import * as errors from "./errors";
 import { sshEndpoint } from "./ssh_path";
 import * as sidebar from "./sidebar";
 import { Workspaces } from "./machine_sidebar";
 import * as viewer from "./viewer";
-import * as keyboard from "./keyboard";
 import * as corgiBadge from "./corgi_badge";
 import * as rowGlide from "./row_glide";
 import * as linkThumbnail from "./link_thumbnail";
@@ -57,7 +57,8 @@ export async function run(
   local: string,
   selected: string,
   probe: Probe,
-  initial: number[],
+  parser: Parser,
+  initial: Input[],
   stdin: viewer.Stdin,
   options: Options = {},
 ): Promise<string | null> {
@@ -143,8 +144,8 @@ export async function run(
   const choose = (endpoint: Endpoint, focus: Focus | null) => {
     connection_hover.clear();
     view.connection_card = null;
-    // Keys not yet routed came after the switch; they follow it.
-    const typed = endpoint === active ? new Uint8Array() : active!.takeInput();
+    // Unrouted keys follow the switch only up to a cancelled paste.
+    const typed = endpoint === active ? [] : active!.takeInput();
     active!.deactivate();
     active = endpoint;
     // The notice was the last machine's.
@@ -152,7 +153,7 @@ export async function run(
     view.switchMachine(endpoint.machine);
     if (focus !== null) active.choose(focus, active.instance);
     else active.activate();
-    if (typed.length) active.enqueue(typed, drops());
+    for (const input of typed) active.enqueue(input, input.dropped || drops());
   };
   view.onMachine = (machine, focus) => {
     const endpoint = endpoints.find(e => e.machine === machine);
@@ -160,8 +161,6 @@ export async function run(
   };
   let differ: Differ | null = null;
   let previous: composition.Output = "";
-  const parser = new Parser();
-  // A paste goes, or is dropped, whole, as its start was.
   let paste_owner: { endpoint: Endpoint; epoch: number; dropped: boolean } | null = null;
   const openers = new Openers();
   const clipboard: { owner: { endpoint: Endpoint; generation: number; epoch: number } | null } = {
@@ -241,26 +240,42 @@ export async function run(
   }
   const accept = (input: Input) => {
     const value = Buffer.from(input.bytes).toString();
-    const key = keyboard.decode(value);
+    const key = input.kind === "key" ? input.key : null;
+    const mouse = input.kind === "mouse" ? input.mouse : null;
+    const paste = terminalInput.pasting(input);
     const codepoint = key?.codepoint ?? (input.bytes.length === 1 ? input.bytes[0] : null);
     const cp = key?.mods.ctrl && codepoint !== null && codepoint >= 64 && codepoint < 128 ? codepoint & 31 : codepoint;
-    if (diagnostic.open) {
-      if (!input.paste) {
-        const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(value);
-        if (mouse) {
-          if (mouse[4] === "M" && (mouse[1] === "64" || mouse[1] === "65"))
-            diagnostic.scroll(mouse[1] === "64" ? -3 : 3);
-          else if (mouse[4] === "M" && mouse[1] === "0") diagnostic.close();
-        } else diagnostic.key(value, cp);
+    if (paste) {
+      if (input.kind === "paste_start")
+        paste_owner =
+          !workspaces.open && !diagnostic.open && !connectivity.open
+            ? { endpoint: active!, epoch: active!.input_epoch, dropped: drops() }
+            : null;
+      if (paste_owner) {
+        if (paste_owner.endpoint === active && paste_owner.epoch === active!.input_epoch)
+          active!.enqueue(input, paste_owner.dropped);
+        else {
+          view.cancelPaste();
+          paste_owner = null;
+        }
       }
+      if (input.kind === "paste_end") paste_owner = null;
       return;
     }
-    const hover_mouse = !input.paste && /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(value);
+    if (diagnostic.open) {
+      if (mouse) {
+        if (!mouse.release && (mouse.button === 64 || mouse.button === 65))
+          diagnostic.scroll(mouse.button === 64 ? -3 : 3);
+        else if (!mouse.release && mouse.button === 0) diagnostic.close();
+      } else diagnostic.key(value, cp);
+      return;
+    }
+    const hover_mouse = mouse;
     if (hover_mouse && !workspaces.open && !connectivity.open && !view.overlayOpen() && !view.copy_mode) {
-      const x = Number(hover_mouse[2]) - 1,
-        y = Number(hover_mouse[3]) - 1;
+      const x = hover_mouse.x,
+        y = hover_mouse.y;
       const header = sidebar.machineHeaderAt(side, x, y);
-      if (header && hover_mouse[1] === "0" && hover_mouse[4] === "M") {
+      if (header && hover_mouse.button === 0 && !hover_mouse.release) {
         const endpoint = endpoints.find(e => e.name === header.machine);
         if (endpoint) {
           if (sidebar.machineDiagnosticAt(side, view.workspaceRows(), x, y)) diagnostic.show(endpoint);
@@ -272,7 +287,7 @@ export async function run(
         }
       }
       const inside = connection_hover.card?.rect.contains(x, y) ?? false;
-      if (hover_mouse[1] === "35" && hover_mouse[4] === "M" && !view.ui_mouse_down) {
+      if (hover_mouse.button === 35 && !hover_mouse.release && !view.ui_mouse_down) {
         const header = sidebar.machineHeaderAt(side, x, y);
         connection_hover.move(header, x, y, performance.now());
         if (header || inside) {
@@ -290,40 +305,22 @@ export async function run(
       view.connection_card = null;
     }
     if (connectivity.open) {
-      if (!input.paste) {
-        const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(value);
-        if (mouse) connectivity.mouse(Number(mouse[2]) - 1, Number(mouse[3]) - 1, Number(mouse[1]), mouse[4] === "M");
-        else connectivity.key(value, cp);
-      }
+      if (mouse) connectivity.mouse(mouse.x, mouse.y, mouse.button, !mouse.release);
+      else connectivity.key(value, cp);
       return;
     }
-    if (!input.paste && cp === 27 && view.cancelWorkspaceDrag()) return;
-    if (input.paste) {
-      if (value === "\x1b[200~")
-        paste_owner = !workspaces.open ? { endpoint: active!, epoch: active!.input_epoch, dropped: drops() } : null;
-      if (
-        paste_owner &&
-        paste_owner.endpoint === active &&
-        paste_owner.epoch === active!.input_epoch &&
-        !workspaces.open
-      )
-        active!.enqueue(input.bytes, paste_owner.dropped);
-      else paste_owner = null;
-      if (value === "\x1b[201~") paste_owner = null;
-      return;
-    }
+    if (cp === 27 && view.cancelWorkspaceDrag()) return;
     // Ahead of the machine's own keys, so a machine that never answered can't hold it.
     if (endpoints.length > 1 && (value === "\x1d" || (key?.codepoint === 93 && key.mods.ctrl))) {
       if (workspaces.open) close();
       else show();
       return;
     }
-    const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(value);
     if (mouse) {
-      const button = Number(mouse[1]),
-        x = Number(mouse[2]) - 1,
-        y = Number(mouse[3]) - 1;
-      const pressed = mouse[4] === "M";
+      const button = mouse.button,
+        x = mouse.x,
+        y = mouse.y;
+      const pressed = !mouse.release;
       if (navigation_mouse) {
         if (!pressed) navigation_mouse = false;
         return;
@@ -407,14 +404,15 @@ export async function run(
         return;
       }
     }
-    active!.enqueue(input.bytes, drops());
+    active!.enqueue(input, drops());
+  };
+  const route = (input: Input, now = Date.now()) => {
+    const waiting = probe.clipboard.event.phase === "ready";
+    if (!probe.accept(input, now)) accept(input);
+    if (!waiting && probe.clipboard.event.phase === "ready" && drops(now)) probe.clipboard.takeEvent();
   };
   const feed = (bytes: Uint8Array) => {
-    const waiting = probe.clipboard.event.phase === "ready",
-      fed = probe.feed(bytes);
-    // A paste the host announces while input is dropped is dropped with it.
-    if (!waiting && probe.clipboard.event.phase === "ready" && drops()) probe.clipboard.takeEvent();
-    for (const input of parser.feed(fed)) accept(input);
+    for (const input of parser.feed(bytes)) route(input);
     notify();
   };
   probe.clipboard.folder = join(dirname(local), "paste");
@@ -422,7 +420,7 @@ export async function run(
   // The badge's picture is made in the background; it wakes the loop to upload it.
   probe.badge = new corgiBadge.State(notify);
   viewer.writeAll(corgiBadge.query);
-  for (const input of parser.feed(Uint8Array.from(initial))) accept(input);
+  for (const input of initial) accept(input);
   stdin.listen(feed);
   const probed_at = Date.now();
   viewer.writeAll(probe.size.update(size.pty) + probe.measure(size.rows, probed_at));
@@ -461,8 +459,8 @@ export async function run(
           view.pasteDropped();
         }
       }
-      for (const input of parser.feed(probe.expire(now))) accept(input);
-      for (const input of parser.expire(now)) accept(input);
+      probe.tick(now);
+      for (const input of parser.expire()) route(input, now);
       openers.reap();
       if (probe.scheme_changed) {
         probe.scheme_changed = false;
@@ -561,10 +559,10 @@ export async function run(
         held = !composition.same(frame, previous);
       }
       // Idle, it sleeps until a machine is due; input and replies wake it.
-      const due = Math.min(...endpoints.map(endpoint => endpoint.due())) - performance.now();
+      const due = Math.min(parser.due(), ...endpoints.map(endpoint => endpoint.due())) - performance.now();
       await wake.wait(
         now - active_at < idle_after_ms
-          ? 16
+          ? Math.max(1, Math.min(16, due))
           : Math.max(1, Math.min(quiet_ms, due, connection_hover.due() - performance.now(), noticeDue() - Date.now())),
       );
     }

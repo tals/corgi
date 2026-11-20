@@ -36,6 +36,25 @@ const read = (pw: string, types: string) =>
   `\x1b]5522;type=read:id=corgi:pw=${b64(pw)}:name=${b64("Corgi")};${b64(types)}\x1b\\`;
 
 class SmokeTerminal extends Runtime {
+  async test_streaming_paste_keeps_its_destination_when_an_overlay_opens() {
+    const received = join(this.temp.name, "streaming-input");
+    await this.open_pane({ command: `stty raw -echo; printf STREAM_READY; exec cat > ${quote(received)}` });
+    const existing = new Set((await this.rpc({ op: "viewer.list" })).viewers.map((viewer: any) => viewer.id));
+    const pty = await Pty.spawn([EXE, "attach"], { env: this.env, cwd: this.temp.name, cols: 100, rows: 30 });
+    this.pty = pty;
+    await pty.waitFor("STREAM_READY");
+    pty.write("\x1b[200~first");
+    await this.until(() => existsSync(received) && file(received) === "first");
+    const viewer = (await this.rpc({ op: "viewer.list" })).viewers.find((viewer: any) => !existing.has(viewer.id));
+    await this.rpc({ op: "action", name: "connectivity", viewer: viewer.id });
+    await pty.waitFor("Esc close");
+    const tail = "second\x1b[0n\x1b";
+    pty.write(tail + "\x1b[201~");
+    await this.until(() => file(received) === "first" + tail);
+    pty.write("\x1b[27uafter");
+    await this.until(() => file(received) === "first" + tail + "after");
+  }
+
   async test_child_kitty_image_reaches_viewer_and_is_removed() {
     await this.childImage("\x1b_Ga=T,f=24,s=1,v=1,i=730140,c=4,r=2,C=1,q=2;/wAA\x1b\\", 32);
   }

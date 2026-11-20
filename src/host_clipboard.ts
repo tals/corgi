@@ -94,6 +94,8 @@ export class Notice {
   }
 }
 export const download_url = "https://ghostty.org/download";
+/** What starts a clipboard packet, to the host or from it. */
+export const packet_prefix = "\x1b]5522;";
 export const enable = "\x1b[?5522h";
 export const disable = "\x1b[?5522l";
 const max_bytes = 32 * 1024 * 1024,
@@ -154,7 +156,7 @@ export class State {
     if (value !== 1 && value !== 2) return this.settle("unsupported");
     this.asking = "list";
     this.answer_by = now + answer_ms;
-    this.out += "\x1b]5522;type=read:id=corgi-probe;Lg==\x1b\\";
+    this.out += `${packet_prefix}type=read:id=corgi-probe;Lg==\x1b\\`;
   }
   terminalName(reported: string) {
     this.terminal = BoundedText(64).ascii(reported);
@@ -180,7 +182,7 @@ export class State {
   private read(mimes: string[], relay: boolean, now: number) {
     if (this.reading) return false;
     if (mimes.length < 1 || mimes.length > 2) throw Error("InvalidMimeCount");
-    this.out += `\x1b]5522;type=read:id=corgi:pw=${this.event.pw}:name=Q29yZ2k=;${Buffer.from(mimes.join(" ")).toString("base64")}\x1b\\`;
+    this.out += `${packet_prefix}type=read:id=corgi:pw=${this.event.pw}:name=Q29yZ2k=;${Buffer.from(mimes.join(" ")).toString("base64")}\x1b\\`;
     this.reading = { mimes: [...mimes], data: mimes.map(() => []), size: 0, relay, too_large: false };
     this.stall_by = now + stall_ms;
     return true;
