@@ -1,5 +1,6 @@
-import { basename, dirname } from "node:path";
-import { mkdirSync, existsSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import { dlopen } from "bun:ffi";
+import { basename, dirname, resolve } from "node:path";
+import { mkdirSync, existsSync, mkdtempSync, openSync, renameSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import * as translations from "./scripts/translations";
 import * as inputs from "./scripts/build_inputs";
@@ -52,16 +53,24 @@ if (!existsSync(`${root}/node_modules/@earendil-works/pi-tui`)) {
 }
 // After the install above, so a fresh checkout reports once, and before the native build, which a
 // failure skips. Locally it may regenerate src/i18n.generated.ts; its report prints on any exit.
-mkdirSync(`${root}/dist`, { recursive: true });
-const lock = `${root}/dist/.build-lock`;
-try {
-  mkdirSync(lock);
-} catch {
-  throw Error(`Another build is running (or left ${lock}); remove it only after that build has stopped.`);
+const outfile = option(
+  "outfile",
+  `${root}/dist/${buildTarget === `${process.platform}-${process.arch}` ? "corgi" : `corgi-${buildTarget}`}${process.argv.includes("--test") ? "-test" : ""}`,
+);
+// Serialize writers of the same native files or executable. Unrelated targets can build together.
+const locks = `${root}/dist/.build-locks`;
+mkdirSync(locks, { recursive: true });
+const libc = dlopen(process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
+  flock: { args: ["i32", "i32"], returns: "i32" },
+});
+for (const resource of [...new Set([resolve(nativeRoot), resolve(outfile)])].sort()) {
+  const name = createHash("sha256").update(resource).digest("hex");
+  const fd = openSync(`${locks}/${name}`, "a", 0o600);
+  // LOCK_EX waits. The kernel releases the descriptor when the builder exits, even on a signal.
+  if (libc.symbols.flock(fd, 2) !== 0) throw Error("Could not lock build output: " + resource);
 }
-process.on("exit", () => rmSync(lock, { recursive: true, force: true }));
-// Run the exit handlers for the lock and staging directory when a viewer cancels a build.
 process.once("SIGTERM", () => process.exit(143));
+process.once("SIGINT", () => process.exit(130));
 const translated = await translations.verify();
 process.on("exit", () => process.stderr.write(translated.text));
 if (translated.code) process.exit(translated.code);
@@ -118,10 +127,6 @@ const config = {
   updatePublicKey: option("update-public-key"),
   sentryDSN: option("sentry-dsn"),
 };
-const outfile = option(
-  "outfile",
-  `${root}/dist/${buildTarget === `${process.platform}-${process.arch}` ? "corgi" : `corgi-${buildTarget}`}${process.argv.includes("--test") ? "-test" : ""}`,
-);
 // The same inputs keep their first build's time, so the binary and the daemon's build id stay put.
 const inputsSHA256 = createHash("sha256")
   .update(JSON.stringify([buildTarget, Bun.version, process.argv.includes("--test"), sourceSHA256, nativeHash, config]))

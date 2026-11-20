@@ -150,8 +150,8 @@ The first dev connection chooses this checkout. Later updates check a per-checko
 TypeScript-only changes skip Zig. Each target keeps one artifact and native output;
 the native key includes the target, native sources, build script, pinned toolchain
 and SDK identity. Binaries publish by atomic rename after checking that sources
-didn't change during compilation. Concurrent builds in the checkout fail on
-`dist/.build-lock`; after an unclean termination, remove it once the builder stops.
+didn't change during compilation. Builds that share native output or an executable
+wait for each other. A background cross-build can run alongside the local build.
 Cross-building macOS needs an SDK at `.tools/macos-sdk` (the main checkout's copy
 also works) or `CORGI_PROBE_SYSROOT`; the normal pinned Zig/Bun pipeline handles
 the rest. The remote needs neither Bun nor a compiler.
