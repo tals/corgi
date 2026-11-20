@@ -134,6 +134,8 @@ export class TabMenu {
   highlighted = 0;
   /** Rows shown crossed out, which neither keys nor clicks run. */
   off = new Set<Item>();
+  /** Rows left out, such as Review changes with nothing to read. */
+  hidden = new Set<Item>();
   /** A second line under a row, such as what Review changes would show. */
   details = new Map<Item, Detail>();
   constructor(fields: Partial<TabMenu> & { tab: number; anchor_x: number }) {
@@ -147,7 +149,13 @@ export class TabMenu {
     else if (runs !== null && !(old.runs && dropdown.sameRuns(old.runs, runs)))
       this.details.set(item, { runs, since: now, placeholder: old.runs === null });
   }
+  /** The rows shown, without hidden ones or a rule above the first. */
   entries(): Row[] {
+    const shown = this.rows().filter(entry => !this.hidden.has(entry.item));
+    if (shown[0]?.rule) shown[0] = { ...shown[0], rule: false };
+    return shown;
+  }
+  private rows(): Row[] {
     const title = this.title;
     if (this.agent || this.headless)
       return agent_actions()
@@ -174,6 +182,16 @@ export class TabMenu {
           { ...actions()[2], rule: true },
         ]
       : actions();
+  }
+  /** Leaves `item` out or shows it, keeping the highlight on the row it was on. */
+  setHidden(item: Item, hidden: boolean): void {
+    if (this.hidden.has(item) === hidden) return;
+    const was = this.entries()[this.highlighted]?.item;
+    if (hidden) this.hidden.add(item);
+    else this.hidden.delete(item);
+    const at = this.entries().findIndex(entry => entry.item === was);
+    if (at >= 0) this.highlighted = at;
+    else this.highlightFirst();
   }
   /** The row a key picks. Keys are the menu's own, lowercase, and Shift picks the same row. */
   itemFor(key: number): Item | null {

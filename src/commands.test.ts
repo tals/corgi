@@ -72,6 +72,43 @@ test("a worktree group's menu opens on Review changes and keeps Close all below 
   expect(menu.itemFor(c("x"))).toBeNull();
 });
 
+test("a hidden Review changes leaves the menu without a rule on top", () => {
+  const menu = new TabMenu({ tab: 1, anchor_x: 0, worktree: "/repo/.worktrees/one", title: "one" });
+  menu.hidden.add("review");
+  menu.setDetail("review", null);
+  const entries = menu.entries();
+  expect(entries.map(entry => entry.item)).toEqual(["open-folder", "copy-path", "fold", "close-all"]);
+  expect(entries[0].rule).toBe(false);
+  expect(menu.itemFor(c("e"))).toBeNull();
+  menu.highlightFirst();
+  expect(menu.highlightedItem()).toBe("open-folder");
+  const rows = screen(menu, 80, 24);
+  expect(rows.some(row => row.includes("Review changes"))).toBe(false);
+  expect(rows[1]).toContain("Open folder");
+  const agent = new TabMenu({ tab: 1, anchor_x: 0, agent: true });
+  agent.hidden.add("review");
+  agent.highlightFirst();
+  expect(agent.highlightedItem()).toBe("copy-details");
+});
+
+test("hiding a row while the menu is open keeps the highlight on its row", () => {
+  const menu = new TabMenu({ tab: 1, anchor_x: 0, agent: true });
+  menu.highlightFirst();
+  menu.move(true);
+  expect(menu.highlightedItem()).toBe("copy-details");
+  menu.setHidden("review", true);
+  expect(menu.highlightedItem()).toBe("copy-details");
+  // The highlighted row itself moves the highlight to the first that runs.
+  const first = new TabMenu({ tab: 1, anchor_x: 0, agent: true });
+  first.highlightFirst();
+  first.setHidden("review", true);
+  expect(first.highlightedItem()).toBe("copy-details");
+  // Shown again, it leaves the highlight where it is.
+  first.setHidden("review", false);
+  expect(first.entries()[0].item).toBe("review");
+  expect(first.highlightedItem()).toBe("copy-details");
+});
+
 test("Copy full path keeps the checkout name in a narrow preview and its second line is clickable", () => {
   const menu = new TabMenu({ tab: 1, anchor_x: 0, worktree: "/repo/.worktrees/topic", title: "topic" });
   menu.setDetail("copy-path", [["./.claude/worktrees/a-long-parent/topic", "faint"]]);

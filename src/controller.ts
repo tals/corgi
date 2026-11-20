@@ -664,6 +664,7 @@ export class Controller {
       const menu = this.tab_menu,
         cwd = menu ? this.menuCheckout(menu) : null;
       if (!menu || cwd === null) return;
+      menu.setHidden("review", this.reviewMissing(cwd));
       menu.setDetail("review", this.summary(cwd));
       this.dirty = true;
       this.wake();
@@ -2384,7 +2385,6 @@ export class Controller {
     // Review changes says what it would show: the line read ahead, checked
     // again now, or placeholder bars until git answers.
     if (this.reviewable) this.review_summaries.ask(this.agentFolder(p));
-    else opened.off.add("review");
     if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
     // The menu opens once the daemon answers, unless another click or Esc came first.
     this.menu_pending = opened;
@@ -2402,6 +2402,7 @@ export class Controller {
         }
       if (this.menu_pending !== opened || this.tab_menu !== null || !here()) return;
       this.menu_pending = null;
+      if (this.reviewMissing(this.agentFolder(p))) opened.hidden.add("review");
       opened.setDetail("review", this.summary(this.agentFolder(p)));
       opened.highlightFirst();
       this.tab_menu = opened;
@@ -2440,7 +2441,7 @@ export class Controller {
       anchor_y: y,
     });
     if (this.reviewable) this.review_summaries.ask(selection.path);
-    else opened.off.add("review");
+    if (this.reviewMissing(selection.path)) opened.hidden.add("review");
     opened.setDetail("review", this.summary(selection.path));
     const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
     const main = ws?.worktrees?.entries.find(e => e.primary)?.path ?? ws?.cwd ?? "";
@@ -10387,6 +10388,11 @@ export class Controller {
    * so a remote machine's, which are on another computer, aren't read. */
   private get reviewable(): boolean {
     return !this.machine.remote;
+  }
+  /** Whether a menu's Review changes has nothing to read in `cwd`: it is
+   * on a remote machine, or known to be outside git. */
+  private reviewMissing(cwd: string): boolean {
+    return !this.reviewable || this.review_summaries.inCheckout(cwd) === false;
   }
   /** The menus' line for `cwd`'s changes, read ahead. */
   private summary(cwd: string): ReturnType<typeof this.review_summaries.get> {

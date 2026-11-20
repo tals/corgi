@@ -42,6 +42,11 @@ export class Summaries {
     const key = this.key(cwd);
     return key === null ? null : (this.lines.get(key)?.runs ?? null);
   }
+  /** Whether `cwd` is in a git checkout, or null until a read says. */
+  inCheckout(cwd: string): boolean | null {
+    const root = this.roots.get(cwd);
+    return root === undefined ? null : root !== null;
+  }
   /** Reads `cwd`'s line in the background unless what's kept is still good. */
   want(cwd: string): void {
     const key = this.key(cwd);
@@ -94,7 +99,8 @@ export class Summaries {
   }
   private async run(job: Job): Promise<void> {
     let root = this.roots.get(job.cwd);
-    if (root === undefined) {
+    // A directory outside git is checked again, since `git init` can make it a checkout.
+    if (root === undefined || (root === null && (job.asked || !this.good(job.cwd)))) {
       root = await this.toplevel(job.cwd).catch(() => null);
       this.roots.set(job.cwd, root);
     }

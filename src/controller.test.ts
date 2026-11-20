@@ -1313,6 +1313,40 @@ test("Copy details names the harness, session, id and paths, leaving out what is
   );
 });
 
+test("an agent's menu leaves Review changes out outside git, even when git answers after it opens", async () => {
+  const s = controller();
+  s.receiveSnapshot(pair());
+  let answer = (_root: string | null) => {};
+  const changed = s.review_summaries.changed;
+  s.review_summaries = new summaries.Summaries(
+    async () => [],
+    () => new Promise<string | null>(resolve => (answer = resolve)),
+  );
+  s.review_summaries.changed = changed;
+  const items = () => s.tab_menu.entries().map((entry: any) => entry.item);
+  try {
+    await s.openAgentMenu(1, 0, 0);
+    await s.tasks.idle();
+    expect(s.tab_menu.highlightedItem()).toBe("review");
+    answer(null);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(items()).not.toContain("review");
+    expect(s.tab_menu.highlightedItem()).toBe("copy-details");
+    // Known before it opens, the row is never there.
+    s.closeMenu();
+    await s.openAgentMenu(1, 0, 0);
+    await s.tasks.idle();
+    expect(items()).not.toContain("review");
+    // The menu checks again, so after `git init` the row comes back.
+    answer("/a");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(items()).toContain("review");
+    expect(s.tab_menu.highlightedItem()).toBe("copy-details");
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("Copy details stays available before the session is identified", async () => {
   const s = controller();
   s.receiveSnapshot(pair());
@@ -5357,7 +5391,7 @@ test("a prompt conversation resumed after a reload stays on its machine when ano
   }
 });
 
-test("a remote machine's checkouts aren't read with this computer's git", () => {
+test("a remote machine's checkouts aren't read with this computer's git", async () => {
   const s = controller();
   const other = workMachine();
   s.adopt(other);
@@ -5372,6 +5406,11 @@ test("a remote machine's checkouts aren't read with this computer's git", () => 
     expect(s.message).toContain("Review changes on the remote machine");
     Reflect.get(s, "readAhead").call(s, s.sidebarEntries());
     expect(wanted).not.toHaveBeenCalled();
+    // Its agent menu leaves Review changes out rather than crossing it out.
+    await s.openAgentMenu(1, 0, 0);
+    await s.tasks.idle();
+    expect(s.tab_menu.entries().map((entry: any) => entry.item)).not.toContain("review");
+    expect(s.tab_menu.highlightedItem()).toBe("copy-details");
   } finally {
     viewer.close(s);
     other.runtime.destroy();
