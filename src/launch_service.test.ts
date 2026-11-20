@@ -17,6 +17,7 @@ const nothingRemoved = () => ({
   agent_hidden: byProvider(() => false),
   account_hidden: [] as string[],
   agent_commands: [] as Entry[],
+  workspaces: { items: [] as { cwd: string; worktrees: null }[] },
 });
 /** A viewer's connection queueing what it is sent to `messages`, subscribed to `preview` in `cwd` when given. */
 function subscriber(messages: unknown[], preview: Preview | null = null, cwd = "/tmp"): any {

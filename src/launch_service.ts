@@ -165,6 +165,12 @@ export function sample(server: Server) {
     active = server.clients.some(c => c.viewer && !c.dead && now - c.input_at < active_ms),
     s = service(server);
   s.follow(removed(server.runtime));
+  const folders = new Set<string>();
+  for (const ws of server.runtime.workspaces.items) {
+    folders.add(ws.cwd);
+    for (const checkout of ws.worktrees?.entries ?? []) folders.add(checkout.path);
+  }
+  s.launch_previews.keep(folders);
   s.launch_previews.sample(active ? active_every : idle_every);
 }
 /** Whether the worker holds a preview this subscription wasn't sent; reads nothing. */

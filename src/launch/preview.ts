@@ -16,9 +16,9 @@ export const active_every = 150,
   idle_every = 600;
 /** How often the worker looks for an account due a read, in ms. */
 const check_ms = 15000;
-/** A folder no viewer has asked about for this long leaves the refresh, as
- * one of a closed workspace or a deleted worktree does. A subscribed viewer
- * asks every tick. */
+/** A folder a viewer asked about this recently is on screen: a subscribed
+ * viewer asks every tick. One that isn't, and isn't a workspace's or a
+ * worktree's any longer, leaves the refresh. */
 const shown_ms = 60000;
 /** What a row shows of its account's read. */
 const account_fields = [
@@ -294,6 +294,13 @@ export class Worker {
   cached(cwd: string) {
     return this.cached_accounts.get(cwd) ?? this.compose(this.list(new Preview(), cwd), this.skipped(), cwd);
   }
+  /** The folders of the workspaces and worktrees there are. */
+  private existing = new Set<string>();
+  /** Follows the folders that are still some workspace's or worktree's:
+   * those stay in the refresh, with the rows they last had, while off screen. */
+  keep(folders: Set<string>) {
+    this.existing = folders;
+  }
   private preparing = new Map<string, Promise<void>>();
   /** Reads what `cwd` itself says before its first preview, so that it
    * shows the reading of its own variant rather than another folder's. */
@@ -373,7 +380,7 @@ export class Worker {
       accessing: false,
       request_access: access,
     };
-    if (this.jobs.length >= 32) {
+    if (this.jobs.length >= 64) {
       const oldest = this.jobs.reduce((best, j) => (j.used < best.used ? j : best));
       this.forget(j => j === oldest);
     }
@@ -676,19 +683,20 @@ export class Worker {
    * what it runs and sets up; each login is read once, whatever shows it. */
   private async round() {
     const now = Date.now(),
-      latest = this.jobs.reduce<Worker["jobs"][number] | null>((a, b) => (a && a.used >= b.used ? a : b), null);
-    // The folder shown last stays, so the accounts keep being read through it.
-    this.forget(job => job !== latest && !job.queued && !this.active.has(job) && now - job.used >= shown_ms);
+      latest = this.jobs.reduce<Worker["jobs"][number] | null>((a, b) => (a && a.used >= b.used ? a : b), null),
+      // The folder shown last counts as on screen, so the accounts keep being read through it.
+      shown = (job: Worker["jobs"][number]) => job === latest || now - job.used < shown_ms;
+    this.forget(job => !shown(job) && !job.queued && !this.active.has(job) && !this.existing.has(job.cwd));
     // What was kept for a folder that has no job, as one asked about once, goes too.
-    const kept = new Set(this.jobs.map(job => job.cwd));
+    const held = new Set(this.jobs.map(job => job.cwd));
     for (const map of [this.cached_accounts, this.installs, this.setups, this.variants])
-      for (const cwd of [...map.keys()]) if (!kept.has(cwd) && !this.preparing.has(cwd)) map.delete(cwd);
+      for (const cwd of [...map.keys()]) if (!held.has(cwd) && !this.preparing.has(cwd)) map.delete(cwd);
     const skip = this.skipped(),
       // The folder a viewer asked about last comes first, so a login is read through it.
-      folders = this.jobs.length
-        ? [...new Set([...this.jobs].sort((a, b) => b.used - a.used).map(job => job.cwd))]
-        : [process.cwd()];
+      ordered = [...this.jobs].sort((a, b) => b.used - a.used),
+      folders = this.jobs.length ? [...new Set(ordered.filter(shown).map(job => job.cwd))] : [process.cwd()];
     await this.identify();
+    // Only folders on screen are looked at again: what each runs and sets up.
     for (const cwd of folders) {
       await discovery.check(cwd);
       if (this.stopping) return;
@@ -697,8 +705,11 @@ export class Worker {
       if (this.stopping) return;
     }
     this.close(skip);
-    const listed = new Map(folders.map(cwd => [cwd, this.list(new Preview(), cwd)])),
+    const fresh = new Set(folders),
+      listed = new Map(folders.map(cwd => [cwd, this.list(new Preview(), cwd)])),
       rows = new Map<string, Row & { cwd: string }>();
+    // The rest keep the rows they last had, and their accounts are still read.
+    for (const job of ordered) if (!listed.has(job.cwd)) listed.set(job.cwd, job.preview);
     for (const [cwd, preview] of listed)
       for (const l of this.rows(preview, skip)) {
         const key = l.provider + "\0" + l.account + "\0" + this.variant(l.provider, cwd);
@@ -719,7 +730,7 @@ export class Worker {
     for (const [cwd, preview] of listed) {
       this.cached_accounts.set(cwd, this.compose(preview, skip, cwd, keys));
       for (const job of this.jobs.filter(job => job.cwd === cwd)) {
-        const composed = this.compose(this.list(job.preview, cwd), skip, cwd, keys);
+        const composed = this.compose(fresh.has(cwd) ? this.list(job.preview, cwd) : job.preview, skip, cwd, keys);
         job.preview = composed.with({ pending: job.preview.pending });
       }
     }

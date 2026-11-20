@@ -1214,3 +1214,50 @@ test("a saved command that runs in a removed default keeps it read", async () =>
     await worker.stop();
   }
 });
+
+test("a workspace's folder stays off screen with the rows it had, read but not looked at again", async () => {
+  const worker = new Worker(),
+    other = join(root, "other"),
+    check = spyOn(discovery, "check").mockResolvedValue(),
+    start = 1_000_000_000;
+  let reads = 0;
+  worker.launcher = async () => ({
+    account: async () => (reads++, reading(42)),
+    model: async cwd => ({ model: cwd, source: "workspace" }),
+    close() {},
+  });
+  try {
+    setSystemTime(new Date(start));
+    worker.keep(new Set([root, other]));
+    for (const cwd of [root, other]) {
+      worker.preview(cwd);
+      await worker.pump();
+    }
+    // A viewer goes on showing `other` alone.
+    setSystemTime(new Date(start + idle_every * 2000));
+    reads = 0;
+    worker.preview(other);
+    await worker.pump();
+    check.mockClear();
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(worker.jobs.map(job => job.cwd).sort()).toEqual([other, root].sort());
+    expect(check.mock.calls.map(([cwd]) => cwd)).toEqual([other]);
+    expect(reads).toBeGreaterThan(0);
+    // Its models are there at once when a viewer comes back.
+    expect(worker.preview(root).options.pi.model.text()).toBe(root);
+    expect(worker.cached(root).options.pi.limits).toMatchObject({ windows: [null, { used: 42 }] });
+    await worker.pump();
+    // Its workspace closed, it leaves.
+    worker.keep(new Set([other]));
+    setSystemTime(new Date(start + idle_every * 4000));
+    worker.preview(other);
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(worker.jobs.map(job => job.cwd)).toEqual([other]);
+  } finally {
+    await worker.stop();
+    check.mockRestore();
+    setSystemTime();
+  }
+});
