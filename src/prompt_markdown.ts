@@ -140,10 +140,11 @@ const parser = new Marked(cjk(), {
   },
   extensions: latex,
 });
-const comments = /<!--[\s\S]*?(?:-->|$)/g;
+// Tags match too, so a quoted attribute's "<!--" opens no comment.
+const comments = /<!--[\s\S]*?(?:-->|$)|<\/?[A-Za-z](?:"[^"]*"|'[^']*'|[^'">])*>/g;
 /** HTML without its comments; one still open runs to the end, as it does
  * while streaming. */
-const uncommented = (html: string) => html.replace(comments, "");
+const uncommented = (html: string) => html.replace(comments, found => (found.startsWith("<!--") ? "" : found));
 /** A streaming code block's half-typed closing fence, dropped so the block
  * doesn't grow a line of backticks and lose it again. */
 function trimFence(tokens: Tok[]): void {

@@ -172,6 +172,10 @@ test("HTML comments are hidden, as is a block's that streams in open", () => {
   expect(shown(markdown.layout("one\n\n<!-- hidden -->\n\ntwo\n\n<!-- streaming", 40))).toEqual(["one", "", "two"]);
   expect(shown(markdown.layout("- one\n\n  <!-- c -->\n- two", 40))).toEqual(["• one", "", "• two"]);
   expect(shown(markdown.layout("<div><!-- c -->hi</div>", 40))).toEqual(["<div>hi</div>"]);
+  // A quoted attribute holds no comment.
+  expect(shown(markdown.layout(`<div title="<!--" alt='<!--'>shown</div><!-- c -->`, 60))).toEqual([
+    `<div title="<!--" alt='<!--'>shown</div>`,
+  ]);
 });
 
 test("entities show as what they name", () => {
