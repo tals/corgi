@@ -597,8 +597,9 @@ export class Signin {
     const s = this.staged;
     this.staged = null;
     if (s) {
-      // Leaving now, it goes by who its last look at the folder found.
-      if (this.who) {
+      // Leaving now, it can't look at the folder again: once the agent ran,
+      // someone may have signed in since the last look.
+      if (this.who || this.spawned) {
         const logout = this.signin.logout;
         if (typeof logout === "function") logout(s.dir);
         else Bun.spawnSync([this.agent, ...logout], { env: this.env(), timeout: 5000 });

@@ -20,6 +20,9 @@ const check_ms = 15000;
  * viewer asks every tick. One that isn't, and isn't a workspace's or a
  * worktree's any longer, leaves the refresh. */
 const shown_ms = 60000;
+/** How long a folder's first preview waits for what the folder itself says:
+ * its files may sit on a mount that doesn't answer. */
+const prepare_ms = 250;
 /** What a row shows of its account's read. */
 const account_fields = [
   "signed_in",
@@ -84,7 +87,15 @@ export function installed(cwd = process.cwd()) {
 }
 type Row = { provider: Provider; account: string };
 /** The folders of one provider signed in to one account, read through `cwd`'s executable. */
-type Group = { provider: Provider; id: string; variant: string; folders: string[]; cwd: string };
+type Group = {
+  provider: Provider;
+  id: string;
+  variant: string;
+  folders: string[];
+  cwd: string;
+  /** Who signed in to each folder when the rows were grouped. */
+  who: Map<string, Identity | null>;
+};
 /** An account, which several folders may be signed in to. Its usage is read
  * through one of them, the one that worked last; the rest only read their
  * sign-in. */
@@ -98,8 +109,9 @@ class Login {
   stale = false;
   /** The folder whose read worked last. */
   source: string | null = null;
-  /** Each folder's own last read. */
+  /** Each folder's own last read, and who was signed in to it then. */
   infos = new Map<string, Info>();
+  who = new Map<string, Identity | null>();
   history = limitHistory.none();
   spend = limitHistory.noSpend();
   daily: limitHistory.SpendDay[] = [];
@@ -314,7 +326,8 @@ export class Worker {
       })().finally(() => this.preparing.delete(cwd));
       this.preparing.set(cwd, pending);
     }
-    return pending;
+    // Past the wait it shows its accounts' default readings until its own are read.
+    return Promise.race([pending, new Promise<void>(resolve => setTimeout(resolve, prepare_ms))]);
   }
   trackUsage(cwd: string) {
     return this.request(cwd, true);
@@ -597,8 +610,19 @@ export class Worker {
       const id = this.loginOf(provider, account),
         variant = this.variant(provider, cwd),
         group = groups.find(g => g.provider === provider && g.id === id && g.variant === variant);
-      if (!group) groups.push({ provider, id, variant, folders: [account], cwd });
-      else if (!group.folders.includes(account)) group.folders.push(account);
+      if (!group)
+        groups.push({
+          provider,
+          id,
+          variant,
+          folders: [account],
+          cwd,
+          who: new Map([[account, this.who(provider, account)]]),
+        });
+      else if (!group.folders.includes(account)) {
+        group.folders.push(account);
+        group.who.set(account, this.who(provider, account));
+      }
     }
     return groups;
   }
@@ -709,7 +733,14 @@ export class Worker {
       listed = new Map(folders.map(cwd => [cwd, this.list(new Preview(), cwd)])),
       rows = new Map<string, Row & { cwd: string }>();
     // The rest keep the rows they last had, and their accounts are still read.
-    for (const job of ordered) if (!listed.has(job.cwd)) listed.set(job.cwd, job.preview);
+    // An account removed since isn't read on their account.
+    const known = new Set(accounts.known().map(a => a.provider + "\0" + a.dir));
+    for (const job of ordered)
+      if (!listed.has(job.cwd))
+        listed.set(
+          job.cwd,
+          job.preview.with({ accounts: job.preview.accounts.filter(a => known.has(a.provider + "\0" + a.account)) }),
+        );
     for (const [cwd, preview] of listed)
       for (const l of this.rows(preview, skip)) {
         const key = l.provider + "\0" + l.account + "\0" + this.variant(l.provider, cwd);
@@ -730,7 +761,7 @@ export class Worker {
     for (const [cwd, preview] of listed) {
       this.cached_accounts.set(cwd, this.compose(preview, skip, cwd, keys));
       for (const job of this.jobs.filter(job => job.cwd === cwd)) {
-        const composed = this.compose(fresh.has(cwd) ? this.list(job.preview, cwd) : job.preview, skip, cwd, keys);
+        const composed = this.compose(fresh.has(cwd) ? this.list(job.preview, cwd) : preview, skip, cwd, keys);
         job.preview = composed.with({ pending: job.preview.pending });
       }
     }
@@ -770,6 +801,7 @@ export class Worker {
         }
         if (this.stopping) return;
         login.infos.set(folder, info);
+        login.who.set(folder, group.who.get(folder) ?? null);
         if (found === null && usable(info)) {
           found = info;
           login.source = folder;
@@ -818,7 +850,8 @@ export class Worker {
       for (const key of ["limits", "spend", "usage_fetched_at", "usage_error"] as const)
         (out as any)[key] = source[key];
     if (borrowed && source.plan.len) out.plan = source.plan;
-    out.login = this.who(provider, account);
+    // Who the reading is of, not who a later look at the folder found.
+    out.login = login.who.get(account) ?? null;
     out.history = login.history;
     out.spend_history = login.spend;
     out.spend_daily = login.daily;
