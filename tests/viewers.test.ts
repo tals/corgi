@@ -459,6 +459,40 @@ process.stdout.write("PREFIX_READY");
     this.assertEqual((await this.session()).panes.find((p: any) => p.id === right).name, "");
   }
 
+  async test_pane_menu_moves_pane_to_new_tab() {
+    const left = await this.new();
+    const right = (
+      await this.command("pane.split", {
+        cwd: this.temp.name,
+        command: "sleep 60",
+        target: left,
+        direction: "right",
+      })
+    ).pane;
+    const a = await this.newViewer();
+    await a.focus(left);
+    await a.input("\x1b[<2;85;5M\x1b[<2;85;5m");
+    this.assertIn("Move to new tab", a.state.data);
+    await a.input("!");
+    let ws = (await this.session()).workspaces[0];
+    this.assertEqual(ws.model.tabs.length, 2);
+    this.assertEqual(layout_tree(ws, 0).pane, left);
+    this.assertEqual(layout_tree(ws, 1).pane, right);
+    this.assertEqual(a.state.pane, right);
+    // A pane alone in its tab has nowhere to move.
+    await a.input("\x1b[<2;35;5M\x1b[<2;35;5m");
+    await a.input("!");
+    ws = (await this.session()).workspaces[0];
+    this.assertEqual(ws.model.tabs.length, 2);
+    // A split from elsewhere while the menu stays open lets it move again.
+    await this.command("pane.split", { cwd: this.temp.name, command: "sleep 60", target: right, direction: "right" });
+    await a.poll();
+    await a.input("!");
+    ws = (await this.session()).workspaces[0];
+    this.assertEqual(ws.model.tabs.length, 3);
+    this.assertEqual(layout_tree(ws, 2).pane, right);
+  }
+
   async test_pane_name_survives_reload_and_reopen() {
     const pane = await this.new(),
       a = await this.newViewer();

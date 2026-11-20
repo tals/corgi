@@ -31,6 +31,7 @@ export type Item =
   | "split-right"
   | "split-down"
   | "zoom"
+  | "break"
   | "fork"
   | "copy-details"
   | "copy-path"
@@ -70,6 +71,7 @@ const pane_actions = () => [
   row("split-right", "v", i18n.t`Split right`),
   row("split-down", "d", i18n.t`Split down`),
   row("zoom", "z", i18n.t`Zoom / unzoom`),
+  row("break", "!", i18n.t`Move to new tab`),
   row("close", "x", i18n.t`Close pane`),
 ];
 const agent_actions = () => [
