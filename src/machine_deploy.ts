@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import * as os from "./os";
-import { flock } from "./native_bridge";
+import * as native_bridge from "./native_bridge";
 import * as errors from "./errors";
 import type { Profile } from "./machines";
 import * as builds from "./machine_build";
@@ -36,12 +36,12 @@ export async function artifact(
   const { root, bun } = checkout();
   const fd = fs.openSync(path.join(root, "dist/dev-build.lock"), "a", 0o600);
   try {
-    if (!flock(fd)) {
+    if (!native_bridge.flock(fd)) {
       progress("Build queued…", { detail: `Waiting for the checkout build lock · ${target}` });
       do {
         signal?.throwIfAborted();
         await Bun.sleep(50);
-      } while (!flock(fd));
+      } while (!native_bridge.flock(fd));
     }
     signal?.throwIfAborted();
     let started: number | null = null;
@@ -101,7 +101,7 @@ export async function artifact(
     }
     return path.join(root, "dist", `corgi-${target}`);
   } finally {
-    flock(fd, false);
+    native_bridge.flock(fd, false);
     fs.closeSync(fd);
   }
 }
@@ -140,7 +140,7 @@ export function open(profile: Profile) {
   const file = receiptFile(profile);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const fd = fs.openSync(file + ".lock", "a", 0o600);
-  if (!flock(fd)) {
+  if (!native_bridge.flock(fd)) {
     fs.closeSync(fd);
     throw Error("DevelopmentDeployInProgress");
   }
@@ -149,7 +149,7 @@ export function open(profile: Profile) {
       os.atomicWrite(file + ".json", JSON.stringify(verified) + "\n", 0o600);
     },
     close() {
-      flock(fd, false);
+      native_bridge.flock(fd, false);
       fs.closeSync(fd);
     },
   };

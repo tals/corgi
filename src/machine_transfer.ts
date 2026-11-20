@@ -1,8 +1,8 @@
 // One transfer per duplex stream. The inner signature/delta bytes are librsync compatible.
 import * as fs from "node:fs";
-import { setImmediate } from "node:timers/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import * as timers from "node:timers/promises";
+import * as path from "node:path";
+import * as os from "node:os";
 import * as zlib from "node:zlib";
 import * as port from "./fast_rsync";
 
@@ -75,8 +75,8 @@ class Patch {
   append(bytes: Buffer): void {
     this.length += bytes.length;
     if (this.fd === null && this.length > 4 * 1024 * 1024) {
-      this.directory = fs.mkdtempSync(join(tmpdir(), "corgi-delta-"));
-      this.fd = fs.openSync(join(this.directory, "patch"), "wx", 0o600);
+      this.directory = fs.mkdtempSync(path.join(os.tmpdir(), "corgi-delta-"));
+      this.fd = fs.openSync(path.join(this.directory, "patch"), "wx", 0o600);
       for (const chunk of this.chunks) fs.writeFileSync(this.fd, chunk);
       this.chunks = [];
     }
@@ -84,7 +84,7 @@ class Patch {
     else fs.writeFileSync(this.fd, bytes);
   }
   async *read(): AsyncGenerator<Uint8Array> {
-    if (this.directory) yield* fs.createReadStream(join(this.directory, "patch"), { highWaterMark: 65536 });
+    if (this.directory) yield* fs.createReadStream(path.join(this.directory, "patch"), { highWaterMark: 65536 });
     else
       for (const chunk of this.chunks)
         for (let offset = 0; offset < chunk.length; offset += 65536) yield chunk.subarray(offset, offset + 65536);
@@ -199,7 +199,7 @@ export async function send(
     };
     for (const piece of port.deltaChunks(signature, data)) {
       if (!piece.length) {
-        await setImmediate();
+        await timers.setImmediate();
         signal?.throwIfAborted();
         continue;
       }
@@ -211,7 +211,7 @@ export async function send(
         p += n;
         if (used === output.length) {
           flush();
-          await setImmediate();
+          await timers.setImmediate();
           signal?.throwIfAborted();
         }
       }

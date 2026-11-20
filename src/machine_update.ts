@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import * as child_process from "node:child_process";
 import type { Socket } from "node:net";
 import * as builds from "./machine_build";
 import * as buildId from "./build_id";
@@ -82,7 +82,7 @@ export async function prepare(
 ): Promise<machines.Profile> {
   if (!dev.enabled()) return profile;
   signal?.throwIfAborted();
-  const child = spawn(
+  const child = child_process.spawn(
     buildId.self(),
     ["__machine-sync", profile.name, profile.target, profile.socket, builds.revision],
     {

@@ -1,7 +1,7 @@
-import { dlopen } from "bun:ffi";
-import { basename, dirname, resolve } from "node:path";
-import { mkdirSync, existsSync, mkdtempSync, openSync, renameSync, rmSync } from "node:fs";
-import { createHash } from "node:crypto";
+import * as ffi from "bun:ffi";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import * as crypto from "node:crypto";
 import * as translations from "./scripts/translations";
 import * as inputs from "./scripts/build_inputs";
 const root = import.meta.dir;
@@ -36,7 +36,7 @@ const nativeRoot = option(
     ? `${root}/native/zig-out`
     : `${root}/dist/native-${buildTarget}`,
 );
-if (!existsSync(`${root}/node_modules/@earendil-works/pi-tui`)) {
+if (!fs.existsSync(`${root}/node_modules/@earendil-works/pi-tui`)) {
   const install = Bun.spawn([process.execPath, "install", "--frozen-lockfile"], {
     cwd: root,
     stdout: "inherit",
@@ -59,20 +59,20 @@ const outfile = option(
 );
 // Serialize writers of the same native files or executable. Unrelated targets can build together.
 const locks = `${root}/dist/.build-locks`;
-mkdirSync(locks, { recursive: true });
+fs.mkdirSync(locks, { recursive: true });
 const lockSymbols = { flock: { args: ["i32", "i32"], returns: "i32" } } as const;
 function buildLock() {
-  if (process.platform === "darwin") return dlopen("/usr/lib/libSystem.B.dylib", lockSymbols);
+  if (process.platform === "darwin") return ffi.dlopen("/usr/lib/libSystem.B.dylib", lockSymbols);
   try {
-    return dlopen("libc.so.6", lockSymbols);
+    return ffi.dlopen("libc.so.6", lockSymbols);
   } catch {
-    return dlopen("libc.so", lockSymbols); // musl
+    return ffi.dlopen("libc.so", lockSymbols); // musl
   }
 }
 const { flock } = buildLock().symbols;
-for (const resource of [...new Set([resolve(nativeRoot), resolve(outfile)])].sort()) {
-  const name = createHash("sha256").update(resource).digest("hex");
-  const fd = openSync(`${locks}/${name}`, "a", 0o600);
+for (const resource of [...new Set([path.resolve(nativeRoot), path.resolve(outfile)])].sort()) {
+  const name = crypto.createHash("sha256").update(resource).digest("hex");
+  const fd = fs.openSync(`${locks}/${name}`, "a", 0o600);
   // LOCK_EX | LOCK_NB first, so the launcher can show why this build is waiting.
   if (flock(fd, 6) === 0) continue;
   process.stderr.write(`Waiting for another build of ${resource}…\n`);
@@ -124,9 +124,9 @@ if (!process.argv.includes("--no-native")) {
   }
 }
 if (process.argv.includes("--native-only")) process.exit(0);
-mkdirSync(`${root}/dist`, { recursive: true });
+fs.mkdirSync(`${root}/dist`, { recursive: true });
 const files = inputs.files(platform);
-const hash = createHash("sha256");
+const hash = crypto.createHash("sha256");
 for (const file of files) hash.update(new Uint8Array(await Bun.file(`${nativeRoot}/${file}`).arrayBuffer()));
 const imports = files
   .map((file, i) => `import asset${i} from ${JSON.stringify(`${nativeRoot}/${file}`)} with {type:"file"};`)
@@ -145,7 +145,8 @@ const config = {
 // The same inputs keep their first build's time, so the binary and the daemon's build id stay put.
 // The Git label on an ordinary dev build describes when it was compiled.
 const cacheConfig = releaseVersion || releaseCommit ? config : { ...config, releaseCommit: "" };
-const inputsSHA256 = createHash("sha256")
+const inputsSHA256 = crypto
+  .createHash("sha256")
   .update(
     JSON.stringify([buildTarget, Bun.version, process.argv.includes("--test"), sourceSHA256, nativeHash, cacheConfig]),
   )
@@ -156,9 +157,10 @@ const previous = await Bun.file(`${outfile}.build.json`)
 if (
   incremental &&
   previous?.inputsSHA256 === inputsSHA256 &&
-  existsSync(outfile) &&
+  fs.existsSync(outfile) &&
   previous.sha256 ===
-    createHash("sha256")
+    crypto
+      .createHash("sha256")
       .update(new Uint8Array(await Bun.file(outfile).arrayBuffer()))
       .digest("hex")
 ) {
@@ -173,10 +175,10 @@ const configSource = Object.entries({ ...config, builtAt, sourceHash: sourceSHA2
   .map(([key, value]) => `export const ${key}=${JSON.stringify(value)};`)
   .join("\n");
 // Readers keep the old inode until the complete replacement is published.
-mkdirSync(dirname(outfile), { recursive: true });
-const staging = mkdtempSync(`${outfile}.build-`);
-process.on("exit", () => rmSync(staging, { recursive: true, force: true }));
-const candidate = `${staging}/${basename(outfile)}`;
+fs.mkdirSync(path.dirname(outfile), { recursive: true });
+const staging = fs.mkdtempSync(`${outfile}.build-`);
+process.on("exit", () => fs.rmSync(staging, { recursive: true, force: true }));
+const candidate = `${staging}/${path.basename(outfile)}`;
 process.send?.("Compiling the Corgi executable with Bun");
 process.stderr.write(`Building Corgi for ${buildTarget}…\n`);
 const result = await Bun.build({
@@ -200,10 +202,11 @@ const result = await Bun.build({
 if (!result.success) throw new AggregateError(result.logs, "Bun compile failed");
 if (inputs.source(root) !== sourceSHA256 || (releaseVersion && !releaseCommit && gitCommit() !== config.releaseCommit))
   throw Error("Sources changed during the build; run it again.");
-const binaryHash = createHash("sha256")
+const binaryHash = crypto
+  .createHash("sha256")
   .update(new Uint8Array(await Bun.file(candidate).arrayBuffer()))
   .digest("hex");
-await Bun.write(`${candidate}.sha256`, `${binaryHash}  ${basename(outfile)}\n`);
+await Bun.write(`${candidate}.sha256`, `${binaryHash}  ${path.basename(outfile)}\n`);
 await Bun.write(
   `${candidate}.build.json`,
   JSON.stringify(
@@ -223,5 +226,5 @@ await Bun.write(
     2,
   ) + "\n",
 );
-for (const suffix of ["", ".sha256", ".build.json"]) renameSync(candidate + suffix, outfile + suffix);
+for (const suffix of ["", ".sha256", ".build.json"]) fs.renameSync(candidate + suffix, outfile + suffix);
 console.log(`Built ${outfile}`);

@@ -12,7 +12,7 @@ import * as viewer from "./viewer";
 import * as errors from "./errors";
 import * as buildInfo from "./machine_build";
 import type * as progress from "./machine_progress";
-import { Failure as UpdateFailure } from "./machine_update";
+import * as machine_update from "./machine_update";
 import type { Probe } from "./terminal_info";
 import type { Host } from "./host";
 import type { WorkspaceEntry } from "./sidebar";
@@ -190,7 +190,7 @@ export class Endpoint {
   get updateMessage(): string {
     return this.updateProgress?.message ?? "";
   }
-  private updateFailure: UpdateFailure | null = null;
+  private updateFailure: machine_update.Failure | null = null;
   get updateError(): string {
     return this.updateFailure?.summary ?? "";
   }
@@ -429,7 +429,9 @@ export class Endpoint {
     } catch (error) {
       if (!job.signal.aborted)
         this.updateFailure =
-          error instanceof UpdateFailure ? error : new UpdateFailure(errors.name(error) || "MachineUpdateFailed");
+          error instanceof machine_update.Failure
+            ? error
+            : new machine_update.Failure(errors.name(error) || "MachineUpdateFailed");
     } finally {
       if (this.updating === job) {
         this.updating = null;

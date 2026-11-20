@@ -1,20 +1,9 @@
-import {
-  cpSync,
-  mkdirSync,
-  existsSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-  realpathSync,
-  copyFileSync,
-  renameSync,
-} from "node:fs";
+import * as fs from "node:fs";
 import { userInfo } from "node:os";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
-import { Runtime, EXE, ROOT, PALETTE } from "./runtime";
+import * as runtime from "./runtime";
 import { registerCase, run, quote, writeExecutable, deadline } from "./support";
 import { Terminal } from "../src/pane/terminal";
 import { TcpFault } from "./tcp_fault";
@@ -26,8 +15,8 @@ const b64 = (value: string | Buffer) => Buffer.from(value).toString("base64");
 const clipboardPacket = (status: string, rest: string) => `\x1b]5522;type=read:status=${status}${rest}\x1b\\`;
 
 /** Real OpenSSH, a temporary host key and known_hosts, and two isolated daemons. */
-class Remote extends Runtime {
-  remote: Runtime | null = null;
+class Remote extends runtime.Runtime {
+  remote: runtime.Runtime | null = null;
   sshd: ReturnType<typeof Bun.spawn> | null = null;
   sshlog: Promise<string> = Promise.resolve("");
   sshconfig = "";
@@ -38,7 +27,7 @@ class Remote extends Runtime {
   network: TcpFault | null = null;
   async setUp() {
     await super.setUp();
-    this.remote = new Runtime();
+    this.remote = new runtime.Runtime();
     await this.remote.setUp();
     const dir = this.temp.name;
     for (const name of ["host", "client"])
@@ -47,7 +36,7 @@ class Remote extends Runtime {
     const port = reserve.port;
     reserve.stop(true);
     const sshd_config = join(dir, "sshd_config");
-    writeFileSync(
+    fs.writeFileSync(
       sshd_config,
       `Port ${port}\nListenAddress 127.0.0.1\nHostKey ${dir}/host\nPidFile ${dir}/sshd.pid\nAuthorizedKeysFile ${dir}/client.pub\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nStrictModes no\nAllowUsers ${userInfo().username}\nLogLevel ERROR\n`,
     );
@@ -71,10 +60,10 @@ class Remote extends Runtime {
     });
     this.network = new TcpFault(port!);
     await this.network.start();
-    this.hostkey = `[127.0.0.1]:${this.network.port} ${readFileSync(join(dir, "host.pub"), "utf8")}`;
-    writeFileSync(join(dir, "known_hosts"), this.hostkey);
+    this.hostkey = `[127.0.0.1]:${this.network.port} ${fs.readFileSync(join(dir, "host.pub"), "utf8")}`;
+    fs.writeFileSync(join(dir, "known_hosts"), this.hostkey);
     this.sshconfig = join(dir, "ssh_config");
-    writeFileSync(
+    fs.writeFileSync(
       this.sshconfig,
       `Host corgi-test-host\n HostName 127.0.0.1\n Port ${this.network.port}\n User ${userInfo().username}\n IdentityFile ${dir}/client\n IdentitiesOnly yes\n UserKnownHostsFile ${dir}/known_hosts\n`,
     );
@@ -83,7 +72,7 @@ class Remote extends Runtime {
     this.env.PATH = join(dir, "bin") + ":" + this.env.PATH;
     const remote_exe = writeExecutable(
       join(dir, "remote-corgi"),
-      `#!/bin/sh\nexport CORGI_SOCKET=${quote(this.remote.path)}\nexport HOME=${quote(this.remote.temp.name)}\nexport CORGI_APP_EXE=${quote(EXE)}\nexec ${quote(EXE)} "$@"\n`,
+      `#!/bin/sh\nexport CORGI_SOCKET=${quote(this.remote.path)}\nexport HOME=${quote(this.remote.temp.name)}\nexport CORGI_APP_EXE=${quote(runtime.EXE)}\nexec ${quote(runtime.EXE)} "$@"\n`,
     );
     await this.cli(["machine", "add", "work", "corgi-test-host", "--executable", remote_exe]);
     await this.command("workspace.edit", { target: 1, name: "LOCAL_WORKSPACE" });
@@ -93,9 +82,9 @@ class Remote extends Runtime {
     // A new state directory gives this CLI its own SSH master namespace.
     const state = join(this.temp.name, "cold-state"),
       connections = this.network!.accepted;
-    cpSync(this.env.XDG_STATE_HOME!, state, { recursive: true });
+    fs.cpSync(this.env.XDG_STATE_HOME!, state, { recursive: true });
     this.network!.latency_ms = 800;
-    const result = await run([EXE, "list", "--all-machines"], {
+    const result = await run([runtime.EXE, "list", "--all-machines"], {
       env: { ...this.env, XDG_STATE_HOME: state },
       timeout: 40000,
     });
@@ -194,7 +183,7 @@ class Remote extends Runtime {
     await this.sendRemote("REORDERED_REMOTE");
     const instance = (await this.remote!.rpc({ op: "hello", protocol: 1 })).instance;
     await this.remote!.run_cli("shutdown");
-    await this.remote!.until(() => !existsSync(this.remote!.path));
+    await this.remote!.until(() => !fs.existsSync(this.remote!.path));
     await this.remote!.run_cli("start");
     this.assertNotEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).instance, instance);
     await this.remote!.command("workspace.edit", { target: 1, name: "REMOTE_RESTARTED" });
@@ -216,8 +205,8 @@ class Remote extends Runtime {
     const destination = join(this.remote!.temp.name, ".local/bin/corgi");
     await this.cli(["machine", "add", "work", "corgi-test-host", "--executable", destination]);
     this.assertEqual(
-      createHash("sha256").update(readFileSync(destination)).digest("hex"),
-      createHash("sha256").update(readFileSync(EXE)).digest("hex"),
+      createHash("sha256").update(fs.readFileSync(destination)).digest("hex"),
+      createHash("sha256").update(fs.readFileSync(runtime.EXE)).digest("hex"),
     );
     const after = await this.remote!.rpc({ op: "session.snapshot" });
     this.assertEqual(
@@ -227,16 +216,17 @@ class Remote extends Runtime {
     const listed = await this.cli(["machine", "list"]);
     this.assertEqual(
       listed.machines.find((p: { name: string }) => p.name === "work").executable,
-      realpathSync(destination),
+      fs.realpathSync(destination),
     );
     // The shells survived a handoff to the installed binary, not the absence of one.
-    this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).executable, realpathSync(destination));
+    this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).executable, fs.realpathSync(destination));
   }
   async developmentBinary(name: string, delta = true, source = name) {
-    const info = JSON.parse((await run([EXE, "__remote-info"], { env: this.env })).stdout);
+    const info = JSON.parse((await run([runtime.EXE, "__remote-info"], { env: this.env })).stdout);
     const native = dirname(dirname(info.bridge));
     const file = join(this.temp.name, name);
-    const config = readFileSync(join(ROOT, "src/build_config.ts"), "utf8")
+    const config = fs
+      .readFileSync(join(runtime.ROOT, "src/build_config.ts"), "utf8")
       .replace('"bun-port"', JSON.stringify("a".repeat(40) + "-dirty"))
       .replace(
         'export const sourceHash = ""',
@@ -244,7 +234,7 @@ class Remote extends Runtime {
       );
     const result = await Bun.build({
       entrypoints: ["src/main.ts", "src/providers/codex/files_worker.ts", "src/trackers/resources_worker.ts"].map(p =>
-        join(ROOT, p),
+        join(runtime.ROOT, p),
       ),
       target: "bun",
       compile: { outfile: file },
@@ -260,10 +250,9 @@ class Remote extends Runtime {
             build.onLoad({ filter: /\/build_config\.ts$/ }, () => ({ contents: config, loader: "ts" }));
             if (!delta)
               build.onLoad({ filter: /\/machine_build\.ts$/ }, () => ({
-                contents: readFileSync(join(ROOT, "src/machine_build.ts"), "utf8").replace(
-                  'delta_transfer: "rsync-zstd-v1",',
-                  'delta_transfer: "",',
-                ),
+                contents: fs
+                  .readFileSync(join(runtime.ROOT, "src/machine_build.ts"), "utf8")
+                  .replace('delta_transfer: "rsync-zstd-v1",', 'delta_transfer: "",'),
                 loader: "ts",
               }));
           },
@@ -279,7 +268,7 @@ class Remote extends Runtime {
     const before = await this.remote!.rpc({ op: "session.snapshot" });
     const a = await this.developmentBinary("dev-a", false),
       b = await this.developmentBinary("dev-b");
-    writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture: no cross build needed.\n");
+    fs.writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture: no cross build needed.\n");
     const env = { ...this.env, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath };
     const deploy = (file: string) => run([file, "machine", "deploy", "work"], { env, timeout: 60000 });
     const viewer = JSON.parse((await run([a, "__update-info"], { env })).stdout);
@@ -302,7 +291,7 @@ class Remote extends Runtime {
     for (const stage of ["Preparing delta", "Uploading 100%", "Uploaded", "Installing…", "Verifying…", "Connecting"])
       this.assertIn(stage, delta.stderr);
     this.assertEqual(JSON.parse(delta.stdout).ok, true);
-    const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
+    const hash = (file: string) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
     this.assertEqual(hash(destination), hash(a));
     this.assertIn("builds match", (await deploy(a)).stderr);
     const after = await this.remote!.rpc({ op: "session.snapshot" });
@@ -312,32 +301,34 @@ class Remote extends Runtime {
     );
     this.assertNotEqual(after.server_pid, before.server_pid);
     // Another writer changes the installation after the receipt was recorded.
-    copyFileSync(EXE, destination + ".other");
-    renameSync(destination + ".other", destination);
+    fs.copyFileSync(runtime.EXE, destination + ".other");
+    fs.renameSync(destination + ".other", destination);
     const status = await run([b, "machine", "status", "work"], { env });
     this.assertEqual(JSON.parse(status.stdout).status, "reachable");
     this.assertNotIn("Checking…", status.stderr);
     const inventory = await run([b, "list", "--all-machines"], { env });
     this.assertTrue(JSON.parse(inventory.stdout).machines.some((m: { machine: string }) => m.machine === "work"));
     this.assertNotIn("Checking…", inventory.stderr);
-    this.assertEqual(hash(destination), hash(EXE));
+    this.assertEqual(hash(destination), hash(runtime.EXE));
     await deploy(b);
     this.assertEqual(hash(destination), hash(b));
   }
   async test_dev_reconnect_uses_its_authenticated_master_for_the_whole_update() {
     await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
     const file = await this.developmentBinary("reconnect");
-    writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture.\n");
+    fs.writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture.\n");
     const state = join(this.temp.name, "reconnect-state");
-    cpSync(this.env.XDG_STATE_HOME!, state, { recursive: true });
+    fs.cpSync(this.env.XDG_STATE_HOME!, state, { recursive: true });
     // Only the foreground login can authenticate. Batch SSH must use its open master.
     const ssh = join(this.temp.name, "bin/ssh");
-    writeFileSync(
+    fs.writeFileSync(
       ssh,
-      readFileSync(ssh, "utf8").replace(
-        "const args = process.argv.slice(2);",
-        'const args = process.argv.slice(2); if (args.includes("BatchMode=yes")) args.unshift("-o", "PubkeyAuthentication=no");',
-      ),
+      fs
+        .readFileSync(ssh, "utf8")
+        .replace(
+          "const args = process.argv.slice(2);",
+          'const args = process.argv.slice(2); if (args.includes("BatchMode=yes")) args.unshift("-o", "PubkeyAuthentication=no");',
+        ),
     );
     const before = this.network!.accepted;
     const env = { ...this.env, XDG_STATE_HOME: state, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath };
@@ -349,14 +340,14 @@ class Remote extends Runtime {
     await run(command, { env, timeout: 60000 });
     this.assertEqual(this.network!.accepted, before + 1);
     const cold = join(this.temp.name, "command-state");
-    cpSync(state, cold, { recursive: true });
+    fs.cpSync(state, cold, { recursive: true });
     await run(command, { env: { ...env, XDG_STATE_HOME: cold }, timeout: 60000 });
     this.assertEqual(this.network!.accepted, before + 2);
   }
   async test_dev_connections_repair_stale_receipts_and_replace_another_checkouts_binary() {
     await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
     const root = this.temp.name;
-    writeFileSync(join(root, "build.ts"), "// Same-platform fixture.\n");
+    fs.writeFileSync(join(root, "build.ts"), "// Same-platform fixture.\n");
     const env = { ...this.env, CORGI_DEV_ROOT: root, CORGI_DEV_BUN: process.execPath };
     const local = await this.developmentBinary("receipt");
     const foreign = await this.developmentBinary("foreign", false, "receipt");
@@ -364,15 +355,15 @@ class Remote extends Runtime {
     const ping = ["--machine", "work", "ping"];
     await command(ping);
     const info = JSON.parse((await command(["__update-info"])).stdout);
-    const old = createHash("sha256").update(readFileSync(EXE)).digest("hex");
+    const old = createHash("sha256").update(fs.readFileSync(runtime.EXE)).digest("hex");
     const receipts = join(root, "dist/dev-deploy");
     const receipt = join(
       receipts,
-      readdirSync(receipts).find(f => /^[a-f0-9]{64}\.json$/.test(f))!,
+      fs.readdirSync(receipts).find(f => /^[a-f0-9]{64}\.json$/.test(f))!,
     );
-    const recorded = () => JSON.parse(readFileSync(receipt, "utf8"));
+    const recorded = () => JSON.parse(fs.readFileSync(receipt, "utf8"));
     const pid = (await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid;
-    writeFileSync(receipt, JSON.stringify({ ...recorded(), hash: old }));
+    fs.writeFileSync(receipt, JSON.stringify({ ...recorded(), hash: old }));
     const repaired = await command(ping);
     this.assertNotIn("Uploading", repaired.stderr);
     this.assertEqual(recorded().hash, info.build_id);
@@ -388,21 +379,21 @@ class Remote extends Runtime {
     const destination = join(this.remote!.temp.name, ".local/bin/corgi");
     // A second checkout has the same source label and a different compiled binary.
     const otherCheckout = join(root, "other-checkout");
-    mkdirSync(otherCheckout);
-    copyFileSync(join(root, "build.ts"), join(otherCheckout, "build.ts"));
+    fs.mkdirSync(otherCheckout);
+    fs.copyFileSync(join(root, "build.ts"), join(otherCheckout, "build.ts"));
     await run([foreign, ...ping], { env: { ...env, CORGI_DEV_ROOT: otherCheckout }, timeout: 60000 });
-    this.assertTrue(readFileSync(destination).equals(readFileSync(foreign)));
+    this.assertTrue(fs.readFileSync(destination).equals(fs.readFileSync(foreign)));
     const replaced = await command(ping);
     this.assertIn("Uploading", replaced.stderr);
-    this.assertTrue(readFileSync(destination).equals(readFileSync(local)));
+    this.assertTrue(fs.readFileSync(destination).equals(fs.readFileSync(local)));
     this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).build_id, info.build_id);
     this.assertEqual(recorded().hash, info.build_id);
     // A different local binary in the same checkout also invalidates a verified match.
     await run([foreign, ...ping], { env, timeout: 60000 });
-    this.assertTrue(readFileSync(destination).equals(readFileSync(foreign)));
+    this.assertTrue(fs.readFileSync(destination).equals(fs.readFileSync(foreign)));
     // Re-adding explicitly chooses this checkout and records the new install before attaching.
     await command(["machine", "remove", "work"]);
-    writeFileSync(receipt, "incomplete receipt");
+    fs.writeFileSync(receipt, "incomplete receipt");
     await command(["machine", "add", "work", "corgi-test-host", "--executable", destination]);
     this.assertEqual(recorded().hash, info.build_id);
   }
@@ -413,7 +404,7 @@ class Remote extends Runtime {
     const before = await this.remote!.rpc({ op: "session.snapshot" });
     const a = await this.developmentBinary("auto-a"),
       b = await this.developmentBinary("auto-b");
-    writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture.\n");
+    fs.writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture.\n");
     Object.assign(this.env, { CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath });
     const command = () => run([a, "--machine", "work", "ping"], { env: this.env, timeout: 60000 });
     const first = await command();
@@ -444,7 +435,7 @@ class Remote extends Runtime {
       async () => (await this.command("pane.read", { target: 1 })).text.includes("LOCAL_DURING_UPDATE"),
       2,
     );
-    const expected = createHash("sha256").update(readFileSync(b)).digest("hex");
+    const expected = createHash("sha256").update(fs.readFileSync(b)).digest("hex");
     await this.until(async () => (await this.remote!.rpc({ op: "hello", protocol: 1 })).build_id === expected, 30);
     await this.until(() => this.text().includes("REMOTE_WORKSPACE"), 15);
     this.clickWorkspace("REMOTE");
@@ -455,7 +446,7 @@ class Remote extends Runtime {
       after.panes.map((p: { pid: number }) => p.pid),
       before.panes.map((p: { pid: number }) => p.pid),
     );
-    this.assertEqual(createHash("sha256").update(readFileSync(destination)).digest("hex"), expected);
+    this.assertEqual(createHash("sha256").update(fs.readFileSync(destination)).digest("hex"), expected);
     this.assertTrue(shown.has("rate"));
     this.terminal!.write("\x02q");
     await deadline(this.ui!.exited, 2000);
@@ -463,44 +454,48 @@ class Remote extends Runtime {
     this.emulator!.destroy();
     const marker = join(this.temp.name, "redundant-setup");
     const ssh = join(this.temp.name, "bin/ssh");
-    writeFileSync(
+    fs.writeFileSync(
       ssh,
-      readFileSync(ssh, "utf8").replace(
-        "const p = Bun.spawn(",
-        `if (args.at(-1).includes("corgi-setup-v1")) await Bun.write(${JSON.stringify(marker)}, ""); const p = Bun.spawn(`,
-      ),
+      fs
+        .readFileSync(ssh, "utf8")
+        .replace(
+          "const p = Bun.spawn(",
+          `if (args.at(-1).includes("corgi-setup-v1")) await Bun.write(${JSON.stringify(marker)}, ""); const p = Bun.spawn(`,
+        ),
     );
     this.network!.bytes_per_second = this.network!.latency_ms = 0;
     await this.startViewer("work", 110, 36, undefined, b);
     await this.online();
     await this.sendRemote("REMOTE_REATTACHED");
     await Bun.sleep(1600);
-    this.assertFalse(existsSync(marker), "A verified reattach ran machine setup again");
+    this.assertFalse(fs.existsSync(marker), "A verified reattach ran machine setup again");
   }
   async test_dev_launcher_connects_during_a_cross_build_and_quits_with_the_build_blocked() {
     await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
     const root = this.temp.name;
-    mkdirSync(join(root, "scripts"), { recursive: true });
-    mkdirSync(join(root, "dist"), { recursive: true });
-    copyFileSync(join(ROOT, "go.ts"), join(root, "go.ts"));
-    copyFileSync(join(ROOT, "scripts/stop-other-daemons.ts"), join(root, "scripts/stop-other-daemons.ts"));
-    copyFileSync(await this.developmentBinary("launcher"), join(root, "dist/corgi"));
+    fs.mkdirSync(join(root, "scripts"), { recursive: true });
+    fs.mkdirSync(join(root, "dist"), { recursive: true });
+    fs.copyFileSync(join(runtime.ROOT, "go.ts"), join(root, "go.ts"));
+    fs.copyFileSync(join(runtime.ROOT, "scripts/stop-other-daemons.ts"), join(root, "scripts/stop-other-daemons.ts"));
+    fs.copyFileSync(await this.developmentBinary("launcher"), join(root, "dist/corgi"));
     // Only the setup probe sees a different CPU. The live SSH daemon still runs its real build.
     const wrapper = join(root, "bin/ssh");
     const probe = join(root, "setup-probe");
     const arch = process.arch === "arm64" ? "x86_64" : "aarch64";
-    writeFileSync(
+    fs.writeFileSync(
       wrapper,
-      readFileSync(wrapper, "utf8").replace(
-        "const p = Bun.spawn(",
-        `if (args.at(-1).includes("corgi-setup-v1")) await Bun.write(${JSON.stringify(probe)}, ""); args[args.length - 1] = args.at(-1).replace("uname -m", "echo ${arch}"); const p = Bun.spawn(`,
-      ),
+      fs
+        .readFileSync(wrapper, "utf8")
+        .replace(
+          "const p = Bun.spawn(",
+          `if (args.at(-1).includes("corgi-setup-v1")) await Bun.write(${JSON.stringify(probe)}, ""); args[args.length - 1] = args.at(-1).replace("uname -m", "echo ${arch}"); const p = Bun.spawn(`,
+        ),
     );
     const target = process.platform + (arch === "aarch64" ? "-arm64" : "-x64");
     const started = join(root, "compiler-started"),
       stopped = join(root, "compiler-stopped");
     const compiler = `trap 'touch "${stopped}"; exit' TERM; touch "${started}"; sleep 30`;
-    writeFileSync(
+    fs.writeFileSync(
       join(root, "build.ts"),
       `
       if (process.argv.includes("--target")) {
@@ -509,7 +504,7 @@ class Remote extends Runtime {
       }
     `,
     );
-    writeFileSync(
+    fs.writeFileSync(
       join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"),
       JSON.stringify({ onboarding_complete: true, sidebar_width: 44 }),
     );
@@ -524,7 +519,7 @@ class Remote extends Runtime {
     this.terminal!.close();
     this.emulator!.destroy();
     await run([...launcher, "--no-remote-update", "--machine", "work", "ping"], { env: this.env });
-    this.assertFalse(existsSync(probe));
+    this.assertFalse(fs.existsSync(probe));
     await run([...launcher, "--no-remote-update", "machine", "check", "work"], { env: this.env });
     const conflicting = await run([...launcher, "--no-remote-update", "--deploy", "work"], {
       env: this.env,
@@ -532,54 +527,56 @@ class Remote extends Runtime {
     });
     this.assertNotEqual(conflicting.code, 0);
     this.assertIn("--no-remote-update", conflicting.stderr);
-    this.assertFalse(existsSync(started));
+    this.assertFalse(fs.existsSync(started));
     const afterSkip = await this.remote!.rpc({ op: "hello", protocol: 1 });
     this.assertEqual(afterSkip.build_id, existing.build_id);
     this.assertEqual(afterSkip.server_pid, existing.server_pid);
     await this.startViewer("work", 110, 36, undefined, launcher);
-    await this.until(() => existsSync(started), 15);
+    await this.until(() => fs.existsSync(started), 15);
     await this.online();
     await this.until(() => new RegExp(`work[^\\n]*Building ${target}… +[1-9]\\d*s`).test(this.text()), 4);
     await this.sendRemote("REMOTE_DURING_BUILD");
     this.terminal!.write("\x02q");
     this.assertEqual(await deadline(this.ui!.exited, 2000, "go.ts waited for the cross-build"), 0);
-    await this.until(() => existsSync(stopped), 2);
+    await this.until(() => fs.existsSync(stopped), 2);
   }
   async test_cancel_during_automatic_install_finishes_the_receipt_and_allows_reconnection() {
     await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
     const a = await this.developmentBinary("cancel-a"),
       b = await this.developmentBinary("cancel-b");
-    writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture.\n");
+    fs.writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture.\n");
     const env = { ...this.env, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath };
     await run([a, "--machine", "work", "ping"], { env, timeout: 60000 });
     const wrapper = join(this.temp.name, "bin/ssh"),
       marker = join(this.temp.name, "install-started"),
       release = join(this.temp.name, "allow-install");
-    writeFileSync(
+    fs.writeFileSync(
       wrapper,
-      readFileSync(wrapper, "utf8").replace(
-        "const p = Bun.spawn(",
-        `if (args.at(-1).includes("__machine-install")) { await Bun.write(${JSON.stringify(marker)}, ""); while (!await Bun.file(${JSON.stringify(release)}).exists()) await Bun.sleep(25); } const p = Bun.spawn(`,
-      ),
+      fs
+        .readFileSync(wrapper, "utf8")
+        .replace(
+          "const p = Bun.spawn(",
+          `if (args.at(-1).includes("__machine-install")) { await Bun.write(${JSON.stringify(marker)}, ""); while (!await Bun.file(${JSON.stringify(release)}).exists()) await Bun.sleep(25); } const p = Bun.spawn(`,
+        ),
     );
     Object.assign(this.env, env);
     await this.startViewer("work", 110, 36, undefined, b);
     try {
-      await this.until(() => existsSync(marker), 30);
+      await this.until(() => fs.existsSync(marker), 30);
       await this.online();
       this.terminal!.write("\x02q");
       this.assertEqual(await deadline(this.ui!.exited, 2000, "viewer waited for the atomic install"), 0);
     } finally {
-      writeFileSync(release, "");
+      fs.writeFileSync(release, "");
     }
     const receipts = join(this.temp.name, "dist/dev-deploy");
-    const receipt = readdirSync(receipts).find(name => /^[a-f0-9]{64}\.json$/.test(name))!;
-    const expected = createHash("sha256").update(readFileSync(b)).digest("hex");
-    await this.until(() => JSON.parse(readFileSync(join(receipts, receipt), "utf8")).hash === expected, 30);
+    const receipt = fs.readdirSync(receipts).find(name => /^[a-f0-9]{64}\.json$/.test(name))!;
+    const expected = createHash("sha256").update(fs.readFileSync(b)).digest("hex");
+    await this.until(() => JSON.parse(fs.readFileSync(join(receipts, receipt), "utf8")).hash === expected, 30);
     const result = await run([b, "--machine", "work", "ping"], { env, timeout: 60000 });
     this.assertNotIn("Uploading", result.stderr);
     const destination = join(this.remote!.temp.name, ".local/bin/corgi");
-    this.assertEqual(createHash("sha256").update(readFileSync(destination)).digest("hex"), expected);
+    this.assertEqual(createHash("sha256").update(fs.readFileSync(destination)).digest("hex"), expected);
   }
   async tearDown() {
     try {
@@ -600,7 +597,7 @@ class Remote extends Runtime {
   async cli(args: string[], input?: string) {
     const command = args[0] === "--machine" ? args.slice(2) : args;
     if (cli.handles(command) && !command.includes("--all-machines")) args = [...args, "--json"];
-    const result = await run([EXE, ...args], { env: this.env, input, timeout: 20_000 });
+    const result = await run([runtime.EXE, ...args], { env: this.env, input, timeout: 20_000 });
     return JSON.parse(result.stdout);
   }
   text() {
@@ -611,7 +608,7 @@ class Remote extends Runtime {
     cols = 100,
     rows = 30,
     onData: (data: Uint8Array) => void = () => {},
-    executable: string | string[] = EXE,
+    executable: string | string[] = runtime.EXE,
   ) {
     this.emulator = new Terminal(cols, rows);
     this.terminal = new Bun.Terminal({
@@ -800,7 +797,7 @@ class Remote extends Runtime {
       // CPU labels shorten with the sidebar width.
       await this.until(() => /\bC(PU)? \d+%/.test(this.text().split("\n")[y]));
       this.terminal!.write(`\x1b[<35;5;${y + 1}M`);
-      await this.until(() => this.emulator!.surface(0).surface.lines[y].includes(`38;2;${PALETTE.text}`));
+      await this.until(() => this.emulator!.surface(0).surface.lines[y].includes(`38;2;${runtime.PALETTE.text}`));
       await this.until(() => this.text().includes("TOP PROCESSES"));
       const pid = name === "LOCAL" ? localPane.pid : remotePane.pid;
       await this.until(() => new RegExp(`\\b${pid}\\b`).test(this.text()));
@@ -835,7 +832,7 @@ class Remote extends Runtime {
       await hidden.call("viewer.sync", { interests: [], resources: false, watched: false });
       await this.remote!.until(async () => (await this.remote!.session()).resources.sampled_at === 0);
       const remote_pane = (await this.remote!.session()).panes[0];
-      writeFileSync(
+      fs.writeFileSync(
         join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"),
         JSON.stringify({ onboarding_complete: true, sidebar_width: 44 }),
       );
@@ -939,7 +936,7 @@ class Remote extends Runtime {
   }
   async test_machine_collapse_and_authentication_diagnostics_keep_local_input_usable() {
     const sshPath = join(this.temp.name, "bin/ssh");
-    const original = readFileSync(sshPath, "utf8");
+    const original = fs.readFileSync(sshPath, "utf8");
     const before = (await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid;
     this.assertEqual((await this.cli(["machine", "status", "work"])).status, "reachable");
     writeExecutable(sshPath, "#!/bin/sh\nprintf '%s\\n' 'Permission denied (publickey).' >&2\nexit 255\n");
@@ -973,7 +970,7 @@ class Remote extends Runtime {
     this.assertIn("▌LOCAL_WORKSPACE", this.text());
   }
   async test_all_agents_lists_both_machines_and_clicking_a_remote_agent_focuses_it_there() {
-    const mark = async (runtime: Runtime, name: string) => {
+    const mark = async (runtime: runtime.Runtime, name: string) => {
       const pane = (await runtime.command("pane.create", { workspace: 1, command: "cat" })).pane;
       await runtime.command("pane.rename", { target: pane, name });
       const event = { hook_event_name: "SessionStart", session_id: name };
@@ -985,7 +982,7 @@ class Remote extends Runtime {
     // Focus starts elsewhere on the remote machine.
     const other = (await this.remote!.command("pane.create", { workspace: 1, command: "cat" })).pane;
     const preferences = join(this.env.XDG_STATE_HOME!, "corgi/viewer.json");
-    writeFileSync(preferences, JSON.stringify({ onboarding_complete: true, agents: "all" }));
+    fs.writeFileSync(preferences, JSON.stringify({ onboarding_complete: true, agents: "all" }));
     await this.startViewer("local");
     await this.online("local");
     await this.until(() => this.text().includes("REMOTE_AGENT") && this.text().includes("LOCAL_AGENT"));
@@ -1011,7 +1008,7 @@ class Remote extends Runtime {
   }
   async test_local_starts_and_remains_usable_during_the_initial_remote_handshake() {
     await this.run_cli("shutdown");
-    await this.until(() => !existsSync(this.path));
+    await this.until(() => !fs.existsSync(this.path));
     this.network!.set("blackhole");
     await this.startViewer();
     await this.until(() => this.text().includes("LOCAL_WORKSPACE"), 5);
@@ -1080,12 +1077,14 @@ class Remote extends Runtime {
     );
     this.assertTrue(list.machines.every((m: any) => m.ok));
     // A default machine doesn't narrow the list of every machine.
-    const defaulted = await run([EXE, "list", "--all-machines"], { env: { ...this.env, CORGI_MACHINE: "work" } });
+    const defaulted = await run([runtime.EXE, "list", "--all-machines"], {
+      env: { ...this.env, CORGI_MACHINE: "work" },
+    });
     this.assertEqual(
       JSON.parse(defaulted.stdout).machines.map((m: any) => m.machine),
       ["local", "work"],
     );
-    const caller = await run([EXE, "--machine", "work", "current", "--json"], {
+    const caller = await run([runtime.EXE, "--machine", "work", "current", "--json"], {
       env: { ...this.env, CORGI_PANE: String(local.pane) },
       check: false,
     });
@@ -1097,7 +1096,7 @@ class Remote extends Runtime {
   async test_pinned_host_keys_and_image_uploads() {
     const hello = await this.remote!.rpc({ op: "hello", protocol: 1 });
     const image = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-    const uploaded = await run([EXE, "__remote-image", this.remote!.path, hello.instance, "image/png"], {
+    const uploaded = await run([runtime.EXE, "__remote-image", this.remote!.path, hello.instance, "image/png"], {
       env: this.env,
       input: image,
     });
@@ -1106,21 +1105,25 @@ class Remote extends Runtime {
       .split("\n")
       .map(line => JSON.parse(line));
     this.assertEqual(records.slice(0, -1), [{ received: 0 }, { received: image.length }]);
-    this.assertEqual(readFileSync(records.at(-1).path).toString("hex"), image.toString("hex"));
-    const stale = await run([EXE, "__remote-image", this.remote!.path, "old-daemon", "image/png"], {
+    this.assertEqual(fs.readFileSync(records.at(-1).path).toString("hex"), image.toString("hex"));
+    const stale = await run([runtime.EXE, "__remote-image", this.remote!.path, "old-daemon", "image/png"], {
       env: this.env,
       input: image,
       check: false,
     });
     this.assertNotEqual(stale.code, 0);
-    writeFileSync(
+    fs.writeFileSync(
       join(this.temp.name, "known_hosts"),
       this.hostkey.replace(
-        readFileSync(join(this.temp.name, "host.pub"), "utf8"),
-        readFileSync(join(this.temp.name, "client.pub"), "utf8"),
+        fs.readFileSync(join(this.temp.name, "host.pub"), "utf8"),
+        fs.readFileSync(join(this.temp.name, "client.pub"), "utf8"),
       ),
     );
-    const check = await run([EXE, "machine", "check", "work"], { env: this.env, check: false, timeout: 20_000 });
+    const check = await run([runtime.EXE, "machine", "check", "work"], {
+      env: this.env,
+      check: false,
+      timeout: 20_000,
+    });
     this.assertNotEqual(check.code, 0);
     this.assertTrue(check.stderr.includes("HOST IDENTIFICATION HAS CHANGED"), check.stderr);
   }
@@ -1131,18 +1134,20 @@ class Remote extends Runtime {
     this.assertTrue(profile.bridge.endsWith("/bin/corgi-remote-bridge"));
     const wrapper = join(this.temp.name, "bin/ssh");
     const log = join(this.temp.name, "ssh-invocations");
-    writeFileSync(
+    fs.writeFileSync(
       wrapper,
-      readFileSync(wrapper, "utf8").replace(
-        "#!/bin/sh\n",
-        `#!/bin/sh\nfor arg in "$@"; do [ "$arg" = -L ] && exit 99; done\nprintf '%s\\n' "$*" >> ${quote(log)}\n`,
-      ),
+      fs
+        .readFileSync(wrapper, "utf8")
+        .replace(
+          "#!/bin/sh\n",
+          `#!/bin/sh\nfor arg in "$@"; do [ "$arg" = -L ] && exit 99; done\nprintf '%s\\n' "$*" >> ${quote(log)}\n`,
+        ),
     );
     const connections = this.network!.accepted;
     await this.startViewer();
     await this.online();
-    this.assertIn("corgi-remote-bridge", readFileSync(log, "utf8"));
-    this.assertNotIn("__remote-info", readFileSync(log, "utf8"));
+    this.assertIn("corgi-remote-bridge", fs.readFileSync(log, "utf8"));
+    this.assertNotIn("__remote-info", fs.readFileSync(log, "utf8"));
     // The control lane reuses the master warmed by machine setup. Pane data
     // gets its own TCP transport, which subsequent CLI calls must not use.
     this.assertEqual(this.network!.accepted, connections + 1);
@@ -1190,12 +1195,11 @@ class Remote extends Runtime {
   delayImageUploads() {
     const executable = join(this.temp.name, "bin/ssh");
     const started = join(this.temp.name, "image-upload-started");
-    writeFileSync(
+    fs.writeFileSync(
       executable,
-      readFileSync(executable, "utf8").replace(
-        "#!/bin/sh\n",
-        `#!/bin/sh\ncase "$*" in *__remote-image*) touch ${quote(started)}; sleep 2;; esac\n`,
-      ),
+      fs
+        .readFileSync(executable, "utf8")
+        .replace("#!/bin/sh\n", `#!/bin/sh\ncase "$*" in *__remote-image*) touch ${quote(started)}; sleep 2;; esac\n`),
     );
     return started;
   }
@@ -1210,16 +1214,16 @@ class Remote extends Runtime {
     await this.until(() => this.text().includes("PASTE_READY"));
     const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
     const saved = await paste("slow-upload", png);
-    await this.until(() => existsSync(started));
+    await this.until(() => fs.existsSync(started));
     await this.until(() => this.text().includes("Preparing…"));
     // A healthy stream must remain usable past the one-second stall threshold.
     await Bun.sleep(1200);
     this.assertNotIn("Ctrl+R retry", this.text());
     this.terminal!.write("LIVE");
     await this.until(() => this.text().includes("LIVE"), 0.5);
-    await this.until(() => existsSync(received) && readFileSync(received, "utf8").includes(saved), 8);
-    this.assertEqual(readFileSync(received, "utf8"), "LIVE" + saved);
-    this.assertEqual(readFileSync(saved), png);
+    await this.until(() => fs.existsSync(received) && fs.readFileSync(received, "utf8").includes(saved), 8);
+    this.assertEqual(fs.readFileSync(received, "utf8"), "LIVE" + saved);
+    this.assertEqual(fs.readFileSync(saved), png);
     this.assertNotIn("StaleConnection", this.text());
   }
   async test_image_upload_progress_follows_the_caret_until_remote_delivery() {
@@ -1281,8 +1285,8 @@ class Remote extends Runtime {
       samples.every((n, i) => i === 0 || n >= samples[i - 1]),
       JSON.stringify(samples),
     );
-    await this.until(() => readFileSync(received, "utf8") === "MOVED" + wrap + saved);
-    this.assertEqual(readFileSync(saved), png);
+    await this.until(() => fs.readFileSync(received, "utf8") === "MOVED" + wrap + saved);
+    this.assertEqual(fs.readFileSync(saved), png);
     await this.until(() => !this.text().includes("✓ Uploaded"));
     console.log(`image upload receiver progress: ${[...new Set(samples)].join(", ")}%`);
   }
@@ -1301,10 +1305,10 @@ class Remote extends Runtime {
     const paste = await this.imageClipboard();
     await this.until(() => this.text().includes("PASTE_READY"));
     for (const interruption of ["switch", "disconnect"]) {
-      rmSync(started, { force: true });
+      fs.rmSync(started, { force: true });
       const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from(interruption)]);
       const saved = await paste(interruption, png);
-      await this.until(() => existsSync(started));
+      await this.until(() => fs.existsSync(started));
       if (interruption === "switch") {
         this.clickWorkspace("LOCAL");
         await this.online("local");
@@ -1319,9 +1323,9 @@ class Remote extends Runtime {
       await Bun.sleep(2500);
       this.assertNotIn("Preparing…", this.text());
       this.assertNotIn("▱", this.text());
-      this.assertEqual(readFileSync(received, "utf8"), "");
-      this.assertEqual(readFileSync(local, "utf8"), "LOCAL_LIVE");
-      this.assertFalse(existsSync(saved), "The canceled upload should not continue in the background");
+      this.assertEqual(fs.readFileSync(received, "utf8"), "");
+      this.assertEqual(fs.readFileSync(local, "utf8"), "LOCAL_LIVE");
+      this.assertFalse(fs.existsSync(saved), "The canceled upload should not continue in the background");
       if (interruption === "switch") {
         this.clickWorkspace("REMOTE");
         await this.online();
@@ -1329,8 +1333,8 @@ class Remote extends Runtime {
     }
     const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 43]);
     const saved = await paste("after-cancellation", png);
-    await this.until(() => readFileSync(received, "utf8") === saved, 8);
-    this.assertEqual(readFileSync(saved), png);
+    await this.until(() => fs.readFileSync(received, "utf8") === saved, 8);
+    this.assertEqual(fs.readFileSync(saved), png);
   }
   async test_slow_image_paste_relays_to_the_remote_program() {
     const received = join(this.remote!.temp.name, "relayed-image");
@@ -1360,8 +1364,8 @@ process.stdin.on("data", chunk => {
     await this.until(() => this.text().includes("RELAY_READY"));
     const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 44]);
     const saved = await paste("relay", png);
-    await this.until(() => existsSync(received) && readFileSync(received).equals(png), 8);
-    this.assertEqual(readFileSync(saved), png);
+    await this.until(() => fs.existsSync(received) && fs.readFileSync(received).equals(png), 8);
+    this.assertEqual(fs.readFileSync(saved), png);
     await this.until(() => this.text().includes("RELAYED"));
     this.assertNotIn("StaleConnection", this.text());
   }
@@ -1370,7 +1374,7 @@ process.stdin.on("data", chunk => {
     await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
     this.emulator = new Terminal(100, 30);
     this.terminal = new Bun.Terminal({ cols: 100, rows: 30, data: (_tty, data) => this.emulator!.feed(data) });
-    this.ui = Bun.spawn([EXE, "--no-update"], { env: this.env, cwd: this.temp.name, terminal: this.terminal });
+    this.ui = Bun.spawn([runtime.EXE, "--no-update"], { env: this.env, cwd: this.temp.name, terminal: this.terminal });
     const screen = () => this.emulator!.text();
     await this.until(() => screen().includes("▌LOCAL_WORKSPACE"), 8);
     await this.until(() => screen().includes("all ▾"), 8);
@@ -1503,7 +1507,7 @@ process.stdin.on("data", chunk => {
     await this.sendRemote("BEFORE_RELOAD");
     await this.until(() => this.text().includes("BEFORE_RELOAD"));
     const before = (await this.remote!.session()).panes.map((pane: { pid: number }) => pane.pid);
-    await this.remote!.rpc({ op: "server.reload", executable: EXE });
+    await this.remote!.rpc({ op: "server.reload", executable: runtime.EXE });
     await this.sendRemote("AFTER_RELOAD");
     await this.until(() => this.text().includes("AFTER_RELOAD"));
     this.assertEqual(
@@ -1520,7 +1524,7 @@ process.stdin.on("data", chunk => {
     await this.startViewer();
     await this.online(undefined, 60);
     await this.sendRemote("BEFORE_RELOAD");
-    await this.remote!.rpc({ op: "server.reload", executable: EXE });
+    await this.remote!.rpc({ op: "server.reload", executable: runtime.EXE });
     await this.until(() => this.text().includes("Reconnecting"), 10);
     this.terminal!.write("DROPPED_DURING_RELOAD\r");
     await this.online(undefined, 60);
@@ -1803,9 +1807,9 @@ process.stdin.on("data", chunk => {
     await this.until(() => this.text().includes("Connection stalled"), 35);
     this.terminal!.write("OLD_DAEMON_INPUT\r");
     await this.remote!.run_cli("shutdown");
-    await this.remote!.until(() => !existsSync(this.remote!.path));
+    await this.remote!.until(() => !fs.existsSync(this.remote!.path));
     // A fresh daemon with no checkpoint can reuse IDs; only erase this disposable runtime's recovery.
-    rmSync(join(this.remote!.env.XDG_STATE_HOME!, "corgi/recovery"), { recursive: true, force: true });
+    fs.rmSync(join(this.remote!.env.XDG_STATE_HOME!, "corgi/recovery"), { recursive: true, force: true });
     await this.remote!.run_cli("start");
     const pane = await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
     this.assertEqual(pane.pane, 1);

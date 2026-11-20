@@ -1,6 +1,6 @@
 import * as test from "bun:test";
 import * as transfer from "./machine_transfer";
-import { randomBytes } from "node:crypto";
+import * as crypto from "node:crypto";
 
 function channel(): TransformStream<Uint8Array, Uint8Array> {
   return new TransformStream({
@@ -99,7 +99,7 @@ test.test("oversized metadata and decompression output are rejected", async () =
 });
 
 test.test("large literal deltas report their exact framed upload size through the spill file", async () => {
-  const data = randomBytes(5 * 1024 * 1024),
+  const data = crypto.randomBytes(5 * 1024 * 1024),
     empty = Buffer.alloc(0);
   const a = new TransformStream<Uint8Array, Uint8Array>(),
     b = new TransformStream<Uint8Array, Uint8Array>();
