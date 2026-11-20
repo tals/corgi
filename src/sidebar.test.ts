@@ -2280,7 +2280,7 @@ test("a name longer than the field shows its tail, and the caret follows it", ()
 });
 
 test("the voice indicator sits left of [ + ] without moving the title row", () => {
-  const ws = [workspaceEntry({ id: 1, name: "a", cwd: "", active: true })];
+  const ws = [workspaceEntry({ id: viewerRef.workspace(1, 1), name: "a", cwd: "", active: true })];
   const title = (view: View) => draw(view, [], ws);
   const row = (view: View) => hostText(title(view)).split("\n")[0];
   const plain = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
