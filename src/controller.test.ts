@@ -1337,6 +1337,11 @@ test("an agent's menu leaves Review changes out outside git, even when git answe
     await s.openAgentMenu(1, 0, 0);
     await s.tasks.idle();
     expect(items()).not.toContain("review");
+    // The menu checks again, so after `git init` the row comes back.
+    answer("/a");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(items()).toContain("review");
+    expect(s.tab_menu.highlightedItem()).toBe("copy-details");
   } finally {
     viewer.close(s);
   }

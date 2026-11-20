@@ -99,7 +99,8 @@ export class Summaries {
   }
   private async run(job: Job): Promise<void> {
     let root = this.roots.get(job.cwd);
-    if (root === undefined) {
+    // A directory outside git is checked again, since `git init` can make it a checkout.
+    if (root === undefined || (root === null && (job.asked || !this.good(job.cwd)))) {
       root = await this.toplevel(job.cwd).catch(() => null);
       this.roots.set(job.cwd, root);
     }

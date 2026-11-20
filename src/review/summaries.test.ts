@@ -45,6 +45,33 @@ test("a directory is known to be in a checkout or not once a read says", async (
   expect(s.inCheckout("/tmp")).toBe(false);
 });
 
+test("a directory outside git is checked again when a menu asks or its line goes old", async () => {
+  let clock = 0,
+    inited = false,
+    checks = 0;
+  const s = new Summaries(
+    async () => line(1),
+    async () => (checks++, inited ? "/tmp" : null),
+    () => clock,
+  );
+  s.want("/tmp");
+  await settle();
+  expect(s.inCheckout("/tmp")).toBe(false);
+  s.want("/tmp");
+  await settle();
+  expect(checks).toBe(1);
+  clock += fresh_ms;
+  s.want("/tmp");
+  await settle();
+  expect(checks).toBe(2);
+  // After `git init`, a menu's ask finds the checkout.
+  inited = true;
+  s.ask("/tmp");
+  await settle();
+  expect(s.inCheckout("/tmp")).toBe(true);
+  expect(s.get("/tmp")).toEqual(line(1));
+});
+
 test("a checkout is read once until it goes stale or old", async () => {
   const { s, reads, tick } = fake();
   s.want("/repo");

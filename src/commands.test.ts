@@ -96,12 +96,16 @@ test("hiding a row while the menu is open keeps the highlight on its row", () =>
   menu.highlightFirst();
   menu.move(true);
   expect(menu.highlightedItem()).toBe("copy-details");
-  menu.hide("review");
+  menu.setHidden("review", true);
   expect(menu.highlightedItem()).toBe("copy-details");
   // The highlighted row itself moves the highlight to the first that runs.
   const first = new TabMenu({ tab: 1, anchor_x: 0, agent: true });
   first.highlightFirst();
-  first.hide("review");
+  first.setHidden("review", true);
+  expect(first.highlightedItem()).toBe("copy-details");
+  // Shown again, it leaves the highlight where it is.
+  first.setHidden("review", false);
+  expect(first.entries()[0].item).toBe("review");
   expect(first.highlightedItem()).toBe("copy-details");
 });
 

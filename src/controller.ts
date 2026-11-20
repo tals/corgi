@@ -664,7 +664,7 @@ export class Controller {
       const menu = this.tab_menu,
         cwd = menu ? this.menuCheckout(menu) : null;
       if (!menu || cwd === null) return;
-      if (this.reviewMissing(cwd)) menu.hide("review");
+      menu.setHidden("review", this.reviewMissing(cwd));
       menu.setDetail("review", this.summary(cwd));
       this.dirty = true;
       this.wake();

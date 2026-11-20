@@ -183,11 +183,12 @@ export class TabMenu {
         ]
       : actions();
   }
-  /** Leaves `item` out, keeping the highlight on the row it was on. */
-  hide(item: Item): void {
-    if (this.hidden.has(item)) return;
+  /** Leaves `item` out or shows it, keeping the highlight on the row it was on. */
+  setHidden(item: Item, hidden: boolean): void {
+    if (this.hidden.has(item) === hidden) return;
     const was = this.entries()[this.highlighted]?.item;
-    this.hidden.add(item);
+    if (hidden) this.hidden.add(item);
+    else this.hidden.delete(item);
     const at = this.entries().findIndex(entry => entry.item === was);
     if (at >= 0) this.highlighted = at;
     else this.highlightFirst();
