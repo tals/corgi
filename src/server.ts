@@ -888,7 +888,7 @@ export class Server {
           cwd = q.cwd || (q.workspace ? this.runtime.getWorkspace(q.workspace).cwd : process.cwd());
         if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
         if (!q.preview) {
-          reply.ok({ agents: launcherConfig.catalog(this.runtime), data: accountService.data(this.runtime) });
+          reply.ok({ agents: launcherConfig.catalog(this.runtime), data: await accountService.data(this.runtime) });
           return;
         }
         this.defer(cl, reply, null, async () => {
@@ -898,7 +898,7 @@ export class Server {
           await service.launch_previews.pump();
           return {
             agents: launcherConfig.catalog(this.runtime, service.launch_previews.preview(cwd)),
-            data: accountService.data(this.runtime),
+            data: await accountService.data(this.runtime),
           };
         });
         return;

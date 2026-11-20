@@ -12,7 +12,7 @@ export function open(account = ""): Launcher {
   return {
     account: (quit, max_age, cwd) => client.preview(quit, max_age, cwd),
     async model(cwd, quit) {
-      const fallback = settingsModel(cwd, account);
+      const fallback = await settingsModel(cwd, account);
       let io: Stdio | null = null;
       try {
         if (closed || quit.aborted) return fallback;

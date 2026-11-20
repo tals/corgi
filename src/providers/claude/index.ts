@@ -67,7 +67,8 @@ export const adapter: Adapter = {
     home: configDir,
     prefix: ".claude-",
     identity: root => identity(root, root === configDir() && !process.env[vocabulary.config_env]),
-    configured: (root, cwd) => !!settingsModel(cwd, { ...process.env, [vocabulary.config_env]: root }).model,
+    variant: async () => "",
+    configured: async (root, cwd) => !!settingsModel(cwd, { ...process.env, [vocabulary.config_env]: root }).model,
     // Its setup; the login and the conversations stay the account's own.
     shared: {
       dirs: ["skills", "agents", "commands", "plugins", "hooks", "themes", "output-styles"],

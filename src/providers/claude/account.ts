@@ -111,9 +111,14 @@ export class Client {
   private default_model = new Text();
   private defaults = new Map<string, string>();
   default_checked = false;
-  /** The default observed by this workspace's last successful account read. */
-  defaultFor(cwd: string): string {
-    return this.defaults.get(cwd) ?? "";
+  /** The default an account read saw from the executable `cwd` runs:
+   * workspaces share one read of the account, and "" where none ran it. */
+  async defaultFor(cwd: string): Promise<string> {
+    try {
+      return this.defaults.get(await this.resolve(cwd)) ?? "";
+    } catch {
+      return "";
+    }
   }
   /** The read-only initialization catalog, without starting a model turn. */
   async models(quit: Quit, cwd = process.cwd()): Promise<{ info: Info; models: unknown }> {
@@ -131,7 +136,7 @@ export class Client {
   async preview(stopping?: any, quit?: Quit, max_age = 0, cwd = process.cwd()) {
     try {
       const info = await this.read(stopping, quit, max_age, cwd);
-      this.defaults.set(cwd, this.default_model.text());
+      if (this.executable !== null) this.defaults.set(this.executable, this.default_model.text());
       return info;
     } catch (e) {
       this.account.usage_error = new Text(

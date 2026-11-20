@@ -11,7 +11,7 @@ export function open(account: string): Launcher {
     account: (quit, max_age, cwd) => client.preview(quit, quit, max_age, cwd),
     async model(cwd) {
       const chosen = settingsModel(cwd, env),
-        fallback = client.defaultFor(cwd);
+        fallback = await client.defaultFor(cwd);
       if (chosen.model || !fallback) return chosen;
       return { model: fallback, source: "Claude Code default" };
     },

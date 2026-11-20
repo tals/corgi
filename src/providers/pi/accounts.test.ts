@@ -47,22 +47,22 @@ test("Pi account credentials select their own auth check and remove only their l
         JSON.stringify({ defaultProvider: "openai-codex", defaultModel: workspace }),
       );
     }
-    expect(identity(a)?.email).toBe("user@example.com");
-    expect(identity(a)?.id).not.toBe(identity(b)?.id);
+    expect((await identity(a))?.email).toBe("user@example.com");
+    expect((await identity(a))?.id).not.toBe((await identity(b))?.id);
     const view = new Signin(false, false, { changed() {}, done() {} } as any);
     view.provider = "pi";
     view.dir = a;
-    expect(view.check).toEqual(["auth", "check", "--provider", "openai-codex"]);
-    expect(signin.ready(a)).toBe(true);
+    expect(await view.check()).toEqual(["auth", "check", "--provider", "openai-codex"]);
+    expect(await signin.ready(a)).toBe(true);
     expect((await launcher(a).model(root, new Quit())).model).toBe("openai-codex/personal");
     expect((await launcher(b).model(root, new Quit())).model).toBe("openai-codex/team");
     await view.signOut();
     expect(existsSync(join(a, "auth.json"))).toBe(false);
-    expect(identity(b)).not.toBeNull();
+    expect(await identity(b)).not.toBeNull();
     writeFileSync(join(a, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "test-key" } }));
-    expect(credential(a)?.provider).toBe("anthropic");
-    expect(view.check).toEqual(["auth", "check", "--provider", "anthropic"]);
-    expect(identity(a)?.id).not.toContain("test-key");
+    expect((await credential(a))?.provider).toBe("anthropic");
+    expect(await view.check()).toEqual(["auth", "check", "--provider", "anthropic"]);
+    expect((await identity(a))?.id).not.toContain("test-key");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

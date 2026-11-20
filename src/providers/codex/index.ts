@@ -89,6 +89,7 @@ export const adapter: Adapter = {
     home: configDir,
     prefix: ".codex-",
     identity,
+    variant: async () => "",
     configured,
     // Its setup; the login and the conversations stay the account's own.
     shared: {

@@ -1,10 +1,11 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { InferenceModel } from "../adapter";
 import type { Quit } from "../../subprocess";
 import { Client } from "./account";
 import { vocabulary } from "./info";
 import * as effort from "../effort";
 import { configHome, field, str } from "../common";
-import { cached } from "../command_line";
 import * as nativeModels from "../../inference/native_models";
 
 export async function read(account: string, quit: Quit, cwd = process.cwd()): Promise<InferenceModel[]> {
@@ -16,9 +17,13 @@ export async function read(account: string, quit: Quit, cwd = process.cwd()): Pr
   try {
     const { info, models } = await client.models(quit, cwd);
     if (!Array.isArray(models)) throw Error("InvalidModels");
-    const configured = effort.parse(
-      field(cached(configHome(env, vocabulary.config_env, ".claude"), "settings.json"), "effortLevel"),
-    );
+    let settings: unknown = null;
+    try {
+      settings = JSON.parse(
+        await readFile(join(configHome(env, vocabulary.config_env, ".claude"), "settings.json"), "utf8"),
+      );
+    } catch {}
+    const configured = effort.parse(field(settings, "effortLevel"));
     return nativeModels.options(
       models.map(entry => ({
         efforts: effort.list(field(entry, "supportedEffortLevels")),

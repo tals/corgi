@@ -99,13 +99,16 @@ test("saved accounts behind install-on-use shims settle without starting a provi
   }
 });
 
-test("account reads and availability stay scoped to each workspace through background refreshes", async () => {
+test("workspaces share an account's read, but one whose project picks another model provider reads its own", async () => {
   const worker = new Worker(),
     other = join(root, "other"),
-    reads: (string | undefined)[] = [];
-  worker.launcher = async () =>
+    reads: [Provider, string | undefined][] = [],
+    through = (p: Provider) => reads.filter(([provider]) => provider === p).map(([, cwd]) => cwd);
+  mkdirSync(join(other, ".pi"), { recursive: true });
+  writeFileSync(join(other, ".pi", "settings.json"), JSON.stringify({ defaultProvider: "local" }));
+  worker.launcher = async provider =>
     stub(async (_quit, _max_age, cwd) => {
-      reads.push(cwd);
+      reads.push([provider, cwd]);
       return Object.assign(new Info(), { signed_in: cwd === root });
     });
   try {
@@ -113,14 +116,20 @@ test("account reads and availability stay scoped to each workspace through backg
     await worker.pump();
     worker.preview(other);
     await worker.pump();
-    expect(new Set(reads)).toEqual(new Set([root, other]));
+    expect(through("pi")).toEqual([root, other]);
+    expect(through("claude")).toEqual([root]);
     expect(worker.preview(root).options.pi.signed_in).toBe(true);
     expect(worker.preview(other).options.pi.signed_in).toBe(false);
+    expect(worker.preview(other).options.claude.signed_in).toBe(true);
     reads.length = 0;
     setSystemTime(new Date(Date.now() + idle_every * 2000));
+    // Viewers still show both.
+    worker.preview(root);
+    worker.preview(other);
     worker.sample(idle_every);
     await worker.pump();
-    expect(new Set(reads)).toEqual(new Set([root, other]));
+    expect(new Set(through("pi"))).toEqual(new Set([root, other]));
+    expect(through("claude")).toHaveLength(1);
     expect(worker.preview(root).options.pi.signed_in).toBe(true);
     expect(worker.preview(other).options.pi.signed_in).toBe(false);
   } finally {
@@ -178,7 +187,7 @@ test("a workspace preview queued during a slow sampling round doesn't wait for i
     worker.sample(active_every);
     second_done.resolve();
     await pending;
-    expect(check.mock.calls.map(([cwd]) => cwd)).toEqual([root, fresh, second]);
+    expect(check.mock.calls.map(([cwd]) => cwd)).toEqual([fresh, root, second]);
     // Sampling waits a full interval from completion, even after a long round.
     check.mockResolvedValue();
     worker.sample(active_every);
@@ -374,11 +383,16 @@ test("cached previews retain each workspace's installations without starting rea
     }
     snapshots();
     setSystemTime(new Date(Date.now() + idle_every * 2000));
+    // Viewers still show both.
+    for (const cwd of [root, other]) worker.preview(cwd);
     worker.sample(idle_every);
     await worker.pump();
     const before = { reads, checks: check.mock.calls.length };
     snapshots();
-    expect(worker.cached(join(root, "unvisited"))).toMatchObject({ pending: false, accounts: [] });
+    // A folder no viewer shows gets what its accounts last read, and starts nothing.
+    const unvisited = worker.cached(join(root, "unvisited"));
+    expect(unvisited.pending).toBe(false);
+    expect(unvisited.accounts[0].option.limits).toMatchObject({ windows: [null, { used: 42 }] });
     expect({ reads, checks: check.mock.calls.length }).toEqual(before);
     expect(worker.jobs).toHaveLength(2);
   } finally {
@@ -458,7 +472,7 @@ test.each([
   }
 });
 
-test("discovery settles absent providers and reads account availability for each workspace", async () => {
+test("discovery settles absent providers, and another workspace starts from the accounts' last read", async () => {
   const worker = new Worker(),
     checked = Promise.withResolvers<void>(),
     signIn = Promise.withResolvers<Info>(),
@@ -470,7 +484,7 @@ test("discovery settles absent providers and reads account availability for each
     expect(first.options.pi.pending).toBe(true);
     expect(first.options.opencode2.pending).toBe(true);
     checked.resolve();
-    await turn();
+    for (let i = 0; i < 50 && worker.preview(root).options.opencode2.pending; i++) await turn();
     const partial = worker.preview(root);
     expect(partial.options.opencode2.pending).toBe(false);
     expect(partial.installed.opencode2).toBe(false);
@@ -479,10 +493,11 @@ test("discovery settles absent providers and reads account availability for each
     signIn.resolve(Object.assign(new Info(), { signed_in: false }));
     await worker.pump();
     const next = worker.preview(join(root, "other"));
+    // Another workspace starts from what its accounts last read.
     expect(next.pending).toBe(true);
-    expect(next.options.pi.signed_in).toBeNull();
-    expect(next.options.omp.signed_in).toBeNull();
-    expect(next.options.codex.signed_in).toBeNull();
+    expect(next.options.pi.signed_in).toBe(false);
+    expect(next.options.omp.signed_in).toBe(false);
+    expect(next.options.codex.signed_in).toBe(true);
     await worker.pump();
     const refreshed = worker.preview(root, true);
     expect(refreshed.options.pi.signed_in).toBe(false);
@@ -624,6 +639,7 @@ test("accounts are listed before provider reads, and a slow account doesn't dela
     expect(first.pending).toBe(true);
     expect(first.accounts.map(a => a.name)).toEqual(["slow", "fast"]);
     expect(first.accounts.every(a => a.option.pending)).toBe(true);
+    for (let i = 0; i < 50 && started.length < installed.length + 2; i++) await turn();
     await turn();
     const partial = worker.preview("/project");
     expect(started).toHaveLength(installed.length + 2);
@@ -971,8 +987,8 @@ test("cached readings follow account edits sampled after a workspace stops reque
     expect(renamed.names.claude).toBe("personal");
     expect(reads).toBe(initialReads + 1);
     expect(models).toBe(initialModels);
-    expect(worker.jobs).toHaveLength(1);
-    expect(worker.jobs[0]).toMatchObject({ used: start, updated: start, queued: false });
+    // No viewer shows the folder any longer, so it left the refresh.
+    expect(worker.jobs).toHaveLength(0);
     expect(before.accounts.map(a => a.name)).toEqual(["kept", "removed"]);
     expect(added.accounts.map(a => a.name)).toEqual(["kept", "added"]);
   } finally {

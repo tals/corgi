@@ -228,6 +228,8 @@ test.each(["pi", "omp"] as const)("closing %s cancels its native availability re
     quit = new Quit();
   try {
     const pending = client.preview(quit);
+    // It reads the folder's files first.
+    for (let i = 0; i < 50 && !available.mock.calls.length; i++) await new Promise(resolve => setImmediate(resolve));
     expect(available).toHaveBeenCalled();
     client.close();
     expect((await pending).signed_in).toBeNull();

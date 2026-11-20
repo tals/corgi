@@ -1,5 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
-import * as commandLine from "../command_line";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "./account";
 import { read } from "./models";
 import { Quit } from "../../subprocess";
@@ -68,17 +70,14 @@ test("Claude catalogs label the saved native default effort only for supported m
         { value: "haiku", resolvedModel: "claude-haiku" },
       ],
     }),
-    settings = spyOn(commandLine, "cached").mockImplementation((root, name) => {
-      expect(root).toBe("/claude/effort");
-      expect(name).toBe("settings.json");
-      return { effortLevel: "high" };
-    });
+    account = mkdtempSync(join(tmpdir(), "corgi-claude-effort-"));
+  writeFileSync(join(account, "settings.json"), JSON.stringify({ effortLevel: "high" }));
   try {
-    const values = await read("/claude/effort", new Quit());
+    const values = await read(account, new Quit());
     expect(values[0].default_effort).toBe("high");
     expect(values[1].default_effort).toBeUndefined();
   } finally {
     models.mockRestore();
-    settings.mockRestore();
+    rmSync(account, { recursive: true, force: true });
   }
 });

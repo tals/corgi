@@ -291,7 +291,7 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
     // Corgi started, gets its hooks and setup from the next start on.
     if (job.pid !== previous) {
       const account = pane.account();
-      if (account && !accounts.forgotten(account)) accounts.remember(job.provider, account);
+      if (account && !accounts.forgotten(account)) void accounts.remember(job.provider, account);
       if (!account || !accounts.forgotten(account))
         void integration.prepare(job.provider, account, false, os.processCwd(job.pid) ?? process.cwd());
     }

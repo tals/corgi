@@ -80,8 +80,10 @@ export const accounts: Accounts = {
   env: "PI_CODING_AGENT_DIR",
   home: configDir,
   prefix: ".omp-",
-  identity,
-  configured: (root, cwd) => !!settingsModel(cwd, root).model,
+  identity: async root => identity(root),
+  // A project's config can pick another model provider, whose credential then counts.
+  variant: async cwd => defaultProvider(join(cwd, ".omp")),
+  configured: async (root, cwd) => !!settingsModel(cwd, root).model,
   shared: { dirs: ["skills", "prompts", "themes", "rules", "agents"], files: ["models.yml"] },
   // omp keeps several sign-ins in one folder already; Corgi only follows the default one.
   signin: null,

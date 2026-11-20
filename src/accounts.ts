@@ -234,21 +234,24 @@ export function label(provider: Provider, account: string): string {
   return account ? (find(provider, account)?.name ?? nameOf(provider, account)) : "";
 }
 /** Who signed in to `account`, as its provider caches that. */
-export function identity(provider: Provider, account: string): Login | null {
+export async function identity(provider: Provider, account: string): Promise<Login | null> {
   try {
-    return adapter(provider).accounts.identity(directory(provider, account));
+    return await adapter(provider).accounts.identity(directory(provider, account));
   } catch {
     return null;
   }
 }
 /** Another account of `provider` that `login` signed in to already: the
  * default or one Corgi knows. */
-export function signedInElsewhere(provider: Provider, account: string, login: Login): Known | "default" | null {
-  if (account && identity(provider, "")?.id === login.id) return "default";
-  return (
-    known().find(a => a.provider === provider && a.dir !== account && identity(provider, a.dir)?.id === login.id) ??
-    null
-  );
+export async function signedInElsewhere(
+  provider: Provider,
+  account: string,
+  login: Login,
+): Promise<Known | "default" | null> {
+  if (account && (await identity(provider, ""))?.id === login.id) return "default";
+  for (const a of known())
+    if (a.provider === provider && a.dir !== account && (await identity(provider, a.dir))?.id === login.id) return a;
+  return null;
 }
 
 /** Whether the user removed `account`, which Corgi then leaves alone. */
@@ -258,8 +261,9 @@ export function forgotten(account: string): boolean {
 /** Lists a folder an agent ran in, once someone signed in there, so its
  * hooks and history stay with Corgi after the agent is gone; not one the user
  * removed. True when it was new. */
-export function remember(provider: Provider, account: string): boolean {
-  if (!account || forgotten(account) || find(provider, account) || identity(provider, account) === null) return false;
+export async function remember(provider: Provider, account: string): Promise<boolean> {
+  if (!account || forgotten(account) || find(provider, account) || (await identity(provider, account)) === null)
+    return false;
   const value = load();
   try {
     store({
@@ -290,14 +294,16 @@ export function defaultNames(): Record<Provider, string> {
   const value = load();
   return byProvider(provider => value.defaults[provider] ?? "");
 }
-/** Evidence of setup, including a named default or saved launch options. */
-export function configured(provider: Provider, cwd = process.cwd()): boolean {
+/** Evidence of setup: someone signed in to the default account
+ * (`signed_in`), a named default, saved launch options, or the provider's own
+ * settings for `cwd`. */
+export async function configured(provider: Provider, cwd: string, signed_in: boolean): Promise<boolean> {
   const value = load();
-  if (value.defaults[provider] || value.launch.some(a => a.provider === provider && !a.account)) return true;
+  if (signed_in || value.defaults[provider] || value.launch.some(a => a.provider === provider && !a.account))
+    return true;
   const account = adapter(provider).accounts;
   try {
-    const root = account.home();
-    return account.identity(root) !== null || account.configured?.(root, cwd) === true;
+    return (await account.configured?.(account.home(), cwd)) === true;
   } catch {
     return false;
   }
@@ -519,7 +525,8 @@ export function stage(provider: Provider, name: string | null = null): Staged {
 }
 /** Moves a staged account's folder in, once its sign-in worked out, and
  * lists it as `name`: the one asked for, or one its login suggests. */
-export function adopt(s: Staged, name = s.name ?? suggest(s.provider, identity(s.provider, s.dir))): Known {
+export async function adopt(s: Staged, name?: string): Promise<Known> {
+  name ??= s.name ?? suggest(s.provider, await identity(s.provider, s.dir));
   if (!placeholder(s.dir, s.temp) || !staging(s.temp)) throw Error("NotStaged");
   unused(s.provider, name);
   unlinkSync(s.dir);

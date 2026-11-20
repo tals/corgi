@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Caps, Info, Login } from "../adapter";
 import type { Keeping, Vocabulary } from "../command_line";
-import { cached } from "../command_line";
 import { str } from "../common";
 export const info: Info = {
   id: "codex",
@@ -31,15 +30,18 @@ export const vocabulary: Vocabulary = {
   credential_env: ["OPENAI_API_KEY"],
   endpoint_env: ["OPENAI_BASE_URL"],
   provider_env: [],
-  account(root) {
-    const signed = identity(root)?.email;
+  async account(root) {
+    const signed = (await identity(root))?.email;
     return signed === "API key" ? "Profile API key - identity unavailable" : signed ? `${signed} (cached)` : null;
   },
 };
 /** Who signed in at `root`, "API key" for a key; null when no one has. A
  * ChatGPT login is a user in a workspace, personal or a team's. */
-export function identity(root: string): Login | null {
-  const auth = cached(root, "auth.json");
+export async function identity(root: string): Promise<Login | null> {
+  let auth: any = null;
+  try {
+    auth = JSON.parse(await readFile(join(root, "auth.json"), "utf8"));
+  } catch {}
   if (!auth) return null;
   if (typeof auth.OPENAI_API_KEY === "string" && auth.OPENAI_API_KEY)
     return {
@@ -58,9 +60,9 @@ export function identity(root: string): Login | null {
   }
 }
 /** A user-selected model also covers local and custom endpoints without a login. */
-export function configured(root: string): boolean {
+export async function configured(root: string): Promise<boolean> {
   try {
-    return !!str(Bun.TOML.parse(readFileSync(join(root, "config.toml"), "utf8")), "model");
+    return !!str(Bun.TOML.parse(await readFile(join(root, "config.toml"), "utf8")), "model");
   } catch {
     return false;
   }

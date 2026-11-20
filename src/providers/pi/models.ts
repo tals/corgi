@@ -1,9 +1,10 @@
+import { join } from "node:path";
 import * as effort from "../effort";
 import type { InferenceModel } from "../adapter";
 import { Stdio } from "../stdio";
 import { field, str } from "../common";
-import { cached } from "../command_line";
 import { directory } from "./integration";
+import { readJson } from "./config";
 import { profile } from "./accounts";
 import * as discovery from "../../discovery";
 import { run, type Quit } from "../../subprocess";
@@ -109,7 +110,7 @@ export async function availability(account: string, quit: Quit, cwd = "/tmp"): P
         if (str(v, "type") !== "response" || str(v, "id") !== "corgi-models") continue;
         if (field(v, "success") !== true) throw Error("ModelsUnavailable");
         const data = field(v, "data"),
-          candidates = parse(data, cached(root, "auth.json"));
+          candidates = parse(data, await readJson(join(root, "auth.json")));
         const ready = new Set<string>(),
           unverified = new Set<string>();
         await Promise.all(
@@ -141,7 +142,7 @@ export async function availability(account: string, quit: Quit, cwd = "/tmp"): P
           }),
         );
         if (quit.aborted) throw Error("Cancelled");
-        return { models: parse(data, cached(root, "auth.json"), ready), unverified };
+        return { models: parse(data, await readJson(join(root, "auth.json")), ready), unverified };
       }
       if (io.exited || io.closed) break;
       await io.wait(deadline);

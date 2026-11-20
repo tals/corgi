@@ -67,7 +67,7 @@ const tilde = (path: string) => {
 /** Says who signed in to a folder the user added, and whether Corgi's hooks
  * there wait on the user, as Codex's do until they're trusted. */
 async function signedIn(account: accounts.Known) {
-  const who = accounts.identity(account.provider, account.dir)?.email,
+  const who = (await accounts.identity(account.provider, account.dir))?.email,
     name = `${adapter(account.provider).label} · ${account.name}`;
   process.stdout.write(
     who
@@ -78,28 +78,31 @@ async function signedIn(account: accounts.Known) {
     process.stdout.write(`Its hooks need you once: \`corgi integration status --account ${account.name}\` says how.\n`);
   return who !== undefined;
 }
-function list() {
-  const rows = Provider.all.flatMap(provider => [
-    {
-      label: adapter(provider).label,
-      name: accounts.defaultName(provider) || "default",
-      who: accounts.identity(provider, "")?.email ?? null,
-      dir: tilde(accounts.directory(provider, "")),
-      managed: false,
-      named: accounts.defaultName(provider).length > 0,
-    },
-    ...accounts
-      .known()
-      .filter(a => a.provider === provider)
-      .map(a => ({
-        label: adapter(provider).label,
-        name: a.name,
-        who: accounts.identity(provider, a.dir)?.email ?? null,
-        dir: tilde(a.dir),
-        managed: a.managed,
-        named: false,
+async function list() {
+  const rows = await Promise.all(
+    Provider.all
+      .flatMap(provider => [
+        {
+          provider,
+          account: "",
+          name: accounts.defaultName(provider) || "default",
+          managed: false,
+          named: accounts.defaultName(provider).length > 0,
+        },
+        ...accounts
+          .known()
+          .filter(a => a.provider === provider)
+          .map(a => ({ provider, account: a.dir, name: a.name, managed: a.managed, named: false })),
+      ])
+      .map(async r => ({
+        label: adapter(r.provider).label,
+        name: r.name,
+        who: (await accounts.identity(r.provider, r.account))?.email ?? null,
+        dir: tilde(accounts.directory(r.provider, r.account)),
+        managed: r.managed,
+        named: r.named,
       })),
-  ]);
+  );
   const width = (pick: (r: (typeof rows)[number]) => string) => Math.max(...rows.map(r => pick(r).length)),
     labels = width(r => r.label),
     names = width(r => r.name),
@@ -139,7 +142,7 @@ async function run(args: string[]): Promise<number> {
     case undefined:
     case "list":
       if (rest.length) throw Error("Usage");
-      list();
+      await list();
       return 0;
     case "add": {
       if (rest.length > 2) throw Error("Usage");
