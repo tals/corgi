@@ -143,6 +143,7 @@ export async function synchronize(
   if (!dev.enabled()) throw Error("DevelopmentBuildRequired");
   const old = machines.find(name);
   if (old.target !== target || old.socket !== socket) throw Error("MachineChanged");
+  progress("Checking deployment receipt…");
   const deployment = await dev.acquire(old, signal);
   try {
     const executable = await setup.reconcile(old.target, old.executable, [], old.socket, deployment, {
@@ -150,7 +151,7 @@ export async function synchronize(
       signal,
     });
     signal.throwIfAborted();
-    progress(`Connecting to ${old.name}…`);
+    progress(`Refreshing ${old.name}…`);
     const info = await machines.discover(old.target, executable, old.socket, signal);
     await machines.edit(profiles =>
       profiles.map(p => {

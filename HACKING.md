@@ -142,21 +142,9 @@ fails validation is also discarded, with a fresh runtime validating the core
 before recovery starts any process. During baseline rollout,
 recovery files also retain the legacy checkpoint fields for older readers.
 
-Development launches through `./go.ts` automatically update saved SSH machines
-before their first connection, including repeated dirty edits on the same commit.
-The same applies to remote CLI commands and machine add/check; no deploy command
-is needed. Local startup waits only for the local incremental build and daemon.
-Once the viewer opens, background helpers build remote targets, upload, install
-and reload while local panes remain responsive. Build/platform and upload progress
-appears in the machine's connection status and picker. Each viewer shares one check between its
-control/data connections and reuses it across ordinary reconnects.
+Development launches through `./go.ts` dial each saved SSH machine and check its build in parallel. You can use a compatible remote daemon throughout a cross-build and upload. The machine header and picker show progress, and the viewer reconnects when installation reloads the daemon. An update failure has its own details and can be retried from the picker while the session stays online. Local startup waits only for the local incremental build and daemon. Remote CLI commands and machine add/check still wait for setup before proceeding.
 
-The first dev connection chooses this checkout. Later updates check a per-checkout
-receipt in `dist/dev-deploy/`, so another writer's remote changes stop the update.
-`./go.ts --deploy NAME --replace` remains available to take over deliberately.
-Removing `dist/dev-deploy/` forgets the receipts. Pause/quit cancels transfers;
-a build or atomic install already in progress finishes before the helper exits. Helpers serialize target
-builds and updates to the same machine.
+The first dev connection chooses this checkout. Later updates check a per-checkout receipt in `dist/dev-deploy/`, so another writer's remote changes stop the update. `./go.ts --deploy NAME --replace` takes over deliberately. Removing `dist/dev-deploy/` forgets the receipts. Each viewer checks once per machine across reconnects. Pause or quit cancels pending builds and transfers. A helper that has started the atomic install finishes verification and records the receipt independently. Helpers serialize target builds and updates to the same machine.
 
 `go.ts` uses `bun build.ts --incremental`: unchanged artifacts are reused, and
 TypeScript-only changes skip Zig. Each target keeps one artifact and native output;

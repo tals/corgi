@@ -13,6 +13,17 @@ export class Notice {
   }
   /** Opens `endpoint`'s problem; false when it has none to show. */
   show(endpoint: Endpoint): boolean {
+    if (endpoint.updateError && !endpoint.error) {
+      this.message = [
+        `${endpoint.name} · Update failed`,
+        "",
+        endpoint.updateError,
+        "",
+        "Ctrl+R in the machine picker to retry",
+      ];
+      this.offset = 0;
+      return true;
+    }
     if (!endpoint.error) return false;
     const command = endpoint.issue === "auth" || endpoint.issue === "host-key" ? "reconnect" : "status";
     this.message = [
@@ -22,6 +33,7 @@ export class Notice {
       "",
       "Run in a terminal:",
       `corgi machine ${command} ${endpoint.name}`,
+      ...(endpoint.updateError ? ["", "Update failed", endpoint.updateError] : []),
       ...(endpoint.issue === "host-key" ? ["Verify the host fingerprint before approving its key."] : []),
     ];
     this.offset = 0;

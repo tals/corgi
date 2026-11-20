@@ -196,9 +196,8 @@ async function artifact(
   if (wanted.commit !== local.commit || wanted.source_hash !== local.source_hash)
     throw Error("DevelopmentArtifactUnavailable");
   if (wanted.target === local.target) return local.executable;
-  options.progress?.(`Building for ${wanted.target}…`);
   const file = process.env.CORGI_DEV_ROOT
-    ? await dev.artifact(wanted.target, options.signal)
+    ? await dev.artifact(wanted.target, options.signal, options.progress)
     : join(dirname(local.executable), `corgi-${wanted.target}`);
   if (!existsSync(file + ".build.json"))
     throw Error(`Build the matching remote artifact with bun build.ts --target ${wanted.target}`);
@@ -236,6 +235,7 @@ export async function reconcile(
   ) => executeRemote(host, script, input, fresh, limit, uploaded, options.signal);
   // A source run has no commit or artifact to compare or install.
   if (!import.meta.filename.startsWith("/$bunfs/")) throw Error("BuildCorgiBeforeMachineSetup");
+  options.progress?.("Checking local build…");
   const local = build.describe(buildId.self());
   if (deployment && build.released(local.version)) throw Error("DevelopmentBuildRequired");
   const status = new progress.Progress(options.progress);

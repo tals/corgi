@@ -1,7 +1,9 @@
 import {
   cpSync,
+  mkdirSync,
   existsSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
   realpathSync,
@@ -385,6 +387,50 @@ class Remote extends Runtime {
     this.assertEqual(createHash("sha256").update(readFileSync(destination)).digest("hex"), expected);
     this.assertTrue(shown.size > 0);
   }
+  async test_dev_launcher_connects_during_a_cross_build_and_quits_with_the_build_blocked() {
+    await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
+    const root = this.temp.name;
+    mkdirSync(join(root, "scripts"), { recursive: true });
+    mkdirSync(join(root, "dist"), { recursive: true });
+    copyFileSync(join(ROOT, "go.ts"), join(root, "go.ts"));
+    copyFileSync(join(ROOT, "scripts/stop-other-daemons.ts"), join(root, "scripts/stop-other-daemons.ts"));
+    copyFileSync(EXE, join(root, "dist/corgi"));
+    // Only the setup probe sees a different CPU. The live SSH daemon still runs its real build.
+    const wrapper = join(root, "bin/ssh");
+    const arch = process.arch === "arm64" ? "x86_64" : "aarch64";
+    writeFileSync(
+      wrapper,
+      readFileSync(wrapper, "utf8").replace(
+        "const p = Bun.spawn(",
+        `args[args.length - 1] = args.at(-1).replace("uname -m", "echo ${arch}"); const p = Bun.spawn(`,
+      ),
+    );
+    const target = process.platform + (arch === "aarch64" ? "-arm64" : "-x64");
+    const started = join(root, "compiler-started"),
+      stopped = join(root, "compiler-stopped");
+    const compiler = `trap 'touch "${stopped}"; exit' TERM; touch "${started}"; sleep 30`;
+    writeFileSync(
+      join(root, "build.ts"),
+      `
+      if (process.argv.includes("--target")) {
+        await Bun.spawn(["sh", "-c", ${JSON.stringify(compiler)}], { stdio: ["ignore", "inherit", "inherit"] }).exited;
+      }
+    `,
+    );
+    await this.startViewer("work", 110, 36, undefined, [process.execPath, join(root, "go.ts"), "--no-kill"]);
+    await this.until(() => existsSync(started), 15);
+    await this.online();
+    this.assertTrue(
+      this.text()
+        .split("\n")
+        .some(line => line.includes("work") && line.includes(`Build ${target}`)),
+      this.text(),
+    );
+    await this.sendRemote("REMOTE_DURING_BUILD");
+    this.terminal!.write("\x02q");
+    this.assertEqual(await deadline(this.ui!.exited, 2000, "go.ts waited for the cross-build"), 0);
+    await this.until(() => existsSync(stopped), 2);
+  }
   async test_cancel_during_automatic_install_finishes_the_receipt_and_allows_reconnection() {
     await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
     const a = await this.developmentBinary("cancel-a"),
@@ -393,39 +439,33 @@ class Remote extends Runtime {
     const env = { ...this.env, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath };
     await run([a, "--machine", "work", "ping"], { env, timeout: 60000 });
     const wrapper = join(this.temp.name, "bin/ssh"),
-      marker = join(this.temp.name, "install-started");
+      marker = join(this.temp.name, "install-started"),
+      release = join(this.temp.name, "allow-install");
     writeFileSync(
       wrapper,
       readFileSync(wrapper, "utf8").replace(
         "const p = Bun.spawn(",
-        `if (args.at(-1).includes("__machine-install")) { await Bun.write(${JSON.stringify(marker)}, ""); await Bun.sleep(1000); } const p = Bun.spawn(`,
+        `if (args.at(-1).includes("__machine-install")) { await Bun.write(${JSON.stringify(marker)}, ""); while (!await Bun.file(${JSON.stringify(release)}).exists()) await Bun.sleep(25); } const p = Bun.spawn(`,
       ),
     );
-    const helper = Bun.spawn([b, "__machine-sync", "work", "corgi-test-host", this.remote!.path], {
-      env: { ...env, CORGI_MACHINE_SYNC: "1" },
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const output = new Response(helper.stdout).text(),
-      diagnostic = new Response(helper.stderr).text();
+    Object.assign(this.env, env);
+    await this.startViewer("work", 110, 36, undefined, b);
     try {
       await this.until(() => existsSync(marker), 30);
-      helper.kill("SIGTERM");
-      this.assertNotEqual(await deadline(helper.exited, 30000), 0);
-      this.assertIn("MachineUpdateCancelled", await diagnostic);
-      this.assertNotIn('"type":"ready"', await output);
+      await this.online();
+      this.terminal!.write("\x02q");
+      this.assertEqual(await deadline(this.ui!.exited, 2000, "viewer waited for the atomic install"), 0);
     } finally {
-      if (helper.exitCode === null) helper.kill("SIGKILL");
-      await helper.exited;
+      writeFileSync(release, "");
     }
+    const receipts = join(this.temp.name, "dist/dev-deploy");
+    const receipt = readdirSync(receipts).find(name => /^[a-f0-9]{64}$/.test(name))!;
+    const expected = createHash("sha256").update(readFileSync(b)).digest("hex");
+    await this.until(() => readFileSync(join(receipts, receipt), "utf8").trim() === expected, 30);
     const result = await run([b, "--machine", "work", "ping"], { env, timeout: 60000 });
     this.assertNotIn("Uploading", result.stderr);
     const destination = join(this.remote!.temp.name, ".local/bin/corgi");
-    this.assertEqual(
-      createHash("sha256").update(readFileSync(destination)).digest("hex"),
-      createHash("sha256").update(readFileSync(b)).digest("hex"),
-    );
+    this.assertEqual(createHash("sha256").update(readFileSync(destination)).digest("hex"), expected);
   }
   async tearDown() {
     try {
@@ -457,7 +497,7 @@ class Remote extends Runtime {
     cols = 100,
     rows = 30,
     onData: (data: Uint8Array) => void = () => {},
-    executable = EXE,
+    executable: string | string[] = EXE,
   ) {
     this.emulator = new Terminal(cols, rows);
     this.terminal = new Bun.Terminal({
@@ -468,7 +508,8 @@ class Remote extends Runtime {
         onData(data);
       },
     });
-    this.ui = Bun.spawn(selected === "local" ? [executable, "--no-update"] : [executable, "--machine", selected], {
+    const command = typeof executable === "string" ? [executable] : executable;
+    this.ui = Bun.spawn([...command, ...(selected === "local" ? ["--no-update"] : ["--machine", selected])], {
       env: this.env,
       cwd: this.temp.name,
       terminal: this.terminal,

@@ -60,6 +60,8 @@ try {
   throw Error(`Another build is running (or left ${lock}); remove it only after that build has stopped.`);
 }
 process.on("exit", () => rmSync(lock, { recursive: true, force: true }));
+// Run the exit handlers for the lock and staging directory when a viewer cancels a build.
+process.once("SIGTERM", () => process.exit(143));
 const translated = await translations.verify();
 process.on("exit", () => process.stderr.write(translated.text));
 if (translated.code) process.exit(translated.code);

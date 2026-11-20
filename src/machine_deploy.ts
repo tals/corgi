@@ -18,24 +18,46 @@ export function enabled(): boolean {
   return !!process.env.CORGI_DEV_ROOT && !!process.env.CORGI_DEV_BUN;
 }
 /** The launcher supplies its Bun and checkout; neither is needed on the remote. */
-export async function artifact(target: Target, signal?: AbortSignal): Promise<string> {
+export async function artifact(
+  target: Target,
+  signal?: AbortSignal,
+  progress?: (message: string) => void,
+): Promise<string> {
   const { root, bun } = checkout();
   const fd = fs.openSync(path.join(root, "dist/dev-build.lock"), "a", 0o600);
   try {
-    while (!flock(fd)) {
-      signal?.throwIfAborted();
-      await Bun.sleep(50);
+    if (!flock(fd)) {
+      progress?.(`Waiting to build ${target}…`);
+      do {
+        signal?.throwIfAborted();
+        await Bun.sleep(50);
+      } while (!flock(fd));
     }
     signal?.throwIfAborted();
+    progress?.(`Build ${target}`);
     const child = Bun.spawn([bun, path.join(root, "build.ts"), "--incremental", "--target", target], {
       cwd: root,
+      detached: !!signal,
       stdin: "ignore",
       stdout: 2,
       stderr: "inherit",
     });
-    // Let a shared build publish atomically, even if this connection no longer needs it.
-    if (await child.exited) throw Error("DevelopmentBuildFailed");
-    signal?.throwIfAborted();
+    // Zig and its compiler workers belong to this build too.
+    const abort = () => {
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      const code = await child.exited;
+      signal?.throwIfAborted();
+      if (code !== 0) throw Error("DevelopmentBuildFailed");
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
     return path.join(root, "dist", `corgi-${target}`);
   } finally {
     flock(fd, false);

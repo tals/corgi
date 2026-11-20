@@ -10,6 +10,7 @@ import { Connection } from "./rpc";
 import * as machine_path from "./machine_path";
 import * as viewer from "./viewer";
 import * as errors from "./errors";
+import { Failure as UpdateFailure } from "./machine_update";
 import type { Probe } from "./terminal_info";
 import type { Host } from "./host";
 import type { WorkspaceEntry } from "./sidebar";
@@ -177,6 +178,9 @@ export class Endpoint {
   private cancellation = new AbortController();
   private focus: { instance: string; at: Focus } | null = null;
   private cache: Cache;
+  private updating: AbortController | null = null;
+  updateMessage = "";
+  updateError = "";
   folder: string | null = null;
   onChange: () => void = () => {};
   onMachines: () => void = () => {};
@@ -189,9 +193,10 @@ export class Endpoint {
     readonly name: string,
     readonly remote: boolean,
     identity: string[],
-    private readonly newPath: machine_path.Factory,
+    private newPath: machine_path.Factory,
     readonly probe: Probe,
     readonly host: Host,
+    private update?: (signal: AbortSignal, progress: (message: string) => void) => Promise<machine_path.Factory>,
   ) {
     this.sample = newPath(false, false);
     this.machine = new Machine(this.transport(), this.name, remote);
@@ -206,7 +211,7 @@ export class Endpoint {
         link_quality: remote ? (status === "online" ? this.stats.quality : quiet ? null : 0) : null,
         connecting: !quiet && (status === "connecting" || status === "stalled" || status === "offline"),
         stopped: status === "paused" || status === "attention" || status === "incompatible",
-        connection_status: quiet ? null : this.headerStatus(),
+        connection_status: quiet && !this.updateMessage && !this.updateError ? null : this.headerStatus(),
         description: this.description(),
         cached: this.workspaces,
         seen: this.updated > 0,
@@ -388,8 +393,47 @@ export class Endpoint {
     this.resource_detail = workspace;
     this.wake();
   }
+  /** The update belongs to the machine. Losing a tunnel leaves its build or transfer running. */
+  private async startUpdate(): Promise<void> {
+    if (!this.update || this.updating || this.updateError) return;
+    const job = (this.updating = new AbortController());
+    this.updateMessage = "Checking build…";
+    try {
+      const factory = await this.update(job.signal, message => {
+        if (job.signal.aborted) return;
+        this.updateMessage = message;
+        this.onChange();
+      });
+      if (job.signal.aborted) return;
+      this.newPath = factory;
+      this.update = undefined;
+      // An incompatible or unreachable daemon may now be usable. A live link does its own handoff.
+      if (!this.checked && !this.handoff && !this.shut_down) this.retry();
+    } catch (error) {
+      if (!job.signal.aborted)
+        this.updateError = (
+          error instanceof UpdateFailure ? error.detail : errors.name(error) || "MachineUpdateFailed"
+        ).replace(/[\x00-\x1f\x7f]/g, " ");
+    } finally {
+      if (this.updating === job) {
+        this.updating = null;
+        this.updateMessage = "";
+        this.onChange();
+      }
+    }
+  }
+  private cancelUpdate(): void {
+    this.updating?.abort();
+    this.updating = null;
+    this.updateMessage = this.updateError = "";
+  }
   retry(): void {
     if (this.stopped) return;
+    if (this.updateError) {
+      this.updateError = "";
+      void this.startUpdate();
+      if (this.status === "online") return;
+    }
     this.shut_down = false;
     this.releaseHandoff();
     this.interruption++;
@@ -402,6 +446,7 @@ export class Endpoint {
   }
   pause(): void {
     if (this.stopped) return;
+    this.cancelUpdate();
     this.releaseHandoff();
     this.interruption++;
     this.disconnect();
@@ -414,6 +459,10 @@ export class Endpoint {
     this.error = "";
   }
   headerStatus(now = performance.now()): WorkspaceEntry["connection_status"] {
+    if (this.updateError && !this.error)
+      return { label: "Update failed", seconds: null, color: "hot", diagnostic: true };
+    if (this.updateMessage)
+      return { label: this.updateMessage, seconds: null, color: "warm", diagnostic: !!this.error };
     const status = this.connectionStatus(now);
     // An SSH machine's failure opens its details from the header, whatever comes next.
     return status && this.remote && this.error ? { ...status, diagnostic: true } : status;
@@ -441,6 +490,11 @@ export class Endpoint {
     }
   }
   description(now = performance.now()): string {
+    const detail = this.connectionDescription(now);
+    if (this.updateMessage) return `${this.updateMessage} · ${detail}`;
+    return this.updateError ? `Update failed · ${detail}` : detail;
+  }
+  private connectionDescription(now: number): string {
     switch (this.status) {
       case "attention":
         return `Attention · ${this.error}`;
@@ -681,6 +735,7 @@ export class Endpoint {
     this.wake();
   }
   private async connect(): Promise<void> {
+    void this.startUpdate();
     const previous = this.instance;
     const had_viewer = this.machine.viewer_id !== 0;
     const generation = ++this.generation;
@@ -739,6 +794,11 @@ export class Endpoint {
       this.data = null;
     } else if (this.shown) this.openData();
     this.checked = conn;
+    // A failed check can follow the same network outage as the dial. Try it again once SSH is back.
+    if (this.updateError) {
+      this.updateError = "";
+      void this.startUpdate();
+    }
     // A view outlives its connections to one daemon. Another daemon's ids
     // mean nothing to it.
     const same = previous === this.instance;
@@ -1151,6 +1211,7 @@ export class Endpoint {
   }
   async close(): Promise<void> {
     this.stopped = true;
+    this.cancelUpdate();
     this.disconnect();
     this.settleNumbered(() => true);
     await this.task;

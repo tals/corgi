@@ -23,7 +23,7 @@ const usage = `Usage: bun run go.ts [--temp | --env NAME | --sandbox NAME] [--no
 
 With no command, start or attach. Use "onboard" to reopen onboarding.
 SSH machines update to this checkout automatically when connecting. Target builds
-are cached, and the viewer shows build/upload progress while local work stays usable.
+are cached. The viewer shows build/upload progress while you use a compatible remote daemon.
 Launching the main environment stops all other Corgi daemons owned by you.
 Launching --temp stops only your other temporary runtimes. --no-kill skips cleanup.
 Temporary runtimes keep running after detach; shutdown still asks for confirmation.`;

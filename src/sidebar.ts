@@ -1574,13 +1574,13 @@ export class View {
         const bars = v.signal_marks ? signalBars.cells : 4;
         const status = ws.connection_status;
         const timer = !status || status.seconds === null ? "" : ` ${status.seconds}s`;
-        const status_room = sat(v.width, 12);
+        const status_room = sat(v.width, 10);
         const label = status ? ellipsis(status.label, sat(status_room, displayWidth(timer))) + timer : "";
         const status_width = displayWidth(label);
         writeEllipsis(
           w,
           v.workspace_machines[absolute],
-          sat(v.width, status ? status_width + 8 : quality === null ? 6 : 8 + bars),
+          sat(v.width, status ? status_width + 6 : quality === null ? 6 : 8 + bars),
         );
         if (status) {
           w.write(w.cup(y, v.width - status_width - 1) + fg(status.color) + label);
@@ -3132,7 +3132,7 @@ export function machineDiagnosticAt(v: View, rows: WorkspaceEntry[], x: number, 
     const status = rows[i]?.connection_status;
     if (!status?.diagnostic || y !== v.workspaceY(i) - 1) continue;
     const timer = status.seconds === null ? "" : ` ${status.seconds}s`;
-    const label = ellipsis(status.label, sat(sat(v.width, 12), displayWidth(timer))) + timer;
+    const label = ellipsis(status.label, sat(sat(v.width, 10), displayWidth(timer))) + timer;
     return x >= v.width - displayWidth(label) - 2 && x < v.width - 2;
   }
   return false;

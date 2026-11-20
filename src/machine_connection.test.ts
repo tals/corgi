@@ -18,7 +18,12 @@ import { transport } from "./fixtures/transport";
 
 /** A daemon that keeps links, and drops the connection the first time it gets
  * a command, after running it, the way a network fails between the two. */
-async function flakyDaemon(remote = false, resumed = false, bound = Promise.resolve()) {
+async function flakyDaemon(
+  remote = false,
+  resumed = false,
+  bound = Promise.resolve(),
+  update?: ConstructorParameters<typeof Endpoint>[6],
+) {
   const dir = mkdtempSync(join(tmpdir(), "corgi-link-"));
   const path = join(dir, "control.sock");
   const seen: { op: string; seq?: number; worktree_detail?: number | null }[] = [];
@@ -98,10 +103,11 @@ async function flakyDaemon(remote = false, resumed = false, bound = Promise.reso
   });
   await new Promise<void>(resolve => server.listen(path, resolve));
   const endpoint = remote
-    ? new Endpoint("work", true, ["work"], machine_path.local(path), new Probe(), new Host())
+    ? new Endpoint("work", true, ["work"], machine_path.local(path), new Probe(), new Host(), update)
     : localEndpoint(path, new Probe(), new Host());
   return {
     endpoint,
+    path,
     seen,
     replace: (next = "second") => (instance = next),
     connect: () => Reflect.get(endpoint, "connect").call(endpoint) as Promise<void>,
@@ -246,6 +252,86 @@ test("switching away and back during viewer binding keeps history connected", as
     view.launch_previews.disconnect();
     await daemon.close();
     local.runtime.destroy();
+  }
+});
+
+test("failed and retried builds leave a compatible connection online", async () => {
+  const first = Promise.withResolvers<machine_path.Factory>();
+  const second = Promise.withResolvers<machine_path.Factory>();
+  const signals: AbortSignal[] = [];
+  const daemon = await flakyDaemon(true, false, undefined, (signal, progress) => {
+    signals.push(signal);
+    progress("Build linux-arm64");
+    return signals.length === 1 ? first.promise : second.promise;
+  });
+  const { endpoint } = daemon;
+  try {
+    endpoint.pump(false);
+    await until(() => endpoint.status === "online");
+    const generation = endpoint.generation;
+    expect(endpoint.machine.presence().connection_status?.label).toBe("Build linux-arm64");
+    first.reject(Error("Compiler failed"));
+    await until(() => endpoint.updateError === "Compiler failed");
+    expect(endpoint.error).toBe("");
+    expect(endpoint.headerStatus()).toMatchObject({ label: "Update failed", diagnostic: true });
+    endpoint.retry();
+    expect(endpoint.status).toBe("online");
+    second.resolve(machine_path.local(daemon.path));
+    await until(() => !endpoint.updateMessage);
+    expect(endpoint.generation).toBe(generation);
+    daemon.disconnect();
+    await daemon.connect();
+    expect(signals).toHaveLength(2);
+  } finally {
+    await daemon.close();
+  }
+});
+
+test("a paused update cannot replace the path and a completed update retries an incompatible daemon", async () => {
+  const daemon = await flakyDaemon();
+  const obsolete = (): machine_path.Path => ({
+    ...machine_path.local(daemon.path)(false, false),
+    async open() {
+      throw Error("IncompatibleRemoteCorgi");
+    },
+    diagnose: () => ({ issue: "error", detail: "" }),
+  });
+  const jobs: {
+    signal: AbortSignal;
+    finish: (factory: machine_path.Factory) => void;
+    progress: (message: string) => void;
+  }[] = [];
+  const endpoint = new Endpoint(
+    "work",
+    true,
+    ["work"],
+    obsolete,
+    new Probe(),
+    new Host(),
+    (signal, progress) => new Promise(finish => jobs.push({ signal, finish, progress })),
+  );
+  try {
+    endpoint.pump(false);
+    await until(() => endpoint.status === "incompatible");
+    endpoint.pause();
+    expect(jobs[0].signal.aborted).toBe(true);
+    endpoint.retry();
+    endpoint.pump(false);
+    await until(() => endpoint.status === "incompatible");
+    jobs[1].progress("Uploading delta");
+    jobs[0].progress("Stale progress");
+    jobs[0].finish(obsolete);
+    await Bun.sleep(0);
+    expect(endpoint.status).toBe("incompatible");
+    expect(endpoint.updateMessage).toBe("Uploading delta");
+    jobs[1].finish(machine_path.local(daemon.path));
+    await until(() => endpoint.status === "connecting");
+    endpoint.pump(false);
+    await until(() => endpoint.status === "online");
+    expect(jobs).toHaveLength(2);
+  } finally {
+    await endpoint.close();
+    await daemon.close();
   }
 });
 
