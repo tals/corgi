@@ -33,6 +33,18 @@ function fake() {
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 const line = (n: number): dropdown.Run[] => [[`${n} files`, "faint"]];
 
+test("a directory is known to be in a checkout or not once a read says", async () => {
+  const { s, reads } = fake();
+  expect(s.inCheckout("/repo/sub")).toBeNull();
+  s.want("/repo/sub");
+  s.want("/tmp");
+  await settle();
+  expect(s.inCheckout("/repo/sub")).toBe(true);
+  reads[0].answer(line(1));
+  await settle();
+  expect(s.inCheckout("/tmp")).toBe(false);
+});
+
 test("a checkout is read once until it goes stale or old", async () => {
   const { s, reads, tick } = fake();
   s.want("/repo");

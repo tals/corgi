@@ -42,6 +42,11 @@ export class Summaries {
     const key = this.key(cwd);
     return key === null ? null : (this.lines.get(key)?.runs ?? null);
   }
+  /** Whether `cwd` is in a git checkout, or null until a read says. */
+  inCheckout(cwd: string): boolean | null {
+    const root = this.roots.get(cwd);
+    return root === undefined ? null : root !== null;
+  }
   /** Reads `cwd`'s line in the background unless what's kept is still good. */
   want(cwd: string): void {
     const key = this.key(cwd);

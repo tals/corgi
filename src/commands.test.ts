@@ -91,6 +91,20 @@ test("a hidden Review changes leaves the menu without a rule on top", () => {
   expect(agent.highlightedItem()).toBe("copy-details");
 });
 
+test("hiding a row while the menu is open keeps the highlight on its row", () => {
+  const menu = new TabMenu({ tab: 1, anchor_x: 0, agent: true });
+  menu.highlightFirst();
+  menu.move(true);
+  expect(menu.highlightedItem()).toBe("copy-details");
+  menu.hide("review");
+  expect(menu.highlightedItem()).toBe("copy-details");
+  // The highlighted row itself moves the highlight to the first that runs.
+  const first = new TabMenu({ tab: 1, anchor_x: 0, agent: true });
+  first.highlightFirst();
+  first.hide("review");
+  expect(first.highlightedItem()).toBe("copy-details");
+});
+
 test("Copy full path keeps the checkout name in a narrow preview and its second line is clickable", () => {
   const menu = new TabMenu({ tab: 1, anchor_x: 0, worktree: "/repo/.worktrees/topic", title: "topic" });
   menu.setDetail("copy-path", [["./.claude/worktrees/a-long-parent/topic", "faint"]]);
