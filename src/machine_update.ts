@@ -23,13 +23,20 @@ export class Failure extends Error {
 }
 export async function prepare(
   profile: machines.Profile,
-  progress: (message: string) => void = message => process.stderr.write(message + "\n"),
-  signal?: AbortSignal,
+  {
+    progress = (message: string) => process.stderr.write(message + "\n"),
+    signal,
+    reuseLogin = false,
+  }: {
+    progress?: (message: string) => void;
+    signal?: AbortSignal;
+    reuseLogin?: boolean;
+  } = {},
 ): Promise<machines.Profile> {
   if (!dev.enabled()) return profile;
   signal?.throwIfAborted();
   const child = Bun.spawn([buildId.self(), "__machine-sync", profile.name, profile.target, profile.socket], {
-    env: { ...process.env, CORGI_MACHINE_SYNC: "1" },
+    env: { ...process.env, CORGI_MACHINE_SYNC: reuseLogin ? "reconnect" : "1" },
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",

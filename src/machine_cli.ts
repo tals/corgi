@@ -77,7 +77,7 @@ export async function manage(args: string[]): Promise<void> {
         });
         if (await child.exited) throw Error("SshAuthenticationFailed");
       }
-      profile = await machineUpdate.prepare(profile);
+      profile = await machineUpdate.prepare(profile, { reuseLogin: args[0] === "reconnect" });
       await check(profile);
       process.stdout.write(json.stringify({ ok: true, machine: profile.name, status: "reachable" }) + "\n");
       return;

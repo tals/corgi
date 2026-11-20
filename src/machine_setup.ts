@@ -240,6 +240,8 @@ export async function reconcile(
   if (deployment && build.released(local.version)) throw Error("DevelopmentBuildRequired");
   const status = new progress.Progress(options.progress);
   status.show(`Checking Corgi on ${host}`);
+  // Reconnect has already authenticated this control master, possibly with a password.
+  const reuseLogin = process.env.CORGI_MACHINE_SYNC === "reconnect";
   const launcherRoot = "s/^root='\\(.*\\)'$/\\1/p";
   const output = await remote(
     host,
@@ -268,7 +270,7 @@ fi
 printf '%s\\n' "$p"
 if [ -n "$p" ]; then "$p" __update-info; fi`,
     undefined,
-    true,
+    !reuseLogin,
   );
   const marker = output.indexOf("\ncorgi-setup-v1\n");
   if (marker < 0) throw Error("InvalidSetupResponse");
@@ -324,7 +326,7 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
         const result = await sendDelta(
           [
             "ssh",
-            ...ssh.args(host, !process.env.CORGI_MACHINE_SYNC, false, "data"),
+            ...ssh.args(host, !process.env.CORGI_MACHINE_SYNC, false, reuseLogin ? "control" : "data"),
             ssh.command(executable, ["__machine-receive", staging + "/corgi", expected, hash]),
           ],
           data,

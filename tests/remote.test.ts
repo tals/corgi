@@ -310,6 +310,30 @@ class Remote extends Runtime {
     await deploy(b, true);
     this.assertEqual(hash(destination), hash(b));
   }
+  async test_dev_reconnect_uses_its_authenticated_master_for_the_whole_update() {
+    await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
+    const file = await this.developmentBinary("reconnect");
+    writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture.\n");
+    const state = join(this.temp.name, "reconnect-state");
+    cpSync(this.env.XDG_STATE_HOME!, state, { recursive: true });
+    // Only the foreground login can authenticate. Batch SSH must use its open master.
+    const ssh = join(this.temp.name, "bin/ssh");
+    writeFileSync(
+      ssh,
+      readFileSync(ssh, "utf8").replace(
+        "const args = process.argv.slice(2);",
+        'const args = process.argv.slice(2); if (args.includes("BatchMode=yes")) args.unshift("-o", "PubkeyAuthentication=no");',
+      ),
+    );
+    const before = this.network!.accepted;
+    const result = await run([file, "machine", "reconnect", "work"], {
+      env: { ...this.env, XDG_STATE_HOME: state, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath },
+      timeout: 60000,
+    });
+    this.assertEqual(JSON.parse(result.stdout).status, "reachable");
+    this.assertIn("Uploading delta", result.stderr);
+    this.assertEqual(this.network!.accepted, before + 1);
+  }
   async test_dev_connections_update_automatically_and_show_progress_without_blocking_local_input() {
     await this.command("pane.create", { workspace: 1, command: "cat" });
     await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();

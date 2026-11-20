@@ -14,7 +14,7 @@ import * as dev from "./machine_deploy";
 
 export function sshPath(profile: Profile, changed: () => void = () => {}): machine_path.Factory {
   const preparation = dev.enabled()
-    ? new update.Preparation((signal, progress) => update.prepare(profile, progress, signal), changed)
+    ? new update.Preparation((signal, progress) => update.prepare(profile, { progress, signal }), changed)
     : null;
   return (fresh, race, start = false) => {
     const cancellation = new AbortController();
