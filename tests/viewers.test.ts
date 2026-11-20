@@ -72,7 +72,7 @@ process.stdout.write("PREFIX_READY");
       return { y, row: screen[y] };
     };
     await viewer.input("\x02i");
-    const off = ghosttyRow((await viewer.input("jjjjjjj")).data).row;
+    const off = ghosttyRow((await viewer.input("jjjjjj")).data).row;
     this.assertTrue(/Command keys\s+○ Off/.test(off), off);
     // Enter opens Keymap on the preset in use; up wraps to Command keys.
     await viewer.input("\rk");
@@ -89,7 +89,7 @@ process.stdout.write("PREFIX_READY");
     this.assertEqual((await viewer.input("\x02n")).pane, panes[0]);
     this.assertEqual((await viewer.input("\x02p")).pane, panes.at(-1));
     await viewer.input("\x02i");
-    const { y, row } = ghosttyRow((await viewer.input("jjjjjjj")).data);
+    const { y, row } = ghosttyRow((await viewer.input("jjjjjj")).data);
     this.assertTrue(/Command keys\s+● On/.test(row), row);
     // A click on the option turns it off.
     const x = row.indexOf("Command keys") + 1;

@@ -341,8 +341,6 @@ function copyLabel(note: copyCleanup.Note): string {
   switch (note) {
     case "joined":
       return i18n.t`Copied as one line`;
-    case "dedented":
-      return i18n.t`Copied without indent`;
     case null:
       return i18n.t`Copied to clipboard`;
   }

@@ -1,0 +1,9 @@
+width: 30
+start_x: 2
+first_indent: 2
+
+  1. install the cli tool and
+  2. run the setup
+---
+1. install the cli tool and
+2. run the setup

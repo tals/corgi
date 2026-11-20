@@ -8138,11 +8138,15 @@ function mouseInput(view: any, sequence: string): Promise<void> {
 /** A controller whose focused pane shows a command the harness wrapped onto
  * two indented rows, the first filling the pane. `drag` presses `button` on
  * the first row's start, drags with `motion` to the second row and releases;
- * `copied` is what reached the clipboard. The daemon answers line picks with
- * `pick`. */
+ * `copied` is what reached the clipboard once the copy settled. The daemon
+ * reads a drag's cells from the pane's terminal, and answers word and line
+ * picks with `pick`. */
 function copying(mouse_aware = false, pick: object | null = null) {
+  let native: NativeTerminal | null = null;
   const s: any = new Controller({
-    request: transport(async op => {
+    request: transport(async (op, fields: any) => {
+      if (op === "viewer.pick" && fields.unit === "cell" && native)
+        return { ok: true, ...native.pick("cell", fields.x, fields.y, fields.to_x, fields.to_y, 0) };
       if (op === "viewer.pick" && pick) return { ok: true, ...pick };
       throw Error("UnexpectedRequest");
     }).request,
@@ -8153,7 +8157,7 @@ function copying(mouse_aware = false, pick: object | null = null) {
   s.input_state.attached = true;
   setSystemTime(new Date(1000));
   const rect = s.layoutView().placements(s.area())[0].rect;
-  const native = NativeTerminal.create(rect.w, rect.h);
+  native = NativeTerminal.create(rect.w, rect.h);
   const filler = "x".repeat(rect.w - 22);
   if (mouse_aware) native.feed("\x1b[?1000h\x1b[?1006h");
   native.feed(`  kubectl get pods -n ${filler}\r\n  -o wide`);
@@ -8165,10 +8169,11 @@ function copying(mouse_aware = false, pick: object | null = null) {
     await s.input(bytes(`\x1b[<${button};${cell(0, 0)}M\x1b[<${motion};${cell(8, 1)}M`));
     const shown = term.selectedText();
     await s.input(bytes(`\x1b[<${release};${cell(8, 1)}m`));
+    await Bun.sleep(0);
     return { shown, copied: s.clipboard };
   };
   const done = () => {
-    native.destroy();
+    native?.destroy();
     setSystemTime();
     clock.reset();
     viewer.close(s);
@@ -8176,6 +8181,7 @@ function copying(mouse_aware = false, pick: object | null = null) {
   return {
     s,
     term,
+    daemon: native,
     rect,
     cell,
     drag,
@@ -8213,11 +8219,11 @@ test("the copy toast says when a drag joined a command onto one line", async () 
   }
 });
 
-test("in a pane whose app takes the mouse, Shift selects with cleanup and Shift with Alt or Ctrl copies raw", async () => {
-  const { s, term, drag, raw, flat, done } = copying(true);
+test("in a pane whose app takes the mouse, a Shift drag copies raw", async () => {
+  const { s, term, drag, raw, done } = copying(true);
   try {
     expect(term.mouseEvents()).toBe(true);
-    expect(await drag(4)).toEqual({ shown: raw, copied: flat });
+    expect(await drag(4)).toEqual({ shown: raw, copied: raw });
     expect(await drag(12)).toEqual({ shown: raw, copied: raw });
     expect(await drag(20)).toEqual({ shown: raw, copied: raw });
     // Without Shift the app gets the drag.
@@ -8276,13 +8282,36 @@ test("a triple-click over several rows copies the cleaned-up lines; over one row
   }
 });
 
-test("a selection whose row scrolled away counts its first line from column 0", () => {
+test("a selection's first line counts from where it starts, its indent from the row's", () => {
   const { s, term, done } = copying();
   try {
     expect(s.selectionSnapshot(term, "-o wide\n  next", 2, 1)).toMatchObject({ start_x: 2, first_indent: 2 });
     expect(s.selectionSnapshot(term, "  -o wide\n  next", 0, 1)).toMatchObject({ start_x: 0, first_indent: 2 });
-    // The row under the start shows other text now.
-    expect(s.selectionSnapshot(term, "-o wide\n  next", 2, 0)).toMatchObject({ start_x: 0, first_indent: 0 });
+  } finally {
+    done();
+  }
+});
+
+test("a drag copies the text as shown when the daemon can't read it back or the pane changed since", async () => {
+  const { term, drag, raw, done } = copying();
+  try {
+    const pick = spyOn(term, "pick").mockResolvedValue(null);
+    expect((await drag(0)).copied).toBe(raw);
+    pick.mockResolvedValue({ match: { x: 0, y: 0, end_x: 8, end_y: 1 }, copy: "  ls\n  -o wide", shown: "ls-o wide" });
+    expect((await drag(0)).copied).toBe(raw);
+  } finally {
+    done();
+  }
+});
+
+test("a drag over a line the terminal wrapped copies it whole", async () => {
+  const { s, term, daemon, rect, cell, done } = copying();
+  try {
+    daemon.feed(`\x1b[2J\x1b[H$ ls ${"y".repeat(rect.w)}`);
+    term.receive(daemon.surface(1));
+    await s.input(bytes(`\x1b[<0;${cell(0, 0)}M\x1b[<32;${cell(10, 1)}M\x1b[<0;${cell(10, 1)}m`));
+    await Bun.sleep(0);
+    expect(s.clipboard).toBe(`ls ${"y".repeat(rect.w)}`);
   } finally {
     done();
   }
@@ -8344,12 +8373,10 @@ test("a triple-click copies raw when plain drags don't clean up, and a double-cl
       shown: both,
     });
     spyOn(term, "pinnedMatches").mockReturnValue(true);
-    for (const pref of ["with_modifier", "off"]) {
-      s.prefs.copy_cleanup = pref;
-      clock.advance(clock.double_click_ms + 1);
-      expect(await press(3)).toBe(both);
-    }
-    s.prefs.copy_cleanup = "on_drag";
+    s.prefs.smart_copy = false;
+    clock.advance(clock.double_click_ms + 1);
+    expect(await press(3)).toBe(both);
+    s.prefs.smart_copy = true;
     clock.advance(clock.double_click_ms + 1);
     pick.mockResolvedValue({ match: { x: 2, y: 1, end_x: 10, end_y: 1 }, copy: "  -o wide  ", shown: "-o wide" });
     expect(await press(3)).toBe("-o wide");
@@ -8369,37 +8396,35 @@ test("a triple-click copies raw when plain drags don't clean up, and a double-cl
   }
 });
 
-test("with modifier, only Alt or Ctrl drags clean up; off, no drag does", async () => {
-  const { s, drag, raw, flat, done } = copying();
+test("with Smart Copy off, no drag cleans up", async () => {
+  const { s, drag, raw, done } = copying();
   try {
-    s.prefs.copy_cleanup = "with_modifier";
-    expect((await drag(0)).copied).toBe(raw);
-    expect((await drag(8)).copied).toBe(flat);
-    expect((await drag(16)).copied).toBe(flat);
-    s.prefs.copy_cleanup = "off";
+    s.prefs.smart_copy = false;
     for (const button of [0, 8, 16]) expect((await drag(button)).copied).toBe(raw);
   } finally {
     done();
   }
 });
 
-test("setup saves copy cleanup, and another viewer's change applies without a restart", async () => {
+test("setup saves Smart Copy, and another viewer's change applies without a restart", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-copy-cleanup-")),
     saved = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = root;
   const s = controller();
   try {
     s.loadPreferences();
-    expect(s.prefs.copy_cleanup).toBe("on_drag");
-    await s.applySetup({ kind: "copy_cleanup", value: "off" });
-    expect(s.prefs.copy_cleanup).toBe("off");
-    expect(preferences.read().copy_cleanup).toBe("off");
-    // Another viewer saves a new value.
+    expect(s.prefs.smart_copy).toBe(true);
+    await s.applySetup({ kind: "smart_copy", on: false });
+    expect(s.prefs.smart_copy).toBe(false);
+    expect(preferences.read().smart_copy).toBe(false);
+    // Another viewer turns it back on, and this one redraws.
     await Bun.sleep(20);
-    preferences.update({ copy_cleanup: "with_modifier" });
+    s.dirty = false;
+    preferences.update({ smart_copy: true });
     const due = Date.now() + 1000;
-    while (s.prefs.copy_cleanup !== "with_modifier" && Date.now() < due) await Bun.sleep(20);
-    expect(s.prefs.copy_cleanup).toBe("with_modifier");
+    while (!s.prefs.smart_copy && Date.now() < due) await Bun.sleep(20);
+    expect(s.prefs.smart_copy).toBe(true);
+    expect(s.dirty).toBe(true);
   } finally {
     s.closePreferences?.();
     viewer.close(s);
@@ -8409,10 +8434,6 @@ test("setup saves copy cleanup, and another viewer's change applies without a re
   }
 });
 
-test("setup lists copy cleanup", () => {
-  expect(setupItems).toContain("copy_cleanup");
-});
-
 test("a selection attached with @ is dedented and never flattened, whatever the preference", async () => {
   const { s, term, done } = copying();
   try {
@@ -8420,8 +8441,8 @@ test("a selection attached with @ is dedented and never flattened, whatever the 
     const selected = spyOn(term, "selectedText").mockReturnValue(
       "  kubectl get pods -n web\n  -o wide\n    -l app=web",
     );
-    for (const pref of ["on_drag", "with_modifier", "off"]) {
-      s.prefs.copy_cleanup = pref;
+    for (const smart of [true, false]) {
+      s.prefs.smart_copy = smart;
       expect(await s.resolveMention(mention)).toBe("kubectl get pods -n web\n-o wide\n  -l app=web");
     }
     selected.mockRestore();
