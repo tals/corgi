@@ -208,7 +208,7 @@ async function artifact(
   return file;
 }
 export interface Options {
-  reuseInstalledSource?: boolean;
+  verifiedBuild?: (hash: string) => boolean;
   progress?: progress.Report;
   signal?: AbortSignal;
 }
@@ -283,31 +283,31 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
     executable = installed.executable;
     if (!installed.socket && socket) installed.socket = socket;
   }
-  // The installed build describes its source even on peers without the extended hello.
+  if (dev.skipUpdates()) {
+    if (!installed) throw Error(`Corgi is missing on ${host}; --no-remote-update skips installation.`);
+    return lines[3] || executable;
+  }
+  // Older peers can confirm a previously verified build during setup.
   if (
-    deployment &&
-    options.reuseInstalledSource &&
     installed?.build_id &&
     installed.target === target &&
     build.compare(local, installed) === "match" &&
-    deployment.accepts(installed.build_id)
+    options.verifiedBuild?.(installed.build_id)
   ) {
-    deployment.record(installed.build_id);
     return lines[3] || executable;
   }
   const directory = mkdtempSync(join(tmpdir(), "corgi-setup-"));
   try {
     const prepared = deployment ? await artifact(local, target, directory, options) : "";
+    const stamp = prepared ? dev.fileStamp(prepared) : "";
     const preparedData = prepared ? transferFile.input(prepared) : null;
     const preparedHash = preparedData ? createHash("sha256").update(preparedData).digest("hex") : "";
     const matches = installed && (deployment ? installed.build_id === preparedHash : build.matches(local, installed));
     if (matches) {
-      if (installed.build_id) deployment?.record(installed.build_id);
+      deployment?.record({ hash: preparedHash, target, stamp });
       process.stderr.write(`Corgi builds match on ${host}.\n`);
       return lines[3] || executable;
     }
-    if (deployment && !deployment.accepts(installed?.build_id ?? ""))
-      throw Error("Remote changed since the last dev deployment; inspect it, then use --replace to deploy over it.");
     process.stderr.write(`${installed ? "Switching to" : "Installing"} Corgi ${local.version} on ${host}…\n`);
     const file = prepared || (await artifact(local, target, directory, options));
     const data = preparedData ?? transferFile.input(file);
@@ -399,7 +399,7 @@ ${installed?.socket ? "CORGI_SOCKET=" + quote(installed.socket) + " " : ""}${ssh
         executable,
       );
       if (verified.build_id !== hash) throw Error("RemoteUpgradeVerificationFailed");
-      deployment?.record(hash);
+      deployment?.record({ hash, target, stamp });
       process.stderr.write(`Corgi is ready on ${host}: ${executable}.\n`);
       return executable;
     } finally {

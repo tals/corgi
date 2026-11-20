@@ -7,6 +7,7 @@ import { flock } from "./native_bridge";
 import * as errors from "./errors";
 import type { Profile } from "./machines";
 import * as builds from "./machine_build";
+import * as buildId from "./build_id";
 
 function checkout(): { root: string; bun: string } {
   const root = process.env.CORGI_DEV_ROOT ?? "",
@@ -15,8 +16,16 @@ function checkout(): { root: string; bun: string } {
     throw Error("Start Corgi with ./go.ts from the development checkout.");
   return { root, bun };
 }
+export function skipUpdates(): boolean {
+  return process.env.CORGI_NO_REMOTE_UPDATE === "1";
+}
 export function enabled(): boolean {
-  return !!process.env.CORGI_DEV_ROOT && !!process.env.CORGI_DEV_BUN && !builds.released(builds.viewer.version);
+  return (
+    !skipUpdates() &&
+    !!process.env.CORGI_DEV_ROOT &&
+    !!process.env.CORGI_DEV_BUN &&
+    !builds.released(builds.viewer.version)
+  );
 }
 /** The launcher supplies its Bun and checkout; neither is needed on the remote. */
 export async function artifact(
@@ -96,9 +105,6 @@ export async function artifact(
     fs.closeSync(fd);
   }
 }
-export function allowed(previous: string | null, installed: string, replace: boolean): boolean {
-  return previous === null || previous === installed || replace;
-}
 function receiptFile(profile: Profile): string {
   const { root } = checkout();
   const key = crypto
@@ -108,15 +114,29 @@ function receiptFile(profile: Profile): string {
   const directory = path.join(root, "dist/dev-deploy");
   return path.join(directory, key);
 }
+type VerifiedBuild = { hash: string; target: builds.Target; stamp: string };
+/** A renamed or rewritten artifact needs a fresh byte comparison. */
+export function fileStamp(file: string): string {
+  const stat = fs.statSync(file, { bigint: true });
+  return [stat.dev, stat.ino, stat.size, stat.ctimeNs].join(":");
+}
 export function recorded(profile: Profile, hash: string): boolean {
   try {
-    return /^[a-f0-9]{64}$/.test(hash) && fs.readFileSync(receiptFile(profile), "utf8").trim() === hash;
+    if (!/^[a-f0-9]{64}$/.test(hash)) return false;
+    const record = JSON.parse(fs.readFileSync(receiptFile(profile) + ".json", "utf8"));
+    if (record.hash !== hash) return false;
+    const target = builds.target(record.target);
+    const file =
+      target === `${process.platform}-${process.arch}`
+        ? buildId.self()
+        : path.join(checkout().root, "dist", `corgi-${target}`);
+    return fileStamp(file) === record.stamp;
   } catch {
     return false;
   }
 }
-/** Per-checkout receipts prevent a routine dev cycle from overwriting someone else's deployment. */
-export function open(profile: Profile, replace: boolean) {
+/** Serialize updates from this checkout and remember the verified target for reattach. */
+export function open(profile: Profile) {
   const file = receiptFile(profile);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const fd = fs.openSync(file + ".lock", "a", 0o600);
@@ -124,37 +144,27 @@ export function open(profile: Profile, replace: boolean) {
     fs.closeSync(fd);
     throw Error("DevelopmentDeployInProgress");
   }
-  try {
-    const previous = fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : null;
-    if (previous !== null && !/^[a-f0-9]{64}$/.test(previous)) throw Error("InvalidDevelopmentReceipt");
-    return {
-      accepts: (installed: string) => allowed(previous, installed, replace),
-      record: (hash: string) => {
-        if (!/^[a-f0-9]{64}$/.test(hash)) throw Error("InvalidDevelopmentReceipt");
-        os.atomicWrite(file, hash + "\n", 0o600);
-      },
-      close: () => {
-        flock(fd, false);
-        fs.closeSync(fd);
-      },
-    };
-  } catch (error) {
-    fs.closeSync(fd);
-    throw error;
-  }
+  return {
+    record(verified: VerifiedBuild) {
+      os.atomicWrite(file + ".json", JSON.stringify(verified) + "\n", 0o600);
+    },
+    close() {
+      flock(fd, false);
+      fs.closeSync(fd);
+    },
+  };
 }
-export type Deployment = Pick<ReturnType<typeof open>, "accepts" | "record">;
+export type Deployment = Pick<ReturnType<typeof open>, "record">;
 
 /** Setup learns the socket that identifies the receipt after installing the executable. */
 export function initial() {
-  let installed = "";
+  let installed: VerifiedBuild;
   return {
-    accepts: () => true,
-    record(hash: string) {
-      installed = hash;
+    record(verified: VerifiedBuild) {
+      installed = verified;
     },
     save(profile: Profile) {
-      const receipt = open(profile, true);
+      const receipt = open(profile);
       try {
         receipt.record(installed);
       } finally {
@@ -168,7 +178,7 @@ export async function acquire(profile: Profile, signal?: AbortSignal): Promise<R
   for (;;) {
     signal?.throwIfAborted();
     try {
-      return open(profile, false);
+      return open(profile);
     } catch (error) {
       if (!errors.is(error, "DevelopmentDeployInProgress")) throw error;
       await Bun.sleep(50);

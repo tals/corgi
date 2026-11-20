@@ -404,6 +404,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   if (command === "serve" || command === "__handoff") {
     delete process.env.CORGI_DEV_ROOT;
     delete process.env.CORGI_DEV_BUN;
+    delete process.env.CORGI_NO_REMOTE_UPDATE;
     n.native_log_stderr(true);
     (await import("./detection")).configureNative();
   }

@@ -281,8 +281,7 @@ class Remote extends Runtime {
       b = await this.developmentBinary("dev-b");
     writeFileSync(join(this.temp.name, "build.ts"), "// Same-platform fixture: no cross build needed.\n");
     const env = { ...this.env, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath };
-    const deploy = (file: string, replace = false, check = true) =>
-      run([file, "machine", "deploy", "work", ...(replace ? ["--replace"] : [])], { env, check, timeout: 60000 });
+    const deploy = (file: string) => run([file, "machine", "deploy", "work"], { env, timeout: 60000 });
     const viewer = JSON.parse((await run([a, "__update-info"], { env })).stdout);
     const expectedRevision = JSON.stringify([viewer.version, viewer.commit, viewer.source_hash]);
     for (const args of [
@@ -322,11 +321,7 @@ class Remote extends Runtime {
     this.assertTrue(JSON.parse(inventory.stdout).machines.some((m: { machine: string }) => m.machine === "work"));
     this.assertNotIn("Checking…", inventory.stderr);
     this.assertEqual(hash(destination), hash(EXE));
-    const refused = await deploy(b, false, false);
-    this.assertNotEqual(refused.code, 0);
-    this.assertIn("Remote changed", refused.stderr);
-    this.assertEqual(hash(destination), hash(EXE));
-    await deploy(b, true);
+    await deploy(b);
     this.assertEqual(hash(destination), hash(b));
   }
   async test_dev_reconnect_uses_its_authenticated_master_for_the_whole_update() {
@@ -358,14 +353,14 @@ class Remote extends Runtime {
     await run(command, { env: { ...env, XDG_STATE_HOME: cold }, timeout: 60000 });
     this.assertEqual(this.network!.accepted, before + 2);
   }
-  async test_dev_receipts_recover_exact_installs_and_protect_other_writers() {
+  async test_dev_connections_repair_stale_receipts_and_replace_another_checkouts_binary() {
     await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
     const root = this.temp.name;
     writeFileSync(join(root, "build.ts"), "// Same-platform fixture.\n");
     const env = { ...this.env, CORGI_DEV_ROOT: root, CORGI_DEV_BUN: process.execPath };
     const local = await this.developmentBinary("receipt");
     const foreign = await this.developmentBinary("foreign", false, "receipt");
-    const command = (args: string[], check = true) => run([local, ...args], { env, check, timeout: 60000 });
+    const command = (args: string[]) => run([local, ...args], { env, timeout: 60000 });
     const ping = ["--machine", "work", "ping"];
     await command(ping);
     const info = JSON.parse((await command(["__update-info"])).stdout);
@@ -373,14 +368,14 @@ class Remote extends Runtime {
     const receipts = join(root, "dist/dev-deploy");
     const receipt = join(
       receipts,
-      readdirSync(receipts).find(f => /^[a-f0-9]{64}$/.test(f))!,
+      readdirSync(receipts).find(f => /^[a-f0-9]{64}\.json$/.test(f))!,
     );
-    const recorded = () => readFileSync(receipt, "utf8").trim();
+    const recorded = () => JSON.parse(readFileSync(receipt, "utf8"));
     const pid = (await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid;
-    writeFileSync(receipt, old + "\n");
+    writeFileSync(receipt, JSON.stringify({ ...recorded(), hash: old }));
     const repaired = await command(ping);
     this.assertNotIn("Uploading", repaired.stderr);
-    this.assertEqual(recorded(), info.build_id);
+    this.assertEqual(recorded().hash, info.build_id);
     this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid, pid);
     // A helper with the same source can finish work started under a different Git label.
     await command([
@@ -391,18 +386,25 @@ class Remote extends Runtime {
       JSON.stringify([info.version, "other-commit", info.source_hash]),
     ]);
     const destination = join(this.remote!.temp.name, ".local/bin/corgi");
-    copyFileSync(foreign, destination + ".other");
-    renameSync(destination + ".other", destination);
-    const refused = await command(ping, false);
-    this.assertNotEqual(refused.code, 0);
-    this.assertIn("Remote changed", refused.stderr);
-    this.assertEqual(recorded(), info.build_id);
+    // A second checkout has the same source label and a different compiled binary.
+    const otherCheckout = join(root, "other-checkout");
+    mkdirSync(otherCheckout);
+    copyFileSync(join(root, "build.ts"), join(otherCheckout, "build.ts"));
+    await run([foreign, ...ping], { env: { ...env, CORGI_DEV_ROOT: otherCheckout }, timeout: 60000 });
+    this.assertTrue(readFileSync(destination).equals(readFileSync(foreign)));
+    const replaced = await command(ping);
+    this.assertIn("Uploading", replaced.stderr);
+    this.assertTrue(readFileSync(destination).equals(readFileSync(local)));
+    this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).build_id, info.build_id);
+    this.assertEqual(recorded().hash, info.build_id);
+    // A different local binary in the same checkout also invalidates a verified match.
+    await run([foreign, ...ping], { env, timeout: 60000 });
     this.assertTrue(readFileSync(destination).equals(readFileSync(foreign)));
     // Re-adding explicitly chooses this checkout and records the new install before attaching.
     await command(["machine", "remove", "work"]);
-    writeFileSync(receipt, old + "\n");
+    writeFileSync(receipt, "incomplete receipt");
     await command(["machine", "add", "work", "corgi-test-host", "--executable", destination]);
-    this.assertEqual(recorded(), info.build_id);
+    this.assertEqual(recorded().hash, info.build_id);
   }
   async test_dev_connections_update_automatically_and_show_progress_without_blocking_local_input() {
     await this.command("pane.create", { workspace: 1, command: "cat" });
@@ -482,15 +484,16 @@ class Remote extends Runtime {
     mkdirSync(join(root, "dist"), { recursive: true });
     copyFileSync(join(ROOT, "go.ts"), join(root, "go.ts"));
     copyFileSync(join(ROOT, "scripts/stop-other-daemons.ts"), join(root, "scripts/stop-other-daemons.ts"));
-    copyFileSync(EXE, join(root, "dist/corgi"));
+    copyFileSync(await this.developmentBinary("launcher"), join(root, "dist/corgi"));
     // Only the setup probe sees a different CPU. The live SSH daemon still runs its real build.
     const wrapper = join(root, "bin/ssh");
+    const probe = join(root, "setup-probe");
     const arch = process.arch === "arm64" ? "x86_64" : "aarch64";
     writeFileSync(
       wrapper,
       readFileSync(wrapper, "utf8").replace(
         "const p = Bun.spawn(",
-        `args[args.length - 1] = args.at(-1).replace("uname -m", "echo ${arch}"); const p = Bun.spawn(`,
+        `if (args.at(-1).includes("corgi-setup-v1")) await Bun.write(${JSON.stringify(probe)}, ""); args[args.length - 1] = args.at(-1).replace("uname -m", "echo ${arch}"); const p = Bun.spawn(`,
       ),
     );
     const target = process.platform + (arch === "aarch64" ? "-arm64" : "-x64");
@@ -510,7 +513,30 @@ class Remote extends Runtime {
       join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"),
       JSON.stringify({ onboarding_complete: true, sidebar_width: 44 }),
     );
-    await this.startViewer("work", 110, 36, undefined, [process.execPath, join(root, "go.ts"), "--no-kill"]);
+    const launcher = [process.execPath, join(root, "go.ts"), "--no-kill"];
+    const existing = await this.remote!.rpc({ op: "hello", protocol: 1 });
+    await this.startViewer("work", 110, 36, undefined, [...launcher, "--no-remote-update"]);
+    await this.online();
+    await this.sendRemote("REMOTE_WITH_UPDATES_DISABLED");
+    await Bun.sleep(1600);
+    this.terminal!.write("\x02q");
+    this.assertEqual(await deadline(this.ui!.exited, 2000), 0);
+    this.terminal!.close();
+    this.emulator!.destroy();
+    await run([...launcher, "--no-remote-update", "--machine", "work", "ping"], { env: this.env });
+    this.assertFalse(existsSync(probe));
+    await run([...launcher, "--no-remote-update", "machine", "check", "work"], { env: this.env });
+    const conflicting = await run([...launcher, "--no-remote-update", "--deploy", "work"], {
+      env: this.env,
+      check: false,
+    });
+    this.assertNotEqual(conflicting.code, 0);
+    this.assertIn("--no-remote-update", conflicting.stderr);
+    this.assertFalse(existsSync(started));
+    const afterSkip = await this.remote!.rpc({ op: "hello", protocol: 1 });
+    this.assertEqual(afterSkip.build_id, existing.build_id);
+    this.assertEqual(afterSkip.server_pid, existing.server_pid);
+    await this.startViewer("work", 110, 36, undefined, launcher);
     await this.until(() => existsSync(started), 15);
     await this.online();
     await this.until(() => new RegExp(`work[^\\n]*Building ${target}… +[1-9]\\d*s`).test(this.text()), 4);
@@ -547,9 +573,9 @@ class Remote extends Runtime {
       writeFileSync(release, "");
     }
     const receipts = join(this.temp.name, "dist/dev-deploy");
-    const receipt = readdirSync(receipts).find(name => /^[a-f0-9]{64}$/.test(name))!;
+    const receipt = readdirSync(receipts).find(name => /^[a-f0-9]{64}\.json$/.test(name))!;
     const expected = createHash("sha256").update(readFileSync(b)).digest("hex");
-    await this.until(() => readFileSync(join(receipts, receipt), "utf8").trim() === expected, 30);
+    await this.until(() => JSON.parse(readFileSync(join(receipts, receipt), "utf8")).hash === expected, 30);
     const result = await run([b, "--machine", "work", "ping"], { env, timeout: 60000 });
     this.assertNotIn("Uploading", result.stderr);
     const destination = join(this.remote!.temp.name, ".local/bin/corgi");

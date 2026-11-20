@@ -8,18 +8,18 @@ import { isatty } from "node:tty";
 import { stopOtherDaemons } from "./scripts/stop-other-daemons.ts";
 import type { Sandbox } from "./tools/sandbox.ts";
 
-const usage = `Usage: bun run go.ts [--temp | --env NAME | --sandbox NAME] [--no-kill] [--reload | --restart] [COMMAND ...]
+const usage = `Usage: bun run go.ts [--temp | --env NAME | --sandbox NAME] [--no-kill] [--no-remote-update] [--reload | --restart] [COMMAND ...]
 
-  --temp          Fresh isolated Corgi environment; stop older temporary runtimes
-  --no-kill       Keep other runtimes when launching main or --temp
-  --env NAME      Reuse a named environment with its own setup and saved state
-  --sandbox NAME  Try a feature in a seeded world with fake agents, apart from
-                  your own Corgi and settings (tools/sandboxes/NAME.ts)
-  --reload        Rebuild and reload the selected runtime without stopping panes
-  --restart       Confirm before stopping and restarting the selected runtime;
-                  a sandbox starts over from its seed without asking
-  --deploy NAME   Update one machine explicitly, without opening a viewer
-  --replace       With --deploy, replace a remote changed since the last deploy
+  --temp              Fresh isolated Corgi environment; stop older temporary runtimes
+  --no-kill           Keep other runtimes when launching main or --temp
+  --env NAME          Reuse a named environment with its own setup and saved state
+  --sandbox NAME      Try a feature in a seeded world with fake agents, apart from
+                      your own Corgi and settings (tools/sandboxes/NAME.ts)
+  --reload            Rebuild and reload the selected runtime without stopping panes
+  --restart           Confirm before stopping and restarting the selected runtime;
+                      a sandbox starts over from its seed without asking
+  --deploy NAME       Update one machine explicitly, without opening a viewer
+  --no-remote-update  Connect to SSH machines using their installed builds
 
 With no command, start or attach. Use "onboard" to reopen onboarding.
 SSH machines update to this checkout automatically when connecting. Target builds
@@ -76,7 +76,7 @@ let environmentName = "";
 let action: "--reload" | "--restart" | undefined;
 let noKill = false;
 let deploy = "";
-let replace = false;
+let noRemoteUpdate = false;
 while (args.length) {
   const [arg] = args;
   if (arg === "--temp" || arg === "--env" || arg === "--sandbox") {
@@ -98,8 +98,8 @@ while (args.length) {
     if (deploy || !args[1] || args[1].startsWith("--")) fail("--deploy requires one machine name");
     deploy = args[1];
     args = args.slice(2);
-  } else if (arg === "--replace") {
-    replace = true;
+  } else if (arg === "--no-remote-update") {
+    noRemoteUpdate = true;
     args = args.slice(1);
   } else if (arg === "--no-kill") {
     noKill = true;
@@ -116,9 +116,8 @@ while (args.length) {
     break;
   }
 }
-if (replace && !deploy) fail("--replace requires --deploy");
 if (deploy && (action || args.length || environment === "sandbox" || environment === "temp"))
-  fail("--deploy accepts a machine name and optional --env NAME / --replace");
+  fail("--deploy accepts a machine name and optional --env NAME");
 
 if (environment === "temp" || environment === "named") {
   // Retain the original state root in child shells so selecting another named
@@ -159,10 +158,14 @@ if (environment === "temp" || environment === "named") {
   }
 }
 
-Object.assign(env, { CORGI_DEV_ROOT: root, CORGI_DEV_BUN: process.execPath });
+Object.assign(env, {
+  CORGI_DEV_ROOT: root,
+  CORGI_DEV_BUN: process.execPath,
+  CORGI_NO_REMOTE_UPDATE: noRemoteUpdate ? "1" : "0",
+});
 must([process.execPath, join(root, "build.ts"), "--incremental"]);
 if (deploy) {
-  must([binary, "machine", "deploy", deploy, ...(replace ? ["--replace"] : [])]);
+  must([binary, "machine", "deploy", deploy]);
   process.exit(0);
 }
 // A sandbox has its own HOME, so it switches over after the build, which needs yours.

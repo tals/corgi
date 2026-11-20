@@ -24,7 +24,8 @@ Machines (SSH):
   corgi machine status NAME
   corgi machine reconnect NAME
   corgi machine check NAME
-  ./go.ts --deploy NAME [--replace]  Deploy this development checkout
+  ./go.ts --deploy NAME           Deploy this development checkout
+  ./go.ts --no-remote-update      Connect using the installed remote builds
   corgi machine remove NAME
   corgi --machine NAME [attach | open PATH | COMMAND...]
   corgi list --all-machines
@@ -33,7 +34,7 @@ SSH_TARGET defaults to NAME. "local" always selects this machine.
 Setup matches the remote Corgi installation to this build, upgrading or downgrading it.
 Add uses normal SSH prompts; viewers reconnect with SSH keys/agent or noninteractive
 corporate SSH authentication.
-Development launches through ./go.ts update machines automatically before connecting.
+Development launches through ./go.ts update machines automatically in the background.
 In the viewer, Ctrl+] or clicking the machine name opens the machine picker.
 `;
 export async function manage(args: string[]): Promise<void> {
@@ -101,9 +102,10 @@ export async function manage(args: string[]): Promise<void> {
     case "deploy":
     case "check": {
       const deploy = args[0] === "deploy";
-      if (args.length !== 2 && !(deploy && args.length === 3 && args[2] === "--replace")) throw Error("Usage");
+      if (args.length !== 2) throw Error("Usage");
+      if (deploy && dev.skipUpdates()) throw Error("--no-remote-update disables deployment for this launch.");
       const old = machines.find(args[1]);
-      const deployment = deploy || dev.enabled() ? dev.open(old, args[2] === "--replace") : undefined;
+      const deployment = deploy || dev.enabled() ? dev.open(old) : undefined;
       let executable: string;
       try {
         executable = await setup.reconcile(old.target, old.executable, args, old.socket, deployment);
@@ -150,7 +152,7 @@ export async function synchronize(
   const deployment = await dev.acquire(old, signal);
   try {
     const executable = await setup.reconcile(old.target, old.executable, [], old.socket, deployment, {
-      reuseInstalledSource: true,
+      verifiedBuild: hash => dev.recorded(old, hash),
       progress,
       signal,
     });

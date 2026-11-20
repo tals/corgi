@@ -41,7 +41,7 @@ test("rollback explains how to reattach without restarting programs", () => {
   expect(message).toContain("running shells and agents were preserved");
 });
 test("automatic machine update failures retain actionable diagnostics", () => {
-  const error = new machineUpdate.Failure("Remote changed since the last dev deployment.");
+  const error = new machineUpdate.Failure("Could not build Corgi for linux-arm64.");
   expect(failure(["ping"], error)).toContain(error.detail);
   expect(JSON.parse(failure(["ping", "--json"], error))).toEqual({
     ok: false,
