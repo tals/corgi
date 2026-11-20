@@ -4,6 +4,40 @@ import { dirname } from "node:path";
 import * as preferences from "./preferences";
 import * as os from "./os";
 
+export const bridgeMarker = "corgi-bridge-v1";
+export const deltaMarker = "corgi-delta-v1";
+
+/** Discards shell startup output up to a line marking the start of binary stdout. */
+export class Preamble {
+  private pending: Buffer | null = Buffer.alloc(0);
+  private readonly boundary: Buffer;
+  constructor(
+    marker: string,
+    private readonly connected: () => void = () => {},
+  ) {
+    this.boundary = Buffer.from(`\n${marker}\n`);
+  }
+  read(chunk: Uint8Array): Uint8Array | null {
+    if (this.pending === null) return chunk;
+    const bytes = this.pending.length
+      ? Buffer.concat([this.pending, chunk])
+      : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    const start = bytes.indexOf(this.boundary);
+    const end = start < 0 ? bytes.length : start + this.boundary.length;
+    if (end > 65536) throw Error("InvalidSshPreamble");
+    if (start < 0) {
+      this.pending = bytes;
+      return null;
+    }
+    this.pending = null;
+    this.connected();
+    return bytes.subarray(end);
+  }
+  endError(): Error | null {
+    return this.pending === null ? null : Error("MissingSshPreamble");
+  }
+}
+
 /** A private namespace keeps Corgi independent of a user-owned SSH master. */
 function sharing(host: string, fresh: boolean, lane: "control" | "data"): string[] {
   if (!host || host.startsWith("-") || /[\s\x00-\x1f\x7f]/.test(host)) throw Error("InvalidSshTarget");
@@ -62,11 +96,12 @@ export function args(
   ];
 }
 /** No shell text supplied by a profile or a CLI argument is evaluated. */
-export function command(executable: string, args: string[]): string {
+export function command(executable: string, args: string[], marker?: string): string {
   if (!executable || /[\x00-\x1f\x7f]/.test(executable)) throw Error("InvalidRemoteExecutable");
   const script =
     "exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER " + [executable, ...args].map(os.shellQuote).join(" ");
-  return shell(script);
+  // Printing in the shell also frames executables installed by older clients.
+  return shell((marker ? `printf '\\n%s\\n' ${os.shellQuote(marker)}; ` : "") + script);
 }
 
 /** Runs the machine's native bridge to `socket`. The Corgi there takes over

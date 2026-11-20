@@ -73,7 +73,7 @@ export async function manage(args: string[]): Promise<void> {
       if (args[0] === "reconnect") {
         const child = Bun.spawn(["ssh", ...ssh.args(profile.target, true), "true"], {
           stdin: "inherit",
-          stdout: "inherit",
+          stdout: 2,
           stderr: "inherit",
         });
         if (await child.exited) throw Error("SshAuthenticationFailed");

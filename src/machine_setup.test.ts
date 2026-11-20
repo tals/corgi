@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import * as setup from "./machine_setup";
+import * as ssh from "./ssh";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -37,12 +38,14 @@ test("delta subprocess verifies the basis, removes failed candidates and stops s
   fs.writeFileSync(basis, before);
   fs.writeFileSync(newer, after);
   const command = (oldHash = sha(before), newHash = sha(after)) => [
-    process.execPath,
-    path.join(import.meta.dir, "fixtures/machine_receive.ts"),
-    basis,
-    candidate,
-    oldHash,
-    newHash,
+    "sh",
+    "-c",
+    "echo 'Welcome to this host'; exec " +
+      ssh.command(
+        process.execPath,
+        [path.join(import.meta.dir, "fixtures/machine_receive.ts"), basis, candidate, oldHash, newHash],
+        ssh.deltaMarker,
+      ),
   ];
   try {
     const phases: string[] = [];

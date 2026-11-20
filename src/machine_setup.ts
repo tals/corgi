@@ -118,6 +118,7 @@ export async function sendDelta(
   signal?.throwIfAborted();
   const child = Bun.spawn(command, { stdin: "pipe", stdout: "pipe", stderr: "inherit", signal });
   const timer = deadline(child, { idle });
+  const preamble = new ssh.Preamble(ssh.deltaMarker);
   try {
     const result = await transfer.send(
       {
@@ -125,7 +126,12 @@ export async function sendDelta(
           new TransformStream({
             transform(bytes, controller) {
               timer.moved();
-              controller.enqueue(bytes);
+              const payload = preamble.read(bytes);
+              if (payload?.length) controller.enqueue(payload);
+            },
+            flush(controller) {
+              const error = preamble.endError();
+              if (error) controller.error(error);
             },
           }),
         ),
@@ -341,7 +347,7 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
           [
             "ssh",
             ...ssh.args(host, !process.env.CORGI_MACHINE_SYNC, false, reuseLogin ? "control" : "data"),
-            ssh.command(executable, ["__machine-receive", staging + "/corgi", expected, hash]),
+            ssh.command(executable, ["__machine-receive", staging + "/corgi", expected, hash], ssh.deltaMarker),
           ],
           data,
           hash,

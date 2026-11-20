@@ -208,7 +208,7 @@ class Remote extends Runtime {
     this.assertTrue(before.panes.length > 0);
     await this.cli(["machine", "remove", "work"]);
     const ssh = Bun.which("ssh")!;
-    const prefix = `export HOME=${quote(this.remote!.temp.name)}; export CORGI_SOCKET=${quote(this.remote!.path)}; `;
+    const prefix = `echo 'Welcome to this host'; export HOME=${quote(this.remote!.temp.name)}; export CORGI_SOCKET=${quote(this.remote!.path)}; `;
     writeExecutable(
       join(this.temp.name, "bin/ssh"),
       `#!${process.execPath}\nconst args = process.argv.slice(2); args[args.length - 1] = ${JSON.stringify(prefix)} + args.at(-1); const p = Bun.spawn([${JSON.stringify(ssh)}, "-F", ${JSON.stringify(this.sshconfig)}, ...args], { stdin: "inherit", stdout: "inherit", stderr: "inherit" }); process.exit(await p.exited);\n`,
@@ -350,6 +350,7 @@ class Remote extends Runtime {
       timeout: 60000,
     });
     this.assertEqual(JSON.parse(result.stdout).status, "reachable");
+    this.assertIn("Welcome to this host", result.stderr);
     this.assertIn("Preparing delta", result.stderr);
     this.assertEqual(this.network!.accepted, before + 1);
   }
