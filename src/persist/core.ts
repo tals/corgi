@@ -209,12 +209,13 @@ export function decode(value: unknown): Core {
       if (!name.length) throw Error("InvalidHandoffCore");
       return { id: integer(w.id, 1, next_workspace - 1), name, cwd: directory(w.cwd) };
     }),
-    workspace_ids = new Set(workspaces.map(w => w.id)),
+    workspace_dirs = new Map(workspaces.map(w => [w.id, w.cwd])),
     panes = array(v.panes).map(value => {
       const p = json.object(value),
         s = json.object(p.screen),
-        workspace = integer(p.workspace, 1);
-      if (!workspace_ids.has(workspace)) throw Error("InvalidHandoffCore");
+        workspace = integer(p.workspace, 1),
+        workspace_dir = workspace_dirs.get(workspace);
+      if (workspace_dir === undefined) throw Error("InvalidHandoffCore");
       const screen: Screen = {
         cols: integer(s.cols, 1, 500),
         rows: integer(s.rows, 1, 200),
@@ -232,7 +233,8 @@ export function decode(value: unknown): Core {
       return {
         id: integer(p.id, 1, next_pane - 1),
         workspace,
-        cwd: directory(p.cwd),
+        // Older daemons could save a blank directory; the pane's workspace stands in.
+        cwd: p.cwd === "" ? workspace_dir : directory(p.cwd),
         label: string(p.label),
         screen,
         dormant: boolean(p.dormant),
@@ -240,7 +242,7 @@ export function decode(value: unknown): Core {
         command: p.command === null ? null : string(p.command),
       };
     });
-  if (workspace_ids.size !== workspaces.length || new Set(panes.map(p => p.id)).size !== panes.length)
+  if (workspace_dirs.size !== workspaces.length || new Set(panes.map(p => p.id)).size !== panes.length)
     throw Error("InvalidHandoffCore");
   const handles = panes.map(p => p.screen.fd).filter(fd => fd >= 0);
   if (new Set(handles).size !== handles.length) throw Error("InvalidHandoffCore");

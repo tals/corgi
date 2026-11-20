@@ -298,8 +298,9 @@ pub export fn probe_process_cwd(pid: c_int, cwd: [*]u8, cap: c_int) c_int {
     if (builtin.os.tag != .macos) return -1;
     var path: c.struct_proc_vnodepathinfo = undefined;
     if (c.proc_pidinfo(pid, c.PROC_PIDVNODEPATHINFO, 0, &path, @sizeOf(@TypeOf(path))) != @sizeOf(@TypeOf(path))) return -1;
+    // An exiting process has released its directory; the kernel still reports success with an empty path.
     const name = std.mem.sliceTo(&path.pvi_cdir.vip_path, 0);
-    if (name.len >= @as(usize, @intCast(cap))) return -1;
+    if (name.len == 0 or name.len >= @as(usize, @intCast(cap))) return -1;
     @memcpy(cwd[0..name.len], name);
     cwd[name.len] = 0;
     return @intCast(name.len);

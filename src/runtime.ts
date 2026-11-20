@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import type { Wait as StartupWait } from "./startup";
 import * as json from "./json";
 import * as clock from "./clock";
@@ -468,7 +469,7 @@ export class Pane {
     if (pid <= 0) return false;
     try {
       const cwd = os.processCwd(pid);
-      if (typeof cwd === "string") {
+      if (typeof cwd === "string" && isAbsolute(cwd)) {
         this.cwd = cwd;
         return true;
       }

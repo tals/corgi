@@ -82,6 +82,23 @@ test("CWD failures keep the prior directory and nonpositive candidates are skipp
   }
 });
 
+test("a blank CWD from an exiting process falls through to the next candidate", () => {
+  const p = pane(),
+    cwd = spyOn(os, "processCwd").mockImplementation(pid => (pid === 103 ? "/shell" : "")),
+    front = spyOn(n, "probe_foreground").mockReturnValue(102);
+  try {
+    p.refreshCwd();
+    expect(cwd.mock.calls).toEqual([[101], [102], [103]]);
+    expect(p.cwd).toBe("/shell");
+    cwd.mockReturnValue("");
+    p.refreshCwd();
+    expect(p.cwd).toBe("/shell");
+  } finally {
+    cwd.mockRestore();
+    front.mockRestore();
+  }
+});
+
 test("an exited pane never refreshes its CWD", () => {
   const p = pane(),
     cwd = spyOn(os, "processCwd").mockReturnValue("/unexpected"),
