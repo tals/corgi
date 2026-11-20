@@ -1011,7 +1011,8 @@ export async function internal(args: string[], exe: string): Promise<boolean> {
       return true;
     }
     case "__machine-install": {
-      if (args.length !== 4) throw Error("Usage");
+      if (args.length !== 4 && args.length !== 5) throw Error("Usage");
+      if (args.length === 5) (await import("./machine_build")).requireRevision(args[4]);
       const target = await (await import("./machine_install")).install(exe, args[1], args[2], args[3]);
       console.log(JSON.stringify({ executable: target }));
       return true;

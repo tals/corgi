@@ -283,6 +283,16 @@ class Remote extends Runtime {
     const env = { ...this.env, CORGI_DEV_ROOT: this.temp.name, CORGI_DEV_BUN: process.execPath };
     const deploy = (file: string, replace = false, check = true) =>
       run([file, "machine", "deploy", "work", ...(replace ? ["--replace"] : [])], { env, check, timeout: 60000 });
+    const viewer = JSON.parse((await run([a, "__update-info"], { env })).stdout);
+    const expectedRevision = JSON.stringify([viewer.version, viewer.commit, viewer.source_hash]);
+    for (const args of [
+      ["__machine-sync", "work", "corgi-test-host", this.remote!.path, expectedRevision],
+      ["__machine-install", destination, "", "", expectedRevision],
+    ]) {
+      const stale = await run([b, ...args], { env, check: false });
+      this.assertNotEqual(stale.code, 0);
+      this.assertIn("Development build changed", stale.stderr);
+    }
     const first = await deploy(a);
     this.assertIn("Preparing delta", first.stderr);
     this.assertRegex(first.stderr, /Uploading 100% [\d.]+ [KM]?i?B\/s/);
@@ -305,6 +315,10 @@ class Remote extends Runtime {
     // Another writer changes the installation after the receipt was recorded.
     copyFileSync(EXE, destination + ".other");
     renameSync(destination + ".other", destination);
+    const status = await run([b, "machine", "status", "work"], { env });
+    this.assertEqual(JSON.parse(status.stdout).status, "reachable");
+    this.assertNotIn("Checking…", status.stderr);
+    this.assertEqual(hash(destination), hash(EXE));
     const refused = await deploy(b, false, false);
     this.assertNotEqual(refused.code, 0);
     this.assertIn("Remote changed", refused.stderr);

@@ -14,6 +14,11 @@ export const viewer: Identity = {
   commit: config.releaseCommit,
   source_hash: config.sourceHash,
 };
+// Pin automatic work to the running viewer even if dist/corgi is replaced while it is open.
+export const revision = JSON.stringify([viewer.version, viewer.commit, viewer.source_hash]);
+export function requireRevision(expected: string): void {
+  if (expected !== revision) throw Error("Development build changed. Restart ./go.ts to use the new revision.");
+}
 /** The source hash is shared by cross-builds. Executable hashes vary by platform. */
 export function compare(a: Identity, b: Identity): "match" | "mismatch" | "unknown" {
   if (!a.version || !b.version) return "unknown";

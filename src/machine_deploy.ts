@@ -6,7 +6,7 @@ import * as os from "./os";
 import { flock } from "./native_bridge";
 import * as errors from "./errors";
 import type { Profile } from "./machines";
-import type { Target } from "./machine_build";
+import * as builds from "./machine_build";
 
 function checkout(): { root: string; bun: string } {
   const root = process.env.CORGI_DEV_ROOT ?? "",
@@ -16,11 +16,11 @@ function checkout(): { root: string; bun: string } {
   return { root, bun };
 }
 export function enabled(): boolean {
-  return !!process.env.CORGI_DEV_ROOT && !!process.env.CORGI_DEV_BUN;
+  return !!process.env.CORGI_DEV_ROOT && !!process.env.CORGI_DEV_BUN && !builds.released(builds.viewer.version);
 }
 /** The launcher supplies its Bun and checkout; neither is needed on the remote. */
 export async function artifact(
-  target: Target,
+  target: builds.Target,
   signal?: AbortSignal,
   progress: updateProgress.Report = updateProgress.print,
 ): Promise<string> {
@@ -46,20 +46,31 @@ export async function artifact(
         detail,
       });
     };
-    const child = Bun.spawn([bun, path.join(root, "build.ts"), "--incremental", "--target", target], {
-      cwd: root,
-      detached: !!signal,
-      ipc(message) {
-        if (typeof message === "string") {
-          started ??= performance.now();
-          detail = message;
-          report();
-        }
+    const child = Bun.spawn(
+      [
+        bun,
+        path.join(root, "build.ts"),
+        "--incremental",
+        "--target",
+        target,
+        "--expected-source",
+        builds.viewer.source_hash,
+      ],
+      {
+        cwd: root,
+        detached: !!signal,
+        ipc(message) {
+          if (typeof message === "string") {
+            started ??= performance.now();
+            detail = message;
+            report();
+          }
+        },
+        stdin: "ignore",
+        stdout: 2,
+        stderr: "inherit",
       },
-      stdin: "ignore",
-      stdout: 2,
-      stderr: "inherit",
-    });
+    );
     // Zig and its compiler workers belong to this build too.
     const abort = () => {
       try {

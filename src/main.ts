@@ -204,12 +204,13 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     return;
   }
   if (args[0] === "__machine-sync") {
-    if (args.length !== 4) throw Error("Usage");
+    if (args.length !== 5) throw Error("Usage");
     const cancellation = new AbortController();
     const abort = () => cancellation.abort(Error("MachineUpdateCancelled"));
     process.on("SIGTERM", abort);
     process.on("SIGINT", abort);
     try {
+      (await import("./machine_build")).requireRevision(args[4]);
       await (
         await import("./machine_cli")
       ).synchronize(
@@ -397,6 +398,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   quietExecveWarning();
   // Daemon only: native messages go to server.log, and terminals learn the providers' programs.
   if (command === "serve" || command === "__handoff") {
+    delete process.env.CORGI_DEV_ROOT;
+    delete process.env.CORGI_DEV_BUN;
     n.native_log_stderr(true);
     (await import("./detection")).configureNative();
   }

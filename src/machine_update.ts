@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { Socket } from "node:net";
+import * as builds from "./machine_build";
 import * as buildId from "./build_id";
 import * as machines from "./machines";
 import * as dev from "./machine_deploy";
@@ -73,11 +74,15 @@ export async function prepare(
 ): Promise<machines.Profile> {
   if (!dev.enabled()) return profile;
   signal?.throwIfAborted();
-  const child = spawn(buildId.self(), ["__machine-sync", profile.name, profile.target, profile.socket], {
-    env: { ...process.env, CORGI_MACHINE_SYNC: reuseLogin ? "reconnect" : "1" },
-    detached: !!signal,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    buildId.self(),
+    ["__machine-sync", profile.name, profile.target, profile.socket, builds.revision],
+    {
+      env: { ...process.env, CORGI_MACHINE_SYNC: reuseLogin ? "reconnect" : "1" },
+      detached: !!signal,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   const exited = new Promise<number | null>((resolve, reject) => {
     child.once("error", reject);
     child.once("exit", resolve);

@@ -376,13 +376,20 @@ if [ -n "$p" ]; then "$p" __update-info; fi`,
       if (existsSync(manifest)) await remote(host, `cat > ${quote(staging + "/manifest.json")}`, Bun.file(manifest));
       options.signal?.throwIfAborted();
       status.show("Installing", "Installing the executable and handing off the running daemon");
+      const install = [
+        "__machine-install",
+        executable,
+        expected,
+        existsSync(manifest) ? staging + "/manifest.json" : "",
+      ];
+      if (deployment) install.push(build.revision);
       const result = lastJSON(
         await executeRemote(
           host,
           `set -eu
 if command -v sha256sum >/dev/null; then actual=$(sha256sum ${quote(staging + "/corgi")}); else actual=$(shasum -a 256 ${quote(staging + "/corgi")}); fi
 [ "\${actual%% *}" = ${quote(hash)} ] || exit 1
-${installed?.socket ? "CORGI_SOCKET=" + quote(installed.socket) + " " : ""}${ssh.command(staging + "/corgi", ["__machine-install", executable, expected, existsSync(manifest) ? staging + "/manifest.json" : ""])}`,
+${installed?.socket ? "CORGI_SOCKET=" + quote(installed.socket) + " " : ""}${ssh.command(staging + "/corgi", install)}`,
           undefined,
           false,
           { total: install_ms },

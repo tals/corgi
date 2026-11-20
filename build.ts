@@ -75,6 +75,9 @@ const translated = await translations.verify();
 process.on("exit", () => process.stderr.write(translated.text));
 if (translated.code) process.exit(translated.code);
 const sourceSHA256 = inputs.source(root);
+const expectedSource = option("expected-source");
+if (expectedSource && sourceSHA256 !== expectedSource)
+  throw Error("Checkout changed. Restart ./go.ts to build this revision.");
 if (!process.argv.includes("--no-native")) {
   const args = [`${root}/scripts/zig`, "build", "--build-file", `${root}/native/build.zig`, "-Doptimize=ReleaseFast"];
   // An explicit --target builds for the oldest systems a release supports, not this machine.
