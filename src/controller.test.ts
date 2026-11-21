@@ -3745,14 +3745,14 @@ test("a press past the sidebar on the field's line closes the rename; the border
     setSystemTime(new Date(1000));
     await press(at.x, at.y);
     await press(at.x, at.y);
-    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
     // A terminal pane on the field's screen line takes the press and closes the field.
     await press(side.width + 2, at.y);
     expect(s.inline_rename).toBeNull();
     // The row still renames by double-click afterwards.
     await press(at.x, at.y);
     await press(at.x, at.y);
-    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
     // The border column resizes the sidebar rather than keeping the field.
     await s.input(bytes(`\x1b[<0;${side.width};${at.y + 1}M`));
     expect(s.inline_rename).toBeNull();
@@ -3780,7 +3780,7 @@ test("a held drag along the row between the presses starts the double-click over
     expect(s.inline_rename).toBeNull();
     // Without the drag, the same presses still rename.
     await press(at.x, at.y);
-    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -3801,7 +3801,7 @@ test("a held drag of a workspace row between the presses starts the double-click
     await press(at.x, at.y);
     expect(s.inline_rename).toBeNull();
     await press(at.x, at.y);
-    expect(s.inline_rename?.target).toEqual({ workspace: 1 });
+    expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, 1));
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -3819,7 +3819,7 @@ test("unheld motion off the name line and back starts the double-click over", as
     await press(at.x, at.y);
     await hover(at.x + at.width - 1);
     await press(at.x, at.y);
-    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
     await s.input(bytes("\x1b[27u"));
     // Into the terminal on the same screen line and back, it doesn't.
     await press(at.x, at.y);
@@ -3828,7 +3828,7 @@ test("unheld motion off the name line and back starts the double-click over", as
     await press(at.x, at.y);
     expect(s.inline_rename).toBeNull();
     await press(at.x, at.y);
-    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -3866,12 +3866,12 @@ test("a press on a workspace's port link or Git figure between name-line presses
   const { s, rect, press } = renaming(undefined, snapshot);
   const at = rect({ workspace: 1 });
   const side = s.sidebarView(s.sidebarEntries()),
-    entries = s.workspaceEntries();
+    entries = s.workspaceRows();
   const port = sidebar.linkRange(side, entries[0], entries).start,
     git = side.width - 3;
   try {
-    expect(sidebar.portWorkspace(side, entries, port, at.y)?.id).toBe(1);
-    expect(sidebar.gitActionWorkspace(side, entries, null, git, at.y)?.id).toBe(1);
+    expect(sidebar.portWorkspace(side, entries, port, at.y)?.id).toBe(s.workspaceRef(1));
+    expect(sidebar.gitActionWorkspace(side, entries, null, git, at.y)?.id).toBe(s.workspaceRef(1));
     setSystemTime(new Date(1000));
     for (const between of [port, git]) {
       await press(at.x, at.y);
@@ -3882,7 +3882,7 @@ test("a press on a workspace's port link or Git figure between name-line presses
     }
     await press(at.x, at.y);
     await press(at.x, at.y);
-    expect(s.inline_rename?.target).toEqual({ workspace: 1 });
+    expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, 1));
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -7059,14 +7059,14 @@ test.each(["local", "work"])(
     try {
       setSystemTime(new Date(1000));
       if (name === "work") s.switchMachine(remote);
-      const at = s.sidebarView(s.sidebarEntries()).fieldRect({ workspace: s.rowKey(1) }, s.workspaceRows());
+      const at = s.sidebarView(s.sidebarEntries()).fieldRect(s.workspaceRef(1), s.workspaceRows());
       const press = async (x: number) => {
         await s.input(bytes(`\x1b[<0;${x + 1};${at.y + 1}M\x1b[<0;${x + 1};${at.y + 1}m`));
       };
       await press(at.x);
       await s.input(bytes(`\x1b[<35;${at.x + 2};${at.y + 1}M`));
       await press(at.x + 1);
-      expect(s.inline_rename?.target).toEqual({ workspace: 1 });
+      expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, 1));
     } finally {
       setSystemTime();
       s.switchMachine(local);

@@ -152,7 +152,7 @@ test("a press in the field drops the selection and puts the caret where it lands
 });
 
 test("a double-click in the field selects the whole name again", () => {
-  const open = InlineRename.open({ workspace: 1 }, "Billing team", "");
+  const open = InlineRename.open(viewerRef.workspace(0, 1), "Billing team", "");
   open.press(3, 14, 1000);
   expect(open.field.selected).toBe(false);
   expect(open.field.cursor).toBe(3);
@@ -172,7 +172,7 @@ test("a double-click in the field selects the whole name again", () => {
 });
 
 test("typing between two presses ends the double-click", () => {
-  const open = InlineRename.open({ workspace: 1 }, "Billing team", "");
+  const open = InlineRename.open(viewerRef.workspace(0, 1), "Billing team", "");
   open.press(3, 14, 1000);
   open.field.key(c("X"));
   open.edited();
@@ -182,7 +182,7 @@ test("typing between two presses ends the double-click", () => {
 });
 
 test("an interrupted click sequence is no double-click", () => {
-  const open = InlineRename.open({ workspace: 1 }, "Billing team", "");
+  const open = InlineRename.open(viewerRef.workspace(0, 1), "Billing team", "");
   open.press(3, 14, 1000);
   open.interrupt();
   open.press(5, 14, 1100);
