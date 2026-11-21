@@ -1695,12 +1695,22 @@ export async function status(ctx: Context): Promise<Outcome> {
         ctx.config.rebase ?? "all",
         { skip: new Set(), fetch: false },
       ),
-      owns = new Map<string, statusView.Own>();
-    for (const t of own.targets) owns.set(t.patch, { kind: "behind", conflicts: t.conflicts });
-    for (const r of own.results) owns.set(r.patch, ownState(r));
+      owns = new Map<string, statusView.Own>(),
+      // An own branch's tip, which a rebase moves before a rebuild refetches its PR.
+      tips = new Map<string, string>();
+    for (const t of own.targets) {
+      owns.set(t.patch, { kind: "behind", conflicts: t.conflicts });
+      tips.set(t.patch, t.from);
+    }
+    for (const r of own.results) {
+      owns.set(r.patch, ownState(r));
+      const at = r.to ?? r.from;
+      if (at) tips.set(r.patch, at);
+    }
+    const refs = knownRefs(ctx).map(k => ({ ...k, ref: tips.get(k.display) ?? k.ref }));
     // Patch names link to their pages; only a terminal shows links.
     const fork = ctx.color && git.hasRemote(ctx.repo, "origin") ? git.remoteTarget(ctx.repo, "origin", "push") : null;
-    view.rows = rebaseCheck(ctx, upstream, knownRefs(ctx)).map((r, i) => ({
+    view.rows = rebaseCheck(ctx, upstream, refs).map((r, i) => ({
       patch: r.display,
       url: listView.patchLink(ctx.config.patches[i].source, fork),
       clean: r.clean,

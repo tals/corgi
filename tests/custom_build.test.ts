@@ -2208,6 +2208,21 @@ test("an own PR's head branch is rebased into a new local branch and pushed to t
   expect(onFork(u, "feature")).toBe(unchanged);
   expect(onFork(w, "feature")).not.toBe(old);
 });
+test("status checks an own PR's rebased branch against upstream, not the PR as last fetched", async () => {
+  const w = world();
+  ownPullRequest(w, 5, "feature", conflictingLine("FEATURE"));
+  stubGh(w, { "tals/corgi#5": { state: "OPEN", title: "feature", head: "me/corgi:feature" } });
+  upstreamMoves(w, conflictingLine("UPSTREAM"));
+  configureOwn(w, ["#5"], { harness: { command: stubHarness(takeTheirs).command } });
+  // A rebuild's copy of the PR and of upstream, from before the rebase.
+  git(w.clone, "fetch", "-q", "upstream");
+  git(w.clone, "fetch", "-q", w.upstream, "refs/pull/5/head:refs/custom-build/tals/corgi/pull/5");
+  const before = await cb(w, "status");
+  expect(before.out).toMatch(/tals\/corgi#5 +✗ 1 conflict/);
+  expect((await cb(w, "rebase", "--push")).code).toBe(0);
+  const after = await cb(w, "status");
+  expect(after.out).toMatch(/tals\/corgi#5 +✓ clean +✓ up to date/);
+});
 
 /** A test that fails while mine.txt still says "old" and upstream's up.txt is there. */
 const clashesWithUpstream = {
