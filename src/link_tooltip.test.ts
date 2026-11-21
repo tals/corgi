@@ -42,6 +42,15 @@ test.each([
     expect(s.ready(next, 402)).toBe(false);
   },
 );
+test("a link found to name a file waits for its peek rather than showing its copy card", () => {
+  const s = new State();
+  s.move();
+  expect(s.ready({ link: pointed }, 0)).toBe(false);
+  expect(s.ready({ link: pointed, file: true }, 100)).toBe(false);
+  expect(s.target?.file).toBe(true);
+  expect(s.ready({ link: pointed, file: true }, 2099)).toBe(false);
+  expect(s.ready({ link: pointed, file: true }, 2100)).toBe(true);
+});
 test("tooltip waits for rest and requires fresh movement after interaction", () => {
   const s = new State(),
     target = { git: viewerRef.workspace(1, 1) };

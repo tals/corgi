@@ -49,13 +49,15 @@ const closer = /^\s*[}\])]+[;,)]*\s*$/;
 export class Reader {
   /** The shown row at the top. */
   top = 0;
+  private follows = true;
   /** Keeps the newest line in view as a log grows; when off, the source
-   * holds this place rather than the newest lines. */
+   * keeps this place rather than the newest lines. */
   get following(): boolean {
-    return !this.source.held;
+    return this.follows;
   }
   set following(on: boolean) {
-    this.source.held = !on;
+    this.follows = on;
+    this.holdPlace();
   }
   /** Rows a log grew by while not following. */
   fresh = 0;
@@ -130,12 +132,19 @@ export class Reader {
       this.fresh = 0;
     }
     this.top = Math.max(0, Math.min(this.top, last));
+    this.holdPlace();
+  }
+  /** Tells the source the row at the top while not following, which its
+   * window keeps as the log grows. */
+  private holdPlace(): void {
+    this.source.hold = this.follows ? null : (this.shownRows()[this.top]?.row ?? 0);
   }
   /** Moves `by` rows; reaching the end follows it again, and nearing the
    * start of a log's window reads the block before it. */
   scroll(by: number, h: number): void {
     const last = Math.max(0, this.shownRows().length - h);
     this.top = Math.max(0, Math.min(last, this.top + by));
+    this.holdPlace();
     if (this.source.mode !== "tail") return;
     if (by < 0) this.following = false;
     else if (this.top >= last && this.source.atEnd) this.follow(true);
@@ -151,8 +160,8 @@ export class Reader {
   }
   /** Goes to the file's first line, reading it first when the window starts after it. */
   home(): void {
-    this.following = false;
     this.top = 0;
+    this.following = false;
     if (this.source.mode === "tail" && this.source.start > 0) void this.source.toStart();
   }
   /** The rows to show: every line, less closed folds. */
@@ -406,6 +415,8 @@ export class Reader {
       for (let k = 0; k < width; k++, col++) {
         if (col < shift) continue;
         if (used >= w) {
+          // The marker takes the last column; a wide character ending there gives way whole.
+          if (c.cells[y]?.[x + w - 1]?.ch === "") c.put(x + w - 2, y, " ", fg, bg);
           c.put(x + w - 1, y, "›", colors.faint, bg);
           return x + w;
         }
