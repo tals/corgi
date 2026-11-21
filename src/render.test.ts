@@ -278,8 +278,8 @@ test("the agent under the pointer takes the hover tint until the pointer leaves 
 test("the workspace under the pointer takes the hover tint, and setup's tint shows while it moves", () => {
   const view = emptyView();
   const workspaces = [
-    sidebar.workspaceEntry({ id: 1, name: "Here", cwd: "/tmp", active: true }),
-    sidebar.workspaceEntry({ id: 2, name: "There", cwd: "/tmp", active: false }),
+    sidebar.workspaceEntry({ id: viewerRef.workspace(1, 1), name: "Here", cwd: "/tmp", active: true }),
+    sidebar.workspaceEntry({ id: viewerRef.workspace(1, 2), name: "There", cwd: "/tmp", active: false }),
   ];
   const hover = palette.bgRgb(palette.mix(palette.colors.bg, palette.colors.selected, 50));
   // The second workspace's three rows start at row 5.
