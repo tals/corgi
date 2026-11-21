@@ -1,10 +1,11 @@
 /**
  * The review panel's git on the landing page. The recorder made moonlander's
  * checkouts for real and kept what git answered about each in frames.json;
- * this answers the panel the same for the one it reads, its times moved up to
- * now. package.json's "browser" field puts it in place of src/review/git.ts.
+ * this answers the page's review service the same for the one it reads, its
+ * times moved up to now. package.json's "browser" field puts it in place of
+ * src/review/git.ts.
  */
-import type { Base, Change, Commit, Loaded, Revision, Source } from "../../src/review/git";
+import type { Base, Change, Commit, Loaded, Revision, Scope, Source, Text } from "../../src/review/git";
 import * as diff from "../../src/review/diff";
 import DATA from "../frames.json";
 
@@ -28,11 +29,31 @@ const fixtures = (DATA as unknown as { review: Fixture[] }).review;
 const shift = Date.now() / 1000 - fixtures[0].at;
 /** The checkout at `root`: the one named so, else the first. */
 const at = (root: string) => fixtures.find(f => f.root === root) ?? fixtures[0];
-const sourceKey = (s: Source) =>
-  s.kind === "worktree" ? `w:${s.against}` : `${s.kind === "commit" ? "c" : "r"}:${revisionLabel(s)}`;
 
-/** As git.ts has it. */
+/** As git.ts has them. */
 export const empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+export function sourceKey(s: Source): string {
+  return s.kind === "worktree" ? `w:${s.against}` : `${s.kind === "commit" ? "c" : "r"}:${revisionLabel(s)}`;
+}
+export function sourceOf(
+  scope: Scope,
+  pick: string | null,
+  reference: Revision | null,
+  head: string | null,
+  base: Base | null,
+): Source | null {
+  if (reference) return reference;
+  if (scope === "commits") return pick ? { kind: "commit", hash: pick } : null;
+  if (scope === "all" && base) return { kind: "worktree", against: base.merge_base };
+  return { kind: "worktree", against: head ?? empty_tree };
+}
+export function parseText(read: Text): Loaded {
+  if (read.kind !== "text") return read;
+  const parsed = diff.parse(read.text);
+  if (parsed === "binary") return { kind: "binary" };
+  if (read.headers) parsed.headers = new Map(read.headers);
+  return { kind: "diff", diff: parsed };
+}
 export function revisionLabel(source: Revision, short = false): string {
   const name = (ref: string) => (short && /^[0-9a-f]{7,64}$/i.test(ref) ? ref.slice(0, 7) : ref);
   return source.kind === "commit" ? name(source.hash) : `${name(source.from)}..${name(source.to)}`;
@@ -72,14 +93,13 @@ export async function changes(root: string, source: Source): Promise<Change[]> {
   // Recorded before Changes carried `funcname`.
   return listed.map(c => ({ ...c, funcname: c.funcname ?? false }));
 }
-export async function edited(root: string, paths: string[]): Promise<Map<string, number>> {
+/** Each file's last write; the recording keeps no sizes. */
+export async function stats(root: string, paths: string[]): Promise<[string, number, number][]> {
   const f = at(root);
-  return new Map(paths.filter(path => path in f.edited).map(path => [path, f.edited[path] + shift * 1000]));
+  return paths.filter(path => path in f.edited).map(path => [path, 0, f.edited[path] + shift * 1000]);
 }
-export async function fileDiff(root: string, source: Source, change: Change): Promise<Loaded> {
+export async function fileText(root: string, source: Source, change: Change): Promise<Text> {
   const found = at(root).diffs[`${sourceKey(source)}\0${change.path}`];
   if (found === undefined) return { kind: "failed", message: "git diff failed" };
-  if (typeof found !== "string") return found;
-  const parsed = diff.parse(found);
-  return parsed === "binary" ? { kind: "binary" } : { kind: "diff", diff: parsed };
+  return typeof found === "string" ? { kind: "text", text: found, headers: null } : found;
 }

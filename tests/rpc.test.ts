@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Connection } from "../src/rpc";
+import { Stats } from "../src/connection_stats";
 import * as protocol from "../src/protocol";
 import { Runtime } from "./runtime";
 import { EXE, deadline, gitRepository, lines, registerCase, run, versioned, writeExecutable } from "./support";
@@ -22,7 +23,8 @@ import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 const args = process.argv.slice(2), gate = ${JSON.stringify(this.gate)};
 const operation = args.includes('--format=%(refname)%09%(committerdate:unix)') ? 'branches'
-  : args.includes('worktree') && args.includes('add') ? 'worktree' : '';
+  : args.includes('worktree') && args.includes('add') ? 'worktree'
+  : args.includes('--raw') && args.includes('--numstat') ? 'review' : '';
 const armed = join(gate, 'armed'), release = join(gate, 'release');
 if (operation && existsSync(armed) && readFileSync(armed, 'utf8') === operation) {
   await new Promise(resolve => {
@@ -41,7 +43,7 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
     );
     this.env.PATH = bin + ":" + this.env.PATH;
   }
-  private arm(operation: "branches" | "worktree") {
+  private arm(operation: "branches" | "worktree" | "review") {
     for (const file of ["started", "release"]) rmSync(join(this.gate, file), { force: true });
     writeFileSync(join(this.gate, "armed"), operation);
   }
@@ -153,6 +155,88 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
       this.assertEqual(Object.keys(printed).sort(), ["ok", "pid"]);
     } finally {
       this.release();
+      conn.close();
+    }
+  }
+  async test_review_reads_come_from_the_daemon_beside_its_job_chain() {
+    const conn = new Connection(this.path),
+      repo = join(this.temp.name, "review");
+    try {
+      await conn.call("viewer.open", { cwd: this.temp.name });
+      mkdirSync(repo, { recursive: true });
+      await run([Bun.which("git")!, "-C", repo, "init", "-q", "-b", "main"], { env: this.env });
+      writeFileSync(join(repo, "notes.txt"), "one\ntwo\n");
+      this.arm("review");
+      const read = conn.call("review.read", { cwd: repo, scope: "uncommitted" });
+      await this.until(() => existsSync(join(this.gate, "started")));
+      // A slow git leaves every other request answering.
+      this.assertTrue((await deadline(conn.call("ping"), 3000)).ok);
+      this.assertEqual((await conn.call("viewer.sync", { interests: [] })).type, "view");
+      this.release();
+      const reply = await read,
+        root = realpathSync(repo);
+      this.assertEqual(reply.root, root);
+      const listing = reply.checkout!.listings[0];
+      this.assertEqual(
+        listing.changes.map(change => [change.path, change.kind, change.adds]),
+        [["notes.txt", "untracked", 2]],
+      );
+      const diffs = await conn.call("review.diffs", {
+        root,
+        source: listing.source,
+        files: [{ path: "notes.txt", from: null, kind: "untracked" }],
+      });
+      const slice = diffs.files[0].slice;
+      this.assertTrue(slice.kind === "text" && slice.text.includes("+two") && slice.total === slice.text.length);
+      // On a connection that asks for zstd, as every SSH one does, a diff
+      // crosses the wire compressed.
+      const long = Array.from({ length: 3000 }, (_, i) => `const value_${i} = compute(${i});`).join("\n");
+      writeFileSync(join(repo, "long.ts"), long + "\n");
+      const stats = new Stats(),
+        zipped = new Connection(this.path, { compression: true, stats });
+      try {
+        await zipped.call("hello");
+        const received = () => stats.history.reduce((sum, sample) => sum + sample.received, 0),
+          before = received();
+        const reply = await zipped.call("review.diffs", {
+          root,
+          source: listing.source,
+          files: [{ path: "long.ts", from: null, kind: "untracked" }],
+        });
+        const sent = reply.files[0].slice;
+        this.assertTrue(sent.kind === "text" && sent.text.length > 60_000, JSON.stringify(sent).slice(0, 200));
+        this.assertTrue(
+          received() - before < (sent.kind === "text" ? sent.text.length : 0) / 4,
+          `${received() - before}`,
+        );
+      } finally {
+        zipped.close();
+        rmSync(join(repo, "long.ts"));
+      }
+      const summary = await conn.call("review.summary", { cwd: repo });
+      this.assertEqual(summary.totals, { files: 1, adds: 2, dels: 0 });
+      const same = await conn.call("review.read", { cwd: repo, scope: "uncommitted", known: reply.hash });
+      this.assertEqual([same.same, same.checkout], [true, null]);
+      // Paths stay inside the checkout, and revisions are hashes, never options.
+      this.assertEqual(
+        await conn.request("review.diffs", {
+          root,
+          source: listing.source,
+          files: [{ path: "../outside", from: null, kind: "untracked" }],
+        }),
+        { err: "InvalidPath" },
+      );
+      this.assertTrue(
+        "err" in
+          (await conn.request("review.diffs", {
+            root,
+            source: { kind: "worktree", against: "--output=x" },
+            files: [],
+          })),
+      );
+    } finally {
+      this.release();
+      rmSync(repo, { recursive: true, force: true });
       conn.close();
     }
   }

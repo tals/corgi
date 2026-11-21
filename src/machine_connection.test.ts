@@ -82,6 +82,10 @@ async function flakyDaemon(
         case "viewer.data":
           void bound.then(() => reply({ viewer: 1 }));
           break;
+        case "review.read":
+          // Slow, like git on a big checkout.
+          setTimeout(() => reply(snapshot), 50);
+          break;
         case "agent.history":
           socket.write(
             JSON.stringify({ type: "agent.history", update: { full: true, entries: [], removed: [] } }) + "\n",
@@ -960,6 +964,38 @@ test("a spare that takes over brings its own data connection, already dialed", a
     expect(dialed?.data).toBeTruthy();
     await daemon.connect();
     expect(Reflect.get(endpoint, "data")).toBe(dialed.data);
+  } finally {
+    await daemon.close();
+  }
+});
+
+test("a machine not shown opens its data connection for review, after reconnecting or losing it too", async () => {
+  const daemon = await flakyDaemon(true);
+  const endpoint = daemon.endpoint;
+  // The view shows another machine.
+  Reflect.set(endpoint, "controller", new Controller(transport(async () => ({}))));
+  Reflect.set(endpoint, "review_ping_ms", 10);
+  const read = { cwd: "/tmp", scope: "uncommitted", pick: null, reference: null, known: "" };
+  try {
+    for (let round = 0; round < 2; round++) {
+      if (round) daemon.disconnect();
+      await daemon.connect();
+      expect(Reflect.get(endpoint, "data")).toBeNull();
+      await endpoint.machine.connection.request("review.read", read as never);
+      expect(Reflect.get(endpoint, "data")?.channel).toBeTruthy();
+      expect(Reflect.get(endpoint, "opened")).toBe(false);
+    }
+    // A data connection that closed, with the control one still up, is dialed again.
+    const lost = Reflect.get(endpoint, "data");
+    lost.channel.close();
+    await endpoint.machine.connection.request("review.read", read as never);
+    expect(Reflect.get(endpoint, "data")).not.toBe(lost);
+    expect(daemon.seen.filter(request => request.op === "review.read")).toHaveLength(3);
+    // Nothing else is heard on it while git runs, so the read keeps it alive.
+    const pings = daemon.seen.filter(request => request.op === "ping").length;
+    expect(pings).toBeGreaterThan(0);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(daemon.seen.filter(request => request.op === "ping")).toHaveLength(pings);
   } finally {
     await daemon.close();
   }

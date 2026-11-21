@@ -41,7 +41,11 @@ test("Escape before a fragmented paste cannot submit the standalone prompt", asy
     const prompt = new Prompt({
       mode: "pane",
       memory_root: folder(),
-      daemon: { call: async () => ({ ok: true }), start: async () => ({ provider: "claude", session: "fake" }) },
+      daemon: {
+        call: async () => ({ ok: true }),
+        start: async () => ({ provider: "claude", session: "fake" }),
+        review: async () => ({ ok: true }),
+      },
     });
     prompt.catalog(
       [
@@ -97,7 +101,11 @@ test("a pane loads workspace models and refreshes when accounts change", async (
       mentions: [],
     },
     prompt = new Prompt({
-      daemon: { call: async () => ({ ok: true }), start: async () => ({ provider: "claude", session: "s" }) },
+      daemon: {
+        call: async () => ({ ok: true }),
+        start: async () => ({ provider: "claude", session: "s" }),
+        review: async () => ({ ok: true }),
+      },
       memory_root: folder(),
       mode: "pane",
     });
@@ -146,7 +154,11 @@ test("a pane loads workspace models and refreshes when accounts change", async (
 
 test("a paste event brings the card its image, else its text", () => {
   const prompt = new Prompt({
-      daemon: { call: async () => ({ ok: true }), start: async () => ({ provider: "claude", session: "s" }) },
+      daemon: {
+        call: async () => ({ ok: true }),
+        start: async () => ({ provider: "claude", session: "s" }),
+        review: async () => ({ ok: true }),
+      },
       memory_root: folder(),
       mode: "pane",
     }),

@@ -172,6 +172,7 @@ export async function run(argv: string[]): Promise<void> {
       if (!provider || typeof reply.session !== "string") throw Error("InvalidReply");
       return { provider, session: reply.session };
     },
+    review: call,
   };
   // What `@` offers here is what the daemon can read: panes and the diff.
   const context: Context = handed?.context

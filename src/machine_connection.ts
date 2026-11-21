@@ -113,6 +113,8 @@ export class Endpoint {
   uninstalled = false;
   private connection: Connection | null = null;
   private data: viewer_data.Connection | null = null;
+  /** How often a review read pings its connection, well inside the 10 s of silence it allows. */
+  private review_ping_ms = 3_000;
   private separate = false;
   private controls: protocol.Wire<protocol.Control[]> = [];
   /** The connection once its hello checked out; the view's requests use it. */
@@ -999,12 +1001,36 @@ export class Endpoint {
           if (this.link) return this.sendOnce(op, args[0]);
         }
         const generation = this.generation;
-        const bulk = ["viewer.surfaces", "viewer.image", "viewer.search", "viewer.pick", "pane.surface"].includes(op);
-        const conn = bulk && this.opened ? (this.data?.channel ?? this.checked) : this.checked;
+        // Pane contents take the data connection, apart from input. Review's
+        // file lists and diffs take it too, and never the control connection,
+        // opening it on a machine not shown, such as a prompt conversation's.
+        const contents = ["viewer.surfaces", "viewer.image", "viewer.search", "viewer.pick", "pane.surface"].includes(
+          op,
+        );
+        let conn: Connection | null, keepalive: ReturnType<typeof setInterval> | undefined;
+        if (op === "review.read" || op === "review.diffs") {
+          if (!this.checked) throw Error("StaleConnection");
+          // One that failed or closed is dialed again, unless a viewer's stream
+          // is bound to it: then the reconnect that brings the stream back does.
+          if (this.data?.dead && !this.opened) {
+            this.data.close();
+            this.data = null;
+          }
+          const data = await this.openData().openedTo(this.instance);
+          this.current(generation);
+          // Git may take longer than the silence a connection allows, and one
+          // with no stream on it hears nothing else meanwhile.
+          keepalive = setInterval(() => void data.request("ping").catch(() => {}), this.review_ping_ms);
+          conn = data;
+        } else conn = contents && this.opened ? (this.data?.channel ?? this.checked) : this.checked;
         if (!conn) throw Error("StaleConnection");
-        const reply = await conn.request(op, ...args);
-        this.current(generation);
-        return reply;
+        try {
+          const reply = await conn.request(op, ...args);
+          this.current(generation);
+          return reply;
+        } finally {
+          clearInterval(keepalive);
+        }
       },
     };
   }

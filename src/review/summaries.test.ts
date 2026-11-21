@@ -3,23 +3,26 @@ import type * as dropdown from "../dropdown";
 import { Summaries, fresh_ms, slow_ms } from "./summaries";
 
 /** A Summaries over fake checkouts: `/repo/sub` is in `/repo`, `/tmp` is in none,
- * and each read waits until the test lets it answer. */
+ * and each read in a checkout waits until the test lets it answer. */
 function fake() {
   let clock = 0;
-  const reads: { root: string; answer: (runs: dropdown.Run[], took?: number) => void }[] = [];
+  const reads: { cwd: string; answer: (runs: dropdown.Run[], took?: number) => void }[] = [];
   let changes = 0;
+  const rootOf = (cwd: string) => (cwd.startsWith("/repo") ? "/repo" : cwd.startsWith("/other") ? "/other" : null);
   const s = new Summaries(
-    root =>
-      new Promise(resolve =>
+    async cwd => {
+      const root = rootOf(cwd);
+      if (!root) return { root, runs: [] };
+      return new Promise(resolve =>
         reads.push({
-          root,
+          cwd,
           answer: (runs, took = 0) => {
             clock += took;
-            resolve(runs);
+            resolve({ root, runs });
           },
         }),
-      ),
-    async cwd => (cwd.startsWith("/repo") ? "/repo" : cwd.startsWith("/other") ? "/other" : null),
+      );
+    },
     () => clock,
   );
   s.changed = () => changes++;
@@ -39,9 +42,9 @@ test("a directory is known to be in a checkout or not once a read says", async (
   s.want("/repo/sub");
   s.want("/tmp");
   await settle();
-  expect(s.inCheckout("/repo/sub")).toBe(true);
   reads[0].answer(line(1));
   await settle();
+  expect(s.inCheckout("/repo/sub")).toBe(true);
   expect(s.inCheckout("/tmp")).toBe(false);
 });
 
@@ -50,8 +53,7 @@ test("a directory outside git is checked again when a menu asks or its line goes
     inited = false,
     checks = 0;
   const s = new Summaries(
-    async () => line(1),
-    async () => (checks++, inited ? "/tmp" : null),
+    async () => (checks++, inited ? { root: "/tmp", runs: line(1) } : { root: null, runs: [] }),
     () => clock,
   );
   s.want("/tmp");
@@ -74,29 +76,34 @@ test("a directory outside git is checked again when a menu asks or its line goes
 
 test("a checkout is read once until it goes stale or old", async () => {
   const { s, reads, tick } = fake();
-  s.want("/repo");
+  s.want("/repo/sub");
   await settle();
-  expect(reads.map(r => r.root)).toEqual(["/repo"]);
+  expect(reads.map(r => r.cwd)).toEqual(["/repo/sub"]);
   reads[0].answer(line(1));
   await settle();
+  expect(s.get("/repo/sub")).toEqual(line(1));
+  // A directory read in a checkout gives the checkout its line.
+  expect(s.get("/repo")).toBeNull();
+  s.want("/repo");
+  await settle();
+  reads[1].answer(line(1));
+  await settle();
   expect(s.get("/repo")).toEqual(line(1));
-  // Another directory in the same checkout shares its line.
   s.want("/repo/sub");
   s.want("/repo");
   await settle();
-  expect(reads.length).toBe(1);
-  expect(s.get("/repo/sub")).toEqual(line(1));
+  expect(reads.length).toBe(2);
   // A turn in it marks it stale.
   s.invalidate("/repo");
   s.want("/repo");
   await settle();
-  expect(reads.length).toBe(2);
-  reads[1].answer(line(2));
+  expect(reads.length).toBe(3);
+  reads[2].answer(line(2));
   await settle();
   tick(fresh_ms);
   s.want("/repo");
   await settle();
-  expect(reads.length).toBe(3);
+  expect(reads.length).toBe(4);
 });
 
 test("one read at a time, with a menu's ask ahead of what was wanted", async () => {
@@ -105,18 +112,18 @@ test("one read at a time, with a menu's ask ahead of what was wanted", async () 
   s.want("/other");
   s.want("/repo");
   await settle();
-  expect(reads.map(r => r.root)).toEqual(["/repo"]);
+  expect(reads.map(r => r.cwd)).toEqual(["/repo"]);
   s.ask("/elsewhere");
   reads[0].answer(line(1));
   await settle();
   // Outside git there is nothing to read; it answers at once, then /other.
   expect(s.get("/elsewhere")).toEqual([["Not in a git checkout", "faint"]]);
-  expect(reads.map(r => r.root)).toEqual(["/repo", "/other"]);
+  expect(reads.map(r => r.cwd)).toEqual(["/repo", "/other"]);
   // A menu asks even when the line is fresh.
   s.ask("/repo");
   reads[1].answer(line(2));
   await settle();
-  expect(reads.map(r => r.root)).toEqual(["/repo", "/other", "/repo"]);
+  expect(reads.map(r => r.cwd)).toEqual(["/repo", "/other", "/repo"]);
 });
 
 test("a slow checkout is read only when a menu asks", async () => {
@@ -158,4 +165,15 @@ test("a line read elsewhere is kept, and only a different one tells", async () =
   s.want("/repo");
   await settle();
   expect(reads.length).toBe(1);
+});
+
+test("a daemon that can't answer says so", async () => {
+  const down = new Summaries(async () => {
+    throw Object.assign(Error("ConnectionClosed"), { name: "ConnectionClosed" });
+  });
+  down.ask("/repo");
+  await settle();
+  expect(down.get("/repo")).toEqual([["git didn't answer", "faint"]]);
+  // A failed read doesn't say the directory is outside git.
+  expect(down.inCheckout("/repo")).toBeNull();
 });

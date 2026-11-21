@@ -1069,6 +1069,27 @@ class Remote extends runtime.Runtime {
     await this.until(() => this.text().includes("REMOTE_WORKSPACE"));
     this.assertIn("▌LOCAL_WORKSPACE", this.text());
   }
+  async test_review_reads_the_remote_checkout_over_the_data_connection() {
+    const repo = join(this.remote!.temp.name, "remote-repo"),
+      git = (...args: string[]) =>
+        run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { env: this.env });
+    fs.mkdirSync(repo);
+    await git("init", "-q", "-b", "main");
+    fs.writeFileSync(join(repo, "remote_file.txt"), "before\n");
+    await git("add", ".");
+    await git("commit", "-qm", "base");
+    fs.writeFileSync(join(repo, "remote_file.txt"), "REMOTE_ONLY_CHANGE\n");
+    await this.remote!.command("pane.create", { workspace: 1, cwd: repo, command: "cat" });
+    const preferences = join(this.env.XDG_STATE_HOME!, "corgi/viewer.json");
+    fs.writeFileSync(preferences, JSON.stringify({ onboarding_complete: true }));
+    await this.startViewer("work", 150, 30);
+    await this.online();
+    // The viewer shows the remote machine, so that daemon carries the action.
+    await this.remote!.rpc({ op: "action", name: "review" });
+    // The panel lists the remote file and shows its diff, read by the remote daemon.
+    await this.until(() => this.text().includes("remote_file.txt") && this.text().includes("REMOTE_ONLY_CHANGE"), 15);
+    this.assertIn("1 file", this.text());
+  }
   async test_all_agents_lists_both_machines_and_clicking_a_remote_agent_focuses_it_there() {
     const mark = async (runtime: runtime.Runtime, name: string) => {
       const pane = (await runtime.command("pane.create", { workspace: 1, command: "cat" })).pane;

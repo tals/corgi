@@ -162,6 +162,22 @@
   "git.branches": {
     "workspace": 1
   },
+  "review.read": {
+    "cwd": "/work/corgi",
+    "scope": "all"
+  },
+  "review.diffs": {
+    "root": "/work/corgi",
+    "source": { "kind": "worktree", "against": "4b825dc642cb6eb9a060e54bf8d69288fbee4904" },
+    "files": [{ "path": "src/a.ts", "from": null, "kind": "modified" }]
+  },
+  "review.summary": {
+    "cwd": "/work/corgi"
+  },
+  "review.recognize": {
+    "cwd": "/work/corgi",
+    "hashes": ["4b825dc"]
+  },
   "onboarding.status": {
     "operation": 1
   },

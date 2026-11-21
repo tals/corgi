@@ -1,5 +1,7 @@
 // A prompt reference keeps the repository separate from git's revision syntax.
-import { recognizeCommits, revisionLabel, type Revision } from "./git";
+import * as errors from "../errors";
+import { revisionLabel, type Revision } from "./git";
+import { max_hashes } from "./service";
 export type Reference = { folder: string; source: Revision; implicit?: true };
 export type Resolved = { cwd: string; source: Revision };
 const valid = (ref: string) => /^[A-Za-z0-9_][A-Za-z0-9_./~^{}-]*$/.test(ref) && !ref.includes("..");
@@ -43,13 +45,27 @@ export function key(value: Resolved): string {
   return JSON.stringify([value.cwd, source.kind, source.kind === "commit" ? source.hash : [source.from, source.to]]);
 }
 
+/** Whether a read failed for want of the daemon, not for anything git said. */
+function away(error: unknown): boolean {
+  if (errors.unreachable(error)) return true;
+  switch (errors.name(error)) {
+    case "StaleConnection":
+    case "ReplyLost":
+    case "RequestTimedOut":
+    case "Reloading":
+      return true;
+    default:
+      return false;
+  }
+}
 /** Visible candidates share one batched Git read. Redraws only consult the cache. */
 export class Recognizer {
   private answers = new Map<string, { hash: string | null } | null>();
   private queued = new Map<string, Set<string>>();
   private flight: Promise<void> | null = null;
   changed: () => void = () => {};
-  constructor(private read = recognizeCommits) {}
+  /** `read` names which of a folder's hash prefixes are commits, and their full hashes. */
+  constructor(private read: (cwd: string, hashes: string[]) => Promise<Map<string, string>>) {}
   resolve(cwd: string, source: Revision, request = false): Revision | null {
     const hashes = (source.kind === "commit" ? [source.hash] : [source.from, source.to]).map(hash =>
       hash.toLowerCase(),
@@ -82,13 +98,24 @@ export class Recognizer {
     this.flight = Promise.resolve()
       .then(async () => {
         while (this.queued.size) {
-          const [cwd, hashes] = this.queued.entries().next().value!;
-          this.queued.delete(cwd);
-          let found = new Map<string, string>();
+          // A read names as many as the daemon answers; the rest wait for the next.
+          const [cwd, queued] = this.queued.entries().next().value!,
+            hashes = [...queued].slice(0, max_hashes);
+          for (const hash of hashes) queued.delete(hash);
+          if (!queued.size) this.queued.delete(cwd);
+          let found: Map<string, string> | null = new Map();
           try {
             found = await this.read(cwd, [...hashes]);
-          } catch {}
-          for (const hash of hashes) this.answers.set(JSON.stringify([cwd, hash]), { hash: found.get(hash) ?? null });
+          } catch (error) {
+            // A link or daemon that was away is asked again at the next draw; git's answer stands.
+            if (away(error)) found = null;
+          }
+          for (const hash of hashes) {
+            const key = JSON.stringify([cwd, hash]);
+            if (found) this.answers.set(key, { hash: found.get(hash) ?? null });
+            else this.answers.delete(key);
+          }
+          if (!found) continue;
           // Keep pending requests, and the most recent completed lookups.
           for (const [key, value] of this.answers) {
             if (this.answers.size <= 4096) break;

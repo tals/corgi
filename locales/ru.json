@@ -126,7 +126,6 @@
   " Resize panes": " Размер панелей",
   " Resource readings are off: turn them on in Corgi setup → Resources": " Сбор данных о ресурсах выключен: включите его в Настройка Corgi → Ресурсы",
   " Retry !": " Повторить !",
-  " Review changes on the remote machine": " Просматривайте изменения на удалённом компьютере",
   " Review needs a wider window": " Для просмотра изменений нужно более широкое окно",
   " Save · Ctrl+S ": " Сохранить · Ctrl+S ",
   " Search ${count} agent": {
@@ -1441,6 +1440,7 @@
   "file": "файл",
   "files": "файлы",
   "find": "поиск",
+  "first ${shown} of ${all}": "первые ${shown} из ${all}",
   "focus": "перейти",
   "focus agents": "к агентам",
   "fork": "ответвить",
@@ -1529,6 +1529,7 @@
   "search": "поиск",
   "search or create": "найти или создать",
   "search titles, branches and messages": "поиск по заголовкам, веткам и сообщениям",
+  "searching…": "поиск…",
   "select": "выбрать",
   "send": "отправить",
   "send ${count}": "отправить ${count}",

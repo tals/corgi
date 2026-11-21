@@ -1983,6 +1983,85 @@ test("commit references stay inline and don't narrow the conversation before ope
   expect(lines.join("\n")).not.toContain("@.");
 });
 
+test("a commit link's home folder is left for the conversation machine's daemon to expand", () => {
+  const { p } = prompt({ mode: "pane" });
+  p.show({ ...context, cwd: "/work/app" });
+  const source = { kind: "commit", hash: "HEAD" } as const;
+  expect(p["resolveReview"]({ folder: "~/repo", source }).cwd).toBe("~/repo");
+  expect(p["resolveReview"]({ folder: "~", source }).cwd).toBe("~");
+  expect(p["resolveReview"]({ folder: "../lib", source }).cwd).toBe("/work/lib");
+});
+
+test("a commit lookup answered after the conversation moved machines stays with its own machine", async () => {
+  const base = daemon(),
+    full = "1234567890123456789012345678901234567890";
+  let machine = "a",
+    release!: () => void;
+  const gate = new Promise<void>(done => (release = done));
+  const d = {
+    call: (op: string, payload: object) => base.call(op, payload),
+    start: (payload: object) => base.start(payload),
+    machine: () => machine,
+    review: async (op: string, payload: any) => {
+      if (op !== "review.recognize") return base.review(op, payload);
+      // The first machine answers late that it has no such commit.
+      if (machine === "a") return gate.then(() => ({ found: [] }));
+      return { found: payload.hashes.map((hash: string) => [hash, full]) };
+    },
+  };
+  const { p } = prompt({ daemon: d });
+  const source = { kind: "commit", hash: "12345678" } as const;
+  p["references"].resolve("/work/app", source, true);
+  // Asked of the first machine, the conversation moves before it answers.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  machine = "b";
+  p["references"].resolve("/work/app", source, true);
+  release();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  expect(p["references"].resolve("/work/app", source)).toEqual({ kind: "commit", hash: full });
+  machine = "a";
+  expect(p["references"].resolve("/work/app", source)).toBeNull();
+});
+
+test("a review opened on one machine closes when the conversation moves, and never reads the next machine", async () => {
+  const repo = folder();
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  writeFileSync(join(repo, "change.txt"), "before\n");
+  git("add", ".");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base");
+  const base = daemon(),
+    asked: string[] = [];
+  let machine = "a",
+    release!: () => void;
+  const gate = new Promise<void>(done => (release = done));
+  const d = {
+    call: (op: string, payload: object) => base.call(op, payload),
+    start: (payload: object) => base.start(payload),
+    machine: () => machine,
+    review: async (op: string, payload: any) => {
+      asked.push(`${machine} ${op}`);
+      // The first machine's listing arrives after the conversation moved.
+      if (op === "review.read") await gate;
+      return base.review(op, payload);
+    },
+  };
+  const { p } = prompt({ daemon: d });
+  const a = p["review"];
+  a.openReference(repo, { kind: "commit", hash: "HEAD" }, "Corgi prompt");
+  expect(a.open).toBe(true);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  machine = "b";
+  expect(p["review"]).not.toBe(a);
+  expect(a.open).toBe(false);
+  release();
+  await a.refresh();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  expect(asked.some(call => call.startsWith("a review.read"))).toBe(true);
+  expect(asked.filter(call => call.startsWith("b "))).toEqual([]);
+  a.hide();
+});
+
 test("a long list keeps its height as typing searches it, and scrolls under the wheel", async () => {
   const { p } = await listed(9);
   const before = card(draw(p)),

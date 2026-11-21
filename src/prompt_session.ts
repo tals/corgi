@@ -27,6 +27,11 @@ export interface Daemon {
   call(op: string, payload: object): Promise<any>;
   /** headless.start on a connection of its own: it holds until the session has an ID. */
   start(payload: object): Promise<{ provider: Provider; session: string }>;
+  /** A review read, from the machine the conversation runs on: the commits
+   * its replies name are in that machine's checkouts. */
+  review(op: string, payload: object): Promise<any>;
+  /** The machine review reads go to now, where a viewer shows several. */
+  machine?(): string;
 }
 export type State = "idle" | "starting" | "working" | "blocked" | "failed";
 /** What the viewer shows for the conversation while the prompt is hidden. */

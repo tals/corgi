@@ -865,6 +865,8 @@ function paneWorktrees() {
     view = new Controller({
       request: transport(async (op, fields: any) => {
         if (fields?.command?.["pane.close"]) closed.push(fields.command["pane.close"].target);
+        // Each folder is a checkout of its own, with nothing changed.
+        if (op === "review.summary") return { root: fields.cwd, base: null, totals: { files: 0, adds: 0, dels: 0 } };
         return op === "session.snapshot" ? state : {};
       }).request,
     });

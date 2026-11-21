@@ -1,6 +1,7 @@
 //! Every git call the review panel makes: the checkout and its base branch,
 //! what changed and by how much, the branch's commits, and one file's diff.
-//! Reads only; nothing here writes to the repository. Mirrors
+//! Reads only; nothing here writes to the repository. The daemon runs them,
+//! on the machine the checkouts are on (see service.ts). Mirrors
 //! herdr-reviewr's `git.rs`.
 import { open, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -12,6 +13,8 @@ export const empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 /** Untracked files listed at most; past this the listing stops. */
 const max_untracked = 2000;
 const timeout_ms = 15_000;
+/** git processes running at once, however many reads ask. */
+const max_running = 6;
 
 export type ChangeKind = "added" | "modified" | "deleted" | "renamed" | "untracked";
 export interface Change {
@@ -30,6 +33,25 @@ export interface Change {
 /** What a listing diffs: the working tree against a revision, or one commit. */
 export type Revision = { kind: "commit"; hash: string } | { kind: "range"; from: string; to: string };
 export type Source = { kind: "worktree"; against: string } | Revision;
+/** A source as a key, the same on both ends. */
+export function sourceKey(s: Source): string {
+  return s.kind === "worktree" ? `w:${s.against}` : `${s.kind === "commit" ? "c" : "r"}:${revisionLabel(s)}`;
+}
+export type Scope = "all" | "uncommitted" | "commits";
+/** What a review diffs: its reference, the commit picked, or the working
+ * tree against where it left the base branch ("all") or against HEAD. */
+export function sourceOf(
+  scope: Scope,
+  pick: string | null,
+  reference: Revision | null,
+  head: string | null,
+  base: Base | null,
+): Source | null {
+  if (reference) return reference;
+  if (scope === "commits") return pick ? { kind: "commit", hash: pick } : null;
+  if (scope === "all" && base) return { kind: "worktree", against: base.merge_base };
+  return { kind: "worktree", against: head ?? empty_tree };
+}
 export function revisionLabel(source: Revision, short = false): string {
   const name = (ref: string) => (short && /^[0-9a-f]{7,64}$/i.test(ref) ? ref.slice(0, 7) : ref);
   return source.kind === "commit" ? name(source.hash) : `${name(source.from)}..${name(source.to)}`;
@@ -78,24 +100,51 @@ export interface Commit {
   adds: number;
   dels: number;
 }
+/** A file's diff as git wrote it, with the whole file as context, and its
+ * hunk headers by the new-side line each names; or why there is none. */
+export type Text =
+  | { kind: "text"; text: string; headers: [number, string][] | null }
+  | { kind: "binary" }
+  | { kind: "too_large"; bytes: number }
+  | { kind: "failed"; message: string };
+/** A file's diff as the panel reads it. */
 export type Loaded =
   | { kind: "diff"; diff: diff.FileDiff }
   | { kind: "binary" }
   | { kind: "too_large"; bytes: number }
   | { kind: "failed"; message: string };
 
+/** Hands out a few slots; the rest wait in line. */
+class Gate {
+  private waiting: (() => void)[] = [];
+  constructor(private free: number) {}
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    if (this.free > 0) this.free--;
+    else await new Promise<void>(resolve => this.waiting.push(resolve));
+    try {
+      return await work();
+    } finally {
+      const next = this.waiting.shift();
+      if (next) next();
+      else this.free++;
+    }
+  }
+}
+const gate = new Gate(max_running);
 async function git(
   root: string,
   args: string[],
   options: Partial<subprocess.Options> = {},
 ): Promise<subprocess.Output> {
-  return subprocess.run(["git", "-C", root, "-c", "core.quotepath=false", ...args], {
-    timeout_ms,
-    max_output: 4 * 1024 * 1024,
-    stderr: true,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" },
-    ...options,
-  });
+  return gate.run(() =>
+    subprocess.run(["git", "-C", root, "-c", "core.quotepath=false", ...args], {
+      timeout_ms,
+      max_output: 4 * 1024 * 1024,
+      stderr: true,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" },
+      ...options,
+    }),
+  );
 }
 async function line(root: string, args: string[]): Promise<string | null> {
   try {
@@ -149,18 +198,22 @@ export async function base(root: string): Promise<Base | null> {
   return null;
 }
 
-/** When each of `paths` in the working tree was last written, in ms; a
- * missing file has none. */
-export async function edited(root: string, paths: string[]): Promise<Map<string, number>> {
-  const times = await Promise.all(
-    paths.map(path =>
-      stat(join(root, path)).then(
-        info => info.mtimeMs,
-        () => null,
+/** Each of `paths` in the working tree with its size and when it was last
+ * written, in ms; a missing file has none. */
+export async function stats(root: string, paths: string[]): Promise<[string, number, number][]> {
+  const out: [string, number, number][] = [];
+  for (let i = 0; i < paths.length; i += 64) {
+    const infos = await Promise.all(
+      paths.slice(i, i + 64).map(path =>
+        stat(join(root, path)).then(
+          info => [path, info.size, info.mtimeMs] as [string, number, number],
+          () => null,
+        ),
       ),
-    ),
-  );
-  return new Map(paths.flatMap((path, i) => (times[i] === null ? [] : [[path, times[i]] as [string, number]])));
+    );
+    for (const info of infos) if (info) out.push(info);
+  }
+  return out;
 }
 
 /** Parses `git log` with `log_format` and `--shortstat`: a record per
@@ -394,8 +447,8 @@ async function fileSize(root: string, path: string): Promise<number> {
   }
 }
 
-/** One file's diff with the whole file as context, or why there is none. */
-export async function fileDiff(root: string, source: Source, change: Change): Promise<Loaded> {
+/** One file's diff with the whole file as context, as git wrote it, or why there is none. */
+export async function fileText(root: string, source: Source, change: Change): Promise<Text> {
   if (change.binary) return { kind: "binary" };
   const old_path = change.from ?? change.path;
   const old_rev =
@@ -412,7 +465,8 @@ export async function fileDiff(root: string, source: Source, change: Change): Pr
         ? await fileSize(root, change.path)
         : await blobSize(root, new_rev, change.path);
   const old_size = change.kind === "added" || change.kind === "untracked" ? 0 : await blobSize(root, old_rev, old_path);
-  if (old_size + new_size > diff.max_bytes) return { kind: "too_large", bytes: old_size + new_size };
+  const bytes = old_size + new_size;
+  if (bytes > diff.max_bytes) return { kind: "too_large", bytes };
   const paths = change.from ? [change.from, change.path] : [change.path];
   const args = (lines: number) => {
     const context = `-U${lines}`;
@@ -435,16 +489,27 @@ export async function fileDiff(root: string, source: Source, change: Change): Pr
     // `--no-index` exits 1 when the files differ.
     if (!out.ok() && !(change.kind === "untracked" && "exited" in out.term && out.term.exited === 1))
       return { kind: "failed", message: out.stderr.toString().trim() || "git diff failed" };
-    const parsed = diff.parse(out.stdout.toString());
-    if (parsed === "binary") return { kind: "binary" };
-    if (parsed.old.length + parsed.new.length > diff.max_lines)
-      return { kind: "too_large", bytes: old_size + new_size };
-    if (hunks?.stdout.length) parsed.headers = diff.headers(hunks.stdout.toString());
-    return { kind: "diff", diff: parsed };
+    const text = out.stdout.toString();
+    const first = text.indexOf("\n@@");
+    if (/^(Binary files |GIT binary patch$)/m.test(first < 0 ? text : text.slice(0, first))) return { kind: "binary" };
+    // Checked here, by the parse's own measure, so text past it is never sent.
+    if (diff.sideLines(text) > diff.max_lines) return { kind: "too_large", bytes };
+    return {
+      kind: "text",
+      text,
+      headers: hunks?.stdout.length ? [...diff.headers(hunks.stdout.toString())] : null,
+    };
   } catch (error) {
     const name = (error as Error).message;
-    return name === "OutputTooLarge"
-      ? { kind: "too_large", bytes: old_size + new_size }
-      : { kind: "failed", message: name };
+    return name === "OutputTooLarge" ? { kind: "too_large", bytes } : { kind: "failed", message: name };
   }
+}
+/** A file's diff text read into rows, or why it has none. `fileText` kept
+ * it within `max_lines`. */
+export function parseText(read: Text): Loaded {
+  if (read.kind !== "text") return read;
+  const parsed = diff.parse(read.text);
+  if (parsed === "binary") return { kind: "binary" };
+  if (read.headers) parsed.headers = new Map(read.headers);
+  return { kind: "diff", diff: parsed };
 }

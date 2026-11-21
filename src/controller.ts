@@ -116,6 +116,7 @@ import * as framePacing from "./frame_pacing";
 import * as pasteCard from "./paste_card";
 import * as pasteProgress from "./paste_progress";
 import * as panel from "./review/panel";
+import * as reviewReader from "./review/reader";
 import * as summaries from "./review/summaries";
 import * as subagentTooltip from "./subagent_tooltip";
 import * as viewerNative from "./viewer_native";
@@ -578,8 +579,9 @@ export class Controller {
   search_text: number[] = [];
   search_skip = 0;
   last_bell_kind = "none";
-  /** The review panel at the right edge; it follows the focused pane. */
-  review = new panel.Panel();
+  /** The review panel at the right edge; it follows the focused pane. Each
+   * machine keeps its own, with its notes, and its daemon reads its git. */
+  review!: panel.Panel;
   /** The review panel's edge while it is dragged. */
   private review_drag = false;
   /** A press in the review panel holds the pointer until it is released. */
@@ -589,7 +591,8 @@ export class Controller {
   /** Wakes the viewer's loop when something changes without input, such as git answering. */
   wake: () => void = () => {};
   /** The agent and worktree menus' diff line for each checkout, read ahead of them. */
-  review_summaries = new summaries.Summaries();
+  review_summaries!: summaries.Summaries;
+  private reviewing = new Map<Machine, { panel: panel.Panel; summaries: summaries.Summaries }>();
   /** Each pane's turn as last seen, so one starting or ending marks its checkout. */
   private summary_turns = new Map<number, string>();
   /** The directories last read ahead; they're asked for again only when this changes. */
@@ -634,6 +637,7 @@ export class Controller {
   ) {
     this.machine = connection instanceof Machine ? connection : new Machine(connection);
     this.adopt(this.machine);
+    this.useReview(this.machine);
     this.prompt = new Prompt({
       daemon: this.promptDaemon(),
       memory_root: Memory.root(),
@@ -647,28 +651,45 @@ export class Controller {
     });
     // Its replies are read by the next poll, which says whether they show.
     this.prompt.changed = () => this.wake();
-    this.review.changed = () => {
-      this.dirty = true;
-      this.wake();
-    };
-    this.review.summarized = (root, runs) => this.review_summaries.put(root, runs);
-    this.review.resized = rows => {
-      this.prefs.review_tree_rows = rows;
-      try {
-        preferences.update({ review_tree_rows: rows });
-      } catch (error) {
-        this.notice((error as Error).message);
-      }
-    };
-    this.review_summaries.changed = () => {
-      const menu = this.tab_menu,
-        cwd = menu ? this.menuCheckout(menu) : null;
-      if (!menu || cwd === null) return;
-      menu.setHidden("review", this.reviewMissing(cwd));
-      menu.setDetail("review", this.summary(cwd));
-      this.dirty = true;
-      this.wake();
-    };
+  }
+  /** Shows `machine`'s review panel and menu lines, made the first time. */
+  private useReview(machine: Machine): void {
+    let kept = this.reviewing.get(machine);
+    if (!kept) {
+      const read = reviewReader.daemon((op, payload) => call(machine.connection, op as Op, payload as never)),
+        made = { panel: new panel.Panel(read), summaries: new summaries.Summaries(summaries.reading(read)) };
+      made.panel.tree_rows = this.prefs.review_tree_rows;
+      made.panel.changed = () => {
+        this.dirty = true;
+        this.wake();
+      };
+      made.panel.summarized = (root, runs) => made.summaries.put(root, runs);
+      made.panel.resized = rows => {
+        this.prefs.review_tree_rows = rows;
+        try {
+          preferences.update({ review_tree_rows: rows });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+      };
+      made.summaries.changed = () => {
+        const menu = this.tab_menu,
+          cwd = menu ? this.menuCheckout(menu) : null;
+        if (!menu || cwd === null || machine !== this.machine) return;
+        menu.setHidden("review", this.reviewMissing(cwd));
+        menu.setDetail("review", this.summary(cwd));
+        this.dirty = true;
+        this.wake();
+      };
+      this.reviewing.set(machine, (kept = made));
+    }
+    this.review = kept.panel;
+    this.review_summaries = kept.summaries;
+    // The list's height is one preference, perhaps dragged on another machine's panel.
+    this.review.tree_rows = this.prefs.review_tree_rows;
+    // Pane IDs and folders name this machine's now: read ahead afresh.
+    this.summary_turns.clear();
+    this.summary_wanted = "";
   }
   /** Takes `machine` among those this viewer shows: its tasks' failures and
    * replies come here. */
@@ -692,7 +713,9 @@ export class Controller {
     this.machine = machine;
     this.model_cache.close();
     this.model_cache = this.modelCache();
-    if (!this.reviewable && this.review.open) this.closeReview();
+    // The panel and its notes stay with the machine they were on.
+    if (this.review.open) this.closeReview();
+    this.useReview(machine);
     this.selected_pane = null;
     this.wake_pending = this.unarchive_pending = null;
     this.agent_since = new agentSections.Since();
@@ -2384,7 +2407,7 @@ export class Controller {
     });
     // Review changes says what it would show: the line read ahead, checked
     // again now, or placeholder bars until git answers.
-    if (this.reviewable) this.review_summaries.ask(this.agentFolder(p));
+    this.review_summaries.ask(this.agentFolder(p));
     if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
     // The menu opens once the daemon answers, unless another click or Esc came first.
     this.menu_pending = opened;
@@ -2440,7 +2463,7 @@ export class Controller {
       anchor_x: x,
       anchor_y: y,
     });
-    if (this.reviewable) this.review_summaries.ask(selection.path);
+    this.review_summaries.ask(selection.path);
     if (this.reviewMissing(selection.path)) opened.hidden.add("review");
     opened.setDetail("review", this.summary(selection.path));
     const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
@@ -5818,6 +5841,8 @@ export class Controller {
         this.prompt_sessions.set(`${provider}:${reply.session}`, machine);
         return { provider, session: reply.session };
       },
+      review: (op, payload) => call(this.promptMachine().connection, op as Op, payload as never),
+      machine: () => this.promptMachine().name,
     };
   }
   private async promptEffect(effect: PromptEffect | null): Promise<void> {
@@ -10340,7 +10365,6 @@ export class Controller {
    * the pointer for a moment.
    * A turn starting or ending marks its checkout to be read again. */
   private readAhead(entries: sidebar.Entry[]): void {
-    if (!this.reviewable) return;
     const now = Date.now();
     let turned = false;
     for (const p of this.runtime.panes) {
@@ -10383,7 +10407,8 @@ export class Controller {
     const found = this.sidebarView(entries).hit(x, y),
       e = found.tag === "entry" ? entries[found.entry] : undefined;
     if (!e || e.exit !== null) return null;
-    if (sidebar.isHeading(e.target) && "worktree" in e.target) return e.worktree?.ghost ? null : e.target.worktree;
+    if (sidebar.isHeading(e.target) && "worktree" in e.target)
+      return e.worktree?.ghost || this.away(e.target) ? null : e.target.worktree;
     const p = viewerRef.isPane(e.target) && !this.away(e.target) ? this.pane(viewerRef.parts(e.target).id) : null;
     return p ? this.agentFolder(p) : null;
   }
@@ -10394,22 +10419,17 @@ export class Controller {
     const cwd = p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd;
     return worktreeAgents.folder(this.runtime.workspaces.owner(p.id)?.worktrees ?? null, { pane: p.id }, cwd);
   }
-  /** This computer's git reads the review panel's and the menus' checkouts,
-   * so a remote machine's, which are on another computer, aren't read. */
-  private get reviewable(): boolean {
-    return !this.machine.remote;
-  }
   /** Whether a menu's Review changes has nothing to read in `cwd`: it is
-   * on a remote machine, or known to be outside git. */
+   * known to be outside git. */
   private reviewMissing(cwd: string): boolean {
-    return !this.reviewable || this.review_summaries.inCheckout(cwd) === false;
+    return this.review_summaries.inCheckout(cwd) === false;
   }
   /** The menus' line for `cwd`'s changes, read ahead. */
   private summary(cwd: string): ReturnType<typeof this.review_summaries.get> {
-    return this.reviewable ? this.review_summaries.get(cwd) : null;
+    return this.review_summaries.get(cwd);
   }
   private reviewTarget(p = this.focused()): panel.Target | null {
-    if (!p || !this.reviewable) return null;
+    if (!p) return null;
     const agent = p.agent;
     return {
       pane: p.id,
@@ -10432,7 +10452,6 @@ export class Controller {
     this.closeReview();
   }
   private openReview(): void {
-    if (!this.reviewable) return this.notice(i18n.t` Review changes on the remote machine`);
     this.review.follow(this.reviewTarget());
     this.review.show();
     if (this.sidebarView([]).panel === 0) {
