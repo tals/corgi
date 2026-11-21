@@ -165,7 +165,12 @@ export async function send(
   data: Buffer,
   sha256: string,
   progress?: Progress,
-  { block = 32768, frameSize = 256 * 1024, signal }: { block?: number; frameSize?: number; signal?: AbortSignal } = {},
+  {
+    block = 32768,
+    frameSize = 256 * 1024,
+    signal,
+    beforeFinish,
+  }: { block?: number; frameSize?: number; signal?: AbortSignal; beforeFinish?: () => void } = {},
 ) {
   if (!Number.isInteger(frameSize) || frameSize < 1024 || frameSize > maximumFrame) throw Error("InvalidFrameSize");
   const info = manifest({ version: 1, bytes: data.length, sha256, block });
@@ -218,14 +223,18 @@ export async function send(
     }
     signal?.throwIfAborted();
     flush();
-    patch.append(frame(Buffer.alloc(0)));
+    const total = patch.length + 4; // The empty frame finishes the transfer.
     const before = frames.sent;
-    progress?.("upload", 0, patch.length);
+    progress?.("upload", 0, total);
     for await (const bytes of patch.read()) {
       signal?.throwIfAborted();
       await frames.writeBytes(bytes);
-      progress?.("upload", frames.sent - before, patch.length);
+      progress?.("upload", frames.sent - before, total);
     }
+    signal?.throwIfAborted();
+    beforeFinish?.();
+    await frames.write(Buffer.alloc(0));
+    progress?.("upload", total, total);
     const deltaSeconds = (performance.now() - tick) / 1000;
     const result: unknown = JSON.parse((await frames.read(4096)).toString());
     if (

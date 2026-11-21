@@ -88,14 +88,14 @@ export function target(value: string): Target {
       throw Error("UnsupportedRemotePlatform");
   }
 }
-export function describe(executable: string): Build {
+export function describe(executable: string, { hash = true } = {}): Build {
   const release = updates.release(executable);
   return {
     version: release.version,
     commit: release.commit,
     target: target(`${process.platform}-${process.arch}`),
     executable,
-    build_id: buildId.of(executable),
+    build_id: hash ? buildId.of(executable) : "",
     source_hash: config.sourceHash,
     socket: os.socketPath(),
     update_abi: updates.abi,

@@ -234,6 +234,20 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     return;
   }
+  if (args[0] === "__machine-install-session") {
+    const [, destination, basis, hash, revision] = args;
+    if (args.length !== 5 || !/^[a-f0-9]{64}$/.test(hash)) throw Error("Usage");
+    (await import("./machine_build")).requireRevision(revision);
+    const installer = await import("./machine_install");
+    const target = await installer.install(executable, destination, basis, "");
+    process.stdout.write("verifying\n");
+    if (build_id.of(target) !== hash) throw Error("RemoteUpgradeVerificationFailed");
+    await ensureServer(daemon, target);
+    await installer.activate(daemon, target, hash);
+    const info = (await import("./machine_cli")).remoteInfo(target);
+    process.stdout.write(json.stringify({ build_id: hash, info }) + "\n");
+    return;
+  }
   if (args[0] === "__remote-info") {
     const activate = args.length === 3 && args[1] === "--activate" && /^[a-f0-9]{64}$/.test(args[2]);
     if (args.length !== 1 && !activate) throw Error("Usage");

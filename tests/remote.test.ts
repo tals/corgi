@@ -283,7 +283,29 @@ class Remote extends runtime.Runtime {
     }
     // The explicit host-key check opens one fresh connection. Both upload paths reuse the control master.
     const connections = this.network!.accepted;
+    const wrapper = join(this.temp.name, "bin/ssh");
+    const commands = join(this.temp.name, "setup-commands");
+    const original = fs
+      .readFileSync(wrapper, "utf8")
+      .replace(
+        "const p = Bun.spawn(",
+        `(await import("node:fs")).appendFileSync(${JSON.stringify(commands)}, JSON.stringify(args.at(-1)) + "\\n"); const p = Bun.spawn(`,
+      );
+    fs.writeFileSync(wrapper, original);
+    const expectCommands = (updated: boolean) => {
+      const lines = fs
+        .readFileSync(commands, "utf8")
+        .trimEnd()
+        .split("\n")
+        .map(line => JSON.parse(line));
+      this.assertEqual(lines.length, updated ? 2 : 1);
+      this.assertIn("corgi-setup-v1", lines[0]);
+      if (updated) this.assertIn("__machine-install-session", lines[1]);
+      this.assertFalse(fs.readdirSync(this.remote!.temp.name).some(name => name.startsWith(".corgi-setup.")));
+      fs.writeFileSync(commands, "");
+    };
     const first = await deploy(a);
+    expectCommands(true);
     this.assertEqual(this.network!.accepted, connections + 1);
     this.assertIn("Preparing delta", first.stderr);
     this.assertRegex(first.stderr, /Uploading 100% [\d.]+ [KM]?i?B\/s/);
@@ -292,8 +314,6 @@ class Remote extends runtime.Runtime {
     const replacement = sending + ".next";
     fs.copyFileSync(b, sending);
     fs.copyFileSync(a, replacement);
-    const wrapper = join(this.temp.name, "bin/ssh");
-    const original = fs.readFileSync(wrapper, "utf8");
     fs.writeFileSync(
       wrapper,
       original.replace(
@@ -302,6 +322,7 @@ class Remote extends runtime.Runtime {
       ),
     );
     const full = await deploy(sending);
+    expectCommands(true);
     fs.writeFileSync(wrapper, original);
     this.assertTrue(fs.readFileSync(sending).equals(fs.readFileSync(a)));
     this.assertTrue(fs.readFileSync(destination).equals(fs.readFileSync(b)));
@@ -309,12 +330,28 @@ class Remote extends runtime.Runtime {
     this.assertRegex(full.stderr, /Uploading 100% [\d.]+ [KM]?i?B\/s/);
     this.assertNotIn("Preparing delta", full.stderr);
     const delta = await deploy(a);
-    for (const stage of ["Preparing delta", "Uploading 100%", "Uploaded", "Installing…", "Verifying…", "Connecting"])
+    for (const stage of ["Preparing delta", "Uploading 100%", "Uploaded", "Installing…", "Verifying…"])
       this.assertIn(stage, delta.stderr);
+    expectCommands(true);
     this.assertEqual(JSON.parse(delta.stdout).ok, true);
     const hash = (file: string) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
     this.assertEqual(hash(destination), hash(a));
     this.assertIn("builds match", (await deploy(a)).stderr);
+    expectCommands(false);
+    // A failed staged checksum must leave the last verified executable and its daemon intact.
+    fs.writeFileSync(
+      wrapper,
+      original.replace(
+        "const p = Bun.spawn(",
+        'args[args.length - 1] = args.at(-1).replace("checksum() {", "checksum() { echo invalid; return; "); const p = Bun.spawn(',
+      ),
+    );
+    const failed = await run([b, "machine", "deploy", "work"], { env, check: false, timeout: 60000 });
+    fs.writeFileSync(wrapper, original);
+    this.assertNotEqual(failed.code, 0);
+    expectCommands(true);
+    this.assertEqual(hash(destination), hash(a));
+    this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).build_id, hash(a));
     const after = await this.remote!.rpc({ op: "session.snapshot" });
     this.assertEqual(
       after.panes.map((p: { pid: number }) => p.pid),
@@ -331,8 +368,19 @@ class Remote extends runtime.Runtime {
     this.assertTrue(JSON.parse(inventory.stdout).machines.some((m: { machine: string }) => m.machine === "work"));
     this.assertNotIn("Checking…", inventory.stderr);
     this.assertEqual(hash(destination), hash(runtime.EXE));
-    await deploy(b);
+    const next = JSON.parse((await run([b, "__update-info"], { env })).stdout);
+    const revision = JSON.stringify([next.version, next.commit, next.source_hash]);
+    const sync = () =>
+      run([b, "__machine-sync", "work", "corgi-test-host", this.remote!.path, revision], {
+        env: { ...env, CORGI_MACHINE_SYNC: "1" },
+        timeout: 60000,
+      });
+    fs.writeFileSync(commands, "");
+    await sync();
+    expectCommands(true);
     this.assertEqual(hash(destination), hash(b));
+    await sync();
+    expectCommands(false);
   }
   async test_dev_reconnect_uses_its_authenticated_master_for_the_whole_update() {
     await this.test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells();
@@ -603,7 +651,7 @@ class Remote extends runtime.Runtime {
         .readFileSync(wrapper, "utf8")
         .replace(
           "const p = Bun.spawn(",
-          `if (args.at(-1).includes("__machine-install")) { await Bun.write(${JSON.stringify(marker)}, ""); while (!await Bun.file(${JSON.stringify(release)}).exists()) await Bun.sleep(25); } const p = Bun.spawn(`,
+          `if (args.at(-1).includes("__machine-install-session")) args[args.length-1] = args.at(-1).replace("chmod 700", ${JSON.stringify(`touch ${quote(marker)}; while [ ! -f ${quote(release)} ]; do sleep 0.03; done; chmod 700`)}); const p = Bun.spawn(`,
         ),
     );
     Object.assign(this.env, env);

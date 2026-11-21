@@ -1005,9 +1005,14 @@ export async function internal(args: string[], exe: string): Promise<boolean> {
       return true;
     case "__update-info": {
       const r = release(exe);
-      console.log(
-        JSON.stringify({ ...(await import("./machine_build")).describe(exe), platform, test_mode: r.test_mode }),
-      );
+      const installed = (await import("./machine_build")).describe(exe);
+      let machine;
+      if (process.env.CORGI_MACHINE_PROBE === "1") {
+        const live = await new rpc_http.Client(installed.socket).discover(1000, 0, 0).catch(() => null);
+        if (live && "build_id" in live && live.build_id === installed.build_id)
+          machine = (await import("./machine_cli")).remoteInfo(exe);
+      }
+      console.log(JSON.stringify({ ...installed, platform, test_mode: r.test_mode, machine }));
       return true;
     }
     case "__machine-install": {

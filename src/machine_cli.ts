@@ -120,7 +120,7 @@ export async function manage(args: string[]): Promise<void> {
         home: old.home,
         bridge: info.bridge,
       };
-      await check(refreshed);
+      if (!deploy) await check(refreshed);
       await machines.edit(profiles =>
         profiles.map(p => {
           if (p.name !== old.name) return p;
@@ -157,7 +157,7 @@ export async function synchronize(
       signal,
     });
     signal.throwIfAborted();
-    progress("Refreshing…", { detail: "Reading the installed daemon and bridge paths" });
+    if (!installation.info) progress("Refreshing…", { detail: "Reading the installed daemon and bridge paths" });
     const info = await machines.discover(old.target, installation, old.socket, signal);
     await machines.edit(profiles =>
       profiles.map(p => {

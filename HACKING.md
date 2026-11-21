@@ -156,17 +156,7 @@ Cross-building macOS needs an SDK at `.tools/macos-sdk` (the main checkout's cop
 also works) or `CORGI_PROBE_SYSROOT`; the normal pinned Zig/Bun pipeline handles
 the rest. The remote needs neither Bun nor a compiler.
 
-New binaries advertise `delta_transfer: "rsync-zstd-v1"` in `__update-info`.
-The installed binary returns block checksums; the sender uploads a compressed
-delta over a dedicated duplex SSH channel. No previous local build is needed.
-The Bun port of Apache-2.0 `fast_rsync` and its framed session also accept arbitrary
-Web streams. Old peers and first installs receive a full binary. A failed delta
-stops without installing; the receiver removes its partial candidate, and retry
-starts a new transfer. Both the basis and reconstructed candidate are hashed;
-the existing installer still checks the installation hasn't changed, verifies
-signed release manifests, preflights state, and hands off live shells. The transfer
-uses the current executable only; managed installations retain their existing
-release-history policy.
+A changed dev build takes two SSH commands on the shared connection. The first reads the installed build. The second stages the transfer, installs and verifies the executable, confirms the daemon is running it, and returns the bridge path. A receiver that advertises `delta_transfer: "rsync-zstd-v1"` sends checksums of its installed binary and receives a compressed delta. The sender needs only the new build. Older receivers and first installs receive the full executable. A failed transfer cleans up the candidate so it can be retried. The Bun port of Apache-2.0 `fast_rsync` also runs over arbitrary duplex Web streams. The installer checks the basis and candidate, verifies signed release manifests when applicable, preflights saved state, and hands off live shells. Managed installations retain their existing release-history policy.
 
 Pane surfaces carry Kitty image placements; `viewer.image` transfers decoded
 pixels in bounded chunks. [pane_images.ts](src/pane_images.ts) gives each viewer

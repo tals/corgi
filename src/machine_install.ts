@@ -101,7 +101,7 @@ export async function install(
     }
   }
   if (present) {
-    const magic = readFileSync(canonical).subarray(0, 4);
+    const magic = new Uint8Array(await Bun.file(canonical).slice(0, 2).arrayBuffer());
     if (magic[0] === 35 && magic[1] === 33) throw Error("CannotReplaceCorgiWrapper");
   }
   if (manifest) updates.verifyArtifact(candidate, manifest);

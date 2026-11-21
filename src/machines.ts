@@ -46,7 +46,7 @@ function path(value: unknown): string {
     throw Error("InvalidRemotePath");
   return value;
 }
-export function info(value: unknown): Info {
+export function info(value: unknown, expectedSocket = ""): Info {
   if (!value || typeof value !== "object") throw Error("InvalidRemoteInfo");
   const v = value as Record<string, unknown>;
   if (
@@ -56,7 +56,7 @@ export function info(value: unknown): Info {
   )
     throw Error("IncompatibleRemoteCorgi");
   const socket = path(v.socket);
-  if (socket.includes(":")) throw Error("InvalidRemoteSocket");
+  if (socket.includes(":") || (expectedSocket && socket !== expectedSocket)) throw Error("InvalidRemoteSocket");
   return {
     remote_protocol,
     protocol: protocol.version,
@@ -123,6 +123,7 @@ export async function discover(
   socket = "",
   signal?: AbortSignal,
 ): Promise<Info> {
+  if (installation.info) return installation.info;
   const { executable, build_id } = installation;
   const args = build_id ? ["__remote-info", "--activate", build_id] : ["__remote-info"];
   const child = spawn(
