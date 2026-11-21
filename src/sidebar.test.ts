@@ -412,7 +412,7 @@ test("a paused agent takes the pause glyph, green while unread and gray once rea
 
 test("a dashed divider separates the last active workspace from the stale ones on its machine", () => {
   const card = (id: number, name: string, stale_step: number, machine = "") =>
-    workspaceEntry({ id, name, cwd: "/tmp", active: false, stale_step, machine });
+    workspaceEntry({ id: viewerRef.workspace(1, id), name, cwd: "/tmp", active: false, stale_step, machine });
   const rows = [card(1, "alpha", 0), card(2, "bravo", 0), card(3, "charlie", 2), card(4, "delta", 4)];
   const view = View.init(100, 60, true, 0, 0).withWorkspaces(rows.length, 0);
   let out = draw(view, [], rows);
@@ -434,7 +434,15 @@ test("a dashed divider separates the last active workspace from the stale ones o
 test("a stale workspace's name fades by step; badges, status and a selected row keep their colors", () => {
   const names = ["zero", "one", "two", "three", "four", "five"];
   const rows = names.map((name, step) =>
-    workspaceEntry({ id: step + 1, name, cwd: "/tmp", active: false, stale_step: step, working: 1, attention: 2 }),
+    workspaceEntry({
+      id: viewerRef.workspace(1, step + 1),
+      name,
+      cwd: "/tmp",
+      active: false,
+      stale_step: step,
+      working: 1,
+      attention: 2,
+    }),
   );
   const view = View.init(100, 60, true, 0, 0).withWorkspaces(rows.length, 0);
   let out = draw(view, [], rows);
@@ -450,7 +458,7 @@ test("a stale workspace's name fades by step; badges, status and a selected row 
   expect(stale_names.some(style => has(out, style))).toBe(false);
   // A disconnected machine's row dims as before, the fade under it.
   const away = workspaceEntry({
-    id: 9,
+    id: viewerRef.workspace(1, 9),
     name: "away",
     cwd: "/tmp",
     active: false,
@@ -468,7 +476,7 @@ test("a card auto-order moves fades whole through writeExit, the stronger of it 
     return w.s;
   };
   const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0),
-    busy = workspaceEntry({ id: 1, name: "busy", cwd: "/tmp", active: false, working: 1 });
+    busy = workspaceEntry({ id: viewerRef.workspace(1, 1), name: "busy", cwd: "/tmp", active: false, working: 1 });
   const plain = draw(view, [], [busy]);
   // Not yet faded, the card draws as ever.
   expect(draw(view, [], [{ ...busy, fade: 0 }])).toBe(plain);

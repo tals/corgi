@@ -1845,7 +1845,7 @@ export class Controller {
       if (!machine.runtime.workspace_auto_order?.enabled) continue;
       const slots = rows.flatMap((row, i) => (this.rowOf(row.id)?.machine === machine ? [i] : [])),
         order = new Map(machine.runtime.workspaces.items.map((ws, i) => [ws.id, i])),
-        rank = (key: number) => order.get(this.rowOf(key)!.id) ?? Infinity,
+        rank = (key: viewerRef.Workspace) => order.get(this.rowOf(key)!.id) ?? Infinity,
         own = slots.map(i => rows[i]).sort((a, b) => rank(a.id) - rank(b.id));
       for (const [i, slot] of slots.entries()) rows[slot] = own[i];
     }
@@ -1920,7 +1920,7 @@ export class Controller {
   /** Whether workspace row `source` may land above row `before`, or last
    * when that's itself: a machine ordering its workspaces by activity keeps
    * its stale ones in place and the rest above them. */
-  private workspaceMoveAllowed(source: number, before: number): boolean {
+  private workspaceMoveAllowed(source: viewerRef.Workspace, before: viewerRef.Workspace): boolean {
     const from = this.rowOf(source),
       runtime = from?.machine.runtime;
     if (!from || !runtime?.workspace_auto_order?.enabled) return true;
@@ -1930,7 +1930,7 @@ export class Controller {
   /** The workspace of row `source`'s own machine it lands above when dropped
    * above row `before`, or last when that's `source`: by that machine's id,
    * its own for last. Other machines' rows between don't count. */
-  private localBefore(source: number, before: number): number {
+  private localBefore(source: viewerRef.Workspace, before: viewerRef.Workspace): number {
     const from = this.rowOf(source)!;
     if (this.machines.length === 1) return before === source ? from.id : this.rowOf(before)!.id;
     const rows = this.workspaceRows(true)

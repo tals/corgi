@@ -1,11 +1,16 @@
 import { test, expect } from "bun:test";
 import { State } from "./workspace_rows";
 import { workspaceEntry, type WorkspaceEntry } from "./sidebar";
-const card = (id: number): WorkspaceEntry => workspaceEntry({ id, name: `W${id}`, cwd: "/w", active: false });
+import * as viewerRef from "./viewer_ref";
+const ref = (id: number) => viewerRef.workspace(0, id);
+const card = (id: number): WorkspaceEntry => workspaceEntry({ id: ref(id), name: `W${id}`, cwd: "/w", active: false });
 const cards = (...ids: number[]) => ids.map(card);
 /** One machine ordering by activity, whose auto-archived cards are `archived`. */
-const machine = (archived: number[] = []) => ({ group: () => 0, archived: (key: number) => archived.includes(key) });
-const ids = (rows: WorkspaceEntry[]) => rows.map(row => row.id);
+const machine = (archived: number[] = []) => ({
+  group: () => 0,
+  archived: (key: viewerRef.Workspace) => archived.includes(viewerRef.parts(key).id),
+});
+const ids = (rows: WorkspaceEntry[]) => rows.map(row => viewerRef.parts(row.id).id);
 const fades = (rows: WorkspaceEntry[]) => rows.map(row => row.fade);
 const d = State.duration_ms;
 
@@ -92,7 +97,7 @@ test("a drop, a new card and a list rebuilt from nothing show at once", () => {
 test("cards rearranged across machines, or on a machine without auto-order, don't fade", () => {
   const rows = new State(),
     // Cards 1 and 2 are one machine's, 10 and 11 another's.
-    sources = { group: (key: number) => (key < 10 ? 0 : 1), archived: () => false };
+    sources = { group: (key: viewerRef.Workspace) => (viewerRef.parts(key).id < 10 ? 0 : 1), archived: () => false };
   rows.update(cards(1, 10, 2, 11), 0, sources);
   // The viewer's interleaving changed, each machine's own order didn't.
   let shown = rows.update(cards(10, 1, 11, 2), 10, sources);

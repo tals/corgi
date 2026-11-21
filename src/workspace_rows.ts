@@ -3,6 +3,7 @@
 //! the list closes its gap. Changes the user makes, and a new list, show at
 //! once.
 import type { WorkspaceEntry } from "./sidebar";
+import type { Workspace } from "./viewer_ref";
 import * as sidebarRows from "./sidebar_rows";
 
 /** A card's fade, as `writeExit` takes it: `from` at `at_ms`, then toward
@@ -15,19 +16,19 @@ interface Fade {
 export interface Sources {
   /** The run of cards whose moves animate, as one machine's daemon orders
    * them; null for a card whose moves never do. */
-  group(key: number): number | null;
+  group(key: Workspace): number | null;
   /** Whether a card gone from the list was auto-archived. */
-  archived(key: number): boolean;
+  archived(key: Workspace): boolean;
 }
-const same = (a: number[], b: number[]) => a.length === b.length && a.every((key, i) => key === b[i]);
+const same = (a: Workspace[], b: Workspace[]) => a.length === b.length && a.every((key, i) => key === b[i]);
 export class State {
   static duration_ms = sidebarRows.State.duration_ms;
   /** Card ids in the order drawn, which clicks hit; null until the list is built. */
-  shown: number[] | null = null;
+  shown: Workspace[] | null = null;
   /** The order the cards take once the moving ones have faded out. */
-  target: number[] = [];
-  private cards = new Map<number, WorkspaceEntry>();
-  private fades = new Map<number, Fade>();
+  target: Workspace[] = [];
+  private cards = new Map<Workspace, WorkspaceEntry>();
+  private fades = new Map<Workspace, Fade>();
   private placed = false;
   discard() {
     this.shown = null;
@@ -40,7 +41,7 @@ export class State {
     this.placed = true;
   }
   /** How faded card `key` is at `now`, null when it is not. */
-  level(key: number, now: number): number | null {
+  level(key: Workspace, now: number): number | null {
     const fade = this.fades.get(key);
     if (fade === undefined) return null;
     const t = Math.max(0, now - fade.at_ms) / State.duration_ms;
@@ -88,13 +89,13 @@ export class State {
     for (const [key, fade] of this.fades) if (fade.out) this.fades.set(key, { out: false, at_ms: done, from: 1 });
     this.shown = this.target;
   }
-  private snap(keys: number[]) {
+  private snap(keys: Workspace[]) {
     this.shown = this.target = keys;
     this.fades.clear();
     const kept = new Set(keys);
     for (const key of [...this.cards.keys()]) if (!kept.has(key)) this.cards.delete(key);
   }
-  private plan(keys: number[], now: number, sources: Sources) {
+  private plan(keys: Workspace[], now: number, sources: Sources) {
     const shown = this.shown!,
       live = new Set(keys),
       was = new Map(shown.map((key, position) => [key, position]));
@@ -102,7 +103,7 @@ export class State {
     if (keys.some(key => !was.has(key)) || shown.some(key => !live.has(key) && !sources.archived(key)))
       return this.snap(keys);
     const moving = new Set(shown.filter(key => !live.has(key))),
-      groups = new Map<number, number[]>();
+      groups = new Map<number, Workspace[]>();
     for (const key of keys) {
       const group = sources.group(key);
       if (group === null) continue;

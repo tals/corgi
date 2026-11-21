@@ -724,7 +724,7 @@ test("a workspace auto-order moves fades out and in; a drag drop and an auto-arc
     frame(d / 2);
     expect(shown()[1]).toEqual(["/b", 0.5]);
     // Clicks meanwhile find the cards where they are drawn.
-    expect(s.workspaceIds()).toEqual([1, 2, 3, 4]);
+    expect(s.workspaceIds().map((id: viewerRef.Workspace) => viewerRef.parts(id).id)).toEqual([1, 2, 3, 4]);
     frame(d / 2);
     expect(shown()).toEqual([
       ["/a", null],
