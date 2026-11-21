@@ -9,7 +9,7 @@ import { Endpoint, localEndpoint } from "./machine_connection";
 import { Host } from "./host";
 import { Probe } from "./terminal_info";
 import { Terminal } from "./pane/terminal";
-import type { Command } from "./remote_lab";
+import { Local, type Command } from "./remote_lab";
 
 const endpoints = () =>
   [null, "slowloris", "finnicky", "goodboy"].map(name =>
@@ -125,6 +125,58 @@ test("response heatmap keeps fixed latency bands when a high spike expires", () 
     stats.answer(40, false);
     terminal.feed(menu.draw(112, 38));
     for (const band of bands) expect(terminal.text()).toContain(band);
+  } finally {
+    terminal.destroy();
+  }
+});
+
+test("only a remote machine that faults can reach offers the switch", () => {
+  const local = new Local(),
+    menu = new Menu(endpoints(), "", true, local),
+    terminal = new Terminal(100, 30);
+  try {
+    menu.toggle(0);
+    menu.key("\t", 9);
+    terminal.feed(menu.draw(100, 30));
+    expect(terminal.text()).not.toContain("Fault injection");
+    local.forwards("slowloris");
+    menu.toggle(0);
+    menu.toggle(1);
+    menu.key("\t", 9);
+    terminal.feed(menu.draw(100, 30));
+    expect(terminal.text()).not.toContain("Fault injection");
+  } finally {
+    terminal.destroy();
+  }
+});
+
+test("a developer build turns faults on for a real machine and shapes them from the same controls", () => {
+  const local = new Local(),
+    menu = new Menu(endpoints(), "", true, local),
+    terminal = new Terminal(100, 30);
+  try {
+    menu.toggle(1);
+    menu.key("\t", 9);
+    terminal.feed(menu.draw(100, 30));
+    expect(terminal.text()).toMatch(/Fault injection +○ Off/);
+    expect(terminal.text()).not.toContain("One-way lag");
+    menu.key("\r", 13);
+    expect(local.enabled("slowloris")).toBe(true);
+    terminal.feed(menu.draw(100, 30));
+    expect(terminal.text()).toMatch(/Fault injection +● On/);
+    expect(terminal.text()).toContain("One-way lag");
+    menu.key("\x1b[B", null);
+    menu.key("\x1b[C", null);
+    expect(local.faults().slowloris.latency_ms).toBe(50);
+    menu.key("\x1b[A", null);
+    menu.key("\r", 13);
+    expect(local.enabled("slowloris")).toBe(false);
+    // A release build has no switch.
+    const release = new Menu(endpoints(), "", false, local);
+    release.toggle(1);
+    release.key("\t", 9);
+    terminal.feed(release.draw(100, 30));
+    expect(terminal.text()).not.toContain("Fault injection");
   } finally {
     terminal.destroy();
   }

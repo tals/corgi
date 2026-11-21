@@ -4,6 +4,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { Transform } from "node:stream";
 import * as ssh from "./ssh";
 import * as telemetry from "./telemetry";
+import * as lab from "./remote_lab";
 import type { Profile } from "./machines";
 
 /** SSH authentication and channel setup precede the first daemon reply. */
@@ -100,19 +101,35 @@ export class Remote {
     const close = () => {
       client.destroy();
       preamble.destroy();
+      if ("up" in faults) {
+        faults.up.destroy();
+        faults.down.destroy();
+      }
+      faults.done();
       this.stop(child);
       this.clients.delete(client);
     };
+    const faults = lab.local.connect(this.profile.name, close);
     client.on("error", close).once("close", close);
     child.once("error", close);
     child.stdin!.on("error", close);
     child.stdout!.on("error", close);
     preamble.on("error", close);
     // pipe propagates backpressure independently in each direction.
-    client.pipe(child.stdin!);
-    child.stdout!.pipe(preamble).pipe(client);
+    if ("up" in faults) {
+      faults.up.on("error", close);
+      faults.down.on("error", close);
+      client.pipe(faults.up).pipe(child.stdin!);
+      child.stdout!.pipe(faults.down).pipe(preamble).pipe(client);
+    } else {
+      client.pipe(child.stdin!);
+      child.stdout!.pipe(preamble).pipe(client);
+    }
     child.once("close", () => {
-      if (!client.writableEnded) client.end();
+      // Replies a fault still holds reach the client before it ends.
+      if ("up" in faults) {
+        if (!faults.down.writableEnded) faults.down.end();
+      } else if (!client.writableEnded) client.end();
     });
   }
   private spawn(args: string[]): ChildProcess {
@@ -148,6 +165,7 @@ export class Remote {
   }
   /** Older saved profiles retain forwarding until machine setup discovers a native bridge. */
   private async forward(): Promise<void> {
+    lab.local.forwards(this.profile.name);
     // Its own connection, carrying what Corgi already compresses.
     const args = ssh.args(this.profile.target, false, true, "data");
     // Clearing forwardings would clear this one too.

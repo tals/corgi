@@ -5,6 +5,8 @@ import * as lab from "./remote_lab";
 import * as details from "./connectivity_details";
 import type { Line } from "./connectivity_details";
 
+/** The row that turns a real machine's faults on or off. */
+const toggle = 8;
 /** Developer diagnostics remain local even when every daemon is unavailable. */
 export class Menu {
   open = false;
@@ -28,6 +30,9 @@ export class Menu {
   constructor(
     private readonly endpoints: Endpoint[],
     private readonly socket = process.env.CORGI_REMOTE_LAB,
+    /** A developer build can put faults in a real machine's connections. */
+    private readonly developer = process.env.CORGI_DEV_ROOT !== undefined,
+    private readonly local = lab.local,
   ) {}
   toggle(selected: number): void {
     this.open = !this.open;
@@ -39,6 +44,7 @@ export class Menu {
     if (this.open && this.socket && !this.pending && Date.now() >= this.next) this.command({});
   }
   private command(command: lab.Command): void {
+    if (command.machine && !this.faults[command.machine]) return this.local.apply(command);
     if (!this.socket) return;
     if (this.pending) {
       if (Object.keys(command).length) this.commands.push(command);
@@ -63,9 +69,27 @@ export class Menu {
         if (queued) this.command(queued);
       });
   }
+  /** The sandbox's policy for `machine`, or the one this viewer turned on. */
+  private fault(machine: string | undefined): lab.Faults | undefined {
+    if (machine === undefined) return undefined;
+    return this.faults[machine] ?? this.local.faults()[machine];
+  }
+  /** The selected machine's controls, in order: a sandbox machine's policy,
+   * or a real one's switch, then its policy while on. */
+  private controls(): number[] {
+    const endpoint = this.endpoints[this.selected];
+    if (!endpoint) return [];
+    const policy = [0, 1, 2, 3, 4, 5, 6, 7];
+    if (this.faults[endpoint.name]) return policy;
+    // Only a remote machine's bridged SSH connections pass through this viewer's faults.
+    if (!this.developer || !endpoint.remote || !this.local.shapes(endpoint.name)) return [];
+    return this.local.enabled(endpoint.name) ? [toggle, ...policy] : [toggle];
+  }
   private change(value: number): void {
     const machine = this.endpoints[this.selected]?.name;
-    if (!machine || !this.faults[machine]) return;
+    if (machine !== undefined && this.row === toggle && this.controls().includes(toggle))
+      return this.local.enable(machine, !this.local.enabled(machine));
+    if (!machine || !this.fault(machine)) return;
     switch (this.row) {
       case 0:
         this.command({ machine, latency_ms: Math.round(value * 2000) });
@@ -98,6 +122,8 @@ export class Menu {
     this.scroll = 0;
   }
   private reveal(): void {
+    const controls = this.controls();
+    if (controls.length && !controls.includes(this.row)) this.row = controls[0];
     const at = this.lines.findIndex(line => line.control === this.row);
     if (at < 0) return;
     if (at < this.scroll) this.scroll = at;
@@ -129,13 +155,15 @@ export class Menu {
       this.scroll += value === "\x1b[5~" ? -5 : 5;
       return;
     }
-    if (up || down) {
-      this.row = (this.row + (up ? 7 : 1)) % 8;
+    const controls = this.controls();
+    if ((up || down) && controls.length) {
+      const at = controls.indexOf(this.row);
+      this.row = controls[at < 0 ? 0 : (at + (up ? controls.length - 1 : 1)) % controls.length];
       this.reveal();
     }
-    const fault = this.faults[this.endpoints[this.selected]?.name];
-    if (!fault) return;
     if ((cp === 13 || value === " ") && this.row >= 5) this.change(0);
+    const fault = this.fault(this.endpoints[this.selected]?.name);
+    if (!fault) return;
     if ((right || left) && this.row < 5) {
       const max = [2000, 4096, 60, 120, 60][this.row];
       const current = [
@@ -203,7 +231,8 @@ export class Menu {
     const lines = details.lines(endpoint, width, now);
     const add = (value: string, color: palette.Token = "text", heading = false) =>
       lines.push({ text: value, color, heading });
-    const fault = this.faults[endpoint.name];
+    const fault = this.fault(endpoint.name),
+      controls = this.controls();
     const slider = (control: number, label: string, value: number) => {
       const labelWidth = this.sliderLabel(),
         length = Math.max(1, width - labelWidth);
@@ -214,9 +243,16 @@ export class Menu {
           text.ellipsis(label, labelWidth - 1).padEnd(labelWidth) + "─".repeat(at) + "●" + "─".repeat(length - at - 1),
       });
     };
-    if (fault) {
+    if (controls.length) {
       add("");
       add("Network policy", "strong", true);
+    }
+    if (controls.includes(toggle)) {
+      const on = this.local.enabled(endpoint.name);
+      lines.push({ control: toggle, text: "Fault injection".padEnd(this.sliderLabel()) + (on ? "● On" : "○ Off") });
+      add("Switching it reconnects this machine.", "muted");
+    }
+    if (fault) {
       slider(0, `One-way lag    ${fault.latency_ms} ms`, fault.latency_ms / 2000);
       slider(1, `KiB/s / way    ${fault.bandwidth_kib || "unlimited"}`, fault.bandwidth_kib / 4096);
       slider(2, `Hang duration  ${fault.hang_seconds} s`, fault.hang_seconds / 60);

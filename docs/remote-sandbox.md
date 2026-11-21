@@ -64,7 +64,10 @@ Enter activates the selected button. Start outage withholds traffic while keepin
 connections open, exercising stall detection; Drop connections now severs current
 connections, exercising reconnect. Reset restores healthy, unrestricted traffic and disables repeating hangs.
 Already queued bytes retain their scheduling deadline when settings change.
-Real machines have diagnostics only and gain no fault-injection buffers.
+Real machines have diagnostics only, except in a developer build (`./go.ts`):
+there, a real machine's console has a **Fault injection** switch, off by default.
+On, the same controls shape that machine's SSH connections inside this viewer;
+turning it on or off reconnects the machine. Off, nothing is in its path.
 
 The sandbox introduction prints its private control socket. From another shell:
 
