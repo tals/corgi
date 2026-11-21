@@ -181,3 +181,28 @@ test("a developer build turns faults on for a real machine and shapes them from 
     terminal.destroy();
   }
 });
+
+test("a pressed slider keeps scrubbing while the drag crosses other sliders, until release", () => {
+  const local = new Local(),
+    menu = new Menu(endpoints(), "", true, local),
+    terminal = new Terminal(100, 30);
+  try {
+    menu.toggle(1);
+    local.enable("slowloris", true);
+    terminal.feed(menu.draw(100, 30));
+    const rows = terminal.text().split("\n");
+    const lag = rows.findIndex(row => row.includes("One-way lag")),
+      bandwidth = rows.findIndex(row => row.includes("KiB/s / way"));
+    const knob = rows[lag].indexOf("●");
+    menu.mouse(knob, lag, 0, true);
+    menu.mouse(knob + 10, bandwidth, 32, true);
+    // Past the panel's edge, it holds at the end.
+    menu.mouse(99, bandwidth + 3, 32, true);
+    expect(local.faults().slowloris).toMatchObject({ latency_ms: 2000, bandwidth_kib: 0 });
+    menu.mouse(99, bandwidth + 3, 0, false);
+    menu.mouse(knob, bandwidth, 32, true);
+    expect(local.faults().slowloris).toMatchObject({ latency_ms: 2000, bandwidth_kib: 0 });
+  } finally {
+    terminal.destroy();
+  }
+});

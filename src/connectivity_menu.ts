@@ -27,6 +27,8 @@ export class Menu {
   private scroll = 0;
   private navScroll = 0;
   private lines: Line[] = [];
+  /** The slider a press grabbed: dragging scrubs it wherever the pointer goes, until release. */
+  private grabbed: number | null = null;
   constructor(
     private readonly endpoints: Endpoint[],
     private readonly socket = process.env.CORGI_REMOTE_LAB,
@@ -178,7 +180,15 @@ export class Menu {
     }
   }
   mouse(x: number, y: number, button: number, pressed: boolean): void {
-    if (!pressed) return;
+    if (!pressed) {
+      this.grabbed = null;
+      return;
+    }
+    if (button === 32) {
+      if (this.grabbed !== null) this.scrub(this.grabbed, x);
+      return;
+    }
+    this.grabbed = null;
     if (x < this.x || x >= this.x + this.width || y < this.y || y >= this.y + this.height) {
       if (button === 0) this.open = false;
       return;
@@ -203,13 +213,18 @@ export class Menu {
     }
     if (y < this.y + 2 || y >= this.y + this.height - 2) return;
     const line = this.lines[y - this.y - 2 + this.scroll];
-    if (line?.control === undefined || (button !== 0 && button !== 32)) return;
+    if (line?.control === undefined || button !== 0) return;
     this.focus = "details";
     this.row = line.control;
+    if (this.row >= 5) return this.change(0);
+    this.grabbed = this.row;
+    if (x >= this.x + this.nav + 2 + this.sliderLabel()) this.scrub(this.row, x);
+  }
+  /** Sets slider `control` to where column `x` falls on its track. */
+  private scrub(control: number, x: number): void {
+    this.row = control;
     const start = this.x + this.nav + 2 + this.sliderLabel();
-    if (this.row < 5 && x >= start)
-      this.change(Math.max(0, Math.min(1, (x - start) / Math.max(1, this.detailWidth() - this.sliderLabel() - 1))));
-    else if (this.row >= 5 && button === 0) this.change(0);
+    this.change(Math.max(0, Math.min(1, (x - start) / Math.max(1, this.detailWidth() - this.sliderLabel() - 1))));
   }
   private detailWidth(): number {
     return Math.max(1, this.width - this.nav - 4);
