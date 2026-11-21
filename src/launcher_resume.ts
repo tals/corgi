@@ -165,12 +165,56 @@ export function stableSort<T>(items: T[], less: (x: T, y: T) => boolean): T[] {
 
 /** How many conversations show before the list is expanded. */
 export const collapsed_rows = 5;
+/** Shorter searches match too much to look for in conversations' text. */
+export const mention_min = 3;
+/** What the daemon found in conversations' text for a search. */
+export class Mentions {
+  /** The search the hits are for; "" while there's none. */
+  query = "";
+  /** Each conversation's first matching line, by provider:session. */
+  hits = new Map<string, string>();
+  /** The daemon is still looking for `query`. */
+  searching = false;
+  /** It stopped before every match, so older ones may be missing. */
+  cut = false;
+  /** The daemon can't search conversations' text. */
+  unsupported = false;
+  /** The search as last typed, and when, so a search waits for typing to pause. */
+  typed = "";
+  typed_at = 0;
+}
+/** `conversation.grep`'s lines as conversations and their first matching
+ * lines; a line without both is skipped. */
+export function mentionsOf(lines: unknown): { key: string; text: string }[] {
+  if (!Array.isArray(lines)) return [];
+  return lines.flatMap(line => {
+    const source = line?.source,
+      provider = Provider.parse(source?.provider),
+      hit = Array.isArray(line?.hits) ? line.hits.find((h: any) => h && !h.context) : null;
+    if (!provider || typeof source.session !== "string" || typeof hit?.text !== "string") return [];
+    return [{ key: provider + ":" + source.session, text: hit.text.replace(/[\x00-\x1f\x7f]/g, " ") }];
+  });
+}
+/** `text` from a little before `query`'s first appearance, so it shows in `width` columns. */
+export function around(text: string, query: string, width: number): string {
+  const at = text.toLowerCase().indexOf(query.toLowerCase());
+  if (at < 0 || displayWidth(text.slice(0, at + query.length)) <= width) return text;
+  // A third of the room before the match shows what led to it.
+  const lead = Math.floor(sat(width, displayWidth(query) + 1) / 3);
+  let start = at;
+  while (start > 0 && displayWidth(text.slice(start - 1, at)) < lead) start--;
+  return "…" + text.slice(start);
+}
 /** One row of the list. */
 export type Line =
   /** A local day's heading; the value is any second in that day. */
   | { day: number }
-  | { heading: "open" | "results" }
+  | { heading: "open" | "results" | "mentions" }
   | { entry: number }
+  /** A closed conversation that only its text matched, by entry index. */
+  | { mention: number }
+  /** How the search of conversations' text is going. */
+  | { note: "searching" | "cut" }
   /** An open conversation, by entry index. */
   | { open: number }
   /** Matches left out of the current scope. */
@@ -178,9 +222,16 @@ export type Line =
   /** Expands the list; the value counts the conversations it starts on. */
   | { more: number };
 type Key = { conversation: { provider: Provider; session: string } } | "more";
+/** The entry a conversation row shows; null for any other row. */
+function entryOf(c: Context, line: Line): Entry | null {
+  if ("entry" in line) return c.history.entries[line.entry];
+  if ("open" in line) return c.history.entries[line.open];
+  if ("mention" in line) return c.history.entries[line.mention];
+  return null;
+}
 function keyOf(c: Context, line: Line): Key | null {
-  if ("entry" in line || "open" in line) {
-    const e = c.history.entries["entry" in line ? line.entry : line.open];
+  const e = entryOf(c, line);
+  if (e) {
     return { conversation: { provider: e.provider, session: truncatedText(e.session, session_capacity) } };
   }
   if ("more" in line) return "more";
@@ -259,6 +310,7 @@ export class View {
   /** The list was expanded before the search began, so leaving it goes back there. */
   searched_expanded = false;
   query = Dialog.init({ pane: 0 }, "");
+  mentions = new Mentions();
   scope: Scope = "workspace";
   /** Kept by identity, so a refreshed list keeps the selection. */
   selected: Key | null = null;
@@ -270,6 +322,47 @@ export class View {
   }
   search(): string {
     return this.searching ? this.query.name() : "";
+  }
+  /** What to look for in conversations' text: the search, once long enough. */
+  mentionQuery(): string {
+    const query = this.search().trim();
+    return query.length >= mention_min ? query : "";
+  }
+  /** Whether `e`'s text holds the search, as the daemon found. */
+  private mentioned(e: Entry): boolean {
+    const m = this.mentions;
+    return m.query !== "" && m.query === this.mentionQuery() && m.hits.has(e.provider + ":" + e.session);
+  }
+  /** `e`'s first line that holds the search; "" when none does. */
+  mention(e: Entry): string {
+    return this.mentioned(e) ? (this.mentions.hits.get(e.provider + ":" + e.session) ?? "") : "";
+  }
+  /** Conversations' text may still match the search. */
+  private mentionsPending(): boolean {
+    const query = this.mentionQuery(),
+      m = this.mentions;
+    return query !== "" && !m.unsupported && (m.query !== query || m.searching);
+  }
+  /** Starts over for `query`, as a search for it goes out. */
+  searchMentions(query: string): void {
+    const m = this.mentions;
+    m.query = query;
+    m.hits = new Map();
+    m.searching = query !== "";
+    m.cut = false;
+  }
+  /** Adds what a search for `query` found; the first line a conversation sent stays. */
+  addMentions(query: string, lines: unknown): void {
+    const m = this.mentions;
+    if (m.query !== query) return;
+    for (const { key, text } of mentionsOf(lines)) if (!m.hits.has(key)) m.hits.set(key, text);
+  }
+  /** The search for `query` ended; `cut` when it stopped before every match. */
+  endMentions(query: string, cut: boolean): void {
+    const m = this.mentions;
+    if (m.query !== query) return;
+    m.searching = false;
+    m.cut = cut;
   }
   /** Whether every word of the search is in `e`'s text or branch, or in
    * `shown`, the branch its Where shows. */
@@ -311,13 +404,14 @@ export class View {
     });
     return out;
   }
-  /** Search results: open matches first, then closed ones in scope. */
+  /** Search results: open matches first, then closed ones in scope, then
+   * those only their text matched, which arrive later. */
   private found(c: Context): Line[] {
     const out: Line[] = [];
     const entries = c.history.entries;
     let open = 0;
     entries.forEach((e, i) => {
-      if (open < 3 && c.opened(e) !== null && this.matches(e, c.where(e).branch)) {
+      if (open < 3 && c.opened(e) !== null && (this.matches(e, c.where(e).branch) || this.mentioned(e))) {
         if (open === 0) out.push({ heading: "open" });
         out.push({ open: i });
         open += 1;
@@ -325,14 +419,21 @@ export class View {
     });
     out.push({ heading: "results" });
     let elsewhere = 0;
+    const mentions: Line[] = [];
     entries.forEach((e, i) => {
-      if (c.opened(e) !== null || !this.matches(e)) return;
+      if (c.opened(e) !== null) return;
+      const titled = this.matches(e);
+      if (!titled && !this.mentioned(e)) return;
       if (!c.inScope(e, this.scope)) {
         elsewhere += 1;
         return;
       }
-      out.push({ entry: i });
+      if (titled) out.push({ entry: i });
+      else mentions.push({ mention: i });
     });
+    if (mentions.length) out.push({ heading: "mentions" }, ...mentions);
+    if (this.mentionsPending()) out.push({ note: "searching" });
+    else if (this.mentions.cut && this.mentions.query === this.mentionQuery()) out.push({ note: "cut" });
     if (elsewhere > 0) out.push({ elsewhere });
     return out;
   }
@@ -355,11 +456,7 @@ export class View {
   /** The selected conversation; null on the "more" row. */
   entry(c: Context, rows: Line[]): Entry | null {
     const i = this.index(c, rows);
-    if (i === null) return null;
-    const line = rows[i];
-    if ("entry" in line) return c.history.entries[line.entry];
-    if ("open" in line) return c.history.entries[line.open];
-    return null;
+    return i === null ? null : entryOf(c, rows[i]);
   }
   /** Move by `delta` rows that can be selected, stopping at the end. False
    * when already at the top and moving up, so the caller can leave the list. */
@@ -433,6 +530,9 @@ export class View {
   stopSearch(): void {
     this.searching = false;
     this.query.clear();
+    const unsupported = this.mentions.unsupported;
+    this.mentions = new Mentions();
+    this.mentions.unsupported = unsupported;
     this.home();
   }
   nextScope(forward: boolean): void {
@@ -522,7 +622,7 @@ export class View {
     const list_top = area.listTop() + (context ? 1 : 0);
     const cols = this.columns(sat(width, 4)),
       { panel, rule, row: row_style } = looks[this.ground];
-    const found = rows.filter(line => "entry" in line || "open" in line).length,
+    const found = rows.filter(line => entryOf(c, line) !== null).length,
       total = c.history.entries.filter(e => c.inScope(e, this.scope)).length;
     this.drawSearch(
       w,
@@ -658,11 +758,28 @@ export class View {
     }
     if ("heading" in line) {
       const count = View.count(rows),
+        mentioned = rows.filter(r => "mention" in r).length,
         scope = scopeLabel(this.scope);
-      const text = line.heading === "open" ? i18n.t`Open · jumps to its tab` : i18n.t`${count} in ${scope}`;
+      const text =
+        line.heading === "open"
+          ? i18n.t`Open · jumps to its tab`
+          : line.heading === "mentions"
+            ? i18n.t`Mentioned in ${mentioned} more`
+            : i18n.t`${count} in ${scope}`;
       w.write(`\x1b[${row};${x + 3}H${panel}\x1b[1m`);
       writeEllipsis(w, text, sat(width, 5));
       w.write("\x1b[22m");
+      return;
+    }
+    if ("note" in line) {
+      w.write(`\x1b[${row};${x + 3 + provider_width}H${dim}`);
+      writeEllipsis(
+        w,
+        line.note === "searching"
+          ? i18n.t`Searching conversations…`
+          : i18n.t`Older mentions not shown · type more to narrow`,
+        sat(width, 5 + provider_width),
+      );
       return;
     }
     if ("elsewhere" in line) {
@@ -694,7 +811,7 @@ export class View {
       );
       return;
     }
-    const e = c.history.entries["entry" in line ? line.entry : line.open];
+    const e = entryOf(c, line)!;
     w.write(`\x1b[${row};${x + 1}H${style}`);
     w.splat(" ", sat(width, 3));
     w.write(`\x1b[${row};${x + 1}H${selected ? "›" : " "}`);
@@ -717,7 +834,7 @@ export class View {
       if (account.length > 0)
         tag(account, Math.min(displayWidth(account), Math.floor(cols.title / 3)), selected ? palette.fg("muted") : dim);
       // Where names the checkout's branch now; this is the one it ran on.
-      const branch = "entry" in line ? otherBranch(c, e) : "";
+      const branch = "open" in line ? "" : otherBranch(c, e);
       if (branch.length > 0 && where?.branch !== branch)
         tag(branch, Math.min(displayWidth(branch), Math.floor(room / 2)), palette.fg("muted"));
     }
@@ -733,6 +850,10 @@ export class View {
     if ("open" in line) {
       w.write(`\x1b[${row};${col}H` + palette.fg("muted"));
       writeEllipsis(w, i18n.t`↗ open in a tab`, cols.last);
+    } else if ("mention" in line && cols.last > 12) {
+      // Where it said the search, in place of what it said last.
+      w.write(`\x1b[${row};${col}H` + (selected ? palette.fg("text") : dim));
+      writeEllipsis(w, around(this.mention(e), this.mentions.query, cols.last), cols.last);
     } else if (cols.last > 12) {
       w.write(`\x1b[${row};${col}H`);
       let room = cols.last;
@@ -777,9 +898,7 @@ function otherBranch(c: Context, e: Entry): string {
 }
 /** The agent of a conversation row; null for any other row. */
 function agentOf(c: Context, line: Line): Provider | null {
-  if ("entry" in line) return c.history.entries[line.entry].provider;
-  if ("open" in line) return c.history.entries[line.open].provider;
-  return null;
+  return entryOf(c, line)?.provider ?? null;
 }
 /** Names the first visible conversation and each change of agent. Day
  * headings continue the run; search section headings start another. */

@@ -708,6 +708,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Mark as unread"]': () => `标为未读`,
     '["Mem"]': () => `内存`,
     '["Memory"]': () => `内存`,
+    '["Mentioned in "," more"]': v0 => `另有 ${v0} 个会话提到`,
     '["Metered"]': () => `按量计费`,
     '["Missing"]': () => `缺失`,
     '["Mixed"]': () => `混合`,
@@ -800,6 +801,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Nothing is waiting"]': () => `没有等待中的任务`,
     '["Observed tokens"]': () => `已观测的 Token`,
     '["Off"]': () => `关闭`,
+    '["Older mentions not shown · type more to narrow"]': () => `较早的提及未显示 · 多输入几个字以缩小范围`,
     '["On"]': () => `开启`,
     '["Onboarding"]': () => `入门设置`,
     '["Open"]': () => `打开`,
@@ -935,6 +937,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Search conversation text"]': () => `搜索对话文本`,
     '["Search models"]': () => `搜索模型`,
     '["Search models, agents and accounts"]': () => `搜索模型、代理和账户`,
+    '["Searching conversations…"]': () => `正在搜索会话…`,
     '["Select"]': () => `选择`,
     '["Select tab"]': () => `选择标签页`,
     '["Select workspace"]': () => `选择工作区`,
@@ -2182,6 +2185,7 @@ ${v1} 使用该账号。
     '["Mark as unread"]': () => `未読にする`,
     '["Mem"]': () => `メモリ`,
     '["Memory"]': () => `メモリ`,
+    '["Mentioned in "," more"]': v0 => `ほかに ${v0} 件の会話で言及`,
     '["Metered"]': () => `従量課金`,
     '["Missing"]': () => `見つかりません`,
     '["Mixed"]': () => `混在`,
@@ -2276,6 +2280,7 @@ ${v1} 使用该账号。
     '["Nothing is waiting"]': () => `待機中の処理はありません`,
     '["Observed tokens"]': () => `観測されたトークン`,
     '["Off"]': () => `オフ`,
+    '["Older mentions not shown · type more to narrow"]': () => `古い言及は表示されていません · 入力を増やして絞り込む`,
     '["On"]': () => `オン`,
     '["Onboarding"]': () => `初期設定`,
     '["Open"]': () => `開く`,
@@ -2416,6 +2421,7 @@ ${v1} 使用该账号。
     '["Search conversation text"]': () => `会話の本文を検索`,
     '["Search models"]': () => `モデルを検索`,
     '["Search models, agents and accounts"]': () => `モデル、エージェント、アカウントを検索`,
+    '["Searching conversations…"]': () => `会話を検索中…`,
     '["Select"]': () => `選択`,
     '["Select tab"]': () => `タブを選択`,
     '["Select workspace"]': () => `ワークスペースを選択`,
@@ -3669,6 +3675,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Mark as unread"]': () => `읽지 않음으로 표시`,
     '["Mem"]': () => `메모리`,
     '["Memory"]': () => `메모리`,
+    '["Mentioned in "," more"]': v0 => `그 밖에 ${v0}개 대화에서 언급됨`,
     '["Metered"]': () => `사용량 과금`,
     '["Missing"]': () => `없음`,
     '["Mixed"]': () => `혼합`,
@@ -3761,6 +3768,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Nothing is waiting"]': () => `대기 중인 작업 없음`,
     '["Observed tokens"]': () => `관측된 토큰`,
     '["Off"]': () => `끔`,
+    '["Older mentions not shown · type more to narrow"]': () => `이전 언급은 표시되지 않음 · 더 입력해 범위 좁히기`,
     '["On"]': () => `켬`,
     '["Onboarding"]': () => `시작 안내`,
     '["Open"]': () => `열기`,
@@ -3900,6 +3908,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Search conversation text"]': () => `대화 본문 검색`,
     '["Search models"]': () => `모델 검색`,
     '["Search models, agents and accounts"]': () => `모델, 에이전트, 계정 검색`,
+    '["Searching conversations…"]': () => `대화 검색 중…`,
     '["Select"]': () => `선택`,
     '["Select tab"]': () => `탭 선택`,
     '["Select workspace"]': () => `작업 공간 선택`,
@@ -5605,6 +5614,20 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Mark as unread"]': () => `Отметить непрочитанным`,
     '["Mem"]': () => `Пам.`,
     '["Memory"]': () => `Память`,
+    '["Mentioned in "," more"]': v0 => {
+      switch (plural("ru", Number(v0))) {
+        case "one":
+          return `Упоминается ещё в ${v0} беседе`;
+        case "few":
+          return `Упоминается ещё в ${v0} беседах`;
+        case "many":
+          return `Упоминается ещё в ${v0} беседах`;
+        case "other":
+          return `Упоминается ещё в ${v0} беседы`;
+        default:
+          return `Упоминается ещё в ${v0} беседы`;
+      }
+    },
     '["Metered"]': () => `По расходу`,
     '["Missing"]': () => `Отсутствует`,
     '["Mixed"]': () => `Смешанный`,
@@ -5699,6 +5722,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Nothing is waiting"]': () => `Нет ожидающих задач`,
     '["Observed tokens"]': () => `Учтённые токены`,
     '["Off"]': () => `Выкл.`,
+    '["Older mentions not shown · type more to narrow"]': () => `Старые упоминания не показаны · уточните запрос`,
     '["On"]': () => `Вкл.`,
     '["Onboarding"]': () => `Первоначальная настройка`,
     '["Open"]': () => `Открыть`,
@@ -5840,6 +5864,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Search conversation text"]': () => `Поиск по тексту диалогов`,
     '["Search models"]': () => `Поиск моделей`,
     '["Search models, agents and accounts"]': () => `Поиск моделей, агентов и аккаунтов`,
+    '["Searching conversations…"]': () => `Поиск по беседам…`,
     '["Select"]': () => `Выбрать`,
     '["Select tab"]': () => `Выбрать вкладку`,
     '["Select workspace"]': () => `Выбрать пространство`,

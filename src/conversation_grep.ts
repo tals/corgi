@@ -57,13 +57,12 @@ type Hit = {
   submatches: { start: number; end: number }[];
 };
 type Match = { source: Source; hits: Hit[]; count_limited?: boolean };
-type Options = {
+type Options = grepRegex.Flags & {
   workspace: string;
   /** Folders besides the workspace's, such as worktrees outside it. */
   folders?: string[];
   age: number;
   patterns: string[];
-  flags: string[];
   limit: number;
   maxCount: number;
   context: number;
@@ -291,7 +290,10 @@ function hit(line: Line, submatches: Hit["submatches"], context: boolean): Hit {
 function query(options: Options): grepRegex.Query {
   return {
     patterns: options.patterns,
-    flags: options.flags,
+    case: options.case,
+    fixed: options.fixed,
+    word: options.word,
+    line: options.line,
     before: options.before ?? options.context,
     after: options.after ?? options.context,
     maxCount: options.maxCount,

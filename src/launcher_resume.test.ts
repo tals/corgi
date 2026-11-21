@@ -10,6 +10,8 @@ import {
   dayLabel,
   ageLabel,
   collapsed_rows,
+  around,
+  mentionsOf,
   type Account,
   type Location,
   type Entry,
@@ -129,6 +131,8 @@ test("expanded groups by day and widens; search finds open conversations and cou
     1000,
   );
   const v = new View();
+  // Titles alone, as from a daemon that can't search conversations' text.
+  v.mentions.unsupported = true;
   v.expand();
   expect(v.scope).toBe("workspace");
   let rows = v.lines(c);
@@ -408,6 +412,7 @@ test("an open conversation's Where and search follow the worktree its agent move
     ),
     view = new View({ expanded: true, focused: true }),
     area = new Area(0, 1, 140, 10);
+  view.mentions.unsupported = true;
   view.startSearch();
   for (const ch of "site/wt") view.query.key(ch.charCodeAt(0));
   expect(view.lines(c)).toEqual([{ heading: "open" }, { open: 0 }, { heading: "results" }]);
@@ -451,4 +456,104 @@ test("a conversation from another account ends its title with the account's name
   expect(lines[1]).toContain("Fix login");
   expect(lines[1].indexOf("work") + 4).toBe(13 + v.columns(96).title);
   expect(lines[2]).not.toContain("work");
+});
+
+/** A `conversation.grep` line for a Claude conversation's first hit. */
+const said = (session: string, text: string) => ({
+  source: { provider: "claude", session, cwd: "/w/corgi", updated_at: 1 },
+  hits: [{ text, context: false, role: "user" }],
+});
+
+test("conversations whose text holds the search follow the title matches, as the daemon finds them", () => {
+  const entries = [
+    testEntry("a", "/w/corgi", "Sidebar flicker fix", 900),
+    testEntry("b", "/w/corgi", "Release notes", 800),
+    testEntry("c", "/w/other", "Docs pass", 700),
+    testEntry("d", "/w/corgi", "Theme work", 600),
+  ];
+  const c = new Context(
+    { pending: false, entries },
+    "/w/corgi",
+    "/w/corgi",
+    [{ provider: "claude", session: "d", pane: 2, folder: "/w/corgi" }],
+    1000,
+  );
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  const type = (text: string) => {
+    for (const ch of text) v.query.key(ch.charCodeAt(0));
+  };
+  // Too short to look for in what was said.
+  type("si");
+  expect(v.mentionQuery()).toBe("");
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }]);
+  type("debar ");
+  expect(v.mentionQuery()).toBe("sidebar");
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }, { note: "searching" }]);
+  v.searchMentions("sidebar");
+  v.addMentions("sidebar", [said("b", "move the Sidebar rule"), said("a", "a title match already"), said("c", "x")]);
+  v.addMentions("sidebar", [said("d", "the open one"), said("b", "a later hit stays out")]);
+  // Another search's matches don't count.
+  v.addMentions("theme", [said("d", "theme")]);
+  expect(v.lines(c)).toEqual([
+    { heading: "open" },
+    { open: 3 },
+    { heading: "results" },
+    { entry: 0 },
+    { heading: "mentions" },
+    { mention: 1 },
+    { note: "searching" },
+    { elsewhere: 1 },
+  ]);
+  expect(v.mention(entries[1])).toBe("move the Sidebar rule");
+  v.endMentions("sidebar", false);
+  expect(v.lines(c)).not.toContainEqual({ note: "searching" });
+  v.home();
+  v.move(c, v.lines(c), 2);
+  expect(v.entry(c, v.lines(c))!.title).toBe("Release notes");
+  v.endMentions("sidebar", true);
+  expect(v.lines(c).at(-2)).toEqual({ note: "cut" });
+  // The excerpt shows where the search was said, in the last message's place.
+  const w = new Writer(),
+    host = new Terminal(120, 14);
+  v.mentions.hits.set("claude:b", "x".repeat(90) + " move the Sidebar rule");
+  v.draw(w, c, new Area(0, 1, 120, 12));
+  host.feed(w.s);
+  const text = host.text();
+  host.destroy();
+  expect(text).toContain("Mentioned in 1 more");
+  expect(text.split("\n").find(l => l.includes("Release notes"))).toMatch(/… ?[a-z ]*the Sidebar rule/);
+  // Typing on waits for the next search; leaving the search forgets it.
+  type("x");
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }, { note: "searching" }]);
+  v.leaveSearch();
+  expect(v.mentions.query).toBe("");
+});
+
+test("grep lines become conversations and first hits; anything else is skipped", () => {
+  expect(
+    mentionsOf([
+      said("a", "tab\there"),
+      { source: { provider: "claude", session: "b" }, hits: [{ text: "before", context: true }, { text: "match" }] },
+      { source: { provider: "nope", session: "c" }, hits: [{ text: "x" }] },
+      { source: { provider: "claude" }, hits: [{ text: "x" }] },
+      { source: { provider: "claude", session: "d" }, count: 3 },
+      null,
+    ]),
+  ).toEqual([
+    { key: "claude:a", text: "tab here" },
+    { key: "claude:b", text: "match" },
+  ]);
+  expect(mentionsOf({ not: "lines" })).toEqual([]);
+});
+
+test("an excerpt starts a little before the search when it would end out of sight", () => {
+  expect(around("short Sidebar line", "sidebar", 40)).toBe("short Sidebar line");
+  const long = "a".repeat(50) + " Sidebar rule";
+  const shown = around(long, "sidebar", 20);
+  expect(shown.startsWith("…")).toBe(true);
+  expect(shown.indexOf("Sidebar")).toBeLessThan(20);
+  expect(shown.indexOf("Sidebar")).toBeGreaterThan(1);
+  expect(around(long, "missing", 20)).toBe(long);
 });

@@ -919,6 +919,15 @@
   "Mark as unread": "Отметить непрочитанным",
   "Mem": "Пам.",
   "Memory": "Память",
+  "Mentioned in ${mentioned} more": {
+    "plural": "mentioned",
+    "forms": {
+      "one": "Упоминается ещё в ${mentioned} беседе",
+      "few": "Упоминается ещё в ${mentioned} беседах",
+      "many": "Упоминается ещё в ${mentioned} беседах",
+      "other": "Упоминается ещё в ${mentioned} беседы"
+    }
+  },
   "Metered": "По расходу",
   "Missing": "Отсутствует",
   "Mixed": "Смешанный",
@@ -1009,6 +1018,7 @@
   "Nothing is waiting": "Нет ожидающих задач",
   "Observed tokens": "Учтённые токены",
   "Off": "Выкл.",
+  "Older mentions not shown · type more to narrow": "Старые упоминания не показаны · уточните запрос",
   "Omarchy detected: installing Corgi as its bar plugin (--no-omarchy installs it on its own)": "Обнаружен Omarchy: Corgi ставится как плагин панели (--no-omarchy ставит его отдельно)",
   "On": "Вкл.",
   "Onboarding": "Первоначальная настройка",
@@ -1151,6 +1161,7 @@
   "Search conversation text": "Поиск по тексту диалогов",
   "Search models": "Поиск моделей",
   "Search models, agents and accounts": "Поиск моделей, агентов и аккаунтов",
+  "Searching conversations…": "Поиск по беседам…",
   "Select": "Выбрать",
   "Select tab": "Выбрать вкладку",
   "Select workspace": "Выбрать пространство",

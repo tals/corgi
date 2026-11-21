@@ -116,7 +116,8 @@ export class Endpoint {
   uninstalled = false;
   private connection: Connection | null = null;
   private data: viewer_data.Connection | null = null;
-  /** How often a review read pings its connection, well inside the 10 s of silence it allows. */
+  /** How often a review read or a streamed search pings its connection, well
+   * inside the 10 s of silence it allows. */
   private review_ping_ms = 3_000;
   private separate = false;
   private controls: protocol.Wire<protocol.Control[]> = [];
@@ -1074,6 +1075,24 @@ export class Endpoint {
         if (!conn) throw Error("StaleConnection");
         try {
           const reply = await conn.request(op, ...args);
+          this.current(generation);
+          return reply;
+        } finally {
+          clearInterval(keepalive);
+        }
+      },
+      streamed: async (op, fields, more) => {
+        const generation = this.generation,
+          conn = this.checked;
+        if (!conn) throw Error("StaleConnection");
+        // A search may find nothing for longer than the silence a connection
+        // allows, and over SSH the viewer's stream runs on another one.
+        const keepalive = setInterval(() => void conn.request("ping").catch(() => {}), this.review_ping_ms);
+        try {
+          // Parts from a connection since replaced belong to no one.
+          const reply = await conn.streamed(op, fields, part => {
+            if (generation === this.generation) more(part);
+          });
           this.current(generation);
           return reply;
         } finally {

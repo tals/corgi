@@ -354,6 +354,8 @@ class InputState {
   tab_drag: TabDrag | null = null;
   divider: { hit: Divider; area: Rect; cancelled: boolean } | null = null;
 }
+/** The key the Resume list's searches of conversations' text go under, so each ends the last. */
+const mentions_key = "resume";
 const sameRect = (a: Rect, b: Rect) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 /** `list` with `item` in it, or without it. */
@@ -516,6 +518,8 @@ export class Controller {
   /** Whether this viewer has asked the daemon to find agents yet, or can't. */
   private find_agents: "not_yet" | "asked" = "not_yet";
   private finding_agents: Promise<void> | null = null;
+  /** The Resume list's search of conversations' text, and where it went, until it's answered. */
+  private mentions_out: { connection: Transport } | null = null;
   private finding_agents_until = 0;
   /** The running search reads the model lists again when it ends. */
   private finding_models = false;
@@ -5454,10 +5458,75 @@ export class Controller {
     });
   }
   private pollLauncher(hover: boolean): Promise<void> | void {
+    this.searchMentions();
     this.updateLaunchPreview();
     if (this.launcherModel()) this.readProfiles(false);
     if (!this.launcherModel() && !hover) return;
     return this.pollOpenLauncher(hover);
+  }
+  /** Looks for the Resume search in what conversations said, once typing
+   * pauses; matches arrive as the daemon finds them. A search no longer
+   * wanted, as the launcher closes or the search empties, ends at once. */
+  private searchMentions(): void {
+    const launch = this.agent_launcher;
+    if (!launch) return this.cancelMentions();
+    const view = launch.resume_view,
+      m = view.mentions,
+      query = view.mentionQuery(),
+      now = milliTimestamp();
+    if (query !== m.typed) {
+      m.typed = query;
+      m.typed_at = now;
+    }
+    // A new search ends the last on the daemon; no search, as when the search
+    // is left or too short, needs telling.
+    if (!query) this.cancelMentions();
+    if (query === m.query || m.unsupported || (query && now - m.typed_at < 150)) return;
+    view.searchMentions(query);
+    this.dirty = true;
+    if (!query) return;
+    const connection = this.connection,
+      out = { connection };
+    this.mentions_out = out;
+    const fields = {
+      patterns: [query],
+      fixed: true,
+      case: "insensitive" as const,
+      workspace: "*",
+      max_age: 0,
+      max_count: 1,
+      // As many as the daemon's history lists; the list keeps those it has.
+      limit: 1000,
+      max_line: 160,
+      key: mentions_key,
+    };
+    const add = (part: unknown) => {
+      view.addMentions(query, (part as { matches?: unknown } | null)?.matches);
+      this.dirty = true;
+    };
+    void (async () => {
+      try {
+        const reply = connection.streamed
+          ? await connection.streamed("conversation.grep", { ...fields, stream: true }, add)
+          : await connection.request("conversation.grep", fields);
+        if ("err" in reply) throw errors.fromReply(reply);
+        add(reply);
+        view.endMentions(query, reply.summary?.truncated === true || reply.summary?.limit_reached === true);
+      } catch (error) {
+        if (errors.is(error, "UnknownOperation")) m.unsupported = true;
+        view.endMentions(query, false);
+      }
+      if (this.mentions_out === out) this.mentions_out = null;
+      this.dirty = true;
+    })();
+  }
+  /** Ends the Resume list's search of conversations' text, if one is out. */
+  private cancelMentions(): void {
+    const out = this.mentions_out;
+    if (!out) return;
+    this.mentions_out = null;
+    // A daemon without the op lets the search run out.
+    void call(out.connection, "conversation.grep.cancel", { key: mentions_key }).catch(() => {});
   }
   private async pollOpenLauncher(hover: boolean): Promise<void> {
     await this.previewInlineCommand(false);

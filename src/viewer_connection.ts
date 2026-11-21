@@ -109,6 +109,14 @@ export class Connection implements Transport {
     if (protocol.once(op)) return this.once(op, args[0]);
     return this.call(op, ...args);
   }
+  /** A request on control whose reply comes after parts. */
+  async streamed<K extends protocol.Op>(
+    op: K,
+    fields: protocol.RequestInput<K>,
+    more: (part: unknown) => void,
+  ): Promise<protocol.Response<K>> {
+    return (await this.current()).streamed(op, fields, more);
+  }
   /** A request on control. One a reload interrupts goes again: what isn't
    * numbered is safe to run twice. */
   private async call<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>> {

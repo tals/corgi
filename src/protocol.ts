@@ -141,6 +141,8 @@ export const operations = [
   "pane.agent",
   "conversation.list",
   "conversation.acknowledge",
+  "conversation.grep",
+  "conversation.grep.cancel",
   "pane.surface",
   "server.reload",
   "recovery.save",
@@ -806,6 +808,35 @@ const requests = {
     conversation: ["?u32", null],
   },
   "conversation.acknowledge": { conversation: "u32", through: "u64", attention_at: ["?i64", null] },
+  /** `corgi grep`'s options; null takes its default. `workspace` is a workspace
+   * ID, an absolute path or '*'; `max_age` is in seconds, 0 for any age. A new
+   * search with this connection's `key` ends its last; `stream` sends matches
+   * as `{more: true}` messages before the reply. */
+  "conversation.grep": {
+    patterns: "[]string",
+    workspace: "string",
+    case: ["sensitive|insensitive|smart", "sensitive"],
+    fixed: ["bool", false],
+    word: ["bool", false],
+    line: ["bool", false],
+    max_age: ["?u32", null],
+    session: ["string", ""],
+    provider: ["?provider", null],
+    limit: ["?u32", null],
+    max_count: ["?u32", null],
+    context: ["?u32", null],
+    before: ["?u32", null],
+    after: ["?u32", null],
+    tools: ["bool", false],
+    only_matching: ["bool", false],
+    list: ["bool", false],
+    count: ["bool", false],
+    max_line: ["?u32", null],
+    key: ["string", ""],
+    stream: ["bool", false],
+  },
+  /** Ends this connection's search under `key`, whether or not one runs. */
+  "conversation.grep.cancel": { key: "string" },
   "pane.surface": { pane: "u32" },
   "server.reload": { executable: ["string", ""] },
   "inference.configure": {
@@ -931,6 +962,23 @@ type WireFields<T> = unknown extends T
         ? { [K in keyof T as T[K] extends (...args: never[]) => unknown ? never : K]: Wire<T[K]> }
         : T;
 
+/** What `corgi grep --json` prints, a line at a time. */
+export type GrepLine = import("./conversation_grep_output").Line;
+/** Matches a streamed `conversation.grep` sends before its reply. */
+export type GrepMore = { more: true; matches: GrepLine[] };
+export type GrepSummary = {
+  /** Conversations in scope. */
+  candidates: number;
+  /** Conversations sent. */
+  returned: number;
+  /** The byte budget ran out before every match was sent. */
+  truncated: boolean;
+  /** `limit` conversations matched, so more may. */
+  limit_reached: boolean;
+  /** Conversations that may hold more than `max_count` matches. */
+  capped_sessions: number;
+  warnings: string[];
+};
 // RPC success payloads; opaque provider messages remain unknown.
 type SessionSnapshot = ReturnType<typeof import("./session").snapshot>;
 type ViewerSnapshot = ReturnType<typeof import("./session").viewerSnapshot>;
@@ -1013,6 +1061,9 @@ export interface ReplyPayloads {
     surface: SurfaceView["surface"];
   };
   "conversation.list": Ok & { conversations: SessionSnapshot["conversations"] };
+  /** With `stream`, `matches` holds only what no `GrepMore` carried. */
+  "conversation.grep": Ok & { matches: GrepLine[]; summary: GrepSummary };
+  "conversation.grep.cancel": Ok;
   "recovery.save": Ok & { path: string };
   "inference.configure": Ok & { saved: boolean; inference: import("./corgi_setup").Status };
   "shell.configure": Ok & { shell: import("./launch/command").ShellStatus };

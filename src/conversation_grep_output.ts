@@ -42,11 +42,13 @@ export type Options = {
   fullLines: boolean;
 };
 
-type DisplayHit = Omit<Hit, "submatches" | "seq"> & {
+export type DisplayHit = Omit<Hit, "submatches" | "seq"> & {
   submatches?: Hit["submatches"];
   seq?: number;
   clipped?: boolean;
 };
+/** One line of `--json` output: a conversation with one of its hits, or with its count under -c. */
+export type Line = { source: Match["source"]; hits?: DisplayHit[]; count?: number; count_limited?: boolean };
 
 // Hits carry rg's UTF-8 byte offsets; convert them before slicing JavaScript strings.
 function ranges(hit: Hit): { start: number; end: number }[] {

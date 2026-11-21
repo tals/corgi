@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import skill from "../assets/corgi-skill.md" with { type: "text" };
 import * as grep from "./conversation_grep";
+import * as grepRegex from "./conversation_grep_regex";
 import * as cacheIndex from "./conversation_grep_cache";
 import * as output from "./conversation_grep_output";
 import { Provider } from "./providers";
@@ -89,7 +90,7 @@ function expandShort(args: string[]): string[] {
   return result;
 }
 /** Transcripts record a workspace's real directory, so a linked path follows its link. */
-function real(dir: string): string {
+export function real(dir: string): string {
   try {
     return fs.realpathSync(dir);
   } catch {
@@ -97,7 +98,7 @@ function real(dir: string): string {
   }
 }
 /** A Corgi workspace: its folder, and the worktree checkouts of its repository. */
-type Workspace = { id: number; name: string; cwd: string; worktrees: string[] };
+export type Workspace = { id: number; name: string; cwd: string; worktrees: string[] };
 /** The workspaces of the Corgi `daemon`; null when it isn't running. */
 async function corgi(daemon: rpc_http.Daemon): Promise<Workspace[] | null> {
   try {
@@ -123,12 +124,12 @@ async function corgi(daemon: rpc_http.Daemon): Promise<Workspace[] | null> {
   }
 }
 /** Where a search looks: `root` and the folders under it ('*' for all), and other folders besides. */
-type Scope = { root: string; folders: string[] };
+export type Scope = { root: string; folders: string[] };
 const holds = (folder: string, dir: string) =>
   dir === folder || dir.startsWith(folder === path.sep ? folder : folder + path.sep);
 /** A workspace's folder, and the checkouts outside it; not one that holds the
  * folder, as the main checkout does when the workspace is a subfolder. */
-function scope(w: Workspace): Scope {
+export function scope(w: Workspace): Scope {
   const root = real(w.cwd),
     folders = [...new Set(w.worktrees.map(real))].filter(d => !holds(d, root) && !holds(root, d));
   return { root, folders };
@@ -224,6 +225,31 @@ Tool tags distinguish calls from result text; only calls prove invocation.
 Exit codes/status refer to that tool call. Missing outcomes stay unrecorded.
 Exit: 0 matches, 1 no matches, 2 error. --help for help; --skill for examples.
 `;
+/** What `corgi grep` searches and shows when no option says otherwise. */
+export function defaults(): { display: output.Options; options: Options } {
+  return {
+    display: {
+      workspace: "",
+      json: false,
+      onlyMatching: false,
+      list: false,
+      count: false,
+      maxLineChars: 240,
+      maxOutputChars: 12000,
+      fullLines: false,
+    },
+    options: {
+      ...grepRegex.plain,
+      workspace: "",
+      age: 30 * 86400000,
+      patterns: [],
+      limit: 10,
+      maxCount: 3,
+      context: 0,
+      asOf: Date.now(),
+    },
+  };
+}
 async function main(raw: string[], daemon: rpc_http.Daemon) {
   const started = performance.now();
   if (!raw.length || (raw.length === 1 && raw[0] === "help")) {
@@ -234,26 +260,7 @@ async function main(raw: string[], daemon: rpc_http.Daemon) {
   let stats = false,
     workspace: string | undefined,
     chat = 0;
-  const display: output.Options = {
-    workspace: "",
-    json: false,
-    onlyMatching: false,
-    list: false,
-    count: false,
-    maxLineChars: 240,
-    maxOutputChars: 12000,
-    fullLines: false,
-  };
-  const options: Options = {
-    workspace: "",
-    age: 30 * 86400000,
-    patterns: [],
-    flags: [],
-    limit: 10,
-    maxCount: 3,
-    context: 0,
-    asOf: Date.now(),
-  };
+  const { display, options } = defaults();
   const take = (i: number) => {
     if (args[i + 1] === undefined) throw Error(`Missing value: ${args[i]}`);
     return args[i + 1];
@@ -328,12 +335,22 @@ async function main(raw: string[], daemon: rpc_http.Daemon) {
         options.patterns.push(take(i++));
         break;
       case "-i":
-      case "-S":
+        options.case = "insensitive";
+        break;
       case "-s":
+        options.case = "sensitive";
+        break;
+      case "-S":
+        options.case = "smart";
+        break;
       case "-F":
+        options.fixed = true;
+        break;
       case "-w":
+        options.word = true;
+        break;
       case "-x":
-        options.flags.push(args[i]);
+        options.line = true;
         break;
       case "-o":
         display.onlyMatching = true;
@@ -353,11 +370,7 @@ async function main(raw: string[], daemon: rpc_http.Daemon) {
         options.patterns.push(args[i]);
     }
   }
-  const cache = path.join(
-    process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"),
-    "corgi",
-    "conversation-grep-v2",
-  );
+  const cache = cacheIndex.directory();
   if (
     !(Number.isSafeInteger(options.maxCount) && options.maxCount > 0) ||
     ![

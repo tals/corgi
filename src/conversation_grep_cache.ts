@@ -1,11 +1,17 @@
 // Reuse normalized files, refreshing only changed transcripts the search reaches.
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { cached, discover, measure, read, selected, store, versions } from "./conversation_grep";
 import type { Lanes, Location, Manifest, Normalized, Options, Source } from "./conversation_grep";
 
 export type Progress = (scanned: number, total: number, phase: "checking" | "indexing") => Promise<void>;
 type Index = Manifest & { index_version: 1 };
+
+/** Where the index lives, for `corgi grep` and the daemon alike. */
+export function directory(env = process.env): string {
+  return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "corgi", "conversation-grep-v2");
+}
 
 /** The index lock, or null while another search holds it. Only its holder
  * writes the index; cache files are replaced whole, so others read freely. */

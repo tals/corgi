@@ -109,6 +109,17 @@
     "through": 2,
     "attention_at": 3
   },
+  "conversation.grep": {
+    "patterns": ["needle"],
+    "workspace": "*",
+    "fixed": true,
+    "case": "insensitive",
+    "max_count": 1,
+    "stream": true
+  },
+  "conversation.grep.cancel": {
+    "key": "resume"
+  },
   "pane.surface": {
     "pane": 1
   },
