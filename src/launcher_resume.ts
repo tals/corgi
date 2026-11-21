@@ -7,7 +7,7 @@ import { Provider, adapter } from "./providers";
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import { Dialog, View as DialogView, writeField } from "./name_dialog";
-import { Writer, displayWidth, writeEllipsis, ellipsis, truncatedText, sat } from "./text";
+import { Writer, displayWidth, writeEllipsis, ellipsis, truncatedText, sat, spacedControls } from "./text";
 import * as scrollThumb from "./scroll_thumb";
 import { writeMark, type Marks } from "./provider_mark";
 
@@ -191,25 +191,38 @@ export class Mentions {
 }
 /** A search that fails is tried this many times in all, a little later each time. */
 export const mention_tries = 3;
-/** `conversation.grep`'s lines as conversations and their first matching
- * lines; a line without both is skipped. */
-export function mentionsOf(lines: unknown): { key: string; text: string }[] {
+/** A conversation, by provider:session, and its first line that holds the search. */
+export type Mention = { key: string; text: string };
+/** `conversation.grep`'s lines as mentions; a line without both is skipped. */
+export function mentionsOf(lines: unknown): Mention[] {
   if (!Array.isArray(lines)) return [];
   return lines.flatMap(line => {
     const source = line?.source,
       provider = Provider.parse(source?.provider),
       hit = Array.isArray(line?.hits) ? line.hits.find((h: any) => h && !h.context) : null;
     if (!provider || typeof source.session !== "string" || typeof hit?.text !== "string") return [];
-    return [{ key: provider + ":" + source.session, text: hit.text.replace(/[\x00-\x1f\x7f]/g, " ") }];
+    return [{ key: provider + ":" + source.session, text: spacedControls(hit.text) }];
   });
+}
+/** A `conversation.grep` part or reply: its mentions, and whether the search
+ * stopped before every match. */
+export function answerOf(value: unknown): { mentions: Mention[]; cut: boolean } {
+  const answer = value as { matches?: unknown; summary?: { truncated?: unknown; limit_reached?: unknown } } | null;
+  return {
+    mentions: mentionsOf(answer?.matches),
+    cut: answer?.summary?.truncated === true || answer?.summary?.limit_reached === true,
+  };
 }
 /** `text` from a little before `query`'s first appearance, ignoring case as
  * the daemon's search does, so it shows in `width` columns. */
 export function around(text: string, query: string, width: number): string {
   const found = new RegExp(query.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&"), "iu").exec(text);
-  if (!found || displayWidth(text.slice(0, found.index + found[0].length)) <= width) return text;
-  // A third of the room before the match shows what led to it, whole characters only.
-  const room = Math.floor(sat(width, displayWidth(found[0]) + 1) / 3);
+  // A line that runs past `width` ends in "…", which takes its last column.
+  const shown = displayWidth(text) <= width ? width : sat(width, 1);
+  if (!found || displayWidth(text.slice(0, found.index + found[0].length)) <= shown) return text;
+  // A third of the room both "…"s leave before the match shows what led to it,
+  // whole characters only.
+  const room = Math.floor(sat(width, displayWidth(found[0]) + 2) / 3);
   let lead = "";
   for (const ch of Array.from(text.slice(0, found.index)).reverse()) {
     if (displayWidth(ch + lead) > room) break;
@@ -375,10 +388,20 @@ export class View {
     return ++m.generation;
   }
   /** Adds what search `generation` found; the first line a conversation sent stays. */
-  addMentions(generation: number, lines: unknown): void {
+  addMentions(generation: number, mentions: Mention[]): void {
     const m = this.mentions;
     if (m.generation !== generation) return;
-    for (const { key, text } of mentionsOf(lines)) if (!m.hits.has(key)) m.hits.set(key, text);
+    for (const { key, text } of mentions) if (!m.hits.has(key)) m.hits.set(key, text);
+  }
+  /** Forgets the search that's out, as it's cancelled: its answers no longer
+   * count, and the same text is searched afresh. */
+  abandonMentions(): void {
+    const m = this.mentions;
+    m.generation++;
+    m.query = "";
+    m.hits = new Map();
+    m.searching = false;
+    m.retry_at = 0;
   }
   /** Search `generation` ended; `cut` when it stopped before every match. */
   endMentions(generation: number, cut: boolean): void {
@@ -437,13 +460,14 @@ export class View {
     return out;
   }
   /** Search results: open matches first, then closed ones in scope, then
-   * those only their text matched, which arrive later. */
+   * those, open or closed, only their text matched, which arrive later and
+   * so never move the rows above them. */
   private found(c: Context): Line[] {
     const out: Line[] = [];
     const entries = c.history.entries;
     let open = 0;
     entries.forEach((e, i) => {
-      if (open < 3 && c.opened(e) !== null && (this.matches(e, c.where(e).branch) || this.mentioned(e))) {
+      if (open < 3 && c.opened(e) !== null && this.matches(e, c.where(e).branch)) {
         if (open === 0) out.push({ heading: "open" });
         out.push({ open: i });
         open += 1;
@@ -453,9 +477,10 @@ export class View {
     let elsewhere = 0;
     const mentions: Line[] = [];
     entries.forEach((e, i) => {
-      if (c.opened(e) !== null) return;
-      const titled = this.matches(e);
-      if (!titled && !this.mentioned(e)) return;
+      const opened = c.opened(e) !== null,
+        titled = opened ? this.matches(e, c.where(e).branch) : this.matches(e);
+      // Open title matches show above, as many as fit there.
+      if ((opened && titled) || (!titled && !this.mentioned(e))) return;
       if (!c.inScope(e, this.scope)) {
         elsewhere += 1;
         return;

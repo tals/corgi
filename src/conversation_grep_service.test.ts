@@ -34,8 +34,9 @@ const summary = {
 };
 const settled = () => new Promise(resolve => setTimeout(resolve, 0));
 
-/** Searches on a fake worker, lock and clock; `hold` makes each lock wait for `grant`. */
-function world(hold = false) {
+/** Searches on a fake worker, lock and clock; `hold` makes each lock wait for
+ * `grant`, and `broken` makes the first worker fail to start. */
+function world(hold = false, broken = false) {
   const posted: Command[] = [],
     lock = { held: false, taken: 0 },
     counts = { spawned: 0, stopped: 0 };
@@ -44,8 +45,9 @@ function world(hold = false) {
   const held: (() => void)[] = [];
   const searches = new Searches(
     e => {
+      if (broken && counts.spawned++ === 0) throw Error("WorkerFailed");
       events = e;
-      counts.spawned++;
+      if (!broken) counts.spawned++;
       return {
         post: command => posted.push(command),
         stop: () => {
@@ -284,6 +286,46 @@ test("a search still waiting for the lock is neither stopped nor failed by what 
   await expect(newer.result).resolves.toMatchObject({ summary });
   expect(w.lock.held).toBe(false);
   w.closed();
+});
+
+test("a newer search ends the last under its key even when it's refused", async () => {
+  const w = world(),
+    c = client();
+  const running = w.start(c, { key: "resume" });
+  await settled();
+  const refused = w.start(c, { key: "resume", patterns: [] });
+  await expect(refused.result).rejects.toThrow("MissingPattern");
+  await expect(running.result).rejects.toThrow("Cancelled");
+  w.send({ type: "cancelled", id: w.last().id });
+  expect(w.lock.held).toBe(false);
+  w.closed();
+});
+
+test("a worker that can't start fails its search, not the ones after it", async () => {
+  const w = world(false, true);
+  const first = w.start(client());
+  await expect(first.result).rejects.toThrow("WorkerFailed");
+  expect(w.lock.held).toBe(false);
+  const second = w.start(client());
+  await settled();
+  w.send({ type: "done", id: w.last().id, summary });
+  await expect(second.result).resolves.toMatchObject({ summary });
+  w.closed();
+});
+
+test("a search waiting for its lock before any worker exists still meets its deadline", async () => {
+  const w = world(true);
+  const waiting = w.start(client());
+  await settled();
+  expect(w.counts.spawned).toBe(0);
+  w.advance(31_000);
+  w.searches.tick();
+  await expect(waiting.result).rejects.toThrow("SearchTimedOut");
+  // Its lock, when it comes, is let go at once.
+  w.grant();
+  await settled();
+  expect(w.lock.held).toBe(false);
+  expect(w.counts.spawned).toBe(0);
 });
 
 test("a cancel without a key stops nothing", async () => {

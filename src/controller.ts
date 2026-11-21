@@ -519,7 +519,7 @@ export class Controller {
   private find_agents: "not_yet" | "asked" = "not_yet";
   private finding_agents: Promise<void> | null = null;
   /** The Resume list's search of conversations' text, and where it went, until it's answered. */
-  private mentions_out: { connection: Transport } | null = null;
+  private mentions_out: { connection: Transport; view: launcherResume.View } | null = null;
   private finding_agents_until = 0;
   /** The running search reads the model lists again when it ends. */
   private finding_models = false;
@@ -5490,7 +5490,7 @@ export class Controller {
     this.dirty = true;
     if (!query) return;
     const connection = this.connection,
-      out = { connection };
+      out = { connection, view };
     this.mentions_out = out;
     const fields = {
       patterns: [query],
@@ -5505,7 +5505,7 @@ export class Controller {
       key: mentions_key,
     };
     const add = (part: unknown) => {
-      view.addMentions(generation, (part as { matches?: unknown } | null)?.matches);
+      view.addMentions(generation, launcherResume.answerOf(part).mentions);
       this.dirty = true;
     };
     void (async () => {
@@ -5515,7 +5515,7 @@ export class Controller {
           : await connection.request("conversation.grep", fields);
         if ("err" in reply) throw errors.fromReply(reply);
         add(reply);
-        view.endMentions(generation, reply.summary?.truncated === true || reply.summary?.limit_reached === true);
+        view.endMentions(generation, launcherResume.answerOf(reply).cut);
       } catch (error) {
         // XXX: Remove for next protocol bump. Daemons before conversation.grep don't know it.
         if (errors.is(error, "UnknownOperation")) {
@@ -5536,6 +5536,9 @@ export class Controller {
     const out = this.mentions_out;
     if (!out) return;
     this.mentions_out = null;
+    // A launcher put aside, as while signing in, searches afresh when it's back.
+    out.view.abandonMentions();
+    this.dirty = true;
     // XXX: Remove for next protocol bump. A daemon without the op lets the search run out.
     void call(out.connection, "conversation.grep.cancel", { key: mentions_key }).catch(() => {});
   }

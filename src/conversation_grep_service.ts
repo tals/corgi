@@ -161,8 +161,10 @@ export class Searches {
     signal: AbortSignal,
     more: ((value: object) => void) | null,
   ): Promise<Result> {
-    const search = prepare(runtime, q);
+    // A newer search ends the last under its key even when it's itself refused.
     if (q.key) this.stop(client, q.key);
+    const search = prepare(runtime, q);
+    this.ticking();
     return new Promise<Result>((resolve, reject) => {
       const job: Job = {
         id: this.next++,
@@ -205,6 +207,10 @@ export class Searches {
     }
     if (job?.settled && job.posted && now - this.cancelled_at > cancel_ms) this.stopThread();
     if (!job && !this.queue.length && this.thread && now - this.idle_since > idle_ms) this.stopThread();
+    if (!this.running && !this.queue.length && !this.thread && this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
   private settle(job: Job, result: Result | Error): void {
     if (job.settled) return;
@@ -256,15 +262,24 @@ export class Searches {
     }
     this.release = release;
     job.posted = true;
-    this.ensureThread().post({ type: "search", id: job.id, ...job.search, locations, locked: release !== null });
+    try {
+      this.ensureThread().post({ type: "search", id: job.id, ...job.search, locations, locked: release !== null });
+    } catch (error) {
+      // A worker that can't start or take the search fails it, not the queue.
+      this.settle(job, error instanceof Error ? error : Error(String(error)));
+      this.finish();
+    }
   }
   private ensureThread(): Thread {
-    if (!this.thread) {
-      this.thread = this.spawn({ message: event => this.message(event), closed: () => this.closed() });
-      this.timer ??= setInterval(() => this.tick(), tick_ms);
-      (this.timer as { unref?(): void }).unref?.();
-    }
+    this.ticking();
+    this.thread ??= this.spawn({ message: event => this.message(event), closed: () => this.closed() });
     return this.thread;
+  }
+  /** Runs `tick` while a search waits or runs, or a worker lives. */
+  private ticking(): void {
+    if (this.timer) return;
+    this.timer = setInterval(() => this.tick(), tick_ms);
+    (this.timer as { unref?(): void }).unref?.();
   }
   private message(event: Event): void {
     const job = this.running;
@@ -313,8 +328,6 @@ export class Searches {
   private closed(): void {
     this.thread = null;
     this.stopping = false;
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
     // A search still waiting for its lock goes to the next worker.
     if (this.running?.posted) {
       this.settle(this.running, Error("SearchFailed"));
