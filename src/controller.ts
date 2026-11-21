@@ -57,6 +57,7 @@ import {
   type Terminal,
   type Workspace,
   type Headless,
+  joinRows,
 } from "./mirror";
 import { bind as bindAction, needsPane, type Action, type Template } from "./action";
 import * as corgiBadge from "./corgi_badge";
@@ -102,6 +103,7 @@ import * as rpc from "./rpc";
 import type { CommandInput, Op, PickResult, PickUnit } from "./protocol";
 import * as launcherWorktree from "./launcher_worktree";
 import * as preferences from "./preferences";
+import * as copyCleanup from "./copy_cleanup";
 import type { Preferences } from "./preferences";
 import { Host } from "./host";
 import { Drag as AgentDrag } from "./agent_drag";
@@ -225,6 +227,8 @@ interface PortClick {
   cancelled: boolean;
   /** The press time. */
   at: number;
+  /** The press's SGR button code, with its modifiers. */
+  button: number;
 }
 const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortClick => ({
   url: "",
@@ -235,8 +239,25 @@ const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortC
   drag_selects: false,
   cancelled: false,
   at: milliTimestamp(),
+  button: 0,
   ...fields,
 });
+/** A pane selection being dragged: where its press landed, whether it moved,
+ * and whether Alt or Ctrl was held at the press. */
+interface DragSelection {
+  pane: number;
+  x: number;
+  y: number;
+  moved: boolean;
+  modifier: boolean;
+}
+/** Alt (8) or Ctrl (16) in an SGR button code. */
+const copyModifier = (button: number): boolean => (button & 24) !== 0;
+/** Where a selection starts in reading order. */
+function selectionStart(sel: { x: number; y: number; end_x: number; end_y: number }): { x: number; y: number } {
+  const first = sel.y < sel.end_y || (sel.y === sel.end_y && sel.x <= sel.end_x);
+  return first ? { x: sel.x, y: sel.y } : { x: sel.end_x, y: sel.end_y };
+}
 /** An SGR button press or release: neither motion nor the wheel. */
 const isButton = (button: number): boolean => (button & 96) === 0;
 /** Motion with a button held. */
@@ -398,6 +419,8 @@ export class Controller {
   help_visible = false;
   moonlander: moonlanderTerminal.State | null = null;
   clipboard: string | null = null;
+  /** Copies made so far, so an answer for an older one can tell it lost. */
+  private copies = 0;
   menu_page = 0;
   menu_highlight: string | null = null;
   sidebar_open = true;
@@ -566,9 +589,11 @@ export class Controller {
   message = "";
   headless_notice: number | null = null;
   copy_feedback_until = 0;
+  /** What cleanup did to the text the copy toast confirms. */
+  copy_note: copyCleanup.Note = null;
   added_feedback: { label: string; until: number } | null = null;
   muted = false;
-  selection: { pane: number; x: number; y: number; moved: boolean } | null = null;
+  selection: DragSelection | null = null;
   click_series: ClickSeries | null = null;
   gesture: Gesture | null = null;
   picked: Picked | null = null;
@@ -1461,7 +1486,11 @@ export class Controller {
         state = keybindingFile.observe(where.viewer, () => {
           // One being rewritten by hand keeps the order this viewer has.
           const saved = preferences.inspectViewer(where.viewer);
-          if (saved) this.prefs.workspace_order = saved.workspace_order;
+          if (saved) {
+            this.prefs.workspace_order = saved.workspace_order;
+            if (saved.smart_copy !== this.prefs.smart_copy) this.dirty = true;
+            this.prefs.smart_copy = saved.smart_copy;
+          }
           this.wake?.();
         });
       this.closePreferences = () => {
@@ -4066,7 +4095,12 @@ export class Controller {
     const due = g.at + double_click_ms;
     const dragged = g.to.x !== g.anchor.x || g.to.y !== g.anchor.y;
     if (g.unit === "word" && !dragged && milliTimestamp() < due) this.pending_copy = { text: result.copy, due };
-    else this.copyText(result.copy);
+    else if (g.unit === "word") this.copyText(result.copy);
+    // A click series never carries Alt or Ctrl, so a line counts as a plain drag.
+    else
+      this.copyCleaned(
+        this.cleaned(term, result.copy, result.match.x, result.match.y, this.cleanupMode(term, "plain")),
+      );
   }
   /** Copies a double-click's word now, as when something other than a
    * third press follows it. */
@@ -4183,13 +4217,64 @@ export class Controller {
   private copyPane(p: Pane): void {
     this.copyText(p.terminal.selectedText());
   }
+  /** Copies a drag's selection, cleaned up as the preference and the
+   * press's modifiers ask. The daemon reads the selected cells back with
+   * the terminal's own wraps joined; when it can't, or the pane changed
+   * since, the text as shown goes uncleaned. */
+  private async copyDrag(p: Pane, sel: DragSelection): Promise<void> {
+    const term = p.terminal;
+    const shown = term.selectedText();
+    const range = term.selection;
+    const mode = this.cleanupMode(term, sel.modifier ? "modifier" : "plain");
+    if (mode === "raw" || range === null) return this.copyText(shown);
+    const before = this.copies;
+    const picked = await term.pick("cell", range.x, range.y, { x: range.end_x, y: range.end_y });
+    // A copy made while the daemon answered, such as an Alt-drag, is newer.
+    if (this.copies !== before) return;
+    if (!picked?.match || joinRows(picked.shown) !== joinRows(shown)) return this.copyText(shown);
+    this.copyCleaned(this.cleaned(term, picked.copy, picked.match.x, picked.match.y, mode));
+  }
+  /** How a copy from `term` is cleaned up for `trigger`: never while its
+   * program takes the mouse, as one that copies for itself does. */
+  private cleanupMode(term: Terminal, trigger: copyCleanup.Trigger): copyCleanup.Mode {
+    return term.mouseEvents() ? "raw" : copyCleanup.mode(this.prefs.smart_copy, trigger);
+  }
+  /** Selected `text` starting at cell `x`, `y`, cleaned up in `mode`, with
+   * what cleanup did; the text as selected if cleanup fails. */
+  private cleaned(
+    term: Terminal,
+    text: string,
+    x: number,
+    y: number,
+    mode: copyCleanup.Mode,
+  ): { text: string; note: copyCleanup.Note } {
+    if (mode === "raw") return { text, note: null };
+    try {
+      const result = copyCleanup.clean(this.selectionSnapshot(term, text, x, y), mode);
+      return { text: result.text, note: copyCleanup.note(text, result) };
+    } catch {
+      return { text, note: null };
+    }
+  }
+  /** What cleanup needs to know about selected `text` that starts at cell
+   * `x`, `y` of the pane's view. */
+  private selectionSnapshot(term: Terminal, text: string, x: number, y: number): copyCleanup.Snapshot {
+    const row = term.inner.text().split("\n")[y] ?? "";
+    return { lines: text.split("\n"), start_x: x, first_indent: copyCleanup.indentWidth(row), width: term.inner.cols };
+  }
   /** Puts `text` on the host clipboard and keeps it for `paste`. */
   private copyText(text: string): void {
-    this.copyQuietly(text);
+    this.copyCleaned({ text, note: null });
+  }
+  /** `copyText` for cleaned-up text, its toast saying what cleanup did. */
+  private copyCleaned(copy: { text: string; note: copyCleanup.Note }): void {
+    this.copyQuietly(copy.text);
+    this.copy_note = copy.note;
     this.copy_feedback_until = milliTimestamp() + 2000;
   }
   /** `copyText` without the toast, for a caller that confirms it itself. */
   private copyQuietly(text: string): void {
+    this.copies++;
     this.clipboard = text;
     this.queueEffect({ write_terminal: `\x1b]52;c;${Buffer.from(text).toString("base64")}\x07` });
     this.dirty = true;
@@ -5754,11 +5839,14 @@ export class Controller {
         if (phases.length) lines.push(`Recently: ${phases.map(phase => clean(phase)).join(" · ")}`);
         return lines.join("\n");
       }
-      case "selection":
-        return promptAttach.tail(
-          clean(this.pane(m.pane)?.terminal.selectedText() ?? "", true),
-          promptAttach.screen_bytes,
-        );
+      case "selection": {
+        // Dedented, never flattened; without a selection, the whole view.
+        const term = this.pane(m.pane)?.terminal;
+        const at = term?.selection ? selectionStart(term.selection) : { x: 0, y: 0 };
+        const mode = term ? this.cleanupMode(term, "mention") : "raw";
+        const text = term ? this.cleaned(term, term.selectedText(), at.x, at.y, mode).text : "";
+        return promptAttach.tail(clean(text, true), promptAttach.screen_bytes);
+      }
       case "diff":
         return promptAttach.workspaceDiff(m.cwd);
       case "workspace":
@@ -6123,6 +6211,14 @@ export class Controller {
         this.host.prefs.theme = apply.theme;
         try {
           preferences.update({ theme: this.host.prefs.theme });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
+      case "smart_copy":
+        this.host.prefs.smart_copy = apply.on;
+        try {
+          preferences.update({ smart_copy: apply.on });
         } catch (error) {
           this.notice((error as Error).message);
         }
@@ -8119,7 +8215,14 @@ export class Controller {
           }
           p.terminal.clearSelection();
           p.terminal.holding_selection = true;
-          this.selection = { pane: click.pane, x: click.px, y: click.py, moved: false };
+          const modifier = copyModifier(click.button);
+          this.selection = {
+            pane: click.pane,
+            x: click.px,
+            y: click.py,
+            moved: false,
+            modifier,
+          };
         }
         cl.port_click = null;
       } else {
@@ -8329,7 +8432,7 @@ export class Controller {
       const p = this.pane(sel.pane);
       if (p) {
         try {
-          if (sel.moved) this.copyPane(p);
+          if (sel.moved) void this.copyDrag(p, sel);
         } finally {
           try {
             p.terminal.clearSelection();
@@ -8937,6 +9040,7 @@ export class Controller {
             px: x - p.rect.x,
             py: y - p.rect.y,
             drag_selects: plain_link,
+            button,
           });
           return;
         }
@@ -8978,7 +9082,9 @@ export class Controller {
           term.select(sel.x, sel.y, px, py);
         }
       } else if ((button & 3) === 0) {
-        this.selection = { pane: p.id, x: px, y: py, moved: false };
+        // The press's modifiers decide the copy; later ones don't.
+        const modifier = copyModifier(button);
+        this.selection = { pane: p.id, x: px, y: py, moved: false, modifier };
         term.clearSelection();
         term.holding_selection = true;
       }
@@ -10203,6 +10309,7 @@ export class Controller {
             ? i18n.t` Agent search: enlarge terminal or Esc`
             : this.message,
         copy_feedback: this.copy_feedback_until > milliTimestamp(),
+        copy_note: this.copy_note,
         added_feedback:
           this.added_feedback && this.added_feedback.until > milliTimestamp() ? this.added_feedback.label : "",
         signin_exit: this.signin_exit,

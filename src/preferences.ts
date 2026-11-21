@@ -86,6 +86,9 @@ export class Preferences {
   /** The Corgi prompt's last pick; "auto", like unset, follows the strong
    * model of the agent run most. */
   prompt_model: PromptModel | "auto" | undefined = undefined;
+  /** Smart Copy: a plain drag copies a wrapped command as one line, and
+   * other text without its shared indent. */
+  smart_copy = true;
 
   agentSort(): Sort {
     return this.agent_sort ?? "manual";
@@ -532,6 +535,8 @@ function readState(d: Record<string, any>, v: Preferences): void {
   if (whole(d.review_tree_rows, 1)) v.review_tree_rows = d.review_tree_rows;
   // A pick this build can't read, such as a provider it doesn't know, falls back.
   if ("prompt_model" in d) v.prompt_model = promptModel(d.prompt_model) ?? undefined;
+  // Only an explicit false turns Smart Copy off.
+  v.smart_copy = d.smart_copy !== false;
   const scroll = d.agent_scroll;
   if (
     scroll &&

@@ -1,0 +1,9 @@
+width: 24
+start_x: 2
+first_indent: 2
+
+  curl -fsSL https://raw
+  .example.com/acme/i.sh
+  | sh
+---
+curl -fsSL https://raw.example.com/acme/i.sh | sh

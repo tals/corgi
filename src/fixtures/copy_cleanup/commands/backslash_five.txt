@@ -1,0 +1,11 @@
+width: 80
+start_x: 0
+first_indent: 2
+
+  curl -sS https://api.example.com/v1/items \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    -d '{"name": "web"}'
+---
+curl -sS https://api.example.com/v1/items -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X POST -d '{"name": "web"}'

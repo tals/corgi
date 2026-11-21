@@ -1,0 +1,8 @@
+width: 30
+start_x: 2
+first_indent: 2
+
+  curl -fsSL https://exa.io/d/
+  -0123456789abcdef.tar.gz
+---
+curl -fsSL https://exa.io/d/-0123456789abcdef.tar.gz

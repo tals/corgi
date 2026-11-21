@@ -1,0 +1,13 @@
+width: 80
+start_x: 8
+first_indent: 2
+
+  name: web
+    image: nginx
+    ports:
+      - 80
+---
+web
+image: nginx
+ports:
+  - 80

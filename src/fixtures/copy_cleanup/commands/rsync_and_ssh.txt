@@ -1,0 +1,9 @@
+width: 56
+start_x: 2
+first_indent: 2
+
+  rsync -avz ./build/
+  deploy@web01.example.com:/var/www/site/ && ssh
+  deploy@web01.example.com systemctl reload nginx
+---
+rsync -avz ./build/ deploy@web01.example.com:/var/www/site/ && ssh deploy@web01.example.com systemctl reload nginx

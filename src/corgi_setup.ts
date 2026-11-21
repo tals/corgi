@@ -196,7 +196,7 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
 export type Apply =
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
   | { kind: "inference_use"; use: Use; on: boolean }
-  | { kind: "readings" | "smart_links" | "auto_retry" | "ghostty"; on: boolean }
+  | { kind: "readings" | "smart_links" | "smart_copy" | "auto_retry" | "ghostty"; on: boolean }
   | { kind: "corgi_intensity"; value: number }
   | { kind: "theme"; theme: palette.Theme }
   | { kind: "language"; language: i18n.Locale | undefined }
@@ -1805,7 +1805,7 @@ export class Menu implements LinkSource {
           { tag: "brief", text: summary(s.choice, s), tone: "muted" },
           ...(second === null ? [] : [{ tag: "brief", text: second } as Line]),
           blank,
-          ...this.clever(s).flatMap((c): Line[] => [
+          ...this.clever(s, prefs).flatMap((c): Line[] => [
             option({
               label: c.label,
               detail: "",
@@ -1814,7 +1814,7 @@ export class Menu implements LinkSource {
               action: c.on ? i18n.t`turn off` : i18n.t`turn on`,
               toggle: c.on,
             }),
-            { tag: "brief", text: c.brief },
+            ...c.briefs.map((text): Line => ({ tag: "brief", text })),
             blank,
           ]),
         ];
@@ -2084,12 +2084,15 @@ export class Menu implements LinkSource {
       ...commandRows(prefs).map(([job, key]): Line => ({ tag: "binding", job, key, dim: !on })),
     ];
   }
-  /** Clever Corgi's settings, each turned on or off in the group's pane. */
-  /** What Corgi does with the model, Smart Links and auto-retry, each with its own switch. */
-  private clever(s: Status): { label: string; brief: string; on: boolean; apply: (on: boolean) => Apply }[] {
+  /** Clever Corgi's settings, each turned on or off in the group's pane:
+   * what Corgi does with the model, Smart Links, Smart Copy and auto-retry. */
+  private clever(
+    s: Status,
+    prefs: Preferences,
+  ): { label: string; briefs: string[]; on: boolean; apply: (on: boolean) => Apply }[] {
     const use = (use: Use, label: string, brief: string) => ({
       label,
-      brief,
+      briefs: [brief],
       on: s.uses[use],
       apply: (on: boolean): Apply => ({ kind: "inference_use", use, on }),
     });
@@ -2098,13 +2101,24 @@ export class Menu implements LinkSource {
       use("worktrees", i18n.t`Worktree briefs`, i18n.t`What each worktree holds, in a few words.`),
       {
         label: i18n.t`Smart Links`,
-        brief: i18n.t`Digs up likely HTTP links ↗`,
+        briefs: [i18n.t`Digs up likely HTTP links ↗`],
         on: this.smart_links,
         apply: (on: boolean): Apply => ({ kind: "smart_links", on }),
       },
       {
+        label: i18n.t`Smart Copy`,
+        briefs: [
+          i18n.t`Drags copy wrapped commands as one line.`,
+          i18n.t`Other text loses the indent its lines share.`,
+          i18n.t`Alt-drag copies exactly as shown.`,
+          i18n.t`After Trimmy: github.com/steipete/Trimmy`,
+        ],
+        on: prefs.smart_copy,
+        apply: (on: boolean): Apply => ({ kind: "smart_copy", on }),
+      },
+      {
         label: i18n.t`Auto-retry capacity errors`,
-        brief: i18n.t`Retries Codex at capacity; Esc stops it.`,
+        briefs: [i18n.t`Retries Codex at capacity; Esc stops it.`],
         on: this.auto_retry,
         apply: (on: boolean): Apply => ({ kind: "auto_retry", on }),
       },

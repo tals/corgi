@@ -1,0 +1,9 @@
+width: 20
+start_x: 2
+first_indent: 2
+
+  curl -fsSL https:/
+  /raw.example.com/a
+  cme/install.sh | sh
+---
+curl -fsSL https://raw.example.com/acme/install.sh | sh

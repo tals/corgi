@@ -1,0 +1,8 @@
+width: 50
+start_x: 2
+first_indent: 2
+
+  kubectl get pods --all-namespaces | grep -v
+  Running | awk '{print $1, $2}'
+---
+kubectl get pods --all-namespaces | grep -v Running | awk '{print $1, $2}'

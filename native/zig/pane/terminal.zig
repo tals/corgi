@@ -232,7 +232,9 @@ pub const Terminal = struct {
         }
         return .{};
     }
-    pub const PickUnit = enum { word, line };
+    /// `cell` is a plain drag: the cells from the press to `to`, as the
+    /// viewer highlighted them.
+    pub const PickUnit = enum { word, line, cell };
     /// A cell in a viewer's view.
     pub const Cell = struct { x: u16, y: u16 };
     pub const Pick = struct {
@@ -243,8 +245,9 @@ pub const Terminal = struct {
         copy: []const u8 = "",
     };
     /// The word, line or link at a viewer's cell, extended by words or lines
-    /// to `to` for a drag. `offset` is the screen row at the top of the
-    /// viewer's view. Like `search`, the viewport and selection are kept.
+    /// to `to` for a drag, or the cells between them. `offset` is the screen
+    /// row at the top of the viewer's view. Like `search`, the viewport and
+    /// selection are kept.
     pub fn pick(t: *Terminal, alloc: std.mem.Allocator, unit: PickUnit, x: u16, y: u16, to: ?Cell, offset: usize) !Pick {
         const screen = t.vt.screens.active;
         const top = @min(offset, screen.pages.total_rows -| t.vt.rows);
@@ -257,6 +260,7 @@ pub const Terminal = struct {
         } else null;
         var line_breaks = false;
         const found = switch (unit) {
+            .cell => vt.Selection.init(anchor, drag orelse anchor, false),
             .line => pickLine(screen, anchor, drag),
             .word => word: {
                 const link = try t.linkAt(top, cell) orelse break :word pickWord(screen, anchor, drag);
