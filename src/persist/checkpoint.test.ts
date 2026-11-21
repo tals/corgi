@@ -22,6 +22,7 @@ import { snapshot } from "../session";
 import { Tokens, View } from "../usage/live";
 import * as common from "../providers/common";
 import * as checklist from "../activity/checklist";
+import * as accountIdentity from "../account_identity";
 import { FakeClient } from "../fixtures/headless_client";
 const fixtures = resolve(import.meta.dir, "../fixtures");
 const fresh = () => {
@@ -307,6 +308,46 @@ test("an account's YOLO and Show survive checkpoints and default for old ones", 
     await restore(old, state, live);
     expect([old.account_yolo, old.account_hidden]).toEqual([[], []]);
     expect(() => validateCheckpoint({ ...state, account_yolo: [3] })).toThrow();
+  }
+});
+test("Trick account identities and public environment survive restore and default for older state", async () => {
+  const { Session } = await import("../headless");
+  for (const live of [true, false]) {
+    using original = fresh();
+    const actor = original.conversations.get("codex", "account-metadata"),
+      account = accountIdentity.read({ id: "codex:work", name: "Work", directory: "/accounts/work" })!;
+    show(original, actor);
+    actor.state.account = account;
+    const pane = original.panes[0];
+    pane.agent_env = { CORGI_PROFILE: "work" };
+    pane.attachment.provisional.account = account;
+    const session = new Session(1, "codex", "/tmp", new FakeClient(), "/accounts/work");
+    session.workspace_id = 1;
+    session.env = { CORGI_PROFILE: "work" };
+    session.attachment.provisional.account = account;
+    session.markExited();
+    original.sessions.push(session);
+    original.next_session = 2;
+    const saved = roundtrip(cp.capture(original, live));
+    using restored = new Runtime();
+    await cp.restore(restored, saved, live, "/tmp/unused-checkpoint.sock", "/tmp/corgi", false);
+    expect(restored.conversations.byId(actor.id)!.state.account).toEqual(account);
+    expect(restored.panes[0].attachment.provisional.account).toEqual(account);
+    expect(restored.panes[0].agent_env).toEqual({ CORGI_PROFILE: "work" });
+    expect(restored.sessions[0].attachment.provisional.account).toEqual(account);
+    expect(restored.sessions[0].env).toEqual({ CORGI_PROFILE: "work" });
+    delete saved.conversations[0].agent.account;
+    delete saved.panes[0].binding.provisional.account;
+    delete saved.panes[0].agent_env;
+    delete saved.sessions[0].binding.provisional.account;
+    delete saved.sessions[0].env;
+    using older = new Runtime();
+    await cp.restore(older, saved, live, "/tmp/unused-checkpoint.sock", "/tmp/corgi", false);
+    expect(older.conversations.byId(actor.id)!.state.account).toBeNull();
+    expect(older.panes[0].attachment.provisional.account).toBeNull();
+    expect(older.panes[0].agent_env).toEqual({});
+    expect(older.sessions[0].attachment.provisional.account).toBeNull();
+    expect(older.sessions[0].env).toEqual({});
   }
 });
 

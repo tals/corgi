@@ -23,6 +23,7 @@ const machineBindings: Binding[] = [
   { key: 109, mods: { shift: true }, prefixed: true, action: { name: "machines" } },
 ];
 const corgiPrefix: Binding[] = [
+  { key: 85, mods: {}, prefixed: true, action: { name: "tricks" } },
   { key: 99, mods: {}, prefixed: true, action: { name: "new" } },
   { key: 110, mods: {}, prefixed: true, action: { name: "next" } },
   { key: 112, mods: {}, prefixed: true, action: { name: "prev" } },

@@ -4,6 +4,14 @@
   "link.resume": {
     "link": "7d3a4b0e-5f61-4c2a-9a8e-2f1b6c0d9e47"
   },
+  "tricks.list": {},
+  "tricks.reload": {},
+  "tricks.configure": { "autoreload": false },
+  "tricks.press": { "action": "instance.1", "viewer": 1 },
+  "tricks.palettes": {},
+  "tricks.palette": { "palette": "globals.accounts" },
+  "tricks.palette.set": { "palette": "globals.accounts", "key": "work", "color": "warm" },
+  "tricks.palette.colors": { "palette": "globals.accounts", "colors": "terminal" },
   "session.command": {
     "command": {
       "pane.close": {
