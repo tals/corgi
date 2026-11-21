@@ -1111,7 +1111,7 @@ export class Endpoint {
       stream.check();
       const taken = stream.take();
       let reply = taken?.frame ?? null;
-      if (visible && this.controls.length) {
+      if (this.controls.length && (visible || viewer.leadingLinks(this.controls).length)) {
         reply ??= {
           type: "view",
           viewer_protocol: protocol.viewer_version,

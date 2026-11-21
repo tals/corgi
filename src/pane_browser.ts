@@ -16,6 +16,18 @@ export const passthrough = "CORGI_BROWSER_PASSTHROUGH";
 /** The BROWSER panes would have had, for links no viewer takes. */
 export const original = "CORGI_HOST_BROWSER";
 
+/** The environment for what opens a link Corgi passed on: marked so a
+ * helper it reaches hands it on, and with the pane's own BROWSER, since a
+ * system opener with no desktop to ask runs BROWSER, which would be Corgi's
+ * helper again. */
+export function handed(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env, [passthrough]: "1" };
+  if (env[original]) out.BROWSER = env[original];
+  else if (env.BROWSER && basename(env.BROWSER) === helper) delete out.BROWSER;
+  return out;
+}
+/** Marks Corgi's xdg-open, which another stand-in skips. */
+const marker = "# corgi-xdg-open";
 /** The helpers' scripts, each running `cli`. */
 export function scripts(cli: string, platform: string = process.platform): Record<string, string> {
   const corgi = os.shellQuote(cli);
@@ -24,13 +36,15 @@ export function scripts(cli: string, platform: string = process.platform): Recor
   if (platform === "linux")
     out["xdg-open"] = [
       "#!/bin/sh",
-      "# Corgi's: a web link opens on the computer viewing this pane; anything else as before.",
+      marker,
+      "# A web link opens on the computer viewing this pane; anything else as before.",
       `if [ $# -eq 1 ] && [ -z "\${${passthrough}-}" ]; then`,
       `  case "$1" in http://*|https://*) exec ${corgi} __browser --via "$0" "$1" ;; esac`,
       "fi",
       "IFS=:",
       "for dir in $PATH; do",
-      '  [ -n "$dir" ] && [ -x "$dir/xdg-open" ] && ! [ "$dir/xdg-open" -ef "$0" ] && exec "$dir/xdg-open" "$@"',
+      // Past every stand-in, this one and a nested runtime's alike.
+      `  [ -n "$dir" ] && [ -x "$dir/xdg-open" ] && ! grep -qx '${marker}' "$dir/xdg-open" 2>/dev/null && exec "$dir/xdg-open" "$@"`,
       "done",
       'echo "xdg-open: not found" >&2',
       "exit 3",
@@ -92,11 +106,10 @@ export async function run(
  * xdg-open Corgi's stood in for; else the pane's own BROWSER; else the
  * system's opener; else it asks the person to. */
 function fallback(urls: string[], via: string | null, env: NodeJS.ProcessEnv): number {
-  const handed = { ...env, [passthrough]: "1" },
-    status = (command: string, argv: string[]) => {
-      const result = spawnSync(command, argv, { stdio: "inherit", env: handed });
-      return result.error ? null : (result.status ?? 1);
-    };
+  const status = (command: string, argv: string[]) => {
+    const result = spawnSync(command, argv, { stdio: "inherit", env: handed(env) });
+    return result.error ? null : (result.status ?? 1);
+  };
   if (via) return status(via, urls) ?? 127;
   // Python's convention: commands apart by colons, the link at %s or last.
   if (urls.length === 1)

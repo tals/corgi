@@ -304,14 +304,24 @@ test("a reservation lasts while the pointer rests on its link, and a minute afte
   try {
     forwards.hover(url);
     await until(() => forwards.local(url) !== null);
-    now += portForwards.reserved_ms * 5;
+    now += portForwards.hover_ms - 1;
+    // Checked again where the pointer rests, it isn't a move.
+    forwards.hover(url, false);
     forwards.expire();
     expect(forwards.local(url)).toBe(url);
+    forwards.hover(url);
     forwards.hover(null);
     now += portForwards.reserved_ms - 1;
     forwards.expire();
     expect(forwards.local(url)).toBe(url);
     now += 1;
+    forwards.expire();
+    expect(forwards.local(url)).toBeNull();
+    // A pointer that left the window from the link stops holding it after a while.
+    forwards.hover(url);
+    await until(() => forwards.local(url) !== null);
+    now += portForwards.hover_ms;
+    forwards.hover(url, false);
     forwards.expire();
     expect(forwards.local(url)).toBeNull();
   } finally {
@@ -375,5 +385,25 @@ test("the way to the machine is readied again for connections after a while", as
     expect(prepared).toBe(2);
   } finally {
     forwards.close();
+  }
+});
+
+test("a callback is forwarded on the loopback address its link names, or says it can't be", async () => {
+  expect(portForwards.returnAddress("http://localhost:1455/cb")).toBe("127.0.0.1");
+  expect(portForwards.returnAddress("http://127.0.0.2:1455/cb")).toBe("127.0.0.2");
+  expect(portForwards.returnAddress("http://[::1]:1455/cb")).toBe("::1");
+  for (const host of ["127.0.0.2", "[::1]"]) {
+    const there = await freePort(),
+      callback = `http://${host}:${there}/cb`,
+      url = `https://auth.example.com/?redirect_uri=${encodeURIComponent(callback)}`;
+    const forwards = new portForwards.Forwards(fakeLink(new Map([[there, serve("back")]])).link);
+    try {
+      const { unavailable } = (await forwards.open(url))!;
+      // Where this computer has no such address, the click says the link can't come back.
+      if (unavailable.length) expect(unavailable).toEqual([there]);
+      else expect(await (await fetch(`http://${host}:${there}/cb`, close)).text()).toBe("back /cb");
+    } finally {
+      forwards.close();
+    }
   }
 });

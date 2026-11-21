@@ -237,6 +237,11 @@ async function checkControl(
   check.state = there ? "there" : "gone";
   view.wake();
 }
+/** The `open-url` controls at the front of `controls`: a background machine takes these. */
+export function leadingLinks<C extends protocol.Wire<protocol.Control>>(controls: C[]): C[] {
+  const end = controls.findIndex(c => c.kind !== "action" || c.name !== "open-url");
+  return end < 0 ? controls : controls.slice(0, end);
+}
 /** Takes a reply from `machine`'s daemon. A machine in the background takes
  * its data; its controls wait, unacknowledged, until it's shown. */
 export async function receive(
@@ -252,9 +257,12 @@ export async function receive(
   if (reply.resources) machine.runtime.receiveResources(reply.resources);
   machine.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
   machine.viewer_id = reply.viewer ?? 0;
-  const controls = shown ? (reply.controls ?? []) : [];
+  // A machine in the background still opens the links its panes' programs
+  // ask for, when nothing waits ahead of them.
+  const controls = shown ? (reply.controls ?? []) : leadingLinks(reply.controls ?? []);
   // What still waits is decided afresh from the controls this reply brings.
   if (shown) machine.waiting_controls = [];
+  else if (reply.controls?.length) machine.waiting_controls = reply.controls.slice(controls.length);
   for (const [i, control] of controls.entries()) {
     const seq = BigInt(control.seq);
     if (seq <= machine.last_control) continue;
@@ -287,7 +295,8 @@ export async function receive(
           view.executable = String(act.value);
           return false;
         }
-        await view.invoke(act, machine);
+        if (act.name === "open-url") view.openRequested(String(act.value), machine);
+        else await view.invoke(act, machine);
       }
     } catch (error) {
       view.notice((error as Error).message);

@@ -614,7 +614,8 @@ function dimsPanes(u: Ui): boolean {
  * the host terminal's own Cmd+click opens it forwarded. */
 export function pointLink(rows: string, pane: number, id: bigint, uri: string, local: string): string {
   const open = `\x1b]8;id=corgi-${pane}-${id.toString(16)};`;
-  return rows.replaceAll(`${open}${uri}\x1b\\`, `${open}${local}\x1b\\`);
+  // Split and joined, so a $ in the link isn't read as a replacement pattern.
+  return rows.split(`${open}${uri}\x1b\\`).join(`${open}${local}\x1b\\`);
 }
 /** Whether a pane's cells can stay in its native surface. The viewer's own
  * decorations (overlays, dimming, hover, restoring) are decided here; native
@@ -938,6 +939,8 @@ export function frame(
     card_rect !== null &&
     card_rect.contains(u.pointer.x, u.pointer.y) &&
     side.hit(u.pointer.x, u.pointer.y).tag !== "workspace";
+  // The machine card hides the links beneath it too.
+  const on_machine_card = u.pointer !== null && !!u.connection_card?.rect.contains(u.pointer.x, u.pointer.y);
   if (u.pointer) {
     const pointer = u.pointer;
     if (on_link_card) {
@@ -1067,7 +1070,14 @@ export function frame(
     p.terminal.updateRender();
     let hovered: bigint | null = null,
       forwarded: { uri: string; local: string } | null = null;
-    if (u.pointer && r.contains(u.pointer.x, u.pointer.y) && !on_card && !on_link_card && noOverlay(u)) {
+    if (
+      u.pointer &&
+      r.contains(u.pointer.x, u.pointer.y) &&
+      !on_card &&
+      !on_machine_card &&
+      !on_link_card &&
+      noOverlay(u)
+    ) {
       const link = linkTooltip.at(p.terminal, r, u.pointer.x, u.pointer.y);
       hovered = link?.id ?? null;
       hovered_uri = link?.uri ?? hovered_uri;
@@ -1079,7 +1089,7 @@ export function frame(
       }
       // A sign-in can't come back to a port something here holds.
       if (link && blocked.length)
-        hovered_uri = `${link.uri}  ·  port ${blocked.join(", ")} is in use here, so it can't come back`;
+        hovered_uri = `${link.uri}  ·  port ${blocked.join(", ")} isn't free here, so it can't come back`;
     }
     const dim = dimsPanes(u);
     if (retained && retainable(u, p, r, dim, hovered)) retained.pane(w, p.terminal, p.id, r);
@@ -1433,6 +1443,8 @@ export function frame(
     if (u.pictures && u.link_card.thumbnail) linkThumbnail.place(u.pictures, link_rect, u.link_card.thumbnail);
     cover(link_rect);
   }
+  // Hidden under an overlay, it takes no keys.
+  if (u.connection_card) u.connection_card.shown = noOverlay(u);
   if (u.connection_card && noOverlay(u)) {
     connectivityCard.draw(w, u.connection_card);
     cover(u.connection_card.rect);

@@ -27,6 +27,8 @@ export interface Ports {
 export interface Card {
   rect: Rect;
   lines: details.Line[];
+  /** Whether the last frame drew it: an overlay hides it, and then it takes no keys. */
+  shown?: boolean;
   /** For a machine whose ports can be forwarded here. */
   ports?: Ports | null;
 }
@@ -207,20 +209,15 @@ export class Hover {
     if (lines !== this.card?.lines) this.updated = now;
     // Rows for ports, kept while the card is open; more scroll. A first
     // port, or the last one stopped, changes what the section shows.
-    const count = ports?.length ?? 0,
-      last = this.size,
-      resized = !last || last.cols !== cols || last.rows !== rows;
-    let size = last!;
-    if (resized || last.room > 0 !== count > 0) {
+    // Its box is set as it opens and stays: what comes later takes room from
+    // the details above the ports, whose lines are cut short instead.
+    const count = ports?.length ?? 0;
+    if (!this.size || this.size.cols !== cols || this.size.rows !== rows) {
       const room = Math.min(port_rows, count),
-        section = ports ? (room ? room + 4 : 3) : 0,
-        h = Math.min(rows - 2, lines.length + 2 + section);
-      // Open, it doesn't shrink: the last port stopped leaves its rows empty.
-      size = this.size = { cols, rows, room, h: resized ? h : Math.max(last.h, h) };
-    }
-    // A detail line that comes while it's open, such as an update's, grows it.
-    const wanted = Math.min(rows - 2, lines.length + 2 + (ports ? (size.room ? size.room + 4 : 3) : 0));
-    if (wanted > size.h) size = this.size = { ...size, h: wanted };
+        section = ports ? (room ? room + 4 : 3) : 0;
+      this.size = { cols, rows, room, h: Math.min(rows - 2, lines.length + 2 + section) };
+    } else if (!this.size.room && count) this.size = { ...this.size, room: 1 };
+    const size = this.size;
     if (!ports?.some(p => p.forward === this.selected)) {
       if (this.pinned && ports?.length) this.selected = ports[0].forward;
       else if (this.pinned) this.release();

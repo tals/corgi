@@ -134,3 +134,34 @@ test("helpers go beside an installed launcher, else beside the socket, and BROWS
     ],
   ).toBe("w3m");
 });
+
+test("what Corgi passes a link on to gets the pane's own BROWSER, so an opener reading it doesn't come back", () => {
+  const helper = `/opt/corgi/bin/${paneBrowser.helper}`;
+  expect(paneBrowser.handed({ BROWSER: helper, [paneBrowser.original]: "w3m" })).toMatchObject({
+    BROWSER: "w3m",
+    [paneBrowser.passthrough]: "1",
+  });
+  expect(paneBrowser.handed({ BROWSER: helper }).BROWSER).toBeUndefined();
+  expect(paneBrowser.handed({ BROWSER: "firefox" }).BROWSER).toBe("firefox");
+});
+
+test("an xdg-open handing a link on skips every Corgi stand-in, a nested runtime's too", () => {
+  const outer = folder(),
+    inner = folder(),
+    system = folder(),
+    log = join(folder(), "log");
+  for (const [dir, cli] of [
+    [inner, "/opt/dev/dist/corgi"],
+    [outer, "/opt/corgi/bin/corgi"],
+  ]) {
+    writeFileSync(join(dir, "xdg-open"), paneBrowser.scripts(cli, "linux")["xdg-open"]);
+    chmodSync(join(dir, "xdg-open"), 0o755);
+  }
+  recorder(join(system, "xdg-open"), log);
+  const run = Bun.spawnSync(["xdg-open", "https://example.com/"], {
+    env: { PATH: `${inner}:${outer}:${system}:/usr/bin:/bin`, [paneBrowser.passthrough]: "1" },
+    timeout: 5000,
+  });
+  expect(run.exitCode).toBe(0);
+  expect(readFileSync(log, "utf8").trim()).toBe("xdg-open https://example.com/ 1");
+});

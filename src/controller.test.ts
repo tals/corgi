@@ -6,7 +6,7 @@ import { transport } from "./fixtures/transport";
 import * as worktrees from "./fixtures/worktrees";
 import { scopedEnv } from "./fixtures/env";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
-import { agentMessage, cardEffect, forkName, breadcrumbs } from "./controller";
+import { agentMessage, cardEffect, forkName, breadcrumbs, openableLink } from "./controller";
 import { Controller } from "./fixtures/input";
 import * as sim from "./providers/sim";
 import { Provider, byProvider } from "./providers";
@@ -4357,6 +4357,36 @@ test("the pointer on a link to an SSH machine's loopback reserves its port, and 
     // Resting on it asks nothing more.
     await mouse(35);
     expect(reserved).toEqual([url]);
+  } finally {
+    done();
+  }
+});
+
+test("the link under a pointer at rest is noticed, and a machine switched away from lets its link go", async () => {
+  const { s, url, done } = linking("http://localhost:5173/app", true);
+  const hovered: (string | null)[] = [];
+  s.machine.forwards = { hover: (uri: string | null) => hovered.push(uri), local: () => null, unavailable: () => [] };
+  try {
+    // The pointer was already there when the link came.
+    const { rect } = s.layoutView().placements(s.area())[0];
+    s.pointer = { x: rect.x + 3, y: rect.y };
+    await s.expireInput();
+    expect(hovered).toEqual([url]);
+    s.switchMachine(new Machine(s.connection, "borealis", true));
+    expect(hovered).toEqual([url, null]);
+  } finally {
+    done();
+  }
+});
+
+test("a link's scheme is matched whatever its case", async () => {
+  expect(openableLink("HTTPS://example.com/")).toBe(true);
+  expect(openableLink("Http://example.com/")).toBe(true);
+  expect(openableLink("ftp://example.com/")).toBe(false);
+  const { s, done } = linking("https://example.com/", true);
+  try {
+    await s.perform({ name: "open-url", value: "HTTPS://example.com/" });
+    expect(s.effects).toEqual([{ open_url: "HTTPS://example.com/", machine: s.machine.id }]);
   } finally {
     done();
   }

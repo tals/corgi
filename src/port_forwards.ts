@@ -63,6 +63,8 @@ export const callback_ms = 10 * 60_000;
 /** The way to the machine is checked again before connections this long
  * after it was last readied: an idle SSH master goes after ten minutes. */
 const ready_ms = 60_000;
+/** A pointer at rest keeps its link's reservation this long after it last moved. */
+export const hover_ms = 5 * 60_000;
 /** A callback port in use here is tried again after this long. */
 const blocked_ms = 2000;
 
@@ -103,6 +105,13 @@ export function callbacks(url: string): string[] {
     fragment = parsed.hash.slice(1);
   if (fragment.includes("=")) values.push(...new URLSearchParams(fragment).values());
   return [...new Set(values.filter(value => target(value) !== null))];
+}
+/** The address here a browser coming back to callback `url` connects to,
+ * which a callback's forward must listen on as the link names it. */
+export function returnAddress(url: string): string {
+  const name = parse(url)?.hostname.toLowerCase() ?? "";
+  if (name === "[::1]") return "::1";
+  return /^127\.\d+\.\d+\.\d+$/.test(name) ? name : "127.0.0.1";
 }
 /** `url` pointing at `port` on this computer's loopback. Only its host and
  * port change, spliced into the text: the rest stays as the machine wrote it,
@@ -160,37 +169,53 @@ async function optional(host: string, port: number): Promise<Server[]> {
 /** Listeners on both loopbacks on `port`, unless something here answers
  * there or a realized forward holds it. A port an unrealized reservation
  * holds is up for grabs. IPv6 is best effort. */
-async function claim(port: number): Promise<{ servers: Server[]; port: number; ipv6: boolean } | null> {
+interface Bound {
+  servers: Server[];
+  port: number;
+  /** The addresses it listens on, IPv6's without brackets. */
+  addresses: Set<string>;
+}
+/** Listeners on both loopbacks on `port`, and on `also` as well, unless
+ * something here answers there or a realized forward holds it. A port an
+ * unrealized reservation holds is up for grabs. IPv6 is best effort. */
+async function claim(port: number, also: string | null): Promise<Bound | null> {
   const holder = held.get(port);
   if (holder?.entry.forward.realized) return null;
   if (holder) holder.forwards.drop(holder.entry);
-  if ((await answers("127.0.0.1", port)) || (await answers("::1", port))) return null;
+  const extra = also && also !== "127.0.0.1" && also !== "::1" ? also : null;
+  for (const address of ["127.0.0.1", "::1", ...(extra ? [extra] : [])]) if (await answers(address, port)) return null;
+  const servers: Server[] = [];
   try {
-    const v4 = await listen("127.0.0.1", port),
-      v6 = await optional("::1", port);
-    return { servers: [v4, ...v6], port, ipv6: v6.length > 0 };
+    servers.push(await listen("127.0.0.1", port));
+    servers.push(...(await optional("::1", port)));
+    if (extra) servers.push(await listen(extra, port));
   } catch {
+    for (const server of servers) server.close();
     return null;
   }
+  const addresses = new Set(servers.map(server => (server.address() as AddressInfo).address));
+  return { servers, port, addresses };
 }
 /** The machine's port here when it's free, else the next one up, else,
- * unless `exact`, one the system picks. */
-async function bind(wanted: number, exact: boolean): Promise<{ servers: Server[]; port: number; ipv6: boolean }> {
+ * unless `exact`, one the system picks. `also` is an address it must listen on too. */
+async function bind(wanted: number, exact: boolean, also: string | null): Promise<Bound> {
   for (const port of exact ? [wanted] : [wanted, wanted + 1]) {
     if (port > 65535 || (port !== wanted && restricted.has(port))) continue;
-    const bound = await claim(port);
+    const bound = await claim(port, also);
     if (bound) return bound;
   }
   if (exact) throw Error("PortInUse");
   const v4 = await listen("127.0.0.1", 0),
     port = (v4.address() as AddressInfo).port,
-    v6 = await optional("::1", port);
-  return { servers: [v4, ...v6], port, ipv6: v6.length > 0 };
+    servers = [v4, ...(await optional("::1", port))];
+  return { servers, port, addresses: new Set(servers.map(server => (server.address() as AddressInfo).address)) };
 }
 
 interface Entry {
   forward: Forward;
   servers: Server[];
+  /** The addresses it listens on, as `Bound` has them. */
+  addresses: Set<string>;
   ipv6: boolean;
   /** Its local port is the machine's, as a callback's must be. */
   exact: boolean;
@@ -208,9 +233,12 @@ export class Forwards {
   private entries: Entry[] = [];
   private pending = new Map<string, Promise<Entry>>();
   private prepared: { done: Promise<void>; at: number } | null = null;
-  /** The link under the pointer, and its ports', which don't expire. */
+  /** The link under the pointer, and its ports', which don't expire while
+   * the pointer moved lately: one that left the window from the link stops
+   * holding them. */
   private hovered: string | null = null;
   private hovering = new Set<string>();
+  private moved_at = 0;
   /** Callback ports found in use here, and when: tried again after a moment. */
   private blocked = new Map<number, number>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -241,8 +269,12 @@ export class Forwards {
   }
   /** The pointer is on `url`, or on no link: a reservation lasts while it
    * stays, and for a while after. */
-  hover(url: string | null): void {
-    if (url === this.hovered) return;
+  hover(url: string | null, moved = true): void {
+    if (url === this.hovered) {
+      if (moved) this.moved_at = this.clock();
+      return;
+    }
+    this.moved_at = this.clock();
     const left = this.hovering,
       now = this.clock();
     this.hovered = url;
@@ -324,16 +356,19 @@ export class Forwards {
         if (attempt) throw Error("PortTaken");
         continue;
       }
-      // A callback comes back to its own port, which a link to it may have moved.
-      if (exact && entry.forward.local !== wanted.port) throw Error("PortInUse");
-      entry.exact ||= exact;
+      // A callback comes back to its own port and address, which a link to it may have moved.
+      if (exact && (entry.forward.local !== wanted.port || !entry.addresses.has(returnAddress(url))))
+        throw Error("PortInUse");
+      // A forward in use stays one: a link carrying it as a callback doesn't make it expire.
+      if (!entry.forward.realized) entry.exact ||= exact;
       entry.until = Math.max(entry.until, this.clock() + (exact ? callback_ms : reserved_ms));
       this.arm();
       return entry;
     }
   }
   private async create(wanted: Target, url: string, exact: boolean): Promise<Entry> {
-    const { servers, port: local, ipv6 } = await bind(wanted.port, exact);
+    const { servers, port: local, addresses } = await bind(wanted.port, exact, exact ? returnAddress(url) : null),
+      ipv6 = addresses.has("::1");
     if (this.closed) {
       for (const server of servers) server.close();
       throw Error("ForwardsClosed");
@@ -341,6 +376,7 @@ export class Forwards {
     const entry: Entry = {
       forward: { ...wanted, local, url: rewrite(url, local, ipv6), open: 0, failure: null, realized: false },
       servers,
+      addresses,
       ipv6,
       exact,
       until: 0,
@@ -446,17 +482,21 @@ export class Forwards {
   /** Whether `entry` can expire: unrealized, or a callback's, with no
    * connection open and the pointer off its link. */
   private expires(entry: Entry): boolean {
-    return (!entry.forward.realized || entry.exact) && !entry.sockets.size && !this.hovering.has(key(entry));
+    return (!entry.forward.realized || entry.exact) && !entry.sockets.size;
+  }
+  /** When `entry` expires: its own time, or later while the pointer rests on its link. */
+  private deadline(entry: Entry): number {
+    return this.hovering.has(key(entry)) ? Math.max(entry.until, this.moved_at + hover_ms) : entry.until;
   }
   /** Drops reservations and callbacks past their time. */
   expire(now = this.clock()): void {
-    for (const entry of [...this.entries]) if (this.expires(entry) && entry.until <= now) this.drop(entry);
+    for (const entry of [...this.entries]) if (this.expires(entry) && this.deadline(entry) <= now) this.drop(entry);
     this.arm();
   }
   private arm(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    const next = Math.min(...this.entries.filter(e => this.expires(e)).map(e => e.until));
+    const next = Math.min(...this.entries.filter(e => this.expires(e)).map(e => this.deadline(e)));
     if (!Number.isFinite(next) || this.closed) return;
     this.timer = setTimeout(() => this.expire(), Math.max(0, next - this.clock()) + 10);
     this.timer.unref?.();

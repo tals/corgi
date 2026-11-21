@@ -184,7 +184,7 @@ export async function run(
           if (!opened) return;
           if (opened.unavailable.length)
             view.notice(
-              ` Port ${opened.unavailable.join(", ")} is in use here, so the link can't come back to ${from!.name}`,
+              ` Port ${opened.unavailable.join(", ")} isn't free here, so the link can't come back to ${from!.name}`,
             );
           try {
             openers.open(opened.url);
@@ -360,7 +360,9 @@ export async function run(
     // a press elsewhere lets it go, and goes on.
     const card = connection_hover.card,
       name = mouse ? null : keyName(value, key, cp);
-    if (connection_hover.pinned && card) {
+    // A focus report is the terminal's, not a key: the view takes it.
+    const focus = name === "focus_in" || name === "focus_out";
+    if (connection_hover.pinned && card && card.shown !== false && !focus) {
       if (!mouse) {
         cardKey(name);
         return;
@@ -369,8 +371,10 @@ export async function run(
         pressed = !mouse.release;
       if (card.rect.contains(x, y)) {
         const forward = connectivityCard.portAt(card, x, y);
-        if (button === 35 && forward) connection_hover.selected = forward;
-        else if (pressed && (button === 64 || button === 65)) connection_hover.step(button === 64 ? -1 : 1);
+        if (button === 35 && forward) {
+          if (forward !== connection_hover.selected) connection_hover.notice = "";
+          connection_hover.selected = forward;
+        } else if (pressed && (button === 64 || button === 65)) connection_hover.step(button === 64 ? -1 : 1);
         else if (pressed && button === 0) {
           const act = connectivityCard.buttonAt(card, x, y);
           if (act) cardAct(act);
@@ -382,7 +386,7 @@ export async function run(
         return;
       }
       if (pressed && (button === 0 || button === 2)) closeCard();
-    } else if (!mouse && card?.ports?.list.length) {
+    } else if (!mouse && card?.shown && card.ports?.list.length) {
       // An arrow or Enter over the card holds it; with a port hovered, the key acts on it too.
       if (name === "up" || name === "down" || name === "enter") {
         const hovered = connection_hover.chosen();
@@ -414,7 +418,8 @@ export async function run(
           return;
         }
       }
-      const inside = connection_hover.card?.rect.contains(x, y) ?? false;
+      // A card an overlay hides takes no presses either.
+      const inside = (connection_hover.card?.shown !== false && connection_hover.card?.rect.contains(x, y)) ?? false;
       if (inside && hover_mouse.button === 0 && !hover_mouse.release) {
         // A click on a port holds the card open with it selected.
         const forward = connectivityCard.portAt(connection_hover.card!, x, y);

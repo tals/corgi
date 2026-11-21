@@ -217,7 +217,7 @@ test("the pointer heading from the header to the card keeps it a moment", () => 
   expect(hover.card).toBeNull();
 });
 
-test("a detail line that comes while the card is open grows it, rather than cutting the last one", () => {
+test("a detail line that comes while the card is open keeps its box, the details cut short instead", () => {
   const hover = new Hover(),
     atlas: any = connection("atlas");
   hover.move({ machine: "atlas", rect: new Rect(1, 2, 30, 1) }, 20, 2, 0);
@@ -225,7 +225,11 @@ test("a detail line that comes while the card is open grows it, rather than cutt
   atlas.updateError = "disk full";
   const after = hover.update(atlas, 120, 40, 2500, [])!;
   expect(after.lines.length).toBe(before.lines.length + 1);
-  expect(after.rect.h).toBe(before.rect.h + 1);
-  expect(after.rect.y).toBe(before.rect.y);
+  expect(after.rect).toEqual(before.rect);
   expect(screen(after)).toContain("Update failed · disk full");
+  expect(screen(after)).toContain("Forwarded ports");
+  // A first port takes its rows from the details, too.
+  const ported = hover.update(atlas, 120, 40, 2600, [{ forward: forward(5173), name: "vite" }])!;
+  expect(ported.rect).toEqual(before.rect);
+  expect(screen(ported)).toMatch(/5173 {2}vite/);
 });

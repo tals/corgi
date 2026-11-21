@@ -262,8 +262,10 @@ function continuesSeries(
 }
 /** Links a click opens; native `linkIn` (pane/terminal.zig) picks the same ones. */
 export function openableLink(uri: string): boolean {
-  return (uri.startsWith("http://") || uri.startsWith("https://")) && byteLength(uri) <= 4096;
+  return /^https?:\/\//i.test(uri) && byteLength(uri) <= 4096;
 }
+/** How often a pointer at rest is checked for a link coming or going under it. */
+const link_recheck_ms = 250;
 /** Primary presses on one pane cell, each within `double_click_ms` of the
  * last. `top` is the pane's view row and `w`, `h` its size at the press. */
 interface ClickSeries {
@@ -576,6 +578,8 @@ export class Controller {
   gesture: Gesture | null = null;
   picked: Picked | null = null;
   pending_open: PendingOpen | null = null;
+  /** When to look again for a link under a pointer at rest. */
+  private link_recheck_at = 0;
   pending_copy: PendingCopy | null = null;
   search_mode = false;
   search_text: number[] = [];
@@ -712,6 +716,8 @@ export class Controller {
     if (machine === this.machine) return;
     this.closeMachineUi();
     this.cancelInput();
+    // Its link under the pointer isn't anymore.
+    this.machine.forwards?.hover(null);
     this.machine = machine;
     this.model_cache.close();
     this.model_cache = this.modelCache();
@@ -3838,14 +3844,9 @@ export class Controller {
       }
       case "open":
         return this.openFolder(String(act.value ?? ""));
-      case "open-url": {
-        // A pane's program asked, through its BROWSER: its daemon's controls
-        // apply while its machine is shown.
-        const url = String(act.value ?? "");
-        if (!openableLink(url)) throw Error("InvalidURL");
-        this.openPaneLink(url);
+      case "open-url":
+        this.openRequested(String(act.value ?? ""));
         break;
-      }
       case "new-agent":
         this.openLauncher(true);
         break;
@@ -4219,6 +4220,11 @@ export class Controller {
     this.effects.push(effect);
   }
   /** A link in one of `machine`'s panes. */
+  /** A link a pane's program on `machine` asked to open, through its BROWSER. */
+  openRequested(url: string, machine = this.machine): void {
+    if (!openableLink(url)) throw Error("InvalidURL");
+    this.openPaneLink(url, machine);
+  }
   private openPaneLink(url: string, machine = this.machine): void {
     this.queueEffect(machine.remote ? { open_url: url, machine: machine.id } : { open_url: url });
   }
@@ -9270,6 +9276,11 @@ export class Controller {
       this.dirty = true;
     }
     if (this.pending_copy && milliTimestamp() >= this.pending_copy.due) this.flushPendingCopy();
+    // A link that comes or goes under a pointer at rest.
+    if (this.pointer && this.machine.forwards && milliTimestamp() >= this.link_recheck_at) {
+      this.link_recheck_at = milliTimestamp() + link_recheck_ms;
+      this.reserveLink(this.pointer.x, this.pointer.y, false);
+    }
     const open = this.pending_open;
     if (open && milliTimestamp() >= open.due) {
       this.pending_open = null;
@@ -10058,10 +10069,12 @@ export class Controller {
   }
   /** A link to another machine's loopback, under the pointer, reserves its
    * port here, so the host terminal's Cmd+click opens it forwarded. */
-  private reserveLink(x: number, y: number): void {
+  private reserveLink(x: number, y: number, moved = true): void {
     const forwards = this.machine.forwards;
     if (!forwards) return;
-    forwards.hover(this.corgi_setup ? null : (this.linkAt(x, y)?.uri ?? null));
+    // The machine card hides the links beneath it.
+    if (this.connection_card?.rect.contains(x, y)) return forwards.hover(null, moved);
+    forwards.hover(this.corgi_setup ? null : (this.linkAt(x, y)?.uri ?? null), moved);
   }
   private linkTooltipReady(): boolean {
     let target: linkTooltip.Target | null = null;

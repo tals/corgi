@@ -6,12 +6,12 @@ export class Openers {
     for (const child of this.children) if (child.exitCode !== null) this.children.delete(child);
   }
   open(url: string) {
-    if (!/^https?:\/\//.test(url) || /[\x00-\x1f\x7f]/.test(url)) throw Error("InvalidURL");
+    if (!/^https?:\/\//i.test(url) || /[\x00-\x1f\x7f]/.test(url)) throw Error("InvalidURL");
     this.reap();
     if (this.children.size >= 8) throw Error("TooManyOpenRequests");
     const child = Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], {
       // A Corgi pane's xdg-open hands links to its viewer: this one opens them.
-      env: { ...process.env, [paneBrowser.passthrough]: "1" },
+      env: paneBrowser.handed(process.env),
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",

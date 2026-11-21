@@ -290,7 +290,7 @@ long as the viewer.
 A sign-in link that names a loopback callback, such as
 `redirect_uri=http://localhost:1455/auth/callback`, opens as it is. Its
 callback's port is forwarded unchanged, since the provider checks it, and waits
-ten minutes for the browser to come back. When that port is in use here,
+ten minutes for the browser to come back. When that port isn't free here,
 hovering the link says so.
 
 Programs in a pane open links the same way. Each pane's `BROWSER` names
