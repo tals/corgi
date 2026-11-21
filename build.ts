@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as crypto from "node:crypto";
 import * as translations from "./scripts/translations";
 import * as inputs from "./scripts/build_inputs";
+import * as customBuild from "./src/custom_build";
 const root = import.meta.dir;
 function option(name: string, fallback = ""): string {
   const args = process.argv.slice(2),
@@ -30,6 +31,8 @@ if (!["linux-x64", "linux-arm64", "darwin-arm64", "darwin-x64"].includes(buildTa
   throw Error(`Unsupported target: ${buildTarget}`);
 const incremental = process.argv.includes("--incremental");
 const explicitTarget = process.argv.slice(2).some(arg => arg === "--target" || arg.startsWith("--target="));
+// A development build says where its commit lives; a release does not.
+const identity = option("update-url") ? null : customBuild.fromGit(root);
 const nativeRoot = option(
   "native-root",
   buildTarget === `${process.platform}-${process.arch}`
@@ -141,6 +144,7 @@ const config = {
   updateURL: option("update-url"),
   updatePublicKey: option("update-public-key"),
   sentryDSN: option("sentry-dsn"),
+  buildRepository: identity?.repository ?? "",
 };
 // The same inputs keep their first build's time, so the binary and the daemon's build id stay put.
 // The Git label on an ordinary dev build describes when it was compiled.
