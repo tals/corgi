@@ -56,6 +56,7 @@ export const specs = {
   worktrees: "Workspace",
   "worktree-next": "void",
   "worktree-prev": "void",
+  "worktree-scroll": "layout.Direction",
   "worktree-close": "void",
   "worktree-select": "[]const u8",
   "worktree-agent": "usize",

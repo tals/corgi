@@ -360,6 +360,39 @@ test("the table renders unknown values distinctly and retains selection by check
   expect(geometry(50, 30, 28, 3, 4)).toBeNull();
   expect(geometry(100, 11, 28, 3, 4)).toBeNull();
 });
+test("moving past the last shown worktree scrolls the list a row, with a thumb on its edge", () => {
+  const data = snapshot(30),
+    state = new State(),
+    rect = geometry(100, 20, 28, 3, 30)!,
+    shown = () => {
+      const w = new Writer();
+      draw(w, rect, "repo", "/repo", data, state);
+      return screen.lines(w.buffered(), 100, 20).slice(rect.y + 5, rect.y + 5 + state.capacity(rect));
+    };
+  expect(state.capacity(rect)).toBe(10);
+  state.move(data, 10);
+  let rows = shown();
+  expect(rows[0]).toContain("topic-1 ");
+  expect(rows[9]).toContain("› topic-10 ");
+  expect(rows[0]).toContain("┃");
+  expect(rows[9]).not.toContain("┃");
+  // Back up the list, the rows stay put until the selection reaches the top.
+  state.move(data, -9);
+  expect(shown()[0]).toContain("› topic-1 ");
+  state.move(data, -1);
+  expect(shown()[0]).toContain("› topic-0 ");
+  state.move(data, 29);
+  rows = shown();
+  expect(rows[0]).toContain("topic-20 ");
+  expect(rows[9]).toContain("› topic-29 ");
+  expect(rows[9]).toContain("┃");
+  // A list that fits has no thumb.
+  const few = snapshot(4),
+    small = geometry(100, 20, 28, 3, 4)!,
+    w = new Writer();
+  draw(w, small, "repo", "/repo", few, new State());
+  expect(screen.text(w.buffered(), 100, 20)).not.toContain("┃");
+});
 test("wire decoding defaults older snapshots and retains wide comparison counts", () => {
   expect(worktreeSnapshot(undefined)).toBeNull();
   const value = {
@@ -932,6 +965,25 @@ test("browsing a worktree in the overview dims the rest and lights its agents wh
   expect(view.frame()).toContain(faded);
   await view.input(Buffer.from("\x1b[27u"));
   expect(view.frame()).not.toContain(faded);
+});
+test("the wheel scrolls the overview a row, and the worktree under the pointer takes the selection", async () => {
+  const { view } = browsing(),
+    original = view.runtime.snapshot;
+  view.receiveSnapshot({
+    ...original,
+    workspaces: original.workspaces.map((ws: any) => ({ ...ws, worktrees: snapshot(30) })),
+  });
+  await view.perform({ name: "worktrees", value: view.workspaceRef(1) });
+  const rect = (view as any).worktreeRect(),
+    wheel = (button: number) => view.input(Buffer.from(`\x1b[<${button};${rect.x + 5};${rect.y + 9}M`));
+  expect(view.worktree_card.capacity(rect)).toBeLessThan(30);
+  await wheel(65);
+  await wheel(65);
+  expect(view.worktree_card.first).toBe(2);
+  expect(view.worktree_card.selected).toBe("/repo/.worktrees/5");
+  for (let i = 0; i < 5; i++) await wheel(64);
+  expect(view.worktree_card.first).toBe(0);
+  expect(view.worktree_card.selected).toBe("/repo/.worktrees/3");
 });
 test("the card closes once the pointer leaves it, its badge and the triangle between, pinned or not", async () => {
   const { view } = browsing(),

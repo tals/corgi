@@ -3530,6 +3530,15 @@ export class Controller {
         this.dirty = true;
         break;
       }
+      case "worktree-scroll": {
+        const rect = this.worktreeRect();
+        if (!rect || (act.value !== "up" && act.value !== "down")) break;
+        this.worktree_card.pinned = true;
+        const ws = this.resolveWorkspace(this.worktree_card.workspace)?.workspace;
+        this.worktree_card.scroll(ws?.worktrees ?? null, rect, act.value === "down" ? 1 : -1);
+        this.dirty = true;
+        break;
+      }
       case "worktree-select": {
         const ws = this.resolveWorkspace(this.worktree_card.workspace)?.workspace;
         if (worktrees.linked(ws?.worktrees ?? null).some(entry => entry.path === act.value))
@@ -8044,8 +8053,12 @@ export class Controller {
         }
         this.ui_mouse_down = true;
       }
-      if (!release && (button === 64 || button === 65))
-        await this.perform({ name: button === 65 ? "worktree-next" : "worktree-prev" });
+      if (!release && (button === 64 || button === 65)) {
+        await this.perform({ name: "worktree-scroll", value: button === 65 ? "down" : "up" });
+        // The worktree scrolled under the pointer takes the selection, as hovering it would.
+        const under = this.worktree_card.hit(ws?.worktrees ?? null, worktree_rect, x, y);
+        if (under) await this.perform({ name: "worktree-select", value: under });
+      }
       if (release) this.ui_mouse_down = false;
       this.dirty = true;
       return;
