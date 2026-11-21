@@ -1398,6 +1398,13 @@ export class Server {
     // A model read would keep its agent's CLI, and this process, alive.
     for (const read of this.modelReads.values()) read.quit.signal();
     this.pluginWatch?.close();
+    // Save before the socket and start lock go: whoever sees this daemon
+    // gone, such as `corgi shutdown` or the next daemon, reads the final state.
+    try {
+      await recovery.save(this.runtime, this.socket);
+    } catch (error) {
+      console.error("recovery save:", error);
+    }
     // Nothing new connects, and the path goes so pollers see it gone; replies
     // already on their way, such as the one to `shutdown`, still leave.
     void this.listening?.stop();
@@ -1409,11 +1416,6 @@ export class Server {
     this.socketPath?.release();
     if (this.start_lock >= 0) start_lock.release(this.start_lock);
     this.start_lock = -1;
-    try {
-      await recovery.save(this.runtime, this.socket);
-    } catch (error) {
-      console.error("recovery save:", error);
-    }
     await launch.stop(this);
     observers.stop(this);
     importer.stop(this);
