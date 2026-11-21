@@ -37,8 +37,9 @@ const time =
 // A level stands alone, in brackets, or as a level field's value.
 const level =
   /(?:^|[\s[("'|])(?:level[=:]\s*"?)?(FATAL|PANIC|CRIT(?:ICAL)?|ERROR|ERR|EROR|ALERT|EMERG|WARN(?:ING)?|WRN|INFO|INF|NOTICE|DEBUG|DBG|TRACE|TRC|VERBOSE|fatal|panic|critical|error|warn(?:ing)?|info|notice|debug|trace)(?=[\s\]):"'|]|$)/;
+// A word is taken whole, a key when `=` follows it, so a long one is scanned once.
 const token =
-  /([A-Za-z_][\w.-]*)=|"(?:[^"\\]|\\.)*"?|(?<!\w)'(?:[^'\\]|\\.)*'|-?\b\d+(?:\.\d+)?(?:(?:ms|us|µs|ns|s|m|h|[KMGT]i?B|[kKMG]B)\b|%)?/g;
+  /([A-Za-z_][\w.-]*)(=?)|"(?:[^"\\]|\\.)*"?|(?<!\w)'(?:[^'\\]|\\.)*'|-?\b\d+(?:\.\d+)?(?:(?:ms|us|µs|ns|s|m|h|[KMGT]i?B|[kKMG]B)\b|%)?/g;
 
 /** The colored runs of `line`, in order and apart. */
 export function spans(line: string): Span[] {
@@ -61,6 +62,8 @@ export function spans(line: string): Span[] {
   for (let m = token.exec(line); m !== null; m = token.exec(line)) {
     const start = m.index,
       end = start + m[0].length;
+    // A plain word.
+    if (m[1] && !m[2]) continue;
     if (level_at >= 0 && start >= level_at && start < level_end) continue;
     if (level_at >= start && level_at < end) {
       // The level sits inside this run, as `level=error`: color its key alone.

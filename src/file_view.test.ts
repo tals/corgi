@@ -168,3 +168,11 @@ test("cuts long lines and expands tabs", async () => {
   expect(shown[0]).toBe("  1     indented    ");
   expect(shown[1]).toBe("  2 " + "y".repeat(15) + "›");
 });
+
+test("scrolled right, a wide character cut in half shows its right half blank", async () => {
+  const r = await reader("w.txt", "a界bc");
+  r.sync(1);
+  const c = new Canvas(0, 0, 12, 1);
+  r.draw(c, 0, 0, 12, 1, { bg: null, shift: 2 });
+  expect(c.cells[0].map(cell => cell.ch).join("")).toBe("  1  bc     ");
+});

@@ -249,7 +249,9 @@ export class View {
     const colors = palette.colors,
       r = this.reader,
       s = r.source,
-      bytes = size(s.size);
+      bytes = size(s.size),
+      failure = s.error;
+    if (failure !== null) return [[i18n.t`Can't read it: ${failure}`, colors.hot, false]];
     if (s.mode === "code") {
       const count = s.lines.length;
       return [[i18n.t`${count} lines · ${bytes}`, colors.faint, false]];

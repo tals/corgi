@@ -64,6 +64,8 @@ export interface Options {
   mode?: Mode;
   /** After each change to what's read. */
   changed?: () => void;
+  /** Stops an open still reading, as when the pointer leaves for another name. */
+  signal?: AbortSignal;
 }
 export class Source {
   /** A code file that grows past `code_limit` turns into a log. */
@@ -78,8 +80,12 @@ export class Source {
   end = 0;
   size = 0;
   binary = false;
+  /** Why following last failed, until it works again. */
   error: string | null = null;
-  /** Counts of lines added at the end, read in at the start and dropped
+  /** A viewer holds its place: growth past the caps isn't kept, rather
+   * than the lines before it dropped. */
+  held = false;
+  /** Counts of lines the file grew by, read in at the start and dropped
    * from the start: a viewer keeps its place with them. */
   added = 0;
   prepended = 0;
@@ -126,6 +132,7 @@ export class Source {
     const source = new Source(path, opts.mode ?? modeFor(path, info.size), opts);
     try {
       await source.load(opts.line ?? null);
+      source.stop();
     } catch (error) {
       await source.close();
       throw error;
@@ -133,22 +140,28 @@ export class Source {
     if (opts.follow !== false) source.follow();
     return source;
   }
+  /** Throws once the open is called off. */
+  private stop(): void {
+    if (this.opts.signal?.aborted) throw Error("Aborted");
+  }
   /** Rows to show: the whole lines, then one being written. */
   get count(): number {
     if (this.mode === "code") return this.lines.length;
     const whole = this.starts.length - 1;
     return whole + (this.end > this.starts[whole] ? 1 : 0);
   }
-  line(row: number): string {
+  /** Row `row`'s text, or its first `max` bytes' when it's longer. */
+  line(row: number, max = Infinity): string {
     if (this.mode === "code") return this.lines[row] ?? "";
     if (row < 0 || row >= this.count) return "";
-    const from = this.starts[row];
-    // The line being written changes, so it isn't kept.
-    if (row + 1 >= this.starts.length) return this.decode(from, this.end);
+    const from = this.starts[row],
+      to = row + 1 < this.starts.length ? this.starts[row + 1] - 1 : this.end;
+    // The line being written changes, and a cut one is only its start: neither is kept.
+    if (row + 1 >= this.starts.length || to - from > max) return this.decode(from, Math.min(to, from + max));
     let text = this.cache.get(from);
     if (text === undefined) {
       if (this.cache.size >= cache_lines) this.cache.clear();
-      text = this.decode(from, this.starts[row + 1] - 1);
+      text = this.decode(from, to);
       this.cache.set(from, text);
     }
     return text;
@@ -227,10 +240,17 @@ export class Source {
     this.start = 0;
     this.end = this.size = bytes.length;
   }
+  /** Opens the path again; the file read so far stays open until it does. */
   private async reopen(): Promise<void> {
-    await this.fh?.close().catch(() => {});
-    this.fh = await open(this.path, "r");
-    const info = await this.fh.stat();
+    const fh = await open(this.path, "r");
+    if (this.closed) {
+      await fh.close().catch(() => {});
+      throw Error("Closed");
+    }
+    const old = this.fh;
+    this.fh = fh;
+    await old?.close().catch(() => {});
+    const info = await fh.stat();
     this.ino = info.ino;
     this.dev = info.dev;
     this.size = info.size;
@@ -288,6 +308,9 @@ export class Source {
     let at = 0,
       seen = 1;
     while (found < 0 && at < Math.min(this.size, seek_limit)) {
+      // Scanning gigabytes stops once its reader is gone.
+      if (this.closed) throw Error("Closed");
+      this.stop();
       const { bytesRead } = await this.fh!.read(chunk, 0, chunk.length, at);
       if (bytesRead === 0) break;
       for (let i = chunk.indexOf(10); i >= 0 && i < bytesRead; i = chunk.indexOf(10, i + 1))
@@ -306,18 +329,27 @@ export class Source {
     this.first = n - before;
     return true;
   }
-  /** Adds bytes read at the window's end. */
-  private append(bytes: Uint8Array): void {
+  /** Adds bytes read at the window's end: the file's growth, or the next
+   * block of a window that stopped short of it. */
+  private append(bytes: Uint8Array, grew: boolean): void {
     if (bytes.length === 0) return;
     const lines = this.starts.length;
     this.blocks.push({ at: this.end, bytes });
     scan(bytes, this.end, this.starts);
     this.end += bytes.length;
-    this.added += this.starts.length - lines;
+    if (grew) this.added += this.starts.length - lines;
+    if (grew && this.held) this.dropEnd();
+    else this.dropStart();
+  }
+  private get over(): boolean {
+    return this.starts.length - 1 > max_lines || this.end - this.start > max_bytes;
+  }
+  /** Keeps to the caps from the window's start, where no one reads. */
+  private dropStart(): void {
+    if (!this.over) return;
     const whole = this.starts.length - 1,
       over_lines = whole > max_lines,
       over_bytes = this.end - this.start > max_bytes;
-    if (!over_lines && !over_bytes) return;
     // Drop a tenth at a time, so following a busy log doesn't shift every read.
     const from = this.end - Math.floor(max_bytes * 0.9);
     let drop = over_lines ? whole - Math.floor(max_lines * 0.9) : 0;
@@ -333,6 +365,21 @@ export class Source {
     this.start = start;
     this.dropped += drop;
     if (this.first !== null) this.first += drop;
+  }
+  /** Keeps to the caps from the window's end, which then stops short of the file's. */
+  private dropEnd(): void {
+    if (!this.over) return;
+    const until = this.start + Math.floor(max_bytes * 0.9);
+    let keep = Math.min(this.starts.length - 1, Math.floor(max_lines * 0.9));
+    while (keep > 0 && this.starts[keep] > until) keep--;
+    // A first line longer than the cap shows cut.
+    const end = keep > 0 ? this.starts[keep] : Math.min(this.end, until);
+    this.starts.length = keep + 1;
+    while (this.blocks.length > 1 && this.blocks[this.blocks.length - 1].at >= end) this.blocks.pop();
+    const tail = this.blocks[this.blocks.length - 1];
+    if (tail && tail.at + tail.bytes.length > end) tail.bytes = tail.bytes.slice(0, end - tail.at);
+    this.cache.clear();
+    this.end = end;
   }
   /** Runs reads one at a time, so none sees another's window half changed. */
   private serial<T>(read: () => Promise<T>): Promise<T> {
@@ -395,13 +442,15 @@ export class Source {
     this.start = start;
     this.prepended += starts.length;
     this.first = this.first !== null ? this.first - starts.length : start === 0 ? 1 : null;
+    // The reader is at the start, so the end gives way.
+    this.dropEnd();
     this.bump();
     return true;
   }
   private async readLater(): Promise<boolean> {
     if (this.mode === "code" || this.atEnd || !this.fh) return false;
     const bytes = await this.read(this.end, Math.min(block, this.size - this.end));
-    this.append(bytes);
+    this.append(bytes, false);
     this.bump();
     return bytes.length > 0;
   }
@@ -411,7 +460,11 @@ export class Source {
   }
   private follow(): void {
     this.arm();
-    this.timer = setInterval(() => this.poke(true), poll_ms);
+    this.timer = setInterval(() => {
+      // A watch that failed, or found no file, is tried again, as `tail -F` does.
+      if (!this.burst) this.arm();
+      this.poke(true);
+    }, poll_ms);
     this.timer.unref?.();
   }
   /** Waits for the next change notice. */
@@ -437,9 +490,14 @@ export class Source {
     this.poke(named);
     if (this.burst || this.closed) return;
     this.quiet = 0;
+    let checking = false;
     this.burst = setInterval(() => {
+      // A slow disk's check outlasts the interval; they don't queue up.
+      if (checking) return;
+      checking = true;
       const seen = this.version;
       void this.refresh(false).then(() => {
+        checking = false;
         if (this.version !== seen) this.quiet = 0;
         else if (++this.quiet * burst_ms >= quiet_ms && this.burst) {
           clearInterval(this.burst);
@@ -484,38 +542,50 @@ export class Source {
   }
   private async update(named: boolean): Promise<void> {
     try {
-      if (this.mode === "code" || named || !this.fh) {
-        const found = await stat(this.path).catch(() => null);
-        // Gone: what was read stays until it comes back.
-        if (!found || this.closed) return;
-        if (this.mode === "code") {
-          if (found.ino === this.ino && found.size === this.size && found.mtimeMs === this.mtime) return;
-          if (found.size <= code_limit) {
-            await this.readWhole();
-            return this.bump();
-          }
-          // Too large now to read whole each change: it's followed from its end.
-          this.mode = "tail";
-          this.lines = [];
-          return await this.restart();
-        }
-        if (found.ino !== this.ino || found.dev !== this.dev) return await this.restart();
+      await this.check(named);
+      if (this.error !== null) {
+        this.error = null;
+        this.bump();
       }
-      const size = this.local ? fstatSync(this.fh!.fd).size : (await this.fh!.stat()).size;
-      if (this.closed) return;
-      if (size < this.end) return await this.restart();
-      if (size === this.size) return;
-      const joined = this.atEnd;
-      this.size = size;
-      if (!joined) return this.bump();
-      if (this.size - this.end > skip_after) return await this.restart();
-      const grown = this.size - this.end;
-      this.append(this.local && grown <= sync_limit ? this.readNow(this.end, grown) : await this.read(this.end, grown));
-      this.bump();
     } catch (error) {
-      this.error = errors.name(error) ?? "ReadFailed";
+      if (this.closed) return;
+      const name = errors.name(error) ?? "ReadFailed";
+      if (name === this.error) return;
+      this.error = name;
       this.bump();
     }
+  }
+  private async check(named: boolean): Promise<void> {
+    if (this.mode === "code" || named || !this.fh) {
+      const found = await stat(this.path).catch(() => null);
+      // Gone: what was read stays until it comes back.
+      if (!found || this.closed) return;
+      if (this.mode === "code") {
+        if (found.ino === this.ino && found.size === this.size && found.mtimeMs === this.mtime) return;
+        if (found.size <= code_limit) {
+          await this.readWhole();
+          return this.bump();
+        }
+        // Too large now to read whole each change: it's followed from its end.
+        this.mode = "tail";
+        this.lines = [];
+        return await this.restart();
+      }
+      if (found.ino !== this.ino || found.dev !== this.dev) return await this.restart();
+    }
+    const size = this.local ? fstatSync(this.fh!.fd).size : (await this.fh!.stat()).size;
+    if (this.closed) return;
+    if (size < this.end) return await this.restart();
+    if (size === this.size) return;
+    const joined = this.atEnd;
+    this.size = size;
+    if (!joined) return this.bump();
+    const grown = this.size - this.end;
+    // A held place stays where it is; the window stops short of the end.
+    if (grown > skip_after) return this.held ? this.bump() : await this.restart();
+    const bytes = this.local && grown <= sync_limit ? this.readNow(this.end, grown) : await this.read(this.end, grown);
+    this.append(bytes, true);
+    this.bump();
   }
   private async restart(): Promise<void> {
     await this.reopen();

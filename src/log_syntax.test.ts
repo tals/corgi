@@ -41,3 +41,10 @@ test("leaves apostrophes in prose alone", () => {
     ["3", "number"],
   ]);
 });
+
+test("takes a long word in time that grows with it, not with its square", () => {
+  const line = `INFO token=${"a".repeat(1 << 20)} rows=48`;
+  const started = performance.now();
+  expect(marked(line).map(([, kind]) => kind)).toEqual(["info", "property", "property", "number"]);
+  expect(performance.now() - started).toBeLessThan(200);
+});
