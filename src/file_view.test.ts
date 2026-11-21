@@ -148,6 +148,37 @@ test("following from the middle of a large log goes to its end, and home goes to
   expect(r.source.line(0)).toBe("line 1");
 });
 
+test("of a jump to the start and one to the end asked for at once, the later wins", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-view-"));
+  dirs.push(dir);
+  const path = join(dir, "jumps.log");
+  writeFileSync(path, Array.from({ length: 300_000 }, (_, i) => `line ${i + 1}`).join("\n") + "\n");
+  const settle = async (r: Reader) => {
+    await Reflect.get(r.source, "chain");
+    r.sync(10);
+  };
+  // From the end: g then G follows the end.
+  const end = await Source.open(path, { follow: false });
+  opened.push(end);
+  const a = new Reader(end);
+  a.sync(10);
+  a.home();
+  a.follow(true);
+  await settle(a);
+  expect([a.following, end.atEnd]).toEqual([true, true]);
+  expect(end.line(a.shownRows()[a.top + 9].row)).toBe("line 300000");
+  // From the middle: G then g stays at the start.
+  const mid = await Source.open(path, { follow: false, line: 150_000 });
+  opened.push(mid);
+  const b = new Reader(mid, 150_000);
+  b.sync(10);
+  b.follow(true);
+  b.home();
+  await settle(b);
+  expect([b.following, b.top, mid.start]).toEqual([false, 0, 0]);
+  expect(mid.line(0)).toBe("line 1");
+});
+
 test("a pinned line is what a click on it means", async () => {
   const r = await reader("a.ts", code);
   r.top = 3;

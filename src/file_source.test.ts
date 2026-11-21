@@ -230,6 +230,57 @@ test("growth past the caps drops lines on the side away from a place held in the
   expect(twice.s.line(twice.s.hold!)).toBe("line 7001");
 });
 
+test("scrolls back past a line longer than a block, reaching back through it as one row", async () => {
+  const long = "x".repeat(600_000);
+  const s = await open(file("long.jsonl", "first\n" + long + "\n" + numbered(1, 1000)));
+  expect(s.count).toBe(1000);
+  expect(s.first).toBeNull();
+  // Its end, cut, then more of it, then the rest and the line before.
+  expect(await s.earlier()).toBe(true);
+  expect([s.count, s.line(0).length]).toEqual([1001, fileSource.block - 1]);
+  expect(await s.earlier()).toBe(true);
+  expect([s.count, s.line(0).length]).toEqual([1001, 2 * fileSource.block - 1]);
+  expect(await s.earlier()).toBe(true);
+  expect([s.count, s.line(0), s.line(1), s.number(0)]).toEqual([1002, "first", long, 1]);
+  expect(s.line(2)).toBe("line 1");
+  expect(await s.earlier()).toBe(false);
+});
+
+test("a growth too large for a held place's window keeps the held line", async () => {
+  const path = file("burst.log", "");
+  const s = await open(path);
+  appendFileSync(path, numbered(1, fileSource.max_lines));
+  await s.refresh();
+  s.hold = 47_980;
+  appendFileSync(path, numbered(fileSource.max_lines + 1, fileSource.max_lines + 41_000));
+  await s.refresh();
+  expect(s.line(s.hold!)).toBe("line 47981");
+  expect(s.count).toBeLessThanOrEqual(fileSource.max_lines);
+});
+
+test("counts growth past a window that stops short of the end", async () => {
+  const path = file("count.log", numbered(1, 300_000));
+  const s = await open(path, { line: 1000 });
+  expect(s.atEnd).toBe(false);
+  appendFileSync(path, numbered(300_001, 300_010));
+  await s.refresh();
+  expect(s.added).toBe(10);
+  expect(s.atEnd).toBe(false);
+});
+
+test("a read asked for in passing shows its failure, and one a close overtakes just stops", async () => {
+  const s = await open(file("fail.log", numbered(1, 300_000)), { line: 100_000 });
+  expect(s.start).toBeGreaterThan(0);
+  Reflect.set(s, "read", () => Promise.reject(Error("EIO")));
+  expect(await s.earlier()).toBe(false);
+  expect(s.error).toBe("EIO");
+  const other = await open(file("race.log", numbered(1, 300_000)), { line: 1000 });
+  const jump = other.toEnd();
+  await other.close();
+  expect(await jump).toBe(false);
+  expect(other.error).toBeNull();
+});
+
 test("an open called off stops scanning for its line", async () => {
   const abort = new AbortController();
   abort.abort();

@@ -65,6 +65,9 @@ export class Reader {
   target: number | null = null;
   /** That line's number, to find its row again after the window moves. */
   private target_line: number | null = null;
+  /** The end of the file last asked to go to, until the window is there:
+   * a jump that lands after a later one doesn't undo it. */
+  private jump: "start" | "end" | null = null;
   readonly column: number | null;
   /** Closed folds, by their first row. */
   folded = new Set<number>();
@@ -98,10 +101,15 @@ export class Reader {
         // A new window: its rows are other lines.
         this.target = this.target_line === null ? null : s.rowOf(this.target_line);
         this.fresh = 0;
-        if (restarted) {
-          this.following = s.mode === "tail";
-          this.folded.clear();
-        } else this.top = 0;
+        if (restarted) this.folded.clear();
+        // Where the last jump asked for, else where the window went.
+        const to = this.jump ?? (restarted ? "end" : "start");
+        if (to === "end") this.following = s.mode === "tail";
+        else {
+          this.top = 0;
+          this.following = false;
+        }
+        if (to === "end" ? s.atEnd : s.start === 0) this.jump = null;
       } else if (seen.version >= 0) {
         const shift = s.prepended - seen.prepended - (s.dropped - seen.dropped);
         this.top = Math.max(0, this.top + shift);
@@ -154,15 +162,23 @@ export class Reader {
   /** Follows a log's end, reading it first when the window stops short of it. */
   follow(on: boolean): void {
     this.following = on && this.source.mode === "tail";
-    if (!this.following) return;
+    if (!this.following) {
+      if (this.jump === "end") this.jump = null;
+      return;
+    }
     this.fresh = 0;
-    if (!this.source.atEnd) void this.source.toEnd();
+    // A jump to the start still on its way would leave the window there.
+    if (this.source.atEnd && this.jump !== "start") return;
+    this.jump = "end";
+    void this.source.toEnd();
   }
   /** Goes to the file's first line, reading it first when the window starts after it. */
   home(): void {
     this.top = 0;
     this.following = false;
-    if (this.source.mode === "tail" && this.source.start > 0) void this.source.toStart();
+    if (this.source.mode !== "tail" || (this.source.start === 0 && this.jump !== "end")) return;
+    this.jump = "start";
+    void this.source.toStart();
   }
   /** The rows to show: every line, less closed folds. */
   shownRows(): Shown[] {

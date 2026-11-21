@@ -28,6 +28,8 @@ export const max_lines = 50_000;
 export const max_bytes = 16 << 20;
 /** Lines kept above a place a viewer holds, for it to scroll up into. */
 export const hold_margin = 1000;
+/** Rows kept from a held place down: more than a screen shows. */
+const hold_rows = 256;
 /** How far into a log a line the text named is looked for. */
 export const seek_limit = 4 * 1024 ** 3;
 const poll_ms = 1000;
@@ -120,7 +122,7 @@ export class Source {
   private named = false;
   private chain: Promise<unknown> = Promise.resolve();
   /** Reads asked for and not done; a second ask while one waits is dropped. */
-  private asked = new Set<"earlier" | "later" | "start" | "end">();
+  private asked = new Set<"earlier" | "later">();
   private closed = false;
   private constructor(
     readonly path: string,
@@ -340,10 +342,11 @@ export class Source {
     scan(bytes, this.end, this.starts);
     this.end += bytes.length;
     if (grew) this.added += this.starts.length - lines;
-    // Growth gives way to a place held near the start, which dropping
-    // from there would take.
-    if (grew && this.hold !== null && this.hold < this.startDrop() + hold_margin) this.dropEnd();
-    else this.dropStart();
+    if (!grew || this.hold === null) return this.dropStart();
+    // A held place keeps its rows: the start gives way down to a little
+    // above it, then the end gives up what's still over.
+    this.dropStart(Math.max(0, this.hold - hold_margin));
+    this.dropEnd(this.hold + hold_rows);
   }
   private get over(): boolean {
     return this.starts.length - 1 > max_lines || this.end - this.start > max_bytes;
@@ -358,15 +361,17 @@ export class Source {
     if (this.end - this.start > max_bytes) while (drop < whole && this.starts[drop] < from) drop++;
     return drop;
   }
-  /** Keeps to the caps from the window's start, where no one reads. */
-  private dropStart(): void {
+  /** Keeps to the caps from the window's start, where no one reads,
+   * dropping at most `limit` lines. */
+  private dropStart(limit = Infinity): void {
     if (!this.over) return;
     const over_bytes = this.end - this.start > max_bytes,
       from = this.end - Math.floor(max_bytes * 0.9),
-      drop = this.startDrop();
+      wanted = this.startDrop(),
+      drop = Math.min(wanted, limit);
     this.starts.splice(0, drop);
     // The line being written is still too long: it shows cut, as `window` does.
-    if (over_bytes && this.starts[0] < from) this.starts[0] = from;
+    if (over_bytes && drop === wanted && this.starts[0] < from) this.starts[0] = from;
     const start = this.starts[0];
     while (this.blocks.length > 1 && this.blocks[0].at + this.blocks[0].bytes.length <= start) this.blocks.shift();
     const head = this.blocks[0];
@@ -377,12 +382,14 @@ export class Source {
     if (this.hold !== null) this.hold = Math.max(0, this.hold - drop);
     if (this.first !== null) this.first += drop;
   }
-  /** Keeps to the caps from the window's end, which then stops short of the file's. */
-  private dropEnd(): void {
+  /** Keeps to the caps from the window's end, which then stops short of the
+   * file's, keeping at least `rows` rows. */
+  private dropEnd(rows = 0): void {
     if (!this.over) return;
-    const until = this.start + Math.floor(max_bytes * 0.9);
-    let keep = Math.min(this.starts.length - 1, Math.floor(max_lines * 0.9));
-    while (keep > 0 && this.starts[keep] > until) keep--;
+    const until = this.start + Math.floor(max_bytes * 0.9),
+      whole = this.starts.length - 1;
+    let keep = Math.min(whole, Math.max(rows, Math.floor(max_lines * 0.9)));
+    while (keep > Math.min(rows, whole) && keep > 0 && this.starts[keep] > until) keep--;
     // A first line longer than the cap shows cut.
     const end = keep > 0 ? this.starts[keep] : Math.min(this.end, until);
     this.starts.length = keep + 1;
@@ -398,10 +405,22 @@ export class Source {
     this.chain = next.catch(() => {});
     return next;
   }
-  private once(what: "earlier" | "later" | "start" | "end", read: () => Promise<boolean>): Promise<boolean> {
+  private once(what: "earlier" | "later", read: () => Promise<boolean>): Promise<boolean> {
     if (this.asked.has(what)) return Promise.resolve(false);
     this.asked.add(what);
-    return this.serial(read).finally(() => this.asked.delete(what));
+    return this.attempt(read).finally(() => this.asked.delete(what));
+  }
+  /** Runs `read` in its turn. It's asked for in passing, as a scroll or a
+   * key does, so a failure shows rather than throws. */
+  private attempt(read: () => Promise<boolean>): Promise<boolean> {
+    return this.serial(async () => {
+      try {
+        return !this.closed && (await read());
+      } catch (error) {
+        this.fail(error);
+        return false;
+      }
+    });
   }
   /** Reads the block before the window; false at the file's start. */
   earlier(): Promise<boolean> {
@@ -411,9 +430,11 @@ export class Source {
   later(): Promise<boolean> {
     return this.once("later", () => this.readLater());
   }
-  /** Moves a log's window to the file's first block; false when it's there. */
+  /** Moves a log's window to the file's first block; false when it's there.
+   * Each ask takes its turn, so the last of a start and an end asked
+   * for in a row is where the window ends up. */
   toStart(): Promise<boolean> {
-    return this.once("start", async () => {
+    return this.attempt(async () => {
       if (this.mode === "code" || this.start === 0 || !this.fh) return false;
       this.window(0, await this.read(0, Math.min(block, this.size)));
       if (this.hold !== null) this.hold = 0;
@@ -424,7 +445,7 @@ export class Source {
   }
   /** Moves a log's window to the file's end, as following reads it; false when it's there. */
   toEnd(): Promise<boolean> {
-    return this.once("end", async () => {
+    return this.attempt(async () => {
       if (this.mode === "code" || this.atEnd || !this.fh) return false;
       this.size = (await this.fh.stat()).size;
       await this.readTail();
@@ -439,26 +460,33 @@ export class Source {
     if (this.mode === "code" || this.start === 0 || !this.fh || this.binary) return false;
     const at = Math.max(0, this.start - block);
     const bytes = await this.read(at, this.start - at);
+    if (bytes.length === 0) return false;
+    // The block starts at its first whole line, unless it holds none: then
+    // it's all one line too long for it, which shows cut.
     let body = bytes,
       start = at;
     const nl = at > 0 ? bytes.indexOf(10) : -1;
-    if (nl >= 0) {
+    if (nl >= 0 && nl < bytes.length - 1) {
       body = bytes.subarray(nl + 1);
       start = at + nl + 1;
     }
-    if (body.length === 0) return false;
-    // The block ends where the window starts, after a newline.
     const starts = [start];
     scan(body, start, starts);
+    // A window that starts on a newline's heels gains whole rows; one that
+    // starts partway through a line, cut, has that row reach back instead.
+    const joined = bytes[bytes.length - 1] !== 10;
     if (starts[starts.length - 1] === this.start) starts.pop();
+    else if (joined) this.starts.shift();
+    const rows = joined ? starts.length - 1 : starts.length;
     this.starts = starts.concat(this.starts);
     this.blocks.unshift({ at: start, bytes: body });
+    this.cache.clear();
     this.start = start;
-    this.prepended += starts.length;
-    if (this.hold !== null) this.hold += starts.length;
-    this.first = this.first !== null ? this.first - starts.length : start === 0 ? 1 : null;
+    this.prepended += rows;
+    if (this.hold !== null) this.hold += rows;
+    this.first = this.first !== null ? this.first - rows : start === 0 ? 1 : null;
     // The reader is at the start, so the end gives way.
-    this.dropEnd();
+    this.dropEnd(this.hold === null ? 0 : this.hold + hold_rows);
     this.bump();
     return true;
   }
@@ -563,12 +591,28 @@ export class Source {
         this.bump();
       }
     } catch (error) {
-      if (this.closed) return;
-      const name = errors.name(error) ?? "ReadFailed";
-      if (name === this.error) return;
-      this.error = name;
-      this.bump();
+      this.fail(error);
     }
+  }
+  /** Counts the lines a log grew by past a window that stops short of its
+   * end, without keeping them; growth too fast to read goes uncounted. */
+  private async countGrowth(from: number, to: number): Promise<void> {
+    if (to - from > skip_after) return;
+    const chunk = Buffer.allocUnsafe(Math.min(1 << 20, to - from));
+    for (let at = from; at < to && !this.closed && this.fh;) {
+      const { bytesRead } = await this.fh.read(chunk, 0, Math.min(chunk.length, to - at), at);
+      if (bytesRead === 0) break;
+      for (let i = chunk.indexOf(10); i >= 0 && i < bytesRead; i = chunk.indexOf(10, i + 1)) this.added++;
+      at += bytesRead;
+    }
+  }
+  /** Shows why a read failed, once until it changes. */
+  private fail(error: unknown): void {
+    if (this.closed) return;
+    const name = errors.name(error) ?? "ReadFailed";
+    if (name === this.error) return;
+    this.error = name;
+    this.bump();
   }
   private async check(named: boolean): Promise<void> {
     if (this.mode === "code" || named || !this.fh) {
@@ -592,9 +636,13 @@ export class Source {
     if (this.closed) return;
     if (size < this.end) return await this.restart();
     if (size === this.size) return;
-    const joined = this.atEnd;
+    const joined = this.atEnd,
+      before = this.size;
     this.size = size;
-    if (!joined) return this.bump();
+    if (!joined) {
+      await this.countGrowth(before, size);
+      return this.bump();
+    }
     const grown = this.size - this.end;
     // A held place stays where it is; the window stops short of the end.
     if (grown > skip_after) return this.hold !== null ? this.bump() : await this.restart();
