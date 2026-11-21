@@ -162,8 +162,14 @@ export function isWrap(s: Snapshot, i: number, margin = wrap_margin): boolean {
  * where backslash and newline stay literal, and not on the last row, whose
  * newline the selection doesn't hold. Quotes carry across rows. */
 export function continuations(lines: readonly string[]): boolean[] {
-  let quote: "'" | '"' | null = null;
+  return shellRows(lines).map(row => row.continues);
+}
+type Quote = "'" | '"' | null;
+/** Shell state at each row's end; comments cannot join onto another row. */
+function shellRows(lines: readonly string[]): { quote: Quote; comment: boolean; continues: boolean }[] {
+  let quote: Quote = null;
   return lines.map((line, row) => {
+    let comment = false;
     for (let i = 0; i < line.length; i++) {
       const c = line[i];
       if (quote === "'") {
@@ -172,8 +178,14 @@ export function continuations(lines: readonly string[]): boolean[] {
       else if (quote === '"') {
         if (c === '"') quote = null;
       } else if (c === "'" || c === '"') quote = c;
+      else if (c === "#" && (i === 0 || (/[\s;|&()<>]/.test(line[i - 1]) && !escaped(line, i - 1)))) {
+        comment = true;
+        break;
+      }
     }
-    return row < lines.length - 1 && quote !== "'" && line.endsWith("\\") && !escaped(line, line.length - 1);
+    const continues =
+      !comment && row < lines.length - 1 && quote !== "'" && line.endsWith("\\") && !escaped(line, line.length - 1);
+    return { quote, comment, continues };
   });
 }
 /** `line` without a `$ ` prompt, when a command follows it. */
@@ -308,7 +320,9 @@ const max_continued_rows = 10;
  * and its text reads as one. */
 function isCommand(s: Snapshot): boolean {
   const { lines } = s;
-  const continues = continuations(lines);
+  const syntax = shellRows(lines);
+  if (syntax.some(row => row.comment)) return false;
+  const continues = syntax.map(row => row.continues);
   const limit = continues.some(Boolean) ? max_continued_rows : max_wrapped_rows;
   if (lines.length > limit) return false;
   const own = dedent(s);
@@ -350,22 +364,27 @@ function flatten(s: Snapshot): string {
   // Each row without the indent the rows share, so a continuation's own
   // indent still shows.
   const own = dedent(s);
-  const continues = continuations(s.lines);
+  const syntax = shellRows(s.lines);
   let out = "";
   // The token a split carried onto this row, if any.
   let carry = "";
   s.lines.forEach((raw, i) => {
-    let line = raw.trim();
+    let line = i > 0 && syntax[i - 1].quote === '"' ? own[i] : raw.trim();
     if (i === 0) line = withoutPrompt(line);
-    const backslash = continues[i];
+    const backslash = syntax[i].continues;
     // A shell deletes backslash-newline, so a word goes on unless whitespace
     // stood before the backslash or starts the next row.
     let tight = false;
     if (backslash) {
       const body = line.slice(0, -1);
       const next = own[i + 1] ?? "";
-      tight = body !== "" && !/\s$/.test(body) && next !== "" && !/^\s/.test(next);
-      line = body.trimEnd();
+      if (syntax[i].quote === '"') {
+        tight = true;
+        line = body;
+      } else {
+        tight = body !== "" && !/\s$/.test(body) && next !== "" && !/^\s/.test(next);
+        line = body.trimEnd();
+      }
     }
     if (line === "") {
       carry = "";

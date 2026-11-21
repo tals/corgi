@@ -242,3 +242,48 @@ test("a prompt goes before a command ending in a . or .. path", () => {
   expect(clean("$ cd ..")).toBe("cd ..");
   expect(clean("$ that is all.")).toBe("$ that is all.");
 });
+
+test("shell comments keep the next command on its own line", () => {
+  const clean = (lines: string[], width = 80) => copyCleanup.clean(copyCleanup.fromColumnZero(lines, width), "clean");
+  for (const suffix of [";", "|", "&&", "\\"]) {
+    const first = `echo ready # wait${suffix}`;
+    expect(clean([`  ${first}`, "  make install"])).toEqual({
+      text: `${first}\nmake install`,
+      kind: "document",
+    });
+  }
+  expect(clean(["  echo ready # wait", "  | cat"])).toEqual({
+    text: "echo ready # wait\n| cat",
+    kind: "document",
+  });
+  expect(clean(["  echo ready # wait", "  more"], 19)).toEqual({
+    text: "echo ready # wait\nmore",
+    kind: "document",
+  });
+  for (const word of ["'a # b'", '"a # b"', "a#b", "\\#", "a\\ #b"]) {
+    expect(clean([`  echo ${word};`, "  make install"])).toEqual({
+      text: `echo ${word}; make install`,
+      kind: "command",
+    });
+  }
+});
+
+test("quoted backslash continuations preserve argument whitespace", () => {
+  const clean = (lines: string[]) => copyCleanup.clean(copyCleanup.fromColumnZero(lines, 80), "clean");
+  expect(clean([`printf '%s' "a  \\`, 'b"'])).toEqual({
+    text: `printf '%s' "a  b"`,
+    kind: "command",
+  });
+  expect(clean([`  printf '%s' "a  \\`, '    b"'])).toEqual({
+    text: `printf '%s' "a    b"`,
+    kind: "command",
+  });
+  expect(clean([`  printf '%s' "a\t\\`, "  \t\\", '   b"'])).toEqual({
+    text: `printf '%s' "a\t\t b"`,
+    kind: "command",
+  });
+  expect(clean([`  printf '%s' "a\\`, "  b # c  \\", '  d"'])).toEqual({
+    text: `printf '%s' "ab # c  d"`,
+    kind: "command",
+  });
+});
