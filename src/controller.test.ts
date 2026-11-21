@@ -6782,6 +6782,31 @@ test("through the viewer's routing, a workspace name's double-click renames and 
   }
 });
 
+test.each([1, 2])(
+  "through the viewer's routing, workspace %i's message line interrupts its rename double-click",
+  async workspace => {
+    const { s, rect } = renaming();
+    const click = async (x: number, y: number) => {
+      for (const release of [false, true])
+        if (!s.workspaceDragInput(x, y, 0, release))
+          await s.input(bytes(`\x1b[<0;${x + 1};${y + 1}${release ? "m" : "M"}`));
+    };
+    try {
+      setSystemTime(new Date(1000));
+      const at = rect({ workspace });
+      await click(at.x, at.y);
+      await click(at.x, at.message_y);
+      await click(at.x, at.y);
+      expect(s.inline_rename).toBeNull();
+      await click(at.x + 1, at.y);
+      expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, workspace));
+    } finally {
+      setSystemTime();
+      viewer.close(s);
+    }
+  },
+);
+
 test("a press after a drag on a workspace's name starts no rename", async () => {
   const { s, rect } = renaming();
   try {

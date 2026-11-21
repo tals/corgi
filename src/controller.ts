@@ -1796,6 +1796,7 @@ export class Controller {
       if (side.unreadHit(row, x, y)) return false;
       // Only presses on the name line make the double-click that renames.
       const workspace = this.rowOf(row.id)!.id;
+      this.clicks.pressed();
       if (!side.onNameLine(row.id, rows, x, y)) this.clicks.reset();
       else if (this.clicks.press(row.id, milliTimestamp(), y)) {
         this.beginInlineRename(row.id);
