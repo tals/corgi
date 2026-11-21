@@ -462,6 +462,7 @@
   "Couldn't read the workspace list. R refreshes.": "无法读取工作区列表。按 R 刷新。",
   "Couldn't read this source. R retries.": "无法读取此来源。按 R 重试。",
   "Couldn't save the pasted image": "无法保存粘贴的图片",
+  "Couldn't search conversations": "无法搜索会话",
   "Create ": "创建 ",
   "Create workspace": "创建工作区",
   "Create ~/.bash_profile so macOS terminals load ~/.bashrc?": "是否创建 ~/.bash_profile，让 macOS 终端加载 ~/.bashrc？",

@@ -462,6 +462,7 @@
   "Couldn't read the workspace list. R refreshes.": "작업 공간 목록을 읽지 못했습니다. R로 새로 고침하세요.",
   "Couldn't read this source. R retries.": "이 소스를 읽을 수 없습니다. R로 다시 시도하세요.",
   "Couldn't save the pasted image": "붙여넣은 이미지를 저장할 수 없습니다",
+  "Couldn't search conversations": "대화를 검색할 수 없습니다",
   "Create ": "만들기 ",
   "Create workspace": "작업 공간 만들기",
   "Create ~/.bash_profile so macOS terminals load ~/.bashrc?": "macOS 터미널이 ~/.bashrc를 읽도록 ~/.bash_profile을 만들까요?",

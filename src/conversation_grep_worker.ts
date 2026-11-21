@@ -10,6 +10,8 @@ import type { GrepSummary } from "./protocol";
 const running = new Set<number>(),
   cancelled = new Set<number>();
 const post = (event: Event) => self.postMessage(event);
+/** Bytes `lines` take as JSONL. */
+const size = (lines: string[]) => lines.reduce((n, line) => n + Buffer.byteLength(line) + 1, 0);
 
 /** Searches as `corgi grep --json` does, posting each conversation's lines as
  * it's found until they'd pass `cap` bytes. */
@@ -22,17 +24,25 @@ async function run(job: Search): Promise<GrepSummary> {
   let bytes = 0,
     returned = 0,
     capped = 0,
-    truncated = false;
+    truncated = false,
+    saved = performance.now();
   try {
     const matches = await grep.search(job.cache, session.sources, {
       ...job.options,
       open: async source => {
         stop();
-        return session.messages(source);
+        const indexed = !session.fresh(source),
+          lanes = await session.messages(source);
+        // A worker stopped mid-search keeps what it indexed up to a second ago.
+        if (indexed && performance.now() - saved >= 1000) {
+          session.save();
+          saved = performance.now();
+        }
+        return lanes;
       },
       found: async m => {
         stop();
-        out.add({
+        const match = {
           ...m,
           source: {
             provider: m.source.provider,
@@ -43,20 +53,28 @@ async function run(job: Search): Promise<GrepSummary> {
             source: m.source.source,
             ...(session.fresh(m.source) ? { cache: path.join(job.cache, m.source.file) } : {}),
           },
-        });
-        const lines = out.take().split("\n").filter(Boolean),
-          size = lines.reduce((n, line) => n + Buffer.byteLength(line) + 1, 0);
-        if (bytes + size > job.cap) {
+        };
+        out.add(match);
+        let lines = out.take().split("\n").filter(Boolean);
+        if (bytes + size(lines) > job.cap) {
+          // What fits of it ends the search, its last line clipped. A UTF-16
+          // unit is at most 3 bytes of UTF-8, so the characters left bound them.
+          const rest = output.renderer({
+            ...job.display,
+            maxOutputChars: Math.max(1, Math.floor((job.cap - bytes) / 3)),
+          });
+          rest.add(match);
+          lines = rest.take().split("\n").filter(Boolean);
+          if (bytes + size(lines) > job.cap) lines = [];
           truncated = true;
-          return false;
         }
-        bytes += size;
+        bytes += size(lines);
         if (lines.length) {
           returned++;
           if (m.count_limited) capped++;
           post({ type: "lines", id: job.id, lines: lines.map(line => JSON.parse(line)) });
         }
-        return true;
+        return !truncated;
       },
     });
     return {

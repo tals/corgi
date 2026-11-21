@@ -182,7 +182,15 @@ export class Mentions {
   /** The search as last typed, and when, so a search waits for typing to pause. */
   typed = "";
   typed_at = 0;
+  /** Counts the searches sent, so only the latest one's answers count. */
+  generation = 0;
+  /** Searches for `query` that failed in a row. */
+  failures = 0;
+  /** When to search for `query` again after a failure, in ms; 0 when not waiting to. */
+  retry_at = 0;
 }
+/** A search that fails is tried this many times in all, a little later each time. */
+export const mention_tries = 3;
 /** `conversation.grep`'s lines as conversations and their first matching
  * lines; a line without both is skipped. */
 export function mentionsOf(lines: unknown): { key: string; text: string }[] {
@@ -195,15 +203,19 @@ export function mentionsOf(lines: unknown): { key: string; text: string }[] {
     return [{ key: provider + ":" + source.session, text: hit.text.replace(/[\x00-\x1f\x7f]/g, " ") }];
   });
 }
-/** `text` from a little before `query`'s first appearance, so it shows in `width` columns. */
+/** `text` from a little before `query`'s first appearance, ignoring case as
+ * the daemon's search does, so it shows in `width` columns. */
 export function around(text: string, query: string, width: number): string {
-  const at = text.toLowerCase().indexOf(query.toLowerCase());
-  if (at < 0 || displayWidth(text.slice(0, at + query.length)) <= width) return text;
-  // A third of the room before the match shows what led to it.
-  const lead = Math.floor(sat(width, displayWidth(query) + 1) / 3);
-  let start = at;
-  while (start > 0 && displayWidth(text.slice(start - 1, at)) < lead) start--;
-  return "…" + text.slice(start);
+  const found = new RegExp(query.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&"), "iu").exec(text);
+  if (!found || displayWidth(text.slice(0, found.index + found[0].length)) <= width) return text;
+  // A third of the room before the match shows what led to it, whole characters only.
+  const room = Math.floor(sat(width, displayWidth(found[0]) + 1) / 3);
+  let lead = "";
+  for (const ch of Array.from(text.slice(0, found.index)).reverse()) {
+    if (displayWidth(ch + lead) > room) break;
+    lead = ch + lead;
+  }
+  return "…" + lead + text.slice(found.index);
 }
 /** One row of the list. */
 export type Line =
@@ -214,7 +226,7 @@ export type Line =
   /** A closed conversation that only its text matched, by entry index. */
   | { mention: number }
   /** How the search of conversations' text is going. */
-  | { note: "searching" | "cut" }
+  | { note: "searching" | "cut" | "failed" }
   /** An open conversation, by entry index. */
   | { open: number }
   /** Matches left out of the current scope. */
@@ -337,32 +349,52 @@ export class View {
   mention(e: Entry): string {
     return this.mentioned(e) ? (this.mentions.hits.get(e.provider + ":" + e.session) ?? "") : "";
   }
-  /** Conversations' text may still match the search. */
+  /** Conversations' text may still match the search, or it will be searched again. */
   private mentionsPending(): boolean {
     const query = this.mentionQuery(),
       m = this.mentions;
-    return query !== "" && !m.unsupported && (m.query !== query || m.searching);
+    return query !== "" && !m.unsupported && (m.query !== query || m.searching || m.retry_at > 0);
   }
-  /** Starts over for `query`, as a search for it goes out. */
-  searchMentions(query: string): void {
+  /** Whether the search of conversations' text for the current search gave up. */
+  private mentionsFailed(): boolean {
     const m = this.mentions;
-    m.query = query;
-    m.hits = new Map();
+    return m.query === this.mentionQuery() && m.failures >= mention_tries && m.retry_at === 0;
+  }
+  /** Notes a search for `query` going out, and returns its generation. Another
+   * try at the same query keeps what earlier ones found. */
+  searchMentions(query: string): number {
+    const m = this.mentions;
+    if (m.query !== query) {
+      m.query = query;
+      m.hits = new Map();
+      m.cut = false;
+      m.failures = 0;
+    }
     m.searching = query !== "";
-    m.cut = false;
+    m.retry_at = 0;
+    return ++m.generation;
   }
-  /** Adds what a search for `query` found; the first line a conversation sent stays. */
-  addMentions(query: string, lines: unknown): void {
+  /** Adds what search `generation` found; the first line a conversation sent stays. */
+  addMentions(generation: number, lines: unknown): void {
     const m = this.mentions;
-    if (m.query !== query) return;
+    if (m.generation !== generation) return;
     for (const { key, text } of mentionsOf(lines)) if (!m.hits.has(key)) m.hits.set(key, text);
   }
-  /** The search for `query` ended; `cut` when it stopped before every match. */
-  endMentions(query: string, cut: boolean): void {
+  /** Search `generation` ended; `cut` when it stopped before every match. */
+  endMentions(generation: number, cut: boolean): void {
     const m = this.mentions;
-    if (m.query !== query) return;
+    if (m.generation !== generation) return;
     m.searching = false;
     m.cut = cut;
+    m.failures = 0;
+  }
+  /** Search `generation` failed at `now` ms; it's tried again later, a few times. */
+  failMentions(generation: number, now: number): void {
+    const m = this.mentions;
+    if (m.generation !== generation) return;
+    m.searching = false;
+    m.failures++;
+    m.retry_at = m.failures < mention_tries ? now + 2000 * m.failures : 0;
   }
   /** Whether every word of the search is in `e`'s text or branch, or in
    * `shown`, the branch its Where shows. */
@@ -433,6 +465,7 @@ export class View {
     });
     if (mentions.length) out.push({ heading: "mentions" }, ...mentions);
     if (this.mentionsPending()) out.push({ note: "searching" });
+    else if (this.mentionsFailed()) out.push({ note: "failed" });
     else if (this.mentions.cut && this.mentions.query === this.mentionQuery()) out.push({ note: "cut" });
     if (elsewhere > 0) out.push({ elsewhere });
     return out;
@@ -530,9 +563,10 @@ export class View {
   stopSearch(): void {
     this.searching = false;
     this.query.clear();
-    const unsupported = this.mentions.unsupported;
-    this.mentions = new Mentions();
-    this.mentions.unsupported = unsupported;
+    // Generations go on counting, so an answer to a search left behind can't
+    // pass for the next one's.
+    const { unsupported, generation } = this.mentions;
+    this.mentions = Object.assign(new Mentions(), { unsupported, generation });
     this.home();
   }
   nextScope(forward: boolean): void {
@@ -777,7 +811,9 @@ export class View {
         w,
         line.note === "searching"
           ? i18n.t`Searching conversations…`
-          : i18n.t`Older mentions not shown · type more to narrow`,
+          : line.note === "failed"
+            ? i18n.t`Couldn't search conversations`
+            : i18n.t`Older mentions not shown · type more to narrow`,
         sat(width, 5 + provider_width),
       );
       return;

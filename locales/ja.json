@@ -462,6 +462,7 @@
   "Couldn't read the workspace list. R refreshes.": "ワークスペース一覧を読み取れませんでした。Rで更新。",
   "Couldn't read this source. R retries.": "取り込み元を読み込めません。Rで再試行。",
   "Couldn't save the pasted image": "貼り付けた画像を保存できませんでした",
+  "Couldn't search conversations": "会話を検索できませんでした",
   "Create ": "作成 ",
   "Create workspace": "ワークスペースを作成",
   "Create ~/.bash_profile so macOS terminals load ~/.bashrc?": "macOSの端末が~/.bashrcを読み込むよう、~/.bash_profileを作成しますか？",

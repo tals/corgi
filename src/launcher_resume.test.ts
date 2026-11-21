@@ -491,11 +491,11 @@ test("conversations whose text holds the search follow the title matches, as the
   type("debar ");
   expect(v.mentionQuery()).toBe("sidebar");
   expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }, { note: "searching" }]);
-  v.searchMentions("sidebar");
-  v.addMentions("sidebar", [said("b", "move the Sidebar rule"), said("a", "a title match already"), said("c", "x")]);
-  v.addMentions("sidebar", [said("d", "the open one"), said("b", "a later hit stays out")]);
-  // Another search's matches don't count.
-  v.addMentions("theme", [said("d", "theme")]);
+  const search = v.searchMentions("sidebar");
+  v.addMentions(search, [said("b", "move the Sidebar rule"), said("a", "a title match already"), said("c", "x")]);
+  v.addMentions(search, [said("d", "the open one"), said("b", "a later hit stays out")]);
+  // An earlier search's matches don't count.
+  v.addMentions(search - 1, [said("d", "theme")]);
   expect(v.lines(c)).toEqual([
     { heading: "open" },
     { open: 3 },
@@ -507,12 +507,12 @@ test("conversations whose text holds the search follow the title matches, as the
     { elsewhere: 1 },
   ]);
   expect(v.mention(entries[1])).toBe("move the Sidebar rule");
-  v.endMentions("sidebar", false);
+  v.endMentions(search, false);
   expect(v.lines(c)).not.toContainEqual({ note: "searching" });
   v.home();
   v.move(c, v.lines(c), 2);
   expect(v.entry(c, v.lines(c))!.title).toBe("Release notes");
-  v.endMentions("sidebar", true);
+  v.endMentions(search, true);
   expect(v.lines(c).at(-2)).toEqual({ note: "cut" });
   // The excerpt shows where the search was said, in the last message's place.
   const w = new Writer(),
@@ -529,6 +529,50 @@ test("conversations whose text holds the search follow the title matches, as the
   expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }, { note: "searching" }]);
   v.leaveSearch();
   expect(v.mentions.query).toBe("");
+});
+
+test("a failed text search is tried again a few times, keeping what it found, then says so", () => {
+  const entries = [testEntry("a", "/w/corgi", "Release notes", 900), testEntry("b", "/w/corgi", "Docs pass", 800)];
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  let search = v.searchMentions("deploy");
+  v.addMentions(search, [said("a", "deploy it")]);
+  v.failMentions(search, 10_000);
+  // Waiting to try again, it shows what came and still says it's searching.
+  expect(v.mentions.retry_at).toBe(12_000);
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { heading: "mentions" }, { mention: 0 }, { note: "searching" }]);
+  search = v.searchMentions("deploy");
+  expect(v.mention(entries[0])).toBe("deploy it");
+  v.failMentions(search, 20_000);
+  expect(v.mentions.retry_at).toBe(24_000);
+  search = v.searchMentions("deploy");
+  v.failMentions(search, 30_000);
+  expect(v.mentions.retry_at).toBe(0);
+  expect(v.lines(c).at(-1)).toEqual({ note: "failed" });
+  // A search that gets through starts the count over.
+  search = v.searchMentions("deploy");
+  v.endMentions(search, false);
+  expect(v.mentions.failures).toBe(0);
+  expect(v.lines(c)).not.toContainEqual({ note: "failed" });
+});
+
+test("an answer to a search left behind can't end the next search for the same text", () => {
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  const first = v.searchMentions("deploy");
+  v.leaveSearch();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  const second = v.searchMentions("deploy");
+  expect(second).toBeGreaterThan(first);
+  // The first search's late Cancelled arrives.
+  v.endMentions(first, false);
+  expect(v.mentions.searching).toBe(true);
 });
 
 test("grep lines become conversations and first hits; anything else is skipped", () => {
@@ -556,4 +600,11 @@ test("an excerpt starts a little before the search when it would end out of sigh
   expect(shown.indexOf("Sidebar")).toBeLessThan(20);
   expect(shown.indexOf("Sidebar")).toBeGreaterThan(1);
   expect(around(long, "missing", 20)).toBe(long);
+  // Case folds as the daemon's search does, without shifting where the match is.
+  const turkish = "İstanbul " + "a".repeat(40) + " Deploy now";
+  expect(around(turkish, "deploy", 20)).toMatch(/^…a* Deploy now$/);
+  // The lead-in starts on a whole character.
+  const emoji = "🙂".repeat(30) + " Deploy";
+  const cut = around(emoji, "deploy", 16);
+  expect(cut).toMatch(/^…(🙂)+ Deploy$/u);
 });

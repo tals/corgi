@@ -34,13 +34,14 @@ const summary = {
 };
 const settled = () => new Promise(resolve => setTimeout(resolve, 0));
 
-/** Searches on a fake worker, lock and clock. */
-function world() {
+/** Searches on a fake worker, lock and clock; `hold` makes each lock wait for `grant`. */
+function world(hold = false) {
   const posted: Command[] = [],
     lock = { held: false, taken: 0 },
     counts = { spawned: 0, stopped: 0 };
   let events: { message(event: Event): void; closed(): void } | null = null,
     now = 1000;
+  const held: (() => void)[] = [];
   const searches = new Searches(
     e => {
       events = e;
@@ -53,6 +54,7 @@ function world() {
       };
     },
     async () => {
+      if (hold) await new Promise<void>(resolve => held.push(resolve));
       if (lock.held) return null;
       lock.held = true;
       lock.taken++;
@@ -71,6 +73,8 @@ function world() {
     send: (event: Event) => events!.message(event),
     closed: () => events!.closed(),
     advance: (ms: number) => (now += ms),
+    /** Lets the oldest held lock request through. */
+    grant: () => held.shift()!(),
     /** The search the worker was last told to run. */
     last: () => posted.filter(c => c.type === "search").at(-1)!,
     start(c: Client, fields: object = {}, more: ((value: object) => void) | null = null) {
@@ -250,6 +254,49 @@ test("stop ends a client's search under a key, running or waiting, and no one el
   w.closed();
 });
 
+test("a search still waiting for the lock is neither stopped nor failed by what happens to the worker", async () => {
+  const w = world(true),
+    c = client();
+  // A worker exists from an earlier search.
+  const earlier = w.start(c);
+  await settled();
+  w.grant();
+  await settled();
+  w.send({ type: "done", id: w.last().id, summary });
+  await earlier.result;
+  // One waits for the lock, and a newer search under its key cancels it.
+  const waiting = w.start(c, { key: "resume" });
+  await settled();
+  const newer = w.start(c, { key: "resume" });
+  await expect(waiting.result).rejects.toThrow("Cancelled");
+  // Not posted, it gives the worker no reason to be stopped.
+  w.advance(5_000);
+  w.searches.tick();
+  expect(w.counts.stopped).toBe(0);
+  // The worker exits on its own meanwhile; the newer search runs on the next one.
+  w.closed();
+  w.grant();
+  await settled();
+  w.grant();
+  await settled();
+  expect(w.counts.spawned).toBe(2);
+  w.send({ type: "done", id: w.last().id, summary });
+  await expect(newer.result).resolves.toMatchObject({ summary });
+  expect(w.lock.held).toBe(false);
+  w.closed();
+});
+
+test("a cancel without a key stops nothing", async () => {
+  const w = world(),
+    c = client();
+  const plain = w.start(c);
+  await settled();
+  w.searches.stop(c, "");
+  w.send({ type: "done", id: w.last().id, summary });
+  await expect(plain.result).resolves.toMatchObject({ summary });
+  w.closed();
+});
+
 test("an idle worker is stopped after a while", async () => {
   const w = world();
   const { result } = w.start(client());
@@ -344,6 +391,19 @@ test("the worker thread searches transcripts as corgi grep --json does, and save
     expect(reply.summary).toMatchObject({ candidates: 2, returned: 1, truncated: false, limit_reached: false });
     // It held the lock, so the next search reads the index it saved.
     expect(fs.existsSync(path.join(dir, "cache", "corgi", "conversation-grep-v2", "index.json"))).toBe(true);
+    // A hit too big for the budget comes clipped, ending the search, rather than not at all.
+    transcript("big", "bigneedle " + "x".repeat(budget + 1000));
+    const big = await searches.search(
+      runtime,
+      client(),
+      request({ patterns: ["bigneedle"], fixed: true, max_line: 0, max_age: 0 }),
+      new AbortController().signal,
+      null,
+    );
+    expect(big.matches).toHaveLength(1);
+    expect(big.matches[0]).toMatchObject({ source: { session: "big" }, hits: [{ clipped: true }] });
+    expect(JSON.stringify(big.matches).length).toBeLessThan(budget);
+    expect(big.summary).toMatchObject({ returned: 1, truncated: true });
   } finally {
     if (saved === undefined) delete process.env.XDG_CACHE_HOME;
     else process.env.XDG_CACHE_HOME = saved;

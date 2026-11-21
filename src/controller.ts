@@ -5481,8 +5481,12 @@ export class Controller {
     // A new search ends the last on the daemon; no search, as when the search
     // is left or too short, needs telling.
     if (!query) this.cancelMentions();
-    if (query === m.query || m.unsupported || (query && now - m.typed_at < 150)) return;
-    view.searchMentions(query);
+    if (m.unsupported) return;
+    // The same search goes again only when a failed one's retry is due.
+    const due =
+      query === m.query ? query !== "" && m.retry_at > 0 && now >= m.retry_at : !query || now - m.typed_at >= 150;
+    if (!due) return;
+    const generation = view.searchMentions(query);
     this.dirty = true;
     if (!query) return;
     const connection = this.connection,
@@ -5501,7 +5505,7 @@ export class Controller {
       key: mentions_key,
     };
     const add = (part: unknown) => {
-      view.addMentions(query, (part as { matches?: unknown } | null)?.matches);
+      view.addMentions(generation, (part as { matches?: unknown } | null)?.matches);
       this.dirty = true;
     };
     void (async () => {
@@ -5511,10 +5515,17 @@ export class Controller {
           : await connection.request("conversation.grep", fields);
         if ("err" in reply) throw errors.fromReply(reply);
         add(reply);
-        view.endMentions(query, reply.summary?.truncated === true || reply.summary?.limit_reached === true);
+        view.endMentions(generation, reply.summary?.truncated === true || reply.summary?.limit_reached === true);
       } catch (error) {
-        if (errors.is(error, "UnknownOperation")) m.unsupported = true;
-        view.endMentions(query, false);
+        // XXX: Remove for next protocol bump. Daemons before conversation.grep don't know it.
+        if (errors.is(error, "UnknownOperation")) {
+          view.mentions.unsupported = true;
+          view.endMentions(generation, false);
+        }
+        // A cancelled search gave way to a newer one, or to none.
+        else if (errors.is(error, "Cancelled")) view.endMentions(generation, false);
+        // A reload, a lost connection or a stopped worker: try again shortly.
+        else view.failMentions(generation, milliTimestamp());
       }
       if (this.mentions_out === out) this.mentions_out = null;
       this.dirty = true;
@@ -5525,7 +5536,7 @@ export class Controller {
     const out = this.mentions_out;
     if (!out) return;
     this.mentions_out = null;
-    // A daemon without the op lets the search run out.
+    // XXX: Remove for next protocol bump. A daemon without the op lets the search run out.
     void call(out.connection, "conversation.grep.cancel", { key: mentions_key }).catch(() => {});
   }
   private async pollOpenLauncher(hover: boolean): Promise<void> {

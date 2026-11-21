@@ -65,6 +65,8 @@ type Job = {
   sent_at: number;
   /** When it arrived, which its deadline counts from. */
   at: number;
+  /** The worker has it: only then is there a search there to cancel or wait out. */
+  posted: boolean;
   settled: boolean;
   resolve(result: Result): void;
   reject(error: Error): void;
@@ -171,6 +173,7 @@ export class Searches {
         pending: [],
         sent_at: 0,
         at: this.now(),
+        posted: false,
         settled: false,
         resolve,
         reject,
@@ -182,6 +185,8 @@ export class Searches {
   }
   /** Ends `client`'s search under `key`, running or waiting, as a newer one would. */
   stop(client: Client, key: string): void {
+    // A search without a key has none to stop it by.
+    if (!key) return;
     for (const job of [...this.queue, ...(this.running ? [this.running] : [])])
       if (job.client === client && job.key === key) this.cancel(job, "Cancelled");
   }
@@ -198,7 +203,7 @@ export class Searches {
       else if (now - job.at > deadline_ms) this.cancel(job, "SearchTimedOut");
       else this.flush(job);
     }
-    if (job?.settled && now - this.cancelled_at > cancel_ms) this.stopThread();
+    if (job?.settled && job.posted && now - this.cancelled_at > cancel_ms) this.stopThread();
     if (!job && !this.queue.length && this.thread && now - this.idle_since > idle_ms) this.stopThread();
   }
   private settle(job: Job, result: Result | Error): void {
@@ -212,7 +217,7 @@ export class Searches {
     this.settle(job, Error(reason));
     const queued = this.queue.indexOf(job);
     if (queued >= 0) this.queue.splice(queued, 1);
-    else if (job === this.running) {
+    else if (job === this.running && job.posted) {
       this.cancelled_at = this.now();
       this.thread?.post({ type: "cancel", id: job.id });
     }
@@ -226,26 +231,31 @@ export class Searches {
       return this.pump();
     }
     this.running = job;
+    // Until it's posted, `running` is this search's alone: nothing else starts,
+    // and a stopping worker leaves it be.
+    const leave = () => {
+      if (this.running === job) this.running = null;
+      return this.pump();
+    };
     let locations: Location[],
       release: (() => void) | null = null;
     try {
       locations = await this.locate();
     } catch (error) {
       this.settle(job, error instanceof Error ? error : Error(String(error)));
-      this.running = null;
-      return this.pump();
+      return leave();
     }
     try {
       release = await this.lock(job.search.cache);
     } catch {
       // Unlocked, the search reads changed transcripts without saving them.
     }
-    if (job.settled) {
+    if (job.settled || this.running !== job) {
       release?.();
-      this.running = null;
-      return this.pump();
+      return leave();
     }
     this.release = release;
+    job.posted = true;
     this.ensureThread().post({ type: "search", id: job.id, ...job.search, locations, locked: release !== null });
   }
   private ensureThread(): Thread {
@@ -305,7 +315,8 @@ export class Searches {
     this.stopping = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (this.running) {
+    // A search still waiting for its lock goes to the next worker.
+    if (this.running?.posted) {
       this.settle(this.running, Error("SearchFailed"));
       this.finish();
     } else void this.pump();
