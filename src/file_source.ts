@@ -387,9 +387,11 @@ export class Source {
   private dropEnd(rows = 0): void {
     if (!this.over) return;
     const until = this.start + Math.floor(max_bytes * 0.9),
-      whole = this.starts.length - 1;
+      whole = this.starts.length - 1,
+      kept = Math.min(rows, whole);
     let keep = Math.min(whole, Math.max(rows, Math.floor(max_lines * 0.9)));
-    while (keep > Math.min(rows, whole) && keep > 0 && this.starts[keep] > until) keep--;
+    // The rows asked for stay too, unless they alone pass the cap.
+    while (keep > 0 && this.starts[keep] > (keep > kept ? until : this.start + max_bytes)) keep--;
     // A first line longer than the cap shows cut.
     const end = keep > 0 ? this.starts[keep] : Math.min(this.end, until);
     this.starts.length = keep + 1;

@@ -246,6 +246,21 @@ test("scrolls back past a line longer than a block, reaching back through it as 
   expect(await s.earlier()).toBe(false);
 });
 
+test("scrolling back through a record longer than the byte cap keeps to the cap", async () => {
+  const record = "x".repeat(40 << 20);
+  const s = await open(file("huge.jsonl", "first\n" + record + "\n" + numbered(1, 1000)));
+  const kept = () => (Reflect.get(s, "blocks") as { bytes: Uint8Array }[]).reduce((n, b) => n + b.bytes.length, 0);
+  for (let reads = 0; reads < 400; reads++) {
+    // A reader scrolling back holds the top row.
+    s.hold = 0;
+    if (!(await s.earlier())) break;
+    expect(s.end - s.start).toBeLessThanOrEqual(fileSource.max_bytes);
+    expect(kept()).toBeLessThanOrEqual(fileSource.max_bytes);
+  }
+  expect([s.start, s.line(0), s.count]).toEqual([0, "first", 2]);
+  expect(s.line(1, 16)).toBe("x".repeat(16));
+});
+
 test("a growth too large for a held place's window keeps the held line", async () => {
   const path = file("burst.log", "");
   const s = await open(path);
