@@ -75,10 +75,13 @@ pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: [
         const link: ?hyperlink.Link = if (!style.flags.invisible and at_link) links[link_index] else null;
         const link_id: ?u64 = if (link) |value| value.id else null;
         if (hovered != null and link_id == hovered) style.flags.underline = .single;
-        if (active_link != link_id) {
+        // A path found in plain text stays Corgi's: the host can't open a relative one.
+        const target: ?hyperlink.Link = if (link != null and !link.?.path) link else null;
+        const target_id: ?u64 = if (target) |value| value.id else null;
+        if (active_link != target_id) {
             if (active_link != null) try w.writeAll("\x1b]8;;\x1b\\");
-            if (link) |value| try w.print("\x1b]8;id=corgi-{d}-{x};{s}\x1b\\", .{ @intFromEnum(pane), value.id, value.uri });
-            active_link = link_id;
+            if (target) |value| try w.print("\x1b]8;id=corgi-{d}-{x};{s}\x1b\\", .{ @intFromEnum(pane), value.id, value.uri });
+            active_link = target_id;
         }
         var fg = style.fg(.{ .default = state.colors.foreground, .palette = &state.colors.palette });
         var bg = style.bg(&cell, &state.colors.palette) orelse state.colors.background;
@@ -318,8 +321,53 @@ test "plain image paths survive link prefiltering without web links" {
     defer t.destroy();
     t.feed("Image: /tmp/photo.PNG plain.txt");
     try t.updateRender();
-    try std.testing.expectEqual(@as(usize, 1), t.hyperlinks().len);
+    try std.testing.expectEqual(@as(usize, 2), t.hyperlinks().len);
     try std.testing.expectEqualStrings("file:///tmp/photo.PNG", t.hyperlinks()[0].uri);
+    try std.testing.expect(!t.hyperlinks()[0].path);
+    try std.testing.expectEqualStrings("plain.txt", t.hyperlinks()[1].uri);
+    try std.testing.expect(t.hyperlinks()[1].path);
+}
+
+test "plain file paths carry the line and column their text gives" {
+    const t = try terminal.Terminal.create(80, 8);
+    defer t.destroy();
+    t.feed("Read(package.json) and src/review/syntax.ts:378, then\r\n" ++
+        "    at lexLine (src/review/syntax.ts:301:17)\r\n" ++
+        "Foo.cs(42,7): error; see app.py#L12 or ~/notes/.env.\r\n" ++
+        "  File \"/srv/app.py\", line 42, in main\r\n" ++
+        "1.84 GB at 12:30 // v1.2.3 http and/ or ./");
+    try t.updateRender();
+    const expected = [_]struct { []const u8, usize, usize, usize }{
+        .{ "package.json", 0, 5, 17 },
+        .{ "src/review/syntax.ts:378", 0, 23, 47 },
+        .{ "src/review/syntax.ts:301:17", 1, 16, 43 },
+        .{ "Foo.cs:42:7", 2, 0, 12 },
+        .{ "app.py:12", 2, 25, 35 },
+        .{ "~/notes/.env", 2, 39, 51 },
+        .{ "/srv/app.py:42", 3, 8, 19 },
+    };
+    const links = t.hyperlinks();
+    try std.testing.expectEqual(expected.len, links.len);
+    for (expected, links) |want, link| {
+        try std.testing.expectEqualStrings(want[0], link.uri);
+        try std.testing.expect(link.path);
+        try std.testing.expectEqual(want[1], link.row);
+        try std.testing.expectEqual(want[2], link.start);
+        try std.testing.expectEqual(want[3], link.end);
+    }
+}
+
+test "plain file paths underline on hover without a host link" {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    const t = try terminal.Terminal.create(30, 2);
+    defer t.destroy();
+    t.feed("see src/a.ts:3 now");
+    try t.updateRender();
+    const link = t.hyperlinks()[0];
+    try writeRowHovered(&out.writer, &t.render, t.hyperlinks(), @enumFromInt(1), 0, 30, false, link.id);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[4m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b]8;") == null);
 }
 
 test "plain links span soft wraps but not hard newlines and remain snapshot owned" {
@@ -338,7 +386,10 @@ test "plain links span soft wraps but not hard newlines and remain snapshot owne
     try std.testing.expectEqualStrings(before.lines[0], during.lines[0]);
     t.feed("\x1b[?2026l\x1b[2J\x1b[Hhttp://\r\nexample.com");
     _ = try capture(arena.allocator(), @enumFromInt(9), t);
-    try std.testing.expectEqual(@as(usize, 0), t.hyperlinks().len);
+    // The name alone may still be a file's, which the viewer checks.
+    try std.testing.expectEqual(@as(usize, 1), t.hyperlinks().len);
+    try std.testing.expect(t.hyperlinks()[0].path);
+    try std.testing.expectEqualStrings("example.com", t.hyperlinks()[0].uri);
 }
 
 fn expectCanonical(id: PaneId, t: *terminal.Terminal, captured: Surface) !void {

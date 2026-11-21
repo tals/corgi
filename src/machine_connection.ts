@@ -834,6 +834,7 @@ export class Endpoint {
       for (const listener of this.listeners) listener(event);
     });
     this.instance = machine_path.compatible(hello);
+    this.machine.executable = hello.executable;
     if (!hello.capabilities.includes("viewer.stream")) throw Error("IncompatibleRemoteCorgi");
     this.incremental = hello.capabilities.includes("viewer.receipt");
     this.separate =

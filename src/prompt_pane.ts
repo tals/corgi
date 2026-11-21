@@ -138,7 +138,7 @@ export async function run(argv: string[]): Promise<void> {
   try {
     args = parseChatArgs(argv);
   } catch {
-    process.stderr.write("usage: corgi __chat HANDOFF --provider NAME [--session ID] [options]\n");
+    process.stderr.write("usage: corgi __chat [HANDOFF] --provider NAME [--session ID] [options]\n");
     process.exitCode = 2;
     return;
   }

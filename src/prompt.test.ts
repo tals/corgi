@@ -646,8 +646,8 @@ test("/incognito starts over keeping nothing, until /new", async () => {
   // An incognito chat moves to a pane too, still incognito: it goes on with the same session.
   type(p, "/pane");
   const moved = p.key(13) as any;
-  expect(moved.argv).toContain("--incognito");
-  expect(readHandoff(parseChatArgs(moved.argv.slice(moved.argv.indexOf("__chat") + 1)).handoff)!.incognito).toBe(true);
+  expect(chatArgs(moved.chat)).toContain("--incognito");
+  expect(readHandoff(moved.chat.handoff)!.incognito).toBe(true);
   expect(p.incognito).toBe(false);
   p.show(context);
   type(p, "/incognito");
@@ -665,8 +665,8 @@ test("/pane hands the conversation to a Corgi pane, which reads it once; /memory
   type(p, "/pane");
   // With nothing asked yet, the pane starts the conversation, following Auto.
   const empty = p.key(13) as any;
-  expect(empty.kind).toBe("pane");
-  const fresh = parseChatArgs(empty.argv.slice(empty.argv.indexOf("__chat") + 1)),
+  expect(empty.kind).toBe("chat");
+  const fresh = parseChatArgs(chatArgs(empty.chat)),
     blank = readHandoff(fresh.handoff)!;
   expect(fresh).toMatchObject({ provider: "claude", session: "", model: "claude-opus-5-5", cwd: "/work/corgi" });
   expect(blank.conversation).toBeNull();
@@ -680,10 +680,9 @@ test("/pane hands the conversation to a Corgi pane, which reads it once; /memory
   await poll(p, 0);
   // ctrl+o is /pane.
   const effect = p.key(15) as any;
-  expect(effect.kind).toBe("pane");
+  expect(effect.kind).toBe("chat");
   expect(p.open).toBe(false);
-  const at = effect.argv.indexOf("__chat"),
-    args = parseChatArgs(effect.argv.slice(at + 1));
+  const args = parseChatArgs(chatArgs(effect.chat));
   expect(args).toMatchObject({
     provider: "claude",
     session: "0193-session",
@@ -741,8 +740,8 @@ test("a pane that doesn't open leaves the chat with the card", async () => {
   await poll(p, 0);
   const effect = p.key(15) as any;
   expect(p.conversation.session).toBe("");
-  p.reclaim(effect.handoff, "TooManyPanes");
-  expect(existsSync(effect.handoff)).toBe(false);
+  p.reclaim(effect.chat.handoff, "TooManyPanes");
+  expect(existsSync(effect.chat.handoff)).toBe(false);
   expect(p.conversation.session).toBe("0193-session");
   expect(p.conversation.items.map(i => (i as any).text)).toEqual([
     "hello",

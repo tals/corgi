@@ -4,8 +4,10 @@ const std = @import("std");
 const vt = @import("ghostty-vt");
 const a = @import("../os.zig").allocator;
 /// `joined` continues the segment ending the row above as one link: across a
-/// soft wrap, or for plain text, an application's line break.
-pub const Link = struct { row: usize, start: usize, end: usize, uri: []const u8, id: u64, joined: bool = false };
+/// soft wrap, or for plain text, an application's line break. `path` marks a
+/// file path found in plain text: its `uri` is the path as written, relative
+/// or not, then `:line` or `:line:column` when the text gave them.
+pub const Link = struct { row: usize, start: usize, end: usize, uri: []const u8, id: u64, joined: bool = false, path: bool = false };
 pub const Snapshot = struct {
     arena: std.heap.ArenaAllocator = .init(a),
     links: []const Link = &.{},
@@ -121,8 +123,12 @@ fn detectPlain(allocator: std.mem.Allocator, state: *const vt.RenderState, links
         if (prefix == 0) {
             if (imagePath(bytes, i)) |end| {
                 const uri = try std.mem.concat(allocator, u8, &.{ "file://", bytes[i..end] });
-                try append(allocator, links, positions.items[i..end], uri, i);
+                try append(allocator, links, positions.items[i..end], uri, i, false);
                 i = end;
+            } else if (sourcePath(bytes, i)) |found| {
+                const uri = try found.uri(allocator, bytes[i..found.path_end]);
+                try append(allocator, links, positions.items[i..found.end], uri, i, true);
+                i = found.end;
             } else i += 1;
             continue;
         }
@@ -148,7 +154,7 @@ fn detectPlain(allocator: std.mem.Allocator, state: *const vt.RenderState, links
         }
         const uri_text = trimmed(candidate.items);
         if (uri_text.len > prefix and uri_text[prefix] != '/' and safeUri(uri_text))
-            try append(allocator, links, mapped.items[0..uri_text.len], try allocator.dupe(u8, uri_text), i);
+            try append(allocator, links, mapped.items[0..uri_text.len], try allocator.dupe(u8, uri_text), i, false);
         i = end;
     }
 }
@@ -158,7 +164,7 @@ const Position = struct { row: usize, col: usize, end: usize };
 /// not blank. `hanging` is the column after a list marker, or 0.
 const Row = struct { start: usize, end: usize, indent: usize, hanging: usize };
 /// Adds the link over the cells of its bytes, one span per row it covers.
-fn append(allocator: std.mem.Allocator, links: *std.ArrayList(Link), positions: []const Position, uri: []const u8, start: usize) !void {
+fn append(allocator: std.mem.Allocator, links: *std.ArrayList(Link), positions: []const Position, uri: []const u8, start: usize, path: bool) !void {
     var hash = std.hash.Wyhash.init(0);
     hash.update(uri);
     hash.update(std.mem.asBytes(&start));
@@ -170,7 +176,7 @@ fn append(allocator: std.mem.Allocator, links: *std.ArrayList(Link), positions: 
         var last = first;
         at += 1;
         while (at < positions.len and positions[at].row == first.row) : (at += 1) last = positions[at];
-        try links.append(allocator, .{ .row = first.row, .start = first.col, .end = last.end, .uri = uri, .id = id, .joined = joined });
+        try links.append(allocator, .{ .row = first.row, .start = first.col, .end = last.end, .uri = uri, .id = id, .joined = joined, .path = path });
     }
 }
 const image_extensions = [_][]const u8{ ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".avif" };
@@ -188,16 +194,126 @@ fn imagePath(bytes: []const u8, start: usize) ?usize {
     return null;
 }
 
-// Avoid the byte-to-cell map when there cannot be a URL or image path.
+const max_path = 1024;
+/// A file path in plain text: `end` closes what is underlined, `path_end`
+/// the path itself. Its line and column follow the path as `:12`, `:12:3`,
+/// `(12)`, `(12,3)` or `#L12`, or a quoted path as in Python's `", line 12`.
+const Found = struct {
+    end: usize,
+    path_end: usize,
+    line: ?u32 = null,
+    column: ?u32 = null,
+    fn uri(f: Found, allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+        const line = f.line orelse return allocator.dupe(u8, path);
+        if (f.column) |column| return std.fmt.allocPrint(allocator, "{s}:{d}:{d}", .{ path, line, column });
+        return std.fmt.allocPrint(allocator, "{s}:{d}", .{ path, line });
+    }
+};
+fn pathByte(byte: u8) bool {
+    return std.ascii.isAlphanumeric(byte) or byte >= 0x80 or std.mem.indexOfScalar(u8, "/._-+@~", byte) != null;
+}
+/// A path that can name a file: with a directory, an extension or a line,
+/// or a dotfile. Whether it does is the viewer's to check.
+fn sourcePath(bytes: []const u8, start: usize) ?Found {
+    if (!pathByte(bytes[start])) return null;
+    if (start > 0 and std.mem.indexOfScalar(u8, " \t\n([{<'\"`=:,|", bytes[start - 1]) == null) return null;
+    var end = start;
+    while (end < bytes.len and pathByte(bytes[end])) : (end += 1) if (end - start >= max_path) return null;
+    // A sentence's period isn't the path's.
+    while (end > start and bytes[end - 1] == '.') end -= 1;
+    const path = bytes[start..end];
+    if (path.len < 2 or std.mem.startsWith(u8, path, "//")) return null;
+    var letter = false;
+    for (path) |byte| letter = letter or std.ascii.isAlphabetic(byte) or byte >= 0x80;
+    if (!letter) return null;
+    var found: Found = .{ .end = end, .path_end = end };
+    lineSuffix(bytes, start, &found);
+    const name = path[if (std.mem.lastIndexOfScalar(u8, path, '/')) |slash| slash + 1 else 0..];
+    if (name.len == 0) return null;
+    const directory = std.mem.indexOfScalar(u8, path, '/') != null;
+    const dotfile = name[0] == '.' and name.len > 1 and std.mem.indexOfScalar(u8, name[1..], '.') == null;
+    return if (directory or dotfile or found.line != null or hasExtension(name)) found else null;
+}
+/// Whether `name` ends in a dot and a short extension with a letter in it.
+fn hasExtension(name: []const u8) bool {
+    const dot = std.mem.lastIndexOfScalar(u8, name, '.') orelse return false;
+    const ext = name[dot + 1 ..];
+    if (dot == 0 or ext.len == 0 or ext.len > 16) return false;
+    var letter = false;
+    for (ext) |byte| {
+        if (!std.ascii.isAlphanumeric(byte) and byte != '_') return false;
+        letter = letter or std.ascii.isAlphabetic(byte);
+    }
+    return letter;
+}
+/// A positive number of at most 9 digits at `at.*`, which moves past it.
+fn number(bytes: []const u8, at: *usize) ?u32 {
+    const from = at.*;
+    var value: u32 = 0;
+    while (at.* < bytes.len and std.ascii.isDigit(bytes[at.*]) and at.* - from < 9) : (at.* += 1) value = value * 10 + (bytes[at.*] - '0');
+    return if (at.* > from and value > 0) value else null;
+}
+fn lineSuffix(bytes: []const u8, start: usize, found: *Found) void {
+    var at = found.path_end;
+    if (at >= bytes.len) return;
+    switch (bytes[at]) {
+        ':' => {
+            at += 1;
+            found.line = number(bytes, &at) orelse return;
+            found.end = at;
+            if (at < bytes.len and bytes[at] == ':') {
+                var after = at + 1;
+                if (number(bytes, &after)) |column| {
+                    found.column = column;
+                    found.end = after;
+                }
+            }
+        },
+        '(' => {
+            at += 1;
+            const line = number(bytes, &at) orelse return;
+            var column: ?u32 = null;
+            if (at < bytes.len and bytes[at] == ',') {
+                at += 1;
+                if (at < bytes.len and bytes[at] == ' ') at += 1;
+                column = number(bytes, &at) orelse return;
+            }
+            if (at >= bytes.len or bytes[at] != ')') return;
+            found.line = line;
+            found.column = column;
+            found.end = at + 1;
+        },
+        '#' => {
+            if (at + 1 >= bytes.len or bytes[at + 1] != 'L') return;
+            at += 2;
+            found.line = number(bytes, &at) orelse return;
+            found.end = at;
+        },
+        '"' => {
+            // The path alone stays underlined; its line comes after the quote.
+            const python = "\", line ";
+            if (start == 0 or bytes[start - 1] != '"' or !std.mem.startsWith(u8, bytes[at..], python)) return;
+            at += python.len;
+            found.line = number(bytes, &at) orelse return;
+        },
+        else => {},
+    }
+}
+
+// Avoid the byte-to-cell map when there cannot be a URL or file path.
 // Graphemes take the full path; this only rules out single-codepoint screens.
 fn hasPlainPrefix(state: *const vt.RenderState) bool {
     var matched: usize = 0;
+    var previous: u21 = 0;
     for (state.row_data.items(.raw), state.row_data.items(.cells)) |row, cells| {
         for (cells.items(.raw)) |cell| {
             if (cell.wide == .spacer_tail or cell.wide == .spacer_head) continue;
             if (cell.content_tag == .codepoint_grapheme) return true;
             const cp = cell.codepoint();
             if (cp == '/') return true;
+            // A file name's extension, as in "package.json".
+            if (cp == '.' and previous < 0x80 and std.ascii.isAlphanumeric(@intCast(previous))) return true;
+            previous = cp;
             matched = if (cp == "http"[matched]) matched + 1 else if (cp == 'h') 1 else 0;
             if (matched == 4) return true;
         }

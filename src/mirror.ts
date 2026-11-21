@@ -69,6 +69,8 @@ export interface Link {
   end: number;
   uri: string;
   id: bigint;
+  /** A file path found in plain text (see `file_ref.ts`). */
+  path?: boolean;
 }
 interface Selection {
   x: number;
