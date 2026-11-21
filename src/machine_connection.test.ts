@@ -65,6 +65,7 @@ async function flakyDaemon(
             protocol: protocol.version,
             viewer_protocol: protocol.viewer_version,
             capabilities: protocol.capabilities,
+            executable: `/opt/${instance}/corgi`,
             instance,
           });
           break;
@@ -376,6 +377,8 @@ test("a machine keeps its data across reconnects to its daemon but not the daemo
     expect(endpoint.machine.runtime).not.toBe(runtime);
     expect(view.worktreeDetail()).toBeNull();
     expect(expire).not.toHaveBeenCalled();
+    // Panes there run Corgi as the new daemon does.
+    expect(endpoint.machine.executable).toBe("/opt/second/corgi");
     // Replacing the shown daemon also refreshes its model lists.
     view.switchMachine(endpoint.machine);
     const remoteExpire = spyOn(view.model_cache, "expire");

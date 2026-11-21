@@ -14,6 +14,8 @@ export interface Link {
   source: Source;
   id: bigint;
   uri: string;
+  /** A file path found in plain text (see `file_ref.ts`). */
+  path?: boolean;
   x: number;
   y: number;
 }
@@ -24,7 +26,7 @@ export function at(source: Source, rect: Rect, x: number, y: number): Link | nul
   const link = source
     .hyperlinks()
     .find(link => link.row === y - rect.y && link.start <= x - rect.x && x - rect.x < link.end);
-  return link ? { source, id: link.id, uri: link.uri, x, y } : null;
+  return link ? { source, id: link.id, uri: link.uri, path: link.path === true, x, y } : null;
 }
 export function sameLink(a: Link | null | undefined, b: Link | null | undefined): boolean {
   return a?.source === b?.source && a?.id === b?.id && a?.uri === b?.uri;
@@ -60,6 +62,8 @@ export function thumbnailCells(t: Thumbnail): { cols: number; rows: number } {
 }
 export interface Target {
   link?: Link;
+  /** The link names a file on this machine, which a peek shows. */
+  file?: boolean;
   resource?: viewerRef.Workspace | null;
   git?: viewerRef.Workspace | null;
   worktree?: viewerRef.Workspace | null;
@@ -78,7 +82,10 @@ function same(a: Target, b: Target) {
     (a.agent ?? null) === (b.agent ?? null)
   );
 }
+/** How long the pointer rests on a file's name before its peek opens. */
+export const file_delay = 2000;
 function delay(target: Target | null): number {
+  if (target?.file) return file_delay;
   return target?.resource != null || target?.link != null ? 150 : 500;
 }
 /** The card under or over the link at `anchor`, with `thumbnail` under a

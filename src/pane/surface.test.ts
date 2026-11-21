@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { Terminal } from "./terminal";
 import { capture, view, type Surface } from "./surface";
 import * as viewer_native from "../viewer_native";
-const links = (t: Terminal) => t.native({ op: "links" }) as { uri: string; start: number; end: number }[];
+const all = (t: Terminal) => t.native({ op: "links" }) as { uri: string; start: number; end: number; path: boolean }[];
+/** Web and image links, without the file paths found in plain text. */
+const links = (t: Terminal) => all(t).filter(link => !link.path);
 test("named hyperlinks survive capture and a second terminal render without leaking", () => {
   const ts = Array.from({ length: 3 }, () => Terminal.create(32, 3)),
     [t, mirror, host] = ts;
@@ -52,7 +54,7 @@ test("plain web links map Unicode cells, trim punctuation and preserve explicit 
     t.destroy();
   }
 });
-test("plain image paths link to their file, and other paths stay plain", () => {
+test("plain image paths link to their file, and other paths are found as paths", () => {
   const t = Terminal.create(100, 4);
   try {
     t.feed("GIF: /tmp/a-1/fleas.GIF (31 KB). /tmp/n.txt, src/b.png, https://x.example/c.png (/c/d.webp).");
@@ -60,6 +62,10 @@ test("plain image paths link to their file, and other paths stay plain", () => {
       expect.objectContaining({ uri: "file:///tmp/a-1/fleas.GIF", start: 5, end: 23 }),
       expect.objectContaining({ uri: "https://x.example/c.png" }),
       expect.objectContaining({ uri: "file:///c/d.webp" }),
+    ]);
+    expect(all(t).filter(link => link.path)).toEqual([
+      expect.objectContaining({ uri: "/tmp/n.txt", start: 33, end: 43 }),
+      expect.objectContaining({ uri: "src/b.png", start: 45, end: 54 }),
     ]);
   } finally {
     t.destroy();

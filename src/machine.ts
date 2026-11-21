@@ -96,6 +96,8 @@ export class Machine {
   remote_links = false;
   /** Its loopback ports forwarded here, for its links to localhost; none for this computer. */
   forwards: Forwards | null = null;
+  /** The Corgi the daemon runs, as its hello said: what its panes run Corgi as. */
+  executable = "";
   /** Workspace ids whose group is folded in the grouped "All" list. */
   folded_groups: number[] = [];
   /** Its worktree groups' folds, and the worktree being browsed. */
