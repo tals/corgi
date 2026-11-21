@@ -168,7 +168,7 @@ test("readings off removes the resource row and moves the separator under the st
   const frame = draw(view, [], entries);
   expect(has(frame, "182%")).toBe(false);
   expect(has(frame, "\x1b[4;3H" + panel + rule_underline)).toBe(true);
-  expect(has(frame, rule_underline + "⚒12")).toBe(true);
+  expect(has(frame, rule_underline + "12⚒")).toBe(true);
   expect(has(frame, "\x1b[5;3H" + active_name + "second")).toBe(true);
   // The last workspace has no separator.
   expect(has(frame, "\x1b[6;3H" + active_meta + "\x1b[4;")).toBe(false);
@@ -426,16 +426,16 @@ test("workspace status uses agent colors and keeps usage on its second row", () 
   expect(has(out, "\x1b[4;3H" + panel + "\x1b[22m\x1b[1m" + fg("accent") + "▶1")).toBe(true);
   expect(has(out, "\x1b[1m" + fg("warm") + " ●2")).toBe(true);
   expect(has(out, "\x1b[1m" + fg("accent") + "3 unread →")).toBe(true);
-  expect(has(out, "⚒12")).toBe(true);
-  expect(has(out, "\x1b[4;24H" + panel + "⚒12")).toBe(true);
+  expect(has(out, "12⚒")).toBe(true);
+  expect(has(out, "\x1b[4;24H" + panel + "12⚒")).toBe(true);
   const empty = workspaceEntry({ id: viewerRef.workspace(1, 1), name: "Project", cwd: "/tmp", active: true });
   out = draw(view, [], [empty]);
   expect(has(out, "unread")).toBe(false);
   expect(has(out, "▶0")).toBe(false);
-  expect(has(out, "⚒0")).toBe(false);
+  expect(has(out, "0⚒")).toBe(false);
   expect(has(out, "\x1b[4;3H" + active_meta + "\x1b[22m" + fg("muted") + "○")).toBe(true);
   expect(has(out, "—")).toBe(false);
-  expect(has(out, "\x1b[4;25H" + panel + "⚒0")).toBe(false);
+  expect(has(out, "\x1b[4;25H" + panel + "0⚒")).toBe(false);
   const away = { ...empty, active: false, stats: stats(1) };
   out = draw(view, [], [away]);
   expect(has(out, "unread")).toBe(false);
