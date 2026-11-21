@@ -4835,20 +4835,26 @@ test("a file's name peeks after the pointer rests on it, and a click opens it in
     s.frame();
     await s.file_peeks.current.opened;
     // Moving along the name keeps its wait.
-    clock.advance(1500);
+    clock.advance(700);
     await mouse(35, at(5));
     s.frame();
-    clock.advance(499);
+    clock.advance(299);
     expect(s.frame()).not.toContain("click to open");
     clock.advance(1);
     const shown = s.frame().replace(/\x1b\[[\d;?]*[A-Za-z]/g, "");
     expect(shown).toContain("click to open");
     expect(shown).toContain("30 const v30 = 30;");
-    // The wheel scrolls it; a click opens the line under it.
+    // The wheel scrolls it, from the name it opened on too, and a sideways
+    // scroll leaves it open; a click opens the line under it.
     const card = s.fileCard().rect;
     const before = s.file_peeks.current.reader.top;
+    await mouse(65, at(5));
+    expect(s.file_peeks.current.reader.top).toBe(before + 3);
+    await mouse(66, at(5));
+    await mouse(64, [card.x + 5, card.y + 4]);
     await mouse(65, [card.x + 5, card.y + 4]);
     expect(s.file_peeks.current.reader.top).toBe(before + 3);
+    expect(s.fileCard()).not.toBeNull();
     const line = s.file_peeks.current.lineAt(2);
     await mouse(0, [card.x + 5, card.y + 5]);
     await mouse(0, [card.x + 5, card.y + 5], true);

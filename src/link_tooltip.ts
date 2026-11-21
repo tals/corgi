@@ -85,7 +85,7 @@ function same(a: Target, b: Target) {
   );
 }
 /** How long the pointer rests on a file's name before its peek opens. */
-export const file_delay = 2000;
+export const file_delay = 1000;
 function delay(target: Target | null): number {
   if (target?.file) return file_delay;
   return target?.resource != null || target?.link != null ? 150 : 500;

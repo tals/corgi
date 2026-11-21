@@ -10179,9 +10179,21 @@ export class Controller {
       }
       return true;
     }
+    // The wheel scrolls it from its name too, where the pointer rests as it
+    // opens. A sideways scroll does nothing rather than close it.
+    if (
+      file &&
+      !release &&
+      (button & 0xe0) === 64 &&
+      (file.rect.contains(x, y) || linkTooltip.sameLink(this.linkAt(x, y), this.link_tooltip.target?.link))
+    ) {
+      if ((button & 2) === 0) filePeek.wheel(file.peek, (button & 1) === 0);
+      this.pointer = { x, y };
+      this.dirty = true;
+      return true;
+    }
     if (file?.rect.contains(x, y) && !release) {
-      if (button === 64 || button === 65) filePeek.wheel(file.peek, button === 64);
-      else if (button === 0) this.file_press = { row: filePeek.bodyRow(file.rect, x, y) };
+      if (button === 0) this.file_press = { row: filePeek.bodyRow(file.rect, x, y) };
       else if (button !== 35) return false;
       this.pointer = { x, y };
       this.dirty = true;
