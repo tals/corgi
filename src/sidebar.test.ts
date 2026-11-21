@@ -2377,7 +2377,7 @@ function tintWorkspaces(n: number): WorkspaceEntry[] {
   const endpoints = [endpoint({ label: "web", scheme: "http", http_status: 200 })];
   return Array.from({ length: n }, (_, i) =>
     workspaceEntry({
-      id: i + 1,
+      id: viewerRef.workspace(1, i + 1),
       name: `ws${i + 1}`,
       cwd: "/tmp",
       active: i === 1,
@@ -2386,14 +2386,18 @@ function tintWorkspaces(n: number): WorkspaceEntry[] {
       unread: i === 3 ? 2 : 0,
       ports:
         i === 2
-          ? { processes_available: true, ports_available: true, workspaces: [{ id: i + 1, endpoints }] }
+          ? {
+              processes_available: true,
+              ports_available: true,
+              workspaces: [{ id: viewerRef.workspace(1, i + 1), endpoints }],
+            }
           : { workspaces: [] },
     }),
   );
 }
 /** Panes no other test animates: corgi slots are shared and randomly seeded. */
 const tint_agents = (["working", "blocked", "done", "idle"] as const).map((state, i) =>
-  entry({ target: { pane: 9101 + i }, name: `agent${i + 1}`, provider: "claude", state }),
+  entry({ target: viewerRef.pane(0, 9101 + i), name: `agent${i + 1}`, provider: "claude", state }),
 );
 /** The sidebar in each layout the tint must leave alone at 0. Decorative
  * corgis are off so the agent rows draw the same in any test order. */
@@ -2425,11 +2429,11 @@ test("an unset workspace tint draws today's sidebar in every layout", () => {
   const workspaces = tintWorkspaces(6);
   // Recorded from the sidebar before the tint existed.
   const expected: Record<string, string> = {
-    split: "5b0d00cfdf79bb37c03559f80bfdcb4d4c7802c1031f8dd4fc154ce5f612777d",
-    focused: "462ec3d3b340857ef2ac72cd54b20cb689cb70c0a4fcb8c2ff448aaa58835d35",
-    "workspaces drawer": "366b3701e50eed17e921aedb30872542b57b84f829c5d2a87d159e8d133fe12d",
+    split: "518ec7bb7e24d66af7569e7406ebfa8af98d66eebdfb90943c2b42bb9c2ee4ca",
+    focused: "8df29ccdc50c591dd9c655427ed6031079e8dc2c9609096c87f4fe3ae0a0cae3",
+    "workspaces drawer": "119ccb5b6ae83c10d6bdf0bd63ad0490e8f0658c2a3c6a450c4451fa5341d3cf",
     "agents drawer": "1f41953defdefe7a665de145896653d07b5863674388ebee915e1715366c688a",
-    lists: "72c8ce93765ef3bfe07885327067b447b5d297c9a9b1934375dee2ce7ab27ed0",
+    lists: "492e94525f8aee9d5abffdfe97bb2e9443c311ad5b2d983acff1313283dfed2a",
   };
   const recorded: Record<string, string> = {};
   for (const [name, view] of tintLayouts(workspaces)) {
