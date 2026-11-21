@@ -4,9 +4,8 @@ import { mkdirSync, readFileSync, writeFileSync, chmodSync, rmSync } from "node:
 import { join, dirname } from "node:path";
 import { userInfo } from "node:os";
 import { TcpFault } from "../tests/tcp_fault";
-import { request, type Command, type Faults } from "../src/remote_lab";
+import { request, Policy, type Command, type Faults } from "../src/remote_lab";
 import { shellQuote } from "../src/os";
-import { Policy } from "./remote_policy";
 import { workloads } from "./remote_workloads";
 
 const args = process.argv.slice(2);

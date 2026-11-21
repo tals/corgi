@@ -1,8 +1,9 @@
 import { test, expect } from "bun:test";
-import { createServer, type Server, type Socket } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
+import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { nativeRoot } from "./native_paths";
 import * as transport from "./daemon_transport";
+import * as lab from "./remote_lab";
 import { until } from "./fixtures/until";
 
 const marker = Buffer.from("\ncorgi-bridge-v1\n");
@@ -95,5 +96,86 @@ test("native bridge accepts input while stdout is backpressured", async () => {
   } finally {
     peer?.destroy();
     close();
+  }
+});
+
+test("a machine's connections pass through its faults only while they're on", async () => {
+  const dir = mkdtempSync("/tmp/corgi-fake-ssh-"),
+    path = process.env.PATH;
+  // An ssh that answers as the bridge, then echoes.
+  await Bun.write(dir + "/ssh", "#!/bin/sh\nprintf '\\ncorgi-bridge-v1\\n'\nexec cat\n");
+  chmodSync(dir + "/ssh", 0o755);
+  process.env.PATH = `${dir}:${path}`;
+  const profile = {
+    name: "lagged",
+    target: "lagged",
+    executable: "corgi",
+    socket: "/tmp/x",
+    home: "/tmp",
+    bridge: "b",
+  };
+  const roundTrip = async () => {
+    const remote = new transport.Remote(profile);
+    await remote.open();
+    const client = createConnection(remote.socket);
+    const echo = async (text: string) => {
+      client.write(text);
+      await new Promise<void>(resolve => client.once("data", () => resolve()));
+    };
+    try {
+      // The first exchange also waits for ssh to start.
+      await echo("warm");
+      const started = performance.now();
+      await echo("ping");
+      return performance.now() - started;
+    } finally {
+      client.destroy();
+      remote.close();
+    }
+  };
+  try {
+    expect(await roundTrip()).toBeLessThan(150);
+    lab.local.enable("lagged", true);
+    lab.local.apply({ machine: "lagged", latency_ms: 150 });
+    expect(await roundTrip()).toBeGreaterThanOrEqual(300);
+  } finally {
+    lab.local.enable("lagged", false);
+    process.env.PATH = path;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a held reply still arrives when ssh exits behind it", async () => {
+  const dir = mkdtempSync("/tmp/corgi-fake-ssh-"),
+    path = process.env.PATH;
+  // An ssh that answers as the bridge, replies once, and exits.
+  await Bun.write(dir + "/ssh", "#!/bin/sh\nprintf '\\ncorgi-bridge-v1\\n'\nread line\nprintf 'bye'\n");
+  chmodSync(dir + "/ssh", 0o755);
+  process.env.PATH = `${dir}:${path}`;
+  const remote = new transport.Remote({
+    name: "closing",
+    target: "closing",
+    executable: "corgi",
+    socket: "/tmp/x",
+    home: "/tmp",
+    bridge: "b",
+  });
+  lab.local.enable("closing", true);
+  lab.local.apply({ machine: "closing", latency_ms: 100 });
+  try {
+    await remote.open();
+    const client = createConnection(remote.socket);
+    let received = "";
+    client.on("data", chunk => (received += chunk));
+    const ended = new Promise<void>(resolve => client.once("end", () => resolve()));
+    client.write("x\n");
+    await ended;
+    expect(received).toBe("bye");
+    client.destroy();
+  } finally {
+    remote.close();
+    lab.local.enable("closing", false);
+    process.env.PATH = path;
+    rmSync(dir, { recursive: true, force: true });
   }
 });
