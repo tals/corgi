@@ -320,6 +320,17 @@ $.requests|review.diffs.files: any
 $.requests|review.summary.cwd: string
 $.requests|review.recognize.cwd: string
 $.requests|review.recognize.hashes[]: string
+$.requests|file.stat.path: string
+$.requests|file.stat.cwd: string
+$.requests|file.read.path: string
+$.requests|file.read.at: u64
+$.requests|file.read.length: u32
+$.requests|file.line.path: string
+$.requests|file.line.line: u64
+$.requests|file.line.limit: u64
+$.requests|file.count.path: string
+$.requests|file.count.from: u64
+$.requests|file.count.to: u64
 $.requests|onboarding.status.operation: u64
 $.requests|onboarding.handoff.operation: u64
 $.requests|onboarding.handoff.viewer_pgid: i32

@@ -1015,13 +1015,14 @@ export class Endpoint {
         }
         const generation = this.generation;
         // Pane contents take the data connection, apart from input. Review's
-        // file lists and diffs take it too, and never the control connection,
-        // opening it on a machine not shown, such as a prompt conversation's.
+        // file lists and diffs, and the file peek's reads, take it too, and
+        // never the control connection, opening it on a machine not shown,
+        // such as a prompt conversation's.
         const contents = ["viewer.surfaces", "viewer.image", "viewer.search", "viewer.pick", "pane.surface"].includes(
           op,
         );
         let conn: Connection | null, keepalive: ReturnType<typeof setInterval> | undefined;
-        if (op === "review.read" || op === "review.diffs") {
+        if (["review.read", "review.diffs", "file.stat", "file.read", "file.line", "file.count"].includes(op)) {
           if (!this.checked) throw Error("StaleConnection");
           // One that failed or closed is dialed again, unless a viewer's stream
           // is bound to it: then the reconnect that brings the stream back does.

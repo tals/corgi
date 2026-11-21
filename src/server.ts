@@ -38,6 +38,7 @@ import * as observers from "./observer_service";
 import * as trackers from "./trackers";
 import * as updates from "./updates";
 import * as errors from "./errors";
+import * as fileAccess from "./file_access";
 import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import * as reviewService from "./review/service";
@@ -1225,6 +1226,12 @@ export class Server {
       case "review.summary":
       case "review.recognize":
         this.defer(cl, reply, null, () => reviewService.answer(request));
+        return;
+      case "file.stat":
+      case "file.read":
+      case "file.line":
+      case "file.count":
+        this.defer(cl, reply, null, () => fileAccess.answer(request));
         return;
       case "worktree.add":
         this.defer(cl, reply, { op: "worktree.add", path: request.payload.path }, async () => {

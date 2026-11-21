@@ -2,6 +2,7 @@ import * as viewerRef from "./viewer_ref";
 import { Machine } from "./machine";
 import type { Progress as ImageProgress } from "./image_upload";
 import * as protocol from "./protocol";
+import * as fileAccess from "./file_access";
 import { transport } from "./fixtures/transport";
 import * as worktrees from "./fixtures/worktrees";
 import { scopedEnv } from "./fixtures/env";
@@ -4876,6 +4877,73 @@ test("a file's name peeks after the pointer rests on it, and a click opens it in
     setSystemTime();
     clock.reset();
     viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("on another computer, a file's name peeks through that computer's daemon and opens with its Corgi", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-peek-remote-")));
+  writeFileSync(join(dir, "app.ts"), Array.from({ length: 80 }, (_, i) => `const v${i + 1} = ${i + 1};`).join("\n"));
+  const asked: string[] = [];
+  const s: any = new Controller({ request: transport(async () => ({})).request });
+  const other = new Machine(
+    {
+      request: transport(async (op, fields) => {
+        if (!op.startsWith("file.")) return {};
+        asked.push(op);
+        return fileAccess.answer(protocol.decoded(op, fields) as any);
+      }).request,
+    },
+    "work",
+    true,
+  );
+  s.adopt(other);
+  const snapshot: any = folders(dir);
+  snapshot.panes[0].cwd = dir;
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(snapshot, other);
+  s.switchMachine(other);
+  other.executable = "/opt/corgi";
+  s.width = 120;
+  s.height = 40;
+  s.input_state.attached = true;
+  setSystemTime(new Date(1000));
+  const created: unknown[][] = [];
+  s.create = async (...args: unknown[]) => {
+    created.push(args);
+    return 2;
+  };
+  const rect = s.layoutView().placements(s.area())[0].rect;
+  const native = NativeTerminal.create(rect.w, rect.h);
+  try {
+    native.feed("  see app.ts:30 here");
+    s.pane(1).terminal.receive(native.surface(1));
+    const at = [rect.x + 7, rect.y + 1];
+    const mouse = (button: number, [x, y]: number[], release = false) =>
+      mouseInput(s, `\x1b[<${button};${x};${y}${release ? "m" : "M"}`);
+    await mouse(35, at);
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.frame();
+    await s.file_peeks.current.opened;
+    clock.advance(1000);
+    expect(s.frame().replace(/\x1b\[[\d;?]*[A-Za-z]/g, "")).toContain("30 const v30 = 30;");
+    expect(asked).toContain("file.stat");
+    expect(asked).toContain("file.read");
+    // A click opens it with the Corgi on that computer.
+    clock.advance(clock.double_click_ms * 2);
+    await mouse(0, at);
+    await mouse(0, at, true);
+    clock.advance(clock.double_click_ms);
+    await s.expireInput();
+    expect(created).toHaveLength(1);
+    expect(created[0][2]).toBe(`exec /opt/corgi __view ${join(dir, "app.ts")} --line 30`);
+  } finally {
+    native.destroy();
+    setSystemTime();
+    clock.reset();
+    viewer.close(s);
+    other.runtime.destroy();
     rmSync(dir, { recursive: true, force: true });
   }
 });

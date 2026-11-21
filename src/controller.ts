@@ -83,6 +83,7 @@ import { installedShells } from "./launch/command";
 import * as linkTooltip from "./link_tooltip";
 import * as hostImages from "./host_images";
 import * as linkThumbnail from "./link_thumbnail";
+import * as fileAccess from "./file_access";
 import * as fileRef from "./file_ref";
 import * as filePeek from "./file_peek";
 import * as paneImages from "./pane_images";
@@ -525,11 +526,27 @@ export class Controller {
   }
   link_tooltip = new linkTooltip.State();
   link_copy_press: linkTooltip.Link | null = null;
-  /** Whether the paths panes show are files here, and the peek at one. */
-  file_refs = new fileRef.Resolver(() => {
-    this.dirty = true;
-    this.wake();
-  });
+  /** Each machine's files, read here or through its daemon, and whether the
+   * paths its panes show name them. */
+  private file_places = new WeakMap<Machine, { files: fileAccess.Files; refs: fileRef.Resolver }>();
+  private filesOn(machine: Machine): { files: fileAccess.Files; refs: fileRef.Resolver } {
+    let place = this.file_places.get(machine);
+    if (!place) {
+      const files = machine.remote
+        ? fileAccess.remote((op, payload) => call(machine.connection, op, payload as never))
+        : fileAccess.here;
+      const refs = new fileRef.Resolver(() => {
+        this.dirty = true;
+        this.wake();
+      }, files);
+      this.file_places.set(machine, (place = { files, refs }));
+    }
+    return place;
+  }
+  get file_refs(): fileRef.Resolver {
+    return this.filesOn(this.machine).refs;
+  }
+  /** The peek at a file's name. */
   file_peeks = new filePeek.Peeks(() => {
     // A peek read while the pointer waits draws when it shows.
     if (!this.link_tooltip.shown) return;
@@ -10078,12 +10095,12 @@ export class Controller {
     if (this.corgi_setup) return !this.corgi_setup.draggingIntensity();
     return this.hoverIdle();
   }
-  /** The file a link in `pane` names on this machine, once checked: a path
+  /** The file a link in `pane` names on its machine, once checked: a path
    * from the folder its agent or shell works in, or a file:// link that
    * isn't to an image, which keeps its picture card. */
   private linkFile(uri: string, path: boolean, pane: Pane | null): { path: string; ref: fileRef.Ref } | null {
-    if (this.machine.remote || pane === null || (!path && linkThumbnail.imagePath(uri) !== null)) return null;
-    const ref = fileRef.parse(uri, path);
+    if (pane === null || (!path && linkThumbnail.imagePath(uri) !== null)) return null;
+    const ref = fileRef.parse(uri, path, this.machine.remote ? null : undefined);
     if (!ref) return null;
     const status = this.file_refs.get(ref, pane.agent.cwd || pane.cwd);
     return status.kind === "file" ? { path: status.path, ref } : null;
@@ -10333,7 +10350,7 @@ export class Controller {
       if (link && file && filePeek.geometry(this.width, this.height, link)) {
         target = { link, file: true };
         // Read while the peek waits to open.
-        this.file_peeks.get(file.path, file.ref);
+        this.file_peeks.get(file.path, file.ref, this.filesOn(this.machine).files);
       } else if (link && !link.path && linkTooltip.geometry(this.width, this.height, link)) {
         target = { link };
         // Loads while the card waits to open.

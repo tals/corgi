@@ -11,16 +11,17 @@
 //! notices with a slow poll behind them, reads only the new bytes, and starts
 //! again at the end of a file that was truncated or replaced. While writes
 //! keep coming it checks on a short timer instead of taking every notice.
-import { fstatSync, readSync, watch, type FSWatcher } from "node:fs";
-import { open, stat, statfs, type FileHandle } from "node:fs/promises";
 import * as errors from "./errors";
+import * as fileAccess from "./file_access";
 
-/** Larger files read from their end, as logs do. */
-export const code_limit = 8 << 20;
+/** Larger files read from their end, as logs do; another computer's past
+ * a smaller size (see `fileAccess.Limits`). */
+export const code_limit = fileAccess.local_limits.whole;
 /** One read: the window a log opens with, and each block before it. */
 export const block = 256 << 10;
-/** Growth past this between two reads is skipped, as by a reader that fell behind. */
-export const skip_after = 16 << 20;
+/** Growth past this between two reads is skipped, as by a reader that fell
+ * behind; another computer's past less. */
+export const skip_after = fileAccess.local_limits.growth;
 /** The most lines following keeps; the oldest drop past it. */
 export const max_lines = 50_000;
 /** The most bytes following keeps: the oldest lines drop past it, and a
@@ -31,13 +32,8 @@ export const hold_margin = 1000;
 /** Rows kept from a held place down: more than a screen shows. */
 const hold_rows = 256;
 /** How far into a log a line the text named is looked for. */
-export const seek_limit = 4 * 1024 ** 3;
+export const seek_limit = fileAccess.scan_limit;
 const poll_ms = 1000;
-/** Linux's local file systems, by `statfs` magic: ext2-4, xfs, btrfs,
- * tmpfs, f2fs, zfs, bcachefs and overlayfs. They answer reads of a log's
- * growth at once, so it reads without async calls' round trips; a network
- * or FUSE mount could stall the viewer that way and keeps them. */
-const local_fs = new Set([0xef53, 0x58465342, 0x9123683e, 0x01021994, 0xf2f52010, 0x2fc12fc1, 0xca451a4e, 0x794c7630]);
 /** The most growth one read on a local disk takes at once. */
 const sync_limit = 4 << 20;
 /** While writes keep coming, how often growth is checked, and how long
@@ -49,9 +45,9 @@ const cache_lines = 4096;
 
 export type Mode = "code" | "tail";
 const log_name = /\.(?:log|out|err|jsonl|ndjson)(?:\.\d+)?$|\.log\.[\w-]+$/i;
-/** How a file at `path` of `size` bytes is read. */
-export function modeFor(path: string, size: number): Mode {
-  return size > code_limit || log_name.test(path) ? "tail" : "code";
+/** How a file at `path` of `size` bytes is read, when files up to `whole` read whole. */
+export function modeFor(path: string, size: number, whole = code_limit): Mode {
+  return size > whole || log_name.test(path) ? "tail" : "code";
 }
 const nul = (bytes: Uint8Array, upto = bytes.length) => bytes.subarray(0, upto).includes(0);
 /** Adds where each line after a newline in `bytes`, read at `at`, starts. */
@@ -70,7 +66,11 @@ export interface Options {
   changed?: () => void;
   /** Stops an open still reading, as when the pointer leaves for another name. */
   signal?: AbortSignal;
+  /** Where the file is: this computer's disk unless another's daemon reads it. */
+  files?: fileAccess.Files;
 }
+/** A file just opened, and what its handle said of it. */
+type Opened = { fh: fileAccess.Handle; info: fileAccess.Info };
 export class Source {
   /** A code file that grows past `code_limit` turns into a log. */
   mode: Mode;
@@ -107,13 +107,12 @@ export class Source {
   private starts: number[] = [];
   private cache = new Map<number, string>();
   private text = new TextDecoder();
-  private fh: FileHandle | null = null;
-  private ino = 0;
-  private dev = 0;
+  private files: fileAccess.Files;
+  private fh: fileAccess.Handle | null = null;
+  /** Which file was read, and when it last changed. */
+  private id = "";
   private mtime = 0;
-  /** On a local file system: see `local_fs`. */
-  private local = false;
-  private watcher: FSWatcher | null = null;
+  private watcher: { close(): void } | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private burst: ReturnType<typeof setInterval> | null = null;
   private quiet = 0;
@@ -130,12 +129,22 @@ export class Source {
     private opts: Options,
   ) {
     this.mode = mode;
+    this.files = opts.files ?? fileAccess.here;
   }
   static async open(path: string, opts: Options = {}): Promise<Source> {
-    const info = await stat(path);
-    const source = new Source(path, opts.mode ?? modeFor(path, info.size), opts);
+    // The first read takes this handle, so another computer's file opens in few round trips.
+    const fh = await (opts.files ?? fileAccess.here).open(path);
+    let info: fileAccess.Info;
     try {
-      await source.load(opts.line ?? null);
+      info = await fh.info();
+    } catch (error) {
+      await fh.close().catch(() => {});
+      throw error;
+    }
+    const whole = (opts.files ?? fileAccess.here).limits.whole;
+    const source = new Source(path, opts.mode ?? modeFor(path, info.size, whole), opts);
+    try {
+      await source.load({ fh, info }, opts.line ?? null);
       source.stop();
     } catch (error) {
       await source.close();
@@ -223,30 +232,57 @@ export class Source {
     }
     return this.text.decode(Buffer.concat(parts));
   }
-  private async load(line: number | null): Promise<void> {
-    if (this.mode === "code") return this.readWhole();
-    await this.reopen();
+  private async load(opened: Opened, line: number | null): Promise<void> {
+    if (this.mode === "code") return this.readWhole(opened);
+    await this.reopen(opened);
     if (line !== null && (await this.seek(line))) return;
     await this.readTail();
   }
-  private async readWhole(): Promise<void> {
-    const info = await stat(this.path);
-    const bytes = new Uint8Array(await Bun.file(this.path).arrayBuffer());
-    this.ino = info.ino;
-    this.dev = info.dev;
-    this.mtime = info.mtimeMs;
-    this.binary = nul(bytes, 8192);
-    const lines = this.binary ? [] : this.text.decode(bytes).split("\n");
+  /** Reads the file whole, through `opened` when it's open already. It reads
+   * block by block to the end, which a file in /proc doesn't give as its
+   * size, and stops at a binary file's first block, or once its reader is gone. */
+  private async readWhole(opened?: Opened): Promise<void> {
+    const fh = opened?.fh ?? (await this.files.open(this.path)),
+      limit = this.files.limits.whole,
+      parts: Uint8Array[] = [];
+    let info: fileAccess.Info,
+      got = 0,
+      binary = false;
+    try {
+      info = opened?.info ?? (await fh.info());
+      for (;;) {
+        // As much as its size says, or with no size, until it ends.
+        const want = Math.min(block, limit - got, info.size > 0 ? info.size - got : block);
+        if (want <= 0) break;
+        if (got > 0) {
+          if (this.closed) throw Error("Closed");
+          this.stop();
+        }
+        const bytes = await fh.read(got, want);
+        binary ||= got === 0 && nul(bytes, 8192);
+        parts.push(bytes);
+        got += bytes.length;
+        if (binary || bytes.length < want) break;
+      }
+    } finally {
+      await fh.close().catch(() => {});
+    }
+    const bytes = parts.length === 1 ? parts[0] : Buffer.concat(parts);
+    this.id = info.id;
+    this.mtime = info.mtime;
+    this.binary = binary;
+    const lines = binary ? [] : this.text.decode(bytes).split("\n");
     // A final newline ends the last line rather than starting another.
     if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
     this.lines = lines;
     this.first = 1;
     this.start = 0;
-    this.end = this.size = bytes.length;
+    this.end = got;
+    this.size = Math.max(info.size, got);
   }
-  /** Opens the path again; the file read so far stays open until it does. */
-  private async reopen(): Promise<void> {
-    const fh = await open(this.path, "r");
+  /** Opens the path again, or takes `opened`; the file read so far stays open until then. */
+  private async reopen(opened?: Opened): Promise<void> {
+    const fh = opened?.fh ?? (await this.files.open(this.path));
     if (this.closed) {
       await fh.close().catch(() => {});
       throw Error("Closed");
@@ -254,32 +290,12 @@ export class Source {
     const old = this.fh;
     this.fh = fh;
     await old?.close().catch(() => {});
-    const info = await fh.stat();
-    this.ino = info.ino;
-    this.dev = info.dev;
+    const info = opened?.info ?? (await fh.info());
+    this.id = info.id;
     this.size = info.size;
-    const fs = process.platform === "linux" ? await statfs(this.path).catch(() => null) : null;
-    this.local = fs !== null && local_fs.has(fs.type);
   }
-  private readNow(at: number, length: number): Uint8Array {
-    const out = new Uint8Array(Math.max(0, length));
-    let got = 0;
-    while (got < out.length) {
-      const n = readSync(this.fh!.fd, out, got, out.length - got, at + got);
-      if (n === 0) break;
-      got += n;
-    }
-    return out.subarray(0, got);
-  }
-  private async read(at: number, length: number): Promise<Uint8Array> {
-    const out = new Uint8Array(Math.max(0, length));
-    let got = 0;
-    while (got < out.length) {
-      const { bytesRead } = await this.fh!.read(out, got, out.length - got, at + got);
-      if (bytesRead === 0) break;
-      got += bytesRead;
-    }
-    return out.subarray(0, got);
+  private read(at: number, length: number): Promise<Uint8Array> {
+    return this.fh!.read(at, length);
   }
   /** The window `bytes` read at `at` makes, from its first whole line. */
   private window(at: number, bytes: Uint8Array): void {
@@ -307,23 +323,11 @@ export class Source {
   }
   /** Opens the window a little before line `n`; false when it is past `seek_limit` or the end. */
   private async seek(n: number): Promise<boolean> {
-    let found = n <= 1 ? 0 : -1;
-    const chunk = Buffer.allocUnsafe(1 << 20);
-    let at = 0,
-      seen = 1;
-    while (found < 0 && at < Math.min(this.size, seek_limit)) {
+    const found = await this.fh!.line(n, Math.min(this.size, seek_limit), () => {
       // Scanning gigabytes stops once its reader is gone.
       if (this.closed) throw Error("Closed");
       this.stop();
-      const { bytesRead } = await this.fh!.read(chunk, 0, chunk.length, at);
-      if (bytesRead === 0) break;
-      for (let i = chunk.indexOf(10); i >= 0 && i < bytesRead; i = chunk.indexOf(10, i + 1))
-        if (++seen === n) {
-          found = at + i + 1;
-          break;
-        }
-      at += bytesRead;
-    }
+    });
     if (found < 0 || found >= this.size) return false;
     const from = Math.max(0, found - (block >> 3));
     this.window(from, await this.read(from, Math.min(block, this.size - from)));
@@ -449,7 +453,7 @@ export class Source {
   toEnd(): Promise<boolean> {
     return this.attempt(async () => {
       if (this.mode === "code" || this.atEnd || !this.fh) return false;
-      this.size = (await this.fh.stat()).size;
+      this.size = (await this.fh.info()).size;
       await this.readTail();
       // A viewer follows a window that starts over at the end.
       this.hold = null;
@@ -515,15 +519,15 @@ export class Source {
   /** Waits for the next change notice. */
   private arm(): void {
     if (this.closed || this.watcher) return;
-    try {
-      this.watcher = watch(this.path, { persistent: false }, event => this.notice(event === "rename"));
-      this.watcher.on("error", () => {
-        this.watcher?.close();
-        this.watcher = null;
-      });
-    } catch {
-      // The slow poll alone notices growth.
-    }
+    // Without one, the slow poll alone notices growth.
+    const watcher = this.files.watch(
+      this.path,
+      renamed => this.notice(renamed),
+      () => {
+        if (this.watcher === watcher) this.watcher = null;
+      },
+    );
+    this.watcher = watcher;
   }
   /** A change notice: reads it now, then checks every `burst_ms` while
    * writes keep coming, and waits for notices again after `quiet_ms`
@@ -599,14 +603,10 @@ export class Source {
   /** Counts the lines a log grew by past a window that stops short of its
    * end, without keeping them; growth too fast to read goes uncounted. */
   private async countGrowth(from: number, to: number): Promise<void> {
-    if (to - from > skip_after) return;
-    const chunk = Buffer.allocUnsafe(Math.min(1 << 20, to - from));
-    for (let at = from; at < to && !this.closed && this.fh;) {
-      const { bytesRead } = await this.fh.read(chunk, 0, Math.min(chunk.length, to - at), at);
-      if (bytesRead === 0) break;
-      for (let i = chunk.indexOf(10); i >= 0 && i < bytesRead; i = chunk.indexOf(10, i + 1)) this.added++;
-      at += bytesRead;
-    }
+    if (to - from > skip_after || !this.fh) return;
+    this.added += await this.fh.newlines(from, to, () => {
+      if (this.closed) throw Error("Closed");
+    });
   }
   /** Shows why a read failed, once until it changes. */
   private fail(error: unknown): void {
@@ -617,13 +617,15 @@ export class Source {
     this.bump();
   }
   private async check(named: boolean): Promise<void> {
+    // The path's size, when it was just looked up and still names the file read.
+    let known: number | null = null;
     if (this.mode === "code" || named || !this.fh) {
-      const found = await stat(this.path).catch(() => null);
+      const found = await this.files.find(this.path).catch(() => null);
       // Gone: what was read stays until it comes back.
       if (!found || this.closed) return;
       if (this.mode === "code") {
-        if (found.ino === this.ino && found.size === this.size && found.mtimeMs === this.mtime) return;
-        if (found.size <= code_limit) {
+        if (found.id === this.id && found.size === this.size && found.mtime === this.mtime) return;
+        if (found.size <= this.files.limits.whole) {
           await this.readWhole();
           return this.bump();
         }
@@ -632,9 +634,11 @@ export class Source {
         this.lines = [];
         return await this.restart();
       }
-      if (found.ino !== this.ino || found.dev !== this.dev) return await this.restart();
+      if (found.id !== this.id) return await this.restart();
+      known = found.size;
     }
-    const size = this.local ? fstatSync(this.fh!.fd).size : (await this.fh!.stat()).size;
+    const now = this.fh!.now;
+    const size = known ?? (now ? now.size() : (await this.fh!.info()).size);
     if (this.closed) return;
     if (size < this.end) return await this.restart();
     if (size === this.size) return;
@@ -647,8 +651,8 @@ export class Source {
     }
     const grown = this.size - this.end;
     // A held place stays where it is; the window stops short of the end.
-    if (grown > skip_after) return this.hold !== null ? this.bump() : await this.restart();
-    const bytes = this.local && grown <= sync_limit ? this.readNow(this.end, grown) : await this.read(this.end, grown);
+    if (grown > this.files.limits.growth) return this.hold !== null ? this.bump() : await this.restart();
+    const bytes = now && grown <= sync_limit ? now.read(this.end, grown) : await this.read(this.end, grown);
     this.append(bytes, true);
     this.bump();
   }

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
+import * as fileAccess from "./file_access";
 import * as fileRef from "./file_ref";
 
 const dirs: string[] = [];
@@ -23,6 +24,8 @@ test("reads file links on this machine, with lines after the path or in the frag
   expect(fileRef.parse(`file://${hostname()}/tmp/a.ts`, false)?.path).toBe("/tmp/a.ts");
   expect(fileRef.parse("file://elsewhere.example/tmp/a.ts", false)).toBeNull();
   expect(fileRef.parse("https://example.com/a.ts", false)).toBeNull();
+  // Another computer's daemon checks a link names its file.
+  expect(fileRef.parse("file://elsewhere.example/tmp/a.ts", false, null)?.path).toBe("/tmp/a.ts");
 });
 
 test("resolves from the pane's folder and home, and tries a diff's a/ and b/ off", () => {
@@ -39,7 +42,7 @@ test("checks names in the background and only files count", async () => {
   mkdirSync(join(dir, "src"));
   writeFileSync(join(dir, "src", "a.ts"), "x");
   let woke = 0;
-  const resolver = new fileRef.Resolver(() => woke++, "/nowhere");
+  const resolver = new fileRef.Resolver(() => woke++, fileAccess.local("/nowhere"));
   const ask = (path: string) => resolver.get({ path, line: null, column: null }, dir, 0);
   expect(ask("src/a.ts").kind).toBe("pending");
   expect(ask("src").kind).toBe("pending");

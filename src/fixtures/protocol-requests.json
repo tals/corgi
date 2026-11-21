@@ -178,6 +178,25 @@
     "cwd": "/work/corgi",
     "hashes": ["4b825dc"]
   },
+  "file.stat": {
+    "path": "src/app.ts",
+    "cwd": "/work/corgi"
+  },
+  "file.read": {
+    "path": "/work/corgi/server.log",
+    "at": 0,
+    "length": 262144
+  },
+  "file.line": {
+    "path": "/work/corgi/server.log",
+    "line": 1200,
+    "limit": 4294967296
+  },
+  "file.count": {
+    "path": "/work/corgi/server.log",
+    "from": 262144,
+    "to": 524288
+  },
   "onboarding.status": {
     "operation": 1
   },

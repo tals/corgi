@@ -1008,6 +1008,21 @@ test("a machine not shown opens its data connection for review, after reconnecti
   }
 });
 
+test("the file peek's reads take the data connection, as review's do", async () => {
+  const daemon = await flakyDaemon(true);
+  const endpoint = daemon.endpoint;
+  Reflect.set(endpoint, "controller", new Controller(transport(async () => ({}))));
+  try {
+    await daemon.connect();
+    expect(Reflect.get(endpoint, "data")).toBeNull();
+    await endpoint.machine.connection.request("file.read", { path: "/tmp/a.log", at: 0, length: 10 } as never);
+    expect(Reflect.get(endpoint, "data")?.channel).toBeTruthy();
+    expect(daemon.seen.filter(request => request.op === "file.read")).toHaveLength(1);
+  } finally {
+    await daemon.close();
+  }
+});
+
 test("planned reconnect bounds input already queued and releases a full hold without spreading arguments", async () => {
   for (const bytes of [64 * 1024, 256 * 1024]) {
     const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());

@@ -1,10 +1,10 @@
 //! A file a pane's text names: a path the native layer found in plain text
 //! (`Link.path`), or a file:// link, with the line and column the text gave.
-//! The viewer checks that it names a file on this machine before it
+//! The viewer checks that it names a file on the pane's machine before it
 //! underlines it, peeks at it or opens it.
-import { stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { isAbsolute, resolve } from "node:path";
+import type * as fileAccess from "./file_access";
 
 export interface Ref {
   path: string;
@@ -14,8 +14,9 @@ export interface Ref {
 }
 const count = (digits: string | undefined) => (digits ? Number(digits) : null);
 /** The file `uri` names: a found path's text, which is the path then
- * `:line` or `:line:column`, or a file:// link on this machine. */
-export function parse(uri: string, path: boolean): Ref | null {
+ * `:line` or `:line:column`, or a file:// link to `host`, or to any host
+ * when `host` is null, as on a computer whose name isn't known. */
+export function parse(uri: string, path: boolean, host: string | null = hostname().toLowerCase()): Ref | null {
   if (path) {
     const m = /^([^:]+)(?::(\d+)(?::(\d+))?)?$/.exec(uri);
     return m ? { path: m[1], line: count(m[2]), column: count(m[3]) } : null;
@@ -29,8 +30,8 @@ export function parse(uri: string, path: boolean): Ref | null {
     return null;
   }
   // URLs lowercase their host; macOS names often aren't.
-  const host = url.hostname;
-  if (host !== "" && host !== "localhost" && host !== hostname().toLowerCase()) return null;
+  const named = url.hostname;
+  if (host !== null && named !== "" && named !== "localhost" && named !== host) return null;
   if (!name || /[\x00-\x1f\x7f]/.test(name)) return null;
   // Tools put the line after the path or in the fragment, as `#L12` or `#12`.
   const fragment = /^#L?(\d+)(?::(\d+)|C(\d+))?$/i.exec(url.hash);
@@ -59,15 +60,15 @@ interface Entry {
 /** How long an answer holds before the next ask checks again. */
 const fresh_ms = 3000;
 const max_entries = 512;
-/** Whether the names in panes are files, checked in the background and
- * remembered a while; `wake` redraws once an answer changes. */
+/** Whether the names in a machine's panes are its files, checked in the
+ * background and remembered a while; `wake` redraws once an answer changes. */
 export class Resolver {
   private entries = new Map<string, Entry>();
   /** The checks in flight, for tests to wait on. */
   checks = new Set<Promise<void>>();
   constructor(
     private wake: () => void,
-    private home = homedir(),
+    private files: fileAccess.Files,
   ) {}
   get(ref: Ref, cwd: string, now = Date.now()): Status {
     const key = `${cwd}\0${ref.path}`;
@@ -80,21 +81,15 @@ export class Resolver {
     if (!entry.checking && (entry.status.kind === "pending" || now - entry.at >= fresh_ms)) {
       entry.checking = true;
       entry.at = now;
-      const check = this.check(entry, candidates(ref.path, cwd, this.home));
+      const check = this.check(entry, ref.path, cwd);
       this.checks.add(check);
       void check.finally(() => this.checks.delete(check));
     }
     return entry.status;
   }
-  private async check(entry: Entry, paths: string[]): Promise<void> {
-    let found: Status = { kind: "missing" };
-    for (const path of paths) {
-      const info = await stat(path).catch(() => null);
-      if (info?.isFile()) {
-        found = { kind: "file", path, size: info.size };
-        break;
-      }
-    }
+  private async check(entry: Entry, path: string, cwd: string): Promise<void> {
+    const info = await this.files.find(path, cwd).catch(() => null);
+    const found: Status = info ? { kind: "file", path: info.path, size: info.size } : { kind: "missing" };
     entry.checking = false;
     const before = entry.status;
     entry.status = found;

@@ -6,6 +6,7 @@
 import { basename, dirname } from "node:path";
 import { Canvas } from "./canvas";
 import * as errors from "./errors";
+import * as fileAccess from "./file_access";
 import type * as fileRef from "./file_ref";
 import { Source } from "./file_source";
 import { Reader } from "./file_view";
@@ -39,9 +40,10 @@ export class Peek {
     readonly path: string,
     readonly ref: fileRef.Ref,
     wake: () => void,
+    readonly files: fileAccess.Files = fileAccess.here,
   ) {
     this.key = `${path}:${ref.line ?? ""}:${ref.column ?? ""}`;
-    this.opened = Source.open(path, { line: ref.line, changed: wake, signal: this.abort.signal }).then(
+    this.opened = Source.open(path, { line: ref.line, changed: wake, signal: this.abort.signal, files }).then(
       source => {
         if (this.closed) return void source.close();
         this.reader = new Reader(source, ref.line, ref.column);
@@ -70,12 +72,12 @@ export class Peek {
 export class Peeks {
   current: Peek | null = null;
   constructor(private wake: () => void) {}
-  /** The peek at `path` and `ref`'s line, read now when it's new. */
-  get(path: string, ref: fileRef.Ref): Peek {
+  /** The peek at `path` and `ref`'s line among `files`, read now when it's new. */
+  get(path: string, ref: fileRef.Ref, files: fileAccess.Files = fileAccess.here): Peek {
     const key = `${path}:${ref.line ?? ""}:${ref.column ?? ""}`;
-    if (this.current?.key === key) return this.current;
+    if (this.current?.key === key && this.current.files === files) return this.current;
     this.current?.close();
-    return (this.current = new Peek(path, ref, this.wake));
+    return (this.current = new Peek(path, ref, this.wake, files));
   }
   clear(): void {
     this.current?.close();

@@ -160,6 +160,10 @@ export const operations = [
   "review.diffs",
   "review.summary",
   "review.recognize",
+  "file.stat",
+  "file.read",
+  "file.line",
+  "file.count",
   "onboarding.status",
   "onboarding.handoff",
   "onboarding.copy",
@@ -827,6 +831,11 @@ const requests = {
   "review.diffs": { root: "string", source: "json", files: "json" },
   "review.summary": { cwd: "string" },
   "review.recognize": { cwd: "string", hashes: "[]string" },
+  // The file peek's reads on another computer; see file_access.ts.
+  "file.stat": { path: "string", cwd: ["string", ""] },
+  "file.read": { path: "string", at: "u64", length: "u32" },
+  "file.line": { path: "string", line: "u64", limit: "u64" },
+  "file.count": { path: "string", from: "u64", to: "u64" },
   "onboarding.status": { operation: "u64" },
   "onboarding.handoff": { operation: "u64", viewer_pgid: "i32", socket: ["string", ""] },
   "onboarding.copy": {
@@ -993,6 +1002,10 @@ export interface ReplyPayloads {
   "review.diffs": Ok & import("./review/service").Diffs;
   "review.summary": Ok & import("./review/service").Summary;
   "review.recognize": Ok & { found: [string, string][] };
+  "file.stat": Ok & import("./file_access").Info;
+  "file.read": Ok & { data: string };
+  "file.line": Ok & { at: number };
+  "file.count": Ok & { lines: number };
   "onboarding.status": Ok & {
     progress: import("./import/onboarding").Progress | ReturnType<import("./import/herdr").Manager["status"]>;
   };
