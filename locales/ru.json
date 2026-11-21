@@ -174,6 +174,9 @@
   " any key closes ": " любая клавиша закрывает ",
   " back ": " назад ",
   " c Clone ": " c Копия ",
+  " click to open · scroll ": " клик — открыть · прокрутка ",
+  " click to open · scroll to the end to follow ": " клик — открыть · прокрутите до конца, чтобы следить ",
+  " click to open · scroll up to pause ": " клик — открыть · прокрутка вверх — пауза ",
   " close ": " закрыть ",
   " cpu ": " ЦП ",
   " disk I/O ": " дисковый ввод-вывод ",
@@ -188,6 +191,15 @@
   " sort: ": " сортировка: ",
   " vs ": " против ",
   " z: files ": " z: файлы ",
+  " · ${fresh} new": {
+    "plural": "fresh",
+    "forms": {
+      "one": " · ${fresh} новая строка",
+      "few": " · ${fresh} новые строки",
+      "many": " · ${fresh} новых строк",
+      "other": " · ${fresh} новой строки"
+    }
+  },
   " · ${total} here": " · здесь: ${total}",
   " · none here": " · здесь нет",
   " · over SSH": " · по SSH",
@@ -202,6 +214,15 @@
     }
   },
   " ⇧⌘-click opens · click copies ": " ⇧⌘-клик открыть · клик скопировать ",
+  " ⋯ ${hidden} lines ": {
+    "plural": "hidden",
+    "forms": {
+      "one": " ⋯ ${hidden} строка ",
+      "few": " ⋯ ${hidden} строки ",
+      "many": " ⋯ ${hidden} строк ",
+      "other": " ⋯ ${hidden} строки "
+    }
+  },
   " ✓  Copied": " ✓  Скопировано",
   " ⧉  Copy link": " ⧉  Скопировать ссылку",
   " ⧉  Copy path": " ⧉  Скопировать путь",
@@ -302,6 +323,15 @@
       "few": "${count} ведущих процесса ${ageLabel} назад",
       "many": "${count} ведущих процессов ${ageLabel} назад",
       "other": "${count} ведущих процесса ${ageLabel} назад"
+    }
+  },
+  "${count} lines · ${bytes}": {
+    "plural": "count",
+    "forms": {
+      "one": "${count} строка · ${bytes}",
+      "few": "${count} строки · ${bytes}",
+      "many": "${count} строк · ${bytes}",
+      "other": "${count} строки · ${bytes}"
     }
   },
   "${count} more outside ${scope} · tab widens": "Ещё ${count} вне области «${scope}» · tab расширить",
@@ -595,6 +625,7 @@
   "CPU busy": "ЦП занят",
   "Cached": "Кэш",
   "Can't read ${name} (${reason}); repair it before saving preferences.": "Не удаётся прочитать ${name} (${reason}); исправьте файл, прежде чем сохранять настройки.",
+  "Can't read it: ${failure}": "Не удалось прочитать: ${failure}",
   "Can't read this folder": "Не удалось прочитать эту папку",
   "Can't save ${name} (${reason})": "Не удаётся сохранить ${name} (${reason})",
   "Cancel": "Отмена",
@@ -744,6 +775,7 @@
   "Edit workspace": "Изменить пространство",
   "Edit ›": "Изменить ›",
   "Edit, delete": "Изменить, удалить",
+  "Empty file": "Пустой файл",
   "Ended": "Завершён",
   "Enter a command.": "Введите команду.",
   "Enter a workspace name.": "Введите название пространства.",
@@ -1510,6 +1542,8 @@
   "pick": "выбрать",
   "pin": "закрепить",
   "play": "играть",
+  "q close  e edit  F follow  space page  g/G top/end": "q закрыть  e правка  F следить  space страница  g/G начало/конец",
+  "q close  e edit  z fold  Z fold all  space page  g/G top/end": "q закрыть  e правка  z свернуть  Z свернуть всё  space страница  g/G начало/конец",
   "rate limited": "лимит запросов",
   "ready": "готово",
   "reconnecting": "переподключение",
@@ -1550,6 +1584,7 @@
   "tab ${index}": "вкладка ${index}",
   "term": "остановить",
   "terminal graphics": "графика терминала",
+  "the chat runs on ${name}": "чат работает на ${name}",
   "the wonderful pi-tui": "замечательная pi-tui",
   "then": "затем",
   "then key": "затем клавиша",
@@ -1585,6 +1620,7 @@
   "your account": "ваш аккаунт",
   "your terminal's": "цвета терминала",
   "— tokens": "— токенов",
+  "‖ paused": "‖ пауза",
   "… ${count} done": "… выполнено: ${count}",
   "…${count} more": "…ещё ${count}",
   "‹ ${model} · Effort": "‹ ${model} · Усилие",
@@ -1635,6 +1671,8 @@
   "◇ Prefix = ${prefixName}": "◇ Префикс = ${prefixName}",
   "○ Corgi (Activity summarizer)": "○ Corgi (Описания действий)",
   "● Jump to who needs you": "● Перейти к тому, кому вы нужны",
+  "● following": "● слежение",
+  "● live": "● обновляется",
   "✓ Copied": "✓ Скопировано",
   "🐕 badge; animations stay still.": "🐕 значок; без анимаций."
 }

@@ -82,8 +82,11 @@ export type Context = {
 export type Effect =
   /** The card hid; in a pane, the chat ends. */
   | { kind: "close" }
-  /** /pane, /memory: open a tab running this; /pane's reads `handoff`. */
-  | { kind: "pane"; argv: string[]; cwd: string; handoff?: string }
+  /** /memory: open a tab running this. */
+  | { kind: "pane"; argv: string[]; cwd: string }
+  /** /pane: open a tab running `corgi __chat` with these, which reads the
+   * handoff, or takes it back when the pane can't open. */
+  | { kind: "chat"; chat: ChatArgs; cwd: string }
   /** Persist the last pick; null follows Auto. */
   | { kind: "pick"; choice: Choice | null }
   /** A drag selected this: put it on the clipboard. */
@@ -449,7 +452,8 @@ function handoffFile(v: any): HandoffFile | null {
   };
 }
 /** What `corgi __chat` takes: the handoff, then what the session runs with,
- * so a pane restored without its handoff starts the same way. */
+ * so a pane restored without its handoff, or on another computer than the
+ * card's, starts the same way. */
 export type ChatArgs = {
   handoff: string;
   provider: Provider;
@@ -463,7 +467,7 @@ export type ChatArgs = {
 };
 export function chatArgs(a: ChatArgs): string[] {
   return [
-    a.handoff,
+    ...(a.handoff ? [a.handoff] : []),
     "--provider",
     a.provider,
     ...(a.session ? ["--session", a.session] : []),
@@ -2176,21 +2180,17 @@ export class Prompt {
       return null;
     }
     const cwd = start?.cwd ?? this.context?.cwd ?? "",
-      argv = [
-        ...corgiCommand(),
-        "__chat",
-        ...chatArgs({
-          handoff: path,
-          provider: handed?.provider ?? next?.provider ?? Provider.first,
-          session: handed?.session ?? "",
-          account: start?.account ?? next?.account ?? "",
-          model: start?.model ?? next?.model ?? "",
-          effort: start ? start.effort : (next?.effort ?? null),
-          incognito: this.incognito,
-          cwd,
-          workspace: start ? start.workspace : (this.context?.workspace_id ?? null),
-        }),
-      ];
+      chat: ChatArgs = {
+        handoff: path,
+        provider: handed?.provider ?? next?.provider ?? Provider.first,
+        session: handed?.session ?? "",
+        account: start?.account ?? next?.account ?? "",
+        model: start?.model ?? next?.model ?? "",
+        effort: start ? start.effort : (next?.effort ?? null),
+        incognito: this.incognito,
+        cwd,
+        workspace: start ? start.workspace : (this.context?.workspace_id ?? null),
+      };
     if (handed) {
       c.release();
       this.incognito = false;
@@ -2198,7 +2198,7 @@ export class Prompt {
       c.note("Continued in a Corgi pane.", "faint");
     }
     this.hide();
-    return { kind: "pane", argv, cwd: cwd || this.context?.cwd || "", handoff: path };
+    return { kind: "chat", chat, cwd: cwd || this.context?.cwd || "" };
   }
   /** The pane /pane asked for didn't open: the card takes back what it handed over. */
   reclaim(path: string, error: string): void {

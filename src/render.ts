@@ -218,6 +218,10 @@ export interface Ui {
   iterm2_pointer: boolean;
   link_tooltip: boolean;
   link_card: linkTooltip.Card | null;
+  /** The file peek open over a file's name in a pane. */
+  file_peek: { rect: Rect; draw: (w: Writer) => void } | null;
+  /** Whether a path a pane's text shows is a file, which hovering underlines. */
+  file_link: (pane: number, link: { uri: string; path?: boolean }) => boolean;
   resources: any;
   resource_hover: viewerRef.Workspace | null;
   resource_card: resourceTooltip.State | null;
@@ -329,6 +333,8 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     iterm2_pointer: false,
     link_tooltip: false,
     link_card: null,
+    file_peek: null,
+    file_link: () => false,
     resources: { workspaces: [] },
     resource_hover: null,
     resource_card: null,
@@ -911,6 +917,7 @@ export function frame(
   };
   const link_rect = u.link_card ? linkTooltip.geometry(width, height, u.link_card.link, u.link_card.thumbnail) : null;
   const on_link_card = u.pointer !== null && link_rect !== null && link_rect.contains(u.pointer.x, u.pointer.y);
+  const on_peek = u.pointer !== null && u.file_peek !== null && u.file_peek.rect.contains(u.pointer.x, u.pointer.y);
   const pinned = u.resource_card?.pinned ?? false;
   const card_rect =
     (!pinned && (!u.link_tooltip || u.pointer === null)) || u.agent_launcher !== null || u.corgi_setup !== null
@@ -1061,8 +1068,10 @@ export function frame(
     }
     p.terminal.updateRender();
     let hovered: bigint | null = null;
-    if (u.pointer && r.contains(u.pointer.x, u.pointer.y) && !on_card && !on_link_card && noOverlay(u)) {
-      const link = linkTooltip.at(p.terminal, r, u.pointer.x, u.pointer.y);
+    if (u.pointer && r.contains(u.pointer.x, u.pointer.y) && !on_card && !on_link_card && !on_peek && noOverlay(u)) {
+      const found = linkTooltip.at(p.terminal, r, u.pointer.x, u.pointer.y);
+      // A path underlines once it's known to be a file.
+      const link = found && (!found.path || u.file_link(p.id, found)) ? found : null;
       hovered = link?.id ?? null;
       hovered_uri = link?.uri ?? hovered_uri;
     }
@@ -1134,7 +1143,7 @@ export function frame(
   // The host may leave its last mouse report at the window edge.
   if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u)) {
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
-    if (!on_link_card && !on_git && !u.connection_card?.rect.contains(u.pointer.x, u.pointer.y))
+    if (!on_link_card && !on_peek && !on_git && !u.connection_card?.rect.contains(u.pointer.x, u.pointer.y))
       side.machine_hover = sidebar.machineHeaderAt(side, u.pointer.x, u.pointer.y)?.rect.y ?? null;
   }
   side.spotlight = u.worktree_spotlight;
@@ -1418,6 +1427,14 @@ export function frame(
     linkTooltip.draw(w, link_rect, u.link_card, linkTooltip.copyAt(link_rect, u.pointer.x, u.pointer.y));
     if (u.link_card.thumbnail) w.write(linkThumbnail.place(link_rect, u.link_card.thumbnail));
     cover(link_rect);
+  }
+  if (u.file_peek) {
+    w.write("\x1b[?25l");
+    pane_cursor = null;
+    u.file_peek.draw(w);
+    cover(u.file_peek.rect);
+    // Its lines open the file where they show it.
+    if (on_peek) link_pointer = true;
   }
   if (u.connection_card && noOverlay(u)) {
     connectivityCard.draw(w, u.connection_card);

@@ -73,6 +73,14 @@ The wheel enters scroll mode. There, `j/k`, PageUp/PageDown and `g/G` move,
 `/` searches, `n/N` repeat the search, `y` or Enter copies, and `q` exits.
 Output continues while you scroll.
 
+A file's name in a pane, such as `src/app.ts:42` or `at f (src/app.ts:42:7)`,
+links to the file when it is on this machine. Rest the pointer on it for two
+seconds to peek: the card shows that line amid its neighbors, or a log's newest
+lines as they arrive, and the wheel scrolls it. Click the name, or a line in
+the card, to open the file in a pane beside it, where `z` folds, `F` follows a
+log, `e` opens `$VISUAL` or `$EDITOR` at the line, and `q` closes it. Logs and
+files over 8 MB are read from their end, so a large one opens at once.
+
 Closing a tab or pane ends its processes. **prefix u** reopens the latest
 recoverable closed agent in the workspace, resuming its conversation; closed
 shells and unsaved application memory cannot be restored. **prefix q** detaches

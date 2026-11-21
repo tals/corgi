@@ -5,7 +5,8 @@ import * as archiveSummary from "./archive_summary";
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
 import { homedir, hostname } from "node:os";
-import { basename, isAbsolute } from "node:path";
+import { existsSync, rmSync } from "node:fs";
+import { basename, dirname, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as keys from "./keys";
 import * as keyboard from "./keyboard";
@@ -80,6 +81,8 @@ import * as shellPicker from "./shell_picker";
 import { installedShells } from "./launch/command";
 import * as linkTooltip from "./link_tooltip";
 import * as linkThumbnail from "./link_thumbnail";
+import * as fileRef from "./file_ref";
+import * as filePeek from "./file_peek";
 import * as paneImages from "./pane_images";
 import * as tabIcons from "./tab_icons";
 import * as startupCard from "./startup_card";
@@ -139,7 +142,10 @@ import {
 import * as errors from "./errors";
 import * as moonlanderTerminal from "./moonlander/terminal";
 import {
+  chatArgs,
+  corgiCommand,
   Prompt,
+  type ChatArgs,
   type Context as PromptContext,
   type Effect as PromptEffect,
   type Mention as PromptMention,
@@ -213,11 +219,19 @@ function tabWheel(button: number): boolean | null {
       return null;
   }
 }
+/** A file a link names, which a click opens in `corgi __view`. */
+interface OpenFile {
+  path: string;
+  line: number | null;
+  column: number | null;
+}
 /** A pressed link or port row, tracked until release confirms it wasn't a drag. */
 interface PortClick {
   x: number;
   y: number;
   url: string;
+  /** Set when the link is a file's name. */
+  file: OpenFile | null;
   menu: viewerRef.Workspace | null;
   pane: number | null;
   px: number;
@@ -229,6 +243,7 @@ interface PortClick {
 }
 const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortClick => ({
   url: "",
+  file: null,
   menu: null,
   pane: null,
   px: 0,
@@ -302,6 +317,7 @@ interface Picked {
  * start a double-click. */
 interface PendingOpen {
   url: string;
+  file: OpenFile | null;
   pane: number;
   due: number;
 }
@@ -505,6 +521,19 @@ export class Controller {
   }
   link_tooltip = new linkTooltip.State();
   link_copy_press: linkTooltip.Link | null = null;
+  /** Whether the paths panes show are files here, and the peek at one. */
+  file_refs = new fileRef.Resolver(() => {
+    this.dirty = true;
+    this.wake();
+  });
+  file_peeks = new filePeek.Peeks(() => {
+    // A peek read while the pointer waits draws when it shows.
+    if (!this.link_tooltip.shown) return;
+    this.dirty = true;
+    this.wake();
+  });
+  /** A press in the file peek: its body row, or null on its frame. */
+  private file_press: { row: number | null } | null = null;
   /** The picture of the prompt's pasted image under the pointer, this frame. */
   private prompt_preview: PromptPreview | null = null;
   thumbnails = new linkThumbnail.Loader(() => {
@@ -747,6 +776,9 @@ export class Controller {
     this.git_card = new gitTooltip.State();
     this.resource_card = new resourceTooltip.State();
     this.link_tooltip.move();
+    // A click waiting out a double-click names a pane, and a file, there.
+    this.pending_open = null;
+    this.file_peeks.clear();
     this.headless_notice = null;
     this.review.pinned = false;
     this.sidebar_rows.discard();
@@ -5854,21 +5886,44 @@ export class Controller {
         return this.copyText(effect.text);
       case "open":
         return this.showConversation(effect.entry);
-      case "pane": {
-        let made = false;
+      case "pane":
         try {
-          await this.create(null, effect.cwd || this.currentCwd(), shellWords(effect.argv), "", () => (made = true));
+          await this.create(null, effect.cwd || this.currentCwd(), shellWords(effect.argv), "");
         } catch (error) {
           const name = errors.name(error) ?? i18n.t`unknown error`;
-          // A pane the daemon made goes on with the conversation. The card
-          // takes it back only when the daemon refused: after a lost reply, a
-          // pane may still start and read the handoff.
-          if (made) return;
-          if (effect.handoff && errors.reply(error)) this.prompt.reclaim(effect.handoff, name);
           this.notice(` Couldn't open a pane: ${name}`);
         }
         return;
-      }
+      case "chat":
+        return this.chatPane(effect.chat, effect.cwd);
+    }
+  }
+  /** Moves the prompt's conversation to a `corgi __chat` pane on the machine
+   * whose daemon runs it. Another computer's pane can't read the handoff, so
+   * it follows the session from its daemon; the file stays here only for the
+   * card to take the conversation back. */
+  private async chatPane(chat: ChatArgs, cwd: string): Promise<void> {
+    const machine = (chat.session && this.prompt_sessions.get(`${chat.provider}:${chat.session}`)) || this.machine;
+    if (machine !== this.machine) {
+      const name = machine.name,
+        reason = i18n.t`the chat runs on ${name}`;
+      this.prompt.reclaim(chat.handoff, reason);
+      return this.notice(` Couldn't open a pane: ${reason}`);
+    }
+    const argv = [...this.corgiOn(machine), "__chat", ...chatArgs(machine.remote ? { ...chat, handoff: "" } : chat)];
+    let made = false;
+    try {
+      await this.create(null, cwd || this.currentCwd(), shellWords(argv), "", () => (made = true));
+    } catch (error) {
+      const name = errors.name(error) ?? i18n.t`unknown error`;
+      // A pane the daemon made goes on with the conversation. The card
+      // takes it back only when the daemon refused: after a lost reply, a
+      // pane may still start and read the handoff.
+      if (made) return;
+      if (errors.reply(error)) this.prompt.reclaim(chat.handoff, name);
+      this.notice(` Couldn't open a pane: ${name}`);
+    } finally {
+      if (machine.remote) rmSync(chat.handoff, { force: true });
     }
   }
   /** The conversations the prompt's lists show, as the launcher has them:
@@ -7923,8 +7978,7 @@ export class Controller {
       // A press on the link itself starts its own click or double-click.
       const open = this.pending_open;
       this.pending_open = null;
-      if (open && !this.pressesLink(open, x, y) && this.focused()?.id === open.pane)
-        this.queueEffect({ open_url: open.url });
+      if (open && !this.pressesLink(open, x, y) && this.focused()?.id === open.pane) this.openLink(open.url, open.file);
     }
     if (!release && (button & 32) === 0) this.endSigninExit();
     // A double-click needs two left presses on one sidebar cell with the
@@ -8156,10 +8210,15 @@ export class Controller {
               this.dirty = true;
             } else if (click.drag_selects && click.pane !== null && button === 0) {
               // Waits out the double-click window, which may pick the link instead.
-              this.pending_open = { url: click.url, pane: click.pane, due: click.at + double_click_ms };
+              this.pending_open = {
+                url: click.url,
+                file: click.file,
+                pane: click.pane,
+                due: click.at + double_click_ms,
+              };
               this.closeMenu();
             } else {
-              this.queueEffect({ open_url: click.url });
+              this.openLink(click.url, click.file);
               this.closeMenu();
             }
           }
@@ -8953,11 +9012,14 @@ export class Controller {
       if (!release && (button === 16 || plain_link) && !this.copy_mode) {
         for (const link of term.hyperlinks()) {
           if (link.row !== y - p.rect.y || x - p.rect.x < link.start || x - p.rect.x >= link.end) continue;
-          if (!openableLink(link.uri)) continue;
+          // A file's name opens it in a pane of its own.
+          const found = openableLink(link.uri) ? null : this.linkFile(link.uri, link.path === true, this.pane(p.id));
+          if (!openableLink(link.uri) && !found) continue;
           cl.port_click = portClick({
             x,
             y,
             url: link.uri,
+            file: found && { path: found.path, line: found.ref.line, column: found.ref.column },
             pane: p.id,
             px: x - p.rect.x,
             py: y - p.rect.y,
@@ -9239,7 +9301,7 @@ export class Controller {
     if (open && milliTimestamp() >= open.due) {
       this.pending_open = null;
       // Dropped once its pane closed or lost focus.
-      if (this.focused()?.id === open.pane) this.queueEffect({ open_url: open.url });
+      if (this.focused()?.id === open.pane) this.openLink(open.url, open.file);
     }
     if (this.signin_exit) {
       if (this.signin_exit.tick(milliTimestamp())) this.dirty = true;
@@ -9949,8 +10011,72 @@ export class Controller {
     if (this.corgi_setup) return !this.corgi_setup.draggingIntensity();
     return this.hoverIdle();
   }
+  /** The file a link in `pane` names on this machine, once checked: a path
+   * from the folder its agent or shell works in, or a file:// link that
+   * isn't to an image, which keeps its picture card. */
+  private linkFile(uri: string, path: boolean, pane: Pane | null): { path: string; ref: fileRef.Ref } | null {
+    if (this.machine.remote || pane === null || (!path && linkThumbnail.imagePath(uri) !== null)) return null;
+    const ref = fileRef.parse(uri, path);
+    if (!ref) return null;
+    const status = this.file_refs.get(ref, pane.agent.cwd || pane.cwd);
+    return status.kind === "file" ? { path: status.path, ref } : null;
+  }
+  private hoveredFile(link: linkTooltip.Link): { path: string; ref: fileRef.Ref } | null {
+    return this.linkFile(
+      link.uri,
+      link.path === true,
+      this.runtime.panes.find(p => p.terminal === link.source) ?? null,
+    );
+  }
+  /** The peek open over a file's name, and where it is. */
+  private fileCard(): { peek: filePeek.Peek; rect: Rect } | null {
+    const target = this.link_tooltip.target,
+      link = target?.link;
+    if (!target?.file || !link || !this.link_tooltip.shown || !this.linkHoverIdle() || this.paste_card) return null;
+    if (this.ui_mouse_down && this.file_press === null) return null;
+    if (!linkTooltip.sameLink(this.linkAt(link.x, link.y), link)) return null;
+    const peek = this.file_peeks.current,
+      rect = filePeek.geometry(this.width, this.height, link);
+    return peek && rect ? { peek, rect } : null;
+  }
+  /** A clicked link: a file's name opens in a pane, anything else in the host's browser. */
+  private openLink(url: string, file: OpenFile | null): void {
+    if (file) void this.openFile(file.path, file.line, file.column);
+    else this.queueEffect({ open_url: url });
+  }
+  /** Whether the pointer is still on the file name whose peek waits to open. */
+  private waitsOnFile(x: number, y: number): boolean {
+    const target = this.link_tooltip.target;
+    return target?.file === true && !this.link_tooltip.shown && linkTooltip.sameLink(this.linkAt(x, y), target.link);
+  }
+  /** Opens the peek's file in a pane: at the body row clicked, else at the line its text named. */
+  private openPeek(peek: filePeek.Peek, row: number | null): void {
+    const line = row !== null ? peek.lineAt(row) : peek.ref.line;
+    this.link_tooltip.cancel();
+    this.file_peeks.clear();
+    void this.openFile(peek.path, line ?? peek.ref.line, line === peek.ref.line ? peek.ref.column : null);
+  }
+  /** How a pane on `machine` runs Corgi: as this viewer runs, or on another
+   * computer as its daemon does, which also puts itself first on a pane's PATH. */
+  private corgiOn(machine: Machine): string[] {
+    return machine.remote ? [machine.executable || "corgi"] : corgiCommand();
+  }
+  /** Opens `path` in `corgi __view`, split beside the focused pane. */
+  private async openFile(path: string, line: number | null, column: number | null): Promise<void> {
+    const argv = [...this.corgiOn(this.machine), "__view", path];
+    if (line !== null) argv.push("--line", String(line));
+    if (column !== null) argv.push("--column", String(column));
+    try {
+      await this.create("horizontal", dirname(path), "exec " + shellWords(argv), basename(path));
+    } catch (error) {
+      const name = basename(path),
+        reason = errors.name(error) ?? i18n.t`unknown error`;
+      this.notice(i18n.t` Couldn't open ${name}: ${reason}`);
+    }
+  }
   private linkCard(): linkTooltip.Card | null {
     const link = this.link_tooltip.target?.link;
+    if (this.link_tooltip.target?.file) return null;
     if (!link || !this.link_tooltip.shown || !this.linkHoverIdle() || this.paste_card || this.ui_mouse_down)
       return null;
     const source = this.linkAt(link.x, link.y);
@@ -9966,6 +10092,9 @@ export class Controller {
     return this.supports_kitty_graphics && cell ? this.thumbnails.get(uri, cell) : null;
   }
   private linkHoverContains(x: number, y: number): boolean {
+    const file = this.fileCard();
+    if (file)
+      return file.rect.contains(x, y) || linkTooltip.sameLink(this.linkAt(x, y), this.link_tooltip.target?.link);
     const card = this.linkCard();
     if (!card) return false;
     const rect = linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail);
@@ -9975,6 +10104,27 @@ export class Controller {
   }
   /** The same copy-button capture for every terminal showing a link card. */
   private async linkMouse(button: number, x: number, y: number, release: boolean): Promise<boolean> {
+    // The file peek scrolls under the wheel and opens its file on a click.
+    const file = this.fileCard();
+    if (this.file_press !== null) {
+      this.pointer = { x, y };
+      this.dirty = true;
+      if (release) {
+        const press = this.file_press;
+        this.file_press = null;
+        if (button === 0 && file?.rect.contains(x, y) && filePeek.bodyRow(file.rect, x, y) === press.row)
+          this.openPeek(file.peek, press.row);
+      }
+      return true;
+    }
+    if (file?.rect.contains(x, y) && !release) {
+      if (button === 64 || button === 65) filePeek.wheel(file.peek, button === 64);
+      else if (button === 0) this.file_press = { row: filePeek.bodyRow(file.rect, x, y) };
+      else if (button !== 35) return false;
+      this.pointer = { x, y };
+      this.dirty = true;
+      return true;
+    }
     const card = this.linkCard(),
       rect = card ? linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail) : null;
     if (this.link_copy_press !== null) {
@@ -10003,6 +10153,8 @@ export class Controller {
       if (
         moved &&
         !this.linkHoverContains(x, y) &&
+        // Moving along a file's name keeps its peek's wait.
+        !this.waitsOnFile(x, y) &&
         (this.signin ||
           (!this.resourceHoverContains(x, y) && !this.worktreeHoverContains(x, y) && !this.gitHoverContains(x, y)))
       ) {
@@ -10073,12 +10225,18 @@ export class Controller {
         }
       }
       const link = !this.paste_card ? this.linkAt(pointer.x, pointer.y) : null;
-      if (link && linkTooltip.geometry(this.width, this.height, link)) {
+      const file = link ? this.hoveredFile(link) : null;
+      if (link && file && filePeek.geometry(this.width, this.height, link)) {
+        target = { link, file: true };
+        // Read while the peek waits to open.
+        this.file_peeks.get(file.path, file.ref);
+      } else if (link && !link.path && linkTooltip.geometry(this.width, this.height, link)) {
         target = { link };
         // Loads while the card waits to open.
         this.linkThumbnail(link.uri);
       }
     }
+    if (!target?.file) this.file_peeks.clear();
     return this.link_tooltip.ready(target, milliTimestamp());
   }
   frame(): string {
@@ -10155,6 +10313,7 @@ export class Controller {
     }
     const tooltip_ready = this.linkTooltipReady();
     const link_card = tooltip_ready ? this.linkCard() : null;
+    const file_card = tooltip_ready ? this.fileCard() : null;
     // The prompt's pasted image under the pointer shares the link card's picture.
     const previewed = this.prompt.previewed(),
       pictures = this.supports_kitty_graphics && this.cell_pixels !== null;
@@ -10207,6 +10366,10 @@ export class Controller {
         iterm2_pointer: this.host.iterm2_pointer,
         link_tooltip: tooltip_ready,
         link_card,
+        file_peek: file_card
+          ? { rect: file_card.rect, draw: w => filePeek.draw(w, file_card.rect, file_card.peek, this.pointer) }
+          : null,
+        file_link: (pane, link) => this.linkFile(link.uri, link.path === true, this.pane(pane)) !== null,
         startup_waits: this.runtime.startup_waits,
         startup_card: this.startup_card,
         resources: readings,

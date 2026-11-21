@@ -92,6 +92,8 @@ export class Machine {
   control_check: ControlCheck | null = null;
   /** Links point at the daemon's machine, so they're shown, not opened here. */
   remote_links = false;
+  /** The Corgi the daemon runs, as its hello said: what its panes run Corgi as. */
+  executable = "";
   /** Workspace ids whose group is folded in the grouped "All" list. */
   folded_groups: number[] = [];
   /** Its worktree groups' folds, and the worktree being browsed. */

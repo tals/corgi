@@ -227,6 +227,9 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" any key closes "]': () => ` 按任意键关闭 `,
     '[" back "]': () => ` 返回 `,
     '[" c Clone "]': () => ` c 克隆 `,
+    '[" click to open · scroll "]': () => ` 点击打开 · 滚动 `,
+    '[" click to open · scroll to the end to follow "]': () => ` 点击打开 · 滚到底部继续跟随 `,
+    '[" click to open · scroll up to pause "]': () => ` 点击打开 · 向上滚动暂停 `,
     '[" close "]': () => ` 关闭 `,
     '[" cpu "]': () => ` CPU `,
     '[" disk I/O "]': () => ` 磁盘 I/O `,
@@ -241,12 +244,14 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" sort: "]': () => ` 排序：`,
     '[" vs "]': () => ` 对比 `,
     '[" z: files "]': () => ` z：文件 `,
+    '[" · "," new"]': v0 => ` · 新增 ${v0} 行`,
     '[" · "," here"]': v0 => ` · 此处 ${v0} 个`,
     '[" · none here"]': () => ` · 此处没有`,
     '[" · over SSH"]': () => ` · 通过 SSH`,
     '[" · release to cancel"]': () => ` · 松开取消`,
     '[" … "," more characters"]': v0 => ` … 另有 ${v0} 个字符`,
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-点击打开 · 点击复制 `,
+    '[" ⋯ "," lines "]': v0 => ` ⋯ ${v0} 行 `,
     '[" ✓  Copied"]': () => ` ✓  已复制`,
     '[" ⧉  Copy link"]': () => ` ⧉  复制链接`,
     '[" ⧉  Copy path"]': () => ` ⧉  复制路径`,
@@ -269,6 +274,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[""," in ",""]': (v0, v1) => `${v1} 中有 ${v0} 个`,
     '[""," leading process "," ago"]': (v0, v1) => `前 ${v0} 个进程 · ${v1}前`,
     '[""," leading processes "," ago"]': (v0, v1) => `前 ${v0} 个进程 · ${v1}前`,
+    '[""," lines · ",""]': (v0, v1) => `${v0} 行 · ${v1}`,
     '[""," more outside "," · tab widens"]': (v0, v1) => `${v1} 之外另有 ${v0} 个 · Tab 扩大范围`,
     '[""," note"]': v0 => `${v0} 条批注`,
     '[""," notes"]': v0 => `${v0} 条批注`,
@@ -436,6 +442,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Cached"]': () => `已缓存`,
     '["Can\'t read "," (","); repair it before saving preferences."]': (v0, v1) =>
       `无法读取 ${v0}（${v1}）；请先修复它再保存偏好设置。`,
+    '["Can\'t read it: ",""]': v0 => `无法读取：${v0}`,
     '["Can\'t read this folder"]': () => `无法读取此文件夹`,
     '["Can\'t save "," (",")"]': (v0, v1) => `无法保存 ${v0}（${v1}）`,
     '["Cancel"]': () => `取消`,
@@ -564,6 +571,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Edit workspace"]': () => `编辑工作区`,
     '["Edit ›"]': () => `编辑 ›`,
     '["Edit, delete"]': () => `编辑、删除`,
+    '["Empty file"]': () => `空文件`,
     '["Ended"]': () => `已结束`,
     '["Enter a command."]': () => `请输入命令。`,
     '["Enter a workspace name."]': () => `请输入工作区名称。`,
@@ -1315,6 +1323,9 @@ ${v1} 使用该账号。
     '["pick"]': () => `选择`,
     '["pin"]': () => `固定`,
     '["play"]': () => `游玩`,
+    '["q close  e edit  F follow  space page  g/G top/end"]': () => `q 关闭  e 编辑  F 跟随  space 翻页  g/G 顶部/底部`,
+    '["q close  e edit  z fold  Z fold all  space page  g/G top/end"]': () =>
+      `q 关闭  e 编辑  z 折叠  Z 全部折叠  space 翻页  g/G 顶部/底部`,
     '["rate limited"]': () => `已达速率限制`,
     '["ready"]': () => `就绪`,
     '["reconnecting"]': () => `重新连接中`,
@@ -1355,6 +1366,7 @@ ${v1} 使用该账号。
     '["tab ",""]': v0 => `标签页 ${v0}`,
     '["term"]': () => `终端`,
     '["terminal graphics"]': () => `终端图形`,
+    '["the chat runs on ",""]': v0 => `该对话在 ${v0} 上运行`,
     '["the wonderful pi-tui"]': () => `出色的 pi-tui`,
     '["then"]': () => `然后`,
     '["then key"]': () => `再按键`,
@@ -1390,6 +1402,7 @@ ${v1} 使用该账号。
     '["your account"]': () => `你的账号`,
     '["your terminal\'s"]': () => `终端配色`,
     '["— tokens"]': () => `— Token`,
+    '["‖ paused"]': () => `‖ 已暂停`,
     '["… "," done"]': v0 => `…已完成 ${v0} 项`,
     '["…"," more"]': v0 => `…另有 ${v0} 个`,
     '["‹ "," · Effort"]': v0 => `‹ ${v0} · 推理强度`,
@@ -1428,6 +1441,8 @@ ${v1} 使用该账号。
     '["◇ Prefix = ",""]': v0 => `◇ 前缀键 = ${v0}`,
     '["○ Corgi (Activity summarizer)"]': () => `○ Corgi（活动摘要）`,
     '["● Jump to who needs you"]': () => `● 跳转到需要你的智能体`,
+    '["● following"]': () => `● 跟随中`,
+    '["● live"]': () => `● 实时`,
     '["✓ Copied"]': () => `✓ 已复制`,
     '["🐕 badge; animations stay still."]': () => `🐕 图标；动画保持静止。`,
   },
@@ -1665,6 +1680,9 @@ ${v1} 使用该账号。
     '[" any key closes "]': () => ` 何かキーを押すと閉じます `,
     '[" back "]': () => ` 戻る `,
     '[" c Clone "]': () => ` c 複製 `,
+    '[" click to open · scroll "]': () => ` クリックで開く · スクロール `,
+    '[" click to open · scroll to the end to follow "]': () => ` クリックで開く · 末尾までスクロールで追従 `,
+    '[" click to open · scroll up to pause "]': () => ` クリックで開く · 上にスクロールで一時停止 `,
     '[" close "]': () => ` 閉じる `,
     '[" cpu "]': () => ` CPU `,
     '[" disk I/O "]': () => ` ディスクI/O `,
@@ -1679,12 +1697,14 @@ ${v1} 使用该账号。
     '[" sort: "]': () => ` 並べ替え：`,
     '[" vs "]': () => ` 対 `,
     '[" z: files "]': () => ` z: ファイル `,
+    '[" · "," new"]': v0 => ` · 新着${v0}行`,
     '[" · "," here"]': v0 => ` · この場所に${v0}件`,
     '[" · none here"]': () => ` · この場所にはありません`,
     '[" · over SSH"]': () => ` · SSH接続`,
     '[" · release to cancel"]': () => ` · 離すとキャンセル`,
     '[" … "," more characters"]': v0 => ` … 残り${v0}文字`,
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-クリックで開く · クリックでコピー `,
+    '[" ⋯ "," lines "]': v0 => ` ⋯ ${v0}行 `,
     '[" ✓  Copied"]': () => ` ✓  コピーしました`,
     '[" ⧉  Copy link"]': () => ` ⧉  リンクをコピー`,
     '[" ⧉  Copy path"]': () => ` ⧉  パスをコピー`,
@@ -1707,6 +1727,7 @@ ${v1} 使用该账号。
     '[""," in ",""]': (v0, v1) => `${v1}内に${v0}件`,
     '[""," leading process "," ago"]': (v0, v1) => `上位${v0}プロセス・${v1}前`,
     '[""," leading processes "," ago"]': (v0, v1) => `上位${v0}プロセス・${v1}前`,
+    '[""," lines · ",""]': (v0, v1) => `${v0}行 · ${v1}`,
     '[""," more outside "," · tab widens"]': (v0, v1) => `${v1}の外にほか${v0}件 · tabで範囲拡大`,
     '[""," note"]': v0 => `${v0}件のコメント`,
     '[""," notes"]': v0 => `${v0}件のコメント`,
@@ -1881,6 +1902,7 @@ ${v1} 使用该账号。
     '["Cached"]': () => `キャッシュ`,
     '["Can\'t read "," (","); repair it before saving preferences."]': (v0, v1) =>
       `${v0} を読み込めません（${v1}）。設定を保存する前に修正してください。`,
+    '["Can\'t read it: ",""]': v0 => `読み込めません: ${v0}`,
     '["Can\'t read this folder"]': () => `このフォルダーを読み込めません`,
     '["Can\'t save "," (",")"]': (v0, v1) => `${v0} を保存できません（${v1}）`,
     '["Cancel"]': () => `キャンセル`,
@@ -2015,6 +2037,7 @@ ${v1} 使用该账号。
     '["Edit workspace"]': () => `ワークスペースを編集`,
     '["Edit ›"]': () => `編集 ›`,
     '["Edit, delete"]': () => `編集・削除`,
+    '["Empty file"]': () => `空のファイル`,
     '["Ended"]': () => `終了`,
     '["Enter a command."]': () => `コマンドを入力してください。`,
     '["Enter a workspace name."]': () => `ワークスペース名を入力してください。`,
@@ -2783,6 +2806,10 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["pick"]': () => `選択`,
     '["pin"]': () => `固定`,
     '["play"]': () => `遊ぶ`,
+    '["q close  e edit  F follow  space page  g/G top/end"]': () =>
+      `q 閉じる  e 編集  F 追従  space ページ送り  g/G 先頭/末尾`,
+    '["q close  e edit  z fold  Z fold all  space page  g/G top/end"]': () =>
+      `q 閉じる  e 編集  z 折りたたむ  Z すべて折りたたむ  space ページ送り  g/G 先頭/末尾`,
     '["rate limited"]': () => `レート制限中`,
     '["ready"]': () => `準備完了`,
     '["reconnecting"]': () => `再接続中`,
@@ -2823,6 +2850,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["tab ",""]': v0 => `タブ${v0}`,
     '["term"]': () => `端末`,
     '["terminal graphics"]': () => `端末での画像表示`,
+    '["the chat runs on ",""]': v0 => `このチャットは ${v0} で動いています`,
     '["the wonderful pi-tui"]': () => `すばらしいpi-tui`,
     '["then"]': () => `続いて`,
     '["then key"]': () => `次のキー`,
@@ -2858,6 +2886,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["your account"]': () => `アカウントの設定`,
     '["your terminal\'s"]': () => `端末の配色`,
     '["— tokens"]': () => `— トークン`,
+    '["‖ paused"]': () => `‖ 一時停止`,
     '["… "," done"]': v0 => `… ${v0}件完了`,
     '["…"," more"]': v0 => `…ほか${v0}件`,
     '["‹ "," · Effort"]': v0 => `‹ ${v0} · 推論量`,
@@ -2896,6 +2925,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["◇ Prefix = ",""]': v0 => `◇ プレフィックス = ${v0}`,
     '["○ Corgi (Activity summarizer)"]': () => `○ Corgi（作業の要約）`,
     '["● Jump to who needs you"]': () => `● 対応待ちのエージェントへ`,
+    '["● following"]': () => `● 追従中`,
+    '["● live"]': () => `● ライブ`,
     '["✓ Copied"]': () => `✓ コピーしました`,
     '["🐕 badge; animations stay still."]': () => `🐕 バッジを表示。アニメーションは停止します。`,
   },
@@ -3130,6 +3161,9 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" any key closes "]': () => ` 아무 키나 눌러 닫기 `,
     '[" back "]': () => ` 뒤로 `,
     '[" c Clone "]': () => ` c 복제 `,
+    '[" click to open · scroll "]': () => ` 클릭해 열기 · 스크롤 `,
+    '[" click to open · scroll to the end to follow "]': () => ` 클릭해 열기 · 끝까지 스크롤하면 따라가기 `,
+    '[" click to open · scroll up to pause "]': () => ` 클릭해 열기 · 위로 스크롤하면 일시 중지 `,
     '[" close "]': () => ` 닫기 `,
     '[" cpu "]': () => ` CPU `,
     '[" disk I/O "]': () => ` 디스크 I/O `,
@@ -3144,12 +3178,14 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" sort: "]': () => ` 정렬: `,
     '[" vs "]': () => ` 대비 `,
     '[" z: files "]': () => ` z: 파일 `,
+    '[" · "," new"]': v0 => ` · 새 ${v0}행`,
     '[" · "," here"]': v0 => ` · 여기 ${v0}개`,
     '[" · none here"]': () => ` · 여기에 없음`,
     '[" · over SSH"]': () => ` · SSH 연결`,
     '[" · release to cancel"]': () => ` · 손을 떼면 취소`,
     '[" … "," more characters"]': v0 => ` … ${v0}자 더`,
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-클릭 열기 · 클릭 복사 `,
+    '[" ⋯ "," lines "]': v0 => ` ⋯ ${v0}행 `,
     '[" ✓  Copied"]': () => ` ✓  복사됨`,
     '[" ⧉  Copy link"]': () => ` ⧉  링크 복사`,
     '[" ⧉  Copy path"]': () => ` ⧉  경로 복사`,
@@ -3172,6 +3208,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[""," in ",""]': (v0, v1) => `${v1}에 ${v0}개`,
     '[""," leading process "," ago"]': (v0, v1) => `상위 프로세스 ${v0}개 · ${v1} 전`,
     '[""," leading processes "," ago"]': (v0, v1) => `상위 프로세스 ${v0}개 · ${v1} 전`,
+    '[""," lines · ",""]': (v0, v1) => `${v0}행 · ${v1}`,
     '[""," more outside "," · tab widens"]': (v0, v1) => `${v1} 밖에 ${v0}개 더 · Tab 범위 넓히기`,
     '[""," note"]': v0 => `메모 ${v0}개`,
     '[""," notes"]': v0 => `메모 ${v0}개`,
@@ -3348,6 +3385,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Cached"]': () => `캐시됨`,
     '["Can\'t read "," (","); repair it before saving preferences."]': (v0, v1) =>
       `${v0}을(를) 읽을 수 없습니다(${v1}). 환경설정을 저장하기 전에 고쳐 주세요.`,
+    '["Can\'t read it: ",""]': v0 => `읽을 수 없음: ${v0}`,
     '["Can\'t read this folder"]': () => `이 폴더를 읽을 수 없습니다`,
     '["Can\'t save "," (",")"]': (v0, v1) => `${v0}을(를) 저장할 수 없습니다(${v1})`,
     '["Cancel"]': () => `취소`,
@@ -3481,6 +3519,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Edit workspace"]': () => `작업 공간 편집`,
     '["Edit ›"]': () => `편집 ›`,
     '["Edit, delete"]': () => `편집, 삭제`,
+    '["Empty file"]': () => `빈 파일`,
     '["Ended"]': () => `종료됨`,
     '["Enter a command."]': () => `명령을 입력하세요.`,
     '["Enter a workspace name."]': () => `작업 공간 이름을 입력하세요.`,
@@ -4246,6 +4285,10 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["pick"]': () => `선택`,
     '["pin"]': () => `고정`,
     '["play"]': () => `플레이`,
+    '["q close  e edit  F follow  space page  g/G top/end"]': () =>
+      `q 닫기  e 편집  F 따라가기  space 페이지  g/G 처음/끝`,
+    '["q close  e edit  z fold  Z fold all  space page  g/G top/end"]': () =>
+      `q 닫기  e 편집  z 접기  Z 모두 접기  space 페이지  g/G 처음/끝`,
     '["rate limited"]': () => `요청 제한됨`,
     '["ready"]': () => `준비됨`,
     '["reconnecting"]': () => `재연결 중`,
@@ -4286,6 +4329,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["tab ",""]': v0 => `탭 ${v0}`,
     '["term"]': () => `터미널`,
     '["terminal graphics"]': () => `터미널 그래픽`,
+    '["the chat runs on ",""]': v0 => `이 채팅은 ${v0}에서 실행 중입니다`,
     '["the wonderful pi-tui"]': () => `멋진 pi-tui`,
     '["then"]': () => `그다음`,
     '["then key"]': () => `다음 키`,
@@ -4321,6 +4365,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["your account"]': () => `내 계정`,
     '["your terminal\'s"]': () => `터미널 색상`,
     '["— tokens"]': () => `— 토큰`,
+    '["‖ paused"]': () => `‖ 일시 중지`,
     '["… "," done"]': v0 => `… ${v0}개 완료`,
     '["…"," more"]': v0 => `…${v0}개 더`,
     '["‹ "," · Effort"]': v0 => `‹ ${v0} · 추론 강도`,
@@ -4359,6 +4404,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["◇ Prefix = ",""]': v0 => `◇ 접두 키 = ${v0}`,
     '["○ Corgi (Activity summarizer)"]': () => `○ Corgi (활동 요약)`,
     '["● Jump to who needs you"]': () => `● 응답이 필요한 에이전트로 이동`,
+    '["● following"]': () => `● 따라가는 중`,
+    '["● live"]': () => `● 실시간`,
     '["✓ Copied"]': () => `✓ 복사됨`,
     '["🐕 badge; animations stay still."]': () => `🐕 배지; 애니메이션은 멈춰 있습니다.`,
   },
@@ -4624,6 +4671,9 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" any key closes "]': () => ` любая клавиша закрывает `,
     '[" back "]': () => ` назад `,
     '[" c Clone "]': () => ` c Копия `,
+    '[" click to open · scroll "]': () => ` клик — открыть · прокрутка `,
+    '[" click to open · scroll to the end to follow "]': () => ` клик — открыть · прокрутите до конца, чтобы следить `,
+    '[" click to open · scroll up to pause "]': () => ` клик — открыть · прокрутка вверх — пауза `,
     '[" close "]': () => ` закрыть `,
     '[" cpu "]': () => ` ЦП `,
     '[" disk I/O "]': () => ` дисковый ввод-вывод `,
@@ -4638,6 +4688,20 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" sort: "]': () => ` сортировка: `,
     '[" vs "]': () => ` против `,
     '[" z: files "]': () => ` z: файлы `,
+    '[" · "," new"]': v0 => {
+      switch (plural("ru", Number(v0))) {
+        case "one":
+          return ` · ${v0} новая строка`;
+        case "few":
+          return ` · ${v0} новые строки`;
+        case "many":
+          return ` · ${v0} новых строк`;
+        case "other":
+          return ` · ${v0} новой строки`;
+        default:
+          return ` · ${v0} новой строки`;
+      }
+    },
     '[" · "," here"]': v0 => ` · здесь: ${v0}`,
     '[" · none here"]': () => ` · здесь нет`,
     '[" · over SSH"]': () => ` · по SSH`,
@@ -4657,6 +4721,20 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       }
     },
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-клик открыть · клик скопировать `,
+    '[" ⋯ "," lines "]': v0 => {
+      switch (plural("ru", Number(v0))) {
+        case "one":
+          return ` ⋯ ${v0} строка `;
+        case "few":
+          return ` ⋯ ${v0} строки `;
+        case "many":
+          return ` ⋯ ${v0} строк `;
+        case "other":
+          return ` ⋯ ${v0} строки `;
+        default:
+          return ` ⋯ ${v0} строки `;
+      }
+    },
     '[" ✓  Copied"]': () => ` ✓  Скопировано`,
     '[" ⧉  Copy link"]': () => ` ⧉  Скопировать ссылку`,
     '[" ⧉  Copy path"]': () => ` ⧉  Скопировать путь`,
@@ -4808,6 +4886,20 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
           return `${v0} ведущих процесса ${v1} назад`;
         default:
           return `${v0} ведущих процесса ${v1} назад`;
+      }
+    },
+    '[""," lines · ",""]': (v0, v1) => {
+      switch (plural("ru", Number(v0))) {
+        case "one":
+          return `${v0} строка · ${v1}`;
+        case "few":
+          return `${v0} строки · ${v1}`;
+        case "many":
+          return `${v0} строк · ${v1}`;
+        case "other":
+          return `${v0} строки · ${v1}`;
+        default:
+          return `${v0} строки · ${v1}`;
       }
     },
     '[""," more outside "," · tab widens"]': (v0, v1) => `Ещё ${v0} вне области «${v1}» · tab расширить`,
@@ -5194,6 +5286,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Cached"]': () => `Кэш`,
     '["Can\'t read "," (","); repair it before saving preferences."]': (v0, v1) =>
       `Не удаётся прочитать ${v0} (${v1}); исправьте файл, прежде чем сохранять настройки.`,
+    '["Can\'t read it: ",""]': v0 => `Не удалось прочитать: ${v0}`,
     '["Can\'t read this folder"]': () => `Не удалось прочитать эту папку`,
     '["Can\'t save "," (",")"]': (v0, v1) => `Не удаётся сохранить ${v0} (${v1})`,
     '["Cancel"]': () => `Отмена`,
@@ -5355,6 +5448,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Edit workspace"]': () => `Изменить пространство`,
     '["Edit ›"]': () => `Изменить ›`,
     '["Edit, delete"]': () => `Изменить, удалить`,
+    '["Empty file"]': () => `Пустой файл`,
     '["Ended"]': () => `Завершён`,
     '["Enter a command."]': () => `Введите команду.`,
     '["Enter a workspace name."]': () => `Введите название пространства.`,
@@ -6175,6 +6269,10 @@ ${v1}, чтобы использовать этот аккаунт.
     '["pick"]': () => `выбрать`,
     '["pin"]': () => `закрепить`,
     '["play"]': () => `играть`,
+    '["q close  e edit  F follow  space page  g/G top/end"]': () =>
+      `q закрыть  e правка  F следить  space страница  g/G начало/конец`,
+    '["q close  e edit  z fold  Z fold all  space page  g/G top/end"]': () =>
+      `q закрыть  e правка  z свернуть  Z свернуть всё  space страница  g/G начало/конец`,
     '["rate limited"]': () => `лимит запросов`,
     '["ready"]': () => `готово`,
     '["reconnecting"]': () => `переподключение`,
@@ -6215,6 +6313,7 @@ ${v1}, чтобы использовать этот аккаунт.
     '["tab ",""]': v0 => `вкладка ${v0}`,
     '["term"]': () => `остановить`,
     '["terminal graphics"]': () => `графика терминала`,
+    '["the chat runs on ",""]': v0 => `чат работает на ${v0}`,
     '["the wonderful pi-tui"]': () => `замечательная pi-tui`,
     '["then"]': () => `затем`,
     '["then key"]': () => `затем клавиша`,
@@ -6250,6 +6349,7 @@ ${v1}, чтобы использовать этот аккаунт.
     '["your account"]': () => `ваш аккаунт`,
     '["your terminal\'s"]': () => `цвета терминала`,
     '["— tokens"]': () => `— токенов`,
+    '["‖ paused"]': () => `‖ пауза`,
     '["… "," done"]': v0 => `… выполнено: ${v0}`,
     '["…"," more"]': v0 => `…ещё ${v0}`,
     '["‹ "," · Effort"]': v0 => `‹ ${v0} · Усилие`,
@@ -6314,6 +6414,8 @@ ${v1}, чтобы использовать этот аккаунт.
     '["◇ Prefix = ",""]': v0 => `◇ Префикс = ${v0}`,
     '["○ Corgi (Activity summarizer)"]': () => `○ Corgi (Описания действий)`,
     '["● Jump to who needs you"]': () => `● Перейти к тому, кому вы нужны`,
+    '["● following"]': () => `● слежение`,
+    '["● live"]': () => `● обновляется`,
     '["✓ Copied"]': () => `✓ Скопировано`,
     '["🐕 badge; animations stay still."]': () => `🐕 значок; без анимаций.`,
   },
