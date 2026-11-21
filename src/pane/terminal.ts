@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import { n, ptr, call, symbols, ReadyLoop, READ, nativeRoot } from "../native_bridge";
 import * as launch_command from "../launch/command";
 import * as current_release from "../current_release";
+import * as paneBrowser from "../pane_browser";
 import { Provider, adapter } from "../providers";
 import * as surface from "./surface";
 import type { Link } from "./hyperlinks";
@@ -138,7 +139,8 @@ export class Terminal extends EventEmitter {
     if (n.probe_pty(ptr(fds))) throw Error("OpenPtyFailed");
     const [master, slave] = fds;
     const shell = launch_command.shell(),
-      cli = current_release.path(executable);
+      cli = current_release.path(executable),
+      browser = paneBrowser.install(cli, executable, socket);
     const env: Record<string, string | undefined> = {
       ...process.env,
       SHELL: shell,
@@ -150,7 +152,8 @@ export class Terminal extends EventEmitter {
       CORGI_SOCKET: socket,
       CORGI_BIN: hookSender(cli),
       CORGI_PANE: String(id),
-      PATH: `${dirname(cli)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      PATH: `${browser && browser !== dirname(cli) ? browser + ":" : ""}${dirname(cli)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      ...(browser ? paneBrowser.environment(browser, process.env) : {}),
     };
     for (const key of ["ITERM_SESSION_ID", "KITTY_WINDOW_ID", "WEZTERM_PANE", "VSCODE_PID", "ALACRITTY_WINDOW_ID"])
       delete env[key];

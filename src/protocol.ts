@@ -700,6 +700,8 @@ const stream = {
   worktree_detail: ["?u32", null],
   resources: ["bool", true],
   resources_hash: ["?u64", null],
+  /** The viewer opens links in a browser, for the `open-url` action. */
+  links: ["bool", false],
   /** How often a stream with nothing new still sends a frame, to show it's
    * alive. A viewer slow to call a link stalled, as over SSH, asks for fewer. */
   heartbeat_ms: ["u32", 250],
@@ -757,6 +759,7 @@ const requests = {
     worktree_detail: ["?u32", null],
     resources: ["bool", true],
     resources_hash: ["?u64", null],
+    links: ["bool", false],
   },
   "viewer.surfaces": {},
   "viewer.stream": stream,

@@ -737,6 +737,7 @@
   "Open an Issue on GitHub": "在 GitHub 上提交问题",
   "Open folder": "打开文件夹",
   "Open folder as workspace": "将文件夹作为工作区打开",
+  "Open link in browser": "在浏览器中打开链接",
   "Open the agent picker": "打开智能体选择器",
   "Open · jumps to its tab": "已打开 · 跳转到对应标签页",
   "Operations never auto-start a server.": "操作不会自动启动服务端。",

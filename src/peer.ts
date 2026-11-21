@@ -69,6 +69,8 @@ export class Client {
   held = false;
   snapshot_revision: bigint | null = null;
   watched = true;
+  /** The viewer opens links in a browser on its computer. */
+  links = false;
   session_hash = 0n;
   session_shown = 0n;
   session_bucket = 0;

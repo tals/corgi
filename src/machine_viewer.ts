@@ -1,10 +1,12 @@
 import { Notice as MachineNotice } from "./machine_diagnostics";
 import { Menu as ConnectivityMenu } from "./connectivity_menu";
-import { Hover as ConnectionHover } from "./connectivity_card";
+import * as connectivityCard from "./connectivity_card";
 import * as composition from "./composition";
 import { dirname, join } from "node:path";
 import { Endpoint, localEndpoint, quiet_ms } from "./machine_connection";
 import * as terminalInput from "./terminal_input";
+import * as keys from "./keys";
+import type * as keyboard from "./keyboard";
 import type { Parser, Input } from "./terminal_input";
 import * as machines from "./machines";
 import * as errors from "./errors";
@@ -21,6 +23,8 @@ import * as discovery from "./discovery";
 import * as corgiAnimation from "./corgi_animation";
 import { attach } from "./host";
 import { Openers } from "./url_opener";
+import * as portForwards from "./port_forwards";
+import { sshViewer } from "./trackers/ports";
 import { Wake } from "./wake";
 import type { Probe } from "./terminal_info";
 import type { Differ } from "./frame_diff";
@@ -131,7 +135,7 @@ export async function run(
   side.resources = host.prefs.resources;
   const workspaces = new Workspaces(endpoints, view);
   const connectivity = new ConnectivityMenu(endpoints);
-  const connection_hover = new ConnectionHover();
+  const connection_hover = new connectivityCard.Hover();
   const diagnostic = new MachineNotice();
   view.onConnectivity = () => {
     connectivity.toggle(endpoints.indexOf(active!));
@@ -160,6 +164,88 @@ export async function run(
   let previous: composition.Output = "";
   let paste_owner: { endpoint: Endpoint; epoch: number; dropped: boolean } | null = null;
   const openers = new Openers();
+  /** Opens a link in this computer's browser. One to another machine's own
+   * loopback opens through a forward of its port; one carrying a loopback
+   * callback opens as it is, the callback's port forwarded. */
+  const openLink = (url: string, from: Endpoint | null) => {
+    // Over SSH itself, the viewer has no browser to open.
+    if (sshViewer()) return;
+    const forwards = from?.machine.forwards ?? null;
+    if (!forwards || (!portForwards.target(url) && !portForwards.callbacks(url).length)) {
+      try {
+        openers.open(url);
+      } catch {}
+      return;
+    }
+    void forwards
+      .open(url)
+      .then(
+        opened => {
+          if (!opened) return;
+          if (opened.unavailable.length)
+            view.notice(
+              ` Port ${opened.unavailable.join(", ")} is in use here, so the link can't come back to ${from!.name}`,
+            );
+          try {
+            openers.open(opened.url);
+          } catch (error) {
+            view.notice(` Couldn't open the link: ${forwardError(error)}`);
+          }
+        },
+        error => view.notice(` Couldn't forward from ${from!.name}: ${forwardError(error)}`),
+      )
+      .finally(notify);
+  };
+  /** The machine card's ports: the forwards of the machine it's for. */
+  const cardPorts = (endpoint: Endpoint | null): connectivityCard.Port[] | null =>
+    endpoint?.machine.forwards?.list.map(forward => ({
+      forward,
+      name: serverName(endpoint.machine.runtime.ports, forward.port),
+    })) ?? null;
+  const closeCard = () => {
+    connection_hover.clear();
+    view.connection_card = null;
+  };
+  /** The held machine card's buttons, by key or click, on its selected port. */
+  const cardAct = (button: connectivityCard.Button) => {
+    const endpoint = endpoints.find(e => e.name === connection_hover.machine),
+      forward = connection_hover.selected;
+    const forwards = endpoint?.machine.forwards;
+    if (!forwards || !forward) return;
+    if (button === "stop") {
+      forwards.stop(forward);
+      connection_hover.notice = `Stopped forwarding ${endpoint!.name}:${forward.port}`;
+      return;
+    }
+    try {
+      openers.open(forward.url);
+      connection_hover.notice = `Opened ${forward.url}`;
+    } catch (error) {
+      connection_hover.notice = forwardError(error);
+    }
+  };
+  /** The key `value`, decoded as `key` with control letters as `cp`, by the names `keys.ts` gives them. */
+  const keyName = (value: string, key: keyboard.Key | null, cp: number | null): string | null => {
+    const legacy = keys.parse(value);
+    if (legacy) return legacy;
+    for (const name of ["up", "down", "delete", "enter", "esc"])
+      if (key?.codepoint === keys.logicalKey(name).codepoint) return name;
+    return cp === 13 ? "enter" : cp === 27 ? "esc" : cp === 16 ? "up" : cp === 14 ? "down" : value === "x" ? "x" : null;
+  };
+  const cardKey = (name: string | null) => {
+    switch (name) {
+      case "esc":
+        return closeCard();
+      case "up":
+      case "down":
+        return connection_hover.step(name === "up" ? -1 : 1);
+      case "enter":
+        return cardAct("open");
+      case "x":
+      case "delete":
+        return cardAct("stop");
+    }
+  };
   const clipboard: { owner: { endpoint: Endpoint; generation: number; epoch: number } | null } = {
     owner: null,
   };
@@ -186,6 +272,13 @@ export async function run(
   view.wake = notify;
   for (const endpoint of endpoints) {
     endpoint.onChange = notify;
+    const forwards = endpoint.machine.forwards;
+    if (forwards) {
+      forwards.onChange = notify;
+      // A Cmd+click reaches only the forward, by the request it brings.
+      forwards.onRealized = forward =>
+        view.notice(` Forwarded ${endpoint.name}:${forward.port} to localhost:${forward.local}`);
+    }
     endpoint.onEffects = view => {
       for (const effect of view.effects) {
         if ("write_terminal" in effect) {
@@ -197,11 +290,7 @@ export async function run(
             view.dirty = true;
             notify();
           }
-        } else if (!view.remote_links) {
-          try {
-            openers.open(effect.open_url);
-          } catch {}
-        }
+        } else openLink(effect.open_url, endpoints.find(e => e.machine.id === effect.machine) ?? null);
       }
       view.clearEffects();
     };
@@ -267,8 +356,50 @@ export async function run(
       } else diagnostic.key(value, cp);
       return;
     }
+    // The machine card, held open, takes the keyboard and its own presses;
+    // a press elsewhere lets it go, and goes on.
+    const card = connection_hover.card,
+      name = mouse ? null : keyName(value, key, cp);
+    if (connection_hover.pinned && card) {
+      if (!mouse) {
+        cardKey(name);
+        return;
+      }
+      const { x, y, button } = mouse,
+        pressed = !mouse.release;
+      if (card.rect.contains(x, y)) {
+        const forward = connectivityCard.portAt(card, x, y);
+        if (button === 35 && forward) connection_hover.selected = forward;
+        else if (pressed && (button === 64 || button === 65)) connection_hover.step(button === 64 ? -1 : 1);
+        else if (pressed && button === 0) {
+          const act = connectivityCard.buttonAt(card, x, y);
+          if (act) cardAct(act);
+          else if (forward) connection_hover.pin(forward);
+          navigation_mouse = true;
+        } else if (!pressed) navigation_mouse = false;
+        view.pointer = { x, y };
+        view.link_tooltip.cancel();
+        return;
+      }
+      if (pressed && (button === 0 || button === 2)) closeCard();
+    } else if (!mouse && card?.ports?.list.length) {
+      // An arrow or Enter over the card holds it; with a port hovered, the key acts on it too.
+      if (name === "up" || name === "down" || name === "enter") {
+        const hovered = connection_hover.chosen();
+        connection_hover.pin();
+        if (hovered) cardKey(name);
+        return;
+      }
+    }
     const hover_mouse = mouse;
-    if (hover_mouse && !workspaces.open && !connectivity.open && !view.overlayOpen() && !view.copy_mode) {
+    if (
+      hover_mouse &&
+      !connection_hover.pinned &&
+      !workspaces.open &&
+      !connectivity.open &&
+      !view.overlayOpen() &&
+      !view.copy_mode
+    ) {
       const x = hover_mouse.x,
         y = hover_mouse.y;
       const header = sidebar.machineHeaderAt(side, x, y);
@@ -284,6 +415,13 @@ export async function run(
         }
       }
       const inside = connection_hover.card?.rect.contains(x, y) ?? false;
+      if (inside && hover_mouse.button === 0 && !hover_mouse.release) {
+        // A click on a port holds the card open with it selected.
+        const forward = connectivityCard.portAt(connection_hover.card!, x, y);
+        if (forward) connection_hover.pin(forward);
+        navigation_mouse = true;
+        return;
+      }
       if (hover_mouse.button === 35 && !hover_mouse.release && !view.ui_mouse_down) {
         const header = sidebar.machineHeaderAt(side, x, y);
         connection_hover.move(header, x, y, performance.now());
@@ -293,11 +431,17 @@ export async function run(
           return;
         }
       } else {
-        connection_hover.clear();
-        view.connection_card = null;
-        if (inside) return;
+        // The release of a press on the card leaves it.
+        if (!inside || !hover_mouse.release) {
+          connection_hover.clear();
+          view.connection_card = null;
+        }
+        if (inside) {
+          if (hover_mouse.release) navigation_mouse = false;
+          return;
+        }
       }
-    } else {
+    } else if (!connection_hover.pinned) {
       connection_hover.clear();
       view.connection_card = null;
     }
@@ -523,6 +667,7 @@ export async function run(
         side = view.sidebarView([]);
         if (workspaces.open || connectivity.open || view.overlayOpen() || view.copy_mode || view.ui_mouse_down)
           connection_hover.clear();
+        if (connection_hover.expire(performance.now())) view.connection_card = null;
         if (connection_hover.machine && view.pointer)
           connection_hover.move(
             sidebar.machineHeaderAt(side, view.pointer.x, view.pointer.y),
@@ -530,11 +675,13 @@ export async function run(
             view.pointer.y,
             performance.now(),
           );
+        const card_endpoint = endpoints.find(endpoint => endpoint.name === connection_hover.machine) ?? null;
         view.connection_card = connection_hover.update(
-          endpoints.find(endpoint => endpoint.name === connection_hover.machine) ?? null,
+          card_endpoint,
           cols,
           height,
           performance.now(),
+          cardPorts(card_endpoint),
         );
         view.sync_notice = syncNotice(Date.now());
         frame = active.render();
@@ -592,6 +739,24 @@ export async function run(
     viewer.close(view);
     differ?.destroy();
     if (probe.badge.uploaded) viewer.writeAll(corgiBadge.remove);
+  }
+}
+/** What serves `port` on the machine, as its port tracker names it. */
+function serverName(
+  snapshot: { workspaces?: { endpoints?: { port: number; label?: string; name?: string }[] }[] },
+  port: number,
+): string {
+  for (const work of snapshot.workspaces ?? [])
+    for (const endpoint of work.endpoints ?? [])
+      if (endpoint.port === port) return endpoint.label || endpoint.name || "";
+  return "";
+}
+function forwardError(error: unknown): string {
+  switch (errors.name(error)) {
+    case "TooManyOpenRequests":
+      return "too many links opening";
+    default:
+      return (error as Error).message || "error";
   }
 }
 /** Whether `endpoint`'s daemon can't be reached at all, as opposed to being

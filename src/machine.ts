@@ -13,6 +13,7 @@ import { Tasks } from "./tasks";
 import type * as protocol from "./protocol";
 import type { WorkspaceEntry } from "./sidebar";
 import * as worktreeAgents from "./worktree_agents";
+import type { Forwards } from "./port_forwards";
 
 /** A conversation a pane stopped running, and when, in seconds. */
 export interface Stopped {
@@ -90,8 +91,11 @@ export class Machine {
    * what it names is there. */
   waiting_controls: protocol.Wire<protocol.Control[]> = [];
   control_check: ControlCheck | null = null;
-  /** Links point at the daemon's machine, so they're shown, not opened here. */
+  /** Links point at the daemon's machine: its sidebar's port links are shown,
+   * not opened here. A pane's link opens here, forwarded if it's to localhost. */
   remote_links = false;
+  /** Its loopback ports forwarded here, for its links to localhost; none for this computer. */
+  forwards: Forwards | null = null;
   /** Workspace ids whose group is folded in the grouped "All" list. */
   folded_groups: number[] = [];
   /** Its worktree groups' folds, and the worktree being browsed. */

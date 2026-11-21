@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { Hover, draw } from "./connectivity_card";
+import { Hover, draw, portAt, buttonAt, type Card } from "./connectivity_card";
+import type { Forward } from "./port_forwards";
+import { aim_ms } from "./menu_aim";
 import { Stats } from "./connection_stats";
 import { Rect } from "./layout";
 import { Terminal } from "./pane/terminal";
@@ -89,4 +91,141 @@ test("machine hover includes the actual daemon release and update detail beside 
   expect(lines).toContain("Daemon   0.0.1 · 1234567");
   expect(lines).toContain("Viewer   " + builds.label(builds.viewer));
   expect(lines).toContain("Handing off the running daemon");
+});
+
+const forward = (port: number, local = port, open = 0): Forward => ({
+  host: "localhost",
+  port,
+  local,
+  url: `http://localhost:${local}/`,
+  open,
+  failure: null,
+  realized: true,
+});
+function screen(card: Card, cols = 120, rows = 40): string {
+  const w = new Writer(),
+    terminal = new Terminal(cols, rows);
+  try {
+    draw(w, card);
+    terminal.feed(w.buffered());
+    return terminal.text();
+  } finally {
+    terminal.destroy();
+  }
+}
+
+test("an SSH machine's card lists its forwarded ports, or says how one comes", () => {
+  const hover = new Hover(),
+    atlas = connection("atlas");
+  hover.move({ machine: "atlas", rect: new Rect(2, 2, 34, 1) }, 20, 2, 0);
+  const empty = hover.update(atlas, 120, 40, 1000, [])!;
+  expect(screen(empty)).toContain("Forwarded ports");
+  expect(screen(empty)).toContain("Opening a localhost link from this machine forwards its port");
+  hover.clear();
+  hover.move({ machine: "atlas", rect: new Rect(2, 2, 34, 1) }, 20, 2, 0);
+  const refused = { ...forward(3000, 49152), failure: "refused" as const };
+  const card = hover.update(atlas, 120, 40, 1000, [
+    { forward: forward(5173, 5173, 2), name: "vite" },
+    { forward: refused, name: "" },
+  ])!;
+  const text = screen(card);
+  expect(text).toMatch(/5173 {2}vite +→ localhost:5173 +2 open/);
+  expect(text).toMatch(/3000 +→ localhost:49152 +nothing listening/);
+  expect(text).toContain("↑↓ or click to select");
+  // The details lose nothing to the ports.
+  expect(text).toContain("Response  —");
+  expect(card.rect.y + card.rect.h).toBeLessThanOrEqual(40);
+});
+
+test("the machine card holds open as the resource card does: hover selects, a click or arrow holds it", () => {
+  const hover = new Hover(),
+    atlas = connection("atlas"),
+    header = { machine: "atlas", rect: new Rect(1, 2, 30, 1) };
+  const ports = [5173, 3000, 8080].map(port => ({ forward: forward(port), name: "" }));
+  hover.move(header, 20, 2, 0);
+  let card = hover.update(atlas, 120, 40, 1000, ports)!;
+  const rowY = (i: number) => card.rect.y + card.rect.h - 3 - card.ports!.room + i;
+  expect(card.ports!.room).toBe(3);
+  // Hovering a port selects it, held or not.
+  hover.move(null, card.rect.x + 5, rowY(1), 1100);
+  expect(hover.selected).toBe(ports[1].forward);
+  expect(portAt(card, card.rect.x + 5, rowY(1))).toBe(ports[1].forward);
+  expect(portAt(card, card.rect.x, rowY(1))).toBeNull();
+  expect(buttonAt(card, card.rect.x + card.rect.w - 5, card.rect.y + card.rect.h - 3)).toBeNull();
+  hover.pin();
+  expect(hover.pinned).toBe(true);
+  expect(hover.selected).toBe(ports[1].forward);
+  hover.step(1);
+  hover.step(1);
+  expect(hover.selected).toBe(ports[2].forward);
+  // Held, the pointer leaving doesn't close it.
+  hover.move(null, 100, 30, 1200);
+  card = hover.update(atlas, 120, 40, 1300, ports)!;
+  expect(card.ports!.pinned).toBe(true);
+  const bar = card.rect.y + card.rect.h - 3,
+    text = screen(card);
+  expect(text).toContain("http://localhost:8080/");
+  expect(text).toContain("↵ open   x stop");
+  expect(text).toContain("↑↓ select  ↵ open  x stop  esc close");
+  expect(buttonAt(card, card.rect.x + card.rect.w - 4, bar)).toBe("stop");
+  expect(buttonAt(card, card.rect.x + card.rect.w - 11, bar)).toBe("open");
+  // A stopped port leaves its row empty: the card keeps its size and place.
+  const rect = card.rect;
+  card = hover.update(atlas, 120, 40, 1400, ports.slice(0, 2))!;
+  expect(card.rect).toEqual(rect);
+  expect(hover.selected).toBe(ports[0].forward);
+  // The last one stopped lets it go, in the same box.
+  card = hover.update(atlas, 120, 40, 1500, [])!;
+  expect(card.rect).toEqual(rect);
+  expect(hover.pinned).toBe(false);
+  expect(screen(card)).toContain("Opening a localhost link");
+});
+
+test("more ports than the card has room for scroll with the selection", () => {
+  const hover = new Hover(),
+    atlas = connection("atlas");
+  const ports = Array.from({ length: 9 }, (_, i) => ({ forward: forward(3000 + i), name: "" }));
+  hover.move({ machine: "atlas", rect: new Rect(1, 2, 30, 1) }, 20, 2, 0);
+  hover.update(atlas, 120, 40, 1000, ports);
+  hover.pin();
+  for (let i = 0; i < 8; i++) hover.step(1);
+  const card = hover.update(atlas, 120, 40, 1100, ports)!;
+  expect(card.ports!.room).toBe(6);
+  expect(card.ports!.offset).toBe(3);
+  expect(screen(card)).toContain("3008");
+  expect(screen(card)).not.toContain(" 3002 ");
+});
+
+test("the pointer heading from the header to the card keeps it a moment", () => {
+  const hover = new Hover(),
+    atlas = connection("atlas"),
+    header = { machine: "atlas", rect: new Rect(1, 2, 30, 1) };
+  hover.move(header, 28, 2, 0);
+  const card = hover.update(atlas, 120, 40, 1000, [])!;
+  expect(card.rect.x).toBe(31);
+  // Down and right, toward the card, over rows that aren't the header.
+  hover.move(null, 29, 3, 1100);
+  expect(hover.card).not.toBeNull();
+  expect(hover.expire(1100 + aim_ms - 1)).toBe(false);
+  // Resting short of it, the card goes.
+  expect(hover.expire(1100 + aim_ms)).toBe(true);
+  expect(hover.card).toBeNull();
+  // Straight down isn't toward it.
+  hover.move(header, 10, 2, 2000);
+  hover.update(atlas, 120, 40, 3000, []);
+  hover.move(null, 10, 4, 3100);
+  expect(hover.card).toBeNull();
+});
+
+test("a detail line that comes while the card is open grows it, rather than cutting the last one", () => {
+  const hover = new Hover(),
+    atlas: any = connection("atlas");
+  hover.move({ machine: "atlas", rect: new Rect(1, 2, 30, 1) }, 20, 2, 0);
+  const before = hover.update(atlas, 120, 40, 1000, [])!;
+  atlas.updateError = "disk full";
+  const after = hover.update(atlas, 120, 40, 2500, [])!;
+  expect(after.lines.length).toBe(before.lines.length + 1);
+  expect(after.rect.h).toBe(before.rect.h + 1);
+  expect(after.rect.y).toBe(before.rect.y);
+  expect(screen(after)).toContain("Update failed · disk full");
 });

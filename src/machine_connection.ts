@@ -23,6 +23,7 @@ import * as protocol from "./protocol";
 import * as rpc_http from "./rpc_http";
 import * as i18n from "./i18n";
 import { sshViewer } from "./trackers/ports";
+import { Forwards, type Link } from "./port_forwards";
 
 /** A request that must run once, waiting for its reply. It gets its number
  * the first time it's sent and keeps it when it's sent again. */
@@ -219,6 +220,13 @@ export class Endpoint {
   ) {
     this.sample = newPath(false, false);
     this.machine = new Machine(this.transport(), this.name, remote);
+    // Forwards outlive paths: each connection takes the current one's way.
+    // Over SSH itself, the viewer has no browser to forward to.
+    if (this.sample.ports && !sshViewer())
+      this.machine.forwards = new Forwards({
+        prepare: () => this.ports().prepare(),
+        dial: (host, port) => this.ports().dial(host, port),
+      });
     this.machine.order_scope = JSON.stringify(identity);
     // Links point at the daemon's machine: another one, or this one when the
     // viewer itself runs over SSH.
@@ -248,6 +256,9 @@ export class Endpoint {
         this.machine.runtime.workspaces.loaded = false;
       }
     }
+  }
+  private ports(): Link {
+    return this.path?.ports ?? this.sample.ports!;
   }
   private trace(name: "remote.connection" | "remote.race", phase: string, details: telemetry.Details = {}): void {
     if (telemetry.enabled)
@@ -1287,6 +1298,7 @@ export class Endpoint {
   }
   async close(): Promise<void> {
     this.stopped = true;
+    this.machine.forwards?.close();
     this.cancelUpdate();
     this.disconnect();
     this.settleNumbered(() => true);

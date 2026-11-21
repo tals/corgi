@@ -156,7 +156,9 @@ import * as tasks from "./tasks";
 import { Opening } from "./opening";
 import { Machine, type Focus, type Stopped } from "./machine";
 
-export type Effect = { write_terminal: string } | { open_url: string };
+/** `machine` names the SSH machine whose pane had the link, which may point
+ * at that machine's own loopback; a link from this computer has none. */
+export type Effect = { write_terminal: string } | { open_url: string; machine?: number };
 type HoverMenu = "launcher" | "scope";
 /** A paste goes to the text field that owned the keyboard when it began, or
  * to the focused pane when none did. */
@@ -301,6 +303,7 @@ interface Picked {
  * start a double-click. */
 interface PendingOpen {
   url: string;
+  machine: Machine;
   pane: number;
   due: number;
 }
@@ -3835,6 +3838,14 @@ export class Controller {
       }
       case "open":
         return this.openFolder(String(act.value ?? ""));
+      case "open-url": {
+        // A pane's program asked, through its BROWSER: its daemon's controls
+        // apply while its machine is shown.
+        const url = String(act.value ?? "");
+        if (!openableLink(url)) throw Error("InvalidURL");
+        this.openPaneLink(url);
+        break;
+      }
       case "new-agent":
         this.openLauncher(true);
         break;
@@ -4206,6 +4217,14 @@ export class Controller {
   }
   private queueEffect(effect: Effect): void {
     this.effects.push(effect);
+  }
+  /** A link in one of `machine`'s panes. */
+  private openPaneLink(url: string, machine = this.machine): void {
+    this.queueEffect(machine.remote ? { open_url: url, machine: machine.id } : { open_url: url });
+  }
+  /** Whether a pending open's pane still has focus, on the machine shown. */
+  private showsPane(open: PendingOpen): boolean {
+    return this.machine === open.machine && this.focused()?.id === open.pane;
   }
   clearEffects(): void {
     this.effects = [];
@@ -7930,8 +7949,7 @@ export class Controller {
       // A press on the link itself starts its own click or double-click.
       const open = this.pending_open;
       this.pending_open = null;
-      if (open && !this.pressesLink(open, x, y) && this.focused()?.id === open.pane)
-        this.queueEffect({ open_url: open.url });
+      if (open && !this.pressesLink(open, x, y) && this.showsPane(open)) this.openPaneLink(open.url, open.machine);
     }
     if (!release && (button & 32) === 0) this.endSigninExit();
     // A double-click needs two left presses on one sidebar cell with the
@@ -8167,10 +8185,16 @@ export class Controller {
               this.dirty = true;
             } else if (click.drag_selects && click.pane !== null && button === 0) {
               // Waits out the double-click window, which may pick the link instead.
-              this.pending_open = { url: click.url, pane: click.pane, due: click.at + double_click_ms };
+              this.pending_open = {
+                url: click.url,
+                machine: this.machine,
+                pane: click.pane,
+                due: click.at + double_click_ms,
+              };
               this.closeMenu();
             } else {
-              this.queueEffect({ open_url: click.url });
+              if (click.pane !== null) this.openPaneLink(click.url);
+              else this.queueEffect({ open_url: click.url });
               this.closeMenu();
             }
           }
@@ -9250,7 +9274,7 @@ export class Controller {
     if (open && milliTimestamp() >= open.due) {
       this.pending_open = null;
       // Dropped once its pane closed or lost focus.
-      if (this.focused()?.id === open.pane) this.queueEffect({ open_url: open.url });
+      if (this.showsPane(open)) this.openPaneLink(open.url, open.machine);
     }
     if (this.signin_exit) {
       if (this.signin_exit.tick(milliTimestamp())) this.dirty = true;
@@ -10010,6 +10034,7 @@ export class Controller {
   /** Movement arms hover; clicks, drags and scrolling dismiss it. */
   private moveHover(button: number, x: number, y: number, release: boolean): void {
     const moved = this.pointer === null || this.pointer.x !== x || this.pointer.y !== y;
+    if (moved && !release && isHover(button)) this.reserveLink(x, y);
     if (!release && isHover(button)) {
       if (
         moved &&
@@ -10030,6 +10055,13 @@ export class Controller {
       this.pointer = { x, y };
       this.dirty = true;
     }
+  }
+  /** A link to another machine's loopback, under the pointer, reserves its
+   * port here, so the host terminal's Cmd+click opens it forwarded. */
+  private reserveLink(x: number, y: number): void {
+    const forwards = this.machine.forwards;
+    if (!forwards) return;
+    forwards.hover(this.corgi_setup ? null : (this.linkAt(x, y)?.uri ?? null));
   }
   private linkTooltipReady(): boolean {
     let target: linkTooltip.Target | null = null;
@@ -10222,6 +10254,7 @@ export class Controller {
         resource_hover: this.link_tooltip.target?.resource ?? null,
         resource_card: (tooltip_ready || this.resource_card.pinned) && detail !== null ? this.resource_card : null,
         connection_card: this.connection_card,
+        link_forwards: this.machine.forwards,
         sync_notice: this.sync_notice,
         pane_opening: this.openingFocus() !== null,
         signal_bars_hidden: this.hide_connection_signals,

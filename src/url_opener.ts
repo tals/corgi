@@ -1,3 +1,5 @@
+import * as paneBrowser from "./pane_browser";
+
 export class Openers {
   private children = new Set<Bun.Subprocess>();
   reap() {
@@ -8,6 +10,8 @@ export class Openers {
     this.reap();
     if (this.children.size >= 8) throw Error("TooManyOpenRequests");
     const child = Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], {
+      // A Corgi pane's xdg-open hands links to its viewer: this one opens them.
+      env: { ...process.env, [paneBrowser.passthrough]: "1" },
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",

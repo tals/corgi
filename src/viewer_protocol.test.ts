@@ -282,6 +282,43 @@ test("open from a pane goes to the viewer showing it", () => {
   expect(two.controls[0]).toMatchObject({ kind: "action", name: "open", value: "/tmp" });
   expect(one.controls).toHaveLength(0);
 });
+test("a pane's link goes to the viewer showing it that opens links, else the one used last", () => {
+  const s = fixture(),
+    shows = peer(s),
+    elsewhere = peer(s, 2),
+    over_ssh = peer(s, 3),
+    source = peer(s, 4),
+    result = spyOn(source, "queue").mockImplementation(() => {});
+  source.viewer = false;
+  // An older viewer, or one with no browser of its own, isn't asked.
+  expect(() => action(s, source, protocol.decode("action", { name: "open-url", value: "http://x/", pane: 1 }))).toThrow(
+    "NoViewer",
+  );
+  shows.links = elsewhere.links = true;
+  elsewhere.interests = [{ pane: 9, cols: 80, rows: 24 }];
+  elsewhere.active_seq = 10;
+  over_ssh.active_seq = 20;
+  action(s, source, protocol.decode("action", { name: "open-url", value: "http://localhost:3000/", pane: 1 }));
+  expect(result).toHaveBeenLastCalledWith({ ok: true, viewer: 1, queued: true });
+  expect(shows.controls[0]).toMatchObject({ kind: "action", name: "open-url", value: "http://localhost:3000/" });
+  // A pane no viewer shows: the one used last.
+  action(s, source, protocol.decode("action", { name: "open-url", value: "https://example.com/", pane: 7 }));
+  expect(result).toHaveBeenLastCalledWith({ ok: true, viewer: 2, queued: true });
+  for (const value of ["file:///etc/passwd", "javascript:alert(1)", "https://x/\nrm"])
+    expect(() => action(s, source, protocol.decode("action", { name: "open-url", value, pane: 1 }))).toThrow(
+      "InvalidURL",
+    );
+});
+test("a viewer says whether it opens links with each sync", async () => {
+  const s = fixture();
+  s.runtime.workspaces.items.push(new Workspace(1, "/tmp"));
+  const client = peer(s);
+  spyOn(client, "queue").mockImplementation(() => {});
+  await sync(s, client, protocol.decode("viewer.sync", { workspace: 1, interests: [], links: true }));
+  expect(client.links).toBe(true);
+  await sync(s, client, protocol.decode("viewer.sync", { workspace: 1, interests: [] }));
+  expect(client.links).toBe(false);
+});
 test("an empty workspace does not ask older viewers to detach", async () => {
   const s = fixture();
   s.runtime.workspaces.items.push(new Workspace(1, "/tmp"));

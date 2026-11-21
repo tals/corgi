@@ -224,6 +224,8 @@ export interface Ui {
   startup_waits: StartupWait[];
   startup_card: startupCard.State | null;
   connection_card: connectivityCard.Card | null;
+  /** Where the shown machine's links to its own loopback point here, once reserved. */
+  link_forwards: { local(url: string): string | null; unavailable(url: string): number[] } | null;
   sync_notice: syncNotice.State | null;
   /** A pane an action is opening has the keyboard: no pane shows focus. */
   pane_opening: boolean;
@@ -334,6 +336,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     startup_waits: [],
     startup_card: null,
     connection_card: null,
+    link_forwards: null,
     sync_notice: null,
     pane_opening: false,
     signal_bars_hidden: false,
@@ -606,6 +609,12 @@ function dimsPanes(u: Ui): boolean {
     u.sidebar_drawer !== null ||
     u.review_keys
   );
+}
+/** The hovered link's rows with its OSC 8 target swapped for `local`, so
+ * the host terminal's own Cmd+click opens it forwarded. */
+export function pointLink(rows: string, pane: number, id: bigint, uri: string, local: string): string {
+  const open = `\x1b]8;id=corgi-${pane}-${id.toString(16)};`;
+  return rows.replaceAll(`${open}${uri}\x1b\\`, `${open}${local}\x1b\\`);
 }
 /** Whether a pane's cells can stay in its native surface. The viewer's own
  * decorations (overlays, dimming, hover, restoring) are decided here; native
@@ -1056,15 +1065,28 @@ export function frame(
       continue;
     }
     p.terminal.updateRender();
-    let hovered: bigint | null = null;
+    let hovered: bigint | null = null,
+      forwarded: { uri: string; local: string } | null = null;
     if (u.pointer && r.contains(u.pointer.x, u.pointer.y) && !on_card && !on_link_card && noOverlay(u)) {
       const link = linkTooltip.at(p.terminal, r, u.pointer.x, u.pointer.y);
       hovered = link?.id ?? null;
       hovered_uri = link?.uri ?? hovered_uri;
+      const local = link && u.link_forwards?.local(link.uri),
+        blocked = link ? (u.link_forwards?.unavailable(link.uri) ?? []) : [];
+      if (link && local) {
+        forwarded = { uri: link.uri, local };
+        if (local !== link.uri) hovered_uri = `${link.uri}  →  ${local}`;
+      }
+      // A sign-in can't come back to a port something here holds.
+      if (link && blocked.length)
+        hovered_uri = `${link.uri}  ·  port ${blocked.join(", ")} is in use here, so it can't come back`;
     }
     const dim = dimsPanes(u);
     if (retained && retainable(u, p, r, dim, hovered)) retained.pane(w, p.terminal, p.id, r);
-    else w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered));
+    else {
+      const rows = p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered);
+      w.write(forwarded && hovered !== null ? pointLink(rows, p.id, hovered, forwarded.uri, forwarded.local) : rows);
+    }
     w.write("\x1b[0m");
     if (p.restoring.length > 0 || p.dormant) {
       const id = p.id;

@@ -192,6 +192,8 @@ export function syncRequest(
     worktree_detail: view.worktreeDetailWanted(machine),
     resources: view.host.prefs.resources.enabled,
     resources_hash: machine.runtime.resources_hash,
+    // Over SSH itself, the viewer has no browser for a pane's links.
+    links: !sshViewer(),
   };
 }
 /** How often a waiting control asks again whether what it names is there,
