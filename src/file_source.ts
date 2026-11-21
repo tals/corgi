@@ -374,6 +374,7 @@ export class Source {
     this.cache.clear();
     this.start = start;
     this.dropped += drop;
+    if (this.hold !== null) this.hold = Math.max(0, this.hold - drop);
     if (this.first !== null) this.first += drop;
   }
   /** Keeps to the caps from the window's end, which then stops short of the file's. */
@@ -415,6 +416,7 @@ export class Source {
     return this.once("start", async () => {
       if (this.mode === "code" || this.start === 0 || !this.fh) return false;
       this.window(0, await this.read(0, Math.min(block, this.size)));
+      if (this.hold !== null) this.hold = 0;
       this.rewinds++;
       this.bump();
       return true;
@@ -426,6 +428,8 @@ export class Source {
       if (this.mode === "code" || this.atEnd || !this.fh) return false;
       this.size = (await this.fh.stat()).size;
       await this.readTail();
+      // A viewer follows a window that starts over at the end.
+      this.hold = null;
       this.restarts++;
       this.bump();
       return true;
@@ -451,6 +455,7 @@ export class Source {
     this.blocks.unshift({ at: start, bytes: body });
     this.start = start;
     this.prepended += starts.length;
+    if (this.hold !== null) this.hold += starts.length;
     this.first = this.first !== null ? this.first - starts.length : start === 0 ? 1 : null;
     // The reader is at the start, so the end gives way.
     this.dropEnd();
@@ -600,6 +605,7 @@ export class Source {
   private async restart(): Promise<void> {
     await this.reopen();
     await this.readTail();
+    this.hold = null;
     this.restarts++;
     this.bump();
   }

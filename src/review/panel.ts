@@ -7,7 +7,7 @@
 //! batch of diffs at a time.
 import * as i18n from "../i18n";
 import * as canvas from "../canvas";
-import { fade, safe, sourceGlyph, sourceLines, sourceOffset, sourceSlice } from "../canvas";
+import { safe, sourceGlyph, sourceLines, sourceOffset, sourceSlice } from "../canvas";
 import * as dropdown from "../dropdown";
 import * as errors from "../errors";
 import { Rect, type Direction } from "../layout";
@@ -1738,7 +1738,8 @@ export class Panel {
       keys = this.keysOpen,
       edge = focused ? palette.outline : colors.line;
     // A pinned panel stands apart from the panes it no longer follows.
-    for (let row = 0; row < height; row++) c.put(0, row, this.pinned ? "┃" : "│", keys ? fade(edge) : edge, null);
+    for (let row = 0; row < height; row++)
+      c.put(0, row, this.pinned ? "┃" : "│", keys ? palette.fade(edge) : edge, null);
     const inner = new Canvas(x + 1, y, width - 1, height);
     this.drawInside(inner, focused);
     if (keys) this.drawKeys(inner);

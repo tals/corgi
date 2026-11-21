@@ -116,6 +116,15 @@ export function mix(a: Rgb, b: Rgb, percentage: number): Rgb {
     Math.floor((v * (100 - Math.min(100, percentage)) + b[i] * Math.min(100, percentage) + 50) / 100),
   ) as Rgb;
 }
+/** Where `fade` takes colors: away from the text, on either background. */
+const faded: Record<"dark" | "light", Rgb> = { dark: [0, 0, 0], light: [255, 255, 255] };
+/** `color` halfway to black on a dark background or white on a light one,
+ * as what's behind a dialog shows. */
+export function fade(color: Rgb): Rgb {
+  const [r, g, b] = colors.bg,
+    light = r * 299 + g * 587 + b * 114 > 127_500;
+  return mix(color, faded[light ? "light" : "dark"], 50);
+}
 export class Style {
   constructor(
     public value: {

@@ -221,6 +221,13 @@ test("growth past the caps drops lines on the side away from a place held in the
   expect(end.s.dropped).toBeGreaterThan(0);
   expect(end.s.line(held - end.s.dropped)).toBe(`line ${held + 1}`);
   expect(end.s.atEnd).toBe(true);
+  // Growth twice before the viewer draws again still keeps the held line.
+  const twice = await full("twice.log");
+  twice.s.hold = 7000;
+  await grow(twice);
+  appendFileSync(twice.path, numbered(fileSource.max_lines + 101, fileSource.max_lines + 5101));
+  await twice.s.refresh();
+  expect(twice.s.line(twice.s.hold!)).toBe("line 7001");
 });
 
 test("an open called off stops scanning for its line", async () => {

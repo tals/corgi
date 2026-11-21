@@ -111,7 +111,7 @@ export class Canvas<H extends object = object> {
   /** Every cell halfway to black, or to white on a light background, as panes dim behind a dialog. */
   fade(): void {
     for (const row of this.cells)
-      for (const cell of row) [cell.fg, cell.bg] = [fade(cell.fg), fade(cell.bg ?? palette.colors.bg)];
+      for (const cell of row) [cell.fg, cell.bg] = [palette.fade(cell.fg), palette.fade(cell.bg ?? palette.colors.bg)];
   }
   hit(x: number, y: number, w: number, h: number, extra: H): void {
     this.hits.push({ x: this.x + x, y: this.y + y, w, h, ...extra });
@@ -133,9 +133,4 @@ export class Canvas<H extends object = object> {
     });
     w.write("\x1b[0m");
   }
-}
-export function fade(color: palette.Rgb): palette.Rgb {
-  const [r, g, b] = palette.colors.bg,
-    light = r * 299 + g * 587 + b * 114 > 127_500;
-  return palette.mix(color, light ? [255, 255, 255] : [0, 0, 0], 50);
 }
