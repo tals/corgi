@@ -175,6 +175,61 @@ test("moves a log's window to its start or its end", async () => {
   expect(await s.toStart()).toBe(false);
 });
 
+test("scrolling back keeps to the caps from the end, and growth then leaves the place alone", async () => {
+  const path = file("back.log", numbered(1, 300_000));
+  const s = await open(path);
+  // About 22,000 lines a block: four pass the cap.
+  for (let i = 0; i < 4; i++) expect(await s.earlier()).toBe(true);
+  expect(s.count).toBeLessThanOrEqual(fileSource.max_lines);
+  expect(s.atEnd).toBe(false);
+  expect(s.line(s.count - 1)).not.toBe("line 300000");
+  const first = s.line(0),
+    dropped = s.dropped;
+  // A reader up there holds its place while the log grows.
+  s.held = true;
+  appendFileSync(path, numbered(300_001, 300_010));
+  await s.refresh();
+  expect([s.line(0), s.dropped]).toEqual([first, dropped]);
+  // Reading forward isn't the log growing.
+  const added = s.added;
+  expect(await s.later()).toBe(true);
+  expect(s.added).toBe(added);
+});
+
+test("a reader following a full window lets its oldest lines go, and one holding its place keeps them", async () => {
+  const path = file("held.log", "");
+  const s = await open(path);
+  appendFileSync(path, numbered(1, fileSource.max_lines));
+  await s.refresh();
+  s.held = true;
+  appendFileSync(path, numbered(fileSource.max_lines + 1, fileSource.max_lines + 100));
+  await s.refresh();
+  expect([s.line(0), s.dropped, s.atEnd]).toEqual(["line 1", 0, false]);
+});
+
+test("an open called off stops scanning for its line", async () => {
+  const abort = new AbortController();
+  abort.abort();
+  const path = file("deep.log", numbered(1, 300_000));
+  expect(open(path, { line: 250_000, signal: abort.signal })).rejects.toThrow("Aborted");
+});
+
+test("a follow that fails says so until it works again", async () => {
+  const path = file("err.log", "one\n");
+  const s = await open(path);
+  const update = Reflect.get(s, "check").bind(s);
+  let fail = true;
+  Reflect.set(s, "check", (named: boolean) => (fail ? Promise.reject(Error("EIO")) : update(named)));
+  await s.refresh();
+  expect(s.error).toBe("EIO");
+  const version = s.version;
+  await s.refresh();
+  expect(s.version).toBe(version);
+  fail = false;
+  await s.refresh();
+  expect(s.error).toBeNull();
+});
+
 test("opens a large log around a line its text named", async () => {
   const s = await open(file("seek.log", numbered(1, 300_000)), { line: 123_456 });
   const row = s.rowOf(123_456)!;

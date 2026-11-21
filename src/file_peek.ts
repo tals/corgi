@@ -33,19 +33,22 @@ export class Peek {
   /** The read that fills it, for tests to wait on. */
   readonly opened: Promise<void>;
   private closed = false;
+  /** Stops a read the pointer left before it was done, such as a scan to a deep line. */
+  private abort = new AbortController();
   constructor(
     readonly path: string,
     readonly ref: fileRef.Ref,
     wake: () => void,
   ) {
     this.key = `${path}:${ref.line ?? ""}:${ref.column ?? ""}`;
-    this.opened = Source.open(path, { line: ref.line, changed: wake }).then(
+    this.opened = Source.open(path, { line: ref.line, changed: wake, signal: this.abort.signal }).then(
       source => {
         if (this.closed) return void source.close();
         this.reader = new Reader(source, ref.line, ref.column);
         wake();
       },
       error => {
+        if (this.closed) return;
         this.error = errors.name(error) ?? "ReadFailed";
         wake();
       },
@@ -53,6 +56,7 @@ export class Peek {
   }
   close(): void {
     this.closed = true;
+    this.abort.abort();
     void this.reader?.source.close();
   }
   /** The file's line at row `r` of the card's body, pinned or not. */
@@ -148,7 +152,9 @@ export function draw(w: Writer, rect: Rect, peek: Peek, pointer: { x: number; y:
 function metadata(reader: Reader): [string, palette.Rgb, boolean][] {
   const colors = palette.colors,
     s = reader.source,
-    bytes = size(s.size);
+    bytes = size(s.size),
+    failure = s.error;
+  if (failure !== null) return [[i18n.t`Can't read it: ${failure}`, colors.hot, false]];
   if (s.mode === "code") {
     const count = s.lines.length;
     return [[i18n.t`${count} lines · ${bytes}`, colors.faint, false]];

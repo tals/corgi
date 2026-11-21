@@ -531,6 +531,8 @@ export class Controller {
     this.wake();
   });
   file_peeks = new filePeek.Peeks(() => {
+    // A peek read while the pointer waits draws when it shows.
+    if (!this.link_tooltip.shown) return;
     this.dirty = true;
     this.wake();
   });
@@ -5936,7 +5938,8 @@ export class Controller {
   private async chatPane(chat: ChatArgs, cwd: string): Promise<void> {
     const machine = (chat.session && this.prompt_sessions.get(`${chat.provider}:${chat.session}`)) || this.machine;
     if (machine !== this.machine) {
-      const reason = `the chat runs on ${machine.name}`;
+      const name = machine.name,
+        reason = i18n.t`the chat runs on ${name}`;
       this.prompt.reclaim(chat.handoff, reason);
       return this.notice(` Couldn't open a pane: ${reason}`);
     }
@@ -10125,8 +10128,9 @@ export class Controller {
     try {
       await this.create("horizontal", dirname(path), "exec " + shellWords(argv), basename(path));
     } catch (error) {
-      const name = errors.name(error) ?? i18n.t`unknown error`;
-      this.notice(i18n.t` Couldn't open ${name}`);
+      const name = basename(path),
+        reason = errors.name(error) ?? i18n.t`unknown error`;
+      this.notice(i18n.t` Couldn't open ${name}: ${reason}`);
     }
   }
   private linkCard(): linkTooltip.Card | null {

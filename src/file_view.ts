@@ -49,8 +49,14 @@ const closer = /^\s*[}\])]+[;,)]*\s*$/;
 export class Reader {
   /** The shown row at the top. */
   top = 0;
-  /** Keeps the newest line in view as a log grows. */
-  following: boolean;
+  /** Keeps the newest line in view as a log grows; when off, the source
+   * holds this place rather than the newest lines. */
+  get following(): boolean {
+    return !this.source.held;
+  }
+  set following(on: boolean) {
+    this.source.held = !on;
+  }
   /** Rows a log grew by while not following. */
   fresh = 0;
   /** The row of the line the text named. */
@@ -274,11 +280,12 @@ export class Reader {
     }
     return [];
   }
-  private spans(row: number, text: string): Span[] {
-    if (this.log) return logSyntax.spans(text);
-    if (!this.lang) return [];
+  /** `text`'s colors as far as `limit` characters, past which nothing shows. */
+  private spans(row: number, text: string, limit: number): Span[] {
     if (this.highlighter && this.source.mode === "code") return this.highlighter.spans(row);
-    return syntax.lineSpans(this.lang, text);
+    const shown = text.length > limit ? text.slice(0, limit) : text;
+    if (this.log) return logSyntax.spans(shown);
+    return this.lang ? syntax.lineSpans(this.lang, shown) : [];
   }
   /** Draws `h` rows from the top into `c` at `x`, `y`, `w` wide. */
   draw(c: Canvas, x: number, y: number, w: number, h: number, look: Look): void {
@@ -371,8 +378,11 @@ export class Reader {
     column: number | null,
     shift: number,
   ): number {
-    const text = this.source.line(row),
-      spans = this.spans(row, text),
+    // A character takes a column or more, but combining marks take none,
+    // and UTF-8 takes up to 4 bytes for one.
+    const limit = 2 * (shift + w) + 64,
+      text = this.source.line(row, 4 * limit),
+      spans = this.spans(row, text, limit),
       colors = palette.colors,
       mark = palette.mix(colors.selected, colors.accent, 35);
     let used = 0,
@@ -399,7 +409,8 @@ export class Reader {
           c.put(x + w - 1, y, "›", colors.faint, bg);
           return x + w;
         }
-        const ch = raw === "\t" ? " " : k === 0 ? sourceGlyph(raw) : "";
+        // A wide character cut by the scroll shows its right half blank.
+        const ch = raw === "\t" || col - k < shift ? " " : k === 0 ? sourceGlyph(raw) : "";
         c.put(x + used, y, ch, fg, cell_bg);
         if (k === 0) previous = x + used;
         used++;
