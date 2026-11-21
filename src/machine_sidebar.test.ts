@@ -364,6 +364,37 @@ test("machine header bands use the palette and keep reception bars right aligned
   }
 });
 
+test("build and upload metrics fit on the machine row at both sidebar widths", () => {
+  const machine = "nocap";
+  const row = sidebar.workspaceEntry({
+    id: viewerRef.workspace(1, 1),
+    name: "project",
+    cwd: "/project",
+    active: true,
+    machine,
+  });
+  for (const [label, compact, metrics] of [
+    ["Building linux-x64…", "Building…", "12s"],
+    ["Uploading", "↑", "42% 512 KiB/s"],
+    ["Installing…", "Installing…", ""],
+  ]) {
+    row.connection_status = { label, compact, metrics, color: "warm", seconds: null };
+    for (const width of [28, 44]) {
+      const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(width).withWorkspaces(1, 0, [machine]);
+      const lines = screen(side, [row]).split("\n");
+      expect(lines[2]).toContain("nocap");
+      expect(lines[2]).toContain([width === 28 ? compact : label, metrics].filter(Boolean).join(" "));
+      expect(lines[3]).toContain("project");
+      expect(side.hit(3, 3)).toEqual({ tag: "workspace", workspace: 0 });
+    }
+  }
+  const longName = "build-server-with-a-long-name";
+  row.machine = longName;
+  row.connection_status = { label: "Uploading", compact: "↑", metrics: "42% 512 KiB/s", color: "warm", seconds: null };
+  const narrow = sidebar.View.init(100, 30, true, 0, 0).withWidth(28).withWorkspaces(1, 0, [longName]);
+  expect(screen(narrow, [row]).split("\n")[2]).toMatch(/… +(?:↑ +)?42% 512 KiB\/s/);
+});
+
 test("header quality comes from the current connection, without rating local or offline machines as healthy", () => {
   const {
     endpoints: [local, remote],

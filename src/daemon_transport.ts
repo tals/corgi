@@ -9,35 +9,20 @@ import type { Profile } from "./machines";
 /** SSH authentication and channel setup precede the first daemon reply. */
 export const startup_ms = 30_000;
 
-const marker = Buffer.from("\ncorgi-bridge-v1\n");
-/** Shell banners end at the native bridge's versioned boundary. */
-export class Preamble extends Transform {
-  private pending = Buffer.alloc(0);
-  private ready = false;
-  constructor(private readonly connected: () => void = () => {}) {
-    super();
-  }
-  override _transform(chunk: Buffer, _encoding: BufferEncoding, done: (error?: Error | null) => void): void {
-    if (this.ready) {
-      this.push(chunk);
-    } else {
-      this.pending = Buffer.concat([this.pending, chunk]);
-      const boundary = this.pending.indexOf(marker);
-      if (boundary >= 0) {
-        this.ready = true;
-        this.connected();
-        this.push(this.pending.subarray(boundary + marker.length));
-        this.pending = Buffer.alloc(0);
-      } else if (this.pending.length > 65536) {
-        done(Error("InvalidBridgePreamble"));
-        return;
+export function bridgePreamble(connected?: () => void): Transform {
+  const preamble = new ssh.Preamble(ssh.bridgeMarker, connected);
+  return new Transform({
+    transform(chunk, _encoding, done) {
+      try {
+        done(null, preamble.read(chunk));
+      } catch (error) {
+        done(error as Error);
       }
-    }
-    done();
-  }
-  override _flush(done: (error?: Error | null) => void): void {
-    done(this.ready ? null : Error("MissingBridgePreamble"));
-  }
+    },
+    flush(done) {
+      done(preamble.endError());
+    },
+  });
 }
 
 /** Presents a local daemon socket to RPC and auxiliary clients. No protocol or UI policy lives here. */
@@ -102,7 +87,7 @@ export class Remote {
       client.destroy();
       return;
     }
-    const preamble = new Preamble(() => {
+    const preamble = bridgePreamble(() => {
       this.bridge_ready = true;
       telemetry.event("remote.transport", {
         machine: this.profile.name,

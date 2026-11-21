@@ -116,8 +116,9 @@ either direction and across branches. Setup keeps the canonical executable,
 managed launcher and release history. Signed releases use the local update
 trust; development artifacts match by source identity, without Git ancestry.
 Cross-platform development setup requires a matching `dist/corgi-<target>` and
-its build metadata. Setup never installs a remote build onto the local machine.
-Transfers and RPCs have deadlines; reconnecting viewers never switch builds.
+its build metadata; `./go.ts` builds that target automatically when needed.
+Setup never installs a remote build onto the local machine. Transfers and RPCs
+have deadlines.
 
 Daemons from the branch-aware handoff baseline advertise `handoff: 1` in
 management hello and answer `__handoff-info` with their readable state revision IDs.
@@ -140,6 +141,22 @@ panes without understanding that branch's metadata. Recognized metadata that
 fails validation is also discarded, with a fresh runtime validating the core
 before recovery starts any process. During baseline rollout,
 recovery files also retain the legacy checkpoint fields for older readers.
+
+Development launches through `./go.ts` dial each saved SSH machine and check its build in parallel. You can use a compatible remote daemon throughout a cross-build and upload. Each machine has one status row. Builds show elapsed time, and uploads show the percentage and average transfer speed. On a narrow sidebar the label shortens to keep the metrics visible. Hover over the machine for the full build target, update details, daemon version, and any mismatch with the viewer. A quick hello that matches this checkout and its deployment receipt skips setup entirely. Older peers can report their installed source during setup before a cross-build is needed. The viewer reconnects when installation reloads the daemon. An update failure has its own details and can be retried from the picker while the session stays online. Local startup waits only for the local incremental build and daemon. Remote commands and machine add/check wait for setup. Machine status and `list --all-machines` report on the existing installation.
+
+Each dev launch installs this checkout’s build on a mismatched machine, including one updated by another checkout. Use `./go.ts --no-remote-update` to connect to the installed builds for one launch. Verified executable hashes in `dist/dev-deploy/` let a matching machine skip setup on reattach. Pause or quit cancels pending builds and transfers. A helper that has started the atomic install finishes verification independently. Helpers serialize target builds and updates to the same machine.
+
+`go.ts` uses `bun build.ts --incremental`: unchanged artifacts are reused, and
+TypeScript-only changes skip Zig. Each target keeps one artifact and native output;
+the native key includes the target, native sources, build script, pinned toolchain
+and SDK identity. Binaries publish by atomic rename after checking that sources
+didn't change during compilation. Builds that share native output or an executable
+wait for each other. A background cross-build can run alongside the local build.
+Cross-building macOS needs an SDK at `.tools/macos-sdk` (the main checkout's copy
+also works) or `CORGI_PROBE_SYSROOT`; the normal pinned Zig/Bun pipeline handles
+the rest. The remote needs neither Bun nor a compiler.
+
+A changed dev build takes two SSH commands on the shared connection. The first reads the installed build. The second stages the transfer, installs and verifies the executable, confirms the daemon is running it, and returns the bridge path. A receiver that advertises `delta_transfer: "rsync-zstd-v1"` sends checksums of its installed binary and receives a compressed delta. The sender needs only the new build. Older receivers and first installs receive the full executable. A failed transfer cleans up the candidate so it can be retried. The Bun port of Apache-2.0 `fast_rsync` also runs over arbitrary duplex Web streams. The installer checks the basis and candidate, verifies signed release manifests when applicable, preflights saved state, and hands off live shells. Managed installations retain their existing release-history policy.
 
 Pane surfaces carry Kitty image placements; `viewer.image` transfers decoded
 pixels in bounded chunks. [pane_images.ts](src/pane_images.ts) gives each viewer

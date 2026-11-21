@@ -1,5 +1,4 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
-import * as transfer from "./persist/transfer";
 import {
   chmodSync,
   closeSync,
@@ -22,7 +21,6 @@ import { homedir } from "node:os";
 import { atomicWrite } from "./os";
 import { flock } from "./native_bridge";
 import * as rpc_http from "./rpc_http";
-import { path as recoveryPath } from "./persist/recovery";
 import { testBuild } from "./build_assets";
 import * as config from "./build_config";
 import * as errors from "./errors";
@@ -634,7 +632,8 @@ export async function check(
       // The runtime saves on its own too; the check reads the last of those.
     }
   let timed_out = false;
-  const p = Bun.spawn([target, "__update-check", daemon.socket, recoveryPath(daemon.socket)], {
+  const recovery = await import("./persist/recovery");
+  const p = Bun.spawn([target, "__update-check", daemon.socket, recovery.path(daemon.socket)], {
       env: { ...process.env, CORGI_APP_EXE: target },
       stdin: "ignore",
       stdout: "pipe",
@@ -788,6 +787,7 @@ async function select(
       if (explicit) throw Error("UpdateCheckFailed");
       return old;
     }
+    const transfer = await import("./persist/transfer");
     let safe = !h || h.update_abi === m.update_abi;
     if (safe || transfer.compatible(h)) {
       try {
@@ -839,7 +839,8 @@ async function select(
       const fresh = await hello(daemon);
       if (!fresh || fresh.server_pid !== h.server_pid) throw Error("UpdateRuntimeChanged");
       await save(daemon, h);
-      copyFileSync(recoveryPath(daemon.socket), recoveryPath(daemon.socket) + ".before-update");
+      const checkpoint = (await import("./persist/recovery")).path(daemon.socket);
+      copyFileSync(checkpoint, checkpoint + ".before-update");
       await daemon.call("shutdown");
       let stopped = false;
       for (let i = 0; i < 100; i++) {
@@ -1005,15 +1006,33 @@ export async function internal(args: string[], exe: string): Promise<boolean> {
       return true;
     case "__update-info": {
       const r = release(exe);
-      console.log(
-        JSON.stringify({ ...(await import("./machine_build")).describe(exe), platform, test_mode: r.test_mode }),
-      );
+      const installed = (await import("./machine_build")).describe(exe);
+      let machine;
+      if (process.env.CORGI_MACHINE_PROBE === "1") {
+        const live = await new rpc_http.Client(installed.socket).discover(1000, 0, 0).catch(() => null);
+        if (live && "build_id" in live && live.build_id === installed.build_id)
+          machine = (await import("./machine_cli")).remoteInfo(exe);
+      }
+      console.log(JSON.stringify({ ...installed, platform, test_mode: r.test_mode, machine }));
       return true;
     }
     case "__machine-install": {
-      if (args.length !== 4) throw Error("Usage");
+      if (args.length !== 4 && args.length !== 5) throw Error("Usage");
+      if (args.length === 5) (await import("./machine_build")).requireRevision(args[4]);
       const target = await (await import("./machine_install")).install(exe, args[1], args[2], args[3]);
       console.log(JSON.stringify({ executable: target }));
+      return true;
+    }
+    case "__machine-receive": {
+      if (args.length !== 4) throw Error("Usage");
+      const transfer = await import("./machine_transfer_file");
+      await transfer.receive(
+        { readable: Bun.stdin.stream(), writable: new WritableStream({ write: bytes => transfer.write(1, bytes) }) },
+        exe,
+        args[1],
+        args[2],
+        args[3],
+      );
       return true;
     }
     case "__update-check": {

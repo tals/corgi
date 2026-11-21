@@ -1,3 +1,4 @@
+import type { Installation } from "./machine_setup";
 import * as ssh from "./ssh";
 import { Remote, startup_ms } from "./daemon_transport";
 import * as preferences from "./preferences";
@@ -45,7 +46,7 @@ function path(value: unknown): string {
     throw Error("InvalidRemotePath");
   return value;
 }
-export function info(value: unknown): Info {
+export function info(value: unknown, expectedSocket = ""): Info {
   if (!value || typeof value !== "object") throw Error("InvalidRemoteInfo");
   const v = value as Record<string, unknown>;
   if (
@@ -55,7 +56,7 @@ export function info(value: unknown): Info {
   )
     throw Error("IncompatibleRemoteCorgi");
   const socket = path(v.socket);
-  if (socket.includes(":")) throw Error("InvalidRemoteSocket");
+  if (socket.includes(":") || (expectedSocket && socket !== expectedSocket)) throw Error("InvalidRemoteSocket");
   return {
     remote_protocol,
     protocol: protocol.version,
@@ -116,17 +117,24 @@ export async function edit(change: (profiles: Profile[]) => Profile[], file = ca
     closeSync(fd);
   }
 }
-export async function discover(host: string, executable = "corgi", socket = ""): Promise<Info> {
+export async function discover(
+  host: string,
+  installation: Installation,
+  socket = "",
+  signal?: AbortSignal,
+): Promise<Info> {
+  if (installation.info) return installation.info;
+  const { executable, build_id } = installation;
+  const args = build_id ? ["__remote-info", "--activate", build_id] : ["__remote-info"];
   const child = spawn(
     "ssh",
     [
-      ...ssh.args(host, true),
-      socket
-        ? ssh.command("env", [`CORGI_SOCKET=${socket}`, executable, "__remote-info"])
-        : ssh.command(executable, ["__remote-info"]),
+      ...ssh.args(host, ssh.canPrompt()),
+      socket ? ssh.command("env", [`CORGI_SOCKET=${socket}`, executable, ...args]) : ssh.command(executable, args),
     ],
     {
       stdio: ["inherit", "pipe", "inherit"],
+      signal,
     },
   );
   let output = "";
@@ -134,7 +142,7 @@ export async function discover(host: string, executable = "corgi", socket = ""):
     output += chunk.toString();
     if (output.length > 65536) child.kill();
   });
-  const code = await exited(child, 120_000);
+  const code = await exited(child, build_id ? 600_000 : 120_000);
   if (code !== 0) throw Error("RemoteDiscoveryFailed");
   // A shell's startup banner is not part of the protocol.
   const line = output.trim().split("\n").at(-1) ?? "";

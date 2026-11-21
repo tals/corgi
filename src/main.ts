@@ -203,10 +203,57 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     await remote.manage(args.slice(1));
     return;
   }
+  if (args[0] === "__machine-sync") {
+    if (args.length !== 5) throw Error("Usage");
+    const cancellation = new AbortController();
+    const abort = () => cancellation.abort(Error("MachineUpdateCancelled"));
+    process.on("SIGTERM", abort);
+    process.on("SIGINT", abort);
+    try {
+      (await import("./machine_build")).requireRevision(args[4]);
+      await (
+        await import("./machine_cli")
+      ).synchronize(
+        args[1],
+        args[2],
+        args[3],
+        (message, extra) => {
+          if (!cancellation.signal.aborted)
+            process.stdout.write(JSON.stringify({ type: "progress", message, ...extra }) + "\n");
+        },
+        cancellation.signal,
+      );
+      process.stdout.write(JSON.stringify({ type: "ready" }) + "\n");
+    } catch (error) {
+      const message = errors.name(error) || "Machine update failed";
+      process.stdout.write(JSON.stringify({ type: "error", message: message.slice(0, 1024) }) + "\n");
+      throw error;
+    } finally {
+      process.off("SIGTERM", abort);
+      process.off("SIGINT", abort);
+    }
+    return;
+  }
+  if (args[0] === "__machine-install-session") {
+    const [, destination, basis, hash, revision] = args;
+    if (args.length !== 5 || !/^[a-f0-9]{64}$/.test(hash)) throw Error("Usage");
+    (await import("./machine_build")).requireRevision(revision);
+    const installer = await import("./machine_install");
+    const target = await installer.install(executable, destination, basis, "");
+    process.stdout.write("verifying\n");
+    if (build_id.of(target) !== hash) throw Error("RemoteUpgradeVerificationFailed");
+    await ensureServer(daemon, target);
+    await installer.activate(daemon, target, hash);
+    const info = (await import("./machine_cli")).remoteInfo(target);
+    process.stdout.write(json.stringify({ build_id: hash, info }) + "\n");
+    return;
+  }
   if (args[0] === "__remote-info") {
-    if (args.length !== 1) throw Error("Usage");
+    const activate = args.length === 3 && args[1] === "--activate" && /^[a-f0-9]{64}$/.test(args[2]);
+    if (args.length !== 1 && !activate) throw Error("Usage");
     const remote = await import("./machine_cli");
     await ensureServer(daemon);
+    if (activate) await (await import("./machine_install")).activate(daemon, executable, args[2]);
     process.stdout.write(json.stringify(remote.remoteInfo(executable)) + "\n");
     return;
   }
@@ -277,7 +324,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   }
   if (selected && selected !== "local") {
     const machines = await import("./machines");
-    const profile = machines.find(selected);
+    let profile = machines.find(selected);
     const command = args[0] ?? "attach";
     if (command === "attach" || command === "open") {
       if (process.env.CORGI_PANE) throw Error("NestedCorgi");
@@ -289,6 +336,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     } else {
       const remote = await import("./machine_cli");
       if (!remote.remoteCommand(args)) throw Error("UnsupportedRemoteCommand");
+      profile = await (await import("./machine_update")).prepare(profile, { interactive: true });
       const mode = agent_mode.flags(args);
       const command = cli.handles(mode.args)
         ? [
@@ -370,6 +418,9 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   quietExecveWarning();
   // Daemon only: native messages go to server.log, and terminals learn the providers' programs.
   if (command === "serve" || command === "__handoff") {
+    delete process.env.CORGI_DEV_ROOT;
+    delete process.env.CORGI_DEV_BUN;
+    delete process.env.CORGI_NO_REMOTE_UPDATE;
     n.native_log_stderr(true);
     (await import("./detection")).configureNative();
   }
@@ -629,7 +680,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "dev": {
       await ensureServer(daemon);
       const hello = await daemon.call("hello");
-      if (hello.build_id !== buildId()) await daemon.reload(executable);
+      const sourceChanged = config.sourceHash && hello.source_hash && config.sourceHash !== hello.source_hash;
+      if (sourceChanged || hello.build_id !== buildId()) await daemon.reload(executable);
       if (process.env.CORGI_PANE !== undefined)
         await print("action", { name: "relaunch", value: executable, pane: paneId(process.env.CORGI_PANE) });
       else {
@@ -662,12 +714,22 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
 /** What corgi prints when the command line `args` failed with `error`. */
 export function failure(args: string[], error: unknown): string {
   const name = errors.name(error) ?? String(error);
+  const reply = errors.reply(error);
+  const detail =
+    name === "MachineUpdateFailed" && reply && "detail" in reply && typeof reply.detail === "string"
+      ? reply.detail
+      : null;
   if (replies.includes(args[0]) && asksJson(args)) {
     const lines = name === "Usage" ? cli.usage(help, args).map(line => line.trim()) : [];
     const busy = protocol.busy(errors.reply(error));
     return (
-      json.stringify({ ok: false, err: name, ...(lines.length ? { usage: lines } : {}), ...(busy ? { busy } : {}) }) +
-      "\n"
+      json.stringify({
+        ok: false,
+        err: name,
+        ...(lines.length ? { usage: lines } : {}),
+        ...(busy ? { busy } : {}),
+        ...(detail ? { detail } : {}),
+      }) + "\n"
     );
   }
   switch (name) {
@@ -677,6 +739,8 @@ export function failure(args: string[], error: unknown): string {
       if (args[0] === "action") lines.push("", actionNames);
       return `corgi: usage:\n${lines.join("\n")}\n`;
     }
+    case "MachineUpdateFailed":
+      return detail ? `corgi: machine update failed:\n${detail}\n` : `corgi: ${name}\n`;
     case "UnknownCommand":
       return `corgi: unknown command ${args[0]}; see corgi --help\n`;
     case "ProviderOnDemand": {
@@ -721,7 +785,7 @@ function busyDoing(busy: protocol.Busy): string {
       return `a headless ${busy.provider} agent starts`;
   }
 }
-if (import.meta.main) {
+export function main(): void {
   const args = process.argv.slice(2);
   run(args).catch(error => {
     process.stderr.write(failure(args, error));
@@ -729,3 +793,4 @@ if (import.meta.main) {
     process.exitCode = errors.is(error, "Usage") || errors.is(error, "UnknownCommand") ? 2 : 1;
   });
 }
+if (import.meta.main) main();

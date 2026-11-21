@@ -1,9 +1,11 @@
+import type { Report } from "./machine_progress";
 import { Remote, startup_ms } from "./daemon_transport";
 import { nativeRoot } from "./native_paths";
 import * as currentRelease from "./current_release";
 import { homedir } from "node:os";
 import * as machines from "./machines";
 import * as setup from "./machine_setup";
+import * as dev from "./machine_deploy";
 import * as ssh from "./ssh";
 import * as protocol from "./protocol";
 import * as machine_path from "./machine_path";
@@ -13,6 +15,7 @@ import type * as rpc_http from "./rpc_http";
 import * as agentMode from "./agent_mode";
 import * as os from "./os";
 import { Connection } from "./rpc";
+import * as machineUpdate from "./machine_update";
 
 export const help = `
 Machines (SSH):
@@ -21,6 +24,8 @@ Machines (SSH):
   corgi machine status NAME
   corgi machine reconnect NAME
   corgi machine check NAME
+  ./go.ts --deploy NAME           Deploy this development checkout
+  ./go.ts --no-remote-update      Connect using the installed remote builds
   corgi machine remove NAME
   corgi --machine NAME [attach | open PATH | COMMAND...]
   corgi list --all-machines
@@ -29,6 +34,7 @@ SSH_TARGET defaults to NAME. "local" always selects this machine.
 Setup matches the remote Corgi installation to this build, upgrading or downgrading it.
 Add uses normal SSH prompts; viewers reconnect with SSH keys/agent or noninteractive
 corporate SSH authentication.
+Development launches through ./go.ts update machines automatically in the background.
 In the viewer, Ctrl+] or clicking the machine name opens the machine picker.
 `;
 export async function manage(args: string[]): Promise<void> {
@@ -43,8 +49,9 @@ export async function manage(args: string[]): Promise<void> {
       if (rest.length) throw Error("Usage");
       if (machines.read().some(p => p.name === name)) throw Error("MachineExists");
       process.stderr.write(`Checking ${target} through SSH…\n`);
-      executable = await setup.reconcile(target, executable, args);
-      const info = await machines.discover(target, executable);
+      const deployment = dev.enabled() ? dev.initial() : undefined;
+      const installation = await setup.reconcile(target, executable, args, "", deployment);
+      const info = await machines.discover(target, installation);
       const profile = {
         name,
         target,
@@ -56,6 +63,7 @@ export async function manage(args: string[]): Promise<void> {
       await check(profile);
       await machines.edit(profiles => {
         if (profiles.some(p => p.name === name)) throw Error("MachineExists");
+        deployment?.save(profile);
         return [...profiles, profile];
       });
       process.stdout.write(json.stringify({ ok: true, machine: name, target }) + "\n");
@@ -64,14 +72,15 @@ export async function manage(args: string[]): Promise<void> {
     case "status":
     case "reconnect": {
       if (args.length !== 2) throw Error("Usage");
-      const profile = machines.find(args[1]);
+      let profile = machines.find(args[1]);
       if (args[0] === "reconnect") {
         const child = Bun.spawn(["ssh", ...ssh.args(profile.target, true), "true"], {
           stdin: "inherit",
-          stdout: "inherit",
+          stdout: 2,
           stderr: "inherit",
         });
         if (await child.exited) throw Error("SshAuthenticationFailed");
+        profile = await machineUpdate.prepare(profile);
       }
       await check(profile);
       process.stdout.write(json.stringify({ ok: true, machine: profile.name, status: "reachable" }) + "\n");
@@ -90,11 +99,20 @@ export async function manage(args: string[]): Promise<void> {
       if (args.length !== 1) throw Error("Usage");
       process.stdout.write(json.stringify({ machines: [{ name: "local" }, ...machines.read()] }) + "\n");
       return;
+    case "deploy":
     case "check": {
+      const deploy = args[0] === "deploy";
       if (args.length !== 2) throw Error("Usage");
+      if (deploy && dev.skipUpdates()) throw Error("--no-remote-update disables deployment for this launch.");
       const old = machines.find(args[1]);
-      const executable = await setup.reconcile(old.target, old.executable, args, old.socket);
-      const info = await machines.discover(old.target, executable, old.socket);
+      const deployment = deploy || dev.enabled() ? await dev.acquire(old) : undefined;
+      let info: machines.Info;
+      try {
+        const installation = await setup.reconcile(old.target, old.executable, args, old.socket, deployment);
+        info = await machines.discover(old.target, installation, old.socket);
+      } finally {
+        deployment?.close();
+      }
       const refreshed = {
         ...old,
         executable: info.executable,
@@ -102,7 +120,7 @@ export async function manage(args: string[]): Promise<void> {
         home: old.home,
         bridge: info.bridge,
       };
-      await check(refreshed, true);
+      if (!deploy) await check(refreshed);
       await machines.edit(profiles =>
         profiles.map(p => {
           if (p.name !== old.name) return p;
@@ -119,8 +137,42 @@ export async function manage(args: string[]): Promise<void> {
       if (args.length && args[0] !== "--help") process.exitCode = 2;
   }
 }
-async function check(profile: machines.Profile, fresh = false): Promise<void> {
-  const tunnel = new Remote(profile, fresh);
+/** Runs in a helper process so builds, hashes and uploads leave the viewer responsive. */
+export async function synchronize(
+  name: string,
+  target: string,
+  socket: string,
+  progress: Report,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!dev.enabled()) throw Error("DevelopmentBuildRequired");
+  const old = machines.find(name);
+  if (old.target !== target || old.socket !== socket) throw Error("MachineChanged");
+  progress("Checking…", { detail: "Checking the deployment receipt" });
+  const deployment = await dev.acquire(old, signal);
+  try {
+    const installation = await setup.reconcile(old.target, old.executable, [], old.socket, deployment, {
+      verifiedBuild: hash => dev.recorded(old, hash),
+      progress,
+      signal,
+    });
+    signal.throwIfAborted();
+    if (!installation.info) progress("Refreshing…", { detail: "Reading the installed daemon and bridge paths" });
+    const info = await machines.discover(old.target, installation, old.socket, signal);
+    await machines.edit(profiles =>
+      profiles.map(p => {
+        if (p.name !== old.name) return p;
+        if (p.target !== old.target || p.socket !== old.socket) throw Error("MachineChanged");
+        return { ...old, executable: info.executable, bridge: info.bridge };
+      }),
+    );
+  } finally {
+    deployment.close();
+  }
+}
+async function check(profile: machines.Profile): Promise<void> {
+  process.stderr.write(`Connecting to ${profile.name}…\n`);
+  const tunnel = new Remote(profile);
   let conn: Connection | null = null;
   try {
     await tunnel.open();

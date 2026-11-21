@@ -9,8 +9,11 @@ import type * as machine_path from "./machine_path";
 import { Endpoint } from "./machine_connection";
 import type { Probe } from "./terminal_info";
 import type { Host } from "./host";
+import * as update from "./machine_update";
+import * as builds from "./machine_build";
+import * as dev from "./machine_deploy";
 
-export function sshPath(profile: Profile): machine_path.Factory {
+function sshPath(profile: Profile): machine_path.Factory {
   return (fresh, race, start = false) => {
     const tunnels: Remote[] = [],
       opened: Connection[] = [];
@@ -46,7 +49,7 @@ export function sshPath(profile: Profile): machine_path.Factory {
         const detail = control?.diagnostic() ?? "";
         return { issue: ssh.failure(detail), detail };
       },
-      progress: () => control?.progress() ?? "opening SSH connection",
+      progress: () => control?.progress() || "opening SSH connection",
       close() {
         for (const connection of opened) connection.close();
         for (const tunnel of tunnels) tunnel.close();
@@ -58,5 +61,16 @@ export function sshPath(profile: Profile): machine_path.Factory {
 export function sshEndpoint(profile: Profile, probe: Probe, host: Host): Endpoint {
   // Not the executable: an upgrade moves it, and the machine is the same.
   const identity = [profile.name, profile.target, profile.socket, profile.home];
-  return new Endpoint(profile.name, true, identity, sshPath(profile), probe, host);
+  return new Endpoint(
+    profile.name,
+    true,
+    identity,
+    sshPath(profile),
+    probe,
+    host,
+    dev.enabled()
+      ? async (signal, progress) => sshPath(await update.prepare(profile, { signal, progress }))
+      : undefined,
+    hello => builds.compare(builds.viewer, builds.identity(hello)) === "match" && dev.recorded(profile, hello.build_id),
+  );
 }

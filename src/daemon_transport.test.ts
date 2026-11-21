@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { createServer, type Server, type Socket } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { nativeRoot } from "./native_paths";
-import { Preamble } from "./daemon_transport";
+import * as transport from "./daemon_transport";
 import { until } from "./fixtures/until";
 
 const marker = Buffer.from("\ncorgi-bridge-v1\n");
@@ -27,7 +27,7 @@ async function bridge(server: Server) {
 }
 
 test("bridge framing discards fragmented banners and preserves binary bytes", async () => {
-  const stream = new Preamble();
+  const stream = transport.bridgePreamble();
   const chunks: Buffer[] = [];
   stream.on("data", chunk => chunks.push(chunk));
   const done = new Promise<void>((resolve, reject) => stream.on("end", resolve).on("error", reject));
@@ -39,8 +39,12 @@ test("bridge framing discards fragmented banners and preserves binary bytes", as
 });
 
 test("bridge framing rejects unbounded banners and early EOF", async () => {
-  for (const bytes of [Buffer.alloc(65537, 65), Buffer.from("banner only")]) {
-    const stream = new Preamble();
+  for (const bytes of [
+    Buffer.alloc(65537, 65),
+    Buffer.concat([Buffer.alloc(65537, 65), marker]),
+    Buffer.from("banner only"),
+  ]) {
+    const stream = transport.bridgePreamble();
     const error = new Promise<Error>(resolve => stream.on("error", resolve));
     stream.resume();
     stream.end(bytes);

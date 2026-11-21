@@ -536,10 +536,24 @@ function portEndpoints<Id>(ports: PortsSnapshot<Id>, id: Id): Endpoint[] {
   return (ports?.workspaces ?? []).find(w => w.id === id)?.endpoints ?? [];
 }
 export interface ConnectionStatus {
+  metrics?: string;
+  compact?: string;
   diagnostic?: boolean;
   label: string;
   seconds: number | null;
   color: palette.Token;
+}
+/** Keep the machine name and progress on the same row, including in a narrow sidebar. */
+function machineStatusLabel(status: ConnectionStatus, width: number, name: string): string {
+  const metrics = status.metrics ?? (status.seconds === null ? "" : `${status.seconds}s`);
+  const available = sat(width, 7);
+  const nameRoom = Math.max(4, Math.min(Math.floor(width / 3), available - displayWidth(metrics)));
+  const room = sat(available, Math.min(displayWidth(name), nameRoom));
+  if (!metrics) return ellipsis(status.label, room);
+  const label = displayWidth(status.label + " " + metrics) <= room ? status.label : (status.compact ?? status.label);
+  if (displayWidth(metrics) >= room) return ellipsis(metrics, room);
+  const prefix = ellipsis(label, sat(room, displayWidth(metrics) + 1));
+  return [prefix, metrics].filter(Boolean).join(" ");
 }
 export interface WorkspaceEntry<Id = viewerRef.Workspace> {
   archived: boolean;
@@ -1573,14 +1587,12 @@ export class View {
         const quality = ws.link_quality;
         const bars = v.signal_marks ? signalBars.cells : 4;
         const status = ws.connection_status;
-        const timer = !status || status.seconds === null ? "" : ` ${status.seconds}s`;
-        const status_room = sat(v.width, 12);
-        const label = status ? ellipsis(status.label, sat(status_room, displayWidth(timer))) + timer : "";
+        const label = status ? machineStatusLabel(status, v.width, v.workspace_machines[absolute]) : "";
         const status_width = displayWidth(label);
         writeEllipsis(
           w,
           v.workspace_machines[absolute],
-          sat(v.width, status ? status_width + 8 : quality === null ? 6 : 8 + bars),
+          sat(v.width, status ? status_width + 7 : quality === null ? 6 : 8 + bars),
         );
         if (status) {
           w.write(w.cup(y, v.width - status_width - 1) + fg(status.color) + label);
@@ -3131,8 +3143,7 @@ export function machineDiagnosticAt(v: View, rows: WorkspaceEntry[], x: number, 
   for (let i = v.workspace_offset; i < v.workspace_offset + v.workspaceCapacity(); i++) {
     const status = rows[i]?.connection_status;
     if (!status?.diagnostic || y !== v.workspaceY(i) - 1) continue;
-    const timer = status.seconds === null ? "" : ` ${status.seconds}s`;
-    const label = ellipsis(status.label, sat(sat(v.width, 12), displayWidth(timer))) + timer;
+    const label = machineStatusLabel(status, v.width, v.workspace_machines[i]);
     return x >= v.width - displayWidth(label) - 2 && x < v.width - 2;
   }
   return false;

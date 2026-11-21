@@ -64,7 +64,10 @@ export class Workspaces {
           online = status === "online";
         const quality = endpoint.remote && online ? endpoint.stats.quality : null;
         const color = statusColor(status, endpoint.error, quality);
-        const description = online ? endpoint.error || "online" : endpoint.description();
+        const description =
+          online && !endpoint.updateMessage && !endpoint.updateError
+            ? endpoint.error || "online"
+            : endpoint.description();
         const runs: dropdown.Run[] = [];
         if (quality !== null && note_room >= 6) {
           for (const [bar, glyph] of [..."▂▄▆█"].entries()) runs.push([glyph, bar < quality ? color : "line"]);
@@ -90,7 +93,11 @@ export class Workspaces {
     const capacity = Math.max(1, side.rows - y - 4);
     this.offset = Math.min(this.offset, this.cursor);
     if (this.cursor >= this.offset + capacity) this.offset = this.cursor - capacity + 1;
-    const width = Math.min(side.cols, 64, Math.max(36, side.width));
+    const width = Math.min(
+      side.cols,
+      64,
+      Math.max(this.endpoints.some(e => e.updateMessage || e.updateError) ? 64 : 36, side.width),
+    );
     const choices = this.choices(width).slice(this.offset, this.offset + capacity);
     const x = Math.max(0, Math.min(anchor?.x ?? 1, side.cols - width));
     return { box: new Rect(x, y, width, choices.length + 2), choices };

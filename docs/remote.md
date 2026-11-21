@@ -27,7 +27,7 @@ When Corgi is missing, setup installs it at `~/.local/bin/corgi`.
 `--executable` selects a different existing installation. Releases are checked
 against their publisher; development artifacts must match the local source.
 See HACKING.md for the handoff baseline, headless-client limitations and
-cross-platform development artifacts. Background reconnects never change builds.
+cross-platform development artifacts. Development launches through `./go.ts` update saved machines to this checkout in the background. To use their installed builds for one launch, run `./go.ts --no-remote-update`.
 
 With saved profiles, `corgi` starts locally and connects to the other machines
 independently in the background. The sidebar shows **all workspaces**, with a
