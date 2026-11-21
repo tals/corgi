@@ -215,14 +215,17 @@ function assess(
   if (git.isAncestor(e.repo, e.upstream, from)) return current();
   if (mode === "conflicting" && !conflicts) return current("behind upstream, but merges cleanly");
   const busy = git.checkedOutIn(e.repo, branch);
-  // A pending push stays offered while the branch is checked out; only rebasing it waits.
   if (busy) {
     // The worktree holds the local tip, so an in-worktree rebase starts there:
-    // only the tip the checkout is at counts, and a push still due waits.
-    if (o.inWorktree && !pending && from === local)
-      return { target: { patch, branch, from, lease, local, conflicts, worktree: busy } };
-    const rebasableThere = !pending && from === local,
-      hint = !o.inWorktree && rebasableThere ? "; `rebase --in-worktree` rebases it there" : "";
+    // only the tip the checkout is at counts. A push still due is rebased onto
+    // the newer upstream like any other branch, not pushed at its old base.
+    const rebasableThere = from === local;
+    if (o.inWorktree && rebasableThere)
+      return {
+        target: { patch, branch, from, lease, local, conflicts, worktree: busy, ...(pending ? { pending } : {}) },
+      };
+    // Without `--in-worktree`, a pending push stays offered while the branch is checked out.
+    const hint = !o.inWorktree && rebasableThere ? "; `rebase --in-worktree` rebases it there" : "";
     return result(from, lease, {
       reason: `checked out in ${busy}${hint}`,
       worktree: busy,

@@ -2613,6 +2613,28 @@ test("rebase --in-worktree leaves checked-out branches alone that are current or
   expect(again.out).not.toContain("rebased clean");
 });
 
+test("rebase --in-worktree rebases a checked-out branch with a pending push onto the newer upstream", async () => {
+  const w = world();
+  const busy = branch(w, "busy", { "busy.txt": "busy\n" });
+  git(w.clone, "push", "-q", "origin", "busy");
+  const tree = join(fresh("busy"), "tree");
+  git(w.clone, "worktree", "add", "-q", tree, "busy");
+  upstreamMoves(w, { "up.txt": "up\n" });
+  configureOwn(w, ["busy"]);
+  // Rebased, push declined: the push is pending at the first upstream.
+  expect((await cbWith(w, { ask: () => "n" }, "rebase", "--in-worktree")).code).toBe(0);
+  const first = tip(w, "busy")!;
+  expect(first).not.toBe(busy);
+  upstreamMoves(w, { "later.txt": "later\n" });
+  const result = await cb(w, "rebase", "--in-worktree", "--push");
+  expect(result.code).toBe(0);
+  expect(result.out).toMatch(/rebased busy: [0-9a-f]{7} to [0-9a-f]{7}/);
+  expect(result.out).not.toContain("busy: rebased earlier, push pending");
+  expect(behindUpstream(w, "busy")).toBe(false);
+  expect(git(tree, "rev-parse", "HEAD")).toBe(tip(w, "busy"));
+  expect(onFork(w, "busy")).toBe(tip(w, "busy")!);
+});
+
 test("a rejected in-worktree resolution after an earlier commit keeps the branch attached and moves it", async () => {
   const w = world();
   branch(w, "busy", { "first.txt": "first\n" });
