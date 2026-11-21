@@ -508,15 +508,15 @@ test("setup previews workspace tint drags and saves once on release, leaving the
   try {
     const point = bar(0);
     expect(point).not.toBeNull();
-    await s.mouse(`\x1b[<0;${point!.x + 1};${point!.y + 1}M`);
+    await mouseInput(s, `\x1b[<0;${point!.x + 1};${point!.y + 1}M`);
     expect(menu.cursor).toBe(1);
     expect(menu.previewSlider("workspace_tint", s.prefs)).toBe(0);
-    await s.mouse("\x1b[<32;150;35M");
+    await mouseInput(s, "\x1b[<32;150;35M");
     // The sidebar shows the dragged value before anything is saved.
     expect(menu.previewSlider("workspace_tint", s.prefs)).toBe(100);
     expect(s.prefs.workspace_tint).toBe(0);
     expect(update).not.toHaveBeenCalled();
-    await s.mouse("\x1b[<0;150;35m");
+    await mouseInput(s, "\x1b[<0;150;35m");
     expect(s.prefs.workspace_tint).toBe(100);
     expect(s.prefs.corgi_intensity).toBe(50);
     expect(update).toHaveBeenCalledTimes(1);
@@ -524,8 +524,8 @@ test("setup previews workspace tint drags and saves once on release, leaving the
     // Releasing on the value already saved saves nothing.
     const full = bar(100);
     expect(full).not.toBeNull();
-    await s.mouse(`\x1b[<0;${full!.x + 1};${full!.y + 1}M`);
-    await s.mouse(`\x1b[<0;${full!.x + 1};${full!.y + 1}m`);
+    await mouseInput(s, `\x1b[<0;${full!.x + 1};${full!.y + 1}M`);
+    await mouseInput(s, `\x1b[<0;${full!.x + 1};${full!.y + 1}m`);
     expect(s.prefs.workspace_tint).toBe(100);
     expect(update).toHaveBeenCalledTimes(1);
     // Keys step the slider under the cursor.
