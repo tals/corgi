@@ -38,6 +38,7 @@ export const specs = {
   "redo-layout": "void",
   machines: "void",
   connectivity: "void",
+  "instant-typing": "[]const u8",
   new: "void",
   next: "void",
   prev: "void",
@@ -141,6 +142,7 @@ export const specs = {
 } as const satisfies Record<string, keyof Values>;
 export function parse(name: string, value = ""): Template {
   if (!Object.hasOwn(specs, name)) throw new Error("UnknownAction");
+  if (name === "instant-typing" && value !== "auto" && value !== "off") throw new Error("BadValue");
   const parsed = parseValue(specs[name as keyof typeof specs], value);
   return (parsed === undefined ? { name } : { name, value: parsed }) as Template;
 }
@@ -200,6 +202,7 @@ export function title(action: Action | Template): string {
     "undo-layout": i18n.t`Undo layout change`,
     "redo-layout": i18n.t`Redo layout change`,
     machines: "Filter workspace machines",
+    "instant-typing": "Remote instant typing",
     onboard: i18n.t`Onboarding`,
     keybindings: i18n.t`Customize shortcuts`,
     new: i18n.t`New tab (agent picker)`,

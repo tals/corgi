@@ -74,6 +74,10 @@ export class Stats {
   get timeoutMs(): number {
     return Math.max(10000, this.stallMs * 3);
   }
+  /** Input can wait for a sync and its surface read before pixels confirm it. */
+  get predictionMs(): number {
+    return Math.min(30000, Math.max(750, 250 + 3 * this.mean + 4 * this.deviation));
+  }
 
   connections = 0;
   lastReceived: number | null = null;
