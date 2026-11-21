@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import * as terminalPalette from "./terminal_palette";
 import {
   contrast,
   Style,
@@ -177,6 +178,37 @@ test("the workspace section tint stays off on a terminal background of unknown c
     // Once the terminal reports its colors, the tint follows them again.
     use("animal_style", day);
     expect(sectionTint(100)).not.toBeNull();
+  } finally {
+    use(undefined, null);
+  }
+});
+test("workspace tint keeps text readable on saturated terminal backgrounds", () => {
+  const hosts = [
+    { foreground: [179, 6, 91] as Rgb, background: [12, 252, 139] as Rgb, ansi: Array(16).fill(null) },
+    { foreground: [12, 252, 139] as Rgb, background: [179, 6, 91] as Rgb, ansi: Array(16).fill(null) },
+    { foreground: [41, 23, 181] as Rgb, background: [233, 212, 18] as Rgb, ansi: Array(16).fill(null) },
+  ];
+  try {
+    for (const theme of available_themes)
+      for (const host of hosts) {
+        use(theme, host);
+        const ground = [...colors.bg] as Rgb;
+        let last = 0;
+        for (let value = 1; value <= 100; value++) {
+          const tinted = sectionTint(value)!;
+          const distance = dist(ground, tinted);
+          expect(distance).toBeGreaterThan(0);
+          expect(distance).toBeGreaterThanOrEqual(last);
+          expect(distance).toBeLessThan(dist(ground, colors.selected));
+          last = distance;
+          for (const ink of ["muted", "text", "strong", "accent", "warm", "hot", "gold"] as Token[])
+            for (const background of [tinted, mix(tinted, colors.selected, 50)])
+              expect(
+                terminalPalette.contrast(colors[ink], background),
+                `${theme} ${ink} at ${value}`,
+              ).toBeGreaterThanOrEqual(4.5);
+        }
+      }
   } finally {
     use(undefined, null);
   }
