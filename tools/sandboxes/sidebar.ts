@@ -19,8 +19,8 @@ const server = [
   "console.log(`web listening on http://localhost:${server.port}`);",
 ].join("\n");
 
-/** The fake agents' banner, once they are past signing in. */
-const ready = "a fake agent in a Corgi sandbox";
+/** The fake agents' prompt footer, once they are past signing in. */
+const ready = "shortcuts: Shift+Enter newline";
 
 export const world: World = {
   seed(s) {
