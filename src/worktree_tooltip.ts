@@ -9,6 +9,7 @@ import { Grid } from "./cell_grid";
 import * as worktrees from "./worktrees";
 import type * as viewerRef from "./viewer_ref";
 import * as worktreeRemoval from "./worktree_removal";
+import * as scrollThumb from "./scroll_thumb";
 import { clean } from "./trackers/git_status";
 import { milliTimestamp } from "./clock";
 import { ageLabel } from "./launcher_resume";
@@ -61,6 +62,8 @@ export class State {
   /** The overview's order, kept from one opening to the next: the latest edit first. */
   sort: Sort = "edited";
   ascending = false;
+  /** The first worktree shown, moved a row at a time to keep the selection in view. */
+  first = 0;
   removal = new worktreeRemoval.Hold();
   /** The removal effect for this opening of the overview, drawn when first needed. */
   private effect: worktreeRemoval.Effect | null = null;
@@ -69,6 +72,7 @@ export class State {
     this.workspace = null;
     this.pinned = false;
     this.selected = null;
+    this.first = 0;
     this.pending_enter = null;
     this.asleep = null;
     this.agents = null;
@@ -130,9 +134,20 @@ export class State {
   capacity(rect: Rect, closed = 0) {
     return Math.max(1, Math.floor((rect.h - 8 + closed) / this.lines()));
   }
+  /** The first worktree shown: where it was, unless the selection or the list's end moved past it. */
   offset(entries: worktrees.Checkout[], rect: Rect, closed = 0) {
-    const capacity = this.capacity(rect, closed);
-    return Math.floor(this.index(entries) / capacity) * capacity;
+    const capacity = this.capacity(rect, closed),
+      index = this.index(entries);
+    this.first = Math.max(0, index - capacity + 1, Math.min(this.first, index, entries.length - capacity));
+    return this.first;
+  }
+  /** Scrolls the list `delta` rows; the selection stays on a shown row. */
+  scroll(snapshot: worktrees.Snapshot | null, rect: Rect, delta: number) {
+    const { entries, closed } = listing(snapshot, this),
+      capacity = this.capacity(rect, closed);
+    this.first = Math.max(0, Math.min(this.offset(entries, rect, closed) + delta, entries.length - capacity));
+    const index = Math.max(this.first, Math.min(this.index(entries), this.first + capacity - 1));
+    this.select(entries[index]?.path ?? null);
   }
   move(snapshot: worktrees.Snapshot | null, delta: number) {
     const entries = this.entries(snapshot);
@@ -580,6 +595,9 @@ export function draw(
           if (cell) cell.fg = palette.mix(cell.fg, c.surface, dim);
         }
   if (cursor !== null) grid.put(1, cursor, "›", c.strong, true);
+  const lines = state.lines(),
+    bar = scrollThumb.thumb(state.capacity(rect, shown.closed) * lines, entries.length * lines, offset * lines);
+  if (bar) for (let k = bar.start; k < bar.start + bar.len; k++) grid.put(rect.w - 1, 5 + k, "┃", c.muted);
   line(rect.h - 1, 0, "╰" + "─".repeat(rect.w - 2) + "╯", rect.w, "line");
   const port = badge ? Math.max(rect.y + 1, Math.min(badge.y, rect.y + rect.h - 2)) : 0;
   if (badge) grid.put(0, port - rect.y, "├", c.muted);
