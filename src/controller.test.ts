@@ -5357,6 +5357,19 @@ function twoMachines(reply: (op: string) => unknown) {
   return { s, other, asked };
 }
 
+test("a click waiting out the double-click window doesn't open on a machine switched to meanwhile", () => {
+  const { s, other } = twoMachines(() => ({}));
+  try {
+    const file = { path: "/a/app.ts", line: 3, column: null };
+    s.pending_open = { url: "/a/app.ts:3", file, pane: 1, due: 0 };
+    s.switchMachine(other);
+    expect(s.pending_open).toBeNull();
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 test("the prompt's conversation stays on the machine it started on when another is shown", async () => {
   const { s, other, asked } = twoMachines(op =>
     op === "headless.start" ? { provider: "codex", session: "s" } : { events: [] },

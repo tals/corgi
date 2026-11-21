@@ -186,7 +186,7 @@ test("scrolling back keeps to the caps from the end, and growth then leaves the 
   const first = s.line(0),
     dropped = s.dropped;
   // A reader up there holds its place while the log grows.
-  s.held = true;
+  s.hold = 0;
   appendFileSync(path, numbered(300_001, 300_010));
   await s.refresh();
   expect([s.line(0), s.dropped]).toEqual([first, dropped]);
@@ -196,15 +196,31 @@ test("scrolling back keeps to the caps from the end, and growth then leaves the 
   expect(s.added).toBe(added);
 });
 
-test("a reader following a full window lets its oldest lines go, and one holding its place keeps them", async () => {
-  const path = file("held.log", "");
-  const s = await open(path);
-  appendFileSync(path, numbered(1, fileSource.max_lines));
-  await s.refresh();
-  s.held = true;
-  appendFileSync(path, numbered(fileSource.max_lines + 1, fileSource.max_lines + 100));
-  await s.refresh();
-  expect([s.line(0), s.dropped, s.atEnd]).toEqual(["line 1", 0, false]);
+test("growth past the caps drops lines on the side away from a place held in the window", async () => {
+  const full = async (name: string) => {
+    const path = file(name, "");
+    const s = await open(path);
+    appendFileSync(path, numbered(1, fileSource.max_lines));
+    await s.refresh();
+    return { path, s };
+  };
+  const grow = async ({ path, s }: { path: string; s: Source }) => {
+    appendFileSync(path, numbered(fileSource.max_lines + 1, fileSource.max_lines + 100));
+    await s.refresh();
+  };
+  // Held near the start: the growth gives way.
+  const top = await full("top.log");
+  top.s.hold = 10;
+  await grow(top);
+  expect([top.s.line(0), top.s.dropped, top.s.atEnd]).toEqual(["line 1", 0, false]);
+  // Held a line up from the end: the oldest lines go, and the held one stays.
+  const end = await full("end.log");
+  const held = end.s.count - 30;
+  end.s.hold = held;
+  await grow(end);
+  expect(end.s.dropped).toBeGreaterThan(0);
+  expect(end.s.line(held - end.s.dropped)).toBe(`line ${held + 1}`);
+  expect(end.s.atEnd).toBe(true);
 });
 
 test("an open called off stops scanning for its line", async () => {

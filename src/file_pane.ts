@@ -35,15 +35,22 @@ export function parseArgs(argv: string[]): Args | null {
   }
   return path === null ? null : { path: resolve(path), line, column };
 }
-/** How an editor opens `path` at `line`: most take `+line`; these take `path:line`. */
+/** How an editor opens `path` at `line`. The shell runs the setting, as git
+ * runs $EDITOR, so its quotes mean what they do there. Most editors take
+ * `+line`; these take `path:line`. */
 export function editorCommand(editor: string, path: string, line: number | null): string[] {
-  const words = editor.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) words.push("vi");
-  const name = basename(words[0]);
-  if (line === null) return [...words, path];
-  if (/^(?:code|code-insiders|codium|cursor|windsurf)$/.test(name)) return [...words, "-g", `${path}:${line}`];
-  if (/^(?:zed|subl|hx|helix)$/.test(name)) return [...words, `${path}:${line}`];
-  return [...words, `+${line}`, path];
+  const command = editor.trim() || "vi",
+    first = /^(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(command),
+    name = basename(first?.[1] ?? first?.[2] ?? first?.[3] ?? "");
+  const args =
+    line === null
+      ? [path]
+      : /^(?:code|code-insiders|codium|cursor|windsurf)$/.test(name)
+        ? ["-g", `${path}:${line}`]
+        : /^(?:zed|subl|hx|helix)$/.test(name)
+          ? [`${path}:${line}`]
+          : [`+${line}`, path];
+  return ["/bin/sh", "-c", `${command} "$@"`, command, ...args];
 }
 
 export type Key =

@@ -776,6 +776,9 @@ export class Controller {
     this.git_card = new gitTooltip.State();
     this.resource_card = new resourceTooltip.State();
     this.link_tooltip.move();
+    // A click waiting out a double-click names a pane, and a file, there.
+    this.pending_open = null;
+    this.file_peeks.clear();
     this.headless_notice = null;
     this.review.pinned = false;
     this.sidebar_rows.discard();

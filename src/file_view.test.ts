@@ -176,3 +176,12 @@ test("scrolled right, a wide character cut in half shows its right half blank", 
   r.draw(c, 0, 0, 12, 1, { bg: null, shift: 2 });
   expect(c.cells[0].map(cell => cell.ch).join("")).toBe("  1  bc     ");
 });
+
+test("a wide character the cut marker would halve gives way whole", async () => {
+  const r = await reader("w.txt", "abc界def");
+  r.sync(1);
+  const c = new Canvas(0, 0, 9, 1);
+  r.draw(c, 0, 0, 9, 1, { bg: null });
+  // "  1 " then five columns: a, b, c, then 界's two, which the marker cuts.
+  expect(c.cells[0].map(cell => cell.ch)).toEqual([" ", " ", "1", " ", "a", "b", "c", " ", "›"]);
+});

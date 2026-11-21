@@ -26,17 +26,18 @@ test("takes a path and the line and column to open at", () => {
   expect(filePane.parseArgs(["/a", "/b"])).toBeNull();
 });
 
-test("opens editors at the line as each expects", () => {
-  expect(filePane.editorCommand("nvim", "/a.ts", 12)).toEqual(["nvim", "+12", "/a.ts"]);
-  expect(filePane.editorCommand("emacs -nw", "/a.ts", 12)).toEqual(["emacs", "-nw", "+12", "/a.ts"]);
-  expect(filePane.editorCommand("/usr/bin/code --wait", "/a.ts", 12)).toEqual([
-    "/usr/bin/code",
-    "--wait",
-    "-g",
-    "/a.ts:12",
-  ]);
-  expect(filePane.editorCommand("hx", "/a.ts", 12)).toEqual(["hx", "/a.ts:12"]);
-  expect(filePane.editorCommand("", "/a.ts", null)).toEqual(["vi", "/a.ts"]);
+test("opens editors at the line as each expects, through the shell as git runs them", async () => {
+  const run = (editor: string, line: number | null) => filePane.editorCommand(editor, "/a.ts", line).slice(4);
+  expect(run("nvim", 12)).toEqual(["+12", "/a.ts"]);
+  expect(run("emacs -nw", 12)).toEqual(["+12", "/a.ts"]);
+  expect(run("/usr/bin/code --wait", 12)).toEqual(["-g", "/a.ts:12"]);
+  expect(run('"/Applications/Visual Studio Code.app/bin/code" --wait', 12)).toEqual(["-g", "/a.ts:12"]);
+  expect(run("hx", 12)).toEqual(["/a.ts:12"]);
+  expect(filePane.editorCommand("", "/a.ts", null)).toEqual(["/bin/sh", "-c", 'vi "$@"', "vi", "/a.ts"]);
+  // A quoted path in the setting stays one argument.
+  const argv = filePane.editorCommand(`printf '%s\\n' -u "/tmp/My Config/init.vim"`, "/a.ts", 12);
+  const out = await new Response(Bun.spawn(argv, { stdout: "pipe" }).stdout).text();
+  expect(out.split("\n")).toEqual(["-u", "/tmp/My Config/init.vim", "+12", "/a.ts", ""]);
 });
 
 test("reads keys and mouse reports from terminal input, waiting out a key a read cut short", () => {

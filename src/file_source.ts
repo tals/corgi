@@ -26,6 +26,8 @@ export const max_lines = 50_000;
 /** The most bytes following keeps: the oldest lines drop past it, and a
  * line still being written that is longer keeps only its end. */
 export const max_bytes = 16 << 20;
+/** Lines kept above a place a viewer holds, for it to scroll up into. */
+export const hold_margin = 1000;
 /** How far into a log a line the text named is looked for. */
 export const seek_limit = 4 * 1024 ** 3;
 const poll_ms = 1000;
@@ -82,9 +84,9 @@ export class Source {
   binary = false;
   /** Why following last failed, until it works again. */
   error: string | null = null;
-  /** A viewer holds its place: growth past the caps isn't kept, rather
-   * than the lines before it dropped. */
-  held = false;
+  /** The row a viewer holds at its top, or null while it follows the end:
+   * growth past the caps then drops lines on the side away from it. */
+  hold: number | null = null;
   /** Counts of lines the file grew by, read in at the start and dropped
    * from the start: a viewer keeps its place with them. */
   added = 0;
@@ -338,22 +340,30 @@ export class Source {
     scan(bytes, this.end, this.starts);
     this.end += bytes.length;
     if (grew) this.added += this.starts.length - lines;
-    if (grew && this.held) this.dropEnd();
+    // Growth gives way to a place held near the start, which dropping
+    // from there would take.
+    if (grew && this.hold !== null && this.hold < this.startDrop() + hold_margin) this.dropEnd();
     else this.dropStart();
   }
   private get over(): boolean {
     return this.starts.length - 1 > max_lines || this.end - this.start > max_bytes;
   }
+  /** The whole lines keeping to the caps from the start drops: a tenth at a
+   * time, so following a busy log doesn't shift every read. */
+  private startDrop(): number {
+    if (!this.over) return 0;
+    const whole = this.starts.length - 1,
+      from = this.end - Math.floor(max_bytes * 0.9);
+    let drop = whole > max_lines ? whole - Math.floor(max_lines * 0.9) : 0;
+    if (this.end - this.start > max_bytes) while (drop < whole && this.starts[drop] < from) drop++;
+    return drop;
+  }
   /** Keeps to the caps from the window's start, where no one reads. */
   private dropStart(): void {
     if (!this.over) return;
-    const whole = this.starts.length - 1,
-      over_lines = whole > max_lines,
-      over_bytes = this.end - this.start > max_bytes;
-    // Drop a tenth at a time, so following a busy log doesn't shift every read.
-    const from = this.end - Math.floor(max_bytes * 0.9);
-    let drop = over_lines ? whole - Math.floor(max_lines * 0.9) : 0;
-    if (over_bytes) while (drop < whole && this.starts[drop] < from) drop++;
+    const over_bytes = this.end - this.start > max_bytes,
+      from = this.end - Math.floor(max_bytes * 0.9),
+      drop = this.startDrop();
     this.starts.splice(0, drop);
     // The line being written is still too long: it shows cut, as `window` does.
     if (over_bytes && this.starts[0] < from) this.starts[0] = from;
@@ -582,7 +592,7 @@ export class Source {
     if (!joined) return this.bump();
     const grown = this.size - this.end;
     // A held place stays where it is; the window stops short of the end.
-    if (grown > skip_after) return this.held ? this.bump() : await this.restart();
+    if (grown > skip_after) return this.hold !== null ? this.bump() : await this.restart();
     const bytes = this.local && grown <= sync_limit ? this.readNow(this.end, grown) : await this.read(this.end, grown);
     this.append(bytes, true);
     this.bump();

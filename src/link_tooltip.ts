@@ -71,6 +71,8 @@ export interface Target {
 function same(a: Target, b: Target) {
   return (
     sameLink(a.link, b.link) &&
+    // A link found to name a file turns from a copy card into a peek.
+    (a.file ?? false) === (b.file ?? false) &&
     (a.resource ?? null) === (b.resource ?? null) &&
     (a.git ?? null) === (b.git ?? null) &&
     (a.worktree ?? null) === (b.worktree ?? null) &&
