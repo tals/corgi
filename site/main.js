@@ -128,10 +128,11 @@ function tidySidebar(g) {
     put(g, 0, at, textWidth.ellipsis(i18n.t`workspaces`, edge - at - 1), style);
   }
   for (const row of g) {
-    const start = row.findIndex(([ch]) => ch === "⚒");
-    if (start < 0) continue;
-    let end = start + 1;
-    while (/^\d$/.test(row[end]?.[0] ?? "")) end++;
+    const icon = row.findIndex(([ch]) => ch === "⚒");
+    if (icon < 0) continue;
+    let start = icon, end = icon + 1;
+    while (start > 0 && row[start - 1][0].trim()) start--;
+    while (end < row.length && row[end][0].trim()) end++;
     for (let column = start; column < end; column++) row[column] = [" ", row[column][1]];
   }
   return g;
