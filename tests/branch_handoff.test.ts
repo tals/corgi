@@ -2,10 +2,17 @@ import { join } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { Runtime, EXE } from "./runtime";
-import { registerCase, quote } from "./support";
+import * as support from "./support";
 import * as formats from "../src/persist/formats";
+import * as handoff_info from "../src/persist/handoff_info";
 
 class BranchHandoff extends Runtime {
+  async test_compiled_format_probe_reads_the_registry_without_loading_the_daemon() {
+    const reply = await support.run([EXE, "__handoff-info"], {
+      env: { ...this.env, CORGI_NATIVE_ROOT: join(this.temp.name, "absent-native-libraries") },
+    });
+    this.assertEqual(JSON.parse(reply.stdout), handoff_info.info());
+  }
   candidate(name: string, reject = false) {
     const path = join(this.temp.name, name),
       info = JSON.stringify({ handoff: 1, formats: [randomBytes(6).toString("hex"), formats.baseline] });
@@ -13,10 +20,10 @@ class BranchHandoff extends Runtime {
       path,
       `#!/bin/sh
 if [ "$1" = __handoff-info ]; then
-  printf '%s\\n' ${quote(info)}
+  printf '%s\\n' ${support.quote(info)}
   exit 0
 fi
-${reject ? "printf 'InvalidHandoffCore\\n' >&4; exit 1" : `exec ${quote(EXE)} "$@"`}
+${reject ? "printf 'InvalidHandoffCore\\n' >&4; exit 1" : `exec ${support.quote(EXE)} "$@"`}
 `,
       { mode: 0o700 },
     );
@@ -128,9 +135,9 @@ if (state.payload !== null) {
       path,
       `#!/bin/sh
 if [ "$1" = __handoff ]; then
-  ${quote(process.execPath)} ${quote(inspect)} || exit 1
+  ${support.quote(process.execPath)} ${support.quote(inspect)} || exit 1
 fi
-exec ${quote(EXE)} "$@"
+exec ${support.quote(EXE)} "$@"
 `,
       { mode: 0o700 },
     );
@@ -180,7 +187,7 @@ exec ${quote(EXE)} "$@"
     });
   }
 }
-registerCase("BranchHandoff", BranchHandoff, {
+support.registerCase("BranchHandoff", BranchHandoff, {
   inherited: false,
   skipTests: process.env.CORGI_BRANCH_EXE
     ? {}

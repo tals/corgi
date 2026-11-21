@@ -680,7 +680,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "dev": {
       await ensureServer(daemon);
       const hello = await daemon.call("hello");
-      if (hello.build_id !== buildId()) await daemon.reload(executable);
+      const sourceChanged = config.sourceHash && hello.source_hash && config.sourceHash !== hello.source_hash;
+      if (sourceChanged || hello.build_id !== buildId()) await daemon.reload(executable);
       if (process.env.CORGI_PANE !== undefined)
         await print("action", { name: "relaunch", value: executable, pane: paneId(process.env.CORGI_PANE) });
       else {
@@ -784,7 +785,7 @@ function busyDoing(busy: protocol.Busy): string {
       return `a headless ${busy.provider} agent starts`;
   }
 }
-if (import.meta.main) {
+export function main(): void {
   const args = process.argv.slice(2);
   run(args).catch(error => {
     process.stderr.write(failure(args, error));
@@ -792,3 +793,4 @@ if (import.meta.main) {
     process.exitCode = errors.is(error, "Usage") || errors.is(error, "UnknownCommand") ? 2 : 1;
   });
 }
+if (import.meta.main) main();

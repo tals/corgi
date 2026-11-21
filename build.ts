@@ -183,6 +183,7 @@ process.send?.("Compiling the Corgi executable with Bun");
 process.stderr.write(`Building Corgi for ${buildTarget}…\n`);
 const result = await Bun.build({
   entrypoints: [
+    `${root}/src/entry.ts`,
     `${root}/src/main.ts`,
     `${root}/src/providers/codex/files_worker.ts`,
     `${root}/src/trackers/resources_worker.ts`,

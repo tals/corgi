@@ -5,15 +5,13 @@ import * as subprocess from "../subprocess";
 import * as core from "./core";
 import * as commands from "./commands";
 import * as formats from "./formats";
+import * as handoff_info from "./handoff_info";
 import * as state_formats from "./state_formats";
 import * as migrations from "./migrations";
 import type * as checkpoint from "./checkpoint";
 
-export const protocol = 1;
-export type Info = { handoff: number; formats: string[] };
-export function info(): Info {
-  return { handoff: protocol, formats: formats.supported(state_formats.history) };
-}
+export const { info, protocol } = handoff_info;
+export type Info = handoff_info.Info;
 export function compatible(value: unknown): boolean {
   return json.field(value, "handoff") === protocol;
 }
