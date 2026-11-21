@@ -71,6 +71,23 @@ test("plain image paths link to their file, and other paths are found as paths",
     t.destroy();
   }
 });
+test("a screen with only a dotfile or a name and its line still finds them", () => {
+  for (const [text, uri] of [
+    ["see .env", ".env"],
+    ["edit .gitignore now", ".gitignore"],
+    ["error at Makefile:42", "Makefile:42"],
+    ["Makefile(7)", "Makefile:7"],
+    ['  File "Makefile", line 3', "Makefile:3"],
+  ]) {
+    const t = Terminal.create(40, 2);
+    try {
+      t.feed(text);
+      expect(all(t).filter(link => link.path)).toEqual([expect.objectContaining({ uri })]);
+    } finally {
+      t.destroy();
+    }
+  }
+});
 test("plain links span soft wraps but not hard newlines and remain snapshot owned", () => {
   const t = Terminal.create(20, 5);
   try {

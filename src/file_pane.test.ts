@@ -5,6 +5,7 @@ import { join } from "node:path";
 import * as filePane from "./file_pane";
 import { Source } from "./file_source";
 import { Reader } from "./file_view";
+import * as terminalInput from "./terminal_input";
 
 const dirs: string[] = [];
 const opened: Source[] = [];
@@ -38,19 +39,28 @@ test("opens editors at the line as each expects", () => {
   expect(filePane.editorCommand("", "/a.ts", null)).toEqual(["vi", "/a.ts"]);
 });
 
-test("reads keys and mouse reports from terminal input", () => {
-  expect(filePane.input("jk\x1b[B\x1b[6~G")).toEqual([
+test("reads keys and mouse reports from terminal input, waiting out a key a read cut short", () => {
+  const parser = new terminalInput.Parser(),
+    read = (data: string, now: number) => filePane.input(parser.feed(Buffer.from(data, "latin1"), now));
+  expect(read("jk\x1b[B\x1b[6~G", 0)).toEqual([
     { key: "down" },
     { key: "up" },
     { key: "down" },
     { key: "page_down" },
     { key: "end" },
   ]);
-  expect(filePane.input("\x1b[<64;5;7M\x1b[<0;1;3m")).toEqual([
+  expect(read("\x1b[<64;5;7M\x1b[<0;1;3m", 0)).toEqual([
     { mouse: { button: 64, x: 4, y: 6, release: false } },
     { mouse: { button: 0, x: 0, y: 2, release: true } },
   ]);
-  expect(filePane.input("\x1b")).toEqual([{ key: "quit" }]);
+  // An arrow split between reads moves rather than closing the pane.
+  expect(read("\x1b", 1)).toEqual([]);
+  expect(read("[", 2)).toEqual([]);
+  expect(read("A", 3)).toEqual([{ key: "up" }]);
+  // Escape alone closes it once nothing follows.
+  expect(read("\x1b", 10)).toEqual([]);
+  expect(filePane.input(parser.expire(10 + 49))).toEqual([]);
+  expect(filePane.input(parser.expire(parser.due()))).toEqual([{ key: "quit" }]);
 });
 
 test("draws a header, the file and its keys, and folds from the gutter", async () => {
@@ -70,5 +80,22 @@ test("draws a header, the file and its keys, and folds from the gutter", async (
   view.mouse(0, 0, 1, false, 8);
   expect(view.reader.folded).toEqual(new Set([0]));
   expect(plain(view.draw(60, 8))).toContain("⋯ 3 lines");
-  expect(view.lineShown()).toBe(2);
+  expect(view.lineShown(8)).toBe(2);
+});
+
+test("the editor opens at the named line while it shows, and at the top line once scrolled away", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-pane-"));
+  dirs.push(dir);
+  const path = join(dir, "a.txt");
+  writeFileSync(path, Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join("\n"));
+  const source = await Source.open(path, { follow: false });
+  opened.push(source);
+  const view = new filePane.View(new Reader(source, 50), 50);
+  view.draw(60, 12);
+  expect(view.lineShown(12)).toBe(50);
+  view.key("page_down", 12);
+  view.key("page_down", 12);
+  view.draw(60, 12);
+  expect(view.lineShown(12)).toBe(view.reader.top + 1);
+  expect(view.lineShown(12)).not.toBe(50);
 });

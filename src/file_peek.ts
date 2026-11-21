@@ -55,12 +55,11 @@ export class Peek {
     this.closed = true;
     void this.reader?.source.close();
   }
-  /** The file's line at row `r` of the card's body. */
+  /** The file's line at row `r` of the card's body, pinned or not. */
   lineAt(r: number): number | null {
-    const reader = this.reader;
-    if (!reader) return null;
-    const shown = reader.shownRows()[reader.top + r];
-    return shown ? reader.source.number(shown.row) : null;
+    const reader = this.reader,
+      hit = reader?.at(r, rows, true);
+    return hit ? reader!.source.number(hit.row) : null;
   }
 }
 /** The one peek a viewer prepares or shows. */
@@ -131,7 +130,7 @@ export function draw(w: Writer, rect: Rect, peek: Peek, pointer: { x: number; y:
     const hover = pointer ? bodyRow(rect, pointer.x, pointer.y) : null;
     reader.draw(c, 1, 2, rect.w - 2, rows, {
       bg,
-      hover: hover === null ? null : reader.top + hover,
+      hover,
       context: true,
       scrollbar: true,
     });

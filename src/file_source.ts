@@ -1,7 +1,8 @@
 //! A file as the file peek and the file pane read it, no more of it than they
 //! show. A code file under `code_limit` is read whole and decoded into lines,
-//! so its lines have their numbers. A log, or anything larger, is read from
-//! its end, one block, and earlier blocks as someone scrolls back. Its bytes
+//! so its lines have their numbers, until it grows past the limit. A log, or
+//! anything larger, is read from its end, one block, and earlier blocks as
+//! someone scrolls back, or from its start when they go there. Its bytes
 //! stay as they were read, with where each line starts, and a line is
 //! decoded only when it is shown: following a busy log finds newlines and
 //! keeps the bytes, as `tail -F` copies them, and no more.
@@ -22,6 +23,9 @@ export const block = 256 << 10;
 export const skip_after = 16 << 20;
 /** The most lines following keeps; the oldest drop past it. */
 export const max_lines = 50_000;
+/** The most bytes following keeps: the oldest lines drop past it, and a
+ * line still being written that is longer keeps only its end. */
+export const max_bytes = 16 << 20;
 /** How far into a log a line the text named is looked for. */
 export const seek_limit = 4 * 1024 ** 3;
 const poll_ms = 1000;
@@ -62,7 +66,8 @@ export interface Options {
   changed?: () => void;
 }
 export class Source {
-  readonly mode: Mode;
+  /** A code file that grows past `code_limit` turns into a log. */
+  mode: Mode;
   /** A code file's lines, without their newlines. */
   lines: string[] = [];
   /** The file's number for row 0, once the window's start is known. */
@@ -80,8 +85,10 @@ export class Source {
   prepended = 0;
   dropped = 0;
   /** Times the window started over at the end: the file shrank, was
-   * replaced or grew faster than it was read. */
+   * replaced or grew faster than it was read, or a viewer went to its end. */
   restarts = 0;
+  /** Times the window moved to the file's start. */
+  rewinds = 0;
   /** Bumps with every change. */
   version = 0;
   /** A log's window: the blocks its bytes were read in, and where each of
@@ -105,7 +112,7 @@ export class Source {
   private named = false;
   private chain: Promise<unknown> = Promise.resolve();
   /** Reads asked for and not done; a second ask while one waits is dropped. */
-  private asked = new Set<"earlier" | "later">();
+  private asked = new Set<"earlier" | "later" | "start" | "end">();
   private closed = false;
   private constructor(
     readonly path: string,
@@ -307,13 +314,21 @@ export class Source {
     scan(bytes, this.end, this.starts);
     this.end += bytes.length;
     this.added += this.starts.length - lines;
-    const whole = this.starts.length - 1;
-    if (whole <= max_lines) return;
+    const whole = this.starts.length - 1,
+      over_lines = whole > max_lines,
+      over_bytes = this.end - this.start > max_bytes;
+    if (!over_lines && !over_bytes) return;
     // Drop a tenth at a time, so following a busy log doesn't shift every read.
-    const drop = whole - Math.floor(max_lines * 0.9),
-      start = this.starts[drop];
+    const from = this.end - Math.floor(max_bytes * 0.9);
+    let drop = over_lines ? whole - Math.floor(max_lines * 0.9) : 0;
+    if (over_bytes) while (drop < whole && this.starts[drop] < from) drop++;
     this.starts.splice(0, drop);
+    // The line being written is still too long: it shows cut, as `window` does.
+    if (over_bytes && this.starts[0] < from) this.starts[0] = from;
+    const start = this.starts[0];
     while (this.blocks.length > 1 && this.blocks[0].at + this.blocks[0].bytes.length <= start) this.blocks.shift();
+    const head = this.blocks[0];
+    if (head && head.at < start) this.blocks[0] = { at: start, bytes: head.bytes.slice(start - head.at) };
     this.cache.clear();
     this.start = start;
     this.dropped += drop;
@@ -325,7 +340,7 @@ export class Source {
     this.chain = next.catch(() => {});
     return next;
   }
-  private once(what: "earlier" | "later", read: () => Promise<boolean>): Promise<boolean> {
+  private once(what: "earlier" | "later" | "start" | "end", read: () => Promise<boolean>): Promise<boolean> {
     if (this.asked.has(what)) return Promise.resolve(false);
     this.asked.add(what);
     return this.serial(read).finally(() => this.asked.delete(what));
@@ -337,6 +352,27 @@ export class Source {
   /** Reads the block after a window that doesn't reach the end. */
   later(): Promise<boolean> {
     return this.once("later", () => this.readLater());
+  }
+  /** Moves a log's window to the file's first block; false when it's there. */
+  toStart(): Promise<boolean> {
+    return this.once("start", async () => {
+      if (this.mode === "code" || this.start === 0 || !this.fh) return false;
+      this.window(0, await this.read(0, Math.min(block, this.size)));
+      this.rewinds++;
+      this.bump();
+      return true;
+    });
+  }
+  /** Moves a log's window to the file's end, as following reads it; false when it's there. */
+  toEnd(): Promise<boolean> {
+    return this.once("end", async () => {
+      if (this.mode === "code" || this.atEnd || !this.fh) return false;
+      this.size = (await this.fh.stat()).size;
+      await this.readTail();
+      this.restarts++;
+      this.bump();
+      return true;
+    });
   }
   private async readEarlier(): Promise<boolean> {
     if (this.mode === "code" || this.start === 0 || !this.fh || this.binary) return false;
@@ -454,8 +490,14 @@ export class Source {
         if (!found || this.closed) return;
         if (this.mode === "code") {
           if (found.ino === this.ino && found.size === this.size && found.mtimeMs === this.mtime) return;
-          await this.readWhole();
-          return this.bump();
+          if (found.size <= code_limit) {
+            await this.readWhole();
+            return this.bump();
+          }
+          // Too large now to read whole each change: it's followed from its end.
+          this.mode = "tail";
+          this.lines = [];
+          return await this.restart();
         }
         if (found.ino !== this.ino || found.dev !== this.dev) return await this.restart();
       }
