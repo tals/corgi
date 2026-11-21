@@ -30,12 +30,12 @@ function platform(target: build.Target): updates.Platform {
       throw Error("UnsupportedReleasePlatform");
   }
 }
-async function artifact(
-  local: build.Build,
-  target: build.Target,
-  directory: string,
-  options: Options = {},
-): Promise<string> {
+function snapshot(file: string) {
+  const stamp = dev.fileStamp(file);
+  const data = transferFile.input(file);
+  return { data, stamp, hash: createHash("sha256").update(data).digest("hex") };
+}
+async function artifact(local: build.Build, target: build.Target, directory: string, options: Options = {}) {
   if (build.released(local.version)) {
     const file = await updates.artifact(updates.release(local.executable), local.version, platform(target), directory);
     const manifest = updates.parse(
@@ -44,25 +44,26 @@ async function artifact(
       platform(target),
     );
     if (manifest.commit !== local.commit) throw Error("WrongReleaseCommit");
-    return file;
+    return snapshot(file);
   }
-  if (target === local.target) return local.executable;
+  if (target === local.target) return snapshot(local.executable);
   const file = process.env.CORGI_DEV_ROOT
     ? await dev.artifact(target, options.signal, options.progress)
     : join(dirname(local.executable), `corgi-${target}`);
   if (!existsSync(file + ".build.json"))
     throw Error(`Build the matching remote artifact with bun build.ts --target ${target}`);
   const metadata = JSON.parse(readFileSync(file + ".build.json", "utf8"));
+  const artifact = snapshot(file);
   if (
     !local.source_hash ||
     metadata.sourceSHA256 !== local.source_hash ||
     metadata.releaseVersion !== local.version ||
     metadata.target !== target ||
     metadata.testBuild ||
-    metadata.sha256 !== createHash("sha256").update(readFileSync(file)).digest("hex")
+    metadata.sha256 !== artifact.hash
   )
     throw Error("RemoteArtifactDoesNotMatchLocalBuild");
-  return file;
+  return artifact;
 }
 export interface Installation {
   executable: string;
@@ -166,20 +167,14 @@ if [ -n "$p" ]; then ${deployment ? "CORGI_MACHINE_PROBE=1 " : ""}"$p" __update-
   }
   const directory = mkdtempSync(join(tmpdir(), "corgi-setup-"));
   try {
-    const prepared = deployment ? await artifact(local, target, directory, options) : "";
-    const stamp = prepared ? dev.fileStamp(prepared) : "";
-    const preparedData = prepared ? transferFile.input(prepared) : null;
-    const preparedHash = preparedData ? createHash("sha256").update(preparedData).digest("hex") : "";
-    const matches = installed && (deployment ? installed.build_id === preparedHash : build.matches(local, installed));
-    if (matches) {
-      deployment?.record({ hash: preparedHash, target, stamp });
+    const prepared = deployment ? await artifact(local, target, directory, options) : null;
+    if (installed && (prepared ? installed.build_id === prepared.hash : build.matches(local, installed))) {
+      if (prepared) deployment?.record({ hash: prepared.hash, target, stamp: prepared.stamp });
       process.stderr.write(`Corgi builds match on ${host}.\n`);
-      return matching(deployment ? preparedHash : undefined);
+      return matching(prepared?.hash);
     }
     process.stderr.write(`${installed ? "Switching to" : "Installing"} Corgi ${local.version} on ${host}…\n`);
-    const file = prepared || (await artifact(local, target, directory, options));
-    const data = preparedData ?? transferFile.input(file);
-    const hash = preparedHash || createHash("sha256").update(data).digest("hex");
+    const { data, hash, stamp } = prepared ?? (await artifact(local, target, directory, options));
     if (deployment) {
       const info = await setup_ssh.installDev(host, executable, installed, socket, data, hash, status, options.signal);
       deployment.record({ hash, target, stamp });

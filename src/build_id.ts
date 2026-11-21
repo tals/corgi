@@ -1,14 +1,26 @@
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import * as fs from "node:fs";
 import { resolve } from "node:path";
 
 export function of(executable: string): string {
-  const hash = createHash("sha256").update(readFileSync(executable));
+  const hash = createHash("sha256");
+  const fd = fs.openSync(executable, "r");
+  try {
+    const chunk = Buffer.allocUnsafe(512 * 1024);
+    for (;;) {
+      const bytes = fs.readSync(fd, chunk);
+      if (bytes === 0) break;
+      hash.update(chunk.subarray(0, bytes));
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
   if (!import.meta.filename.startsWith("/$bunfs/")) {
-    for (const file of readdirSync(import.meta.dir, { recursive: true })
+    for (const file of fs
+      .readdirSync(import.meta.dir, { recursive: true })
       .filter((p): p is string => typeof p === "string" && p.endsWith(".ts") && !p.endsWith(".test.ts"))
       .sort())
-      hash.update(file).update(readFileSync(resolve(import.meta.dir, file)));
+      hash.update(file).update(fs.readFileSync(resolve(import.meta.dir, file)));
   }
   return hash.digest("hex");
 }

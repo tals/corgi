@@ -190,6 +190,7 @@ export async function installDev(
   const quote = os.shellQuote;
   const dest = quote(executable);
   const targetSocket = socket || installed?.socket;
+  // The delta receiver verifies the reconstructed bytes before exiting. A raw upload needs its own checksum.
   const delta = !!installed?.delta_transfer;
   const script = `set -eu
 unset CORGI_MACHINE CORGI_PANE CORGI_VIEWER
@@ -204,8 +205,11 @@ checksum() {
 }
 basis=${installed && !installed.build_id ? `$(checksum ${dest})` : quote(installed?.build_id ?? "")}
 printf '\\n%s\\n' ${quote(ssh.deltaMarker)}
-${delta ? `${dest} __machine-receive "$stage/corgi" "$basis" ${quote(hash)}\ncat >/dev/null` : 'cat > "$stage/corgi"'}
-[ "$(checksum "$stage/corgi")" = ${quote(hash)} ] || exit 1
+${
+  delta
+    ? `${dest} __machine-receive "$stage/corgi" "$basis" ${quote(hash)}\ncat >/dev/null`
+    : `cat > "$stage/corgi"\n[ "$(checksum "$stage/corgi")" = ${quote(hash)} ] || exit 1`
+}
 chmod 700 "$stage/corgi"
 "$stage/corgi" __machine-install-session ${dest} "$basis" ${quote(hash)} ${quote(build.revision)}`;
   signal?.throwIfAborted();
