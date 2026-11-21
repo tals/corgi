@@ -7,6 +7,7 @@ import { Snapshot, Child } from "./providers/snapshot";
 import { View } from "./activity/tools";
 import { Inventory, Ended } from "./activity/background_tasks";
 import { Hooks } from "./providers/common";
+import { adapter } from "./providers";
 import * as worktrees from "./worktrees";
 test("child links cannot cross providers reparent or form cycles", () => {
   const r = new Registry(),
@@ -167,6 +168,157 @@ test("Claude background Agent launch owns a live child until complete stop censu
   );
   expect(child.state.state).toBe("idle");
   expect(parent.state.observation.pending_stop).toBe(true);
+});
+// The hooks Claude Code 2.1.318 sent for a teammate: its Stop entry has a
+// task id of its own and stays "running" while the teammate idles, so only
+// the teammate's own SubagentStart and SubagentStop say whether it works.
+test("Claude waits on a teammate while it works, and not once it idles", () => {
+  const r = new Registry(),
+    parent = r.get("claude", "s"),
+    h = new Hooks(),
+    teammate = { id: "te2dh1366", type: "teammate", status: "running", description: "Sleep then report" };
+  let seq = 0n;
+  const send = (v: any) =>
+    r.observeHook(parent, adapter("claude").hook({ session_id: "s", ...v })!, ++seq, false, Number(seq) * 1000);
+  parent.pid = process.pid;
+  send({
+    hook_event_name: "PostToolUse",
+    tool_name: "Agent",
+    tool_input: { name: "sleeper", description: "Sleep then report" },
+    tool_response: { status: "teammate_spawned", agentId: "asleeper-a4d6", name: "sleeper" },
+  });
+  const child = r.find("claude", "asleeper-a4d6")!;
+  expect(child.parent).toBe(parent.id);
+  expect(child.state.state).toBe("working");
+  expect(child.state.displayName()).toBe("sleeper");
+  send({ hook_event_name: "SubagentStart", agent_id: "asleeper-a4d6", agent_type: "sleeper" });
+  send({ hook_event_name: "Stop", background_tasks: [teammate] });
+  expect(parent.state.subagents).toEqual({ running: 1, blocked: 0, waiting: true });
+  expect(child.state.state).toBe("working");
+  send({ hook_event_name: "SubagentStop", agent_id: "asleeper-a4d6", background_tasks: [teammate] });
+  expect(child.state.state).toBe("idle");
+  expect(parent.state.subagents.running).toBe(0);
+  // Its message wakes the lead, whose next Stop still lists the idle teammate.
+  send({ hook_event_name: "UserPromptSubmit" });
+  send({ hook_event_name: "Stop", background_tasks: [teammate] });
+  expect(parent.state.subagents.waiting).toBe(false);
+  expect(parent.state.observation.pending_stop).toBe(true);
+  // A message to it starts it again.
+  send({ hook_event_name: "SubagentStart", agent_id: "asleeper-a4d6", agent_type: "sleeper" });
+  expect(child.state.state).toBe("working");
+  send({ hook_event_name: "Stop", background_tasks: [teammate] });
+  expect(parent.state.subagents.waiting).toBe(true);
+  // A Stop that lists no teammates has none left.
+  send({ hook_event_name: "Stop", background_tasks: [] });
+  expect(child.state.state).toBe("idle");
+  expect(parent.state.subagents.running).toBe(0);
+  expect(parent.state.subagents.waiting).toBe(false);
+});
+test("Claude keeps its working teammate, not a finished subagent, while a Stop lists teammates", () => {
+  const r = new Registry(),
+    parent = r.get("claude", "s"),
+    teammate = { id: "te2dh1366", type: "teammate", status: "running", description: "Sleep then report" };
+  let seq = 0n;
+  const send = (v: any) =>
+    r.observeHook(parent, adapter("claude").hook({ session_id: "s", ...v })!, ++seq, false, Number(seq) * 1000);
+  parent.pid = process.pid;
+  send({
+    hook_event_name: "PostToolUse",
+    tool_name: "Agent",
+    tool_input: { description: "Lane A", subagent_type: "Explore" },
+    tool_response: { status: "async_launched", agentId: "a1" },
+  });
+  send({
+    hook_event_name: "PostToolUse",
+    tool_name: "Agent",
+    tool_input: { name: "sleeper", description: "Sleep then report" },
+    tool_response: { status: "teammate_spawned", agentId: "asleeper-a4d6", name: "sleeper" },
+  });
+  send({ hook_event_name: "SubagentStart", agent_id: "asleeper-a4d6", agent_type: "sleeper" });
+  // The subagent finished without its SubagentStop reaching Corgi, so only
+  // the Stop, which lists the teammate alone, says it is done.
+  send({ hook_event_name: "Stop", background_tasks: [teammate] });
+  expect(r.find("claude", "a1")!.state.state).toBe("idle");
+  expect(r.find("claude", "asleeper-a4d6")!.state.state).toBe("working");
+  expect(parent.state.subagents).toEqual({ running: 1, blocked: 0, waiting: true });
+});
+test("Claude keeps a teammate restored from before a reload working beside a new one", () => {
+  const r = new Registry(),
+    parent = r.get("claude", "s"),
+    restored = r.get("claude", "aolder-b1c2");
+  let seq = 0n;
+  const send = (v: any) =>
+    r.observeHook(parent, adapter("claude").hook({ session_id: "s", ...v })!, ++seq, false, Number(seq) * 1000);
+  parent.pid = process.pid;
+  // A reload brings the child back without the hooks that spawned it.
+  expect(r.linkChild(parent, restored)).toBe(true);
+  restored.state.state = "working";
+  send({
+    hook_event_name: "PostToolUse",
+    tool_name: "Agent",
+    tool_input: { name: "sleeper", description: "Sleep then report" },
+    tool_response: { status: "teammate_spawned", agentId: "asleeper-a4d6", name: "sleeper" },
+  });
+  send({
+    hook_event_name: "Stop",
+    background_tasks: [
+      { id: "te1", type: "teammate", status: "running" },
+      { id: "te2", type: "teammate", status: "running" },
+    ],
+  });
+  expect(restored.state.state).toBe("working");
+  expect(r.find("claude", "asleeper-a4d6")!.state.state).toBe("working");
+  expect(parent.state.subagents).toEqual({ running: 2, blocked: 0, waiting: true });
+});
+test("Claude keeps a teammate's launch a teammate while many others wait for a pane", () => {
+  const r = new Registry(),
+    parent = r.get("claude", "s"),
+    launch = (id: string) =>
+      adapter("claude").hook({
+        session_id: "s",
+        hook_event_name: "PostToolUse",
+        tool_name: "Agent",
+        tool_input: { name: "sleeper", description: "Sleep then report" },
+        tool_response: { status: "teammate_spawned", agentId: id, name: "sleeper" },
+      })!;
+  parent.pid = process.pid;
+  // Its launch waits for a pane while more launches than a Stop can list come in.
+  const held = launch("asleeper-a4d6");
+  for (let i = 0; i < 40; i++) launch(`aother-${i}`);
+  r.observeHook(parent, held, 1n, false, 1000);
+  r.observeHook(
+    parent,
+    adapter("claude").hook({
+      session_id: "s",
+      hook_event_name: "Stop",
+      background_tasks: [{ id: "te2dh1366", type: "teammate", status: "running" }],
+    })!,
+    2n,
+    false,
+    2000,
+  );
+  expect(r.find("claude", "asleeper-a4d6")!.state.state).toBe("working");
+  expect(parent.state.subagents).toEqual({ running: 1, blocked: 0, waiting: true });
+});
+test("Claude counts a teammate once however often it stops and starts without a task list", () => {
+  const r = new Registry(),
+    parent = r.get("claude", "s");
+  let seq = 0n;
+  const send = (v: any) =>
+    r.observeHook(parent, adapter("claude").hook({ session_id: "s", ...v })!, ++seq, false, Number(seq) * 1000);
+  send({
+    hook_event_name: "PostToolUse",
+    tool_name: "Agent",
+    tool_input: { name: "sleeper", description: "Sleep then report" },
+    tool_response: { status: "teammate_spawned", agentId: "asleeper-a4d6", name: "sleeper" },
+  });
+  expect(parent.state.subagents.running).toBe(1);
+  for (let i = 0; i < 3; i++) {
+    send({ hook_event_name: "SubagentStop", agent_id: "asleeper-a4d6" });
+    expect(parent.state.subagents.running).toBe(0);
+    send({ hook_event_name: "SubagentStart", agent_id: "asleeper-a4d6", agent_type: "sleeper" });
+    expect(parent.state.subagents.running).toBe(1);
+  }
 });
 
 function hook(kind: string, session: string, extra: any = {}) {
@@ -840,25 +992,37 @@ const pauseHookRecords = [
     ],
   },
   { hook_event_name: "SessionStart", session_id: "s", source: "resume" },
+  {
+    hook_event_name: "PostToolUse",
+    session_id: "s",
+    tool_name: "Monitor",
+    tool_input: { command: "tail -F evals.log", description: "Watch the evals" },
+    tool_response: { taskId: "b1", timeoutMs: 1800000, persistent: false },
+  },
 ];
 
-test("a Claude Stop pauses a conversation its shells or a wakeup can wake", () => {
+test("a Claude Stop pauses a conversation its Monitors or a wakeup can wake", () => {
   const registry = new Registry();
   const actor = registry.get("claude", "s");
-  const hooks = pauseHookRecords.map(value => new Hooks().decode(value)!);
+  const hooks = pauseHookRecords.map(value => adapter("claude").hook(value)!);
   const observe = (index: number, seq: bigint, now: number) =>
     registry.observeHook(actor, hooks[index], seq, false, now);
   // A process that can't be watched never pauses.
   observe(0, 1n, 100);
-  observe(1, 2n, 200);
+  observe(1, 3n, 200);
   expect(actor.state.paused).toBe(false);
   actor.pid = 4242;
-  observe(0, 3n, 300);
-  // Its turn ends while a background command runs: finished, and paused.
-  observe(1, 4n, 400);
+  // A background command no Monitor started, often a server, holds nothing.
+  observe(0, 4n, 250);
+  observe(1, 5n, 260);
+  expect(actor.state.paused).toBe(false);
+  observe(0, 6n, 270);
+  observe(6, 7n, 280);
+  // Its turn ends while a Monitor runs: finished, and paused.
+  observe(1, 8n, 400);
   expect(actor.state.paused).toBe(true);
   expect(actor.paused_for_wakeup).toBe(false);
-  expect(actor.confirmStop(4n, "completed", 410)).toBe(true);
+  expect(actor.confirmStop(8n, "completed", 410)).toBe(true);
   expect(actor.state.state).toBe("idle");
   expect(actor.state.attention).toBe("finished");
   expect(actor.state.paused).toBe(true);
@@ -866,34 +1030,57 @@ test("a Claude Stop pauses a conversation its shells or a wakeup can wake", () =
   expect(actor.state.paused).toBe(true);
   expect(actor.observeTranscriptTurn(1)).toBe(true);
   expect(actor.state.paused).toBe(false);
-  // A shell wakes it and the turn pauses again; any hook ends a pause.
-  observe(0, 5n, 500);
-  observe(1, 6n, 600);
+  // Its Monitor wakes it and the turn pauses again; any hook ends a pause.
+  observe(0, 9n, 500);
+  observe(1, 10n, 600);
   expect(actor.state.paused).toBe(true);
-  observe(0, 7n, 700);
+  observe(0, 11n, 700);
   expect(actor.state.paused).toBe(false);
   expect(actor.state.state).toBe("working");
   // A recurring cron is not waited on.
-  observe(2, 8n, 800);
+  observe(2, 12n, 800);
   expect(actor.state.paused).toBe(false);
   expect(actor.shells.len).toBe(0);
   // A one-shot wakeup is.
-  observe(0, 9n, 900);
-  observe(3, 10n, 1000);
+  observe(0, 13n, 900);
+  observe(3, 14n, 1000);
   expect(actor.state.paused).toBe(true);
   expect(actor.paused_for_wakeup).toBe(true);
   // A resumed session runs none of the old process's tasks.
-  observe(5, 11n, 1100);
+  observe(5, 15n, 1100);
   expect(actor.state.paused).toBe(false);
   // Running subagents keep it working instead.
-  observe(0, 12n, 1200);
-  observe(4, 13n, 1300);
+  observe(0, 16n, 1200);
+  observe(4, 17n, 1300);
   expect(actor.state.paused).toBe(false);
   expect(actor.state.subagents.waiting).toBe(true);
 });
 
+test("a Claude Stop pauses on its latest Monitor after more launches than it keeps", () => {
+  const registry = new Registry();
+  const actor = registry.get("claude", "s");
+  actor.pid = 4242;
+  let seq = 0n;
+  const send = (v: any) =>
+    registry.observeHook(actor, adapter("claude").hook({ session_id: "s", ...v })!, ++seq, false, Number(seq) * 100);
+  send({ hook_event_name: "UserPromptSubmit" });
+  for (let i = 0; i <= 40; i++)
+    send({ hook_event_name: "PostToolUse", tool_name: "Monitor", tool_input: {}, tool_response: { taskId: `m${i}` } });
+  // The earlier Monitors ended; only the last one still runs.
+  send({ hook_event_name: "Stop", background_tasks: [{ id: "m40", type: "shell", status: "running" }] });
+  expect(actor.state.paused).toBe(true);
+  expect(actor.shells.len).toBe(1);
+});
+
 const shellHookRecords = [
   { hook_event_name: "UserPromptSubmit", session_id: "s" },
+  {
+    hook_event_name: "PostToolUse",
+    session_id: "s",
+    tool_name: "Monitor",
+    tool_input: { command: "tail -F ci.log" },
+    tool_response: { taskId: "m1" },
+  },
   {
     hook_event_name: "Stop",
     session_id: "s",
@@ -914,9 +1101,10 @@ test("a pause ends when the transcript reports its last shell ended", () => {
   const registry = new Registry();
   const actor = registry.get("claude", "s");
   actor.pid = 4242;
-  const hooks = shellHookRecords.map(value => new Hooks().decode(value)!);
+  const hooks = shellHookRecords.map(value => adapter("claude").hook(value)!);
   registry.observeHook(actor, hooks[0], 1n, false, 100);
-  registry.observeHook(actor, hooks[1], 2n, false, 200);
+  registry.observeHook(actor, hooks[1], 2n, false, 150);
+  registry.observeHook(actor, hooks[2], 3n, false, 200);
   expect(actor.state.paused).toBe(true);
   // Its command ended: the Monitor can still wake it.
   const ended = new Ended();
@@ -928,8 +1116,8 @@ test("a pause ends when the transcript reports its last shell ended", () => {
   expect(actor.observeTaskEnds(ended)).toBe(true);
   expect(actor.state.paused).toBe(false);
   // A scheduled wakeup holds the pause whatever its shells do.
-  registry.observeHook(actor, hooks[0], 3n, false, 300);
-  registry.observeHook(actor, hooks[2], 4n, false, 400);
+  registry.observeHook(actor, hooks[0], 4n, false, 300);
+  registry.observeHook(actor, hooks[3], 5n, false, 400);
   expect(actor.state.paused).toBe(true);
   ended.add("m2");
   expect(actor.observeTaskEnds(ended)).toBe(false);
