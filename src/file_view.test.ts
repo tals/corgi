@@ -123,6 +123,42 @@ test("follows a growing log and keeps its place once scrolled back", async () =>
   expect([r.following, r.fresh]).toEqual([true, 0]);
 });
 
+test("following from the middle of a large log goes to its end, and home goes to its first line", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-view-"));
+  dirs.push(dir);
+  const path = join(dir, "big.log");
+  writeFileSync(path, Array.from({ length: 300_000 }, (_, i) => `line ${i + 1}`).join("\n") + "\n");
+  const source = await Source.open(path, { follow: false, line: 150_000 });
+  opened.push(source);
+  const r = new Reader(source, 150_000);
+  r.sync(10);
+  expect(r.source.line(r.target!)).toBe("line 150000");
+  expect(r.following).toBe(false);
+  r.follow(true);
+  await r.source.settled();
+  await Reflect.get(r.source, "chain");
+  r.sync(10);
+  expect(r.following).toBe(true);
+  expect(r.source.line(r.shownRows()[r.top + 9].row)).toBe("line 300000");
+  r.home();
+  await Reflect.get(r.source, "chain");
+  r.sync(10);
+  expect([r.following, r.top]).toEqual([false, 0]);
+  expect(r.source.number(0)).toBe(1);
+  expect(r.source.line(0)).toBe("line 1");
+});
+
+test("a pinned line is what a click on it means", async () => {
+  const r = await reader("a.ts", code);
+  r.top = 3;
+  const pinned = r.pinned(6, true);
+  expect(pinned).toEqual([2]);
+  expect(r.at(0, 6, true)).toEqual({ row: 2, index: null });
+  expect(r.at(1, 6, true)).toEqual({ row: 4, index: 4 });
+  expect(r.at(1, 6, false)).toEqual({ row: 4, index: 4 });
+  expect(r.at(0, 6, false)).toEqual({ row: 3, index: 3 });
+});
+
 test("cuts long lines and expands tabs", async () => {
   const r = await reader("d.txt", "\tindented\n" + "y".repeat(50));
   r.sync(2);

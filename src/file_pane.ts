@@ -11,6 +11,7 @@ import { Source } from "./file_source";
 import { Reader } from "./file_view";
 import * as i18n from "./i18n";
 import * as palette from "./palette";
+import * as terminalInput from "./terminal_input";
 import { directoryLabel, displayWidth, shortPath, Writer } from "./text";
 
 export interface Args {
@@ -105,28 +106,28 @@ const keys: Record<string, Key> = {
   e: "edit",
   v: "edit",
 };
-export type Input = { key: Key } | { mouse: { button: number; x: number; y: number; release: boolean } };
-/** Splits terminal input into the keys and mouse reports it holds. */
-export function input(data: string): Input[] {
+export type Input = { key: Key } | { mouse: terminalInput.Mouse };
+/** The keys and mouse reports in what `terminal_input` framed: typed text
+ * comes as one run, a key or a sequence whole. */
+export function input(events: terminalInput.Input[]): Input[] {
   const out: Input[] = [];
-  for (let i = 0; i < data.length;) {
-    const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(data.slice(i));
-    if (mouse) {
-      out.push({ mouse: { button: +mouse[1], x: +mouse[2] - 1, y: +mouse[3] - 1, release: mouse[4] === "m" } });
-      i += mouse[0].length;
+  for (const event of events) {
+    if (event.kind === "mouse") {
+      out.push({ mouse: event.mouse });
       continue;
     }
-    const sequence = /^\x1b(?:\[[\d;]*[~A-Za-z]|O[A-Za-z])/.exec(data.slice(i));
-    const text = sequence ? sequence[0] : data[i];
-    const key = keys[text];
-    if (key) out.push({ key });
-    i += text.length;
+    const text = Buffer.from(event.bytes).toString("latin1");
+    for (const part of event.kind === "text" ? text : [text]) {
+      const key = keys[part];
+      if (key) out.push({ key });
+    }
   }
   return out;
 }
 
 const shift_step = 8;
 export class View {
+  /** The body row under the pointer, from 0. */
   hover: number | null = null;
   shift = 0;
   constructor(
@@ -155,13 +156,11 @@ export class View {
       case "half_up":
         return r.scroll(-(h >> 1), h);
       case "top":
-        r.following = false;
-        r.top = 0;
-        return r.scroll(0, h);
+        return r.home();
       case "end":
+        if (r.source.mode === "tail") return r.follow(true);
         r.top = r.shownRows().length;
-        r.scroll(0, h);
-        return r.follow(r.source.mode === "tail");
+        return r.scroll(0, h);
       case "left":
         this.shift = Math.max(0, this.shift - shift_step);
         return;
@@ -171,10 +170,9 @@ export class View {
       case "follow":
         return r.follow(!r.following);
       case "fold": {
-        const rows_shown = r.shownRows(),
-          at = this.hover ?? (r.target !== null ? r.shownIndex(r.target) : r.top);
-        const shown = rows_shown[at];
-        if (shown) r.toggleFold(shown.row);
+        const hit = this.hover === null ? null : r.at(this.hover, h, this.code),
+          row = hit?.row ?? r.target ?? r.shownRows()[r.top]?.row;
+        if (row !== undefined) r.toggleFold(row);
         return;
       }
       case "fold_all":
@@ -188,20 +186,29 @@ export class View {
   mouse(button: number, x: number, y: number, release: boolean, rows: number): void {
     const h = View.body(rows),
       r = this.reader;
-    this.hover = y >= 1 && y <= h ? r.top + y - 1 : null;
+    this.hover = y >= 1 && y <= h ? y - 1 : null;
     if (release) return;
     if (button === 64 || button === 65) return r.scroll(button === 64 ? -3 : 3, h);
-    if (button === 0 && x <= 1 && this.hover !== null) {
-      const shown = r.shownRows()[this.hover];
-      if (shown && r.foldEnds().has(shown.row)) r.toggleFold(shown.row);
-    }
+    // Pinned lines have no fold marker.
+    const hit = button === 0 && x <= 1 && this.hover !== null ? r.at(this.hover, h, this.code) : null;
+    if (hit && hit.index !== null && r.foldEnds().has(hit.row)) r.toggleFold(hit.row);
   }
-  /** The file's line at the top of the view, which the editor opens at. */
-  lineShown(): number | null {
-    const r = this.reader;
-    if (r.target !== null) return r.source.number(r.target);
-    const shown = r.shownRows()[r.top];
-    return shown ? r.source.number(shown.row) : this.line;
+  /** The line the editor opens at: the one the text named while it shows,
+   * else the first under the pinned lines. */
+  lineShown(rows: number): number | null {
+    const r = this.reader,
+      h = View.body(rows),
+      pins = r.pinned(h, this.code).length;
+    if (r.target !== null) {
+      const at = r.shownIndex(r.target);
+      if (at >= r.top + pins && at < r.top + h) return r.source.number(r.target);
+    }
+    const first = r.at(pins, h, this.code);
+    return first ? r.source.number(first.row) : this.line;
+  }
+  /** Code pins the lines that open its blocks and folds. */
+  private get code(): boolean {
+    return this.reader.source.mode === "code";
   }
   draw(cols: number, rows: number): string {
     const colors = palette.colors,
@@ -221,8 +228,8 @@ export class View {
     r.draw(c, 0, 1, cols, h, {
       bg: null,
       hover: this.hover,
-      context: s.mode === "code",
-      folds: s.mode === "code",
+      context: this.code,
+      folds: this.code,
       scrollbar: true,
       shift: this.shift,
     });
@@ -297,7 +304,8 @@ export async function run(argv: string[]): Promise<void> {
   out.write(enter);
   process.stdin.setRawMode?.(true);
   process.stdin.resume();
-  process.stdin.setEncoding("latin1");
+  const parser = new terminalInput.Parser();
+  let escape: ReturnType<typeof setTimeout> | null = null;
   let finished!: () => void;
   const done = new Promise<void>(resolve => (finished = resolve));
   const edit = async () => {
@@ -307,7 +315,7 @@ export async function run(argv: string[]): Promise<void> {
     process.stdin.setRawMode?.(false);
     process.stdin.pause();
     try {
-      const child = Bun.spawn(editorCommand(editor, args.path, view!.lineShown()), {
+      const child = Bun.spawn(editorCommand(editor, args.path, view!.lineShown(out.rows || 24)), {
         stdio: ["inherit", "inherit", "inherit"],
       });
       await child.exited;
@@ -320,10 +328,12 @@ export async function run(argv: string[]): Promise<void> {
     paused = false;
     draw();
   };
-  process.stdin.on("data", (data: string) => {
+  const take = (events: terminalInput.Input[]) => {
+    if (escape) clearTimeout(escape);
+    escape = null;
     if (paused) return;
     const rows = out.rows || 24;
-    for (const event of input(data)) {
+    for (const event of input(events)) {
       if ("mouse" in event) {
         const m = event.mouse;
         view!.mouse(m.button, m.x, m.y, m.release, rows);
@@ -334,11 +344,16 @@ export async function run(argv: string[]): Promise<void> {
       view!.key(event.key, rows);
     }
     schedule();
-  });
+    // A read can end partway through a key; a lone Escape is one once nothing follows it.
+    const due = parser.due();
+    if (due !== Infinity) escape = setTimeout(() => take(parser.expire()), Math.max(0, due - performance.now()));
+  };
+  process.stdin.on("data", (data: Buffer) => take(parser.feed(data)));
   out.on("resize", schedule);
   draw();
   await done;
   if (timer) clearTimeout(timer);
+  if (escape) clearTimeout(escape);
   out.write(leave);
   process.stdin.setRawMode?.(false);
   await source.close();

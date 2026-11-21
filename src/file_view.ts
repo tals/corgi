@@ -20,7 +20,7 @@ type Span = [number, number, logSyntax.Kind];
 export interface Look {
   /** The background, or null for the terminal's own. */
   bg: palette.Rgb | null;
-  /** The display row the pointer is over. */
+  /** The drawn row the pointer is over, from 0 at the top. */
   hover?: number | null;
   /** Pin the lines that open the blocks the top row is in. */
   context?: boolean;
@@ -55,13 +55,15 @@ export class Reader {
   fresh = 0;
   /** The row of the line the text named. */
   target: number | null = null;
+  /** That line's number, to find its row again after the window moves. */
+  private target_line: number | null = null;
   readonly column: number | null;
   /** Closed folds, by their first row. */
   folded = new Set<number>();
   readonly lang: string | null;
   readonly log: boolean;
   private highlighter: syntax.Highlighter | null = null;
-  private seen = { version: -1, added: 0, prepended: 0, dropped: 0, restarts: 0 };
+  private seen = { version: -1, added: 0, prepended: 0, dropped: 0, restarts: 0, rewinds: 0 };
   private ends: { version: number; map: Map<number, number> } | null = null;
   private shown: { key: string; rows: Shown[] } | null = null;
   private center: number | null;
@@ -83,10 +85,15 @@ export class Reader {
     const s = this.source,
       seen = this.seen;
     if (s.version !== seen.version) {
-      if (s.restarts !== seen.restarts && seen.version >= 0) {
-        this.target = null;
-        this.following = true;
+      const restarted = s.restarts !== seen.restarts;
+      if ((restarted || s.rewinds !== seen.rewinds) && seen.version >= 0) {
+        // A new window: its rows are other lines.
+        this.target = this.target_line === null ? null : s.rowOf(this.target_line);
         this.fresh = 0;
+        if (restarted) {
+          this.following = s.mode === "tail";
+          this.folded.clear();
+        } else this.top = 0;
       } else if (seen.version >= 0) {
         const shift = s.prepended - seen.prepended - (s.dropped - seen.dropped);
         this.top = Math.max(0, this.top + shift);
@@ -100,10 +107,12 @@ export class Reader {
         prepended: s.prepended,
         dropped: s.dropped,
         restarts: s.restarts,
+        rewinds: s.rewinds,
       };
     }
     if (this.center !== null) {
       this.target = s.rowOf(this.center);
+      this.target_line = this.target === null ? null : this.center;
       this.center = null;
       if (this.target !== null) this.top = this.shownIndex(this.target) - Math.floor((h - 1) / 2);
       // A log whose line wasn't found shows its end.
@@ -127,9 +136,18 @@ export class Reader {
     if (this.top < h && this.source.start > 0) void this.source.earlier();
     else if (this.top >= last - h && !this.source.atEnd) void this.source.later();
   }
+  /** Follows a log's end, reading it first when the window stops short of it. */
   follow(on: boolean): void {
     this.following = on && this.source.mode === "tail";
-    if (this.following) this.fresh = 0;
+    if (!this.following) return;
+    this.fresh = 0;
+    if (!this.source.atEnd) void this.source.toEnd();
+  }
+  /** Goes to the file's first line, reading it first when the window starts after it. */
+  home(): void {
+    this.following = false;
+    this.top = 0;
+    if (this.source.mode === "tail" && this.source.start > 0) void this.source.toStart();
   }
   /** The rows to show: every line, less closed folds. */
   shownRows(): Shown[] {
@@ -227,6 +245,25 @@ export class Reader {
     }
     return out.slice(-max);
   }
+  /** The lines pinned over the top of `h` rows, when `context` pins them. */
+  pinned(h: number, context: boolean): number[] {
+    return context && h >= 6 ? this.pins(this.shownRows(), h >= 10 ? 2 : 1) : [];
+  }
+  /** What row `r` of `h` drawn with `context` shows: a pinned line, with no
+   * index, or the shown row at `index`. */
+  at(r: number, h: number, context: boolean): { row: number; index: number | null } | null {
+    const rows = this.shownRows(),
+      pinned = this.pinned(h, context);
+    if (this.covers(pinned, rows, r)) return { row: pinned[r], index: null };
+    const index = this.top + r,
+      shown = rows[index];
+    return shown ? { row: shown.row, index } : null;
+  }
+  /** Whether the line pinned at row `r` covers another; one that is the
+   * row drawn there anyway shows as itself. */
+  private covers(pinned: number[], rows: Shown[], r: number): boolean {
+    return r < pinned.length && pinned[r] !== rows[this.top + r]?.row;
+  }
   /** The lines to pin over the top rows: the openings of the blocks the
    * first row left showing below them is in, so they speak for what shows. */
   private pins(rows: Shown[], max: number): number[] {
@@ -260,19 +297,21 @@ export class Reader {
       text_x = x + marks + digits + 1,
       bar = look.scrollbar && rows.length > h ? 1 : 0,
       text_w = Math.max(0, x + w - bar - text_x);
-    const pinned = look.context && h >= 6 ? this.pins(rows, h >= 10 ? 2 : 1) : [];
+    const pinned = this.pinned(h, look.context ?? false);
     const ends = look.folds ? this.foldEnds() : null;
     const pin_bg = palette.mix(bg ?? colors.bg, colors.selected, 45);
     for (let r = 0; r < h; r++) {
-      const at = r < pinned.length ? null : this.top + r;
+      const at = this.covers(pinned, rows, r) ? null : this.top + r;
       const shown: Shown | undefined = at === null ? { row: pinned[r] } : rows[at];
       if (!shown) break;
       const row = shown.row,
         target = at !== null && row === this.target,
-        hover = at !== null && at === look.hover,
+        hover = r === look.hover,
         row_bg =
           at === null
-            ? pin_bg
+            ? hover
+              ? palette.mix(bg ?? colors.bg, colors.selected, 70)
+              : pin_bg
             : target
               ? colors.selected
               : hover

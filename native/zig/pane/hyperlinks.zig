@@ -303,23 +303,43 @@ fn lineSuffix(bytes: []const u8, start: usize, found: *Found) void {
 // Avoid the byte-to-cell map when there cannot be a URL or file path.
 // Graphemes take the full path; this only rules out single-codepoint screens.
 fn hasPlainPrefix(state: *const vt.RenderState) bool {
-    var matched: usize = 0;
+    const python = "\", line ";
+    var http: usize = 0;
+    var quoted: usize = 0;
     var previous: u21 = 0;
+    var before: u21 = 0;
     for (state.row_data.items(.raw), state.row_data.items(.cells)) |row, cells| {
         for (cells.items(.raw)) |cell| {
             if (cell.wide == .spacer_tail or cell.wide == .spacer_head) continue;
             if (cell.content_tag == .codepoint_grapheme) return true;
             const cp = cell.codepoint();
             if (cp == '/') return true;
-            // A file name's extension, as in "package.json".
-            if (cp == '.' and previous < 0x80 and std.ascii.isAlphanumeric(@intCast(previous))) return true;
+            // A file name's extension or a dotfile, as in "package.json" or ".env".
+            if (cp == '.' and (wordCodepoint(previous) or !pathCodepoint(previous))) return true;
+            // A line after a name, as in "Makefile:42", "Makefile(42)" or "Makefile#L42".
+            if (cp < 0x80 and std.ascii.isDigit(@intCast(cp)) and
+                (((previous == ':' or previous == '(') and wordCodepoint(before)) or (previous == 'L' and before == '#'))) return true;
+            before = previous;
             previous = cp;
-            matched = if (cp == "http"[matched]) matched + 1 else if (cp == 'h') 1 else 0;
-            if (matched == 4) return true;
+            http = if (cp == "http"[http]) http + 1 else if (cp == 'h') 1 else 0;
+            if (http == 4) return true;
+            quoted = if (cp == python[quoted]) quoted + 1 else if (cp == '"') 1 else 0;
+            if (quoted == python.len) return true;
         }
-        if (!row.wrap) matched = 0;
+        if (!row.wrap) {
+            http = 0;
+            quoted = 0;
+            previous = 0;
+            before = 0;
+        }
     }
     return false;
+}
+fn wordCodepoint(cp: u21) bool {
+    return cp < 0x80 and std.ascii.isAlphanumeric(@intCast(cp));
+}
+fn pathCodepoint(cp: u21) bool {
+    return cp >= 0x80 or (cp > 0 and pathByte(@intCast(cp)));
 }
 
 fn webPrefix(bytes: []const u8) usize {

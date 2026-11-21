@@ -124,6 +124,57 @@ test("drops its oldest lines past the cap, keeping where earlier ones start", as
   expect(s.line(s.prepended)).toBe(`line ${first}`);
 });
 
+test("keeps at most its byte cap of a log, and only the end of a line too long for it", async () => {
+  const path = file("long.log", "start\n");
+  const s = await open(path);
+  const chunk = Buffer.alloc(4 << 20, "x");
+  for (let i = 0; i < 5; i++) {
+    appendFileSync(path, chunk);
+    await s.refresh();
+  }
+  expect(s.restarts).toBe(0);
+  expect(s.end - s.start).toBeLessThanOrEqual(fileSource.max_bytes);
+  const kept = Reflect.get(s, "blocks") as { bytes: Uint8Array }[];
+  expect(kept.reduce((n, b) => n + b.bytes.length, 0)).toBeLessThanOrEqual(fileSource.max_bytes);
+  expect(s.dropped).toBe(1);
+  expect(s.count).toBe(1);
+  expect(s.partial.length).toBe(s.end - s.start);
+  // A line ending it lets whole lines follow it.
+  appendFileSync(path, "\nnext\n");
+  await s.refresh();
+  expect(s.line(s.count - 1)).toBe("next");
+});
+
+test("follows a code file that grows past the limit from its end, as a log", async () => {
+  const path = file("gen.json", '{"a": 1}\n');
+  const s = await open(path);
+  expect(s.mode).toBe("code");
+  appendFileSync(path, Buffer.alloc(fileSource.code_limit, "\n"));
+  appendFileSync(path, "last\n");
+  await s.refresh();
+  expect(s.mode).toBe("tail");
+  expect(s.lines).toEqual([]);
+  expect(s.restarts).toBe(1);
+  expect(s.end - s.start).toBeLessThanOrEqual(fileSource.block);
+  expect(s.line(s.count - 1)).toBe("last");
+});
+
+test("moves a log's window to its start or its end", async () => {
+  const s = await open(file("jump.log", numbered(1, 300_000)), { line: 150_000 });
+  expect(s.atEnd).toBe(false);
+  expect(await s.toEnd()).toBe(true);
+  expect(s.atEnd).toBe(true);
+  expect(s.restarts).toBe(1);
+  expect(s.line(s.count - 1)).toBe("line 300000");
+  expect(await s.toEnd()).toBe(false);
+  expect(await s.toStart()).toBe(true);
+  expect(s.rewinds).toBe(1);
+  expect(s.start).toBe(0);
+  expect(s.line(0)).toBe("line 1");
+  expect(s.number(0)).toBe(1);
+  expect(await s.toStart()).toBe(false);
+});
+
 test("opens a large log around a line its text named", async () => {
   const s = await open(file("seek.log", numbered(1, 300_000)), { line: 123_456 });
   const row = s.rowOf(123_456)!;
