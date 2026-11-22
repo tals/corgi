@@ -6100,13 +6100,20 @@ test("a remote machine's review reads go to its own daemon, and its panel keeps 
   }
 });
 
-test("a chat moved to a pane on another computer runs that computer's Corgi, which follows the session there", async () => {
+test("a chat moved to a pane on another computer runs that computer's Corgi, from the handoff its daemon wrote", async () => {
   const s = controller(),
     here = s.machine,
-    sent: any[] = [];
+    sent: any[] = [],
+    handoffs: unknown[] = [];
+  let refuse = false;
   const other = new Machine(
     {
       request: transport(async (op, fields: any) => {
+        if (op === "headless.handoff") {
+          if (refuse) throw Error("UnknownOperation");
+          handoffs.push(fields.handoff);
+          return { path: "/tmp/corgi-chat-there.json" };
+        }
         if (op !== "session.command") return folders("/a");
         sent.push(fields.command);
         return { result: { pane: 1 } };
@@ -6131,12 +6138,21 @@ test("a chat moved to a pane on another computer runs that computer's Corgi, whi
     Reflect.get(s, "prompt_sessions").set("codex:s", other);
     const moved = handoff("moved.json");
     await s.promptEffect({ kind: "chat", chat: chat({ handoff: moved, session: "s", cwd: "/a" }), cwd: "/a" });
-    // Its pane can't read this computer's handoff: it isn't passed, and doesn't linger here.
+    // Its pane can't read this computer's handoff: that computer's daemon writes it there, and it doesn't linger here.
+    expect(handoffs).toEqual([{}]);
     expect(sent.at(-1)["pane.create"].command).toBe(
-      "/home/me/.local/bin/corgi __chat --provider codex --session s --cwd /a",
+      "/home/me/.local/bin/corgi __chat /tmp/corgi-chat-there.json --provider codex --session s --cwd /a",
     );
     expect(existsSync(moved)).toBe(false);
     expect(reclaim).not.toHaveBeenCalled();
+    // A daemon that can't take it leaves the pane to follow the session from that daemon.
+    refuse = true;
+    const followed = handoff("followed.json");
+    await s.promptEffect({ kind: "chat", chat: chat({ handoff: followed, session: "s", cwd: "/a" }), cwd: "/a" });
+    expect(sent.at(-1)["pane.create"].command).toBe(
+      "/home/me/.local/bin/corgi __chat --provider codex --session s --cwd /a",
+    );
+    expect(existsSync(followed)).toBe(false);
     // A file opens with that Corgi too; before its hello, the one on the pane's PATH.
     expect(Reflect.get(s, "corgiOn").call(s, other)).toEqual(["/home/me/.local/bin/corgi"]);
     other.executable = "";
@@ -6147,7 +6163,7 @@ test("a chat moved to a pane on another computer runs that computer's Corgi, whi
     await s.promptEffect({ kind: "chat", chat: chat({ handoff: kept, session: "s" }), cwd: "/a" });
     expect(reclaim).toHaveBeenCalledWith(kept, "the chat runs on work");
     expect(s.message).toContain("the chat runs on work");
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
   } finally {
     reclaim.mockRestore();
     rmSync(dir, { recursive: true, force: true });

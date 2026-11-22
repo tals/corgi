@@ -185,6 +185,7 @@ export const operations = [
   "headless.stop",
   "headless.send",
   "headless.events",
+  "headless.handoff",
   "headless.search",
   "headless.memory",
   "theme",
@@ -880,6 +881,8 @@ const requests = {
   "headless.send": { provider: "provider", session: "string", input: "json" },
   // A reader in a pane passes its pane, which claims the session: closing the pane stops it.
   "headless.events": { provider: "provider", session: "string", after: ["u64", 0], pane: ["?u32", null] },
+  // A prompt card's conversation, written on this computer for a `corgi __chat` pane here to go on with.
+  "headless.handoff": { handoff: "json" },
   "headless.search": { id: "u32", search: "json" },
   "headless.memory": {
     id: "u32",
@@ -1049,6 +1052,7 @@ export interface ReplyPayloads {
   "workspace.switch": Ok & { viewer: number; queued: true };
   "headless.start": Ok & { session: string; provider: Provider };
   "headless.list": Ok & { sessions: unknown[] };
+  "headless.handoff": Ok & { path: string };
   "headless.events": Ok & {
     events: unknown[];
     transcript: string;

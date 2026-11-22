@@ -306,6 +306,15 @@
     "provider": "codex",
     "pane": 3
   },
+  "headless.handoff": {
+    "handoff": {
+      "conversation": null,
+      "incognito": false,
+      "choice": null,
+      "catalog": { "entries": [], "suggested": [], "briefs": [] },
+      "context": null
+    }
+  },
   "theme": {
     "theme": {
       "foreground": {

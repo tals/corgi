@@ -1015,9 +1015,10 @@ export class Endpoint {
         }
         const generation = this.generation;
         // Pane contents take the data connection, apart from input. Review's
-        // file lists and diffs, and the file peek's and link pictures' reads, take it too, and
-        // never the control connection, opening it on a machine not shown,
-        // such as a prompt conversation's.
+        // file lists and diffs, the file peek's and link pictures' reads, and
+        // a chat moved into a pane take it too, and never the control
+        // connection, opening it on a machine not shown, such as a prompt
+        // conversation's.
         const contents = ["viewer.surfaces", "viewer.image", "viewer.search", "viewer.pick", "pane.surface"].includes(
           op,
         );
@@ -1033,6 +1034,7 @@ export class Endpoint {
             "file.thumbnail",
             "job.poll",
             "job.cancel",
+            "headless.handoff",
           ].includes(op)
         ) {
           if (!this.checked) throw Error("StaleConnection");

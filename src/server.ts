@@ -1124,6 +1124,12 @@ export class Server {
         await headless.request(this, cl, request, reply);
         return;
       }
+      case "headless.handoff": {
+        // Another computer's prompt card moves its chat into a pane here, which reads this file.
+        const { writeHandoff } = await import("./prompt");
+        reply.send({ ok: true, path: writeHandoff(request.payload.handoff as Parameters<typeof writeHandoff>[0]) });
+        return;
+      }
       case "agent.command.preview":
         await launch.request(this, cl, request, reply);
         return;

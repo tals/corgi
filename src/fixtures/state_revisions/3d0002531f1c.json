@@ -1,0 +1,9 @@
+{
+  "parent": "632fb56ecc05",
+  "structures": {
+    "checkpoint": "a49b44ca5905a1fadccee3addc9944d58babe6e2854b9878e568023d9052c280",
+    "handoff": "f6e0fec939ab4328770ffa1d64207b79c4d35548c510c622fae9977e65db4d03",
+    "protocol": "c6fe6c45891e746bd0bc5ed96d167756c6297ed4e78fd7a3519b32e3986e102b",
+    "viewer": "0019c179968597eacf49c1a0cfde0f3b2c933a12074bdc8d11a9ffd59d75708a"
+  }
+}

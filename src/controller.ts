@@ -6,7 +6,7 @@ import * as archiveSummary from "./archive_summary";
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
 import { homedir, hostname } from "node:os";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
 import * as keys from "./keys";
 import * as keyboard from "./keyboard";
@@ -5958,8 +5958,9 @@ export class Controller {
     }
   }
   /** Moves the prompt's conversation to a `corgi __chat` pane on the machine
-   * whose daemon runs it. Another computer's pane can't read the handoff, so
-   * it follows the session from its daemon; the file stays here only for the
+   * whose daemon runs it. Another computer's daemon is sent the handoff to
+   * write there for its pane; one that can't take it leaves the pane to
+   * follow the session from its daemon. The file here stays only for the
    * card to take the conversation back. */
   private async chatPane(chat: ChatArgs, cwd: string): Promise<void> {
     const machine = (chat.session && this.prompt_sessions.get(`${chat.provider}:${chat.session}`)) || this.machine;
@@ -5969,7 +5970,8 @@ export class Controller {
       this.prompt.reclaim(chat.handoff, reason);
       return this.notice(` Couldn't open a pane: ${reason}`);
     }
-    const argv = [...this.corgiOn(machine), "__chat", ...chatArgs(machine.remote ? { ...chat, handoff: "" } : chat)];
+    const handoff = machine.remote ? await this.handoffOn(machine, chat.handoff) : chat.handoff;
+    const argv = [...this.corgiOn(machine), "__chat", ...chatArgs({ ...chat, handoff })];
     let made = false;
     try {
       await this.create(null, cwd || this.currentCwd(), shellWords(argv), "", () => (made = true));
@@ -5983,6 +5985,17 @@ export class Controller {
       this.notice(` Couldn't open a pane: ${name}`);
     } finally {
       if (machine.remote) rmSync(chat.handoff, { force: true });
+    }
+  }
+  /** Where `machine`'s daemon wrote the handoff at `path` for a pane there,
+   * or "" when it couldn't: an older daemon, or one too large to send. */
+  private async handoffOn(machine: Machine, path: string): Promise<string> {
+    try {
+      const handoff = JSON.parse(readFileSync(path, "utf8"));
+      const reply = await call(machine.connection, "headless.handoff", { handoff });
+      return typeof reply.path === "string" ? reply.path : "";
+    } catch {
+      return "";
     }
   }
   /** The conversations the prompt's lists show, as the launcher has them:
