@@ -64,6 +64,11 @@ test("finds a line, keeps points a stride apart, and resumes from the furthest o
   const before = fh.bytes;
   expect(await lineIndex.find(fh, index, 350_000, whole)).toEqual({ kind: "found", at: expect.any(Number) });
   expect(fh.bytes - before).toBeLessThanOrEqual(index.stride + lineIndex.chunk);
+  // The very line a point keeps is found at it, without reading on.
+  const kept = index.points[1];
+  const at = fh.bytes;
+  expect(await lineIndex.find(fh, index, kept.line, { budget: 0 })).toEqual({ kind: "found", at: kept.at });
+  expect(fh.bytes).toBe(at);
   const resumed = fh.bytes;
   expect(await lineIndex.find(fh, index, 600_000, whole)).toEqual({ kind: "missing", size });
   expect(fh.bytes - resumed).toBeLessThanOrEqual(size - index.resume(400_001).at + lineIndex.chunk);

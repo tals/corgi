@@ -202,6 +202,11 @@ export async function find(fh: Readable, index: LineIndex, n: number, opts: Find
   const from = index.resume(n),
     // A line the index passed is a stride away at most: never far.
     budget = index.covers(n) ? Math.max(opts.budget, index.stride + chunk) : opts.budget;
+  // A point the index kept, or where its scan stopped, may be the line itself.
+  if (from.line === n) {
+    opts.progress?.({ scanned: from.at, size, lines: n - 1 });
+    return { kind: "found", at: from.at };
+  }
   let at = from.at,
     line = from.line,
     spent = 0,
