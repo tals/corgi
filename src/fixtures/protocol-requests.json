@@ -307,13 +307,9 @@
     "pane": 3
   },
   "headless.handoff": {
-    "handoff": {
-      "conversation": null,
-      "incognito": false,
-      "choice": null,
-      "catalog": { "entries": [], "suggested": [], "briefs": [] },
-      "context": null
-    }
+    "upload": "5f0c2a9e41b37d68",
+    "part": "{\"conversation\":null,\"incognito\":false,\"choice\":null,",
+    "last": false
   },
   "theme": {
     "theme": {

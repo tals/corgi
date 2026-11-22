@@ -881,8 +881,9 @@ const requests = {
   "headless.send": { provider: "provider", session: "string", input: "json" },
   // A reader in a pane passes its pane, which claims the session: closing the pane stops it.
   "headless.events": { provider: "provider", session: "string", after: ["u64", 0], pane: ["?u32", null] },
-  // A prompt card's conversation, written on this computer for a `corgi __chat` pane here to go on with.
-  "headless.handoff": { handoff: "json" },
+  // Part of a prompt card's conversation, written on this computer once the
+  // last part comes, for a `corgi __chat` pane here to go on with; see handoff_upload.ts.
+  "headless.handoff": { upload: "string", part: "string", last: "bool" },
   "headless.search": { id: "u32", search: "json" },
   "headless.memory": {
     id: "u32",
@@ -1052,6 +1053,7 @@ export interface ReplyPayloads {
   "workspace.switch": Ok & { viewer: number; queued: true };
   "headless.start": Ok & { session: string; provider: Provider };
   "headless.list": Ok & { sessions: unknown[] };
+  // Where the handoff was written, once its last part came; "" before.
   "headless.handoff": Ok & { path: string };
   "headless.events": Ok & {
     events: unknown[];

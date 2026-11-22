@@ -3,6 +3,7 @@ import { Machine } from "./machine";
 import type { Progress as ImageProgress } from "./image_upload";
 import * as protocol from "./protocol";
 import * as fileAccess from "./file_access";
+import * as handoffUpload from "./handoff_upload";
 import { transport } from "./fixtures/transport";
 import * as worktrees from "./fixtures/worktrees";
 import { scopedEnv } from "./fixtures/env";
@@ -6104,14 +6105,19 @@ test("a chat moved to a pane on another computer runs that computer's Corgi, fro
   const s = controller(),
     here = s.machine,
     sent: any[] = [],
-    handoffs: unknown[] = [];
-  let refuse = false;
+    handoffs: unknown[] = [],
+    uploads = new handoffUpload.Uploads();
+  let refuse = false,
+    parts = 0;
   const other = new Machine(
     {
       request: transport(async (op, fields: any) => {
         if (op === "headless.handoff") {
           if (refuse) throw Error("UnknownOperation");
-          handoffs.push(fields.handoff);
+          parts++;
+          const whole = uploads.add(other, fields);
+          if (whole === null) return { path: "" };
+          handoffs.push(JSON.parse(whole));
           return { path: "/tmp/corgi-chat-there.json" };
         }
         if (op !== "session.command") return folders("/a");
@@ -6136,10 +6142,14 @@ test("a chat moved to a pane on another computer runs that computer's Corgi, fro
     s.switchMachine(other);
     other.executable = "/home/me/.local/bin/corgi";
     Reflect.get(s, "prompt_sessions").set("codex:s", other);
-    const moved = handoff("moved.json");
+    const moved = handoff("moved.json"),
+      long = { items: "x".repeat(handoffUpload.part_chars * 2) };
+    writeFileSync(moved, JSON.stringify(long));
     await s.promptEffect({ kind: "chat", chat: chat({ handoff: moved, session: "s", cwd: "/a" }), cwd: "/a" });
-    // Its pane can't read this computer's handoff: that computer's daemon writes it there, and it doesn't linger here.
-    expect(handoffs).toEqual([{}]);
+    // Its pane can't read this computer's handoff: that computer's daemon writes it there, sent in
+    // parts its screens share the connection with, and it doesn't linger here.
+    expect(handoffs).toEqual([long]);
+    expect(parts).toBe(3);
     expect(sent.at(-1)["pane.create"].command).toBe(
       "/home/me/.local/bin/corgi __chat /tmp/corgi-chat-there.json --provider codex --session s --cwd /a",
     );

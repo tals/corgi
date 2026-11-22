@@ -39,6 +39,7 @@ import * as trackers from "./trackers";
 import * as updates from "./updates";
 import * as errors from "./errors";
 import * as fileAccess from "./file_access";
+import * as handoffUpload from "./handoff_upload";
 import * as jobs from "./jobs";
 import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
@@ -109,6 +110,8 @@ export class Server {
   private deferred = new Map<Promise<void>, { busy: protocol.Busy | null; drop: () => void }>();
   /** Long reads for other computers' viewers, each the connection's that started it. */
   private remote_jobs = new jobs.Jobs();
+  /** Chats other computers' prompt cards are moving into panes here, as they come in parts. */
+  private handoff_uploads = new handoffUpload.Uploads();
   private timer?: ReturnType<typeof setInterval>;
   private stopped = false;
   private subscribedRevision = -1n;
@@ -569,6 +572,7 @@ export class Server {
       () => {
         this.closing?.(client);
         this.remote_jobs.drop(client);
+        this.handoff_uploads.drop(client);
         if (this.handed_off) return;
         if (client.viewer) viewer.data(this, client)?.close();
         if (client.headless_start) {
@@ -1126,8 +1130,10 @@ export class Server {
       }
       case "headless.handoff": {
         // Another computer's prompt card moves its chat into a pane here, which reads this file.
+        const text = this.handoff_uploads.add(cl, request.payload);
+        if (text === null) return reply.send({ ok: true, path: "" });
         const { writeHandoff } = await import("./prompt");
-        reply.send({ ok: true, path: writeHandoff(request.payload.handoff as Parameters<typeof writeHandoff>[0]) });
+        reply.send({ ok: true, path: writeHandoff(JSON.parse(text)) });
         return;
       }
       case "agent.command.preview":

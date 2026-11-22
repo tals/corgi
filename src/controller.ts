@@ -81,6 +81,7 @@ import * as shellPicker from "./shell_picker";
 import { installedShells } from "./launch/command";
 import * as linkTooltip from "./link_tooltip";
 import * as hostImages from "./host_images";
+import * as handoffUpload from "./handoff_upload";
 import * as linkThumbnail from "./link_thumbnail";
 import * as fileAccess from "./file_access";
 import * as fileRef from "./file_ref";
@@ -5988,12 +5989,16 @@ export class Controller {
     }
   }
   /** Where `machine`'s daemon wrote the handoff at `path` for a pane there,
-   * or "" when it couldn't: an older daemon, or one too large to send. */
+   * sent in parts the connection's screens can share it with; "" when it
+   * couldn't, as an older daemon can't. */
   private async handoffOn(machine: Machine, path: string): Promise<string> {
     try {
-      const handoff = JSON.parse(readFileSync(path, "utf8"));
-      const reply = await call(machine.connection, "headless.handoff", { handoff });
-      return typeof reply.path === "string" ? reply.path : "";
+      const reply = await handoffUpload.send(
+        part => call(machine.connection, "headless.handoff", part),
+        readFileSync(path, "utf8"),
+      );
+      const written = (reply as { path?: unknown } | null)?.path;
+      return typeof written === "string" ? written : "";
     } catch {
       return "";
     }
