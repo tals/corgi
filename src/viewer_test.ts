@@ -65,6 +65,8 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
       // second exchange captures the newly reconciled selection immediately.
       if (active) active = await viewer.sync(view, bell, false);
       const frame = view.frame();
+      // As on a screen drawn from nothing: the images sent, every picture placed.
+      const pictures = view.host.images.present();
       await viewer.presented(view);
       const model = view.current().model;
       process.stdout.write(
@@ -72,7 +74,7 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
           bell_seq: bell.seq,
           bell_kind: view.last_bell_kind,
           rang: BigInt(bell.seq) !== BigInt(previous_bell),
-          data: frame,
+          data: frame + pictures.redraw,
           workspace: view.current().id,
           tab: model.count > 0 ? model.tabs[view.layoutView().selection.active].id : 0,
           pane: view.focused()?.id ?? 0,
@@ -81,7 +83,10 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
           renaming: view.inline_rename !== null,
           drawer: view.sidebar_focus?.drawer ?? null,
           detached: !active,
-          effects: view.effects,
+          effects: [
+            ...view.effects,
+            ...[pictures.send, pictures.free].filter(Boolean).map(write_terminal => ({ write_terminal })),
+          ],
         }) + "\n",
       );
       view.clearEffects();
