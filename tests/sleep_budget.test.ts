@@ -6,7 +6,9 @@ import { join } from "node:path";
 // Lower this when you remove a sleep.
 // Reporter fixtures exercise overlapping tests, timeouts, and updates before exit.
 // Paste markers exercise the real Escape timeout across delayed reads.
-const budget = 97; // Includes real SSH timing and remote sandbox readiness polling.
+// Includes real SSH timing, remote sandbox readiness polling, and typing previews timed
+// across a delayed link.
+const budget = 104;
 
 test("the suites sleep no more than the budget", () => {
   let count = 0;

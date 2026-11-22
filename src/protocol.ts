@@ -1,6 +1,6 @@
 import * as json from "./json";
 import { Theme } from "./theme";
-import type { View as SurfaceView, Patch as SurfacePatch } from "./pane/surface";
+import type { View as SurfaceView, Patch as SurfacePatch, InputReceipt } from "./pane/surface";
 import { Provider, type ByProvider } from "./providers";
 import type { Target } from "./agent_order";
 import * as checklist from "./activity/checklist";
@@ -103,6 +103,7 @@ export type Result = {
   /** How `agent.message` reached its agent. */
   delivery?: Delivery;
   queued?: boolean;
+  input_receipt?: InputReceipt;
 };
 export const emptyResult = (): Result => ({ pane: 0, tab: 0, workspace: 0, text: null, closed_panes: [] });
 export const operations = [

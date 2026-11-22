@@ -79,7 +79,18 @@ export async function open(name: string, root: string, exe: string, fresh: boole
 }
 
 /** The settings preferences.ts keeps in config.json. */
-const settings = ["preset", "prefix", "keys", "language", "theme", "corgi_intensity", "resources", "worktree_folder"];
+const settings = [
+  "preset",
+  "prefix",
+  "keys",
+  "language",
+  "theme",
+  "corgi_intensity",
+  "resources",
+  "worktree_folder",
+  "instant_typing",
+  "dim_predictions",
+];
 export class Sandbox {
   readonly dir: string;
   readonly home: string;

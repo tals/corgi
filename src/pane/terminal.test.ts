@@ -356,3 +356,17 @@ test("a pick during a synchronized redraw finds links only in the rows it last d
     t.destroy();
   }
 });
+test("settled input is its own event, not a screen change", () => {
+  const t = Terminal.create(20, 4);
+  const events: string[] = [];
+  try {
+    t.maintain();
+    t.on("change", () => events.push("change"));
+    t.on("acknowledged", () => events.push("acknowledged"));
+    t.input_ack.sent(performance.now() - 100);
+    expect(t.maintain()).toBe(false);
+    expect(events).toEqual(["acknowledged"]);
+  } finally {
+    t.destroy();
+  }
+});

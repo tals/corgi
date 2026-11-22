@@ -135,10 +135,10 @@ cannot be reassigned separately.
 
 Overrides live in `$XDG_CONFIG_HOME/corgi/config.json`, normally
 `~/.config/corgi/config.json`, beside the other settings you choose: `preset`,
-`prefix`, `language`, `theme`, `corgi_intensity`, `resources` and
-`worktree_folder`. Corgi writes the file only when you change one of these in
-onboarding, setup or the shortcut editor, so it can live with your dotfiles,
-symlinked or not. It writes through a link, keeps the file's mode, and
+`prefix`, `language`, `theme`, `corgi_intensity`, `resources`,
+`worktree_folder`, `instant_typing` and `dim_predictions`. Corgi writes the
+file only when you change one of these in onboarding, setup or the shortcut
+editor, so it can live with your dotfiles, symlinked or not. It writes through a link, keeps the file's mode, and
 leaves a read-only file as it is.
 Add a `keys` object:
 
