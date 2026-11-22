@@ -228,10 +228,10 @@ fn sourcePath(bytes: []const u8, start: usize) ?Found {
     if (!letter) return null;
     var found: Found = .{ .end = end, .path_end = end };
     lineSuffix(bytes, start, &found);
+    // A folder's name may end in "/", as `ls -F` writes one.
     const name = path[if (std.mem.lastIndexOfScalar(u8, path, '/')) |slash| slash + 1 else 0..];
-    if (name.len == 0) return null;
     const directory = std.mem.indexOfScalar(u8, path, '/') != null;
-    const dotfile = name[0] == '.' and name.len > 1 and std.mem.indexOfScalar(u8, name[1..], '.') == null;
+    const dotfile = name.len > 1 and name[0] == '.' and std.mem.indexOfScalar(u8, name[1..], '.') == null;
     return if (directory or dotfile or found.line != null or hasExtension(name)) found else null;
 }
 /// Whether `name` ends in a dot and a short extension with a letter in it.

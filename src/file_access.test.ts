@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { png_base64 } from "./assets/corgi_badge";
@@ -54,7 +54,7 @@ const numbered = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) => `line ${from + i}`).join("\n") + "\n";
 const rows = (s: Source) => Array.from({ length: s.count }, (_, i) => s.line(i));
 
-test("finds a pane's file from its folder or home, as a diff names it too, and only files", async () => {
+test("finds a pane's file from its folder or home, as a diff names it too, and a folder when asked", async () => {
   const dir = folder();
   mkdirSync(join(dir, "src"));
   writeFileSync(join(dir, "src", "a.ts"), "x");
@@ -64,10 +64,34 @@ test("finds a pane's file from its folder or home, as a diff names it too, and o
   expect((await here.find("~/src/a.ts", "/")).path).toBe(file);
   expect((await here.find("b/src/a.ts", dir)).path).toBe(file);
   expect(here.find("src", dir)).rejects.toThrow("NotAFile");
+  expect(await here.find("src", dir, true)).toMatchObject({ path: join(dir, "src"), directory: true });
+  expect((await here.find("src/a.ts", dir, true)).directory).toBe(false);
   expect(here.open(join(dir, "src"))).rejects.toThrow("NotAFile");
   expect(here.find("nope.ts", dir)).rejects.toThrow();
   // Another computer's daemon finds it the same way.
   expect(await daemon().files.find("src/a.ts", dir)).toEqual(await here.find("src/a.ts", dir));
+});
+
+test("lists a folder's entries with what links lead to, up to a limit", async () => {
+  const dir = folder();
+  mkdirSync(join(dir, "sub"));
+  writeFileSync(join(dir, "a.txt"), "abc");
+  symlinkSync(join(dir, "sub"), join(dir, "to-sub"));
+  symlinkSync(join(dir, "gone"), join(dir, "broken"));
+  const { entries, more } = await fileAccess.here.list(dir);
+  expect(more).toBe(false);
+  expect(entries.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+    { name: "a.txt", directory: false, link: false, size: 3 },
+    { name: "broken", directory: false, link: true, size: 0 },
+    { name: "sub", directory: true, link: false, size: 0 },
+    { name: "to-sub", directory: true, link: true, size: 0 },
+  ]);
+  expect(fileAccess.here.list(join(dir, "a.txt"))).rejects.toThrow();
+  const many = folder();
+  for (let i = 0; i <= fileAccess.list_limit; i++) writeFileSync(join(many, `f${i}`), "");
+  const listed = await fileAccess.here.list(many);
+  expect(listed.entries).toHaveLength(fileAccess.list_limit);
+  expect(listed.more).toBe(true);
 });
 
 test("reads another computer's file through its daemon, a megabyte a request", async () => {

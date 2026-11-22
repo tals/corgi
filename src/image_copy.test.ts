@@ -44,7 +44,7 @@ function lying(bytes: Uint8Array, size = bytes.length, extra = 0): { files: file
   const reads: number[] = [];
   const handle: fileAccess.Handle = {
     now: null,
-    info: async () => ({ path: "/x", size, mtime: 0, id: "1:1" }),
+    info: async () => ({ path: "/x", size, mtime: 0, id: "1:1", directory: false }),
     read: async (at, length) => {
       reads.push(length);
       return Uint8Array.from({ length: length + extra }, (_, i) => bytes[at + i] ?? 0x41);
@@ -59,6 +59,12 @@ function lying(bytes: Uint8Array, size = bytes.length, extra = 0): { files: file
     open: async () => handle,
     watch: () => null,
     thumbnail: async () => {
+      throw Error("Unsupported");
+    },
+    list: async () => {
+      throw Error("Unsupported");
+    },
+    walk: async () => {
       throw Error("Unsupported");
     },
   };

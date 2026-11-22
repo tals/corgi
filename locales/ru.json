@@ -175,6 +175,7 @@
   " any key closes ": " любая клавиша закрывает ",
   " back ": " назад ",
   " c Clone ": " c Копия ",
+  " click to browse · scroll ": " клик — обзор · прокрутка ",
   " click to open · scroll ": " клик — открыть · прокрутка ",
   " click to open · scroll to the end to follow ": " клик — открыть · прокрутите до конца, чтобы следить ",
   " click to open · scroll up to pause ": " клик — открыть · прокрутка вверх — пауза ",
@@ -182,6 +183,7 @@
   " cpu ": " ЦП ",
   " disk I/O ": " дисковый ввод-вывод ",
   " e Edit ": " e Изменить ",
+  " first ${limit} shown ": " показаны первые ${limit} ",
   " h Activate ": " h Включить ",
   " h Hide ": " h Скрыть ",
   " hold ⌫ ": " удерживать ⌫ ",
@@ -190,6 +192,17 @@
   " now": " сейчас",
   " remove": " удалить",
   " sort: ": " сортировка: ",
+  " stopped after ${seconds} s ": " остановлен через ${seconds} с ",
+  " stopped at ${limit} entries ": {
+    "plural": "limit",
+    "forms": {
+      "one": " остановлен на ${limit} записи ",
+      "few": " остановлен на ${limit} записях ",
+      "many": " остановлен на ${limit} записях ",
+      "other": " остановлен на ${limit} записи "
+    }
+  },
+  " type to search · ⏎ open · ⌫ up · esc close ": " ввод — поиск · ⏎ открыть · ⌫ вверх · esc закрыть ",
   " vs ": " против ",
   " z: files ": " z: файлы ",
   " · ${fresh} new": {
@@ -214,6 +227,7 @@
       "other": " … ещё ${count} символа"
     }
   },
+  " ↑↓ select · ⏎ open · esc close ": " ↑↓ выбор · ⏎ открыть · esc закрыть ",
   " ⇧⌘-click opens · click copies ": " ⇧⌘-клик открыть · клик скопировать ",
   " ⋯ ${hidden} lines ": {
     "plural": "hidden",
@@ -284,6 +298,24 @@
       "few": "${count} файла",
       "many": "${count} файлов",
       "other": "${count} файла"
+    }
+  },
+  "${count} folder": {
+    "plural": "count",
+    "forms": {
+      "one": "${count} папка",
+      "few": "${count} папки",
+      "many": "${count} папок",
+      "other": "${count} папки"
+    }
+  },
+  "${count} folders": {
+    "plural": "count",
+    "forms": {
+      "one": "${count} папка",
+      "few": "${count} папки",
+      "many": "${count} папок",
+      "other": "${count} папки"
     }
   },
   "${count} hunk": {
@@ -627,6 +659,7 @@
   "Can't read it: ${failure}": "Не удалось прочитать: ${failure}",
   "Can't read this folder": "Не удалось прочитать эту папку",
   "Can't save ${name} (${reason})": "Не удаётся сохранить ${name} (${reason})",
+  "Can't search this folder": "Не удалось выполнить поиск в этой папке",
   "Cancel": "Отмена",
   "Change folder": "Сменить папку",
   "Change navigation": "Переход по изменениям",
@@ -780,6 +813,7 @@
   "Edit ›": "Изменить ›",
   "Edit, delete": "Изменить, удалить",
   "Empty file": "Пустой файл",
+  "Empty folder": "Пустая папка",
   "Ended": "Завершён",
   "Enter a command.": "Введите команду.",
   "Enter a workspace name.": "Введите название пространства.",
@@ -993,6 +1027,7 @@
   "No image on the clipboard": "В буфере обмена нет изображения",
   "No lines changed": "Строки не изменены",
   "No linked worktrees": "Нет связанных рабочих деревьев",
+  "No matches": "Ничего не найдено",
   "No matches.": "Совпадений нет.",
   "No matching actions.": "Подходящих действий нет.",
   "No matching agents": "Подходящих агентов нет",
@@ -1170,6 +1205,7 @@
   "Search models, agents and accounts": "Поиск моделей, агентов и аккаунтов",
   "Search or type a host": "Поиск или имя хоста",
   "Searching conversations…": "Поиск по беседам…",
+  "Searching…": "Поиск…",
   "Select": "Выбрать",
   "Select tab": "Выбрать вкладку",
   "Select workspace": "Выбрать пространство",
@@ -1443,6 +1479,7 @@
   "chosen": "выбрано",
   "clean": "без изменений",
   "clear": "очистить",
+  "click to search below": "клик — поиск внутри",
   "clone": "копия",
   "close": "закрыть",
   "command": "команда",
@@ -1510,6 +1547,7 @@
   "git couldn't remove it": "git не смог его удалить",
   "git counts +${adds} −${dels}.": "по данным git: +${adds} −${dels}.",
   "git didn't answer": "git не ответил",
+  "git · ": "git · ",
   "go to its row": "перейти к его строке",
   "go to pane": "к панели",
   "gpu memory": "память GPU",
@@ -1626,6 +1664,7 @@
   "type a path": "введите путь",
   "type to find": "введите для поиска",
   "type to search": "введите для поиска",
+  "type to search below": "введите для поиска внутри",
   "uncommitted": "незакоммичено",
   "unexpected value; using the default": "неожиданное значение; используется значение по умолчанию",
   "unfold": "развернуть",

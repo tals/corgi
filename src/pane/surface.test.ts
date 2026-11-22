@@ -92,6 +92,20 @@ test("a screen with only a dotfile or a name and its line still finds them", () 
     }
   }
 });
+test("a folder's name ending in a slash, as ls -F writes it, is found as a path", () => {
+  const t = Terminal.create(60, 2);
+  try {
+    t.feed("docs/  src/lib/  README.md  ~/dev/  ./  ../");
+    expect(all(t).filter(link => link.path)).toEqual([
+      expect.objectContaining({ uri: "docs/", start: 0, end: 5 }),
+      expect.objectContaining({ uri: "src/lib/", start: 7, end: 15 }),
+      expect.objectContaining({ uri: "README.md" }),
+      expect.objectContaining({ uri: "~/dev/" }),
+    ]);
+  } finally {
+    t.destroy();
+  }
+});
 test("plain links span soft wraps but not hard newlines and remain snapshot owned", () => {
   const t = Terminal.create(20, 5);
   try {

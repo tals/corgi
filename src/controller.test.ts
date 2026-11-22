@@ -5032,6 +5032,162 @@ test("a file's name peeks after the pointer rests on it, and a click opens it in
   }
 });
 
+test("a folder's name lists it after the pointer rests on it; a click pins it to search below and open what it finds", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-browse-")));
+  mkdirSync(join(dir, "src", "lib"), { recursive: true });
+  writeFileSync(join(dir, "src", "app.ts"), "x");
+  writeFileSync(join(dir, "src", "lib", "util.ts"), "y");
+  writeFileSync(join(dir, "README.md"), "z");
+  const s: any = new Controller({ request: transport(async () => ({})).request });
+  const snapshot: any = folders(dir);
+  snapshot.panes[0].cwd = dir;
+  s.receiveSnapshot(snapshot);
+  s.width = 120;
+  s.height = 40;
+  s.input_state.attached = true;
+  setSystemTime(new Date(1000));
+  const created: unknown[][] = [];
+  s.create = async (...args: unknown[]) => {
+    created.push(args);
+    return 2;
+  };
+  const rect = s.layoutView().placements(s.area())[0].rect;
+  const native = NativeTerminal.create(rect.w, rect.h);
+  const plain = (text: string) => text.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "");
+  try {
+    native.feed("  see src/ and README.md");
+    s.pane(1).terminal.receive(native.surface(1));
+    const name = [rect.x + 7, rect.y + 1];
+    const mouse = (button: number, [x, y]: number[], release = false) =>
+      mouseInput(s, `\x1b[<${button};${x};${y}${release ? "m" : "M"}`);
+    await mouse(35, name);
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.frame();
+    await s.dir_browsers.current.listed;
+    clock.advance(149);
+    expect(plain(s.frame())).not.toContain("click to browse");
+    clock.advance(1);
+    let shown = plain(s.frame());
+    // Hovering lists it, read-only: keys still go to the pane.
+    expect(shown).toContain("click to browse");
+    expect(shown).toContain("lib/");
+    expect(shown).toContain("app.ts");
+    expect(shown).toContain("1 folder · 1 file");
+    expect(s.dir_pin).toBeNull();
+    // A click on its name pins it and gives it the keyboard.
+    await mouse(0, name);
+    await mouse(0, name, true);
+    expect(s.dir_pin).not.toBeNull();
+    expect(plain(s.frame())).toContain("esc close");
+    await s.input(bytes("util"));
+    const browser = s.dir_pin.browser;
+    expect(browser.text).toBe("util");
+    await browser.search.walked;
+    for (let i = 0; i < 100 && browser.search.scoring; i++) await new Promise(resolve => setTimeout(resolve, 1));
+    shown = plain(s.frame());
+    expect(shown).toContain("lib/util.ts");
+    expect(shown).toContain("1/3");
+    // Enter opens the file in a pane beside, as a file's name does, and puts the card away.
+    await s.input(bytes("\r"));
+    await s.folder_opening;
+    expect(created).toHaveLength(1);
+    expect(created[0][1]).toBe(join(dir, "src", "lib"));
+    expect(created[0][2]).toMatch(new RegExp(`^exec .* __view ${join(dir, "src", "lib", "util.ts")}$`));
+    expect(s.dir_pin).toBeNull();
+    // A click on an entry pins the card and opens the entry once it isn't a
+    // double-click, as a pane's link opens: a folder opens in the card.
+    clock.advance(clock.double_click_ms * 2);
+    await mouse(35, [name[0] + 1, name[1]]);
+    s.frame();
+    await s.dir_browsers.current.listed;
+    clock.advance(1000);
+    s.frame();
+    const card = s.folderCard().rect;
+    // Mouse reports count cells from 1.
+    const entry = (row: number, release = false) => mouse(0, [card.x + 6, card.y + 4 + row], release);
+    const selected = () => s.dir_pin.browser.row(s.dir_pin.browser.index()).path;
+    await entry(0);
+    await entry(0, true);
+    expect(s.dir_pin.browser.chosen).toBe(true);
+    expect(selected()).toBe("lib");
+    expect(s.dir_pin.browser.root).toBe(join(dir, "src"));
+    clock.advance(clock.double_click_ms);
+    await s.expireInput();
+    await s.folder_opening;
+    expect(s.dir_pin.browser.root).toBe(join(dir, "src", "lib"));
+    await s.dir_pin.browser.listed;
+    // A double-click only selects.
+    await entry(0);
+    await entry(0, true);
+    clock.advance(100);
+    await entry(0);
+    await entry(0, true);
+    expect(selected()).toBe("util.ts");
+    clock.advance(clock.double_click_ms * 2);
+    await s.expireInput();
+    await s.folder_opening;
+    expect(created).toHaveLength(1);
+    expect(s.dir_pin).not.toBeNull();
+    // The keys: Backspace goes up to the folder it left, the arrows move,
+    // and Enter goes into a folder.
+    await s.input(bytes("\x7f"));
+    expect(s.dir_pin.browser.root).toBe(join(dir, "src"));
+    await s.dir_pin.browser.listed;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(selected()).toBe("lib");
+    await s.input(bytes("\x1b[B"));
+    expect(selected()).toBe("app.ts");
+    await s.input(bytes("\x1b[A"));
+    await s.input(bytes("\r"));
+    await s.folder_opening;
+    expect(s.dir_pin.browser.root).toBe(join(dir, "src", "lib"));
+    await s.input(bytes("\x7f"));
+    await s.dir_pin.browser.listed;
+    // A click on a file opens it in a pane beside and puts the card away.
+    clock.advance(clock.double_click_ms * 2);
+    await entry(1);
+    await entry(1, true);
+    clock.advance(clock.double_click_ms);
+    await s.expireInput();
+    await s.folder_opening;
+    expect(created).toHaveLength(2);
+    expect(created[1][2]).toMatch(new RegExp(`^exec .* __view ${join(dir, "src", "app.ts")}$`));
+    expect(s.dir_pin).toBeNull();
+    // Esc puts a pinned card away.
+    clock.advance(clock.double_click_ms * 2);
+    await mouse(35, [name[0] + 2, name[1]]);
+    s.frame();
+    await s.dir_browsers.current.listed;
+    clock.advance(1000);
+    s.frame();
+    await mouse(0, name);
+    await mouse(0, name, true);
+    expect(s.dir_pin).not.toBeNull();
+    await s.input(bytes("\x1b[27u"));
+    expect(s.dir_pin).toBeNull();
+    expect(created).toHaveLength(2);
+    // A click on the name before its card shows pins it once it isn't a
+    // double-click; a click outside a pinned card puts it away.
+    clock.advance(clock.double_click_ms * 2);
+    await mouse(0, name);
+    await mouse(0, name, true);
+    expect(s.dir_pin).toBeNull();
+    clock.advance(clock.double_click_ms);
+    await s.expireInput();
+    expect(s.dir_pin.browser.root).toBe(join(dir, "src"));
+    expect(plain(s.frame())).toContain("esc close");
+    await mouse(0, [rect.x + 30, rect.y + 20]);
+    expect(s.dir_pin).toBeNull();
+  } finally {
+    native.destroy();
+    setSystemTime();
+    clock.reset();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a pane that names a file shows it from this viewer, and its keys scroll here", async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-file-pane-")));
   const file = join(dir, "app.ts");
