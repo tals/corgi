@@ -123,6 +123,8 @@ export class Source {
   /** Which file was read, and when it last changed. */
   private id = "";
   private mtime = 0;
+  /** A followed file's size and time when its path was last looked up. */
+  private looked: { size: number; mtime: number } | null = null;
   private watcher: { close(): void } | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private burst: ReturnType<typeof setInterval> | null = null;
@@ -319,6 +321,7 @@ export class Source {
     const info = opened?.info ?? (await fh.info());
     this.id = info.id;
     this.size = info.size;
+    this.looked = { size: info.size, mtime: info.mtime };
   }
   private read(at: number, length: number): Promise<Uint8Array> {
     return this.fh!.read(at, length);
@@ -708,6 +711,11 @@ export class Source {
         return await this.restart();
       }
       if (found.id !== this.id) return await this.restart();
+      // An edit in place, as an editor's save over a large file, can keep
+      // the size and change only the time: what's shown is read again.
+      const edited = this.looked !== null && found.size === this.looked.size && found.mtime !== this.looked.mtime;
+      this.looked = { size: found.size, mtime: found.mtime };
+      if (edited) return await this.restart();
       known = found.size;
     }
     const now = this.fh!.now;

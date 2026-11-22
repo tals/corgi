@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { appendFileSync, mkdtempSync, renameSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, renameSync, rmSync, truncateSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as fileSource from "./file_source";
@@ -107,6 +107,25 @@ test("starts again at the end of a log that was truncated or replaced", async ()
   writeFileSync(path, "new file\n");
   await s.refresh();
   expect([s.restarts, rows(s)]).toEqual([2, ["new file"]]);
+});
+
+test("reads a followed file again after an edit in place that keeps its size", async () => {
+  const path = file("same.log", "alpha\nbravo\n");
+  const time = (seconds: number) => utimesSync(path, seconds, seconds);
+  time(1000);
+  const s = await open(path);
+  await s.refresh();
+  // Appending changes the size: that's growth, not an edit.
+  appendFileSync(path, "carol\n");
+  time(1001);
+  await s.refresh(false);
+  await s.refresh();
+  expect([s.restarts, rows(s)]).toEqual([0, ["alpha", "bravo", "carol"]]);
+  // An editor's save of as many bytes, only its time telling.
+  writeFileSync(path, "ALPHA\nbravo\ncarol\n");
+  time(1002);
+  await s.refresh();
+  expect([s.restarts, rows(s)]).toEqual([1, ["ALPHA", "bravo", "carol"]]);
 });
 
 test("skips growth too fast to read, as a reader that fell behind", async () => {
