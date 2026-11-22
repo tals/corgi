@@ -196,8 +196,9 @@ export async function follow(call: Call, start: () => Promise<unknown>, on: Foll
   // Nothing waits on a race the job won.
   abort.catch(() => {});
   let job = 0;
+  const started = start();
   try {
-    let news = polled(await Promise.race([start(), abort]));
+    let news = polled(await Promise.race([started, abort]));
     job = news.job;
     for (;;) {
       if (news.progress !== null) on.progress?.(news.progress);
@@ -209,7 +210,17 @@ export async function follow(call: Call, start: () => Promise<unknown>, on: Foll
       news = polled(await Promise.race([call("job.poll", { job, wait }), abort]));
     }
   } catch (error) {
-    if (job && errors.is(error, "Aborted")) void call("job.cancel", { job }).catch(() => {});
+    if (errors.is(error, "Aborted")) {
+      if (job) void call("job.cancel", { job }).catch(() => {});
+      // Left before the start was answered: the job is cancelled once its id comes.
+      else
+        void started
+          .then(reply => {
+            const late = polled(reply);
+            if (late.job && !late.done) return call("job.cancel", { job: late.job });
+          })
+          .catch(() => {});
+    }
     throw error;
   } finally {
     signal?.removeEventListener("abort", aborted);

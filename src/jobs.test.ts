@@ -136,6 +136,26 @@ test("a viewer follows a job through its daemon, and an abort cancels it there",
   expect(asked.at(-1)).toBe("job.cancel");
   expect(stops).toEqual(["Cancelled"]);
   expect(all.size).toBe(0);
+  // Leaving before the start is answered: the job is cancelled once its id comes.
+  const early = new AbortController();
+  let answer!: () => void;
+  const slow = jobs.follow(
+    call,
+    async () => {
+      await new Promise<void>(resolve => (answer = resolve));
+      return all.begin(owner, job => {
+        job.signal.addEventListener("abort", () => stops.push((job.signal.reason as Error).message));
+        return new Promise(() => {});
+      });
+    },
+    { signal: early.signal, wait: 2000 },
+  );
+  early.abort();
+  expect(slow).rejects.toThrow("Aborted");
+  answer();
+  await Bun.sleep(5);
+  expect(stops).toEqual(["Cancelled", "Cancelled"]);
+  expect(all.size).toBe(0);
   // A job that fails on the daemon fails the follow with its error.
   expect(
     jobs.follow(call, () =>
