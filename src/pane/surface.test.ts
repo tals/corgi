@@ -78,6 +78,10 @@ test("a screen with only a dotfile or a name and its line still finds them", () 
     ["error at Makefile:42", "Makefile:42"],
     ["Makefile(7)", "Makefile:7"],
     ['  File "Makefile", line 3', "Makefile:3"],
+    // Before the dot or the line, a character no word has in ASCII.
+    ["open résumé.txt", "résumé.txt"],
+    ["open notes-.txt", "notes-.txt"],
+    ["error at build_:42", "build_:42"],
   ]) {
     const t = Terminal.create(40, 2);
     try {

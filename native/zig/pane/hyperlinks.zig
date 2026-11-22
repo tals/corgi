@@ -314,11 +314,11 @@ fn hasPlainPrefix(state: *const vt.RenderState) bool {
             if (cell.content_tag == .codepoint_grapheme) return true;
             const cp = cell.codepoint();
             if (cp == '/') return true;
-            // A file name's extension or a dotfile, as in "package.json" or ".env".
-            if (cp == '.' and (wordCodepoint(previous) or !pathCodepoint(previous))) return true;
+            // A file name's extension or a dotfile, as in "package.json", "résumé.txt" or ".env".
+            if (cp == '.') return true;
             // A line after a name, as in "Makefile:42", "Makefile(42)" or "Makefile#L42".
             if (cp < 0x80 and std.ascii.isDigit(@intCast(cp)) and
-                (((previous == ':' or previous == '(') and wordCodepoint(before)) or (previous == 'L' and before == '#'))) return true;
+                (((previous == ':' or previous == '(') and pathCodepoint(before)) or (previous == 'L' and before == '#'))) return true;
             before = previous;
             previous = cp;
             http = if (cp == "http"[http]) http + 1 else if (cp == 'h') 1 else 0;
@@ -334,9 +334,6 @@ fn hasPlainPrefix(state: *const vt.RenderState) bool {
         }
     }
     return false;
-}
-fn wordCodepoint(cp: u21) bool {
-    return cp < 0x80 and std.ascii.isAlphanumeric(@intCast(cp));
 }
 fn pathCodepoint(cp: u21) bool {
     return cp >= 0x80 or (cp > 0 and pathByte(@intCast(cp)));
