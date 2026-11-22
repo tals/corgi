@@ -384,6 +384,26 @@ test("a reservation lasts while the pointer rests on its link, and a minute afte
   }
 });
 
+test("a click on a link to a port a sign-in reserved first makes a forward that lasts", async () => {
+  let now = 1000;
+  const there = await freePort(),
+    app = `http://localhost:${there}/`,
+    signin = `https://auth.example.com/?redirect_uri=${encodeURIComponent(`${app}cb`)}`;
+  const forwards = new portForwards.Forwards(fakeLink(new Map([[there, serve("app")]])).link, () => now);
+  try {
+    forwards.hover(signin);
+    await until(() => forwards.local(app) !== null);
+    forwards.hover(null);
+    await forwards.open(app);
+    expect(forwards.list.length).toBe(1);
+    now += portForwards.callback_ms * 2;
+    forwards.expire();
+    expect(forwards.list.length).toBe(1);
+  } finally {
+    forwards.close();
+  }
+});
+
 test("a sign-in's callback forward goes once it's been idle a while, and never sits on a moved port", async () => {
   let now = 1000;
   const there = await freePort(),

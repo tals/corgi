@@ -236,7 +236,9 @@ interface Entry {
   /** The addresses it listens on, as `Bound` has them. */
   addresses: Set<string>;
   ipv6: boolean;
-  /** Its local port is the machine's, as a callback's must be. */
+  /** A sign-in's callback, on the machine's own port: it waits `callback_ms`
+   * for the browser to come back, realized or not, unless a click made it a
+   * forward like any other. */
   exact: boolean;
   /** When it expires, unrealized. */
   until: number;
@@ -369,6 +371,8 @@ export class Forwards {
     }
     if (!wanted) return { url, unavailable };
     const entry = await this.ensure(wanted, url, false);
+    // Clicked, it lasts like any forward, though a sign-in's callback reserved it first.
+    entry.exact = false;
     entry.forward.url = rewrite(url, entry.forward.local, entry.ipv6);
     if (this.moved(entry, url)) unavailable.push(wanted.port);
     this.realize(entry);
@@ -515,6 +519,7 @@ export class Forwards {
             if (failure) {
               entry.forward.failure = failure;
               socket.destroy();
+              this.onChange();
             }
             // A client that never closes its side is let go.
             setTimeout(end, 5000).unref();

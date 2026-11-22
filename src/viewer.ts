@@ -193,8 +193,9 @@ export function syncRequest(
     worktree_detail: view.worktreeDetailWanted(machine),
     resources: view.host.prefs.resources.enabled,
     resources_hash: machine.runtime.resources_hash,
-    // With no browser here, a pane's program opens its links its own way.
-    links: webLinks.opensLinks(),
+    // A pane's program opens its links its own way, as it would without
+    // Corgi, on this computer, or with no browser here.
+    links: machine.remote && webLinks.opensLinks(),
   };
 }
 /** How often a waiting control asks again whether what it names is there,

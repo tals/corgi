@@ -26,6 +26,7 @@ import * as clock from "./clock";
 import * as i18n from "./i18n";
 import * as worktrees from "./worktrees";
 import * as viewer from "./viewer";
+import * as webLinks from "./web_links";
 import type { Brief, Snapshot } from "./worktrees";
 import type { Entry as HistoryEntry } from "./launch/history";
 import type { Event } from "./protocol";
@@ -1172,6 +1173,9 @@ test("hover and click keep a background worktree's owner without selecting its m
     expect(background.watched).toBe(false);
     expect(background.focus).toBeNull();
     expect(viewer.syncRequest(view, true, local).worktree_detail).toBeNull();
+    // Only another machine's panes hand this viewer their links to open.
+    expect(viewer.syncRequest(view, true, local).links).toBe(false);
+    expect(background.links).toBe(webLinks.opensLinks());
     await f.mouse(0);
     expect(view.worktree_card.pinned).toBe(true);
     expect(view.machine).toBe(local);

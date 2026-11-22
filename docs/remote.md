@@ -296,14 +296,14 @@ callback's port is forwarded unchanged, since the provider checks it, and waits
 ten minutes for the browser to come back. When that port isn't free here,
 hovering the link says so.
 
-Programs in a pane open links the same way. Each pane's `BROWSER` names
-Corgi's helper: a web link goes to the viewer looking at the pane, which opens
-it as a click would, so `gh auth login` or a dev server's "open in browser"
-works on a remote machine. A program that ignores `BROWSER`, or a shell started
-before Corgi set it, opens links as it did before. With no viewer to take a
-link, none attached or one running over SSH itself, it goes to the pane's
+Programs on a remote machine open links the same way. Each pane's `BROWSER`
+names Corgi's helper, which hands a web link to the viewer looking at a remote
+pane; the viewer opens it as a click would, so `gh auth login` or a dev
+server's "open in browser" works there. A local pane's link, or one no viewer
+takes, with none attached or one running over SSH itself, goes to the pane's
 previous `BROWSER`, then the system's opener, else the helper prints it. A
-machine in the background opens its links at once.
+program that ignores `BROWSER`, or a shell started before Corgi set it, opens
+links as it did before. A machine in the background opens its links at once.
 
 `./go.ts --sandbox forwarding` opens a world to try this in: `devbox`, a
 stand-in machine, runs a dev server and a CLI sign-in.
