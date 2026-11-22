@@ -294,15 +294,19 @@ A sign-in link whose callback is the machine's localhost, such as
 `redirect_uri=http://localhost:1455/auth/callback`, opens as it is, without a
 forward, so the browser can't come back to the machine.
 
-Programs on a remote machine open links the same way. On Linux, each pane's
+Programs on a remote machine open links the same way. On a Linux machine with
+no browser of its own, with no display or reached over SSH, each pane's
 `BROWSER` names Corgi's helper, which hands a web link to the viewer in use; the
 viewer opens it as a click would, so `gh auth login` or a dev server's "open in
-browser" works there. When that viewer is on the pane's own computer or running
-over SSH itself, or none is attached, the link goes to the pane's previous
-`BROWSER`, then the system's opener, else the helper prints it. A program that
+browser" works there. When that viewer can't open it here, being on the pane's
+own computer or without a browser itself, or none is attached, the link goes to
+the pane's previous `BROWSER`, then the system's opener, else the helper prints
+it. So does a link from a machine not shown since Corgi connected to it; one
+shown before opens its links at once from the background. A program that
 ignores `BROWSER`, or a shell started before Corgi set it, opens links as it did
-before. Corgi leaves `BROWSER` alone on macOS, where tools such as Vite open it
-as an application. A machine in the background opens its links at once.
+before. Corgi leaves `BROWSER` alone on a Linux desktop, whose programs open
+links on its screen, and on macOS, where tools such as Vite open it as an
+application.
 
 `./go.ts --sandbox forwarding` opens a world to try this in: `devbox`, a
 stand-in machine, runs a dev server.

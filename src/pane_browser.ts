@@ -35,16 +35,19 @@ export function script(cli: string): string {
 }
 /** Writes the helper where panes find it, and says where: beside an
  * installed launcher `cli`, a fixed path that outlives any one release; else
- * beside the daemon's `socket`. Null when it can't be written, or off Linux,
- * where tools such as Vite open BROWSER as an application (`open -a`), which a
- * script isn't. */
+ * beside the daemon's `socket`. Only on a Linux machine with no browser of its
+ * own, going by the daemon's `env`: a desktop's programs keep opening links on
+ * its screen, and on macOS tools such as Vite open BROWSER as an application
+ * (`open -a`), which a script isn't. Null otherwise, or when it can't be
+ * written. */
 export function install(
   cli: string,
   executable: string,
   socket: string,
+  env: NodeJS.ProcessEnv = process.env,
   platform: string = process.platform,
 ): string | null {
-  if (platform !== "linux") return null;
+  if (platform !== "linux" || webLinks.opensLinks(env, platform)) return null;
   const folder = cli !== executable ? dirname(cli) : isAbsolute(socket) ? `${socket}.browser` : null;
   if (folder === null) return null;
   const path = join(folder, helper),
