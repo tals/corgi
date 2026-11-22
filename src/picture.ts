@@ -81,8 +81,9 @@ async function animate(bytes: Uint8Array, box: Box, pixels: number, wanted: () =
   return { width, height, png: await shrink(first.still, width, height), delay: first.delay, frames };
 }
 /** The image `bytes` hold shrunk to fit `box`, never enlarged. A GIF whose
- * frames can play keeps them, together at most `pixels`: hosts keep each
- * frame whole, so a longer one plays smaller. Throws when it isn't an image. */
+ * frames can play keeps them, together at most `pixels` (0 shows it still):
+ * hosts keep each frame whole, so a longer one plays smaller. Throws when it
+ * isn't an image. */
 export async function shrink(
   bytes: Uint8Array,
   box: Box,
@@ -90,7 +91,7 @@ export async function shrink(
   wanted: () => boolean = () => true,
 ): Promise<Picture> {
   const is_gif = bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46;
-  const animated = is_gif ? await animate(bytes, box, pixels, wanted).catch(() => null) : null;
+  const animated = is_gif && pixels > 0 ? await animate(bytes, box, pixels, wanted).catch(() => null) : null;
   if (animated) return animated;
   if (!wanted()) throw Error("Aborted");
   const png = await new Bun.Image(bytes, { maxPixels: max_pixels })

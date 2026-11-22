@@ -64,6 +64,9 @@ export const scan_ms = 10_000;
 export const read_limit = 64 << 10;
 /** The largest image file shrunk for a thumbnail. */
 const image_limit = 128 << 20;
+/** The most a daemon's thumbnail reply carries, as base64. It shares the
+ * data connection with pane screens, which a reply past 4 MiB would close. */
+export const thumbnail_limit = 512 << 10;
 const chunk_size = 1 << 20;
 /** Linux's local file systems, by `statfs` magic: ext2-4, xfs, btrfs,
  * tmpfs, f2fs, zfs, bcachefs and overlayfs. They answer reads of a log's
@@ -296,6 +299,46 @@ function received(reply: Record<string, unknown>): picture.Picture {
   if (shrunk.width <= 0 || shrunk.height <= 0 || shrunk.png.length === 0) throw Error("UnexpectedReply");
   return shrunk;
 }
+/** The sizes a picture too big to send is made again at, all at once, as
+ * parts of the size its area says fits: smaller ones hold more detail a pixel. */
+const retries = [1, 0.9, 0.8, 0.65];
+/** The image `bytes` hold shrunk to fit `box` and a reply of `limit` bytes.
+ * One too big is made again at a few sizes about the one its area says
+ * fits, and the largest that fits is sent. An animation that would shrink
+ * past half its size shows still instead. */
+export async function sendable(
+  bytes: Uint8Array,
+  box: picture.Box,
+  pixels: number,
+  limit: number,
+): Promise<picture.Picture> {
+  const base64 = (p: picture.Picture) =>
+    [p.png, ...p.frames.map(f => f.png)].reduce((sum, png) => sum + 4 * Math.ceil(png.length / 3), 0);
+  let shrunk = await picture.shrink(bytes, box, pixels);
+  for (let round = 0; base64(shrunk) > limit; round++) {
+    if (round === 3) throw Error("TooLarge");
+    const animated = shrunk.frames.length > 0,
+      scale = Math.sqrt(limit / base64(shrunk));
+    if (animated && scale < 0.5) {
+      shrunk = await picture.shrink(bytes, box, 0);
+      continue;
+    }
+    const from = shrunk;
+    // Bun.Image works off the main thread, so they're made together.
+    const made = await Promise.all(
+      retries.map(part => {
+        const width = Math.max(1, Math.floor(from.width * scale * part)),
+          height = Math.max(1, Math.floor(from.height * scale * part));
+        return picture.shrink(bytes, { width, height }, animated ? pixels : 0);
+      }),
+    );
+    const fit = made.find(p => base64(p) <= limit);
+    if (fit) return fit;
+    // None fit: an animation shows still, and a still starts again from the smallest.
+    shrunk = animated ? await picture.shrink(bytes, box, 0) : made[made.length - 1];
+  }
+  return shrunk;
+}
 
 export type Op = "file.stat" | "file.read" | "file.line" | "file.count" | "file.thumbnail";
 /** Answers another computer's read of a file here, as its daemon decoded it. */
@@ -303,7 +346,7 @@ export async function answer(request: Extract<protocol.DecodedRequest, { op: Op 
   if (request.op === "file.stat") return await here.find(request.payload.path, request.payload.cwd);
   if (request.op === "file.thumbnail") {
     const { path, width, height, pixels } = request.payload;
-    const shrunk = await picture.shrink(await readAll(here, path, image_limit), { width, height }, pixels);
+    const shrunk = await sendable(await readAll(here, path, image_limit), { width, height }, pixels, thumbnail_limit);
     return { ...shrunk, png: toBase64(shrunk.png), frames: shrunk.frames.map(f => ({ ...f, png: toBase64(f.png) })) };
   }
   const h = await here.open(request.payload.path);

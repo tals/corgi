@@ -2,9 +2,11 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { png_base64 } from "./assets/corgi_badge";
 import * as fileAccess from "./file_access";
 import * as fileSource from "./file_source";
 import { Source } from "./file_source";
+import { blink } from "./gif.test";
 import * as protocol from "./protocol";
 
 const dirs: string[] = [];
@@ -206,6 +208,32 @@ test("a daemon reads only the file it was asked for, without waiting on a FIFO, 
   } finally {
     now.mockRestore();
   }
+});
+
+test("a thumbnail too big for a daemon's reply is sent as large as fits it, or still", async () => {
+  const box = { width: 640, height: 480 },
+    pixels = fileAccess.remote_limits.frames;
+  const base64 = (p: { png: Uint8Array; frames: { png: Uint8Array }[] }) =>
+    [p.png, ...p.frames.map(f => f.png)].reduce((sum, png) => sum + Buffer.from(png).toString("base64").length, 0);
+  const photo = await new Bun.Image(Buffer.from(png_base64, "base64")).resize(2400, 1800).png().buffer();
+  const whole = await fileAccess.sendable(photo, box, pixels, Infinity);
+  const half = Math.floor(base64(whole) / 2);
+  const smaller = await fileAccess.sendable(photo, box, pixels, half);
+  expect(base64(smaller)).toBeLessThanOrEqual(half);
+  // Made at a few sizes about the estimate, not shrunk well past it.
+  expect(base64(smaller)).toBeGreaterThan(half * 0.7);
+  expect(smaller.width).toBeLessThan(whole.width);
+  expect(smaller.width / smaller.height).toBeCloseTo(whole.width / whole.height, 1);
+
+  const playing = await fileAccess.sendable(blink, box, pixels, Infinity);
+  expect(playing.frames.length).toBeGreaterThan(0);
+  // Its frames made smaller don't fit either, so its first shows.
+  const still = await fileAccess.sendable(blink, box, pixels, base64(playing) - 1);
+  expect(still).toMatchObject({ width: playing.width, height: playing.height, frames: [] });
+
+  await expect(fileAccess.sendable(photo, box, pixels, 10)).rejects.toThrow("TooLarge");
+  // A daemon's own replies stay under it.
+  expect(fileAccess.thumbnail_limit).toBeLessThan(4 << 20);
 });
 
 test.if(process.platform === "linux")("reads a file in /proc, which gives no size, to its end", async () => {
