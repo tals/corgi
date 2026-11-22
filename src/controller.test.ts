@@ -1085,6 +1085,46 @@ test("keys stay on the name while the folder field doesn't fit", async () => {
   expect(d.browser.field.raw()).toBe("/a/y");
 });
 
+test("a remote machine's new workspace starts at its home, and Escape while it makes the folder cancels", async () => {
+  const commands: unknown[] = [];
+  let made = () => {};
+  const machine = new Machine(
+    {
+      request: transport(async (op, fields: any) => {
+        switch (op) {
+          case "folder.list":
+            return { folders: [], home: "/home/me" };
+          case "folder.find":
+            return { deepest: null };
+          case "folder.open":
+            await new Promise<void>(resolve => (made = resolve));
+            return { opened: { path: fields.path } };
+          case "session.command":
+            commands.push(fields.command);
+            return { result: protocol.emptyResult() };
+        }
+        return {};
+      }).request,
+    },
+    "atlas",
+    true,
+  );
+  const s: any = new Controller(machine);
+  try {
+    // Without a workspace there, not at the viewer's own folder.
+    s.beginWorkspace(null);
+    expect(s.name_dialog.browser.field.raw()).toBe("~/");
+    s.finishName(true);
+    s.finishName(false);
+    made();
+    await s.tasks.idle();
+    expect(commands).toEqual([]);
+    expect(s.name_dialog).toBeNull();
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("a paste read from the host clipboard goes where a paste would", async () => {
   const clipboard = Object.assign(new hostClipboard.State(), { support: "on" });
   const s = controller();

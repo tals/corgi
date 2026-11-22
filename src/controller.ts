@@ -2978,8 +2978,9 @@ export class Controller {
       if (index === null) return;
       initial = this.runtime.workspaces.items[index].name;
     }
-    this.name_dialog =
-      id === null ? this.folderDialog(this.currentCwd(), null) : Dialog.init({ workspace_name: id }, initial);
+    // Without a workspace, a remote machine's dialog starts at its home, not the viewer's folder.
+    const start = this.machine.remote && !this.current().id ? "~" : this.currentCwd();
+    this.name_dialog = id === null ? this.folderDialog(start, null) : Dialog.init({ workspace_name: id }, initial);
     this.prepareName();
   }
   /** Opens the folder browser on workspace `id`'s folder, to move it. */
@@ -3100,7 +3101,8 @@ export class Controller {
       try {
         // The folder is checked, and made, on the machine the workspace is on.
         const cwd = fresh ? await fresh.confirm() : this.currentCwd();
-        if (cwd === null) {
+        // Escape while the folder was checked cancels.
+        if (cwd === null || this.name_dialog !== dialog) {
           dialog.saving = false;
           this.dirty = true;
           return;

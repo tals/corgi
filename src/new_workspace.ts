@@ -57,50 +57,79 @@ export class Disk implements Files {
   }
 }
 
-/** A remote machine's folders, read through its daemon. Answers are kept for
- * the dialog's life; its home is kept on the machine for the next dialog. */
+/** A remote machine's folders, read through its daemon. Answers are kept
+ * until the dialog makes a folder, and its home on the machine for the next
+ * dialog. Until the home is known, paths under it start with `~`, which the
+ * daemon expands. */
 export class Remote implements Files {
   answered: () => void = () => {};
-  private lists = new Map<string, string[] | null | undefined>();
-  private found = new Map<string, folders.Deepest | null | undefined>();
+  private lists = new Map<string, string[] | null>();
+  private found = new Map<string, folders.Deepest | null>();
+  /** Questions out, as "op path". */
+  private asking = new Set<string>();
+  /** Counts the folders made: an answer read before one is dropped. */
+  private made = 0;
   constructor(private readonly machine: Machine) {}
   get home(): string {
     return this.machine.home;
   }
   list(folder: string): string[] | null | undefined {
-    if (!this.lists.has(folder))
-      this.ask(this.lists, folder, async () => {
-        const reply = await call(this.machine.connection, "folder.list", { path: folder });
-        if (typeof reply.home === "string") this.machine.home = reply.home;
-        return names(reply.folders);
-      });
-    return this.lists.get(folder);
+    // A folder read before the home was known is kept under `~`.
+    for (const key of [folder, label(folder, this.home)]) if (this.lists.has(key)) return this.lists.get(key);
+    this.ask(this.lists, "folder.list", folder, async () => {
+      const reply = await call(this.machine.connection, "folder.list", { path: folder });
+      if (typeof reply.home === "string" && isAbsolute(reply.home)) this.machine.home = reply.home;
+      return names(reply.folders);
+    });
+    return undefined;
   }
   deepest(path: string): folders.Deepest | null | undefined {
-    if (!this.found.has(path))
-      this.ask(this.found, path, async () =>
-        deepestPart((await call(this.machine.connection, "folder.find", { path })).deepest),
-      );
-    return this.found.get(path);
+    if (this.found.has(path)) return this.found.get(path);
+    this.ask(this.found, "folder.find", path, async () =>
+      deepestPart((await call(this.machine.connection, "folder.find", { path })).deepest),
+    );
+    return undefined;
   }
   async open(path: string): Promise<folders.Opened> {
+    let made: folders.Opened;
     try {
-      return opened((await call(this.machine.connection, "folder.open", { path })).opened);
+      made = opened((await call(this.machine.connection, "folder.open", { path })).opened);
     } catch (error) {
-      // XXX: Remove for next protocol bump. An older daemon makes the workspace's folder itself.
+      // XXX: Remove for next protocol bump. An older daemon has no folder
+      // requests; the workspace takes the folder as named, when it's there.
       if (errors.is(error, "UnknownOperation")) return { path };
       return { problem: "not_created" };
     }
+    if ("path" in made) this.forget();
+    return made;
   }
-  /** Asks once for `key`, keeping null when the machine can't answer. */
-  private ask<T>(answers: Map<string, T | null | undefined>, key: string, read: () => Promise<T | null>): void {
-    answers.set(key, undefined);
-    void read()
-      .catch(() => null)
-      .then(answer => {
-        answers.set(key, answer);
-        this.answered();
-      });
+  /** Drops the answers kept and those on their way, a folder having been
+   * made, and has the browser ask again. */
+  private forget(): void {
+    this.made++;
+    this.lists.clear();
+    this.found.clear();
+    this.asking.clear();
+    this.answered();
+  }
+  /** Asks the daemon `op` about `key`, once at a time. A daemon that refuses,
+   * an older one included, has nothing to show there; after a lost link the
+   * next look asks again. */
+  private ask<T>(answers: Map<string, T | null>, op: string, key: string, read: () => Promise<T | null>): void {
+    const question = `${op} ${key}`,
+      made = this.made;
+    if (this.asking.has(question)) return;
+    this.asking.add(question);
+    const take = (answer: T | null) => {
+      if (made !== this.made) return;
+      this.asking.delete(question);
+      answers.set(key, answer);
+      this.answered();
+    };
+    void read().then(take, error => {
+      if (errors.reply(error)) take(null);
+      else if (made === this.made) this.asking.delete(question);
+    });
   }
 }
 /** A daemon's folder names, or null. */
@@ -129,6 +158,10 @@ export function label(path: string, home: string): string {
   if (home.length > 1 && (path === home || path.startsWith(home + "/"))) return "~" + path.slice(home.length);
   return path;
 }
+/** A path under a home folder not known yet, as `~` and the path below it. */
+const homeless = (path: string) => path === "~" || path.startsWith("~/");
+/** A folder field's text without the spaces around it, as its `name()` gives it. */
+const unspaced = (text: string) => text.replace(/^ +| +$/g, "");
 
 export class Browser {
   field: nameDialog.Dialog;
@@ -159,6 +192,8 @@ export class Browser {
   private listed: { folder: string; names: string[] | null } | null = null;
   /** A folder was entered before it was read: its first folder is picked once it is. */
   private picks_first = false;
+  /** → pressed meanwhile: each goes on into the first folder once it is read. */
+  private opens = 0;
   /** Told when the machine's answers or a folder it made change what shows. */
   changed: () => void = () => {};
 
@@ -168,6 +203,8 @@ export class Browser {
   ) {
     this.field = nameDialog.Dialog.init({ folder: null }, "");
     files.answered = () => {
+      // The machine keeps what it answered; what it has dropped is asked again.
+      this.listed = null;
       this.reread();
       this.changed();
     };
@@ -193,14 +230,20 @@ export class Browser {
   count(): number {
     return this.entries.length + (this.create === null ? 0 : 1);
   }
-  /** The folder the field names, absolute. */
+  /** The folder the field names, absolute; under a home folder not known yet, from `~`. */
   folder(): string {
-    const text = this.field.name();
-    return this.resolve(text.length > 0 ? text : ".");
+    return this.resolve(unspaced(this.field.raw()) || ".");
   }
   private resolve(text: string): string {
-    const expanded = text === "~" ? this.home : text.startsWith("~/") ? join(this.home, text.slice(2)) : text;
-    return isAbsolute(expanded) ? resolve(expanded) : resolve(this.base, expanded);
+    if (homeless(text)) {
+      if (this.home) return resolve(this.home, "." + text.slice(1));
+      const below = resolve("/", "." + text.slice(1));
+      return below === "/" ? "~" : "~" + below;
+    }
+    if (isAbsolute(text)) return resolve(text);
+    // A remote machine's dialog without a workspace starts at its home.
+    const base = homeless(this.base) ? this.resolve(this.base) : this.base;
+    return homeless(base) ? this.resolve(base + "/" + text) : resolve(base, text);
   }
   /** Lists `folder`, writing it into the field. */
   private show(folder: string): void {
@@ -220,27 +263,47 @@ export class Browser {
   /** Lists the folder the field's text ends in, keeping the names that
    * start with what follows its last slash. Dot folders show once a dot is typed. */
   refresh(): void {
-    const text = this.field.raw();
-    const cut = text.lastIndexOf("/");
-    this.typed = text;
-    this.typed_folder = this.folder();
-    this.typed_parent = text.slice(0, cut + 1);
-    this.parent = this.resolve(cut < 0 ? "." : this.typed_parent);
-    this.prefix = text.slice(cut + 1);
+    this.typed = this.field.raw();
     this.picks_first = false;
+    this.opens = 0;
+    this.locate();
     this.fill();
     this.highlight = null;
     this.first = 0;
   }
-  /** Takes in answers that came since the field last changed. A highlighted
-   * offer to create stays highlighted, after the folders read since. */
+  /** The folders what was typed names, as far as the home folder is known. */
+  private locate(): void {
+    const text = this.typed,
+      cut = text.lastIndexOf("/");
+    this.typed_folder = this.resolve(unspaced(text) || ".");
+    this.typed_parent = text.slice(0, cut + 1);
+    this.parent = this.resolve(cut < 0 ? "." : this.typed_parent);
+    this.prefix = text.slice(cut + 1);
+  }
+  /** Takes in answers that came since the field last changed, the home
+   * folder among them. A highlighted offer to create stays highlighted,
+   * after the folders read since. */
   private reread(): void {
     const offer = this.highlight !== null && this.highlight >= this.entries.length;
+    this.locate();
     this.fill();
     if (offer) this.highlight = this.create === null ? null : this.entries.length;
-    if (this.picks_first && !this.reading) {
-      this.picks_first = false;
-      if (this.highlight === null && this.entries.length > 0) this.pick(0);
+    if (this.picks_first && !this.reading) this.pickFirst();
+  }
+  /** Picks the first folder in the one entered before it was read, and goes
+   * on into it for each → pressed meanwhile. */
+  private pickFirst(): void {
+    let opens = this.opens;
+    this.picks_first = false;
+    this.opens = 0;
+    if (this.highlight === null && this.entries.length > 0) this.pick(0);
+    while (opens > 0 && this.highlight !== null && this.highlight < this.entries.length) {
+      opens--;
+      this.enter(join(this.parent, this.entries[this.highlight]));
+      if (this.picks_first) {
+        this.opens = opens;
+        return;
+      }
     }
   }
   /** The folders listed and the offer to create, from what the machine has answered. */
@@ -261,7 +324,8 @@ export class Browser {
   private look(): void {
     this.create = null;
     this.blocked = null;
-    if (this.typed.length === 0) return;
+    // What to create waits for the home folder.
+    if (this.typed.length === 0 || homeless(this.typed_folder)) return;
     const folder = this.typed_folder,
       there = this.files.deepest(folder);
     if (!there) return;
@@ -289,19 +353,25 @@ export class Browser {
    * lists the last of them. */
   open(): void {
     const index = this.highlight ?? (this.prefix.length > 0 && this.entries.length > 0 ? 0 : null);
-    if (index === null) return;
+    if (index === null) {
+      if (this.picks_first) this.opens++;
+      return;
+    }
     if (index < this.entries.length) return this.enter(join(this.parent, this.entries[index]));
     const folder = this.folder();
     void this.files.open(folder).then(opened => {
       if (this.folder() !== folder) return;
-      if ("path" in opened) this.enter(folder);
-      else this.problem = opened.problem;
+      if ("path" in opened) {
+        // What was read before it was made is stale.
+        this.listed = null;
+        this.enter(folder);
+      } else this.problem = opened.problem;
       this.changed();
     });
   }
   /** Lists the folder above the one listed. */
   up(): void {
-    if (this.parent !== "/") this.enter(dirname(this.parent));
+    if (this.parent !== "/" && this.parent !== "~") this.enter(dirname(this.parent));
   }
   /** The first entry that shows in `rows`, keeping the highlight in view. */
   window(rows: number): number {

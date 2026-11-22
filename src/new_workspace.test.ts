@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { Browser, Dialog, Disk, Remote, label, size } from "./new_workspace";
 import { deepest, isFolder, make, stat, subfolders, type Found } from "./folders";
 import { Machine } from "./machine";
@@ -401,6 +401,127 @@ test("a remote machine's folders are listed, and made, by its daemon", async () 
   expect(await d.confirm()).toBe("/home/me/code/ctf");
   expect(asked).toContain("folder.open /home/me/code/ctf");
   expect(isFolder("/home/me/code/ctf")).toBe(false);
+});
+
+/** A remote machine whose daemon answers from a copy of the tree only as
+ * `flush` lets it. `link.up` false loses the link; an old daemon knows no
+ * folder requests. */
+function remoteMachine(opts: { home?: string; old?: boolean } = {}) {
+  const shown: Record<string, string[]> = structuredClone(tree);
+  const held: (() => void)[] = [];
+  const asked: string[] = [];
+  const link = { up: true };
+  const expand = (p: string) => (p === "~" ? "/home/me" : p.startsWith("~/") ? "/home/me" + p.slice(1) : p);
+  const answer = (op: string, path: string): object => {
+    if (opts.old) return { err: "UnknownOperation" };
+    if (op === "folder.list") return { ok: true, folders: shown[path] ?? null, home: "/home/me" };
+    if (op === "folder.find")
+      return { ok: true, deepest: deepest(path, p => (p in shown ? folder : (others[p] ?? null))) };
+    const missing: string[] = [];
+    for (let p = path; !(p in shown); p = dirname(p)) missing.unshift(p);
+    for (const p of missing) {
+      shown[p] = [];
+      shown[dirname(p)] = [...shown[dirname(p)], basename(p)].sort((a, b) => a.localeCompare(b));
+    }
+    return { ok: true, opened: { path } };
+  };
+  const request = (op: string, payload: { path: string }) =>
+    new Promise((resolve, reject) => {
+      asked.push(`${op} ${payload.path}`);
+      held.push(() => (link.up ? resolve(answer(op, expand(payload.path))) : reject(Error("StaleConnection"))));
+    });
+  const machine = new Machine({ request } as unknown as Transport, "nocap", true);
+  machine.home = opts.home ?? "";
+  /** Answers everything asked, and what the answers lead to. */
+  const flush = async () => {
+    while (held.length) {
+      for (const go of held.splice(0)) go();
+      await Bun.sleep(0);
+    }
+  };
+  return { machine, asked, link, flush };
+}
+
+test("a folder made on a remote machine shows at once, there and above it", async () => {
+  const { machine, flush } = remoteMachine({ home: "/home/me" });
+  const b = Browser.init("/home/me/code", new Remote(machine));
+  await flush();
+  paste(b, "ctf");
+  await flush();
+  expect(b.create).toBe("ctf");
+  b.move(1);
+  b.sequence("\x1b[C");
+  await flush();
+  expect(b.field.raw()).toBe("~/code/ctf/");
+  expect(b.create).toBeNull();
+  b.sequence("\x1b[D");
+  await flush();
+  expect(b.entries).toEqual(["corgi", "ctf", "other"]);
+});
+
+test("a remote folder is asked for again after a lost link; an older daemon's can't be read", async () => {
+  const { machine, asked, link, flush } = remoteMachine({ home: "/home/me" });
+  link.up = false;
+  const d = new Dialog(Browser.init("/home/me", new Remote(machine)));
+  await flush();
+  expect(d.browser.reading).toBe(true);
+  expect(draw(d)).not.toContain("Can't read this folder");
+  link.up = true;
+  paste(d.browser, "c");
+  await flush();
+  expect(d.browser.entries).toEqual(["code"]);
+  expect(asked.filter(q => q === "folder.list /home/me")).toHaveLength(2);
+  const old = remoteMachine({ old: true });
+  const o = new Dialog(Browser.init("/home/me", new Remote(old.machine)));
+  await old.flush();
+  expect(draw(o)).toContain("Can't read this folder");
+  // It takes the folder as named, `~` included.
+  o.browser.field.clear();
+  paste(o.browser, "~/code");
+  const saved = o.confirm();
+  await old.flush();
+  expect(await saved).toBe("~/code");
+});
+
+test("~ typed before a remote machine's home is known is made there, and read from there once known", async () => {
+  const { machine, asked, flush } = remoteMachine();
+  const b = Browser.init("/home/me/code", new Remote(machine));
+  b.field.clear();
+  paste(b, "~/proj");
+  expect(b.folder()).toBe("~/proj");
+  expect(b.create).toBeNull();
+  const saved = b.confirm();
+  await flush();
+  expect(await saved).toBe("/home/me/proj");
+  expect(asked).toContain("folder.open ~/proj");
+  expect(b.parent).toBe("/home/me");
+  expect(b.entries).toEqual(["proj"]);
+});
+
+test("→ pressed before a remote folder is read goes on into its first folder, as on this disk", async () => {
+  const { machine, flush } = remoteMachine({ home: "/home/me" });
+  const b = Browser.init("/home/me", new Remote(machine));
+  const local = browse("/home/me");
+  await flush();
+  for (const each of [b, local]) {
+    each.move(1);
+    each.sequence("\x1b[C");
+    each.sequence("\x1b[C");
+  }
+  await flush();
+  expect(b.field.raw()).toBe("~/code/corgi/");
+  expect(local.field.raw()).toBe("~/code/corgi/");
+});
+
+test("a remote machine's dialog can start at its home before knowing where that is", async () => {
+  const { machine, asked, flush } = remoteMachine();
+  const d = new Dialog(Browser.init("~", new Remote(machine)));
+  expect(d.browser.field.raw()).toBe("~/");
+  await flush();
+  expect(asked[0]).toBe("folder.list ~");
+  expect(d.browser.folder()).toBe("/home/me");
+  expect(d.browser.entries).toEqual(["code", "Documents", "docs"]);
+  expect(d.name()).toBe("me");
 });
 
 test("the name follows the folder until it is edited", () => {
