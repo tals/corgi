@@ -172,7 +172,11 @@ export async function run(
     if (sshViewer()) return;
     const forwards = from?.machine.forwards ?? null;
     // Another machine's localhost isn't this computer's: with no forward to it, it stays shut.
-    if (from?.remote && !forwards && portForwards.target(url)) return;
+    const there = portForwards.target(url);
+    if (from?.remote && !forwards && there) {
+      view.notice(` No browser here to forward ${from.name}:${there.port} to`);
+      return notify();
+    }
     if (!forwards || (!portForwards.target(url) && !portForwards.callbacks(url).length)) {
       try {
         openers.open(url);

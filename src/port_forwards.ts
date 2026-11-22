@@ -42,9 +42,9 @@ export interface Target {
 export interface Forward extends Target {
   /** The port on this computer's loopback. */
   local: number;
-  /** The link it was made for, or the last one clicked in Corgi, pointing
-   * here: what the card opens again. A Cmd+click the terminal handles
-   * itself isn't seen, so it leaves this as it was. */
+  /** The link it was made for, or the last one opened through Corgi (a
+   * click, or a pane program's BROWSER), pointing here: what the card opens
+   * again. A Cmd+click the terminal handles itself isn't seen. */
   url: string;
   /** Connections open now. */
   open: number;
