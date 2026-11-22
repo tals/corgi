@@ -21,6 +21,9 @@ test("reads file links on this machine, with lines after the path or in the frag
   expect(fileRef.parse("file:///tmp/a%20b.ts", false)).toEqual({ path: "/tmp/a b.ts", line: null, column: null });
   expect(fileRef.parse("file:///tmp/a.ts:7:2", false)).toEqual({ path: "/tmp/a.ts", line: 7, column: 2 });
   expect(fileRef.parse("file:///tmp/a.ts#L9", false)).toEqual({ path: "/tmp/a.ts", line: 9, column: null });
+  // Lines count from 1: a line 0 names none.
+  expect(fileRef.parse("file:///tmp/a.log#L0", false)).toEqual({ path: "/tmp/a.log", line: null, column: null });
+  expect(fileRef.parse("file:///tmp/a.log:0:0", false)).toEqual({ path: "/tmp/a.log", line: null, column: null });
   expect(fileRef.parse(`file://${hostname()}/tmp/a.ts`, false)?.path).toBe("/tmp/a.ts");
   expect(fileRef.parse("file://elsewhere.example/tmp/a.ts", false)).toBeNull();
   expect(fileRef.parse("https://example.com/a.ts", false)).toBeNull();

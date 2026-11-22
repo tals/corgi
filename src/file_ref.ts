@@ -12,7 +12,11 @@ export interface Ref {
   line: number | null;
   column: number | null;
 }
-const count = (digits: string | undefined) => (digits ? Number(digits) : null);
+/** A line or column the text gave; null for none, or for 0, which none is. */
+const count = (digits: string | undefined) => {
+  const n = Number(digits ?? 0);
+  return n >= 1 && Number.isSafeInteger(n) ? n : null;
+};
 /** The file `uri` names: a found path's text, which is the path then
  * `:line` or `:line:column`, or a file:// link to `host`, or to any host
  * when `host` is null, as on a computer whose name isn't known. */
