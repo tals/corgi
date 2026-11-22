@@ -715,7 +715,7 @@ export class Source {
       // the size and change only the time: what's shown is read again.
       const edited = this.looked !== null && found.size === this.looked.size && found.mtime !== this.looked.mtime;
       this.looked = { size: found.size, mtime: found.mtime };
-      if (edited) return await this.restart();
+      if (edited) return await this.reread();
       known = found.size;
     }
     const now = this.fh!.now;
@@ -735,6 +735,18 @@ export class Source {
     if (grown > this.files.limits.growth) return this.hold !== null ? this.bump() : await this.restart();
     const bytes = now && grown <= sync_limit ? now.read(this.end, grown) : await this.read(this.end, grown);
     this.append(bytes, true);
+    this.bump();
+  }
+  /** Reads the window again where it is, after an edit in place that kept
+   * the file's size: the reader keeps its place, its numbers and whether it
+   * follows. */
+  private async reread(): Promise<void> {
+    const from = this.start,
+      first = this.first,
+      // The byte before a line's start is its newline, which `window` drops to begin at the line.
+      at = Math.max(0, from - 1);
+    this.window(at, await this.read(at, this.end - at));
+    if (this.start === from) this.first = first;
     this.bump();
   }
   private async restart(): Promise<void> {

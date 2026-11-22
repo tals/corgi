@@ -125,7 +125,18 @@ test("reads a followed file again after an edit in place that keeps its size", a
   writeFileSync(path, "ALPHA\nbravo\ncarol\n");
   time(1002);
   await s.refresh();
-  expect([s.restarts, rows(s)]).toEqual([1, ["ALPHA", "bravo", "carol"]]);
+  expect([s.restarts, rows(s)]).toEqual([0, ["ALPHA", "bravo", "carol"]]);
+  // Deep in a large one, the edit shows where the reader was, under the same numbers.
+  const big = file("big.log", numbered(1, 100_000));
+  utimesSync(big, 1000, 1000);
+  const deep = await open(big, { line: 60_000 });
+  const start = deep.start;
+  expect(deep.line(deep.rowOf(60_000)!)).toBe("line 60000");
+  writeFileSync(big, numbered(1, 100_000).replace("line 60000\n", "LINE 60000\n"));
+  utimesSync(big, 1001, 1001);
+  await deep.refresh();
+  expect([deep.restarts, deep.start]).toEqual([0, start]);
+  expect(deep.line(deep.rowOf(60_000)!)).toBe("LINE 60000");
 });
 
 test("skips growth too fast to read, as a reader that fell behind", async () => {
