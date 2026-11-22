@@ -282,7 +282,7 @@ test("open from a pane goes to the viewer showing it", () => {
   expect(two.controls[0]).toMatchObject({ kind: "action", name: "open", value: "/tmp" });
   expect(one.controls).toHaveLength(0);
 });
-test("a pane's link goes to the viewer showing it that opens links, else the one used last", () => {
+test("a pane's link goes to the viewer showing it, else the one used last, when that one opens links", () => {
   const s = fixture(),
     shows = peer(s),
     elsewhere = peer(s, 2),
@@ -296,14 +296,26 @@ test("a pane's link goes to the viewer showing it that opens links, else the one
   );
   shows.links = elsewhere.links = true;
   elsewhere.interests = [{ pane: 9, cols: 80, rows: 24 }];
+  over_ssh.interests = [];
   elsewhere.active_seq = 10;
   over_ssh.active_seq = 20;
   action(s, source, protocol.decode("action", { name: "open-url", value: "http://localhost:3000/", pane: 1 }));
   expect(result).toHaveBeenLastCalledWith({ ok: true, viewer: 1, queued: true });
   expect(shows.controls[0]).toMatchObject({ kind: "action", name: "open-url", value: "http://localhost:3000/" });
-  // A pane no viewer shows: the one used last.
+  // A pane no viewer shows: the one used last, unless it can't open links,
+  // when the pane's program opens the link itself rather than on another computer.
+  expect(() =>
+    action(s, source, protocol.decode("action", { name: "open-url", value: "https://example.com/", pane: 7 })),
+  ).toThrow("NoViewer");
+  over_ssh.active_seq = 5;
   action(s, source, protocol.decode("action", { name: "open-url", value: "https://example.com/", pane: 7 }));
   expect(result).toHaveBeenLastCalledWith({ ok: true, viewer: 2, queued: true });
+  // Nor does one showing the pane, used last, hand it to another that opens links.
+  over_ssh.interests = [{ pane: 1, cols: 80, rows: 24 }];
+  over_ssh.active_seq = 30;
+  expect(() =>
+    action(s, source, protocol.decode("action", { name: "open-url", value: "http://localhost:3000/", pane: 1 })),
+  ).toThrow("NoViewer");
   for (const value of ["file:///etc/passwd", "javascript:alert(1)", "https://x/\nrm"])
     expect(() => action(s, source, protocol.decode("action", { name: "open-url", value, pane: 1 }))).toThrow(
       "InvalidURL",

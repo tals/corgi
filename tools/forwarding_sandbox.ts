@@ -20,6 +20,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { networkInterfaces } from "node:os";
 import { randomUUID } from "node:crypto";
+import { shellQuote } from "../src/os";
 
 export const offset = 20_000;
 export const ports = { app: 5173, docs: 4321, callback: 1455, auth: 8711 } as const;
@@ -181,7 +182,15 @@ async function serve(dir: string, exe: string): Promise<void> {
   // devbox's own prompt, so its shells say where they run.
   writeFileSync(join(box.home, ".zshrc"), "PROMPT='%F{magenta}devbox%f %1~ %# '\nbindkey -e\n");
   writeFileSync(join(box.home, ".bashrc"), "PS1='devbox \\W $ '\n");
-  const daemon = Bun.spawn([exe, "serve"], { env, stdout: "ignore", stderr: Bun.file(join(box.root, "server.log")) });
+  // Corgi sets its panes' BROWSER only on Linux; devbox plays one here.
+  const helper = join(box.home, "bin", "corgi-browser");
+  mkdirSync(dirname(helper), { recursive: true });
+  writeFileSync(helper, `#!/bin/sh\nexec ${shellQuote(exe)} __browser "$@"\n`, { mode: 0o700 });
+  const daemon = Bun.spawn([exe, "serve"], {
+    env: { ...env, BROWSER: helper },
+    stdout: "ignore",
+    stderr: Bun.file(join(box.root, "server.log")),
+  });
   let info: { bridge?: string } | null = null;
   for (let i = 0; i < 200 && !info; i++) {
     if (daemon.exitCode !== null) throw Error("devbox's Corgi exited; see devbox/server.log");

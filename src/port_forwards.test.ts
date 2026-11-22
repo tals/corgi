@@ -402,6 +402,21 @@ test("a click on a link to a port a sign-in reserved first makes a forward that 
   } finally {
     forwards.close();
   }
+  // So does the terminal's own Cmd+click on the link, which a request realizes.
+  const cmd = new portForwards.Forwards(fakeLink(new Map([[there, serve("app")]])).link, () => now);
+  try {
+    cmd.hover(signin);
+    await until(() => cmd.local(app) !== null);
+    cmd.hover(app);
+    expect(await (await fetch(app, close)).text()).toBe("app /");
+    await until(() => cmd.list[0]?.open === 0);
+    cmd.hover(null);
+    now += portForwards.callback_ms * 2;
+    cmd.expire();
+    expect(cmd.list.length).toBe(1);
+  } finally {
+    cmd.close();
+  }
 });
 
 test("a sign-in's callback forward goes once it's been idle a while, and never sits on a moved port", async () => {

@@ -79,7 +79,7 @@ test("a link the pane's own BROWSER can't open goes to the system's opener, else
   ]);
 });
 
-test("the helper goes beside an installed launcher, else beside the socket, and BROWSER names it", () => {
+test("on Linux the helper goes beside an installed launcher, else beside the socket, and BROWSER names it", () => {
   const install = folder(),
     cli = join(install, "bin", "corgi"),
     runtime = folder(),
@@ -87,18 +87,20 @@ test("the helper goes beside an installed launcher, else beside the socket, and 
   // A Corgi xdg-open an earlier build left there goes; another stays.
   mkdirSync(join(install, "bin"), { mode: 0o700 });
   writeFileSync(join(install, "bin", "xdg-open"), "#!/bin/sh\n# corgi-xdg-open\n");
-  expect(paneBrowser.install(cli, "/opt/releases/1/corgi", socket)).toBe(join(install, "bin"));
+  expect(paneBrowser.install(cli, "/opt/releases/1/corgi", socket, "linux")).toBe(join(install, "bin"));
   expect(existsSync(join(install, "bin", "xdg-open"))).toBe(false);
   expect(statSync(join(install, "bin", paneBrowser.helper)).mode & 0o777).toBe(0o700);
-  expect(paneBrowser.install("/opt/dev/dist/corgi", "/opt/dev/dist/corgi", socket)).toBe(`${socket}.browser`);
+  expect(paneBrowser.install("/opt/dev/dist/corgi", "/opt/dev/dist/corgi", socket, "linux")).toBe(`${socket}.browser`);
   expect(readFileSync(join(`${socket}.browser`, paneBrowser.helper), "utf8")).toContain(
     "'/opt/dev/dist/corgi' __browser",
   );
   writeFileSync(join(`${socket}.browser`, "xdg-open"), '#!/bin/sh\nexec /usr/bin/xdg-open "$@"\n');
-  paneBrowser.install("/opt/dev/dist/corgi", "/opt/dev/dist/corgi", socket);
+  paneBrowser.install("/opt/dev/dist/corgi", "/opt/dev/dist/corgi", socket, "linux");
   expect(existsSync(join(`${socket}.browser`, "xdg-open"))).toBe(true);
+  // Not on macOS, where tools open BROWSER as an application.
+  expect(paneBrowser.install(cli, "/opt/releases/1/corgi", socket, "darwin")).toBeNull();
   // Nowhere beside a socket with no folder of its own.
-  expect(paneBrowser.install("/opt/dev/dist/corgi", "/opt/dev/dist/corgi", "")).toBeNull();
+  expect(paneBrowser.install("/opt/dev/dist/corgi", "/opt/dev/dist/corgi", "", "linux")).toBeNull();
   // The daemon's own BROWSER stays for links no viewer takes, unless it's the helper itself.
   const helpers = join(install, "bin");
   expect(paneBrowser.environment(helpers, { BROWSER: "w3m" })).toEqual({

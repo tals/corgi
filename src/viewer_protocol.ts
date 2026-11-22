@@ -473,20 +473,21 @@ export function switchWorkspace(s: Server, cl: Client, q: Request<"workspace.swi
   send(s, reply, target, { kind: "workspace", id: q.workspace });
 }
 /** The viewer a pane's program opens a link with: the one used last of those
- * showing the pane, else the one used last. Only viewers that open links
- * count; a pane's program then falls back to its own browser. */
+ * showing the pane, else the one used last. When that one doesn't open links
+ * for this machine, the program falls back to its own browser, rather than
+ * the link opening on another viewer's computer. */
 export function linkViewer(s: Server, pane: number | null | undefined): Client {
   let target: Client | null = null,
     showing = false;
   for (const view of s.clients) {
-    if (!view.viewer || view.dead || !view.links) continue;
+    if (!view.viewer || view.dead) continue;
     const shows = pane != null && view.interests.some(i => i.pane === pane);
     if (!target || (shows && !showing) || (shows === showing && view.active_seq > target.active_seq)) {
       target = view;
       showing = shows;
     }
   }
-  if (!target) throw new Error("NoViewer");
+  if (!target?.links) throw new Error("NoViewer");
   return target;
 }
 export function copy(s: Server, pane: number, text: string) {
