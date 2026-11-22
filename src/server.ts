@@ -15,6 +15,7 @@ import type { Worker as UsageWorker } from "./usage/worker";
 import { existsSync, readFileSync, renameSync, rmSync, watch, type FSWatcher } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, isAbsolute, join } from "node:path";
+import { homedir } from "node:os";
 import { Runtime } from "./runtime";
 import * as agentEffort from "./agent_effort";
 import { Store, Workspace } from "./workspace";
@@ -44,6 +45,7 @@ import * as jobs from "./jobs";
 import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import * as reviewService from "./review/service";
+import * as folders from "./folders";
 import { testBuild } from "./build_assets";
 import * as agentRetry from "./agent_retry";
 import * as link from "./link";
@@ -1263,6 +1265,16 @@ export class Server {
         this.remote_jobs.cancel(cl, request.payload.job);
         reply.ok();
         return;
+      // A remote viewer's folder browser reads and makes this machine's folders.
+      case "folder.list":
+        reply.ok({ folders: folders.subfolders(absolute(request.payload.path)), home: homedir() });
+        return;
+      case "folder.find":
+        reply.ok({ deepest: folders.deepest(absolute(request.payload.path)) });
+        return;
+      case "folder.open":
+        reply.ok({ opened: folders.open(absolute(request.payload.path)) });
+        return;
       case "worktree.add":
         this.defer(cl, reply, { op: "worktree.add", path: request.payload.path }, async () => {
           await worktreeAdd.add(
@@ -1511,6 +1523,11 @@ function bindOlder(socket: string): number {
   const fd = bindSocket(bound);
   renameSync(bound, socket);
   return fd;
+}
+/** A path a client named, refused unless absolute. */
+function absolute(path: string): string {
+  if (!isAbsolute(path) || Buffer.byteLength(path) > 4096) throw Error("InvalidDirectory");
+  return path;
 }
 /** A request's number in `field`, when its client numbered it. */
 function numbered(value: unknown, field: "seq" | "answered"): bigint | null {

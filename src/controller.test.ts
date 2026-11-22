@@ -1074,7 +1074,7 @@ test("discarded paste chunks cannot invoke shortcuts", async () => {
 test("keys stay on the name while the folder field doesn't fit", async () => {
   const s = controller();
   s.input_state.attached = true;
-  const d = new newWorkspace.Dialog(newWorkspace.Browser.init("/a", "/home", () => ["b"]));
+  const d = new newWorkspace.Dialog(newWorkspace.Browser.init("/a", new newWorkspace.Disk("/home", () => ["b"])));
   s.name_dialog = d;
   s.height = 12;
   await s.input(bytes("\tx"));

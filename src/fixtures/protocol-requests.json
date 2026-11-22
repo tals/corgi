@@ -214,6 +214,15 @@
   "job.cancel": {
     "job": 7
   },
+  "folder.list": {
+    "path": "/home/me"
+  },
+  "folder.find": {
+    "path": "/home/me/new"
+  },
+  "folder.open": {
+    "path": "/home/me/new"
+  },
   "onboarding.status": {
     "operation": 1
   },

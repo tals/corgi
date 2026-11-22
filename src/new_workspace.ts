@@ -3,12 +3,15 @@
 //! the list writes the folder into it. The name follows the folder until
 //! edited, and ↵ creates it.
 import * as i18n from "./i18n";
-import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import * as palette from "./palette";
 import { Style, fgRgb, bgRgb, mix, colors } from "./palette";
 import * as keys from "./keys";
+import * as errors from "./errors";
+import * as folders from "./folders";
+import { call } from "./mirror";
+import type { Machine } from "./machine";
 import * as nameDialog from "./name_dialog";
 import * as workspace from "./workspace";
 import { printable, writeField, type Key, type KeySpec, type Result } from "./name_dialog";
@@ -22,79 +25,103 @@ const folder_rows = 10;
 export type Hit =
   nameDialog.Hit | { tag: "folder"; field: number } | { tag: "entry"; index: number } | { tag: "open" } | { tag: "up" };
 
-/** Names in a folder that are folders themselves, or null when it can't be read. */
-export type Lister = (folder: string) => string[] | null;
-/** What a path holds, a link counting as what it leads to; a link to nothing is a link. */
-export type Kind = "folder" | "file" | "link" | "socket" | "pipe" | "device";
-export interface Found {
-  kind: Kind;
-  size: number;
-  /** When it was last modified, in milliseconds since the epoch. */
-  modified: number;
-}
-/** What is at a path, or null when nothing is. */
-export type Stat = (path: string) => Found | null;
-
-export function subfolders(folder: string): string[] | null {
-  let entries;
-  try {
-    entries = readdirSync(folder, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-  const names: string[] = [];
-  for (const e of entries) {
-    if (e.isDirectory()) names.push(e.name);
-    else if (e.isSymbolicLink())
-      try {
-        if (statSync(join(folder, e.name)).isDirectory()) names.push(e.name);
-      } catch {}
-  }
-  return names.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+/** The folders the browser shows: the viewer's own, or a remote machine's. */
+export interface Files {
+  /** The home folder, "" until known. */
+  readonly home: string;
+  /** The folders in `folder`, null when it can't be read; undefined until the machine answers. */
+  list(folder: string): string[] | null | undefined;
+  /** The deepest part of `path` that is there; undefined until the machine answers. */
+  deepest(path: string): folders.Deepest | null | undefined;
+  /** See `folders.open`. */
+  open(path: string): Promise<folders.Opened>;
+  /** Told when an answer comes after it was asked for. */
+  answered?: () => void;
 }
 
-export function stat(path: string): Found | null {
-  let s: Stats;
-  try {
-    s = statSync(path);
-  } catch {
+/** The viewer's own folders, read as they're asked for. */
+export class Disk implements Files {
+  constructor(
+    readonly home = homedir(),
+    private readonly lister: (folder: string) => string[] | null = folders.subfolders,
+    private readonly at: (path: string) => folders.Found | null = folders.stat,
+  ) {}
+  list(folder: string): string[] | null {
+    return this.lister(folder);
+  }
+  deepest(path: string): folders.Deepest | null {
+    return folders.deepest(path, this.at);
+  }
+  async open(path: string): Promise<folders.Opened> {
+    return folders.open(path);
+  }
+}
+
+/** A remote machine's folders, read through its daemon. Answers are kept for
+ * the dialog's life; its home is kept on the machine for the next dialog. */
+export class Remote implements Files {
+  answered: () => void = () => {};
+  private lists = new Map<string, string[] | null | undefined>();
+  private found = new Map<string, folders.Deepest | null | undefined>();
+  constructor(private readonly machine: Machine) {}
+  get home(): string {
+    return this.machine.home;
+  }
+  list(folder: string): string[] | null | undefined {
+    if (!this.lists.has(folder))
+      this.ask(this.lists, folder, async () => {
+        const reply = await call(this.machine.connection, "folder.list", { path: folder });
+        if (typeof reply.home === "string") this.machine.home = reply.home;
+        return names(reply.folders);
+      });
+    return this.lists.get(folder);
+  }
+  deepest(path: string): folders.Deepest | null | undefined {
+    if (!this.found.has(path))
+      this.ask(this.found, path, async () =>
+        deepestPart((await call(this.machine.connection, "folder.find", { path })).deepest),
+      );
+    return this.found.get(path);
+  }
+  async open(path: string): Promise<folders.Opened> {
     try {
-      s = lstatSync(path);
-    } catch {
-      return null;
+      return opened((await call(this.machine.connection, "folder.open", { path })).opened);
+    } catch (error) {
+      // XXX: Remove for next protocol bump. An older daemon makes the workspace's folder itself.
+      if (errors.is(error, "UnknownOperation")) return { path };
+      return { problem: "not_created" };
     }
   }
-  return { kind: kind(s), size: s.size, modified: s.mtimeMs };
-}
-function kind(s: Stats): Kind {
-  if (s.isDirectory()) return "folder";
-  if (s.isFile()) return "file";
-  if (s.isSymbolicLink()) return "link";
-  if (s.isSocket()) return "socket";
-  if (s.isFIFO()) return "pipe";
-  return "device";
-}
-
-export function isFolder(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
+  /** Asks once for `key`, keeping null when the machine can't answer. */
+  private ask<T>(answers: Map<string, T | null | undefined>, key: string, read: () => Promise<T | null>): void {
+    answers.set(key, undefined);
+    void read()
+      .catch(() => null)
+      .then(answer => {
+        answers.set(key, answer);
+        this.answered();
+      });
   }
 }
-
-/** Why the workspace wasn't created: a file has the folder's name, or
- * making the folder failed. */
-export type Problem = "not_folder" | "not_created";
-
-/** Makes `path` and the folders above it; false when it can't. */
-export function make(path: string): boolean {
-  try {
-    mkdirSync(path, { recursive: true });
-    return isFolder(path);
-  } catch {
-    return false;
-  }
+/** A daemon's folder names, or null. */
+function names(value: unknown): string[] | null {
+  return Array.isArray(value) ? value.filter(n => typeof n === "string") : null;
+}
+/** A daemon's deepest part of a path, or null. */
+function deepestPart(value: unknown): folders.Deepest | null {
+  if (!value || typeof value !== "object") return null;
+  const { path, found } = value as Record<string, unknown>;
+  if (typeof path !== "string" || !found || typeof found !== "object") return null;
+  const { kind, size, modified } = found as Record<string, unknown>;
+  const k = folders.kinds.find(k => k === kind);
+  if (!k) return null;
+  return { path, found: { kind: k, size: Number(size) || 0, modified: Number(modified) || 0 } };
+}
+/** A daemon's opened folder, or why there is none. */
+function opened(value: unknown): folders.Opened {
+  const v = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  if (typeof v.path === "string") return { path: v.path };
+  return { problem: folders.problems.find(p => p === v.problem) ?? "not_created" };
 }
 
 /** `path` with the home folder as `~`. */
@@ -106,50 +133,60 @@ export function label(path: string, home: string): string {
 export class Browser {
   field: nameDialog.Dialog;
   focused = false;
-  problem: Problem | null = null;
+  problem: folders.Problem | null = null;
   /** The folder the list shows, and the field's text up to it. */
   parent = "";
   typed_parent = "";
-  /** The field's text before moving into the list. */
+  /** The field's text before moving into the list, and the folder it names. */
   typed = "";
+  private typed_folder = "";
   /** What follows the last slash, which the listed names start with. */
   prefix = "";
   entries: string[] = [];
   readable = true;
+  /** The folder the list shows hasn't been read yet. */
+  reading = false;
   /** The folders the field names that aren't there yet, from the deepest
    * that is, offered after the entries. */
   create: string | null = null;
   /** Something other than a folder where the field names one, or a folder above it. */
-  blocked: { name: string; found: Found } | null = null;
+  blocked: { name: string; found: folders.Found } | null = null;
   /** The highlighted entry, or the offer to create after them; null while
    * the field holds what was typed. */
   highlight: number | null = null;
   /** The first entry that shows. */
   first = 0;
   private listed: { folder: string; names: string[] | null } | null = null;
+  /** A folder was entered before it was read: its first folder is picked once it is. */
+  private picks_first = false;
+  /** Told when the machine's answers or a folder it made change what shows. */
+  changed: () => void = () => {};
 
   constructor(
     readonly base: string,
-    readonly home: string,
-    readonly list: Lister,
-    readonly stat: Stat,
+    readonly files: Files,
   ) {
     this.field = nameDialog.Dialog.init({ folder: null }, "");
+    files.answered = () => {
+      this.reread();
+      this.changed();
+    };
   }
   /** Starts at `cwd`, listing the folders in it. */
-  static init(cwd: string, home = homedir(), list: Lister = subfolders, at: Stat = stat): Browser {
-    const b = new Browser(cwd, home, list, at);
+  static init(cwd: string, files: Files = new Disk()): Browser {
+    const b = new Browser(cwd, files);
     b.show(cwd);
     return b;
   }
+  get home(): string {
+    return this.files.home;
+  }
   /** The real path of the folder to create the workspace in, made with the
    * folders above it when it isn't there yet; null after noting why not. */
-  confirm(): string | null {
-    const folder = this.folder();
-    if (isFolder(folder)) return realpathSync(folder);
-    if (existsSync(folder)) this.problem = "not_folder";
-    else if (make(folder)) return realpathSync(folder);
-    else this.problem = "not_created";
+  async confirm(): Promise<string | null> {
+    const opened = await this.files.open(this.folder());
+    if ("path" in opened) return opened.path;
+    this.problem = opened.problem;
     return null;
   }
   /** The rows the list has: the entries, and the offer to create. */
@@ -173,6 +210,7 @@ export class Browser {
   private enter(folder: string): void {
     this.show(folder);
     if (this.entries.length > 0) this.pick(0);
+    this.picks_first = this.reading;
   }
   private write(text: string): void {
     this.field = nameDialog.Dialog.init({ folder: null }, text);
@@ -185,35 +223,50 @@ export class Browser {
     const text = this.field.raw();
     const cut = text.lastIndexOf("/");
     this.typed = text;
+    this.typed_folder = this.folder();
     this.typed_parent = text.slice(0, cut + 1);
     this.parent = this.resolve(cut < 0 ? "." : this.typed_parent);
-    const prefix = (this.prefix = text.slice(cut + 1));
-    if (this.listed === null || this.listed.folder !== this.parent)
-      this.listed = { folder: this.parent, names: this.list(this.parent) };
-    const names = this.listed.names;
-    this.readable = names !== null;
-    const lower = prefix.toLowerCase();
-    const matched = (names ?? []).filter(
-      n => (prefix.startsWith(".") || !n.startsWith(".")) && n.toLowerCase().startsWith(lower),
-    );
-    this.entries = matched;
-    this.look();
+    this.prefix = text.slice(cut + 1);
+    this.picks_first = false;
+    this.fill();
     this.highlight = null;
     this.first = 0;
   }
-  /** Finds the deepest part of what the field names that is there: past it,
+  /** Takes in answers that came since the field last changed. A highlighted
+   * offer to create stays highlighted, after the folders read since. */
+  private reread(): void {
+    const offer = this.highlight !== null && this.highlight >= this.entries.length;
+    this.fill();
+    if (offer) this.highlight = this.create === null ? null : this.entries.length;
+    if (this.picks_first && !this.reading) {
+      this.picks_first = false;
+      if (this.highlight === null && this.entries.length > 0) this.pick(0);
+    }
+  }
+  /** The folders listed and the offer to create, from what the machine has answered. */
+  private fill(): void {
+    const prefix = this.prefix;
+    const names = this.listed?.folder === this.parent ? this.listed.names : this.files.list(this.parent);
+    if (names !== undefined) this.listed = { folder: this.parent, names };
+    this.reading = names === undefined;
+    this.readable = names !== null;
+    const lower = prefix.toLowerCase();
+    this.entries = (names ?? []).filter(
+      n => (prefix.startsWith(".") || !n.startsWith(".")) && n.toLowerCase().startsWith(lower),
+    );
+    this.look();
+  }
+  /** Finds the deepest part of what was typed that is there: past it,
    * folders to offer to create; something else is in the way. */
   private look(): void {
     this.create = null;
     this.blocked = null;
     if (this.typed.length === 0) return;
-    const folder = this.folder();
-    let path = folder;
-    let found = this.stat(path);
-    while (found === null && path !== dirname(path)) found = this.stat((path = dirname(path)));
-    if (found === null) return;
-    if (found.kind !== "folder") this.blocked = { name: basename(path), found };
-    else if (path !== folder) this.create = relative(path, folder);
+    const folder = this.typed_folder,
+      there = this.files.deepest(folder);
+    if (!there) return;
+    if (there.found.kind !== "folder") this.blocked = { name: basename(there.path), found: there.found };
+    else if (there.path !== folder) this.create = relative(there.path, folder);
   }
   /** Highlights an entry and writes its folder into the field; past the
    * first entry, back to what was typed. */
@@ -239,8 +292,12 @@ export class Browser {
     if (index === null) return;
     if (index < this.entries.length) return this.enter(join(this.parent, this.entries[index]));
     const folder = this.folder();
-    if (make(folder)) this.enter(folder);
-    else this.problem = "not_created";
+    void this.files.open(folder).then(opened => {
+      if (this.folder() !== folder) return;
+      if ("path" in opened) this.enter(folder);
+      else this.problem = opened.problem;
+      this.changed();
+    });
   }
   /** Lists the folder above the one listed. */
   up(): void {
@@ -337,6 +394,8 @@ export class Dialog extends nameDialog.Dialog {
   readonly moving: number | null;
   /** Moving, with no room for the list: only the folder field shows, and it keeps the keys. */
   compact = false;
+  /** Told when the browser changes without a key: the machine answered, or made a folder. */
+  changed: () => void = () => {};
 
   /** Opens on the name, which follows the browser's folder. Moving a
    * workspace opens on the folder, and its name follows only while it is
@@ -344,6 +403,10 @@ export class Dialog extends nameDialog.Dialog {
   constructor(browser: Browser, moving: Moving | null = null) {
     super({ workspace_name: moving?.workspace ?? null });
     this.browser = browser;
+    browser.changed = () => {
+      this.follow();
+      this.changed();
+    };
     this.moving = moving?.workspace ?? null;
     browser.focused = moving !== null;
     if (moving && moving.name !== workspace.folderName(browser.folder())) {
@@ -353,7 +416,7 @@ export class Dialog extends nameDialog.Dialog {
     this.follow();
   }
   /** The real path of the folder to create the workspace in; see `Browser.confirm`. */
-  confirm(): string | null {
+  confirm(): Promise<string | null> {
     return this.browser.confirm();
   }
   /** Keys stay on the name while the screen is too small to draw the folder
@@ -485,7 +548,7 @@ palette.derived(() => {
   quiet_label = "\x1b[0m" + fgRgb(colors.line) + bgRgb(colors.surface);
 });
 /** Why the workspace wasn't created, over the name. */
-function problemMessage(p: Problem): string {
+function problemMessage(p: folders.Problem): string {
   switch (p) {
     case "not_folder":
       return i18n.t`That's a file, not a folder.`;
@@ -494,7 +557,7 @@ function problemMessage(p: Problem): string {
   }
 }
 /** What stands where a folder was named, as "a socket". */
-function kindLabel(k: Kind): string {
+function kindLabel(k: folders.Kind): string {
   switch (k) {
     case "folder":
       return i18n.t`a folder`;
@@ -709,7 +772,7 @@ export class View extends nameDialog.View {
       w.write(`\x1b[${below + 1};${text_x}H` + new Style({ fg: "faint", bg: "surface" }).sgr());
       const bytesLabel = size(bytes);
       writeEllipsis(w, i18n.t`${bytesLabel} · modified ${age}`, text_width);
-    } else if (b.count() === 0) {
+    } else if (b.count() === 0 && !b.reading) {
       w.write(`\x1b[${f.list_y + 1};${text_x}H` + new Style({ fg: "faint", bg: "surface" }).sgr());
       writeEllipsis(
         w,

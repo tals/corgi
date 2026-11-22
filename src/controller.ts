@@ -2979,9 +2979,7 @@ export class Controller {
       initial = this.runtime.workspaces.items[index].name;
     }
     this.name_dialog =
-      id === null
-        ? new newWorkspace.Dialog(newWorkspace.Browser.init(this.currentCwd()))
-        : Dialog.init({ workspace_name: id }, initial);
+      id === null ? this.folderDialog(this.currentCwd(), null) : Dialog.init({ workspace_name: id }, initial);
     this.prepareName();
   }
   /** Opens the folder browser on workspace `id`'s folder, to move it. */
@@ -2989,9 +2987,19 @@ export class Controller {
     const ws = this.runtime.workspaces.items.find(w => w.id === id);
     if (!ws) return;
     this.dismissName();
-    this.name_dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(ws.cwd), { workspace: id, name: ws.name });
+    this.name_dialog = this.folderDialog(ws.cwd, { workspace: id, name: ws.name });
     this.prepareName();
     this.fitNameDialog();
+  }
+  /** The folder browser at `cwd`, on the shown machine's folders. */
+  private folderDialog(cwd: string, moving: newWorkspace.Moving | null): newWorkspace.Dialog {
+    const files = this.machine.remote ? new newWorkspace.Remote(this.machine) : new newWorkspace.Disk(),
+      dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(cwd, files), moving);
+    dialog.changed = () => {
+      this.dirty = true;
+      this.wake();
+    };
+    return dialog;
   }
   /** Adds a workspace, and shows it unless the user has gone elsewhere. */
   private newWorkspace(name: string, cwd: string): void {
@@ -3069,9 +3077,7 @@ export class Controller {
     const target = dialog.target,
       fresh = dialog instanceof newWorkspace.Dialog ? dialog : null,
       name = dialog.name(),
-      cwd = fresh ? fresh.confirm() : this.currentCwd(),
       here = this.here();
-    if (cwd === null) return;
     if ("workspace_name" in target && !name) {
       dialog.failed = true;
       return;
@@ -3092,6 +3098,13 @@ export class Controller {
     this.later(async lane => {
       let pane: number | null = null;
       try {
+        // The folder is checked, and made, on the machine the workspace is on.
+        const cwd = fresh ? await fresh.confirm() : this.currentCwd();
+        if (cwd === null) {
+          dialog.saving = false;
+          this.dirty = true;
+          return;
+        }
         if ("pane" in target) await this.edit({ "pane.rename": { target: target.pane, name } }, lane);
         else if ("workspace_name" in target) {
           if (target.workspace_name === null) {

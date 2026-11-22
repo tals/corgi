@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Browser, Dialog, isFolder, label, make, size, stat, subfolders, type Found } from "./new_workspace";
+import { Browser, Dialog, Disk, Remote, label, size } from "./new_workspace";
+import { deepest, isFolder, make, stat, subfolders, type Found } from "./folders";
+import { Machine } from "./machine";
+import type { Transport } from "./mirror";
 import { printable } from "./name_dialog";
 import { Writer, displayWidth } from "./text";
 import * as i18n from "./i18n";
@@ -25,7 +28,7 @@ const others: Record<string, Found> = {
 };
 /** The tree's folders and others; one called "locked" is there but can't be read. */
 const at = (path: string) => (path in tree || path.endsWith("/locked") ? folder : (others[path] ?? null));
-const browse = (cwd = "/home/me") => Browser.init(cwd, "/home/me", fake, at);
+const browse = (cwd = "/home/me") => Browser.init(cwd, new Disk("/home/me", fake, at));
 /** Pastes `text` into the browser's field a byte at a time. */
 const paste = (b: Browser, text: string) => {
   for (const byte of Buffer.from(text)) b.paste(byte);
@@ -268,22 +271,22 @@ test("folder names never reach the terminal as controls", () => {
   expect(drawn).toContain("/evil/?]0;x??2J");
 });
 
-test("a missing folder is made, with the folders above it, when the workspace is created", () => {
+test("a missing folder is made, with the folders above it, when the workspace is created", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-folders-")));
   writeFileSync(join(root, "file"), "");
-  const b = Browser.init(root, "/nowhere", subfolders);
-  expect(b.confirm()).toBe(root);
+  const b = Browser.init(root, new Disk("/nowhere", subfolders));
+  expect(await b.confirm()).toBe(root);
   paste(b, "new/deeper");
   expect(b.create).toBe("new/deeper");
-  expect(b.confirm()).toBe(join(root, "new/deeper"));
+  expect(await b.confirm()).toBe(join(root, "new/deeper"));
   expect(isFolder(join(root, "new/deeper"))).toBe(true);
   // A link to a folder gives the folder's own path, as `corgi action open` does.
   symlinkSync(join(root, "new"), join(root, "link"));
-  expect(Browser.init(join(root, "link"), "/nowhere", subfolders).confirm()).toBe(join(root, "new"));
+  expect(await Browser.init(join(root, "link"), new Disk("/nowhere", subfolders)).confirm()).toBe(join(root, "new"));
   b.field.clear();
   paste(b, "file");
   expect(b.create).toBeNull();
-  expect(b.confirm()).toBeNull();
+  expect(await b.confirm()).toBeNull();
   expect(b.problem).toBe("not_folder");
   expect(make(join(root, "file", "under"))).toBe(false);
   rmSync(root, { recursive: true });
@@ -340,18 +343,64 @@ test("translated Create rows preserve the folder list border when the path fills
   }
 });
 
-test("opening the offer makes the folders and lists the last", () => {
+test("opening the offer makes the folders and lists the last", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-folders-")));
-  const b = Browser.init(root, "/nowhere", subfolders);
+  const b = Browser.init(root, new Disk("/nowhere", subfolders));
   paste(b, "a/b");
   b.move(1);
   expect(b.highlight).toBe(0);
   expect(b.field.raw()).toBe(root + "/a/b");
   b.sequence("\x1b[C");
+  await Bun.sleep(0);
   expect(isFolder(join(root, "a/b"))).toBe(true);
   expect(b.field.raw()).toBe(root + "/a/b/");
   expect(b.create).toBeNull();
   rmSync(root, { recursive: true });
+});
+
+test("a remote machine's folders are listed, and made, by its daemon", async () => {
+  const asked: string[] = [];
+  const request = async (op: string, payload: { path: string }) => {
+    asked.push(`${op} ${payload.path}`);
+    switch (op) {
+      case "folder.list":
+        return { ok: true, folders: fake(payload.path), home: "/home/me" };
+      case "folder.find":
+        return { ok: true, deepest: deepest(payload.path, at) };
+      case "folder.open":
+        return { ok: true, opened: { path: payload.path } };
+    }
+    return { err: "UnknownOperation" };
+  };
+  const machine = new Machine({ request } as unknown as Transport, "nocap", true);
+  const d = new Dialog(Browser.init("/home/me", new Remote(machine)));
+  let changes = 0;
+  d.changed = () => changes++;
+  const b = d.browser;
+  // Until the daemon answers, the list is blank rather than empty.
+  expect(b.field.raw()).toBe("/home/me/");
+  expect(b.reading).toBe(true);
+  expect(draw(d)).not.toContain("No folders");
+  await Bun.sleep(0);
+  expect(b.entries).toEqual(["code", "Documents", "docs"]);
+  expect(machine.home).toBe("/home/me");
+  expect(changes).toBeGreaterThan(0);
+  // A folder entered before it's read picks its first folder once it is.
+  b.move(1);
+  b.sequence("\x1b[C");
+  expect(b.field.raw()).toBe("~/code/");
+  expect(b.highlight).toBeNull();
+  await Bun.sleep(0);
+  expect(b.field.raw()).toBe("~/code/corgi");
+  expect(b.highlight).toBe(0);
+  // What isn't there is offered from the daemon's answer, and made there.
+  b.move(-1);
+  paste(b, "ctf");
+  await Bun.sleep(0);
+  expect(b.create).toBe("ctf");
+  expect(await d.confirm()).toBe("/home/me/code/ctf");
+  expect(asked).toContain("folder.open /home/me/code/ctf");
+  expect(isFolder("/home/me/code/ctf")).toBe(false);
 });
 
 test("the name follows the folder until it is edited", () => {
