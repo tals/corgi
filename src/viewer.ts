@@ -344,13 +344,15 @@ export async function presented(view: Controller): Promise<void> {
 }
 
 /** Writes what the host needs to show `frame`, diffed against what it shows,
- * and asks the host to answer once it has drawn it. */
+ * and asks the host to answer once it has drawn it. `pictures` change with
+ * it, in the same update. */
 export function present(
   host: Differ | null,
   frame: composition.Output,
   cols: number,
   rows: number,
   pacer: framePacing.Pacer,
+  pictures?: { draw: string; redraw: string },
 ): Differ {
   if (host && (host.cols !== cols || host.rows !== rows)) {
     host.destroy();
@@ -358,7 +360,7 @@ export function present(
   }
   const differ = host ?? Differ.create(cols, rows);
   const started = telemetry.begin();
-  const out = differ.diff(frame);
+  const out = differ.diff(frame, pictures);
   telemetry.end("viewer.present", started);
   if (out.length > 0) writeAll(Buffer.concat([out, Buffer.from(pacer.stamp(Date.now()))]));
   return differ;

@@ -7,6 +7,12 @@ const os = @import("os.zig");
 const cursor_style = @import("cursor_style.zig");
 const a = os.allocator;
 
+/// `draw` changes the pictures the host shows; `redraw` shows them all again.
+pub const Pictures = struct {
+    draw: []const u8 = "",
+    redraw: []const u8 = "",
+};
+
 pub const Differ = struct {
     vt: vt.Terminal,
     stream: vt.TerminalStream,
@@ -21,6 +27,8 @@ pub const Differ = struct {
     controls: u64 = 0,
     images: u64 = 0,
     images_stale: bool = false,
+    /// Picture commands the caller owns, written with the next frame.
+    pictures: Pictures = .{},
     has_images: bool = false,
     image_fallback: bool = false,
     cursor: Cursor = .{},
@@ -292,15 +300,23 @@ pub const Differ = struct {
         }
         const emitting = d.stamp();
         defer d.record(.emit_ns, emitting);
+        const pictures = d.pictures;
+        d.pictures = .{};
         if (whole) |frame| {
-            try out.writeAll(frame);
+            // The pictures go inside the frame's own update, and leave the
+            // cursor where the frame put it.
+            const end = if (pictures.redraw.len > 0) std.mem.lastIndexOf(u8, frame, "\x1b[?2026l") orelse frame.len else frame.len;
+            try out.writeAll(frame[0..end]);
+            if (pictures.redraw.len > 0) try out.print("\x1b7{s}\x1b8", .{pictures.redraw});
+            try out.writeAll(frame[end..]);
             return d.writeShape(out, cursor);
         }
-        if (!started and !images_changed and d.shape_sent and std.meta.eql(cursor, d.cursor)) return;
+        if (!started and !images_changed and pictures.draw.len == 0 and d.shape_sent and std.meta.eql(cursor, d.cursor)) return;
         try begin(out, &started);
         if (paint.open != null) try out.writeAll("\x1b]8;;\x1b\\");
         if (paint.style != null) try out.writeAll("\x1b[0m");
         if (images_changed) try out.writeAll(image_bytes);
+        try out.writeAll(pictures.draw);
         try out.print("\x1b[{d};{d}H", .{ cursor.y + 1, cursor.x + 1 });
         try d.writeShape(out, cursor);
         if (cursor.visible) try out.writeAll("\x1b[?25h");

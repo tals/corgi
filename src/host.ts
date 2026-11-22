@@ -4,6 +4,7 @@ import type * as corgiBadge from "./corgi_badge";
 import type * as forkMotion from "./fork_hero";
 import type { Pacer } from "./frame_pacing";
 import type { State as ClipboardState } from "./host_clipboard";
+import * as hostImages from "./host_images";
 import type { Probe } from "./terminal_info";
 import type { Rgb } from "./palette";
 import { Preferences } from "./preferences";
@@ -28,6 +29,8 @@ export class Host {
   clipboard: ClipboardState | null = null;
   /** The host terminal's frame pacing, for Terminal capabilities. */
   pacer: Pacer | null = null;
+  /** The pictures the host holds as Kitty images. */
+  readonly images = new hostImages.Store();
   constructor(prefs = new Preferences()) {
     this.prefs = prefs;
   }

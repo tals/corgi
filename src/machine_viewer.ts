@@ -13,14 +13,11 @@ import * as sidebar from "./sidebar";
 import { Workspaces } from "./machine_sidebar";
 import * as viewer from "./viewer";
 import * as corgiBadge from "./corgi_badge";
-import * as rowGlide from "./row_glide";
-import * as linkThumbnail from "./link_thumbnail";
 import * as hostBackground from "./host_background";
 import * as palette from "./palette";
 import * as framePacing from "./frame_pacing";
 import * as preferences from "./preferences";
 import * as discovery from "./discovery";
-import * as dockingGrip from "./docking_grip";
 import * as corgiAnimation from "./corgi_animation";
 import { attach } from "./host";
 import { Openers } from "./url_opener";
@@ -466,7 +463,12 @@ export async function run(
         probe.scheme_changed = false;
         viewer.writeAll(hostBackground.release() + probe.query());
       }
-      for (const reply of probe.graphics.splice(0)) view.graphicsReply(reply);
+      for (const reply of probe.graphics.splice(0)) {
+        // An error about one of the host's pictures has it sent again.
+        const refused = /^\x1b_G(?:[^;]*,)?i=(\d+)[^;]*;(?!OK)/.exec(reply);
+        if (refused && host.images.refused(Number(refused[1]))) view.dirty = true;
+        else view.graphicsReply(reply);
+      }
       const { cols, rows: height, pty } = viewer.dimensions();
       const query = probe.size.update(pty, resized);
       resized = false;
@@ -475,7 +477,6 @@ export async function run(
       const graphics = probe.badge.supports_kitty_graphics && cell !== null;
       const images = probe.badge.upload(now, graphics ? cell : null);
       if (images) viewer.writeAll(images);
-      if (host.supports_kitty_graphics && !graphics) viewer.writeAll(rowGlide.hide + linkThumbnail.hide);
       if (host.cell_pixels?.width !== cell?.width || host.cell_pixels?.height !== cell?.height) view.dirty = true;
       if (
         active.ready &&
@@ -551,12 +552,17 @@ export async function run(
           const backdrop = hostBackground.follow(palette.painted());
           if (backdrop) viewer.writeAll(backdrop);
         }
-        if (!composition.same(frame, previous) && viewer.ready(probe)) {
-          differ = viewer.present(differ, frame, cols, height, probe.pacer);
+        if ((!composition.same(frame, previous) || host.images.changed) && viewer.ready(probe)) {
+          // Images the frame shows go ahead of it, and those it dropped are
+          // freed after; where they sit changes with the frame's text.
+          const pictures = host.images.present();
+          if (pictures.send) viewer.writeAll(pictures.send);
+          differ = viewer.present(differ, frame, cols, height, probe.pacer, pictures);
+          if (pictures.free) viewer.writeAll(pictures.free);
           previous = frame;
         }
         if (!workspaces.open && !connectivity.open && composition.same(frame, previous)) active.presented();
-        held = !composition.same(frame, previous);
+        held = !composition.same(frame, previous) || host.images.changed;
       }
       // Idle, it sleeps until a machine is due; input and replies wake it.
       const due = Math.min(parser.due(), ...endpoints.map(endpoint => endpoint.due())) - performance.now();
@@ -568,7 +574,7 @@ export async function run(
     }
     if (endpoints[0].uninstalled) {
       if (probe.badge.uploaded) viewer.writeAll(corgiBadge.remove);
-      viewer.writeAll(view.images.clear() + view.tab_icons.clear());
+      viewer.writeAll(host.images.close());
       const { cols, rows } = viewer.dimensions();
       await farewell(cols, rows);
       throw Error("Uninstalled");
@@ -582,12 +588,10 @@ export async function run(
     while (probe.pacer.unanswered() && !stdin.ended && Date.now() < until) await wake.wait(until - Date.now());
     stdin.close();
     await Promise.all(endpoints.map(endpoint => endpoint.close()));
-    viewer.writeAll(view.images.clear() + view.tab_icons.clear() + view.signal_bars.clear());
+    viewer.writeAll(host.images.close());
     viewer.close(view);
     differ?.destroy();
     if (probe.badge.uploaded) viewer.writeAll(corgiBadge.remove);
-    if (view.thumbnails.sent !== null) viewer.writeAll(linkThumbnail.remove);
-    if (host.supports_kitty_graphics) viewer.writeAll(dockingGrip.clear);
   }
 }
 /** Whether `endpoint`'s daemon can't be reached at all, as opposed to being

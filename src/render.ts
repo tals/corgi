@@ -7,6 +7,7 @@ import * as i18n from "./i18n";
 import * as palette from "./palette";
 import * as docking from "./docking";
 import * as dockingGrip from "./docking_grip";
+import * as hostImages from "./host_images";
 import type { DockDrop } from "./protocol";
 import * as composition from "./composition";
 import type { CursorStyle } from "./pane/surface";
@@ -31,7 +32,6 @@ import type { Menu as LauncherMenu } from "./agent_launcher";
 import { Menu as SetupMenu, status as setupStatus, type Status as SetupStatus } from "./corgi_setup";
 import * as corgiBadge from "./corgi_badge";
 import * as noWorkspace from "./no_workspace";
-import * as rowGlide from "./row_glide";
 import type { Cell } from "./fork_hero";
 import * as pasteCard from "./paste_card";
 import * as startupCard from "./startup_card";
@@ -227,7 +227,6 @@ export interface Ui {
   sync_notice: syncNotice.State | null;
   /** A pane an action is opening has the keyboard: no pane shows focus. */
   pane_opening: boolean;
-  signal_bars: signalBars.Images | null;
   /** The bars keep their room but aren't placed, under menus drawn over the frame. */
   signal_bars_hidden: boolean;
   git_hover: viewerRef.Workspace | null;
@@ -277,8 +276,8 @@ export interface Ui {
   corgi_badge: corgiBadge.Mode;
   supports_kitty_graphics: boolean;
   images: Images | null;
-  /** The brand marks the host holds for untitled tabs, where it shows Kitty images. */
-  tab_icons: tabIcons.Icons | null;
+  /** The frame's pictures, where the host shows Kitty images. */
+  pictures: hostImages.FrameImages | null;
   /** The host's cell in pixels, when it reports it. */
   cell_pixels: Cell | null;
   dragged_workspace: Preview | null;
@@ -337,7 +336,6 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     connection_card: null,
     sync_notice: null,
     pane_opening: false,
-    signal_bars: null,
     signal_bars_hidden: false,
     git_hover: null,
     grip_hover: [],
@@ -374,7 +372,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     corgi_badge: "none",
     supports_kitty_graphics: false,
     images: null,
-    tab_icons: null,
+    pictures: null,
     cell_pixels: null,
     dragged_workspace: null,
     dragged_agent: null,
@@ -804,6 +802,7 @@ export function sidebarView(u: Ui, width: number, height: number): SidebarView {
   side.corgi_badge = u.corgi_badge;
   side.supports_kitty_graphics = u.supports_kitty_graphics;
   side.cell = u.cell_pixels;
+  side.pictures = u.pictures;
   side.scope_label = u.scope_label;
   const new_binding = u.prefs
     .bindings()
@@ -839,11 +838,8 @@ export function frame(
   const dragging = u.dragged_agent !== null || u.dragged_workspace !== null || u.docking?.dragging === true;
   const side = sidebarView(u, width, height);
   const signals: { quality: Quality; x: number; y: number }[] = [];
-  if (u.signal_bars && u.cell_pixels && signalBars.fits(u.cell_pixels))
-    side.signal_marks = (quality, x, y) => {
-      signals.push({ quality, x, y });
-      u.signal_bars!.ready(quality, u.cell_pixels!);
-    };
+  if (u.pictures && u.cell_pixels && signalBars.fits(u.cell_pixels))
+    side.signal_marks = (quality, x, y) => void signals.push({ quality, x, y });
   // Mouse tracking modes replace one another. Disabling first makes the host
   // briefly switch to a text pointer on every redraw.
   w.write("\x1b[?1003h");
@@ -856,7 +852,7 @@ export function frame(
   const over_tabs = u.pointer !== null && u.pointer.y === 0 && u.pointer.x >= side.tabX() && noOverlay(u);
   const thumb = over_tabs ? tabThumb(view, tab_end - side.tabX()) : null;
   // Marks take room in their tabs only where the host can show them.
-  const marks: TabMark[] | null = u.tab_icons && u.cell_pixels ? [] : null;
+  const marks: TabMark[] | null = u.pictures && u.cell_pixels ? [] : null;
   // With every workspace closed, all but the way to create one steps back.
   const none = layout && !u.workspace_loading ? u.no_workspace : null;
   const on_none =
@@ -1117,7 +1113,6 @@ export function frame(
       ? docking.hovered(docking.grips(view, side.area()), u.pointer.x, u.pointer.y, u.grip_hover)
       : [];
   const grip_images = u.supports_kitty_graphics && u.cell_pixels !== null;
-  if (u.supports_kitty_graphics) w.write(dockingGrip.hide);
   for (const grip of grips) {
     if (grip_images && grip.rect.w === 4) {
       w.write(w.cup(grip.rect.y + 1, grip.rect.x + 1) + new Style({ fg: "faint", bg: "bg" }).sgr());
@@ -1138,12 +1133,9 @@ export function frame(
       side.machine_hover = sidebar.machineHeaderAt(side, u.pointer.x, u.pointer.y)?.rect.y ?? null;
   }
   side.spotlight = u.worktree_spotlight;
-  // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.
-  if (u.supports_kitty_graphics)
-    w.write(rowGlide.hide + rowGlide.hideImage(rowGlide.manager_image_id) + linkThumbnail.hide);
   const archive_marks: { brand: Brand; x: number; y: number }[] = [];
   const dim_sidebar = none !== null && u.archived_workspaces.length === 0;
-  if (!dim_sidebar && u.tab_icons && u.cell_pixels)
+  if (!dim_sidebar && u.pictures && u.cell_pixels)
     side.archive_marks = (brand, x, y) => {
       archive_marks.push({ brand, x, y });
     };
@@ -1324,19 +1316,19 @@ export function frame(
     if (ws) menu.draw(w, ws, width, height);
   }
   if (u.archive_dialog) {
-    const icons = u.tab_icons,
+    const pictures = u.pictures,
       cell = u.cell_pixels;
     u.archive_dialog.view(width, height, area).draw(
       w,
-      icons && cell && !u.signin_draw && !u.signin_exit
+      pictures && cell && !u.signin_draw && !u.signin_exit
         ? (brand, col, row) => {
             if (
               u.link_card &&
               link_rect &&
               (link_rect.contains(col, row) || link_rect.contains(col + tabIcons.cols - 1, row))
             )
-              return "";
-            return icons.place(brand, col, row, cell);
+              return false;
+            return tabIcons.place(pictures, brand, col, row, cell, true);
           }
         : null,
       u.pointer,
@@ -1369,15 +1361,15 @@ export function frame(
   }
   // Marks sit above text: none under a sign-in drawn over them, none under
   // a link card, and none under the prompt but its own.
-  const icons = u.tab_icons,
+  const pictures = u.pictures,
     cell = u.cell_pixels,
     card = u.link_card && u.pointer ? link_rect : null,
     brand_marks: Marks | null =
-      icons && cell && !u.signin_draw && !u.signin_exit
+      pictures && cell && !u.signin_draw && !u.signin_exit
         ? (provider, col, row) => {
             const brand = brandOf(provider);
-            if (!brand || card?.contains(col, row) || card?.contains(col + tabIcons.cols - 1, row)) return "";
-            return icons.place(brand, col, row, cell);
+            if (!brand || card?.contains(col, row) || card?.contains(col + tabIcons.cols - 1, row)) return false;
+            return tabIcons.place(pictures, brand, col, row, cell, true);
           }
         : null,
     menu_marks = u.prompt_draw ? null : brand_marks;
@@ -1393,8 +1385,8 @@ export function frame(
     u.corgi_setup.marks = menu_marks;
     cover(u.corgi_setup.draw(w, u.inference, u.prefs, width, height));
   }
-  if (managed?.manager.last_box && !managed.transition.active)
-    w.write(managed.manager.glideImage(managed.manager.last_box, managed.manageModel()));
+  if (u.pictures && managed?.manager.last_box && !managed.transition.active)
+    managed.manager.glideImage(u.pictures, managed.manager.last_box, managed.manageModel());
   cover(signinExit.draw(w, u.added_feedback, width, height, u.signin_exit));
   const prompt = u.prompt_draw ? u.prompt_draw(w, brand_marks) : [];
   covered.push(...prompt);
@@ -1416,7 +1408,7 @@ export function frame(
     w.write("\x1b[?25l");
     pane_cursor = null;
     linkTooltip.draw(w, link_rect, u.link_card, linkTooltip.copyAt(link_rect, u.pointer.x, u.pointer.y));
-    if (u.link_card.thumbnail) w.write(linkThumbnail.place(link_rect, u.link_card.thumbnail));
+    if (u.pictures && u.link_card.thumbnail) linkThumbnail.place(u.pictures, link_rect, u.link_card.thumbnail);
     cover(link_rect);
   }
   if (u.connection_card && noOverlay(u)) {
@@ -1424,36 +1416,25 @@ export function frame(
     cover(u.connection_card.rect);
     pane_cursor = null;
   }
-  if (u.images && u.cell_pixels) {
-    const { images, cell_pixels } = u;
+  if (u.pictures && u.images && u.cell_pixels) {
+    const { pictures, images, cell_pixels } = u;
     for (const { pane, rect, hidden } of pictured) {
       const read = (id: string, offset: number) => pane.terminal.image(id, offset);
-      w.write(images.draw(pane.terminal.images, rect, cell_pixels, read, hidden ? [rect] : covered));
+      images.draw(pictures, pane.terminal.images, rect, cell_pixels, read, hidden);
     }
   }
-  // Like pane images, a mark goes under nothing drawn over it.
-  if (grip_images && !u.signin_draw && !u.signin_exit)
-    w.write(
-      dockingGrip.draw(
-        grips
-          .map(g => g.rect)
-          .filter(
-            r =>
-              r.w === 4 && !covered.some(b => b.x < r.x + r.w && r.x < b.x + b.w && b.y < r.y + r.h && r.y < b.y + b.h),
-          ),
-        u.cell_pixels!,
-      ),
+  if (u.pictures && grip_images && !u.signin_draw && !u.signin_exit)
+    dockingGrip.draw(
+      u.pictures,
+      grips.map(g => g.rect).filter(r => r.w === 4),
+      u.cell_pixels!,
     );
-  if (u.signal_bars && u.cell_pixels && !u.signal_bars_hidden && !u.signin_draw && !u.signin_exit)
-    for (const { quality, x, y } of signals) w.write(u.signal_bars.place(quality, x, y, u.cell_pixels, covered));
-  if (u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
-    for (const { brand, x, y } of archive_marks)
-      if (!covered.some(box => box.y <= y && box.y + box.h > y && box.x < x + tabIcons.cols && box.x + box.w > x))
-        w.write(u.tab_icons.place(brand, x, y, u.cell_pixels));
-  if (marks && u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
-    for (const { brand, x } of marks)
-      if (!covered.some(box => box.y === 0 && box.h > 0 && box.x < x + tabIcons.cols && box.x + box.w > x))
-        w.write(u.tab_icons.place(brand, x, 0, u.cell_pixels));
+  if (u.pictures && u.cell_pixels && !u.signal_bars_hidden && !u.signin_draw && !u.signin_exit)
+    for (const { quality, x, y } of signals) signalBars.place(u.pictures, quality, x, y, u.cell_pixels);
+  if (u.pictures && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
+    for (const { brand, x, y } of archive_marks) tabIcons.place(u.pictures, brand, x, y, u.cell_pixels);
+  if (marks && u.pictures && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
+    for (const { brand, x } of marks) tabIcons.place(u.pictures, brand, x, 0, u.cell_pixels);
   if (dragging) {
     w.write("\x1b[?25l");
     pane_cursor = null;
@@ -1514,6 +1495,8 @@ export function frame(
   w.write(`\x1b]22;${shape}\x1b\\`);
   w.write("\x1b[?2026l");
   if (retained) for (const rect of covered) retained.cover(rect);
+  // Pictures are cut around everything drawn over them.
+  if (u.pictures) for (const rect of covered) u.pictures.cover(rect);
   return w.buffered();
 }
 

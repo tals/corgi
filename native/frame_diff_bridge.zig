@@ -10,6 +10,8 @@ const Host = struct {
     out: std.Io.Writer.Allocating,
     panes: std.ArrayList(frame_diff.Differ.Pane) = .empty,
     timing: frame_diff.Differ.Timing = .{},
+    draw: std.Io.Writer.Allocating,
+    redraw: std.Io.Writer.Allocating,
 };
 
 pub export fn frame_diff_new(cols: u16, rows: u16) ?*Host {
@@ -18,18 +20,30 @@ pub export fn frame_diff_new(cols: u16, rows: u16) ?*Host {
         a.destroy(host);
         return null;
     };
-    host.* = .{ .differ = differ, .out = .init(a) };
+    host.* = .{ .differ = differ, .out = .init(a), .draw = .init(a), .redraw = .init(a) };
     return host;
 }
 pub export fn frame_diff_free(host: *Host) void {
     host.differ.destroy();
     host.out.deinit();
+    host.draw.deinit();
+    host.redraw.deinit();
     host.panes.deinit(a);
     a.destroy(host);
 }
 /// Image writes outside a frame require its placements to be replayed.
 pub export fn frame_diff_invalidate_images(host: *Host) void {
     host.differ.images_stale = true;
+}
+/// The viewer's own picture commands for the next frame written: `draw`
+/// changes what the host shows, `redraw` shows it all on a screen drawn anew.
+pub export fn frame_diff_pictures(host: *Host, draw: ?[*]const u8, draw_len: usize, redraw: ?[*]const u8, redraw_len: usize) void {
+    host.differ.pictures = .{};
+    host.draw.clearRetainingCapacity();
+    host.redraw.clearRetainingCapacity();
+    if (draw) |bytes| host.draw.writer.writeAll(bytes[0..draw_len]) catch return;
+    if (redraw) |bytes| host.redraw.writer.writeAll(bytes[0..redraw_len]) catch return;
+    host.differ.pictures = .{ .draw = host.draw.written(), .redraw = host.redraw.written() };
 }
 /// Discard an unwritten batch after a presentation changed its retained cells.
 pub export fn frame_diff_invalidate(host: *Host) void {

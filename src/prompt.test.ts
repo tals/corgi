@@ -1,4 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
+import * as hostImages from "./host_images";
+import type { Thumbnail } from "./link_tooltip";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1076,16 +1078,18 @@ test("a pasted image is a chip that goes as an image, even with nothing typed", 
   expect(card(draw(p))[1]).toMatch(/^│  › +\* +Fix sidebar f… +Image 1 +Image 2 +│$/);
 });
 
+const thumbnail_image = new hostImages.Image({ png: new Uint8Array() });
 /** Draws `p` with a picture for the image under the pointer, as a host that shows them would. */
 function pictured(
   p: Prompt,
   cols: number,
   rows: number,
-  thumbnail = { width: 180, height: 72, cell: { width: 9, height: 18 } },
+  thumbnail: Thumbnail = { width: 180, height: 72, cell: { width: 9, height: 18 }, image: thumbnail_image },
 ) {
-  const w = new Writer();
-  const boxes = p.draw(w, cols, rows, null, 0, { pictures: true, thumbnail });
-  return { lines: screen(w.s, cols, rows), ansi: w.s, boxes };
+  const w = new Writer(),
+    pictures = new hostImages.FrameImages(thumbnail.cell);
+  const boxes = p.draw(w, cols, rows, null, 0, { pictures, thumbnail });
+  return { lines: screen(w.s, cols, rows), pictures: pictures.commands(), boxes };
 }
 
 test("pointing at a pasted image previews it just over its chip", () => {
@@ -1102,7 +1106,7 @@ test("pointing at a pasted image previews it just over its chip", () => {
   expect(shown.lines[y - 1].slice(x - 2, x)).toBe("╰─");
   expect(shown.lines[y - 7].slice(x - 2, x)).toBe("╭─");
   expect(shown.lines[y - 2]).toContain("Image 1");
-  expect(shown.ansi).toContain("\x1b_Ga=p,i=730140");
+  expect(shown.pictures).toContain(`\x1b_Ga=p,i=${thumbnail_image.id},`);
   // It reports the card and the frame as drawn over, so the corgi badge can stay clear.
   expect(shown.boxes).toHaveLength(2);
   expect(shown.boxes[1]).toMatchObject({ x: x - 2, y: y - 7, h: 7 });
@@ -1124,10 +1128,15 @@ test("a preview with no room over its chip hangs under it, and shrinks when it f
   p.hover(x, y);
   expect(pictured(p, 112, 12).lines[y + 1].slice(x - 2, x)).toBe("╭─");
   // Eight rows of picture fit neither side: it takes five under the chip.
-  const shrunk = pictured(p, 112, 12, { width: 180, height: 144, cell: { width: 9, height: 18 } });
+  const shrunk = pictured(p, 112, 12, {
+    width: 180,
+    height: 144,
+    cell: { width: 9, height: 18 },
+    image: thumbnail_image,
+  });
   expect(shrunk.lines[y + 1].slice(x - 2, x)).toBe("╭─");
   expect(shrunk.lines[y + 8].slice(x - 2, x)).toBe("╰─");
-  expect(shrunk.ansi).toMatch(/a=p,i=730140,[^\x1b]*r=5/);
+  expect(shrunk.pictures).toMatch(new RegExp(`a=p,i=${thumbnail_image.id},[^\\x1b]*r=5`));
 });
 
 test("a message's image chip in the thread previews like the input's", async () => {
@@ -1618,7 +1627,7 @@ test("the pointer hits the menu where it hangs, and no brand mark shows under it
     34,
     (provider, col, row) => {
       placed.push([provider, col, row]);
-      return "<mark>";
+      return true;
     },
     0,
   );
@@ -2147,7 +2156,7 @@ test("a live search shows its expression, count and branded clickable matches be
     30,
     provider => {
       marks.push(provider);
-      return "";
+      return false;
     },
     0,
   );

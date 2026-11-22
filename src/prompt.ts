@@ -48,6 +48,7 @@ import {
   type State,
 } from "./prompt_session";
 import { matches } from "./search";
+import type * as hostImages from "./host_images";
 import * as linkThumbnail from "./link_thumbnail";
 import { View as MemoryView, type Result as MemoryResult } from "./memory_view";
 import { thumbnailCells, type Thumbnail } from "./link_tooltip";
@@ -210,7 +211,9 @@ type Layout = {
 };
 /** The picture of a pasted image: whether the host shows pictures, and this
  * one's, once it has loaded. */
-export type Preview = { pictures: boolean; thumbnail: Thumbnail | null };
+/** The pasted image under the pointer: the frame's pictures, where the host
+ * shows them, and its thumbnail once loaded. */
+export type Preview = { pictures: hostImages.FrameImages | null; thumbnail: Thumbnail | null };
 /** Chips laid out in a row: each with its name cut to fit, then how many
  * didn't fit, and the columns they all take with the gap after. */
 type Inline = { pieces: { mention: Mention; text: string; x: number }[]; more: number; width: number };
@@ -1801,7 +1804,7 @@ export class Prompt {
         marks && panel
           ? (provider, col, row) =>
               row >= panel.y && row < panel.y + panel.h && col + 2 > panel.x && col < panel.x + panel.w
-                ? ""
+                ? false
                 : marks(provider, col, row)
           : marks;
     if (panel) this.review.preview(null);
@@ -1823,7 +1826,7 @@ export class Prompt {
     if (panel && this.picker) this.picker.draw(w, panel, marks, now);
     else if (panel) this.drawMenu(w, panel, marks);
     else if (this.hovered) {
-      const shown = this.drawPreview(w, cols, rows, preview ?? { pictures: false, thumbnail: null });
+      const shown = this.drawPreview(w, cols, rows, preview ?? { pictures: null, thumbnail: null });
       if (shown) boxes.push(shown);
     }
     if (review_width && (this.review.open || this.review.ghosted)) {
@@ -2866,7 +2869,8 @@ export class Prompt {
       }
     }
     w.write(at(x + 2, y + bh - 2) + s.muted + ellipsis(caption, inner));
-    if (t) w.write(linkThumbnail.placeAt(x + 2, y + 1, t, Math.floor((inner * t.cell.width - t.width) / 2)));
+    if (t && preview.pictures)
+      linkThumbnail.placeAt(preview.pictures, x + 2, y + 1, t, Math.floor((inner * t.cell.width - t.width) / 2));
     return new Rect(x, y, bw, bh);
   }
   private drawInput(w: Writer, l: Layout, now: number, marks: Marks | null): void {

@@ -1,3 +1,5 @@
+import * as hostImages from "./host_images";
+import * as rowGlide from "./row_glide";
 import * as viewerRef from "./viewer_ref";
 import { expect, test } from "bun:test";
 import * as i18n from "./i18n";
@@ -1269,18 +1271,27 @@ test("a moved row rides a Kitty tint from where it was and shows as it lands; el
   kitty.supports_kitty_graphics = true;
   kitty.cell = { width: 10, height: 20 };
   const top = kitty.middle() + 2;
+  /** Draws the sidebar at `ms` into the glide; its text, and the pictures it shows. */
+  const glide = (ms: number) => {
+    const pictures = (kitty.pictures = new hostImages.FrameImages(kitty.cell!));
+    return { out: draw(kitty, moved(ms), [], 0), pictures: pictures.commands() };
+  };
   // Halfway there, the tint is between the row it left and the one it lands
   // on, and the row's text is still hidden.
-  let out = draw(kitty, moved(150), [], 0);
-  const at = (row: number) => `\x1b[${row};${lists_x + 1}H\x1b_Ga=T`;
-  expect(has(out, `${at(top + 2)},f=100,i=730120,p=1,Y=10,`)).toBe(true);
-  expect(has(out, fgRgb(colors.bg) + "moves")).toBe(true);
+  let shown = glide(150);
+  const at = (row: number) => `\x1b[${row};${lists_x + 1}H\x1b_Ga=p,i=${rowGlide.sidebar_tint.drawn!.image.id},`;
+  expect(has(shown.pictures, `${at(top + 2)}p=1,`)).toBe(true);
+  expect(has(shown.pictures, ",Y=10,")).toBe(true);
+  expect(has(shown.out, fgRgb(colors.bg) + "moves")).toBe(true);
   // Landed, the row shows and the tint fades on it.
-  out = draw(kitty, moved(400), [], 0);
-  expect(has(out, at(top + 4))).toBe(true);
-  expect(has(out, ",Y=0,")).toBe(true);
-  expect(has(out, fg("text") + "moves")).toBe(true);
-  expect(has(draw(kitty, moved(2000), [], 0), "_G")).toBe(false);
+  shown = glide(400);
+  expect(has(shown.pictures, at(top + 4))).toBe(true);
+  expect(has(shown.pictures, ",Y=")).toBe(false);
+  expect(has(shown.out, fg("text") + "moves")).toBe(true);
+  shown = glide(2000);
+  expect(shown.pictures).toBe("");
+  expect(has(shown.out, "_G")).toBe(false);
+  let out: string;
   // Without Kitty graphics, the row shows at once on a tinted background.
   const plain = View.init(100, 30, true, 0, 3).withEntries(moved(0));
   out = draw(plain, moved(0), [], 0);

@@ -82,17 +82,21 @@ process.stdin.on("data", () => process.stdout.write("\\x1b_Ga=d,d=I,i=730140,q=2
     await this.open_pane({ command: shellJoin([process.execPath, program]) });
     await this.client.request({ op: "badge", visible: true });
     await this.client.request({ op: "size", cols: 100, rows: 30, cell: { width: 8, height: 16 } });
-    const upload = `\x1b_Ga=t,t=d,f=32,s=32,v=${height},i=268435456`;
-    await this.until(() => this.client.events.some((event: any) => event.data?.includes(upload)));
-    await this.until(() => this.client.state.data.includes("\x1b_Ga=p,i=268435456"));
+    // Corgi sends the picture under an id of its own.
+    const sent_as = new RegExp(`\\x1b_Ga=t,t=d,f=32,s=32,v=${height},i=(\\d+)`);
+    const found = () => this.client.events.map((event: any) => sent_as.exec(event.data ?? "")).find(Boolean);
+    await this.until(() => found() !== undefined);
+    const id = found()![1],
+      upload = `\x1b_Ga=t,t=d,f=32,s=32,v=${height},i=${id}`;
+    await this.until(() => this.client.state.data.includes(`\x1b_Ga=p,i=${id}`));
     // A child's id must not overwrite Corgi's hover thumbnail id.
     this.assertNotIn("\x1b_Ga=p,i=730140", this.client.state.data);
     const sent = this.client.events.filter((event: any) => event.data?.includes(upload)).length;
     await this.client.poll();
     this.assertEqual(this.client.events.filter((event: any) => event.data?.includes(upload)).length, sent);
     await this.client.input("x");
-    await this.until(() => this.client.events.some((event: any) => event.data?.includes("\x1b_Ga=d,d=I,i=268435456")));
-    this.assertNotIn("\x1b_Ga=p,i=268435456", this.client.state.data);
+    await this.until(() => this.client.events.some((event: any) => event.data?.includes(`\x1b_Ga=d,d=I,i=${id}`)));
+    this.assertNotIn(`\x1b_Ga=p,i=${id}`, this.client.state.data);
   }
 
   async test_badge_startup_paints_before_probe_without_flashing_emoji() {

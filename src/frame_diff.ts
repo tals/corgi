@@ -31,7 +31,20 @@ export class Differ {
   }
   /** What to write so the host shows `frame`, which starts from a clear
    * screen. Empty when the host already shows it. */
-  diff(frame: string | Uint8Array | composition.Frame): Buffer {
+  diff(frame: string | Uint8Array | composition.Frame, pictures?: { draw: string; redraw: string }): Buffer {
+    if (pictures) {
+      // The differ writes `draw` in the frame's update, or `redraw` when it
+      // draws the screen from nothing.
+      const draw = Buffer.from(pictures.draw),
+        redraw = Buffer.from(pictures.redraw);
+      n.frame_diff_pictures(
+        this.handle,
+        draw.length ? ptr(draw) : null,
+        draw.length,
+        redraw.length ? ptr(redraw) : null,
+        redraw.length,
+      );
+    }
     if (frame instanceof composition.Frame) {
       const previous = this.previous;
       if (frame.reusable && frame.panes.length > 0) {

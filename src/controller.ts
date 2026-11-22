@@ -79,14 +79,13 @@ import type { Use } from "./inference/setup";
 import * as shellPicker from "./shell_picker";
 import { installedShells } from "./launch/command";
 import * as linkTooltip from "./link_tooltip";
+import * as hostImages from "./host_images";
 import * as linkThumbnail from "./link_thumbnail";
 import * as paneImages from "./pane_images";
-import * as tabIcons from "./tab_icons";
 import * as startupCard from "./startup_card";
 import * as resourceTooltip from "./resource_tooltip";
 import type { Card as ConnectionCard } from "./connectivity_card";
 import type { State as SyncNotice } from "./sync_notice";
-import * as signalBars from "./signal_bars";
 import * as gitTooltip from "./git_tooltip";
 import type { Signal } from "./trackers/resources";
 import * as worktreeTooltip from "./worktree_tooltip";
@@ -507,6 +506,8 @@ export class Controller {
   link_copy_press: linkTooltip.Link | null = null;
   /** The picture of the prompt's pasted image under the pointer, this frame. */
   private prompt_preview: PromptPreview | null = null;
+  /** The frame being drawn's pictures, on a host that shows Kitty images. */
+  private pictures: hostImages.FrameImages | null = null;
   thumbnails = new linkThumbnail.Loader(() => {
     this.dirty = true;
     this.wake();
@@ -515,7 +516,6 @@ export class Controller {
     this.dirty = true;
     this.wake();
   });
-  tab_icons = new tabIcons.Icons();
   git_hover: viewerRef.Workspace | null = null;
   grip_hover: number[] = [];
   git_card = new gitTooltip.State();
@@ -537,7 +537,6 @@ export class Controller {
   private dropping_input = false;
   /** The last press came while dropping: its drag and release go with it. */
   private press_dropped = false;
-  signal_bars = new signalBars.Images();
   hide_connection_signals = false;
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
@@ -731,8 +730,7 @@ export class Controller {
     this.dismissName();
     this.closeInlineRename();
     this.clicks.reset();
-    const images = this.images.clear();
-    if (images) this.queueEffect({ write_terminal: images });
+    this.images.clear();
     this.copy_mode = false;
     this.search_mode = false;
     this.selection = null;
@@ -10100,15 +10098,15 @@ export class Controller {
   }
   compose(retain = true): composition.Output {
     if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;
-    const hide = this.images.begin() + this.tab_icons.begin() + this.signal_bars.begin();
+    // Each frame lists its pictures anew; presenting it shows the host the change.
+    const pictures = this.host.images.frame(this.cell_pixels ?? { width: 1, height: 1 });
+    this.pictures = this.supports_kitty_graphics && this.cell_pixels ? pictures : null;
+    this.images.begin();
     const retained = retain ? new composition.Frame() : undefined;
     const frame = this.renderFrame(retained);
-    const writes = this.images.end() + this.tab_icons.end() + this.signal_bars.end();
-    if (writes) this.queueEffect({ write_terminal: writes });
-    const prefix = hide ? "\x1b[?2026h" + hide : "",
-      suffix = hide ? "\x1b[?2026l" : "";
-    if (!retained?.panes.length) return prefix + frame + suffix;
-    return retained.finish(frame, prefix, suffix);
+    this.images.end();
+    if (!retained?.panes.length) return frame;
+    return retained.finish(frame);
   }
   private renderFrame(retained?: composition.Frame): string {
     palette.use(
@@ -10170,12 +10168,10 @@ export class Controller {
     const link_card = tooltip_ready ? this.linkCard() : null;
     // The prompt's pasted image under the pointer shares the link card's picture.
     const previewed = this.prompt.previewed(),
-      pictures = this.supports_kitty_graphics && this.cell_pixels !== null;
+      pictures = this.cell_pixels !== null ? this.pictures : null;
     this.prompt_preview = previewed
       ? { pictures, thumbnail: pictures ? this.thumbnails.get(pathToFileURL(previewed).href, this.cell_pixels!) : null }
       : null;
-    const thumbnail = this.thumbnails.sync(link_card?.thumbnail ?? this.prompt_preview?.thumbnail ?? null);
-    if (thumbnail) this.queueEffect({ write_terminal: thumbnail });
     const detail = this.resourceDetail();
     // Another machine's row reads from that machine.
     const readings = detail !== null ? (this.rowResources(detail) ?? this.runtime.resources) : this.runtime.resources;
@@ -10228,7 +10224,6 @@ export class Controller {
         connection_card: this.connection_card,
         sync_notice: this.sync_notice,
         pane_opening: this.openingFocus() !== null,
-        signal_bars: this.supports_kitty_graphics ? this.signal_bars : null,
         signal_bars_hidden: this.hide_connection_signals,
         git_hover: this.hoverIdle() ? this.git_hover : null,
         grip_hover: this.grip_hover,
@@ -10272,7 +10267,7 @@ export class Controller {
         corgi_badge: this.corgi_badge,
         supports_kitty_graphics: this.supports_kitty_graphics,
         images: this.images,
-        tab_icons: this.supports_kitty_graphics ? this.tab_icons : null,
+        pictures: this.pictures,
         cell_pixels: this.cell_pixels,
         dragged_workspace:
           this.workspace_drag && this.workspace_drag.preview !== null

@@ -33,8 +33,7 @@ import * as resourceTooltip from "./resource_tooltip";
 import * as corgiBadge from "./corgi_badge";
 import { TabMenu } from "./commands";
 import { agent, type Pane } from "./mirror";
-import { Icons } from "./tab_icons";
-import { Images as SignalBars } from "./signal_bars";
+import * as hostImages from "./host_images";
 import { Menu as LauncherMenu } from "./agent_launcher";
 import { Menu as SetupMenu } from "./corgi_setup";
 import { Writer } from "./text";
@@ -86,8 +85,8 @@ test("the empty sidebar's New keycap prefers short direct bindings and falls bac
   expect(frame(emptyView(), [], 100, 30, u)).toContain(palette.keycap + " Ctrl+A c ");
 });
 
-test("machine reception uses cached Kitty pixels, falls back to blocks, and yields to retry text, cards and menus", () => {
-  const images = new SignalBars();
+test("machine reception shows Kitty pixels from the first frame, falls back to blocks, and yields to retry text, cards and menus", () => {
+  const store = new hostImages.Store();
   const row = sidebar.workspaceEntry({
     id: viewerRef.workspace(1, 1),
     name: "project",
@@ -96,41 +95,45 @@ test("machine reception uses cached Kitty pixels, falls back to blocks, and yiel
     machine: "atlas",
     link_quality: 4,
   });
+  const cell = { width: 10, height: 20 };
   const u = ui({
     message: "",
     workspaces: [row],
     sidebar_open: true,
     copy_mode: false,
-    signal_bars: images,
-    cell_pixels: { width: 10, height: 20 },
+    cell_pixels: cell,
   });
-  const draw = () => frame(null, [], 120, 40, u);
-  // The first frame keeps the bars' room while their image uploads.
-  expect(draw()).not.toContain("█");
-  expect(images.end()).toContain("f=32");
-  const withImage = draw();
-  expect(withImage).toContain("a=p,i=730404");
+  let pictures = store.frame(cell);
+  const draw = () => frame(null, [], 120, 40, { ...u, pictures: (pictures = store.frame(cell)) });
+  // The first frame places the bars; their picture goes ahead of it.
+  const first = draw();
+  expect(first).not.toContain("█");
+  const bars = /a=p,i=\d+,/.exec(pictures.commands())![0];
+  expect(store.present().send).toContain("f=32");
+  draw();
+  expect(pictures.commands()).toContain(bars);
+  expect(store.present().send).toBe("");
   // Under a menu drawn over the frame, they keep their room but aren't placed.
   u.signal_bars_hidden = true;
   const hidden = draw();
-  expect(hidden).not.toContain("a=p,i=730404");
+  expect(pictures.commands()).not.toContain(bars);
   expect(hidden).not.toContain("█");
   u.signal_bars_hidden = false;
   row.connecting = true;
   row.connection_status = { label: "connecting", seconds: 4, color: "warm" };
   expect(draw()).toContain("connecting 4s");
-  expect(draw()).not.toContain("a=p,i=730404");
+  expect(pictures.commands()).not.toContain(bars);
   row.connecting = false;
   row.connection_status = null;
   u.connection_card = { rect: new Rect(1, 1, 70, 20), lines: [{ text: "atlas · online" }] };
-  expect(draw()).not.toContain("a=p,i=730404");
+  draw();
+  expect(pictures.commands()).not.toContain(bars);
   u.connection_card = null;
-  u.signal_bars = null;
-  expect(draw()).toContain("█");
+  expect(frame(null, [], 120, 40, u)).toContain("█");
 });
 
 test("setup clips signal bars at its border and restores them when closed", () => {
-  const images = new SignalBars(),
+  const store = new hostImages.Store(),
     host = Terminal.create(134, 30);
   const u = ui({
     message: "",
@@ -146,11 +149,13 @@ test("setup clips signal bars at its border and restores them when closed", () =
         link_quality: 4,
       }),
     ],
-    signal_bars: images,
     cell_pixels: { width: 8, height: 16 },
   });
   const draw = () => {
-    host.feed(images.begin() + frame(null, [], 134, 30, u) + images.end());
+    u.pictures = store.frame(u.cell_pixels!);
+    frame(null, [], 134, 30, u);
+    const p = store.present();
+    host.feed(p.send + p.draw + p.free);
     return host.surface(1).surface.images!.filter(p => p.image.width === 16);
   };
   try {
@@ -423,29 +428,28 @@ test("a tab wears its program's mark after its number, once the host holds it, a
   selection.reconcile(m);
   const pane = (id: number, command: string, brand: Pane["brand"]) => stubPane({ id, command, brand });
   const panes = [pane(m.firstPane(m.tabs[0].root), "node", "node"), pane(m.firstPane(m.tabs[1].root), "htop", null)];
-  const icons = new Icons();
+  const store = new hostImages.Store();
   const shown = (fields: Partial<Ui> = {}) =>
     frame(view, panes, 60, 10, ui({ sidebar_open: false, message: "", copy_mode: false, ...fields }));
   const row = (out: string) => out.slice(0, out.indexOf("\x1b[2;")).replace(/\x1b\[[?0-9;:]*[a-zA-Z]/g, "");
   // Without Kitty images or the cell's size, nothing makes room for it.
   expect(row(shown())).toContain("▐1▌node     ▐2▌htop     ▐+▌");
-  const graphics = { tab_icons: icons, cell_pixels: { width: 9, height: 18 } };
-  const first = shown(graphics);
+  const cell = { width: 9, height: 18 };
+  let pictures = store.frame(cell);
+  const graphics = () => ({ pictures: (pictures = store.frame(cell)), cell_pixels: cell });
+  // The first frame places the mark; its picture goes ahead of the frame.
+  const first = shown(graphics()),
+    node = /\x1b\[1;4H\x1b_Ga=p,(i=\d+,)/.exec(pictures.commands())![1];
   expect(row(first)).toContain("▐1▌  node   ▐2▌htop     ▐+▌");
-  expect(first).not.toContain("\x1b_Ga=p");
-  expect(icons.end()).toContain("i=730300,");
-  icons.begin();
-  expect(shown(graphics)).toContain("\x1b7\x1b[1;4H\x1b_Ga=p,i=730300,p=1,");
-  icons.begin();
-  const menu = shown({ ...graphics, tab_menu: new TabMenu({ tab: m.tabs[0].id, anchor_x: 0 }) });
-  expect(menu).not.toContain("\x1b_Ga=p");
-  icons.begin();
-  expect(
-    shown({
-      ...graphics,
-      agent_launcher: new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true }),
-    }),
-  ).not.toContain("\x1b_Ga=p");
+  expect(pictures.commands()).toContain(`\x1b[1;4H\x1b_Ga=p,${node}p=1,`);
+  expect(store.present().send).toContain(node);
+  shown({ ...graphics(), tab_menu: new TabMenu({ tab: m.tabs[0].id, anchor_x: 0 }) });
+  expect(pictures.commands()).toBe("");
+  shown({
+    ...graphics(),
+    agent_launcher: new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true }),
+  });
+  expect(pictures.commands()).not.toContain(node);
 });
 
 test("an agent's tab wears its provider's mark", () => {
@@ -1005,50 +1009,47 @@ test("Manage rows advertise grab, model-pointer and search-text cursors without 
 
 test("the launcher places provider marks with host images and falls back to glyphs", () => {
   const launch = new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true }),
-    icons = new Icons(),
+    store = new hostImages.Store(),
     shown = (fields: Partial<Ui> = {}) =>
       frame(emptyView(), [], 120, 40, ui({ message: "", copy_mode: false, agent_launcher: launch, ...fields }));
   // Codex's glyph stands in for its mark.
   launch.preview.pending = false;
-  expect(shown()).not.toContain("\x1b_Ga=p");
   expect(shown()).toContain("†");
   expect(launch.marks).toBeNull();
-  const graphics = { tab_icons: icons, cell_pixels: { width: 9, height: 18 } };
+  const cell = { width: 9, height: 18 };
+  let pictures = store.frame(cell);
+  const graphics = () => ({ pictures: (pictures = store.frame(cell)), cell_pixels: cell });
   launch.preview.installed.opencode2 = true;
-  expect(shown(graphics)).not.toContain("\x1b_Ga=p");
-  const uploaded = icons.end();
-  expect(uploaded).toContain("\x1b_Ga=t");
-  expect(uploaded).toContain("i=730324,");
-  icons.begin();
-  const placed = shown(graphics);
-  expect(placed).toContain("\x1b_Ga=p");
-  expect(placed).toContain("\x1b_Ga=p,i=730324,");
+  shown(graphics());
+  const placed = pictures.commands();
+  expect(placed).toContain("\x1b_Ga=p,");
   expect(placed).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
+  const uploaded = store.present().send;
+  expect(uploaded).toContain("\x1b_Ga=t");
+  for (const [, id] of placed.matchAll(/a=p,(i=\d+,)/g)) expect(uploaded).toContain(id);
   // A sign-in over the launcher leaves its marks as glyphs.
-  icons.begin();
-  const signin = shown({ ...graphics, signin_draw: () => null });
-  expect(signin).not.toContain("\x1b_Ga=p");
+  const signin = shown({ ...graphics(), signin_draw: () => null });
+  expect(pictures.commands()).toBe("");
   expect(signin).toContain("†");
-  icons.begin();
-  expect(shown()).not.toContain("\x1b_Ga=p");
+  shown();
   expect(launch.marks).toBeNull();
 });
 
 test("settings' Manage agents places the same provider marks as the launcher's", () => {
   const setup = SetupMenu.open(),
     launch = new LauncherMenu({ workspace: 1 }),
-    icons = new Icons(),
+    store = new hostImages.Store(),
     shown = (fields: Partial<Ui> = {}) =>
       frame(emptyView(), [], 160, 44, ui({ message: "", copy_mode: false, corgi_setup: setup, ...fields }));
   Object.assign(setup, { agents: launch, item: "agents", focus: "options" });
   expect(setup.managing()).toBe(true);
-  expect(shown()).not.toContain("\x1b_Ga=p");
+  shown();
   expect(launch.manager.marks).toBeNull();
-  const graphics = { tab_icons: icons, cell_pixels: { width: 9, height: 18 } };
-  shown(graphics);
-  expect(icons.end()).toContain("\x1b_Ga=t");
-  icons.begin();
-  expect(shown(graphics)).toContain("\x1b_Ga=p");
+  const cell = { width: 9, height: 18 },
+    pictures = store.frame(cell);
+  shown({ pictures, cell_pixels: cell });
+  expect(pictures.commands()).toContain("\x1b_Ga=p");
+  expect(store.present().send).toContain("\x1b_Ga=t");
   expect(launch.manager.marks).not.toBeNull();
 });
 
@@ -1058,37 +1059,34 @@ test("the prompt draws over dimmed panes, with no pane cursor, and places brand 
   const id = m.newTab("");
   selection.reconcile(m);
   const pane = stubPane({ id, agent: agent({ provider: "claude" }) }, stubTerminal(marked, { x: 0, y: 0 }));
-  const icons = new Icons(),
+  const store = new hostImages.Store(),
     cell = { width: 9, height: 18 },
     view = new View(m, selection),
-    placed: string[] = [];
-  const u = ui({ message: "", copy_mode: false, sidebar_open: false, tab_icons: icons, cell_pixels: cell });
-  // The host holds the marks once a frame has asked for them.
-  frame(view, [pane], 100, 30, u);
-  icons.end();
-  icons.begin();
-  const plain = frame(view, [pane], 100, 30, u);
+    placed: boolean[] = [];
+  const u = ui({ message: "", copy_mode: false, sidebar_open: false, cell_pixels: cell });
+  let pictures = store.frame(cell);
+  const draw = () => frame(view, [pane], 100, 30, { ...u, pictures: (pictures = store.frame(cell)) });
+  const plain = draw();
   expect(plain).toContain("plain");
   expect(plain).toContain("\x1b[?25h");
-  expect(plain).toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
-  icons.begin();
+  expect(pictures.commands()).toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
   u.prompt_draw = (w, marks) => {
     w.write("\x1b[10;20HPROMPT");
     placed.push(marks!("claude", 30, 12), marks!("pi", 30, 13));
     return [new Rect(19, 9, 40, 6)];
   };
-  const out = frame(view, [pane], 100, 30, u);
+  const out = draw();
   expect(out).toContain("dimmed");
   expect(out.indexOf("PROMPT")).toBeGreaterThan(out.indexOf("dimmed"));
   expect(out).not.toContain("\x1b[?25h");
   // Tab marks stay up unless what the prompt drew reaches them.
-  expect(out).toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
-  expect(placed[0]).toContain("\x1b[13;31H\x1b_Ga=p");
+  expect(pictures.commands()).toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
+  expect(pictures.commands()).toContain("\x1b[13;31H\x1b_Ga=p");
   // Pi has no mark: the prompt writes its glyph.
-  expect(placed[1]).toBe("");
-  icons.begin();
+  expect(placed).toEqual([true, false]);
   u.prompt_draw = () => [new Rect(0, 0, 100, 30)];
-  expect(frame(view, [pane], 100, 30, u)).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
+  draw();
+  expect(pictures.commands()).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
 });
 
 test("put away, the prompt's cue takes the status line unless something else needs it", () => {
@@ -1117,13 +1115,13 @@ test("put away, the prompt's cue takes the status line unless something else nee
 
 test("setup's model picker places the same brand marks, only where the host shows images", () => {
   const setup = SetupMenu.open(),
-    icons = new Icons(),
     shown = (fields: Partial<Ui>) =>
       frame(emptyView(), [], 100, 30, ui({ message: "", copy_mode: false, corgi_setup: setup, ...fields }));
   shown({});
   expect(setup.marks).toBeNull();
-  shown({ tab_icons: icons, cell_pixels: { width: 9, height: 18 } });
-  expect(setup.marks!("claude", 4, 4)).toBe("");
-  icons.end();
-  expect(setup.marks!("claude", 4, 4)).toContain("\x1b[5;5H\x1b_Ga=p");
+  const cell = { width: 9, height: 18 },
+    pictures = new hostImages.FrameImages(cell);
+  shown({ pictures, cell_pixels: cell });
+  expect(setup.marks!("claude", 4, 4)).toBe(true);
+  expect(pictures.commands()).toContain("\x1b[5;5H\x1b_Ga=p");
 });
