@@ -137,6 +137,12 @@ test("reads a followed file again after an edit in place that keeps its size", a
   await deep.refresh();
   expect([deep.restarts, deep.start]).toEqual([0, start]);
   expect(deep.line(deep.rowOf(60_000)!)).toBe("LINE 60000");
+  // One that adds a line before the window, still at the same size, numbers its lines again.
+  writeFileSync(big, numbered(1, 100_000).replace("line 60000\n", "LINE 60000\n").replace("line 5\n", "line\n5\n"));
+  utimesSync(big, 1002, 1002);
+  await deep.refresh();
+  expect(deep.start).toBe(start);
+  expect(deep.line(deep.rowOf(60_001)!)).toBe("LINE 60000");
 });
 
 test("skips growth too fast to read, as a reader that fell behind", async () => {

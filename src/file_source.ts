@@ -738,15 +738,20 @@ export class Source {
     this.bump();
   }
   /** Reads the window again where it is, after an edit in place that kept
-   * the file's size: the reader keeps its place, its numbers and whether it
-   * follows. */
+   * the file's size: the reader keeps its place and whether it follows. The
+   * edit may have moved lines before the window, so they're counted again
+   * when that's quick; otherwise its lines go unnumbered. */
   private async reread(): Promise<void> {
     const from = this.start,
-      first = this.first,
       // The byte before a line's start is its newline, which `window` drops to begin at the line.
       at = Math.max(0, from - 1);
     this.window(at, await this.read(at, this.end - at));
-    if (this.start === from) this.first = first;
+    if (this.start > 0 && this.start <= fileAccess.ask_after)
+      this.first =
+        1 +
+        (await this.fh!.newlines(0, this.start, () => {
+          if (this.closed) throw Error("Closed");
+        }));
     this.bump();
   }
   private async restart(): Promise<void> {
