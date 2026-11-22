@@ -378,18 +378,22 @@ test("an image link's popover shows a thumbnail on Kitty hosts and frees it when
     expect(frame).toContain("Copy path");
     expect(frame).toContain("├" + "─".repeat(64) + "┤");
     // 1000×400 shrinks to 280×112: 28 cells by 6, centered in the rows.
-    expect(frame).toContain("\x1b[6;4H\x1b_Ga=p,i=730140,p=1,X=0,Y=2,z=1,C=1,q=2\x1b\\");
-    const sent = s.effects.map(e => ("write_terminal" in e ? e.write_terminal : "")).join("");
-    expect(sent.startsWith("\x1b_Ga=t,t=d,f=100,i=730140,q=2,m=")).toBe(true);
-    s.clearEffects();
+    const shown = s.host.images.present(),
+      id = /\x1b\[6;4H\x1b_Ga=p,i=(\d+),p=\d+,Y=2,z=1,C=1,q=1\x1b\\/.exec(shown.draw)?.[1];
+    expect(id).toBeDefined();
+    // The viewer sends it ahead of the frame, once.
+    expect(shown.send).toContain(`\x1b_Ga=t,t=d,f=100,i=${id},q=1,m=`);
     s.frame();
-    expect(s.effects).toEqual([]);
+    expect(s.host.images.present()).toMatchObject({ send: "", draw: "" });
     await s.input(mouse(0, 4, 3));
     await s.input(mouse(0, 4, 3, true));
     expect(s.clipboard).toBe(path);
     await s.input(mouse(35, 90, 20));
-    expect(s.frame()).not.toContain("a=p,i=730140");
-    expect(s.effects.at(-1)).toEqual({ write_terminal: "\x1b_Ga=d,d=I,i=730140,q=2\x1b\\" });
+    s.frame();
+    const closed = s.host.images.present();
+    expect(closed.draw).toContain(`a=d,d=i,i=${id},`);
+    expect(closed.redraw).not.toContain(`a=p,i=${id},`);
+    expect(closed.free).toContain(`\x1b_Ga=d,d=I,i=${id},q=2\x1b\\`);
   } finally {
     setSystemTime();
     viewer.close(s);

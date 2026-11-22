@@ -1,4 +1,5 @@
 import * as i18n from "./i18n";
+import * as hostImages from "./host_images";
 import * as rowGlide from "./row_glide";
 import { expect, test } from "bun:test";
 import * as agentManager from "./agent_manager";
@@ -54,12 +55,13 @@ function screen(v: agentManager.View, m: agentManager.Model, now?: number, width
   const b = new Rect(0, 0, width, v.height(m)),
     w = new Writer();
   v.draw(w, b, m, now);
-  w.write(v.glideImage(b, m));
+  const pictures = new hostImages.Frame(v.cell ?? { width: 10, height: 20 });
+  v.glideImage(pictures, b, m);
   const host = new Terminal(width + 8, 30);
   host.feed(w.s);
   const lines = host.text().split("\n");
   host.destroy();
-  return { lines, b, raw: w.s };
+  return { lines, b, raw: w.s, pictures: pictures.commands() };
 }
 /** The model, and a view open on its list at the row `at`. */
 function opened(at = "") {
@@ -833,27 +835,28 @@ test.each([104, 32])("keyboard visibility moves glide into their new group witho
   m.agents[2] = { ...work, here: false };
   v.tick(m, 1020);
   v.tick(m, 1170);
-  v.marks = (provider, col, row) => `<${provider} mark at ${col},${row}>`;
+  const marks: string[] = [];
+  v.marks = (provider, col, row) => marks.push(`${provider} ${col},${row}`) > 0;
   const gliding = screen(v, m, 1170);
-  expect(gliding.raw).toContain("a=T,f=100,i=730121");
+  expect(gliding.pictures).toContain(`a=p,i=${rowGlide.manager_tint.drawn?.image.id},`);
   // The gliding row keeps its brand image the whole way.
   const row = Number(/\x1b\[(\d+);\d+Hwork/.exec(gliding.raw)![1]) - 1;
-  expect(gliding.raw).toContain(`<claude mark at 5,${row}>`);
+  expect(marks).toContain(`claude 5,${row}`);
   v.marks = null;
   expect(v.at).toBe(focus);
   const settled = 1020 + rowGlide.total_ms;
   v.tick(m, settled);
-  expect(screen(v, m, settled).raw).not.toContain("a=T,f=100,i=730121");
+  expect(screen(v, m, settled).pictures).not.toContain(`a=p,i=${rowGlide.manager_tint.drawn?.image.id},`);
   v.at = agentManager.agentKey("claude", work.account);
   expect(v.key(key, m, settled + 80)).toMatchObject({ kind: "here", shown: true });
   m.agents[2] = { ...work, here: true };
   v.tick(m, settled + 100);
   v.tick(m, settled + 250);
-  expect(screen(v, m, settled + 250).raw).toContain("a=T,f=100,i=730121");
+  expect(screen(v, m, settled + 250).pictures).toContain(`a=p,i=${rowGlide.manager_tint.drawn?.image.id},`);
   v.key(47, m, settled + 250);
   v.key(122, m, settled + 250);
   v.tick(m, settled + 250);
-  expect(screen(v, m, settled + 250).raw).not.toContain("a=T,f=100,i=730121");
+  expect(screen(v, m, settled + 250).pictures).not.toContain(`a=p,i=${rowGlide.manager_tint.drawn?.image.id},`);
 });
 
 test("dragging between groups skips the visibility glide and uses a grab cursor", () => {
@@ -874,7 +877,7 @@ test("dragging between groups skips the visibility glide and uses a grab cursor"
   m.agents[2] = { ...work, here: false };
   v.tick(m, 1000);
   v.tick(m, 1150);
-  expect(screen(v, m, 1150).raw).not.toContain("a=T,f=100,i=730121");
+  expect(screen(v, m, 1150).pictures).not.toContain(`a=p,i=${rowGlide.manager_tint.drawn?.image.id},`);
 });
 
 test("narrow translated action rows keep the remove instruction before reorder buttons", () => {

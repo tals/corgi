@@ -3,8 +3,8 @@ import { Provider, adapter } from "./providers";
 import { fg, type Token } from "./palette";
 import { Writer, displayWidth, writeEllipsis } from "./text";
 
-/** Places a brand mark at a cell; returns "" when it cannot. */
-export type Marks = (provider: Provider, col: number, row: number) => string;
+/** Places a brand mark at a cell; false when it cannot. */
+export type Marks = (provider: Provider, col: number, row: number) => boolean;
 
 /** The glyph a provider shows where its mark can't, in a brand-ish token. */
 const glyph_tokens: Partial<Record<Provider, Token>> = { claude: "hot" };
@@ -12,10 +12,10 @@ const glyph_tokens: Partial<Record<Provider, Token>> = { claude: "hot" };
  * when `marks` can place one, else its glyph. Leaves the background alone
  * and the foreground changed. */
 export function writeMark(w: Writer, provider: Provider, col: number, row: number, marks: Marks | null): void {
-  const placed = marks?.(provider, col, row) ?? "";
+  const placed = marks?.(provider, col, row) ?? false;
   w.write(`\x1b[${row + 1};${col + 1}H`);
   if (placed) {
-    w.write("  " + placed);
+    w.write("  ");
     return;
   }
   const glyph = adapter(provider).glyph;

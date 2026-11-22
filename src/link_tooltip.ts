@@ -1,6 +1,7 @@
 import * as i18n from "./i18n";
 import * as viewerRef from "./viewer_ref";
 import type { Cell } from "./fork_hero";
+import type { Image } from "./host_images";
 import type { Link as TerminalLink } from "./pane/hyperlinks";
 import { Rect } from "./layout";
 import * as palette from "./palette";
@@ -36,6 +37,8 @@ export interface Thumbnail {
   height: number;
   cell: Cell;
   of?: Thumbnail;
+  /** Its picture, once loaded. */
+  image?: Image;
 }
 export interface Card {
   link: Link;

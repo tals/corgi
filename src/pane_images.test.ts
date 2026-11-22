@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Terminal } from "./pane/terminal";
 import { Terminal as Mirror, type Transport } from "./mirror";
 import { Images } from "./pane_images";
+import * as hostImages from "./host_images";
 import { Rect } from "./layout";
 import { Differ } from "./frame_diff";
 import type { ImagePlacement } from "./pane/surface";
@@ -168,16 +169,21 @@ test("viewer remaps ids, clips pixels to its pane, caches uploads and frees hidd
       calls++;
       return read(t)(id, offset);
     };
+    const store = new hostImages.Store();
     const frame = (ps: ImagePlacement[]) => {
-      const hide = images.begin();
-      const draw = images.draw(ps, rect, cell, load);
-      const writes = images.end();
-      host.feed(hide + draw + writes);
-      return { draw, writes };
+      images.begin();
+      const shown = store.frame(cell);
+      images.draw(shown, ps, rect, cell, load);
+      images.end();
+      const p = store.present();
+      host.feed(p.send + p.draw + p.free);
+      return { draw: shown.commands(), writes: p.send };
     };
     frame(pictures(t));
     await images.settled();
-    expect(frame(pictures(t)).writes).toContain("a=t,t=d,f=32,s=8,v=16,i=268435456");
+    const sent = frame(pictures(t)).writes;
+    expect(sent).toMatch(/a=t,t=d,f=32,s=8,v=16,i=\d+/);
+    const id = /i=(\d+)/.exec(sent)![1];
     const next = frame(pictures(t));
     expect(next.writes).toBe("");
     expect(next.draw).toContain("\x1b[4;6H");
@@ -187,7 +193,12 @@ test("viewer remaps ids, clips pixels to its pane, caches uploads and frees hidd
     expect(placed[0]).toMatchObject({ x: 5, y: 3, width: 1, height: 1 });
     const data = Buffer.from((await read(host)(placed[0].image.id, 0)) ?? "", "base64");
     expect(data).toEqual(Buffer.from(Array(128).fill([255, 0, 0, 255]).flat()));
-    expect(frame([]).writes).toContain("a=d,d=I,i=268435456");
+    images.begin();
+    images.end();
+    store.frame(cell);
+    const gone = store.present();
+    expect(gone.free).toContain(`a=d,d=I,i=${id}`);
+    host.feed(gone.draw + gone.free);
     expect(pictures(host)).toEqual([]);
   } finally {
     t.destroy();
@@ -203,17 +214,17 @@ test("pane images survive frame diffs and moving panes without retransmission", 
     cell = { width: 8, height: 16 };
   try {
     child.feed(red);
+    const store = new hostImages.Store();
+    // As the viewer does: what the store owes goes ahead of the frame.
     const draw = (x: number, y: number) => {
-      const hide = images.begin();
-      const placement = images.draw(pictures(child), new Rect(x, y, 5, 5), cell, read(child));
-      const frame = "\x1b[?2026h" + hide + "\x1b[H\x1b[Junchanged" + placement + "\x1b[?2026l";
-      host.feed(differ.diff(frame));
-      const writes = images.end();
-      if (writes) {
-        host.feed(writes);
-        differ.invalidateImages();
-      }
-      return writes;
+      images.begin();
+      images.draw(store.frame(cell), pictures(child), new Rect(x, y, 5, 5), cell, read(child));
+      images.end();
+      const p = store.present();
+      host.feed(p.send);
+      host.feed(differ.diff("\x1b[?2026h\x1b[H\x1b[Junchanged\x1b[?2026l", p));
+      host.feed(p.free);
+      return p.send;
     };
     draw(3, 4);
     await images.settled();
@@ -257,14 +268,17 @@ test("a discarded transfer cannot resurrect an image and mirror selection holds 
     mirror.receive(t.surface(1));
     expect(mirror.images).toEqual([]);
     const deferred = Promise.withResolvers<string>();
+    const store = new hostImages.Store();
     images.begin();
-    images.draw(before, new Rect(0, 0, 10, 5), { width: 8, height: 16 }, () => deferred.promise);
+    const cell = { width: 8, height: 16 };
+    images.draw(store.frame(cell), before, new Rect(0, 0, 10, 5), cell, () => deferred.promise);
     images.end();
     const loading = images.settled();
     images.clear();
     deferred.resolve("/wAA");
     await loading;
-    expect(images.end()).toBe("");
+    images.end();
+    expect(store.present().send).toBe("");
   } finally {
     mirror.destroy();
     t.destroy();
@@ -284,12 +298,16 @@ test("images are cut around covered cells and stay uploaded while covered", asyn
       calls++;
       return read(t)(id, offset);
     };
+    const store = new hostImages.Store();
     const frame = (covered: Rect[]) => {
-      const hide = images.begin();
-      const draw = images.draw(pictures(t), rect, cell, load, covered);
-      const writes = images.end();
-      host.feed(hide + draw + writes);
-      return writes;
+      images.begin();
+      const shown = store.frame(cell);
+      images.draw(shown, pictures(t), rect, cell, load);
+      for (const box of covered) shown.cover(box);
+      images.end();
+      const p = store.present();
+      host.feed(p.send + p.draw + p.free);
+      return p.send;
     };
     const placed = () =>
       pictures(host)

@@ -118,10 +118,10 @@ test("a choice reads as its model and effort", () => {
 
 test("a brand mark is a placed image when the host takes one, else the glyph", () => {
   const w = new Writer();
-  writeMark(w, "claude", 4, 2, () => "<img>");
-  expect(w.s).toBe("\x1b[3;5H  <img>");
+  writeMark(w, "claude", 4, 2, () => true);
+  expect(w.s).toBe("\x1b[3;5H  ");
   const glyph = new Writer();
-  writeMark(glyph, "codex", 4, 2, () => "");
+  writeMark(glyph, "codex", 4, 2, () => false);
   expect(text(screen(glyph.s, 8, 4))[2]).toBe("    †");
   const none = new Writer();
   writeMark(none, "claude", 0, 0, null);
@@ -449,7 +449,7 @@ test("marks the host places stand in for the glyphs", () => {
   const placed: [Provider, number, number][] = [];
   draw(picker(), 60, (provider, col, row) => {
     placed.push([provider, col, row]);
-    return "";
+    return false;
   });
   // One on each agent's header.
   expect(placed).toEqual([

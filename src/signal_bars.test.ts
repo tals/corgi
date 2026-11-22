@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { Images, cells, pixels } from "./signal_bars";
+import { cells, pixels, place } from "./signal_bars";
+import * as hostImages from "./host_images";
 import { Rect } from "./layout";
 import { Terminal } from "./pane/terminal";
 import * as palette from "./palette";
@@ -43,31 +44,39 @@ test("signal pixels fit four even bars into two cells and use palette colors", (
   }
 });
 
-test("signal images are cached, placed repeatedly, and regenerated for a new cell size", () => {
-  const images = new Images(),
-    cell = { width: 10, height: 20 };
-  expect(images.ready(4, cell)).toBe(false);
-  expect(images.end()).toContain("a=t,t=d,f=32,s=20,v=20");
-  expect(images.ready(4, cell)).toBe(true);
-  expect(images.place(4, 10, 2, cell)).toContain("a=p,i=730404,p=1");
-  expect(images.place(4, 10, 8, cell)).toContain("a=p,i=730404,p=2");
-  expect(images.end()).toBe("");
-  expect(images.begin()).toContain("a=d,d=i");
-  expect(images.ready(4, { width: 12, height: 24 })).toBe(false);
-  expect(images.end()).toContain("s=24,v=24");
-  expect(images.clear()).toContain("a=d,d=I");
+test("signal images are sent once, placed repeatedly, and sent again for a new cell size", () => {
+  const store = new hostImages.Store(),
+    cell = { width: 10, height: 20 },
+    frame = store.frame(cell);
+  place(frame, 4, 10, 2, cell);
+  expect(frame.commands()).toMatch(/a=p,i=\d+,p=1,/);
+  place(frame, 4, 10, 8, cell);
+  expect(frame.commands()).toMatch(/a=p,i=\d+,p=2,/);
+  expect(store.present().send).toContain("a=t,t=d,f=32,s=20,v=20");
+  place(store.frame(cell), 4, 10, 2, cell);
+  expect(store.present().send).toBe("");
+  const bigger = { width: 12, height: 24 };
+  place(store.frame(bigger), 4, 10, 2, bigger);
+  expect(store.present()).toMatchObject({
+    send: expect.stringContaining("s=24,v=24"),
+    free: expect.stringContaining("a=d,d=I"),
+  });
+  expect(store.close()).toContain("a=d,d=I");
 });
 
 test("signal pixels clip around overlays and restore without uploading again", () => {
-  const images = new Images(),
+  const store = new hostImages.Store(),
     cell = { width: 8, height: 16 },
     host = Terminal.create(40, 15);
   try {
-    images.ready(4, cell);
-    host.feed(images.end());
+    let sent = 0;
     const draw = (covered: Rect[]) => {
-      host.feed(images.begin() + images.place(4, 2, 3, cell, covered));
-      expect(images.end()).toBe("");
+      const frame = store.frame(cell);
+      place(frame, 4, 2, 3, cell);
+      for (const box of covered) frame.cover(box);
+      const p = store.present();
+      if (p.send) sent++;
+      host.feed(p.send + p.draw + p.free);
       return host
         .surface(1)
         .surface.images!.map(p => [p.x, p.y, p.source_x, p.source_width])
@@ -78,6 +87,7 @@ test("signal pixels clip around overlays and restore without uploading again", (
     expect(draw([new Rect(0, 2, 3, 4)])).toEqual([[3, 3, 8, 8]]);
     expect(draw([new Rect(0, 0, 20, 10)])).toEqual([]);
     expect(draw([])).toEqual([[2, 3, 0, 16]]);
+    expect(sent).toBe(1);
   } finally {
     host.destroy();
   }

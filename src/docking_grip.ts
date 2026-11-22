@@ -1,12 +1,10 @@
-import { deflateSync } from "node:zlib";
+import * as hostImages from "./host_images";
 import * as palette from "./palette";
 import type { Rect } from "./layout";
 import type { Cell } from "./fork_hero";
 
-const image_id = 730410;
-export const hide = `\x1b7\x1b[1;1H\x1b_Ga=d,d=i,i=${image_id},q=2\x1b\\\x1b8`;
-export const clear = `\x1b_Ga=d,d=I,i=${image_id},q=2\x1b\\`;
-let cached: { key: string; data: string } | null = null;
+/** The grip as last drawn, and the cell size and color it was drawn for. */
+let drawn: { key: string; image: hostImages.Image } | null = null;
 
 /** A transparent outline with joins at the divider's centerline. */
 export function pixels(cell: Cell): Uint8Array {
@@ -35,23 +33,12 @@ export function pixels(cell: Cell): Uint8Array {
   return out;
 }
 
-/** One upload, then a placement for each unobscured grip. Text stays native. */
-export function draw(rects: readonly Rect[], cell: Cell): string {
-  if (!rects.length) return "";
+/** Shows each unobscured grip. Text stays native. */
+export function draw(frame: hostImages.Frame, rects: readonly Rect[], cell: Cell): void {
   const key = `${cell.width}x${cell.height}:${palette.outline}`;
-  if (cached?.key !== key) cached = { key, data: deflateSync(pixels(cell)).toString("base64") };
-  const width = 4 * cell.width,
-    height = cell.height;
-  let out = "\x1b7";
-  for (let start = 0; start < cached.data.length; start += 4096) {
-    const end = Math.min(start + 4096, cached.data.length),
-      more = Number(end < cached.data.length);
-    out +=
-      (start === 0 ? `\x1b_Ga=t,f=32,o=z,s=${width},v=${height},i=${image_id},q=2,m=${more};` : `\x1b_Gm=${more};`) +
-      cached.data.slice(start, end) +
-      "\x1b\\";
+  if (drawn?.key !== key) {
+    drawn = { key, image: new hostImages.Image({ rgba: pixels(cell), width: 4 * cell.width, height: cell.height }) };
   }
-  for (const [i, rect] of rects.entries())
-    out += `\x1b[${rect.y + 1};${rect.x + 1}H\x1b_Ga=p,i=${image_id},p=${i + 1},z=1,C=1,q=2\x1b\\`;
-  return out + "\x1b8";
+  const image = drawn.image;
+  for (const rect of rects) frame.show(image, { col: rect.x, row: rect.y });
 }

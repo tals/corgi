@@ -1,5 +1,6 @@
 import type { Image, ImagePlacement } from "./pane/surface";
 import type { Cell } from "./fork_hero";
+import * as hostImages from "./host_images";
 import { Rect } from "./layout";
 
 type Read = (id: string, offset: number) => Promise<string | null>;
@@ -10,10 +11,8 @@ interface Asset {
   loading: Promise<void>;
 }
 interface Drawing {
-  id: number;
+  image: hostImages.Image;
   used: boolean;
-  sent: boolean;
-  upload: string;
 }
 interface Crop {
   x: number;
@@ -25,31 +24,28 @@ interface Crop {
   full_width: number;
   full_height: number;
 }
-const remove = (id: number, pixels: boolean) => `\x1b_Ga=d,d=${pixels ? "I" : "i"},i=${id},q=2\x1b\\`;
-
 /** Images belong to the viewer, with ids isolated from both child programs and
- * Corgi's own graphics. Only visible crops are uploaded to the host. */
+ * Corgi's own graphics. Only visible crops are sent to the host, one picture
+ * each. */
 export class Images {
   private assets = new Map<string, Asset>();
   private drawings = new Map<string, Drawing>();
-  private next_id = 0x10000000;
-  private placement = 0;
   private transfer: Promise<void> = Promise.resolve();
   constructor(private wake: () => void) {}
 
-  begin(): string {
-    this.placement = 0;
-    let hide = "";
+  begin(): void {
     for (const asset of this.assets.values()) asset.used = false;
-    for (const drawing of this.drawings.values()) {
-      drawing.used = false;
-      if (drawing.sent) hide += remove(drawing.id, false);
-    }
-    return hide;
+    for (const drawing of this.drawings.values()) drawing.used = false;
   }
-  /** Places the images in `rect`, cut around the `covered` cells Corgi draws over them. */
-  draw(placements: ImagePlacement[], rect: Rect, cell: Cell, read: Read, covered: readonly Rect[] = []): string {
-    let out = "";
+  /** Shows the images in `rect`. A `hidden` pane's stay with the host, unshown. */
+  draw(
+    frame: hostImages.Frame,
+    placements: ImagePlacement[],
+    rect: Rect,
+    cell: Cell,
+    read: Read,
+    hidden = false,
+  ): void {
     for (const p of placements) {
       const crop = clip(p, rect, cell);
       if (!crop) continue;
@@ -78,48 +74,36 @@ export class Images {
       ]);
       let drawing = this.drawings.get(key);
       if (!drawing) {
-        const id = this.next_id++;
-        const pixels = raster(asset.pixels, p, crop);
-        drawing = { id, used: true, sent: false, upload: transmit(id, crop.width, crop.height, pixels) };
-        this.drawings.set(key, drawing);
+        const image = new hostImages.Image({
+          rgba: raster(asset.pixels, p, crop),
+          width: crop.width,
+          height: crop.height,
+        });
+        this.drawings.set(key, (drawing = { image, used: true }));
       }
       drawing.used = true;
-      if (!drawing.sent) continue;
-      const whole = new Rect(rect.x * cell.width + crop.x, rect.y * cell.height + crop.y, crop.width, crop.height);
-      let pieces = [whole];
-      for (const box of covered) {
-        const hole = new Rect(box.x * cell.width, box.y * cell.height, box.w * cell.width, box.h * cell.height);
-        pieces = pieces.flatMap(piece => piece.cut(hole));
-      }
-      for (const piece of pieces) {
-        const col = Math.floor(piece.x / cell.width),
-          row = Math.floor(piece.y / cell.height);
-        // A piece shows its part of the upload at its own size.
-        const source =
-          piece === whole ? "" : `x=${piece.x - whole.x},y=${piece.y - whole.y},w=${piece.w},h=${piece.h},`;
-        out += `\x1b7\x1b[${row + 1};${col + 1}H\x1b_Ga=p,i=${drawing.id},p=${++this.placement},${source}X=${piece.x % cell.width},Y=${piece.y % cell.height},z=${p.z},C=1,q=2\x1b\\\x1b8`;
+      if (hidden) frame.keep(drawing.image);
+      else {
+        const x = rect.x * cell.width + crop.x,
+          y = rect.y * cell.height + crop.y;
+        frame.show(drawing.image, {
+          col: Math.floor(x / cell.width),
+          row: Math.floor(y / cell.height),
+          x: x % cell.width,
+          y: y % cell.height,
+          z: p.z,
+        });
       }
     }
-    return out;
   }
-  end(): string {
-    let writes = "";
-    for (const [key, drawing] of this.drawings) {
-      if (!drawing.used) {
-        if (drawing.sent) writes += remove(drawing.id, true);
-        this.drawings.delete(key);
-      } else if (!drawing.sent) {
-        writes += drawing.upload;
-        drawing.upload = "";
-        drawing.sent = true;
-      }
-    }
+  /** Forgets what this frame no longer shows. */
+  end(): void {
+    for (const [key, drawing] of this.drawings) if (!drawing.used) this.drawings.delete(key);
     for (const [key, asset] of this.assets) if (!asset.used) this.assets.delete(key);
-    return writes;
   }
-  clear(): string {
+  clear(): void {
     this.begin();
-    return this.end();
+    this.end();
   }
   /** Also used by deterministic tests to await the current image transfers. */
   async settled(): Promise<void> {
@@ -207,20 +191,6 @@ function raster(data: Uint8Array, p: ImagePlacement, crop: Crop): Uint8Array {
       }
       out[dest + 3] = Math.round(alpha);
     }
-  }
-  return out;
-}
-
-function transmit(id: number, width: number, height: number, pixels: Uint8Array): string {
-  const data = Buffer.from(pixels).toString("base64");
-  let out = "";
-  for (let start = 0; start < data.length; start += 4096) {
-    const end = Math.min(start + 4096, data.length),
-      more = Number(end < data.length);
-    out +=
-      (start === 0 ? `\x1b_Ga=t,t=d,f=32,s=${width},v=${height},i=${id},q=2,m=${more};` : `\x1b_Gm=${more};`) +
-      data.slice(start, end) +
-      "\x1b\\";
   }
   return out;
 }

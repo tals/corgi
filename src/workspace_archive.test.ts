@@ -147,7 +147,7 @@ test("archive rows reuse status glyphs and brand marks while keeping long names 
   expect(v.lines.filter(l => l.row)).toHaveLength(3);
   v.draw(w, (brand, _x, _y) => {
     marks.push(brand);
-    return "";
+    return false;
   });
   expect(marks).toEqual(["claude", "claude", "bun"]);
   expect(w.buffered()).toContain("▶");

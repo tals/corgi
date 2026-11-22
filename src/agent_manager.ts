@@ -31,6 +31,7 @@ import { Row } from "./launch/row";
 import * as launcherOrder from "./launch/order";
 import { Model as AgentModel } from "./providers/model";
 import { Preview, writeExit, writeTint } from "./sidebar";
+import type * as hostImages from "./host_images";
 import * as rowGlide from "./row_glide";
 import type { Cell as PixelCell } from "./fork_hero";
 import { writeMark, type Marks } from "./provider_mark";
@@ -1746,23 +1747,24 @@ export class View {
       }
     }
   }
-  glideImage(b: Rect, model: Model): string {
+  glideImage(pictures: hostImages.Frame, b: Rect, model: Model): void {
     const glide = this.glide;
-    if (this.page !== "list" || this.transition.active || !glide || glide.started === null || !this.cell) return "";
+    if (this.page !== "list" || this.transition.active || !glide || glide.started === null || !this.cell) return;
     const first = this.listOffset(b, model),
       index = this.lines(model).findIndex(line => line.item && itemKey(line.item) === glide.key);
-    return index < 0
-      ? ""
-      : rowGlide.place(
-          b.x + 1,
-          rowGlide.position(b.y + 6 + glide.from - first, b.y + 6 + index - first, glide.ms),
-          b.w - 2,
-          1,
-          { top: b.y + 6, bottom: b.y + b.h - 4 },
-          rowGlide.opacity(glide.ms),
-          this.cell,
-          rowGlide.manager_image_id,
-        );
+    if (index >= 0)
+      rowGlide.place(
+        pictures,
+        b.x + 1,
+        rowGlide.position(b.y + 6 + glide.from - first, b.y + 6 + index - first, glide.ms),
+        b.w - 2,
+        1,
+        { top: b.y + 6, bottom: b.y + b.h - 4 },
+        rowGlide.opacity(glide.ms),
+        this.cell,
+        rowGlide.manager_tint,
+        true,
+      );
   }
   private queryColumn(width: number): number {
     const offset = DialogView.scroll(this.query, width);

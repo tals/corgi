@@ -32,7 +32,7 @@ export type Preview = {
   links_available: boolean;
 };
 type Line = { text: string; heading?: boolean; agent?: Agent; brand?: processName.Brand | null; row?: boolean };
-type Marks = (brand: processName.Brand, col: number, row: number) => string;
+type Marks = (brand: processName.Brand, col: number, row: number) => boolean;
 const printable = (value: string) => value.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
 
 export class Dialog {
@@ -229,7 +229,7 @@ export class View {
       const left = x + 2 + (marks ? tabIcons.cols + 1 : 0);
       w.write(`\x1b[${y + 1};${left + 1}H` + ink);
       writeEllipsis(w, l.text, Math.max(0, b.x + b.w - 3 - left));
-      if (marks && l.brand && left < b.x + b.w - 3) w.write(marks(l.brand, x + 2, y));
+      if (marks && l.brand && left < b.x + b.w - 3) marks(l.brand, x + 2, y);
     });
     const warning_y = this.buttons_y - this.warning.length - 1;
     this.warning.forEach((text, i) => line(warning_y + i, text, muted));

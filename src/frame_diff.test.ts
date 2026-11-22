@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { Differ } from "./frame_diff";
 import * as native from "./native_ffi";
+import * as hostImages from "./host_images";
 import * as rowGlide from "./row_glide";
 
 const render = (d: Differ, frame: string) => d.diff(frame).toString();
@@ -101,22 +102,24 @@ test("complete chunked uploads travel with their placements without repainting t
 
 test("the sidebar's moving and fading tint no longer resends its text", () => {
   const d = Differ.create(120, 40),
+    store = new hostImages.Store(),
+    cell = { width: 10, height: 22 },
     text = canvas + "\x1b[3;1H" + "x".repeat(110),
-    frame = (y: number, alpha: number) =>
-      text +
-      rowGlide.hide +
-      rowGlide.place(0, y, 30, 2, { top: 0, bottom: 40 }, alpha, { width: 10, height: 22 }) +
-      done;
+    // As the viewer does: the tint goes ahead of the frame, whose update places it.
+    frame = (y: number, alpha: number) => {
+      rowGlide.place(store.frame(cell), 0, y, 30, 2, { top: 0, bottom: 40 }, alpha, cell);
+      const { draw, redraw } = store.present();
+      return d.diff(text + done, { draw, redraw }).toString();
+    };
   try {
-    render(d, frame(4, 0.2));
+    frame(4, 0.2);
     for (const [y, alpha] of [
       [4.5, 0.2],
       [5, 0.15],
       [5, 0.05],
     ]) {
-      const out = render(d, frame(y, alpha));
-      expect(out).toContain("a=T");
-      expect(out).toContain("a=d,d=i");
+      const out = frame(y, alpha);
+      expect(out).toContain("a=p");
       expect(out).not.toContain("unchanged text");
       expect(out).not.toContain("x".repeat(110));
     }

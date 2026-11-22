@@ -1119,7 +1119,7 @@ test("each agent and conversation row leads with its brand mark", () => {
   const placed: [Provider, number, number][] = [];
   m.marks = (provider, col, row) => {
     placed.push([provider, col, row]);
-    return "<mark>";
+    return true;
   };
   const b = m.bounds(120, 40, side);
   m.draw(new Writer(), 120, 40, side);

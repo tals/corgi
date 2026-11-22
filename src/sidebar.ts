@@ -12,6 +12,7 @@ import * as resourceTooltip from "./resource_tooltip";
 import * as gitTooltip from "./git_tooltip";
 import * as dropdown from "./dropdown";
 import * as worktrees from "./worktrees";
+import type * as hostImages from "./host_images";
 import * as rowGlide from "./row_glide";
 import type { Summary as ArchiveSummary } from "./archive_summary";
 import type { Brand } from "./process_name";
@@ -700,6 +701,8 @@ export class View {
   supports_kitty_graphics = false;
   /** The host's cell in pixels, for images placed by the pixel. */
   cell: Cell | null = null;
+  /** The frame's pictures, where the host shows Kitty images. */
+  pictures: hostImages.Frame | null = null;
   archive_marks: ((brand: Brand, col: number, row: number) => void) | null = null;
   /** Places reception bars as an image `signalBars.cells` wide; without it they're blocks. */
   signal_marks: ((quality: Quality, col: number, row: number) => void) | null = null;
@@ -1840,7 +1843,6 @@ export class View {
       next_y += 1;
     });
     const list_top = next_y;
-    let glide = "";
     const end = v.drawEnd(v.badge("below"));
     const visible = entries.slice(v.offset, Math.min(entries.length, v.offset + v.shown(end)));
     const sleepers: string[] = [];
@@ -1891,9 +1893,10 @@ export class View {
         top +
         Number(e.worktree?.ghost === true && isHeading(e.target) && "worktree" in e.target) +
         Number(e.group.gap === true);
-      if (gliding) {
+      if (gliding && v.pictures) {
         const from = list_top + moved.from - v.rowsBefore(v.offset);
-        glide = rowGlide.place(
+        rowGlide.place(
+          v.pictures,
           w.column,
           rowGlide.position(from, top, moved.ms),
           v.width - 1,
@@ -1932,7 +1935,6 @@ export class View {
       v.drawGhost(row_writer, e, top);
       finish();
     });
-    if (glide.length > 0) w.write(glide);
     if (v.search !== null) v.line(w, v.rows - 1, i18n.t`↑↓  ↵ jump  Esc back`, panel);
     const t = v.thumb();
     if (t)

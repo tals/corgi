@@ -1,8 +1,6 @@
-//! The brand marks untitled tabs wear: each drawn at the host's cell size,
-//! sent to the host as a Kitty image the first time a tab shows it, and kept
-//! there after, so a mark pops in at most once and is sent only again when
-//! the font or the theme redraws it.
-import { deflateSync } from "node:zlib";
+//! The brand marks untitled tabs wear: each drawn at the host's cell size as
+//! a Kitty image, and drawn again when the font or the theme changes.
+import * as hostImages from "./host_images";
 import * as palette from "./palette";
 import { contrast } from "./terminal_palette";
 import { art } from "./assets/brand_icons";
@@ -12,7 +10,6 @@ import type { Cell } from "./fork_hero";
 
 /** The columns a mark takes in its tab, after the number. */
 export const cols = 2;
-const first_id = 730300;
 /** A one-color mark that would barely show on the tabs takes their ink. */
 const min_contrast = 1.5;
 let fills = new Map<Brand, { layers: Layer[]; colors: string }>();
@@ -46,61 +43,22 @@ export function size(cell: Cell): { side: number; top: number } {
     side = Math.max(1, box - 2 * Math.round(box / 10));
   return { side, top: Math.floor((cell.height - side) / 2) };
 }
-const id = (brand: Brand) => first_id + brands.indexOf(brand);
+/** Each mark as last drawn, and the size and colors it was drawn at. */
+const drawn = new Map<Brand, { key: string; image: hostImages.Image }>();
 
-/** The marks the host holds for one viewer. */
-export class Icons {
-  /** The size and colors each mark the host holds was drawn at. */
-  private held = new Map<Brand, string>();
-  private wanted = new Map<Brand, Cell>();
-  private placement = 0;
-  /** Takes the last frame's marks off the screen, keeping their pixels; the
-   * frame places those it shows again. */
-  begin(): string {
-    this.placement = 0;
-    let out = "";
-    for (const brand of this.held.keys()) out += `\x1b_Ga=d,d=i,i=${id(brand)},q=2\x1b\\`;
-    return out;
+/** Shows `brand`'s mark at column `col` of row `row`; `top` when it sits in
+ * a card drawn over the rest. */
+export function place(frame: hostImages.Frame, brand: Brand, col: number, row: number, cell: Cell, top = false): void {
+  const { side } = size(cell);
+  let mark = drawn.get(brand);
+  if (mark?.key !== key(brand, cell)) {
+    const rgba = rasterize(fill(brand).layers, art[brand].view, side, side);
+    drawn.set(
+      brand,
+      (mark = { key: key(brand, cell), image: new hostImages.Image({ rgba, width: side, height: side }) }),
+    );
   }
-  /** Places `brand`'s mark at column `col` of row `row`. Empty until the host
-   * holds it drawn for `cell` in the theme's colors, which asks for it. */
-  place(brand: Brand, col: number, row: number, cell: Cell): string {
-    if (this.held.get(brand) !== key(brand, cell)) {
-      this.wanted.set(brand, cell);
-      return "";
-    }
-    return `\x1b7\x1b[${row + 1};${col + 1}H\x1b_Ga=p,i=${id(brand)},p=${++this.placement},Y=${size(cell).top},z=1,C=1,q=2\x1b\\\x1b8`;
-  }
-  /** Sends the marks the frame asked for. */
-  end(): string {
-    let out = "";
-    for (const [brand, cell] of this.wanted) {
-      const { side } = size(cell),
-        pixels = rasterize(fill(brand).layers, art[brand].view, side, side),
-        data = deflateSync(pixels).toString("base64");
-      for (let start = 0; start < data.length; start += 4096) {
-        const end = Math.min(start + 4096, data.length),
-          more = Number(end < data.length);
-        out +=
-          (start === 0
-            ? `\x1b_Ga=t,t=d,f=32,o=z,s=${side},v=${side},i=${id(brand)},q=2,m=${more};`
-            : `\x1b_Gm=${more};`) +
-          data.slice(start, end) +
-          "\x1b\\";
-      }
-      this.held.set(brand, key(brand, cell));
-    }
-    this.wanted.clear();
-    return out;
-  }
-  /** Frees every mark on the host. */
-  clear(): string {
-    let out = "";
-    for (const brand of this.held.keys()) out += `\x1b_Ga=d,d=I,i=${id(brand)},q=2\x1b\\`;
-    this.held.clear();
-    this.wanted.clear();
-    return out;
-  }
+  frame.show(mark.image, { col, row, y: size(cell).top, top });
 }
 function key(brand: Brand, cell: Cell) {
   return `${cell.width}x${cell.height} ${fill(brand).colors}`;

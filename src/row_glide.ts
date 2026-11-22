@@ -3,6 +3,8 @@
 //! then fades there. The text itself only moves by whole rows. Hosts
 //! without Kitty graphics get a truecolor tint where the row lands.
 import { crc32, deflateSync } from "node:zlib";
+import * as hostImages from "./host_images";
+import { Rect } from "./layout";
 import { colors } from "./palette";
 import type { Cell } from "./fork_hero";
 
@@ -18,13 +20,13 @@ const strength = 0.2,
   appear_ms = 70,
   /** The row's text fades in from halfway through the glide, over this long. */
   reveal_ms = 170;
-const image_id = 730120;
-export const manager_image_id = 730121;
-/** Hides the tint. Freeing it also discards unrelated unplaced images on old Kitty. */
-export function hideImage(id: number): string {
-  return `\x1b7\x1b[1;1H\x1b_Ga=d,d=i,i=${id},q=2\x1b\\\x1b8`;
+/** A tint as last drawn, and the size, level and color it was drawn at. */
+export interface Tint {
+  drawn: { key: string; image: hostImages.Image } | null;
 }
-export const hide = hideImage(image_id);
+/** The tints the sidebar and the agent manager glide. */
+export const sidebar_tint: Tint = { drawn: null },
+  manager_tint: Tint = { drawn: null };
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 function ease(x: number) {
@@ -65,34 +67,27 @@ function chunk(type: string, data: Uint8Array): Buffer {
   out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
   return out;
 }
-const encoded = new Map<string, string>();
 /** A 1-bit PNG whose one palette entry is the accent at `alpha`. PNG
  * rather than o=z: Ghostty 1.3.1 crashes inflating o=z images over 64 KiB. */
-function pixels(width: number, height: number, alpha: number): string {
-  const key = `${width}x${height}:${alpha}`;
-  let data = encoded.get(key);
-  if (data === undefined) {
-    const ihdr = Buffer.alloc(13);
-    ihdr.writeUInt32BE(width);
-    ihdr.writeUInt32BE(height, 4);
-    ihdr.set([1, 3, 0, 0, 0], 8);
-    data = Buffer.concat([
-      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-      chunk("IHDR", ihdr),
-      chunk("PLTE", Uint8Array.from(colors.accent)),
-      chunk("tRNS", Uint8Array.of(alpha)),
-      chunk("IDAT", deflateSync(new Uint8Array((Math.ceil(width / 8) + 1) * height))),
-      chunk("IEND", new Uint8Array()),
-    ]).toString("base64");
-    if (encoded.size >= 128) encoded.clear();
-    encoded.set(key, data);
-  }
-  return data;
+function png(width: number, height: number, alpha: number): Buffer {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr.set([1, 3, 0, 0, 0], 8);
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr),
+    chunk("PLTE", Uint8Array.from(colors.accent)),
+    chunk("tRNS", Uint8Array.of(alpha)),
+    chunk("IDAT", deflateSync(new Uint8Array((Math.ceil(width / 8) + 1) * height))),
+    chunk("IEND", new Uint8Array()),
+  ]);
 }
-/** Places the tint, `cols` by `rows` cells, with its top at row `y` (a
+/** Shows the tint, `cols` by `rows` cells, with its top at row `y` (a
  * fraction moves it by the pixel) in column `x`, cut to the rows from `top`
- * to `bottom`. Empty when none of it shows. */
+ * to `bottom`; `over` when it sits in a card drawn over the rest. */
 export function place(
+  frame: hostImages.Frame,
   x: number,
   y: number,
   cols: number,
@@ -100,25 +95,29 @@ export function place(
   clip: { top: number; bottom: number },
   alpha: number,
   cell: Cell,
-  id = image_id,
-): string {
+  tint = sidebar_tint,
+  over = false,
+): void {
   const width = cols * cell.width,
     height = rows * cell.height,
     top = Math.round(y * cell.height),
     from = Math.max(0, clip.top * cell.height - top),
     to = Math.min(height, clip.bottom * cell.height - top),
-    // In 64 steps: each change uploads a new tint image.
+    // In 64 steps: each change sends a new tint image.
     level = Math.round((Math.round(clamp01(alpha) * 64) * 255) / 64);
-  if (width <= 0 || to <= from || level === 0) return "";
+  if (width <= 0 || to <= from || level === 0) return;
+  const key = `${width}x${height}:${level}:${colors.accent}`;
+  if (tint.drawn?.key !== key) {
+    tint.drawn = { key, image: new hostImages.Image({ png: png(width, height, level) }) };
+  }
   const shown = top + from,
     row = Math.floor(shown / cell.height);
-  const keys = `a=T,f=100,i=${id},p=1,Y=${shown - row * cell.height},y=${from},h=${to - from},z=-1,C=1,q=2`;
-  const data = pixels(width, height, level);
-  let out = `\x1b7\x1b[${row + 1};${x + 1}H`;
-  for (let offset = 0; offset < data.length; offset += 4096) {
-    const end = Math.min(offset + 4096, data.length),
-      more = Number(end < data.length);
-    out += (offset === 0 ? `\x1b_G${keys},m=${more};` : `\x1b_Gm=${more};`) + data.slice(offset, end) + "\x1b\\";
-  }
-  return out + "\x1b8";
+  frame.show(tint.drawn.image, {
+    col: x,
+    row,
+    y: shown - row * cell.height,
+    region: new Rect(0, from, width, to - from),
+    z: -1,
+    top: over,
+  });
 }
