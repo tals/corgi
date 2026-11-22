@@ -1918,7 +1918,17 @@ export class Controller {
     if (this.machines.length === 1) return rows;
     // Each row's place is looked up once, not on every comparison.
     const order = new Map(this.prefs.workspace_order.map((key, i) => [key, i])),
-      place = new Map(rows.map(row => [row.id, order.get(this.workspaceOrderKey(row.id)) ?? Infinity]));
+      place = new Map(rows.map(row => [row.id, order.get(this.workspaceOrderKey(row.id)) ?? Infinity])),
+      last = new Map<Machine, number>();
+    for (const row of rows) {
+      const machine = this.rowOf(row.id)!.machine,
+        at = place.get(row.id)!;
+      if (at !== Infinity && at > (last.get(machine) ?? -1)) last.set(machine, at);
+    }
+    // One missing from the saved order, such as a new workspace, goes below
+    // its machine's last saved row rather than after every machine.
+    for (const row of rows)
+      if (place.get(row.id) === Infinity) place.set(row.id, (last.get(this.rowOf(row.id)!.machine) ?? Infinity) + 0.5);
     rows.sort((a, b) => place.get(a.id)! - place.get(b.id)!);
     // A machine ordering its workspaces by activity keeps the places it has
     // among the others, and fills them in its own order.
