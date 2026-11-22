@@ -42,11 +42,13 @@ test("a pane's xdg-open hands one web link to Corgi, and anything else to the sy
   const run = (args: string[], env: Record<string, string> = {}) =>
     Bun.spawnSync(["xdg-open", ...args], { env: { PATH: `${helpers}:${system}:/usr/bin:/bin`, ...env } });
   expect(run(["https://example.com/a?b=1"]).exitCode).toBe(0);
+  expect(run(["HTTPS://example.com/UP"]).exitCode).toBe(0);
   expect(run(["/tmp/report.pdf"]).exitCode).toBe(0);
   expect(run(["https://example.com", "extra"]).exitCode).toBe(0);
   expect(run(["http://localhost:3000"], { [paneBrowser.passthrough]: "1" }).exitCode).toBe(0);
   expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
     `corgi __browser --via ${shim} https://example.com/a?b=1 `,
+    `corgi __browser --via ${shim} HTTPS://example.com/UP `,
     "xdg-open /tmp/report.pdf ",
     "xdg-open https://example.com extra ",
     "xdg-open http://localhost:3000 1",
@@ -167,7 +169,7 @@ test("an xdg-open handing a link on skips every Corgi stand-in, a nested runtime
 });
 
 test("a viewer opens links where it has a browser: not over SSH, and on Linux with a display", async () => {
-  const { opensLinks } = await import("./url_opener");
+  const { opensLinks } = await import("./web_links");
   expect(opensLinks({}, "darwin")).toBe(true);
   expect(opensLinks({ SSH_CONNECTION: "1 2 3 4" }, "darwin")).toBe(false);
   expect(opensLinks({}, "linux")).toBe(false);

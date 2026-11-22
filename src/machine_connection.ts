@@ -23,7 +23,7 @@ import * as protocol from "./protocol";
 import * as rpc_http from "./rpc_http";
 import * as i18n from "./i18n";
 import { sshViewer } from "./trackers/ports";
-import * as urlOpener from "./url_opener";
+import * as webLinks from "./web_links";
 import { Forwards, type Link } from "./port_forwards";
 
 /** A request that must run once, waiting for its reply. It gets its number
@@ -223,7 +223,7 @@ export class Endpoint {
     this.machine = new Machine(this.transport(), this.name, remote);
     // Forwards outlive paths: each connection takes the current one's way.
     // With no browser here, there's nothing to forward links to.
-    if (this.sample.ports && urlOpener.opensLinks())
+    if (this.sample.ports && webLinks.opensLinks())
       this.machine.forwards = new Forwards({
         prepare: () => this.ports().prepare(),
         dial: (host, port) => this.ports().dial(host, port),

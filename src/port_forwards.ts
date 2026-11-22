@@ -99,18 +99,26 @@ export function target(url: string): Target | null {
  * sign-in's `redirect_uri`. The server they name waits for the browser to
  * come back there, so they're forwarded as they are, never rewritten. */
 export function callbacks(url: string): string[] {
+  return nested(url, false);
+}
+/** Loopback URLs a link carries back into its own port, as a `next=` into
+ * its own app: they go through the link's own forward, so they work only
+ * while it keeps its port. */
+export function returns(url: string): string[] {
+  return nested(url, true);
+}
+function nested(url: string, own_port: boolean): string[] {
   const parsed = parse(url);
   if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) return [];
   const values = [...parsed.searchParams.values()],
     fragment = parsed.hash.slice(1),
     own = loopback(parsed);
   if (fragment.includes("=")) values.push(...new URLSearchParams(fragment).values());
-  // A link to the same port, as a `next=` back into its own app, is the link's own forward.
   return [
     ...new Set(
       values.filter(value => {
         const at = target(value);
-        return at !== null && !(own && at.host === own.host && at.port === own.port);
+        return at !== null && own_port === !!(own && at.host === own.host && at.port === own.port);
       }),
     ),
   ];
@@ -272,9 +280,16 @@ export class Forwards {
   }
   /** Ports of `url`'s callbacks that are in use here, so it can't come back. */
   unavailable(url: string): number[] {
-    return callbacks(url)
+    const blocked = callbacks(url)
       .map(callback => target(callback)!.port)
       .filter(port => this.blocked.has(port));
+    const own = target(url),
+      entry = own && this.find(own);
+    return entry && this.moved(entry, url) ? [...blocked, own!.port] : blocked;
+  }
+  /** Whether `url` names its own port to come back to, as `entry`, its forward, moved off it. */
+  private moved(entry: Entry, url: string): boolean {
+    return entry.forward.local !== entry.forward.port && returns(url).length > 0;
   }
   /** The pointer is on `url`, or on no link: a reservation lasts while it
    * stays, and for a while after. */
@@ -347,6 +362,7 @@ export class Forwards {
     if (!wanted) return { url, unavailable };
     const entry = await this.ensure(wanted, url, false);
     entry.forward.url = rewrite(url, entry.forward.local, entry.ipv6);
+    if (this.moved(entry, url)) unavailable.push(wanted.port);
     this.realize(entry);
     this.onChange();
     return { url: entry.forward.url, unavailable };
@@ -453,6 +469,11 @@ export class Forwards {
     // a browser's preconnect realizes nothing.
     socket.once("data", (first: Buffer) => {
       socket.pause();
+      // Asked for by the terminal's own Cmd+click: its link is the one under the pointer.
+      const hovered = this.hovered,
+        at = hovered && target(hovered);
+      if (at && at.host === entry.forward.host && at.port === entry.forward.port)
+        entry.forward.url = rewrite(hovered!, entry.forward.local, entry.ipv6);
       this.realize(entry);
       this.ready().then(
         () => {

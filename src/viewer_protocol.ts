@@ -1,4 +1,5 @@
 import * as telemetry from "./telemetry";
+import * as webLinks from "./web_links";
 import { readFile } from "node:fs/promises";
 import { dirname, join, isAbsolute } from "node:path";
 import { version } from "./viewer_version";
@@ -456,7 +457,7 @@ export function action(s: Server, cl: Client, q: Request<"action">, reply = new 
     if (!isAbsolute(String(act.value))) throw new Error("InvalidExecutable");
   } else if ((act.name === "onboard" || act.name === "open") && q.pane != null) target = viewerShowing(s, q.pane);
   else if (act.name === "open-url") {
-    if (!webLink(String(act.value))) throw new Error("InvalidURL");
+    if (!webLinks.openable(String(act.value))) throw new Error("InvalidURL");
     target = q.viewer == null ? linkViewer(s, q.pane) : targetViewer(s, q.viewer);
   } else target = targetViewer(s, q.viewer);
   send(s, reply, target, { kind: "action", name: q.name, value: q.value ?? "" });
@@ -470,10 +471,6 @@ export function switchWorkspace(s: Server, cl: Client, q: Request<"workspace.swi
   const target = targetViewer(s, q.viewer);
   s.runtime.getWorkspace(q.workspace);
   send(s, reply, target, { kind: "workspace", id: q.workspace });
-}
-/** A web link a viewer can be asked to open. */
-function webLink(url: string): boolean {
-  return /^https?:\/\//i.test(url) && !/[\x00-\x1f\x7f]/.test(url) && Buffer.byteLength(url) <= 4096;
 }
 /** The viewer a pane's program opens a link with: the one used last of those
  * showing the pane, else the one used last. Only viewers that open links

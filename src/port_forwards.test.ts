@@ -439,3 +439,49 @@ test("a pointer at rest gets its link reserved again after another machine's for
     borealis.close();
   }
 });
+
+test("a link back into its own port warns when its forward had to move off that port", async () => {
+  const taken = serve("this computer's"),
+    next = encodeURIComponent(`http://localhost:${taken}/home`),
+    url = `http://localhost:${taken}/login?next=${next}`;
+  const forwards = new portForwards.Forwards(fakeLink(new Map()).link);
+  try {
+    expect(portForwards.returns(url)).toEqual([`http://localhost:${taken}/home`]);
+    forwards.reserve(url);
+    await until(() => forwards.local(url) !== null);
+    expect(forwards.unavailable(url)).toEqual([taken]);
+    const opened = (await forwards.open(url))!;
+    expect(opened.unavailable).toEqual([taken]);
+    expect(opened.url).not.toContain(`localhost:${taken}/login`);
+    // The forward itself is an ordinary one: it stays.
+    expect(forwards.list[0].realized).toBe(true);
+  } finally {
+    forwards.close();
+  }
+  // Where it keeps its port, the way back works and nothing's said.
+  const free = await freePort(),
+    kept = `http://localhost:${free}/login?next=${encodeURIComponent(`http://localhost:${free}/home`)}`;
+  const other = new portForwards.Forwards(fakeLink(new Map()).link);
+  try {
+    expect(await other.open(kept)).toEqual({ url: kept, unavailable: [] });
+  } finally {
+    other.close();
+  }
+});
+
+test("the terminal's own Cmd+click leaves the forward remembering the link it opened", async () => {
+  const there = await freePort(),
+    home = `http://localhost:${there}/`,
+    admin = `http://localhost:${there}/admin?x=1`;
+  const forwards = new portForwards.Forwards(fakeLink(new Map([[there, serve("app")]])).link);
+  try {
+    forwards.hover(home);
+    await until(() => forwards.local(home) !== null);
+    forwards.hover(admin);
+    // What the browser asks for after Cmd+click on the link under the pointer.
+    expect(await (await fetch(`http://127.0.0.1:${there}/admin?x=1`, close)).text()).toBe("app /admin");
+    expect(forwards.list[0].url).toBe(admin);
+  } finally {
+    forwards.close();
+  }
+});

@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import * as os from "./os";
+import * as webLinks from "./web_links";
 
 /** The script BROWSER names, in the helpers' folder. */
 export const helper = "corgi-browser";
@@ -39,7 +40,7 @@ export function scripts(cli: string, platform: string = process.platform): Recor
       marker,
       "# A web link opens on the computer viewing this pane; anything else as before.",
       `if [ $# -eq 1 ] && [ -z "\${${passthrough}-}" ]; then`,
-      `  case "$1" in http://*|https://*) exec ${corgi} __browser --via "$0" "$1" ;; esac`,
+      `  case "$1" in [Hh][Tt][Tt][Pp]://*|[Hh][Tt][Tt][Pp][Ss]://*) exec ${corgi} __browser --via "$0" "$1" ;; esac`,
       "fi",
       "IFS=:",
       "for dir in $PATH; do",
@@ -95,7 +96,7 @@ export async function run(
     args = args.slice(2);
   }
   const pane = env.CORGI_PANE;
-  if (!env[passthrough] && pane && /^\d+$/.test(pane) && args.length === 1 && /^https?:\/\//i.test(args[0]))
+  if (!env[passthrough] && pane && /^\d+$/.test(pane) && args.length === 1 && webLinks.openable(args[0]))
     try {
       await ask(args[0], Number(pane));
       return 0;

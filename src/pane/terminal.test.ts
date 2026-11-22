@@ -309,6 +309,19 @@ test("a picked link copies its target only when the pane shows it", () => {
     t.destroy();
   }
 });
+test("a picked link takes its scheme in any case, as a click would open it", () => {
+  const t = Terminal.create(60, 4);
+  try {
+    t.feed("\x1b]8;;HTTPS://example.com/docs\x1b\\read the docs\x1b]8;;\x1b\\");
+    expect(t.pick("word", 6, 0, null, null, 0)).toEqual({
+      match: { x: 0, y: 0, end_x: 12, end_y: 0 },
+      shown: "read the docs",
+      copy: "read the docs",
+    });
+  } finally {
+    t.destroy();
+  }
+});
 test("a picked link spans the rows its detection joined", () => {
   const t = Terminal.create(40, 6),
     url = "https://example.com/?body=" + "it's%20a%20long%20report%20".repeat(4),

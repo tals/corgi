@@ -1,4 +1,5 @@
 import * as workspaceArchive from "./workspace_archive";
+import * as webLinks from "./web_links";
 import type { Input, Mouse } from "./terminal_input";
 import * as archiveSummary from "./archive_summary";
 //! Viewer-owned navigation, dialogs, input and rendering. Shared mutations
@@ -261,9 +262,6 @@ function continuesSeries(
   );
 }
 /** Links a click opens; native `linkIn` (pane/terminal.zig) picks the same ones. */
-export function openableLink(uri: string): boolean {
-  return /^https?:\/\//i.test(uri) && byteLength(uri) <= 4096;
-}
 /** How often a pointer at rest is checked for a link coming or going under it. */
 const link_recheck_ms = 250;
 /** Primary presses on one pane cell, each within `double_click_ms` of the
@@ -4221,7 +4219,7 @@ export class Controller {
   }
   /** A link a pane's program on `machine` asked to open, through its BROWSER. */
   openRequested(url: string, machine = this.machine): void {
-    if (!openableLink(url)) throw Error("InvalidURL");
+    if (!webLinks.openable(url)) throw Error("InvalidURL");
     this.openPaneLink(url, machine);
   }
   private openPaneLink(url: string, machine = this.machine): void {
@@ -8993,7 +8991,7 @@ export class Controller {
       if (!release && (button === 16 || plain_link) && !this.copy_mode) {
         for (const link of term.hyperlinks()) {
           if (link.row !== y - p.rect.y || x - p.rect.x < link.start || x - p.rect.x >= link.end) continue;
-          if (!openableLink(link.uri)) continue;
+          if (!webLinks.openable(link.uri)) continue;
           cl.port_click = portClick({
             x,
             y,

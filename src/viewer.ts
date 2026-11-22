@@ -16,7 +16,7 @@ import { Differ } from "./frame_diff";
 import * as framePacing from "./frame_pacing";
 import * as sound from "./sound";
 import { sshViewer } from "./trackers/ports";
-import * as urlOpener from "./url_opener";
+import * as webLinks from "./web_links";
 import type { Reply, RequestInput } from "./protocol";
 import * as protocol from "./protocol";
 import { n, ptr } from "./native_ffi";
@@ -194,7 +194,7 @@ export function syncRequest(
     resources: view.host.prefs.resources.enabled,
     resources_hash: machine.runtime.resources_hash,
     // With no browser here, a pane's program opens its links its own way.
-    links: urlOpener.opensLinks(),
+    links: webLinks.opensLinks(),
   };
 }
 /** How often a waiting control asks again whether what it names is there,

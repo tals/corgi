@@ -6,7 +6,8 @@ import { transport } from "./fixtures/transport";
 import * as worktrees from "./fixtures/worktrees";
 import { scopedEnv } from "./fixtures/env";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
-import { agentMessage, cardEffect, forkName, breadcrumbs, openableLink } from "./controller";
+import { agentMessage, cardEffect, forkName, breadcrumbs } from "./controller";
+import * as webLinks from "./web_links";
 import { Controller } from "./fixtures/input";
 import * as sim from "./providers/sim";
 import { Provider, byProvider } from "./providers";
@@ -4380,9 +4381,10 @@ test("the link under a pointer at rest is noticed, and a machine switched away f
 });
 
 test("a link's scheme is matched whatever its case", async () => {
-  expect(openableLink("HTTPS://example.com/")).toBe(true);
-  expect(openableLink("Http://example.com/")).toBe(true);
-  expect(openableLink("ftp://example.com/")).toBe(false);
+  expect(webLinks.openable("HTTPS://example.com/")).toBe(true);
+  expect(webLinks.openable("Http://example.com/")).toBe(true);
+  expect(webLinks.openable("ftp://example.com/")).toBe(false);
+  expect(webLinks.openable("https://example.com/\nrm")).toBe(false);
   const { s, done } = linking("https://example.com/", true);
   try {
     await s.perform({ name: "open-url", value: "HTTPS://example.com/" });
