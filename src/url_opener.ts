@@ -1,13 +1,18 @@
+import * as paneBrowser from "./pane_browser";
+import * as webLinks from "./web_links";
+
 export class Openers {
   private children = new Set<Bun.Subprocess>();
   reap() {
     for (const child of this.children) if (child.exitCode !== null) this.children.delete(child);
   }
   open(url: string) {
-    if (!/^https?:\/\//.test(url) || /[\x00-\x1f\x7f]/.test(url)) throw Error("InvalidURL");
+    if (!webLinks.openable(url)) throw Error("InvalidURL");
     this.reap();
     if (this.children.size >= 8) throw Error("TooManyOpenRequests");
     const child = Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], {
+      // A viewer started in a Corgi pane has its helper as BROWSER, which a system opener with no desktop would hand the link back to.
+      env: paneBrowser.handed(process.env),
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",

@@ -1,4 +1,5 @@
 import * as telemetry from "./telemetry";
+import * as webLinks from "./web_links";
 import { readFile } from "node:fs/promises";
 import { dirname, join, isAbsolute } from "node:path";
 import { version } from "./viewer_version";
@@ -138,6 +139,7 @@ export async function synchronize(s: Server, cl: Client, q: Sync) {
   const before = cl.view_focus;
   cl.view_focus = cl.interests.some(i => i.pane === q.focus) ? q.focus : null;
   cl.watched = q.watched;
+  cl.links = q.links;
   cl.resources = q.resources;
   cl.resource_detail =
     q.resource_detail !== null && s.runtime.workspaces.get(q.resource_detail) ? q.resource_detail : null;
@@ -454,7 +456,11 @@ export function action(s: Server, cl: Client, q: Request<"action">, reply = new 
     target = viewerShowing(s, q.pane);
     if (!isAbsolute(String(act.value))) throw new Error("InvalidExecutable");
   } else if ((act.name === "onboard" || act.name === "open") && q.pane != null) target = viewerShowing(s, q.pane);
-  else target = targetViewer(s, q.viewer);
+  else if (act.name === "open-url") {
+    if (!webLinks.openable(String(act.value))) throw new Error("InvalidURL");
+    // A pane's program falls back on its own browser; `corgi action` names no pane, and goes as any action does.
+    target = q.viewer == null && q.pane != null ? linkViewer(s, q.pane) : targetViewer(s, q.viewer);
+  } else target = targetViewer(s, q.viewer);
   send(s, reply, target, { kind: "action", name: q.name, value: q.value ?? "" });
 }
 export function focus(s: Server, cl: Client, q: Request<"focus">, reply = new Reply(cl)) {
@@ -466,6 +472,24 @@ export function switchWorkspace(s: Server, cl: Client, q: Request<"workspace.swi
   const target = targetViewer(s, q.viewer);
   s.runtime.getWorkspace(q.workspace);
   send(s, reply, target, { kind: "workspace", id: q.workspace });
+}
+/** The viewer a pane's program opens a link with: the one used last of those
+ * showing the pane, else the one used last. When that one doesn't open links
+ * for this machine, the program falls back to its own browser, rather than
+ * the link opening on another viewer's computer. */
+export function linkViewer(s: Server, pane: number | null | undefined): Client {
+  let target: Client | null = null,
+    showing = false;
+  for (const view of s.clients) {
+    if (!view.viewer || view.dead) continue;
+    const shows = pane != null && view.interests.some(i => i.pane === pane);
+    if (!target || (shows && !showing) || (shows === showing && view.active_seq > target.active_seq)) {
+      target = view;
+      showing = shows;
+    }
+  }
+  if (!target?.links) throw new Error("NoViewer");
+  return target;
 }
 export function copy(s: Server, pane: number, text: string) {
   let target: Client | null = null;

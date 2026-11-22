@@ -224,6 +224,8 @@ export interface Ui {
   startup_waits: StartupWait[];
   startup_card: startupCard.State | null;
   connection_card: connectivityCard.Card | null;
+  /** Where the shown machine's links to its own loopback point here, once reserved. */
+  link_forwards: { local(url: string): string | null } | null;
   sync_notice: syncNotice.State | null;
   /** A pane an action is opening has the keyboard: no pane shows focus. */
   pane_opening: boolean;
@@ -334,6 +336,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     startup_waits: [],
     startup_card: null,
     connection_card: null,
+    link_forwards: null,
     sync_notice: null,
     pane_opening: false,
     signal_bars_hidden: false,
@@ -606,6 +609,13 @@ function dimsPanes(u: Ui): boolean {
     u.sidebar_drawer !== null ||
     u.review_keys
   );
+}
+/** The hovered link's rows with its OSC 8 target swapped for `local`, so
+ * the host terminal's own Cmd+click opens it forwarded. */
+export function pointLink(rows: string, pane: number, id: bigint, uri: string, local: string): string {
+  const open = `\x1b]8;id=corgi-${pane}-${id.toString(16)};`;
+  // Split and joined, so a $ in the link isn't read as a replacement pattern.
+  return rows.split(`${open}${uri}\x1b\\`).join(`${open}${local}\x1b\\`);
 }
 /** Whether a pane's cells can stay in its native surface. The viewer's own
  * decorations (overlays, dimming, hover, restoring) are decided here; native
@@ -929,6 +939,8 @@ export function frame(
     card_rect !== null &&
     card_rect.contains(u.pointer.x, u.pointer.y) &&
     side.hit(u.pointer.x, u.pointer.y).tag !== "workspace";
+  // The machine card hides the links beneath it too.
+  const on_machine_card = u.pointer !== null && !!u.connection_card?.rect.contains(u.pointer.x, u.pointer.y);
   if (u.pointer) {
     const pointer = u.pointer;
     if (on_link_card) {
@@ -960,7 +972,8 @@ export function frame(
         for (const ws of u.workspaces) {
           if (ws.id !== menu.workspace) continue;
           const index = menu.hit(ws, width, height, pointer.x, pointer.y);
-          if (index !== null) hovered_uri = sidebar.workspaceUrl(ws, index);
+          const url = index === null ? null : sidebar.workspaceUrl(ws, index);
+          if (url !== null) hovered_uri = sidebar.linkStatus(ws, url);
           break;
         }
       } else {
@@ -995,7 +1008,9 @@ export function frame(
           const add_x = side.tabX() + addTabX(view, width - side.tabX() - side.panel);
           link_pointer = link_pointer || (pointer.x >= add_x && pointer.x < add_x + 3);
         }
-        hovered_uri = sidebar.portLink(side, u.workspaces, pointer.x, pointer.y);
+        const port = sidebar.portWorkspace(side, u.workspaces, pointer.x, pointer.y),
+          port_url = sidebar.portLink(side, u.workspaces, pointer.x, pointer.y);
+        hovered_uri = port && port_url ? sidebar.linkStatus(port, port_url) : null;
         // The sidebar's last column drags its width, ahead of any control there.
         if (side.width > 0 && pointer.x === side.width - 1) resize_hover = "horizontal";
         else if (u.review_width > 0 && pointer.x === width - u.review_width) resize_hover = "horizontal";
@@ -1056,15 +1071,31 @@ export function frame(
       continue;
     }
     p.terminal.updateRender();
-    let hovered: bigint | null = null;
-    if (u.pointer && r.contains(u.pointer.x, u.pointer.y) && !on_card && !on_link_card && noOverlay(u)) {
+    let hovered: bigint | null = null,
+      forwarded: { uri: string; local: string } | null = null;
+    if (
+      u.pointer &&
+      r.contains(u.pointer.x, u.pointer.y) &&
+      !on_card &&
+      !on_machine_card &&
+      !on_link_card &&
+      noOverlay(u)
+    ) {
       const link = linkTooltip.at(p.terminal, r, u.pointer.x, u.pointer.y);
       hovered = link?.id ?? null;
       hovered_uri = link?.uri ?? hovered_uri;
+      const local = link && u.link_forwards?.local(link.uri);
+      if (link && local) {
+        forwarded = { uri: link.uri, local };
+        if (local !== link.uri) hovered_uri = `${link.uri}  →  ${local}`;
+      }
     }
     const dim = dimsPanes(u);
     if (retained && retainable(u, p, r, dim, hovered)) retained.pane(w, p.terminal, p.id, r);
-    else w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered));
+    else {
+      const rows = p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered);
+      w.write(forwarded && hovered !== null ? pointLink(rows, p.id, hovered, forwarded.uri, forwarded.local) : rows);
+    }
     w.write("\x1b[0m");
     if (p.restoring.length > 0 || p.dormant) {
       const id = p.id;
@@ -1411,6 +1442,8 @@ export function frame(
     if (u.pictures && u.link_card.thumbnail) linkThumbnail.place(u.pictures, link_rect, u.link_card.thumbnail);
     cover(link_rect);
   }
+  // Hidden under an overlay, it takes no keys.
+  if (u.connection_card) u.connection_card.shown = noOverlay(u);
   if (u.connection_card && noOverlay(u)) {
     connectivityCard.draw(w, u.connection_card);
     cover(u.connection_card.rect);

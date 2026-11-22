@@ -31,6 +31,8 @@ import {
   portLink,
   portName,
   portWorkspace,
+  workspaceUrl,
+  linkStatus,
   writePortLabel,
   drawPorts,
   PortMenu,
@@ -583,6 +585,36 @@ test("workspace port labels contain OSC8 URLs selected per viewer", () => {
   w = new Writer();
   drawPorts(w, ws, 25, false);
   expect(has(w.s, "http://100.80.1.2:3000")).toBe(true);
+});
+
+test("a remote machine's loopback server links through a forward, once the pointer reserves its port", () => {
+  const ws = workspaceEntry({
+    id: viewerRef.workspace(1, 1),
+    name: "test",
+    cwd: "/tmp",
+    active: true,
+    remote_links: true,
+    ports: {
+      workspaces: [
+        { id: viewerRef.workspace(1, 1), endpoints: [endpoint({ port: 8888, scheme: "http", http_status: 200 })] },
+      ],
+    },
+  });
+  // With nothing to forward it through, this computer can't reach it.
+  expect(workspaceUrl(ws, 0)).toBeNull();
+  let local: string | null = null;
+  ws.link_forwards = { opens: () => local } as any;
+  expect(workspaceUrl(ws, 0)).toBe("http://localhost:8888");
+  // Until a port here is reserved, the host terminal's Cmd+click has nowhere to go.
+  let w = new Writer();
+  drawPorts(w, ws, 25, false);
+  expect(has(w.s, "Open Link ↗")).toBe(true);
+  expect(has(w.s, "\x1b]8;id=")).toBe(false);
+  local = "http://localhost:8889";
+  w = new Writer();
+  drawPorts(w, ws, 25, false);
+  expect(has(w.s, ";http://localhost:8889\x1b\\")).toBe(true);
+  expect(linkStatus(ws, "http://localhost:8888")).toBe("http://localhost:8888  →  http://localhost:8889");
 });
 
 test("non-browser endpoints have no link-out control", () => {

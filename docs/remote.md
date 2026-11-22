@@ -33,7 +33,8 @@ With saved profiles, `corgi` starts locally and connects to the other machines
 independently in the background. The sidebar shows **all workspaces**, with a
 shaded machine header above each group and reception bars for remote link
 responsiveness and reliability. Hover over a header for one second to see that
-machine's response time, traffic and recent history. Headers repeat when workspaces
+machine's response time, traffic, recent history and
+[forwarded ports](#links-to-localhost). Headers repeat when workspaces
 from different machines are mixed. Click a machine header to collapse or expand
 its workspaces without switching the active pane. Collapsing preserves their
 saved order, including workspaces interleaved with other machines.
@@ -269,6 +270,63 @@ late abandoned task cannot clear or revive its replacement.
 
 OpenSSH documents [Unix-socket forwarding](https://man.openbsd.org/ssh#L~4)
 and the [client configuration](https://man.openbsd.org/ssh_config).
+
+## Links to localhost
+
+A link in a remote pane opens in this computer's browser. One to that machine's
+own loopback (`localhost`, `127.0.0.1`, `[::1]`, or a wildcard address servers
+print, such as `0.0.0.0`) opens through a forward of its port. Resting the
+pointer on the link reserves a port here: the same number when it's free, else
+the next one up, else any. Corgi then draws the link pointing there, so the
+terminal's own Cmd+click opens it forwarded, as a click or Ctrl+click does.
+The bottom line shows where it goes when the port differs. Only the link's host
+and port change; its path, query and fragment stay as the server printed them.
+A server listening only on the machine's loopback, such as
+`python -m http.server -b localhost`, gets a link button on its workspace's
+row the same way.
+
+A reservation holds nothing on the machine until the first request or a click
+realizes it. Until then it isn't listed, any forward that wants its port takes
+it, and it expires a minute after the pointer leaves. Realized forwards last as
+long as the viewer.
+
+A sign-in link whose callback is the machine's localhost, such as
+`redirect_uri=http://localhost:1455/auth/callback`, opens as it is, without a
+forward, so the browser can't come back to the machine.
+
+Programs on a remote machine open links the same way. On a Linux machine with
+no browser of its own, with no display or reached over SSH, each pane's
+`BROWSER` names Corgi's helper, which hands a web link to the viewer in use; the
+viewer opens it as a click would, so `gh auth login` or a dev server's "open in
+browser" works there. When that viewer can't open it here, being on the pane's
+own computer or without a browser itself, or none is attached, the link goes to
+the pane's previous `BROWSER`, then the system's opener, else the helper prints
+it. So does a link from a machine not shown since Corgi connected to it; one
+shown before opens its links at once from the background. A program that
+ignores `BROWSER`, or a shell started before Corgi set it, opens links as it did
+before. Corgi leaves `BROWSER` alone on a Linux desktop, whose programs open
+links on its screen, and on macOS, where tools such as Vite open it as an
+application.
+
+`./go.ts --sandbox forwarding` opens a world to try this in: `devbox`, a
+stand-in machine, runs a dev server.
+
+Over SSH, each connection is an `ssh -W` on a master of its own, so a page
+loading can't hold up typing or pane updates. The machine's SSH server must
+allow TCP forwarding (`AllowTcpForwarding`, on by default).
+
+The machine's hover card lists realized forwards under **Forwarded ports**: the port there,
+the server on it when the machine's port tracker knows it, the port here, and its
+open connections or why the last one failed. As with the resource card, hovering
+a port selects it, and clicking one or pressing an arrow over the card holds it
+open for the keyboard.
+
+| Key | Does |
+| --- | --- |
+| `↑` `↓` | Select a port |
+| `Enter` | Open its link again: the one it was made for, or the last one opened through Corgi |
+| `x` | Stop forwarding it |
+| `Esc` | Close the card |
 
 ## Image uploads
 

@@ -7,6 +7,7 @@ import * as worktrees from "./fixtures/worktrees";
 import { scopedEnv } from "./fixtures/env";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { agentMessage, cardEffect, forkName, breadcrumbs } from "./controller";
+import * as webLinks from "./web_links";
 import { Controller } from "./fixtures/input";
 import * as sim from "./providers/sim";
 import { Provider, byProvider } from "./providers";
@@ -4042,8 +4043,14 @@ test.each([
 
 /** An attached 100×30 controller on `snapshot` whose daemon answers with `daemon`,
  * its clock held at 1 s and its first pane showing `text`. `done` puts it away. */
-function showing(text: string, daemon: Parameters<typeof transport>[0], snapshot = folders("/a", "/b")) {
-  const s: any = new Controller({ request: transport(daemon).request });
+function showing(
+  text: string,
+  daemon: Parameters<typeof transport>[0],
+  snapshot = folders("/a", "/b"),
+  remote = false,
+) {
+  const connection = { request: transport(daemon).request };
+  const s: any = new Controller(remote ? new Machine(connection, "atlas", true) : connection);
   s.receiveSnapshot(snapshot);
   s.width = 100;
   s.height = 30;
@@ -4575,11 +4582,15 @@ test("a double-click on the name line renames, not one on the row's other lines"
  * "hello" a link to `url`, and whose daemon fails every request (an old
  * daemon has no viewer.pick). `click` presses and releases `dx` cells right
  * of the link's second cell. */
-function linking() {
-  const url = "https://example.com/hello";
-  const { s, term, rect, done } = showing(`  \x1b]8;;${url}\x1b\\hello\x1b]8;;\x1b\\ there`, async op => {
-    throw Error(op === "viewer.pick" ? "UnknownOperation" : "UnexpectedRequest");
-  });
+function linking(url = "https://example.com/hello", remote = false) {
+  const { s, term, rect, done } = showing(
+    `  \x1b]8;;${url}\x1b\\hello\x1b]8;;\x1b\\ there`,
+    async op => {
+      throw Error(op === "viewer.pick" ? "UnknownOperation" : "UnexpectedRequest");
+    },
+    folders("/a", "/b"),
+    remote,
+  );
   const mouse = (button: number, dx = 0, release = false) =>
     mouseInput(s, `\x1b[<${button};${rect.x + 4 + dx};${rect.y + 1}${release ? "m" : "M"}`);
   const click = async (button = 0, dx = 0) => {
@@ -4596,6 +4607,140 @@ function linking() {
   return { s, url, term, mouse, click, opened, done };
 }
 
+test("the pointer on a link to an SSH machine's loopback reserves its port, and the link points there", async () => {
+  const { s, url, mouse, done } = linking("http://localhost:5173/app", true);
+  const local = "http://localhost:49999/app",
+    reserved: string[] = [];
+  s.machine.forwards = {
+    hover: (uri: string | null) => uri !== null && reserved.push(uri),
+    local: (uri: string) => (uri === url ? local : null),
+  };
+  try {
+    await mouse(35);
+    expect(reserved).toEqual([url]);
+    // The host terminal's own Cmd+click opens what the link says.
+    const frame = s.frame();
+    expect(frame).toContain(`;${local}\x1b\\`);
+    expect(frame).not.toContain(`;${url}\x1b\\`);
+    expect(frame).toContain(`${url}  →  ${local}`);
+    // Resting on it asks nothing more.
+    await mouse(35);
+    expect(reserved).toEqual([url]);
+  } finally {
+    done();
+  }
+});
+
+test("the link under a pointer at rest is noticed, and a machine switched away from lets its link go", async () => {
+  const { s, url, done } = linking("http://localhost:5173/app", true);
+  const hovered: (string | null)[] = [];
+  s.machine.forwards = { hover: (uri: string | null) => hovered.push(uri), local: () => null };
+  try {
+    // The pointer was already there when the link came.
+    const { rect } = s.layoutView().placements(s.area())[0];
+    s.pointer = { x: rect.x + 3, y: rect.y };
+    await s.expireInput();
+    expect(hovered).toEqual([url]);
+    s.switchMachine(new Machine(s.connection, "borealis", true));
+    expect(hovered).toEqual([url, null]);
+  } finally {
+    done();
+  }
+});
+
+test("a sidebar link to an SSH machine's loopback server reserves its port, and a click opens it from there", async () => {
+  const { s, done } = linking("https://example.com/", true);
+  const url = "http://localhost:8888",
+    hovered: (string | null)[] = [];
+  s.machine.forwards = { hover: (uri: string | null) => hovered.push(uri), local: () => null };
+  const server = { label: "", label_pending: false, pid: 9, pane: 1, name: "python3", transport: "tcp" };
+  s.machine.runtime.ports = {
+    workspaces: [
+      {
+        id: s.machine.runtime.workspaces.items[0].id,
+        background: 0,
+        endpoints: [
+          {
+            ...server,
+            bind_address: "127.0.0.1",
+            port: 8888,
+            ipv6: false,
+            interfaces: [{ name: "lo", address: "127.0.0.1", kind: "loopback", ipv6: false }],
+            scheme: "http",
+            http_status: 200,
+            probed_at: 0,
+          },
+        ],
+      },
+    ],
+  };
+  try {
+    const view = s.sidebarView([]),
+      rows = s.workspaceRows();
+    let at: { x: number; y: number } | null = null;
+    for (let y = 0; y < s.height && !at; y++)
+      for (let x = 0; x < view.width && !at; x++) if (sidebar.portLink(view, rows, x, y) === url) at = { x, y };
+    expect(at).not.toBeNull();
+    await mouseInput(s, `\x1b[<35;${at!.x + 1};${at!.y + 1}M`);
+    expect(hovered).toEqual([url]);
+    await mouseInput(s, `\x1b[<0;${at!.x + 1};${at!.y + 1}M`);
+    await mouseInput(s, `\x1b[<0;${at!.x + 1};${at!.y + 1}m`);
+    expect(s.effects).toEqual([{ open_url: url, machine: s.machine.id }]);
+  } finally {
+    done();
+  }
+});
+
+test("a link's scheme is matched whatever its case", async () => {
+  expect(webLinks.openable("HTTPS://example.com/")).toBe(true);
+  expect(webLinks.openable("Http://example.com/")).toBe(true);
+  expect(webLinks.openable("ftp://example.com/")).toBe(false);
+  expect(webLinks.openable("https://example.com/\nrm")).toBe(false);
+  const { s, done } = linking("https://example.com/", true);
+  try {
+    await s.perform({ name: "open-url", value: "HTTPS://example.com/" });
+    expect(s.effects).toEqual([{ open_url: "HTTPS://example.com/", machine: s.machine.id }]);
+  } finally {
+    done();
+  }
+});
+
+test("a pane's program opens a link through its BROWSER, as a click on it would", async () => {
+  const { s, done } = linking("https://example.com/", true);
+  try {
+    await s.perform({ name: "open-url", value: "http://localhost:1455/auth" });
+    expect(s.effects).toEqual([{ open_url: "http://localhost:1455/auth", machine: s.machine.id }]);
+    s.clearEffects();
+    await expect(s.perform({ name: "open-url", value: "file:///etc/passwd" })).rejects.toThrow("InvalidURL");
+    expect(s.effects).toEqual([]);
+  } finally {
+    done();
+  }
+});
+
+test("a link in an SSH machine's pane names the machine, whose loopback it may point at", async () => {
+  const { s, url, click, opened, done } = linking("http://localhost:5173/app", true);
+  try {
+    await click(16);
+    expect(s.effects).toEqual([{ open_url: url, machine: s.machine.id }]);
+    s.clearEffects();
+    clock.advance(clock.double_click_ms);
+    await click();
+    clock.advance(clock.double_click_ms);
+    await s.expireInput();
+    expect(s.effects).toEqual([{ open_url: url, machine: s.machine.id }]);
+    s.clearEffects();
+    // A pending open is the machine's: another machine shown drops it.
+    clock.advance(clock.double_click_ms);
+    await click();
+    s.pending_open.machine = new Machine(s.connection, "borealis", true);
+    clock.advance(clock.double_click_ms);
+    expect(await opened()).toEqual([]);
+  } finally {
+    done();
+  }
+});
+
 test("a plain click on a pane link opens it once the double-click window has passed, unless its pane loses focus or closes", async () => {
   const { s, url, mouse, click, opened, done } = linking();
   try {
@@ -4608,7 +4753,7 @@ test("a plain click on a pane link opens it once the double-click window has pas
     const at = clock.milliTimestamp();
     await click();
     expect(s.effects).toEqual([]);
-    expect(s.pending_open).toEqual({ url, pane: 1, due: at + clock.double_click_ms });
+    expect(s.pending_open).toEqual({ url, machine: s.machine, pane: 1, due: at + clock.double_click_ms });
     expect(await opened()).toEqual([]);
     clock.advance(clock.double_click_ms - 1);
     expect(await opened()).toEqual([]);

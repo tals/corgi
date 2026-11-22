@@ -384,10 +384,10 @@ pub const Terminal = struct {
         const at = for (links, 0..) |link, i| {
             if (link.row == cell.y and link.start <= cell.x and cell.x < link.end) break i;
         } else return null;
-        // Only links a click would open, as `openableLink` in
-        // src/controller.ts decides; a file:// name picks as a word.
+        // Only links a click would open, as `openable` in
+        // src/web_links.ts decides; a file:// name picks as a word.
         const uri = links[at].uri;
-        const web = std.mem.startsWith(u8, uri, "http://") or std.mem.startsWith(u8, uri, "https://");
+        const web = std.ascii.startsWithIgnoreCase(uri, "http://") or std.ascii.startsWithIgnoreCase(uri, "https://");
         if (!web or uri.len > 4096) return null;
         var first = at;
         while (first > 0 and continues(links, first)) first -= 1;

@@ -6,9 +6,39 @@ import * as ssh from "./ssh";
 import * as telemetry from "./telemetry";
 import * as lab from "./remote_lab";
 import type { Profile } from "./machines";
+import type * as portForwards from "./port_forwards";
 
 /** SSH authentication and channel setup precede the first daemon reply. */
 export const startup_ms = 30_000;
+
+/** Runs `ssh` for one of `profile`'s lanes, handing on what it says. */
+function spawnSsh(profile: Profile, args: string[], lane: ssh.Lane, fresh: boolean, stderr: (chunk: string) => void) {
+  const child = spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"] });
+  telemetry.event("remote.transport", {
+    machine: profile.name,
+    phase: "spawn",
+    lane,
+    pid: child.pid ?? 0,
+    fresh: Number(fresh),
+  });
+  child.stderr!.on("data", (chunk: Buffer) => stderr(chunk.toString()));
+  child.once("close", (code, signal) => {
+    telemetry.event("remote.transport", {
+      machine: profile.name,
+      phase: "exit",
+      pid: child.pid ?? 0,
+      code: code ?? -1,
+      signal: signal ?? "",
+    });
+  });
+  return child;
+}
+function stop(child: ChildProcess): void {
+  child.kill();
+  child.stdin?.destroy();
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+}
 
 export function bridgePreamble(connected?: () => void): Transform {
   const preamble = new ssh.Preamble(ssh.bridgeMarker, connected);
@@ -106,7 +136,7 @@ export class Remote {
         faults.down.destroy();
       }
       faults.done();
-      this.stop(child);
+      stop(child);
       this.clients.delete(client);
     };
     const faults = lab.local.connect(this.profile.name, close);
@@ -133,35 +163,16 @@ export class Remote {
     });
   }
   private spawn(args: string[]): ChildProcess {
-    const child = spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawnSsh(
+      this.profile,
+      args,
+      this.lane,
+      this.fresh,
+      chunk => (this.stderr = (this.stderr + chunk).slice(-4096)),
+    );
     this.children.add(child);
-    telemetry.event("remote.transport", {
-      machine: this.profile.name,
-      phase: "spawn",
-      lane: this.lane,
-      pid: child.pid ?? 0,
-      fresh: Number(this.fresh),
-    });
-    child.stderr!.on("data", (chunk: Buffer) => {
-      this.stderr = (this.stderr + chunk.toString()).slice(-4096);
-    });
-    child.once("close", (code, signal) => {
-      this.children.delete(child);
-      telemetry.event("remote.transport", {
-        machine: this.profile.name,
-        phase: "exit",
-        pid: child.pid ?? 0,
-        code: code ?? -1,
-        signal: signal ?? "",
-      });
-    });
+    child.once("close", () => this.children.delete(child));
     return child;
-  }
-  private stop(child: ChildProcess): void {
-    child.kill();
-    child.stdin?.destroy();
-    child.stdout?.destroy();
-    child.stderr?.destroy();
   }
   /** Older saved profiles retain forwarding until machine setup discovers a native bridge. */
   private async forward(): Promise<void> {
@@ -212,7 +223,80 @@ export class Remote {
     this.stopped = true;
     this.listener?.close();
     for (const client of this.clients) client.destroy();
-    for (const child of this.children) this.stop(child);
+    for (const child of this.children) stop(child);
     rmSync(this.directory, { recursive: true, force: true });
+  }
+}
+
+/** What a failed `ssh -W` said. Through a shared master, a channel the
+ * machine refused reads only "Stdio forwarding failed". */
+export function portFailure(stderr: string): portForwards.Failure {
+  if (/administratively prohibited/i.test(stderr)) return "prohibited";
+  if (/open failed|forwarding.*failed|refused by peer/i.test(stderr)) return "refused";
+  return "unreachable";
+}
+/** SSH's own connect timeout, and a little more. */
+const ports_prepare_ms = 35_000;
+/** Ports on the machine's loopback: each connection is an `ssh -W` on the
+ * forward lane, a master of its own, so a page loading can't hold up typing
+ * or pane data. */
+export class Ports implements portForwards.Link {
+  constructor(readonly profile: Profile) {}
+  private args(...extra: string[]): string[] {
+    const list = ssh.args(this.profile.target, false, false, "forward");
+    list.splice(list.indexOf("--"), 0, ...extra);
+    return list;
+  }
+  private check(): Promise<boolean> {
+    return new Promise(resolve => {
+      const child = spawn("ssh", this.args("-O", "check"), { stdio: "ignore" });
+      child.once("error", () => resolve(false));
+      child.once("exit", code => resolve(code === 0));
+    });
+  }
+  async prepare(signal: AbortSignal): Promise<void> {
+    if (await this.check()) return;
+    if (signal.aborted) throw Error("ForwardsClosed");
+    // With ControlPersist, -N backgrounds the new master once it's in. One
+    // that lost the race to another viewer's master would stay in front
+    // instead, so the check decides.
+    const child = spawnSsh(this.profile, this.args("-N"), "forward", false, () => {});
+    child.stdin!.end();
+    let exited: number | null | undefined;
+    child.once("error", () => (exited = -1));
+    child.once("exit", code => (exited = code));
+    const until = performance.now() + ports_prepare_ms,
+      cancel = () => stop(child);
+    signal.addEventListener("abort", cancel);
+    try {
+      while (performance.now() < until && !signal.aborted) {
+        if (exited !== undefined && exited !== 0) break;
+        if (await this.check()) return;
+        await Bun.sleep(200);
+      }
+    } finally {
+      signal.removeEventListener("abort", cancel);
+      if (exited === undefined) stop(child);
+    }
+    throw Error(signal.aborted ? "ForwardsClosed" : "MachineUnreachable");
+  }
+  dial(host: string, port: number): portForwards.Channel {
+    let said = "";
+    const child = spawnSsh(
+      this.profile,
+      this.args("-W", `${host}:${port}`),
+      "forward",
+      false,
+      chunk => (said = (said + chunk).slice(-4096)),
+    );
+    return {
+      input: child.stdin!,
+      output: child.stdout!,
+      done: new Promise(resolve => {
+        child.once("error", () => resolve("unreachable"));
+        child.once("close", code => resolve(code ? portFailure(said) : null));
+      }),
+      close: () => stop(child),
+    };
   }
 }

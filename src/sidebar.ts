@@ -19,6 +19,7 @@ import type { Brand } from "./process_name";
 import * as tabIcons from "./tab_icons";
 import type { Cell } from "./fork_hero";
 import { url as portUrl } from "./trackers/ports";
+import type { Forwards } from "./port_forwards";
 import { cpuText, memoryText } from "./trackers/resources";
 import { View as ContextView } from "./usage/context_window";
 
@@ -536,6 +537,19 @@ export interface PortsSnapshot<Id = number> {
 function portEndpoints<Id>(ports: PortsSnapshot<Id>, id: Id): Endpoint[] {
   return (ports?.workspaces ?? []).find(w => w.id === id)?.endpoints ?? [];
 }
+function endpointUrl<Id>(ws: WorkspaceEntry<Id>, endpoint: Endpoint): string | null {
+  return portUrl(endpoint as any, ws.remote_links, ws.link_forwards !== null);
+}
+/** Where the host terminal's Cmd+click on `url` goes. A remote machine's
+ * loopback goes nowhere until the pointer on it reserves its port here. */
+export function linkTarget<Id>(ws: WorkspaceEntry<Id>, url: string): string | null {
+  return ws.link_forwards ? ws.link_forwards.opens(url) : url;
+}
+/** `url` as the status line shows it, with where it opens when a forward moved it. */
+export function linkStatus<Id>(ws: WorkspaceEntry<Id>, url: string): string {
+  const opens = linkTarget(ws, url);
+  return opens && opens !== url ? `${url}  →  ${opens}` : url;
+}
 export interface ConnectionStatus {
   metrics?: string;
   compact?: string;
@@ -568,6 +582,8 @@ export interface WorkspaceEntry<Id = viewerRef.Workspace> {
   resources: Work;
   ports: PortsSnapshot<Id>;
   remote_links: boolean;
+  /** A remote machine's forwards here, through which its loopback servers open. */
+  link_forwards: Forwards | null;
   git_push: GitPush;
   git_ahead: number | null;
   git_commits: GitCommit[];
@@ -599,6 +615,7 @@ export function workspaceEntry<Id>(
     resources: work({ id: 0 }),
     ports: { workspaces: [] },
     remote_links: false,
+    link_forwards: null,
     git_push: { phase: "idle", message: "" },
     git_ahead: null,
     git_commits: [],
@@ -2582,7 +2599,7 @@ export function workspaceUrlName<Id>(ws: WorkspaceEntry<Id>, index: number): str
   const target = workspaceUrl(ws, index);
   if (target === null) return "";
   for (const endpoint of portEndpoints(ws.ports, ws.id)) {
-    const candidate = portUrl(endpoint as any, ws.remote_links);
+    const candidate = endpointUrl(ws, endpoint);
     if (candidate === null) continue;
     if (target === candidate && (endpoint.label ?? "").length > 0) return endpoint.label!;
   }
@@ -2593,7 +2610,7 @@ function workspaceUrlPending<Id>(ws: WorkspaceEntry<Id>, index: number): boolean
   const target = workspaceUrl(ws, index);
   if (target === null) return false;
   for (const endpoint of portEndpoints(ws.ports, ws.id)) {
-    const candidate = portUrl(endpoint as any, ws.remote_links);
+    const candidate = endpointUrl(ws, endpoint);
     if (candidate === null) continue;
     if (target === candidate && endpoint.label_pending) return true;
   }
@@ -2692,11 +2709,11 @@ export function workspaceUrl<Id>(ws: WorkspaceEntry<Id>, wanted: number): string
   const endpoints = portEndpoints(ws.ports, ws.id);
   let count = 0;
   for (let i = 0; i < endpoints.length; i++) {
-    const target = portUrl(endpoints[i] as any, ws.remote_links);
+    const target = endpointUrl(ws, endpoints[i]);
     if (target === null) continue;
     let duplicate = false;
     for (const previous of endpoints.slice(0, i)) {
-      const other = portUrl(previous as any, ws.remote_links);
+      const other = endpointUrl(ws, previous);
       if (other !== null && target === other) {
         duplicate = true;
         break;
@@ -2737,7 +2754,8 @@ function portLine(
   if (count === 1) {
     const target = workspaceUrl(ws, 0)!;
     if (hitColumn !== null && hitColumn < Math.min(displayWidth(label), width)) return target;
-    if (w) w.write(`\x1b]8;id=corgi-port-${ws.id};${target}\x1b\\`);
+    const opens = linkTarget(ws, target);
+    if (w && opens) w.write(`\x1b]8;id=corgi-port-${ws.id};${opens}\x1b\\`);
   }
   if (w) {
     w.write("\x1b[4m" + fg("text"));
@@ -2886,7 +2904,7 @@ export class PortMenu {
       const url = workspaceUrl(ws, index);
       if (url === null) continue;
       w.write(
-        `${w.cup(rect.y + 3 + index - offset, rect.x + 1)}${index === selected ? fg("text") + selected_bg : fg("text") + bg("surface")} ${index === selected ? "›" : " "} \x1b]8;id=corgi-popup-${ws.id}-${index};${url}\x1b\\`,
+        `${w.cup(rect.y + 3 + index - offset, rect.x + 1)}${index === selected ? fg("text") + selected_bg : fg("text") + bg("surface")} ${index === selected ? "›" : " "} \x1b]8;id=corgi-popup-${ws.id}-${index};${linkTarget(ws, url) ?? ""}\x1b\\`,
       );
       const name = workspaceUrlName(ws, index);
       const naming = name.length === 0 && workspaceUrlPending(ws, index);

@@ -128,6 +128,11 @@ test("machine reception shows Kitty pixels from the first frame, falls back to b
   u.connection_card = { rect: new Rect(1, 1, 70, 20), lines: [{ text: "atlas · online" }] };
   draw();
   expect(pictures.commands()).not.toContain(bars);
+  // The pointer over it, with no other card open.
+  u.pointer = { x: 30, y: 10 };
+  expect(draw()).toContain("atlas · online");
+  expect(u.connection_card.shown).toBe(true);
+  u.pointer = null;
   u.connection_card = null;
   expect(frame(null, [], 120, 40, u)).toContain("█");
 });

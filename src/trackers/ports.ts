@@ -53,8 +53,8 @@ export class Snapshot {
     );
   }
 }
-export function sshViewer() {
-  return ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"].some(k => !!process.env[k]);
+export function sshViewer(env: NodeJS.ProcessEnv = process.env) {
+  return ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"].some(k => !!env[k]);
 }
 export function loopback(address: string) {
   return address.startsWith("127.") || address === "::1";
@@ -74,22 +74,28 @@ export function kind(name: string, address: string): Kind {
     return "tailscale";
   return tunnel ? "vpn" : "network";
 }
-export function host(e: Endpoint, remote: boolean) {
-  if (!remote && (["127.0.0.1", "::1"].includes(e.bind_address) || wildcard(e.bind_address))) return "localhost";
+/** The host a browser here reaches `e` at. A remote machine's loopback is
+ * reachable only `forwarded`, through a forward of its port. */
+export function host(e: Endpoint, remote: boolean, forwarded = false) {
+  const localhost = ["127.0.0.1", "::1"].includes(e.bind_address);
+  if (!remote && (localhost || wildcard(e.bind_address))) return "localhost";
   const rank = { loopback: 0, tailscale: 1, vpn: 2, network: 3 };
   const found = e.interfaces
     .filter(
       i => !(remote && i.kind === "loopback") && !i.address.startsWith("fe80:") && !i.address.startsWith("169.254."),
     )
     .sort((a, b) => rank[a.kind] - rank[b.kind] || Number(a.ipv6) - Number(b.ipv6))[0];
-  return found?.address ?? (!remote && !wildcard(e.bind_address) ? e.bind_address : null);
+  if (found) return found.address;
+  if (!remote) return wildcard(e.bind_address) ? null : e.bind_address;
+  if (!forwarded || !loopback(e.bind_address)) return null;
+  return localhost ? "localhost" : e.bind_address;
 }
 export function browserResponse(status: number | null) {
   return status !== null && status >= 200 && status < 400;
 }
-export function url(e: Endpoint, remote: boolean): string | null {
+export function url(e: Endpoint, remote: boolean, forwarded = false): string | null {
   if (e.scheme === "unknown" || !browserResponse(e.http_status)) return null;
-  const address = host(e, remote);
+  const address = host(e, remote, forwarded);
   return address ? `${e.scheme}://${address.includes(":") ? "[" + address + "]" : address}:${e.port}` : null;
 }
 export type Root = {

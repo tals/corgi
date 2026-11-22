@@ -737,6 +737,7 @@
   "Open an Issue on GitHub": "GitHub에 이슈 등록",
   "Open folder": "폴더 열기",
   "Open folder as workspace": "폴더를 작업 공간으로 열기",
+  "Open link in browser": "브라우저에서 링크 열기",
   "Open the agent picker": "에이전트 선택창 열기",
   "Open · jumps to its tab": "열린 세션 · 해당 탭으로 이동",
   "Operations never auto-start a server.": "명령은 서버를 자동으로 시작하지 않습니다.",

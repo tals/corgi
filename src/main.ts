@@ -198,6 +198,13 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   localeHost.initialize(preferences.load().language);
   const path = os.socketPath(),
     daemon = new rpc_http.Client(path);
+  if (args[0] === "__browser") {
+    const paneBrowser = await import("./pane_browser");
+    process.exitCode = await paneBrowser.run(args.slice(1), async (url, pane) => {
+      await daemon.call("action", { name: "open-url", value: url, pane });
+    });
+    return;
+  }
   if (args[0] === "machine") {
     const remote = await import("./machine_cli");
     await remote.manage(args.slice(1));
@@ -461,6 +468,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       await updates.hold(executable);
       const { Server } = await import("./server");
       const server = new Server(path, executable, buildId());
+      (await import("./pane_browser")).install(current_release.path(executable), executable, path);
       // XXX: Remove for next protocol bump.
       server.older_updater = args[1] === "--activating";
       await server.run();
@@ -561,6 +569,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "__handoff": {
       await updates.hold(executable);
       const handoff = await import("./persist/handoff");
+      // Running panes' BROWSER names the helper, which now runs this release.
+      (await import("./pane_browser")).install(current_release.path(executable), executable, path);
       await handoff.importAndRun(path, executable, Number(args[1]), Number(args[2]));
       return;
     }

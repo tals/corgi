@@ -2,7 +2,7 @@
 //! own tunnel, which runs Corgi's bridge on the host; connections share an
 //! SSH master unless the path is fresh.
 import { Connection } from "./rpc";
-import { Remote, startup_ms } from "./daemon_transport";
+import { Ports, Remote, startup_ms } from "./daemon_transport";
 import { image, type Profile } from "./machines";
 import * as ssh from "./ssh";
 import type * as machine_path from "./machine_path";
@@ -14,6 +14,7 @@ import * as builds from "./machine_build";
 import * as dev from "./machine_deploy";
 
 function sshPath(profile: Profile): machine_path.Factory {
+  const ports = new Ports(profile);
   return (fresh, race, start = false) => {
     const tunnels: Remote[] = [],
       opened: Connection[] = [];
@@ -25,6 +26,7 @@ function sshPath(profile: Profile): machine_path.Factory {
         return control?.socket ?? null;
       },
       upload: (path, mime, instance, signal, progress) => image(profile, path, mime, instance, signal, progress),
+      ports,
       async open(kind, stats, trace) {
         // A race gives up sooner than a first connection, which may wait on a login.
         const patience = () => (race ? Math.min(startup_ms, stats.timeoutMs) : startup_ms);

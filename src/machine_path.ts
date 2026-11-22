@@ -9,6 +9,7 @@ import type * as telemetry from "./telemetry";
 import type * as imageUpload from "./image_upload";
 import * as errors from "./errors";
 import * as protocol from "./protocol";
+import type * as portForwards from "./port_forwards";
 
 export type Kind = "control" | "data";
 /** What a failure means: try again, ask the user about access, or give up. */
@@ -26,6 +27,9 @@ export interface Path {
   readonly home: string;
   /** A pasted image's path on the machine, once it's there. */
   readonly upload: Upload | null;
+  /** The way to ports on the machine's loopback, which its links to
+   * localhost are forwarded over; none for this computer. */
+  readonly ports: portForwards.Link | null;
   /** What `error` means here, and what to show for it. */
   diagnose(error: unknown): { issue: Issue; detail: string };
   /** What an unfinished `open` is waiting on, in words. */
@@ -61,6 +65,7 @@ export function local(socket: string, start?: () => Promise<void>, running = !st
       socket,
       home: process.cwd(),
       upload: null,
+      ports: null,
       async open(_kind, stats, trace) {
         if (!started) {
           await start!();

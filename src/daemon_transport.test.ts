@@ -179,3 +179,14 @@ test("a held reply still arrives when ssh exits behind it", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a forwarded connection's failure says whether the port, the machine's SSH server, or the machine refused it", () => {
+  expect(
+    transport.portFailure("channel 0: open failed: connect failed: Connection refused\nstdio forwarding failed"),
+  ).toBe("refused");
+  // Through a shared master, the reason doesn't come back.
+  expect(transport.portFailure("Stdio forwarding failed")).toBe("refused");
+  expect(transport.portFailure("channel 0: open failed: administratively prohibited: open failed")).toBe("prohibited");
+  expect(transport.portFailure("ssh: connect to host atlas port 22: Connection refused")).toBe("unreachable");
+  expect(transport.portFailure("")).toBe("unreachable");
+});

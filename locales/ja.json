@@ -737,6 +737,7 @@
   "Open an Issue on GitHub": "GitHubでIssueを作成",
   "Open folder": "フォルダーを開く",
   "Open folder as workspace": "フォルダーをワークスペースとして開く",
+  "Open link in browser": "ブラウザーでリンクを開く",
   "Open the agent picker": "エージェント選択を開く",
   "Open · jumps to its tab": "開いています · タブへ移動",
   "Operations never auto-start a server.": "これらの操作でサーバーが自動起動することはありません。",

@@ -16,6 +16,7 @@ import { Differ } from "./frame_diff";
 import * as framePacing from "./frame_pacing";
 import * as sound from "./sound";
 import { sshViewer } from "./trackers/ports";
+import * as webLinks from "./web_links";
 import type { Reply, RequestInput } from "./protocol";
 import * as protocol from "./protocol";
 import { n, ptr } from "./native_ffi";
@@ -192,6 +193,9 @@ export function syncRequest(
     worktree_detail: view.worktreeDetailWanted(machine),
     resources: view.host.prefs.resources.enabled,
     resources_hash: machine.runtime.resources_hash,
+    // A pane's program opens its links its own way, as it would without
+    // Corgi, on this computer, or with no browser here.
+    links: machine.remote && webLinks.opensLinks(),
   };
 }
 /** How often a waiting control asks again whether what it names is there,
@@ -235,6 +239,12 @@ async function checkControl(
   check.state = there ? "there" : "gone";
   view.wake();
 }
+/** The `open-url` controls at the front of `controls`, past any this viewer
+ * took already (`taken` and before): a background machine takes these. */
+export function leadingLinks<C extends protocol.Wire<protocol.Control>>(controls: C[], taken: bigint): C[] {
+  const end = controls.findIndex(c => BigInt(c.seq) > taken && (c.kind !== "action" || c.name !== "open-url"));
+  return end < 0 ? controls : controls.slice(0, end);
+}
 /** Takes a reply from `machine`'s daemon. A machine in the background takes
  * its data; its controls wait, unacknowledged, until it's shown. */
 export async function receive(
@@ -250,9 +260,12 @@ export async function receive(
   if (reply.resources) machine.runtime.receiveResources(reply.resources);
   machine.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
   machine.viewer_id = reply.viewer ?? 0;
-  const controls = shown ? (reply.controls ?? []) : [];
+  // A machine in the background still opens the links its panes' programs
+  // ask for, when nothing waits ahead of them.
+  const controls = shown ? (reply.controls ?? []) : leadingLinks(reply.controls ?? [], machine.last_control);
   // What still waits is decided afresh from the controls this reply brings.
   if (shown) machine.waiting_controls = [];
+  else if (reply.controls?.length) machine.waiting_controls = reply.controls.slice(controls.length);
   for (const [i, control] of controls.entries()) {
     const seq = BigInt(control.seq);
     if (seq <= machine.last_control) continue;
@@ -285,7 +298,8 @@ export async function receive(
           view.executable = String(act.value);
           return false;
         }
-        await view.invoke(act, machine);
+        if (act.name === "open-url") view.openRequested(String(act.value), machine);
+        else await view.invoke(act, machine);
       }
     } catch (error) {
       view.notice((error as Error).message);
