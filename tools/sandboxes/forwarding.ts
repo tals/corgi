@@ -78,7 +78,7 @@ export const world: World = {
     // The viewer reads the machine list as it starts.
     const catalog = join(s.env.XDG_STATE_HOME, "corgi/remote/machines.json"),
       until = Date.now() + 30_000;
-    while (!existsSync(catalog) || !existsSync(devbox(s.dir).auth)) {
+    while (!existsSync(catalog)) {
       const log = join(devbox(s.dir).root, "supervisor.log");
       if (existsSync(log)) throw Error(readFileSync(log, "utf8"));
       if (Date.now() >= until) throw Error("devbox didn't start; see the devbox tab or devbox/server.log");
