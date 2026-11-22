@@ -118,8 +118,9 @@ The native `corgi-remote-bridge` helper connects SSH stdin/stdout directly to th
 remote daemon's private Unix socket, without starting Bun for each attachment.
 Normal attachments and commands reuse a private Corgi-owned OpenSSH master;
 closing a channel leaves the master available. Pane data has a master of its
-own, without SSH compression, since Corgi compresses it already. Recovery probes, manual retries,
-and bulk uploads bypass it, so a stalled master cannot trap recovery. Each
+own, without SSH compression, since Corgi compresses it already; pasted images
+ride it too. Recovery probes and manual retries bypass the masters, so a stalled
+one cannot trap recovery, and pastes then follow the fresh connection. Each
 bridge direction has a bounded buffer and can progress independently.
 Older profiles without a bridge path use SSH Unix-socket forwarding and require
 `AllowStreamLocalForwarding`; re-add the machine to discover its bridge.

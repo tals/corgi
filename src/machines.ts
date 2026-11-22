@@ -156,8 +156,11 @@ export async function execute(profile: Profile, args: string[]): Promise<number>
   );
   return exited(child);
 }
+/** Sends a pasted image over the pane-data master, which already logged in,
+ * or on its own connection when the viewer's path is `fresh`. */
 export async function image(
   profile: Profile,
+  fresh: boolean,
   source: string,
   mime: string,
   instance: string,
@@ -170,7 +173,7 @@ export async function image(
   const child = spawn(
     "ssh",
     [
-      ...ssh.args(profile.target, false, true),
+      ...ssh.args(profile.target, false, fresh, "data"),
       ssh.command(profile.executable, ["__remote-image", profile.socket, instance, mime]),
     ],
     { stdio: ["pipe", "pipe", "pipe"], signal },

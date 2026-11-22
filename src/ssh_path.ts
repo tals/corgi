@@ -25,7 +25,7 @@ function sshPath(profile: Profile): machine_path.Factory {
       get socket() {
         return control?.socket ?? null;
       },
-      upload: (path, mime, instance, signal, progress) => image(profile, path, mime, instance, signal, progress),
+      upload: (path, mime, instance, signal, progress) => image(profile, fresh, path, mime, instance, signal, progress),
       ports,
       async open(kind, stats, trace) {
         // A race gives up sooner than a first connection, which may wait on a login.
