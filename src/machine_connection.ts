@@ -1031,6 +1031,8 @@ export class Endpoint {
             "file.line",
             "file.count",
             "file.thumbnail",
+            "job.poll",
+            "job.cancel",
           ].includes(op)
         ) {
           if (!this.checked) throw Error("StaleConnection");

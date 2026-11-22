@@ -338,6 +338,9 @@ $.requests|file.thumbnail.path: string
 $.requests|file.thumbnail.width: u32
 $.requests|file.thumbnail.height: u32
 $.requests|file.thumbnail.pixels: u32
+$.requests|job.poll.job: u32
+$.requests|job.poll.wait: u32
+$.requests|job.cancel.job: u32
 $.requests|onboarding.status.operation: u64
 $.requests|onboarding.handoff.operation: u64
 $.requests|onboarding.handoff.viewer_pgid: i32

@@ -39,6 +39,7 @@ import * as trackers from "./trackers";
 import * as updates from "./updates";
 import * as errors from "./errors";
 import * as fileAccess from "./file_access";
+import * as jobs from "./jobs";
 import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import * as reviewService from "./review/service";
@@ -106,6 +107,8 @@ export class Server {
   private modelReads = new Map<string, { quit: ModelQuit; done: Promise<agentModels.Choice[]> }>();
   /** Deferred replies, each with whether it changes state and how to answer it early. */
   private deferred = new Map<Promise<void>, { busy: protocol.Busy | null; drop: () => void }>();
+  /** Long reads for other computers' viewers, each the connection's that started it. */
+  private remote_jobs = new jobs.Jobs();
   private timer?: ReturnType<typeof setInterval>;
   private stopped = false;
   private subscribedRevision = -1n;
@@ -565,6 +568,7 @@ export class Server {
       },
       () => {
         this.closing?.(client);
+        this.remote_jobs.drop(client);
         if (this.handed_off) return;
         if (client.viewer) viewer.data(this, client)?.close();
         if (client.headless_start) {
@@ -1234,6 +1238,13 @@ export class Server {
       case "file.thumbnail":
         this.defer(cl, reply, null, () => fileAccess.answer(request));
         return;
+      case "job.poll":
+        this.defer(cl, reply, null, () => this.remote_jobs.poll(cl, request.payload.job, request.payload.wait));
+        return;
+      case "job.cancel":
+        this.remote_jobs.cancel(cl, request.payload.job);
+        reply.ok();
+        return;
       case "worktree.add":
         this.defer(cl, reply, { op: "worktree.add", path: request.payload.path }, async () => {
           await worktreeAdd.add(
@@ -1406,6 +1417,7 @@ export class Server {
     // A model read would keep its agent's CLI, and this process, alive.
     for (const read of this.modelReads.values()) read.quit.signal();
     this.pluginWatch?.close();
+    this.remote_jobs.close();
     // Save before the socket and start lock go: whoever sees this daemon
     // gone, such as `corgi shutdown` or the next daemon, reads the final state.
     try {

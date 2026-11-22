@@ -206,6 +206,13 @@
     "height": 480,
     "pixels": 4000000
   },
+  "job.poll": {
+    "job": 7,
+    "wait": 250
+  },
+  "job.cancel": {
+    "job": 7
+  },
   "onboarding.status": {
     "operation": 1
   },
