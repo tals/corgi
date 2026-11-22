@@ -603,7 +603,7 @@ test("a remote machine's loopback server links through a forward, once the point
   // With nothing to forward it through, this computer can't reach it.
   expect(workspaceUrl(ws, 0)).toBeNull();
   let local: string | null = null;
-  ws.link_forwards = { local: () => local } as any;
+  ws.link_forwards = { opens: () => local } as any;
   expect(workspaceUrl(ws, 0)).toBe("http://localhost:8888");
   // Until a port here is reserved, the host terminal's Cmd+click has nowhere to go.
   let w = new Writer();

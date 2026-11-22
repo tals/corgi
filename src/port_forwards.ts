@@ -281,6 +281,11 @@ export class Forwards {
       entry = wanted && this.find(wanted);
     return entry ? rewrite(url, entry.forward.local, entry.ipv6) : null;
   }
+  /** Where the host terminal's Cmd+click on `url` goes: itself, or for a
+   * link to the machine's loopback, its reservation here once there is one. */
+  opens(url: string): string | null {
+    return target(url) ? this.local(url) : url;
+  }
   /** Ports of `url`'s callbacks that are in use here, so it can't come back. */
   unavailable(url: string): number[] {
     const blocked = callbacks(url)

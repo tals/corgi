@@ -19,7 +19,7 @@ import type { Brand } from "./process_name";
 import * as tabIcons from "./tab_icons";
 import type { Cell } from "./fork_hero";
 import { url as portUrl } from "./trackers/ports";
-import * as portForwards from "./port_forwards";
+import type { Forwards } from "./port_forwards";
 import { cpuText, memoryText } from "./trackers/resources";
 import { View as ContextView } from "./usage/context_window";
 
@@ -543,7 +543,7 @@ function endpointUrl<Id>(ws: WorkspaceEntry<Id>, endpoint: Endpoint): string | n
 /** Where the host terminal's Cmd+click on `url` goes. A remote machine's
  * loopback goes nowhere until the pointer on it reserves its port here. */
 export function linkTarget<Id>(ws: WorkspaceEntry<Id>, url: string): string | null {
-  return ws.link_forwards && portForwards.target(url) ? ws.link_forwards.local(url) : url;
+  return ws.link_forwards ? ws.link_forwards.opens(url) : url;
 }
 /** `url` as the status line shows it, with where it opens when a forward moved it. */
 export function linkStatus<Id>(ws: WorkspaceEntry<Id>, url: string): string {
@@ -583,7 +583,7 @@ export interface WorkspaceEntry<Id = viewerRef.Workspace> {
   ports: PortsSnapshot<Id>;
   remote_links: boolean;
   /** A remote machine's forwards here, through which its loopback servers open. */
-  link_forwards: portForwards.Forwards | null;
+  link_forwards: Forwards | null;
   git_push: GitPush;
   git_ahead: number | null;
   git_commits: GitCommit[];

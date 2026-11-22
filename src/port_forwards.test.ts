@@ -117,8 +117,12 @@ test("a hovered link reserves a port here; its first request realizes it", async
   forwards.onRealized = forward => realized.push(forward.port);
   const url = `http://localhost:${there}/app`;
   try {
+    // A Cmd+click opens a link elsewhere as it is, and one here nowhere until it's reserved.
+    expect(forwards.opens("https://example.com/")).toBe("https://example.com/");
+    expect(forwards.opens(url)).toBeNull();
     forwards.reserve(url);
     await until(() => forwards.local(url) !== null);
+    expect(forwards.opens(url)).toBe(url);
     // Free here, the port keeps its number, and the link its address.
     expect(forwards.local(url)).toBe(url);
     expect(forwards.local(`http://0.0.0.0:${there}/x`)).toBe(`http://localhost:${there}/x`);
