@@ -3624,10 +3624,11 @@ test("a double-click on an agent row renames it in place, with the dialog's outc
     expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
     expect(s.inline_rename.field.raw()).toBe("agent 2");
     expect(s.inline_rename.field.cursor).toBe(s.inline_rename.field.len);
-    expect(s.inline_rename.field.selection()).toBeNull();
+    expect(s.inline_rename.field.selected).toBe(true);
     expect(sent).toEqual([probe(2)]);
     expect(s.frame()).toContain("agent 2");
-    await s.input(bytes("\x03Fix API\r"));
+    // The name starts selected, so typing replaces it.
+    await s.input(bytes("Fix API\r"));
     expect(sent.at(-1)).toEqual({ "agent.rename": { target: 2, name: "Fix API" } });
     expect(s.inline_rename).toBeNull();
     expect(typed).toEqual([]);
@@ -3637,25 +3638,284 @@ test("a double-click on an agent row renames it in place, with the dialog's outc
   }
 });
 
-test("moving the free pointer off the cell or turning the wheel between presses opens no field", async () => {
+test("a double-click anywhere in the field's columns renames, not only on the name", async () => {
+  const { s, sent, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await press(at.x + at.width - 1, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
+    expect(sent).toEqual([probe(2)]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a double-click along a workspace row's name line renames it; the message line below does not", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ workspace: 1 });
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await press(at.x, at.message_y);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    await press(at.x + at.width - 1, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, 1));
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a double-click on a workspace row's Git columns, past the link bound, does not rename", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ workspace: 1 });
+  const entries = s.workspaceRows();
+  const columns = sidebar.linkRange(s.sidebarView(s.sidebarEntries()), entries[0], entries).start;
+  try {
+    setSystemTime(new Date(1000));
+    await press(columns, at.y);
+    await press(columns, at.y);
+    expect(s.inline_rename).toBeNull();
+    // The name line left of them still renames after them.
+    await press(at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, 1));
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a press on the sidebar's border between name-line presses starts the double-click over", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const border = s.sidebarView(s.sidebarEntries()).width - 1;
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await press(border, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("the name line right of the field neither opens a rename nor keeps one", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x + at.width, at.y);
+    await press(at.x + at.width, at.y);
+    expect(s.inline_rename).toBeNull();
+    setSystemTime(new Date(2000));
+    await press(at.x, at.y);
+    await press(at.x + at.width - 1, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
+    await press(at.x + at.width - 1, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
+    await press(at.x + at.width, at.y);
+    expect(s.inline_rename).toBeNull();
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a press past the sidebar on the field's line closes the rename; the border resizes", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const side = s.sidebarView(s.sidebarEntries());
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
+    // A terminal pane on the field's screen line takes the press and closes the field.
+    await press(side.width + 2, at.y);
+    expect(s.inline_rename).toBeNull();
+    // The row still renames by double-click afterwards.
+    await press(at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
+    // The border column resizes the sidebar rather than keeping the field.
+    await s.input(bytes(`\x1b[<0;${side.width};${at.y + 1}M`));
+    expect(s.inline_rename).toBeNull();
+    expect(s.sidebar_drag).toBe("width");
+    await s.input(bytes(`\x1b[<0;${side.width};${at.y + 1}m`));
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a held drag along the row between the presses starts the double-click over", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const report = (button: number, x: number, y: number) => s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M`));
+  try {
+    setSystemTime(new Date(1000));
+    // The first press stays held: sideways motion drags the row, which ends
+    // the double-click even back on the line it started from.
+    await report(0, at.x, at.y);
+    await report(32, at.x + 1, at.y);
+    await report(32, at.x, at.y);
+    await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}m`));
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    // Without the drag, the same presses still rename.
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a held drag of a workspace row between the presses starts the double-click over", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ workspace: 1 });
+  const report = (button: number, x: number, y: number) => s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M`));
+  try {
+    setSystemTime(new Date(1000));
+    await report(0, at.x, at.y);
+    expect(s.workspace_drag).not.toBeNull();
+    await report(32, at.x + 1, at.y);
+    await report(32, at.x, at.y);
+    await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}m`));
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, 1));
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("unheld motion off the name line and back starts the double-click over", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const pane = s.sidebarView(s.sidebarEntries()).width + 2;
+  const hover = (x: number) => s.input(bytes(`\x1b[<35;${x + 1};${at.y + 1}M`));
+  try {
+    setSystemTime(new Date(1000));
+    // Along the line the double-click holds.
+    await press(at.x, at.y);
+    await hover(at.x + at.width - 1);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
+    await s.input(bytes("\x1b[27u"));
+    // Into the terminal on the same screen line and back, it doesn't.
+    await press(at.x, at.y);
+    await hover(pane);
+    await hover(at.x);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a press on a workspace's port link or Git figure between name-line presses starts the double-click over", async () => {
+  const snapshot: any = pair();
+  snapshot.workspaces[0].git_ahead = 2;
+  snapshot.ports = {
+    workspaces: [
+      {
+        id: 1,
+        background: 0,
+        endpoints: [
+          {
+            label: "",
+            label_pending: false,
+            pid: 12,
+            pane: 1,
+            name: "web",
+            transport: "tcp",
+            bind_address: "127.0.0.1",
+            port: 3000,
+            ipv6: false,
+            interfaces: [],
+            scheme: "http",
+            http_status: 200,
+            probed_at: 0,
+          },
+        ],
+      },
+    ],
+  };
+  const { s, rect, press } = renaming(undefined, snapshot);
+  const at = rect({ workspace: 1 });
+  const side = s.sidebarView(s.sidebarEntries()),
+    entries = s.workspaceRows();
+  const port = sidebar.linkRange(side, entries[0], entries).start,
+    git = side.width - 3;
+  try {
+    expect(sidebar.portWorkspace(side, entries, port, at.y)?.id).toBe(s.workspaceRef(1));
+    expect(sidebar.gitActionWorkspace(side, entries, null, git, at.y)?.id).toBe(s.workspaceRef(1));
+    setSystemTime(new Date(1000));
+    for (const between of [port, git]) {
+      await press(at.x, at.y);
+      await press(between, at.y);
+      await press(at.x, at.y);
+      expect(s.inline_rename).toBeNull();
+      setSystemTime(new Date(Date.now() + 2000));
+    }
+    await press(at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, 1));
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("unheld motion along the name line keeps the double-click", async () => {
   const { s, sent, rect, press } = renaming();
   const at = rect({ agent: 2 });
   const report = (button: number, x: number, y: number) => s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M`));
   try {
     setSystemTime(new Date(1000));
     await press(at.x, at.y);
+    // Unheld motion along the name line keeps the double-click.
     await report(35, at.x + 1, at.y);
-    await report(35, at.x, at.y);
-    await press(at.x, at.y);
-    expect(s.inline_rename).toBeNull();
-    await report(65, at.x, at.y);
-    await press(at.x, at.y);
-    expect(s.inline_rename).toBeNull();
-    // Unheld motion within the cell keeps it.
     await report(35, at.x, at.y);
     await press(at.x, at.y);
     expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 2));
     expect(sent).toEqual([probe(2)]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("unheld motion off the name line ends the double-click", async () => {
+  const { s, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const report = (button: number, x: number, y: number) => s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M`));
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await report(35, at.x, at.y + 1);
+    await report(35, at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    // The wheel starts it over as well.
+    await report(65, at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -3749,12 +4009,14 @@ test("presses in copy mode don't count a click series", async () => {
   }
 });
 
+// The name opens selected: Right keeps it with the caret at its end, and
+// typing without it replaces the name.
 test.each([
-  ["the prefix and its new-tab key", "\x02c", "agent 1c"],
-  ["arrows", "\x1b[Dx", "agent x1"],
-  ["a paste", "\x1b[200~a\nb\x1b[201~", "agent 1ab"],
-  ["Kitty-encoded text, prefix and new-tab key", "\x1b[120u\x1b[98;5u\x1b[99u", "agent 1xc"],
-  ["a character bound to an action", "é", "agent 1é"],
+  ["the prefix and its new-tab key", "\x1b[C\x02c", "agent 1c"],
+  ["arrows", "\x1b[C\x1b[Dx", "agent x1"],
+  ["a paste", "\x1b[C\x1b[200~a\nb\x1b[201~", "agent 1ab"],
+  ["Kitty-encoded text, prefix and new-tab key", "\x1b[120u\x1b[98;5u\x1b[99u", "xc"],
+  ["a character bound to an action", "é", "é"],
 ])("the open field takes %s: nothing reaches the pane and no binding runs", async (_, input, raw) => {
   const { s, sent, typed, twice } = renaming();
   const defaults = s.prefs.bindings(),
@@ -4110,16 +4372,22 @@ test("the prompt's picker offers each installed agent's models per account, with
   }
 });
 
-test("a press outside the field, plain, modified or middle, closes it unsaved and still acts; one inside keeps it", async () => {
+test("a press outside the field, plain, modified or middle, closes it unsaved and still acts; a plain one inside puts the caret there", async () => {
   const { s, sent, rect, press, twice } = renaming();
   try {
     setSystemTime(new Date(1000));
     await twice({ agent: 1 });
     const inside = rect({ agent: 1 });
+    const name = s.inline_rename.field.raw();
+    expect(s.inline_rename.field.selected).toBe(true);
+    // Past the double-click window, so it is a plain press.
+    setSystemTime(new Date(2000));
     await press(inside.x + 2, inside.y);
     expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 1));
-    expect(s.inline_rename.field.cursor).toBe(s.inline_rename.field.len);
+    expect(s.inline_rename.field.selected).toBe(false);
+    expect(s.inline_rename.field.cursor).toBe(2);
     await s.input(bytes("x"));
+    expect(s.inline_rename.field.raw()).toBe(name.slice(0, 2) + "x" + name.slice(2));
     const other = rect({ agent: 2 });
     await press(other.x, other.y);
     expect(s.inline_rename).toBeNull();
@@ -4269,7 +4537,7 @@ test("a drag keeps one pick out and copies the answer for where it ended", async
   }
 });
 
-test("only a double-click on the name renames, not one elsewhere on the row", async () => {
+test("a double-click on the name line renames, not one on the row's other lines", async () => {
   const snapshot = pair();
   snapshot.panes[2].agent.observation = { completed: 2, read: 0 };
   const { s, sent, rect, press } = renaming(undefined, snapshot);
@@ -4284,17 +4552,18 @@ test("only a double-click on the name renames, not one elsewhere on the row", as
     const badge = view.unreadRange(ws).start,
       name = rect({ workspace: 2 });
     expect(view.unreadHit(ws, badge, name.y + 1)).toBe(true);
+    // The unread mark on the message line jumps instead of renaming.
     await twice(badge, name.y + 1);
-    await twice(name.x + displayWidth(ws.name), name.y);
     expect([s.current().id, s.inline_rename]).toEqual([2, null]);
-    await twice(name.x + displayWidth(ws.name) - 1, name.y);
+    // Anywhere along the name line renames, past the name's text too.
+    await twice(name.x + displayWidth(ws.name), name.y);
     expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, 2));
     await s.input(bytes("\x1b[27u"));
     const agent = rect({ agent: 3 });
+    // The agent row's second line only selects.
     await twice(agent.x, agent.y + 1);
-    await twice(agent.x + displayWidth("agent 3"), agent.y);
     expect([s.focused().id, s.inline_rename, sent]).toEqual([3, null, []]);
-    await twice(agent.x + displayWidth("agent 3") - 1, agent.y);
+    await twice(agent.x + displayWidth("agent 3"), agent.y);
     expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 3));
   } finally {
     setSystemTime();
@@ -4871,8 +5140,9 @@ test("a drag between two presses is no double-click, and still reorders", async 
     await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<0;${moved.x + 1};${moved.y + 1}m`));
     expect(s.inline_rename?.target).toBe(viewerRef.pane(s.machine.id, 1));
     await s.key(27);
-    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<32;${moved.x + 2};${moved.y + 1}M`));
-    await s.input(bytes(`\x1b[<0;${moved.x + 2};${moved.y + 1}m`));
+    // Held motion off the name line ends the double-click.
+    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<32;${moved.x + 1};${moved.y + 2}M`));
+    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 2}m`));
     await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<0;${moved.x + 1};${moved.y + 1}m`));
     expect(s.inline_rename).toBeNull();
   } finally {
@@ -5719,7 +5989,7 @@ test("input past 80 bytes is refused and says so until the next edit", async () 
   try {
     setSystemTime(new Date(1000));
     await twice({ agent: 1 });
-    await s.input(bytes("a".repeat(73)));
+    await s.input(bytes("a".repeat(80)));
     expect(s.inline_rename.field.len).toBe(80);
     expect(s.inline_rename.message).toBeNull();
     await s.input(bytes("a"));
@@ -6548,6 +6818,31 @@ test("through the viewer's routing, a workspace name's double-click renames and 
   }
 });
 
+test.each([1, 2])(
+  "through the viewer's routing, workspace %i's message line interrupts its rename double-click",
+  async workspace => {
+    const { s, rect } = renaming();
+    const click = async (x: number, y: number) => {
+      for (const release of [false, true])
+        if (!s.workspaceDragInput(x, y, 0, release))
+          await s.input(bytes(`\x1b[<0;${x + 1};${y + 1}${release ? "m" : "M"}`));
+    };
+    try {
+      setSystemTime(new Date(1000));
+      const at = rect({ workspace });
+      await click(at.x, at.y);
+      await click(at.x, at.message_y);
+      await click(at.x, at.y);
+      expect(s.inline_rename).toBeNull();
+      await click(at.x + 1, at.y);
+      expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, workspace));
+    } finally {
+      setSystemTime();
+      viewer.close(s);
+    }
+  },
+);
+
 test("a press after a drag on a workspace's name starts no rename", async () => {
   const { s, rect } = renaming();
   try {
@@ -6806,6 +7101,41 @@ test.each([false, true])("stale input cannot enter the selected machine's buffer
     viewer.close(s);
   }
 });
+
+test.each(["local", "work"])(
+  "unheld motion along %s workspace names keeps the double-click with multiple machines",
+  async name => {
+    const s = controller(),
+      local = s.machine,
+      remote = new Machine(
+        transport(async () => pair()),
+        "work",
+        true,
+      );
+    s.height = 60;
+    s.receiveSnapshot(pair());
+    s.adopt(remote);
+    s.receiveSnapshot(pair(), remote);
+    s.input_state.attached = true;
+    try {
+      setSystemTime(new Date(1000));
+      if (name === "work") s.switchMachine(remote);
+      const at = s.sidebarView(s.sidebarEntries()).fieldRect(s.workspaceRef(1), s.workspaceRows());
+      const press = async (x: number) => {
+        await s.input(bytes(`\x1b[<0;${x + 1};${at.y + 1}M\x1b[<0;${x + 1};${at.y + 1}m`));
+      };
+      await press(at.x);
+      await s.input(bytes(`\x1b[<35;${at.x + 2};${at.y + 1}M`));
+      await press(at.x + 1);
+      expect(s.inline_rename?.target).toBe(viewerRef.workspace(s.machine.id, 1));
+    } finally {
+      setSystemTime();
+      s.switchMachine(local);
+      remote.runtime.destroy();
+      viewer.close(s);
+    }
+  },
+);
 
 test("remote workspace renaming uses its row below the machine header and keeps failed names on their machine", () => {
   const s = controller(),

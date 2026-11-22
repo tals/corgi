@@ -11,7 +11,7 @@ import * as keys from "./keys";
 import * as forkHero from "./fork_hero";
 import { identify, shell } from "./launch/command";
 import { adapter } from "./providers";
-import { Writer, writeEllipsis, codepointWidth, displayWidth, clipped } from "./text";
+import { Writer, writeEllipsis, codepointWidth, displayWidth, clipped, byteLength } from "./text";
 import { TextArea, byte_edits, key_edits, type Edit } from "./text_area";
 
 export type Target =
@@ -417,10 +417,16 @@ export class View {
       Math.max(10, Math.max(Math.min(Math.max(0, width - 2), 36), Math.min(Math.floor((width * 3) / 5), 70))),
     );
   }
-  /** The first byte that shows, keeping the cursor inside `columns`. */
+  /** The first byte that shows, keeping the cursor inside `columns`: as
+   * much text before it as fits in the columns left of the caret's. */
   static scroll(d: Dialog, columns: number): number {
-    let offset = Math.max(0, d.cursor - Math.max(0, columns - 1));
-    while (offset < d.cursor && (d.text[offset] & 0xc0) === 0x80) offset += 1;
+    let room = Math.max(0, columns - 1),
+      offset = d.cursor;
+    for (const ch of Array.from(d.bytes(0, d.cursor)).reverse()) {
+      room -= fieldWidth(ch.codePointAt(0)!);
+      if (room < 0) break;
+      offset -= byteLength(ch);
+    }
     return offset;
   }
   /** The fork card: a hero, a title and its subtitle, a labelled field and
