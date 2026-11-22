@@ -458,7 +458,8 @@ export function action(s: Server, cl: Client, q: Request<"action">, reply = new 
   } else if ((act.name === "onboard" || act.name === "open") && q.pane != null) target = viewerShowing(s, q.pane);
   else if (act.name === "open-url") {
     if (!webLinks.openable(String(act.value))) throw new Error("InvalidURL");
-    target = q.viewer == null ? linkViewer(s, q.pane) : targetViewer(s, q.viewer);
+    // A pane's program falls back on its own browser; `corgi action` names no pane, and goes as any action does.
+    target = q.viewer == null && q.pane != null ? linkViewer(s, q.pane) : targetViewer(s, q.viewer);
   } else target = targetViewer(s, q.viewer);
   send(s, reply, target, { kind: "action", name: q.name, value: q.value ?? "" });
 }

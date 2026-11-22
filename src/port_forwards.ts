@@ -124,10 +124,12 @@ function answers(host: string, port: number): Promise<boolean> {
     socket.once("error", () => done(false));
   });
 }
-function listen(host: string, port: number): Promise<Server> {
+/** Takes a listener's connections, from the moment it listens. */
+type Accept = (socket: Socket) => void;
+function listen(host: string, port: number, accept: Accept): Promise<Server> {
   return new Promise((resolve, reject) => {
     // Each side ends on its own: a request sent, its reply still on the way.
-    const server = createServer({ allowHalfOpen: true });
+    const server = createServer({ allowHalfOpen: true }, accept);
     server.once("error", reject);
     server.listen({ host, port, exclusive: true }, () => {
       server.off("error", reject);
@@ -135,9 +137,9 @@ function listen(host: string, port: number): Promise<Server> {
     });
   });
 }
-async function optional(host: string, port: number): Promise<Server[]> {
+async function optional(host: string, port: number, accept: Accept): Promise<Server[]> {
   try {
-    return [await listen(host, port)];
+    return [await listen(host, port, accept)];
   } catch {
     return [];
   }
@@ -145,27 +147,27 @@ async function optional(host: string, port: number): Promise<Server[]> {
 /** Listeners on both loopbacks on `port`, unless something here answers
  * there or a realized forward holds it. A port an unrealized reservation
  * holds is up for grabs. IPv6 is best effort. */
-async function claim(port: number): Promise<Server[] | null> {
+async function claim(port: number, accept: Accept): Promise<Server[] | null> {
   const holder = held.get(port);
   if (holder?.entry.forward.realized) return null;
   if (holder) holder.forwards.drop(holder.entry);
   for (const address of ["127.0.0.1", "::1"]) if (await answers(address, port)) return null;
   try {
-    return [await listen("127.0.0.1", port), ...(await optional("::1", port))];
+    return [await listen("127.0.0.1", port, accept), ...(await optional("::1", port, accept))];
   } catch {
     return null;
   }
 }
 /** Listeners for the machine's port here when it's free, else the next one
  * up, else one the system picks. */
-async function bind(wanted: number): Promise<Server[]> {
+async function bind(wanted: number, accept: Accept): Promise<Server[]> {
   for (const port of [wanted, wanted + 1]) {
     if (port > 65535 || (port !== wanted && restricted.has(port))) continue;
-    const servers = await claim(port);
+    const servers = await claim(port, accept);
     if (servers) return servers;
   }
-  const v4 = await listen("127.0.0.1", 0);
-  return [v4, ...(await optional("::1", (v4.address() as AddressInfo).port))];
+  const v4 = await listen("127.0.0.1", 0, accept);
+  return [v4, ...(await optional("::1", (v4.address() as AddressInfo).port, accept))];
 }
 
 interface Entry {
@@ -288,7 +290,9 @@ export class Forwards {
     }
   }
   private async create(wanted: Target, url: string): Promise<Entry> {
-    const servers = await bind(wanted.port),
+    // A connection before the entry is made, such as another forward's probe, has nowhere to go.
+    let made: Entry | null = null;
+    const servers = await bind(wanted.port, socket => (made ? this.carry(made, socket) : socket.destroy())),
       local = (servers[0].address() as AddressInfo).port,
       ipv6 = servers.length > 1;
     if (this.closed) {
@@ -303,7 +307,7 @@ export class Forwards {
       sockets: new Set(),
       channels: new Set(),
     };
-    for (const server of servers) server.on("connection", socket => this.carry(entry, socket));
+    made = entry;
     this.entries.push(entry);
     held.set(local, { forwards: this, entry });
     this.onChange();

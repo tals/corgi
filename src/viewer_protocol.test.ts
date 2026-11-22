@@ -316,6 +316,10 @@ test("a pane's link goes to the viewer showing it, else the one used last, when 
   expect(() =>
     action(s, source, protocol.decode("action", { name: "open-url", value: "http://localhost:3000/", pane: 1 })),
   ).toThrow("NoViewer");
+  // `corgi action open-url` names no pane: it goes to a viewer as any action does.
+  shows.links = false;
+  action(s, source, protocol.decode("action", { name: "open-url", value: "https://example.com/" }));
+  expect(result).toHaveBeenLastCalledWith({ ok: true, viewer: 1, queued: true });
   for (const value of ["file:///etc/passwd", "javascript:alert(1)", "https://x/\nrm"])
     expect(() => action(s, source, protocol.decode("action", { name: "open-url", value, pane: 1 }))).toThrow(
       "InvalidURL",
