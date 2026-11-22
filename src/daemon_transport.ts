@@ -254,8 +254,9 @@ export class Ports implements portForwards.Link {
       child.once("exit", code => resolve(code === 0));
     });
   }
-  async prepare(): Promise<void> {
+  async prepare(signal: AbortSignal): Promise<void> {
     if (await this.check()) return;
+    if (signal.aborted) throw Error("ForwardsClosed");
     // With ControlPersist, -N backgrounds the new master once it's in. One
     // that lost the race to another viewer's master would stay in front
     // instead, so the check decides.
@@ -264,17 +265,20 @@ export class Ports implements portForwards.Link {
     let exited: number | null | undefined;
     child.once("error", () => (exited = -1));
     child.once("exit", code => (exited = code));
-    const until = performance.now() + ports_prepare_ms;
+    const until = performance.now() + ports_prepare_ms,
+      cancel = () => stop(child);
+    signal.addEventListener("abort", cancel);
     try {
-      while (performance.now() < until) {
+      while (performance.now() < until && !signal.aborted) {
         if (exited !== undefined && exited !== 0) break;
         if (await this.check()) return;
         await Bun.sleep(200);
       }
     } finally {
+      signal.removeEventListener("abort", cancel);
       if (exited === undefined) stop(child);
     }
-    throw Error("MachineUnreachable");
+    throw Error(signal.aborted ? "ForwardsClosed" : "MachineUnreachable");
   }
   dial(host: string, port: number): portForwards.Channel {
     let said = "";

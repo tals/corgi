@@ -178,3 +178,24 @@ test("a viewer opens links where it has a browser: not over SSH, and on Linux wi
   expect(opensLinks({ WSL_DISTRO_NAME: "Ubuntu" }, "linux")).toBe(true);
   expect(opensLinks({ DISPLAY: ":0", SSH_TTY: "/dev/pts/1" }, "linux")).toBe(false);
 });
+
+test("a link the stood-in xdg-open can't open goes to the pane's own BROWSER, else it's printed", async () => {
+  const tools = folder(),
+    log = join(tools, "log"),
+    via = join(tools, "xdg-open");
+  recorder(via, log, 3);
+  recorder(join(tools, "w3m"), log);
+  const refused = async () => {
+    throw Error("NoViewer");
+  };
+  const env = { CORGI_PANE: "7", PATH: `${tools}:/usr/bin:/bin` };
+  expect(
+    await paneBrowser.run(["--via", via, "https://a.example/"], refused, { ...env, [paneBrowser.original]: "w3m" }),
+  ).toBe(0);
+  expect(await paneBrowser.run(["--via", via, "https://b.example/"], refused, env)).toBe(1);
+  expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
+    "xdg-open https://a.example/ 1",
+    "w3m https://a.example/ 1",
+    "xdg-open https://b.example/ 1",
+  ]);
+});

@@ -111,14 +111,15 @@ function fallback(urls: string[], via: string | null, env: NodeJS.ProcessEnv): n
     const result = spawnSync(command, argv, { stdio: "inherit", env: handed(env) });
     return result.error ? null : (result.status ?? 1);
   };
-  if (via) return status(via, urls) ?? 127;
+  // The xdg-open Corgi stood in for is the system's opener here.
+  if (via && status(via, urls) === 0) return 0;
   // Python's convention: commands apart by colons, the link at %s or last.
   if (urls.length === 1)
     for (const command of (env[original] ?? "").split(":").filter(Boolean)) {
       const script = command.includes("%s") ? command.replaceAll("%s", '"$1"') : `${command} "$1"`;
       if (status("/bin/sh", ["-c", script, "sh", urls[0]]) === 0) return 0;
     }
-  if (urls.length && status(process.platform === "darwin" ? "open" : "xdg-open", urls) === 0) return 0;
+  if (!via && urls.length && status(process.platform === "darwin" ? "open" : "xdg-open", urls) === 0) return 0;
   for (const url of urls) process.stderr.write(`Open this link in your browser: ${url}\n`);
   return 1;
 }

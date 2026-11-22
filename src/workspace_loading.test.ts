@@ -304,7 +304,9 @@ test("a machine in the background opens the links its panes ask for, while its o
     { seq: 2, kind: "focus", id: 31 },
     { seq: 3, kind: "action", name: "open-url", value: "https://example.com/" },
   ] as protocol.Wire<protocol.Control[]>;
-  expect(viewer.leadingLinks(controls)).toEqual(controls.slice(0, 1));
+  expect(viewer.leadingLinks(controls, 0n)).toEqual(controls.slice(0, 1));
+  // A control taken already, its ack still on the way, doesn't hold the link behind it.
+  expect(viewer.leadingLinks(controls.slice(1), 2n)).toEqual(controls.slice(1));
   await viewer.receive(view, reply(null, controls), { seq: 0n }, false, background);
   expect(view.effects).toEqual([{ open_url: "http://localhost:3000/", machine: background.id }]);
   expect(background.last_control).toBe(1n);

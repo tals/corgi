@@ -238,9 +238,10 @@ async function checkControl(
   check.state = there ? "there" : "gone";
   view.wake();
 }
-/** The `open-url` controls at the front of `controls`: a background machine takes these. */
-export function leadingLinks<C extends protocol.Wire<protocol.Control>>(controls: C[]): C[] {
-  const end = controls.findIndex(c => c.kind !== "action" || c.name !== "open-url");
+/** The `open-url` controls at the front of `controls`, past any this viewer
+ * took already (`taken` and before): a background machine takes these. */
+export function leadingLinks<C extends protocol.Wire<protocol.Control>>(controls: C[], taken: bigint): C[] {
+  const end = controls.findIndex(c => BigInt(c.seq) > taken && (c.kind !== "action" || c.name !== "open-url"));
   return end < 0 ? controls : controls.slice(0, end);
 }
 /** Takes a reply from `machine`'s daemon. A machine in the background takes
@@ -260,7 +261,7 @@ export async function receive(
   machine.viewer_id = reply.viewer ?? 0;
   // A machine in the background still opens the links its panes' programs
   // ask for, when nothing waits ahead of them.
-  const controls = shown ? (reply.controls ?? []) : leadingLinks(reply.controls ?? []);
+  const controls = shown ? (reply.controls ?? []) : leadingLinks(reply.controls ?? [], machine.last_control);
   // What still waits is decided afresh from the controls this reply brings.
   if (shown) machine.waiting_controls = [];
   else if (reply.controls?.length) machine.waiting_controls = reply.controls.slice(controls.length);

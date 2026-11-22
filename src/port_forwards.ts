@@ -29,8 +29,8 @@ export interface Channel {
 export interface Link {
   /** Readies the way before the first connection, such as one that must
    * log in, so a browser's first handful don't each start it. Throws
-   * "MachineUnreachable" when it can't. */
-  prepare(): Promise<void>;
+   * "MachineUnreachable" when it can't, and gives up once `signal` aborts. */
+  prepare(signal: AbortSignal): Promise<void>;
   /** A connection to `host`:`port` as the machine resolves them. */
   dial(host: string, port: number): Channel;
 }
@@ -122,6 +122,13 @@ function nested(url: string, own_port: boolean): string[] {
       }),
     ),
   ];
+}
+/** Whether an HTTP request that starts with `head` asks for `url`'s page, as
+ * a browser writes its path and query. */
+export function requests(head: Uint8Array, url: string): boolean {
+  const line = /^[A-Z]+ (\S+) HTTP\//.exec(Buffer.from(head.subarray(0, 8192)).toString("latin1")),
+    parsed = parse(url);
+  return !!line && !!parsed && line[1] === parsed.pathname + parsed.search;
 }
 /** The address here a browser coming back to callback `url` connects to,
  * which a callback's forward must listen on as the link names it. */
@@ -250,6 +257,7 @@ export class Forwards {
   private entries: Entry[] = [];
   private pending = new Map<string, Promise<Entry>>();
   private prepared: { done: Promise<void>; at: number } | null = null;
+  private stopping = new AbortController();
   /** The link under the pointer, and its ports', which don't expire while
    * the pointer moved lately: one that left the window from the link stops
    * holding them. */
@@ -435,7 +443,7 @@ export class Forwards {
     if (this.prepared && now - this.prepared.at < ready_ms) return this.prepared.done;
     const prepared = {
       at: now,
-      done: this.link.prepare().catch(error => {
+      done: this.link.prepare(this.stopping.signal).catch(error => {
         if (this.prepared === prepared) this.prepared = null;
         throw error;
       }),
@@ -469,10 +477,11 @@ export class Forwards {
     // a browser's preconnect realizes nothing.
     socket.once("data", (first: Buffer) => {
       socket.pause();
-      // Asked for by the terminal's own Cmd+click: its link is the one under the pointer.
+      // The terminal's own Cmd+click on the link under the pointer asks for
+      // exactly its page; any other request leaves the last link as it was.
       const hovered = this.hovered,
         at = hovered && target(hovered);
-      if (at && at.host === entry.forward.host && at.port === entry.forward.port)
+      if (at && at.host === entry.forward.host && at.port === entry.forward.port && requests(first, hovered!))
         entry.forward.url = rewrite(hovered!, entry.forward.local, entry.ipv6);
       this.realize(entry);
       this.ready().then(
@@ -556,6 +565,8 @@ export class Forwards {
   }
   close(): void {
     this.closed = true;
+    // A way to the machine still being readied gives up, so the viewer can exit.
+    this.stopping.abort();
     for (const entry of [...this.entries]) this.drop(entry);
     if (this.timer) clearTimeout(this.timer);
   }

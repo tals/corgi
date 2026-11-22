@@ -225,7 +225,7 @@ export class Endpoint {
     // With no browser here, there's nothing to forward links to.
     if (this.sample.ports && webLinks.opensLinks())
       this.machine.forwards = new Forwards({
-        prepare: () => this.ports().prepare(),
+        prepare: signal => this.ports().prepare(signal),
         dial: (host, port) => this.ports().dial(host, port),
       });
     this.machine.order_scope = JSON.stringify(identity);
@@ -1112,7 +1112,11 @@ export class Endpoint {
       stream.check();
       const taken = stream.take();
       let reply = taken?.frame ?? null;
-      if (this.controls.length && (visible || viewer.leadingLinks(this.controls).length)) {
+      if (
+        this.controls.length &&
+        (visible ||
+          viewer.leadingLinks(this.controls, machine.last_control).some(c => BigInt(c.seq) > machine.last_control))
+      ) {
         reply ??= {
           type: "view",
           viewer_protocol: protocol.viewer_version,

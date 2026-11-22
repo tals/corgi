@@ -24,7 +24,7 @@ import * as corgiAnimation from "./corgi_animation";
 import { attach } from "./host";
 import { Openers } from "./url_opener";
 import * as portForwards from "./port_forwards";
-import { sshViewer } from "./trackers/ports";
+import * as webLinks from "./web_links";
 import { Wake } from "./wake";
 import type { Probe } from "./terminal_info";
 import type { Differ } from "./frame_diff";
@@ -168,8 +168,8 @@ export async function run(
    * loopback opens through a forward of its port; one carrying a loopback
    * callback opens as it is, the callback's port forwarded. */
   const openLink = (url: string, from: Endpoint | null) => {
-    // Over SSH itself, the viewer has no browser to open.
-    if (sshViewer()) return;
+    // With no browser here, nothing opens: least of all a machine's localhost here.
+    if (!webLinks.opensLinks()) return;
     const forwards = from?.machine.forwards ?? null;
     if (!forwards || (!portForwards.target(url) && !portForwards.callbacks(url).length)) {
       try {

@@ -261,7 +261,6 @@ function continuesSeries(
     series !== null && (button & 0xfb) === 0 && series.x === x && series.y === y && now - series.at <= double_click_ms
   );
 }
-/** Links a click opens; native `linkIn` (pane/terminal.zig) picks the same ones. */
 /** How often a pointer at rest is checked for a link coming or going under it. */
 const link_recheck_ms = 250;
 /** Primary presses on one pane cell, each within `double_click_ms` of the
