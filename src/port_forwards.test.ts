@@ -469,7 +469,7 @@ test("a link back into its own port warns when its forward had to move off that 
   }
 });
 
-test("the terminal's own Cmd+click leaves the forward remembering the link it opened", async () => {
+test("a forward keeps the link it was made for, whatever the browser asks it for", async () => {
   const there = await freePort(),
     home = `http://localhost:${there}/`,
     admin = `http://localhost:${there}/admin?x=1`;
@@ -477,25 +477,15 @@ test("the terminal's own Cmd+click leaves the forward remembering the link it op
   try {
     forwards.hover(home);
     await until(() => forwards.local(home) !== null);
-    // The open page asking again while the pointer rests on another link isn't a Cmd+click on it.
     forwards.hover(admin);
-    expect(await (await fetch(`http://127.0.0.1:${there}/`, close)).text()).toBe("app /");
-    expect(forwards.list[0].url).toBe(home);
-    // What the browser asks for after Cmd+click on the link under the pointer.
     expect(await (await fetch(`http://127.0.0.1:${there}/admin?x=1`, close)).text()).toBe("app /admin");
+    expect(forwards.list[0].url).toBe(home);
+    // A click in Corgi is seen.
+    await forwards.open(admin);
     expect(forwards.list[0].url).toBe(admin);
   } finally {
     forwards.close();
   }
-});
-
-test("a request is matched to a link by its path and query, as a browser writes them", () => {
-  const head = (line: string) => Buffer.from(`${line}\r\nHost: localhost:3000\r\n\r\n`);
-  expect(portForwards.requests(head("GET /admin?x=1 HTTP/1.1"), "http://localhost:3000/admin?x=1#top")).toBe(true);
-  expect(portForwards.requests(head("GET / HTTP/1.1"), "http://localhost:3000")).toBe(true);
-  expect(portForwards.requests(head("GET /a%20b HTTP/1.1"), "http://localhost:3000/a b")).toBe(true);
-  expect(portForwards.requests(head("GET /assets/app.js HTTP/1.1"), "http://localhost:3000/")).toBe(false);
-  expect(portForwards.requests(Buffer.from([0x16, 0x03, 0x01]), "https://localhost:3000/")).toBe(false);
 });
 
 test("closing gives up on a way to the machine still being readied", async () => {

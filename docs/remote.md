@@ -320,7 +320,7 @@ open for the keyboard.
 | Key | Does |
 | --- | --- |
 | `↑` `↓` | Select a port |
-| `Enter` | Open its last link again |
+| `Enter` | Open its link again: the one it was made for, or the last one clicked in Corgi |
 | `x` | Stop forwarding it |
 | `Esc` | Close the card |
 

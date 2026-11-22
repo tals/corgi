@@ -42,7 +42,9 @@ export interface Target {
 export interface Forward extends Target {
   /** The port on this computer's loopback. */
   local: number;
-  /** The link last opened through it, pointing here. */
+  /** The link it was made for, or the last one clicked in Corgi, pointing
+   * here: what the card opens again. A Cmd+click the terminal handles
+   * itself isn't seen, so it leaves this as it was. */
   url: string;
   /** Connections open now. */
   open: number;
@@ -122,13 +124,6 @@ function nested(url: string, own_port: boolean): string[] {
       }),
     ),
   ];
-}
-/** Whether an HTTP request that starts with `head` asks for `url`'s page, as
- * a browser writes its path and query. */
-export function requests(head: Uint8Array, url: string): boolean {
-  const line = /^[A-Z]+ (\S+) HTTP\//.exec(Buffer.from(head.subarray(0, 8192)).toString("latin1")),
-    parsed = parse(url);
-  return !!line && !!parsed && line[1] === parsed.pathname + parsed.search;
 }
 /** The address here a browser coming back to callback `url` connects to,
  * which a callback's forward must listen on as the link names it. */
@@ -477,12 +472,6 @@ export class Forwards {
     // a browser's preconnect realizes nothing.
     socket.once("data", (first: Buffer) => {
       socket.pause();
-      // The terminal's own Cmd+click on the link under the pointer asks for
-      // exactly its page; any other request leaves the last link as it was.
-      const hovered = this.hovered,
-        at = hovered && target(hovered);
-      if (at && at.host === entry.forward.host && at.port === entry.forward.port && requests(first, hovered!))
-        entry.forward.url = rewrite(hovered!, entry.forward.local, entry.ipv6);
       this.realize(entry);
       this.ready().then(
         () => {
