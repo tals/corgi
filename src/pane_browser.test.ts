@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as paneBrowser from "./pane_browser";
@@ -84,12 +84,19 @@ test("the helper goes beside an installed launcher, else beside the socket, and 
     cli = join(install, "bin", "corgi"),
     runtime = folder(),
     socket = join(runtime, "control.sock");
+  // A Corgi xdg-open an earlier build left there goes; another stays.
+  mkdirSync(join(install, "bin"), { mode: 0o700 });
+  writeFileSync(join(install, "bin", "xdg-open"), "#!/bin/sh\n# corgi-xdg-open\n");
   expect(paneBrowser.install(cli, "/opt/releases/1/corgi", socket)).toBe(join(install, "bin"));
+  expect(existsSync(join(install, "bin", "xdg-open"))).toBe(false);
   expect(statSync(join(install, "bin", paneBrowser.helper)).mode & 0o777).toBe(0o700);
   expect(paneBrowser.install("/opt/dev/dist/corgi", "/opt/dev/dist/corgi", socket)).toBe(`${socket}.browser`);
   expect(readFileSync(join(`${socket}.browser`, paneBrowser.helper), "utf8")).toContain(
     "'/opt/dev/dist/corgi' __browser",
   );
+  writeFileSync(join(`${socket}.browser`, "xdg-open"), '#!/bin/sh\nexec /usr/bin/xdg-open "$@"\n');
+  paneBrowser.install("/opt/dev/dist/corgi", "/opt/dev/dist/corgi", socket);
+  expect(existsSync(join(`${socket}.browser`, "xdg-open"))).toBe(true);
   // Nowhere beside a socket with no folder of its own.
   expect(paneBrowser.install("/opt/dev/dist/corgi", "/opt/dev/dist/corgi", "")).toBeNull();
   // The daemon's own BROWSER stays for links no viewer takes, unless it's the helper itself.
@@ -103,13 +110,32 @@ test("the helper goes beside an installed launcher, else beside the socket, and 
       paneBrowser.original
     ],
   ).toBe("w3m");
+  // Nor is the helper kept in a list a shell added to.
+  expect(
+    paneBrowser.environment(helpers, { BROWSER: `${join(helpers, paneBrowser.helper)}:w3m` })[paneBrowser.original],
+  ).toBe("w3m");
 });
 
 test("what Corgi passes a link on to gets the pane's own BROWSER, so an opener reading it doesn't come back", () => {
   const helper = `/opt/corgi/bin/${paneBrowser.helper}`;
   expect(paneBrowser.handed({ BROWSER: helper, [paneBrowser.original]: "w3m" }).BROWSER).toBe("w3m");
   expect(paneBrowser.handed({ BROWSER: helper }).BROWSER).toBeUndefined();
+  expect(paneBrowser.handed({ BROWSER: `${helper}:w3m` }).BROWSER).toBe("w3m");
   expect(paneBrowser.handed({ BROWSER: "firefox" }).BROWSER).toBe("firefox");
+});
+
+test("a link no viewer takes never goes back to Corgi's helper, even one in the pane's own BROWSER", async () => {
+  const tools = folder(),
+    log = join(tools, "log");
+  recorder(join(tools, paneBrowser.helper), log);
+  recorder(join(tools, "w3m"), log);
+  const env = {
+    CORGI_PANE: "7",
+    PATH: `${tools}:/usr/bin:/bin`,
+    [paneBrowser.original]: `${join(tools, paneBrowser.helper)} --new:w3m`,
+  };
+  expect(await paneBrowser.run(["https://a.example/"], refused, env)).toBe(0);
+  expect(readFileSync(log, "utf8").trim()).toBe("w3m https://a.example/ w3m");
 });
 
 test("a viewer opens links where it has a browser: not over SSH, and on Linux with a display", async () => {

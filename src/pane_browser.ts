@@ -3,7 +3,7 @@
 //! computer, forwarded when it points at this machine's loopback. A link no
 //! viewer takes goes where it would have gone without Corgi.
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import * as os from "./os";
 import * as webLinks from "./web_links";
@@ -13,13 +13,20 @@ export const helper = "corgi-browser";
 /** The BROWSER panes would have had, for links no viewer takes. */
 export const original = "CORGI_HOST_BROWSER";
 
+/** `browsers`, a BROWSER list, without Corgi's helper, which would hand a
+ * link back. Undefined when nothing's left. */
+function others(browsers: string | undefined): string | undefined {
+  const kept = (browsers ?? "")
+    .split(":")
+    .filter(command => command.trim() && basename(command.trim().split(/\s+/)[0]) !== helper);
+  return kept.length ? kept.join(":") : undefined;
+}
 /** The environment for what opens a link Corgi passed on: with the pane's own
  * BROWSER, since a system opener with no desktop to ask runs BROWSER, which
  * would be Corgi's helper again. */
 export function handed(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const out: NodeJS.ProcessEnv = { ...env };
-  if (env[original]) out.BROWSER = env[original];
-  else if (env.BROWSER && basename(env.BROWSER) === helper) delete out.BROWSER;
+  const out: NodeJS.ProcessEnv = { ...env, BROWSER: others(env[original]) ?? others(env.BROWSER) };
+  if (out.BROWSER === undefined) delete out.BROWSER;
   return out;
 }
 /** The helper's script, running `cli`. */
@@ -40,6 +47,12 @@ export function install(cli: string, executable: string, socket: string): string
       current = readFileSync(path, "utf8");
     } catch {}
     if (current !== text) os.atomicWrite(path, text, 0o700);
+    // XXX: Remove once pre-release builds are gone: they left a Corgi xdg-open
+    // here, which panes' PATH reaches ahead of the system's.
+    const stale = join(folder, "xdg-open");
+    try {
+      if (readFileSync(stale, "utf8").split("\n")[1] === "# corgi-xdg-open") rmSync(stale);
+    } catch {}
     return folder;
   } catch {
     return null;
@@ -49,7 +62,7 @@ export function install(cli: string, executable: string, socket: string): string
  * daemon's own `env`. */
 export function environment(folder: string, env: NodeJS.ProcessEnv): Record<string, string | undefined> {
   // A daemon started from a pane has the helper as its BROWSER already.
-  const host = env.BROWSER && basename(env.BROWSER) !== helper ? env.BROWSER : env[original];
+  const host = others(env.BROWSER) ?? others(env[original]);
   return { BROWSER: join(folder, helper), [original]: host };
 }
 
@@ -78,7 +91,7 @@ function fallback(urls: string[], env: NodeJS.ProcessEnv): number {
   };
   // Python's convention: commands apart by colons, the link at %s or last.
   if (urls.length === 1)
-    for (const command of (env[original] ?? "").split(":").filter(Boolean)) {
+    for (const command of (others(env[original]) ?? "").split(":").filter(Boolean)) {
       const script = command.includes("%s") ? command.replaceAll("%s", '"$1"') : `${command} "$1"`;
       if (status("/bin/sh", ["-c", script, "sh", urls[0]]) === 0) return 0;
     }

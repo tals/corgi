@@ -569,7 +569,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "__handoff": {
       await updates.hold(executable);
       const handoff = await import("./persist/handoff");
-      // Programs already running in panes find the new helpers on their PATH.
+      // Running panes' BROWSER names the helper, which now runs this release.
       (await import("./pane_browser")).install(current_release.path(executable), executable, path);
       await handoff.importAndRun(path, executable, Number(args[1]), Number(args[2]));
       return;
