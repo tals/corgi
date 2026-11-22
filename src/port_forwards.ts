@@ -271,7 +271,10 @@ export class Forwards {
    * stays, and for a while after. */
   hover(url: string | null, moved = true): void {
     if (url === this.hovered) {
-      if (moved) this.moved_at = this.clock();
+      if (!moved) return;
+      this.moved_at = this.clock();
+      // A move within the link brings back a reservation that ran out while the pointer rested.
+      if (url !== null) this.reserve(url);
       return;
     }
     this.moved_at = this.clock();

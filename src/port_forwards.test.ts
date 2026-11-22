@@ -324,6 +324,12 @@ test("a reservation lasts while the pointer rests on its link, and a minute afte
     forwards.hover(url, false);
     forwards.expire();
     expect(forwards.local(url)).toBeNull();
+    // Checked again at rest it stays gone; moving within the link brings it back.
+    forwards.hover(url, false);
+    await Bun.sleep(20);
+    expect(forwards.local(url)).toBeNull();
+    forwards.hover(url);
+    await until(() => forwards.local(url) === url);
   } finally {
     forwards.close();
   }
