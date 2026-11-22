@@ -160,6 +160,51 @@ test("a port probe or a browser's preconnect realizes nothing", async () => {
   }
 });
 
+test("a connection closed without a word is let go, and keeps no reservation", async () => {
+  const there = await freePort();
+  const { link, dialed } = fakeLink(new Map([[there, serve("x")]]));
+  let now = 1_000;
+  const forwards = new portForwards.Forwards(link, () => now),
+    url = `http://localhost:${there}/`;
+  try {
+    forwards.reserve(url);
+    await until(() => forwards.local(url) !== null);
+    const socket = connect({ host: "127.0.0.1", port: there });
+    await new Promise(resolve => socket.once("connect", resolve));
+    const closed = new Promise(resolve => socket.once("close", resolve));
+    socket.end();
+    await Promise.race([closed, Bun.sleep(1000)]);
+    expect(socket.closed).toBe(true);
+    now += portForwards.reserved_ms;
+    forwards.expire();
+    expect(forwards.local(url)).toBeNull();
+    expect(dialed).toEqual([]);
+  } finally {
+    forwards.close();
+  }
+});
+
+test("a request that half-closes after it's sent still gets its reply", async () => {
+  const there = await freePort();
+  const { link } = fakeLink(new Map([[there, serve("x")]]));
+  const forwards = new portForwards.Forwards(link),
+    url = `http://localhost:${there}/`;
+  try {
+    forwards.reserve(url);
+    await until(() => forwards.local(url) !== null);
+    const socket = connect({ host: "127.0.0.1", port: there, allowHalfOpen: true });
+    await new Promise(resolve => socket.once("connect", resolve));
+    let reply = "";
+    socket.on("data", chunk => (reply += chunk));
+    const closed = new Promise(resolve => socket.once("close", resolve));
+    socket.end("GET /a HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+    await Promise.race([closed, Bun.sleep(2000)]);
+    expect(reply).toContain("x /a");
+  } finally {
+    forwards.close();
+  }
+});
+
 test("a click realizes the link's forward and opens it here, on another port when its own is in use", async () => {
   // The machine's port is served on this computer too, so it's taken here.
   const served = serve("there");

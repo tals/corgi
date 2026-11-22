@@ -458,6 +458,7 @@ export class Forwards {
     }
     entry.sockets.add(socket);
     let channel: Channel | null = null,
+      spoke = false,
       ended = false;
     const end = () => {
       if (ended) return;
@@ -473,9 +474,15 @@ export class Forwards {
       this.onChange();
     };
     socket.on("error", end).once("close", end);
+    // A client that closes without a word, such as a preconnect given up, is
+    // let go; a request's half-close goes on to the machine.
+    socket.once("end", () => {
+      if (!spoke) end();
+    });
     // Nothing reaches the machine before the client speaks: a port probe or
     // a browser's preconnect realizes nothing.
     socket.once("data", (first: Buffer) => {
+      spoke = true;
       socket.pause();
       this.realize(entry);
       this.ready().then(
