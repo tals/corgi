@@ -29,6 +29,7 @@ import * as r_3bc5f3ca7f53 from "./revisions/20261119_022523_3bc5f3ca7f53_move_s
 import * as r_632fb56ecc05 from "./revisions/20261119_042325_632fb56ecc05_add_review_read_diffs_summary_and_recognize_rpcs";
 import * as r_50cd70f93bfd from "./revisions/20261119_142619_50cd70f93bfd_keep_settings_only_in_config_json";
 import * as r_7f791e9ff70d from "./revisions/20261119_184045_7f791e9ff70d_store_the_prefix_as_a_key_chord";
+import * as r_08e793e2e4fa from "./revisions/20261122_195524_08e793e2e4fa_add_file_stat_read_count_scan_thumbnail_job_and_";
 
 export const revisions = [
   r_1dfaa1773956.revision,
@@ -60,9 +61,10 @@ export const revisions = [
   r_632fb56ecc05.revision,
   r_50cd70f93bfd.revision,
   r_7f791e9ff70d.revision,
+  r_08e793e2e4fa.revision,
 ];
 export const heads = {
-  state: r_632fb56ecc05.revision.id,
+  state: r_08e793e2e4fa.revision.id,
   checkpoint: r_1dfaa1773956.revision.id,
   handoff: r_3a005bd21b0d.revision.id,
   workspaces: r_f4c12b1642bd.revision.id,

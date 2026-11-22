@@ -219,6 +219,10 @@ interface State {
   fence: boolean;
 }
 const start: State = { block: false, string: null, fence: false };
+/** One line's colors on its own, as for a line from the middle of a log. */
+export function lineSpans(lang: string, line: string): Span[] {
+  return lexLine(lang, line, start).spans;
+}
 
 const word = /[A-Za-z_$][\w$]*/y;
 const number = /0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?/y;

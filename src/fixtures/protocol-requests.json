@@ -178,6 +178,42 @@
     "cwd": "/work/corgi",
     "hashes": ["4b825dc"]
   },
+  "file.stat": {
+    "path": "src/app.ts",
+    "cwd": "/work/corgi"
+  },
+  "file.read": {
+    "path": "/work/corgi/server.log",
+    "id": "2049:1835011",
+    "at": 0,
+    "length": 65536
+  },
+  "file.scan": {
+    "path": "/work/corgi/server.log",
+    "id": "2049:1835011",
+    "line": 1200000,
+    "budget": 33554432,
+    "wait": 250
+  },
+  "file.count": {
+    "path": "/work/corgi/server.log",
+    "id": "2049:1835011",
+    "from": 262144,
+    "to": 524288
+  },
+  "file.thumbnail": {
+    "path": "/tmp/paste/shot.png",
+    "width": 640,
+    "height": 480,
+    "pixels": 4000000
+  },
+  "job.poll": {
+    "job": 7,
+    "wait": 250
+  },
+  "job.cancel": {
+    "job": 7
+  },
   "onboarding.status": {
     "operation": 1
   },
@@ -269,6 +305,11 @@
     "after": 4,
     "provider": "codex",
     "pane": 3
+  },
+  "headless.handoff": {
+    "upload": "5f0c2a9e41b37d68",
+    "part": "{\"conversation\":null,\"incognito\":false,\"choice\":null,",
+    "last": false
   },
   "theme": {
     "theme": {

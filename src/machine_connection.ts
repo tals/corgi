@@ -846,6 +846,7 @@ export class Endpoint {
       for (const listener of this.listeners) listener(event);
     });
     this.instance = machine_path.compatible(hello);
+    this.machine.executable = hello.executable;
     if (!hello.capabilities.includes("viewer.stream")) throw Error("IncompatibleRemoteCorgi");
     this.incremental = hello.capabilities.includes("viewer.receipt");
     this.separate =
@@ -1014,13 +1015,28 @@ export class Endpoint {
         }
         const generation = this.generation;
         // Pane contents take the data connection, apart from input. Review's
-        // file lists and diffs take it too, and never the control connection,
-        // opening it on a machine not shown, such as a prompt conversation's.
+        // file lists and diffs, the file peek's and link pictures' reads, and
+        // a chat moved into a pane take it too, and never the control
+        // connection, opening it on a machine not shown, such as a prompt
+        // conversation's.
         const contents = ["viewer.surfaces", "viewer.image", "viewer.search", "viewer.pick", "pane.surface"].includes(
           op,
         );
         let conn: Connection | null, keepalive: ReturnType<typeof setInterval> | undefined;
-        if (op === "review.read" || op === "review.diffs") {
+        if (
+          [
+            "review.read",
+            "review.diffs",
+            "file.stat",
+            "file.read",
+            "file.count",
+            "file.scan",
+            "file.thumbnail",
+            "job.poll",
+            "job.cancel",
+            "headless.handoff",
+          ].includes(op)
+        ) {
           if (!this.checked) throw Error("StaleConnection");
           // One that failed or closed is dialed again, unless a viewer's stream
           // is bound to it: then the reconnect that brings the stream back does.

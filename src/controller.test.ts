@@ -2,6 +2,8 @@ import * as viewerRef from "./viewer_ref";
 import { Machine } from "./machine";
 import type { Progress as ImageProgress } from "./image_upload";
 import * as protocol from "./protocol";
+import * as fileAccess from "./file_access";
+import * as handoffUpload from "./handoff_upload";
 import { transport } from "./fixtures/transport";
 import * as worktrees from "./fixtures/worktrees";
 import { scopedEnv } from "./fixtures/env";
@@ -31,6 +33,8 @@ import type { Runtime } from "./runtime";
 import * as signinExit from "./signin_exit";
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import { Writer, displayWidth } from "./text";
+import type { ChatArgs } from "./prompt";
+import { png_base64 } from "./assets/corgi_badge";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -3429,11 +3433,24 @@ test("presses on one pane cell within the double-click window count up to three"
   }
 });
 
+const chat = (fields: Partial<ChatArgs>): ChatArgs => ({
+  handoff: "",
+  provider: "codex",
+  session: "",
+  account: "",
+  model: "",
+  effort: null,
+  incognito: false,
+  cwd: "",
+  workspace: null,
+  ...fields,
+});
+
 test("the card takes its conversation back only when the daemon refuses the pane", async () => {
   const snapshot = folders("/a");
   const { s } = recording(snapshot, () => "NoWorkspace");
   const reclaim = spyOn(s.prompt, "reclaim").mockImplementation(() => {}),
-    effect = { kind: "pane", argv: ["corgi", "__chat"], cwd: "/w", handoff: "/tmp/h.json" };
+    effect = { kind: "chat", chat: chat({ handoff: "/tmp/h.json" }), cwd: "/w" };
   try {
     await s.promptEffect(effect);
     expect(reclaim).toHaveBeenCalledWith("/tmp/h.json", "NoWorkspace");
@@ -4753,7 +4770,7 @@ test("a plain click on a pane link opens it once the double-click window has pas
     const at = clock.milliTimestamp();
     await click();
     expect(s.effects).toEqual([]);
-    expect(s.pending_open).toEqual({ url, machine: s.machine, pane: 1, due: at + clock.double_click_ms });
+    expect(s.pending_open).toEqual({ url, machine: s.machine, file: null, pane: 1, due: at + clock.double_click_ms });
     expect(await opened()).toEqual([]);
     clock.advance(clock.double_click_ms - 1);
     expect(await opened()).toEqual([]);
@@ -4786,6 +4803,209 @@ test("a plain click on a pane link opens it once the double-click window has pas
     expect(await opened()).toEqual([]);
   } finally {
     done();
+  }
+});
+
+test("a file's name peeks after the pointer rests on it, and a click opens it in a pane", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-peek-")));
+  mkdirSync(join(dir, "src"));
+  const file = join(dir, "src", "app.ts");
+  writeFileSync(file, Array.from({ length: 80 }, (_, i) => `const v${i + 1} = ${i + 1};`).join("\n"));
+  const s: any = new Controller({ request: transport(async () => ({})).request });
+  const snapshot: any = folders(dir);
+  snapshot.panes[0].cwd = dir;
+  s.receiveSnapshot(snapshot);
+  s.width = 120;
+  s.height = 40;
+  s.input_state.attached = true;
+  setSystemTime(new Date(1000));
+  const created: unknown[][] = [];
+  s.create = async (...args: unknown[]) => {
+    created.push(args);
+    return 2;
+  };
+  const rect = s.layoutView().placements(s.area())[0].rect;
+  const native = NativeTerminal.create(rect.w, rect.h);
+  try {
+    native.feed("  see src/app.ts:30 here");
+    s.pane(1).terminal.receive(native.surface(1));
+    const at = (dx: number, dy = 0) => [rect.x + 7 + dx, rect.y + 1 + dy];
+    const mouse = (button: number, [x, y]: number[], release = false) =>
+      mouseInput(s, `\x1b[<${button};${x};${y}${release ? "m" : "M"}`);
+    await mouse(35, at(0));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.frame();
+    await s.file_peeks.current.opened;
+    // Moving along the name keeps its wait.
+    clock.advance(700);
+    await mouse(35, at(5));
+    s.frame();
+    clock.advance(299);
+    expect(s.frame()).not.toContain("click to open");
+    clock.advance(1);
+    const shown = s.frame().replace(/\x1b\[[\d;?]*[A-Za-z]/g, "");
+    expect(shown).toContain("click to open");
+    expect(shown).toContain("30 const v30 = 30;");
+    // The wheel scrolls it, from the name it opened on too, and a sideways
+    // scroll leaves it open; a click opens the line under it.
+    const card = s.fileCard().rect;
+    const before = s.file_peeks.current.reader.top;
+    await mouse(65, at(5));
+    expect(s.file_peeks.current.reader.top).toBe(before + 3);
+    await mouse(66, at(5));
+    await mouse(64, [card.x + 5, card.y + 4]);
+    await mouse(65, [card.x + 5, card.y + 4]);
+    expect(s.file_peeks.current.reader.top).toBe(before + 3);
+    expect(s.fileCard()).not.toBeNull();
+    const line = s.file_peeks.current.lineAt(2);
+    await mouse(0, [card.x + 5, card.y + 5]);
+    await mouse(0, [card.x + 5, card.y + 5], true);
+    expect(created).toHaveLength(1);
+    expect(created[0][0]).toBe("horizontal");
+    expect(created[0][1]).toBe(join(dir, "src"));
+    expect(created[0][2]).toMatch(new RegExp(`^exec .* __view ${file} --line ${line}$`));
+    expect(s.fileCard()).toBeNull();
+    // A plain click on the name itself opens it at its line.
+    clock.advance(clock.double_click_ms * 2);
+    await mouse(0, at(2));
+    await mouse(0, at(2), true);
+    clock.advance(clock.double_click_ms);
+    await s.expireInput();
+    expect(created).toHaveLength(2);
+    expect(created[1][2]).toMatch(/ __view .*app\.ts --line 30$/);
+  } finally {
+    native.destroy();
+    setSystemTime();
+    clock.reset();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("on another computer, a file's name peeks through that computer's daemon and opens with its Corgi", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-peek-remote-")));
+  writeFileSync(join(dir, "app.ts"), Array.from({ length: 80 }, (_, i) => `const v${i + 1} = ${i + 1};`).join("\n"));
+  const asked: string[] = [];
+  const s: any = new Controller({ request: transport(async () => ({})).request });
+  const other = new Machine(
+    {
+      request: transport(async (op, fields) => {
+        if (!op.startsWith("file.")) return {};
+        asked.push(op);
+        return fileAccess.answer(protocol.decoded(op, fields) as any);
+      }).request,
+    },
+    "work",
+    true,
+  );
+  s.adopt(other);
+  const snapshot: any = folders(dir);
+  snapshot.panes[0].cwd = dir;
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(snapshot, other);
+  s.switchMachine(other);
+  other.executable = "/opt/corgi";
+  s.width = 120;
+  s.height = 40;
+  s.input_state.attached = true;
+  setSystemTime(new Date(1000));
+  const created: unknown[][] = [];
+  s.create = async (...args: unknown[]) => {
+    created.push(args);
+    return 2;
+  };
+  const rect = s.layoutView().placements(s.area())[0].rect;
+  const native = NativeTerminal.create(rect.w, rect.h);
+  try {
+    native.feed("  see app.ts:30 here");
+    s.pane(1).terminal.receive(native.surface(1));
+    const at = [rect.x + 7, rect.y + 1];
+    const mouse = (button: number, [x, y]: number[], release = false) =>
+      mouseInput(s, `\x1b[<${button};${x};${y}${release ? "m" : "M"}`);
+    await mouse(35, at);
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.frame();
+    await s.file_peeks.current.opened;
+    clock.advance(1000);
+    expect(s.frame().replace(/\x1b\[[\d;?]*[A-Za-z]/g, "")).toContain("30 const v30 = 30;");
+    expect(asked).toContain("file.stat");
+    expect(asked).toContain("file.read");
+    // A click opens it with the Corgi on that computer.
+    clock.advance(clock.double_click_ms * 2);
+    await mouse(0, at);
+    await mouse(0, at, true);
+    clock.advance(clock.double_click_ms);
+    await s.expireInput();
+    expect(created).toHaveLength(1);
+    expect(created[0][2]).toBe(`exec /opt/corgi __view ${join(dir, "app.ts")} --line 30`);
+  } finally {
+    native.destroy();
+    setSystemTime();
+    clock.reset();
+    viewer.close(s);
+    other.runtime.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("on another computer, an image link's card shows the picture that computer's daemon shrank", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-thumb-remote-")));
+  const path = join(dir, "shot.png");
+  writeFileSync(path, await new Bun.Image(Buffer.from(png_base64, "base64")).resize(1000, 400).png().buffer());
+  const asked: string[] = [];
+  const s: any = new Controller({ request: transport(async () => ({})).request });
+  const other = new Machine(
+    {
+      request: transport(async (op, fields) => {
+        if (!op.startsWith("file.")) return {};
+        asked.push(op);
+        return fileAccess.answer(protocol.decoded(op, fields) as any);
+      }).request,
+    },
+    "work",
+    true,
+  );
+  s.adopt(other);
+  const snapshot: any = folders(dir);
+  snapshot.panes[0].cwd = dir;
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(snapshot, other);
+  s.switchMachine(other);
+  s.width = 120;
+  s.height = 40;
+  s.input_state.attached = true;
+  s.supports_kitty_graphics = true;
+  s.cell_pixels = { width: 10, height: 20 };
+  setSystemTime(new Date(1000));
+  const rect = s.layoutView().placements(s.area())[0].rect;
+  const native = NativeTerminal.create(rect.w, rect.h);
+  try {
+    // Its link names that computer, not this one.
+    native.feed(`\x1b]8;;file://work-box${path}\x1b\\[Image #1]\x1b]8;;\x1b\\`);
+    s.pane(1).terminal.receive(native.surface(1));
+    await mouseInput(s, `\x1b[<35;${rect.x + 3};${rect.y + 1}M`);
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.frame();
+    await s.thumbnails.loading;
+    setSystemTime(new Date(1200));
+    const frame = s.frame();
+    expect(frame).toContain("Copy path");
+    // The card places the picture, which the viewer sends ahead of the frame.
+    const shown = s.host.images.present(),
+      id = /\x1b_Ga=p,i=(\d+),/.exec(shown.draw)?.[1];
+    expect(id).toBeDefined();
+    expect(shown.send).toContain(`\x1b_Ga=t,t=d,f=100,i=${id},q=1,m=`);
+    // Only the shrunk picture crossed: the image itself was never read.
+    expect(asked).toEqual(["file.stat", "file.thumbnail"]);
+  } finally {
+    native.destroy();
+    setSystemTime();
+    viewer.close(s);
+    other.runtime.destroy();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -5687,6 +5907,19 @@ function twoMachines(reply: (op: string) => unknown) {
   return { s, other, asked };
 }
 
+test("a click waiting out the double-click window doesn't open on a machine switched to meanwhile", () => {
+  const { s, other } = twoMachines(() => ({}));
+  try {
+    const file = { path: "/a/app.ts", line: 3, column: null };
+    s.pending_open = { url: "/a/app.ts:3", machine: s.machine, file, pane: 1, due: 0 };
+    s.switchMachine(other);
+    expect(s.pending_open).toBeNull();
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 test("the prompt's conversation stays on the machine it started on when another is shown", async () => {
   const { s, other, asked } = twoMachines(op =>
     op === "headless.start" ? { provider: "codex", session: "s" } : { events: [] },
@@ -5863,6 +6096,87 @@ test("a remote machine's review reads go to its own daemon, and its panel keeps 
     expect(s.review.open).toBe(false);
   } finally {
     s.review.hide();
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("a chat moved to a pane on another computer runs that computer's Corgi, from the handoff its daemon wrote", async () => {
+  const s = controller(),
+    here = s.machine,
+    sent: any[] = [],
+    handoffs: unknown[] = [],
+    uploads = new handoffUpload.Uploads();
+  let refuse = false,
+    parts = 0;
+  const other = new Machine(
+    {
+      request: transport(async (op, fields: any) => {
+        if (op === "headless.handoff") {
+          if (refuse) throw Error("UnknownOperation");
+          parts++;
+          const whole = uploads.add(other, fields);
+          if (whole === null) return { path: "" };
+          handoffs.push(JSON.parse(whole));
+          return { path: "/tmp/corgi-chat-there.json" };
+        }
+        if (op !== "session.command") return folders("/a");
+        sent.push(fields.command);
+        return { result: { pane: 1 } };
+      }).request,
+    },
+    "work",
+    true,
+  );
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(folders("/a"), other);
+  const dir = mkdtempSync(join(tmpdir(), "corgi-chat-remote-")),
+    handoff = (name: string) => {
+      const path = join(dir, name);
+      writeFileSync(path, "{}");
+      return path;
+    };
+  const reclaim = spyOn(s.prompt, "reclaim").mockImplementation(() => {});
+  try {
+    s.switchMachine(other);
+    other.executable = "/home/me/.local/bin/corgi";
+    Reflect.get(s, "prompt_sessions").set("codex:s", other);
+    const moved = handoff("moved.json"),
+      long = { items: "x".repeat(handoffUpload.part_chars * 2) };
+    writeFileSync(moved, JSON.stringify(long));
+    await s.promptEffect({ kind: "chat", chat: chat({ handoff: moved, session: "s", cwd: "/a" }), cwd: "/a" });
+    // Its pane can't read this computer's handoff: that computer's daemon writes it there, sent in
+    // parts its screens share the connection with, and it doesn't linger here.
+    expect(handoffs).toEqual([long]);
+    expect(parts).toBe(3);
+    expect(sent.at(-1)["pane.create"].command).toBe(
+      "/home/me/.local/bin/corgi __chat /tmp/corgi-chat-there.json --provider codex --session s --cwd /a",
+    );
+    expect(existsSync(moved)).toBe(false);
+    expect(reclaim).not.toHaveBeenCalled();
+    // A daemon that can't take it leaves the pane to follow the session from that daemon.
+    refuse = true;
+    const followed = handoff("followed.json");
+    await s.promptEffect({ kind: "chat", chat: chat({ handoff: followed, session: "s", cwd: "/a" }), cwd: "/a" });
+    expect(sent.at(-1)["pane.create"].command).toBe(
+      "/home/me/.local/bin/corgi __chat --provider codex --session s --cwd /a",
+    );
+    expect(existsSync(followed)).toBe(false);
+    // A file opens with that Corgi too; before its hello, the one on the pane's PATH.
+    expect(Reflect.get(s, "corgiOn").call(s, other)).toEqual(["/home/me/.local/bin/corgi"]);
+    other.executable = "";
+    expect(Reflect.get(s, "corgiOn").call(s, other)).toEqual(["corgi"]);
+    // With this computer shown, the chat can't move into its panes: the card keeps it.
+    s.switchMachine(here);
+    const kept = handoff("kept.json");
+    await s.promptEffect({ kind: "chat", chat: chat({ handoff: kept, session: "s" }), cwd: "/a" });
+    expect(reclaim).toHaveBeenCalledWith(kept, "the chat runs on work");
+    expect(s.message).toContain("the chat runs on work");
+    expect(sent).toHaveLength(2);
+  } finally {
+    reclaim.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
     viewer.close(s);
     other.runtime.destroy();
   }

@@ -160,6 +160,13 @@ export const operations = [
   "review.diffs",
   "review.summary",
   "review.recognize",
+  "file.stat",
+  "file.read",
+  "file.count",
+  "file.scan",
+  "file.thumbnail",
+  "job.poll",
+  "job.cancel",
   "onboarding.status",
   "onboarding.handoff",
   "onboarding.copy",
@@ -178,6 +185,7 @@ export const operations = [
   "headless.stop",
   "headless.send",
   "headless.events",
+  "headless.handoff",
   "headless.search",
   "headless.memory",
   "theme",
@@ -827,6 +835,19 @@ const requests = {
   "review.diffs": { root: "string", source: "json", files: "json" },
   "review.summary": { cwd: "string" },
   "review.recognize": { cwd: "string", hashes: "[]string" },
+  // The file peek's and a link's picture's reads on another computer; see
+  // file_access.ts. `id` is the file's as `file.stat` found it: a path that
+  // names another refuses.
+  "file.stat": { path: "string", cwd: ["string", ""] },
+  "file.read": { path: "string", id: "string", at: "u64", length: "u32" },
+  "file.count": { path: "string", id: "string", from: "u64", to: "u64" },
+  // Starts the job that finds a line, scanning `budget` bytes at most
+  // before it answers that the line is far; see jobs.ts for `wait`.
+  "file.scan": { path: "string", id: "string", line: "u64", budget: "u64", wait: ["u32", 0] },
+  "file.thumbnail": { path: "string", width: "u32", height: "u32", pixels: "u32" },
+  // A job's news, waiting up to `wait` ms for some, and its end; see jobs.ts.
+  "job.poll": { job: "u32", wait: ["u32", 0] },
+  "job.cancel": { job: "u32" },
   "onboarding.status": { operation: "u64" },
   "onboarding.handoff": { operation: "u64", viewer_pgid: "i32", socket: ["string", ""] },
   "onboarding.copy": {
@@ -860,6 +881,9 @@ const requests = {
   "headless.send": { provider: "provider", session: "string", input: "json" },
   // A reader in a pane passes its pane, which claims the session: closing the pane stops it.
   "headless.events": { provider: "provider", session: "string", after: ["u64", 0], pane: ["?u32", null] },
+  // Part of a prompt card's conversation, written on this computer once the
+  // last part comes, for a `corgi __chat` pane here to go on with; see handoff_upload.ts.
+  "headless.handoff": { upload: "string", part: "string", last: "bool" },
   "headless.search": { id: "u32", search: "json" },
   "headless.memory": {
     id: "u32",
@@ -993,6 +1017,18 @@ export interface ReplyPayloads {
   "review.diffs": Ok & import("./review/service").Diffs;
   "review.summary": Ok & import("./review/service").Summary;
   "review.recognize": Ok & { found: [string, string][] };
+  "file.stat": Ok & import("./file_access").Info;
+  "file.read": Ok & { data: string };
+  "file.count": Ok & { lines: number };
+  "file.scan": Ok & { job: number } & import("./jobs").Poll;
+  // Its PNGs in base64.
+  "file.thumbnail": Ok &
+    Omit<import("./picture").Picture, "png" | "frames"> & {
+      png: string;
+      frames: (Omit<import("./picture").Frame, "png"> & { png: string })[];
+    };
+  "job.poll": Ok & import("./jobs").Poll;
+  "job.cancel": Ok;
   "onboarding.status": Ok & {
     progress: import("./import/onboarding").Progress | ReturnType<import("./import/herdr").Manager["status"]>;
   };
@@ -1017,6 +1053,8 @@ export interface ReplyPayloads {
   "workspace.switch": Ok & { viewer: number; queued: true };
   "headless.start": Ok & { session: string; provider: Provider };
   "headless.list": Ok & { sessions: unknown[] };
+  // Where the handoff was written, once its last part came; "" before.
+  "headless.handoff": Ok & { path: string };
   "headless.events": Ok & {
     events: unknown[];
     transcript: string;

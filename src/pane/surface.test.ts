@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { Terminal } from "./terminal";
 import { capture, view, type Surface } from "./surface";
 import * as viewer_native from "../viewer_native";
-const links = (t: Terminal) => t.native({ op: "links" }) as { uri: string; start: number; end: number }[];
+const all = (t: Terminal) => t.native({ op: "links" }) as { uri: string; start: number; end: number; path: boolean }[];
+/** Web and image links, without the file paths found in plain text. */
+const links = (t: Terminal) => all(t).filter(link => !link.path);
 test("named hyperlinks survive capture and a second terminal render without leaking", () => {
   const ts = Array.from({ length: 3 }, () => Terminal.create(32, 3)),
     [t, mirror, host] = ts;
@@ -52,7 +54,7 @@ test("plain web links map Unicode cells, trim punctuation and preserve explicit 
     t.destroy();
   }
 });
-test("plain image paths link to their file, and other paths stay plain", () => {
+test("plain image paths link to their file, and other paths are found as paths", () => {
   const t = Terminal.create(100, 4);
   try {
     t.feed("GIF: /tmp/a-1/fleas.GIF (31 KB). /tmp/n.txt, src/b.png, https://x.example/c.png (/c/d.webp).");
@@ -61,8 +63,33 @@ test("plain image paths link to their file, and other paths stay plain", () => {
       expect.objectContaining({ uri: "https://x.example/c.png" }),
       expect.objectContaining({ uri: "file:///c/d.webp" }),
     ]);
+    expect(all(t).filter(link => link.path)).toEqual([
+      expect.objectContaining({ uri: "/tmp/n.txt", start: 33, end: 43 }),
+      expect.objectContaining({ uri: "src/b.png", start: 45, end: 54 }),
+    ]);
   } finally {
     t.destroy();
+  }
+});
+test("a screen with only a dotfile or a name and its line still finds them", () => {
+  for (const [text, uri] of [
+    ["see .env", ".env"],
+    ["edit .gitignore now", ".gitignore"],
+    ["error at Makefile:42", "Makefile:42"],
+    ["Makefile(7)", "Makefile:7"],
+    ['  File "Makefile", line 3', "Makefile:3"],
+    // Before the dot or the line, a character no word has in ASCII.
+    ["open résumé.txt", "résumé.txt"],
+    ["open notes-.txt", "notes-.txt"],
+    ["error at build_:42", "build_:42"],
+  ]) {
+    const t = Terminal.create(40, 2);
+    try {
+      t.feed(text);
+      expect(all(t).filter(link => link.path)).toEqual([expect.objectContaining({ uri })]);
+    } finally {
+      t.destroy();
+    }
   }
 });
 test("plain links span soft wraps but not hard newlines and remain snapshot owned", () => {

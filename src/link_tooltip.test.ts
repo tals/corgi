@@ -42,6 +42,15 @@ test.each([
     expect(s.ready(next, 402)).toBe(false);
   },
 );
+test("a link found to name a file waits for its peek rather than showing its copy card", () => {
+  const s = new State();
+  s.move();
+  expect(s.ready({ link: pointed }, 0)).toBe(false);
+  expect(s.ready({ link: pointed, file: true }, 100)).toBe(false);
+  expect(s.target?.file).toBe(true);
+  expect(s.ready({ link: pointed, file: true }, 1099)).toBe(false);
+  expect(s.ready({ link: pointed, file: true }, 1100)).toBe(true);
+});
 test("tooltip waits for rest and requires fresh movement after interaction", () => {
   const s = new State(),
     target = { git: viewerRef.workspace(1, 1) };
@@ -370,6 +379,9 @@ test("an image link's popover shows a thumbnail on Kitty hosts and frees it when
   try {
     setSystemTime(new Date(1000));
     await s.input(mouse(35, 2, 1));
+    s.frame();
+    // It loads once the link is known to name a file.
+    await Promise.all(s.file_refs.checks);
     s.frame();
     await s.thumbnails.loading;
     expect(s.dirty).toBe(true);

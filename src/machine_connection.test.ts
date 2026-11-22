@@ -65,6 +65,7 @@ async function flakyDaemon(
             protocol: protocol.version,
             viewer_protocol: protocol.viewer_version,
             capabilities: protocol.capabilities,
+            executable: `/opt/${instance}/corgi`,
             instance,
           });
           break;
@@ -376,6 +377,8 @@ test("a machine keeps its data across reconnects to its daemon but not the daemo
     expect(endpoint.machine.runtime).not.toBe(runtime);
     expect(view.worktreeDetail()).toBeNull();
     expect(expire).not.toHaveBeenCalled();
+    // Panes there run Corgi as the new daemon does.
+    expect(endpoint.machine.executable).toBe("/opt/second/corgi");
     // Replacing the shown daemon also refreshes its model lists.
     view.switchMachine(endpoint.machine);
     const remoteExpire = spyOn(view.model_cache, "expire");
@@ -1000,6 +1003,30 @@ test("a machine not shown opens its data connection for review, after reconnecti
     expect(pings).toBeGreaterThan(0);
     await new Promise(resolve => setTimeout(resolve, 50));
     expect(daemon.seen.filter(request => request.op === "ping")).toHaveLength(pings);
+  } finally {
+    await daemon.close();
+  }
+});
+
+test("the file peek's reads and a link's picture take the data connection, as review's do", async () => {
+  const daemon = await flakyDaemon(true);
+  const endpoint = daemon.endpoint;
+  Reflect.set(endpoint, "controller", new Controller(transport(async () => ({}))));
+  try {
+    await daemon.connect();
+    expect(Reflect.get(endpoint, "data")).toBeNull();
+    await endpoint.machine.connection.request("file.thumbnail", {
+      path: "/tmp/a.png",
+      width: 640,
+      height: 480,
+      pixels: 100,
+    } as never);
+    const data = Reflect.get(endpoint, "data");
+    expect(data?.channel).toBeTruthy();
+    await endpoint.machine.connection.request("file.read", { path: "/tmp/a.log", at: 0, length: 10 } as never);
+    expect(Reflect.get(endpoint, "data")).toBe(data);
+    expect(daemon.seen.filter(request => request.op === "file.read")).toHaveLength(1);
+    expect(daemon.seen.filter(request => request.op === "file.thumbnail")).toHaveLength(1);
   } finally {
     await daemon.close();
   }

@@ -359,6 +359,11 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     await (await import("./providers/opencode2/worker")).run();
     return;
   }
+  // A file in a pane of its own, which clicking its name opens.
+  if (args[0] === "__view") {
+    await (await import("./file_pane")).run(args.slice(1));
+    return;
+  }
   // The Corgi prompt as a pane of its own, which the prompt card opens.
   if (args[0] === "__chat") {
     await (await import("./prompt_pane")).run(args.slice(1));
