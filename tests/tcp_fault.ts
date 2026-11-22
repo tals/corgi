@@ -10,7 +10,6 @@ export class TcpFault {
     const upstream = createConnection({ host: "127.0.0.1", port: this.upstream });
     const pair = { client, upstream, upload: 0, download: 0, stranded: this.strand_next > 0 };
     if (this.strand_next > 0) this.strand_next--;
-    const initial_rate = this.bytes_per_second;
     const scheduled = { upload: 0, download: 0 };
     const timers = new Set<ReturnType<typeof setTimeout>>();
     this.accepted++;
@@ -26,7 +25,7 @@ export class TcpFault {
     client.on("error", close).on("close", close);
     upstream.on("error", close).on("close", close);
     const forward = (source: Socket, target: Socket, bytes: Buffer) => {
-      const rate = this.dynamic_rate ? this.bytes_per_second : initial_rate;
+      const rate = this.bytes_per_second;
       if (!this.latency_ms && !rate) {
         if (!target.write(bytes)) source.pause();
         return;
@@ -67,12 +66,9 @@ export class TcpFault {
   downloaded = 0;
   port = 0;
   latency_ms = 0;
-  /** Normally captured at connect; sandbox proxies can opt into live changes. */
+  /** The link's speed: a change reaches open connections too. */
   bytes_per_second = 0;
-  constructor(
-    private readonly upstream: number,
-    private readonly dynamic_rate = false,
-  ) {}
+  constructor(private readonly upstream: number) {}
   get withheld(): number {
     return [...this.pairs].reduce((bytes, pair) => bytes + pair.upstream.readableLength, 0);
   }

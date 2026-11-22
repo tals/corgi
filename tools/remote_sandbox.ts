@@ -202,7 +202,7 @@ async function serve(dir: string, exe: string): Promise<void> {
         }
       }
       if (!info) throw Error(`${name} failed to start`);
-      const proxy = new TcpFault(port, true);
+      const proxy = new TcpFault(port);
       await proxy.start();
       proxies.set(name, proxy);
       const policy = new Policy();
