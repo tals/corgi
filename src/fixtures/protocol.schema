@@ -323,12 +323,15 @@ $.requests|review.recognize.hashes[]: string
 $.requests|file.stat.path: string
 $.requests|file.stat.cwd: string
 $.requests|file.read.path: string
+$.requests|file.read.id: string
 $.requests|file.read.at: u64
 $.requests|file.read.length: u32
 $.requests|file.line.path: string
+$.requests|file.line.id: string
 $.requests|file.line.line: u64
 $.requests|file.line.limit: u64
 $.requests|file.count.path: string
+$.requests|file.count.id: string
 $.requests|file.count.from: u64
 $.requests|file.count.to: u64
 $.requests|file.thumbnail.path: string

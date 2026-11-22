@@ -832,11 +832,13 @@ const requests = {
   "review.diffs": { root: "string", source: "json", files: "json" },
   "review.summary": { cwd: "string" },
   "review.recognize": { cwd: "string", hashes: "[]string" },
-  // The file peek's and a link's picture's reads on another computer; see file_access.ts.
+  // The file peek's and a link's picture's reads on another computer; see
+  // file_access.ts. `id` is the file's as `file.stat` found it: a path that
+  // names another refuses.
   "file.stat": { path: "string", cwd: ["string", ""] },
-  "file.read": { path: "string", at: "u64", length: "u32" },
-  "file.line": { path: "string", line: "u64", limit: "u64" },
-  "file.count": { path: "string", from: "u64", to: "u64" },
+  "file.read": { path: "string", id: "string", at: "u64", length: "u32" },
+  "file.line": { path: "string", id: "string", line: "u64", limit: "u64" },
+  "file.count": { path: "string", id: "string", from: "u64", to: "u64" },
   "file.thumbnail": { path: "string", width: "u32", height: "u32", pixels: "u32" },
   "onboarding.status": { operation: "u64" },
   "onboarding.handoff": { operation: "u64", viewer_pgid: "i32", socket: ["string", ""] },

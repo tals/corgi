@@ -184,16 +184,19 @@
   },
   "file.read": {
     "path": "/work/corgi/server.log",
+    "id": "2049:1835011",
     "at": 0,
-    "length": 262144
+    "length": 65536
   },
   "file.line": {
     "path": "/work/corgi/server.log",
+    "id": "2049:1835011",
     "line": 1200,
     "limit": 4294967296
   },
   "file.count": {
     "path": "/work/corgi/server.log",
+    "id": "2049:1835011",
     "from": 262144,
     "to": 524288
   },

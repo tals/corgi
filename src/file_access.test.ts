@@ -108,6 +108,48 @@ test("a file peek reads another computer's code and follows its log, through a l
   }
 });
 
+test("another computer's log rotated between its lookup and reads is read anew, not mixed with the old", async () => {
+  const dir = folder(),
+    log = join(dir, "app.log");
+  let generation = 0;
+  const rotate = (lines: number) => {
+    renameSync(log, `${log}.${++generation}`);
+    writeFileSync(log, numbered(1, lines).replaceAll("line", `new${generation}`));
+  };
+  // Rotates the log as the next read, after the lookup that found it, reaches the daemon.
+  let before: number | null = null;
+  const files = fileAccess.remote(async (op, payload) => {
+    if (op === "file.read" && before !== null) {
+      rotate(before);
+      before = null;
+    }
+    const wire = JSON.parse(JSON.stringify(payload));
+    return JSON.parse(JSON.stringify(await fileAccess.answer(protocol.decoded(op, wire) as any)));
+  });
+  writeFileSync(log, numbered(1, 100_000));
+  // As it opens.
+  before = 50_000;
+  const s = await Source.open(log, { files, follow: false });
+  try {
+    expect(s.line(s.count - 1)).toBe("new1 50000");
+    expect(rows(s).every(row => row.startsWith("new1 "))).toBe(true);
+    // As it follows growth.
+    appendFileSync(log, numbered(50_001, 50_010).replaceAll("line", "new1"));
+    before = 30_000;
+    await s.refresh(false);
+    expect(s.line(s.count - 1)).toBe("new2 30000");
+    expect(rows(s).every(row => row.startsWith("new2 "))).toBe(true);
+    // As it reads further back.
+    before = 20_000;
+    await s.earlier();
+    expect(s.line(s.count - 1)).toBe("new3 20000");
+    expect(rows(s).every(row => row.startsWith("new3 "))).toBe(true);
+    expect(s.error).toBeNull();
+  } finally {
+    await s.close();
+  }
+});
+
 test("another computer's files cross its link in smaller amounts: less read whole, a binary file's first block, and growth past a block starts again at the end", async () => {
   const dir = folder(),
     code = join(dir, "big.ts"),
@@ -142,22 +184,25 @@ test("another computer's files cross its link in smaller amounts: less read whol
   }
 });
 
-test("a daemon reads only files, without waiting on a FIFO, and gives up a long scan for a line", async () => {
+test("a daemon reads only the file it was asked for, without waiting on a FIFO, and gives up a long scan for a line", async () => {
   const dir = folder(),
     fifo = join(dir, "pipe"),
     log = join(dir, "deep.log");
   Bun.spawnSync(["mkfifo", fifo]);
   writeFileSync(log, numbered(1, 1000));
+  const { id } = await fileAccess.here.find(log);
   const ask = (op: fileAccess.Op, payload: object) => fileAccess.answer(protocol.decoded(op, payload) as any);
-  expect(ask("file.read", { path: fifo, at: 0, length: 10 })).rejects.toThrow("NotAFile");
-  expect(ask("file.read", { path: dir, at: 0, length: 10 })).rejects.toThrow("NotAFile");
+  expect(ask("file.read", { path: fifo, id, at: 0, length: 10 })).rejects.toThrow("NotAFile");
+  expect(ask("file.read", { path: dir, id, at: 0, length: 10 })).rejects.toThrow("NotAFile");
   expect(ask("file.thumbnail", { path: fifo, width: 10, height: 10, pixels: 100 })).rejects.toThrow("NotAFile");
-  expect(await ask("file.line", { path: log, line: 500, limit: 1 << 30 })).toEqual({ at: 4383 });
+  // Its path names another file than the one it was found to be.
+  expect(ask("file.read", { path: log, id: "0:0", at: 0, length: 10 })).rejects.toThrow("FileChanged");
+  expect(await ask("file.line", { path: log, id, line: 500, limit: 1 << 30 })).toEqual({ at: 4383 });
   const now = spyOn(Date, "now")
     .mockReturnValueOnce(0)
     .mockReturnValue(fileAccess.scan_ms + 1);
   try {
-    expect(await ask("file.line", { path: log, line: 500, limit: 1 << 30 })).toEqual({ at: -1 });
+    expect(await ask("file.line", { path: log, id, line: 500, limit: 1 << 30 })).toEqual({ at: -1 });
   } finally {
     now.mockRestore();
   }

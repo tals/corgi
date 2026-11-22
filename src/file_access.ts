@@ -220,7 +220,9 @@ const num = (value: unknown) => (typeof value === "number" && Number.isFinite(va
 const toBase64 = (data: Uint8Array) => Buffer.from(data.buffer, data.byteOffset, data.length).toString("base64");
 const fromBase64 = (value: unknown) => Buffer.from(typeof value === "string" ? value : "", "base64");
 /** Another computer's files, read through its daemon. They send no change
- * notices: a reader polls. */
+ * notices: a reader polls. An open one is read by its path, so each request
+ * names the file it opened, and once the path names another, as after a
+ * log's rotation, they throw `FileChanged` rather than mix the two. */
 export function remote(call: Call): Files {
   const find = async (path: string, cwd = ""): Promise<Info> => {
     const reply = (await call("file.stat", { path, cwd })) as Record<string, unknown>;
@@ -233,11 +235,13 @@ export function remote(call: Call): Files {
     async open(path) {
       // Fails as opening a file that isn't there would; its answer is the first `info`.
       let first: Info | null = await find(path);
+      const id = first.id;
       return {
         now: null,
         async info() {
           const found = first ?? (await find(path));
           first = null;
+          if (found.id !== id) throw Error("FileChanged");
           return found;
         },
         async read(at, length) {
@@ -245,7 +249,7 @@ export function remote(call: Call): Files {
           const parts = await Promise.all(
             Array.from({ length: Math.ceil(Math.max(0, length) / read_limit) }, async (_, i) => {
               const want = Math.min(read_limit, length - i * read_limit);
-              const reply = (await call("file.read", { path, at: at + i * read_limit, length: want })) as {
+              const reply = (await call("file.read", { path, id, at: at + i * read_limit, length: want })) as {
                 data?: unknown;
               };
               return { want, bytes: fromBase64(reply.data) };
@@ -258,12 +262,12 @@ export function remote(call: Call): Files {
         },
         async line(n, limit, stop) {
           stop();
-          const at = ((await call("file.line", { path, line: n, limit })) as { at?: unknown }).at;
+          const at = ((await call("file.line", { path, id, line: n, limit })) as { at?: unknown }).at;
           return typeof at === "number" && Number.isSafeInteger(at) ? at : -1;
         },
         async newlines(from, to, stop) {
           stop();
-          return num(((await call("file.count", { path, from, to })) as { lines?: unknown }).lines);
+          return num(((await call("file.count", { path, id, from, to })) as { lines?: unknown }).lines);
         },
         close: async () => {},
       };
@@ -309,6 +313,7 @@ export async function answer(request: Extract<protocol.DecodedRequest, { op: Op 
       if (Date.now() > deadline) throw Error("ScanTooLong");
     };
   try {
+    if ((await h.info()).id !== request.payload.id) throw Error("FileChanged");
     switch (request.op) {
       case "file.read": {
         return {

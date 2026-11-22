@@ -132,6 +132,15 @@ export class Source {
     this.files = opts.files ?? fileAccess.here;
   }
   static async open(path: string, opts: Options = {}): Promise<Source> {
+    try {
+      return await Source.start(path, opts);
+    } catch (error) {
+      // Another computer's file was replaced as it opened: the new one opens.
+      if (!errors.is(error, "FileChanged")) throw error;
+      return await Source.start(path, opts);
+    }
+  }
+  private static async start(path: string, opts: Options): Promise<Source> {
     // The first read takes this handle, so another computer's file opens in few round trips.
     const fh = await (opts.files ?? fileAccess.here).open(path);
     let info: fileAccess.Info;
@@ -423,6 +432,11 @@ export class Source {
       try {
         return !this.closed && (await read());
       } catch (error) {
+        // Another computer's path names another file now: that one is read.
+        if (errors.is(error, "FileChanged")) {
+          await this.update(true);
+          return true;
+        }
         this.fail(error);
         return false;
       }
@@ -591,7 +605,12 @@ export class Source {
   }
   private async update(named: boolean): Promise<void> {
     try {
-      await this.check(named);
+      await this.check(named).catch(error => {
+        // Another computer's path came to name another file partway through
+        // the read; looking it up again reads that one instead.
+        if (errors.is(error, "FileChanged")) return this.check(true);
+        throw error;
+      });
       if (this.error !== null) {
         this.error = null;
         this.bump();
