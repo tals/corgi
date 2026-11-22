@@ -367,16 +367,21 @@ function verifyFile(path: string, t: Target): Buffer {
     throw Error("UpdateChecksumMismatch");
   return bytes;
 }
-/** Fetch one exact signed release, using the caller's existing update trust. */
-export async function artifact(rel: Release, v: string, target: Platform, directory: string): Promise<string> {
+/** The signed manifest of exact release `v` and its `target`, checked with the caller's existing update trust. */
+export async function published(rel: Release, v: string, target: Platform, signal?: AbortSignal) {
   version(v);
-  const bytes = (await fetchBytes(rel, `${rel.feed_url}/releases/${v}/manifest.json`, 1024 * 1024)).toString();
+  const bytes = (await fetchBytes(rel, `${rel.feed_url}/releases/${v}/manifest.json`, 1024 * 1024, signal)).toString();
   const m = parse(rel, bytes, target);
   if (m.version !== v) throw Error("WrongReleaseManifest");
-  atomicWrite(join(directory, "manifest.json"), bytes, 0o600);
+  return { bytes, commit: m.commit, ...m.targets[target]! };
+}
+/** Fetch one exact signed release, using the caller's existing update trust. */
+export async function artifact(rel: Release, v: string, target: Platform, directory: string): Promise<string> {
+  const m = await published(rel, v, target);
+  atomicWrite(join(directory, "manifest.json"), m.bytes, 0o600);
   const file = join(directory, "corgi");
-  atomicWrite(file, await fetchBytes(rel, m.targets[target]!.url, m.targets[target]!.size), 0o700);
-  verifyFile(file, m.targets[target]!);
+  atomicWrite(file, await fetchBytes(rel, m.url, m.size), 0o700);
+  verifyFile(file, m);
   return file;
 }
 /** Looks for a newer release on the installation's channel, or on `choice`,
@@ -938,6 +943,12 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
   if (rollback && !existsSync(join(root, "previous"))) throw Error("NoPreviousRelease");
   await select(rel, root, daemon, true, true, rollback);
   console.log("Corgi is ready.");
+}
+/** Whether `corgi update auto` leaves the installation running `exe` on; a
+ * build no installation manages has no setting to turn it off. */
+export function automatic(exe: string): boolean {
+  const root = managed(release(exe), exe);
+  return !root || !existsSync(join(root, "auto-off"));
 }
 /** Downloads a newer release for the next launch to activate, as a runtime
  * running `exe` does about hourly while automatic updates are on; false when

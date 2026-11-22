@@ -218,7 +218,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     process.on("SIGINT", abort);
     try {
       (await import("./machine_build")).requireRevision(args[4]);
-      await (
+      const changed = await (
         await import("./machine_cli")
       ).synchronize(
         args[1],
@@ -230,7 +230,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         },
         cancellation.signal,
       );
-      process.stdout.write(JSON.stringify({ type: "ready" }) + "\n");
+      process.stdout.write(JSON.stringify({ type: changed ? "ready" : "current" }) + "\n");
     } catch (error) {
       const message = errors.name(error) || "Machine update failed";
       process.stdout.write(JSON.stringify({ type: "error", message: message.slice(0, 1024) }) + "\n");
@@ -242,11 +242,12 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     return;
   }
   if (args[0] === "__machine-install-session") {
-    const [, destination, basis, hash, revision] = args;
-    if (args.length !== 5 || !/^[a-f0-9]{64}$/.test(hash)) throw Error("Usage");
+    // A release names its signed manifest, which goes beside it.
+    const [, destination, basis, hash, revision, manifest = ""] = args;
+    if ((args.length !== 5 && args.length !== 6) || !/^[a-f0-9]{64}$/.test(hash)) throw Error("Usage");
     (await import("./machine_build")).requireRevision(revision);
     const installer = await import("./machine_install");
-    const target = await installer.install(executable, destination, basis, "");
+    const target = await installer.install(executable, destination, basis, manifest);
     process.stdout.write("verifying\n");
     if (build_id.of(target) !== hash) throw Error("RemoteUpgradeVerificationFailed");
     await ensureServer(daemon, target);
@@ -343,7 +344,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     } else {
       const remote = await import("./machine_cli");
       if (!remote.remoteCommand(args)) throw Error("UnsupportedRemoteCommand");
-      profile = await (await import("./machine_update")).prepare(profile, { interactive: true });
+      profile = (await (await import("./machine_update")).prepare(profile, { interactive: true })) ?? profile;
       const mode = agent_mode.flags(args);
       const command = cli.handles(mode.args)
         ? [

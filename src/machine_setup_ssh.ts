@@ -1,4 +1,5 @@
 import type { FileSink, Subprocess } from "bun";
+import { basename, dirname, join } from "node:path";
 import * as os from "./os";
 import * as ssh from "./ssh";
 import * as build from "./machine_build";
@@ -266,6 +267,147 @@ chmod 700 "$stage/corgi"
     if (await child.exited) throw Error("MachineSetupCommandFailed");
     const result = JSON.parse(response.toString());
     if (!verifying || result?.build_id !== hash) throw Error("RemoteUpgradeVerificationFailed");
+    return machines.info(result.info, socket);
+  } catch (error) {
+    if (!installing) signal?.throwIfAborted();
+    if (timer.expired) throw Error("MachineSetupTimedOut");
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", abort);
+    timer.clear();
+    if (child.exitCode === null) child.kill("SIGKILL");
+    await child.exited;
+  }
+}
+
+/** A signed release, as the viewer's own update trust checked it. */
+export interface Release {
+  version: string;
+  manifest: string;
+  url: string;
+  sha256: string;
+  size: number;
+  /** A test feed serves plain HTTP on the loopback. */
+  http: boolean;
+}
+/** The machine installs the release itself: the copy its own updater already
+ * downloaded beside the installed one, or one it downloads now. Fails with
+ * RemoteDownloadFailed, having changed nothing, when it can't download one. */
+export async function installRelease(
+  host: string,
+  executable: string,
+  installed: build.Build | null,
+  socket: string,
+  release: Release,
+  status: progress.Progress,
+  signal?: AbortSignal,
+): Promise<machines.Info> {
+  const quote = os.shellQuote;
+  const targetSocket = socket || installed?.socket;
+  const releases =
+    installed && basename(dirname(dirname(installed.executable))) === "releases"
+      ? dirname(dirname(installed.executable))
+      : "";
+  const protocols = release.http ? "=http,https" : "=https";
+  const script = `set -eu
+unset CORGI_MACHINE CORGI_PANE CORGI_VIEWER
+${targetSocket ? "export CORGI_SOCKET=" + quote(targetSocket) : ""}
+umask 077
+stage=$(mktemp -d "$HOME/.corgi-setup.XXXXXXXX")
+pid=
+# A download the viewer cut short goes with its stage.
+trap 'if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi; rm -rf "$stage"' 0
+trap 'exit 1' HUP INT TERM PIPE
+checksum() {
+  if command -v sha256sum >/dev/null; then sum=$(sha256sum < "$1"); else sum=$(shasum -a 256 < "$1"); fi
+  printf '%s\\n' "\${sum%% *}"
+}
+cat > "$stage/manifest.json"
+hash=${quote(release.sha256)}
+basis=${installed && !installed.build_id ? `$(checksum ${quote(executable)})` : quote(installed?.build_id ?? "")}
+printf '\\n%s\\n' ${quote(ssh.deltaMarker)}
+file=${quote(releases ? join(releases, release.version, "corgi") : "")}
+if [ -z "$file" ] || [ ! -f "$file" ] || [ "$(checksum "$file")" != "$hash" ]; then
+  # Laid out as an installed release, whose path names a test build's version.
+  file="$stage/releases/"${quote(release.version)}/corgi
+  mkdir -p "\${file%/corgi}"
+  printf 'download\\n'
+  if command -v curl >/dev/null; then
+    curl -fsSL --proto ${protocols} --proto-redir ${protocols} --connect-timeout 30 --speed-limit 1 --speed-time 60 -o "$file" ${quote(release.url)} &
+  elif command -v wget >/dev/null; then
+    wget -q -t 1 -T 60 -O "$file" ${quote(release.url)} &
+  else
+    exit 3
+  fi
+  pid=$!
+  # A line a second, even before the first byte, leaves a stuck download to its own timeouts.
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 1
+    size=0
+    if [ -f "$file" ]; then size=$(wc -c < "$file"); fi
+    printf 'received %s\\n' "$size"
+  done
+  wait "$pid" || exit 3
+  pid=
+  [ "$(checksum "$file")" = "$hash" ] || exit 3
+  chmod 700 "$file"
+fi
+printf 'install\\n'
+"$file" __machine-install-session ${quote(executable)} "$basis" "$hash" ${quote(build.revision)} "$stage/manifest.json"`;
+  signal?.throwIfAborted();
+  const child = Bun.spawn(["ssh", ...ssh.args(host, ssh.canPrompt()), ssh.shell(script)], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  const abort = () => child.kill("SIGKILL");
+  signal?.addEventListener("abort", abort, { once: true });
+  let timer = deadline(child, { idle: stalled_ms });
+  let installing = false;
+  try {
+    child.stdin.write(release.manifest);
+    await child.stdin.end();
+    const decoder = new TextDecoder();
+    let pending = "",
+      last = "";
+    for await (const bytes of transport(child, () => timer.moved()).readable) {
+      pending += decoder.decode(bytes, { stream: true });
+      if (pending.length > 65536) throw Error("SetupOutputTooLarge");
+      for (let end = pending.indexOf("\n"); end >= 0; end = pending.indexOf("\n")) {
+        const line = pending.slice(0, end);
+        pending = pending.slice(end + 1);
+        const received = /^received\s+(\d+)$/.exec(line);
+        if (received) {
+          status.downloaded(Number(received[1]), release.size, host);
+          continue;
+        }
+        switch (line) {
+          case "download":
+            status.downloaded(0, release.size, host);
+            break;
+          case "install":
+            // A verified release installs and hands off even if the viewer goes.
+            installing = true;
+            signal?.removeEventListener("abort", abort);
+            timer.clear();
+            timer = deadline(child, { total: install_ms });
+            status.show("Installing", "Installing the executable and handing off the running daemon");
+            break;
+          case "verifying":
+            status.show("Verifying", "Checking the installed executable’s SHA-256 and the running daemon");
+            break;
+          default:
+            last = line;
+        }
+      }
+    }
+    const code = await child.exited;
+    if (!installing) signal?.throwIfAborted();
+    if (timer.expired) throw Error("MachineSetupTimedOut");
+    if (code === 3 && !installing) throw Error("RemoteDownloadFailed");
+    if (code) throw Error("MachineSetupCommandFailed");
+    const result = JSON.parse(last);
+    if (result?.build_id !== release.sha256) throw Error("RemoteUpgradeVerificationFailed");
     return machines.info(result.info, socket);
   } catch (error) {
     if (!installing) signal?.throwIfAborted();

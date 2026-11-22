@@ -13,6 +13,7 @@ const build = (values: Partial<machine_build.Build> = {}): machine_build.Build =
   socket: "/tmp/corgi.sock",
   update_abi: "1",
   delta_transfer: "rsync-zstd-v1",
+  automatic: true,
   ...values,
 });
 test("machine setup selects the invoking release in either direction", () => {
@@ -22,6 +23,19 @@ test("machine setup selects the invoking release in either direction", () => {
   expect(machine_build.matches(old, next)).toBe(false);
   expect(machine_build.matches(next, next)).toBe(true);
   expect(() => machine_build.matches(next, { ...next, commit: a })).toThrow("ConflictingReleaseBuilds");
+});
+test("automatic updates only move an older release forward", () => {
+  const at = (version: string) => build({ version });
+  expect(machine_build.upgrades(at("1.2.0"), at("1.1.9"))).toBe(true);
+  expect(machine_build.upgrades(at("1.10.0"), at("1.9.0"))).toBe(true);
+  for (const [local, remote] of [
+    ["1.2.0", "1.2.0"],
+    ["1.2.0", "1.3.0"],
+    ["1.2.0", "0.1.0-dev"],
+    ["0.1.0-dev", "1.2.0"],
+    ["1.2.0", ""],
+  ])
+    expect(machine_build.upgrades(at(local), at(remote))).toBe(false);
 });
 test("branches and dirty builds compare source identity without Git ancestry", () => {
   const local = build({ commit: a + "-dirty", source_hash: "a".repeat(64) });

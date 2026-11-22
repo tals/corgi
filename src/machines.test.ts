@@ -44,6 +44,39 @@ test("machine catalogs stay private and reject ambiguous names and damaged data"
   }
 });
 
+test("a machine updates once at a time from this computer", async () => {
+  const dir = mkdtempSync("/tmp/corgi-machines-");
+  const saved = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = dir;
+  const p: machines.Profile = {
+    name: "work",
+    target: "work",
+    executable: "/opt/corgi",
+    socket: "/tmp/corgi-1/control.sock",
+    home: "/home/user",
+  };
+  try {
+    const release = await machines.updating(p);
+    let waited = false;
+    const next = machines.updating(p).then(unlock => {
+      waited = true;
+      return unlock;
+    });
+    (await machines.updating({ ...p, name: "other" }))();
+    const cancel = new AbortController();
+    const cancelled = machines.updating(p, cancel.signal);
+    cancel.abort(Error("Cancelled"));
+    await expect(cancelled).rejects.toThrow("Cancelled");
+    expect(waited).toBe(false);
+    release();
+    (await next)();
+    expect(waited).toBe(true);
+  } finally {
+    if (saved === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 test("remote commands keep shell metacharacters literal and remove inherited pane targeting", async () => {
   const value = "' ; $(printf INJECTED) `printf WRONG` $HOME \" \\ /tmp/a b\nnext";
   const child = Bun.spawn(["/bin/sh", "-c", ssh.command("/usr/bin/printf", ["%s", value])], {

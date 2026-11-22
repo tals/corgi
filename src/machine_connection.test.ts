@@ -347,6 +347,37 @@ test("a paused update cannot replace the path and a completed update retries an 
   }
 });
 
+test("an update the machine didn't need leaves an incompatible daemon to the user", async () => {
+  const daemon = await flakyDaemon();
+  const finished = Promise.withResolvers<null>();
+  const endpoint = new Endpoint(
+    "work",
+    true,
+    ["work"],
+    () => ({
+      ...machine_path.local(daemon.path)(false, false),
+      async open() {
+        throw Error("IncompatibleRemoteCorgi");
+      },
+      diagnose: () => ({ issue: "error", detail: "" }),
+    }),
+    new Probe(),
+    new Host(),
+    () => finished.promise,
+  );
+  try {
+    endpoint.pump(false);
+    await until(() => endpoint.status === "incompatible");
+    finished.resolve(null);
+    await until(() => !endpoint.updateMessage);
+    expect(endpoint.updateError).toBe("");
+    expect(endpoint.status).toBe("incompatible");
+  } finally {
+    await endpoint.close();
+    await daemon.close();
+  }
+});
+
 test("a machine keeps its data across reconnects to its daemon but not the daemon's replacement", async () => {
   const daemon = await flakyDaemon(),
     endpoint = daemon.endpoint,

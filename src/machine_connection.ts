@@ -216,7 +216,8 @@ export class Endpoint {
     private newPath: machine_path.Factory,
     readonly probe: Probe,
     readonly host: Host,
-    private update?: (signal: AbortSignal, progress: progress.Report) => Promise<machine_path.Factory>,
+    /** Brings the machine's daemon to this build: a new way to reach it, or null when it needed nothing. */
+    private update?: (signal: AbortSignal, progress: progress.Report) => Promise<machine_path.Factory | null>,
     private currentBuild?: (hello: machine_path.Hello) => boolean,
   ) {
     this.sample = newPath(false, false);
@@ -436,8 +437,9 @@ export class Endpoint {
         this.onChange();
       });
       if (job.signal.aborted) return;
-      this.newPath = factory;
       this.update = undefined;
+      if (!factory) return;
+      this.newPath = factory;
       // An incompatible or unreachable daemon may now be usable. A live link does its own handoff.
       if (!this.checked && !this.handoff && !this.shut_down) this.retry();
     } catch (error) {

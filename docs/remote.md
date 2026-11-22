@@ -29,6 +29,15 @@ against their publisher; development artifacts must match the local source.
 See HACKING.md for the handoff baseline, headless-client limitations and
 cross-platform development artifacts. Development launches through `./go.ts` update saved machines to this checkout in the background. To use their installed builds for one launch, run `./go.ts --no-remote-update`.
 
+A release viewer upgrades a machine running an older release to its own as it
+connects, with progress in the machine's header. The machine installs the copy
+its own updater already downloaded, or downloads the release itself with curl or
+wget; either way it must match the SHA-256 in the viewer's signed manifest. A
+machine that can't download it gets it from this computer. Live handoff keeps its
+shells and agents running. Automatic upgrades never downgrade a machine or replace
+a development build, and `corgi update auto off` on either computer turns them
+off. Add/check install releases the same way.
+
 With saved profiles, `corgi` starts locally and connects to the other machines
 independently in the background. The sidebar shows **all workspaces**, with a
 shaded machine header above each group and reception bars for remote link
