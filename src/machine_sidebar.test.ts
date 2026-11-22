@@ -584,6 +584,29 @@ test("a machine ordering workspaces by activity keeps its places among the other
   remote.machine.runtime.receive(null as any, snapshot(remotes, [2, 1], false));
   expect(names()).toEqual(["L3", "W1", "L1", "W2", "L2"]);
 });
+test("a workspace missing from the saved order joins its own machine's rows", () => {
+  const {
+    endpoints: [local, remote],
+    view,
+  } = world("local", "work");
+  local.status = remote.status = "online";
+  const model = { nodes: [], tabs: [], revision: 0 },
+    snapshot = (names: string[]) => ({
+      workspaces: names.map((name, i) => ({ id: i + 1, name, cwd: "/project", model })),
+    });
+  local.machine.runtime.receive(null as any, snapshot(["L1", "L2"]));
+  remote.machine.runtime.receive(null as any, snapshot(["W1"]));
+  const names = () => view.workspaceRows(true).map(row => row.name);
+  view.prefs.workspace_order = view.workspaceRows(true).map(row => {
+    const ref = view.rowOf(row.id)!;
+    return JSON.stringify([ref.machine.order_scope || ref.machine.name, ref.id]);
+  });
+  expect(names()).toEqual(["L1", "L2", "W1"]);
+  // New on each machine: below its own last saved row, not after every machine.
+  local.machine.runtime.receive(null as any, snapshot(["L1", "L2", "L3"]));
+  remote.machine.runtime.receive(null as any, snapshot(["W1", "W2"]));
+  expect(names()).toEqual(["L1", "L2", "L3", "W1", "W2"]);
+});
 test("collapsing an interleaved machine hides its cards without changing selection or saved order", () => {
   const {
     endpoints: [local, remote],
