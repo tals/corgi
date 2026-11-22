@@ -384,7 +384,7 @@ test("a reservation lasts while the pointer rests on its link, and a minute afte
   }
 });
 
-test("a click on a link to a port a sign-in reserved first makes a forward that lasts", async () => {
+test("a click on a link to a port a sign-in had first makes a forward that lasts; a hover doesn't", async () => {
   let now = 1000;
   const there = await freePort(),
     app = `http://localhost:${there}/`,
@@ -402,20 +402,20 @@ test("a click on a link to a port a sign-in reserved first makes a forward that 
   } finally {
     forwards.close();
   }
-  // So does the terminal's own Cmd+click on the link, which a request realizes.
-  const cmd = new portForwards.Forwards(fakeLink(new Map([[there, serve("app")]])).link, () => now);
+  // Hovering a link to a sign-in's callback leaves it one, which goes once it's been idle a while.
+  const callback = `${app}cb`,
+    hovered = new portForwards.Forwards(fakeLink(new Map([[there, serve("done")]])).link, () => now);
   try {
-    cmd.hover(signin);
-    await until(() => cmd.local(app) !== null);
-    cmd.hover(app);
-    expect(await (await fetch(app, close)).text()).toBe("app /");
-    await until(() => cmd.list[0]?.open === 0);
-    cmd.hover(null);
+    await hovered.open(signin);
+    expect(await (await fetch(callback, close)).text()).toBe("done /cb");
+    await until(() => hovered.list[0]?.open === 0);
+    hovered.hover(app);
+    hovered.hover(null);
     now += portForwards.callback_ms * 2;
-    cmd.expire();
-    expect(cmd.list.length).toBe(1);
+    hovered.expire();
+    expect(hovered.list).toEqual([]);
   } finally {
-    cmd.close();
+    hovered.close();
   }
 });
 

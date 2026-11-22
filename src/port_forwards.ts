@@ -237,8 +237,8 @@ interface Entry {
   addresses: Set<string>;
   ipv6: boolean;
   /** A sign-in's callback, on the machine's own port: it waits `callback_ms`
-   * for the browser to come back, realized or not, unless a link to the port
-   * made it a forward like any other. */
+   * for the browser to come back, realized or not, unless a click on a link
+   * to the port made it a forward like any other. */
   exact: boolean;
   /** When it expires, unrealized. */
   until: number;
@@ -371,6 +371,8 @@ export class Forwards {
     }
     if (!wanted) return { url, unavailable };
     const entry = await this.ensure(wanted, url, false);
+    // Clicked, it lasts like any forward, though a sign-in's callback had it first.
+    entry.exact = false;
     entry.forward.url = rewrite(url, entry.forward.local, entry.ipv6);
     if (this.moved(entry, url)) unavailable.push(wanted.port);
     this.realize(entry);
@@ -402,9 +404,8 @@ export class Forwards {
       // A callback comes back to its own port and address, which a link to it may have moved.
       if (exact && (entry.forward.local !== wanted.port || !entry.addresses.has(returnAddress(url))))
         throw Error("PortInUse");
-      // A link to it makes it a forward like any other, which a link carrying
-      // it as a callback doesn't undo.
-      if (!exact) entry.exact = false;
+      // A forward in use stays one: a link carrying it as a callback doesn't make it expire.
+      if (!entry.forward.realized) entry.exact ||= exact;
       entry.until = Math.max(entry.until, this.clock() + (exact ? callback_ms : reserved_ms));
       this.arm();
       return entry;
