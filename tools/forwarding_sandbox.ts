@@ -9,21 +9,17 @@
  * they would be with devbox elsewhere.
  *
  *   serve DIR EXE   start devbox and its workspace, then this computer's docs
- *                   server and the sign-in provider; ends when devbox does
+ *                   server; ends when devbox does
  *   app             devbox's dev server (5173) and docs (4321)
- *   signin DIR      a CLI sign-in that opens its page through $BROWSER and
- *                   waits on a localhost callback (1455)
  *   relay PORT      `ssh -W`'s end on devbox: stdio to the port there
  */
 import { connect, createServer } from "node:net";
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { networkInterfaces } from "node:os";
-import { randomUUID } from "node:crypto";
 import { shellQuote } from "../src/os";
 
 export const offset = 20_000;
-export const ports = { app: 5173, docs: 4321, callback: 1455, auth: 8711 } as const;
+export const ports = { app: 5173, docs: 4321 } as const;
 /** Where devbox keeps its Corgi: its HOME, state and socket. */
 export function devbox(dir: string) {
   const root = join(dir, "devbox");
@@ -33,8 +29,6 @@ export function devbox(dir: string) {
     socket: join(root, "run", "control.sock"),
     state: join(root, "state"),
     env: join(root, "env"),
-    /** The sign-in provider's address, for the sign-in CLI. */
-    auth: join(root, "auth-url"),
   };
 }
 /** The environment devbox's Corgi and the commands run on it have. */
@@ -119,41 +113,6 @@ function app(): void {
   );
 }
 
-async function signin(dir: string): Promise<void> {
-  const callback = `http://localhost:${ports.callback}/auth/callback`;
-  let waiting: { state: string; done: () => void } | null = null;
-  Bun.serve({
-    hostname: "127.0.0.1",
-    port: ports.callback + offset,
-    fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname !== "/auth/callback" || !waiting || url.searchParams.get("state") !== waiting.state)
-        return page("Sandbox Cloud", "<p>Nothing is waiting for this sign-in.</p>");
-      waiting.done();
-      return page("Sandbox Cloud", "<h1>Signed in ✓</h1><p>You can close this tab and go back to the terminal.</p>");
-    },
-  });
-  const lines = console[Symbol.asyncIterator]();
-  for (;;) {
-    process.stdout.write(`\n  ${bold("sandbox-cloud login")}\n  Press Enter to sign in. `);
-    await lines.next();
-    const state = randomUUID().slice(0, 8),
-      base = existsSync(devbox(dir).auth)
-        ? readFileSync(devbox(dir).auth, "utf8").trim()
-        : `http://localhost:${ports.auth}`,
-      url = `${base}/authorize?client_id=corgi-sandbox&redirect_uri=${encodeURIComponent(callback)}&state=${state}`;
-    process.stdout.write(`\n  Opening your browser. If it doesn't open, open this link:\n  ${url}\n\n`);
-    const done = new Promise<void>(resolve => (waiting = { state, done: resolve }));
-    if (process.env.BROWSER)
-      Bun.spawn(["/bin/sh", "-c", '$BROWSER "$1"', "sh", url], { stdio: ["ignore", "inherit", "inherit"] });
-    else process.stdout.write(dim("  (no BROWSER here)\n"));
-    process.stdout.write(dim(`  Waiting for the browser to come back to localhost:${ports.callback}…\n`));
-    await done;
-    waiting = null;
-    process.stdout.write(`  ${green("✓")} Signed in as ${bold("sandbox@example.com")}\n`);
-  }
-}
-
 function relay(port: number): void {
   const socket = connect({ host: "127.0.0.1", port: port + offset });
   socket.once("error", () => {
@@ -165,13 +124,6 @@ function relay(port: number): void {
     socket.pipe(process.stdout);
   });
   socket.once("close", () => process.exit(0));
-}
-
-/** A non-loopback address of this computer, which a link from devbox reaches as it is. */
-function lanAddress(): string | null {
-  for (const addresses of Object.values(networkInterfaces()))
-    for (const a of addresses ?? []) if (a.family === "IPv4" && !a.internal) return a.address;
-  return null;
 }
 
 async function serve(dir: string, exe: string): Promise<void> {
@@ -211,7 +163,6 @@ async function serve(dir: string, exe: string): Promise<void> {
       corgi(["tab", "new", "--workspace", String(made.workspace), "--name", name, "--cwd", cwd, "--command", command]);
     const self = [process.execPath, import.meta.path].map(arg => `'${arg}'`).join(" ");
     const server = tab("dev server", `${self} app`);
-    tab("sign in", `${self} signin '${dir}'`);
     corgi(["tab", "move", String(made.tab), "--after", String(server.tab)]);
   }
   for (const w of corgi(["workspace", "list"])?.workspaces ?? [])
@@ -222,29 +173,6 @@ async function serve(dir: string, exe: string): Promise<void> {
     port: ports.docs,
     fetch: () => page("this computer's docs", `<h1>This computer's own server on ${ports.docs}</h1>`),
   });
-  // The sign-in provider, reached as it is, not forwarded: as a real one on the internet.
-  const lan = lanAddress(),
-    provider = (request: Request) => {
-      const url = new URL(request.url),
-        back = url.searchParams.get("redirect_uri") ?? "",
-        state = url.searchParams.get("state") ?? "";
-      if (url.pathname === "/continue")
-        return Response.redirect(
-          `${back}?code=sandbox-${randomUUID().slice(0, 6)}&state=${encodeURIComponent(state)}`,
-          302,
-        );
-      return page(
-        "Sign in to Sandbox Cloud",
-        `<h1>Sign in to Sandbox Cloud</h1><p>Signing in as <b>sandbox@example.com</b>.</p>` +
-          `<p>Continuing sends your browser back to <code>${escape(back)}</code>, the CLI on devbox.</p>` +
-          `<p><a href="/continue?redirect_uri=${encodeURIComponent(back)}&state=${encodeURIComponent(state)}"` +
-          ` style="font-size:1.2em">Continue →</a></p>`,
-      );
-    };
-  if (lan) Bun.serve({ hostname: lan, port: ports.auth, fetch: provider });
-  // Without one, a link to it is devbox's localhost and goes through a forward too.
-  Bun.serve({ hostname: "127.0.0.1", port: ports.auth + offset, fetch: provider });
-  writeFileSync(box.auth, lan ? `http://${lan}:${ports.auth}` : `http://localhost:${ports.auth}`);
   const catalog = join(process.env.XDG_STATE_HOME!, "corgi/remote/machines.json");
   mkdirSync(dirname(catalog), { recursive: true, mode: 0o700 });
   writeFileSync(
@@ -284,14 +212,11 @@ if (import.meta.main) {
     case "app":
       app();
       break;
-    case "signin":
-      await signin(args[0]);
-      break;
     case "relay":
       relay(Number(args[0]));
       break;
     default:
-      console.error("usage: forwarding_sandbox.ts serve DIR EXE | app | signin DIR | relay PORT");
+      console.error("usage: forwarding_sandbox.ts serve DIR EXE | app | relay PORT");
       process.exit(2);
   }
 }

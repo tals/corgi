@@ -290,11 +290,9 @@ realizes it. Until then it isn't listed, any forward that wants its port takes
 it, and it expires a minute after the pointer leaves. Realized forwards last as
 long as the viewer.
 
-A sign-in link that names a loopback callback, such as
-`redirect_uri=http://localhost:1455/auth/callback`, opens as it is. Its
-callback's port is forwarded unchanged, since the provider checks it, and waits
-ten minutes for the browser to come back. When that port isn't free here,
-hovering the link says so.
+A sign-in link whose callback is the machine's localhost, such as
+`redirect_uri=http://localhost:1455/auth/callback`, opens as it is, without a
+forward, so the browser can't come back to the machine.
 
 Programs on a remote machine open links the same way. On Linux, each pane's
 `BROWSER` names Corgi's helper, which hands a web link to the viewer in use; the
@@ -307,7 +305,7 @@ before. Corgi leaves `BROWSER` alone on macOS, where tools such as Vite open it
 as an application. A machine in the background opens its links at once.
 
 `./go.ts --sandbox forwarding` opens a world to try this in: `devbox`, a
-stand-in machine, runs a dev server and a CLI sign-in.
+stand-in machine, runs a dev server.
 
 Over SSH, each connection is an `ssh -W` on a master of its own, so a page
 loading can't hold up typing or pane updates. The machine's SSH server must

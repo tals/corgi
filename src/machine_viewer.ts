@@ -165,8 +165,7 @@ export async function run(
   let paste_owner: { endpoint: Endpoint; epoch: number; dropped: boolean } | null = null;
   const openers = new Openers();
   /** Opens a link in this computer's browser. One to another machine's own
-   * loopback opens through a forward of its port; one carrying a loopback
-   * callback opens as it is, the callback's port forwarded. */
+   * loopback opens through a forward of its port. */
   const openLink = (url: string, from: Endpoint | null) => {
     // Over SSH itself, the viewer has no browser to open.
     if (sshViewer()) return;
@@ -177,7 +176,7 @@ export async function run(
       view.notice(` No browser here to forward ${from.name}:${there.port} to`);
       return notify();
     }
-    if (!forwards || (!portForwards.target(url) && !portForwards.callbacks(url).length)) {
+    if (!forwards || !there) {
       try {
         openers.open(url);
       } catch {}
@@ -188,12 +187,8 @@ export async function run(
       .then(
         opened => {
           if (!opened) return;
-          if (opened.unavailable.length)
-            view.notice(
-              ` Port ${opened.unavailable.join(", ")} isn't free here, so the link can't come back to ${from!.name}`,
-            );
           try {
-            openers.open(opened.url);
+            openers.open(opened);
           } catch (error) {
             view.notice(` Couldn't open the link: ${forwardError(error)}`);
           }

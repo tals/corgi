@@ -8,8 +8,6 @@
  *
  * - devbox › dev server: a Vite-style banner with localhost links, and a
  *   docs link on a port this computer also serves, so it forwards one up.
- * - devbox › sign in: a CLI login that opens its page through $BROWSER and
- *   waits for the browser to come back to localhost:1455 on devbox.
  * - devbox › shell: try `$BROWSER http://localhost:5173/` yourself.
  * - here › devbox: runs devbox; keep it open.
  */
@@ -105,7 +103,6 @@ export const world: World = {
         ["Header", "hover devbox's header: Forwarded ports; click one to hold the card"],
         ["  ↑↓ ↵ x", "select, open again, stop forwarding; Esc closes"],
         ["Docs", `devbox's :${ports.docs} is served here too, so it opens on :${ports.docs + 1}`],
-        ["Sign in", `devbox › sign in, Enter: $BROWSER opens it; the callback reaches :${ports.callback} there`],
         ["$BROWSER", `devbox › shell: $BROWSER http://localhost:${ports.app}/`],
       ]),
     ];

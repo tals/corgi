@@ -1,18 +1,15 @@
 //! Forwards another machine's loopback ports to this computer, so a link to
 //! localhost there opens here. The pointer resting on such a link reserves a
 //! port here, and Corgi draws the link pointing at it, so the host terminal's
-//! own Cmd+click opens it forwarded. A link carrying a loopback callback, as a
-//! sign-in's does, reserves the callback's port as it is.
+//! own Cmd+click opens it forwarded.
 //!
 //! A reservation holds nothing on the machine until a request or a click
 //! realizes it. Until then it isn't listed, gives its port up to any forward
 //! that wants it, and expires a while after the pointer leaves its link.
 //! Connections go over the machine's `Link`, which its transport provides.
-//! Realized forwards last as long as the viewer; a callback's, until it's
-//! been idle a while.
+//! Realized forwards last as long as the viewer.
 import { createServer, connect, type AddressInfo, type Server, type Socket } from "node:net";
 import type { Readable, Writable } from "node:stream";
-import * as errors from "./errors";
 
 /** Why a connection couldn't reach the port: nothing took it there, the
  * machine's SSH server doesn't forward, or the machine couldn't be reached. */
@@ -59,16 +56,11 @@ const channel_limit = 64;
 const probe_ms = 300;
 /** An unrealized reservation lasts this long after the pointer leaves its link. */
 export const reserved_ms = 60_000;
-/** A callback's lasts this long after its last connection, realized or not: a
- * sign-in can take minutes to come back, then it's done. */
-export const callback_ms = 10 * 60_000;
 /** The way to the machine is checked again before connections this long
  * after it was last readied: an idle SSH master goes after ten minutes. */
 const ready_ms = 60_000;
 /** A pointer at rest keeps its link's reservation this long after it last moved. */
 export const hover_ms = 5 * 60_000;
-/** A callback port in use here is tried again after this long. */
-const blocked_ms = 2000;
 
 function loopback(parsed: URL): Target | null {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
@@ -96,41 +88,6 @@ function parse(url: string): URL | null {
 export function target(url: string): Target | null {
   const parsed = parse(url);
   return parsed && loopback(parsed);
-}
-/** Loopback URLs a web link carries in its query or fragment, such as a
- * sign-in's `redirect_uri`. The server they name waits for the browser to
- * come back there, so they're forwarded as they are, never rewritten. */
-export function callbacks(url: string): string[] {
-  return nested(url, false);
-}
-/** Loopback URLs a link carries back into its own port, as a `next=` into
- * its own app: they go through the link's own forward, so they work only
- * while it keeps its port. */
-export function returns(url: string): string[] {
-  return nested(url, true);
-}
-function nested(url: string, own_port: boolean): string[] {
-  const parsed = parse(url);
-  if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) return [];
-  const values = [...parsed.searchParams.values()],
-    fragment = parsed.hash.slice(1),
-    own = loopback(parsed);
-  if (fragment.includes("=")) values.push(...new URLSearchParams(fragment).values());
-  return [
-    ...new Set(
-      values.filter(value => {
-        const at = target(value);
-        return at !== null && own_port === !!(own && at.host === own.host && at.port === own.port);
-      }),
-    ),
-  ];
-}
-/** The address here a browser coming back to callback `url` connects to,
- * which a callback's forward must listen on as the link names it. */
-export function returnAddress(url: string): string {
-  const name = parse(url)?.hostname.toLowerCase() ?? "";
-  if (name === "[::1]") return "::1";
-  return /^127\.\d+\.\d+\.\d+$/.test(name) ? name : "127.0.0.1";
 }
 /** `url` pointing at `port` on this computer's loopback. Only its host and
  * port change, spliced into the text: the rest stays as the machine wrote it,
@@ -188,58 +145,33 @@ async function optional(host: string, port: number): Promise<Server[]> {
 /** Listeners on both loopbacks on `port`, unless something here answers
  * there or a realized forward holds it. A port an unrealized reservation
  * holds is up for grabs. IPv6 is best effort. */
-interface Bound {
-  servers: Server[];
-  port: number;
-  /** The addresses it listens on, IPv6's without brackets. */
-  addresses: Set<string>;
-}
-/** Listeners on both loopbacks on `port`, and on `also` as well, unless
- * something here answers there or a realized forward holds it. A port an
- * unrealized reservation holds is up for grabs. IPv6 is best effort. */
-async function claim(port: number, also: string | null): Promise<Bound | null> {
+async function claim(port: number): Promise<Server[] | null> {
   const holder = held.get(port);
   if (holder?.entry.forward.realized) return null;
   if (holder) holder.forwards.drop(holder.entry);
-  const extra = also && also !== "127.0.0.1" && also !== "::1" ? also : null;
-  for (const address of ["127.0.0.1", "::1", ...(extra ? [extra] : [])]) if (await answers(address, port)) return null;
-  const servers: Server[] = [];
+  for (const address of ["127.0.0.1", "::1"]) if (await answers(address, port)) return null;
   try {
-    servers.push(await listen("127.0.0.1", port));
-    servers.push(...(await optional("::1", port)));
-    if (extra) servers.push(await listen(extra, port));
+    return [await listen("127.0.0.1", port), ...(await optional("::1", port))];
   } catch {
-    for (const server of servers) server.close();
     return null;
   }
-  const addresses = new Set(servers.map(server => (server.address() as AddressInfo).address));
-  return { servers, port, addresses };
 }
-/** The machine's port here when it's free, else the next one up, else,
- * unless `exact`, one the system picks. `also` is an address it must listen on too. */
-async function bind(wanted: number, exact: boolean, also: string | null): Promise<Bound> {
-  for (const port of exact ? [wanted] : [wanted, wanted + 1]) {
+/** Listeners for the machine's port here when it's free, else the next one
+ * up, else one the system picks. */
+async function bind(wanted: number): Promise<Server[]> {
+  for (const port of [wanted, wanted + 1]) {
     if (port > 65535 || (port !== wanted && restricted.has(port))) continue;
-    const bound = await claim(port, also);
-    if (bound) return bound;
+    const servers = await claim(port);
+    if (servers) return servers;
   }
-  if (exact) throw Error("PortInUse");
-  const v4 = await listen("127.0.0.1", 0),
-    port = (v4.address() as AddressInfo).port,
-    servers = [v4, ...(await optional("::1", port))];
-  return { servers, port, addresses: new Set(servers.map(server => (server.address() as AddressInfo).address)) };
+  const v4 = await listen("127.0.0.1", 0);
+  return [v4, ...(await optional("::1", (v4.address() as AddressInfo).port))];
 }
 
 interface Entry {
   forward: Forward;
   servers: Server[];
-  /** The addresses it listens on, as `Bound` has them. */
-  addresses: Set<string>;
   ipv6: boolean;
-  /** A sign-in's callback, on the machine's own port: it waits `callback_ms`
-   * for the browser to come back, realized or not, unless a click on a link
-   * to the port made it a forward like any other. */
-  exact: boolean;
   /** When it expires, unrealized. */
   until: number;
   sockets: Set<Socket>;
@@ -255,14 +187,12 @@ export class Forwards {
   private pending = new Map<string, Promise<Entry>>();
   private prepared: { done: Promise<void>; at: number } | null = null;
   private stopping = new AbortController();
-  /** The link under the pointer, and its ports', which don't expire while
-   * the pointer moved lately: one that left the window from the link stops
-   * holding them. */
+  /** The link under the pointer, and its port's reservation, which doesn't
+   * expire while the pointer moved lately: one that left the window from the
+   * link stops holding it. */
   private hovered: string | null = null;
-  private hovering = new Set<string>();
+  private hovering: string | null = null;
   private moved_at = 0;
-  /** Callback ports found in use here, and when: tried again after a moment. */
-  private blocked = new Map<number, number>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
   /** Told when a forward or reservation comes, goes, or its connections change. */
@@ -288,19 +218,6 @@ export class Forwards {
   opens(url: string): string | null {
     return target(url) ? this.local(url) : url;
   }
-  /** Ports of `url`'s callbacks that are in use here, so it can't come back. */
-  unavailable(url: string): number[] {
-    const blocked = callbacks(url)
-      .map(callback => target(callback)!.port)
-      .filter(port => this.blocked.has(port));
-    const own = target(url),
-      entry = own && this.find(own);
-    return entry && this.moved(entry, url) ? [...blocked, own!.port] : blocked;
-  }
-  /** Whether `url` names its own port to come back to, as `entry`, its forward, moved off it. */
-  private moved(entry: Entry, url: string): boolean {
-    return entry.forward.local !== entry.forward.port && returns(url).length > 0;
-  }
   /** The pointer is on `url`, or on no link: a reservation lasts while it
    * stays, and for a while after. */
   hover(url: string | null, moved = true): void {
@@ -318,71 +235,35 @@ export class Forwards {
     }
     this.moved_at = this.clock();
     const left = this.hovering,
-      now = this.clock();
+      now = this.clock(),
+      at = url === null ? null : target(url);
     this.hovered = url;
-    this.hovering = new Set(
-      (url === null ? [] : [url, ...callbacks(url)]).flatMap(link => {
-        const at = target(link);
-        return at ? [`${at.host}:${at.port}`] : [];
-      }),
-    );
+    this.hovering = at && `${at.host}:${at.port}`;
     for (const entry of this.entries)
-      if (left.has(key(entry)) && !this.hovering.has(key(entry)))
-        entry.until = Math.max(entry.until, now + (entry.exact ? callback_ms : reserved_ms));
+      if (key(entry) === left && left !== this.hovering) entry.until = Math.max(entry.until, now + reserved_ms);
     if (url !== null) this.reserve(url);
     this.arm();
   }
-  /** Reserves ports for a link the pointer rests on: its own, and its callbacks'. */
+  /** Reserves the port of a link the pointer rests on. */
   reserve(url: string): void {
     const wanted = target(url);
-    if (wanted) void this.ensure(wanted, url, false).catch(() => {});
-    for (const callback of callbacks(url)) {
-      const at = target(callback)!;
-      if (this.clock() - (this.blocked.get(at.port) ?? -Infinity) < blocked_ms) continue;
-      void this.ensure(at, callback, true).then(
-        () => this.blocked.delete(at.port) && this.onChange(),
-        error => {
-          if (!errors.is(error, "PortInUse")) return;
-          this.blocked.set(at.port, this.clock());
-          this.onChange();
-        },
-      );
-    }
+    if (wanted) void this.ensure(wanted, url).catch(() => {});
   }
-  /** A click on `url`: its port forwarded and realized, with `url` pointing
-   * here; a link carrying callbacks opens as it is, their ports forwarded
-   * unchanged, and says which were in use here. Null for a link with nothing
-   * to forward. */
-  async open(url: string): Promise<{ url: string; unavailable: number[] } | null> {
-    const wanted = target(url),
-      nested = callbacks(url);
-    if (!wanted && !nested.length) return null;
-    const unavailable: number[] = [];
-    for (const callback of nested) {
-      const at = target(callback)!;
-      try {
-        this.realize(await this.ensure(at, callback, true));
-        this.blocked.delete(at.port);
-      } catch (error) {
-        if (!errors.is(error, "PortInUse")) throw error;
-        this.blocked.set(at.port, this.clock());
-        unavailable.push(at.port);
-      }
-    }
-    if (!wanted) return { url, unavailable };
-    const entry = await this.ensure(wanted, url, false);
-    // Clicked, it lasts like any forward, though a sign-in's callback had it first.
-    entry.exact = false;
+  /** A click on `url`: its port forwarded and realized, and `url` pointing
+   * here. Null for a link with nothing to forward. */
+  async open(url: string): Promise<string | null> {
+    const wanted = target(url);
+    if (!wanted) return null;
+    const entry = await this.ensure(wanted, url);
     entry.forward.url = rewrite(url, entry.forward.local, entry.ipv6);
-    if (this.moved(entry, url)) unavailable.push(wanted.port);
     this.realize(entry);
     this.onChange();
-    return { url: entry.forward.url, unavailable };
+    return entry.forward.url;
   }
   private find(wanted: Target): Entry | null {
     return this.entries.find(e => e.forward.host === wanted.host && e.forward.port === wanted.port) ?? null;
   }
-  private async ensure(wanted: Target, url: string, exact: boolean): Promise<Entry> {
+  private async ensure(wanted: Target, url: string): Promise<Entry> {
     const key = `${wanted.host}:${wanted.port}`;
     // Another forward can take the port while this one waits for it: once.
     for (let attempt = 0; ; attempt++) {
@@ -391,7 +272,7 @@ export class Forwards {
       if (!entry) {
         let pending = this.pending.get(key);
         if (!pending) {
-          pending = this.create(wanted, url, exact);
+          pending = this.create(wanted, url);
           this.pending.set(key, pending);
           void pending.catch(() => {}).finally(() => this.pending.delete(key));
         }
@@ -401,19 +282,15 @@ export class Forwards {
         if (attempt) throw Error("PortTaken");
         continue;
       }
-      // A callback comes back to its own port and address, which a link to it may have moved.
-      if (exact && (entry.forward.local !== wanted.port || !entry.addresses.has(returnAddress(url))))
-        throw Error("PortInUse");
-      // A forward in use stays one: a link carrying it as a callback doesn't make it expire.
-      if (!entry.forward.realized) entry.exact ||= exact;
-      entry.until = Math.max(entry.until, this.clock() + (exact ? callback_ms : reserved_ms));
+      entry.until = Math.max(entry.until, this.clock() + reserved_ms);
       this.arm();
       return entry;
     }
   }
-  private async create(wanted: Target, url: string, exact: boolean): Promise<Entry> {
-    const { servers, port: local, addresses } = await bind(wanted.port, exact, exact ? returnAddress(url) : null),
-      ipv6 = addresses.has("::1");
+  private async create(wanted: Target, url: string): Promise<Entry> {
+    const servers = await bind(wanted.port),
+      local = (servers[0].address() as AddressInfo).port,
+      ipv6 = servers.length > 1;
     if (this.closed) {
       for (const server of servers) server.close();
       throw Error("ForwardsClosed");
@@ -421,9 +298,7 @@ export class Forwards {
     const entry: Entry = {
       forward: { ...wanted, local, url: rewrite(url, local, ipv6), open: 0, failure: null, realized: false },
       servers,
-      addresses,
       ipv6,
-      exact,
       until: 0,
       sockets: new Set(),
       channels: new Set(),
@@ -472,8 +347,6 @@ export class Forwards {
       entry.sockets.delete(socket);
       if (channel) entry.channels.delete(channel);
       entry.forward.open = entry.channels.size;
-      // A callback waits again from its last connection.
-      if (entry.exact) entry.until = Math.max(entry.until, this.clock() + callback_ms);
       this.arm();
       this.onChange();
     };
@@ -532,16 +405,15 @@ export class Forwards {
       );
     });
   }
-  /** Whether `entry` can expire: unrealized, or a callback's, with no
-   * connection open and the pointer off its link. */
+  /** Whether `entry` can expire: unrealized, with no connection open. */
   private expires(entry: Entry): boolean {
-    return (!entry.forward.realized || entry.exact) && !entry.sockets.size;
+    return !entry.forward.realized && !entry.sockets.size;
   }
   /** When `entry` expires: its own time, or later while the pointer rests on its link. */
   private deadline(entry: Entry): number {
-    return this.hovering.has(key(entry)) ? Math.max(entry.until, this.moved_at + hover_ms) : entry.until;
+    return key(entry) === this.hovering ? Math.max(entry.until, this.moved_at + hover_ms) : entry.until;
   }
-  /** Drops reservations and callbacks past their time. */
+  /** Drops reservations past their time. */
   expire(now = this.clock()): void {
     for (const entry of [...this.entries]) if (this.expires(entry) && this.deadline(entry) <= now) this.drop(entry);
     this.arm();

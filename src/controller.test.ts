@@ -4345,7 +4345,6 @@ test("the pointer on a link to an SSH machine's loopback reserves its port, and 
   s.machine.forwards = {
     hover: (uri: string | null) => uri !== null && reserved.push(uri),
     local: (uri: string) => (uri === url ? local : null),
-    unavailable: () => [],
   };
   try {
     await mouse(35);
@@ -4366,7 +4365,7 @@ test("the pointer on a link to an SSH machine's loopback reserves its port, and 
 test("the link under a pointer at rest is noticed, and a machine switched away from lets its link go", async () => {
   const { s, url, done } = linking("http://localhost:5173/app", true);
   const hovered: (string | null)[] = [];
-  s.machine.forwards = { hover: (uri: string | null) => hovered.push(uri), local: () => null, unavailable: () => [] };
+  s.machine.forwards = { hover: (uri: string | null) => hovered.push(uri), local: () => null };
   try {
     // The pointer was already there when the link came.
     const { rect } = s.layoutView().placements(s.area())[0];
@@ -4384,7 +4383,7 @@ test("a sidebar link to an SSH machine's loopback server reserves its port, and 
   const { s, done } = linking("https://example.com/", true);
   const url = "http://localhost:8888",
     hovered: (string | null)[] = [];
-  s.machine.forwards = { hover: (uri: string | null) => hovered.push(uri), local: () => null, unavailable: () => [] };
+  s.machine.forwards = { hover: (uri: string | null) => hovered.push(uri), local: () => null };
   const server = { label: "", label_pending: false, pid: 9, pane: 1, name: "python3", transport: "tcp" };
   s.machine.runtime.ports = {
     workspaces: [

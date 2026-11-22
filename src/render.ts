@@ -225,7 +225,7 @@ export interface Ui {
   startup_card: startupCard.State | null;
   connection_card: connectivityCard.Card | null;
   /** Where the shown machine's links to its own loopback point here, once reserved. */
-  link_forwards: { local(url: string): string | null; unavailable(url: string): number[] } | null;
+  link_forwards: { local(url: string): string | null } | null;
   sync_notice: syncNotice.State | null;
   /** A pane an action is opening has the keyboard: no pane shows focus. */
   pane_opening: boolean;
@@ -1084,15 +1084,11 @@ export function frame(
       const link = linkTooltip.at(p.terminal, r, u.pointer.x, u.pointer.y);
       hovered = link?.id ?? null;
       hovered_uri = link?.uri ?? hovered_uri;
-      const local = link && u.link_forwards?.local(link.uri),
-        blocked = link ? (u.link_forwards?.unavailable(link.uri) ?? []) : [];
+      const local = link && u.link_forwards?.local(link.uri);
       if (link && local) {
         forwarded = { uri: link.uri, local };
         if (local !== link.uri) hovered_uri = `${link.uri}  →  ${local}`;
       }
-      // A sign-in can't come back to a port something here holds.
-      if (link && blocked.length)
-        hovered_uri = `${link.uri}  ·  port ${blocked.join(", ")} isn't free here, so it can't come back`;
     }
     const dim = dimsPanes(u);
     if (retained && retainable(u, p, r, dim, hovered)) retained.pane(w, p.terminal, p.id, r);

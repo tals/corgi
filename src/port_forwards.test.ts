@@ -94,20 +94,6 @@ test("a forwarded link changes only its host and port, as the machine wrote it",
   );
 });
 
-test("a sign-in link's loopback callback is found in its query or fragment", () => {
-  const redirect = "http://localhost:1455/auth/callback";
-  expect(
-    portForwards.callbacks(
-      `https://auth.example.com/oauth/authorize?client_id=x&redirect_uri=${encodeURIComponent(redirect)}&state=y`,
-    ),
-  ).toEqual([redirect]);
-  expect(portForwards.callbacks(`https://auth.example.com/#redirect_uri=${encodeURIComponent(redirect)}`)).toEqual([
-    redirect,
-  ]);
-  expect(portForwards.callbacks("https://auth.example.com/?next=https%3A%2F%2Fexample.com%2F")).toEqual([]);
-  expect(portForwards.callbacks(`myapp://open?u=${encodeURIComponent(redirect)}`)).toEqual([]);
-});
-
 test("a hovered link reserves a port here; its first request realizes it", async () => {
   const there = await freePort(),
     served = serve("hello");
@@ -221,12 +207,15 @@ test("a click realizes the link's forward and opens it here, on another port whe
     );
     if (free) next.close();
     expect(forward.local === served + 1).toBe(!free);
-    expect(opened).toEqual({ url: `http://localhost:${forward.local}/`, unavailable: [] });
+    expect(opened).toBe(`http://localhost:${forward.local}/`);
     expect(await (await fetch(`http://127.0.0.1:${forward.local}/`)).text()).toBe("there /");
     forwards.stop(forward);
     expect(forwards.list).toEqual([]);
     await expect(fetch(`http://127.0.0.1:${forward.local}/`)).rejects.toThrow();
     expect(await forwards.open("https://example.com/")).toBeNull();
+    // Nor is a sign-in link's localhost callback: it opens as it is.
+    const callback = encodeURIComponent(`http://localhost:${served}/cb`);
+    expect(await forwards.open(`https://auth.example.com/?redirect_uri=${callback}`)).toBeNull();
   } finally {
     forwards.close();
   }
@@ -273,48 +262,13 @@ test("an unrealized reservation expires, and gives its port up to a forward that
   }
 });
 
-test("a sign-in link opens as it is, its callback's port forwarded unchanged", async () => {
-  const there = await freePort(),
-    callback = `http://localhost:${there}/auth/callback`,
-    url = `https://auth.example.com/authorize?redirect_uri=${encodeURIComponent(callback)}`;
-  const { link } = fakeLink(new Map([[there, serve("signed in")]]));
-  const forwards = new portForwards.Forwards(link);
-  try {
-    // Hovering it reserves the callback's own port; the link itself stays.
-    forwards.reserve(url);
-    await until(() => forwards.local(callback) === callback);
-    expect(forwards.local(url)).toBeNull();
-    expect(await forwards.open(url)).toEqual({ url, unavailable: [] });
-    expect(forwards.list.map(f => [f.port, f.local])).toEqual([[there, there]]);
-    expect(await (await fetch(`http://127.0.0.1:${there}/auth/callback?code=1`)).text()).toBe(
-      "signed in /auth/callback",
-    );
-  } finally {
-    forwards.close();
-  }
-  // In use here, the callback can't come back: the click says so.
-  const taken = serve("local"),
-    blocked = `https://auth.example.com/authorize?redirect_uri=${encodeURIComponent(`http://localhost:${taken}/cb`)}`;
-  const other = new portForwards.Forwards(fakeLink(new Map()).link);
-  try {
-    // Hovering it says so before the click.
-    other.reserve(blocked);
-    await until(() => other.unavailable(blocked).length > 0);
-    expect(other.unavailable(blocked)).toEqual([taken]);
-    expect(await other.open(blocked)).toEqual({ url: blocked, unavailable: [taken] });
-    expect(other.list).toEqual([]);
-  } finally {
-    other.close();
-  }
-});
-
 test("a port nothing listens on there says so, until one answers", async () => {
   const there = await freePort(),
     refuse = new Set([there]);
   const { link } = fakeLink(new Map([[there, serve("late")]]), refuse);
   const forwards = new portForwards.Forwards(link);
   try {
-    const { url } = (await forwards.open(`http://localhost:${there}`))!;
+    const url = (await forwards.open(`http://localhost:${there}`))!;
     const [forward] = forwards.list;
     await fetch(url.replace("localhost", "127.0.0.1")).catch(() => {});
     await until(() => forward.failure !== null);
@@ -335,7 +289,7 @@ test("a machine that can't be reached fails the request, and is tried again for 
     dial: fakeLink(new Map([[there, serve("back")]])).link.dial,
   });
   try {
-    const { url } = (await forwards.open(`http://localhost:${there}/`))!;
+    const url = (await forwards.open(`http://localhost:${there}/`))!;
     await expect(fetch(url.replace("localhost", "127.0.0.1"))).rejects.toThrow();
     expect(forwards.list[0].failure).toBe("unreachable");
     expect(await (await fetch(url.replace("localhost", "127.0.0.1"))).text()).toBe("back /");
@@ -384,73 +338,6 @@ test("a reservation lasts while the pointer rests on its link, and a minute afte
   }
 });
 
-test("a click on a link to a port a sign-in had first makes a forward that lasts; a hover doesn't", async () => {
-  let now = 1000;
-  const there = await freePort(),
-    app = `http://localhost:${there}/`,
-    signin = `https://auth.example.com/?redirect_uri=${encodeURIComponent(`${app}cb`)}`;
-  const forwards = new portForwards.Forwards(fakeLink(new Map([[there, serve("app")]])).link, () => now);
-  try {
-    forwards.hover(signin);
-    await until(() => forwards.local(app) !== null);
-    forwards.hover(null);
-    await forwards.open(app);
-    expect(forwards.list.length).toBe(1);
-    now += portForwards.callback_ms * 2;
-    forwards.expire();
-    expect(forwards.list.length).toBe(1);
-  } finally {
-    forwards.close();
-  }
-  // Hovering a link to a sign-in's callback leaves it one, which goes once it's been idle a while.
-  const callback = `${app}cb`,
-    hovered = new portForwards.Forwards(fakeLink(new Map([[there, serve("done")]])).link, () => now);
-  try {
-    await hovered.open(signin);
-    expect(await (await fetch(callback, close)).text()).toBe("done /cb");
-    await until(() => hovered.list[0]?.open === 0);
-    hovered.hover(app);
-    hovered.hover(null);
-    now += portForwards.callback_ms * 2;
-    hovered.expire();
-    expect(hovered.list).toEqual([]);
-  } finally {
-    hovered.close();
-  }
-});
-
-test("a sign-in's callback forward goes once it's been idle a while, and never sits on a moved port", async () => {
-  let now = 1000;
-  const there = await freePort(),
-    callback = `http://localhost:${there}/cb`,
-    url = `https://auth.example.com/?redirect_uri=${encodeURIComponent(callback)}`;
-  const forwards = new portForwards.Forwards(fakeLink(new Map([[there, serve("done")]])).link, () => now);
-  try {
-    await forwards.open(url);
-    expect(await (await fetch(`http://127.0.0.1:${there}/cb`, close)).text()).toBe("done /cb");
-    await until(() => forwards.list[0]?.open === 0);
-    now += portForwards.callback_ms - 1;
-    forwards.expire();
-    expect(forwards.list.length).toBe(1);
-    now += 1;
-    forwards.expire();
-    expect(forwards.list).toEqual([]);
-  } finally {
-    forwards.close();
-  }
-  // A link to the callback's port moved it here: the callback can't use that.
-  const taken = serve("local"),
-    moved = `https://auth.example.com/?redirect_uri=${encodeURIComponent(`http://localhost:${taken}/cb`)}`;
-  const other = new portForwards.Forwards(fakeLink(new Map()).link);
-  try {
-    await other.open(`http://localhost:${taken}/`);
-    expect(other.list[0].local).not.toBe(taken);
-    expect(await other.open(moved)).toEqual({ url: moved, unavailable: [taken] });
-  } finally {
-    other.close();
-  }
-});
-
 test("the way to the machine is readied again for connections after a while", async () => {
   let now = 1000,
     prepared = 0;
@@ -466,7 +353,7 @@ test("the way to the machine is readied again for connections after a while", as
     () => now,
   );
   try {
-    const { url } = (await forwards.open(`http://localhost:${there}/`))!;
+    const url = (await forwards.open(`http://localhost:${there}/`))!;
     const local = url.replace("localhost", "127.0.0.1");
     await Promise.all([fetch(local, close), fetch(local, close), fetch(local, close)]);
     expect(prepared).toBe(1);
@@ -476,33 +363,6 @@ test("the way to the machine is readied again for connections after a while", as
   } finally {
     forwards.close();
   }
-});
-
-test("a callback is forwarded on the loopback address its link names, or says it can't be", async () => {
-  expect(portForwards.returnAddress("http://localhost:1455/cb")).toBe("127.0.0.1");
-  expect(portForwards.returnAddress("http://127.0.0.2:1455/cb")).toBe("127.0.0.2");
-  expect(portForwards.returnAddress("http://[::1]:1455/cb")).toBe("::1");
-  for (const host of ["127.0.0.2", "[::1]"]) {
-    const there = await freePort(),
-      callback = `http://${host}:${there}/cb`,
-      url = `https://auth.example.com/?redirect_uri=${encodeURIComponent(callback)}`;
-    const forwards = new portForwards.Forwards(fakeLink(new Map([[there, serve("back")]])).link);
-    try {
-      const { unavailable } = (await forwards.open(url))!;
-      // Where this computer has no such address, the click says the link can't come back.
-      if (unavailable.length) expect(unavailable).toEqual([there]);
-      else expect(await (await fetch(`http://${host}:${there}/cb`, close)).text()).toBe("back /cb");
-    } finally {
-      forwards.close();
-    }
-  }
-});
-
-test("a link back into its own port isn't a callback", () => {
-  const next = encodeURIComponent("http://localhost:3000/home");
-  expect(portForwards.callbacks(`http://localhost:3000/login?next=${next}`)).toEqual([]);
-  expect(portForwards.callbacks(`http://127.0.0.1:3000/login?next=${next}`)).toEqual([]);
-  expect(portForwards.callbacks(`http://localhost:8080/login?next=${next}`)).toEqual(["http://localhost:3000/home"]);
 });
 
 test("a pointer at rest gets its link reserved again after another machine's forward took the port", async () => {
@@ -521,35 +381,6 @@ test("a pointer at rest gets its link reserved again after another machine's for
   } finally {
     atlas.close();
     borealis.close();
-  }
-});
-
-test("a link back into its own port warns when its forward had to move off that port", async () => {
-  const taken = serve("this computer's"),
-    next = encodeURIComponent(`http://localhost:${taken}/home`),
-    url = `http://localhost:${taken}/login?next=${next}`;
-  const forwards = new portForwards.Forwards(fakeLink(new Map()).link);
-  try {
-    expect(portForwards.returns(url)).toEqual([`http://localhost:${taken}/home`]);
-    forwards.reserve(url);
-    await until(() => forwards.local(url) !== null);
-    expect(forwards.unavailable(url)).toEqual([taken]);
-    const opened = (await forwards.open(url))!;
-    expect(opened.unavailable).toEqual([taken]);
-    expect(opened.url).not.toContain(`localhost:${taken}/login`);
-    // The forward itself is an ordinary one: it stays.
-    expect(forwards.list[0].realized).toBe(true);
-  } finally {
-    forwards.close();
-  }
-  // Where it keeps its port, the way back works and nothing's said.
-  const free = await freePort(),
-    kept = `http://localhost:${free}/login?next=${encodeURIComponent(`http://localhost:${free}/home`)}`;
-  const other = new portForwards.Forwards(fakeLink(new Map()).link);
-  try {
-    expect(await other.open(kept)).toEqual({ url: kept, unavailable: [] });
-  } finally {
-    other.close();
   }
 });
 
@@ -585,7 +416,7 @@ test("closing gives up on a way to the machine still being readied", async () =>
       throw Error("unreachable");
     },
   });
-  const { url } = (await forwards.open(`http://localhost:${there}/`))!;
+  const url = (await forwards.open(`http://localhost:${there}/`))!;
   const request = fetch(url.replace("localhost", "127.0.0.1"), close).catch(error => error);
   await until(() => signal !== null);
   forwards.close();
