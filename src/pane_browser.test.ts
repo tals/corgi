@@ -165,3 +165,14 @@ test("an xdg-open handing a link on skips every Corgi stand-in, a nested runtime
   expect(run.exitCode).toBe(0);
   expect(readFileSync(log, "utf8").trim()).toBe("xdg-open https://example.com/ 1");
 });
+
+test("a viewer opens links where it has a browser: not over SSH, and on Linux with a display", async () => {
+  const { opensLinks } = await import("./url_opener");
+  expect(opensLinks({}, "darwin")).toBe(true);
+  expect(opensLinks({ SSH_CONNECTION: "1 2 3 4" }, "darwin")).toBe(false);
+  expect(opensLinks({}, "linux")).toBe(false);
+  expect(opensLinks({ DISPLAY: ":0" }, "linux")).toBe(true);
+  expect(opensLinks({ WAYLAND_DISPLAY: "wayland-0" }, "linux")).toBe(true);
+  expect(opensLinks({ WSL_DISTRO_NAME: "Ubuntu" }, "linux")).toBe(true);
+  expect(opensLinks({ DISPLAY: ":0", SSH_TTY: "/dev/pts/1" }, "linux")).toBe(false);
+});

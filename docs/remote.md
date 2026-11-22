@@ -301,8 +301,8 @@ works on a remote machine. A program started before Corgi added the helper keeps
 its `BROWSER` but finds the new `xdg-open`, since Corgi's folder already leads
 every pane's PATH. With no viewer to take a link, none attached or one running
 over SSH itself, it goes to the pane's previous `BROWSER`, then the system's
-opener, else the helper prints it. A machine that isn't shown opens it once you
-switch to it.
+opener, else the helper prints it. A machine in the background opens its links
+at once.
 
 `./go.ts --sandbox forwarding` opens a world to try this in: `devbox`, a
 stand-in machine, runs a dev server and a CLI sign-in.

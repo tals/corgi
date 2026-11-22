@@ -16,6 +16,7 @@ import { Differ } from "./frame_diff";
 import * as framePacing from "./frame_pacing";
 import * as sound from "./sound";
 import { sshViewer } from "./trackers/ports";
+import * as urlOpener from "./url_opener";
 import type { Reply, RequestInput } from "./protocol";
 import * as protocol from "./protocol";
 import { n, ptr } from "./native_ffi";
@@ -192,8 +193,8 @@ export function syncRequest(
     worktree_detail: view.worktreeDetailWanted(machine),
     resources: view.host.prefs.resources.enabled,
     resources_hash: machine.runtime.resources_hash,
-    // Over SSH itself, the viewer has no browser for a pane's links.
-    links: !sshViewer(),
+    // With no browser here, a pane's program opens its links its own way.
+    links: urlOpener.opensLinks(),
   };
 }
 /** How often a waiting control asks again whether what it names is there,

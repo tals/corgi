@@ -53,8 +53,8 @@ export class Snapshot {
     );
   }
 }
-export function sshViewer() {
-  return ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"].some(k => !!process.env[k]);
+export function sshViewer(env: NodeJS.ProcessEnv = process.env) {
+  return ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"].some(k => !!env[k]);
 }
 export function loopback(address: string) {
   return address.startsWith("127.") || address === "::1";

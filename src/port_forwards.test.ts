@@ -413,3 +413,29 @@ test("a callback is forwarded on the loopback address its link names, or says it
     }
   }
 });
+
+test("a link back into its own port isn't a callback", () => {
+  const next = encodeURIComponent("http://localhost:3000/home");
+  expect(portForwards.callbacks(`http://localhost:3000/login?next=${next}`)).toEqual([]);
+  expect(portForwards.callbacks(`http://127.0.0.1:3000/login?next=${next}`)).toEqual([]);
+  expect(portForwards.callbacks(`http://localhost:8080/login?next=${next}`)).toEqual(["http://localhost:3000/home"]);
+});
+
+test("a pointer at rest gets its link reserved again after another machine's forward took the port", async () => {
+  const there = await freePort(),
+    url = `http://localhost:${there}/`;
+  const atlas = new portForwards.Forwards(fakeLink(new Map()).link),
+    borealis = new portForwards.Forwards(fakeLink(new Map()).link);
+  try {
+    atlas.hover(url);
+    await until(() => atlas.local(url) === url);
+    await borealis.open(url);
+    expect(atlas.local(url)).toBeNull();
+    atlas.hover(url, false);
+    await until(() => atlas.local(url) !== null);
+    expect(atlas.local(url)).not.toBe(url);
+  } finally {
+    atlas.close();
+    borealis.close();
+  }
+});

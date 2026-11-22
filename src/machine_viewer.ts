@@ -246,6 +246,14 @@ export async function run(
         return cardAct("stop");
     }
   };
+  /** Opens the links effects ask for, leaving the terminal writes to the shown machine's turn. */
+  const openLinks = () => {
+    const links = view.effects.filter(
+      (effect): effect is { open_url: string; machine?: number } => "open_url" in effect,
+    );
+    view.effects = view.effects.filter(effect => !("open_url" in effect));
+    for (const link of links) openLink(link.open_url, endpoints.find(e => e.machine.id === link.machine) ?? null);
+  };
   const clipboard: { owner: { endpoint: Endpoint; generation: number; epoch: number } | null } = {
     owner: null,
   };
@@ -646,6 +654,8 @@ export async function run(
       workspaces.watchResources();
       const idle = now - active_at >= idle_after_ms;
       for (const endpoint of endpoints) endpoint.pump(endpoint === active, idle);
+      // A machine in the background asked to open a link: it opens now, whatever the shown machine is doing.
+      if (view.effects.some(effect => "open_url" in effect)) openLinks();
       if (endpoints[0].fatal) throw endpoints[0].fatal;
       if (endpoints[0].uninstalled) break;
       // This computer's daemon going away ends the viewer, whichever machine is shown.

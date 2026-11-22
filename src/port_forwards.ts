@@ -102,9 +102,18 @@ export function callbacks(url: string): string[] {
   const parsed = parse(url);
   if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) return [];
   const values = [...parsed.searchParams.values()],
-    fragment = parsed.hash.slice(1);
+    fragment = parsed.hash.slice(1),
+    own = loopback(parsed);
   if (fragment.includes("=")) values.push(...new URLSearchParams(fragment).values());
-  return [...new Set(values.filter(value => target(value) !== null))];
+  // A link to the same port, as a `next=` back into its own app, is the link's own forward.
+  return [
+    ...new Set(
+      values.filter(value => {
+        const at = target(value);
+        return at !== null && !(own && at.host === own.host && at.port === own.port);
+      }),
+    ),
+  ];
 }
 /** The address here a browser coming back to callback `url` connects to,
  * which a callback's forward must listen on as the link names it. */
@@ -271,7 +280,12 @@ export class Forwards {
    * stays, and for a while after. */
   hover(url: string | null, moved = true): void {
     if (url === this.hovered) {
-      if (!moved) return;
+      if (!moved) {
+        // Another forward may have taken its port: reserved again while the pointer's hold lasts.
+        if (url !== null && this.clock() - this.moved_at < hover_ms && target(url) && !this.local(url))
+          this.reserve(url);
+        return;
+      }
       this.moved_at = this.clock();
       // A move within the link brings back a reservation that ran out while the pointer rested.
       if (url !== null) this.reserve(url);

@@ -4219,7 +4219,6 @@ export class Controller {
   private queueEffect(effect: Effect): void {
     this.effects.push(effect);
   }
-  /** A link in one of `machine`'s panes. */
   /** A link a pane's program on `machine` asked to open, through its BROWSER. */
   openRequested(url: string, machine = this.machine): void {
     if (!openableLink(url)) throw Error("InvalidURL");
