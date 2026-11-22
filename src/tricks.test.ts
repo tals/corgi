@@ -8,7 +8,7 @@ import * as palette from "./palette";
 import * as cli from "./cli";
 import * as viewerRef from "./viewer_ref";
 import { Rect } from "./layout";
-import { Writer } from "./text";
+import { Writer, displayWidth } from "./text";
 import { Terminal } from "./pane/terminal";
 
 test("a sketch manifest only names its entry point", () => {
@@ -153,4 +153,77 @@ test("tricks CLI lists and reloads without a pane target", async () => {
   expect(await cli.parse(["tricks", "list", "--json"])).toMatchObject({ action: "tricks.list", json: true });
   expect(await cli.parse(["tricks", "reload"])).toMatchObject({ action: "tricks.reload" });
   await expect(cli.parse(["tricks", "remove"])).rejects.toThrow("Usage");
+});
+
+test("a title view is one short line with an optional press", () => {
+  const raw = { kind: "title", spans: [{ text: "♫", bold: true }], color: "accent", action: "toggle-1", slot: "pad" };
+  expect(tricks.view(raw, true, displayWidth)).toEqual({
+    kind: "title",
+    spans: [{ text: "♫", bold: true }],
+    color: "accent",
+    action: "toggle-1",
+    slot: "pad",
+  });
+  expect(tricks.view({ kind: "title", spans: [{ text: "●" }] })).toEqual({ kind: "title", spans: [{ text: "●" }] });
+  const title = (extra: object) => () =>
+    tricks.view({ kind: "title", spans: [{ text: "x" }], ...extra }, true, displayWidth);
+  expect(title({ spans: [] })).toThrow("InvalidTitle");
+  expect(title({ spans: [{ text: "" }, { text: "" }] })).toThrow("InvalidTitle");
+  expect(title({ content: { kind: "text", spans: [] } })).toThrow("InvalidTitle");
+  expect(title({ lines: [] })).toThrow("InvalidTitle");
+  expect(title({ slot: "alone" })).toThrow("InvalidTitle");
+  expect(title({ extra: true })).toThrow("UnknownField");
+  expect(title({ spans: [{ text: "a\nb" }] })).toThrow("ControlCharacter");
+  expect(title({ spans: [{ text: "x", icon: "nope" }] })).toThrow("InvalidBrand");
+  expect(title({ action: "../x" })).toThrow("InvalidKey");
+  expect(title({ spans: [{ text: "abcde" }] })).toThrow("TitleTooWide");
+  expect(title({ spans: [{ text: "", icon: "node" }, { text: "abc" }] })).toThrow("TitleTooWide");
+  expect(title({ spans: [{ text: "界界界" }] })).toThrow("TitleTooWide");
+  expect(title({ spans: [{ text: "ab" }, { text: "cd" }] })()).toMatchObject({ kind: "title" });
+  expect(title({ spans: [{ text: "", icon: "node" }, { text: "ab" }] })()).toMatchObject({ kind: "title" });
+  expect(tricks.titleWidth([{ text: "", icon: "node" }, { text: "界" }], displayWidth)).toBe(4);
+  // Viewers don't measure: their sidebar drops what doesn't fit.
+  expect(tricks.view({ kind: "title", spans: [{ text: "abcdefgh" }] })).toMatchObject({ kind: "title" });
+  const set = (spans: object[]) => ({ op: "ui.set", key: "t", view: { kind: "title", spans } });
+  expect(() => tricks.command(set([{ text: "abcde" }]), displayWidth)).toThrow("TitleTooWide");
+  expect(tricks.command(set([{ text: "abcde" }])).command.op).toBe("ui.set");
+  // An older viewer drops only what it can't read.
+  expect(tricks.views([{ kind: "unknown" }, { kind: "title", spans: [{ text: "●" }] }])).toEqual([
+    { kind: "title", spans: [{ text: "●" }] },
+  ]);
+});
+
+test("view actions cover decorations, overlays and titles", () => {
+  const button = (action: string): tricks.Element => ({ kind: "button", spans: [{ text: "go" }], action });
+  const decoration: tricks.View = { kind: "decorate", where: {}, suffix: [], content: button("a") };
+  const overlay: tricks.View = {
+    kind: "overlay",
+    anchor: "top-right",
+    lines: [],
+    content: { kind: "row", children: [button("b"), button("c")] },
+  };
+  const title: tricks.View = { kind: "title", spans: [{ text: "●" }], action: "d" };
+  const plain: tricks.View = { kind: "title", spans: [{ text: "●" }] };
+  expect([decoration, overlay, title, plain].map(tricks.viewActions)).toEqual([["a"], ["b", "c"], ["d"], []]);
+  const mapped = [decoration, overlay, title, plain].map(view =>
+    tricks.mapViewActions(
+      view,
+      action => `x.${action}`,
+      slot => `x.${slot}`,
+    ),
+  );
+  expect(mapped.map(tricks.viewActions)).toEqual([["x.a"], ["x.b", "x.c"], ["x.d"], []]);
+  expect(mapped[2]).toEqual({ kind: "title", spans: [{ text: "●" }], action: "x.d", slot: "x.d" });
+  expect(mapped[3]).toBe(plain);
+  expect(
+    tricks.mapViewActions(
+      { ...title, slot: "s" } as tricks.View,
+      a => a,
+      s => `y.${s}`,
+    ),
+  ).toMatchObject({
+    action: "d",
+    slot: "y.s",
+  });
+  expect(tricks.mapViewActions(title, a => `z.${a}`)).toEqual({ ...title, action: "z.d" });
 });

@@ -219,6 +219,16 @@ or use `content` instead of `text`. Anchors are top/bottom-left/right.
 Replace a key to update; `corgi.clear(key)` removes it. Keys belong to the trick;
 `ui-` is reserved. Standalone overlays must be redrawn explicitly after clicks.
 
+For a lasting status left of the sidebar's `[ + ]`, draw one title item per trick:
+
+```js
+corgi.draw("dot", { kind: "title", text: "●", color: corgi.palette.hot, press: () => toggle() });
+```
+
+It is one line of at most 4 cells (an icon counts two); wider items throw
+`TitleTooWide`, and a second key throws `TitleExists`. Items drop whole when the
+row is narrow, and only the viewer's first daemon reaches its title row.
+
 Transcripts require `on("transcript", ...)` explicitly. They carry new provider
 records after initial history as `{agent, record, truncated}`; oversized records
 have `record: null`. This is not a lossless archive. Metadata excludes prompts,

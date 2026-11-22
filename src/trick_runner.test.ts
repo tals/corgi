@@ -1,5 +1,6 @@
 import { expect, test, jest } from "bun:test";
-import { Runner, type Trick, type On, type Ui } from "./trick_runner";
+import { Runner, cells, type Corgi, type Trick, type On, type Ui } from "./trick_runner";
+import { displayWidth } from "./text";
 import * as tricks from "./tricks";
 
 const agent: tricks.Agent = {
@@ -292,7 +293,7 @@ test("buttons retain current closures, refresh agent drawings and discard stale 
   h.receive({ event: "agent.changed", agent, previous: null });
   await flush();
   const old = tricks.view(h.sent.at(-1)!.view),
-    action = tricks.actions(old.content)[0];
+    action = tricks.viewActions(old)[0];
   expect(action).toBeDefined();
   const writes = h.sent.length;
   h.receive({ event: "agent.changed", agent: { ...agent, name: "Latest" }, previous: agent });
@@ -302,7 +303,7 @@ test("buttons retain current closures, refresh agent drawings and discard stale 
   await flush();
   expect(pressed).toEqual(["Latest"]);
   expect(draws).toBe(3);
-  const next = tricks.actions(tricks.view(h.sent.at(-1)!.view).content)[0];
+  const next = tricks.viewActions(tricks.view(h.sent.at(-1)!.view))[0];
   expect(next).not.toBe(action);
   h.receive({ event: "ui.press", action, viewer: 2 });
   h.receive({ event: "agent.removed", agent });
@@ -325,7 +326,7 @@ test("a button can await storage and focus only the viewer that pressed it", asy
   });
   await flush();
   await expect(h.runner.corgi.focus(agent)).rejects.toThrow("NoInteraction");
-  const action = tricks.actions(tricks.view(h.sent[0].view).content)[0];
+  const action = tricks.viewActions(tricks.view(h.sent[0].view))[0];
   h.receive({ event: "ui.press", action, viewer: 7 });
   await flush();
   expect(h.sent.at(-1)).toMatchObject({ op: "kv.set", value: agent.id });
@@ -435,7 +436,7 @@ test("unawaited button work cannot borrow the next viewer's interaction", async 
     });
   });
   await flush();
-  const action = tricks.actions(tricks.view(h.sent[0].view).content)[0];
+  const action = tricks.viewActions(tricks.view(h.sent[0].view))[0];
   h.receive({ event: "ui.press", action, viewer: 1 });
   await flush();
   h.receive({ event: "ui.press", action, viewer: 2 });
@@ -447,4 +448,54 @@ test("unawaited button work cannot borrow the next viewer's interaction", async 
   h.receive({ id: h.sent.at(-1)!.id, result: null });
   await flush();
   expect(h.failures).toEqual([]);
+});
+
+test("a title item draws once, keeps its press across redraws and checks its shape before sending", async () => {
+  const pressed: string[] = [];
+  let corgi!: Corgi;
+  const h = harness((_on, api) => {
+    corgi = api;
+  });
+  await flush();
+  const draw = (label: string) =>
+    corgi.draw("dot", { kind: "title", text: "**●**", color: "hot", press: () => void pressed.push(label) });
+  draw("first");
+  const set = h.sent.at(-1)!;
+  expect(set).toMatchObject({ op: "ui.set", key: "dot" });
+  const view = tricks.view(set.view);
+  expect(view).toMatchObject({ kind: "title", spans: [{ text: "●", bold: true }], color: "hot", slot: "dot.0" });
+  const [action] = tricks.viewActions(view);
+  expect(action).toBeDefined();
+  const writes = h.sent.length;
+  draw("latest");
+  expect(h.sent.length).toBe(writes);
+  h.receive({ event: "ui.press", action, viewer: 2 });
+  await flush();
+  expect(pressed).toEqual(["latest"]);
+  const title = (drawing: object) => () => corgi.draw("dot", { kind: "title", ...drawing } as never);
+  expect(title({ text: "abcde" })).toThrow("TitleTooWide");
+  expect(title({ text: "!(brand:claude)abc" })).toThrow("TitleTooWide");
+  expect(title({ text: "a", spans: [{ text: "a" }] })).toThrow("AmbiguousDrawing");
+  expect(title({})).toThrow("InvalidTitle");
+  expect(title({ text: "" })).toThrow("InvalidTitle");
+  expect(title({ text: "a\nb" })).toThrow("InvalidTitle");
+  expect(title({ text: 1 })).toThrow("InvalidString");
+  expect(title({ text: "●", content: { kind: "row", children: [] } })).toThrow("InvalidTitle");
+  expect(title({ text: "●", anchor: "top-left" })).toThrow("InvalidTitle");
+  expect(() => corgi.draw("other", { kind: "title", text: "○" })).toThrow("TitleExists");
+  expect(h.sent.length).toBe(writes);
+  corgi.draw("dot", { kind: "title", spans: [{ text: "○", color: "faint" }] });
+  expect(tricks.view(h.sent.at(-1)!.view)).toEqual({ kind: "title", spans: [{ text: "○", color: "faint" }] });
+  corgi.clear("dot");
+  expect(h.sent.at(-1)).toEqual({ op: "ui.remove", key: "dot" });
+  corgi.draw("other", { kind: "title", text: "○", press: () => void pressed.push("other") });
+  h.receive({ event: "ui.press", action, viewer: 2 });
+  await flush();
+  expect(pressed).toEqual(["latest"]);
+  expect(h.failures).toEqual([]);
+});
+
+test("the runner counts title cells as the daemon does", () => {
+  for (const glyph of ["●", "♫", "界", "🇩🇪", "👨‍👩‍👧", "⚠️", "❤️", "🎙️", "e\u0301", "ア", "1️⃣", "\u093e", "क\u093f"])
+    expect(cells(glyph)).toBe(displayWidth(glyph));
 });
