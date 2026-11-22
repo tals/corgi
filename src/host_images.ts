@@ -77,12 +77,14 @@ export class FrameImages {
   /** The images the host holds for the frame. */
   readonly images = new Set<Image>();
   constructor(readonly cell: Cell) {}
-  /** Shows `image` at `at`, less whatever the frame covers. */
-  show(image: Image, at: Place): void {
-    if (image.failed) return;
+  /** Shows `image` at `at`, less whatever the frame covers. False when the
+   * host refused the image, so the caller draws something else. */
+  show(image: Image, at: Place): boolean {
+    if (image.failed) return false;
     this.images.add(image);
     this.shown.push({ image, at });
     this.cut = null;
+    return true;
   }
   /** Has the host keep `image` though the frame shows none of it. */
   keep(image: Image): void {

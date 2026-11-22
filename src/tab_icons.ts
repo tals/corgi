@@ -55,7 +55,7 @@ export function place(
   row: number,
   cell: Cell,
   top = false,
-): void {
+): boolean {
   const { side } = size(cell);
   let mark = drawn.get(brand);
   if (mark?.key !== key(brand, cell)) {
@@ -65,7 +65,7 @@ export function place(
       (mark = { key: key(brand, cell), image: new hostImages.Image({ rgba, width: side, height: side }) }),
     );
   }
-  frame.show(mark.image, { col, row, y: size(cell).top, top });
+  return frame.show(mark.image, { col, row, y: size(cell).top, top });
 }
 function key(brand: Brand, cell: Cell) {
   return `${cell.width}x${cell.height} ${fill(brand).colors}`;

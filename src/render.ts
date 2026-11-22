@@ -1328,8 +1328,7 @@ export function frame(
               (link_rect.contains(col, row) || link_rect.contains(col + tabIcons.cols - 1, row))
             )
               return false;
-            tabIcons.place(pictures, brand, col, row, cell, true);
-            return true;
+            return tabIcons.place(pictures, brand, col, row, cell, true);
           }
         : null,
       u.pointer,
@@ -1370,8 +1369,7 @@ export function frame(
         ? (provider, col, row) => {
             const brand = brandOf(provider);
             if (!brand || card?.contains(col, row) || card?.contains(col + tabIcons.cols - 1, row)) return false;
-            tabIcons.place(pictures, brand, col, row, cell, true);
-            return true;
+            return tabIcons.place(pictures, brand, col, row, cell, true);
           }
         : null,
     menu_marks = u.prompt_draw ? null : brand_marks;

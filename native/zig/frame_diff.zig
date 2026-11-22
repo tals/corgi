@@ -303,9 +303,12 @@ pub const Differ = struct {
         const pictures = d.pictures;
         d.pictures = .{};
         if (whole) |frame| {
-            try out.writeAll(frame);
-            // The frame left the cursor where it belongs.
+            // The pictures go inside the frame's own update, and leave the
+            // cursor where the frame put it.
+            const end = if (pictures.redraw.len > 0) std.mem.lastIndexOf(u8, frame, "\x1b[?2026l") orelse frame.len else frame.len;
+            try out.writeAll(frame[0..end]);
             if (pictures.redraw.len > 0) try out.print("\x1b7{s}\x1b8", .{pictures.redraw});
+            try out.writeAll(frame[end..]);
             return d.writeShape(out, cursor);
         }
         if (!started and !images_changed and pictures.draw.len == 0 and d.shape_sent and std.meta.eql(cursor, d.cursor)) return;

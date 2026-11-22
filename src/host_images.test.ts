@@ -236,6 +236,14 @@ test("the differ writes the pictures' changes in the frame's update, and all of 
   try {
     // Nothing shows yet: the screen is drawn whole, with every picture.
     expect(d.diff(frame("one"), { draw: "<draw>", redraw: "<redraw>" }).toString()).toContain("\x1b7<redraw>\x1b8");
+    // Inside the frame's own update, when it has one.
+    const updated = Differ.create(20, 4);
+    try {
+      const whole = updated.diff(`\x1b[?2026h${frame("one")}\x1b[?2026l`, { draw: "", redraw: "<redraw>" });
+      expect(whole.toString()).toContain("\x1b7<redraw>\x1b8\x1b[?2026l");
+    } finally {
+      updated.destroy();
+    }
     const next = d.diff(frame("two"), { draw: "<draw>", redraw: "<redraw>" }).toString();
     expect(next).toStartWith("\x1b[?2026h");
     expect(next).toContain("<draw>");
