@@ -3,12 +3,16 @@
 //! through its daemon, which reads its own the same way. Scans, such as for
 //! a deep line, and an image's thumbnail are made where the file is, and
 //! another computer's files are read in smaller amounts, since they share
-//! its link with the panes' screens.
+//! its link with the panes' screens. A scan for a line keeps a line index
+//! where the file is (see `line_index.ts`), and on another computer runs as
+//! a job (see `jobs.ts`), so its progress shows and leaving it stops it.
 import { constants, fstatSync, readSync, watch, type BigIntStats } from "node:fs";
 import { open, stat, statfs, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
 import * as errors from "./errors";
 import * as fileRef from "./file_ref";
+import * as jobs from "./jobs";
+import * as lineIndex from "./line_index";
 import * as picture from "./picture";
 import type * as protocol from "./protocol";
 
@@ -25,8 +29,10 @@ export interface Handle {
   info(): Promise<Info>;
   /** Up to `length` bytes at `at`, fewer past the end. */
   read(at: number, length: number): Promise<Uint8Array>;
-  /** Where 1-based line `n` starts, looked for in the first `limit` bytes; -1 when it isn't there. */
-  line(n: number, limit: number, stop: () => void): Promise<number>;
+  /** Where 1-based line `n` starts, found from the file's line index and
+   * scanning at most `budget` bytes past it: further than that is `far`,
+   * for a reader to ask before scanning on. */
+  find(n: number, opts: lineIndex.FindOptions): Promise<lineIndex.Found>;
   /** The newlines from `from` to `to`. */
   newlines(from: number, to: number, stop: () => void): Promise<number>;
   close(): Promise<void>;
@@ -56,10 +62,15 @@ export interface Files {
   thumbnail(path: string, box: picture.Box, wanted?: () => boolean): Promise<picture.Picture>;
 }
 
-/** The most bytes one scan reads. */
-export const scan_limit = 4 * 1024 ** 3;
-/** How long a daemon scans for a line before answering that it didn't find it. */
-export const scan_ms = 10_000;
+/** The most a reader scans for a line on its own before asking first: a
+ * moment from a disk, warm or cold (about 30 ms from the page cache, under
+ * half a second from a laptop's SSD), well inside the second the peek waits
+ * to open. A whole file under it, a line near the start of one over it, and
+ * a line the index already passed are found without asking; the scan keeps
+ * what it read, so asking resumes where it left off. */
+export const ask_after = 32 << 20;
+/** The most bytes one count of newlines reads for another computer. */
+const count_limit = 64 << 20;
 /** The most bytes one reply from a daemon carries; a longer read asks for several at once. */
 export const read_limit = 64 << 10;
 /** The largest image file shrunk for a thumbnail. */
@@ -92,6 +103,7 @@ function readNow(fd: number, at: number, length: number): Uint8Array {
 }
 class LocalHandle implements Handle {
   readonly now: Handle["now"];
+  private index: lineIndex.LineIndex | null = null;
   constructor(
     private path: string,
     private fh: FileHandle,
@@ -112,24 +124,11 @@ class LocalHandle implements Handle {
     }
     return out.subarray(0, got);
   }
-  async line(n: number, limit: number, stop: () => void): Promise<number> {
-    if (n <= 1) return 0;
-    const chunk = Buffer.allocUnsafe(chunk_size);
-    let at = 0,
-      seen = 1;
-    while (at < Math.min(limit, scan_limit)) {
-      // Scanning gigabytes stops once its reader is gone.
-      stop();
-      const { bytesRead } = await this.fh.read(chunk, 0, chunk.length, at);
-      if (bytesRead === 0) break;
-      for (let i = chunk.indexOf(10); i >= 0 && i < bytesRead; i = chunk.indexOf(10, i + 1))
-        if (++seen === n) return at + i + 1;
-      at += bytesRead;
-    }
-    return -1;
+  async find(n: number, opts: lineIndex.FindOptions): Promise<lineIndex.Found> {
+    this.index ??= await lineIndex.LineIndex.load(this);
+    return lineIndex.find(this, this.index, n, opts);
   }
   async newlines(from: number, to: number, stop: () => void): Promise<number> {
-    to = Math.min(to, from + scan_limit);
     const chunk = Buffer.allocUnsafe(Math.max(1, Math.min(chunk_size, to - from)));
     let count = 0;
     for (let at = from; at < to;) {
@@ -217,8 +216,10 @@ export async function readAll(
   }
 }
 
+/** What another computer's daemon is asked: reads, and the scan for a line as a job. */
+export type RemoteOp = Op | "file.scan" | "job.poll" | "job.cancel";
 /** Sends `op` to a daemon and resolves with its reply, throwing its error. */
-export type Call = (op: Op, payload: object) => Promise<unknown>;
+export type Call = (op: RemoteOp, payload: object) => Promise<unknown>;
 const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 const toBase64 = (data: Uint8Array) => Buffer.from(data.buffer, data.byteOffset, data.length).toString("base64");
 const fromBase64 = (value: unknown) => Buffer.from(typeof value === "string" ? value : "", "base64");
@@ -263,10 +264,23 @@ export function remote(call: Call): Files {
           const kept = (short < 0 ? parts : parts.slice(0, short + 1)).map(part => part.bytes);
           return kept.length === 1 ? kept[0] : Buffer.concat(kept);
         },
-        async line(n, limit, stop) {
-          stop();
-          const at = ((await call("file.line", { path, id, line: n, limit })) as { at?: unknown }).at;
-          return typeof at === "number" && Number.isSafeInteger(at) ? at : -1;
+        async find(n, opts) {
+          // The daemon scans as a job, with its index: polls bring the scan's progress.
+          let found: lineIndex.Found = { kind: "missing", size: 0 };
+          const start = () =>
+            call("file.scan", {
+              path,
+              id,
+              line: n,
+              budget: Math.min(opts.budget, Number.MAX_SAFE_INTEGER),
+              wait: jobs.poll_wait,
+            });
+          await jobs.follow(call, start, {
+            signal: opts.signal,
+            progress: p => opts.progress?.(progress(p)),
+            result: r => (found = foundOn(r)),
+          });
+          return found;
         },
         async newlines(from, to, stop) {
           stop();
@@ -340,7 +354,39 @@ export async function sendable(
   return shrunk;
 }
 
-export type Op = "file.stat" | "file.read" | "file.line" | "file.count" | "file.thumbnail";
+/** A scan's progress and answer as a daemon sent them. */
+const progress = (value: unknown): lineIndex.Progress => {
+  const p = (value ?? {}) as Record<string, unknown>;
+  return { scanned: num(p.scanned), size: num(p.size), lines: num(p.lines) };
+};
+function foundOn(value: unknown): lineIndex.Found {
+  const f = (value ?? {}) as Record<string, unknown>;
+  switch (f.kind) {
+    case "found":
+      return { kind: "found", at: num(f.at) };
+    case "far":
+      return { kind: "far", bytes: num(f.bytes) };
+    default:
+      return { kind: "missing", size: num(f.size) };
+  }
+}
+/** Finds a line for another computer, as a job it polls: the index stays
+ * here, with the file, and `job.signal` stops a scan it lost interest in. */
+export async function scan(payload: protocol.Request<"file.scan">, job: jobs.Job): Promise<lineIndex.Found> {
+  const h = await here.open(payload.path);
+  try {
+    if ((await h.info()).id !== payload.id) throw Error("FileChanged");
+    return await h.find(Number(payload.line), {
+      budget: Number(payload.budget),
+      signal: job.signal,
+      progress: p => job.progress(p),
+    });
+  } finally {
+    await h.close().catch(() => {});
+  }
+}
+
+export type Op = "file.stat" | "file.read" | "file.count" | "file.thumbnail";
 /** Answers another computer's read of a file here, as its daemon decoded it. */
 export async function answer(request: Extract<protocol.DecodedRequest, { op: Op }>): Promise<object> {
   if (request.op === "file.stat") return await here.find(request.payload.path, request.payload.cwd);
@@ -350,11 +396,6 @@ export async function answer(request: Extract<protocol.DecodedRequest, { op: Op 
     return { ...shrunk, png: toBase64(shrunk.png), frames: shrunk.frames.map(f => ({ ...f, png: toBase64(f.png) })) };
   }
   const h = await here.open(request.payload.path);
-  // A scan stops short of the request's timeout, which would drop the connection it shares.
-  const deadline = Date.now() + scan_ms,
-    budget = () => {
-      if (Date.now() > deadline) throw Error("ScanTooLong");
-    };
   try {
     if ((await h.info()).id !== request.payload.id) throw Error("FileChanged");
     switch (request.op) {
@@ -363,16 +404,12 @@ export async function answer(request: Extract<protocol.DecodedRequest, { op: Op 
           data: toBase64(await h.read(Number(request.payload.at), Math.min(request.payload.length, read_limit))),
         };
       }
-      case "file.line":
-        try {
-          return { at: await h.line(Number(request.payload.line), Number(request.payload.limit), budget) };
-        } catch (error) {
-          // Not found in time: the reader opens at the end instead.
-          if (errors.is(error, "ScanTooLong")) return { at: -1 };
-          throw error;
-        }
-      case "file.count":
-        return { lines: await h.newlines(Number(request.payload.from), Number(request.payload.to), budget) };
+      case "file.count": {
+        // A count fits one reply: it's bounded, as a request on a shared connection must be.
+        const from = Number(request.payload.from),
+          to = Math.min(Number(request.payload.to), from + count_limit);
+        return { lines: await h.newlines(from, to, () => {}) };
+      }
     }
   } finally {
     await h.close().catch(() => {});

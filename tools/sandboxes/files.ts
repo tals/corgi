@@ -6,8 +6,8 @@
  *   file without a line, and the log. Rest the pointer on one to peek.
  * - writer: appends to logs/server.log, so its peek and its pane follow.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { table, type World } from "../sandbox";
 
 const levels = ["DEBUG", "DEBUG", "DEBUG", "INFO", "INFO", "WARN"];
@@ -23,6 +23,17 @@ function log(lines: number): string {
   }
   return out;
 }
+/** A log of `blocks` × `lines` lines, too large to scan for a deep line without asking. */
+function huge(path: string, lines: number, blocks: number): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const block = Buffer.from(log(lines)),
+    fd = openSync(path, "w");
+  try {
+    for (let i = 0; i < blocks; i++) writeSync(fd, block);
+  } finally {
+    closeSync(fd);
+  }
+}
 
 export const world: World = {
   seed(s) {
@@ -30,6 +41,8 @@ export const world: World = {
     s.write(join(s.dir, "src", "highlight.ts"), readFileSync(join(root, "src/review/syntax.ts"), "utf8"));
     s.write(join(s.dir, "package.json"), readFileSync(join(root, "package.json"), "utf8"));
     s.write(join(s.dir, "logs", "server.log"), log(200_000));
+    // About 600 MB and 6.5 million lines: a line deep in it is asked about before it's scanned for.
+    huge(join(s.dir, "logs", "trace.log"), 65_536, 100);
     s.write(
       join(s.dir, "transcript.txt"),
       [
@@ -37,6 +50,7 @@ export const world: World = {
         "",
         "⏺ Bash(CORGI_LOG=trace ./serve.sh)",
         "  ⎿ trace in logs/server.log (18 MB, still growing)",
+        "  ⎿ yesterday's run in logs/trace.log; the stall starts at logs/trace.log:6000000",
         "",
         "⏺ Coloring isn't the slow part. The highlighter at",
         "  src/highlight.ts:382 lexes lazily, 200 lines a chunk,",
@@ -93,6 +107,7 @@ export const world: World = {
       'Tab "transcript": paths to peek at and open; tab "writer" grows logs/server.log.',
       ...table([
         ["rest", "on a path for 2 s: its peek, at the line the text names"],
+        ["trace.log:6000000", "a line deep in 600 MB: the peek asks before it scans, then shows progress"],
         ["wheel", "in the peek: scroll; up on the log pauses it"],
         ["click", "a path or a peek line: opens it in a pane beside"],
         ["q", "in that pane: close it; e opens $EDITOR there"],

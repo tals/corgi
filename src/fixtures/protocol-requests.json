@@ -188,11 +188,12 @@
     "at": 0,
     "length": 65536
   },
-  "file.line": {
+  "file.scan": {
     "path": "/work/corgi/server.log",
     "id": "2049:1835011",
-    "line": 1200,
-    "limit": 4294967296
+    "line": 1200000,
+    "budget": 33554432,
+    "wait": 250
   },
   "file.count": {
     "path": "/work/corgi/server.log",

@@ -1,4 +1,4 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,11 +7,21 @@ import * as fileAccess from "./file_access";
 import * as fileSource from "./file_source";
 import { Source } from "./file_source";
 import { blink } from "./gif.test";
+import * as jobs from "./jobs";
 import * as protocol from "./protocol";
 
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+// Line indexes go to a folder of their own, not the user's.
+const indexes = mkdtempSync(join(tmpdir(), "corgi-lines-"));
+beforeAll(() => {
+  process.env.CORGI_LINE_INDEX_DIR = indexes;
+});
+afterAll(() => {
+  delete process.env.CORGI_LINE_INDEX_DIR;
+  rmSync(indexes, { recursive: true, force: true });
 });
 function folder(): string {
   const dir = mkdtempSync(join(tmpdir(), "corgi-access-"));
@@ -19,15 +29,26 @@ function folder(): string {
   return dir;
 }
 /** Another computer's files as a daemon here answers for them, each
- * request crossing as JSON and decoded as the daemon decodes it. */
-function daemon(): { files: fileAccess.Files; asked: string[] } {
-  const asked: string[] = [];
+ * request crossing as JSON and decoded as the daemon decodes it; a scan
+ * for a line runs as a job there. */
+function daemon(): { files: fileAccess.Files; asked: string[]; jobs: jobs.Jobs } {
+  const asked: string[] = [],
+    all = new jobs.Jobs(),
+    owner = {};
   const files = fileAccess.remote(async (op, payload) => {
     asked.push(op);
     const wire = JSON.parse(JSON.stringify(payload));
-    return JSON.parse(JSON.stringify(await fileAccess.answer(protocol.decoded(op, wire) as any)));
+    const answer =
+      op === "file.scan"
+        ? all.begin(owner, job => fileAccess.scan(protocol.decode("file.scan", wire), job), wire.wait)
+        : op === "job.poll"
+          ? all.poll(owner, wire.job, wire.wait)
+          : op === "job.cancel"
+            ? Promise.resolve(all.cancel(owner, wire.job) ?? {})
+            : fileAccess.answer(protocol.decoded(op, wire) as any);
+    return JSON.parse(JSON.stringify(await answer));
   });
-  return { files, asked };
+  return { files, asked, jobs: all };
 }
 const numbered = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) => `line ${from + i}`).join("\n") + "\n";
@@ -59,10 +80,11 @@ test("reads another computer's file through its daemon, a megabyte a request", a
   expect(Buffer.from(await h.read(0, text.length)).equals(text)).toBe(true);
   expect(asked.filter(op => op === "file.read")).toHaveLength(3);
   expect(h.now).toBeNull();
-  const go = () => {};
-  expect(await h.line(1, text.length, go)).toBe(0);
-  expect(await h.line(3, text.length, go)).toBe(8);
-  expect(await h.line(text.length, text.length, go)).toBe(-1);
+  const go = () => {},
+    whole = { budget: Infinity };
+  expect(await h.find(1, whole)).toEqual({ kind: "found", at: 0 });
+  expect(await h.find(3, whole)).toEqual({ kind: "found", at: 8 });
+  expect(await h.find(text.length, whole)).toEqual({ kind: "missing", size: text.length });
   expect(await h.newlines(0, 40, go)).toBe(10);
   const local = await fileAccess.here.open(path);
   expect(await h.info()).toEqual(await local.info());
@@ -82,7 +104,7 @@ test("a file peek reads another computer's code and follows its log, through a l
   const c = await Source.open(code, { files, follow: false });
   const s = await Source.open(log, { files, follow: false, line: 123_456 });
   // Code opens in two round trips, and a log at a line in three: a block's parts are asked for together.
-  expect(asked.splice(0)).toEqual(["file.stat", "file.read", "file.stat", "file.line", ...Array(4).fill("file.read")]);
+  expect(asked.splice(0)).toEqual(["file.stat", "file.read", "file.stat", "file.scan", ...Array(4).fill("file.read")]);
   try {
     expect([c.mode, c.lines]).toEqual(["code", ["one", "two"]]);
     writeFileSync(code, "one\ntwo\nthree\n");
@@ -186,28 +208,60 @@ test("another computer's files cross its link in smaller amounts: less read whol
   }
 });
 
-test("a daemon reads only the file it was asked for, without waiting on a FIFO, and gives up a long scan for a line", async () => {
+test("a daemon reads only the file it was asked for, without waiting on a FIFO, and scans for a line as a job", async () => {
   const dir = folder(),
     fifo = join(dir, "pipe"),
     log = join(dir, "deep.log");
   Bun.spawnSync(["mkfifo", fifo]);
   writeFileSync(log, numbered(1, 1000));
-  const { id } = await fileAccess.here.find(log);
+  const { id, size } = await fileAccess.here.find(log);
   const ask = (op: fileAccess.Op, payload: object) => fileAccess.answer(protocol.decoded(op, payload) as any);
   expect(ask("file.read", { path: fifo, id, at: 0, length: 10 })).rejects.toThrow("NotAFile");
   expect(ask("file.read", { path: dir, id, at: 0, length: 10 })).rejects.toThrow("NotAFile");
   expect(ask("file.thumbnail", { path: fifo, width: 10, height: 10, pixels: 100 })).rejects.toThrow("NotAFile");
   // Its path names another file than the one it was found to be.
   expect(ask("file.read", { path: log, id: "0:0", at: 0, length: 10 })).rejects.toThrow("FileChanged");
-  expect(await ask("file.line", { path: log, id, line: 500, limit: 1 << 30 })).toEqual({ at: 4383 });
-  const now = spyOn(Date, "now")
-    .mockReturnValueOnce(0)
-    .mockReturnValue(fileAccess.scan_ms + 1);
-  try {
-    expect(await ask("file.line", { path: log, id, line: 500, limit: 1 << 30 })).toEqual({ at: -1 });
-  } finally {
-    now.mockRestore();
-  }
+  const all = new jobs.Jobs(),
+    owner = {},
+    scan = (payload: object, wait = 1000) =>
+      all.begin(owner, job => fileAccess.scan(protocol.decode("file.scan", payload), job), wait);
+  expect(scan({ path: log, id: "0:0", line: 500, budget: 1 << 30 })).resolves.toMatchObject({
+    done: true,
+    error: "FileChanged",
+  });
+  const found = await scan({ path: log, id, line: 500, budget: 1 << 30 });
+  expect(found).toMatchObject({ done: true, results: [{ kind: "found", at: 4383 }] });
+  // Without a budget, a line past where the index's scan stopped is far, from there; one it passed is found.
+  expect((await scan({ path: log, id, line: 900, budget: 0 })).results).toEqual([{ kind: "far", bytes: size - 4383 }]);
+  expect((await scan({ path: log, id, line: 400, budget: 0 })).results).toEqual([{ kind: "found", at: 3483 }]);
+  // Past what the index knows of a larger one, a line is far without a budget.
+  // Its lines differ from the other files', so an index of one of them, were its inode reused, is seen as stale.
+  const slow = join(dir, "slow.log");
+  writeFileSync(slow, Array.from({ length: 400_000 }, (_, i) => `slow ${i + 1}`).join("\n") + "\n");
+  const { id: slow_id, size: slow_size } = await fileAccess.here.find(slow);
+  expect((await scan({ path: slow, id: slow_id, line: 399_999, budget: 0 })).results).toEqual([
+    { kind: "far", bytes: slow_size },
+  ]);
+  // The scan's progress reaches a poll, and a cancel stops it.
+  const begun = await scan({ path: slow, id: slow_id, line: 399_999, budget: 1 << 30 }, 0);
+  const stops: string[] = [];
+  const stopped = all.begin(
+    owner,
+    job =>
+      new Promise((_, reject) =>
+        job.signal.addEventListener("abort", () => {
+          stops.push((job.signal.reason as Error).message);
+          reject(job.signal.reason);
+        }),
+      ),
+    0,
+  );
+  all.cancel(owner, (await stopped).job);
+  expect(stops).toEqual(["Cancelled"]);
+  let news = begun;
+  while (!news.done) news = { job: begun.job, ...(await all.poll(owner, begun.job, 1000)) };
+  expect(news.results).toEqual([{ kind: "found", at: expect.any(Number) }]);
+  expect(news.progress).toMatchObject({ lines: 399_998, size: expect.any(Number) });
 });
 
 test("a thumbnail too big for a daemon's reply is sent as large as fits it, or still", async () => {

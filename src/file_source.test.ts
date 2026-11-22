@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, renameSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,14 @@ import { Source } from "./file_source";
 
 const dirs: string[] = [];
 const opened: Source[] = [];
+const indexes = mkdtempSync(join(tmpdir(), "corgi-lines-"));
+beforeAll(() => {
+  process.env.CORGI_LINE_INDEX_DIR = indexes;
+});
+afterAll(() => {
+  delete process.env.CORGI_LINE_INDEX_DIR;
+  rmSync(indexes, { recursive: true, force: true });
+});
 function file(name: string, text: string | Uint8Array): string {
   const dir = mkdtempSync(join(tmpdir(), "corgi-source-"));
   dirs.push(dir);
@@ -328,6 +336,37 @@ test("opens a large log around a line its text named", async () => {
   // Past the end it shows the end.
   const end = await open(file("seek2.log", numbered(1, 300_000)), { line: 900_000 });
   expect(end.line(end.count - 1)).toBe("line 300000");
+});
+
+test("a line past the budget's scan opens at the end as far, and find scans on to it when asked", async () => {
+  // Its lines are its own: an index of another test's file, were its inode reused, is seen as stale.
+  const path = file("far.log", Array.from({ length: 300_000 }, (_, i) => `far ${i + 1}`).join("\n") + "\n");
+  const s = await open(path, { line: 200_000, budget: 0 });
+  expect(s.far).toEqual({ line: 200_000, bytes: s.size });
+  expect(s.atEnd).toBe(true);
+  expect(s.rowOf(200_000)).toBeNull();
+  const progress: number[] = [];
+  const unsub = () => progress.push(s.scan?.scanned ?? -1);
+  Reflect.set(s, "opts", { ...Reflect.get(s, "opts"), changed: unsub });
+  expect(await s.find()).toBe(true);
+  expect([s.far, s.scan, s.seeking, s.seeks, s.sought]).toEqual([null, null, null, 1, 200_000]);
+  expect(s.line(s.rowOf(200_000)!)).toBe("far 200000");
+  expect(progress.some(n => n > 0)).toBe(true);
+  // Nothing far: nothing to find. A line past the end stays missing, not far.
+  expect(await s.find()).toBe(false);
+  const gone = await open(path, { line: 900_000, budget: 0 });
+  expect(gone.far).toMatchObject({ line: 900_000 });
+  expect(await gone.find()).toBe(false);
+  expect(gone.far).toBeNull();
+  // A scan a close stops leaves the line to ask for again, so a later open may.
+  const stopped = await open(path, { line: 250_000, budget: 0 });
+  const found = stopped.find();
+  await stopped.close();
+  expect(await found).toBe(false);
+  // Its index remembers how far the scans got: the line is found within no budget at all.
+  const quick = await open(path, { line: 200_000, budget: 0 });
+  expect(quick.far).toBeNull();
+  expect(quick.line(quick.rowOf(200_000)!)).toBe("far 200000");
 });
 
 test("notices growth on its own while following", async () => {

@@ -13,6 +13,7 @@
 //! keep coming it checks on a short timer instead of taking every notice.
 import * as errors from "./errors";
 import * as fileAccess from "./file_access";
+import type * as lineIndex from "./line_index";
 
 /** Larger files read from their end, as logs do; another computer's past
  * a smaller size (see `fileAccess.Limits`). */
@@ -31,8 +32,6 @@ export const max_bytes = 16 << 20;
 export const hold_margin = 1000;
 /** Rows kept from a held place down: more than a screen shows. */
 const hold_rows = 256;
-/** How far into a log a line the text named is looked for. */
-export const seek_limit = fileAccess.scan_limit;
 const poll_ms = 1000;
 /** The most growth one read on a local disk takes at once. */
 const sync_limit = 4 << 20;
@@ -59,6 +58,10 @@ function scan(bytes: Uint8Array, at: number, starts: number[]): void {
 export interface Options {
   /** The 1-based line to open at: a log's window is read around it. */
   line?: number | null;
+  /** The most bytes scanned for that line past what its index knows before
+   * the open gives up on it: the window opens at the end with `far` set, and
+   * `find` scans on once asked. */
+  budget?: number;
   /** Off for one read and no notices. */
   follow?: boolean;
   mode?: Mode;
@@ -99,6 +102,14 @@ export class Source {
   restarts = 0;
   /** Times the window moved to the file's start. */
   rewinds = 0;
+  /** Times `find` moved the window to the line it was asked for, `sought`. */
+  seeks = 0;
+  sought: number | null = null;
+  /** The line asked for lies past the budget's scan: `find` scans on. */
+  far: { line: number; bytes: number } | null = null;
+  /** The line being scanned for, and how far the scan has come, while one runs. */
+  seeking: number | null = null;
+  scan: lineIndex.Progress | null = null;
   /** Bumps with every change. */
   version = 0;
   /** A log's window: the blocks its bytes were read in, and where each of
@@ -123,6 +134,8 @@ export class Source {
   /** Reads asked for and not done; a second ask while one waits is dropped. */
   private asked = new Set<"earlier" | "later">();
   private closed = false;
+  /** Stops a scan for a line: on close, or once the open is called off. */
+  private aborter = new AbortController();
   private constructor(
     readonly path: string,
     mode: Mode,
@@ -130,6 +143,9 @@ export class Source {
   ) {
     this.mode = mode;
     this.files = opts.files ?? fileAccess.here;
+    const abort = () => this.aborter.abort(Error("Aborted"));
+    if (opts.signal?.aborted) abort();
+    else opts.signal?.addEventListener("abort", abort, { once: true });
   }
   static async open(path: string, opts: Options = {}): Promise<Source> {
     try {
@@ -209,6 +225,7 @@ export class Source {
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.aborter.abort(Error("Closed"));
     this.watcher?.close();
     this.watcher = null;
     if (this.timer) clearInterval(this.timer);
@@ -244,7 +261,7 @@ export class Source {
   private async load(opened: Opened, line: number | null): Promise<void> {
     if (this.mode === "code") return this.readWhole(opened);
     await this.reopen(opened);
-    if (line !== null && (await this.seek(line))) return;
+    if (line !== null && (await this.locate(line, this.opts.budget ?? fileAccess.ask_after))) return;
     await this.readTail();
   }
   /** Reads the file whole, through `opened` when it's open already. It reads
@@ -330,21 +347,58 @@ export class Source {
     const at = Math.max(0, this.size - block);
     this.window(at, await this.read(at, this.size - at));
   }
-  /** Opens the window a little before line `n`; false when it is past `seek_limit` or the end. */
-  private async seek(n: number): Promise<boolean> {
-    const found = await this.fh!.line(n, Math.min(this.size, seek_limit), () => {
-      // Scanning gigabytes stops once its reader is gone.
-      if (this.closed) throw Error("Closed");
-      this.stop();
-    });
-    if (found < 0 || found >= this.size) return false;
-    const from = Math.max(0, found - (block >> 3));
+  /** Opens the window a little before line `n`, scanning `budget` bytes at
+   * most past what the file's index knows; false when it's past the end, or
+   * further than that: then `far` says so, for `find` to scan on. */
+  private async locate(n: number, budget: number): Promise<boolean> {
+    this.far = null;
+    this.seeking = n;
+    let found: lineIndex.Found;
+    try {
+      found = await this.fh!.find(n, {
+        budget,
+        signal: this.aborter.signal,
+        progress: p => {
+          this.scan = p;
+          this.bump();
+        },
+      });
+    } finally {
+      this.seeking = null;
+      this.scan = null;
+    }
+    if (found.kind === "far") this.far = { line: n, bytes: found.bytes };
+    if (found.kind !== "found" || found.at >= this.size) return false;
+    const from = Math.max(0, found.at - (block >> 3));
     this.window(from, await this.read(from, Math.min(block, this.size - from)));
     // Lines between the window's start and line n.
     let before = 0;
-    while (before < this.starts.length && this.starts[before] < found) before++;
+    while (before < this.starts.length && this.starts[before] < found.at) before++;
     this.first = n - before;
     return true;
+  }
+  /** Scans on for the line `far` names, however far, and moves the window
+   * to it; `scan` shows how it's going. False when it isn't there. */
+  find(): Promise<boolean> {
+    return this.attempt(async () => {
+      const far = this.far;
+      if (!far || this.mode === "code" || !this.fh) return false;
+      this.far = null;
+      this.bump();
+      try {
+        this.size = (await this.fh.info()).size;
+        if (!(await this.locate(far.line, Infinity))) return false;
+      } catch (error) {
+        // A scan that failed, or was stopped, can be asked for again.
+        this.far = far;
+        throw error;
+      }
+      this.hold = null;
+      this.seeks++;
+      this.sought = far.line;
+      this.bump();
+      return true;
+    });
   }
   /** Adds bytes read at the window's end: the file's growth, or the next
    * block of a window that stopped short of it. */

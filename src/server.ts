@@ -1233,11 +1233,17 @@ export class Server {
         return;
       case "file.stat":
       case "file.read":
-      case "file.line":
       case "file.count":
       case "file.thumbnail":
         this.defer(cl, reply, null, () => fileAccess.answer(request));
         return;
+      case "file.scan": {
+        const { payload } = request;
+        this.defer(cl, reply, null, () =>
+          this.remote_jobs.begin(cl, job => fileAccess.scan(payload, job), payload.wait),
+        );
+        return;
+      }
       case "job.poll":
         this.defer(cl, reply, null, () => this.remote_jobs.poll(cl, request.payload.job, request.payload.wait));
         return;

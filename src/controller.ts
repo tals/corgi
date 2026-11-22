@@ -10137,6 +10137,12 @@ export class Controller {
   }
   /** Opens the peek's file in a pane: at the body row clicked, else at the line its text named. */
   private openPeek(peek: filePeek.Peek, row: number | null): void {
+    // The row that asks whether to scan for a far line starts the scan; the peek stays.
+    if (row !== null && peek.hit(row)?.kind === "find") {
+      peek.find();
+      this.dirty = true;
+      return;
+    }
     const line = row !== null ? peek.lineAt(row) : peek.ref.line;
     this.link_tooltip.cancel();
     this.file_peeks.clear();

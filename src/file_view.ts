@@ -74,7 +74,7 @@ export class Reader {
   readonly lang: string | null;
   readonly log: boolean;
   private highlighter: syntax.Highlighter | null = null;
-  private seen = { version: -1, added: 0, prepended: 0, dropped: 0, restarts: 0, rewinds: 0 };
+  private seen = { version: -1, added: 0, prepended: 0, dropped: 0, restarts: 0, rewinds: 0, seeks: 0 };
   private ends: { version: number; map: Map<number, number> } | null = null;
   private shown: { key: string; rows: Shown[] } | null = null;
   private center: number | null;
@@ -96,20 +96,28 @@ export class Reader {
     const s = this.source,
       seen = this.seen;
     if (s.version !== seen.version) {
-      const restarted = s.restarts !== seen.restarts;
-      if ((restarted || s.rewinds !== seen.rewinds) && seen.version >= 0) {
+      const restarted = s.restarts !== seen.restarts,
+        sought = s.seeks !== seen.seeks;
+      if ((restarted || s.rewinds !== seen.rewinds || sought) && seen.version >= 0) {
         // A new window: its rows are other lines.
         this.target = this.target_line === null ? null : s.rowOf(this.target_line);
         this.fresh = 0;
-        if (restarted) this.folded.clear();
-        // Where the last jump asked for, else where the window went.
-        const to = this.jump ?? (restarted ? "end" : "start");
-        if (to === "end") this.following = s.mode === "tail";
-        else {
-          this.top = 0;
+        if (restarted || sought) this.folded.clear();
+        if (sought) {
+          // The line asked for was found: it shows in the middle.
+          this.center = s.sought;
+          this.jump = null;
           this.following = false;
+        } else {
+          // Where the last jump asked for, else where the window went.
+          const to = this.jump ?? (restarted ? "end" : "start");
+          if (to === "end") this.following = s.mode === "tail";
+          else {
+            this.top = 0;
+            this.following = false;
+          }
+          if (to === "end" ? s.atEnd : s.start === 0) this.jump = null;
         }
-        if (to === "end" ? s.atEnd : s.start === 0) this.jump = null;
       } else if (seen.version >= 0) {
         const shift = s.prepended - seen.prepended - (s.dropped - seen.dropped);
         this.top = Math.max(0, this.top + shift);
@@ -124,6 +132,7 @@ export class Reader {
         dropped: s.dropped,
         restarts: s.restarts,
         rewinds: s.rewinds,
+        seeks: s.seeks,
       };
     }
     if (this.center !== null) {

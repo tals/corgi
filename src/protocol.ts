@@ -162,8 +162,8 @@ export const operations = [
   "review.recognize",
   "file.stat",
   "file.read",
-  "file.line",
   "file.count",
+  "file.scan",
   "file.thumbnail",
   "job.poll",
   "job.cancel",
@@ -839,8 +839,10 @@ const requests = {
   // names another refuses.
   "file.stat": { path: "string", cwd: ["string", ""] },
   "file.read": { path: "string", id: "string", at: "u64", length: "u32" },
-  "file.line": { path: "string", id: "string", line: "u64", limit: "u64" },
   "file.count": { path: "string", id: "string", from: "u64", to: "u64" },
+  // Starts the job that finds a line, scanning `budget` bytes at most
+  // before it answers that the line is far; see jobs.ts for `wait`.
+  "file.scan": { path: "string", id: "string", line: "u64", budget: "u64", wait: ["u32", 0] },
   "file.thumbnail": { path: "string", width: "u32", height: "u32", pixels: "u32" },
   // A job's news, waiting up to `wait` ms for some, and its end; see jobs.ts.
   "job.poll": { job: "u32", wait: ["u32", 0] },
@@ -1013,8 +1015,8 @@ export interface ReplyPayloads {
   "review.recognize": Ok & { found: [string, string][] };
   "file.stat": Ok & import("./file_access").Info;
   "file.read": Ok & { data: string };
-  "file.line": Ok & { at: number };
   "file.count": Ok & { lines: number };
+  "file.scan": Ok & { job: number } & import("./jobs").Poll;
   // Its PNGs in base64.
   "file.thumbnail": Ok &
     Omit<import("./picture").Picture, "png" | "frames"> & {

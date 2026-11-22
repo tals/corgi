@@ -6,7 +6,7 @@
 import { basename, dirname, resolve } from "node:path";
 import { Canvas } from "./canvas";
 import * as errors from "./errors";
-import { size } from "./file_peek";
+import { progressLabel, size } from "./file_peek";
 import { Source } from "./file_source";
 import { Reader } from "./file_view";
 import * as i18n from "./i18n";
@@ -263,6 +263,7 @@ export class View {
       const count = s.lines.length;
       return [[i18n.t`${count} lines · ${bytes}`, colors.faint, false]];
     }
+    if (s.scan !== null && s.seeking !== null) return [[progressLabel(s.seeking, s.scan), colors.accent, false]];
     const fresh = r.fresh;
     const out: [string, palette.Rgb, boolean][] = [[`${bytes}  `, colors.faint, false]];
     if (r.following) out.push([i18n.t`● following`, colors.accent, true]);
@@ -309,6 +310,8 @@ export async function run(argv: string[]): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  // A line deep in a large file: the pane was asked for it, so it scans on without asking.
+  if (source.far) void source.find();
   view = new View(new Reader(source, args.line, args.column), args.line);
   out.write(enter);
   process.stdin.setRawMode?.(true);

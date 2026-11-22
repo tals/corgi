@@ -1,21 +1,30 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as fileAccess from "./file_access";
 import * as filePeek from "./file_peek";
 import { Rect } from "./layout";
 import { Writer } from "./text";
 
 const dirs: string[] = [];
 const peeks: filePeek.Peek[] = [];
+const indexes = mkdtempSync(join(tmpdir(), "corgi-lines-"));
+beforeAll(() => {
+  process.env.CORGI_LINE_INDEX_DIR = indexes;
+});
+afterAll(() => {
+  delete process.env.CORGI_LINE_INDEX_DIR;
+  rmSync(indexes, { recursive: true, force: true });
+});
 function file(name: string, text: string): string {
   const dir = mkdtempSync(join(tmpdir(), "corgi-peek-"));
   dirs.push(dir);
   writeFileSync(join(dir, name), text);
   return join(dir, name);
 }
-async function peek(path: string, line: number | null = null): Promise<filePeek.Peek> {
-  const p = new filePeek.Peek(path, { path, line, column: null }, () => {});
+async function peek(path: string, line: number | null = null, budget?: number): Promise<filePeek.Peek> {
+  const p = new filePeek.Peek(path, { path, line, column: null }, () => {}, fileAccess.here, budget);
   peeks.push(p);
   await p.opened;
   return p;
@@ -64,6 +73,47 @@ test("follows a log's end, and pauses once scrolled up", async () => {
   const text = shown(p, rect);
   expect(text).toContain("‖ paused");
   expect(text).toContain("1 new");
+});
+
+test("a line deep in a large log is asked about, found once asked, with the scan's progress between", async () => {
+  const lines = Array.from({ length: 300_000 }, (_, i) => `INFO step ${i + 1}`).join("\n") + "\n";
+  const path = file("deep.log", lines),
+    rect = new Rect(0, 0, 80, filePeek.rows + 3);
+  // Not a byte scanned on the pointer's say-so: the card asks, over the log's end.
+  const p = await peek(path, 250_000, 0);
+  let text = shown(p, rect);
+  expect(text).toContain("Finding line 250,000 may take a while");
+  expect(text).toContain("▸ Find line 250,000");
+  expect(text).toContain("step 300000");
+  expect(p.hit(1)).toEqual({ kind: "find" });
+  expect(p.hit(0)).toBeNull();
+  expect(p.hit(filePeek.banner_rows + 2)?.kind).toBe("line");
+  expect(p.banner).toBe(filePeek.banner_rows);
+  // The row starts the scan, whose progress shows while it runs.
+  const s = p.reader!.source,
+    seen: string[] = [];
+  const find = Reflect.get(s, "fh").find.bind(Reflect.get(s, "fh"));
+  Reflect.get(s, "fh").find = (n: number, opts: { progress?: (x: unknown) => void }) =>
+    find(n, {
+      ...opts,
+      progress: (x: { scanned: number; size: number; lines: number }) => {
+        opts.progress?.(x);
+        seen.push(shown(p, rect));
+      },
+    });
+  p.find();
+  for (let i = 0; i < 100 && s.seeks === 0; i++) await Bun.sleep(10);
+  expect(s.far).toBeNull();
+  expect(seen.some(t => /Finding line 250,000… [\d.]+ [KM]B of [\d.]+ MB · [\d,]+ lines/.test(t))).toBe(true);
+  text = shown(p, rect);
+  expect(text).not.toContain("Find line");
+  expect(text).toContain("250000 INFO step 250000");
+  expect(p.lineAt(5)).toBe(250_000);
+  expect(p.banner).toBe(0);
+  // Found and indexed, the same line opens without asking next time.
+  const again = await peek(path, 250_000, 0);
+  expect(again.banner).toBe(0);
+  expect(shown(again, rect)).toContain("250000 INFO step 250000");
 });
 
 test("says when it can't read the file", async () => {
