@@ -38,6 +38,7 @@ test("a remote viewer's folder requests are answered from this computer's folder
 test("a remote viewer names a folder absolutely, or under the home folder as ~", () => {
   expect(folders.named("~", "/home/me")).toBe("/home/me");
   expect(folders.named("~/code", "/home/me")).toBe("/home/me/code");
+  expect(folders.named("~/../shared", "/home/me")).toBe("/home/shared");
   expect(folders.named("/srv", "/home/me")).toBe("/srv");
   expect(() => folders.named("code", "/home/me")).toThrow("InvalidDirectory");
   expect(() => folders.named("/" + "a".repeat(4096))).toThrow("InvalidDirectory");

@@ -4,7 +4,7 @@
 //! edited, and ↵ creates it.
 import * as i18n from "./i18n";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import * as palette from "./palette";
 import { Style, fgRgb, bgRgb, mix, colors } from "./palette";
 import * as keys from "./keys";
@@ -237,8 +237,9 @@ export class Browser {
   private resolve(text: string): string {
     if (homeless(text)) {
       if (this.home) return resolve(this.home, "." + text.slice(1));
-      const below = resolve("/", "." + text.slice(1));
-      return below === "/" ? "~" : "~" + below;
+      // `..` past the home stays for the daemon, which knows where that is.
+      const below = normalize(text.slice(2) || ".").replace(/\/+$/, "");
+      return below === "." ? "~" : "~/" + below;
     }
     if (isAbsolute(text)) return resolve(text);
     // A remote machine's dialog without a workspace starts at its home.

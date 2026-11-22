@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { Browser, Dialog, Disk, Remote, label, size } from "./new_workspace";
 import { deepest, isFolder, make, stat, subfolders, type Found } from "./folders";
 import { Machine } from "./machine";
@@ -411,7 +411,7 @@ function remoteMachine(opts: { home?: string; old?: boolean } = {}) {
   const held: (() => void)[] = [];
   const asked: string[] = [];
   const link = { up: true };
-  const expand = (p: string) => (p === "~" ? "/home/me" : p.startsWith("~/") ? "/home/me" + p.slice(1) : p);
+  const expand = (p: string) => (p === "~" || p.startsWith("~/") ? resolve("/home/me", "." + p.slice(1)) : p);
   const answer = (op: string, path: string): object => {
     if (opts.old) return { err: "UnknownOperation" };
     if (op === "folder.list") return { ok: true, folders: shown[path] ?? null, home: "/home/me" };
@@ -496,6 +496,18 @@ test("~ typed before a remote machine's home is known is made there, and read fr
   expect(asked).toContain("folder.open ~/proj");
   expect(b.parent).toBe("/home/me");
   expect(b.entries).toEqual(["proj"]);
+});
+
+test("~/.. typed before a remote machine's home is known still goes above it", async () => {
+  const { machine, asked, flush } = remoteMachine();
+  const b = Browser.init("/home/me/code", new Remote(machine));
+  b.field.clear();
+  paste(b, "~/../shared/");
+  expect(b.folder()).toBe("~/../shared");
+  const saved = b.confirm();
+  await flush();
+  expect(await saved).toBe("/home/shared");
+  expect(asked).toContain("folder.open ~/../shared");
 });
 
 test("→ pressed before a remote folder is read goes on into its first folder, as on this disk", async () => {
