@@ -87,7 +87,7 @@ function png(width: number, height: number, alpha: number): Buffer {
  * fraction moves it by the pixel) in column `x`, cut to the rows from `top`
  * to `bottom`; `over` when it sits in a card drawn over the rest. */
 export function place(
-  frame: hostImages.Frame,
+  frame: hostImages.FrameImages,
   x: number,
   y: number,
   cols: number,

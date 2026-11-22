@@ -507,7 +507,7 @@ export class Controller {
   /** The picture of the prompt's pasted image under the pointer, this frame. */
   private prompt_preview: PromptPreview | null = null;
   /** The frame being drawn's pictures, on a host that shows Kitty images. */
-  private pictures: hostImages.Frame | null = null;
+  private pictures: hostImages.FrameImages | null = null;
   thumbnails = new linkThumbnail.Loader(() => {
     this.dirty = true;
     this.wake();

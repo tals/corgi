@@ -277,7 +277,7 @@ export interface Ui {
   supports_kitty_graphics: boolean;
   images: Images | null;
   /** The frame's pictures, where the host shows Kitty images. */
-  pictures: hostImages.Frame | null;
+  pictures: hostImages.FrameImages | null;
   /** The host's cell in pixels, when it reports it. */
   cell_pixels: Cell | null;
   dragged_workspace: Preview | null;

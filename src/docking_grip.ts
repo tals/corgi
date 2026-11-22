@@ -34,7 +34,7 @@ export function pixels(cell: Cell): Uint8Array {
 }
 
 /** Shows each unobscured grip. Text stays native. */
-export function draw(frame: hostImages.Frame, rects: readonly Rect[], cell: Cell): void {
+export function draw(frame: hostImages.FrameImages, rects: readonly Rect[], cell: Cell): void {
   const key = `${cell.width}x${cell.height}:${palette.outline}`;
   if (drawn?.key !== key) {
     drawn = { key, image: new hostImages.Image({ rgba: pixels(cell), width: 4 * cell.width, height: cell.height }) };

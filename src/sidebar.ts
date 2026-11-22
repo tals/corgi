@@ -702,7 +702,7 @@ export class View {
   /** The host's cell in pixels, for images placed by the pixel. */
   cell: Cell | null = null;
   /** The frame's pictures, where the host shows Kitty images. */
-  pictures: hostImages.Frame | null = null;
+  pictures: hostImages.FrameImages | null = null;
   archive_marks: ((brand: Brand, col: number, row: number) => void) | null = null;
   /** Places reception bars as an image `signalBars.cells` wide; without it they're blocks. */
   signal_marks: ((quality: Quality, col: number, row: number) => void) | null = null;

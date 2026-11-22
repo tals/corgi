@@ -1747,7 +1747,7 @@ export class View {
       }
     }
   }
-  glideImage(pictures: hostImages.Frame, b: Rect, model: Model): void {
+  glideImage(pictures: hostImages.FrameImages, b: Rect, model: Model): void {
     const glide = this.glide;
     if (this.page !== "list" || this.transition.active || !glide || glide.started === null || !this.cell) return;
     const first = this.listOffset(b, model),

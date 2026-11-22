@@ -55,7 +55,7 @@ function screen(v: agentManager.View, m: agentManager.Model, now?: number, width
   const b = new Rect(0, 0, width, v.height(m)),
     w = new Writer();
   v.draw(w, b, m, now);
-  const pictures = new hostImages.Frame(v.cell ?? { width: 10, height: 20 });
+  const pictures = new hostImages.FrameImages(v.cell ?? { width: 10, height: 20 });
   v.glideImage(pictures, b, m);
   const host = new Terminal(width + 8, 30);
   host.feed(w.s);

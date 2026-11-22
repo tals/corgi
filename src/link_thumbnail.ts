@@ -28,14 +28,21 @@ export function imagePath(uri: string): string | null {
   return extensions.has(path.slice(path.lastIndexOf(".") + 1).toLowerCase()) ? path : null;
 }
 /** Places `t` in the card at `rect`, centered in the rows below its copy row's rule. */
-export function place(frame: hostImages.Frame, rect: Rect, t: Thumbnail): void {
+export function place(frame: hostImages.FrameImages, rect: Rect, t: Thumbnail): void {
   const left = Math.floor(((rect.w - 2) * t.cell.width - t.width) / 2),
     top = Math.floor((thumbnailCells(t).rows * t.cell.height - t.height) / 2);
   placeAt(frame, rect.x + 1, rect.y + 3, t, left, top);
 }
 /** Places `t` with its corner at column `col` of row `row`, shifted `left`
  * and `top` pixels further in. */
-export function placeAt(frame: hostImages.Frame, col: number, row: number, t: Thumbnail, left = 0, top = 0): void {
+export function placeAt(
+  frame: hostImages.FrameImages,
+  col: number,
+  row: number,
+  t: Thumbnail,
+  left = 0,
+  top = 0,
+): void {
   const image = (t.of ?? t).image;
   if (!image) return;
   frame.show(image, {

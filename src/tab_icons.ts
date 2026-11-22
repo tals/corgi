@@ -48,7 +48,14 @@ const drawn = new Map<Brand, { key: string; image: hostImages.Image }>();
 
 /** Shows `brand`'s mark at column `col` of row `row`; `top` when it sits in
  * a card drawn over the rest. */
-export function place(frame: hostImages.Frame, brand: Brand, col: number, row: number, cell: Cell, top = false): void {
+export function place(
+  frame: hostImages.FrameImages,
+  brand: Brand,
+  col: number,
+  row: number,
+  cell: Cell,
+  top = false,
+): void {
   const { side } = size(cell);
   let mark = drawn.get(brand);
   if (mark?.key !== key(brand, cell)) {

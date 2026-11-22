@@ -39,7 +39,7 @@ export class Images {
   }
   /** Shows the images in `rect`. A `hidden` pane's stay with the host, unshown. */
   draw(
-    frame: hostImages.Frame,
+    frame: hostImages.FrameImages,
     placements: ImagePlacement[],
     rect: Rect,
     cell: Cell,

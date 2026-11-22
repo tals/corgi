@@ -70,7 +70,7 @@ const place = (p: Placement, id: number) =>
 
 /** One frame's pictures: what it shows and where, and the cells drawn over
  * them. */
-export class Frame {
+export class FrameImages {
   private shown: { image: Image; at: Place }[] = [];
   private covered: Rect[] = [];
   private cut: Placement[] | null = null;
@@ -163,10 +163,10 @@ export class Store {
   private failures = new Map<number, { count: number; at: number }>();
   /** Deletes owed for refused images, in case the host still has them. */
   private dropped = "";
-  private drawn: Frame | null = null;
+  private drawn: FrameImages | null = null;
   /** Starts the next frame, for cells of `cell` pixels. */
-  frame(cell: Cell): Frame {
-    return (this.drawn = new Frame(cell));
+  frame(cell: Cell): FrameImages {
+    return (this.drawn = new FrameImages(cell));
   }
   /** Whether the last frame started shows other pictures than the host. */
   get changed(): boolean {

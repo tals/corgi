@@ -49,7 +49,7 @@ export function pixels(quality: Quality, cell: Cell): Uint8Array {
 const drawn = new Map<Quality, { key: string; image: hostImages.Image }>();
 
 /** Shows `quality`'s bars from column `col` of row `row`. */
-export function place(frame: hostImages.Frame, quality: Quality, col: number, row: number, cell: Cell): void {
+export function place(frame: hostImages.FrameImages, quality: Quality, col: number, row: number, cell: Cell): void {
   let bars = drawn.get(quality);
   if (bars?.key !== key(cell)) {
     const image = new hostImages.Image({ rgba: pixels(quality, cell), width: cells * cell.width, height: cell.height });

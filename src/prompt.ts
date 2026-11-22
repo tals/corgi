@@ -213,7 +213,7 @@ type Layout = {
  * one's, once it has loaded. */
 /** The pasted image under the pointer: the frame's pictures, where the host
  * shows them, and its thumbnail once loaded. */
-export type Preview = { pictures: hostImages.Frame | null; thumbnail: Thumbnail | null };
+export type Preview = { pictures: hostImages.FrameImages | null; thumbnail: Thumbnail | null };
 /** Chips laid out in a row: each with its name cut to fit, then how many
  * didn't fit, and the columns they all take with the gap after. */
 type Inline = { pieces: { mention: Mention; text: string; x: number }[]; more: number; width: number };

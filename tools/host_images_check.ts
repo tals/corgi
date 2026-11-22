@@ -90,7 +90,7 @@ const big = quadrants(12 * cell.width, 4 * cell.height),
   small = quadrants(6 * cell.width, 3 * cell.height),
   swapped = quadrants(6 * cell.width, 3 * cell.height, true);
 
-type Scene = { title: string; draw(frame: hostImages.Frame, text: string[]): void; repaint?: boolean };
+type Scene = { title: string; draw(frame: hostImages.FrameImages, text: string[]): void; repaint?: boolean };
 const card = (text: string[], box: Rect, label: string) => {
   for (let y = box.y; y < box.y + box.h; y++) {
     const inner =
@@ -100,7 +100,7 @@ const card = (text: string[], box: Rect, label: string) => {
   }
 };
 /** What every scene shows unless it says otherwise. */
-const chrome = (frame: hostImages.Frame) => {
+const chrome = (frame: hostImages.FrameImages) => {
   for (const [i, brand] of (["node", "rust", "vim"] as const).entries())
     tabIcons.place(frame, brand, 4 + i * 6, 12, cell);
   if (signalBars.fits(cell))

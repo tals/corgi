@@ -35,7 +35,7 @@ test("the grip outline leaves air above the content and joins the divider on bot
 const cell = { width: 11, height: 25 };
 /** The grip image's id at `cell`. */
 function gripId(): string {
-  const frame = new hostImages.Frame(cell);
+  const frame = new hostImages.FrameImages(cell);
   dockingGrip.draw(frame, [new Rect(0, 0, 4, 1)], cell);
   return /i=(\d+)/.exec(frame.commands())![1];
 }
@@ -95,7 +95,7 @@ test("a shown grip stays until the pointer is more than a row from its border", 
       cell_pixels: cell,
     }),
     shown = (y: number, grip_hover: number[]) => {
-      const pictures = new hostImages.Frame(cell);
+      const pictures = new hostImages.FrameImages(cell);
       render.frame(view, [], 120, 36, { ...options, pictures, pointer: { x: 30, y }, grip_hover });
       return pictures.commands().includes(`a=p,i=${gripId()}`);
     };

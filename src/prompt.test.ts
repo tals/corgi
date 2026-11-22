@@ -1087,7 +1087,7 @@ function pictured(
   thumbnail: Thumbnail = { width: 180, height: 72, cell: { width: 9, height: 18 }, image: thumbnail_image },
 ) {
   const w = new Writer(),
-    pictures = new hostImages.Frame(thumbnail.cell);
+    pictures = new hostImages.FrameImages(thumbnail.cell);
   const boxes = p.draw(w, cols, rows, null, 0, { pictures, thumbnail });
   return { lines: screen(w.s, cols, rows), pictures: pictures.commands(), boxes };
 }

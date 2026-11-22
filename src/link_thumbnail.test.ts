@@ -15,7 +15,7 @@ const cell = { width: 10, height: 20 },
   id = image.id;
 /** Places `t` alone in a frame. */
 function placed(rect: Rect, t: Thumbnail): string {
-  const frame = new hostImages.Frame(cell);
+  const frame = new hostImages.FrameImages(cell);
   place(frame, rect, t);
   return frame.commands();
 }

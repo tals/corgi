@@ -108,7 +108,7 @@ test("a PNG goes in 4096-byte chunks, with its animation after it", () => {
 });
 
 test("a placement writes only the keys it uses", () => {
-  const frame = new hostImages.Frame(cell),
+  const frame = new hostImages.FrameImages(cell),
     image = dot();
   frame.show(image, { col: 4, row: 2 });
   frame.show(image, { col: 0, row: 0, x: 3, y: 5, region: new Rect(1, 2, 3, 4), cols: 6, rows: 2, z: -1 });
@@ -144,7 +144,7 @@ test("a picture is cut around the cells the frame covers, whenever they are cove
 });
 
 test("a cut keeps the part of the picture a region asked for, by the pixel", () => {
-  const frame = new hostImages.Frame(cell),
+  const frame = new hostImages.FrameImages(cell),
     image = dot(100, 100);
   frame.show(image, { col: 1, row: 1, x: 5, y: 3, region: new Rect(10, 20, 30, 40), z: -1 });
   frame.cover(new Rect(0, 2, 10, 1));
@@ -154,7 +154,7 @@ test("a cut keeps the part of the picture a region asked for, by the pixel", () 
       `\x1b[4;2H\x1b_Ga=p,i=${image.id},p=2,x=10,y=57,w=30,h=3,X=5,z=-1,C=1,q=1\x1b\\`,
   );
   // A scaled picture can't be cut: under a cover it goes whole.
-  const scaled = new hostImages.Frame(cell);
+  const scaled = new hostImages.FrameImages(cell);
   scaled.show(image, { col: 1, row: 1, cols: 4, rows: 2 });
   scaled.cover(new Rect(0, 2, 10, 1));
   expect(scaled.commands()).toBe("");
@@ -207,7 +207,7 @@ test("a host shows what the frames say: placed, moved, cut and taken off", () =>
     store = new hostImages.Store(),
     image = dot(20, 20);
   const shown = () => (host.surface(1).surface.images ?? []).map(p => ({ x: p.x, y: p.y, width: p.width }));
-  const present = (draw: (frame: hostImages.Frame) => void) => {
+  const present = (draw: (frame: hostImages.FrameImages) => void) => {
     draw(store.frame(cell));
     const writes = store.present();
     host.feed(writes.send + writes.draw + writes.free);

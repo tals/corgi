@@ -1120,7 +1120,7 @@ test("setup's model picker places the same brand marks, only where the host show
   shown({});
   expect(setup.marks).toBeNull();
   const cell = { width: 9, height: 18 },
-    pictures = new hostImages.Frame(cell);
+    pictures = new hostImages.FrameImages(cell);
   shown({ pictures, cell_pixels: cell });
   expect(setup.marks!("claude", 4, 4)).toBe(true);
   expect(pictures.commands()).toContain("\x1b[5;5H\x1b_Ga=p");

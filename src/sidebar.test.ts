@@ -1273,7 +1273,7 @@ test("a moved row rides a Kitty tint from where it was and shows as it lands; el
   const top = kitty.middle() + 2;
   /** Draws the sidebar at `ms` into the glide; its text, and the pictures it shows. */
   const glide = (ms: number) => {
-    const pictures = (kitty.pictures = new hostImages.Frame(kitty.cell!));
+    const pictures = (kitty.pictures = new hostImages.FrameImages(kitty.cell!));
     return { out: draw(kitty, moved(ms), [], 0), pictures: pictures.commands() };
   };
   // Halfway there, the tint is between the row it left and the one it lands
