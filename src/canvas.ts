@@ -2,7 +2,7 @@
 //! pane each fill one, then write it at its place on the screen. Text from
 //! outside goes through `safe`, so its controls never reach the terminal.
 import * as palette from "./palette";
-import { codepointWidth, Writer } from "./text";
+import { codepointWidth, type Writer } from "./text";
 
 /** A cell: its text and colors; a null background is the terminal's own. */
 export interface Cell {
