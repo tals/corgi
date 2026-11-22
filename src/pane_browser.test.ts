@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as paneBrowser from "./pane_browser";
@@ -13,49 +13,22 @@ function folder(): string {
   folders.push(path);
   return path;
 }
-/** An executable that appends its arguments, and whether it was passed through, to `log`. */
+/** An executable that appends its arguments, and the BROWSER it was given, to `log`. */
 function recorder(path: string, log: string, status = 0): void {
   writeFileSync(
     path,
-    `#!/bin/sh\necho "$(basename "$0") $* ${"$"}{${paneBrowser.passthrough}:-}" >> ${JSON.stringify(log)}\nexit ${status}\n`,
+    `#!/bin/sh\necho "$(basename "$0") $* \${BROWSER:-}" >> ${JSON.stringify(log)}\nexit ${status}\n`,
   );
   chmodSync(path, 0o755);
 }
+const refused = async () => {
+  throw Error("NoViewer");
+};
+/** The system's opener's name here. */
+const opener = process.platform === "darwin" ? "open" : "xdg-open";
 
-test("BROWSER names the helper everywhere; Linux also gets an xdg-open ahead of the system's", () => {
-  const mac = paneBrowser.scripts("/opt/corgi/bin/corgi", "darwin"),
-    linux = paneBrowser.scripts("/opt/corgi/bin/corgi", "linux");
-  expect(Object.keys(mac)).toEqual([paneBrowser.helper]);
-  expect(mac[paneBrowser.helper]).toBe(`#!/bin/sh\nexec '/opt/corgi/bin/corgi' __browser "$@"\n`);
-  expect(Object.keys(linux).sort()).toEqual([paneBrowser.helper, "xdg-open"]);
-});
-
-test("a pane's xdg-open hands one web link to Corgi, and anything else to the system's", () => {
-  const helpers = folder(),
-    system = folder(),
-    log = join(folder(), "log");
-  recorder(join(helpers, "corgi"), log);
-  recorder(join(system, "xdg-open"), log);
-  const shim = join(helpers, "xdg-open");
-  writeFileSync(shim, paneBrowser.scripts(join(helpers, "corgi"), "linux")["xdg-open"]);
-  chmodSync(shim, 0o755);
-  const run = (args: string[], env: Record<string, string> = {}) =>
-    Bun.spawnSync(["xdg-open", ...args], { env: { PATH: `${helpers}:${system}:/usr/bin:/bin`, ...env } });
-  expect(run(["https://example.com/a?b=1"]).exitCode).toBe(0);
-  expect(run(["HTTPS://example.com/UP"]).exitCode).toBe(0);
-  expect(run(["/tmp/report.pdf"]).exitCode).toBe(0);
-  expect(run(["https://example.com", "extra"]).exitCode).toBe(0);
-  expect(run(["http://localhost:3000"], { [paneBrowser.passthrough]: "1" }).exitCode).toBe(0);
-  expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
-    `corgi __browser --via ${shim} https://example.com/a?b=1 `,
-    `corgi __browser --via ${shim} HTTPS://example.com/UP `,
-    "xdg-open /tmp/report.pdf ",
-    "xdg-open https://example.com extra ",
-    "xdg-open http://localhost:3000 1",
-  ]);
-  // With no system one, it says so.
-  const alone = Bun.spawnSync(["xdg-open", "/tmp/x"], { env: { PATH: `${helpers}:/usr/bin:/bin` } });
-  expect(alone.exitCode).toBe(existsSync("/usr/bin/xdg-open") ? alone.exitCode : 3);
+test("BROWSER names a helper that runs Corgi", () => {
+  expect(paneBrowser.script("/opt/corgi/bin/corgi")).toBe(`#!/bin/sh\nexec '/opt/corgi/bin/corgi' __browser "$@"\n`);
 });
 
 test("a link goes to the viewer showing the pane, or else where it would have gone", async () => {
@@ -65,28 +38,17 @@ test("a link goes to the viewer showing the pane, or else where it would have go
   };
   expect(await paneBrowser.run(["https://example.com/"], ask, { CORGI_PANE: "7" })).toBe(0);
   expect(asked).toEqual([["https://example.com/", 7]]);
-  // Through the stood-in xdg-open, once no viewer took it.
   const tools = folder(),
-    log = join(tools, "log"),
-    via = join(tools, "xdg-open");
-  recorder(via, log);
-  const refused = async () => {
-    throw Error("NoViewer");
-  };
-  expect(await paneBrowser.run(["--via", via, "http://localhost:3000/"], refused, { CORGI_PANE: "7" })).toBe(0);
-  // Outside a pane, or passed through, the viewer isn't asked.
-  expect(await paneBrowser.run(["--via", via, "https://a.example/"], ask, {})).toBe(0);
-  expect(
-    await paneBrowser.run(["--via", via, "https://b.example/"], ask, {
-      CORGI_PANE: "7",
-      [paneBrowser.passthrough]: "1",
-    }),
-  ).toBe(0);
+    log = join(tools, "log");
+  recorder(join(tools, "w3m"), log);
+  const env = { PATH: `${tools}:/usr/bin:/bin`, [paneBrowser.original]: "w3m" };
+  // Once no viewer took it; and outside a pane, where no viewer is asked.
+  expect(await paneBrowser.run(["http://localhost:3000/"], refused, { ...env, CORGI_PANE: "7" })).toBe(0);
+  expect(await paneBrowser.run(["https://a.example/"], ask, env)).toBe(0);
   expect(asked.length).toBe(1);
   expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
-    "xdg-open http://localhost:3000/ 1",
-    "xdg-open https://a.example/ 1",
-    "xdg-open https://b.example/ 1",
+    "w3m http://localhost:3000/ w3m",
+    "w3m https://a.example/ w3m",
   ]);
 });
 
@@ -95,22 +57,29 @@ test("a link no viewer takes goes to the pane's own BROWSER, the link at %s or l
     log = join(tools, "log");
   recorder(join(tools, "firefox"), log, 1);
   recorder(join(tools, "lynx"), log);
-  const refused = async () => {
-    throw Error("NoViewer");
-  };
-  const env = {
-    CORGI_PANE: "3",
-    PATH: `${tools}:/usr/bin:/bin`,
-    [paneBrowser.original]: "firefox --new-tab:lynx -dump %s",
-  };
+  const browsers = "firefox --new-tab:lynx -dump %s";
+  const env = { CORGI_PANE: "3", PATH: `${tools}:/usr/bin:/bin`, [paneBrowser.original]: browsers };
   expect(await paneBrowser.run(["https://example.com/x"], refused, env)).toBe(0);
   expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
-    "firefox --new-tab https://example.com/x 1",
-    "lynx -dump https://example.com/x 1",
+    `firefox --new-tab https://example.com/x ${browsers}`,
+    `lynx -dump https://example.com/x ${browsers}`,
   ]);
 });
 
-test("helpers go beside an installed launcher, else beside the socket, and BROWSER names them", () => {
+test("a link the pane's own BROWSER can't open goes to the system's opener, else it's printed", async () => {
+  const tools = folder(),
+    log = join(tools, "log");
+  recorder(join(tools, "w3m"), log, 1);
+  recorder(join(tools, opener), log, 1);
+  const env = { CORGI_PANE: "7", PATH: `${tools}:/usr/bin:/bin`, [paneBrowser.original]: "w3m" };
+  expect(await paneBrowser.run(["https://a.example/"], refused, env)).toBe(1);
+  expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
+    "w3m https://a.example/ w3m",
+    `${opener} https://a.example/ w3m`,
+  ]);
+});
+
+test("the helper goes beside an installed launcher, else beside the socket, and BROWSER names it", () => {
   const install = folder(),
     cli = join(install, "bin", "corgi"),
     runtime = folder(),
@@ -128,7 +97,6 @@ test("helpers go beside an installed launcher, else beside the socket, and BROWS
   expect(paneBrowser.environment(helpers, { BROWSER: "w3m" })).toEqual({
     BROWSER: join(helpers, paneBrowser.helper),
     [paneBrowser.original]: "w3m",
-    [paneBrowser.passthrough]: undefined,
   });
   expect(
     paneBrowser.environment(helpers, { BROWSER: join(helpers, paneBrowser.helper), [paneBrowser.original]: "w3m" })[
@@ -139,33 +107,9 @@ test("helpers go beside an installed launcher, else beside the socket, and BROWS
 
 test("what Corgi passes a link on to gets the pane's own BROWSER, so an opener reading it doesn't come back", () => {
   const helper = `/opt/corgi/bin/${paneBrowser.helper}`;
-  expect(paneBrowser.handed({ BROWSER: helper, [paneBrowser.original]: "w3m" })).toMatchObject({
-    BROWSER: "w3m",
-    [paneBrowser.passthrough]: "1",
-  });
+  expect(paneBrowser.handed({ BROWSER: helper, [paneBrowser.original]: "w3m" }).BROWSER).toBe("w3m");
   expect(paneBrowser.handed({ BROWSER: helper }).BROWSER).toBeUndefined();
   expect(paneBrowser.handed({ BROWSER: "firefox" }).BROWSER).toBe("firefox");
-});
-
-test("an xdg-open handing a link on skips every Corgi stand-in, a nested runtime's too", () => {
-  const outer = folder(),
-    inner = folder(),
-    system = folder(),
-    log = join(folder(), "log");
-  for (const [dir, cli] of [
-    [inner, "/opt/dev/dist/corgi"],
-    [outer, "/opt/corgi/bin/corgi"],
-  ]) {
-    writeFileSync(join(dir, "xdg-open"), paneBrowser.scripts(cli, "linux")["xdg-open"]);
-    chmodSync(join(dir, "xdg-open"), 0o755);
-  }
-  recorder(join(system, "xdg-open"), log);
-  const run = Bun.spawnSync(["xdg-open", "https://example.com/"], {
-    env: { PATH: `${inner}:${outer}:${system}:/usr/bin:/bin`, [paneBrowser.passthrough]: "1" },
-    timeout: 5000,
-  });
-  expect(run.exitCode).toBe(0);
-  expect(readFileSync(log, "utf8").trim()).toBe("xdg-open https://example.com/ 1");
 });
 
 test("a viewer opens links where it has a browser: not over SSH, and on Linux with a display", async () => {
@@ -177,25 +121,4 @@ test("a viewer opens links where it has a browser: not over SSH, and on Linux wi
   expect(opensLinks({ WAYLAND_DISPLAY: "wayland-0" }, "linux")).toBe(true);
   expect(opensLinks({ WSL_DISTRO_NAME: "Ubuntu" }, "linux")).toBe(true);
   expect(opensLinks({ DISPLAY: ":0", SSH_TTY: "/dev/pts/1" }, "linux")).toBe(false);
-});
-
-test("a link the stood-in xdg-open can't open goes to the pane's own BROWSER, else it's printed", async () => {
-  const tools = folder(),
-    log = join(tools, "log"),
-    via = join(tools, "xdg-open");
-  recorder(via, log, 3);
-  recorder(join(tools, "w3m"), log);
-  const refused = async () => {
-    throw Error("NoViewer");
-  };
-  const env = { CORGI_PANE: "7", PATH: `${tools}:/usr/bin:/bin` };
-  expect(
-    await paneBrowser.run(["--via", via, "https://a.example/"], refused, { ...env, [paneBrowser.original]: "w3m" }),
-  ).toBe(0);
-  expect(await paneBrowser.run(["--via", via, "https://b.example/"], refused, env)).toBe(1);
-  expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
-    "xdg-open https://a.example/ 1",
-    "w3m https://a.example/ 1",
-    "xdg-open https://b.example/ 1",
-  ]);
 });

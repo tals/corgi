@@ -152,7 +152,7 @@ export class Terminal extends EventEmitter {
       CORGI_SOCKET: socket,
       CORGI_BIN: hookSender(cli),
       CORGI_PANE: String(id),
-      PATH: `${browser && browser !== dirname(cli) ? browser + ":" : ""}${dirname(cli)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      PATH: `${dirname(cli)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
       ...(browser ? paneBrowser.environment(browser, process.env) : {}),
     };
     for (const key of ["ITERM_SESSION_ID", "KITTY_WINDOW_ID", "WEZTERM_PANE", "VSCODE_PID", "ALACRITTY_WINDOW_ID"])

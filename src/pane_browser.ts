@@ -1,125 +1,88 @@
-//! The browser a pane's programs open links with. Each pane's BROWSER and,
-//! on Linux, an `xdg-open` ahead of the system's on its PATH hand a web link
-//! to the viewer looking at the pane, which opens it on its own computer,
-//! forwarded when it points at this machine's loopback. A link no viewer
-//! takes goes where it would have gone without Corgi.
+//! The browser a pane's programs open links with. Each pane's BROWSER hands a
+//! web link to the viewer looking at the pane, which opens it on its own
+//! computer, forwarded when it points at this machine's loopback. A link no
+//! viewer takes goes where it would have gone without Corgi.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import * as os from "./os";
 import * as webLinks from "./web_links";
 
-/** The script BROWSER names, in the helpers' folder. */
+/** The script BROWSER names, in the helper's folder. */
 export const helper = "corgi-browser";
-/** Set on what opens a link Corgi passed on, so a helper it reaches hands it
- * on rather than back. */
-export const passthrough = "CORGI_BROWSER_PASSTHROUGH";
 /** The BROWSER panes would have had, for links no viewer takes. */
 export const original = "CORGI_HOST_BROWSER";
 
-/** The environment for what opens a link Corgi passed on: marked so a
- * helper it reaches hands it on, and with the pane's own BROWSER, since a
- * system opener with no desktop to ask runs BROWSER, which would be Corgi's
- * helper again. */
+/** The environment for what opens a link Corgi passed on: with the pane's own
+ * BROWSER, since a system opener with no desktop to ask runs BROWSER, which
+ * would be Corgi's helper again. */
 export function handed(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const out: NodeJS.ProcessEnv = { ...env, [passthrough]: "1" };
+  const out: NodeJS.ProcessEnv = { ...env };
   if (env[original]) out.BROWSER = env[original];
   else if (env.BROWSER && basename(env.BROWSER) === helper) delete out.BROWSER;
   return out;
 }
-/** Marks Corgi's xdg-open, which another stand-in skips. */
-const marker = "# corgi-xdg-open";
-/** The helpers' scripts, each running `cli`. */
-export function scripts(cli: string, platform: string = process.platform): Record<string, string> {
-  const corgi = os.shellQuote(cli);
-  const out: Record<string, string> = { [helper]: `#!/bin/sh\nexec ${corgi} __browser "$@"\n` };
-  // A program already running keeps its BROWSER, but finds this on its PATH.
-  if (platform === "linux")
-    out["xdg-open"] = [
-      "#!/bin/sh",
-      marker,
-      "# A web link opens on the computer viewing this pane; anything else as before.",
-      `if [ $# -eq 1 ] && [ -z "\${${passthrough}-}" ]; then`,
-      `  case "$1" in [Hh][Tt][Tt][Pp]://*|[Hh][Tt][Tt][Pp][Ss]://*) exec ${corgi} __browser --via "$0" "$1" ;; esac`,
-      "fi",
-      "IFS=:",
-      "for dir in $PATH; do",
-      // Past every stand-in, this one and a nested runtime's alike.
-      `  [ -n "$dir" ] && [ -x "$dir/xdg-open" ] && ! grep -qx '${marker}' "$dir/xdg-open" 2>/dev/null && exec "$dir/xdg-open" "$@"`,
-      "done",
-      'echo "xdg-open: not found" >&2',
-      "exit 3",
-      "",
-    ].join("\n");
-  return out;
+/** The helper's script, running `cli`. */
+export function script(cli: string): string {
+  return `#!/bin/sh\nexec ${os.shellQuote(cli)} __browser "$@"\n`;
 }
-/** Writes the helpers where panes find them, and says where: beside an
- * installed launcher `cli`, whose folder every pane's PATH already starts
- * with, so programs that were running before find them too; else beside the
- * daemon's `socket`. Null when they can't be written. */
+/** Writes the helper where panes find it, and says where: beside an
+ * installed launcher `cli`, a fixed path that outlives any one release; else
+ * beside the daemon's `socket`. Null when it can't be written. */
 export function install(cli: string, executable: string, socket: string): string | null {
   const folder = cli !== executable ? dirname(cli) : isAbsolute(socket) ? `${socket}.browser` : null;
   if (folder === null) return null;
+  const path = join(folder, helper),
+    text = script(cli);
   try {
-    for (const [name, text] of Object.entries(scripts(cli))) {
-      const path = join(folder, name);
-      let current = "";
-      try {
-        current = readFileSync(path, "utf8");
-      } catch {}
-      if (current !== text) os.atomicWrite(path, text, 0o700);
-    }
+    let current = "";
+    try {
+      current = readFileSync(path, "utf8");
+    } catch {}
+    if (current !== text) os.atomicWrite(path, text, 0o700);
     return folder;
   } catch {
     return null;
   }
 }
-/** What a pane's environment gains for the helpers in `folder`, given the
+/** What a pane's environment gains for the helper in `folder`, given the
  * daemon's own `env`. */
 export function environment(folder: string, env: NodeJS.ProcessEnv): Record<string, string | undefined> {
   // A daemon started from a pane has the helper as its BROWSER already.
   const host = env.BROWSER && basename(env.BROWSER) !== helper ? env.BROWSER : env[original];
-  return { BROWSER: join(folder, helper), [original]: host, [passthrough]: undefined };
+  return { BROWSER: join(folder, helper), [original]: host };
 }
 
-/** `corgi __browser [--via XDG_OPEN] URL`: asks the daemon to have the viewer
- * showing this pane open the link, or else opens it where it would have
- * gone. Returns the exit status. */
+/** `corgi __browser URL`: asks the daemon to have the viewer showing this
+ * pane open the link, or else opens it where it would have gone. Returns the
+ * exit status. */
 export async function run(
-  args: string[],
+  urls: string[],
   ask: (url: string, pane: number) => Promise<void>,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<number> {
-  let via: string | null = null;
-  if (args[0] === "--via") {
-    via = args[1] ?? null;
-    args = args.slice(2);
-  }
   const pane = env.CORGI_PANE;
-  if (!env[passthrough] && pane && /^\d+$/.test(pane) && args.length === 1 && webLinks.openable(args[0]))
+  if (pane && /^\d+$/.test(pane) && urls.length === 1 && webLinks.openable(urls[0]))
     try {
-      await ask(args[0], Number(pane));
+      await ask(urls[0], Number(pane));
       return 0;
     } catch {}
-  return fallback(args, via, env);
+  return fallback(urls, env);
 }
-/** Opens `urls` as they'd have opened without Corgi: through `via`, the
- * xdg-open Corgi's stood in for; else the pane's own BROWSER; else the
- * system's opener; else it asks the person to. */
-function fallback(urls: string[], via: string | null, env: NodeJS.ProcessEnv): number {
+/** Opens `urls` as they'd have opened without Corgi: through the pane's own
+ * BROWSER; else the system's opener; else it asks the person to. */
+function fallback(urls: string[], env: NodeJS.ProcessEnv): number {
   const status = (command: string, argv: string[]) => {
     const result = spawnSync(command, argv, { stdio: "inherit", env: handed(env) });
     return result.error ? null : (result.status ?? 1);
   };
-  // The xdg-open Corgi stood in for is the system's opener here.
-  if (via && status(via, urls) === 0) return 0;
   // Python's convention: commands apart by colons, the link at %s or last.
   if (urls.length === 1)
     for (const command of (env[original] ?? "").split(":").filter(Boolean)) {
       const script = command.includes("%s") ? command.replaceAll("%s", '"$1"') : `${command} "$1"`;
       if (status("/bin/sh", ["-c", script, "sh", urls[0]]) === 0) return 0;
     }
-  if (!via && urls.length && status(process.platform === "darwin" ? "open" : "xdg-open", urls) === 0) return 0;
+  if (urls.length && status(process.platform === "darwin" ? "open" : "xdg-open", urls) === 0) return 0;
   for (const url of urls) process.stderr.write(`Open this link in your browser: ${url}\n`);
   return 1;
 }

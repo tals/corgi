@@ -294,15 +294,13 @@ ten minutes for the browser to come back. When that port isn't free here,
 hovering the link says so.
 
 Programs in a pane open links the same way. Each pane's `BROWSER` names
-Corgi's helper, and on Linux an `xdg-open` ahead of the system's on the pane's
-PATH stands in for it: a web link goes to the viewer looking at the pane, which
-opens it as a click would, so `gh auth login` or a dev server's "open in browser"
-works on a remote machine. A program started before Corgi added the helper keeps
-its `BROWSER` but finds the new `xdg-open`, since Corgi's folder already leads
-every pane's PATH. With no viewer to take a link, none attached or one running
-over SSH itself, it goes to the pane's previous `BROWSER`, then the system's
-opener, else the helper prints it. A machine in the background opens its links
-at once.
+Corgi's helper: a web link goes to the viewer looking at the pane, which opens
+it as a click would, so `gh auth login` or a dev server's "open in browser"
+works on a remote machine. A program that ignores `BROWSER`, or a shell started
+before Corgi set it, opens links as it did before. With no viewer to take a
+link, none attached or one running over SSH itself, it goes to the pane's
+previous `BROWSER`, then the system's opener, else the helper prints it. A
+machine in the background opens its links at once.
 
 `./go.ts --sandbox forwarding` opens a world to try this in: `devbox`, a
 stand-in machine, runs a dev server and a CLI sign-in.

@@ -11,7 +11,7 @@ export class Openers {
     this.reap();
     if (this.children.size >= 8) throw Error("TooManyOpenRequests");
     const child = Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], {
-      // A Corgi pane's xdg-open hands links to its viewer: this one opens them.
+      // A viewer started in a Corgi pane has its helper as BROWSER, which a system opener with no desktop would hand the link back to.
       env: paneBrowser.handed(process.env),
       stdin: "ignore",
       stdout: "ignore",
