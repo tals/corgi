@@ -281,6 +281,9 @@ the next one up, else any. Corgi then draws the link pointing there, so the
 terminal's own Cmd+click opens it forwarded, as a click or Ctrl+click does.
 The bottom line shows where it goes when the port differs. Only the link's host
 and port change; its path, query and fragment stay as the server printed them.
+A server listening only on the machine's loopback, such as
+`python -m http.server -b localhost`, gets a link button on its workspace's
+row the same way.
 
 A reservation holds nothing on the machine until the first request or a click
 realizes it. Until then it isn't listed, any forward that wants its port takes

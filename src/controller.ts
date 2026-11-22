@@ -222,6 +222,8 @@ interface PortClick {
   url: string;
   menu: viewerRef.Workspace | null;
   pane: number | null;
+  /** The machine a sidebar link opens on; a pane's link opens on the one shown. */
+  machine: Machine | null;
   px: number;
   py: number;
   drag_selects: boolean;
@@ -233,6 +235,7 @@ const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortC
   url: "",
   menu: null,
   pane: null,
+  machine: null,
   px: 0,
   py: 0,
   drag_selects: false,
@@ -1931,6 +1934,7 @@ export class Controller {
         entry.ports = runtime.ports;
         entry.resources = sidebar.resourcesFor(runtime.resources, ws.id);
         entry.remote_links = machine.remote_links;
+        entry.link_forwards = machine.remote ? machine.forwards : null;
         for (const p of runtime.panes) {
           if (p.agent.provider === null || ws.model.tabForPane(p.id) === null) continue;
           sidebar.tally(entry, p.agent.state, p.agent.attention);
@@ -4219,9 +4223,9 @@ export class Controller {
   /** A link a pane's program on `machine` asked to open, through its BROWSER. */
   openRequested(url: string, machine = this.machine): void {
     if (!webLinks.openable(url)) throw Error("InvalidURL");
-    this.openPaneLink(url, machine);
+    this.openLink(url, machine);
   }
-  private openPaneLink(url: string, machine = this.machine): void {
+  private openLink(url: string, machine = this.machine): void {
     this.queueEffect(machine.remote ? { open_url: url, machine: machine.id } : { open_url: url });
   }
   /** Whether a pending open's pane still has focus, on the machine shown. */
@@ -6715,11 +6719,12 @@ export class Controller {
           this.movePortMenu(false);
           break;
         case 13:
-          const ws = this.portWorkspaceEntry(links.workspace);
-          if (!ws.remote_links) {
+          const ws = this.portWorkspaceEntry(links.workspace),
+            machine = this.portMachine(ws);
+          if (machine) {
             const url = sidebar.workspaceUrl(ws, links.selected);
             if (url !== null) {
-              this.queueEffect({ open_url: url });
+              this.openLink(url, machine);
               this.closeMenu();
             }
           }
@@ -7951,7 +7956,7 @@ export class Controller {
       // A press on the link itself starts its own click or double-click.
       const open = this.pending_open;
       this.pending_open = null;
-      if (open && !this.pressesLink(open, x, y) && this.showsPane(open)) this.openPaneLink(open.url, open.machine);
+      if (open && !this.pressesLink(open, x, y) && this.showsPane(open)) this.openLink(open.url, open.machine);
     }
     if (!release && (button & 32) === 0) this.endSigninExit();
     // A double-click needs two left presses on one sidebar cell with the
@@ -8195,8 +8200,7 @@ export class Controller {
               };
               this.closeMenu();
             } else {
-              if (click.pane !== null) this.openPaneLink(click.url);
-              else this.queueEffect({ open_url: click.url });
+              this.openLink(click.url, click.machine ?? this.machine);
               this.closeMenu();
             }
           }
@@ -8212,9 +8216,10 @@ export class Controller {
       if (!release && button === 0) {
         const index = links.hit(ws, this.width, this.height, x, y);
         if (index !== null) {
-          if (!ws.remote_links) {
+          const machine = this.portMachine(ws);
+          if (machine) {
             const url = sidebar.workspaceUrl(ws, index);
-            if (url !== null) cl.port_click = portClick({ x, y, url: byteLength(url) <= 4096 ? url : "" });
+            if (url !== null) cl.port_click = portClick({ x, y, url: byteLength(url) <= 4096 ? url : "", machine });
           }
         } else this.closeMenu();
       }
@@ -8730,9 +8735,9 @@ export class Controller {
     if (!release && button === 0 && !resource_workspace_press) {
       const ws = sidebar.portWorkspace(side, this.workspaceRows(), x, y);
       if (ws) {
-        const click = portClick({ x, y });
+        const click = portClick({ x, y, machine: this.portMachine(ws) });
         if (sidebar.urlCount(ws) > 1) click.menu = ws.id;
-        else if (!ws.remote_links) {
+        else if (click.machine) {
           const url = sidebar.workspaceUrl(ws, 0);
           if (url === null) return;
           click.url = url;
@@ -9273,7 +9278,7 @@ export class Controller {
     }
     if (this.pending_copy && milliTimestamp() >= this.pending_copy.due) this.flushPendingCopy();
     // A link that comes or goes under a pointer at rest.
-    if (this.pointer && this.machine.forwards && milliTimestamp() >= this.link_recheck_at) {
+    if (this.pointer && this.machines.some(m => m.forwards) && milliTimestamp() >= this.link_recheck_at) {
       this.link_recheck_at = milliTimestamp() + link_recheck_ms;
       this.reserveLink(this.pointer.x, this.pointer.y, false);
     }
@@ -9281,7 +9286,7 @@ export class Controller {
     if (open && milliTimestamp() >= open.due) {
       this.pending_open = null;
       // Dropped once its pane closed or lost focus.
-      if (this.showsPane(open)) this.openPaneLink(open.url, open.machine);
+      if (this.showsPane(open)) this.openLink(open.url, open.machine);
     }
     if (this.signin_exit) {
       if (this.signin_exit.tick(milliTimestamp())) this.dirty = true;
@@ -10066,11 +10071,31 @@ export class Controller {
   /** A link to another machine's loopback, under the pointer, reserves its
    * port here, so the host terminal's Cmd+click opens it forwarded. */
   private reserveLink(x: number, y: number, moved = true): void {
-    const forwards = this.machine.forwards;
-    if (!forwards) return;
+    if (!this.machines.some(m => m.forwards)) return;
     // The machine card hides the links beneath it.
-    if (this.connection_card?.rect.contains(x, y)) return forwards.hover(null, moved);
-    forwards.hover(this.corgi_setup ? null : (this.linkAt(x, y)?.uri ?? null), moved);
+    const covered = this.corgi_setup !== null || !!this.connection_card?.rect.contains(x, y),
+      port = covered ? null : this.portLinkAt(x, y),
+      machine = port?.machine ?? this.machine,
+      url = port?.url ?? (covered ? null : (this.linkAt(x, y)?.uri ?? null));
+    for (const m of this.machines) m.forwards?.hover(m === machine ? url : null, moved);
+  }
+  /** The sidebar link under the pointer, on a row or in its open menu, with the row's machine. */
+  private portLinkAt(x: number, y: number): { machine: Machine; url: string } | null {
+    const rows = this.workspaceRows(),
+      menu = this.port_menu;
+    const ws = menu
+      ? rows.find(row => row.id === menu.workspace)
+      : sidebar.portWorkspace(this.sidebarView([]), rows, x, y);
+    if (!ws) return null;
+    const index = menu ? menu.hit(ws, this.width, this.height, x, y) : sidebar.urlCount(ws) === 1 ? 0 : null,
+      url = index === null ? null : sidebar.workspaceUrl(ws, index),
+      machine = this.rowOf(ws.id)?.machine;
+    return url !== null && machine ? { machine, url } : null;
+  }
+  /** The machine a sidebar row's links open on, when this viewer can open
+   * them: this computer's, or a remote one's it forwards from. */
+  private portMachine(ws: WorkspaceEntry): Machine | null {
+    return ws.remote_links && !ws.link_forwards ? null : (this.rowOf(ws.id)?.machine ?? null);
   }
   private linkTooltipReady(): boolean {
     let target: linkTooltip.Target | null = null;

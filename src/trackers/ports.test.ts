@@ -147,6 +147,15 @@ test("wildcard interface expansion respects family and explicit bind constraints
   ).toBe("https://[fd7a:115c:a1e0::1]:443");
   expect(url(endpoint({ bind_address: "127.0.0.2", scheme: "https", port: 443 }), false)).toBe("https://127.0.0.2:443");
   expect(url(endpoint({ bind_address: "127.0.0.2" }), true)).toBeNull();
+  // Another machine's loopback opens here only through a forward of its port.
+  const loopback = endpoint({ bind_address: "127.0.0.1", port: 8888, interfaces: matching("127.0.0.1", false, all) });
+  expect(url(loopback, true)).toBeNull();
+  expect(url(loopback, true, true)).toBe("http://localhost:8888");
+  expect(url(endpoint({ bind_address: "127.0.0.2", port: 8888 }), true, true)).toBe("http://127.0.0.2:8888");
+  // One it reaches directly keeps its own address.
+  expect(url(endpoint({ port: 8888, interfaces: matching("*", false, all) }), true, true)).toBe(
+    "http://192.168.1.20:8888",
+  );
 });
 test("workloads count foreground servers and agent children but not shells or controllers", () => {
   const list = processes(

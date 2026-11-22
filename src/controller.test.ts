@@ -4380,6 +4380,49 @@ test("the link under a pointer at rest is noticed, and a machine switched away f
   }
 });
 
+test("a sidebar link to an SSH machine's loopback server reserves its port, and a click opens it from there", async () => {
+  const { s, done } = linking("https://example.com/", true);
+  const url = "http://localhost:8888",
+    hovered: (string | null)[] = [];
+  s.machine.forwards = { hover: (uri: string | null) => hovered.push(uri), local: () => null, unavailable: () => [] };
+  const server = { label: "", label_pending: false, pid: 9, pane: 1, name: "python3", transport: "tcp" };
+  s.machine.runtime.ports = {
+    workspaces: [
+      {
+        id: s.machine.runtime.workspaces.items[0].id,
+        background: 0,
+        endpoints: [
+          {
+            ...server,
+            bind_address: "127.0.0.1",
+            port: 8888,
+            ipv6: false,
+            interfaces: [{ name: "lo", address: "127.0.0.1", kind: "loopback", ipv6: false }],
+            scheme: "http",
+            http_status: 200,
+            probed_at: 0,
+          },
+        ],
+      },
+    ],
+  };
+  try {
+    const view = s.sidebarView([]),
+      rows = s.workspaceRows();
+    let at: { x: number; y: number } | null = null;
+    for (let y = 0; y < s.height && !at; y++)
+      for (let x = 0; x < view.width && !at; x++) if (sidebar.portLink(view, rows, x, y) === url) at = { x, y };
+    expect(at).not.toBeNull();
+    await mouseInput(s, `\x1b[<35;${at!.x + 1};${at!.y + 1}M`);
+    expect(hovered).toEqual([url]);
+    await mouseInput(s, `\x1b[<0;${at!.x + 1};${at!.y + 1}M`);
+    await mouseInput(s, `\x1b[<0;${at!.x + 1};${at!.y + 1}m`);
+    expect(s.effects).toEqual([{ open_url: url, machine: s.machine.id }]);
+  } finally {
+    done();
+  }
+});
+
 test("a link's scheme is matched whatever its case", async () => {
   expect(webLinks.openable("HTTPS://example.com/")).toBe(true);
   expect(webLinks.openable("Http://example.com/")).toBe(true);

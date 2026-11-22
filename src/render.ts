@@ -972,7 +972,8 @@ export function frame(
         for (const ws of u.workspaces) {
           if (ws.id !== menu.workspace) continue;
           const index = menu.hit(ws, width, height, pointer.x, pointer.y);
-          if (index !== null) hovered_uri = sidebar.workspaceUrl(ws, index);
+          const url = index === null ? null : sidebar.workspaceUrl(ws, index);
+          if (url !== null) hovered_uri = sidebar.linkStatus(ws, url);
           break;
         }
       } else {
@@ -1007,7 +1008,9 @@ export function frame(
           const add_x = side.tabX() + addTabX(view, width - side.tabX() - side.panel);
           link_pointer = link_pointer || (pointer.x >= add_x && pointer.x < add_x + 3);
         }
-        hovered_uri = sidebar.portLink(side, u.workspaces, pointer.x, pointer.y);
+        const port = sidebar.portWorkspace(side, u.workspaces, pointer.x, pointer.y),
+          port_url = sidebar.portLink(side, u.workspaces, pointer.x, pointer.y);
+        hovered_uri = port && port_url ? sidebar.linkStatus(port, port_url) : null;
         // The sidebar's last column drags its width, ahead of any control there.
         if (side.width > 0 && pointer.x === side.width - 1) resize_hover = "horizontal";
         else if (u.review_width > 0 && pointer.x === width - u.review_width) resize_hover = "horizontal";
