@@ -1046,7 +1046,8 @@ export interface ReplyPayloads {
   "account.remove": Ok & { deleted: boolean };
   "launcher.models": Ok & { models: import("./agent_models").Choice[] };
   "session.list": Ok & { result: SessionSnapshot; viewers: ViewerInfo[] };
-  "session.snapshot": SessionSnapshot;
+  /** `tricks` carries the daemon's trick drawings to a viewer polling without a stream. */
+  "session.snapshot": SessionSnapshot & { tricks?: import("./tricks").View[] };
   "session.subscribe": SessionSnapshot;
   "viewer.open": Ok & Opened;
   "viewer.sync": View<ViewerSnapshot, import("./trackers/resources").Snapshot>;

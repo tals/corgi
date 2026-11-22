@@ -1024,7 +1024,7 @@ export class Server {
         }
         // Resumed viewers can poll before streaming; omitted interests leave their configuration alone.
         if (!cl.viewer || "worktree_detail" in v) cl.worktree_detail = request.payload.worktree_detail;
-        reply.send(session.snapshot(this.runtime));
+        reply.send({ ...session.snapshot(this.runtime), tricks: this.tricks.views() });
         return;
       case "session.subscribe":
         if (cl.viewer || cl.launch_preview || cl.watching) throw Error("AlreadyAttached");

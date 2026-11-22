@@ -17,6 +17,7 @@ import type * as hostImages from "./host_images";
 import * as rowGlide from "./row_glide";
 import type { Summary as ArchiveSummary } from "./archive_summary";
 import type { Brand } from "./process_name";
+import type { Title as TrickTitle } from "./tricks";
 import * as tabIcons from "./tab_icons";
 import type { Cell } from "./fork_hero";
 import { url as portUrl } from "./trackers/ports";
@@ -66,6 +67,35 @@ export function unlit(entries: Entry[], spot: Spotlight | null): boolean[] {
 }
 /** The lists draw one column in: column 0 stays free for the focused list's box. */
 export const lists_x = 1;
+/** Title items laid out right to left from `[ + ]` at `end`, each with a
+ * blank cell on its `[ + ]` side. The title from `start` keeps one blank cell
+ * before them and gives up its room from `title` down to `min` first; then
+ * items drop whole, last first. */
+export function titleItems(
+  start: number,
+  end: number,
+  title: number,
+  min: number,
+  widths: number[],
+): { placed: { x: number; w: number; index: number }[]; titleRoom: number } {
+  const available = end - 1 - start;
+  let count = widths.length,
+    used = widths.reduce((n, w) => n + w + 1, 0);
+  while (count > 0 && min + used > available) used -= widths[--count] + 1;
+  const placed: { x: number; w: number; index: number }[] = [];
+  let x = end;
+  for (let index = count - 1; index >= 0; index--) {
+    x -= widths[index] + 1;
+    placed.unshift({ x, w: widths[index], index });
+  }
+  return { placed, titleRoom: Math.min(title, available - used) };
+}
+/** The narrowest title beside title items: at most four cells, whole
+ * characters only, and the ellipsis; a title of five cells or fewer stays whole. */
+export function minTitle(text: string): number {
+  const full = displayWidth(text);
+  return full <= 5 ? full : displayWidth(clipped(text, 4)) + 1;
+}
 /** The drag grip in the middle of the rule between the lists. */
 const split_grip = " ⠶⠶⠶ ";
 /** Drops what `bytes` writes from row `end` (0-based) down and above row
@@ -719,6 +749,10 @@ export class Preview {
 export class View {
   trick_icons: trickUi.Icon[] | null = null;
   trick_controls: trickUi.Controls | null = null;
+  /** Tricks' title items, in the daemon's order. */
+  title_items: TrickTitle[] = [];
+  /** Title items drawn without taking input, as over a dimmed sidebar. */
+  title_inert = false;
   search: Search | null = null;
   /** Header scope: "all" or the workspace whose agents are listed. */
   scope_label = "";
@@ -1397,6 +1431,8 @@ export class View {
     if (v.width === 0) return v.cols >= 64 && x < 3 && y === 0 ? hit("toggle") : hit("none");
     if (x >= v.width - 1 || y >= v.rows) return hit("none");
     if (y === 0 && v.single() !== "agents") {
+      // A title item and its gap: its press is the trick's, never the title's.
+      if (v.titleLayout().placed.some(item => x >= item.x && x <= item.x + item.w)) return hit("none");
       if (v.workspaceScope()?.contains(x, y)) return hit("workspace_scope");
       if (x >= v.width - (v.workspace_scope ? 2 : 5)) return hit("toggle");
       if (v.workspace_scope ? x >= v.width - 8 && x < v.width - 3 : x >= v.width - 11 && x < v.width - 6)
@@ -1664,7 +1700,7 @@ export class View {
     w.write(`${w.cup(1, 1)}${panel}`);
     w.splat(" ", this.width - 1);
     w.write(fg("line") + "│");
-    w.withColumns(lists_x, () => this.lists().drawTitle(w, create));
+    w.withColumns(lists_x, () => this.lists().drawTitle(w, create, true));
     w.write("\x1b[0m");
   }
   /** The corgi, the title, and its buttons. */
@@ -1674,16 +1710,57 @@ export class View {
       const box = this.lists().workspaceScope();
       return box ? new Rect(box.x + lists_x, box.y, box.w, box.h) : null;
     }
+    const base = this.scopeBase();
+    if (!base) return null;
+    // Title items take their room from the title, so the selector moves left with it.
+    const room = this.titleLayout().placed.length ? this.titleLayout().titleRoom - base.width - 1 : base.title;
+    return new Rect(base.start + room + 1, 0, base.width, 1);
+  }
+  /** The selector's width and the title's before title items take any room. */
+  private scopeBase(): { start: number; title: number; width: number } | null {
     if (!this.workspace_scope || !this.width || this.drawer === "agents") return null;
     const start = this.corgi_badge === "none" ? 1 : 5;
     const room = Math.max(0, this.width - 9 - start);
     const width = Math.min(Math.max(0, room - 2), 10, displayWidth(this.workspace_scope) + 2);
     const title = Math.min(10, room - width - 1);
-    return width >= 3 ? new Rect(start + title + 1, 0, width, 1) : null;
+    return width >= 3 ? { start, title, width } : null;
   }
-  private drawTitle(w: Writer, create = false): void {
+  /** Where title items go in the title row, in this view's columns; the
+   * badge, `[ + ]` and `<` stay where they are without them, and the scope
+   * selector keeps its width. */
+  private titleLayout(): { placed: { x: number; w: number; item: TrickTitle }[]; titleRoom: number } {
+    const v = this;
+    const items = v.title_items.map(item => ({ item, w: trickUi.width(item.spans) })).filter(entry => entry.w > 0);
+    if (!items.length || v.width === 0 || v.drawer === "agents") return { placed: [], titleRoom: 0 };
+    const scope = v.scopeBase();
+    const label = i18n.t`workspaces`;
+    // With the selector shown, the title and the selector after it shorten as one block.
+    const layout = scope
+      ? titleItems(
+          scope.start,
+          v.width - 8,
+          scope.title + 1 + scope.width,
+          Math.min(minTitle(label), scope.title) + 1 + scope.width,
+          items.map(entry => entry.w),
+        )
+      : titleItems(
+          v.corgi_badge === "none" ? 1 : 5,
+          v.width - 11,
+          displayWidth(label),
+          minTitle(label),
+          items.map(entry => entry.w),
+        );
+    return {
+      placed: layout.placed.map(({ x, w, index }) => ({ x, w, item: items[index].item })),
+      titleRoom: layout.titleRoom,
+    };
+  }
+  /** `again` redraws the row over a dimmed sidebar: its items' icons are
+   * already placed and its items take no input. */
+  private drawTitle(w: Writer, create = false, again = false): void {
     const v = this;
     const scope = v.workspaceScope();
+    const items = v.titleLayout();
     w.write(`${w.cup(1, v.width - (scope ? 1 : 4))}${panel}` + (scope ? "<" : " < "));
     if (scope) {
       if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
@@ -1696,8 +1773,35 @@ export class View {
     } else if (v.corgi_badge !== "none") {
       if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
       w.write(`${w.cup(1, 6)}\x1b[1m` + fg("strong"));
-      writeEllipsis(w, i18n.t`workspaces`, sat(v.width, 17));
+      writeEllipsis(w, i18n.t`workspaces`, items.placed.length ? items.titleRoom : sat(v.width, 17));
+    } else if (items.placed.length) {
+      w.write(`${w.cup(1, 2)}\x1b[1m` + fg("strong"));
+      writeEllipsis(w, i18n.t`workspaces`, items.titleRoom);
     } else v.line(w, 0, i18n.t`workspaces`, "\x1b[1m" + fg("strong"));
+    const offset = v.inner ? lists_x : 0,
+      controls = again || v.title_inert ? null : v.trick_controls,
+      icons = v.trick_icons && (again ? [] : v.trick_icons),
+      hits: trickUi.Hit[] = [];
+    for (const { x, w: cols, item } of items.placed) {
+      const slot = item.slot ?? item.action,
+        focused = controls !== null && slot !== undefined && controls.focus === slot;
+      w.write(w.cup(1, x + 1) + panel + (focused ? "\x1b[7m" : ""));
+      trickUi.write(
+        w,
+        item.spans,
+        cols,
+        icons ? { icons, x: x + offset, y: 0, covered: 0 } : undefined,
+        item.color ?? "muted",
+      );
+      if (focused) w.write("\x1b[27m");
+      if (item.action !== undefined && slot !== undefined)
+        hits.push({ action: item.action, slot, rect: new Rect(x + offset, 0, cols, 1), covered: 0 });
+    }
+    // Title items lead the keyboard cycle, in the daemon's order.
+    if (controls && hits.length) controls.hits.unshift(...hits);
+    if (again && icons && v.trick_icons)
+      for (const icon of icons)
+        if (!v.trick_icons.some(placed => placed.x === icon.x && placed.y === icon.y)) v.trick_icons.push(icon);
     w.write(w.cup(1, v.width - (scope ? 7 : 10)) + (create ? palette.call_to_action : button) + `[ + ]${panel}`);
   }
   /** The title row and the workspace list above the agents. */

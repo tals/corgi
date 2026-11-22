@@ -768,6 +768,49 @@ createInterface({ input: process.stdin }).on("line", line => {
     await this.shown("Personal *");
   }
 
+  async test_a_raw_title_item_sits_left_of_new_and_presses_only_its_trick() {
+    await this.probe(
+      `import { createInterface } from "node:readline";
+import { appendFileSync } from "node:fs";
+const send = v => console.log(JSON.stringify(v));
+const dot = text => send({ op: "ui.set", key: "dot", view: { kind: "title", spans: [{ text }], color: "hot", action: "toggle-1" } });
+createInterface({ input: process.stdin }).on("line", line => {
+  const e = JSON.parse(line);
+  if (e.id !== undefined) appendFileSync("events.jsonl", line + "\\n");
+  if (e.event === "ready") {
+    dot("●");
+    send({ id: "wide", op: "ui.set", key: "wide", view: { kind: "title", spans: [{ text: "abcde" }] } });
+    send({ id: "second", op: "ui.set", key: "second", view: { kind: "title", spans: [{ text: "○" }] } });
+  }
+  if (e.event === "ui.press") {
+    appendFileSync("events.jsonl", line + "\\n");
+    dot("○");
+  }
+});`,
+      "events = []",
+    );
+    await this.agent("Title");
+    const lines = screen_text(await this.shown("● [ + ]"));
+    this.assertTrue(lines[0].includes("● [ + ]"));
+    const before = await this.client!.poll();
+    this.assertEqual(before.trick_buttons[0].rect.y, 0);
+    const pressed = Date.now();
+    await this.click(lines[0].indexOf("● [ + ]") + 1, 1);
+    await this.shown("○ [ + ]");
+    // SC-001: the trick's redraw reaches the viewer within a second of the press.
+    this.assertTrue(Date.now() - pressed < 1000);
+    // A raw program learns of a rejected title at once, its item left as it was.
+    const replies = this.records();
+    this.assertTrue(replies.some(e => e.id === "wide" && e.error === "TitleTooWide"));
+    this.assertTrue(replies.some(e => e.id === "second" && e.error === "TitleExists"));
+    await this.until(() => this.records().some(e => e.event === "ui.press"));
+    await Bun.sleep(200);
+    const records = this.records().filter(e => e.event === "ui.press");
+    this.assertEqual(records.length, 1);
+    this.assertEqual(records[0].action, "toggle-1");
+    this.assertEqual(records[0].viewer, before.viewer);
+  }
+
   async test_a_noisy_trick_is_stopped_without_affecting_other_tricks() {
     await this.probe('process.stdout.write("x".repeat(65537)); setInterval(() => {}, 1000);', "events = []");
     await this.until(async () =>

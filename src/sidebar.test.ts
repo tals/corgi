@@ -2,6 +2,10 @@ import * as hostImages from "./host_images";
 import * as rowGlide from "./row_glide";
 import * as viewerRef from "./viewer_ref";
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import * as trickUi from "./trick_ui";
+import { Rect } from "./layout";
+import type * as tricks from "./tricks";
 import * as i18n from "./i18n";
 import * as palette from "./palette";
 import { Style, colors, fg, fgRgb, bgRgb, mix, underline } from "./palette";
@@ -63,6 +67,8 @@ import {
   rowDetail,
   activityKind,
   corgiMode,
+  titleItems,
+  minTitle,
 } from "./sidebar";
 import { Dialog } from "./name_dialog";
 import type { RenameTarget } from "./inline_rename";
@@ -2323,4 +2329,351 @@ test("a name longer than the field shows its tail, and the caret follows it", ()
   expect(caret(view.withRename(renaming(viewerRef.pane(0, 9), "lost")))).toBe("");
   const scrolled = View.init(100, 30, true, 3, 20).withWorkspaces(3, 0).withEntries(agents(20));
   expect(caret(scrolled.withRename(renaming(viewerRef.pane(0, 1), "gone")))).toBe("");
+});
+
+/** Row 1 of `bytes`: the writes the title row takes. */
+const titleRow = (bytes: string) =>
+  bytes
+    .split(/(?=\x1b\[\d+;\d+H)/)
+    .filter(part => /^\x1b\[1;\d+H/.test(part))
+    .join("");
+const titleView = (width: number, badge: "none" | "emoji" | "image", scope: string) => {
+  const v = View.init(100, 30, true, 0, 0).withWidth(width);
+  v.corgi_badge = badge;
+  v.workspace_scope = scope;
+  return v;
+};
+/** The title row as the sidebar draws it, framed and plain, and as drawn again over a dimmed sidebar. */
+const titleOutputs = (v: View) => {
+  const row = (create: boolean) => {
+    const w = new Writer();
+    v.drawTitleRow(w, create);
+    return w.buffered();
+  };
+  return {
+    framed: titleRow(draw(v, [], [], 0)),
+    plain: titleRow(draw(v.lists(), [], [], 0)),
+    row: row(false),
+    create: row(true),
+  };
+};
+const title_badges = ["none", "emoji", "image"] as const;
+const titleDigests = () => {
+  const out: Record<string, string> = {};
+  for (const badge of title_badges)
+    for (const scope of ["", "all"]) {
+      const hashes = {
+        framed: createHash("sha256"),
+        plain: createHash("sha256"),
+        row: createHash("sha256"),
+        create: createHash("sha256"),
+      };
+      for (let width = 20; width <= 60; width++) {
+        const outputs = titleOutputs(titleView(width, badge, scope));
+        for (const kind of ["framed", "plain", "row", "create"] as const) hashes[kind].update(outputs[kind] + "\n");
+      }
+      for (const kind of ["framed", "plain", "row", "create"] as const)
+        out[`${badge}/${scope ? "scope" : "title"}/${kind}`] = hashes[kind].digest("hex").slice(0, 16);
+    }
+  return out;
+};
+
+test("the title row without trick items keeps its cells at every width", () => {
+  const text = (v: View) => {
+    const o = titleOutputs(v);
+    return [o.framed, o.plain, o.row].map(bytes => hostText(bytes, 100, 1).trimEnd());
+  };
+  expect(text(titleView(28, "emoji", ""))).toEqual([
+    "  🐕  workspaces [ + ]  <  │",
+    " 🐕  workspaces [ + ]  <  │",
+    "  🐕  workspaces [ + ]  <  │",
+  ]);
+  expect(text(titleView(28, "none", "all"))).toEqual([
+    "  workspaces all ▾  [ + ] <│",
+    " workspaces all ▾  [ + ] <│",
+    "  workspaces all ▾  [ + ] <│",
+  ]);
+  expect(text(titleView(20, "image", ""))).toEqual([
+    "      w… [ + ]  <  │",
+    "     w… [ + ]  <  │",
+    "      w… [ + ]  <  │",
+  ]);
+  // Recorded from the title row before trick items existed: widths 20 to 60, bytes included.
+  expect(titleDigests()).toEqual({
+    "none/title/framed": "5759bb0fb3146fe7",
+    "none/title/plain": "9487aa9ee860c9dc",
+    "none/title/row": "abb8d6321c748f1b",
+    "none/title/create": "b3803fb6df7c4dba",
+    "none/scope/framed": "2f318dcd138d0c19",
+    "none/scope/plain": "e7cc7d333172b116",
+    "none/scope/row": "0a37b664a28443db",
+    "none/scope/create": "854a829a7e8584b2",
+    "emoji/title/framed": "58a2689dcefae8fb",
+    "emoji/title/plain": "c27de1847895c997",
+    "emoji/title/row": "7467bc135738043c",
+    "emoji/title/create": "5b154329082021bb",
+    "emoji/scope/framed": "5c194e623e3196ea",
+    "emoji/scope/plain": "31fbd62876a6eb31",
+    "emoji/scope/row": "4e57aa7f2d0aab15",
+    "emoji/scope/create": "be0f39ce9acf6bc1",
+    "image/title/framed": "f0b22ecc3fdd9646",
+    "image/title/plain": "897b3f08c64e35a5",
+    "image/title/row": "7d7749fa37e78e9b",
+    "image/title/create": "565f32529044f629",
+    "image/scope/framed": "9ca7483e867d0e24",
+    "image/scope/plain": "22235e44726db908",
+    "image/scope/row": "004749021e3364a9",
+    "image/scope/create": "7864ec479d66e55d",
+  });
+});
+
+test("title items take room right to left from [ + ] and drop whole, last first", () => {
+  expect(titleItems(5, 40, 10, 5, [1])).toEqual({ placed: [{ x: 38, w: 1, index: 0 }], titleRoom: 10 });
+  // The title gives up its room first, down to its minimum.
+  expect(titleItems(5, 16, 10, 5, [1, 2])).toEqual({
+    placed: [
+      { x: 11, w: 1, index: 0 },
+      { x: 13, w: 2, index: 1 },
+    ],
+    titleRoom: 5,
+  });
+  expect(titleItems(5, 15, 10, 5, [1, 2])).toEqual({ placed: [{ x: 13, w: 1, index: 0 }], titleRoom: 7 });
+  expect(titleItems(5, 11, 10, 5, [1]).placed).toEqual([]);
+  // Beside the scope selector nothing shrinks.
+  expect(titleItems(20, 25, 0, 0, [2])).toEqual({ placed: [{ x: 22, w: 2, index: 0 }], titleRoom: 0 });
+  expect(titleItems(20, 23, 0, 0, [2]).placed).toEqual([]);
+  expect(minTitle("workspaces")).toBe(5);
+  expect(minTitle("abcde")).toBe(5);
+  expect(minTitle("abc")).toBe(3);
+  expect(minTitle("界界界")).toBe(5);
+  expect(minTitle("a界界界")).toBe(4);
+});
+
+const titleItem = (text: string, extra: Partial<tricks.Title> = {}): tricks.Title => ({
+  kind: "title",
+  spans: [{ text }],
+  ...extra,
+});
+const withItems = (v: View, items: tricks.Title[]) => {
+  v.title_items = items;
+  return v;
+};
+const withItemsOut = (v: View, items: tricks.Title[]) => titleRow(draw(withItems(v, items), [], [], 0));
+
+test("a title item sits left of [ + ] in its color", () => {
+  const v = withItems(titleView(30, "emoji", ""), [titleItem("♫", { color: "accent" })]);
+  const out = titleRow(draw(v, [], [], 0));
+  const line = hostText(out, 100, 1);
+  const plus = line.indexOf("[ + ]");
+  expect(plus).toBe(19);
+  expect(line.slice(plus - 3, plus)).toBe(" ♫ ");
+  expect(line.slice(0, plus - 3).trimEnd()).toBe("  🐕  workspaces");
+  expect(has(out, trickUi.fg("accent") + "♫")).toBe(true);
+  expect(has(withItemsOut(titleView(30, "emoji", ""), [titleItem("●")]), trickUi.fg("muted") + "●")).toBe(true);
+  // Span colors win over the item's.
+  const spans = withItemsOut(titleView(30, "emoji", ""), [
+    { kind: "title", spans: [{ text: "●", color: "hot" }], color: "accent" },
+  ]);
+  expect(has(spans, trickUi.fg("hot") + "●")).toBe(true);
+  // An emptied list draws the row as before.
+  expect(titleOutputs(withItems(titleView(30, "emoji", ""), []))).toEqual(titleOutputs(titleView(30, "emoji", "")));
+});
+
+test("a brand icon item places its image in the framed sidebar's columns", () => {
+  const v = withItems(titleView(30, "emoji", ""), [{ kind: "title", spans: [{ text: "", icon: "node" }] }]);
+  v.trick_icons = [];
+  const line = hostText(titleRow(draw(v, [], [], 0)), 100, 1);
+  expect(line.slice(16, 18)).toBe("  ");
+  expect(v.trick_icons).toEqual([{ brand: "node", x: 16, y: 0, covered: 0 }]);
+  expect(line.indexOf("[ + ]")).toBe(19);
+});
+
+test("framed title items keep the lists' columns, one in from the plain view", () => {
+  for (const scope of ["", "all"]) {
+    const v = withItems(titleView(36, "none", scope), [titleItem("ab"), titleItem("c")]);
+    const framed = hostText(titleRow(draw(v, [], [], 0)), 100, 1),
+      plain = hostText(titleRow(draw(v.lists(), [], [], 0)), 100, 1);
+    expect(framed.indexOf("ab")).toBe(plain.indexOf("ab") + lists_x);
+    expect(framed.indexOf(" c [ + ]")).toBe(plain.indexOf(" c [ + ]") + lists_x);
+    expect(framed.indexOf("ab c [ + ]")).toBeGreaterThan(0);
+  }
+});
+
+test("pressable title items lead the trick controls and take their cells from the title", () => {
+  const controls = (focus: string | null = null): trickUi.Controls => ({
+    hits: [{ action: "row.1", slot: "row.1", rect: new Rect(3, 9, 5, 1), covered: 0 }],
+    focus,
+  });
+  const v = withItems(titleView(36, "emoji", ""), [
+    titleItem("ab", { action: "t.a" }),
+    titleItem("c"),
+    titleItem("d", { action: "t.d", slot: "t.pad" }),
+  ]);
+  v.trick_controls = controls();
+  const out = withItemsOut(v, v.title_items);
+  const line = hostText(out, 100, 1);
+  const at = (text: string) => line.indexOf(text);
+  expect(v.trick_controls.hits.map(hit => [hit.action, hit.slot, hit.rect.x, hit.rect.w, hit.rect.y])).toEqual([
+    ["t.a", "t.a", at("ab"), 2, 0],
+    ["t.d", "t.pad", at("d [ + ]"), 1, 0],
+    ["row.1", "row.1", 3, 5, 9],
+  ]);
+  expect(has(out, "\x1b[7m")).toBe(false);
+  // Every item cell and gap is the trick's, not the title's or the button's.
+  for (const x of [
+    at("ab"),
+    at("ab") + 1,
+    at("ab") + 2,
+    at(" c ") + 1,
+    at(" c ") + 2,
+    at("d [ + ]"),
+    at("d [ + ]") + 1,
+  ])
+    expect(v.hit(x, 0)).toEqual(H("none"));
+  expect(v.hit(at("[ + ]"), 0)).toEqual(H("workspace_new"));
+  expect(v.hit(at("[ + ]") + 4, 0)).toEqual(H("workspace_new"));
+  // Focus shows as reverse video over the item's cells only.
+  v.trick_controls = controls("t.pad");
+  const focused = withItemsOut(v, v.title_items);
+  expect(has(focused, "\x1b[7m")).toBe(true);
+  expect(hostText(focused, 100, 1)).toBe(line);
+  expect(focused.slice(focused.indexOf("\x1b[7m"), focused.indexOf("\x1b[27m"))).toContain("d");
+  expect(focused.slice(focused.indexOf("\x1b[7m"), focused.indexOf("\x1b[27m"))).not.toContain("ab");
+});
+
+test("title items take no input when inert or drawn again, and none show without a title row", () => {
+  const items = [titleItem("●", { action: "t.dot" })];
+  const inert = withItems(titleView(36, "emoji", ""), items);
+  inert.title_inert = true;
+  inert.trick_controls = { hits: [], focus: "t.dot" };
+  const out = withItemsOut(inert, items);
+  expect(hostText(out, 100, 1)).toContain("● [ + ]");
+  expect(has(out, "\x1b[7m")).toBe(false);
+  expect(inert.trick_controls.hits).toEqual([]);
+  const again = withItems(titleView(36, "emoji", ""), items);
+  again.trick_controls = { hits: [], focus: null };
+  for (const create of [false, true]) {
+    const w = new Writer();
+    again.drawTitleRow(w, create);
+    expect(hostText(w.buffered(), 100, 1)).toContain("● [ + ]");
+  }
+  expect(again.trick_controls.hits).toEqual([]);
+  // Drawn again over a dimmed sidebar, an icon item keeps one image.
+  const icon = withItems(titleView(36, "emoji", ""), [{ kind: "title", spans: [{ text: "", icon: "node" }] }]);
+  icon.trick_icons = [];
+  draw(icon, [], [], 0);
+  icon.drawTitleRow(new Writer(), false);
+  expect(icon.trick_icons).toHaveLength(1);
+  const closed = withItems(View.init(100, 30, false, 0, 0), items);
+  closed.trick_controls = { hits: [], focus: null };
+  expect(hostText(draw(closed, [], [], 0), 100, 1)).not.toContain("●");
+  expect(closed.trick_controls.hits).toEqual([]);
+  const drawer = withItems(titleView(36, "emoji", ""), items);
+  drawer.drawer = "agents";
+  drawer.trick_controls = { hits: [], focus: null };
+  expect(hostText(draw(drawer, [], [], 0), 100, 1)).not.toContain("●");
+  expect(drawer.trick_controls.hits).toEqual([]);
+});
+
+test("title items never move Corgi's controls and drop whole at every width", () => {
+  const sets = [[titleItem("#")], [titleItem("#"), titleItem("%%")]];
+  const label = "workspaces",
+    min = minTitle(label),
+    seen = new Set<string>();
+  for (const badge of title_badges)
+    for (const scope of ["", "all"])
+      for (let width = 20; width <= 60; width++)
+        for (const items of sets) {
+          const bare = titleView(width, badge, scope),
+            full = withItems(titleView(width, badge, scope), items);
+          const before = titleOutputs(bare),
+            after = titleOutputs(full);
+          for (const kind of ["framed", "plain", "row", "create"] as const) {
+            const was = hostText(before[kind], 100, 1),
+              row = hostText(after[kind], 100, 1),
+              where = `${badge} ${scope || "-"} ${width} ${items.length} ${kind}`;
+            const plus = was.lastIndexOf("[ + ]");
+            expect([row.lastIndexOf("[ + ]"), row.lastIndexOf("<"), where]).toEqual([
+              plus,
+              was.lastIndexOf("<"),
+              where,
+            ]);
+            expect(row.slice(plus)).toBe(was.slice(plus));
+            // Whole or absent, the first before the second, each with blank cells around it.
+            const hash = row.indexOf("#"),
+              percent = row.indexOf("%");
+            expect([
+              row.split("#").length - 1 <= 1,
+              row.split("%").length - 1 === (percent < 0 ? 0 : 2),
+              where,
+            ]).toEqual([true, true, where]);
+            if (percent >= 0) expect([hash >= 0 && hash < percent, where]).toEqual([true, where]);
+            for (const [at, w] of [
+              [hash, 1],
+              [percent, 2],
+            ] as const)
+              if (at >= 0) expect([row[at - 1], row[at + w], where]).toEqual([" ", " ", where]);
+            const shown = (hash >= 0 ? 1 : 0) + (percent >= 0 ? 1 : 0);
+            seen.add(`${scope ? "scope" : "title"} ${items.length}:${shown}`);
+            const first = hash >= 0 ? hash : plus,
+              start = (badge === "none" ? 1 : 5) + (kind === "plain" ? 0 : lists_x);
+            const selector = "all ▾",
+              was_at = was.indexOf(selector),
+              at = row.indexOf(selector),
+              was_title = scope && was_at >= 0 ? displayWidth(was.slice(start, was_at).trimEnd()) : 0;
+            if (scope && was_at >= 0) {
+              // The selector stays whole and before the items; only the title gives way.
+              expect([at >= 0 && at <= was_at && at + selector.length < first, where]).toEqual([true, where]);
+              const text = row.slice(start, at).trimEnd();
+              expect([
+                displayWidth(text) >= Math.min(min, was_title),
+                label.startsWith(text.replace("…", "")),
+                where,
+              ]).toEqual([true, true, where]);
+            } else if (scope) {
+              expect([row.slice(0, first).trimEnd(), where]).toEqual([was.slice(0, plus).trimEnd(), where]);
+            } else if (shown) {
+              const text = row.slice(start, first).trimEnd();
+              expect([displayWidth(text) >= min, label.startsWith(text.replace("…", "")), where]).toEqual([
+                true,
+                true,
+                where,
+              ]);
+            }
+            if (shown < items.length && (!scope || was_at >= 0)) {
+              // An item drops only when it can't fit beside the shortest title (and the selector).
+              const needed = items.slice(0, shown + 1).reduce((n, item) => n + displayWidth(item.spans[0].text) + 1, 0),
+                block = scope ? Math.min(min, was_title) + 1 + displayWidth(selector) : min;
+              expect([start + block + 1 + needed > plus, where]).toEqual([true, where]);
+            }
+          }
+          // Hit testing: Corgi's own targets are unchanged, item cells are inert;
+          // the selector keeps its width and may only move left, still hit where drawn.
+          const was_scope = bare.workspaceScope(),
+            now_scope = full.workspaceScope();
+          for (let x = 0; x < width; x++) {
+            const was = bare.hit(x, 0);
+            if (was.tag !== "none" && was.tag !== "workspace_scope") expect([x, full.hit(x, 0)]).toEqual([x, was]);
+            if (now_scope?.contains(x, 0)) expect([x, full.hit(x, 0).tag]).toEqual([x, "workspace_scope"]);
+          }
+          expect([now_scope?.w, now_scope?.y]).toEqual([was_scope?.w, was_scope?.y]);
+          if (was_scope && now_scope) expect(now_scope.x).toBeLessThanOrEqual(was_scope.x);
+        }
+  // The sweep reaches every outcome: all shown, the last dropped, none.
+  for (const outcome of ["1:0", "1:1", "2:0", "2:1", "2:2"]) {
+    expect(seen.has(`title ${outcome}`)).toBe(true);
+    expect(seen.has(`scope ${outcome}`)).toBe(true);
+  }
+});
+
+test("with the machine selector at the default width, the title shortens so an item fits", () => {
+  for (const badge of title_badges) {
+    const bare = titleView(28, badge, "all"),
+      v = withItems(titleView(28, badge, "all"), [titleItem("♫")]);
+    const row = hostText(titleRow(draw(v, [], [], 0)), 100, 1),
+      was = hostText(titleRow(draw(bare, [], [], 0)), 100, 1);
+    expect(row).toContain("all ▾ ♫ [ + ]");
+    expect(row.indexOf("[ + ]")).toBe(was.indexOf("[ + ]"));
+    expect(v.workspaceScope()!.w).toBe(bare.workspaceScope()!.w);
+  }
 });

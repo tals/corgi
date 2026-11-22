@@ -50,6 +50,21 @@ function modelReads() {
     },
   };
 }
+test("a snapshot carries the daemon's trick drawings for a viewer that polls without a stream", async () => {
+  const { server, dispose } = fixture(),
+    client = server.addClient(null, false),
+    sent: object[] = [];
+  spyOn(client, "queue").mockImplementation(value => void sent.push(value as object));
+  const dot = { kind: "title" as const, spans: [{ text: "●" }], action: "i.dot", slot: "i.dot" };
+  spyOn(server.tricks, "views").mockReturnValue([dot]);
+  try {
+    await server.request(client, { op: "session.snapshot", protocol: protocol.version });
+    expect(sent.at(-1)).toMatchObject({ tricks: [dot] });
+  } finally {
+    client.close();
+    dispose();
+  }
+});
 test("snapshot worktree interest belongs to its client without attaching a viewer", async () => {
   const { server, dispose } = fixture(),
     first = server.addClient(null, false),

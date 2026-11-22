@@ -29,7 +29,8 @@ async function flakyDaemon(
   const path = join(dir, "control.sock");
   const seen: { op: string; seq?: number; worktree_detail?: number | null }[] = [];
   let instance = "first",
-    dropped = false;
+    dropped = false,
+    drawings: unknown[] | undefined;
   const snapshot = {
     workspaces: [
       {
@@ -102,6 +103,9 @@ async function flakyDaemon(
           }
           reply({ ok: true, result: { pane: 1, tab: 1, workspace: 1, text: null, closed_panes: [] } });
           break;
+        case "session.snapshot":
+          reply(drawings ? { ...snapshot, tricks: drawings } : snapshot);
+          break;
         default:
           reply(snapshot);
       }
@@ -116,6 +120,8 @@ async function flakyDaemon(
     path,
     seen,
     replace: (next = "second") => (instance = next),
+    /** What `session.snapshot` says the daemon's tricks draw. */
+    draw: (views: unknown[]) => (drawings = views),
     connect: () => Reflect.get(endpoint, "connect").call(endpoint) as Promise<void>,
     disconnect: () => Reflect.get(endpoint, "disconnect").call(endpoint),
     close: async () => {
@@ -1469,3 +1475,61 @@ function queued(endpoint: Endpoint): number[] {
   const events: Input[] = Reflect.get(Reflect.get(endpoint, "input"), "events");
   return Array.from(Buffer.concat(events.map(input => input.bytes)));
 }
+
+test("the first machine's title items go with its connection and return with its next drawings", async () => {
+  const daemon = await flakyDaemon(),
+    endpoint = daemon.endpoint,
+    view = new Controller(endpoint.machine),
+    step = (visible: boolean) =>
+      Reflect.get(endpoint, "step").call(endpoint, visible, Reflect.get(endpoint, "selection")) as Promise<boolean>;
+  endpoint.controller = view;
+  const dot = { kind: "title" as const, spans: [{ text: "●" }], action: "i.dot", slot: "i.dot" },
+    shown = { kind: "title" as const, spans: [{ text: "●" }] };
+  try {
+    await daemon.connect();
+    daemon.draw([dot]);
+    // Not streaming, it polls: its drawings come with the snapshot, though
+    // with no viewer on that daemon to press as, the item only shows.
+    await step(false);
+    expect(endpoint.machine.tricks_current).toBe(true);
+    expect(view.titleTricks()).toEqual([shown]);
+    daemon.disconnect();
+    endpoint.status = "connecting";
+    expect(endpoint.machine.tricks_current).toBe(false);
+    expect(view.titleTricks()).toEqual([]);
+    await daemon.connect();
+    await step(false);
+    expect(view.titleTricks()).toEqual([shown]);
+    // A reply made here for controls repeats what the viewer holds, not the daemon's drawings.
+    endpoint.activate();
+    await step(true);
+    expect(view.titleTricks()).toEqual([dot]);
+    endpoint.status = "connecting";
+    endpoint.status = "online";
+    Reflect.set(endpoint, "controls", [{ seq: 0n, kind: "action", name: "noop" }]);
+    await step(true);
+    expect(endpoint.machine.tricks_current).toBe(false);
+    expect(view.titleTricks()).toEqual([]);
+  } finally {
+    view.launch_previews.disconnect();
+    await daemon.close();
+    view.runtime.destroy();
+  }
+});
+
+test("a machine other than the first keeps its title drawings out of its snapshot", async () => {
+  const daemon = await flakyDaemon(),
+    endpoint = daemon.endpoint,
+    view = new Controller(transport(async () => ({})));
+  endpoint.controller = view;
+  view.adopt(endpoint.machine);
+  try {
+    await daemon.connect();
+    daemon.draw([{ kind: "title", spans: [{ text: "●" }] }]);
+    await Reflect.get(endpoint, "step").call(endpoint, false, 0);
+    expect(endpoint.machine.runtime.tricks).toEqual([]);
+  } finally {
+    await daemon.close();
+    view.runtime.destroy();
+  }
+});

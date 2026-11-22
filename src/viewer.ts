@@ -260,6 +260,7 @@ export async function receive(
   machine.runtime.snapshot_hash = reply.session_hash == null ? null : BigInt(reply.session_hash);
   if (reply.resources) machine.runtime.receiveResources(reply.resources);
   machine.runtime.tricks = tricks.views(reply.tricks);
+  machine.tricks_current = true;
   machine.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
   machine.viewer_id = reply.viewer ?? 0;
   // A machine in the background still opens the links its panes' programs

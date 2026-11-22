@@ -116,6 +116,9 @@ export class Machine {
   profiles = new Profiles();
   /** A remote machine's home folder, as its daemon last said; "" until then. */
   home = "";
+  /** Whether `runtime.tricks` came over the connection as it is now: false
+   * from a drop until the next sync brings the daemon's drawings again. */
+  tricks_current = true;
   presence: () => Presence = () => ({
     online: true,
     link_quality: null,

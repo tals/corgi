@@ -7,6 +7,7 @@ import * as trickWatch from "./trick_watch";
 import * as trickDefaults from "./trick_defaults";
 import * as tricks from "./tricks";
 import * as markup from "./trick_markup";
+import * as text from "./text";
 import * as settings from "./settings";
 import * as os from "./os";
 import * as budget from "./trick_budget";
@@ -102,6 +103,37 @@ export function snapshot(r: Runtime): tricks.Snapshot {
     });
   }
   return { agents, workspaces: r.workspaces.items.map(w => ({ id: w.id, name: w.name(), cwd: w.cwd })) };
+}
+/** `ui.set` on one trick's drawings; false when the view is unchanged. */
+export function setView(views: Map<string, tricks.View>, key: string, view: tricks.View): boolean {
+  if (JSON.stringify(views.get(key)) === JSON.stringify(view)) return false;
+  if (!views.has(key) && views.size >= tricks.max_views) throw Error("TooManyViews");
+  if (view.kind === "title" && [...views].some(([other, v]) => other !== key && v.kind === "title"))
+    throw Error("TitleExists");
+  if (
+    Buffer.byteLength(JSON.stringify([...views.entries()].filter(([other]) => other !== key).concat([[key, view]]))) >
+    tricks.max_bytes
+  )
+    throw Error("ViewsTooLarge");
+  views.set(key, view);
+  return true;
+}
+/** Every trick's drawings with namespaced actions; title items last, by trick ID. */
+export function ordered(
+  running: { instance: string; manifest: { id: string }; views: Map<string, tricks.View> }[],
+): tricks.View[] {
+  const drawings = running.flatMap(r =>
+    [...r.views.values()].map(view => ({
+      id: r.manifest.id,
+      view: tricks.mapViewActions(
+        view,
+        action => `${r.instance}.${action}`,
+        slot => `${r.instance}.${slot}`,
+      ),
+    })),
+  );
+  const titles = drawings.filter(d => d.view.kind === "title").sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return [...drawings.filter(d => d.view.kind !== "title"), ...titles].map(d => d.view);
 }
 interface Running {
   palettes: Set<string>;
@@ -228,20 +260,7 @@ export class Host {
     return this.statuses.map(s => ({ ...s }));
   }
   views(): tricks.View[] {
-    return this.running.flatMap(r =>
-      [...r.views.values()].map(view =>
-        view.content
-          ? {
-              ...view,
-              content: tricks.mapActions(
-                view.content,
-                action => `${r.instance}.${action}`,
-                slot => `${r.instance}.${slot}`,
-              ),
-            }
-          : view,
-      ),
-    );
+    return ordered(this.running);
   }
   press(action: string, viewer: number) {
     tricks.reference(action);
@@ -249,7 +268,7 @@ export class Host {
       instance = action.slice(0, at),
       local = action.slice(at + 1);
     const r = this.running.find(r => r.status.running && r.instance === instance);
-    if (!r || ![...r.views.values()].some(view => tricks.actions(view.content).includes(local))) return false;
+    if (!r || ![...r.views.values()].some(view => tricks.viewActions(view).includes(local))) return false;
     this.send(r, { event: "ui.press", action: local, viewer });
     return true;
   }
@@ -522,7 +541,7 @@ export class Host {
     try {
       const value = tricks.object(JSON.parse(line));
       if (typeof value.id === "string" || typeof value.id === "number") id = value.id;
-      const parsed = tricks.command(value);
+      const parsed = tricks.command(value, text.displayWidth);
       id = parsed.id;
       const c = parsed.command;
       let result: unknown = null;
@@ -555,16 +574,7 @@ export class Host {
           break;
         }
         case "ui.set":
-          if (JSON.stringify(r.views.get(c.key)) === JSON.stringify(c.view)) break;
-          if (!r.views.has(c.key) && r.views.size >= tricks.max_views) throw Error("TooManyViews");
-          if (
-            Buffer.byteLength(
-              JSON.stringify([...r.views.entries()].filter(([key]) => key !== c.key).concat([[c.key, c.view]])),
-            ) > tricks.max_bytes
-          )
-            throw Error("ViewsTooLarge");
-          r.views.set(c.key, c.view);
-          this.invalidate();
+          if (setView(r.views, c.key, c.view)) this.invalidate();
           break;
         case "ui.remove":
           if (r.views.delete(c.key)) this.invalidate();

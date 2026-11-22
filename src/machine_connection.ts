@@ -10,6 +10,7 @@ import type { Transport } from "./mirror";
 import { Connection } from "./rpc";
 import * as machine_path from "./machine_path";
 import * as viewer from "./viewer";
+import * as tricks from "./tricks";
 import * as errors from "./errors";
 import * as buildInfo from "./machine_build";
 import type * as progress from "./machine_progress";
@@ -87,6 +88,7 @@ export class Endpoint {
   set status(value: Status) {
     if (value === "connecting" && this.current_status !== "connecting")
       this.connecting = { since: performance.now(), from: this.current_status };
+    if (value !== "online" && this.machine) this.machine.tricks_current = false;
     this.current_status = value;
   }
   error = "";
@@ -1179,8 +1181,11 @@ export class Endpoint {
       }
       if (taken?.news) changed = true;
       if (reply) {
-        const snapshot_epoch = machine.runtime.snapshot_epoch;
+        const snapshot_epoch = machine.runtime.snapshot_epoch,
+          tricks_current = machine.tricks_current;
         const attached = await viewer.receive(view, reply, this.bell, visible, machine);
+        // A reply made here for controls repeats the drawings held, not the daemon's.
+        if (!taken?.frame) machine.tricks_current = tricks_current;
         this.current(generation);
         if (machine.waiting_controls.length) {
           // Tried again each step, until the session shows what they name.
@@ -1255,6 +1260,12 @@ export class Endpoint {
       this.current(generation);
       view.receiveSnapshot(snapshot, machine);
       machine.runtime.receiveResources(snapshot.resources);
+      // The first machine's title items show whichever machine is, so they
+      // come back with its next drawings even without a viewer stream.
+      if (snapshot.tricks !== undefined && view.machines[0] === machine) {
+        machine.runtime.tricks = tricks.views(snapshot.tricks);
+        machine.tricks_current = true;
+      }
       changed = true;
       // Typing held for a machine no longer shown goes once it's back.
       for (const pane of machine.runtime.panes) if (pane.terminal.pending.length) await pane.terminal.flush();
