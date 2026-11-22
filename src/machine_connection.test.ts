@@ -992,6 +992,8 @@ test("a machine not shown opens its data connection for review, after reconnecti
     expect(Reflect.get(endpoint, "data")).not.toBe(lost);
     expect(daemon.seen.filter(request => request.op === "review.read")).toHaveLength(3);
     // Nothing else is heard on it while git runs, so the read keeps it alive.
+    // A ping sent just before the reply may still be on its way.
+    await new Promise(resolve => setTimeout(resolve, 20));
     const pings = daemon.seen.filter(request => request.op === "ping").length;
     expect(pings).toBeGreaterThan(0);
     await new Promise(resolve => setTimeout(resolve, 50));
