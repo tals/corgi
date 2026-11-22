@@ -5,7 +5,7 @@ import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
 import * as trickUi from "./trick_ui";
-import type { View as TrickView } from "./tricks";
+import type { View as TrickView, Title as TrickTitle } from "./tricks";
 import * as palette from "./palette";
 import * as docking from "./docking";
 import * as dockingGrip from "./docking_grip";
@@ -216,6 +216,8 @@ function drawDocking(w: Writer, state: Docking, panes: Pane[], area: Rect): Rect
 export interface Ui {
   docking: Docking | null;
   tricks: TrickView[];
+  /** The home daemon's title items, in its order; none while it is offline. */
+  title_tricks: TrickView[];
   agent_tricks: ((target: viewerRef.Agent) => TrickView[]) | null;
   trick_controls: trickUi.Controls | null;
   prefs: Preferences;
@@ -330,6 +332,7 @@ export interface Ui {
 export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }): Ui {
   return {
     tricks: [],
+    title_tricks: [],
     agent_tricks: null,
     trick_controls: null,
     prefs: new Preferences(),
@@ -873,6 +876,7 @@ export function frame(
   if (controls) controls.hits.length = 0;
   if (controls) controls.popover = null;
   side.trick_controls = controls;
+  side.title_items = u.title_tricks.filter((view): view is TrickTitle => view.kind === "title");
   // With every workspace closed, all but the way to create one steps back.
   const none = layout && !u.workspace_loading ? u.no_workspace : null;
   const on_none =
@@ -881,6 +885,8 @@ export function frame(
     on_none === "create" ||
     (none !== null && u.pointer !== null && noPopup(u) && side.hit(u.pointer.x, u.pointer.y).tag === "workspace_new");
   const create_lit = none !== null && (none.focused || on_create);
+  // Over a dimmed sidebar the items keep their place but take no input.
+  side.title_inert = none !== null;
   if (none) {
     const tabs = new Writer();
     drawTabs(tabs, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);

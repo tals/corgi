@@ -105,6 +105,9 @@ export class Machine {
   running: launcherResume.Open[] = [];
   stopped: Stopped[] = [];
   profiles = new Profiles();
+  /** Whether `runtime.tricks` came over the connection as it is now: false
+   * from a drop until the next sync brings the daemon's drawings again. */
+  tricks_current = true;
   presence: () => Presence = () => ({
     online: true,
     link_quality: null,

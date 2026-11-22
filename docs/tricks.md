@@ -148,7 +148,8 @@ email, plan, and the last reported usage in the agent's popover.
 | `corgi.refresh()` | Coalesce a refresh of this trick's agent UI hooks |
 | `await corgi.focus(agent)` | From a button callback, select an agent in the viewer that pressed it |
 | `corgi.draw(key, view)` | Insert or replace a named overlay |
-| `corgi.clear(key)` | Remove an overlay |
+| `corgi.draw(key, { kind: "title", … })` | Show one short item in the sidebar title row |
+| `corgi.clear(key)` | Remove an overlay or title item |
 | `corgi.escape(text)` | Escape literal text interpolated into Markdown |
 | `corgi.palette` | Theme colors and `mix(a, b, amount)` |
 | `corgi.palette.identity` | Six terminal-aware categorical hues |
@@ -392,6 +393,62 @@ CPU, memory and queue limits as event callbacks.
 This version supports text, icons, rows, columns and buttons. Text inputs,
 scroll containers and replacement of whole Corgi regions are not exposed.
 
+## Title items
+
+A trick can keep one short item in the sidebar's title row, just left of
+`[ + ]`: a recording dot, a sync state, a build light. It stays in view
+whatever the viewer shows and covers no terminal content.
+
+```js
+export async function register(on, corgi) {
+  let lit = await corgi.get("lit", true);
+  const draw = () => corgi.draw("dot", {
+    kind: "title",
+    text: lit ? "●" : "○",
+    color: lit ? corgi.palette.hot : corgi.palette.faint,
+    press: async () => {
+      lit = !lit;
+      await corgi.set("lit", lit);
+      draw();
+    },
+  });
+  draw();
+}
+```
+
+`text` is one line of the same inline Markdown as other trick text; pass
+`spans` instead for structured text, not both. `color` is the default for
+uncolored text, and an item without one is muted gray. `press` is optional
+and runs like a button callback, in the trick's queue with the same deadline,
+and may call `corgi.focus`. Replace the item under the same key to update it;
+`corgi.clear(key)` removes it.
+
+An item is one line of 1 to 4 cells; a brand icon counts as two. A trick holds
+one title item at a time, counted with its other drawings. `corgi.draw` throws
+`TitleTooWide` for a wider item, `InvalidTitle` for an empty or multi-line one
+or one with `content`, `AmbiguousDrawing` for both `text` and `spans`, and
+`TitleExists` for a second key while the first item is drawn.
+
+Items from several tricks sit side by side in trick ID order, the first nearest
+the title. Each takes its width and one blank cell. When the row runs out of
+room, the "workspaces" title shortens first, down to "work…", then items drop
+whole, last first; an item is never cut. With the workspace scope selector shown,
+items go between it and `[ + ]`: the title shortens the same way and the
+selector moves left with it, keeping its width. `[ + ]`, `<` and the corgi badge
+never move.
+
+Click anywhere on an item to press it. **prefix U** focuses title items first,
+shown in reverse video, then the other trick buttons. Items stay drawn but take
+no input while a built-in menu or dialog is open or the sidebar is dimmed.
+
+A viewer's title row shows the items of the daemon it attached to first, even
+while it shows another machine, and pressing one doesn't switch machines.
+Tricks on other machines' daemons keep their overlays and decorations but
+don't reach this row. While that first connection is down, the row shows no
+items; they return with the daemon's next update. Until that daemon knows the
+viewer, as when it started on another machine or lost its link while away, the
+items show but take no press.
+
 ## Palette and branding
 
 `corgi.palette` exposes `bg`, `surface`, `selected`, `line`, `faint`, `muted`,
@@ -558,7 +615,8 @@ event's callbacks have five seconds to finish.
 
 Queues are bounded to 256 events / 1 MiB in the runner and 1 MiB in the daemon
 pipe. Per trick: 256 callbacks, 256 drawings and 64 KiB total UI state, 64 KiB per command and
-KV file, 12 lines per overlay, 16 spans per line, 512 UTF-8 bytes per span.
+KV file, 12 lines per overlay, 16 spans per line, 512 UTF-8 bytes per span,
+one title item of at most 4 cells.
 More than 1,000 commands/second or 64 KiB/second stderr stops the trick. At most
 16 installed folders run. Process and host-side limits also apply to raw
 JSONL programs.
@@ -619,6 +677,15 @@ An agent patch has `kind: "decorate"`, `where: { id: "pane:3" }`, optional
 and a `suffix` span array. The wire name `suffix` holds appended content
 on all three sites; code authors use `ui.append`. Use agent IDs for popover and
 pane patches. Raw programs replace/remove their own patches as metadata changes.
+A title item has `kind: "title"`, a `spans` array forming one line of 1 to 4
+cells, optional `color` for uncolored spans, and optional `action` and `slot`
+following the button rules below. It fails with `TitleTooWide`, `InvalidTitle`
+(empty, or with `content`, `lines`, `children` or `anchor`) or `TitleExists`
+(a second key while one is set):
+
+```json
+{"op":"ui.set","key":"dot","view":{"kind":"title","spans":[{"text":"●"}],"color":"hot","action":"toggle-1"}}
+```
 
 Both drawing kinds accept an optional `content` tree: `{kind:"text", spans}`,
 `{kind:"row"|"column", children}`, or `{kind:"button", spans, action}`. An
@@ -653,5 +720,8 @@ version 1 programs using account strings must use `account.id` instead and skip
 unresolved accounts. Saved assignments using old account keys need remapping to
 the new IDs. Manifest and KV formats remain at version 1. Runtime protocol 5 and
 viewer protocol 4 remain unchanged: new management operations are capability-advertised,
-and viewer drawings are optional.
+and viewer drawings are optional. Title items are one more drawing kind on the
+viewer wire, sent after the others; older viewers omit them. `session.snapshot`
+replies add an optional `tricks` list, so a viewer polling its first machine
+without a stream still gets that daemon's title items; older peers ignore it.
 Palette files use version 1. State revision `054f2ac3a842` records account identities and public agent environment metadata, defaulting to `null` and `{}` when absent. Upgrades and downgrades preserve other saved metadata; older readers ignore these added fields. Checkpoints and handoffs carry no running Trick state; programs rebuild it from KV and palette files.

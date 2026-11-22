@@ -86,7 +86,16 @@ export interface Overlay {
   lines: Span[][];
   content?: Element;
 }
-export type View = Decoration | Overlay;
+/** One line in the sidebar title row, left of `[ + ]`; at most one per trick. */
+export interface Title {
+  kind: "title";
+  spans: Span[];
+  color?: Color;
+  action?: string;
+  slot?: string;
+}
+export const max_title_width = 4;
+export type View = Decoration | Overlay | Title;
 export type Command =
   | { op: "palette.define"; name: string; colors?: Color[] }
   | { op: "palette.assign"; name: string; key: string }
@@ -285,13 +294,29 @@ export function mapActions(node: Element, map: (action: string) => string, slot?
       return { ...node, children: node.children.map(child => mapActions(child, map, slot)) };
   }
 }
+export function viewActions(view: View): string[] {
+  if (view.kind === "title") return view.action === undefined ? [] : [view.action];
+  return actions(view.content);
+}
+export function mapViewActions(view: View, map: (action: string) => string, slot?: (slot: string) => string): View {
+  if (view.kind === "title") {
+    if (view.action === undefined) return view;
+    return { ...view, action: map(view.action), ...(slot ? { slot: slot(view.slot ?? view.action) } : {}) };
+  }
+  return view.content ? { ...view, content: mapActions(view.content, map, slot) } : view;
+}
+/** Cells a title takes; a brand icon takes two. */
+export function titleWidth(spans: Span[], cells: (text: string) => number): number {
+  return spans.reduce((n, span) => n + (span.icon ? 2 : cells(span.text)), 0);
+}
 export function agentId(value: unknown): string {
   const id = string(value, 80);
   if (!/^(pane|headless):[1-9][0-9]*$/.test(id) || !Number.isSafeInteger(Number(id.split(":")[1])))
     throw Error("InvalidAgent");
   return id;
 }
-export function view(value: unknown, local = false): View {
+/** `measure` checks a title's width; the daemon and the code-trick runner pass it, viewers don't. */
+export function view(value: unknown, local = false, measure?: (text: string) => number): View {
   const source = object(value);
   switch (source.kind) {
     case "decorate":
@@ -320,11 +345,35 @@ export function view(value: unknown, local = false): View {
         ...(source.content === undefined ? {} : { content: element(source.content, local) }),
       };
     }
+    case "title": {
+      if (["content", "lines", "children", "anchor"].some(name => source[name] !== undefined))
+        throw Error("InvalidTitle");
+      fields(source, ["kind", "spans", "color", "action", "slot"]);
+      const parts = spans(source.spans);
+      if (!parts.length || parts.every(span => !span.icon && span.text === "")) throw Error("InvalidTitle");
+      if (source.slot !== undefined && source.action === undefined) throw Error("InvalidTitle");
+      if (measure) {
+        const width = titleWidth(parts, measure);
+        if (width === 0) throw Error("InvalidTitle");
+        if (width > max_title_width) throw Error("TitleTooWide");
+      }
+      const tint = color(source.color);
+      return {
+        kind: "title",
+        spans: parts,
+        ...(tint === undefined ? {} : { color: tint }),
+        ...(source.action === undefined ? {} : { action: local ? key(source.action) : reference(source.action) }),
+        ...(source.slot === undefined ? {} : { slot: reference(string(source.slot, local ? 120 : 160)) }),
+      };
+    }
     default:
       throw Error("InvalidView");
   }
 }
-export function command(value: unknown): { id: string | number | null; command: Command } {
+export function command(
+  value: unknown,
+  measure?: (text: string) => number,
+): { id: string | number | null; command: Command } {
   const source = object(value),
     id = source.id ?? null;
   if (
@@ -365,7 +414,7 @@ export function command(value: unknown): { id: string | number | null; command: 
         },
       };
     case "ui.set":
-      return { id, command: { op: source.op, key: key(source.key), view: view(source.view, true) } };
+      return { id, command: { op: source.op, key: key(source.key), view: view(source.view, true, measure) } };
     case "ui.remove":
     case "kv.get":
     case "kv.delete":

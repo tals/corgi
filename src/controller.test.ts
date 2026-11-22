@@ -199,6 +199,97 @@ test("a remote sidebar trick switches to its owner and sends daemon-local viewer
   }
 });
 
+test("the title row shows the first machine's title items, whichever machine is shown", () => {
+  const s = controller(),
+    local = s.machine,
+    other = workMachine();
+  s.receiveSnapshot(folders("/local"));
+  s.adopt(other);
+  s.receiveSnapshot(folders("/remote"), other);
+  local.runtime.tricks = [
+    { kind: "overlay", anchor: "top-right", lines: [[{ text: "Card" }]] },
+    { kind: "title", spans: [{ text: "●" }], action: "home.dot", slot: "home.dot" },
+  ];
+  other.runtime.tricks = [{ kind: "title", spans: [{ text: "R" }], action: "remote.dot" }];
+  s.sidebar_open = true;
+  s.input_state.attached = true;
+  try {
+    const home = [{ kind: "title", spans: [{ text: "●" }], action: "home.dot", slot: "home.dot" }];
+    // Until its daemon has a viewer to press as, the items only show.
+    local.viewer_id = 0;
+    expect(s.titleTricks()).toEqual([{ kind: "title", spans: [{ text: "●" }] }]);
+    local.viewer_id = 7;
+    expect(s.titleTricks()).toEqual(home);
+    s.switchMachine(other);
+    expect(s.machine).toBe(other);
+    expect(s.titleTricks()).toEqual(home);
+    const presence = local.presence();
+    local.presence = () => ({ ...presence, online: false });
+    expect(s.titleTricks()).toEqual([]);
+    local.presence = () => presence;
+    expect(s.titleTricks()).toEqual(home);
+    // From a drop until the daemon's next drawing list, the old list stays hidden.
+    local.tricks_current = false;
+    expect(s.titleTricks()).toEqual([]);
+    local.tricks_current = true;
+    expect(s.sidebarView([]).title_items).toEqual(home);
+    expect(local.runtime.tricks).toHaveLength(2);
+  } finally {
+    viewer.close(s);
+    if (s.machine !== local) local.runtime.destroy();
+    if (s.machine !== other) other.runtime.destroy();
+  }
+});
+
+test("pressing a home title item reaches the home daemon and keeps the shown machine", async () => {
+  const home: unknown[] = [],
+    remote: unknown[] = [];
+  const s = controller(async (op, fields) => {
+      expect(op).toBe("tricks.press");
+      home.push(fields);
+      return { ok: true, accepted: true };
+    }),
+    local = s.machine,
+    other = new Machine(
+      transport(async (op, fields) => {
+        remote.push([op, fields]);
+        return { ok: true, accepted: true };
+      }),
+      "work",
+      true,
+    );
+  s.receiveSnapshot(folders("/local"));
+  s.adopt(other);
+  s.receiveSnapshot(folders("/remote"), other);
+  local.viewer_id = 7;
+  other.viewer_id = 29;
+  local.runtime.tricks = [{ kind: "title", spans: [{ text: "●" }], action: "home-instance.dot" }];
+  s.sidebar_open = true;
+  s.input_state.attached = true;
+  s.onMachine = (machine: Machine) => s.switchMachine(machine);
+  try {
+    s.switchMachine(other);
+    s.frame();
+    const hit = s.trick_controls.hits.find((hit: { action: string }) => hit.action === "home-instance.dot");
+    expect(hit).toBeDefined();
+    expect(hit.rect.y).toBe(0);
+    await s.input(bytes(`\x1b[<0;${hit.rect.x + 1};1M`));
+    expect(home).toEqual([{ action: "home-instance.dot", viewer: 7 }]);
+    expect(remote).toEqual([]);
+    expect(s.machine).toBe(other);
+    // Keyboard focus presses it the same way.
+    await s.perform({ name: "tricks" });
+    expect(s.trick_controls.focus).toBe("home-instance.dot");
+    await s.perform({ name: "trick-press" });
+    expect(home).toHaveLength(2);
+    expect(s.machine).toBe(other);
+  } finally {
+    viewer.close(s);
+    if (s.machine !== local) local.runtime.destroy();
+    if (s.machine !== other) other.runtime.destroy();
+  }
+});
+
 test.each(["typing", "kitty key", "click", "resize", "flourishes off"])(
   "%s finishes the sign-in exit without swallowing input",
   async cause => {

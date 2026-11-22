@@ -38,6 +38,7 @@ import { Images as SignalBars } from "./signal_bars";
 import { Menu as LauncherMenu } from "./agent_launcher";
 import { Menu as SetupMenu } from "./corgi_setup";
 import { Writer } from "./text";
+import { Dialog } from "./name_dialog";
 import { Terminal } from "./pane/terminal";
 import type { Prefix } from "./keymap";
 import * as trickStyle from "./trick_style";
@@ -1313,4 +1314,106 @@ test("setup's model picker places the same brand marks, only where the host show
   expect(setup.marks!("claude", 4, 4)).toBe("");
   icons.end();
   expect(setup.marks!("claude", 4, 4)).toContain("\x1b[5;5H\x1b_Ga=p");
+});
+
+test("the home daemon's title items draw in the sidebar's title row; overlays leave it alone", () => {
+  const view = new View(new Model(), new Selection());
+  const titleLine = (state: Ui) => {
+    const screen = new Terminal(100, 30);
+    try {
+      screen.feed(frame(view, [], 100, 30, state));
+      return screen.text().split("\n")[0];
+    } finally {
+      screen.destroy();
+    }
+  };
+  const plain = titleLine(ui({ sidebar_open: true, message: "", copy_mode: false }));
+  const overlay = tricks.views([{ kind: "overlay", anchor: "top-right", lines: [[{ text: "Card" }]] }]);
+  expect(titleLine(ui({ sidebar_open: true, tricks: overlay, message: "", copy_mode: false }))).toBe(plain);
+  const item = titleLine(
+    ui({
+      sidebar_open: true,
+      title_tricks: tricks.views([{ kind: "title", spans: [{ text: "●" }] }]),
+      message: "",
+      copy_mode: false,
+    }),
+  );
+  const plus = item.indexOf("[ + ]");
+  expect(plus).toBe(plain.indexOf("[ + ]"));
+  expect(item.slice(plus - 3, plus)).toBe(" ● ");
+});
+
+test("a pressable title item is the first trick control, ahead of a pane's button", () => {
+  const model = new Model(),
+    selection = new Selection(),
+    view = new View(model, selection);
+  const id = model.newTab("");
+  selection.reconcile(model);
+  const terminal = {
+    updateRender() {},
+    hyperlinks: () => [],
+    cursor: () => null,
+    cursorStyle: () => "default",
+    rows: () => "",
+  };
+  const pane = {
+    id,
+    label: "",
+    cwd: "/tmp",
+    command: "",
+    brand: null,
+    account: "",
+    agent: agent({ provider: "claude", name: "Brand" }),
+    restoring: "",
+    terminal,
+  } as unknown as Pane;
+  const views = tricks.views([
+    {
+      kind: "decorate",
+      surface: "pane",
+      where: { id: `pane:${id}` },
+      content: { kind: "button", spans: [{ text: "Go" }], action: "pane.go" },
+    },
+  ]);
+  const controls: trickUi.Controls = { hits: [], focus: null };
+  const state = ui({
+    sidebar_open: true,
+    tricks: views,
+    title_tricks: tricks.views([{ kind: "title", spans: [{ text: "●" }], action: "home.dot" }]),
+    trick_controls: controls,
+    message: "",
+    copy_mode: false,
+  });
+  frame(view, [pane], 120, 40, state);
+  expect(controls.hits.map(hit => hit.action)).toEqual(["home.dot", "pane.go"]);
+  expect(controls.hits[0].rect.y).toBe(0);
+});
+
+test("title items stay drawn but take no input over a dimmed sidebar or under a dialog", () => {
+  const view = new View(new Model(), new Selection());
+  const title = tricks.views([{ kind: "title", spans: [{ text: "●" }], action: "home.dot" }]);
+  const drawn = (extra: Partial<Ui>) => {
+    const controls: trickUi.Controls = { hits: [], focus: null },
+      screen = new Terminal(100, 30);
+    try {
+      const state = ui({
+        sidebar_open: true,
+        title_tricks: title,
+        trick_controls: controls,
+        message: "",
+        copy_mode: false,
+        ...extra,
+      });
+      screen.feed(frame(view, [], 100, 30, state));
+      return { row: screen.text().split("\n")[0], actions: controls.hits.map(hit => hit.action) };
+    } finally {
+      screen.destroy();
+    }
+  };
+  expect(drawn({}).actions).toEqual(["home.dot"]);
+  for (const extra of [{ no_workspace: { focused: false } }, { dialog: Dialog.init({ rename: 1 }, "Tab") }]) {
+    const { row, actions } = drawn(extra);
+    expect(row).toContain("● [ + ]");
+    expect(actions).toEqual([]);
+  }
 });

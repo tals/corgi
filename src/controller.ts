@@ -697,6 +697,15 @@ export class Controller {
     this.summary_turns.clear();
     this.summary_wanted = "";
   }
+  /** The title items of the first machine this viewer attached to, whichever
+   * is shown; none while its connection is down, and none pressable before
+   * its daemon knows this viewer to press as. */
+  titleTricks(): tricks.Title[] {
+    const home = this.machines[0];
+    if (!home?.tricks_current || !home.presence().online) return [];
+    const titles = home.runtime.tricks.filter((view): view is tricks.Title => view.kind === "title");
+    return home.viewer_id ? titles : titles.map(({ action: _action, slot: _slot, ...item }) => item);
+  }
   /** Takes `machine` among those this viewer shows: its tasks' failures and
    * replies come here. */
   adopt(machine: Machine): void {
@@ -1424,6 +1433,7 @@ export class Controller {
     view.scope_label = this.scopeLabel();
     view.workspace_scope = this.machineScope();
     view.corgi_badge = this.host.corgi_badge;
+    view.title_items = this.titleTricks();
     return view;
   }
   private agentOffset(): { get(): number; set(value: number): void } {
@@ -3475,8 +3485,16 @@ export class Controller {
             ? act.value
             : this.trick_controls.hits.find(hit => hit.slot === this.trick_controls.focus)?.action;
         if (!action || !this.trick_controls.hits.some(hit => hit.action === action)) break;
+        // A title item's drawing is the home daemon's: pressing it keeps the shown machine.
+        const home = this.machines[0];
+        if (this.titleTricks().some(view => tricks.viewActions(view).includes(action))) {
+          if (!home.viewer_id) break;
+          await call(home.connection, "tricks.press", { action, viewer: home.viewer_id });
+          this.dirty = true;
+          break;
+        }
         const owner = this.machines.find(machine =>
-          machine.runtime.tricks.some(view => tricks.actions(view.content).includes(action)),
+          machine.runtime.tricks.some(view => tricks.viewActions(view).includes(action)),
         );
         if (!owner || !owner.viewer_id) break;
         if (owner !== this.machine) this.onMachine(owner, null);
@@ -10353,6 +10371,7 @@ export class Controller {
       this.height,
       render.ui({
         tricks: this.runtime.tricks,
+        title_tricks: this.titleTricks(),
         agent_tricks: target => this.rowOf(target)?.machine.runtime.tricks ?? [],
         trick_controls: this.trick_controls,
         prefs: this.host.prefs,

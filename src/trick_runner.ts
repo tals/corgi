@@ -8,13 +8,35 @@ import * as elements from "./trick_elements";
 import * as trickPalette from "./trick_palette";
 import type { Sent } from "./agent_message";
 
-export interface Drawing {
+/** Cells as the daemon counts them, one codepoint at a time as Ghostty does
+ * rather than by grapheme: the runner has no native layer to ask. */
+export function cells(text: string): number {
+  let width = 0;
+  for (const c of text) width += cell(c);
+  return width;
+}
+function cell(c: string): number {
+  if (/\p{Regional_Indicator}/u.test(c)) return 2;
+  if (/[\p{Mn}\p{Me}]/u.test(c)) return 0;
+  if (/\p{Mc}/u.test(c)) return 1;
+  return Bun.stringWidth(c);
+}
+export interface OverlayDrawing {
   kind: "overlay";
   anchor?: tricks.Overlay["anchor"];
   text?: string;
   content?: elements.Content;
   color?: tricks.Color;
 }
+/** A title-row item: `text` (inline Markdown) or `spans`, at most four cells. */
+export interface TitleDrawing {
+  kind: "title";
+  text?: string;
+  spans?: tricks.Span[];
+  color?: tricks.Color;
+  press?: () => unknown;
+}
+export type Drawing = OverlayDrawing | TitleDrawing;
 export type Ui = typeof elements.ui & {
   color(value: tricks.Color): void;
   marker(value: tricks.Color): void;
@@ -93,7 +115,7 @@ export class Runner {
    * is stopped by `waits` calls the daemon bounds instead. */
   private handler: { left: number; since: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
   private waits = 0;
-  private patches = new Map<string, { agent?: string; json: string; actions: string[] }>();
+  private patches = new Map<string, { kind: tricks.View["kind"]; agent?: string; json: string; actions: string[] }>();
   private callbacks = new Map<string, elements.Press>();
   private agents = new Map<string, tricks.Agent>();
   private interaction = new AsyncLocalStorage<{ viewer: number; active: boolean }>();
@@ -142,6 +164,10 @@ export class Runner {
       ui: elements.ui,
       escape: markup.escape,
       draw: (name, view) => {
+        if (view.kind === "title") {
+          this.title(key(name), view);
+          return;
+        }
         if (view.content !== undefined) {
           if (view.text !== undefined) throw Error("AmbiguousDrawing");
           const encoded = elements.encode(view.content, tricks.color(view.color));
@@ -205,6 +231,31 @@ export class Runner {
       },
     };
   }
+  private title(key: string, drawing: TitleDrawing) {
+    // A layout is the overlay's: a title is one line.
+    const fields = drawing as unknown as Record<string, unknown>;
+    if (["content", "lines", "children", "anchor"].some(name => fields[name] !== undefined))
+      throw Error("InvalidTitle");
+    if (drawing.text !== undefined && drawing.spans !== undefined) throw Error("AmbiguousDrawing");
+    if (drawing.text === undefined && drawing.spans === undefined) throw Error("InvalidTitle");
+    if (drawing.text !== undefined && typeof drawing.text !== "string") throw Error("InvalidString");
+    if (drawing.text?.includes("\n")) throw Error("InvalidTitle");
+    const press = drawing.press;
+    if (press !== undefined && typeof press !== "function") throw Error("ExpectedHandler");
+    // The daemon measures again with Ghostty's widths and has the last word.
+    const view = tricks.view(
+      {
+        kind: "title",
+        spans: drawing.text !== undefined ? markup.parse(drawing.text) : drawing.spans,
+        color: drawing.color,
+        ...(press ? { action: "0" } : {}),
+      },
+      true,
+      cells,
+    );
+    if ([...this.patches].some(([other, patch]) => other !== key && patch.kind === "title")) throw Error("TitleExists");
+    this.save(key, view, press ? [press as elements.Press] : []);
+  }
   private remove(key: string) {
     const old = this.patches.get(key);
     for (const action of old?.actions ?? []) this.callbacks.delete(action);
@@ -220,20 +271,15 @@ export class Runner {
     }
     if (!old && this.patches.size >= tricks.max_views) throw Error("TooManyViews");
     const actions = callbacks.map(() => String(++this.next));
-    const drawing = view.content
-      ? {
-          ...view,
-          content: tricks.mapActions(
-            view.content,
-            action => actions[Number(action)],
-            slot => `${key}.${slot}`,
-          ),
-        }
-      : view;
+    const drawing = tricks.mapViewActions(
+      view,
+      action => actions[Number(action)],
+      slot => `${key}.${slot}`,
+    );
     this.write({ op: "ui.set", key, view: drawing });
     for (const action of old?.actions ?? []) this.callbacks.delete(action);
     actions.forEach((action, index) => this.callbacks.set(action, callbacks[index]));
-    this.patches.set(key, { agent, json, actions });
+    this.patches.set(key, { kind: view.kind, agent, json, actions });
   }
   private write(value: object) {
     if (this.stopped) throw Error("TrickStopped");
