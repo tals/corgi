@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { Dir, type Dirent, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as dirWalk from "./dir_walk";
@@ -122,6 +122,54 @@ test("a walk cancelled sends nothing more", async () => {
   expect(batches).toBe(0);
   expect(end.done).toBe(true);
   expect(end.scanned).toBeLessThan(200 + 20 + 140);
+});
+
+/** Counts the folder entries read, calling `each` with the count. */
+async function counting<T>(each: (read: number) => void, run: () => Promise<T>): Promise<T> {
+  const original = Dir.prototype[Symbol.asyncIterator];
+  let read = 0;
+  Dir.prototype[Symbol.asyncIterator] = async function* (this: Dir): AsyncGenerator<Dirent, undefined> {
+    for await (const entry of original.call(this)) {
+      each(++read);
+      yield entry;
+    }
+    return undefined;
+  };
+  try {
+    return await run();
+  } finally {
+    Dir.prototype[Symbol.asyncIterator] = original;
+  }
+}
+
+test("reads a big folder only as far as its cap, and no further once cancelled", async () => {
+  const dir = folder(Object.fromEntries(Array.from({ length: 3000 }, (_, i) => [`big/f${i}`, ""])));
+  let read = 0;
+  const few = await counting(
+    n => (read = n),
+    () => walked(dir, { entries: 10, ms: 10_000 }),
+  );
+  expect(few.end).toMatchObject({ scanned: 10, capped: "entries" });
+  expect(read).toBeLessThan(50);
+  const abort = new AbortController();
+  read = 0;
+  await counting(
+    n => {
+      read = n;
+      if (n === 20) abort.abort();
+    },
+    () => dirWalk.walk(dir, () => {}, abort.signal),
+  );
+  expect(read).toBeLessThan(50);
+});
+
+test("a folder and a link to it are walked once", async () => {
+  const dir = folder({ "data/x.txt": "", "data/deep/y.txt": "" });
+  symlinkSync(join(dir, "data"), join(dir, "alias"));
+  const { paths } = await walked(dir);
+  expect(paths).toContain("alias/");
+  expect(paths.filter(path => path.endsWith("x.txt"))).toHaveLength(1);
+  expect(paths.filter(path => path.endsWith("y.txt"))).toHaveLength(1);
 });
 
 test("a folder that isn't there fails by name", async () => {

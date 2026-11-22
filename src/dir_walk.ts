@@ -1,8 +1,8 @@
 //! What's under a directory, for the directory browser's search: inside a
 //! Git work tree, the files `git ls-files` lists, tracked and untracked but
 //! not ignored, with the folders they're in; elsewhere, the file system's
-//! entries, breadth first, skipping `.git` and never entering a folder twice
-//! through a link. Entries arrive in batches as they're found. A walk stops
+//! entries, breadth first, skipping `.git` and never entering a folder twice,
+//! as through a link. Entries arrive in batches as they're read. A walk stops
 //! at `Limits.entries` or after `Limits.ms`, saying which.
 import { opendir, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -156,62 +156,58 @@ async function gitFiles(
   }
 }
 
-/** Walks `root` on the file system, a level at a time. */
+/** Walks `root` on the file system, a level at a time and a few folders at
+ * once, reading each only as far as the cap and `stopped` allow. */
 async function walkFiles(
   root: string,
   add: (entry: Entry) => boolean,
   stopped: () => boolean,
   flush: () => void,
 ): Promise<void> {
+  // Every folder entered, by device and inode: one reached again, through
+  // a link or as a link's target, isn't entered twice.
   const seen = new Set<string>();
-  const id = async (path: string) => {
+  const enter = async (path: string): Promise<boolean> => {
     const s = await stat(path, { bigint: true }).catch(() => null);
-    return s?.isDirectory() ? `${s.dev}:${s.ino}` : null;
+    const key = s?.isDirectory() ? `${s.dev}:${s.ino}` : null;
+    if (key === null || seen.has(key)) return false;
+    seen.add(key);
+    return true;
   };
-  const top = await id(root);
-  if (top === null) throw Error("NotADirectory");
-  seen.add(top);
-  let level = [""];
+  if (!(await enter(root))) throw Error("NotADirectory");
   let full = false;
-  while (level.length && !full && !stopped()) {
-    const next: string[] = [];
-    for (let i = 0; i < level.length && !full && !stopped(); i += parallel) {
-      const read = await Promise.all(level.slice(i, i + parallel).map(rel => list(root, rel)));
-      for (const entries of read)
-        for (const { rel, directory, link } of entries) {
-          if (!add({ path: rel, directory })) {
-            full = true;
-            break;
-          }
-          if (!directory) continue;
-          // A folder reached through a link is entered once, wherever else it's reached from.
-          if (link) {
-            const key = await id(join(root, rel));
-            if (key === null || seen.has(key)) continue;
-            seen.add(key);
-          }
-          next.push(rel);
+  /** Takes folder `rel`'s entries as they're read, queuing its folders on `next`. */
+  const read = async (rel: string, next: string[]): Promise<void> => {
+    try {
+      const dir = await opendir(join(root, rel), { bufferSize: 256 });
+      // Leaving the loop early closes the folder.
+      for await (const entry of dir) {
+        if (full || stopped()) break;
+        if (entry.name === ".git") continue;
+        const path = rel ? `${rel}/${entry.name}` : entry.name;
+        const directory = entry.isSymbolicLink()
+          ? ((await stat(join(root, path)).catch(() => null))?.isDirectory() ?? false)
+          : entry.isDirectory();
+        if (!add({ path, directory })) {
+          full = true;
+          break;
         }
-      flush();
+        if (directory && (await enter(join(root, path)))) next.push(path);
+        flush();
+      }
+    } catch {
+      // Unreadable: nothing more from it.
     }
+  };
+  let level = [""];
+  while (level.length && !full && !stopped()) {
+    const next: string[] = [],
+      folders = level;
+    let at = 0;
+    const worker = async () => {
+      while (at < folders.length && !full && !stopped()) await read(folders[at++], next);
+    };
+    await Promise.all(Array.from({ length: Math.min(parallel, folders.length) }, worker));
     level = next;
   }
-}
-/** A folder's entries, as paths from `root`; a folder that can't be read has none. */
-async function list(root: string, rel: string): Promise<{ rel: string; directory: boolean; link: boolean }[]> {
-  const out: { rel: string; directory: boolean; link: boolean }[] = [];
-  try {
-    const dir = await opendir(join(root, rel), { bufferSize: 256 });
-    for await (const entry of dir) {
-      if (entry.name === ".git") continue;
-      const path = rel ? `${rel}/${entry.name}` : entry.name;
-      if (entry.isSymbolicLink()) {
-        const target = await stat(join(root, path)).catch(() => null);
-        out.push({ rel: path, directory: target?.isDirectory() ?? false, link: true });
-      } else out.push({ rel: path, directory: entry.isDirectory(), link: false });
-    }
-  } catch {
-    // Unreadable: nothing to add.
-  }
-  return out;
 }
