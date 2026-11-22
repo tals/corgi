@@ -207,6 +207,8 @@ export class Browser {
   listed: Promise<void> = Promise.resolve();
   private closed = false;
   private generation = 0;
+  /** Folders gone to and entries chosen, so a slow reply to an older choice is dropped. */
+  private moves = 0;
   constructor(
     readonly path: string,
     private wake: () => void,
@@ -318,6 +320,7 @@ export class Browser {
   }
   /** Shows the folder at `path`, with an empty query. */
   private go(path: string, select: string | null = null): void {
+    this.moves++;
     this.search?.close();
     this.search = null;
     this.root = path;
@@ -343,10 +346,12 @@ export class Browser {
   async choose(i = this.index()): Promise<Chosen> {
     const row = this.row(i);
     if (!row) return null;
-    const path = join(this.root, row.path);
+    const path = join(this.root, row.path),
+      move = ++this.moves;
     // A Git submodule lists as a file, and a link may lead to a folder.
     const directory = row.directory || (await this.files.find(path, "", true).catch(() => null))?.directory === true;
-    if (this.closed) return null;
+    // Going elsewhere, or choosing again, meanwhile drops this choice.
+    if (this.closed || move !== this.moves) return null;
     if (!directory) return { file: path };
     this.go(path);
     return null;

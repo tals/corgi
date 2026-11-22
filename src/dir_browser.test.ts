@@ -213,6 +213,34 @@ test("the query edits as a text box does, takes any character, and the wheel scr
   b.close();
 });
 
+test("a slow answer to Enter is dropped once the card has gone elsewhere", async () => {
+  const dir = folder({ "src/app.ts": "x" });
+  const answers: ((info: fileAccess.Info) => void)[] = [];
+  // A slow link: each check of what an entry is waits for the test.
+  const files: fileAccess.Files = { ...fileAccess.here, find: () => new Promise(resolve => answers.push(resolve)) };
+  const b = new dirBrowser.Browser(join(dir, "src"), () => {}, files);
+  await b.listed;
+  b.select(b.find("app.ts"));
+  // Enter on the file, then Backspace before the answer comes.
+  const file = b.choose();
+  b.parent();
+  answers[0]({ path: join(dir, "src", "app.ts"), size: 1, mtime: 0, id: "1:1", directory: false });
+  expect(await file).toBeNull();
+  expect(b.root).toBe(dir);
+  // Nor does a folder that listed as a file, as a Git submodule does, pull
+  // the card back into the folder it left.
+  const back = new dirBrowser.Browser(join(dir, "src"), () => {}, files);
+  await back.listed;
+  back.select(back.find("app.ts"));
+  const folderish = back.choose();
+  back.parent();
+  answers[1]({ path: join(dir, "src", "app.ts"), size: 0, mtime: 0, id: "1:2", directory: true });
+  expect(await folderish).toBeNull();
+  expect(back.root).toBe(dir);
+  b.close();
+  back.close();
+});
+
 test("a folder it can't read says so", async () => {
   const b = new dirBrowser.Browser(join(tmpdir(), "corgi-browse-nowhere-" + process.pid), () => {});
   await b.listed;
