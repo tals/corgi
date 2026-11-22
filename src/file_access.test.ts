@@ -151,6 +151,7 @@ test("a daemon reads only files, without waiting on a FIFO, and gives up a long 
   const ask = (op: fileAccess.Op, payload: object) => fileAccess.answer(protocol.decoded(op, payload) as any);
   expect(ask("file.read", { path: fifo, at: 0, length: 10 })).rejects.toThrow("NotAFile");
   expect(ask("file.read", { path: dir, at: 0, length: 10 })).rejects.toThrow("NotAFile");
+  expect(ask("file.thumbnail", { path: fifo, width: 10, height: 10, pixels: 100 })).rejects.toThrow("NotAFile");
   expect(await ask("file.line", { path: log, line: 500, limit: 1 << 30 })).toEqual({ at: 4383 });
   const now = spyOn(Date, "now")
     .mockReturnValueOnce(0)

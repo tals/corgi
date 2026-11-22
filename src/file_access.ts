@@ -1,13 +1,15 @@
-//! The files the file peek reads and names in panes resolve to: this
-//! computer's through node:fs, or another computer's through its daemon,
-//! which reads its own the same way. Scans, such as for a deep line, run
-//! where the file is, and another computer's files are read in smaller
-//! amounts, since they share its link with the panes' screens.
+//! The files the file peek and a link's picture read, and names in panes
+//! resolve to: this computer's through node:fs, or another computer's
+//! through its daemon, which reads its own the same way. Scans, such as for
+//! a deep line, and an image's thumbnail are made where the file is, and
+//! another computer's files are read in smaller amounts, since they share
+//! its link with the panes' screens.
 import { constants, fstatSync, readSync, watch, type BigIntStats } from "node:fs";
 import { open, stat, statfs, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
 import * as errors from "./errors";
 import * as fileRef from "./file_ref";
+import * as picture from "./picture";
 import type * as protocol from "./protocol";
 
 /** A file as a read checks it. */
@@ -37,9 +39,11 @@ export interface Limits {
   whole: number;
   /** The most a followed file grows between reads before reading starts again at its end. */
   growth: number;
+  /** The most pixels an animated thumbnail's frames hold together. */
+  frames: number;
 }
-export const local_limits: Limits = { whole: 8 << 20, growth: 16 << 20 };
-export const remote_limits: Limits = { whole: 1 << 20, growth: 256 << 10 };
+export const local_limits: Limits = { whole: 8 << 20, growth: 16 << 20, frames: 24_000_000 };
+export const remote_limits: Limits = { whole: 1 << 20, growth: 256 << 10, frames: 4_000_000 };
 export interface Files {
   limits: Limits;
   /** The file `path` names from `cwd`, as a pane's text names it; throws when it names none. */
@@ -48,6 +52,8 @@ export interface Files {
   /** Change notices for `path` where the file system sends them, else null.
    * `lost` says a watch that worked has stopped. */
   watch(path: string, notice: (renamed: boolean) => void, lost: () => void): { close(): void } | null;
+  /** The image at `path` shrunk to fit `box`, made where it is; throws when it isn't one. */
+  thumbnail(path: string, box: picture.Box, wanted?: () => boolean): Promise<picture.Picture>;
 }
 
 /** The most bytes one scan reads. */
@@ -56,6 +62,8 @@ export const scan_limit = 4 * 1024 ** 3;
 export const scan_ms = 10_000;
 /** The most bytes one reply from a daemon carries; a longer read asks for several at once. */
 export const read_limit = 64 << 10;
+/** The largest image file shrunk for a thumbnail. */
+const image_limit = 128 << 20;
 const chunk_size = 1 << 20;
 /** Linux's local file systems, by `statfs` magic: ext2-4, xfs, btrfs,
  * tmpfs, f2fs, zfs, bcachefs and overlayfs. They answer reads of a log's
@@ -173,13 +181,44 @@ export function local(home = homedir()): Files {
         return null;
       }
     },
+    async thumbnail(path, box, wanted) {
+      return picture.shrink(await readAll(this, path, image_limit, wanted), box, local_limits.frames, wanted);
+    },
   };
 }
 export const here = local();
 
+/** The file at `path` whole, read a megabyte at a time while `wanted`;
+ * throws `TooLarge` when it's over `limit`. */
+export async function readAll(
+  files: Files,
+  path: string,
+  limit: number,
+  wanted: () => boolean = () => true,
+): Promise<Uint8Array> {
+  const fh = await files.open(path);
+  try {
+    const { size } = await fh.info();
+    if (size > limit) throw Error("TooLarge");
+    const parts: Uint8Array[] = [];
+    for (let got = 0; got < size;) {
+      if (!wanted()) throw Error("Aborted");
+      const bytes = await fh.read(got, Math.min(chunk_size, size - got));
+      if (bytes.length === 0) break;
+      parts.push(bytes);
+      got += bytes.length;
+    }
+    return parts.length === 1 ? parts[0] : Buffer.concat(parts);
+  } finally {
+    await fh.close().catch(() => {});
+  }
+}
+
 /** Sends `op` to a daemon and resolves with its reply, throwing its error. */
 export type Call = (op: Op, payload: object) => Promise<unknown>;
 const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+const toBase64 = (data: Uint8Array) => Buffer.from(data.buffer, data.byteOffset, data.length).toString("base64");
+const fromBase64 = (value: unknown) => Buffer.from(typeof value === "string" ? value : "", "base64");
 /** Another computer's files, read through its daemon. They send no change
  * notices: a reader polls. */
 export function remote(call: Call): Files {
@@ -209,7 +248,7 @@ export function remote(call: Call): Files {
               const reply = (await call("file.read", { path, at: at + i * read_limit, length: want })) as {
                 data?: unknown;
               };
-              return { want, bytes: Buffer.from(typeof reply.data === "string" ? reply.data : "", "base64") };
+              return { want, bytes: fromBase64(reply.data) };
             }),
           );
           // The file ends at the first part short of what it asked for.
@@ -230,13 +269,39 @@ export function remote(call: Call): Files {
       };
     },
     watch: () => null,
+    async thumbnail(path, box) {
+      const { width, height } = box,
+        pixels = remote_limits.frames;
+      return received((await call("file.thumbnail", { path, width, height, pixels })) as Record<string, unknown>);
+    },
   };
 }
+/** A thumbnail as a daemon sent it. */
+function received(reply: Record<string, unknown>): picture.Picture {
+  const frames: unknown[] = Array.isArray(reply.frames) ? reply.frames : [];
+  const shrunk: picture.Picture = {
+    width: num(reply.width),
+    height: num(reply.height),
+    png: fromBase64(reply.png),
+    delay: num(reply.delay),
+    frames: frames.map(frame => {
+      const f = (frame ?? {}) as Record<string, unknown>;
+      return { png: fromBase64(f.png), x: num(f.x), y: num(f.y), base: num(f.base), delay: num(f.delay) };
+    }),
+  };
+  if (shrunk.width <= 0 || shrunk.height <= 0 || shrunk.png.length === 0) throw Error("UnexpectedReply");
+  return shrunk;
+}
 
-export type Op = "file.stat" | "file.read" | "file.line" | "file.count";
+export type Op = "file.stat" | "file.read" | "file.line" | "file.count" | "file.thumbnail";
 /** Answers another computer's read of a file here, as its daemon decoded it. */
 export async function answer(request: Extract<protocol.DecodedRequest, { op: Op }>): Promise<object> {
   if (request.op === "file.stat") return await here.find(request.payload.path, request.payload.cwd);
+  if (request.op === "file.thumbnail") {
+    const { path, width, height, pixels } = request.payload;
+    const shrunk = await picture.shrink(await readAll(here, path, image_limit), { width, height }, pixels);
+    return { ...shrunk, png: toBase64(shrunk.png), frames: shrunk.frames.map(f => ({ ...f, png: toBase64(f.png) })) };
+  }
   const h = await here.open(request.payload.path);
   // A scan stops short of the request's timeout, which would drop the connection it shares.
   const deadline = Date.now() + scan_ms,
@@ -246,8 +311,9 @@ export async function answer(request: Extract<protocol.DecodedRequest, { op: Op 
   try {
     switch (request.op) {
       case "file.read": {
-        const bytes = await h.read(Number(request.payload.at), Math.min(request.payload.length, read_limit));
-        return { data: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length).toString("base64") };
+        return {
+          data: toBase64(await h.read(Number(request.payload.at), Math.min(request.payload.length, read_limit))),
+        };
       }
       case "file.line":
         try {

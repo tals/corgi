@@ -197,6 +197,12 @@
     "from": 262144,
     "to": 524288
   },
+  "file.thumbnail": {
+    "path": "/tmp/paste/shot.png",
+    "width": 640,
+    "height": 480,
+    "pixels": 4000000
+  },
   "onboarding.status": {
     "operation": 1
   },

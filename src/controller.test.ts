@@ -33,6 +33,7 @@ import * as signinExit from "./signin_exit";
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import { Writer, displayWidth } from "./text";
 import type { ChatArgs } from "./prompt";
+import { png_base64 } from "./assets/corgi_badge";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -4942,6 +4943,65 @@ test("on another computer, a file's name peeks through that computer's daemon an
     native.destroy();
     setSystemTime();
     clock.reset();
+    viewer.close(s);
+    other.runtime.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("on another computer, an image link's card shows the picture that computer's daemon shrank", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-thumb-remote-")));
+  const path = join(dir, "shot.png");
+  writeFileSync(path, await new Bun.Image(Buffer.from(png_base64, "base64")).resize(1000, 400).png().buffer());
+  const asked: string[] = [];
+  const s: any = new Controller({ request: transport(async () => ({})).request });
+  const other = new Machine(
+    {
+      request: transport(async (op, fields) => {
+        if (!op.startsWith("file.")) return {};
+        asked.push(op);
+        return fileAccess.answer(protocol.decoded(op, fields) as any);
+      }).request,
+    },
+    "work",
+    true,
+  );
+  s.adopt(other);
+  const snapshot: any = folders(dir);
+  snapshot.panes[0].cwd = dir;
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(snapshot, other);
+  s.switchMachine(other);
+  s.width = 120;
+  s.height = 40;
+  s.input_state.attached = true;
+  s.supports_kitty_graphics = true;
+  s.cell_pixels = { width: 10, height: 20 };
+  setSystemTime(new Date(1000));
+  const rect = s.layoutView().placements(s.area())[0].rect;
+  const native = NativeTerminal.create(rect.w, rect.h);
+  try {
+    // Its link names that computer, not this one.
+    native.feed(`\x1b]8;;file://work-box${path}\x1b\\[Image #1]\x1b]8;;\x1b\\`);
+    s.pane(1).terminal.receive(native.surface(1));
+    await mouseInput(s, `\x1b[<35;${rect.x + 3};${rect.y + 1}M`);
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.frame();
+    await s.thumbnails.loading;
+    setSystemTime(new Date(1200));
+    const frame = s.frame();
+    expect(frame).toContain("Copy path");
+    // The card places the picture, which the viewer sends ahead of the frame.
+    const shown = s.host.images.present(),
+      id = /\x1b_Ga=p,i=(\d+),/.exec(shown.draw)?.[1];
+    expect(id).toBeDefined();
+    expect(shown.send).toContain(`\x1b_Ga=t,t=d,f=100,i=${id},q=1,m=`);
+    // Only the shrunk picture crossed: the image itself was never read.
+    expect(asked).toEqual(["file.stat", "file.thumbnail"]);
+  } finally {
+    native.destroy();
+    setSystemTime();
     viewer.close(s);
     other.runtime.destroy();
     rmSync(dir, { recursive: true, force: true });

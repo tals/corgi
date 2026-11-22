@@ -380,6 +380,9 @@ test("an image link's popover shows a thumbnail on Kitty hosts and frees it when
     setSystemTime(new Date(1000));
     await s.input(mouse(35, 2, 1));
     s.frame();
+    // It loads once the link is known to name a file.
+    await Promise.all(s.file_refs.checks);
+    s.frame();
     await s.thumbnails.loading;
     expect(s.dirty).toBe(true);
     setSystemTime(new Date(1150));

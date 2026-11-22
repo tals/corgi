@@ -1231,6 +1231,7 @@ export class Server {
       case "file.read":
       case "file.line":
       case "file.count":
+      case "file.thumbnail":
         this.defer(cl, reply, null, () => fileAccess.answer(request));
         return;
       case "worktree.add":

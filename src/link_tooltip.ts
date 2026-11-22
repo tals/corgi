@@ -132,7 +132,7 @@ export function draw(w: Writer, rect: Rect, card: Card, hovered: boolean): void 
   const rule = "─".repeat(rect.w - 2);
   const label = card.copied
     ? i18n.t` ✓  Copied`
-    : filePath(card.link.uri) !== null
+    : card.link.path || filePath(card.link.uri) !== null
       ? i18n.t` ⧉  Copy path`
       : i18n.t` ⧉  Copy link`;
   w.write(border + `\x1b[${rect.y + 1};${rect.x + 1}H┌${rule}┐`);

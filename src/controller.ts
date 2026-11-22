@@ -8,7 +8,6 @@ import * as archiveSummary from "./archive_summary";
 import { homedir, hostname } from "node:os";
 import { existsSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
-import { pathToFileURL } from "node:url";
 import * as keys from "./keys";
 import * as keyboard from "./keyboard";
 import * as textArea from "./text_area";
@@ -227,6 +226,13 @@ interface OpenFile {
   path: string;
   line: number | null;
   column: number | null;
+}
+/** The file a link in a pane names on its machine, where it was found. */
+interface LinkedFile {
+  path: string;
+  ref: fileRef.Ref;
+  /** It's an image, which the link's card shows. */
+  image: boolean;
 }
 /** A pressed link or port row, tracked until release confirms it wasn't a drag. */
 interface PortClick {
@@ -9090,9 +9096,10 @@ export class Controller {
       if (!release && (button === 16 || plain_link) && !this.copy_mode) {
         for (const link of term.hyperlinks()) {
           if (link.row !== y - p.rect.y || x - p.rect.x < link.start || x - p.rect.x >= link.end) continue;
-          // A file's name opens it in a pane of its own.
+          // A file's name opens it in a pane of its own; an image shows in its card.
           const web = webLinks.openable(link.uri),
-            found = web ? null : this.linkFile(link.uri, link.path === true, this.pane(p.id));
+            named = web ? null : this.linkFile(link.uri, link.path === true, this.pane(p.id)),
+            found = named?.image ? null : named;
           if (!web && !found) continue;
           cl.port_click = portClick({
             x,
@@ -10096,16 +10103,16 @@ export class Controller {
     return this.hoverIdle();
   }
   /** The file a link in `pane` names on its machine, once checked: a path
-   * from the folder its agent or shell works in, or a file:// link that
-   * isn't to an image, which keeps its picture card. */
-  private linkFile(uri: string, path: boolean, pane: Pane | null): { path: string; ref: fileRef.Ref } | null {
-    if (pane === null || (!path && linkThumbnail.imagePath(uri) !== null)) return null;
+   * from the folder its agent or shell works in, or a file:// link. An
+   * image shows its picture in the link's card rather than a peek. */
+  private linkFile(uri: string, path: boolean, pane: Pane | null): LinkedFile | null {
+    if (pane === null) return null;
     const ref = fileRef.parse(uri, path, this.machine.remote ? null : undefined);
     if (!ref) return null;
     const status = this.file_refs.get(ref, pane.agent.cwd || pane.cwd);
-    return status.kind === "file" ? { path: status.path, ref } : null;
+    return status.kind === "file" ? { path: status.path, ref, image: linkThumbnail.isImage(status.path) } : null;
   }
-  private hoveredFile(link: linkTooltip.Link): { path: string; ref: fileRef.Ref } | null {
+  private hoveredFile(link: linkTooltip.Link): LinkedFile | null {
     return this.linkFile(
       link.uri,
       link.path === true,
@@ -10160,15 +10167,18 @@ export class Controller {
       return null;
     const source = this.linkAt(link.x, link.y);
     if (!linkTooltip.sameLink(source, link)) return null;
-    let thumbnail = this.linkThumbnail(link.uri);
+    let thumbnail = this.linkThumbnail(link);
     if (thumbnail) thumbnail = linkTooltip.fit(this.width, this.height, link, thumbnail);
     return { link, copied: this.link_tooltip.copied_until > milliTimestamp(), thumbnail };
   }
-  /** The thumbnail of the image `uri` links to, where the host shows Kitty
-   * images and reports its cell size; it starts loading on first ask. */
-  private linkThumbnail(uri: string): linkTooltip.Thumbnail | null {
+  /** The thumbnail of the image `link` names on its pane's machine, where
+   * the host shows Kitty images and reports its cell size; it starts
+   * loading on first ask. */
+  private linkThumbnail(link: linkTooltip.Link): linkTooltip.Thumbnail | null {
     const cell = this.cell_pixels;
-    return this.supports_kitty_graphics && cell ? this.thumbnails.get(uri, cell) : null;
+    if (!this.supports_kitty_graphics || !cell) return null;
+    const file = this.hoveredFile(link);
+    return file?.image ? this.thumbnails.get(file.path, this.filesOn(this.machine).files, cell) : null;
   }
   private linkHoverContains(x: number, y: number): boolean {
     const file = this.fileCard();
@@ -10347,14 +10357,14 @@ export class Controller {
       }
       const link = !this.paste_card ? this.linkAt(pointer.x, pointer.y) : null;
       const file = link ? this.hoveredFile(link) : null;
-      if (link && file && filePeek.geometry(this.width, this.height, link)) {
+      if (link && file && !file.image && filePeek.geometry(this.width, this.height, link)) {
         target = { link, file: true };
         // Read while the peek waits to open.
         this.file_peeks.get(file.path, file.ref, this.filesOn(this.machine).files);
-      } else if (link && !link.path && linkTooltip.geometry(this.width, this.height, link)) {
+      } else if (link && (!link.path || file?.image) && linkTooltip.geometry(this.width, this.height, link)) {
         target = { link };
         // Loads while the card waits to open.
-        this.linkThumbnail(link.uri);
+        this.linkThumbnail(link);
       }
     }
     if (!target?.file) this.file_peeks.clear();
@@ -10439,7 +10449,7 @@ export class Controller {
     const previewed = this.prompt.previewed(),
       pictures = this.cell_pixels !== null ? this.pictures : null;
     this.prompt_preview = previewed
-      ? { pictures, thumbnail: pictures ? this.thumbnails.get(pathToFileURL(previewed).href, this.cell_pixels!) : null }
+      ? { pictures, thumbnail: pictures ? this.thumbnails.get(previewed, fileAccess.here, this.cell_pixels!) : null }
       : null;
     const detail = this.resourceDetail();
     // Another machine's row reads from that machine.

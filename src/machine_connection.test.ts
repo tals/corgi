@@ -1008,16 +1008,25 @@ test("a machine not shown opens its data connection for review, after reconnecti
   }
 });
 
-test("the file peek's reads take the data connection, as review's do", async () => {
+test("the file peek's reads and a link's picture take the data connection, as review's do", async () => {
   const daemon = await flakyDaemon(true);
   const endpoint = daemon.endpoint;
   Reflect.set(endpoint, "controller", new Controller(transport(async () => ({}))));
   try {
     await daemon.connect();
     expect(Reflect.get(endpoint, "data")).toBeNull();
+    await endpoint.machine.connection.request("file.thumbnail", {
+      path: "/tmp/a.png",
+      width: 640,
+      height: 480,
+      pixels: 100,
+    } as never);
+    const data = Reflect.get(endpoint, "data");
+    expect(data?.channel).toBeTruthy();
     await endpoint.machine.connection.request("file.read", { path: "/tmp/a.log", at: 0, length: 10 } as never);
-    expect(Reflect.get(endpoint, "data")?.channel).toBeTruthy();
+    expect(Reflect.get(endpoint, "data")).toBe(data);
     expect(daemon.seen.filter(request => request.op === "file.read")).toHaveLength(1);
+    expect(daemon.seen.filter(request => request.op === "file.thumbnail")).toHaveLength(1);
   } finally {
     await daemon.close();
   }
