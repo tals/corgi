@@ -1032,6 +1032,10 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     await rm(join(root, "staged"));
     expect((await rpc({ op: "hello" })).release_version).toBe("1.0.0");
     const sync = await machineViewer("1.0.1");
+    // Not while the machine's automatic updates are off.
+    expect((await sync()).at(-1)).toEqual({ type: "current" });
+    expect((await rpc({ op: "hello" })).release_version).toBe("1.0.0");
+    await cli(["update", "auto", "on"]);
     expect((await sync()).at(-1)).toEqual({ type: "ready" });
     await runsRelease("1.0.1", pid);
     expect((await sync()).at(-1)).toEqual({ type: "current" });
