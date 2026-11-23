@@ -130,10 +130,12 @@ class AutoOrder extends Viewers {
     await this.settle();
     await this.settle();
     this.assertEqual(await this.order(), ["Alpha", "Bravo", "Delta", "Charlie"]);
-    for (const viewer of [first, second]) {
-      await viewer.poll();
-      this.assertEqual(this.shown(viewer, names), ["Alpha", "Bravo", "Delta", "Charlie"]);
-    }
+    // The viewers fade the moved cards out before they show the new order.
+    for (const viewer of [first, second])
+      await this.until(async () => {
+        await viewer.poll();
+        return this.shown(viewer, names).join() === "Alpha,Bravo,Delta,Charlie";
+      });
     this.assertEqual((await this.steps()).Delta, 0);
     // A new workspace joins the end of the active group too.
     const echo = (await this.command("workspace.create", { name: "Echo", cwd: this.temp.name })).workspace;
