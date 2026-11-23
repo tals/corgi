@@ -115,7 +115,8 @@
     "fixed": true,
     "case": "insensitive",
     "max_count": 1,
-    "stream": true
+    "stream": true,
+    "warm": false
   },
   "conversation.grep.cancel": {
     "key": "resume"

@@ -41,7 +41,7 @@ export type Context = {
   /** Leaves `source` out until its stamp changes. */
   exclude(source: string, stamp: string): void;
   warn(text: string): void;
-  /** False when another folder already gave this file. */
+  /** False when another folder already gave this file, by its `fileId`. */
   claim(file: string): boolean;
   /** Adds sources to check. */
   checking(count: number): void;
@@ -186,14 +186,20 @@ async function header(file: string, bytes: number): Promise<any[]> {
     fs.closeSync(fd);
   }
 }
+/** A file however it's reached, through links or another account's folder:
+ * its device and inode, which a stat already has, unlike its real path. */
+export function fileId(s: fs.Stats): string {
+  return `${s.dev}:${s.ino}`;
+}
 /** A provider whose conversations are JSONL transcripts, plain or zstd-compressed. */
 export function transcripts(spec: Transcripts): Search & { jsonl(input: string, tools?: boolean): Normalized } {
   /** One transcript's conversation; null when it's left out. `stamped` gets its stamp once known. */
   async function transcript(file: string, context: Context, stamped: (stamp: string) => void): Promise<Found | null> {
     if (file.endsWith(".jsonl.zst") && fs.existsSync(file.slice(0, -4))) return null;
-    if (file.includes("/subagents/") || !context.claim(fs.realpathSync(file))) return null;
-    const s = fs.statSync(file),
-      stamp = `${s.ino}:${s.size}:${s.mtimeMs}`;
+    if (file.includes("/subagents/")) return null;
+    const s = fs.statSync(file);
+    if (!context.claim(fileId(s))) return null;
+    const stamp = `${s.ino}:${s.size}:${s.mtimeMs}`;
     stamped(stamp);
     if (context.skipped(file, stamp)) {
       context.exclude(file, stamp);

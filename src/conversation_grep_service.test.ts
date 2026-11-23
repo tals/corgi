@@ -345,7 +345,7 @@ test("an idle worker is stopped after a while", async () => {
   await settled();
   w.send({ type: "done", id: w.last().id, summary });
   await result;
-  w.advance(4000);
+  w.advance(29_000);
   w.searches.tick();
   expect(w.counts.stopped).toBe(0);
   w.advance(2000);
@@ -408,7 +408,8 @@ test("the worker thread searches transcripts as corgi grep --json does, and save
         .join(""),
     );
   transcript("one", "where is the Needle (literal)?");
-  transcript("two", "no match here");
+  transcript("two", "no match here\nsecond line with an anchor");
+  transcript("big", "bigneedle " + "x".repeat(budget + 1000));
   let clock = 1000;
   const searches = new Searches(
     undefined,
@@ -430,11 +431,10 @@ test("the worker thread searches transcripts as corgi grep --json does, and save
       source: { provider: "codex", session: "one", cwd: "/project" },
       hits: [{ text: "where is the Needle (literal)?", role: "user", context: false }],
     });
-    expect(reply.summary).toMatchObject({ candidates: 2, returned: 1, truncated: false, limit_reached: false });
+    expect(reply.summary).toMatchObject({ candidates: 3, returned: 1, truncated: false, limit_reached: false });
     // It held the lock, so the next search reads the index it saved.
     expect(fs.existsSync(path.join(dir, "cache", "corgi", "conversation-grep-v2", "index.json"))).toBe(true);
     // A hit too big for the budget comes clipped, ending the search, rather than not at all.
-    transcript("big", "bigneedle " + "x".repeat(budget + 1000));
     const big = await searches.search(
       runtime,
       client(),
@@ -446,6 +446,24 @@ test("the worker thread searches transcripts as corgi grep --json does, and save
     expect(big.matches[0]).toMatchObject({ source: { session: "big" }, hits: [{ clipped: true }] });
     expect(JSON.stringify(big.matches).length).toBeLessThan(budget);
     expect(big.summary).toMatchObject({ returned: 1, truncated: true });
+    // Line anchors and whole lines match a conversation's lines, not its text as one.
+    const session = async (fields: object) =>
+      (
+        await searches.search(runtime, client(), request({ max_age: 0, ...fields }), new AbortController().signal, null)
+      ).matches.map(m => m.source.session);
+    expect(await session({ patterns: ["^second"] })).toEqual(["two"]);
+    expect(await session({ patterns: ["anchor$"] })).toEqual(["two"]);
+    expect(await session({ patterns: ["second line with an anchor"], line: true })).toEqual(["two"]);
+    expect(await session({ patterns: ["^line"] })).toEqual([]);
+    // A warm-up needs no pattern and finds nothing; it only reads ahead.
+    const warmed = await searches.search(
+      runtime,
+      client(),
+      request({ patterns: [], warm: true, max_age: 0 }),
+      new AbortController().signal,
+      null,
+    );
+    expect(warmed).toMatchObject({ matches: [], summary: { candidates: 3, returned: 0 } });
   } finally {
     if (saved === undefined) delete process.env.XDG_CACHE_HOME;
     else process.env.XDG_CACHE_HOME = saved;

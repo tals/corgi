@@ -113,8 +113,9 @@ export const conversations: Search = {
   version: 1,
   home: dataDir,
   async discover(folder, context) {
-    const file = join(folder, "opencode.db");
-    if (!fs.existsSync(file) || !context.claim(fs.realpathSync(file))) return [];
+    const file = join(folder, "opencode.db"),
+      s = fs.statSync(file, { throwIfNoEntry: false });
+    if (!s || !context.claim(search.fileId(s))) return [];
     // A store that won't open throws, and the index keeps what it had.
     const db = open(file);
     try {
