@@ -25,43 +25,41 @@ const folder_rows = 10;
 export type Hit =
   nameDialog.Hit | { tag: "folder"; field: number } | { tag: "entry"; index: number } | { tag: "open" } | { tag: "up" };
 
-/** The folders the browser shows: the viewer's own, or a remote machine's. */
-export interface Files {
+/** Where a dialog's folders are read: this computer, or a remote machine
+ * through its daemon. */
+export interface Place {
   /** The home folder, "" until known. */
-  readonly home: string;
-  /** The folders in `folder`, null when it can't be read; undefined until the machine answers. */
-  list(folder: string): string[] | null | undefined;
-  /** The deepest part of `path` that is there; undefined until the machine answers. */
-  deepest(path: string): folders.Deepest | null | undefined;
-  /** See `folders.open`. */
-  open(path: string): Promise<folders.Opened>;
+  home: string;
+  /** A `folders.answer` from there. */
+  ask(op: folders.Op, path: string): Promise<unknown>;
+  /** Whether a read that failed may work when asked again, as after a lost link. */
+  lost(error: unknown): boolean;
+}
+/** This computer's folders, read in this process. */
+export function here(home = homedir()): Place {
+  return { home, ask: (op, path) => folders.answer({ op, payload: { path } }), lost: () => false };
+}
+/** A remote machine's folders, read by its daemon; its home is kept on the
+ * machine for the next dialog. A daemon that refuses, an older one included,
+ * has nothing to show. */
+export function remote(machine: Machine): Place {
+  return {
+    get home() {
+      return machine.home;
+    },
+    set home(home: string) {
+      machine.home = home;
+    },
+    ask: (op, path) => call(machine.connection, op, { path }),
+    lost: error => !errors.reply(error),
+  };
+}
+
+/** A place's folders as the browser reads them, kept until the dialog makes
+ * a folder. Until a remote home is known, paths under it start with `~`,
+ * which the daemon expands. */
+export class Reader {
   /** Told when an answer comes after it was asked for. */
-  answered?: () => void;
-}
-
-/** The viewer's own folders, read as they're asked for. */
-export class Disk implements Files {
-  constructor(
-    readonly home = homedir(),
-    private readonly lister: (folder: string) => string[] | null = folders.subfolders,
-    private readonly at: (path: string) => folders.Found | null = folders.stat,
-  ) {}
-  list(folder: string): string[] | null {
-    return this.lister(folder);
-  }
-  deepest(path: string): folders.Deepest | null {
-    return folders.deepest(path, this.at);
-  }
-  async open(path: string): Promise<folders.Opened> {
-    return folders.open(path);
-  }
-}
-
-/** A remote machine's folders, read through its daemon. Answers are kept
- * until the dialog makes a folder, and its home on the machine for the next
- * dialog. Until the home is known, paths under it start with `~`, which the
- * daemon expands. */
-export class Remote implements Files {
   answered: () => void = () => {};
   private lists = new Map<string, string[] | null>();
   private found = new Map<string, folders.Deepest | null>();
@@ -69,31 +67,31 @@ export class Remote implements Files {
   private asking = new Set<string>();
   /** Counts the folders made: an answer read before one is dropped. */
   private made = 0;
-  constructor(private readonly machine: Machine) {}
+  constructor(private readonly place: Place = here()) {}
   get home(): string {
-    return this.machine.home;
+    return this.place.home;
   }
+  /** The folders in `folder`, null when it can't be read; undefined until the place answers. */
   list(folder: string): string[] | null | undefined {
     // A folder read before the home was known is kept under `~`.
     for (const key of [folder, label(folder, this.home)]) if (this.lists.has(key)) return this.lists.get(key);
-    this.ask(this.lists, "folder.list", folder, async () => {
-      const reply = await call(this.machine.connection, "folder.list", { path: folder });
-      if (typeof reply.home === "string" && isAbsolute(reply.home)) this.machine.home = reply.home;
+    this.ask(this.lists, "folder.list", folder, reply => {
+      if (typeof reply.home === "string" && isAbsolute(reply.home)) this.place.home = reply.home;
       return names(reply.folders);
     });
     return undefined;
   }
+  /** The deepest part of `path` that is there; undefined until the place answers. */
   deepest(path: string): folders.Deepest | null | undefined {
     if (this.found.has(path)) return this.found.get(path);
-    this.ask(this.found, "folder.find", path, async () =>
-      deepestPart((await call(this.machine.connection, "folder.find", { path })).deepest),
-    );
+    this.ask(this.found, "folder.find", path, reply => deepestPart(reply.deepest));
     return undefined;
   }
+  /** The real path of folder `path`, made with the folders above it when it isn't there yet. */
   async open(path: string): Promise<folders.Opened> {
     let made: folders.Opened;
     try {
-      made = opened((await call(this.machine.connection, "folder.open", { path })).opened);
+      made = opened(record(await this.place.ask("folder.open", path)).opened);
     } catch (error) {
       // XXX: Remove for next protocol bump. An older daemon has no folder
       // requests; the workspace takes the folder as named, when it's there.
@@ -112,31 +110,42 @@ export class Remote implements Files {
     this.asking.clear();
     this.answered();
   }
-  /** Asks the daemon `op` about `key`, once at a time. A daemon that refuses,
-   * an older one included, has nothing to show there; after a lost link the
-   * next look asks again. */
-  private ask<T>(answers: Map<string, T | null>, op: string, key: string, read: () => Promise<T | null>): void {
+  /** Asks the place `op` about `key`, once at a time. A read that failed for
+   * good has nothing to show; after a lost link the next look asks again. */
+  private ask<T>(
+    answers: Map<string, T | null>,
+    op: folders.Op,
+    key: string,
+    take: (reply: Record<string, unknown>) => T | null,
+  ): void {
     const question = `${op} ${key}`,
       made = this.made;
     if (this.asking.has(question)) return;
     this.asking.add(question);
-    const take = (answer: T | null) => {
+    const keep = (answer: T | null) => {
       if (made !== this.made) return;
       this.asking.delete(question);
       answers.set(key, answer);
       this.answered();
     };
-    void read().then(take, error => {
-      if (errors.reply(error)) take(null);
-      else if (made === this.made) this.asking.delete(question);
-    });
+    void this.place.ask(op, key).then(
+      reply => keep(take(record(reply))),
+      error => {
+        if (!this.place.lost(error)) keep(null);
+        else if (made === this.made) this.asking.delete(question);
+      },
+    );
   }
 }
-/** A daemon's folder names, or null. */
+/** A reply's fields. */
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+/** A reply's folder names, or null. */
 function names(value: unknown): string[] | null {
   return Array.isArray(value) ? value.filter(n => typeof n === "string") : null;
 }
-/** A daemon's deepest part of a path, or null. */
+/** A reply's deepest part of a path, or null. */
 function deepestPart(value: unknown): folders.Deepest | null {
   if (!value || typeof value !== "object") return null;
   const { path, found } = value as Record<string, unknown>;
@@ -146,9 +155,9 @@ function deepestPart(value: unknown): folders.Deepest | null {
   if (!k) return null;
   return { path, found: { kind: k, size: Number(size) || 0, modified: Number(modified) || 0 } };
 }
-/** A daemon's opened folder, or why there is none. */
+/** A reply's opened folder, or why there is none. */
 function opened(value: unknown): folders.Opened {
-  const v = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const v = record(value);
   if (typeof v.path === "string") return { path: v.path };
   return { problem: folders.problems.find(p => p === v.problem) ?? "not_created" };
 }
@@ -199,7 +208,7 @@ export class Browser {
 
   constructor(
     readonly base: string,
-    readonly files: Files,
+    readonly files: Reader,
   ) {
     this.field = nameDialog.Dialog.init({ folder: null }, "");
     files.answered = () => {
@@ -210,7 +219,7 @@ export class Browser {
     };
   }
   /** Starts at `cwd`, listing the folders in it. */
-  static init(cwd: string, files: Files = new Disk()): Browser {
+  static init(cwd: string, files = new Reader()): Browser {
     const b = new Browser(cwd, files);
     b.show(cwd);
     return b;
@@ -319,6 +328,9 @@ export class Browser {
       n => (prefix.startsWith(".") || !n.startsWith(".")) && n.toLowerCase().startsWith(lower),
     );
     this.look();
+    // Read ahead where → and ← go, so they show their folders at once.
+    if (this.entries.length > 0) this.files.list(join(this.parent, this.entries[0]));
+    if (isAbsolute(this.parent) && this.parent !== "/") this.files.list(dirname(this.parent));
   }
   /** Finds the deepest part of what was typed that is there: past it,
    * folders to offer to create; something else is in the way. */
@@ -328,10 +340,22 @@ export class Browser {
     // What to create waits for the home folder.
     if (this.typed.length === 0 || homeless(this.typed_folder)) return;
     const folder = this.typed_folder,
-      there = this.files.deepest(folder);
+      known = this.files.deepest(folder),
+      there = known === undefined ? this.guess(folder) : known;
     if (!there) return;
     if (there.found.kind !== "folder") this.blocked = { name: basename(there.path), found: there.found };
     else if (there.path !== folder) this.create = relative(there.path, folder);
+  }
+  /** What stands at `folder` by the folders listed above it, until the
+   * place answers: a folder of its name, or the listed folder is the deepest.
+   * Typing a name keeps the offer to create steady meanwhile. */
+  private guess(folder: string): folders.Deepest | null {
+    const listed = this.listed;
+    if (!listed?.names) return null;
+    const there = (path: string) => ({ path, found: { kind: "folder" as const, size: 0, modified: 0 } });
+    if (listed.folder === folder) return there(folder);
+    if (listed.folder !== dirname(folder)) return null;
+    return there(listed.names.includes(basename(folder)) ? folder : listed.folder);
   }
   /** Highlights an entry and writes its folder into the field; past the
    * first entry, back to what was typed. */
@@ -344,6 +368,7 @@ export class Browser {
   /** The offer to create leaves the field as typed. */
   pick(index: number | null): void {
     this.highlight = index;
+    if (index !== null && index < this.entries.length) this.files.list(join(this.parent, this.entries[index]));
     const text = index === null || index >= this.entries.length ? this.typed : this.typed_parent + this.entries[index];
     const field = nameDialog.Dialog.init({ folder: null }, text);
     field.selected = false;

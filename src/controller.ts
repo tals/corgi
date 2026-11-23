@@ -2994,7 +2994,9 @@ export class Controller {
   }
   /** The folder browser at `cwd`, on the shown machine's folders. */
   private folderDialog(cwd: string, moving: newWorkspace.Moving | null): newWorkspace.Dialog {
-    const files = this.machine.remote ? new newWorkspace.Remote(this.machine) : new newWorkspace.Disk(),
+    const files = new newWorkspace.Reader(
+        this.machine.remote ? newWorkspace.remote(this.machine) : newWorkspace.here(),
+      ),
       dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(cwd, files), moving);
     dialog.changed = () => {
       this.dirty = true;

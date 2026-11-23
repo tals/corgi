@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { Browser, Dialog, Disk, Remote, label, size } from "./new_workspace";
-import { deepest, isFolder, make, stat, subfolders, type Found } from "./folders";
+import { Browser, Dialog, Reader, here, label, remote, size, type Place } from "./new_workspace";
+import type { Found, Op } from "./folders";
 import { Machine } from "./machine";
 import type { Transport } from "./mirror";
 import { printable } from "./name_dialog";
@@ -20,15 +20,55 @@ const tree: Record<string, string[]> = {
   "/home/me/code": ["corgi", "other"],
   "/home/me/code/corgi": [],
 };
-const fake = (folder: string) => (folder.endsWith("/locked") ? null : (tree[folder] ?? null));
 const folder: Found = { kind: "folder", size: 0, modified: 0 };
 /** Things in the tree that aren't folders. */
 const others: Record<string, Found> = {
   "/home/me/code/notes": { kind: "file", size: 2048, modified: Date.now() - 3 * 86400 * 1000 },
 };
-/** The tree's folders and others; one called "locked" is there but can't be read. */
-const at = (path: string) => (path in tree || path.endsWith("/locked") ? folder : (others[path] ?? null));
-const browse = (cwd = "/home/me") => Browser.init(cwd, new Disk("/home/me", fake, at));
+/** The tree as a computer answers folder requests, the folders it makes
+ * added; one called "locked" is there but can't be read. */
+function answers() {
+  const shown: Record<string, string[]> = structuredClone(tree);
+  const at = (p: string) => (p in shown || p.endsWith("/locked") ? folder : (others[p] ?? null));
+  return (op: Op, path: string): object => {
+    switch (op) {
+      case "folder.list":
+        return { folders: path.endsWith("/locked") ? null : (shown[path] ?? null), home: "/home/me" };
+      case "folder.find": {
+        let p = path;
+        while (at(p) === null && p !== dirname(p)) p = dirname(p);
+        const found = at(p);
+        return { deepest: found && { path: p, found } };
+      }
+      case "folder.open": {
+        const missing: string[] = [];
+        for (let p = path; !(p in shown); p = dirname(p)) missing.unshift(p);
+        for (const p of missing) {
+          shown[p] = [];
+          shown[dirname(p)] = [...shown[dirname(p)], basename(p)].sort((a, b) => a.localeCompare(b));
+        }
+        return { opened: { path } };
+      }
+    }
+  };
+}
+/** The tree as this computer, answering at once. */
+function computer(): Place {
+  const answer = answers();
+  return { home: "/home/me", ask: async (op, path) => answer(op, path), lost: () => false };
+}
+/** Lets the browser take in what it asked. */
+const settle = () => Bun.sleep(0);
+const browse = async (cwd = "/home/me") => {
+  const b = Browser.init(cwd, new Reader(computer()));
+  await settle();
+  return b;
+};
+/** Waits for reads of this disk to bring `done` about. */
+async function until(done: () => boolean) {
+  for (let i = 0; i < 400 && !done(); i++) await Bun.sleep(5);
+  expect(done()).toBe(true);
+}
 /** Pastes `text` into the browser's field a byte at a time. */
 const paste = (b: Browser, text: string) => {
   for (const byte of Buffer.from(text)) b.paste(byte);
@@ -40,17 +80,18 @@ function draw(d: Dialog): string {
   return w.s;
 }
 
-test("the browser starts at the folder and lists the folders in it", () => {
-  const b = browse("/home/me/code");
+test("the browser starts at the folder and lists the folders in it", async () => {
+  const b = await browse("/home/me/code");
   expect(b.field.raw()).toBe("~/code/");
   expect(b.entries).toEqual(["corgi", "other"]);
   expect(b.folder()).toBe("/home/me/code");
-  expect(browse("/").field.raw()).toBe("/");
-  expect(browse("/").entries).toEqual(["home", "tmp"]);
+  const root = await browse("/");
+  expect(root.field.raw()).toBe("/");
+  expect(root.entries).toEqual(["home", "tmp"]);
 });
 
-test("typing filters by the name after the last slash; a dot shows dot folders", () => {
-  const b = browse();
+test("typing filters by the name after the last slash; a dot shows dot folders", async () => {
+  const b = await browse();
   b.focused = true;
   b.key(c("d"));
   expect(b.entries).toEqual(["Documents", "docs"]);
@@ -65,8 +106,8 @@ test("typing filters by the name after the last slash; a dot shows dot folders",
   expect(b.entries).toEqual(["code", "Documents", "docs"]);
 });
 
-test("moving through the list writes each folder into the field, and back to what was typed", () => {
-  const b = browse();
+test("moving through the list writes each folder into the field, and back to what was typed", async () => {
+  const b = await browse();
   b.key(c("d"));
   b.sequence("\x1b[B");
   expect(b.field.raw()).toBe("~/Documents");
@@ -86,51 +127,56 @@ test("moving through the list writes each folder into the field, and back to wha
   expect(b.field.raw()).toBe("~/d");
 });
 
-test("right opens the highlighted folder and left goes up, each picking the first folder there", () => {
-  const b = browse();
+test("right opens the highlighted folder and left goes up, each picking the first folder there", async () => {
+  const b = await browse();
+  const press = async (seq: string) => {
+    b.sequence(seq);
+    await settle();
+  };
   // At the end of the folder the field names, left goes up.
-  b.sequence("\x1b[D");
+  await press("\x1b[D");
   expect(b.entries).toEqual(["me"]);
   expect(b.highlight).toBe(0);
   expect(b.field.raw()).toBe("/home/me");
-  b.sequence("\x1b[C");
+  await press("\x1b[C");
   expect(b.field.raw()).toBe("~/code");
-  b.sequence("\x1b[C");
+  await press("\x1b[C");
   expect(b.entries).toEqual(["corgi", "other"]);
   expect(b.field.raw()).toBe("~/code/corgi");
-  b.sequence("\x1b[D");
+  await press("\x1b[D");
   expect(b.field.raw()).toBe("~/code");
-  b.sequence("\x1b[D");
-  b.sequence("\x1b[D");
+  await press("\x1b[D");
+  await press("\x1b[D");
   expect(b.field.raw()).toBe("/home");
   // Above the first entry is the folder itself.
-  b.sequence("\x1b[A");
+  await press("\x1b[A");
   expect(b.field.raw()).toBe("/");
   // Right at the end of a name opens the first folder it starts.
   b.key(c("h"));
-  b.sequence("\x1b[C");
+  await press("\x1b[C");
   expect(b.field.raw()).toBe("/home/me");
   // Inside the text, left and right move the cursor.
   b.key(127);
-  b.sequence("\x1b[D");
-  b.sequence("\x1b[D");
+  await press("\x1b[D");
+  await press("\x1b[D");
   expect(b.field.raw()).toBe("/home/m");
   expect(b.field.cursor).toBe(5);
-  b.sequence("\x1b[C");
+  await press("\x1b[C");
   expect(b.field.cursor).toBe(6);
 });
 
-test("opening a folder writes it plainly", () => {
-  const b = browse("/home/me/code");
+test("opening a folder writes it plainly", async () => {
+  const b = await browse("/home/me/code");
   paste(b, "../");
   b.move(1);
   expect(b.field.raw()).toBe("~/code/../code");
   b.open();
+  await settle();
   expect(b.field.raw()).toBe("~/code/corgi");
 });
 
-test("the field resolves home, relative names and dot-dots", () => {
-  const b = browse("/home/me/code");
+test("the field resolves home, relative names and dot-dots", async () => {
+  const b = await browse("/home/me/code");
   for (const [text, folder] of [
     ["~", "/home/me"],
     ["corgi/", "/home/me/code/corgi"],
@@ -145,31 +191,34 @@ test("the field resolves home, relative names and dot-dots", () => {
   expect(label("/home/meow", "/home/me")).toBe("/home/meow");
 });
 
-test("an unreadable folder says so", () => {
-  const b = browse("/home/me");
+test("an unreadable folder says so", async () => {
+  const b = await browse("/home/me");
   paste(b, "locked/");
+  await settle();
   expect(b.readable).toBe(false);
   expect(b.entries).toEqual([]);
   expect(b.create).toBeNull();
   expect(draw(new Dialog(b))).toContain("Can't read this folder");
 });
 
-test("clicking an entry highlights it, and clicking it again opens it", () => {
-  const b = browse("/home/me/code");
+test("clicking an entry highlights it, and clicking it again opens it", async () => {
+  const b = await browse("/home/me/code");
   b.click({ tag: "entry", index: 0 }, 0);
   expect(b.focused).toBe(true);
   expect(b.field.raw()).toBe("~/code/corgi");
   // An empty folder has nothing to pick.
   b.click({ tag: "entry", index: 0 }, 0);
+  await settle();
   expect(b.field.raw()).toBe("~/code/corgi/");
   expect(b.highlight).toBeNull();
   b.click({ tag: "up" }, 0);
+  await settle();
   expect(b.field.raw()).toBe("~/code/corgi");
 });
 
-test("the window keeps the highlight in view", () => {
+test("the window keeps the highlight in view", async () => {
   tree["/many"] = Array.from({ length: 20 }, (_, i) => `f${String(i).padStart(2, "0")}`);
-  const b = browse("/many");
+  const b = await browse("/many");
   expect(b.window(5)).toBe(0);
   for (let i = 0; i < 8; i++) b.move(1);
   expect(b.window(5)).toBe(3);
@@ -179,8 +228,8 @@ test("the window keeps the highlight in view", () => {
   expect(b.window(5)).toBe(1);
 });
 
-test("the dialog moves between the name and the folder with tab", () => {
-  const d = new Dialog(browse());
+test("the dialog moves between the name and the folder with tab", async () => {
+  const d = new Dialog(await browse());
   d.key(c("x"));
   expect(d.name()).toBe("x");
   d.key(9);
@@ -196,8 +245,8 @@ test("the dialog moves between the name and the folder with tab", () => {
   expect(d.browser.highlight).toBeNull();
 });
 
-test("the new-workspace card shows the folders and answers clicks on them", () => {
-  const d = new Dialog(browse("/home/me/code"));
+test("the new-workspace card shows the folders and answers clicks on them", async () => {
+  const d = new Dialog(await browse("/home/me/code"));
   const v = d.view(100, 30)!;
   const f = v.folders;
   expect(f.rows).toBe(10);
@@ -222,8 +271,8 @@ test("the new-workspace card shows the folders and answers clicks on them", () =
   expect(d.view(100, 18)!.folders.rows).toBe(3);
 });
 
-test("too short for the list, moving a workspace keeps its folder field and the keys", () => {
-  const d = new Dialog(browse("/home/me/code"), { workspace: 2, name: "corgi" });
+test("too short for the list, moving a workspace keeps its folder field and the keys", async () => {
+  const d = new Dialog(await browse("/home/me/code"), { workspace: 2, name: "corgi" });
   d.fit(100, 12);
   const v = d.view(100, 12)!;
   expect([v.compact, d.compact, d.browser.focused]).toEqual([true, true, true]);
@@ -239,28 +288,14 @@ test("too short for the list, moving a workspace keeps its folder field and the 
   d.sequence("\x1b[A");
   expect([d.browser.focused, d.browser.folder(), d.name()]).toEqual([true, "/home/me/code/other", "corgi"]);
   // A new workspace still falls back to the plain dialog on its name.
-  expect(new Dialog(browse()).view(100, 12)).toBeNull();
+  expect(new Dialog(await browse()).view(100, 12)).toBeNull();
 });
 
-test("subfolders lists folders and links to them, sorted", () => {
-  const root = mkdtempSync(join(tmpdir(), "corgi-folders-"));
-  mkdirSync(join(root, "b"));
-  mkdirSync(join(root, "A"));
-  writeFileSync(join(root, "file"), "");
-  symlinkSync(join(root, "b"), join(root, "link"));
-  symlinkSync(join(root, "gone"), join(root, "dangling"));
-  expect(subfolders(root)).toEqual(["A", "b", "link"]);
-  expect(subfolders(join(root, "file"))).toBeNull();
-  expect(isFolder(join(root, "link"))).toBe(true);
-  expect(isFolder(join(root, "file"))).toBe(false);
-  rmSync(root, { recursive: true });
-});
-
-test("folder names never reach the terminal as controls", () => {
+test("folder names never reach the terminal as controls", async () => {
   expect(printable("a\x1b[2Jb\x7f\u009b31mc")).toBe("a?[2Jb??31mc");
   const evil = "\x1b]0;x\x07\u009b2J";
   tree["/evil"] = [evil];
-  const d = new Dialog(browse("/evil"));
+  const d = new Dialog(await browse("/evil"));
   d.browser.focused = true;
   d.browser.move(1);
   expect(d.browser.field.raw()).toBe("/evil/" + evil);
@@ -274,30 +309,31 @@ test("folder names never reach the terminal as controls", () => {
 test("a missing folder is made, with the folders above it, when the workspace is created", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-folders-")));
   writeFileSync(join(root, "file"), "");
-  const b = Browser.init(root, new Disk("/nowhere", subfolders));
+  const b = Browser.init(root, new Reader(here("/nowhere")));
   expect(await b.confirm()).toBe(root);
   paste(b, "new/deeper");
-  expect(b.create).toBe("new/deeper");
+  await until(() => b.create === "new/deeper");
   expect(await b.confirm()).toBe(join(root, "new/deeper"));
-  expect(isFolder(join(root, "new/deeper"))).toBe(true);
+  expect(existsSync(join(root, "new/deeper"))).toBe(true);
   // A link to a folder gives the folder's own path, as `corgi action open` does.
   symlinkSync(join(root, "new"), join(root, "link"));
-  expect(await Browser.init(join(root, "link"), new Disk("/nowhere", subfolders)).confirm()).toBe(join(root, "new"));
+  expect(await Browser.init(join(root, "link"), new Reader(here("/nowhere"))).confirm()).toBe(join(root, "new"));
   b.field.clear();
   paste(b, "file");
+  await until(() => b.blocked?.name === "file");
   expect(b.create).toBeNull();
   expect(await b.confirm()).toBeNull();
   expect(b.problem).toBe("not_folder");
-  expect(make(join(root, "file", "under"))).toBe(false);
   rmSync(root, { recursive: true });
 });
 
-test("a folder that isn't there is offered to create, nested too", () => {
-  const b = browse("/home/me/code");
+test("a folder that isn't there is offered to create, nested too", async () => {
+  const b = await browse("/home/me/code");
   paste(b, "co");
   expect(b.entries).toEqual(["corgi"]);
   expect(b.create).toBe("co");
   paste(b, "/new/deeper");
+  await settle();
   expect(b.entries).toEqual([]);
   expect(b.create).toBe("co/new/deeper");
   expect(b.count()).toBe(1);
@@ -308,16 +344,18 @@ test("a folder that isn't there is offered to create, nested too", () => {
   // A folder that is there offers nothing.
   for (let i = 0; i < "/new/deeper".length; i++) b.key(127);
   paste(b, "rgi");
+  await settle();
   expect(b.create).toBeNull();
 });
 
-test("translated Create rows preserve the folder list border when the path fills the row", () => {
+test("translated Create rows preserve the folder list border when the path fills the row", async () => {
   const original = i18n.language();
   try {
     for (const locale of i18n.locales) {
       i18n.setLanguage(locale);
-      const b = browse("/home/me/code");
+      const b = await browse("/home/me/code");
       paste(b, "folder".repeat(20));
+      await settle();
       const d = new Dialog(b),
         w = new Writer(),
         view = d.view(80, 30)!,
@@ -345,90 +383,33 @@ test("translated Create rows preserve the folder list border when the path fills
 
 test("opening the offer makes the folders and lists the last", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-folders-")));
-  const b = Browser.init(root, new Disk("/nowhere", subfolders));
+  const b = Browser.init(root, new Reader(here("/nowhere")));
   paste(b, "a/b");
+  await until(() => b.create === "a/b");
   b.move(1);
   expect(b.highlight).toBe(0);
   expect(b.field.raw()).toBe(root + "/a/b");
   b.sequence("\x1b[C");
-  await Bun.sleep(0);
-  expect(isFolder(join(root, "a/b"))).toBe(true);
-  expect(b.field.raw()).toBe(root + "/a/b/");
-  expect(b.create).toBeNull();
+  await until(() => b.field.raw() === root + "/a/b/" && b.create === null);
+  expect(existsSync(join(root, "a/b"))).toBe(true);
   rmSync(root, { recursive: true });
 });
 
-test("a remote machine's folders are listed, and made, by its daemon", async () => {
-  const asked: string[] = [];
-  const request = async (op: string, payload: { path: string }) => {
-    asked.push(`${op} ${payload.path}`);
-    switch (op) {
-      case "folder.list":
-        return { ok: true, folders: fake(payload.path), home: "/home/me" };
-      case "folder.find":
-        return { ok: true, deepest: deepest(payload.path, at) };
-      case "folder.open":
-        return { ok: true, opened: { path: payload.path } };
-    }
-    return { err: "UnknownOperation" };
-  };
-  const machine = new Machine({ request } as unknown as Transport, "nocap", true);
-  const d = new Dialog(Browser.init("/home/me", new Remote(machine)));
-  let changes = 0;
-  d.changed = () => changes++;
-  const b = d.browser;
-  // Until the daemon answers, the list is blank rather than empty.
-  expect(b.field.raw()).toBe("/home/me/");
-  expect(b.reading).toBe(true);
-  expect(draw(d)).not.toContain("No folders");
-  await Bun.sleep(0);
-  expect(b.entries).toEqual(["code", "Documents", "docs"]);
-  expect(machine.home).toBe("/home/me");
-  expect(changes).toBeGreaterThan(0);
-  // A folder entered before it's read picks its first folder once it is.
-  b.move(1);
-  b.sequence("\x1b[C");
-  expect(b.field.raw()).toBe("~/code/");
-  expect(b.highlight).toBeNull();
-  await Bun.sleep(0);
-  expect(b.field.raw()).toBe("~/code/corgi");
-  expect(b.highlight).toBe(0);
-  // What isn't there is offered from the daemon's answer, and made there.
-  b.move(-1);
-  paste(b, "ctf");
-  await Bun.sleep(0);
-  expect(b.create).toBe("ctf");
-  expect(await d.confirm()).toBe("/home/me/code/ctf");
-  expect(asked).toContain("folder.open /home/me/code/ctf");
-  expect(isFolder("/home/me/code/ctf")).toBe(false);
-});
-
-/** A remote machine whose daemon answers from a copy of the tree only as
- * `flush` lets it. `link.up` false loses the link; an old daemon knows no
- * folder requests. */
+/** A remote machine whose daemon answers from the tree only as `flush`
+ * lets it. `link.up` false loses the link; an old daemon knows no folder
+ * requests. */
 function remoteMachine(opts: { home?: string; old?: boolean } = {}) {
-  const shown: Record<string, string[]> = structuredClone(tree);
+  const answer = answers();
   const held: (() => void)[] = [];
   const asked: string[] = [];
   const link = { up: true };
   const expand = (p: string) => (p === "~" || p.startsWith("~/") ? resolve("/home/me", "." + p.slice(1)) : p);
-  const answer = (op: string, path: string): object => {
-    if (opts.old) return { err: "UnknownOperation" };
-    if (op === "folder.list") return { ok: true, folders: shown[path] ?? null, home: "/home/me" };
-    if (op === "folder.find")
-      return { ok: true, deepest: deepest(path, p => (p in shown ? folder : (others[p] ?? null))) };
-    const missing: string[] = [];
-    for (let p = path; !(p in shown); p = dirname(p)) missing.unshift(p);
-    for (const p of missing) {
-      shown[p] = [];
-      shown[dirname(p)] = [...shown[dirname(p)], basename(p)].sort((a, b) => a.localeCompare(b));
-    }
-    return { ok: true, opened: { path } };
-  };
-  const request = (op: string, payload: { path: string }) =>
+  const reply = (op: Op, path: string) =>
+    opts.old ? { err: "UnknownOperation" } : { ok: true, ...answer(op, expand(path)) };
+  const request = (op: Op, payload: { path: string }) =>
     new Promise((resolve, reject) => {
       asked.push(`${op} ${payload.path}`);
-      held.push(() => (link.up ? resolve(answer(op, expand(payload.path))) : reject(Error("StaleConnection"))));
+      held.push(() => (link.up ? resolve(reply(op, payload.path)) : reject(Error("StaleConnection"))));
     });
   const machine = new Machine({ request } as unknown as Transport, "nocap", true);
   machine.home = opts.home ?? "";
@@ -439,12 +420,55 @@ function remoteMachine(opts: { home?: string; old?: boolean } = {}) {
       await Bun.sleep(0);
     }
   };
-  return { machine, asked, link, flush };
+  return { machine, asked, link, flush, reader: () => new Reader(remote(machine)) };
 }
 
+test("a remote machine's folders are listed by its daemon, blank until it answers", async () => {
+  const { machine, flush, reader } = remoteMachine();
+  const d = new Dialog(Browser.init("/home/me", reader()));
+  let changes = 0;
+  d.changed = () => changes++;
+  expect(d.browser.field.raw()).toBe("/home/me/");
+  expect(d.browser.reading).toBe(true);
+  expect(draw(d)).not.toContain("No folders");
+  await flush();
+  expect(d.browser.entries).toEqual(["code", "Documents", "docs"]);
+  expect(machine.home).toBe("/home/me");
+  expect(changes).toBeGreaterThan(0);
+});
+
+test("typing a name offers to create it from the folders listed, before the machine answers", async () => {
+  const { flush, reader } = remoteMachine({ home: "/home/me" });
+  const b = Browser.init("/home/me/code", reader());
+  await flush();
+  paste(b, "c");
+  expect(b.create).toBe("c");
+  paste(b, "t");
+  expect([b.entries, b.create]).toEqual([[], "ct"]);
+  for (let i = 0; i < 2; i++) b.key(127);
+  paste(b, "corgi");
+  expect(b.create).toBeNull();
+  await flush();
+  expect(b.create).toBeNull();
+});
+
+test("→ and ← show their folders at once, read ahead of them", async () => {
+  const { flush, reader } = remoteMachine({ home: "/home/me" });
+  const b = Browser.init("/home/me/code", reader());
+  await flush();
+  b.move(1);
+  await flush();
+  b.sequence("\x1b[C");
+  expect([b.reading, b.field.raw()]).toEqual([false, "~/code/corgi/"]);
+  b.sequence("\x1b[D");
+  await flush();
+  b.sequence("\x1b[D");
+  expect([b.reading, b.entries]).toEqual([false, ["code", "Documents", "docs"]]);
+});
+
 test("a folder made on a remote machine shows at once, there and above it", async () => {
-  const { machine, flush } = remoteMachine({ home: "/home/me" });
-  const b = Browser.init("/home/me/code", new Remote(machine));
+  const { flush, reader } = remoteMachine({ home: "/home/me" });
+  const b = Browser.init("/home/me/code", reader());
   await flush();
   paste(b, "ctf");
   await flush();
@@ -460,9 +484,9 @@ test("a folder made on a remote machine shows at once, there and above it", asyn
 });
 
 test("a remote folder is asked for again after a lost link; an older daemon's can't be read", async () => {
-  const { machine, asked, link, flush } = remoteMachine({ home: "/home/me" });
+  const { asked, link, flush, reader } = remoteMachine({ home: "/home/me" });
   link.up = false;
-  const d = new Dialog(Browser.init("/home/me", new Remote(machine)));
+  const d = new Dialog(Browser.init("/home/me", reader()));
   await flush();
   expect(d.browser.reading).toBe(true);
   expect(draw(d)).not.toContain("Can't read this folder");
@@ -472,7 +496,7 @@ test("a remote folder is asked for again after a lost link; an older daemon's ca
   expect(d.browser.entries).toEqual(["code"]);
   expect(asked.filter(q => q === "folder.list /home/me")).toHaveLength(2);
   const old = remoteMachine({ old: true });
-  const o = new Dialog(Browser.init("/home/me", new Remote(old.machine)));
+  const o = new Dialog(Browser.init("/home/me", old.reader()));
   await old.flush();
   expect(draw(o)).toContain("Can't read this folder");
   // It takes the folder as named, `~` included.
@@ -484,8 +508,8 @@ test("a remote folder is asked for again after a lost link; an older daemon's ca
 });
 
 test("~ typed before a remote machine's home is known is made there, and read from there once known", async () => {
-  const { machine, asked, flush } = remoteMachine();
-  const b = Browser.init("/home/me/code", new Remote(machine));
+  const { asked, flush, reader } = remoteMachine();
+  const b = Browser.init("/home/me/code", reader());
   b.field.clear();
   paste(b, "~/proj");
   expect(b.folder()).toBe("~/proj");
@@ -499,8 +523,8 @@ test("~ typed before a remote machine's home is known is made there, and read fr
 });
 
 test("~/.. typed before a remote machine's home is known still goes above it", async () => {
-  const { machine, asked, flush } = remoteMachine();
-  const b = Browser.init("/home/me/code", new Remote(machine));
+  const { asked, flush, reader } = remoteMachine();
+  const b = Browser.init("/home/me/code", reader());
   b.field.clear();
   paste(b, "~/../shared/");
   expect(b.folder()).toBe("~/../shared");
@@ -511,9 +535,9 @@ test("~/.. typed before a remote machine's home is known still goes above it", a
 });
 
 test("→ pressed before a remote folder is read goes on into its first folder, as on this disk", async () => {
-  const { machine, flush } = remoteMachine({ home: "/home/me" });
-  const b = Browser.init("/home/me", new Remote(machine));
-  const local = browse("/home/me");
+  const { flush, reader } = remoteMachine({ home: "/home/me" });
+  const b = Browser.init("/home/me", reader());
+  const local = await browse("/home/me");
   await flush();
   for (const each of [b, local]) {
     each.move(1);
@@ -526,8 +550,8 @@ test("→ pressed before a remote folder is read goes on into its first folder, 
 });
 
 test("a remote machine's dialog can start at its home before knowing where that is", async () => {
-  const { machine, asked, flush } = remoteMachine();
-  const d = new Dialog(Browser.init("~", new Remote(machine)));
+  const { asked, flush, reader } = remoteMachine();
+  const d = new Dialog(Browser.init("~", reader()));
   expect(d.browser.field.raw()).toBe("~/");
   await flush();
   expect(asked[0]).toBe("folder.list ~");
@@ -536,8 +560,8 @@ test("a remote machine's dialog can start at its home before knowing where that 
   expect(d.name()).toBe("me");
 });
 
-test("the name follows the folder until it is edited", () => {
-  const d = new Dialog(browse("/home/me/code"));
+test("the name follows the folder until it is edited", async () => {
+  const d = new Dialog(await browse("/home/me/code"));
   expect(d.name()).toBe("code");
   expect(d.selected).toBe(true);
   // Typing starts in the name; down goes to the folder.
@@ -562,12 +586,12 @@ test("the name follows the folder until it is edited", () => {
   expect(d.name()).toBe("new_tasks");
 });
 
-test("the root folder names a workspace /", () => {
-  expect(new Dialog(browse("/")).name()).toBe("/");
+test("the root folder names a workspace /", async () => {
+  expect(new Dialog(await browse("/")).name()).toBe("/");
 });
 
-test("clearing the name stops it following", () => {
-  const d = new Dialog(browse("/home/me/code"));
+test("clearing the name stops it following", async () => {
+  const d = new Dialog(await browse("/home/me/code"));
   d.key(3);
   expect(d.follows_folder).toBe(false);
   d.sequence("\x1b[B");
@@ -575,8 +599,8 @@ test("clearing the name stops it following", () => {
   expect(d.name()).toBe("");
 });
 
-test("up and down go round the name, the folder and its folders", () => {
-  const d = new Dialog(browse("/home/me/code"));
+test("up and down go round the name, the folder and its folders", async () => {
+  const d = new Dialog(await browse("/home/me/code"));
   const b = d.browser!;
   d.sequence("\x1b[B");
   expect(b.focused).toBe(true);
@@ -611,8 +635,8 @@ test("up and down go round the name, the folder and its folders", () => {
   expect(b.focused).toBe(false);
 });
 
-test("enter, or a click on its button, creates the workspace at once", () => {
-  const d = new Dialog(browse("/home/me/code"));
+test("enter, or a click on its button, creates the workspace at once", async () => {
+  const d = new Dialog(await browse("/home/me/code"));
   expect(d.key(13)).toBe("save");
   // From the folder field too.
   d.key(9);
@@ -622,8 +646,8 @@ test("enter, or a click on its button, creates the workspace at once", () => {
   expect(d.press(v, create.x, v.buttons_y, 0)).toBe("save");
 });
 
-test("the name is selected only until the keys first leave it", () => {
-  const d = new Dialog(browse("/home/me/code"));
+test("the name is selected only until the keys first leave it", async () => {
+  const d = new Dialog(await browse("/home/me/code"));
   expect(d.selected).toBe(true);
   d.sequence("\x1b[B");
   expect(d.selected).toBe(false);
@@ -636,8 +660,8 @@ test("the name is selected only until the keys first leave it", () => {
   expect(d.name()).toBe("corgi2");
 });
 
-test("the arrows are keys of their own, quiet until the folder has the keys", () => {
-  const d = new Dialog(browse("/home/me/code"));
+test("the arrows are keys of their own, quiet until the folder has the keys", async () => {
+  const d = new Dialog(await browse("/home/me/code"));
   const v = d.view(100, 30)!;
   const arrows = v.buttons()[1];
   expect(arrows.split).toBe(true);
@@ -657,13 +681,15 @@ test("the arrows are keys of their own, quiet until the folder has the keys", ()
   expect(drawn()).toContain(" → ");
 });
 
-test("something else where the field names a folder is shown, with its size and age", () => {
-  const b = browse("/home/me/code");
+test("something else where the field names a folder is shown, with its size and age", async () => {
+  const b = await browse("/home/me/code");
   paste(b, "notes");
+  await settle();
   expect(b.create).toBeNull();
   expect(b.blocked?.name).toBe("notes");
   // Under it too.
   paste(b, "/sub");
+  await settle();
   expect(b.blocked?.name).toBe("notes");
   expect(b.create).toBeNull();
   const drawn = draw(new Dialog(b));
@@ -672,14 +698,6 @@ test("something else where the field names a folder is shown, with its size and 
   expect(drawn).not.toContain("No folders match");
 });
 
-test("stat tells what a path holds, a link to nothing included", () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-folders-")));
-  writeFileSync(join(root, "file"), "hello");
-  symlinkSync(join(root, "gone"), join(root, "dangling"));
-  expect(stat(root)?.kind).toBe("folder");
-  expect(stat(join(root, "file"))).toMatchObject({ kind: "file", size: 5 });
-  expect(stat(join(root, "dangling"))?.kind).toBe("link");
-  expect(stat(join(root, "gone"))).toBeNull();
-  rmSync(root, { recursive: true });
+test("sizes read in bytes, then KB or MB", () => {
   expect([0, 980, 1229, 34 * 1048576].map(size)).toEqual(["0 B", "980 B", "1.2 KB", "34 MB"]);
 });

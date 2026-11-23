@@ -1074,7 +1074,12 @@ test("discarded paste chunks cannot invoke shortcuts", async () => {
 test("keys stay on the name while the folder field doesn't fit", async () => {
   const s = controller();
   s.input_state.attached = true;
-  const d = new newWorkspace.Dialog(newWorkspace.Browser.init("/a", new newWorkspace.Disk("/home", () => ["b"])));
+  const d = new newWorkspace.Dialog(
+    newWorkspace.Browser.init(
+      "/a",
+      new newWorkspace.Reader({ home: "/home", ask: async () => ({ folders: ["b"] }), lost: () => false }),
+    ),
+  );
   s.name_dialog = d;
   s.height = 12;
   await s.input(bytes("\tx"));
@@ -1530,10 +1535,15 @@ test("change folder browses from the workspace's folder and moves it there", asy
   snapshot.workspaces[0].name = "app";
   snapshot.workspaces[1].name = "custom";
   const { s, sent: commands } = recording(snapshot);
+  /** Waits for the dialog's reads of this disk. */
+  const read = async () => {
+    for (let i = 0; i < 400 && s.name_dialog?.browser.reading; i++) await Bun.sleep(5);
+  };
   try {
     await s.perform({ name: "edit-workspace" });
     expect(s.tab_menu.details.get("change-folder").runs).toEqual([[join(root, "app"), "faint"]]);
     await s.key(102);
+    await read();
     const d = s.name_dialog;
     expect(d).toBeInstanceOf(newWorkspace.Dialog);
     expect([d.moving, d.browser.focused, d.browser.folder(), d.browser.entries]).toEqual([
@@ -1552,9 +1562,12 @@ test("change folder browses from the workspace's folder and moves it there", asy
     // A name of its own stays.
     s.tab_menu = new TabMenu({ tab: 2, workspace: true, anchor_x: 0 });
     await s.tabMenuAction("change-folder");
+    await read();
     await s.input(bytes("\x1b[D"));
+    await read();
     expect(s.name_dialog.browser.folder()).toBe(join(root, "app"));
     await s.input(bytes("\r"));
+    await s.settle();
     expect(commands.at(-1)).toEqual({ "workspace.edit": { target: 2, name: "custom", cwd: join(root, "app") } });
   } finally {
     viewer.close(s);

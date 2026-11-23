@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as folders from "./folders";
@@ -23,7 +23,7 @@ test("a remote viewer's folder requests are answered from this computer's folder
     });
     expect(await ask("folder.find", join(root, "dangling"))).toMatchObject({ deepest: { found: { kind: "link" } } });
     expect(await ask("folder.open", join(root, "new/deeper"))).toEqual({ opened: { path: join(root, "new/deeper") } });
-    expect(folders.isFolder(join(root, "new/deeper"))).toBe(true);
+    expect(statSync(join(root, "new/deeper")).isDirectory()).toBe(true);
     // A link to a folder gives the folder's own path.
     expect(await ask("folder.open", join(root, "link"))).toEqual({ opened: { path: join(root, "b") } });
     expect(await ask("folder.open", join(root, "file"))).toEqual({ opened: { problem: "not_folder" } });
