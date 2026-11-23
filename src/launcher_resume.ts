@@ -179,6 +179,9 @@ export class Mentions {
   cut = false;
   /** The daemon can't search conversations' text. */
   unsupported = false;
+  /** The search as last typed, and when, so a search waits for typing to pause. */
+  typed = "";
+  typed_at = 0;
   /** Counts the searches sent, so only the latest one's answers count. */
   generation = 0;
   /** Searches for `query` that failed in a row. */

@@ -356,6 +356,8 @@ class InputState {
 }
 /** The key the Resume list's searches of conversations' text go under, so each ends the last. */
 const mentions_key = "resume";
+/** How long typing pauses before the Resume list searches conversations' text. */
+const mentions_pause_ms = 100;
 const sameRect = (a: Rect, b: Rect) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 /** `list` with `item` in it, or without it. */
@@ -5474,13 +5476,20 @@ export class Controller {
       m = view.mentions,
       query = view.mentionQuery(),
       now = milliTimestamp();
+    if (query !== m.typed) {
+      m.typed = query;
+      m.typed_at = now;
+    }
     // A new search ends the last on the daemon; no search, as when the search
     // is left or too short, needs telling.
     if (!query) this.cancelMentions();
     if (m.unsupported) return;
-    // Each change searches at once, ending the last search. The same search
-    // goes again only when a failed one's retry is due.
-    if (query === m.query && !(query && m.retry_at > 0 && now >= m.retry_at)) return;
+    // The same search goes again only when a failed one's retry is due.
+    const due =
+      query === m.query
+        ? query !== "" && m.retry_at > 0 && now >= m.retry_at
+        : !query || now - m.typed_at >= mentions_pause_ms;
+    if (!due) return;
     const generation = view.searchMentions(query);
     this.dirty = true;
     if (!query) return;
