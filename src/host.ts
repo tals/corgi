@@ -10,6 +10,7 @@ import type { Rgb } from "./palette";
 import { Preferences } from "./preferences";
 import type { Colors as TerminalColors } from "./terminal_palette";
 import type { RGB } from "./theme";
+import * as webLinks from "./web_links";
 
 export class Host {
   /** Saved preferences as this viewer last loaded or set them. The sidebar
@@ -17,6 +18,8 @@ export class Host {
   prefs: Preferences;
   corgi_badge: corgiBadge.Mode = "none";
   supports_kitty_graphics = false;
+  /** The viewer can hand files to this computer's desktop. */
+  opens_desktop = false;
   /** The host's cell in pixels, when it reports it. */
   cell_pixels: forkMotion.Cell | null = null;
   /** Whether the host draws Kitty's branch drawing characters. */
@@ -56,6 +59,7 @@ export class Host {
  * one daemon can serve several terminals. */
 export function attach(prefs: Preferences, probe: Probe | null): Host {
   const host = new Host(prefs);
+  host.opens_desktop = webLinks.opensLinks();
   host.iterm2_pointer = process.env.TERM_PROGRAM === "iTerm.app";
   host.branch_glyphs = branchGlyphs(process.env.TERM ?? "") || branchGlyphs(process.env.TERM_PROGRAM ?? "");
   if (probe) {

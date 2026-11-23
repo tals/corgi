@@ -3360,7 +3360,7 @@ function linkCards(f, links, img, rest) {
       rect = linkTooltip.geometry(f.c0 + f.cols, rows, anchor, thumbnail);
       if (!rect) return;
       const out = new Writer();
-      linkTooltip.draw(out, rect, { link: { uri: link.uri, ...anchor }, copied: false, thumbnail }, false);
+      linkTooltip.draw(out, rect, { link: { uri: link.uri, ...anchor }, copied: false, thumbnail }, null);
       drawOver(g, out, rows);
       if (!thumbnail) return;
       // Centered in the rows under the copy row's rule, as link_thumbnail.ts places it.

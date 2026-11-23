@@ -94,7 +94,7 @@ test("both link popover labels keep the right border aligned and stay inside the
         const w = new Writer();
         for (let y = 0; y < 10; y++) w.write(`\x1b[${y + 1};1H` + "#".repeat(40));
         const link = { source, id: 1n, uri, x, y: 5 };
-        draw(w, rect, { link, copied: label.includes("Copied"), thumbnail: null }, true);
+        draw(w, rect, { link, copied: label.includes("Copied"), thumbnail: null }, "copy");
         terminal.feed(w.buffered());
         const rows = terminal.text().split("\n");
         expect(rows[rect.y][rect.x + rect.w - 1]).toBe("┐");
@@ -369,11 +369,12 @@ test("a file link's popover offers and copies its path", async () => {
   }
 });
 
-test("an image link's popover shows a thumbnail on Kitty hosts and frees it when it closes", async () => {
+test("an image link's popover copies its path and opens the original from its thumbnail or button", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-thumb-"));
   const path = join(dir, "shot.png");
   writeFileSync(path, await new Bun.Image(Buffer.from(png_base64, "base64")).resize(1000, 400).png().buffer());
   const s = linkViewer(`\x1b]8;;file://${path}\x1b\\[Image #1]\x1b]8;;\x1b\\`);
+  s.host.opens_desktop = true;
   s.supports_kitty_graphics = true;
   s.cell_pixels = { width: 10, height: 20 };
   try {
@@ -388,6 +389,7 @@ test("an image link's popover shows a thumbnail on Kitty hosts and frees it when
     setSystemTime(new Date(1150));
     const frame = s.frame();
     expect(frame).toContain("Copy path");
+    expect(frame).toContain("Open image");
     expect(frame).toContain("├" + "─".repeat(64) + "┤");
     // 1000×400 shrinks to 280×112: 28 cells by 6, centered in the rows.
     const shown = s.host.images.present(),
@@ -400,12 +402,38 @@ test("an image link's popover shows a thumbnail on Kitty hosts and frees it when
     await s.input(mouse(0, 4, 3));
     await s.input(mouse(0, 4, 3, true));
     expect(s.clipboard).toBe(path);
+    s.clearEffects();
+    await s.input(mouse(0, 4, 3));
+    await s.input(mouse(0, 4, 6, true));
+    expect(s.effects).toEqual([]);
+    await s.input(mouse(0, 4, 6));
+    await s.input(mouse(0, 4, 6, true));
+    expect(s.effects).toEqual([{ open_image: path }]);
     await s.input(mouse(35, 90, 20));
     s.frame();
     const closed = s.host.images.present();
     expect(closed.draw).toContain(`a=d,d=i,i=${id},`);
     expect(closed.redraw).not.toContain(`a=p,i=${id},`);
     expect(closed.free).toContain(`\x1b_Ga=d,d=I,i=${id},q=2\x1b\\`);
+    s.supports_kitty_graphics = false;
+    s.clearEffects();
+    await s.input(mouse(35, 2, 1));
+    s.frame();
+    setSystemTime(new Date(1300));
+    expect(s.frame()).toContain("Open image");
+    await s.input(mouse(0, 4, 4));
+    await s.input(mouse(0, 4, 4, true));
+    expect(s.effects).toEqual([{ open_image: path }]);
+    s.host.opens_desktop = false;
+    s.supports_kitty_graphics = true;
+    s.clearEffects();
+    const headless = s.frame();
+    expect(headless).toContain("Copy path");
+    expect(headless).not.toContain("Open image");
+    expect(s.host.images.present().draw).toContain(`a=p,i=${id},`);
+    await s.input(mouse(0, 4, 6));
+    await s.input(mouse(0, 4, 6, true));
+    expect(s.effects).toEqual([]);
   } finally {
     setSystemTime();
     viewer.close(s);

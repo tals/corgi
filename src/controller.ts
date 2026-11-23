@@ -167,7 +167,7 @@ import { Machine, type Focus, type Stopped } from "./machine";
 
 /** `machine` names the SSH machine whose pane had the link, which may point
  * at that machine's own loopback; a link from this computer has none. */
-export type Effect = { write_terminal: string } | { open_url: string; machine?: number };
+export type Effect = { write_terminal: string } | { open_url: string; machine?: number } | { open_image: string };
 type HoverMenu = "launcher" | "scope";
 /** A paste goes to the text field that owned the keyboard when it began, or
  * to the focused pane when none did. */
@@ -540,7 +540,7 @@ export class Controller {
     this.host.iterm2_pointer = value;
   }
   link_tooltip = new linkTooltip.State();
-  link_copy_press: linkTooltip.Link | null = null;
+  link_press: { link: linkTooltip.Link; button: linkTooltip.Button | null; image?: string } | null = null;
   /** Each machine's files, read here or through its daemon, and whether the
    * paths its panes show name them. */
   private file_places = new WeakMap<Machine, { files: fileAccess.Files; refs: fileRef.Resolver }>();
@@ -4975,7 +4975,7 @@ export class Controller {
           this.signin = null;
           this.signin_drag = null;
           this.link_tooltip.cancel();
-          this.link_copy_press = null;
+          this.link_press = null;
           this.agent_launcher = launcher;
           this.corgi_setup = setup;
           if (launch) launch.preview = this.launch_previews.current(launch.cwd, this.runtime.accounts);
@@ -10556,17 +10556,23 @@ export class Controller {
       return null;
     const source = this.linkAt(link.x, link.y);
     if (!linkTooltip.sameLink(source, link)) return null;
-    let thumbnail = this.linkThumbnail(link);
-    if (thumbnail) thumbnail = linkTooltip.fit(this.width, this.height, link, thumbnail);
-    return { link, copied: this.link_tooltip.copied_until > milliTimestamp(), thumbnail };
+    const file = this.hoveredFile(link);
+    const open_image =
+      file?.image &&
+      !this.machine.remote &&
+      this.host.opens_desktop &&
+      linkTooltip.geometry(this.width, this.height, link, null, true)
+        ? file.path
+        : undefined;
+    let thumbnail = this.linkThumbnail(file);
+    if (thumbnail) thumbnail = linkTooltip.fit(this.width, this.height, link, thumbnail, !!open_image);
+    return { link, copied: this.link_tooltip.copied_until > milliTimestamp(), thumbnail, open_image };
   }
-  /** The thumbnail of the image `link` names on its pane's machine, where
-   * the host shows Kitty images and reports its cell size; it starts
-   * loading on first ask. */
-  private linkThumbnail(link: linkTooltip.Link): linkTooltip.Thumbnail | null {
+  /** Loads the thumbnail on the pane's machine when the host shows Kitty
+   * images and reports its cell size. */
+  private linkThumbnail(file: LinkedFile | null): linkTooltip.Thumbnail | null {
     const cell = this.cell_pixels;
     if (!this.supports_kitty_graphics || !cell) return null;
-    const file = this.hoveredFile(link);
     return file?.image ? this.thumbnails.get(file.path, this.filesOn(this.machine).files, cell) : null;
   }
   private linkHoverContains(x: number, y: number): boolean {
@@ -10575,12 +10581,12 @@ export class Controller {
       return file.rect.contains(x, y) || linkTooltip.sameLink(this.linkAt(x, y), this.link_tooltip.target?.link);
     const card = this.linkCard();
     if (!card) return false;
-    const rect = linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail);
+    const rect = linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, !!card.open_image);
     if (rect?.contains(x, y)) return true;
     const link = this.linkAt(x, y);
     return linkTooltip.sameLink(link, card.link);
   }
-  /** The same copy-button capture for every terminal showing a link card. */
+  /** The same button capture for every terminal showing a link card. */
   private async linkMouse(button: number, x: number, y: number, release: boolean): Promise<boolean> {
     // The file peek scrolls under the wheel and opens its file on a click.
     const file = this.fileCard();
@@ -10616,21 +10622,25 @@ export class Controller {
       return true;
     }
     const card = this.linkCard(),
-      rect = card ? linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail) : null;
-    if (this.link_copy_press !== null) {
+      rect = card ? linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, !!card.open_image) : null,
+      hit = card && rect ? linkTooltip.buttonAt(rect, card, x, y) : null;
+    if (this.link_press !== null) {
       this.pointer = { x, y };
       this.dirty = true;
       if (release) {
-        const pressed = this.link_copy_press;
-        this.link_copy_press = null;
-        if (button === 0 && card?.link === pressed && rect && linkTooltip.copyAt(rect, x, y))
-          await this.perform({ name: "copy-link" });
+        const pressed = this.link_press;
+        this.link_press = null;
+        if (button === 0 && card?.link === pressed.link && hit === pressed.button) {
+          if (hit === "copy") await this.perform({ name: "copy-link" });
+          if (hit === "open" && card.open_image && card.open_image === pressed.image)
+            this.queueEffect({ open_image: card.open_image });
+        }
       }
       return true;
     }
     if (rect?.contains(x, y) && !release && (button === 35 || button === 0)) {
       this.pointer = { x, y };
-      if (button === 0) this.link_copy_press = card!.link;
+      if (button === 0) this.link_press = { link: card!.link, button: hit, image: card!.open_image };
       this.dirty = true;
       return true;
     }
@@ -10753,7 +10763,7 @@ export class Controller {
       } else if (link && (!link.path || file?.image) && linkTooltip.geometry(this.width, this.height, link)) {
         target = { link };
         // Loads while the card waits to open.
-        this.linkThumbnail(link);
+        this.linkThumbnail(file);
       }
     }
     if (!target?.file) this.file_peeks.clear();

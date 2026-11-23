@@ -5180,6 +5180,7 @@ test("on another computer, an image link's card shows the picture that computer'
   s.height = 40;
   s.input_state.attached = true;
   s.supports_kitty_graphics = true;
+  s.host.opens_desktop = true;
   s.cell_pixels = { width: 10, height: 20 };
   setSystemTime(new Date(1000));
   const rect = s.layoutView().placements(s.area())[0].rect;
@@ -5196,6 +5197,7 @@ test("on another computer, an image link's card shows the picture that computer'
     setSystemTime(new Date(1200));
     const frame = s.frame();
     expect(frame).toContain("Copy path");
+    expect(frame).not.toContain("Open image");
     // The card places the picture, which the viewer sends ahead of the frame.
     const shown = s.host.images.present(),
       id = /\x1b_Ga=p,i=(\d+),/.exec(shown.draw)?.[1];

@@ -2,7 +2,7 @@ import { Notice as MachineNotice } from "./machine_diagnostics";
 import { Menu as ConnectivityMenu } from "./connectivity_menu";
 import * as connectivityCard from "./connectivity_card";
 import * as composition from "./composition";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { Endpoint, localEndpoint, quiet_ms } from "./machine_connection";
 import * as terminalInput from "./terminal_input";
 import * as keys from "./keys";
@@ -28,9 +28,10 @@ import { sshViewer } from "./trackers/ports";
 import { Wake } from "./wake";
 import type { Probe } from "./terminal_info";
 import type { Differ } from "./frame_diff";
-import { Controller } from "./controller";
+import { Controller, type Effect } from "./controller";
 import type { Focus } from "./machine";
 import type { State as SyncNotice } from "./sync_notice";
+import * as i18n from "./i18n";
 
 /** A gap between frames this long means the computer slept. */
 const slept_ms = 5000;
@@ -247,13 +248,27 @@ export async function run(
         return cardAct("stop");
     }
   };
-  /** Opens the links effects ask for, leaving the terminal writes to the shown machine's turn. */
-  const openLinks = () => {
-    const links = view.effects.filter(
-      (effect): effect is { open_url: string; machine?: number } => "open_url" in effect,
-    );
-    view.effects = view.effects.filter(effect => !("open_url" in effect));
-    for (const link of links) openLink(link.open_url, endpoints.find(e => e.machine.id === link.machine) ?? null);
+  const openDesktop = (effect: Exclude<Effect, { write_terminal: string }>) => {
+    if ("open_url" in effect) {
+      openLink(effect.open_url, endpoints.find(e => e.machine.id === effect.machine) ?? null);
+      return;
+    }
+    const failed = () => {
+      const name = basename(effect.open_image);
+      view.notice(i18n.t` Couldn't open image ${name}`);
+      notify();
+    };
+    if (host.opens_desktop) void openers.openImage(effect.open_image).catch(failed);
+    else failed();
+  };
+  /** Opens desktop effects without waiting for the shown machine's turn. */
+  const openDesktopEffects = () => {
+    const effects = view.effects;
+    view.clearEffects();
+    for (const effect of effects) {
+      if ("write_terminal" in effect) view.effects.push(effect);
+      else openDesktop(effect);
+    }
   };
   const clipboard: { owner: { endpoint: Endpoint; generation: number; epoch: number } | null } = {
     owner: null,
@@ -299,7 +314,7 @@ export async function run(
             view.dirty = true;
             notify();
           }
-        } else openLink(effect.open_url, endpoints.find(e => e.machine.id === effect.machine) ?? null);
+        } else openDesktop(effect);
       }
       view.clearEffects();
     };
@@ -655,8 +670,7 @@ export async function run(
       workspaces.watchResources();
       const idle = now - active_at >= idle_after_ms;
       for (const endpoint of endpoints) endpoint.pump(endpoint === active, idle);
-      // A machine in the background asked to open a link: it opens now, whatever the shown machine is doing.
-      if (view.effects.some(effect => "open_url" in effect)) openLinks();
+      if (view.effects.some(effect => !("write_terminal" in effect))) openDesktopEffects();
       if (endpoints[0].fatal) throw endpoints[0].fatal;
       if (endpoints[0].uninstalled) break;
       // This computer's daemon going away ends the viewer, whichever machine is shown.
