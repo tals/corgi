@@ -30,6 +30,9 @@ export interface Entry {
   updated_at: number;
   interrupted: boolean;
   starred: boolean;
+  /** Another machine's conversation: that machine, as the viewer numbers it,
+   * and its name. Unset for the machine shown. */
+  machine?: { id: number; name: string };
 }
 export function historyEntry(value: any): Entry {
   return {
@@ -56,6 +59,8 @@ export interface Open {
   provider: Provider;
   session: string;
   pane: number;
+  /** Another machine's pane: that machine, as the viewer numbers it; unset for the machine shown. */
+  machine?: number;
   /** Where its agent works: the checkout the agent list puts the pane
    * under, which it may have moved to after starting elsewhere. */
   folder: string;
@@ -95,13 +100,16 @@ export class Context {
     return this.accounts.find(a => a.provider === e.provider && a.account === e.account)?.name ?? basename(e.account);
   }
   opened(e: Entry): Open | null {
-    for (const o of this.open) if (o.provider === e.provider && o.session === e.session) return o;
+    for (const o of this.open)
+      if (o.provider === e.provider && o.session === e.session && o.machine === e.machine?.id) return o;
     return null;
   }
   /** What Where says for `e`: where its agent works while a pane runs it,
-   * else the folder it ran in. */
+   * else the folder it ran in; another machine's, with its name. */
   where(e: Entry): Location {
-    return this.location(this.opened(e)?.folder ?? e.cwd);
+    const folder = this.opened(e)?.folder ?? e.cwd;
+    if (e.machine) return { label: `${e.machine.name} · ${basename(folder) || folder}`, branch: null };
+    return this.location(folder);
   }
   static within(folder: string, path: string): boolean {
     return (
@@ -111,6 +119,8 @@ export class Context {
     );
   }
   inScope(e: Entry, scope: Scope): boolean {
+    // Another machine's folders aren't this one's.
+    if (e.machine) return scope === "everywhere";
     switch (scope) {
       case "folder":
         return e.cwd === this.folder;
@@ -158,6 +168,15 @@ export function merge(entries: Entry[], known: Known[]): Entry[] {
   });
   return stableSort(out, (x, y) => x.updated_at > y.updated_at);
 }
+/** Two lists, each newest first, as one; `a`'s first on a tie. */
+export function newest(a: Entry[], b: Entry[]): Entry[] {
+  const out: Entry[] = [];
+  let i = 0,
+    j = 0;
+  while (i < a.length || j < b.length)
+    out.push(j === b.length || (i < a.length && a[i].updated_at >= b[j].updated_at) ? a[i++] : b[j++]);
+  return out;
+}
 /** std.mem.sort: stable, ordered by `less`. */
 export function stableSort<T>(items: T[], less: (x: T, y: T) => boolean): T[] {
   return items.sort((x, y) => (less(x, y) ? -1 : less(y, x) ? 1 : 0));
@@ -177,13 +196,19 @@ export class Mentions {
   searching = false;
   /** It stopped before every match, so older ones may be missing. */
   cut = false;
-  /** The daemon can't search conversations' text. */
+  /** No machine the search covers can search conversations' text, so it's titles alone. */
   unsupported = false;
+  /** Machines, by id, whose daemons can't search conversations' text. */
+  unable = new Set<number>();
+  /** Machines, by id, the last try failed on, which a retry asks again. */
+  failed: number[] = [];
   /** The search as last typed, and when, so a search waits for typing to pause. */
   typed = "";
   typed_at = 0;
   /** Counts the searches sent, so only the latest one's answers count. */
   generation = 0;
+  /** The machines the search went to, by id: another scope may take in more. */
+  targets = "";
   /** Searches for `query` that failed in a row. */
   failures = 0;
   /** When to search for `query` again after a failure, in ms; 0 when not waiting to. */
@@ -193,6 +218,8 @@ export class Mentions {
 export const mention_tries = 3;
 /** A conversation, by provider:session, and its first line that holds the search. */
 export type Mention = { key: string; text: string };
+/** Where a conversation's text hit is kept: its machine, then provider:session. */
+const hitKey = (machine: number | undefined, key: string) => `${machine ?? ""}|${key}`;
 /** `conversation.grep`'s lines as mentions; a line without both is skipped. */
 export function mentionsOf(lines: unknown): Mention[] {
   if (!Array.isArray(lines)) return [];
@@ -246,7 +273,7 @@ export type Line =
   | { elsewhere: number }
   /** Expands the list; the value counts the conversations it starts on. */
   | { more: number };
-type Key = { conversation: { provider: Provider; session: string } } | "more";
+type Key = { conversation: { provider: Provider; session: string; machine: number | null } } | "more";
 /** The entry a conversation row shows; null for any other row. */
 function entryOf(c: Context, line: Line): Entry | null {
   if ("entry" in line) return c.history.entries[line.entry];
@@ -257,7 +284,13 @@ function entryOf(c: Context, line: Line): Entry | null {
 function keyOf(c: Context, line: Line): Key | null {
   const e = entryOf(c, line);
   if (e) {
-    return { conversation: { provider: e.provider, session: truncatedText(e.session, session_capacity) } };
+    return {
+      conversation: {
+        provider: e.provider,
+        session: truncatedText(e.session, session_capacity),
+        machine: e.machine?.id ?? null,
+      },
+    };
   }
   if ("more" in line) return "more";
   return null;
@@ -267,7 +300,8 @@ function keyEql(k: Key, other: Key): boolean {
   return (
     other !== "more" &&
     k.conversation.provider === other.conversation.provider &&
-    k.conversation.session === other.conversation.session
+    k.conversation.session === other.conversation.session &&
+    k.conversation.machine === other.conversation.machine
   );
 }
 export type Hit = { row: number } | "scope";
@@ -356,11 +390,15 @@ export class View {
   /** Whether `e`'s text holds the search, as the daemon found. */
   private mentioned(e: Entry): boolean {
     const m = this.mentions;
-    return m.query !== "" && m.query === this.mentionQuery() && m.hits.has(e.provider + ":" + e.session);
+    return (
+      m.query !== "" &&
+      m.query === this.mentionQuery() &&
+      m.hits.has(hitKey(e.machine?.id, e.provider + ":" + e.session))
+    );
   }
   /** `e`'s first line that holds the search; "" when none does. */
   mention(e: Entry): string {
-    return this.mentioned(e) ? (this.mentions.hits.get(e.provider + ":" + e.session) ?? "") : "";
+    return this.mentioned(e) ? (this.mentions.hits.get(hitKey(e.machine?.id, e.provider + ":" + e.session)) ?? "") : "";
   }
   /** Conversations' text may still match the search, or it will be searched again. */
   private mentionsPending(): boolean {
@@ -374,24 +412,30 @@ export class View {
     return m.query === this.mentionQuery() && m.failures >= mention_tries && m.retry_at === 0;
   }
   /** Notes a search for `query` going out, and returns its generation. Another
-   * try at the same query keeps what earlier ones found. */
-  searchMentions(query: string): number {
-    const m = this.mentions;
-    if (m.query !== query) {
+   * try at the same query keeps what earlier ones found; `anew`, as when
+   * another machine connects, it still starts the count of tries over. */
+  searchMentions(query: string, anew = false): number {
+    const m = this.mentions,
+      changed = m.query !== query;
+    if (changed) {
       m.query = query;
       m.hits = new Map();
+    }
+    if (changed || anew) {
       m.cut = false;
       m.failures = 0;
+      m.failed = [];
     }
     m.searching = query !== "";
     m.retry_at = 0;
     return ++m.generation;
   }
-  /** Adds what search `generation` found; the first line a conversation sent stays. */
-  addMentions(generation: number, mentions: Mention[]): void {
+  /** Adds what search `generation` found on `machine`, unset for the one shown;
+   * the first line a conversation sent stays. */
+  addMentions(generation: number, mentions: Mention[], machine?: number): void {
     const m = this.mentions;
     if (m.generation !== generation) return;
-    for (const { key, text } of mentions) if (!m.hits.has(key)) m.hits.set(key, text);
+    for (const { key, text } of mentions) if (!m.hits.has(hitKey(machine, key))) m.hits.set(hitKey(machine, key), text);
   }
   /** Forgets the search that's out, as it's cancelled: its answers no longer
    * count, and the same text is searched afresh. */
@@ -408,15 +452,19 @@ export class View {
     const m = this.mentions;
     if (m.generation !== generation) return;
     m.searching = false;
-    m.cut = cut;
+    m.cut ||= cut;
     m.failures = 0;
+    m.failed = [];
   }
-  /** Search `generation` failed at `now` ms; it's tried again later, a few times. */
-  failMentions(generation: number, now: number): void {
+  /** Search `generation` failed at `now` ms on the `failed` machines, by id;
+   * they're tried again later, a few times. */
+  failMentions(generation: number, now: number, failed: number[] = [], cut = false): void {
     const m = this.mentions;
     if (m.generation !== generation) return;
     m.searching = false;
+    m.cut ||= cut;
     m.failures++;
+    m.failed = failed;
     m.retry_at = m.failures < mention_tries ? now + 2000 * m.failures : 0;
   }
   /** Whether every word of the search is in `e`'s text or branch, or in
@@ -460,8 +508,8 @@ export class View {
     return out;
   }
   /** Search results: open matches first, then closed ones in scope, then
-   * those, open or closed, only their text matched, which arrive later and
-   * so never move the rows above them. */
+   * those only their text matched, open ones from any scope, which arrive
+   * later and so never move the rows above them. */
   private found(c: Context): Line[] {
     const out: Line[] = [];
     const entries = c.history.entries;
@@ -481,7 +529,7 @@ export class View {
         titled = opened ? this.matches(e, c.where(e).branch) : this.matches(e);
       // Open title matches show above, as many as fit there.
       if ((opened && titled) || (!titled && !this.mentioned(e))) return;
-      if (!c.inScope(e, this.scope)) {
+      if (!opened && !c.inScope(e, this.scope)) {
         elsewhere += 1;
         return;
       }
@@ -590,8 +638,8 @@ export class View {
     this.query.clear();
     // Generations go on counting, so an answer to a search left behind can't
     // pass for the next one's.
-    const { unsupported, generation } = this.mentions;
-    this.mentions = Object.assign(new Mentions(), { unsupported, generation });
+    const { unsupported, unable, generation } = this.mentions;
+    this.mentions = Object.assign(new Mentions(), { unsupported, unable, generation });
     this.home();
   }
   nextScope(forward: boolean): void {
@@ -655,7 +703,7 @@ export class View {
     // The launcher's title names the folder.
     writeEllipsis(
       w,
-      total > 0 ? i18n.t` · ${total} here` : i18n.t` · none here`,
+      total > 0 ? i18n.t` · ${total} here` : c.history.pending ? "" : i18n.t` · none here`,
       sat(heading_room, displayWidth(resume)),
     );
     if (cols.last > 12) {
@@ -682,7 +730,7 @@ export class View {
     const cols = this.columns(sat(width, 4)),
       { panel, rule, row: row_style } = looks[this.ground];
     const found = rows.filter(line => entryOf(c, line) !== null).length,
-      total = c.history.entries.filter(e => c.inScope(e, this.scope)).length;
+      total = c.history.entries.filter(e => c.opened(e) !== null || c.inScope(e, this.scope)).length;
     this.drawSearch(
       w,
       x,
@@ -954,7 +1002,8 @@ export class View {
 function otherBranch(c: Context, e: Entry): string {
   if (e.branch.length === 0) return "";
   for (const newest of c.history.entries)
-    if (newest.cwd === e.cwd && newest.branch.length > 0) return newest.branch === e.branch ? "" : e.branch;
+    if (newest.machine?.id === e.machine?.id && newest.cwd === e.cwd && newest.branch.length > 0)
+      return newest.branch === e.branch ? "" : e.branch;
   return "";
 }
 /** The agent of a conversation row; null for any other row. */

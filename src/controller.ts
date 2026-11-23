@@ -521,7 +521,7 @@ export class Controller {
   private find_agents: "not_yet" | "asked" = "not_yet";
   private finding_agents: Promise<void> | null = null;
   /** The Resume list's search of conversations' text, and where it went, until it's answered. */
-  private mentions_out: { connection: Transport; view: launcherResume.View } | null = null;
+  private mentions_out: { connections: Transport[]; view: launcherResume.View } | null = null;
   private finding_agents_until = 0;
   /** The running search reads the model lists again when it ends. */
   private finding_models = false;
@@ -5426,7 +5426,7 @@ export class Controller {
     const launch = this.agent_launcher;
     if (launch) {
       // Down from the last agent row goes into the conversations.
-      if (next && !wrap && !launch.managing && launch.hasResume() && launch.selected === launch.lastRow()) {
+      if (next && !wrap && !launch.managing && launch.hasResume(this.height) && launch.selected === launch.lastRow()) {
         launch.resume_view.focused = true;
         launch.resume_view.home();
       } else launch.move(next, wrap);
@@ -5460,11 +5460,83 @@ export class Controller {
     });
   }
   private pollLauncher(hover: boolean): Promise<void> | void {
+    this.readElsewhere();
     this.searchMentions();
     this.updateLaunchPreview();
     if (this.launcherModel()) this.readProfiles(false);
     if (!this.launcherModel() && !hover) return;
     return this.pollOpenLauncher(hover);
+  }
+  /** Other machines connected now, whose own lists aren't stale. */
+  private otherMachines(): Machine[] {
+    return this.machines.filter(m => m !== this.machine && m.presence().online && !this.stale(m));
+  }
+  /** Other machines' conversations for the Resume list, and the ones their
+   * panes run, once it shows more than the newest few: its scope decides
+   * which it lists, as it does this machine's. Each machine's list is read
+   * once a launcher, and gone with it. */
+  private readElsewhere(): void {
+    const launch = this.agent_launcher;
+    if (!launch || !(launch.resume_view.expanded || launch.resume_view.searching)) return;
+    const now = milliTimestamp(),
+      others = this.otherMachines(),
+      reads = launch.elsewhere_reads;
+    const show = () => {
+      launch.elsewhere = launcherResume.stableSort(
+        [...reads.values()].flatMap(r => r.entries),
+        (x, y) => x.updated_at > y.updated_at,
+      );
+      this.dirty = true;
+    };
+    // A machine gone offline takes its conversations along.
+    let gone = false;
+    for (const id of reads.keys())
+      if (!others.some(m => m.id === id)) {
+        reads.delete(id);
+        gone = true;
+      }
+    if (gone) show();
+    const open = others.flatMap(machine =>
+      machine.runtime.panes.flatMap(p =>
+        p.agent.provider && p.agent.session
+          ? [{ provider: p.agent.provider, session: p.agent.session, pane: p.id, folder: p.cwd, machine: machine.id }]
+          : [],
+      ),
+    );
+    if (JSON.stringify(open) !== JSON.stringify(launch.open_elsewhere)) {
+      launch.open_elsewhere = open;
+      this.dirty = true;
+    }
+    for (const machine of others) {
+      const read = reads.get(machine.id) ?? { at: 0, reading: false, pending: true, entries: [] };
+      reads.set(machine.id, read);
+      // A daemon still reading its list the first time is asked again shortly.
+      if (read.reading || !read.pending || now - read.at < 1000) continue;
+      read.reading = true;
+      void call(machine.connection, "agent.history", {})
+        .then(
+          reply => {
+            read.pending = reply.history?.pending === true;
+            const entries = (reply.history?.entries ?? [])
+              .filter((e: unknown) => Provider.parse((e as { provider?: unknown } | null)?.provider))
+              .map(launcherResume.historyEntry);
+            read.entries = launcherResume
+              .merge(entries, this.known(machine))
+              .map(e => ({ ...e, machine: { id: machine.id, name: machine.name } }));
+            if (reads.get(machine.id) === read) show();
+          },
+          () => {},
+        )
+        .finally(() => {
+          read.reading = false;
+          read.at = milliTimestamp();
+        });
+    }
+  }
+  /** The machines the Resume list searches conversations' text on: every one
+   * connected, whatever the scope, which only decides what's listed. */
+  private mentionMachines(view: launcherResume.View): Machine[] {
+    return [this.machine, ...this.otherMachines()].filter(machine => !view.mentions.unable.has(machine.id));
   }
   /** Looks for the Resume search in what conversations said, once typing
    * pauses; matches arrive as the daemon finds them. A search no longer
@@ -5475,6 +5547,8 @@ export class Controller {
     const view = launch.resume_view,
       m = view.mentions,
       query = view.mentionQuery(),
+      machines = this.mentionMachines(view),
+      targets = machines.map(machine => machine.id).join(","),
       now = milliTimestamp();
     if (query !== m.typed) {
       m.typed = query;
@@ -5483,18 +5557,30 @@ export class Controller {
     // A new search ends the last on the daemon; no search, as when the search
     // is left or too short, needs telling.
     if (!query) this.cancelMentions();
-    if (m.unsupported) return;
-    // The same search goes again only when a failed one's retry is due.
-    const due =
-      query === m.query
+    if (m.unsupported !== !machines.length) {
+      m.unsupported = !machines.length;
+      this.dirty = true;
+    }
+    if (!machines.length) return;
+    // The same search goes again only when a failed one's retry is due, or
+    // another machine connects.
+    const retry = query === m.query && targets === m.targets,
+      due = retry
         ? query !== "" && m.retry_at > 0 && now >= m.retry_at
         : !query || now - m.typed_at >= mentions_pause_ms;
     if (!due) return;
-    const generation = view.searchMentions(query);
+    // A retry asks only the machines that failed.
+    const asked = retry && m.failed.length ? machines.filter(machine => m.failed.includes(machine.id)) : machines;
+    const generation = view.searchMentions(query, !retry);
+    m.targets = targets;
     this.dirty = true;
     if (!query) return;
-    const connection = this.connection,
-      out = { connection, view };
+    const out = { connections: asked.map(machine => machine.connection), view };
+    // Machines the last search went to and this one doesn't, as when the
+    // scope narrows, are told to stop.
+    for (const connection of this.mentions_out?.connections ?? [])
+      if (!out.connections.includes(connection))
+        void call(connection, "conversation.grep.cancel", { key: mentions_key }).catch(() => {});
     this.mentions_out = out;
     const fields = {
       patterns: [query],
@@ -5508,32 +5594,51 @@ export class Controller {
       max_line: 160,
       key: mentions_key,
     };
-    const add = (part: unknown) => {
-      view.addMentions(generation, launcherResume.answerOf(part).mentions);
-      this.dirty = true;
-    };
-    void (async () => {
-      try {
-        const reply = connection.streamed
-          ? await connection.streamed("conversation.grep", { ...fields, stream: true }, add)
-          : await connection.request("conversation.grep", fields);
-        if ("err" in reply) throw errors.fromReply(reply);
-        add(reply);
-        view.endMentions(generation, launcherResume.answerOf(reply).cut);
-      } catch (error) {
-        // XXX: Remove for next protocol bump. Daemons before conversation.grep don't know it.
-        if (errors.is(error, "UnknownOperation")) {
-          view.mentions.unsupported = true;
-          view.endMentions(generation, false);
-        }
-        // A cancelled search gave way to a newer one, or to none.
-        else if (errors.is(error, "Cancelled")) view.endMentions(generation, false);
-        // A reload, a lost connection or a stopped worker: try again shortly.
-        else view.failMentions(generation, milliTimestamp());
-      }
+    // Done once every machine answered; the ones that failed are tried again.
+    let left = asked.length,
+      cut = false;
+    const failed: number[] = [];
+    const settle = () => {
+      if (--left > 0) return;
+      if (failed.length) view.failMentions(generation, milliTimestamp(), failed, cut);
+      else view.endMentions(generation, cut);
       if (this.mentions_out === out) this.mentions_out = null;
       this.dirty = true;
-    })();
+    };
+    for (const machine of asked) {
+      const connection = machine.connection,
+        elsewhere = machine === this.machine ? undefined : machine.id;
+      const add = (part: unknown) => {
+        view.addMentions(generation, launcherResume.answerOf(part).mentions, elsewhere);
+        this.dirty = true;
+      };
+      void (async () => {
+        try {
+          const reply = connection.streamed
+            ? await connection.streamed("conversation.grep", { ...fields, stream: true }, add)
+            : await connection.request("conversation.grep", fields);
+          if ("err" in reply) throw errors.fromReply(reply);
+          add(reply);
+          cut ||= launcherResume.answerOf(reply).cut;
+        } catch (error) {
+          // XXX: Remove for next protocol bump. Daemons before conversation.grep
+          // don't know it, so their conversations are searched by title alone.
+          if (errors.is(error, "UnknownOperation")) {
+            view.mentions.unable.add(machine.id);
+            // Leaving it out isn't a new search for the rest.
+            if (view.mentions.generation === generation)
+              view.mentions.targets = view.mentions.targets
+                .split(",")
+                .filter(id => id !== String(machine.id))
+                .join(",");
+          }
+          // A cancelled search gave way to a newer one, or to none. Anything
+          // else, a reload, a lost connection or a stopped worker, is tried again.
+          else if (!errors.is(error, "Cancelled")) failed.push(machine.id);
+        }
+        settle();
+      })();
+    }
   }
   /** Ends the Resume list's search of conversations' text, if one is out. */
   private cancelMentions(): void {
@@ -5544,7 +5649,8 @@ export class Controller {
     out.view.abandonMentions();
     this.dirty = true;
     // XXX: Remove for next protocol bump. A daemon without the op lets the search run out.
-    void call(out.connection, "conversation.grep.cancel", { key: mentions_key }).catch(() => {});
+    for (const connection of out.connections)
+      void call(connection, "conversation.grep.cancel", { key: mentions_key }).catch(() => {});
   }
   private async pollOpenLauncher(hover: boolean): Promise<void> {
     await this.previewInlineCommand(false);
@@ -5626,22 +5732,27 @@ export class Controller {
     launch.open = this.running.slice();
   }
   private mergedHistory(): launcherResume.Entry[] {
+    const entries = this.launch_previews.history.entries.filter((e: any) => Provider.parse(e?.provider));
+    const starred = this.historyStars();
+    return launcherResume.merge(entries.map(launcherResume.historyEntry), this.known(this.machine)).map(entry => ({
+      ...entry,
+      starred: starred.has(`${entry.provider}:${entry.session}`),
+    }));
+  }
+  /** The names `machine`'s Corgi showed for the conversations it ran, and when
+   * it last saw or closed them. */
+  private known(machine: Machine): launcherResume.Known[] {
     const known: launcherResume.Known[] = [];
-    for (const c of this.runtime.conversations) {
+    for (const c of machine.runtime.conversations) {
       const provider = c.agent.provider;
       if (!provider) continue;
       if ((c.parent !== null && c.parent !== undefined) || c.agent.session.length === 0) continue;
       const at = Math.trunc(Math.max(Number(c.observed_at ?? 0), c.agent.changed_at) / 1_000_000);
       known.push({ provider, session: c.agent.session, name: c.agent.name, at });
     }
-    for (const stop of this.stopped)
+    for (const stop of machine.stopped)
       known.push({ provider: stop.provider, session: stop.session, name: "", at: stop.at });
-    const entries = this.launch_previews.history.entries.filter((e: any) => Provider.parse(e?.provider));
-    const starred = this.historyStars();
-    return launcherResume.merge(entries.map(launcherResume.historyEntry), known).map(entry => ({
-      ...entry,
-      starred: starred.has(`${entry.provider}:${entry.session}`),
-    }));
+    return known;
   }
   /** The current workspace's stars: a resumed conversation gets its star back only there. */
   private historyStars(): Set<string> {
@@ -5668,7 +5779,7 @@ export class Controller {
   /** Expand the conversations under the agents, searching when asked. */
   private expandResume(searching: boolean): void {
     const launch = this.agent_launcher;
-    if (!launch || !launch.hasResume()) return;
+    if (!launch || !launch.hasResume(this.height)) return;
     launch.pinned = true;
     if (searching) launch.resume_view.startSearch();
     else launch.resume_view.expand();
@@ -5831,7 +5942,51 @@ export class Controller {
     if (!e) return this.expandResume(false);
     return this.resumeEntry(e, this.current().id);
   }
+  /** Another machine's conversation: the pane there that runs it, else resumed
+   * on that machine in the workspace that holds its folder, shown there. */
+  private async resumeElsewhere(e: launcherResume.Entry, id: number): Promise<void> {
+    const machine = this.machines_by_id.get(id),
+      name = e.machine?.name ?? "";
+    if (!machine || !machine.presence().online) return this.notice(i18n.t` ${name} isn't connected`);
+    this.closeMenu();
+    for (const p of machine.runtime.panes)
+      if (p.agent.provider === e.provider && p.agent.session === e.session)
+        return this.selectPane(viewerRef.pane(machine.id, p.id));
+    const from = this.machine,
+      shown = this.current().id;
+    try {
+      const workspaces = machine.runtime.workspaces.items.map(ws => ({
+          id: ws.id,
+          cwd: ws.cwd,
+          archived: ws.archived,
+        })),
+        workspace = workspaceFor(workspaces, e.cwd, workspaces.find(ws => !ws.archived)?.id ?? null);
+      if (workspace === null) throw Error("WorkspaceNotFound");
+      if (byteLength(e.cwd) > 4096 || byteLength(e.session) > 256) throw Error("NameTooLong");
+      const command = {
+        "agent.resume": {
+          workspace,
+          cwd: e.cwd,
+          provider: e.provider,
+          session: e.session,
+          ...(e.account ? { account: e.account } : {}),
+        },
+      };
+      const { pane } = await this.execute(command, undefined, undefined, machine);
+      // It opens there either way; the viewer follows unless it moved on meanwhile.
+      if (this.machine === from && this.current().id === shown) this.onMachine(machine, { pane });
+    } catch (error) {
+      {
+        const why = errors.name(error) ?? i18n.t`unknown error`;
+        this.notice(i18n.t` Couldn't open it: ${why}`);
+      }
+    }
+  }
   private resumeEntry(e: launcherResume.Entry, workspace: number): void {
+    if (e.machine) {
+      void this.resumeElsewhere(e, e.machine.id);
+      return;
+    }
     for (const open of this.running)
       if (open.provider === e.provider && open.session === e.session) {
         this.closeMenu();
@@ -6140,7 +6295,10 @@ export class Controller {
     try {
       await this.resumeEntry(e, workspaceFor(workspaces, e.cwd, this.current().id)!);
     } catch (error) {
-      this.notice(` Couldn't open it: ${errors.name(error) ?? i18n.t`unknown error`}`);
+      {
+        const why = errors.name(error) ?? i18n.t`unknown error`;
+        this.notice(i18n.t` Couldn't open it: ${why}`);
+      }
     }
   }
   private savePromptModel(choice: modelPicker.Choice | null): void {

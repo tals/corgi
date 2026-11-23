@@ -13,6 +13,7 @@ import {
   around,
   answerOf,
   mentionsOf,
+  newest,
   type Account,
   type Location,
   type Entry,
@@ -523,7 +524,7 @@ test("conversations whose text holds the search follow the title matches, as the
   // The excerpt shows where the search was said, in the last message's place.
   const w = new Writer(),
     host = new Terminal(120, 14);
-  v.mentions.hits.set("claude:b", "x".repeat(90) + " move the Sidebar rule");
+  v.mentions.hits.set("|claude:b", "x".repeat(90) + " move the Sidebar rule");
   v.draw(w, c, new Area(0, 1, 120, 12));
   host.feed(w.s);
   const text = host.text();
@@ -535,6 +536,79 @@ test("conversations whose text holds the search follow the title matches, as the
   expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }, { note: "searching" }]);
   v.leaveSearch();
   expect(v.mentions.query).toBe("");
+});
+
+test("another machine's closed conversations show only everywhere, under its name, with their own text hits", () => {
+  const nocap = { id: 7, name: "nocap" },
+    here = [testEntry("a", "/w/corgi", "Release notes", 900), testEntry("b", "/w/corgi", "Docs pass", 700)],
+    there = [
+      { ...testEntry("a", "/home/t/corgi", "Release notes", 800), machine: nocap },
+      { ...testEntry("c", "/home/t/corgi", "Server move", 750), machine: nocap },
+    ],
+    entries = newest(here, there);
+  expect(entries.map(e => e.updated_at)).toEqual([900, 800, 750, 700]);
+  const c = new Context(
+    { pending: false, entries },
+    "/w/corgi",
+    "/w/corgi",
+    [{ provider: "claude", session: "a", pane: 3, folder: "/home/t/corgi", machine: 7 }],
+    1000,
+  );
+  // The same session here and there are two conversations; only the one
+  // there runs in a pane.
+  expect(c.opened(entries[0])).toBeNull();
+  expect(c.opened(entries[1])?.pane).toBe(3);
+  expect(c.where(entries[1]).label).toBe("nocap · corgi");
+  expect(c.inScope(entries[1], "workspace")).toBe(false);
+  expect(c.inScope(entries[1], "everywhere")).toBe(true);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  const search = v.searchMentions("deploy");
+  v.addMentions(search, mentionsOf([said("a", "deploy it there"), said("c", "deploy it too")]), 7);
+  v.addMentions(search, mentionsOf([said("b", "deploy it here")]));
+  expect(v.mention(entries[0])).toBe("");
+  expect(v.mention(entries[1])).toBe("deploy it there");
+  expect(v.mention(entries[3])).toBe("deploy it here");
+  // The open one shows in any scope; the closed one is counted rather than listed.
+  expect(v.lines(c).filter(l => "mention" in l)).toEqual([{ mention: 1 }, { mention: 3 }]);
+  expect(v.lines(c)).toContainEqual({ elsewhere: 1 });
+  v.scope = "everywhere";
+  expect(v.lines(c).filter(l => "mention" in l)).toEqual([{ mention: 1 }, { mention: 2 }, { mention: 3 }]);
+});
+
+test("a search in any scope finds what another machine runs, and counts what it closed", () => {
+  const entries = [
+    { ...testEntry("a", "/home/t/corgi", "Release notes", 900), machine: { id: 7, name: "nocap" } },
+    { ...testEntry("b", "/home/t/corgi", "Release plan", 800), machine: { id: 7, name: "nocap" } },
+  ];
+  const c = new Context(
+    { pending: false, entries },
+    "/w/corgi",
+    "/w/corgi",
+    [{ provider: "claude", session: "a", pane: 3, folder: "/home/t/corgi", machine: 7 }],
+    1000,
+  );
+  const v = new View();
+  v.startSearch();
+  for (const ch of "release") v.query.key(ch.charCodeAt(0));
+  expect(v.scope).toBe("workspace");
+  expect(v.lines(c)).toEqual([
+    { heading: "open" },
+    { open: 0 },
+    { heading: "results" },
+    { note: "searching" },
+    { elsewhere: 1 },
+  ]);
+  // The count beside the search includes what's open.
+  const w = new Writer(),
+    host = new Terminal(120, 14);
+  v.draw(w, c, new Area(0, 1, 120, 12));
+  host.feed(w.s);
+  const text = host.text();
+  host.destroy();
+  expect(text).toContain("1 of 1");
 });
 
 test("a failed text search is tried again a few times, keeping what it found, then says so", () => {
@@ -563,6 +637,25 @@ test("a failed text search is tried again a few times, keeping what it found, th
   v.endMentions(search, false);
   expect(v.mentions.failures).toBe(0);
   expect(v.lines(c)).not.toContainEqual({ note: "failed" });
+});
+
+test("a retry knows which machines failed, and a cut one machine reported stays until a search starts over", () => {
+  const v = new View();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  let search = v.searchMentions("deploy");
+  v.failMentions(search, 10_000, [7], true);
+  expect(v.mentions.failed).toEqual([7]);
+  search = v.searchMentions("deploy");
+  v.endMentions(search, false);
+  expect(v.mentions.cut).toBe(true);
+  expect(v.mentions.failed).toEqual([]);
+  // The same search sent anew, as to other machines, starts over, as a new one does.
+  v.searchMentions("deploy", true);
+  expect(v.mentions.cut).toBe(false);
+  v.endMentions(v.searchMentions("deploy"), true);
+  v.searchMentions("deploy it");
+  expect(v.mentions.cut).toBe(false);
 });
 
 test("open conversations only their text matched never take a title match's place among the open ones", () => {

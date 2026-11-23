@@ -129,6 +129,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" ",": on (not saved for next start)"]': v0 => ` ${v0}：已开启（下次启动不保留）`,
     '[" "," / resources "]': v0 => ` ${v0} / 资源 `,
     '[" "," is busy: rename it once its input box is empty"]': v0 => ` ${v0} 正忙：输入框为空后才能重命名`,
+    '[" "," isn\'t connected"]': v0 => ` ${v0} 未连接`,
     '[" "," session ",": ",". Inspect: corgi headless events "," ",""]': (v0, v1, v2, v3, v4) =>
       ` ${v0} 会话 ${v1}：${v2}。查看详情：corgi headless events ${v3} ${v1}`,
     '[" ",": waiting for a session ID"]': v0 => ` ${v0}：等待会话 ID`,
@@ -151,6 +152,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Couldn\'t add ",": ",""]': (v0, v1) => ` 无法添加 ${v0}：${v1}`,
     '[" Couldn\'t mark as unread"]': () => ` 无法标为未读`,
     '[" Couldn\'t open ",": ",""]': (v0, v1) => ` 无法打开 ${v0}：${v1}`,
+    '[" Couldn\'t open it: ",""]': v0 => ` 无法打开：${v0}`,
     '[" Couldn\'t remove ",": ",""]': (v0, v1) => ` 无法移除 ${v0}：${v1}`,
     '[" Deleted "," and its folder"]': v0 => ` 已删除 ${v0} 及其文件夹`,
     '[" Dings enabled"]': () => ` 提示音已开启`,
@@ -1582,6 +1584,7 @@ ${v1} 使用该账号。
     '[" "," / resources "]': v0 => ` ${v0} / リソース `,
     '[" "," is busy: rename it once its input box is empty"]': v0 =>
       ` ${v0}は操作中です。入力欄を空にしてから名前を変更してください`,
+    '[" "," isn\'t connected"]': v0 => ` ${v0} は接続されていません`,
     '[" "," session ",": ",". Inspect: corgi headless events "," ",""]': (v0, v1, v2, v3, v4) =>
       ` ${v0}のセッション${v1}：${v2}。詳細：corgi headless events ${v3} ${v1}`,
     '[" ",": waiting for a session ID"]': v0 => ` ${v0}：セッションIDを待機中`,
@@ -1606,6 +1609,7 @@ ${v1} 使用该账号。
     '[" Couldn\'t add ",": ",""]': (v0, v1) => ` ${v0}を追加できませんでした：${v1}`,
     '[" Couldn\'t mark as unread"]': () => ` 未読にできませんでした`,
     '[" Couldn\'t open ",": ",""]': (v0, v1) => ` ${v0}を開けませんでした：${v1}`,
+    '[" Couldn\'t open it: ",""]': v0 => ` 開けませんでした: ${v0}`,
     '[" Couldn\'t remove ",": ",""]': (v0, v1) => ` ${v0}を削除できませんでした：${v1}`,
     '[" Deleted "," and its folder"]': v0 => ` ${v0}とそのフォルダーを削除しました`,
     '[" Dings enabled"]': () => ` 通知音を有効にしました`,
@@ -3075,6 +3079,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" "," / resources "]': v0 => ` ${v0} / 리소스 `,
     '[" "," is busy: rename it once its input box is empty"]': v0 =>
       ` ${v0} 작업 중: 입력창이 비었을 때 이름을 변경하세요`,
+    '[" "," isn\'t connected"]': v0 => ` ${v0}에 연결되어 있지 않습니다`,
     '[" "," session ",": ",". Inspect: corgi headless events "," ",""]': (v0, v1, v2, v3, v4) =>
       ` ${v0} 세션 ${v1}: ${v2}. 확인: corgi headless events ${v3} ${v1}`,
     '[" ",": waiting for a session ID"]': v0 => ` ${v0}: 세션 ID 대기 중`,
@@ -3098,6 +3103,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Couldn\'t add ",": ",""]': (v0, v1) => ` ${v0} 추가 실패: ${v1}`,
     '[" Couldn\'t mark as unread"]': () => ` 읽지 않음으로 표시할 수 없습니다`,
     '[" Couldn\'t open ",": ",""]': (v0, v1) => ` ${v0} 열기 실패: ${v1}`,
+    '[" Couldn\'t open it: ",""]': v0 => ` 열 수 없습니다: ${v0}`,
     '[" Couldn\'t remove ",": ",""]': (v0, v1) => ` ${v0} 제거 실패: ${v1}`,
     '[" Deleted "," and its folder"]': v0 => ` ${v0} 및 해당 폴더를 삭제했습니다`,
     '[" Dings enabled"]': () => ` 알림음 켜짐`,
@@ -4566,6 +4572,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" "," / resources "]': v0 => ` ${v0} / ресурсы `,
     '[" "," is busy: rename it once its input box is empty"]': v0 =>
       ` ${v0} занят: переименуйте его, когда поле ввода опустеет`,
+    '[" "," isn\'t connected"]': v0 => ` ${v0} не подключён`,
     '[" "," session ",": ",". Inspect: corgi headless events "," ",""]': (v0, v1, v2, v3, v4) =>
       ` Сеанс ${v0} ${v1}: ${v2}. Подробнее: corgi headless events ${v3} ${v1}`,
     '[" ",": waiting for a session ID"]': v0 => ` ${v0}: ожидание ID сеанса`,
@@ -4591,6 +4598,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Couldn\'t add ",": ",""]': (v0, v1) => ` Не удалось добавить ${v0}: ${v1}`,
     '[" Couldn\'t mark as unread"]': () => ` Не удалось отметить как непрочитанное`,
     '[" Couldn\'t open ",": ",""]': (v0, v1) => ` Не удалось открыть ${v0}: ${v1}`,
+    '[" Couldn\'t open it: ",""]': v0 => ` Не удалось открыть: ${v0}`,
     '[" Couldn\'t remove ",": ",""]': (v0, v1) => ` Не удалось удалить ${v0}: ${v1}`,
     '[" Deleted "," and its folder"]': v0 => ` ${v0} и его папка удалены`,
     '[" Dings enabled"]': () => ` Звуки включены`,

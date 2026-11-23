@@ -170,6 +170,9 @@ export const preferred_width = 4 + column_widths.reduce((sum, size) => sum + siz
 type Hint = { key: string; label: string };
 const manageLabel = () => ` ${i18n.t`Manage agents`} `;
 const now = () => Math.floor(Date.now() / 1000);
+/** The gap, the search, the column heading and a row of results, never more
+ * than the newest few take, so a list shown stays shown when it expands. */
+const least_expanded_rows = 4;
 
 export class Menu {
   workspace = 0;
@@ -180,6 +183,15 @@ export class Menu {
   history: launcherResume.History = { pending: true, entries: [] };
   /** Conversations panes run now, which the list jumps to instead. */
   open: launcherResume.Open[] = [];
+  /** Other machines' conversations, newest first, which the everywhere scope
+   * lists, and the ones their panes run, which every scope's search finds. */
+  elsewhere: launcherResume.Entry[] = [];
+  open_elsewhere: launcherResume.Open[] = [];
+  /** Each other machine's list, read once while the launcher's open, by machine id. */
+  elsewhere_reads = new Map<
+    number,
+    { at: number; reading: boolean; pending: boolean; entries: launcherResume.Entry[] }
+  >();
   selected: Row = Provider.first;
   /** Whether Find agents is running; null when unsupported. */
   finding: boolean | null = null;
@@ -503,13 +515,13 @@ export class Menu {
    * conversations and a gap, footer and border. The worktree box takes the
    * rows of every checkout and From's list, so choosing in it doesn't
    * resize the launcher. */
-  rowsHeight(): number {
+  rowsHeight(rows: number): number {
     if (this.managing) return this.manager.height(this.manageModel());
-    const conversations = !this.hasResume()
+    const conversations = !this.hasResume(rows)
       ? 0
       : this.resume_view.expanded
-        ? 8
-        : this.resume_view.collapsedHeight(this.resumeContext()) + 1;
+        ? Math.max(least_expanded_rows, Math.min(8, rows - 5 - this.count()))
+        : this.leastRows();
     // The worktree box hangs from the title above the footer.
     const hanging =
       this.worktree.mode !== "open"
@@ -523,10 +535,10 @@ export class Menu {
   }
   bounds(cols: number, rowsCount: number, side: SidebarView): Rect {
     const width = Math.min(cols, preferred_width);
-    let height = Math.min(rowsCount, this.rowsHeight());
+    let height = Math.min(rowsCount, this.rowsHeight(rowsCount));
     // Expanded conversations take the room a table of them needs, and keep
     // it until the launcher closes, so typing or collapsing doesn't resize it.
-    if (this.resume_view.grown && this.hasResume()) height = Math.min(rowsCount, Math.max(30, height));
+    if (this.resume_view.grown && this.hasResume(rowsCount)) height = Math.min(rowsCount, Math.max(30, height));
     return new Rect(
       Math.min(sat(side.width, 10), cols - width),
       Math.min(side.middle() + 1, rowsCount - height),
@@ -599,7 +611,7 @@ export class Menu {
     const row = this.agentHit(cols, rowsCount, side, x, y);
     if (row === null || adapter(this.launchOf(row)!.provider).bypass === false) return null;
     const b = this.bounds(cols, rowsCount, side);
-    if (b.w < 24 || b.h < this.rowsHeight()) return null;
+    if (b.w < 24 || b.h < this.rowsHeight(rowsCount)) return null;
     const widths = this.columns(b.w);
     const start = b.x + 3 + widths[0];
     return x >= start && x < start + sat(widths[1], 2) ? row : null;
@@ -616,17 +628,22 @@ export class Menu {
     const row = this.agentHit(cols, rowsCount, side, x, y);
     if (row === null || adapter(this.launchOf(row)!.provider).bypass === false) return null;
     const b = this.bounds(cols, rowsCount, side);
-    if (b.w < 24 || b.h < this.rowsHeight()) return null;
+    if (b.w < 24 || b.h < this.rowsHeight(rowsCount)) return null;
     const widths = this.columns(b.w);
     const start = b.x + 3 + widths[0] + widths[1] + widths[2] + widths[3] + widths[4];
     return x >= start && x < start + sat(widths[5], 1) ? row : null;
   }
+  /** This machine's conversations and other machines', newest first. */
+  private everywhere(): launcherResume.History {
+    if (!this.elsewhere.length) return this.history;
+    return { pending: this.history.pending, entries: launcherResume.newest(this.history.entries, this.elsewhere) };
+  }
   resumeContext(): launcherResume.Context {
     return new launcherResume.Context(
-      this.history,
+      this.everywhere(),
       this.destination(),
       this.workspace_cwd,
-      this.open,
+      this.open_elsewhere.length ? [...this.open, ...this.open_elsewhere] : this.open,
       now(),
       this.accounts,
       this.preview.names,
@@ -702,10 +719,16 @@ export class Menu {
     if (y === bx.footer && x >= bx.field_x) return "confirm";
     return null;
   }
-  /** Whether conversations show: once the daemon has sent some. A first
-   * read takes seconds; the menu does not wait on it or show a placeholder. */
-  hasResume(): boolean {
-    return !this.managing && this.history.entries.length > 0;
+  /** Whether conversations show in a terminal `rows` tall: unless managing
+   * agents, or there's no room for them under the agents. With none yet, the
+   * search still covers what the daemons find and other machines. */
+  hasResume(rows: number): boolean {
+    return !this.managing && 5 + this.count() + this.leastRows() <= rows;
+  }
+  /** The fewest rows conversations take, with the gap above them: the
+   * newest few, or the full list or a search squeezed to a row of results. */
+  private leastRows(): number {
+    return this.resume_view.expanded ? least_expanded_rows : this.resume_view.collapsedHeight(this.resumeContext()) + 1;
   }
   /** The terminal row the conversations start on, a gap below the agents. */
   resumeTop(b: Rect): number {
@@ -718,7 +741,7 @@ export class Menu {
   }
   /** The conversation row or scope under a pointer, in 0-based cells. */
   resumeHit(cols: number, rowsCount: number, side: SidebarView, x: number, y: number): launcherResume.Hit | null {
-    if (!this.hasResume()) return null;
+    if (!this.hasResume(rowsCount)) return null;
     const b = this.bounds(cols, rowsCount, side);
     if (x <= b.x || x >= b.x + b.w - 1) return null;
     if (this.resume_view.expanded)
@@ -905,7 +928,7 @@ export class Menu {
       if (b.w >= 40 && b.h >= m.manager.minimumHeight()) m.manager.draw(w, b, m.manageModel());
       return;
     }
-    if (b.w < 24 || b.h < m.rowsHeight()) return;
+    if (b.w < 24 || b.h < m.rowsHeight(rowsCount)) return;
     const panel = new Style({ fg: "faint", bg: "surface" }).sgr();
     const rule = new Style({ fg: "line", bg: "surface" }).sgr();
     for (let row = 0; row < b.h; row++) {
@@ -986,7 +1009,7 @@ export class Menu {
         x += width;
       });
     }
-    if (m.hasResume()) {
+    if (m.hasResume(rowsCount)) {
       // A rule across the gap between the agents and the conversations.
       w.write(`\x1b[${m.resumeTop(b) - 1};${b.x + 4}H${rule}`);
       w.write("─".repeat(b.w - 6));
