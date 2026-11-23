@@ -436,6 +436,8 @@ export class Controller {
   all_offset = 0;
   /** A tab this viewer launched or restored; its agent scrolls into view once listed. */
   launched = 0;
+  /** Focus moved to another pane or workspace; its agent scrolls into view on the next frame. */
+  private reveal_focus = false;
   private selected_pane: number | null = null;
   private wake_pending: number | null = null;
   private unarchive_pending: number | null = null;
@@ -1050,6 +1052,7 @@ export class Controller {
     this.dismissName();
     this.closeMenu();
     this.navigation.switchWorkspace(this.runtime.workspaces, id);
+    this.reveal_focus = true;
     if (this.current().archived) this.unarchive_pending = id;
     this.visitWorkspace(id);
     this.revealWorkspace();
@@ -1338,8 +1341,10 @@ export class Controller {
     this.opening = null;
     this.observeFocus();
     this.rememberAgent();
+    const before = this.focused()?.id;
     if (owner.id !== this.current().id) this.switchWorkspace(owner.id);
     this.navigation.focus(this.runtime.workspaces, id, remember);
+    if (this.focused()?.id !== before) this.reveal_focus = true;
     this.headless_notice = null;
     this.rememberAgent();
     this.observeFocus();
@@ -2178,6 +2183,14 @@ export class Controller {
     if (index === null) return;
     this.agentOffset().set(this.sidebarView(entries).reveal(index));
     this.launched = 0;
+  }
+  /** Scrolls the list just far enough to show the focused agent after focus moved. */
+  private revealFocus(entries: Entry[]): void {
+    if (!this.reveal_focus) return;
+    this.reveal_focus = false;
+    const target = this.focusedAgent(),
+      index = target && agentNavigation.indexOf(entries, target);
+    if (index != null) this.agentOffset().set(this.sidebarView(entries).reveal(index));
   }
   /** The workspace an agent's pane or session is in. */
   private agentWorkspace(ref: viewerRef.Agent): viewerRef.Workspace | null {
@@ -10101,7 +10114,10 @@ export class Controller {
       : this.sidebar_focus
         ? this.focusEntries()
         : this.sidebarEntries();
-    if (!this.agent_picker) this.revealLaunched(entries);
+    if (!this.agent_picker) {
+      this.revealLaunched(entries);
+      this.revealFocus(entries);
+    }
     this.readAhead(entries);
     this.revealTab();
     if (this.pointer) {
