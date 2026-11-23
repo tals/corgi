@@ -1090,6 +1090,46 @@ class Remote extends runtime.Runtime {
     await this.until(() => this.text().includes("remote_file.txt") && this.text().includes("REMOTE_ONLY_CHANGE"), 15);
     this.assertIn("1 file", this.text());
   }
+  async test_new_workspace_browses_and_makes_folders_on_the_remote_machine() {
+    // Both daemons share this disk; `~` is each one's own home. The dialog
+    // starts in another folder, so the home's folders show only through `~`.
+    const home = fs.realpathSync(this.remote!.temp.name),
+      start = join(home, "start");
+    fs.mkdirSync(start);
+    fs.mkdirSync(join(home, "REMOTE_HOME_FOLDER"));
+    fs.mkdirSync(join(this.temp.name, "LOCAL_HOME_FOLDER"));
+    const preferences = join(this.env.XDG_STATE_HOME!, "corgi/viewer.json");
+    fs.writeFileSync(preferences, JSON.stringify({ onboarding_complete: true }));
+    const cwds = async () =>
+      (await this.remote!.rpc({ op: "session.list" })).result.workspaces.map((w: { cwd: string }) => w.cwd);
+    await this.remote!.command("pane.create", { workspace: 1, cwd: start, command: "cat" });
+    await this.startViewer("work", 120, 36);
+    await this.online();
+    await this.remote!.rpc({ op: "action", name: "new-workspace" });
+    await this.until(() => this.text().includes("New workspace"));
+    // The folder field, emptied, lists the remote machine's home.
+    this.terminal!.write("\t" + "\x7f".repeat(300) + "~/");
+    await this.until(() => this.text().includes("REMOTE_HOME_FOLDER"), 10);
+    this.assertFalse(this.text().includes("LOCAL_HOME_FOLDER"));
+    this.terminal!.write("made/deeper");
+    await this.until(() => this.text().includes("Create made/deeper"), 10);
+    this.terminal!.write("\r");
+    await this.remote!.until(async () => (await cwds()).includes(join(home, "made/deeper")), 10);
+    this.assertFalse(fs.existsSync(join(this.temp.name, "made")));
+    await this.until(() => this.text().includes("▌deeper"));
+    // Escape while a slow link makes the folder cancels the workspace.
+    await this.remote!.rpc({ op: "action", name: "new-workspace" });
+    await this.until(() => this.text().includes("New workspace"));
+    this.terminal!.write("\t" + "\x7f".repeat(300) + "~/cancelled");
+    await this.until(() => this.text().includes("Create cancelled"), 10);
+    this.network!.latency_ms = 800;
+    this.terminal!.write("\r\x1b[27u");
+    await this.until(() => !this.text().includes("New workspace"), 5);
+    await this.remote!.until(() => fs.existsSync(join(home, "cancelled")), 10);
+    // Long enough for the folder's reply and a create to cross the slow link.
+    await Bun.sleep(3000);
+    this.assertFalse((await cwds()).includes(join(home, "cancelled")));
+  }
   async test_all_agents_lists_both_machines_and_clicking_a_remote_agent_focuses_it_there() {
     const mark = async (runtime: runtime.Runtime, name: string) => {
       const pane = (await runtime.command("pane.create", { workspace: 1, command: "cat" })).pane;
