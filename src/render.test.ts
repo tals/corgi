@@ -215,14 +215,14 @@ test("machine headers highlight only the hovered band and clear under overlays",
 
 test("trick brand icons share the image cache and stay beneath later overlays", () => {
   const view = emptyView(),
-    icons = new Icons(),
+    store = new hostImages.Store(),
+    cell = { width: 9, height: 18 },
     brand = trickStyle.brand.of("claude");
   const u = ui({
     message: "",
     copy_mode: false,
     sidebar_open: true,
-    tab_icons: icons,
-    cell_pixels: { width: 9, height: 18 },
+    cell_pixels: cell,
     agents: [
       sidebar.entry({
         target: viewerRef.pane(1, 1),
@@ -233,21 +233,27 @@ test("trick brand icons share the image cache and stay beneath later overlays", 
     ],
     tricks: tricks.views([{ kind: "overlay", anchor: "top-right", lines: [markup.parse(`!(${brand.icon})`)] }]),
   });
-  frame(view, [], 100, 30, u);
-  expect(icons.end()).toContain("i=730320,");
-  icons.begin();
-  expect(count(frame(view, [], 100, 30, u), "a=p,i=730320,")).toBe(2);
-  expect(icons.end()).toBe("");
-  icons.begin();
+  const placed = () => {
+    u.pictures = store.frame(cell);
+    frame(view, [], 100, 30, u);
+    return u.pictures.placements();
+  };
+  // Both marks show the one image, sent once ahead of the first frame.
+  const both = placed(),
+    mark = both[0]?.image;
+  expect(both).toHaveLength(2);
+  expect(both.every(p => p.image === mark)).toBe(true);
+  expect(count(store.present().send, `i=${mark.id},`)).toBe(1);
+  expect(placed()).toHaveLength(2);
+  expect(store.present().send).toBe("");
   u.copy_feedback = true;
-  expect(count(frame(view, [], 100, 30, u), "a=p,i=730320,")).toBe(1);
-  icons.begin();
+  expect(placed()).toHaveLength(1);
   u.agent_launcher = new LauncherMenu({ workspace: 1, selected: "claude", last: "claude", pinned: true });
-  const launcher = frame(view, [], 100, 30, u);
+  const marks = () => placed().filter(p => p.image === mark).length;
+  const launcher = marks();
   u.tricks = [];
   u.agents[0].decoration = { suffix: [] };
-  icons.begin();
-  expect(count(launcher, "a=p,i=730320,")).toBe(count(frame(view, [], 100, 30, u), "a=p,i=730320,"));
+  expect(launcher).toBe(marks());
 });
 
 test("rich sidebar buttons align with their rendered cells and dialogs mask their hit areas", () => {
@@ -345,7 +351,7 @@ test("agent drawing hooks target their own pane and popover and keep logos above
     }),
   );
   const top = sidebar.View.init(120, 40, true, 0, entries.length).middle() + 2;
-  const icons = new Icons();
+  const store = new hostImages.Store();
   const state = ui({ sidebar_open: true, agents: entries, tricks: views, message: "", copy_mode: false });
   const screen = new Terminal(120, 40);
   try {
@@ -365,17 +371,16 @@ test("agent drawing hooks target their own pane and popover and keep logos above
     state.link_tooltip = true;
     screen.feed(frame(view, panes, 120, 40, state));
     expect(screen.text()).toContain("Card *");
-    state.tab_icons = icons;
-    state.cell_pixels = { width: 9, height: 18 };
-    icons.begin();
+    const cell = { width: 9, height: 18 };
+    state.pictures = store.frame(cell);
+    state.cell_pixels = cell;
     frame(view, panes, 120, 40, state);
-    icons.end();
-    icons.begin();
-    const graphics = frame(view, panes, 120, 40, state);
+    const marks = state.pictures.placements();
     // Pane and popover marks survive their backing rectangles, beside the tab's mark.
-    expect(count(graphics, "a=p,i=730320,")).toBe(3);
+    expect(marks).toHaveLength(3);
+    expect(marks.every(p => p.image === marks[0].image)).toBe(true);
     state.pointer = { x: 5, y: top + 2 };
-    state.tab_icons = null;
+    state.pictures = null;
     screen.feed(frame(view, panes, 120, 40, state));
     expect(screen.text()).not.toContain("Card");
     entries[0].target = viewerRef.pane(2, left);
