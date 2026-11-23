@@ -256,7 +256,7 @@ test("every agent view a snapshot carries lists the same fields", () => {
 test("the viewer wire matches viewer_version.version", async () => {
   expect(protocol.viewer_version).toBe(4);
   expect(createHash("sha256").update(schemas.viewer).digest("hex")).toBe(
-    "3ff8c00d72bbd0c4f1416d51234b1f1057b1d21d1a1506324e438ec02854c833",
+    "b9a02d44749fa1facb6c7eee01a9d9ed5d3311f7ab929c231dec63d7e08323f8",
   );
   const { server, client, dispose } = fixture();
   let view: any;
