@@ -18,7 +18,12 @@ export type Normalized = {
   partial: number;
   title?: string;
   tools?: Message[];
+  /** A JSONL transcript's bytes and lines through its last whole line: where
+   * `readOn` takes up once it grows. */
+  end?: Position;
 };
+/** A place in a JSONL transcript, just past a whole line. */
+export type Position = { bytes: number; lines: number };
 /** A conversation as its provider finds it. */
 export type Found = {
   session: string;
@@ -31,6 +36,8 @@ export type Found = {
   /** Its last message's time, or its source's until that's read. */
   updated_at: number;
   title?: string;
+  /** Its source's `fileId`, so an archive written once is claimed without a stat. */
+  file_id?: string;
 };
 /** What discovery shares across providers and with the discovery before it. */
 export type Context = {
@@ -38,15 +45,20 @@ export type Context = {
   known(source: string, stamp: string): Found | undefined;
   /** Whether `source` was left out at this stamp; it stays out until it changes. */
   skipped(source: string, stamp: string): boolean;
-  /** Leaves `source` out until its stamp changes. */
-  exclude(source: string, stamp: string): void;
+  /** What the last discovery made of the file at `source`, whatever its stamp:
+   * what it found there, the stamp it left it out for what it holds, or null
+   * for a new file or one it couldn't read. */
+  seen(source: string): { found: Found } | { excluded: string } | null;
+  /** Leaves `source` out until its stamp changes; `failed` when it couldn't
+   * be read, so even an archive is looked at again. */
+  exclude(source: string, stamp: string, failed?: boolean): void;
   warn(text: string): void;
   /** False when another folder already gave this file, by its `fileId`. */
   claim(file: string): boolean;
   /** Adds sources to check. */
   checking(count: number): void;
-  /** Counts one source checked. */
-  checked(): Promise<void>;
+  /** Counts one source checked; a promise only while it reports progress. */
+  checked(): Promise<void> | void;
 };
 /** A provider's past conversations, as corgi grep reads them. */
 export interface Search {
@@ -61,6 +73,9 @@ export interface Search {
   discover(folder: string, context: Context): Promise<Found[]>;
   /** A conversation's messages; `tools` adds its tool calls and results. */
   read(found: Found, tools: boolean): Promise<Normalized>;
+  /** The messages a transcript gained past `from`, an `end` a read gave, with
+   * the title only if they name it; absent where one can't be read on. */
+  readOn?(found: Found, from: Position): Promise<Normalized>;
 }
 
 /** A label comes from the user's request, never the matching tool output. */
@@ -111,11 +126,11 @@ export type Transcripts = Pick<Search, "version" | "home" | "env"> & {
   /** Tools whose results report their outcome in their text. */
   reportsText?(call: string): boolean;
 };
-/** Decodes a transcript one JSONL line at a time. */
-function decoder(spec: Transcripts, withTools: boolean) {
+/** Decodes a transcript one JSONL line at a time, numbering lines on from `from`. */
+function decoder(spec: Transcripts, withTools: boolean, from = 0) {
   const messages: Message[] = [],
     records: ToolRecord[] = [];
-  let line = 0,
+  let line = from,
     malformed = 0,
     named = "";
   return {
@@ -131,14 +146,46 @@ function decoder(spec: Transcripts, withTools: boolean) {
         malformed++;
       }
     },
-    /** `partial` when the transcript ends inside a record still being written. */
+    /** `partial` when the transcript ends inside a record still being written.
+     * Lines read on from the middle name the conversation only if they say so. */
     done(partial: boolean): Normalized {
       const result = normalize(messages, malformed, Number(partial));
-      result.title = named || result.title;
+      result.title = named || (from ? "" : result.title);
       if (withTools) result.tools = normalize(tools.link(records, spec.reportsText)).messages;
       return result;
     },
+    /** Lines decoded so far, counting from the start. */
+    get lines() {
+      return line;
+    },
   };
+}
+/** Feeds `stream`'s whole lines to `decoded`: how many bytes they took, and
+ * whether a line still being written followed. */
+async function lines(
+  stream: AsyncIterable<Uint8Array>,
+  decoded: { line(text: string): void },
+): Promise<{ whole: number; partial: boolean }> {
+  let fragments: Buffer[] = [],
+    bytes = 0,
+    whole = 0;
+  for await (const value of stream) {
+    const chunk = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+    let start = 0;
+    while (start < chunk.length) {
+      const end = chunk.indexOf(10, start);
+      const segment = chunk.subarray(start, end < 0 ? chunk.length : end);
+      fragments.push(segment);
+      bytes += segment.length;
+      if (end < 0) break;
+      decoded.line((fragments.length === 1 ? segment : Buffer.concat(fragments, bytes)).toString());
+      whole += bytes + 1;
+      fragments = [];
+      bytes = 0;
+      start = end + 1;
+    }
+  }
+  return { whole, partial: bytes > 0 };
 }
 async function* chunks(file: string): AsyncGenerator<Uint8Array> {
   if (!file.endsWith(".jsonl.zst")) {
@@ -193,12 +240,19 @@ export function fileId(s: fs.Stats): string {
 }
 /** A provider whose conversations are JSONL transcripts, plain or zstd-compressed. */
 export function transcripts(spec: Transcripts): Search & { jsonl(input: string, tools?: boolean): Normalized } {
-  /** One transcript's conversation; null when it's left out. `stamped` gets its stamp once known. */
-  async function transcript(file: string, context: Context, stamped: (stamp: string) => void): Promise<Found | null> {
-    if (file.endsWith(".jsonl.zst") && fs.existsSync(file.slice(0, -4))) return null;
+  /** One transcript's conversation; null when it's left out, as a compressed
+   * one is while `listed` has it uncompressed. `stamped` gets its stamp once known. */
+  async function transcript(
+    file: string,
+    listed: Set<string>,
+    context: Context,
+    stamped: (stamp: string) => void,
+  ): Promise<Found | null> {
+    if (file.endsWith(".jsonl.zst") && listed.has(file.slice(0, -4))) return null;
     if (file.includes("/subagents/")) return null;
-    const s = fs.statSync(file);
-    if (!context.claim(fileId(s))) return null;
+    const s = await fs.promises.stat(file),
+      id = fileId(s);
+    if (!context.claim(id)) return null;
     const stamp = `${s.ino}:${s.size}:${s.mtimeMs}`;
     stamped(stamp);
     if (context.skipped(file, stamp)) {
@@ -206,7 +260,7 @@ export function transcripts(spec: Transcripts): Search & { jsonl(input: string, 
       return null;
     }
     const known = context.known(file, stamp);
-    if (known) return known;
+    if (known) return known.file_id ? known : { ...known, file_id: id };
     let span = Math.min(s.size, 128 * 1024),
       identity: ReturnType<Transcripts["identity"]>;
     for (;;) {
@@ -220,7 +274,7 @@ export function transcripts(spec: Transcripts): Search & { jsonl(input: string, 
       return null;
     }
     return identity.session && identity.cwd
-      ? { ...identity, source: file, stamp, bytes: s.size, updated_at: s.mtimeMs }
+      ? { ...identity, source: file, stamp, bytes: s.size, updated_at: s.mtimeMs, file_id: id }
       : null;
   }
   return {
@@ -237,45 +291,59 @@ export function transcripts(spec: Transcripts): Search & { jsonl(input: string, 
               )
             : [],
         );
-      files.sort((a, b) => Number(a.endsWith(".zst")) - Number(b.endsWith(".zst")) || a.localeCompare(b));
+      files.sort((a, b) => Number(a.endsWith(".zst")) - Number(b.endsWith(".zst")) || (a < b ? -1 : a > b ? 1 : 0));
+      const listed = new Set(files);
       context.checking(files.length);
-      const found: Found[] = [];
-      for (const file of files) {
-        await context.checked();
-        let stamp = "";
-        try {
-          const one = await transcript(file, context, (s: string) => (stamp = s));
-          if (one) found.push(one);
-        } catch (error) {
-          // A transcript that vanished, can't be read or doesn't decode is
-          // skipped until it changes; the rest of the folder still counts.
-          context.warn(`Unreadable transcript skipped: ${file}: ${error}`);
-          if (stamp) context.exclude(file, stamp);
+      const found: (Found | null)[] = Array(files.length).fill(null),
+        unseen: number[] = [];
+      // An archive is written once, so one seen before is as it was, with no stat.
+      files.forEach((file, at) => {
+        const archive = file.endsWith(".jsonl.zst"),
+          seen = archive ? context.seen(file) : null;
+        if (archive && listed.has(file.slice(0, -4))) void context.checked();
+        else if (seen && "excluded" in seen) {
+          context.exclude(file, seen.excluded);
+          void context.checked();
+        } else if (seen?.found.file_id) {
+          if (context.claim(seen.found.file_id)) found[at] = seen.found;
+          void context.checked();
+        } else unseen.push(at);
+      });
+      // The rest many at once: each mostly waits on a stat. Results keep the listing's order.
+      let next = 0;
+      const check = async () => {
+        while (next < unseen.length) {
+          const at = unseen[next++],
+            file = files[at];
+          const reporting = context.checked();
+          if (reporting) await reporting;
+          let stamp = "";
+          try {
+            found[at] = await transcript(file, listed, context, (s: string) => (stamp = s));
+          } catch (error) {
+            // A transcript that vanished, can't be read or doesn't decode is
+            // skipped until it changes; the rest of the folder still counts.
+            context.warn(`Unreadable transcript skipped: ${file}: ${error}`);
+            if (stamp) context.exclude(file, stamp, true);
+          }
         }
-      }
-      return found;
+      };
+      await Promise.all(Array.from({ length: 32 }, check));
+      return found.filter((f): f is Found => f !== null);
     },
     /** Streamed: some transcripts run to hundreds of megabytes. */
     async read(found, withTools) {
-      const decoded = decoder(spec, withTools);
-      let fragments: Buffer[] = [],
-        bytes = 0;
-      for await (const value of chunks(found.source)) {
-        const chunk = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
-        let start = 0;
-        while (start < chunk.length) {
-          const end = chunk.indexOf(10, start);
-          const segment = chunk.subarray(start, end < 0 ? chunk.length : end);
-          fragments.push(segment);
-          bytes += segment.length;
-          if (end < 0) break;
-          decoded.line((fragments.length === 1 ? segment : Buffer.concat(fragments, bytes)).toString());
-          fragments = [];
-          bytes = 0;
-          start = end + 1;
-        }
-      }
-      return decoded.done(bytes > 0);
+      const compressed = found.source.endsWith(".jsonl.zst"),
+        decoded = decoder(spec, withTools),
+        read = await lines(chunks(found.source), decoded);
+      const result = decoded.done(read.partial);
+      return compressed ? result : { ...result, end: { bytes: read.whole, lines: decoded.lines } };
+    },
+    async readOn(found, from) {
+      if (found.source.endsWith(".jsonl.zst")) throw Error("CompressedTranscript");
+      const decoded = decoder(spec, false, from.lines),
+        read = await lines(Bun.file(found.source).slice(from.bytes).stream(), decoded);
+      return { ...decoded.done(read.partial), end: { bytes: from.bytes + read.whole, lines: decoded.lines } };
     },
     jsonl(input, withTools = false) {
       const decoded = decoder(spec, withTools);

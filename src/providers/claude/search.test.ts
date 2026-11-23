@@ -85,6 +85,7 @@ test("finds each project's session transcripts, not subagents' or SDK runs'", as
     const found = await conversations.discover(root, {
       known: () => undefined,
       skipped: () => false,
+      seen: () => null,
       exclude: source => void excluded.push(path.basename(source)),
       warn() {},
       claim: () => true,

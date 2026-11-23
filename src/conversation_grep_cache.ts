@@ -2,8 +2,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { cached, discover, measure, read, selected, store, versions } from "./conversation_grep";
+import { cached, discover, measure, read, readOn, records, selected, store, tail, versions } from "./conversation_grep";
 import type { Lanes, Location, Manifest, Normalized, Options, Source } from "./conversation_grep";
+import * as providerSearch from "./providers/search";
 
 export type Progress = (scanned: number, total: number, phase: "checking" | "indexing") => Promise<void>;
 type Index = Manifest & { index_version: 1 };
@@ -13,6 +14,13 @@ export function directory(env = process.env): string {
   return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "corgi", "conversation-grep-v2");
 }
 
+/** Whether two discoveries left out the same files at the same stamps, in
+ * whatever order their checks finished. */
+function sameIgnored(a: NonNullable<Manifest["ignored"]>, b: NonNullable<Manifest["ignored"]>): boolean {
+  if (a.length !== b.length) return false;
+  const was = new Map(a.map(s => [s.source, s]));
+  return b.every(s => was.get(s.source)?.stamp === s.stamp && !!was.get(s.source)?.failed === !!s.failed);
+}
 /** The index lock, or null while another search holds it. Only its holder
  * writes the index; cache files are replaced whole, so others read freely. */
 export async function tryLock(cache: string): Promise<(() => void) | null> {
@@ -103,6 +111,18 @@ export async function open(
     partial: 0,
     refreshed: 0,
   };
+  // Whether discovery found what the saved index doesn't say; otherwise only
+  // indexing gives a save something to write.
+  const saved = new Map((previous?.sources ?? []).map(s => [s.key, s])),
+    gone = previous?.ignored ?? [];
+  const discovered =
+    !previous ||
+    saved.size !== sources.length ||
+    sources.some(s => {
+      const old = saved.get(s.key);
+      return !old || old.stamp !== s.stamp || old.file_id !== s.file_id;
+    }) ||
+    !sameIgnored(gone, ignored);
   const decoding = await versions(),
     behind = (s: Source) => stale(s, decoding.get(s.provider) ?? "", options.tools);
   const candidates = selected(manifest, options),
@@ -112,20 +132,54 @@ export async function open(
   let reported = performance.now();
   if (changed) await progress?.(0, changed, "indexing");
 
+  /** A transcript that only grew since it was indexed, as a live agent's does:
+   * its cached messages and those read on from where indexing stopped, rather
+   * than the whole transcript again. Null when it can't be read so. */
+  async function appended(source: Source): Promise<Normalized | null> {
+    const end = source.indexed_end;
+    if (options.tools || !end || !source.indexed_stamp || end.stamp !== source.indexed_stamp) return null;
+    if (source.indexed_version !== decoding.get(source.provider)) return null;
+    // The same file, no shorter, still holding what was read: its stamp is inode:size:mtime.
+    const [inode, size] = source.stamp.split(":"),
+      [was] = source.indexed_stamp.split(":");
+    try {
+      if (inode !== was || !(Number(size) >= end.bytes) || tail(source.source, end.bytes) !== source.indexed_tail)
+        return null;
+      // The cache file is replaced before the index is saved, so a search
+      // stopped between the two leaves it ahead of where the index says.
+      const kept = records(await Bun.file(path.join(cache, source.file)).text());
+      if (kept.length !== source.messages) return null;
+      const more = await readOn(source, end);
+      if (!more) return null;
+      const messages = [...kept, ...more.messages];
+      // One indexed before anyone spoke is named by the first to speak.
+      const named = source.title ? "" : providerSearch.title(messages.find(m => m.role === "user")?.text ?? "");
+      return { ...more, messages, title: more.title || named };
+    } catch {
+      return null;
+    }
+  }
+
   async function update(source: Source): Promise<Normalized | null | undefined> {
     if (unreadable.has(source)) return null;
     if (!behind(source)) return undefined;
     let normalized: Normalized;
     try {
-      normalized = await read(source, options.tools);
+      normalized = (await appended(source)) ?? (await read(source, options.tools));
     } catch (error) {
       // A truncated archive, or a transcript deleted since discovery, doesn't
       // fail the search; a file is skipped until it changes.
       warnings.push(`Unreadable transcript skipped: ${source.source}: ${error}`);
       unreadable.add(source);
-      ignored.push({ source: source.source, stamp: source.stamp });
+      ignored.push({ source: source.source, stamp: source.stamp, failed: true });
       return null;
     }
+    // Where indexing stopped, to read on from; one gone since is read whole next time.
+    let at: string | undefined;
+    if (normalized.end && !readOnly)
+      try {
+        at = tail(source.source, normalized.end.bytes);
+      } catch {}
     source.title = normalized.title || source.title;
     manifest.malformed += normalized.malformed;
     manifest.partial += normalized.partial;
@@ -134,6 +188,8 @@ export async function open(
       store(cache, source, normalized);
       source.indexed_stamp = source.stamp;
       source.indexed_version = decoding.get(source.provider);
+      source.indexed_end = at === undefined ? undefined : normalized.end && { ...normalized.end, stamp: source.stamp };
+      source.indexed_tail = at;
       if (normalized.tools) {
         source.tools_stamp = source.stamp;
         source.tools_version = source.indexed_version;
@@ -166,7 +222,7 @@ export async function open(
       }
     },
     save() {
-      if (readOnly) return;
+      if (readOnly || !(discovered || manifest.refreshed || unreadable.size)) return;
       if (unreadable.size) manifest.sources = sources.filter(s => !unreadable.has(s));
       // Retire files only after discovering a removed transcript. Never touch provider stores.
       const retained = new Set(manifest.sources.map(s => s.key));

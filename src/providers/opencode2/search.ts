@@ -142,7 +142,8 @@ export const conversations: Search = {
       context.checking(rows.length);
       const found: Found[] = [];
       for (const r of rows) {
-        await context.checked();
+        const reporting = context.checked();
+        if (reporting) await reporting;
         const source = `${file}#${r.id}`;
         if (context.skipped(source, r.stamp)) {
           context.exclude(source, r.stamp);

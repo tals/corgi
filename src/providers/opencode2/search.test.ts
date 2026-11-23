@@ -66,6 +66,7 @@ function context() {
   const value: Context = {
     known: () => undefined,
     skipped: () => false,
+    seen: () => null,
     exclude() {},
     warn: text => void warnings.push(text),
     claim: () => true,

@@ -442,6 +442,7 @@ async function main(raw: string[], daemon: rpc_http.Daemon) {
     matches = await grep.search(cache, sources, {
       ...options,
       open: session.messages,
+      ready: session.fresh,
       found: async m => {
         if (closed) {
           if ((closed as NodeJS.ErrnoException).code === "EPIPE") return false;

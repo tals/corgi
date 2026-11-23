@@ -356,8 +356,6 @@ class InputState {
 }
 /** The key the Resume list's searches of conversations' text go under, so each ends the last. */
 const mentions_key = "resume";
-/** Which conversations the Resume list searches, which a warm-up reads ahead. */
-const mentions_scope = { workspace: "*", max_age: 0 } as const;
 const sameRect = (a: Rect, b: Rect) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 /** `list` with `item` in it, or without it. */
@@ -5476,23 +5474,12 @@ export class Controller {
       m = view.mentions,
       query = view.mentionQuery(),
       now = milliTimestamp();
-    // A search begun has the daemon read the conversations while the query's typed.
-    if (view.searching && !m.warmed && !m.unsupported) {
-      m.warmed = true;
-      void call(this.connection, "conversation.grep", {
-        ...mentions_scope,
-        patterns: [],
-        key: mentions_key,
-        warm: true,
-      }).catch(() => {});
-    }
     // A new search ends the last on the daemon; no search, as when the search
     // is left or too short, needs telling.
     if (!query) this.cancelMentions();
     if (m.unsupported) return;
-    // Each change searches at once, ending the last search, which takes a few
-    // ms once the daemon has read the conversations. The same search goes
-    // again only when a failed one's retry is due.
+    // Each change searches at once, ending the last search. The same search
+    // goes again only when a failed one's retry is due.
     if (query === m.query && !(query && m.retry_at > 0 && now >= m.retry_at)) return;
     const generation = view.searchMentions(query);
     this.dirty = true;
@@ -5501,10 +5488,11 @@ export class Controller {
       out = { connection, view };
     this.mentions_out = out;
     const fields = {
-      ...mentions_scope,
       patterns: [query],
       fixed: true,
       case: "insensitive" as const,
+      workspace: "*",
+      max_age: 0,
       max_count: 1,
       // As many as the daemon's history lists; the list keeps those it has.
       limit: 1000,

@@ -811,8 +811,7 @@ const requests = {
   /** `corgi grep`'s options; null takes its default. `workspace` is a workspace
    * ID, an absolute path or '*'; `max_age` is in seconds, 0 for any age. A new
    * search with this connection's `key` ends its last; `stream` sends matches
-   * as `{more: true}` messages before the reply. `warm` only reads the
-   * conversations in scope, needing no pattern, so the searches after it start fast. */
+   * as `{more: true}` messages before the reply. */
   "conversation.grep": {
     patterns: "[]string",
     workspace: "string",
@@ -835,7 +834,6 @@ const requests = {
     max_line: ["?u32", null],
     key: ["string", ""],
     stream: ["bool", false],
-    warm: ["bool", false],
   },
   /** Ends this connection's search under `key`, whether or not one runs. */
   "conversation.grep.cancel": { key: "string" },

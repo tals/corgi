@@ -181,8 +181,6 @@ export class Mentions {
   unsupported = false;
   /** Counts the searches sent, so only the latest one's answers count. */
   generation = 0;
-  /** The daemon was asked to read the conversations ahead of this search's first query. */
-  warmed = false;
   /** Searches for `query` that failed in a row. */
   failures = 0;
   /** When to search for `query` again after a failure, in ms; 0 when not waiting to. */

@@ -28,17 +28,21 @@ type Row<L> = { type: "match" | "context"; line: L; submatches: Submatch[] };
 // Unicode word characters, so -w treats "café" as one word.
 const word = "[\\p{Alphabetic}\\p{M}\\p{Nd}\\p{Pc}\\p{Join_Control}]";
 
+const escape = (pattern: string) => pattern.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&");
+/** Whether `query` ignores case: always, or with -S while its text has no capitals. */
+function insensitive(query: Query): boolean {
+  const text = query.fixed ? query.patterns.join("") : query.patterns.join("").replace(/\\(?:[pP]\{[^}]*\}|.)/gsu, "");
+  return query.case === "insensitive" || (query.case === "smart" && !/\p{Lu}/u.test(text));
+}
+
 export function compile(query: Query): RegExp {
-  const fixed = query.fixed,
-    patterns = query.patterns.map(p => (fixed ? p.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&") : p));
-  const literals = fixed ? patterns.join("") : patterns.join("").replace(/\\(?:[pP]\{[^}]*\}|.)/gsu, "");
-  const insensitive = query.case === "insensitive" || (query.case === "smart" && !/\p{Lu}/u.test(literals));
+  const patterns = query.patterns.map(p => (query.fixed ? escape(p) : p));
   let source = patterns.map(p => `(?:${p})`).join("|");
   if (query.line) source = `^(?:${source})$`;
   else if (query.word) source = `(?<!${word})(?:${source})(?!${word})`;
   // Lines hold no newline, so . matches any character.
   try {
-    return new RegExp(source, "gsu" + (insensitive ? "i" : ""));
+    return new RegExp(source, "gsu" + (insensitive(query) ? "i" : ""));
   } catch (error) {
     throw Error(
       `regex parse error: ${(error as Error).message}. Patterns are JavaScript regex: ` +

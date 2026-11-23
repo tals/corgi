@@ -20,8 +20,8 @@ const batch_ms = 80;
 const deadline_ms = 30_000;
 /** A worker that hasn't stopped this long after a cancel is stopped. */
 const cancel_ms = 2_000;
-/** A worker idle this long is stopped, letting go of the conversations it read. */
-const idle_ms = 30_000;
+/** A worker idle this long is stopped. */
+const idle_ms = 5_000;
 const tick_ms = 50;
 
 /** A search as the worker runs it. */
@@ -38,8 +38,6 @@ export type Search = {
   locked: boolean;
   /** Bytes of lines it may send. */
   cap: number;
-  /** Only read the conversations, for the searches after it. */
-  warm: boolean;
 };
 export type Command = Search | { type: "cancel"; id: number };
 export type Event =
@@ -130,9 +128,9 @@ export function prepare(runtime: Runtime, q: Request<"conversation.grep">): Job[
   if (q.max_line !== null) display.maxLineChars = q.max_line;
   // The byte budget bounds the output instead.
   display.maxOutputChars = 0;
-  if (!options.patterns.length && !q.warm) throw Error("MissingPattern");
+  if (!options.patterns.length) throw Error("MissingPattern");
   if (options.maxCount === 0) throw Error("InvalidCount");
-  return { cache: cacheIndex.directory(), options, display, cap: budget, warm: q.warm };
+  return { cache: cacheIndex.directory(), options, display, cap: budget };
 }
 
 export class Searches {
