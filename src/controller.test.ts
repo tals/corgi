@@ -1074,7 +1074,12 @@ test("discarded paste chunks cannot invoke shortcuts", async () => {
 test("keys stay on the name while the folder field doesn't fit", async () => {
   const s = controller();
   s.input_state.attached = true;
-  const d = new newWorkspace.Dialog(newWorkspace.Browser.init("/a", "/home", () => ["b"]));
+  const d = new newWorkspace.Dialog(
+    newWorkspace.Browser.init(
+      "/a",
+      new newWorkspace.Reader({ home: "/home", ask: async () => ({ folders: ["b"] }), lost: () => false }),
+    ),
+  );
   s.name_dialog = d;
   s.height = 12;
   await s.input(bytes("\tx"));
@@ -1083,6 +1088,46 @@ test("keys stay on the name while the folder field doesn't fit", async () => {
   s.height = 30;
   await s.input(bytes("\ty"));
   expect(d.browser.field.raw()).toBe("/a/y");
+});
+
+test("a remote machine's new workspace starts at its home, and Escape while it makes the folder cancels", async () => {
+  const commands: unknown[] = [];
+  let made = () => {};
+  const machine = new Machine(
+    {
+      request: transport(async (op, fields: any) => {
+        switch (op) {
+          case "folder.list":
+            return { folders: [], home: "/home/me" };
+          case "folder.find":
+            return { deepest: null };
+          case "folder.open":
+            await new Promise<void>(resolve => (made = resolve));
+            return { opened: { path: fields.path } };
+          case "session.command":
+            commands.push(fields.command);
+            return { result: protocol.emptyResult() };
+        }
+        return {};
+      }).request,
+    },
+    "atlas",
+    true,
+  );
+  const s: any = new Controller(machine);
+  try {
+    // Without a workspace there, not at the viewer's own folder.
+    s.beginWorkspace(null);
+    expect(s.name_dialog.browser.field.raw()).toBe("~/");
+    s.finishName(true);
+    s.finishName(false);
+    made();
+    await s.tasks.idle();
+    expect(commands).toEqual([]);
+    expect(s.name_dialog).toBeNull();
+  } finally {
+    viewer.close(s);
+  }
 });
 
 test("a paste read from the host clipboard goes where a paste would", async () => {
@@ -1490,10 +1535,15 @@ test("change folder browses from the workspace's folder and moves it there", asy
   snapshot.workspaces[0].name = "app";
   snapshot.workspaces[1].name = "custom";
   const { s, sent: commands } = recording(snapshot);
+  /** Waits for the dialog's reads of this disk. */
+  const read = async () => {
+    for (let i = 0; i < 400 && s.name_dialog?.browser.reading; i++) await Bun.sleep(5);
+  };
   try {
     await s.perform({ name: "edit-workspace" });
     expect(s.tab_menu.details.get("change-folder").runs).toEqual([[join(root, "app"), "faint"]]);
     await s.key(102);
+    await read();
     const d = s.name_dialog;
     expect(d).toBeInstanceOf(newWorkspace.Dialog);
     expect([d.moving, d.browser.focused, d.browser.folder(), d.browser.entries]).toEqual([
@@ -1512,9 +1562,12 @@ test("change folder browses from the workspace's folder and moves it there", asy
     // A name of its own stays.
     s.tab_menu = new TabMenu({ tab: 2, workspace: true, anchor_x: 0 });
     await s.tabMenuAction("change-folder");
+    await read();
     await s.input(bytes("\x1b[D"));
+    await read();
     expect(s.name_dialog.browser.folder()).toBe(join(root, "app"));
     await s.input(bytes("\r"));
+    await s.settle();
     expect(commands.at(-1)).toEqual({ "workspace.edit": { target: 2, name: "custom", cwd: join(root, "app") } });
   } finally {
     viewer.close(s);

@@ -342,6 +342,9 @@ $.requests|file.thumbnail.pixels: u32
 $.requests|job.poll.job: u32
 $.requests|job.poll.wait: u32
 $.requests|job.cancel.job: u32
+$.requests|folder.list.path: string
+$.requests|folder.find.path: string
+$.requests|folder.open.path: string
 $.requests|onboarding.status.operation: u64
 $.requests|onboarding.handoff.operation: u64
 $.requests|onboarding.handoff.viewer_pgid: i32

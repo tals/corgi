@@ -167,6 +167,9 @@ export const operations = [
   "file.thumbnail",
   "job.poll",
   "job.cancel",
+  "folder.list",
+  "folder.find",
+  "folder.open",
   "onboarding.status",
   "onboarding.handoff",
   "onboarding.copy",
@@ -848,6 +851,9 @@ const requests = {
   // A job's news, waiting up to `wait` ms for some, and its end; see jobs.ts.
   "job.poll": { job: "u32", wait: ["u32", 0] },
   "job.cancel": { job: "u32" },
+  "folder.list": { path: "string" },
+  "folder.find": { path: "string" },
+  "folder.open": { path: "string" },
   "onboarding.status": { operation: "u64" },
   "onboarding.handoff": { operation: "u64", viewer_pgid: "i32", socket: ["string", ""] },
   "onboarding.copy": {
@@ -1029,6 +1035,10 @@ export interface ReplyPayloads {
     };
   "job.poll": Ok & import("./jobs").Poll;
   "job.cancel": Ok;
+  /** The folders in `path`, null when it can't be read, and the daemon's home folder. */
+  "folder.list": Ok & { folders: string[] | null; home: string };
+  "folder.find": Ok & { deepest: import("./folders").Deepest | null };
+  "folder.open": Ok & { opened: import("./folders").Opened };
   "onboarding.status": Ok & {
     progress: import("./import/onboarding").Progress | ReturnType<import("./import/herdr").Manager["status"]>;
   };

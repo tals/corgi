@@ -44,6 +44,7 @@ import * as jobs from "./jobs";
 import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import * as reviewService from "./review/service";
+import * as folders from "./folders";
 import { testBuild } from "./build_assets";
 import * as agentRetry from "./agent_retry";
 import * as link from "./link";
@@ -1262,6 +1263,12 @@ export class Server {
       case "job.cancel":
         this.remote_jobs.cancel(cl, request.payload.job);
         reply.ok();
+        return;
+      // A remote viewer's folder browser reads and makes this machine's folders.
+      case "folder.list":
+      case "folder.find":
+      case "folder.open":
+        this.defer(cl, reply, null, () => folders.answer(request));
         return;
       case "worktree.add":
         this.defer(cl, reply, { op: "worktree.add", path: request.payload.path }, async () => {

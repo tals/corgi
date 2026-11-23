@@ -111,6 +111,8 @@ export class Machine {
   running: launcherResume.Open[] = [];
   stopped: Stopped[] = [];
   profiles = new Profiles();
+  /** A remote machine's home folder, as its daemon last said; "" until then. */
+  home = "";
   presence: () => Presence = () => ({
     online: true,
     link_quality: null,
