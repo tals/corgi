@@ -124,7 +124,7 @@ export function parse(value: unknown, platform: Target, executable: string): Bui
     socket: optional("socket"),
     // Absent on older binaries. Only the exact advertised protocol is usable.
     delta_transfer: v.delta_transfer === "rsync-zstd-v1" ? "rsync-zstd-v1" : "",
-    // Absent on older binaries, which had no say.
+    // XXX: Remove for next protocol bump. Absent on older binaries, which had no say.
     automatic: v.automatic !== false,
   };
   for (const path of [result.executable, result.socket])

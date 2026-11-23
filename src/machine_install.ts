@@ -40,10 +40,13 @@ async function reload(daemon: rpc_http.Client, target: string, expected: string)
 }
 /** The installed file can match while another checkout serves this socket. */
 export async function activate(daemon: rpc_http.Client, executable: string, expected: string): Promise<void> {
-  if ((await hello(daemon))?.build_id === expected) return;
   const target = realpathSync(executable);
   const parent = dirname(dirname(target));
   const managed = basename(parent) === "releases";
+  // In an installation, the daemon runs the current release's own file.
+  const runs = (live: Awaited<ReturnType<typeof hello>>) =>
+    live?.build_id === expected && (!managed || live.executable === target);
+  if (runs(await hello(daemon))) return;
   const unlock = await updates.setupLock(managed ? dirname(parent) : dirname(target));
   try {
     if (managed && readFileSync(join(dirname(parent), "current"), "utf8").trim() !== basename(dirname(target)))
@@ -52,7 +55,7 @@ export async function activate(daemon: rpc_http.Client, executable: string, expe
     if (incoming.build_id !== expected) throw Error("InstallationChanged");
     const live = await hello(daemon);
     if (!live) throw Error("UpdateRuntimeChanged");
-    if (live.build_id === expected) return;
+    if (runs(live)) return;
     await check(daemon, target, live);
     await reload(daemon, target, expected);
   } finally {

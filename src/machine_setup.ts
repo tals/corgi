@@ -148,7 +148,7 @@ if [ -n "$p" ] && [ "$(basename "$(dirname "$(dirname "$p")")")" = releases ]; t
   p="$root/releases/$v/corgi"
 fi
 printf '%s\\n' "$p"
-if [ -n "$p" ]; then ${deployment ? "CORGI_MACHINE_PROBE=1 " : ""}"$p" __update-info; fi`,
+if [ -n "$p" ]; then ${deployment || options.onlyUpgrade ? "CORGI_MACHINE_PROBE=1 " : ""}"$p" __update-info; fi`,
     undefined,
     !reuseLogin,
   );
@@ -185,8 +185,12 @@ if [ -n "$p" ]; then ${deployment ? "CORGI_MACHINE_PROBE=1 " : ""}"$p" __update-
   ) {
     return matching(installed.build_id);
   }
-  if (options.onlyUpgrade && !(installed?.automatic && build.upgrades(local, installed)))
+  if (options.onlyUpgrade && !(installed?.automatic && build.upgrades(local, installed))) {
+    // Another runtime may have moved the installation past the one on this socket.
+    const running = !!probe && typeof probe === "object" && "machine" in probe;
+    if (installed && !running && build.matches(local, installed)) return matching(installed.build_id);
     return { executable: lines[3] || executable, unchanged: true };
+  }
   const directory = mkdtempSync(join(tmpdir(), "corgi-setup-"));
   try {
     const prepared = deployment ? await artifact(local, target, directory, options) : null;

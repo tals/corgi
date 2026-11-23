@@ -1022,6 +1022,24 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
 );
 
 test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a runtime another one left behind catches up to the installed release",
+  async () => {
+    const pid = await shellPid();
+    await cli(["update", "--download-only"]);
+    // Another socket's runtime made 1.0.1 current; this one still runs 1.0.0.
+    await writeFile(join(root, "previous"), "1.0.0");
+    await writeFile(join(root, "current"), "1.0.1");
+    await rm(join(root, "staged"));
+    expect((await rpc({ op: "hello" })).release_version).toBe("1.0.0");
+    const sync = await machineViewer("1.0.1");
+    expect((await sync()).at(-1)).toEqual({ type: "ready" });
+    await runsRelease("1.0.1", pid);
+    expect((await sync()).at(-1)).toEqual({ type: "current" });
+  },
+  60_000,
+);
+
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
   "a machine downloads a release it lacks; a newer one stays",
   async () => {
     // The viewer runs the channel's latest, which the machine's own updater then finds current.

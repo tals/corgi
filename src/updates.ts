@@ -1021,7 +1021,13 @@ export async function internal(args: string[], exe: string): Promise<boolean> {
       let machine;
       if (process.env.CORGI_MACHINE_PROBE === "1") {
         const live = await new rpc_http.Client(installed.socket).discover(1000, 0, 0).catch(() => null);
-        if (live && "build_id" in live && live.build_id === installed.build_id)
+        // Test releases share their bytes, so the release must match too.
+        if (
+          live &&
+          "build_id" in live &&
+          live.build_id === installed.build_id &&
+          live.release_version === installed.version
+        )
           machine = (await import("./machine_cli")).remoteInfo(exe);
       }
       console.log(JSON.stringify({ ...installed, platform, test_mode: r.test_mode, machine }));
