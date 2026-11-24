@@ -751,3 +751,36 @@ test("an excerpt starts a little before the search when it would end out of sigh
   // A match that would end under the line's last "…" is brought into view.
   expect(around("a".repeat(13) + "Sidebar more text", "sidebar", 20)).toMatch(/^…a* ?Sidebar more text$/);
 });
+
+test("the search takes text in any script, typed as its UTF-8 bytes", () => {
+  const entries = [
+    testEntry("a", "/w/corgi", "サイドバーの日本語化", 900),
+    testEntry("b", "/w/corgi", "Исправить Боковую панель", 800),
+    testEntry("c", "/w/corgi", "Release notes", 700),
+  ];
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  const type = (text: string) => {
+    for (const byte of Buffer.from(text)) v.query.key(byte);
+  };
+  // One wide character is too little to look for in what was said; two are a word.
+  type("日");
+  expect(v.search()).toBe("日");
+  expect(v.mentionQuery()).toBe("");
+  type("本");
+  expect(v.mentionQuery()).toBe("日本");
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }, { note: "searching" }]);
+  // Backspace takes a whole character.
+  v.query.key(127);
+  expect(v.search()).toBe("日");
+  v.query.clear();
+  // Two narrow letters stay too short, in any script; titles match whatever the case.
+  type("да");
+  expect(v.mentionQuery()).toBe("");
+  v.query.clear();
+  type("боковую");
+  expect(v.mentionQuery()).toBe("боковую");
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 1 }, { note: "searching" }]);
+});

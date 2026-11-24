@@ -184,7 +184,8 @@ export function stableSort<T>(items: T[], less: (x: T, y: T) => boolean): T[] {
 
 /** How many conversations show before the list is expanded. */
 export const collapsed_rows = 5;
-/** Shorter searches match too much to look for in conversations' text. */
+/** Searches narrower than this many columns match too much to look for in
+ * conversations' text: three letters, or two wide characters, as CJK's are. */
 export const mention_min = 3;
 /** What the daemon found in conversations' text for a search. */
 export class Mentions {
@@ -368,7 +369,7 @@ export class View {
   searching = false;
   /** The list was expanded before the search began, so leaving it goes back there. */
   searched_expanded = false;
-  query = Dialog.init({ pane: 0 }, "");
+  query = Dialog.init({ search: null }, "");
   mentions = new Mentions();
   scope: Scope = "workspace";
   /** Kept by identity, so a refreshed list keeps the selection. */
@@ -385,7 +386,7 @@ export class View {
   /** What to look for in conversations' text: the search, once long enough. */
   mentionQuery(): string {
     const query = this.search().trim();
-    return query.length >= mention_min ? query : "";
+    return displayWidth(query) >= mention_min ? query : "";
   }
   /** Whether `e`'s text holds the search, as the daemon found. */
   private mentioned(e: Entry): boolean {
@@ -1032,8 +1033,9 @@ function lowerAscii(text: string): string {
 function starWord(word: string): boolean {
   return word.length >= 4 && "starred".startsWith(lowerAscii(word));
 }
+/** Ignores case in any script, as the daemon's search of conversations' text does. */
 function contains(text: string, query: string): boolean {
-  return lowerAscii(text).includes(lowerAscii(query));
+  return text.toLowerCase().includes(query.toLowerCase());
 }
 /** Seconds at local midnight starting the day of `seconds`. */
 export function dayStart(seconds: number): number {
