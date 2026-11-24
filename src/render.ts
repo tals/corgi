@@ -235,6 +235,8 @@ export interface Ui {
   pane_opening: boolean;
   /** The bars keep their room but aren't placed, under menus drawn over the frame. */
   signal_bars_hidden: boolean;
+  /** Asks for a frame by `at_ms`, for what moves with time alone. */
+  animate: ((at_ms: number) => void) | null;
   git_hover: viewerRef.Workspace | null;
   /** Panes whose grips showed last frame. */
   grip_hover: readonly number[];
@@ -346,6 +348,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     sync_notice: null,
     pane_opening: false,
     signal_bars_hidden: false,
+    animate: null,
     git_hover: null,
     grip_hover: [],
     git_card: null,
@@ -856,6 +859,7 @@ export function frame(
   const signals: { quality: Quality; x: number; y: number }[] = [];
   if (u.pictures && u.cell_pixels && signalBars.fits(u.cell_pixels))
     side.signal_marks = (quality, x, y) => void signals.push({ quality, x, y });
+  side.animate = u.animate;
   // Mouse tracking modes replace one another. Disabling first makes the host
   // briefly switch to a text pointer on every redraw.
   w.write("\x1b[?1003h");

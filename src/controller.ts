@@ -494,6 +494,7 @@ export class Controller {
   onConnectivity: (() => void) | null = null;
   paste_target: Paste | null = null;
   paste_progress: pasteProgress.State | null = null;
+  private next_frame = Infinity;
   /** Why a paste brought no image, over the pane it was meant for. */
   paste_card: PasteCard | null = null;
   tab_menu: TabMenu | null = null;
@@ -10691,7 +10692,13 @@ export class Controller {
     const frame = this.compose(false);
     return typeof frame === "string" ? frame : frame.text();
   }
+  /** When the last frame composed changes with time alone, in `Date.now()`
+   * time; Infinity when it holds still. */
+  nextFrame(): number {
+    return this.next_frame;
+  }
   compose(retain = true): composition.Output {
+    this.next_frame = Infinity;
     if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;
     // Each frame lists its pictures anew; presenting it shows the host the change.
     const pictures = this.host.images.frame(this.cell_pixels ?? { width: 1, height: 1 });
@@ -10826,6 +10833,7 @@ export class Controller {
         sync_notice: this.sync_notice,
         pane_opening: this.openingFocus() !== null,
         signal_bars_hidden: this.hide_connection_signals,
+        animate: at_ms => void (this.next_frame = Math.min(this.next_frame, at_ms)),
         git_hover: this.hoverIdle() ? this.git_hover : null,
         grip_hover: this.grip_hover,
         git_card: (tooltip_ready || this.git_card.pinned) && git_ws ? this.git_card : null,

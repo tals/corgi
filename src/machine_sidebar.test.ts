@@ -1,7 +1,7 @@
 import * as viewerRef from "./viewer_ref";
 import { localEndpoint } from "./machine_connection";
 import { sshEndpoint } from "./ssh_path";
-import { expect, spyOn, test } from "bun:test";
+import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { Workspaces } from "./machine_sidebar";
 import { Endpoint, type Status } from "./machine_connection";
 import { Probe } from "./terminal_info";
@@ -124,6 +124,35 @@ test("all workspaces list each machine's rows by their own ids, cached ones unti
     { machine: "work", workspace: 1 },
     { machine: "work", workspace: null },
   ]);
+});
+test("a connecting machine's glimmer asks for a frame at its next step", () => {
+  const {
+    endpoints: [local, remote],
+    view,
+  } = world("local", "work");
+  local.status = "online";
+  view.width = 100;
+  view.height = 30;
+  view.prefs.corgi_intensity = 0;
+  setSystemTime(new Date(10_030));
+  try {
+    // Its first second connecting is quiet: no glimmer, nothing to animate.
+    view.compose(false);
+    expect(view.nextFrame()).toBe(Infinity);
+    Reflect.set(remote, "connecting", { since: performance.now() - 1000, from: null });
+    view.compose(false);
+    expect(view.nextFrame()).toBe(10_080);
+    setSystemTime(new Date(10_080));
+    view.compose(false);
+    expect(view.nextFrame()).toBe(10_160);
+    remote.updated = 1;
+    remote.status = "online";
+    view.compose(false);
+    expect(view.nextFrame()).toBe(Infinity);
+  } finally {
+    setSystemTime();
+    view.runtime.destroy();
+  }
 });
 test("selecting a cached row on the shown machine waits for its live workspace", () => {
   const {
