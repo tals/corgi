@@ -7,7 +7,7 @@
     "start": "bun src/main.ts",
     "build": "bun build.ts",
     "publish": "bun scripts/publish.ts",
-    "test": "bun test src",
+    "test": "bun test src ./tools/*.test.ts",
     "typecheck": "bun typecheck.ts",
     "integration": "bun integration.ts",
     "i18n": "bun scripts/translations.ts",

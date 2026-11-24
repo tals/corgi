@@ -68,8 +68,9 @@ jobs:
       - name: Typecheck
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: bun typecheck.ts --ci
+      # tools/benchmarks need Linux and run by hand.
       - name: Unit tests
-        run: bun test src
+        run: bun test src ./tools/*.test.ts
       # Suites that never start corgi-test; the integration shards leave them out.
       - name: Standalone suites
         run: bun integration.ts --standalone

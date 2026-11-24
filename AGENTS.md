@@ -6,7 +6,7 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
 
 - **Build:** `bun build.ts` (`--no-native` skips the Zig native layer when
   only TypeScript changed). The binary is `dist/corgi`.
-- **Unit tests:** `bun test src`
+- **Unit tests:** `bun test src ./tools/*.test.ts`
   - While iterating, pass a file or `-t <name>`. Run the full suite before
     finishing.
 - **Typecheck:** `bun typecheck.ts`. It also fails on unformatted code.

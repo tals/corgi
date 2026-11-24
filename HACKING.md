@@ -249,7 +249,7 @@ confirmation and time-based transitions continue on every observation pass.
 
 ```sh
 bun build.ts --no-native      # TypeScript-only rebuild
-bun test src                 # unit tests
+bun test src ./tools/*.test.ts # unit tests
 bun typecheck.ts             # types and formatting
 bun format.ts                # format TypeScript
 bun build.ts --test          # dist/corgi-test
