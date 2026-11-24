@@ -236,13 +236,6 @@ export class Browser {
     b.show(cwd);
     return b;
   }
-  /** Starts at what `text` names, from the home folder: another machine's
-   * folders, at the folder typed for the last one. */
-  static typed(text: string, files: Reader): Browser {
-    const b = new Browser("~", files);
-    b.write(text);
-    return b;
-  }
   /** Looks again: the machine keeps what it answered, and what it has
    * dropped, as after a lost link, is asked again. */
   retry(): void {
@@ -510,6 +503,8 @@ export interface Moving {
 export interface On {
   machine: Machine;
   machines: Machine[];
+  /** The folder another machine's field starts at, the first time it's chosen. */
+  start: (machine: Machine) => string;
 }
 
 /** The dialog: the name above, the browser below. Tab, and Up and Down past
@@ -535,6 +530,9 @@ export class Dialog extends nameDialog.Dialog {
   hovering = false;
   /** Where a chosen machine's folders are read. */
   places: (machine: Machine) => Place = place;
+  /** Each machine's folder field, kept while the dialog is open. */
+  private browsers = new Map<Machine, Browser>();
+  private start: (machine: Machine) => string;
   /** The whole card shows, the machine's name in its title. */
   private roomy = false;
   /** The machine was online when last looked at. */
@@ -549,6 +547,8 @@ export class Dialog extends nameDialog.Dialog {
     this.moving = moving?.workspace ?? null;
     this.machine = on?.machine ?? null;
     this.machines = on?.machines ?? [];
+    this.start = on?.start ?? (() => "~");
+    if (this.machine) this.browsers.set(this.machine, browser);
     this.online = this.ready();
     browser.focused = moving !== null;
     if (moving && moving.name !== workspace.folderName(browser.folder())) {
@@ -595,17 +595,24 @@ export class Dialog extends nameDialog.Dialog {
     if (down && this.highlight === this.machines.length - 1) this.choosing = false;
     else this.highlight = Math.max(0, this.highlight + (down ? 1 : -1));
   }
-  /** Puts the workspace on machine `index`, its folders browsed from the
-   * folder typed for the last one. */
+  /** Puts the workspace on machine `index`, in the folder field it had
+   * when last chosen, or at its start the first time. */
   choose(index: number): void {
     this.choosing = false;
     const machine = this.machines[index];
     if (!machine || machine === this.machine) return;
     const focused = this.browser.focused;
+    this.browser.changed = () => {};
     this.machine = machine;
     this.online = this.ready();
-    this.use(Browser.typed(this.browser.field.raw(), new Reader(this.places(machine))));
-    this.browser.focused = focused;
+    let browser = this.browsers.get(machine);
+    if (!browser) {
+      browser = Browser.init(this.start(machine), new Reader(this.places(machine)));
+      this.browsers.set(machine, browser);
+      // It may have come online while another was chosen.
+    } else if (this.online) browser.retry();
+    this.use(browser);
+    browser.focused = focused;
     this.follow();
   }
   /** Keys stay on the name while the screen is too small to draw the folder

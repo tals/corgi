@@ -741,8 +741,10 @@ function machines() {
       lost: () => true,
     };
   };
+  /** Each machine first browses its code folder. */
+  const start = () => "/home/me/code";
   const dialog = async (moving: { workspace: number; name: string } | null = null, all = [local, devbox, gpu]) => {
-    const d = new Dialog(await browse("/home/me/code"), moving, { machine: local, machines: all });
+    const d = new Dialog(await browse("/home/me/code"), moving, { machine: local, machines: all, start });
     d.places = places;
     d.fit(100, 30);
     return d;
@@ -782,7 +784,7 @@ test("with other machines, the title names the one the workspace goes on, and ^O
   d.sequence("\x1b[B");
   expect(d.key(13)).toBe("none");
   expect([d.choosing, d.machine]).toEqual([false, devbox]);
-  // The folder typed is browsed there, and the name follows it.
+  // Its own folders are browsed there, and the name follows them.
   await settle();
   expect([d.browser.field.raw(), d.browser.entries, d.name()]).toEqual(["~/code/", ["infra", "llm-evals"], "code"]);
   expect(screen(d)).toContain("New workspace on devbox ▾");
@@ -858,6 +860,36 @@ test("the machine's name opens its list on every click; a machine chooses it, an
   const key = d.view(100, 30)!.chip!.key!;
   expect(d.press(v, key + 1, chip.y, 0)).toBe("none");
   expect(d.choosing).toBe(true);
+});
+
+test("each machine keeps its own folder field, as left, while the dialog is open", async () => {
+  const { local, dialog } = machines();
+  const d = await dialog();
+  const choose = (index: number) => {
+    d.openMachines();
+    d.highlight = index;
+    d.key(13);
+  };
+  const type = (text: string) => {
+    for (const ch of text) d.key(c(ch));
+  };
+  d.key(9);
+  type("corgi");
+  expect([d.browser.field.raw(), d.name()]).toEqual(["~/code/corgi", "corgi"]);
+  choose(1);
+  await settle();
+  // devbox starts at its own folder, not the one typed on studio.
+  expect([d.browser.field.raw(), d.browser.entries, d.name(), d.browser.focused]).toEqual([
+    "~/code/",
+    ["infra", "llm-evals"],
+    "code",
+    true,
+  ]);
+  type("infra");
+  choose(0);
+  expect([d.machine, d.browser.field.raw(), d.name()]).toEqual([local, "~/code/corgi", "corgi"]);
+  choose(1);
+  expect([d.browser.field.raw(), d.name()]).toEqual(["~/code/infra", "infra"]);
 });
 
 test("up from the name opens the list of machines, whose arrows move by key or click, and down past the last closes it", async () => {

@@ -3014,12 +3014,18 @@ export class Controller {
       dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(cwd, files), moving, {
         machine: this.machine,
         machines: moving === null ? this.machines : [],
+        start: machine => machine.new_workspace_folder ?? this.workspaceFolder(machine),
       });
     dialog.changed = () => {
       this.dirty = true;
       this.wake();
     };
     return dialog;
+  }
+  /** The folder of the workspace `machine` shows, or where a new one there starts without one. */
+  private workspaceFolder(machine: Machine): string {
+    const ws = machine.navigation.current(machine.runtime.workspaces);
+    return ws.id ? ws.cwd : machine.remote ? "~" : this.start_folder;
   }
   /** Adds a workspace, and shows it unless the user has gone elsewhere. */
   private newWorkspace(name: string, cwd: string): void {
@@ -3132,6 +3138,8 @@ export class Controller {
         else if ("workspace_name" in target) {
           if (target.workspace_name === null) {
             const id = (await this.execute({ "workspace.create": { name, cwd } }, lane)).workspace;
+            // Only a workspace made is remembered; a cancel leaves no trace.
+            machine.new_workspace_folder = cwd;
             dialog.saving = false;
             if (here()) {
               if (machine === this.machine) this.switchWorkspace(id);

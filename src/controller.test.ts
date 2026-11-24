@@ -1690,6 +1690,17 @@ test("a new workspace goes on the machine its dialog chose, which the viewer the
     expect(sent).toEqual([{ "folder.open": cwd }, { "workspace.create": { name, cwd } }]);
     expect(chosen).toEqual([["work", { workspace: 4 }]]);
     expect(s.name_dialog).toBeNull();
+    // The next dialog browses work from that folder; a cancel there keeps it.
+    expect(other.new_workspace_folder).toBe(cwd);
+    await s.perform({ name: "new-workspace" });
+    const again = s.name_dialog;
+    await s.input(bytes("\x0f\x1b[B\r"));
+    expect(again.browser.folder()).toBe(cwd);
+    await s.input(bytes("\tinfra"));
+    expect(again.browser.folder()).not.toBe(cwd);
+    await s.input(bytes("\x1b[27u"));
+    expect(s.name_dialog).toBeNull();
+    expect(other.new_workspace_folder).toBe(cwd);
   } finally {
     viewer.close(s);
     other.runtime.destroy();

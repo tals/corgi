@@ -107,6 +107,9 @@ export class Machine {
    * onto it, it takes input, or it leaves view. */
   marked_unread = new Map<number, boolean>();
   remembered_names = new Map<number, string>();
+  /** The folder the last workspace made from the New workspace dialog went
+   * in, where that dialog next browses this machine; null until one is. */
+  new_workspace_folder: string | null = null;
   /** Conversations panes run, and recent ones that stopped, with when. */
   running: launcherResume.Open[] = [];
   stopped: Stopped[] = [];
