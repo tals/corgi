@@ -26,6 +26,7 @@ import * as config from "./build_config";
 import * as errors from "./errors";
 import * as json from "./json";
 import * as release_channel from "./release_channel";
+import * as user_agent from "./user_agent";
 import type { Channel } from "./release_channel";
 import type { Failure } from "./state_report";
 export const abi = "1-a826bd22ebcdbe60";
@@ -276,19 +277,26 @@ function secure(rel: Release, url: string) {
   if (!url.startsWith("https://") && !(rel.test_mode && url.startsWith("http://127.0.0.1:")))
     throw Error("InsecureUpdateURL");
 }
-/** The body the feed serves at `url`, following redirects, in chunks of at most `limit` bytes in all. */
+/** The body the feed serves at `url`, following redirects, in chunks of at
+ * most `limit` bytes in all. Another host it redirects to sees only the release. */
 async function* fetchChunks(
   rel: Release,
   url: string,
   limit: number,
   signal?: AbortSignal,
+  agent = user_agent.bare(rel.version),
 ): AsyncGenerator<Uint8Array> {
   const timeout = AbortSignal.timeout(300000);
+  let origin = "";
   for (let redirect = 0; redirect < 10; redirect++) {
     secure(rel, url);
+    const at = new URL(url).origin;
+    origin ||= at;
+    if (at !== origin) agent = user_agent.bare(rel.version);
     const response = await fetch(url, {
       redirect: "manual",
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      headers: { "User-Agent": agent },
     });
     // A body that isn't read goes, rather than wait on its connection.
     const skip = () => response.body?.cancel().catch(() => {});
@@ -323,9 +331,15 @@ async function* fetchChunks(
   }
   throw Error("UpdateSubprocessFailed");
 }
-async function fetchBytes(rel: Release, url: string, limit: number, signal?: AbortSignal): Promise<Buffer> {
+async function fetchBytes(
+  rel: Release,
+  url: string,
+  limit: number,
+  signal?: AbortSignal,
+  agent?: string,
+): Promise<Buffer> {
   const chunks: Uint8Array[] = [];
-  for await (const chunk of fetchChunks(rel, url, limit, signal)) chunks.push(chunk);
+  for await (const chunk of fetchChunks(rel, url, limit, signal, agent)) chunks.push(chunk);
   return Buffer.concat(chunks);
 }
 /** Writes release target `t` to `path` as it downloads, checking its size and
@@ -387,7 +401,8 @@ export async function artifact(rel: Release, v: string, target: Platform, direct
 /** Looks for a newer release on the installation's channel, or on `choice`,
  * and downloads and stages it when asked; false when another download holds
  * the lock and an automatic check gave way. A download from `choice` follows
- * it, once its feed answered; a check only looks. */
+ * it, once its feed answered; a check only looks. `terminals` are the ones
+ * viewers ran in, which the check's User-Agent names. */
 async function feed(
   rel: Release,
   root: string,
@@ -395,6 +410,7 @@ async function feed(
   explicit: boolean,
   signal?: AbortSignal,
   choice: Channel | null = null,
+  terminals: readonly string[] = [],
 ): Promise<boolean> {
   const unlock = await lock(root, "download.lock", explicit);
   if (!unlock) return false;
@@ -403,7 +419,8 @@ async function feed(
     remove(root, "download.tmp");
     const channel = choice ?? channelOf(root),
       channelUrl = `${rel.feed_url}/channels/${channel}.json`;
-    const bytes = (await fetchBytes(rel, channelUrl, 1024 * 1024, signal)).toString(),
+    const agent = user_agent.full(rel.version, platform, terminals),
+      bytes = (await fetchBytes(rel, channelUrl, 1024 * 1024, signal, agent)).toString(),
       m = parse(rel, bytes),
       current = pointer(root, "current");
     if (!current) throw Error("MissingInstalledVersion");
@@ -975,13 +992,17 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
 /** Downloads a newer release for the next launch to activate, as a runtime
  * running `exe` does about hourly while automatic updates are on; false when
  * another download was under way. A failure is kept for `corgi update
- * status`; one `signal` cut short isn't. */
-export async function background(exe: string, signal: AbortSignal): Promise<boolean> {
+ * status`; one `signal` cut short isn't. `terminals` are its viewers'. */
+export async function background(
+  exe: string,
+  signal: AbortSignal,
+  terminals: readonly string[] = [],
+): Promise<boolean> {
   const rel = release(exe),
     root = managed(rel, exe);
   if (!root || existsSync(join(root, "auto-off"))) return true;
   try {
-    return await feed(rel, root, true, false, signal);
+    return await feed(rel, root, true, false, signal, null, terminals);
   } catch (error) {
     if (!signal.aborted) recordError(root, error);
     throw error;
