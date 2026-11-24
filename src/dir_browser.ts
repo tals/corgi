@@ -5,18 +5,18 @@
 //! streams in (see dir_walk.ts and fuzzy.ts), and Enter opens a file or goes
 //! into a folder.
 import { basename, dirname, join } from "node:path";
-import { Canvas } from "./canvas";
+import * as canvas from "./canvas";
 import * as dirWalk from "./dir_walk";
 import * as errors from "./errors";
 import * as fileAccess from "./file_access";
-import { size } from "./file_peek";
+import * as filePeek from "./file_peek";
 import * as fuzzy from "./fuzzy";
 import * as i18n from "./i18n";
 import type * as keys from "./keys";
-import { Rect } from "./layout";
+import * as layout from "./layout";
 import * as palette from "./palette";
-import { TextArea, Typed, byte_edits, key_edits } from "./text_area";
-import { codepointWidth, directoryLabel, displayWidth, shortPath, type Writer } from "./text";
+import * as textArea from "./text_area";
+import * as text from "./text";
 
 /** The entries a card shows. */
 export const rows = 12;
@@ -190,8 +190,8 @@ export class Browser {
   /** The folder it shows, which Enter on a folder and Backspace change. */
   root: string;
   readonly key: string;
-  query = new TextArea("", false);
-  private typed = new Typed();
+  query = new textArea.TextArea("", false);
+  private typed = new textArea.Typed();
   listing: Row[] | null = null;
   /** The listing left entries out. */
   more = false;
@@ -281,7 +281,7 @@ export class Browser {
   /** Types one byte of a character or an edit; false for a byte it doesn't take. */
   typeByte(byte: number): boolean {
     const before = this.text,
-      edit = byte_edits[byte];
+      edit = textArea.byte_edits[byte];
     if (edit) this.query.apply(edit);
     else if (byte >= 32 && byte !== 127) {
       const ch = this.typed.take(byte);
@@ -294,7 +294,7 @@ export class Browser {
   /** A key the query takes, as every text box does; false for one it doesn't. */
   editKey(key: keys.Key): boolean {
     const before = this.text,
-      edit = key_edits[key];
+      edit = textArea.key_edits[key];
     if (!edit || edit === "up" || edit === "down") return false;
     this.query.apply(edit);
     if (this.text !== before) this.edited();
@@ -324,7 +324,7 @@ export class Browser {
     this.search?.close();
     this.search = null;
     this.root = path;
-    this.query = new TextArea("", false);
+    this.query = new textArea.TextArea("", false);
     this.selected = select;
     this.chosen = select !== null;
     this.top = 0;
@@ -385,12 +385,12 @@ export class Browsers {
 }
 
 /** The card under the name at `anchor`, or over it when there's no room below. */
-export function geometry(width: number, height: number, anchor: { x: number; y: number }): Rect | null {
+export function geometry(width: number, height: number, anchor: { x: number; y: number }): layout.Rect | null {
   const w = Math.min(max_width, width - 2),
     h = rows + 4;
   if (w < 32 || height < h + 1) return null;
   const below = anchor.y + 1 + h <= height;
-  return new Rect(
+  return new layout.Rect(
     Math.max(0, Math.min(anchor.x - 2, width - w)),
     below ? anchor.y + 1 : Math.max(0, anchor.y - h),
     w,
@@ -398,21 +398,21 @@ export function geometry(width: number, height: number, anchor: { x: number; y: 
   );
 }
 /** The list row under `x`, `y`, or null off the list. */
-export function rowAt(rect: Rect, x: number, y: number): number | null {
+export function rowAt(rect: layout.Rect, x: number, y: number): number | null {
   const r = y - rect.y - 3;
   return x > rect.x && x < rect.x + rect.w - 1 && r >= 0 && r < rows ? r : null;
 }
 
 export function draw(
-  w: Writer,
-  rect: Rect,
+  w: text.Writer,
+  rect: layout.Rect,
   b: Browser,
   pinned: boolean,
   pointer: { x: number; y: number } | null,
   now = Date.now(),
 ): void {
   const colors = palette.colors,
-    c = new Canvas(rect.x, rect.y, rect.w, rect.h),
+    c = new canvas.Canvas(rect.x, rect.y, rect.w, rect.h),
     bg = colors.surface,
     inner = rect.w - 4;
   for (let r = 0; r < rect.h; r++) c.fill(r, bg);
@@ -428,14 +428,14 @@ export function draw(
   const search = b.searching ? b.search : null;
   // The folder, where it is, then what it holds or how the search goes.
   const info = search ? searchInfo(search, now) : listingInfo(b);
-  const info_w = info.reduce((n, [text]) => n + displayWidth(text), 0);
+  const info_w = info.reduce((n, [label]) => n + text.displayWidth(label), 0);
   const name = basename(b.root) || "/";
   let x = c.text(2, 1, name === "/" ? name : name + "/", colors.strong, bg, true, inner);
   const room = rect.w - 5 - info_w - x;
   if (name !== "/")
-    x = c.text(x + 2, 1, shortPath(directoryLabel(dirname(b.root)), room), colors.muted, bg, false, room);
+    x = c.text(x + 2, 1, text.shortPath(text.directoryLabel(dirname(b.root)), room), colors.muted, bg, false, room);
   let ix = rect.w - 2 - info_w;
-  for (const [text, color, bold] of info) ix = c.text(ix, 1, text, color, bg, bold);
+  for (const [label, color, bold] of info) ix = c.text(ix, 1, label, color, bg, bold);
   drawQuery(c, b, pinned, inner);
   // The list.
   const hover = pointer ? rowAt(rect, pointer.x, pointer.y) : null,
@@ -475,12 +475,12 @@ export function draw(
       ? i18n.t` ↑↓ select · ⏎ open · esc close `
       : i18n.t` type to search · ⏎ open · ⌫ up · esc close `;
   const note = footerNote(b, search);
-  const note_w = note ? displayWidth(note) : 0;
+  const note_w = note ? text.displayWidth(note) : 0;
   const hx = c.text(2, rect.h - 1, hint, colors.faint, bg, false, rect.w - 4 - (note ? note_w + 1 : 0));
   if (note && rect.w - 2 - note_w > hx) c.text(rect.w - 2 - note_w, rect.h - 1, note, colors.warm, bg);
   c.flush(w);
 }
-function drawQuery(c: Canvas, b: Browser, pinned: boolean, inner: number): void {
+function drawQuery(c: canvas.Canvas, b: Browser, pinned: boolean, inner: number): void {
   const colors = palette.colors,
     bg = colors.surface;
   c.put(2, 2, "❯", pinned ? colors.accent : colors.faint, bg, true);
@@ -492,12 +492,12 @@ function drawQuery(c: Canvas, b: Browser, pinned: boolean, inner: number): void 
     return;
   }
   // Scrolled so the caret shows.
-  const text = b.text,
+  const typed = b.text,
     caret = b.query.caret,
     chars: { ch: string; at: number; w: number }[] = [];
-  for (let at = 0; at < text.length;) {
-    const ch = String.fromCodePoint(text.codePointAt(at)!);
-    chars.push({ ch, at, w: Math.max(0, codepointWidth(ch.codePointAt(0)!)) });
+  for (let at = 0; at < typed.length;) {
+    const ch = String.fromCodePoint(typed.codePointAt(at)!);
+    chars.push({ ch, at, w: Math.max(0, text.codepointWidth(ch.codePointAt(0)!)) });
     at += ch.length;
   }
   let before = 0;
@@ -515,13 +515,13 @@ function drawQuery(c: Canvas, b: Browser, pinned: boolean, inner: number): void 
     if (ch.w === 2) c.put(x + 1, 2, "", colors.strong, bg);
     x += ch.w;
   }
-  if (caret >= text.length) c.put(x, 2, " ", bg, colors.text);
-  if (!text) c.text(x + 2, 2, i18n.t`type to search below`, colors.faint, bg, false, x0 + room - x - 2);
+  if (caret >= typed.length) c.put(x, 2, " ", bg, colors.text);
+  if (!typed) c.text(x + 2, 2, i18n.t`type to search below`, colors.faint, bg, false, x0 + room - x - 2);
 }
 /** One entry: a folder's name, marked "/", or a file's with its size; a
  * search's path with the query's characters lit. */
 function drawRow(
-  c: Canvas,
+  c: canvas.Canvas,
   y: number,
   end: number,
   row: Row,
@@ -531,18 +531,18 @@ function drawRow(
 ): void {
   const colors = palette.colors,
     x0 = 3;
-  const size_text = row.size !== null ? size(row.size) : "";
-  const size_w = displayWidth(size_text);
+  const size_text = row.size !== null ? filePeek.size(row.size) : "";
+  const size_w = text.displayWidth(size_text);
   const room = end - x0 - (size_w ? size_w + 2 : 0) - (row.directory ? 1 : 0);
   const lit = search ? new Set(search.positions(row.path)) : new Set<number>();
   const name_at = row.path.lastIndexOf("/") + 1;
   // A path too long shows its end, where the name is.
   let start = 0,
-    width = displayWidth(row.path);
+    width = text.displayWidth(row.path);
   if (width > room) {
     for (; start < row.path.length && width > room - 1;) {
       const ch = String.fromCodePoint(row.path.codePointAt(start)!);
-      width -= Math.max(0, codepointWidth(ch.codePointAt(0)!));
+      width -= Math.max(0, text.codepointWidth(ch.codePointAt(0)!));
       start += ch.length;
     }
   }
@@ -551,7 +551,7 @@ function drawRow(
   const plain = row.directory ? colors.strong : row.path.startsWith(".") ? colors.muted : colors.text;
   for (let at = start; at < row.path.length;) {
     const ch = String.fromCodePoint(row.path.codePointAt(at)!),
-      cw = Math.max(0, codepointWidth(ch.codePointAt(0)!));
+      cw = Math.max(0, text.codepointWidth(ch.codePointAt(0)!));
     if (x + cw > x0 + room) break;
     const color = lit.has(at) ? colors.accent : at < name_at ? colors.muted : plain;
     c.text(x, y, ch, color, bg, lit.has(at));
