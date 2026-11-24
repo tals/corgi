@@ -28,6 +28,8 @@ let latest = "1.0.1",
 let requests = 0;
 /** The releases whose binaries were served. */
 let downloads: string[] = [];
+/** What each request's User-Agent said, by path. */
+let agents: { path: string; agent: string }[] = [];
 let beforeDownload: (() => Promise<void>) | null = null;
 const binaries = new Map<string, Uint8Array>();
 const manifests = new Map<string, string>();
@@ -39,6 +41,7 @@ const server = Bun.serve({
     requests++;
     if (unavailable) return new Response("unavailable", { status: 503 });
     const path = new URL(req.url).pathname;
+    agents.push({ path, agent: req.headers.get("user-agent") ?? "" });
     // Both stable feeds, as CORGI_OLD_EXE may read either.
     const key = path.slice(1),
       offered = channelKeys("stable").includes(key) ? latest : channelKeys("test").includes(key) ? latestTest : null;
@@ -117,6 +120,7 @@ beforeEach(async () => {
   invalid = corrupt = unavailable = badAbi = false;
   requests = 0;
   downloads = [];
+  agents = [];
   beforeDownload = null;
   home = await mkdtemp("/tmp/cu-");
   root = join(home, "install");
@@ -564,6 +568,20 @@ test("a runtime keeps looking for newer releases, also after an update", async (
   latest = "1.0.2";
   await waitFor(async () => (await staged()) === "1.0.2");
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
+  // A check names the release, OS and CPU, and no terminal without viewers;
+  // a download names only the release.
+  const from = agents.filter(a => a.agent.startsWith("corgi/1.0.1"));
+  expect(from.find(a => a.path.startsWith("/channels/"))?.agent).toMatch(
+    /^corgi\/1\.0\.1 \((macos \d+|linux[^;]*); (aarch64|x86_64); -\)$/,
+  );
+  expect(from.find(a => a.path.endsWith("/corgi"))?.agent).toBe("corgi/1.0.1");
+  // A viewer's terminal stays named in the daemon's checks after it leaves.
+  await rpc({ op: "viewer.terminal", terminal: { source: "viewer", name: "kitty(0.36.4)", env: {} } });
+  await waitFor(async () =>
+    agents.some(
+      a => a.path.startsWith("/channels/") && a.agent.startsWith("corgi/1.0.1 ") && a.agent.endsWith("; kitty 0.36.4)"),
+    ),
+  );
 }, 30_000);
 // CORGI_OLD_EXE makes 1.0.0, whose update worker downloads instead, the older release.
 test.skipIf(!!process.env.CORGI_OLD_EXE)(

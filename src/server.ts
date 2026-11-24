@@ -37,6 +37,8 @@ import * as integration from "./integration";
 import * as observers from "./observer_service";
 import * as trackers from "./trackers";
 import * as updates from "./updates";
+import * as user_agent from "./user_agent";
+import * as bug_report from "./bug_report";
 import * as errors from "./errors";
 import * as machine_moved from "./machine_moved";
 import * as fileAccess from "./file_access";
@@ -135,6 +137,10 @@ export class Server {
   /** When this daemon next looks for a newer release. */
   private updateTimer: ReturnType<typeof setTimeout> | null = null;
   private updateFailure = "";
+  /** Terminals viewers reported since this daemon started, which update checks name. */
+  private readonly terminals = new user_agent.Terminals();
+  /** Whether the first update check has started. */
+  private updateChecked = false;
   /** Stops a check under way when the daemon stops. */
   private readonly updateStop = new AbortController();
   private uninstalling = false;
@@ -346,7 +352,10 @@ export class Server {
       this.watchInstall();
       this.listen();
       this.startLoop();
-      if (this.install) void this.checkForUpdates();
+      // The first check waits briefly for the viewer that started the daemon
+      // to say which terminal it runs in, so the check can name it.
+      if (this.install)
+        this.updateTimer = setTimeout(() => void this.checkForUpdates(), Math.min(10_000, this.updateInterval()));
       process.on("SIGTERM", () => void this.shutdown());
       process.on("SIGINT", () => void this.shutdown());
       await this.saveWorkspaces();
@@ -1048,6 +1057,11 @@ export class Server {
         return;
       case "viewer.terminal":
         cl.terminal = request.payload.terminal;
+        this.terminals.report(bug_report.wireTerminal(cl.terminal));
+        if (this.updateTimer && !this.updateChecked) {
+          clearTimeout(this.updateTimer);
+          void this.checkForUpdates();
+        }
         reply.send({ ok: true });
         return;
       case "bugreport": {
@@ -1358,15 +1372,21 @@ export class Server {
         release();
       });
   }
-  /** Downloads a newer release for the next launch to activate: once the
-   * daemon starts, then about hourly. */
+  /** About an hour, or what a test sets. */
+  private updateInterval(): number {
+    return (testBuild && Number(process.env.CORGI_TEST_UPDATE_CHECK_MS)) || 3_600_000 + Math.random() * 300_000;
+  }
+  /** Downloads a newer release for the next launch to activate: soon after
+   * the daemon starts, then about hourly. */
   private async checkForUpdates(): Promise<void> {
-    const hourly = (testBuild && Number(process.env.CORGI_TEST_UPDATE_CHECK_MS)) || 3_600_000 + Math.random() * 300_000;
+    this.updateChecked = true;
+    const hourly = this.updateInterval();
     let wait = hourly;
     try {
       // Another runtime's download, or the daemon this one took over from
       // on its way out, held the lock: look again soon.
-      if (!(await updates.background(this.executable, this.updateStop.signal))) wait = Math.min(hourly, 60_000);
+      if (!(await updates.background(this.executable, this.updateStop.signal, this.terminals.list())))
+        wait = Math.min(hourly, 60_000);
       this.updateFailure = "";
     } catch (error) {
       if (this.stopped) return;
