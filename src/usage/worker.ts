@@ -294,8 +294,8 @@ export class Worker {
   timer: ReturnType<typeof setInterval> | null = null;
   running = false;
   /** Conversations whose compaction just ended: until when they're read first,
-   * and the context reading they had then. */
-  private urgent = new Map<number, { until: number; at: number }>();
+   * and when, in ms, the compaction began. */
+  private urgent = new Map<number, { until: number; since: number }>();
   /** Whether a waiting result holds an urgent conversation's new reading. */
   fresh = false;
   private ran = 0;
@@ -316,10 +316,11 @@ export class Worker {
     } else if (this.urgent.size) await this.run(true);
   }
   /** Reads `actor`'s transcript first, every 50 ms for a few seconds, until it
-   * gives a new context reading. Providers report a compaction's end before
-   * they write its new size. */
-  refresh(actor: number) {
-    this.urgent.set(actor, { until: Date.now() + 5000, at: this.watchers.get(actor)?.context.at ?? 0 });
+   * gives a context reading from after its compaction began at `since`, in ms.
+   * Providers report a compaction's end before they write its new size, and
+   * readings from before it may still be unread. */
+  refresh(actor: number, since: number) {
+    this.urgent.set(actor, { until: Date.now() + 5000, since });
   }
   /** Stops reading between runs, so a handoff can apply what the worker found. */
   async pause() {
@@ -479,7 +480,7 @@ export class Worker {
         else this.results.push(r);
         if (t.progress.turn.text() === req.agent.turnId()) t.progress.dirty = false;
         const urgent = this.urgent.get(req.actor);
-        if (urgent && t.context.at !== urgent.at) {
+        if (urgent && t.context.at >= urgent.since) {
           this.urgent.delete(req.actor);
           this.fresh = true;
         }

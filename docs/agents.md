@@ -248,9 +248,9 @@ recognizable. Provider-specific assumptions and exceptions belong in the
 adapters. Live meters are not a durable ledger.
 
 When a compaction ends, its conversation's transcript is read ahead of the
-others every 50 ms for up to five seconds, until it gives a new reading, and
-the reading reaches viewers without waiting for the next scan. Providers
-report the end before they write the new size.
+others every 50 ms for up to five seconds, until it gives a reading from after
+the compaction began, and the reading reaches viewers without waiting for the
+next scan. Providers report the end before they write the new size.
 
 ## Checklists
 

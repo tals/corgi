@@ -534,11 +534,12 @@ test("a compaction's end has its new size read at once and applied between scans
       background: true,
     });
   send(1n, "PreCompact");
-  expect(actor.state.compacting).toBe(true);
+  const since = actor.state.compacting_since;
+  expect(since).toBeGreaterThan(0);
   expect(refresh).not.toHaveBeenCalled();
   send(2n, "PostCompact");
   expect(actor.state).toMatchObject({ state: "working", compacting: false });
-  expect(refresh).toHaveBeenCalledWith(actor.id);
+  expect(refresh).toHaveBeenCalledWith(actor.id, Math.floor(since / 1000));
   workers.usage.stop();
   const result = new UsageResult();
   result.actor = actor.id;

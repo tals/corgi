@@ -174,10 +174,15 @@ test("a compaction's end has its transcript read first until its new size shows"
     appendFileSync(compacting.state.transcriptPath(), call("compacting", 1000, 900000));
     await worker.run();
     worker.take();
-    // The provider reports the end before it writes the new size.
-    worker.refresh(compacting.id);
+    // The provider reports the end before it writes the new size, and a
+    // reading from before the compaction began doesn't count as it.
+    worker.refresh(compacting.id, 1500);
     await worker.run(true);
     expect(worker.fresh).toBe(false);
+    appendFileSync(compacting.state.transcriptPath(), call("compacting", 1200, 950000));
+    await worker.run(true);
+    expect(worker.fresh).toBe(false);
+    expect(worker.take().map(r => r.context.used)).toEqual([950000n]);
     appendFileSync(compacting.state.transcriptPath(), boundary("compacting", 2000, 9000));
     appendFileSync(other.state.transcriptPath(), call("other", 2000, 50));
     await worker.run(true);
