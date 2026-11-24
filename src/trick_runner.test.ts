@@ -52,7 +52,8 @@ test("async registration and handlers serialize while storage replies bypass the
   h.receive({ id: "1", result: 7 });
   await flush();
   expect(h.sent.at(-1)).toMatchObject({ op: "subscribe", events: ["agent.changed", "agent.removed"] });
-  for (let i = 0; i < 2; i++) h.receive({ event: "agent.changed", agent, previous: null });
+  // Two agents' changes, since one agent's later change joins its queued one.
+  for (const id of ["pane:1", "pane:2"]) h.receive({ event: "agent.changed", agent: { ...agent, id }, previous: null });
   await flush();
   expect(h.sent.at(-1)).toMatchObject({ op: "kv.set", value: 8, id: "2" });
   expect(seen).toEqual([]);
@@ -242,9 +243,59 @@ test("failed saves stop remaining handlers and a stalled consumer has a bounded 
     await corgi.get("waiting", null);
   });
   await flush();
-  for (let i = 0; i < 300; i++) stalled.receive({ event: "snapshot", agents: [], workspaces: [] });
+  for (let i = 0; i < 300; i++) stalled.receive({ event: "hook", agent, provider: "claude", kind: "tool", tool: "x" });
   await flush();
   expect(stalled.failures).toEqual(["SlowConsumer"]);
+});
+
+test("while a callback waits, newer snapshots and agent changes join queued ones", async () => {
+  let gate = Promise.resolve(),
+    release = () => {};
+  const hold = () => {
+    gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+  };
+  const seen: string[] = [];
+  const h = harness(on =>
+    on(["snapshot", "agent.changed", "agent.removed"], async event => {
+      seen.push(
+        event.event === "snapshot"
+          ? `snapshot ${event.agents[0].name}`
+          : event.event === "agent.removed"
+            ? `${event.agent.id} removed`
+            : `${event.agent.id} ${event.previous?.name ?? "new"} -> ${event.agent.name}`,
+      );
+      await gate;
+    }),
+  );
+  await flush();
+  const named = (id: string, name: number) => ({ ...agent, id, name: String(name) });
+  hold();
+  h.receive({ event: "agent.changed", agent: named("pane:1", 0), previous: null });
+  await flush();
+  // Several times the queue's limit, from two busy agents.
+  for (let i = 1; i <= 400; i++) {
+    h.receive({ event: "snapshot", agents: [named("pane:1", i)], workspaces: [] });
+    h.receive({ event: "agent.changed", agent: named("pane:1", i), previous: named("pane:1", i - 1) });
+    h.receive({ event: "agent.changed", agent: named("pane:2", i), previous: i > 1 ? named("pane:2", i - 1) : null });
+  }
+  expect(h.failures).toEqual([]);
+  release();
+  for (let i = 0; i < 4; i++) await flush();
+  expect(seen).toEqual(["pane:1 new -> 0", "snapshot 400", "pane:1 0 -> 400", "pane:2 new -> 400"]);
+  // A change after an agent's removal stays behind it.
+  seen.length = 0;
+  hold();
+  h.receive({ event: "agent.changed", agent: named("pane:1", 1), previous: null });
+  await flush();
+  h.receive({ event: "agent.changed", agent: named("pane:2", 1), previous: null });
+  h.receive({ event: "agent.removed", agent: named("pane:2", 1) });
+  h.receive({ event: "agent.changed", agent: named("pane:2", 2), previous: null });
+  release();
+  for (let i = 0; i < 4; i++) await flush();
+  expect(seen).toEqual(["pane:1 new -> 1", "pane:2 new -> 1", "pane:2 removed", "pane:2 new -> 2"]);
+  expect(h.failures).toEqual([]);
 });
 
 test("registration rejects wildcards, bad callbacks, and late or unbounded handlers", async () => {

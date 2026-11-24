@@ -96,8 +96,10 @@ them with `NoPane`, and a hibernated or exited pane with `PaneAsleep` or
 take an agent or its `id`, need no button press and act at once: guard event
 handlers, for example with a `corgi.set` flag, so one change can't prompt an
 agent twice. Text must fit in 63 KiB once JSON-escaped, or the call rejects
-with `TextTooLong`. A callback's own waits on either call don't count toward
-its five seconds, up to 30 seconds of waiting in all.
+with `TextTooLong`. While a callback has either call pending, its five-second
+clock stops, for up to 30 seconds of waiting in all. Later events wait behind
+it: newer snapshots and agent changes replace waiting ones, but hooks and
+transcript records pile up, and more than 256 stop the trick.
 
 Strings support **bold**, *italic*, backtick literal text, backslash escapes and
 `!(brand-reference)` icons. Use `corgi.escape(agent.name)` for literal metadata.

@@ -238,8 +238,10 @@ Tricks, including any secrets deliberately placed under it.
 The initial subscription supplies a snapshot and/or initial `agent.changed`
 events when registered. Events carry `at` (Unix milliseconds) and `seq`
 (a daemon-local decimal string). Gaps are normal with filtering. Metadata
-updates coalesce to at most ten batches per second; hooks and opted-in
-transcript records arrive as observed. There is no replay or exactly-once
+updates coalesce to at most ten batches per second, and further while a
+callback runs: a newer snapshot, or a newer change to an agent, replaces one
+still waiting, keeping its `previous`. Hooks and opted-in transcript records
+arrive as observed and wait in order. There is no replay or exactly-once
 delivery across restarts.
 
 ## Drawing hooks
@@ -395,8 +397,13 @@ message: check before sending it again. `send` types into the pane, as a paste
 when the program asked for one, and presses Enter only with `enter: true`.
 Headless agents have no pane, so `send` rejects them with `NoPane`. Text must
 fit in 63 KiB once JSON-escaped (`TextTooLong`). Both act at once: guard event
-handlers so one change can't prompt an agent twice. A callback's own waits on
-them don't count toward its five seconds, up to 30 seconds of waiting in all.
+handlers so one change can't prompt an agent twice. While a callback has one
+of these calls pending, its five-second clock stops, for up to 30 seconds of
+waiting in all. A call it doesn't await, or one from a timer it started, counts
+while the callback runs. Later events wait their turn meanwhile: a newer
+snapshot or change to an agent replaces one still waiting, but hooks and
+transcript records queue up, and past 256 waiting events or 1 MiB the trick
+stops.
 
 Drawings own their callbacks. Replacement, removal, agent disappearance,
 crash or reload retires old controls; stale presses are ignored. Identical

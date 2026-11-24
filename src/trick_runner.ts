@@ -105,6 +105,9 @@ export class Runner {
   /** The running callback's clock, and the one its own calls see. */
   private handler: Clock | null = null;
   private clocks = new AsyncLocalStorage<Clock>();
+  /** Queued metadata that hasn't run yet: each agent's change, and a snapshot. */
+  private changes = new Map<string, Extract<tricks.Event, { event: "agent.changed" }>>();
+  private snapshot: Extract<tricks.Event, { event: "snapshot" }> | null = null;
   private patches = new Map<string, { agent?: string; json: string; actions: string[] }>();
   private callbacks = new Map<string, elements.Press>();
   private agents = new Map<string, tricks.Agent>();
@@ -253,7 +256,9 @@ export class Runner {
   }
   /** `call`, with the calling callback's clock stopped meanwhile, up to
    * `max_wait` in all: a provider channel can take longer than a callback
-   * may. Calls from timers and other callbacks leave the clock running. */
+   * may. What the callback starts, such as a timer or a call it doesn't
+   * await, counts as its own while it runs; other callbacks' calls, and its
+   * own after it finishes, leave the clock alone. */
   private async wait(value: object): Promise<unknown> {
     const clock = this.clocks.getStore();
     if (!clock || clock !== this.handler) return this.call(value);
@@ -364,11 +369,30 @@ export class Runner {
         else pending?.resolve(value.result);
         return;
       }
+      // A later snapshot, or a later change to an agent, joins one still
+      // queued, so callbacks that wait catch up instead of falling behind.
+      if (value.event === "agent.changed") {
+        const queued = this.changes.get(value.agent.id);
+        if (queued) {
+          Object.assign(queued, { ...value, previous: queued.previous });
+          return;
+        }
+        this.changes.set(value.agent.id, value);
+      } else if (value.event === "snapshot") {
+        if (this.snapshot) {
+          Object.assign(this.snapshot, value);
+          return;
+        }
+        this.snapshot = value;
+      } else if (value.event === "agent.removed") this.changes.delete(value.agent.id);
       // Replies bypass this queue so an async hook can await a durable write.
       this.queued += Buffer.byteLength(line);
       if (++this.queued_events > 256 || this.queued > 1024 * 1024) throw Error("SlowConsumer");
       this.jobs = this.jobs
         .then(async () => {
+          if (value.event === "agent.changed" && this.changes.get(value.agent.id) === value)
+            this.changes.delete(value.agent.id);
+          if (this.snapshot === value) this.snapshot = null;
           if (this.stopped) return;
           const clock: Clock = {
             left: 5000,
@@ -441,6 +465,8 @@ export class Runner {
     this.stopped = true;
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    this.changes.clear();
+    this.snapshot = null;
     this.patches.clear();
     this.callbacks.clear();
     this.agents.clear();
