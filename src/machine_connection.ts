@@ -446,16 +446,19 @@ export class Endpoint {
       });
       if (job.signal.aborted) return;
       this.update = undefined;
-      if (!factory) return;
-      this.newPath = factory;
-      // An incompatible or unreachable daemon may now be usable. A live link does its own handoff.
-      if (!this.checked && !this.handoff && !this.shut_down) this.reconnect();
+      if (factory) this.newPath = factory;
+      // An incompatible or unreachable daemon may now be usable, also when
+      // another window or computer moved it meanwhile. A live link does its own handoff.
+      if ((factory || this.status === "incompatible") && !this.checked && !this.handoff && !this.shut_down)
+        this.reconnect();
     } catch (error) {
-      if (!job.signal.aborted)
-        this.updateFailure =
-          error instanceof machine_update.Failure
-            ? error
-            : new machine_update.Failure(errors.name(error) || "MachineUpdateFailed");
+      if (job.signal.aborted) return;
+      this.updateFailure =
+        error instanceof machine_update.Failure
+          ? error
+          : new machine_update.Failure(errors.name(error) || "MachineUpdateFailed");
+      // Its hello says what the machine runs now; an incompatible one doesn't retry the update.
+      if (this.status === "incompatible" && !this.handoff && !this.shut_down) this.reconnect();
     } finally {
       if (this.updating === job) {
         this.updating = null;

@@ -29,7 +29,9 @@ export class Notice {
       this.message = [
         `${endpoint.name} · ${endpoint.description()}`,
         "",
-        "Another viewer moved this machine to a release this one can't talk to.",
+        endpoint.movedBy
+          ? `A viewer on ${endpoint.movedBy} moved this machine to a release this one can't talk to.`
+          : "This machine now runs a release this viewer can't talk to.",
         "Ctrl+R moves it back to this viewer's release; its shells and agents keep running.",
         ...(endpoint.updateError ? ["", "Update failed", ...this.updateLines(endpoint)] : []),
       ];

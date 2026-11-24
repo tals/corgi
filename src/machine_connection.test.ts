@@ -12,6 +12,7 @@ import { Probe } from "./terminal_info";
 import { Host } from "./host";
 import * as protocol from "./protocol";
 import * as machine_path from "./machine_path";
+import * as machine_update from "./machine_update";
 import { Controller } from "./controller";
 import * as worktrees from "./fixtures/worktrees";
 import { transport } from "./fixtures/transport";
@@ -372,6 +373,8 @@ test("a paused update cannot replace the path and a completed update retries an 
 test("an update the machine didn't need leaves an incompatible daemon to the user", async () => {
   const daemon = await flakyDaemon();
   const finished = Promise.withResolvers<null>();
+  let opens = 0,
+    updates = 0;
   const endpoint = new Endpoint(
     "work",
     true,
@@ -379,21 +382,107 @@ test("an update the machine didn't need leaves an incompatible daemon to the use
     () => ({
       ...machine_path.local(daemon.path)(false, false),
       async open() {
+        opens++;
         throw Error("IncompatibleRemoteCorgi");
       },
       diagnose: () => ({ issue: "error", detail: "" }),
     }),
     new Probe(),
     new Host(),
-    () => finished.promise,
+    () => (updates++, finished.promise),
   );
   try {
     endpoint.pump(false);
     await until(() => endpoint.status === "incompatible");
+    const connect = opens;
     finished.resolve(null);
     await until(() => !endpoint.updateMessage);
+    // It reads the daemon's hello once more, and doesn't update again.
+    await until(() => (endpoint.pump(false), opens === 2 * connect && endpoint.status === "incompatible"));
+    await Bun.sleep(20);
+    endpoint.pump(false);
     expect(endpoint.updateError).toBe("");
     expect(endpoint.status).toBe("incompatible");
+    expect([opens, updates]).toEqual([2 * connect, 1]);
+  } finally {
+    await endpoint.close();
+    await daemon.close();
+  }
+});
+
+test("a machine another window moved to this release meanwhile comes online", async () => {
+  const daemon = await flakyDaemon();
+  let moved = false;
+  // It ran a release this viewer can't talk to until the other window's move.
+  const path: machine_path.Factory = (fresh, race, start) => {
+    const real = machine_path.local(daemon.path)(fresh, race, start);
+    if (moved) return real;
+    return {
+      ...real,
+      async open(...args) {
+        const opened = await real.open(...args);
+        return { ...opened, hello: { ...opened.hello, protocol: opened.hello.protocol + 1 } };
+      },
+    };
+  };
+  const finished = Promise.withResolvers<machine_path.Factory | null>();
+  const endpoint = new Endpoint(
+    "work",
+    true,
+    ["work"],
+    path,
+    new Probe(),
+    new Host(),
+    () => finished.promise,
+    () => true,
+  );
+  try {
+    endpoint.pump(false);
+    await until(() => endpoint.status === "incompatible");
+    moved = true;
+    // This window's update waited out the other's and found nothing to do.
+    finished.resolve(null);
+    await until(() => (endpoint.pump(false), endpoint.status === "online"));
+    expect(endpoint.updateError).toBe("");
+  } finally {
+    await endpoint.close();
+    await daemon.close();
+  }
+});
+
+test("a failed update looks again at an incompatible machine", async () => {
+  const daemon = await flakyDaemon();
+  let moved = false;
+  const path: machine_path.Factory = (fresh, race, start) => {
+    const real = machine_path.local(daemon.path)(fresh, race, start);
+    if (moved) return real;
+    return {
+      ...real,
+      async open(...args) {
+        const opened = await real.open(...args);
+        return { ...opened, hello: { ...opened.hello, protocol: opened.hello.protocol + 1 } };
+      },
+    };
+  };
+  const finished = Promise.withResolvers<machine_path.Factory | null>();
+  const endpoint = new Endpoint(
+    "work",
+    true,
+    ["work"],
+    path,
+    new Probe(),
+    new Host(),
+    () => finished.promise,
+    () => true,
+  );
+  try {
+    endpoint.pump(false);
+    await until(() => endpoint.status === "incompatible");
+    // Another viewer of this release moved it first, and this one's install lost.
+    moved = true;
+    finished.reject(new machine_update.Failure("InstallationChanged"));
+    await until(() => (endpoint.pump(false), endpoint.status === "online"));
+    expect(endpoint.updateError).toBe("");
   } finally {
     await endpoint.close();
     await daemon.close();
@@ -435,6 +524,7 @@ test("a machine another viewer moved away says whose release it runs, and Ctrl+R
     // This viewer's own start found nothing to do; the other viewer moved it since.
     jobs[0].finish(null);
     await until(() => !endpoint.updateMessage);
+    await until(() => (endpoint.pump(false), endpoint.status === "incompatible"));
     expect(endpoint.description()).toBe("Moved to Corgi 1.4.0 by desk · Ctrl+R takes it back");
     endpoint.retry();
     endpoint.pump(false);

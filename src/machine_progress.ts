@@ -27,9 +27,15 @@ export class Progress {
   uploaded(sent: number, total: number, kind: "delta" | "full"): void {
     this.moved("Uploading", "↑", sent, total, kind === "delta" ? "Compressed delta" : "Full executable");
   }
-  /** A release the machine downloads itself. */
-  downloaded(received: number, total: number, host: string): void {
-    this.moved("Downloading", "↓", received, total, `Downloading the release on ${host}`);
+  /** A release the machine downloads itself, or, `here`, one this computer downloads for it. */
+  downloaded(received: number, total: number, host: string, here = false): void {
+    this.moved(
+      "Downloading",
+      "↓",
+      received,
+      total,
+      here ? `Downloading the release here, as ${host} couldn't` : `Downloading the release on ${host}`,
+    );
   }
   private moved(stage: string, compact: string, bytes: number, total: number, detail: string): void {
     const now = performance.now();

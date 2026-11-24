@@ -277,6 +277,9 @@ function secure(rel: Release, url: string) {
   if (!url.startsWith("https://") && !(rel.test_mode && url.startsWith("http://127.0.0.1:")))
     throw Error("InsecureUpdateURL");
 }
+/** How long a feed request may go without a byte. A download takes as long
+ * as the link needs. */
+const stalled_ms = 60_000;
 /** The body the feed serves at `url`, following redirects, in chunks of at
  * most `limit` bytes in all. Another host it redirects to sees only the release. */
 async function* fetchChunks(
@@ -286,50 +289,58 @@ async function* fetchChunks(
   signal?: AbortSignal,
   agent = user_agent.bare(rel.version),
 ): AsyncGenerator<Uint8Array> {
-  const timeout = AbortSignal.timeout(300000);
+  const stall = new AbortController(),
+    both = signal ? AbortSignal.any([signal, stall.signal]) : stall.signal;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const moved = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => stall.abort(Error("UpdateDownloadStalled")), stalled_ms);
+  };
   let origin = "";
-  for (let redirect = 0; redirect < 10; redirect++) {
-    secure(rel, url);
-    const at = new URL(url).origin;
-    origin ||= at;
-    if (at !== origin) agent = user_agent.bare(rel.version);
-    const response = await fetch(url, {
-      redirect: "manual",
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      headers: { "User-Agent": agent },
-    });
-    // A body that isn't read goes, rather than wait on its connection.
-    const skip = () => response.body?.cancel().catch(() => {});
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const next = response.headers.get("location");
-      await skip();
-      if (!next) throw Error("UpdateSubprocessFailed");
-      url = new URL(next, url).href;
-      continue;
-    }
-    if (!response.ok || !response.body) {
-      await skip();
-      throw Error("UpdateSubprocessFailed");
-    }
-    if (Number(response.headers.get("content-length")) > limit) {
-      await skip();
-      throw Error("FileTooBig");
-    }
-    const reader = response.body.getReader();
-    let size = 0;
-    try {
-      for (;;) {
-        const chunk = await reader.read();
-        if (chunk.done) return;
-        size += chunk.value.length;
-        if (size > limit) throw Error("FileTooBig");
-        yield chunk.value;
+  try {
+    for (let redirect = 0; redirect < 10; redirect++) {
+      secure(rel, url);
+      const at = new URL(url).origin;
+      origin ||= at;
+      if (at !== origin) agent = user_agent.bare(rel.version);
+      moved();
+      const response = await fetch(url, { redirect: "manual", signal: both, headers: { "User-Agent": agent } });
+      // A body that isn't read goes, rather than wait on its connection.
+      const skip = () => response.body?.cancel().catch(() => {});
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const next = response.headers.get("location");
+        await skip();
+        if (!next) throw Error("UpdateSubprocessFailed");
+        url = new URL(next, url).href;
+        continue;
       }
-    } finally {
-      await reader.cancel();
+      if (!response.ok || !response.body) {
+        await skip();
+        throw Error("UpdateSubprocessFailed");
+      }
+      if (Number(response.headers.get("content-length")) > limit) {
+        await skip();
+        throw Error("FileTooBig");
+      }
+      const reader = response.body.getReader();
+      let size = 0;
+      try {
+        for (;;) {
+          moved();
+          const chunk = await reader.read();
+          if (chunk.done) return;
+          size += chunk.value.length;
+          if (size > limit) throw Error("FileTooBig");
+          yield chunk.value;
+        }
+      } finally {
+        await reader.cancel();
+      }
     }
+    throw Error("UpdateSubprocessFailed");
+  } finally {
+    clearTimeout(timer);
   }
-  throw Error("UpdateSubprocessFailed");
 }
 async function fetchBytes(
   rel: Release,
@@ -344,7 +355,13 @@ async function fetchBytes(
 }
 /** Writes release target `t` to `path` as it downloads, checking its size and
  * hash on the way: a runtime never holds the binary in memory or reads it back. */
-async function downloadTo(rel: Release, t: Target, path: string, signal?: AbortSignal): Promise<void> {
+async function downloadTo(
+  rel: Release,
+  t: Target,
+  path: string,
+  signal?: AbortSignal,
+  progress?: (bytes: number, total: number) => void,
+): Promise<void> {
   const hash = createHash("sha256"),
     file = await open(path, "w", 0o700);
   let size = 0;
@@ -354,6 +371,7 @@ async function downloadTo(rel: Release, t: Target, path: string, signal?: AbortS
       size += chunk.length;
       for (let offset = 0; offset < chunk.length;)
         offset += (await file.write(chunk, offset, chunk.length - offset)).bytesWritten;
+      progress?.(size, t.size);
     }
     await file.sync();
   } finally {
@@ -389,13 +407,19 @@ export async function published(rel: Release, v: string, target: Platform, signa
   if (m.version !== v) throw Error("WrongReleaseManifest");
   return { bytes, commit: m.commit, ...m.targets[target]! };
 }
-/** Fetch one exact signed release, using the caller's existing update trust. */
-export async function artifact(rel: Release, v: string, target: Platform, directory: string): Promise<string> {
-  const m = await published(rel, v, target);
+/** Fetch one exact signed release into `directory`, using the caller's existing update trust. */
+export async function artifact(
+  rel: Release,
+  v: string,
+  target: Platform,
+  directory: string,
+  signal?: AbortSignal,
+  progress?: (bytes: number, total: number) => void,
+): Promise<string> {
+  const m = await published(rel, v, target, signal);
   atomicWrite(join(directory, "manifest.json"), m.bytes, 0o600);
   const file = join(directory, "corgi");
-  atomicWrite(file, await fetchBytes(rel, m.url, m.size), 0o700);
-  verifyFile(file, m);
+  await downloadTo(rel, m, file, signal, progress);
   return file;
 }
 /** Looks for a newer release on the installation's channel, or on `choice`,
@@ -471,9 +495,9 @@ async function feed(
         if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0)) {
           privateDirectory(dir);
           if (!(await holds(dest, own(m)))) {
-            if (existsSync(dest)) throw Error("ExistingReleaseDiffers");
-            // Removed since it was checked: the next check downloads it again.
+            // Changed since it was checked: the next check downloads it again.
             if (present) return true;
+            // The verified download replaces a copy a full disk or a kill cut short.
             renameSync(partial, dest);
           }
           write(dir, "manifest.json", bytes);
@@ -1041,10 +1065,34 @@ async function install(rel: Release, exe: string, root: string, manifest: string
     unlock?.();
   }
 }
-export async function setupLock(root: string): Promise<() => void> {
-  const unlock = await lock(root, "activation.lock", false);
+/** The activation lock a machine install takes, waiting up to `wait_ms` for
+ * another's, such as a second viewer's move of the same machine. */
+export async function setupLock(root: string, wait_ms = 0): Promise<() => void> {
+  const timeout = wait_ms > 0 ? AbortSignal.timeout(wait_ms) : undefined;
+  const unlock = await lock(root, "activation.lock", !!timeout, timeout).catch(error => {
+    if (timeout?.aborted) return null;
+    throw error;
+  });
   if (!unlock) throw Error("UpdateInProgress");
   return unlock;
+}
+/** Names release `v` current after a viewer moved the installation at `root`
+ * to it, under the activation lock. A staged update it caught up with goes;
+ * one newer stays for the next start. */
+export function moved(root: string, v: string): void {
+  const current = pointer(root, "current");
+  if (current === null) throw Error("MissingInstalledVersion");
+  if (current !== v) {
+    write(root, "previous", current);
+    write(root, "current", v);
+  }
+  try {
+    const staged = pointer(root, "staged");
+    if (staged !== null && compare(staged, v) <= 0) remove(root, "staged");
+  } catch {}
+  requested(join(root, "releases", v));
+  // Viewers move a machine whose own updates are off too.
+  prune(root);
 }
 export function verifyArtifact(exe: string, manifest: string): void {
   const rel = release(exe);
@@ -1079,7 +1127,9 @@ export async function internal(args: string[], exe: string): Promise<boolean> {
     case "__machine-install": {
       if (args.length !== 4 && args.length !== 5) throw Error("Usage");
       if (args.length === 5) (await import("./machine_build")).requireRevision(args[4]);
-      const target = await (await import("./machine_install")).install(exe, args[1], args[2], args[3]);
+      const target = await (
+        await import("./machine_install")
+      ).install(exe, args[1], args[2], args[3], process.env.CORGI_MOVED_BY);
       console.log(JSON.stringify({ executable: target }));
       return true;
     }

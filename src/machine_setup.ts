@@ -13,6 +13,7 @@ import * as progress from "./machine_progress";
 import * as dev from "./machine_deploy";
 import * as errors from "./errors";
 import * as setup_ssh from "./machine_setup_ssh";
+import * as moved from "./machine_moved";
 export { run, sendDelta } from "./machine_setup_ssh";
 
 const quote = os.shellQuote;
@@ -50,9 +51,23 @@ function snapshot(file: string) {
   const data = transferFile.input(file);
   return { data, stamp, hash: createHash("sha256").update(data).digest("hex") };
 }
-async function artifact(local: build.Build, target: build.Target, directory: string, options: Options = {}) {
+/** The build for `target`; `downloaded` hears how much of a release has come. */
+async function artifact(
+  local: build.Build,
+  target: build.Target,
+  directory: string,
+  options: Options = {},
+  downloaded?: (bytes: number, total: number) => void,
+) {
   if (build.released(local.version)) {
-    const file = await updates.artifact(updates.release(local.executable), local.version, platform(target), directory);
+    const file = await updates.artifact(
+      updates.release(local.executable),
+      local.version,
+      platform(target),
+      directory,
+      options.signal,
+      downloaded,
+    );
     const manifest = updates.parse(
       updates.release(local.executable),
       readFileSync(join(directory, "manifest.json"), "utf8"),
@@ -217,7 +232,11 @@ if [ -n "$p" ]; then ${deployment || options.automatic ? "CORGI_MACHINE_PROBE=1 
         status.show("Downloading here", `${host} couldn't download Corgi ${local.version}`);
       }
     }
-    const { data, hash, stamp } = prepared ?? (await artifact(local, target, directory, options));
+    const { data, hash, stamp } =
+      prepared ??
+      (await artifact(local, target, directory, options, (bytes, total) =>
+        status.downloaded(bytes, total, host, true),
+      ));
     if (deployment) {
       const info = await setup_ssh.installDev(host, executable, installed, socket, data, hash, status, options.signal);
       deployment.record({ hash, target, stamp });
@@ -287,7 +306,7 @@ if [ -n "$p" ]; then ${deployment || options.automatic ? "CORGI_MACHINE_PROBE=1 
           `set -eu
 if command -v sha256sum >/dev/null; then actual=$(sha256sum ${quote(staging + "/corgi")}); else actual=$(shasum -a 256 ${quote(staging + "/corgi")}); fi
 [ "\${actual%% *}" = ${quote(hash)} ] || exit 1
-${installed?.socket ? "CORGI_SOCKET=" + quote(installed.socket) + " " : ""}${ssh.command(staging + "/corgi", install)}`,
+CORGI_MOVED_BY=${quote(moved.host())} ${installed?.socket ? "CORGI_SOCKET=" + quote(installed.socket) + " " : ""}${ssh.command(staging + "/corgi", install)}`,
           undefined,
           false,
           { total: setup_ssh.install_ms },

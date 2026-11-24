@@ -246,11 +246,9 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     const [, destination, basis, hash, revision, manifest = ""] = args;
     if ((args.length !== 5 && args.length !== 6) || !/^[a-f0-9]{64}$/.test(hash)) throw Error("Usage");
     (await import("./machine_build")).requireRevision(revision);
-    // The viewers this move leaves behind learn whose it was.
-    if (process.env.CORGI_MOVED_BY)
-      (await import("./machine_moved")).record(daemon.socket, process.env.CORGI_MOVED_BY, hash);
     const installer = await import("./machine_install");
-    const target = await installer.install(executable, destination, basis, manifest);
+    // The viewers this move leaves behind learn whose it was.
+    const target = await installer.install(executable, destination, basis, manifest, process.env.CORGI_MOVED_BY);
     process.stdout.write("verifying\n");
     if (build_id.of(target) !== hash) throw Error("RemoteUpgradeVerificationFailed");
     await ensureServer(daemon, target);
