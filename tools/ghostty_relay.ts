@@ -16,14 +16,14 @@
  */
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { Terminal } from "../src/pane/terminal";
+import * as terminal from "../src/pane/terminal";
 import * as terminal_info from "../src/terminal_info";
 import * as video from "./ghostty_video";
-import { Driver, parseScript } from "./ui_driver";
+import * as ui_driver from "./ui_driver";
 import * as x11 from "./x11";
 
-class Relay extends Driver {
-  screen: Terminal;
+class Relay extends ui_driver.Driver {
+  screen: terminal.Terminal;
   pty: Bun.Terminal;
   pointer: video.PointerEvent[] = [];
   /** The cursor's names over time; kept while recording. */
@@ -48,7 +48,7 @@ class Relay extends Driver {
     rows: number,
   ) {
     super();
-    this.screen = new Terminal(cols, rows);
+    this.screen = new terminal.Terminal(cols, rows);
     this.pty = new Bun.Terminal({
       cols,
       rows,
@@ -156,12 +156,14 @@ class Relay extends Driver {
   private async corgi(args: string[], quiet = false) {
     const binary = process.env.CORGI_CAPTURE_CORGI;
     if (!binary) throw Error("action and corgi need a sandbox");
-    const p = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe" });
+    const wait = this.where().wait;
+    const p = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", timeout: wait * 1000 });
     const [out, error, code] = await Promise.all([
       new Response(p.stdout).text(),
       new Response(p.stderr).text(),
       p.exited,
     ]);
+    if (p.signalCode === "SIGTERM") throw Error(`corgi ${args.join(" ")} took more than ${wait}s`);
     if (code !== 0) throw Error(`corgi ${args.join(" ")}: ${error.trim() || `exit ${code}`}`);
     if (!quiet && out.trim()) this.output.push(out.trim());
   }
@@ -174,7 +176,7 @@ class Relay extends Driver {
         return this.corgi(args);
       case "shot": {
         const path = resolve(this.cwd, args[0] ?? "ghostty-screenshot.png");
-        const pixels = await video.settled(this.where(), join(this.dir, "frame.png"));
+        const pixels = await video.settled(this.where(), this.dir);
         mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, pixels);
         this.output.push(path);
@@ -223,7 +225,7 @@ class Relay extends Driver {
   async drive(script: string, cwd: string): Promise<{ output: string[]; error?: string }> {
     [this.output, this.cwd, this.running] = [[], cwd, Date.now()];
     try {
-      for (const command of parseScript(script)) await this.exec(command);
+      for (const command of ui_driver.parseScript(script)) await this.exec(command);
       return { output: this.output };
     } catch (error) {
       return { output: this.output, error: (error as Error).message };

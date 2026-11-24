@@ -3,6 +3,7 @@
  * screen holds still, and lossless recordings encoded with the time between
  * scripts cut and the pointer drawn in where it went, in the shape it had.
  */
+import type { FileSink } from "bun";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 
@@ -78,19 +79,28 @@ export async function until<T>(read: () => T | Promise<T>, seconds = 20): Promis
   throw Error(`screen did not become ready within ${seconds}s`);
 }
 
-/** Runs ffmpeg without blocking, so a relay keeps passing output through meanwhile; frames go to its stdin. */
-async function ffmpeg(args: string[], frames: Uint8Array[] = []): Promise<void> {
+/** Frames made on demand, so a long take never holds them all at once. */
+interface Frames {
+  count: number;
+  frame(i: number): Uint8Array;
+}
+
+/**
+ * Runs ffmpeg without blocking, so a relay keeps passing output through
+ * meanwhile; frames go to its stdin, made as they are written.
+ */
+async function ffmpeg(args: string[], frames: Frames | null = null): Promise<void> {
   const p = Bun.spawn(["ffmpeg", "-hide_banner", "-y", "-loglevel", "error", ...args], {
-    stdin: frames.length ? "pipe" : "ignore",
+    stdin: frames ? "pipe" : "ignore",
     stdout: "ignore",
     stderr: "pipe",
   });
   const error = new Response(p.stderr).text();
-  if (frames.length) {
-    const sink = p.stdin as import("bun").FileSink;
+  if (frames) {
+    const sink = p.stdin as FileSink;
     try {
-      for (let i = 0; i < frames.length; i++) {
-        sink.write(frames[i]);
+      for (let i = 0; i < frames.count; i++) {
+        sink.write(frames.frame(i));
         if (i % 30 === 29) await sink.flush();
       }
       await sink.end();
@@ -101,6 +111,20 @@ async function ffmpeg(args: string[], frames: Uint8Array[] = []): Promise<void> 
   const code = await p.exited;
   if (code !== 0) throw Error(`ffmpeg: ${(await error).trim() || `exit ${code}`}`);
 }
+
+/**
+ * ffmpeg's option for a filter graph read from a file: FFmpeg 7 added
+ * -/filter_complex, and FFmpeg 9 dropped the older -filter_complex_script.
+ */
+const graphOption = (() => {
+  let option: string | null = null;
+  return () => {
+    if (option) return option;
+    const version = Bun.spawnSync(["ffmpeg", "-hide_banner", "-version"]).stdout.toString();
+    const major = Number(/ffmpeg version n?(\d+)\./.exec(version)?.[1] ?? Infinity);
+    return (option = major >= 7 ? "-/filter_complex" : "-filter_complex_script");
+  };
+})();
 
 function input(screen: Screen): string[] {
   return [
@@ -113,8 +137,11 @@ function input(screen: Screen): string[] {
   ];
 }
 
-/** The window's pixels as a PNG once three grabs in a row match. */
-export async function settled(screen: Screen, frame: string, alive = () => {}): Promise<Buffer> {
+let grabs = 0;
+
+/** The window's pixels as a PNG once three grabs in a row match; grabs go to their own file in dir. */
+export async function settled(screen: Screen, dir: string, alive = () => {}): Promise<Buffer> {
+  const frame = join(dir, `frame-${process.pid}-${++grabs}.png`);
   // Wait for layout, hover timers and the renderer before checking stable pixels.
   await Bun.sleep(700);
   let previous: Buffer | null = null,
@@ -126,8 +153,7 @@ export async function settled(screen: Screen, frame: string, alive = () => {}): 
     same = previous?.equals(pixels) ? same + 1 : 0;
     previous = pixels;
     return same >= 2;
-  }, screen.wait);
-  rmSync(frame, { force: true });
+  }, screen.wait).finally(() => rmSync(frame, { force: true }));
   return previous!;
 }
 
@@ -478,12 +504,21 @@ export function drawRing(
     }
 }
 
-/** The drawn pointer for a video: one square tile a frame, and where each tile's corner sits. */
-export interface Pointer {
+/** The drawn pointer for a video: where each frame's square tile sits, and the tile, drawn on demand. */
+export interface Pointer extends Frames {
   size: number;
-  tiles: Uint8Array[];
   x: number[];
   y: number[];
+}
+
+/** What one frame of the pointer shows, for drawing its tile. */
+interface Look {
+  shape: Shape;
+  /** The hotspot's place in the tile, its height, and its rings as [x, y, progress]. */
+  hx: number;
+  hy: number;
+  height: number;
+  rings: [number, number, number][];
 }
 
 /**
@@ -506,9 +541,10 @@ export function perFrame(values: number[]): string {
 }
 
 /**
- * Draws the pointer for each frame shown at times (ms since the epoch), scale
- * times the window's pixels. It grows while it moves and settles at rest,
- * dips on a press, and each press leaves a ring that spreads and fades.
+ * The pointer for each frame shown at times (ms since the epoch), scale times
+ * the window's pixels. It grows while it moves and settles at rest, dips on a
+ * press, and each press leaves a ring that spreads and fades. Tiles are drawn
+ * when asked for, and a tile that looks like the last one is reused.
  */
 export function pointerTiles(take: Take, times: number[], scale: number, cellHeight: number): Pointer {
   const height = cellHeight * 1.3 * scale,
@@ -518,67 +554,60 @@ export function pointerTiles(take: Take, times: number[], scale: number, cellHei
   const pointer = [...take.pointer].sort((a, b) => a.t - b.t);
   const shapes = [...take.shapes].sort((a, b) => a.t - b.t);
   const presses = pointer.filter(e => e.press);
-  const result: Pointer = { size, tiles: [], x: [], y: [] };
-  const blank = new Uint8Array(size * size * 4);
+  const looks: (Look | null)[] = [];
+  const [x, y]: [number[], number[]] = [[], []];
   let grow = 1,
-    last: [number, number] | null = null,
-    previous: { key: string; tile: Uint8Array } | null = null;
+    last: [number, number] | null = null;
   times.forEach((t, i) => {
     const at = positionAt(pointer, t);
     if (!at) {
-      result.tiles.push(blank);
-      result.x.push(-10000);
-      result.y.push(-10000);
+      looks.push(null);
+      x.push(-10000);
+      y.push(-10000);
       return;
     }
-    const [x, y] = [at[0] * scale, at[1] * scale];
+    const [px, py] = [at[0] * scale, at[1] * scale];
     // Speed only between frames next to each other in time; a cut is not a move.
     const next = i > 0 && Math.abs(t - times[i - 1] - 1000 / FPS) < 2;
-    const speed = next && last ? Math.hypot(x - last[0], y - last[1]) / height : 0;
-    last = [x, y];
+    const speed = next && last ? Math.hypot(px - last[0], py - last[1]) / height : 0;
+    last = [px, py];
     grow += (1 + (grown - 1) * clamp(speed / 0.25) - grow) * 0.2;
     let zoom = grow;
+    const [cx, cy] = [Math.round(px), Math.round(py)];
     const rings: [number, number, number][] = [];
     for (const press of presses) {
       const since = t - press.t;
       if (since < 0 || since > 450) continue;
       if (since < 200) zoom *= 1 - 0.15 * Math.sin((Math.PI * since) / 200);
-      const k = since / 450;
-      rings.push([press.x * scale, press.y * scale, k]);
+      rings.push([press.x * scale - cx + size / 2, press.y * scale - cy + size / 2, since / 450]);
     }
-    const [cx, cy] = [Math.round(x), Math.round(y)];
-    const shape = shapeAt(shapes, t);
-    const key = [
-      shape,
-      (x - cx).toFixed(2),
-      (y - cy).toFixed(2),
-      zoom.toFixed(3),
-      ...rings.flat().map(v => v.toFixed(2)),
-    ].join();
-    let tile: Uint8Array;
-    if (previous?.key === key) tile = previous.tile;
-    else {
-      tile = new Uint8Array(size * size * 4);
-      for (const [rx, ry, k] of rings) {
-        const spread = 1 - (1 - k) ** 3;
-        drawRing(
-          tile,
-          size,
-          rx - cx + size / 2,
-          ry - cy + size / 2,
-          reach * (0.35 + 0.65 * spread),
-          Math.max(2, scale * 2.5),
-          0.9 * (1 - k) ** 1.5,
-        );
-      }
-      drawPointer(tile, size, shape, x - cx + size / 2, y - cy + size / 2, height * zoom);
-      previous = { key, tile };
-    }
-    result.tiles.push(tile);
-    result.x.push(cx - size / 2);
-    result.y.push(cy - size / 2);
+    looks.push({
+      shape: shapeAt(shapes, t),
+      hx: px - cx + size / 2,
+      hy: py - cy + size / 2,
+      height: height * zoom,
+      rings,
+    });
+    x.push(cx - size / 2);
+    y.push(cy - size / 2);
   });
-  return result;
+  const blank = new Uint8Array(size * size * 4);
+  let previous: { key: string; tile: Uint8Array } | null = null;
+  const frame = (i: number) => {
+    const look = looks[i];
+    if (!look) return blank;
+    const key = JSON.stringify(look, (_, v) => (typeof v === "number" ? Math.round(v * 100) / 100 : v));
+    if (previous?.key === key) return previous.tile;
+    const tile = new Uint8Array(size * size * 4);
+    for (const [rx, ry, k] of look.rings) {
+      const spread = 1 - (1 - k) ** 3;
+      drawRing(tile, size, rx, ry, reach * (0.35 + 0.65 * spread), Math.max(2, scale * 2.5), 0.9 * (1 - k) ** 1.5);
+    }
+    drawPointer(tile, size, look.shape, look.hx, look.hy, look.height);
+    previous = { key, tile };
+    return tile;
+  };
+  return { size, x, y, count: times.length, frame };
 }
 
 /** A recording's first frame, in seconds since the epoch. */
@@ -650,13 +679,13 @@ async function encode(dir: string, screen: Screen, out: string, take: Take, xcur
   const graph =
     `[0:v]${timeline()},${size}[screen];[screen][1:v]overlay=format=gbrp:eof_action=pass` +
     `:x='${perFrame(pointer.x)}':y='${perFrame(pointer.y)}'`;
-  await write(["-i", raw, ...tiles, "-framerate", String(FPS), "-i", "pipe:0"], graph, out, dir, pointer.tiles);
+  await write(["-i", raw, ...tiles, "-framerate", String(FPS), "-i", "pipe:0"], graph, out, dir, pointer);
   if (!xcursor) return [out];
   // The second recorder started a little later; line its frames up with the first's.
   const other = join(dir, "xcursor.mkv");
   const shift = Math.round(((await startTime(other)) - start) * FPS);
   const twin = out.replace(/(\.[^./]+)$/, ".xcursor$1");
-  await write(["-i", other], `[0:v]${timeline(-shift)},${size}`, twin, dir, []);
+  await write(["-i", other], `[0:v]${timeline(-shift)},${size}`, twin, dir, null);
   return [out, twin];
 }
 
@@ -664,12 +693,12 @@ async function encode(dir: string, screen: Screen, out: string, take: Take, xcur
  * Writes a video from a filter graph whose last chain is left open. The graph
  * goes through a file: a long take's pointer outgrows a command-line argument.
  */
-async function write(inputs: string[], graph: string, out: string, dir: string, frames: Uint8Array[]): Promise<void> {
+async function write(inputs: string[], graph: string, out: string, dir: string, frames: Frames | null): Promise<void> {
   mkdirSync(dirname(out), { recursive: true });
   const file = join(dir, "graph.txt");
   const run = (filters: string, map: string[]) => {
     writeFileSync(file, filters);
-    return ffmpeg([...inputs, "-/filter_complex", file, ...map], frames);
+    return ffmpeg([...inputs, graphOption(), file, ...map], frames);
   };
   try {
     switch (video(out)) {

@@ -30,16 +30,19 @@ for (const language of languages) {
         async drive(d) {
           const shot = (scene: string) =>
             `shot "${path.join(root, "dist/i18n-ghostty", `${language}-${cols}-${scene}.png`)}"`;
-          if (cols > 80) await d.drive(`action review; ${shot("review")}; action review`);
-          await d.drive(
-            [
-              `action setup; ${shot("settings")}`,
-              `key down down down down; ${shot("language")}`,
-              `key esc; action help; ${shot("shortcuts")}`,
-              `key esc; action new-agent; ${shot("agents")}`,
-              `key right; ${shot("manage")}`,
-              `key esc esc; action onboard; ${shot("welcome")}`,
-            ].join("; "),
+          const print = (lines: string[]) => lines.forEach(line => console.log(line));
+          if (cols > 80) print(await d.drive(`action review; ${shot("review")}; action review`));
+          print(
+            await d.drive(
+              [
+                `action setup; ${shot("settings")}`,
+                `key down down down down; ${shot("language")}`,
+                `key esc; action help; ${shot("shortcuts")}`,
+                `key esc; action new-agent; ${shot("agents")}`,
+                `key right; ${shot("manage")}`,
+                `key esc esc; action onboard; ${shot("welcome")}`,
+              ].join("; "),
+            ),
           );
         },
       },

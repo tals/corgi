@@ -106,6 +106,8 @@ interface SessionFile extends video.Screen {
   pid: number;
   /** The process's start time, so a reused PID is not taken for the session. */
   started: string;
+  /** Whether serve owns it; only those are found by drive, stop and attach. */
+  serve: boolean;
 }
 
 const defaults: Options = {
@@ -259,7 +261,7 @@ interface Session {
 }
 
 /** Starts a display, the sandbox and Ghostty with the relay, and waits for the viewer's first frames. */
-async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> {
+async function start(o: Options, prepare?: Recipe["prepare"], serving = false): Promise<Session> {
   // Ghostty runs from the sandbox, so a relative GHOSTTY_BIN is resolved here.
   const ghostty = process.env.GHOSTTY_BIN
     ? resolve(process.env.GHOSTTY_BIN)
@@ -358,6 +360,7 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
       { env, cwd, stdio: ["ignore", Bun.file(log), Bun.file(log)] },
     );
     const alive = () => {
+      if (interrupted) throw Error(`interrupted by ${interrupted}`);
       if (terminal!.exitCode !== null) throw Error(`Ghostty exited: ${readFileSync(log, "utf8")}`);
       const diagnostics = readFileSync(log, "utf8");
       if (diagnostics.includes("surface failed to initialize")) throw Error(`Ghostty could not draw: ${diagnostics}`);
@@ -381,6 +384,7 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
     const file: SessionFile = {
       pid: process.pid,
       started: startTime(process.pid)!,
+      serve: serving,
       display,
       x: window.x,
       y: window.y,
@@ -403,7 +407,8 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
     if (sandbox)
       for (const key of ["HOME", "XDG_STATE_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "CORGI_SOCKET", "CORGI_ENV_DIR"])
         exports[key] = sandbox.env[key];
-    exports.PATH = `${bin}:${process.env.PATH}`;
+    // The sandbox's PATH puts its fake claude and codex first.
+    exports.PATH = `${bin}:${env.PATH}`;
     writeFileSync(
       join(scratch, "env.sh"),
       "unset CORGI_PANE\n" +
@@ -421,7 +426,7 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
       `exec ${quote(process.execPath)} ${quote(import.meta.path)} drive --session ${quote(scratch)} "$@"`,
     );
     // Mouse tracking and layout are ready only after the viewer's first frames.
-    await video.settled(file, join(scratch, "frame.png"), alive);
+    await video.settled(file, scratch, alive);
     const driver: Driver = { sandbox, drive: script => drive(scratch, script) };
     return { dir: scratch, sandbox, driver, terminal, close };
   } catch (error) {
@@ -434,7 +439,10 @@ export async function capture(options: Partial<Options> = {}, recipe: Recipe = {
   const o = { ...defaults, ...options };
   const session = await start(o, recipe.prepare);
   try {
-    if (recipe.drive) return await recipe.drive(session.driver);
+    if (recipe.drive) {
+      if (o.steps.length) for (const line of await session.driver.drive(o.steps.join("; "))) console.log(line);
+      return await recipe.drive(session.driver);
+    }
     const out = o.out ?? "ghostty-screenshot.png";
     const steps = o.steps.join("; ");
     // The viewer draws a step's last change after the step returns.
@@ -449,10 +457,8 @@ export async function capture(options: Partial<Options> = {}, recipe: Recipe = {
 
 /** Keeps a session up until SIGINT, SIGTERM or Ghostty exiting. */
 async function serve(o: Options): Promise<void> {
-  const session = await start(o);
+  const session = await start(o, undefined, true);
   try {
-    if (o.steps.length) for (const line of await session.driver.drive(o.steps.join("; "))) console.log(line);
-    if (interrupted) return;
     const bin = join(session.dir, "bin");
     console.log(
       [
@@ -463,6 +469,7 @@ async function serve(o: Options): Promise<void> {
         `  stop:   bun ${import.meta.path} stop --session ${session.dir}`,
       ].join("\n"),
     );
+    if (o.steps.length) for (const line of await session.driver.drive(o.steps.join("; "))) console.log(line);
     if ((await Promise.race([signalled.promise, session.terminal.exited])) !== "signal") throw Error("Ghostty exited");
   } finally {
     await session.close();
@@ -490,7 +497,7 @@ function findSession(named: string | null): [string, SessionFile] {
   const read = (dir: string): SessionFile | null => {
     try {
       const file = JSON.parse(readFileSync(join(dir, "session.json"), "utf8")) as SessionFile;
-      return file.started && startTime(file.pid) === file.started ? file : null;
+      return file.serve && file.started && startTime(file.pid) === file.started ? file : null;
     } catch {
       return null;
     }
