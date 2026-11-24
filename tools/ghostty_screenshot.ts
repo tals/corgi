@@ -2,15 +2,27 @@
  * Captures a live Ghostty window on a private Xvfb display, including Kitty images.
  *
  *   bun tools/ghostty_screenshot.ts --sandbox review -o review.png
- *   bun tools/ghostty_screenshot.ts --do 'corgi action help' -o help.png
+ *   bun tools/ghostty_screenshot.ts --do 'action help' -o help.png
+ *   bun tools/ghostty_screenshot.ts --do 'action help; wait 1000; key down down' -o help.mp4
  *   bun tools/ghostty_screenshot.ts -- /bin/sh -c 'printf "hello\\n"; sleep 30'
  *
- * A session keeps the sandbox running for an agent to drive and screenshot:
+ * A session keeps the sandbox running for an agent to drive, a script at a time:
  *
- *   bun tools/ghostty_screenshot.ts serve --sandbox review   prints its paths; runs until stopped
- *   $SESSION/bin/corgi action help                            the sandbox's corgi, over its socket
- *   $SESSION/bin/screenshot -o help.png                       capture now
- *   bun tools/ghostty_screenshot.ts stop                       end it and clean up
+ *   bun tools/ghostty_screenshot.ts serve --sandbox review   prints its folder; runs until stopped
+ *   bun tools/ghostty_screenshot.ts drive 'action review; clicktext Files; shot review.png'
+ *   bun tools/ghostty_screenshot.ts drive 'record start demo.mp4; key esc; wait 1000; record stop'
+ *   bun tools/ghostty_screenshot.ts stop
+ *
+ * A script is tools/ui_driver.ts's commands, separated by ; (key ctrl+b c,
+ * type, click, move, scroll, drag, paste, clicktext, hovertext, waittext,
+ * settle, wait), plus:
+ *   action NAME …            corgi action NAME in the sandbox
+ *   corgi ARG …              the sandbox's corgi CLI
+ *   shot PATH                a screenshot once the screen holds still
+ *   record start PATH        a video, .mp4 or .gif, of everything until
+ *   record stop              which writes it; record start PATH xcursor also
+ *                            writes PATH's .xcursor twin with X's own cursor
+ * Code drives with capture(options, { drive }) or attach(), and driver.drive(script).
  *
  * Options:
  *   --sandbox NAME   world from tools/sandboxes; default launcher
@@ -18,19 +30,28 @@
  *   --size COLSxROWS terminal cells; default 120x36
  *   --font-size N    Ghostty font size in points; default 16
  *   --wait S         deadline for startup and each capture; default 20
- *   -o, --out PATH   default ghostty-screenshot.png
- *   --do SHELL       run against the sandbox after its viewer attaches; repeatable
+ *   -o, --out PATH   .png, or .mp4 or .gif for a video of the --do script; default ghostty-screenshot.png
+ *   --idle S         a video's hold at each end, and the most kept between scripts; default 1
+ *   --do SCRIPT      run after the viewer attaches; repeatable
  *   -- COMMAND ...   run a command instead of a sandbox; keep it alive to capture
- *   --session DIR    for shot and stop: the session; default $CORGI_CAPTURE_SESSION
+ *   --session DIR    for drive and stop: the session; default $CORGI_CAPTURE_SESSION
  *                    or the only one running
  *
- * Needs Ghostty, Xvfb, xdotool and ffmpeg on PATH. GHOSTTY_BIN selects Ghostty.
- * Each run owns a disposable sandbox, display and terminal. No personal config
- * is loaded. Captures use the window's exact bounds, with no scaling or repainting.
- * --do steps and a session's env.sh get corgi on PATH, CORGI_SOCKET, and
- * DISPLAY and GHOSTTY_WINDOW for xdotool.
+ * Needs Ghostty, Xvfb, ffmpeg and the X libraries libXtst and libXfixes. GHOSTTY_BIN
+ * selects Ghostty. Each run owns a disposable sandbox, display and terminal. No
+ * personal config is loaded. Screenshots use the window's exact bounds, with no
+ * scaling or repainting. Ghostty runs tools/ghostty_relay.ts in front of the
+ * viewer, and scripts reach it over HTTP on $SESSION/session.sock: keys arrive
+ * as terminal bytes, and the mouse moves through X like a hand, so Ghostty
+ * sees every step and reports it to the viewer itself.
+ *
+ * Videos keep the time each script runs, cut the time between scripts down
+ * to --idle seconds, and hold the first and last screens that long. The
+ * pointer is drawn where it went, in the shape X showed (arrow, hand, I-beam,
+ * resize or move): it grows while it moves, and a press leaves a fading ring.
+ * MP4s are H.264 at 60 frames a second with the screen's pixels doubled, so
+ * 4:2:0 chroma can't smear colored text; GIFs keep the window's size.
  */
-import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -42,13 +63,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import type { Sandbox, World } from "./sandbox";
+import * as video from "./ghostty_video";
+import * as x11 from "./x11";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PREFIX = "corgi-ghostty-";
 
-type Mode = "capture" | "serve" | "shot" | "stop";
+type Mode = "capture" | "serve" | "drive" | "stop";
 
 interface Options {
   sandbox: string;
@@ -57,21 +80,20 @@ interface Options {
   rows: number;
   fontSize: number;
   wait: number;
-  out: string;
+  out: string | null;
+  idle: number;
   command: string[] | null;
   steps: string[];
   session: string | null;
+  /** drive's script, from its arguments. */
+  script: string[];
 }
 
 export interface Driver {
+  /** The sandbox, when this process started it. */
   sandbox: Sandbox | null;
-  /** X key names, e.g. ctrl+b, Escape, Down, Return. */
-  key(...keys: string[]): void;
-  /** Mouse positions are 1-based terminal cells. */
-  move(col: number, row: number): void;
-  click(col: number, row: number): void;
-  settle(): Promise<void>;
-  screenshot(path: string): Promise<void>;
+  /** Runs a script; returns what it wrote, such as screenshot paths. */
+  drive(script: string): Promise<string[]>;
 }
 
 interface Recipe {
@@ -79,14 +101,13 @@ interface Recipe {
   drive?(driver: Driver): Promise<void>;
 }
 
-/** What `serve` leaves in session.json for `shot` and `stop`. */
-interface SessionFile {
+/** What a session leaves in session.json: its window for the relay, its process for stop. */
+interface SessionFile extends video.Screen {
   pid: number;
   /** The process's start time, so a reused PID is not taken for the session. */
   started: string;
-  display: string;
-  window: string;
-  wait: number;
+  /** Whether serve owns it; only those are found by drive, stop and attach. */
+  serve: boolean;
 }
 
 const defaults: Options = {
@@ -96,10 +117,12 @@ const defaults: Options = {
   rows: 36,
   fontSize: 16,
   wait: 20,
-  out: "ghostty-screenshot.png",
+  out: null,
+  idle: 1,
   command: null,
   steps: [],
   session: null,
+  script: [],
 };
 
 function positive(value: string, flag: string): number {
@@ -110,8 +133,8 @@ function positive(value: string, flag: string): number {
 
 function parse(argv: string[]): [Mode, Options] {
   let mode: Mode = "capture";
-  if (argv[0] === "serve" || argv[0] === "shot" || argv[0] === "stop") [mode, argv] = [argv[0], argv.slice(1)];
-  const o = { ...defaults, steps: [] as string[] };
+  if (argv[0] === "serve" || argv[0] === "drive" || argv[0] === "stop") [mode, argv] = [argv[0], argv.slice(1)];
+  const o = { ...defaults, steps: [] as string[], script: [] as string[] };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -138,6 +161,9 @@ function parse(argv: string[]): [Mode, Options] {
       case "--wait":
         o.wait = positive(value(), arg);
         break;
+      case "--idle":
+        o.idle = positive(value(), arg);
+        break;
       case "-o":
       case "--out":
         o.out = resolve(value());
@@ -158,90 +184,28 @@ function parse(argv: string[]): [Mode, Options] {
         console.log(readFileSync(import.meta.path, "utf8").split("*/")[0]);
         process.exit(0);
       default:
-        throw Error(`unknown argument ${arg}`);
+        if (mode !== "drive" || arg.startsWith("-")) throw Error(`unknown argument ${arg}`);
+        o.script.push(arg);
     }
   }
-  if (o.command && o.steps.length) throw Error("--do needs a sandbox");
+  if (mode === "drive" && !o.script.length) throw Error("drive needs a script, such as 'action help; shot help.png'");
+  if (o.out && video.video(o.out) && mode === "capture" && !o.steps.length) throw Error("a video records --do steps");
   return [mode, o];
 }
 
-/** Set by the CLI's signal handlers; waits then throw, so startup cleans up what it started. */
+/**
+ * Set by the CLI's signal handlers: waits throw, and a script the process is
+ * waiting on is let go, so it cleans up what it started.
+ */
 let interrupted: NodeJS.Signals | null = null;
 const signalled = Promise.withResolvers<"signal">();
+const released = new AbortController();
 
-/** Throws on timeouts rather than silently capturing an unready screen. */
-export async function until<T>(read: () => T | Promise<T>, seconds = 20): Promise<NonNullable<T>> {
-  const end = Date.now() + seconds * 1000;
-  do {
+function until<T>(read: () => T | Promise<T>, seconds = 20): Promise<NonNullable<T>> {
+  return video.until(() => {
     if (interrupted) throw Error(`interrupted by ${interrupted}`);
-    const value = await read();
-    if (value) return value as NonNullable<T>;
-    await Bun.sleep(100);
-  } while (Date.now() < end);
-  throw Error(`screen did not become ready within ${seconds}s`);
-}
-
-function run(command: string[], env: Record<string, string | undefined>, cwd: string, wait: number): string {
-  const result = spawnSync(command[0], command.slice(1), { env, cwd, encoding: "utf8", timeout: wait * 1000 });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw Error(`${command[0]}: ${result.stderr.trim() || `exit ${result.status}`}`);
-  return result.stdout.trim();
-}
-
-/** The window's bounds on its display. */
-function geometry(display: string, window: string, wait: number) {
-  const env = { ...process.env, DISPLAY: `:${display}` };
-  const shell = run(["xdotool", "getwindowgeometry", "--shell", window], env, ROOT, wait);
-  const fields = Object.fromEntries(shell.split("\n").map(line => line.split("=")));
-  const [w, h, x, y] = ["WIDTH", "HEIGHT", "X", "Y"].map(key => Number(fields[key]));
-  if (![w, h].every(n => Number.isFinite(n) && n > 0)) throw Error("Ghostty window has no size");
-  return { w, h, x, y };
-}
-
-/** The window's pixels once three grabs in a row match. */
-async function settledFrame(display: string, window: string, frame: string, wait: number, alive = () => {}) {
-  // Wait for layout, hover timers and the renderer before checking stable pixels.
-  await Bun.sleep(700);
-  // Read actual window bounds; dark/black edge pixels must never be cropped away.
-  const { w, h, x, y } = geometry(display, window, wait);
-  let previous: Buffer | null = null,
-    same = 0;
-  await until(() => {
-    alive();
-    run(
-      [
-        "ffmpeg",
-        "-loglevel",
-        "error",
-        "-y",
-        "-f",
-        "x11grab",
-        "-draw_mouse",
-        "0",
-        "-video_size",
-        `${w}x${h}`,
-        "-i",
-        `:${display}+${x},${y}`,
-        "-frames:v",
-        "1",
-        frame,
-      ],
-      process.env,
-      ROOT,
-      wait,
-    );
-    const pixels = readFileSync(frame);
-    same = previous?.equals(pixels) ? same + 1 : 0;
-    previous = pixels;
-    return same >= 2;
-  }, wait);
-  return previous!;
-}
-
-function save(path: string, pixels: Buffer): void {
-  mkdirSync(dirname(resolve(path)), { recursive: true });
-  writeFileSync(path, pixels);
-  console.log(resolve(path));
+    return read();
+  }, seconds);
 }
 
 /** Single-quotes a value for sh. */
@@ -249,27 +213,62 @@ function quote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+/** Double-quotes a value for a script. */
+function word(value: string): string {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+/** A script's error, with what it wrote before failing. */
+export class DriveError extends Error {
+  constructor(
+    message: string,
+    readonly output: string[],
+  ) {
+    super(message);
+  }
+}
+
+/** Runs a script in a session's relay. */
+export async function drive(dir: string, script: string): Promise<string[]> {
+  const response = await fetch("http://relay/drive", {
+    method: "POST",
+    unix: join(dir, "session.sock"),
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ script, cwd: process.cwd() }),
+    // Scripts can wait, record and encode for minutes.
+    timeout: false,
+    signal: released.signal,
+  }).catch(error => {
+    throw interrupted ? Error(`interrupted by ${interrupted}`) : error;
+  });
+  const reply = (await response.json()) as { output?: string[]; error?: string };
+  if (!response.ok) throw new DriveError(reply.error ?? `the relay answered ${response.status}`, reply.output ?? []);
+  return reply.output ?? [];
+}
+
+/** A driver for a running session: session's, $CORGI_CAPTURE_SESSION's, or the only one. */
+export function attach(session: string | null = null): Driver {
+  const [dir] = findSession(session);
+  return { sandbox: null, drive: script => drive(dir, script) };
+}
+
 interface Session {
   dir: string;
   sandbox: Sandbox | null;
-  display: string;
-  window: string;
-  /** What --do steps and the session's env.sh run with. */
-  env: Record<string, string | undefined>;
   driver: Driver;
   terminal: Bun.Subprocess;
   close(): Promise<void>;
 }
 
-/** Starts a display, the sandbox and Ghostty, and waits for the viewer's first frames. */
-async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> {
+/** Starts a display, the sandbox and Ghostty with the relay, and waits for the viewer's first frames. */
+async function start(o: Options, prepare?: Recipe["prepare"], serving = false): Promise<Session> {
   // Ghostty runs from the sandbox, so a relative GHOSTTY_BIN is resolved here.
   const ghostty = process.env.GHOSTTY_BIN
     ? resolve(process.env.GHOSTTY_BIN)
     : (Bun.which("ghostty") ?? "/snap/bin/ghostty");
   if (!existsSync(ghostty)) throw Error("Ghostty is missing; set GHOSTTY_BIN or install Ghostty");
-  for (const tool of ["Xvfb", "xdotool", "ffmpeg"])
-    if (!Bun.which(tool)) throw Error(`no ${tool} on PATH; install xvfb, xdotool and ffmpeg`);
+  for (const tool of ["Xvfb", "ffmpeg", "ffprobe"])
+    if (!Bun.which(tool)) throw Error(`no ${tool} on PATH; install xvfb and ffmpeg`);
   if (!o.command && !existsSync(o.corgi)) throw Error(`no ${o.corgi}; run bun build.ts first`);
   const scratch = mkdtempSync(join(tmpdir(), PREFIX));
   let sandbox: Sandbox | null = null;
@@ -277,6 +276,7 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
   let terminal: Bun.Subprocess | undefined;
   const log = join(scratch, "ghostty.log");
   const xlog = join(scratch, "xvfb.log");
+  // Closing Ghostty hangs up on the relay, which ends a recording and its command.
   const close = async () => {
     terminal?.kill();
     await terminal?.exited;
@@ -330,10 +330,14 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
     const env: Record<string, string | undefined> = {
       ...(sandbox?.env ?? process.env),
       WAYLAND_DISPLAY: undefined,
+      CORGI_PANE: undefined,
       DISPLAY: `:${display}`,
       GDK_BACKEND: "x11",
       XDG_RUNTIME_DIR: join(scratch, "runtime"),
       LIBGL_ALWAYS_SOFTWARE: "1",
+      // For the relay: its session, and the corgi that action and corgi run.
+      CORGI_CAPTURE_SESSION: scratch,
+      CORGI_CAPTURE_CORGI: sandbox ? o.corgi : undefined,
     };
     const cwd = sandbox?.dir ?? ROOT;
     terminal = Bun.spawn(
@@ -350,73 +354,64 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
         `--window-width=${o.cols}`,
         `--window-height=${o.rows}`,
         "-e",
+        ...[process.execPath, join(ROOT, "tools/ghostty_relay.ts"), scratch, "--"],
         ...(o.command ?? [o.corgi, "dev"]),
       ],
       { env, cwd, stdio: ["ignore", Bun.file(log), Bun.file(log)] },
     );
     const alive = () => {
+      if (interrupted) throw Error(`interrupted by ${interrupted}`);
       if (terminal!.exitCode !== null) throw Error(`Ghostty exited: ${readFileSync(log, "utf8")}`);
       const diagnostics = readFileSync(log, "utf8");
       if (diagnostics.includes("surface failed to initialize")) throw Error(`Ghostty could not draw: ${diagnostics}`);
     };
-    const window = await until(() => {
+    const x = new x11.Display(display);
+    let window: x11.Window;
+    try {
+      const shown = await until(() => {
+        alive();
+        return x.topWindow();
+      }, o.wait);
+      x.focus(shown.id);
+      if (sandbox) await until(() => JSON.parse(sandbox!.run([o.corgi, "list", "--json"])).viewers?.length, o.wait);
+      // Its bounds once the viewer has attached; dark edge pixels must never be cropped away.
+      window = x.topWindow() ?? shown;
+    } finally {
+      x.close();
+    }
+    if (window.x + window.width > width || window.y + window.height > height)
+      throw Error("Ghostty window does not fit on the capture display");
+    const file: SessionFile = {
+      pid: process.pid,
+      started: startTime(process.pid)!,
+      serve: serving,
+      display,
+      x: window.x,
+      y: window.y,
+      width: window.width,
+      height: window.height,
+      cols: o.cols,
+      rows: o.rows,
+      wait: o.wait,
+      idle: o.idle,
+    };
+    writeFileSync(join(scratch, "session.json"), JSON.stringify(file));
+    await until(() => {
       alive();
-      const found = spawnSync("xdotool", ["search", "--onlyvisible", "--class", "ghostty"], { env, encoding: "utf8" });
-      return found.stdout.trim().split("\n").find(Boolean);
+      return existsSync(join(scratch, "session.sock"));
     }, o.wait);
-    run(["xdotool", "windowfocus", "--sync", window], env, cwd, o.wait);
-    if (sandbox) await until(() => JSON.parse(sandbox!.run([o.corgi, "list", "--json"])).viewers?.length, o.wait);
-    const { w, h, x, y } = geometry(display, window, o.wait);
-    if (x + w > width || y + h > height) throw Error("Ghostty window does not fit on the capture display");
-    const move = (col: number, row: number) => {
-      run(
-        [
-          "xdotool",
-          "mousemove",
-          "--sync",
-          "--window",
-          window,
-          String(Math.floor(((col - 0.5) * w) / o.cols)),
-          String(Math.floor(((row - 0.5) * h) / o.rows)),
-        ],
-        env,
-        cwd,
-        o.wait,
-      );
-    };
-    const frame = join(scratch, "frame.png");
-    const driver: Driver = {
-      sandbox,
-      key: (...keys) => {
-        run(["xdotool", "key", "--clearmodifiers", "--delay", "100", ...keys], env, cwd, o.wait);
-      },
-      move,
-      click: (col, row) => {
-        move(col, row);
-        run(["xdotool", "click", "1"], env, cwd, o.wait);
-      },
-      async settle() {
-        await settledFrame(display, window, frame, o.wait, alive);
-      },
-      async screenshot(path) {
-        save(path, await settledFrame(display, window, frame, o.wait, alive));
-      },
-    };
-    // An agent drives the sandbox with these, from any shell.
+    // For an agent's shell: the sandbox's corgi, and this session's drive.
     const bin = join(scratch, "bin");
     mkdirSync(bin);
-    const exports: Record<string, string> = {
-      CORGI_CAPTURE_SESSION: scratch,
-      DISPLAY: `:${display}`,
-      GHOSTTY_WINDOW: window,
-    };
+    const exports: Record<string, string> = { CORGI_CAPTURE_SESSION: scratch };
     if (sandbox)
       for (const key of ["HOME", "XDG_STATE_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "CORGI_SOCKET", "CORGI_ENV_DIR"])
         exports[key] = sandbox.env[key];
+    // The sandbox's PATH puts its fake claude and codex first.
     exports.PATH = `${bin}:${env.PATH}`;
     writeFileSync(
       join(scratch, "env.sh"),
-      "unset CORGI_PANE WAYLAND_DISPLAY\n" +
+      "unset CORGI_PANE\n" +
         Object.entries(exports)
           .map(([key, value]) => `export ${key}=${quote(value)}\n`)
           .join(""),
@@ -426,11 +421,14 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
       chmodSync(join(bin, name), 0o755);
     };
     if (sandbox) script("corgi", `exec ${quote(o.corgi)} "$@"`);
-    script("screenshot", `exec ${quote(process.execPath)} ${quote(import.meta.path)} shot "$@"`);
+    script(
+      "drive",
+      `exec ${quote(process.execPath)} ${quote(import.meta.path)} drive --session ${quote(scratch)} "$@"`,
+    );
     // Mouse tracking and layout are ready only after the viewer's first frames.
-    await driver.settle();
-    for (const step of o.steps) run(["sh", "-c", step], { ...env, ...exports, CORGI_PANE: undefined }, cwd, o.wait);
-    return { dir: scratch, sandbox, display, window, env: { ...env, ...exports }, driver, terminal, close };
+    await video.settled(file, scratch, alive);
+    const driver: Driver = { sandbox, drive: script => drive(scratch, script) };
+    return { dir: scratch, sandbox, driver, terminal, close };
   } catch (error) {
     await close();
     throw error;
@@ -438,10 +436,20 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
 }
 
 export async function capture(options: Partial<Options> = {}, recipe: Recipe = {}): Promise<void> {
-  const session = await start({ ...defaults, ...options }, recipe.prepare);
+  const o = { ...defaults, ...options };
+  const session = await start(o, recipe.prepare);
   try {
-    if (recipe.drive) await recipe.drive(session.driver);
-    else await session.driver.screenshot(options.out ?? defaults.out);
+    if (recipe.drive) {
+      if (o.steps.length) for (const line of await session.driver.drive(o.steps.join("; "))) console.log(line);
+      return await recipe.drive(session.driver);
+    }
+    const out = o.out ?? "ghostty-screenshot.png";
+    const steps = o.steps.join("; ");
+    // The viewer draws a step's last change after the step returns.
+    const script = video.video(out)
+      ? `record start ${word(out)}; ${steps}; wait 1000; record stop`
+      : `${steps}; shot ${word(out)}`;
+    for (const line of await session.driver.drive(script)) console.log(line);
   } finally {
     await session.close();
   }
@@ -449,55 +457,52 @@ export async function capture(options: Partial<Options> = {}, recipe: Recipe = {
 
 /** Keeps a session up until SIGINT, SIGTERM or Ghostty exiting. */
 async function serve(o: Options): Promise<void> {
-  const session = await start(o);
+  const session = await start(o, undefined, true);
   try {
-    if (interrupted) return;
-    const file: SessionFile = {
-      pid: process.pid,
-      started: startTime(process.pid)!,
-      display: session.display,
-      window: session.window,
-      wait: o.wait,
-    };
-    writeFileSync(join(session.dir, "session.json"), JSON.stringify(file));
     const bin = join(session.dir, "bin");
     console.log(
       [
         `session ${session.dir}`,
-        ...(session.sandbox ? [`  drive:      ${bin}/corgi action help`] : []),
-        `  screenshot: ${bin}/screenshot -o shot.png`,
-        `  env:        . ${session.dir}/env.sh   (CORGI_SOCKET, DISPLAY, GHOSTTY_WINDOW, PATH)`,
-        `  stop:       bun ${import.meta.path} stop --session ${session.dir}`,
+        `  drive:  ${bin}/drive 'action help; shot help.png'`,
+        `  record: ${bin}/drive 'record start demo.mp4; key esc; wait 1000; record stop'`,
+        ...(session.sandbox ? [`  corgi:  ${bin}/corgi list   (. ${session.dir}/env.sh for the sandbox's)`] : []),
+        `  stop:   bun ${import.meta.path} stop --session ${session.dir}`,
       ].join("\n"),
     );
+    if (o.steps.length) for (const line of await session.driver.drive(o.steps.join("; "))) console.log(line);
     if ((await Promise.race([signalled.promise, session.terminal.exited])) !== "signal") throw Error("Ghostty exited");
   } finally {
     await session.close();
   }
 }
 
-/** A process's start time from /proc, or null when there is no such process. */
-function startTime(pid: number): string | null {
+/** A process's fields from /proc after its command name, starting with its state. */
+function procStat(pid: number): string[] | null {
   try {
     // The command name in parentheses may hold spaces; the fields after it don't.
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? null;
+    return stat.slice(stat.lastIndexOf(")") + 2).split(" ");
   } catch {
     return null;
   }
 }
 
-/** The session named by --session or $CORGI_CAPTURE_SESSION, else the only one running. */
-function findSession(o: Options): [string, SessionFile] {
+/** A process's start time, or null when there is no such process. */
+function startTime(pid: number): string | null {
+  return procStat(pid)?.[19] ?? null;
+}
+
+/** The session named, or $CORGI_CAPTURE_SESSION's, else the only one running. */
+function findSession(named: string | null): [string, SessionFile] {
   const read = (dir: string): SessionFile | null => {
     try {
       const file = JSON.parse(readFileSync(join(dir, "session.json"), "utf8")) as SessionFile;
-      return file.started && startTime(file.pid) === file.started ? file : null;
+      return file.serve && file.started && startTime(file.pid) === file.started ? file : null;
     } catch {
       return null;
     }
   };
-  const named = o.session ?? process.env.CORGI_CAPTURE_SESSION;
+  named ??= process.env.CORGI_CAPTURE_SESSION ?? null;
   if (named) {
     const file = read(named);
     if (!file) throw Error(`no session running in ${named}`);
@@ -515,19 +520,8 @@ function findSession(o: Options): [string, SessionFile] {
   throw Error(`several sessions running; pass --session:\n${running.map(([dir]) => `  ${dir}`).join("\n")}`);
 }
 
-async function shot(o: Options): Promise<void> {
-  const [dir, file] = findSession(o);
-  // Each shot grabs into its own file, so concurrent shots don't share one.
-  const frame = join(dir, `frame-${process.pid}.png`);
-  try {
-    save(o.out, await settledFrame(file.display, file.window, frame, file.wait));
-  } finally {
-    rmSync(frame, { force: true });
-  }
-}
-
 async function stop(o: Options): Promise<void> {
-  const [dir, file] = findSession(o);
+  const [dir, file] = findSession(o.session);
   process.kill(file.pid, "SIGTERM");
   await until(() => !existsSync(dir), file.wait);
 }
@@ -537,6 +531,7 @@ if (import.meta.main) {
     process.on(signal, () => {
       interrupted = signal;
       signalled.resolve("signal");
+      released.abort();
     });
   try {
     const [mode, o] = parse(process.argv.slice(2));
@@ -547,14 +542,17 @@ if (import.meta.main) {
       case "serve":
         await serve(o);
         break;
-      case "shot":
-        await shot(o);
+      case "drive": {
+        const [dir] = findSession(o.session);
+        for (const line of await drive(dir, o.script.join("; "))) console.log(line);
         break;
+      }
       case "stop":
         await stop(o);
         break;
     }
   } catch (error) {
+    if (error instanceof DriveError) for (const line of error.output) console.log(line);
     console.error(`ghostty_screenshot: ${(error as Error).message}`);
     process.exitCode = 1;
   }

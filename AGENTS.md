@@ -6,7 +6,7 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
 
 - **Build:** `bun build.ts` (`--no-native` skips the Zig native layer when
   only TypeScript changed). The binary is `dist/corgi`.
-- **Unit tests:** `bun test src`
+- **Unit tests:** `bun test src ./tools/*.test.ts`
   - While iterating, pass a file or `-t <name>`. Run the full suite before
     finishing.
 - **Typecheck:** `bun typecheck.ts`. It also fails on unformatted code.
@@ -27,12 +27,14 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
   in your terminal; with no name it lists them. Add an entry there for a new one.
 - **UI driver:** `bun tools/ui_driver.ts run current -e 'key ctrl+b c; snap'` drives a
   viewer in a PTY and records its screens. See `tools/ui_driver.ts`.
-- **Screenshots:** `bun tools/ghostty_screenshot.ts --sandbox NAME -o shot.png`
-  captures a live Ghostty window on Xvfb. Use this for documentation and UI
-  screenshots so fonts, box drawing and Kitty images retain terminal fidelity.
+- **Screenshots and videos:** `bun tools/ghostty_screenshot.ts --sandbox NAME -o shot.png`
+  captures a live Ghostty window on Xvfb; `--do 'action help; key esc'` runs a
+  UI-driver script first, and `-o demo.mp4` records it instead. Use this for
+  documentation and UI screenshots and videos so fonts, box drawing and Kitty
+  images retain terminal fidelity.
   Do not repaint terminal cells into SVG, canvas or another terminal renderer.
-  `serve` keeps one running for an agent to drive over its socket and capture
-  on demand; see HACKING.md.
+  `serve` keeps one running, and `drive 'SCRIPT'` sends it scripts with `shot`
+  and `record start` / `record stop`; see HACKING.md.
 
 ## Layout
 
@@ -154,6 +156,10 @@ paragraphs when the old behavior explains the fix. These are options, not a
 template: don't manufacture an "it couldn't do X" preamble for every feature,
 repeat the subject in the body, or add headings to a small change.
 
+**Lines.** Never hard-wrap prose to fit a column limit; GitHub keeps every
+newline. Write each line as one short, complete statement, and cut a thought
+or split it into bullets when it runs long.
+
 **Choose what earns space.**
 
 - Lead with the behavior, capability or reason for the change. For a bug,
@@ -189,18 +195,34 @@ because the code touches them. Explain an unchanged version only when the
 change would otherwise leave a real compatibility question.
 
 **PRs.** Use the same title and core description as the intended commit. Add
-only what helps review or try the change: a screenshot, runnable example,
-material limitation or concise verification. Usually a `Tested: ...` line is
-enough; include failures or checks not run when they affect confidence. Don't
-add Summary / Changes / Validation / Compatibility sections by habit, or a
-list of every test and edge case. Larger explanations can link to docs or a
-report. State results for the current change, not an earlier revision.
+only what helps review or try the change: a screenshot or video, runnable
+example, material limitation or concise verification. Usually a `Tested: ...`
+line is enough; include failures or checks not run when they affect
+confidence. Don't add Summary / Changes / Validation / Compatibility sections
+by habit, or a list of every test and edge case. Larger explanations can link
+to docs or a report. State results for the current change, not an earlier
+revision.
 
-Attach screenshots with `--attach` on `gh pr create` or `gh pr edit`: write
-`![alt](./shot.png)` in the `--body-file`, and `gh` uploads the file and
-rewrites the link. Save later edits with `gh pr edit` too; an attachment in a
-body saved through `gh api` stays private. Never push images to a branch for a
-PR.
+Attach screenshots and videos with `--attach` on `gh pr create` or `gh pr edit`:
+write `![alt](./shot.png)` or `![](./demo.mp4)` in the `--body-file`, and `gh`
+uploads the file and rewrites the link; a video plays inline. Save later edits
+with `gh pr edit` too; an attachment in a body saved through `gh api` stays
+private. Never push images or videos to a branch for a PR.
+
+**Visual changes.** A PR that changes what the UI shows or does includes a
+capture from `tools/ghostty_screenshot.ts`, never a hand-made mockup: a
+screenshot for a static look, a short MP4 for a flow, animation, hover or
+click. Pick or add a world in `tools/sandboxes/` that shows the change, script
+the take (or keep a `serve` session and `drive` it step by step; see
+HACKING.md), and look at the result before attaching it. You can't watch a
+video, so read its frame grids, a second a frame and 16 to a grid:
+
+```sh
+bun tools/ghostty_screenshot.ts --sandbox launcher --do 'action help; wait 800; key esc' -o demo.mp4
+ffmpeg -i demo.mp4 -vf "fps=1,scale=800:-2,tile=4x4" grid%02d.png
+```
+
+The tool needs Linux with Xvfb; from a Mac, run it on a Linux machine over SSH.
 
 **Before sending.** Read the message without the diff. Can a reader identify
 the main change and its reason or use? Does each remaining detail change that

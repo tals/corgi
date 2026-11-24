@@ -28,30 +28,22 @@ for (const language of languages) {
           fs.writeFileSync(fixture, 'export const languages = ["English", "中文", "日本語", "한국어", "Русский"];\n');
         },
         async drive(d) {
-          const s = d.sandbox!;
-          const screenshot = (scene: string) =>
-            d.screenshot(path.join(root, "dist/i18n-ghostty", `${language}-${cols}-${scene}.png`));
-          const action = (name: string) => s.corgi(["action", name]);
-          if (cols > 80) {
-            action("review");
-            await screenshot("review");
-            action("review");
-          }
-          action("setup");
-          await screenshot("settings");
-          d.key("Down", "Down", "Down", "Down");
-          await screenshot("language");
-          d.key("Escape");
-          action("help");
-          await screenshot("shortcuts");
-          d.key("Escape");
-          action("new-agent");
-          await screenshot("agents");
-          d.key("Right");
-          await screenshot("manage");
-          d.key("Escape", "Escape");
-          action("onboard");
-          await screenshot("welcome");
+          const shot = (scene: string) =>
+            `shot "${path.join(root, "dist/i18n-ghostty", `${language}-${cols}-${scene}.png`)}"`;
+          const print = (lines: string[]) => lines.forEach(line => console.log(line));
+          if (cols > 80) print(await d.drive(`action review; ${shot("review")}; action review`));
+          print(
+            await d.drive(
+              [
+                `action setup; ${shot("settings")}`,
+                `key down down down down; ${shot("language")}`,
+                `key esc; action help; ${shot("shortcuts")}`,
+                `key esc; action new-agent; ${shot("agents")}`,
+                `key right; ${shot("manage")}`,
+                `key esc esc; action onboard; ${shot("welcome")}`,
+              ].join("; "),
+            ),
+          );
         },
       },
     );

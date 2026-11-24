@@ -5,8 +5,8 @@ the isolated launcher sandbox and its fake agents. Ghostty draws the fonts,
 box lines, colors and Kitty graphics. The PNGs are neither scaled nor repainted.
 CJK fallback fonts were supplied through an isolated Fontconfig configuration.
 
-Regenerate the full set with Ghostty, Xvfb, xdotool, ffmpeg, and fonts covering
-the selected languages installed:
+Regenerate the full set with Ghostty, Xvfb, ffmpeg, the XTEST and XFixes
+libraries, and fonts covering the selected languages installed:
 
 ```sh
 bun build.ts
