@@ -16,9 +16,10 @@ export const install_ms = 600_000;
 /** A build copy takes as long as the link needs, but not this long without
  * moving a byte, as when the other end's disk hangs. */
 export const stalled_ms = 120_000;
-/** A machine downloading a release slower than this a minute leaves it to
- * the viewer, which uploads what the machine lacks. */
-const floor_bytes = 2 * 1024 * 1024;
+/** A machine whose download of a release averages under this many bytes a
+ * second for a minute can't download it, and leaves it to the viewer, which
+ * uploads what the machine lacks. */
+const floor_rate = 10 * 1024;
 /** Makes `$stage` in a shell script, after removing the stages moves a
  * reboot or a kill cut short left: their shell is gone, or nothing in them
  * changed for a day. The shell's PID names its stage. */
@@ -368,10 +369,10 @@ if [ -z "$file" ] || [ ! -f "$file" ] || [ "$(checksum "$file")" != "$hash" ]; t
     size=0
     if [ -f "$file" ]; then size=$(wc -c < "$file" | tr -d ' '); fi
     printf 'received %s\\n' "$size"
-    # One too slow to finish this side of an hour goes to the viewer.
+    # One that can't average 10 KiB/s over a minute goes to the viewer.
     seconds=$((seconds + 1))
     if [ "$seconds" -ge 60 ]; then
-      [ $((size - mark)) -ge ${floor_bytes} ] || exit 3
+      [ $((size - mark)) -ge ${floor_rate * 60} ] || exit 3
       seconds=0
       mark=$size
     fi
