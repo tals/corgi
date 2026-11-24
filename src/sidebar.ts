@@ -723,6 +723,8 @@ export class View {
   archive_marks: ((brand: Brand, col: number, row: number) => void) | null = null;
   /** Places reception bars as an image `signalBars.cells` wide; without it they're blocks. */
   signal_marks: ((quality: Quality, col: number, row: number) => void) | null = null;
+  /** Asks for a frame by `at_ms`, in `Date.now()` time, for what moves with time alone. */
+  animate: ((at_ms: number) => void) | null = null;
   cols = 0;
   rows = 0;
   width = 0;
@@ -1734,7 +1736,10 @@ export class View {
           // Keep the cached card dim; let the workspace name glimmer at full brightness.
           w.write(`${w.cup(y + 1, 2)}`);
           writeExit(w, style, 0.5);
-          if (!ws.archived) writeConnectionGlimmer(w, clipped(name, name_room), now_ms);
+          if (!ws.archived) {
+            writeConnectionGlimmer(w, clipped(name, name_room), now_ms);
+            v.animate?.((Math.floor(now_ms / glimmer_step_ms) + 1) * glimmer_step_ms);
+          }
           w.write(panel);
         }
       }
@@ -2662,8 +2667,9 @@ export function writePortLabel(w: Writer, label: string, width: number, naming: 
   const start = prefixWidth + 3;
   if (width > start) writeClipped(w, label.slice(prefix.length + 3), width - start);
 }
+const glimmer_step_ms = 80;
 function writeConnectionGlimmer(w: Writer, label: string, now_ms: number): void {
-  const phase = mod(Math.floor(now_ms / 80) * 80, 2000) / 2000;
+  const phase = mod(Math.floor(now_ms / glimmer_step_ms) * glimmer_step_ms, 2000) / 2000;
   const center = -4 + (displayWidth(label) + 8) * phase;
   const dim = mix(colors.muted, colors.bg, 50);
   let col = 0;

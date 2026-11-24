@@ -661,8 +661,8 @@ export async function run(
       if (endpoints[0].uninstalled) break;
       // This computer's daemon going away ends the viewer, whichever machine is shown.
       if (active.detached || endpoints[0].detached || !view.input_state.attached) break;
-      // Idle with nothing new, the screen is as it was; it's drawn only now
-      // and then, for what changes with time alone.
+      // Idle with nothing new, the screen is as it was; it's drawn now and
+      // then for its clocks, and when an animation on it takes its next step.
       if (
         changed ||
         !idle ||
@@ -671,6 +671,7 @@ export async function run(
         connectivity.open ||
         held ||
         Date.now() >= next_draw ||
+        Date.now() >= view.nextFrame() ||
         Date.now() >= noticeDue() ||
         performance.now() >= connection_hover.due()
       ) {
@@ -732,7 +733,16 @@ export async function run(
       await wake.wait(
         now - active_at < idle_after_ms
           ? Math.max(1, Math.min(16, due))
-          : Math.max(1, Math.min(quiet_ms, due, connection_hover.due() - performance.now(), noticeDue() - Date.now())),
+          : Math.max(
+              1,
+              Math.min(
+                quiet_ms,
+                due,
+                connection_hover.due() - performance.now(),
+                noticeDue() - Date.now(),
+                view.nextFrame() - Date.now(),
+              ),
+            ),
       );
     }
     if (endpoints[0].uninstalled) {
