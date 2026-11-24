@@ -3,13 +3,18 @@
  *
  *   bun tools/ghostty_screenshot.ts --sandbox review -o review.png
  *   bun tools/ghostty_screenshot.ts --do 'corgi action help' -o help.png
+ *   bun tools/ghostty_screenshot.ts --do 'corgi action help' --do 'xdotool key Down' -o help.mp4
  *   bun tools/ghostty_screenshot.ts -- /bin/sh -c 'printf "hello\\n"; sleep 30'
  *
- * A session keeps the sandbox running for an agent to drive and screenshot:
+ * An .mp4 or .gif output records a video of the --do steps.
+ *
+ * A session keeps the sandbox running for an agent to drive, screenshot and record:
  *
  *   bun tools/ghostty_screenshot.ts serve --sandbox review   prints its paths; runs until stopped
  *   $SESSION/bin/corgi action help                            the sandbox's corgi, over its socket
  *   $SESSION/bin/screenshot -o help.png                       capture now
+ *   $SESSION/bin/record start -o demo.mp4                     start a video; takes --idle
+ *   $SESSION/bin/record stop                                  write it
  *   bun tools/ghostty_screenshot.ts stop                       end it and clean up
  *
  * Options:
@@ -18,37 +23,50 @@
  *   --size COLSxROWS terminal cells; default 120x36
  *   --font-size N    Ghostty font size in points; default 16
  *   --wait S         deadline for startup and each capture; default 20
- *   -o, --out PATH   default ghostty-screenshot.png
+ *   -o, --out PATH   .png, or .mp4 or .gif for a video; default ghostty-screenshot.png,
+ *                    or ghostty-recording.mp4 for record start
+ *   --idle S         longest a still screen lasts in a video; default 2
  *   --do SHELL       run against the sandbox after its viewer attaches; repeatable
  *   -- COMMAND ...   run a command instead of a sandbox; keep it alive to capture
- *   --session DIR    for shot and stop: the session; default $CORGI_CAPTURE_SESSION
+ *   --session DIR    for shot, record and stop: the session; default $CORGI_CAPTURE_SESSION
  *                    or the only one running
  *
  * Needs Ghostty, Xvfb, xdotool and ffmpeg on PATH. GHOSTTY_BIN selects Ghostty.
  * Each run owns a disposable sandbox, display and terminal. No personal config
- * is loaded. Captures use the window's exact bounds, with no scaling or repainting.
+ * is loaded. Screenshots use the window's exact bounds, with no scaling or repainting.
  * --do steps and a session's env.sh get corgi on PATH, CORGI_SOCKET, and
  * DISPLAY and GHOSTTY_WINDOW for xdotool.
+ *
+ * Videos show the pointer. They open and close on a still screen held for
+ * --idle seconds and cut longer pauses to that, so the time an agent spends
+ * between steps stays out. Changes under 8 cells, like a meter ticking or the
+ * corgi blinking, don't end a pause. MP4s are H.264 with each pixel doubled,
+ * so 4:2:0 chroma can't smear colored text; GIFs keep the window's size.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Sandbox, World } from "./sandbox";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PREFIX = "corgi-ghostty-";
+const FPS = 30;
 
-type Mode = "capture" | "serve" | "shot" | "stop";
+type Mode = "capture" | "serve" | "shot" | "stop" | "record start" | "record stop";
+
+type Video = "mp4" | "gif";
 
 interface Options {
   sandbox: string;
@@ -57,7 +75,8 @@ interface Options {
   rows: number;
   fontSize: number;
   wait: number;
-  out: string;
+  out: string | null;
+  idle: number;
   command: string[] | null;
   steps: string[];
   session: string | null;
@@ -72,6 +91,13 @@ export interface Driver {
   click(col: number, row: number): void;
   settle(): Promise<void>;
   screenshot(path: string): Promise<void>;
+  /** Starts a video of the window; .mp4 or .gif. */
+  record(path: string): Promise<Recording>;
+}
+
+export interface Recording {
+  /** Writes the video and prints its path. */
+  stop(): Promise<void>;
 }
 
 interface Recipe {
@@ -86,7 +112,24 @@ interface SessionFile {
   started: string;
   display: string;
   window: string;
+  cols: number;
+  rows: number;
   wait: number;
+}
+
+/** What a recording captures and how long it may wait. */
+type Screen = Omit<SessionFile, "pid" | "started">;
+
+/** What `record start` leaves in recording.json for `record stop`. */
+interface RecordingFile {
+  pid: number;
+  started: string;
+  out: string;
+  idle: number;
+  width: number;
+  height: number;
+  cols: number;
+  rows: number;
 }
 
 const defaults: Options = {
@@ -96,7 +139,8 @@ const defaults: Options = {
   rows: 36,
   fontSize: 16,
   wait: 20,
-  out: "ghostty-screenshot.png",
+  out: null,
+  idle: 2,
   command: null,
   steps: [],
   session: null,
@@ -111,6 +155,10 @@ function positive(value: string, flag: string): number {
 function parse(argv: string[]): [Mode, Options] {
   let mode: Mode = "capture";
   if (argv[0] === "serve" || argv[0] === "shot" || argv[0] === "stop") [mode, argv] = [argv[0], argv.slice(1)];
+  else if (argv[0] === "record") {
+    if (argv[1] !== "start" && argv[1] !== "stop") throw Error("record needs start or stop");
+    [mode, argv] = [`record ${argv[1]}`, argv.slice(2)];
+  }
   const o = { ...defaults, steps: [] as string[] };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -138,6 +186,9 @@ function parse(argv: string[]): [Mode, Options] {
       case "--wait":
         o.wait = positive(value(), arg);
         break;
+      case "--idle":
+        o.idle = positive(value(), arg);
+        break;
       case "-o":
       case "--out":
         o.out = resolve(value());
@@ -162,6 +213,8 @@ function parse(argv: string[]): [Mode, Options] {
     }
   }
   if (o.command && o.steps.length) throw Error("--do needs a sandbox");
+  if (o.out && video(o.out) && mode === "capture" && !o.steps.length) throw Error("a video records --do steps");
+  if (o.out && !video(o.out) && mode === "record start") throw Error("record start needs an .mp4 or .gif path");
   return [mode, o];
 }
 
@@ -244,6 +297,200 @@ function save(path: string, pixels: Buffer): void {
   console.log(resolve(path));
 }
 
+function video(path: string): Video | null {
+  switch (extname(path).toLowerCase()) {
+    case ".mp4":
+      return "mp4";
+    case ".gif":
+      return "gif";
+    default:
+      return null;
+  }
+}
+
+function ffmpeg(...args: string[]): void {
+  const result = Bun.spawnSync(["ffmpeg", "-hide_banner", "-nostdin", "-y", ...args], { stderr: "pipe" });
+  if (!result.success) throw Error(`ffmpeg: ${result.stderr.toString().trim() || `exit ${result.exitCode}`}`);
+}
+
+function readRecording(dir: string): RecordingFile | null {
+  try {
+    return JSON.parse(readFileSync(join(dir, "recording.json"), "utf8")) as RecordingFile;
+  } catch {
+    return null;
+  }
+}
+
+/** Starts recording a session's window losslessly; returns once frames arrive. */
+async function startRecording(dir: string, screen: Screen, out: string, idle: number): Promise<void> {
+  const current = readRecording(dir);
+  if (current && running(current.pid, current.started)) throw Error("already recording; run record stop first");
+  const { w, h, x, y } = geometry(screen.display, screen.window, screen.wait);
+  const [raw, log, progress] = ["recording.mkv", "recording.log", "recording.progress"].map(name => join(dir, name));
+  rmSync(progress, { force: true });
+  const errors = openSync(log, "w");
+  // Not -nostdin: ffmpeg 7.1 ignores SIGINT with it, and stdin is /dev/null anyway.
+  // Detached, so a recording started by `record start` outlives that command.
+  const recorder = spawn(
+    "ffmpeg",
+    [
+      ...["-hide_banner", "-loglevel", "error", "-y"],
+      ...["-f", "x11grab", "-draw_mouse", "1", "-framerate", String(FPS), "-video_size", `${w}x${h}`],
+      ...["-i", `:${screen.display}+${x},${y}`],
+      ...["-c:v", "libx264rgb", "-preset", "ultrafast", "-qp", "0"],
+      ...["-progress", progress, "-stats_period", "0.1", raw],
+    ],
+    { detached: true, stdio: ["ignore", "ignore", errors] },
+  );
+  closeSync(errors);
+  recorder.on("error", () => {});
+  recorder.unref();
+  const pid = recorder.pid;
+  const started = pid && startTime(pid);
+  if (!pid || !started) throw Error(`ffmpeg did not start: ${readFileSync(log, "utf8")}`);
+  const file: RecordingFile = { pid, started, out, idle, width: w, height: h, cols: screen.cols, rows: screen.rows };
+  writeFileSync(join(dir, "recording.json"), JSON.stringify(file));
+  await until(() => {
+    if (!running(pid, started)) throw Error(`ffmpeg exited: ${readFileSync(log, "utf8")}`);
+    return existsSync(progress) && /^frame=[1-9]/m.test(readFileSync(progress, "utf8"));
+  }, screen.wait);
+}
+
+/** Stops a session's recording and writes its video. */
+async function stopRecording(dir: string, wait: number): Promise<void> {
+  const file = readRecording(dir);
+  if (!file) throw Error("not recording; run record start first");
+  if (running(file.pid, file.started)) {
+    process.kill(file.pid, "SIGINT");
+    try {
+      await until(() => !running(file.pid, file.started), wait);
+    } catch (error) {
+      if (interrupted) throw error;
+      // A Matroska file reads back without its trailer.
+      process.kill(file.pid, "SIGKILL");
+    }
+  }
+  await encode(join(dir, "recording.mkv"), file);
+  for (const name of ["recording.json", "recording.mkv", "recording.log", "recording.progress", "palette.png"])
+    rmSync(join(dir, name), { force: true });
+  console.log(file.out);
+}
+
+/** Ends a recording without writing it, when its session closes. */
+function abandonRecording(dir: string): void {
+  const file = readRecording(dir);
+  if (file && running(file.pid, file.started)) process.kill(file.pid, "SIGKILL");
+}
+
+/** Each frame scaled to one RGB pixel per terminal cell. */
+async function* cellFrames(raw: string, filters: string, cols: number, rows: number): AsyncGenerator<Uint8Array> {
+  const decoder = Bun.spawn(
+    [
+      ...["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-i", raw],
+      ...["-vf", `${filters},scale=${cols}:${rows}:flags=area,format=rgb24`, "-f", "rawvideo", "-"],
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const size = cols * rows * 3;
+  let frame = new Uint8Array(size);
+  let filled = 0;
+  for await (const chunk of decoder.stdout)
+    for (let offset = 0; offset < chunk.length;) {
+      const take = Math.min(size - filled, chunk.length - offset);
+      frame.set(chunk.subarray(offset, offset + take), filled);
+      [filled, offset] = [filled + take, offset + take];
+      if (filled < size) break;
+      yield frame;
+      [frame, filled] = [new Uint8Array(size), 0];
+    }
+  if ((await decoder.exited) !== 0) throw Error(`ffmpeg: ${(await new Response(decoder.stderr).text()).trim()}`);
+}
+
+/** How many RGB cells differ between two frames. */
+function differing(a: Uint8Array, b: Uint8Array): number {
+  let count = 0;
+  for (let i = 0; i < a.length; i += 3) if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) count++;
+  return count;
+}
+
+/**
+ * The frames where the screen changes: the first, and each where 8 or more
+ * cells differ from the change before. Fewer, like a resource meter ticking
+ * or the corgi blinking, don't count, though typing adds up. When the last
+ * frame differs at all, it is shown for hold frames at the end.
+ */
+export async function changes(frames: AsyncIterable<Uint8Array> | Iterable<Uint8Array>, hold: number) {
+  const found: number[] = [];
+  let reference: Uint8Array | null = null;
+  let last: Uint8Array | null = null;
+  let count = 0;
+  for await (const frame of frames) {
+    if (!reference || differing(reference, frame) >= 8) {
+      reference = frame;
+      found.push(count);
+    }
+    last = frame;
+    count++;
+  }
+  // The end pads hold copies of the last frame; start the final screen there.
+  if (last && reference && differing(reference, last)) found.push(Math.max(count - hold, found.at(-1)! + 1));
+  return found;
+}
+
+/**
+ * Frame spans to drop, [from, to) with to null for the end, so no still
+ * screen lasts more than hold frames. A pause keeps its last lead frames,
+ * where the first keystrokes of a change can show.
+ */
+export function stills(changes: number[], hold: number, lead: number): [number, number | null][] {
+  return changes.flatMap((frame, i): [number, number | null][] => {
+    const next = changes[i + 1] ?? null;
+    if (next === null) return [[frame + hold, null]];
+    return next - frame > hold ? [[frame + hold - lead, next - lead]] : [];
+  });
+}
+
+/** Encodes a lossless recording, holding its first and last screens and cutting long stills. */
+async function encode(raw: string, file: RecordingFile): Promise<void> {
+  // Constant frames from 0 let frame numbers stand for times in both passes.
+  const base =
+    `setpts=PTS-STARTPTS,fps=${FPS},` +
+    `tpad=start_mode=clone:start_duration=${file.idle}:stop_mode=clone:stop_duration=${file.idle}`;
+  const hold = Math.round(file.idle * FPS);
+  const lead = Math.min(FPS / 2, Math.floor(hold / 2));
+  const spans = stills(await changes(cellFrames(raw, base, file.cols, file.rows), hold), hold, lead);
+  const drop = spans.map(([from, to]) => (to === null ? `gte(n,${from})` : `between(n,${from},${to - 1})`));
+  const cut = `${base},select='not(${drop.join("+")})',setpts=N/${FPS}/TB,fps=${FPS}`;
+  mkdirSync(dirname(file.out), { recursive: true });
+  switch (video(file.out)) {
+    case "mp4": {
+      // Doubled pixels give each 2x2 chroma sample one color. Past H.264
+      // level 5.1's frame size, keep the window's size, padded to even.
+      const size =
+        file.width * file.height * 4 <= 4096 * 2304
+          ? "scale=iw*2:ih*2:flags=neighbor"
+          : "pad=ceil(iw/2)*2:ceil(ih/2)*2";
+      ffmpeg(
+        ...["-loglevel", "error", "-i", raw, "-vf", `${cut},${size},format=yuv420p`],
+        ...["-c:v", "libx264", "-preset", "slow", "-crf", "18", "-movflags", "+faststart", "-an", file.out],
+      );
+      break;
+    }
+    case "gif": {
+      // No dithering: text keeps solid edges.
+      const palette = join(dirname(raw), "palette.png");
+      ffmpeg("-loglevel", "error", "-i", raw, "-vf", `${cut},palettegen`, palette);
+      ffmpeg(
+        ...["-loglevel", "error", "-i", raw, "-i", palette],
+        ...["-lavfi", `[0:v]${cut}[v];[v][1:v]paletteuse=dither=none:diff_mode=rectangle`, file.out],
+      );
+      break;
+    }
+    case null:
+      throw Error(`${file.out} is not an .mp4 or .gif`);
+  }
+}
+
 /** Single-quotes a value for sh. */
 function quote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
@@ -258,6 +505,8 @@ interface Session {
   env: Record<string, string | undefined>;
   driver: Driver;
   terminal: Bun.Subprocess;
+  /** Runs --do steps in order. */
+  steps(steps: string[]): void;
   close(): Promise<void>;
 }
 
@@ -278,6 +527,7 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
   const log = join(scratch, "ghostty.log");
   const xlog = join(scratch, "xvfb.log");
   const close = async () => {
+    abandonRecording(scratch);
     terminal?.kill();
     await terminal?.exited;
     xvfb?.kill();
@@ -401,6 +651,16 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
       async screenshot(path) {
         save(path, await settledFrame(display, window, frame, o.wait, alive));
       },
+      async record(path) {
+        alive();
+        await startRecording(
+          scratch,
+          { display, window, cols: o.cols, rows: o.rows, wait: o.wait },
+          resolve(path),
+          o.idle,
+        );
+        return { stop: () => stopRecording(scratch, o.wait) };
+      },
     };
     // An agent drives the sandbox with these, from any shell.
     const bin = join(scratch, "bin");
@@ -427,10 +687,13 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
     };
     if (sandbox) script("corgi", `exec ${quote(o.corgi)} "$@"`);
     script("screenshot", `exec ${quote(process.execPath)} ${quote(import.meta.path)} shot "$@"`);
+    script("record", `exec ${quote(process.execPath)} ${quote(import.meta.path)} record "$@"`);
     // Mouse tracking and layout are ready only after the viewer's first frames.
     await driver.settle();
-    for (const step of o.steps) run(["sh", "-c", step], { ...env, ...exports, CORGI_PANE: undefined }, cwd, o.wait);
-    return { dir: scratch, sandbox, display, window, env: { ...env, ...exports }, driver, terminal, close };
+    const steps = (steps: string[]) => {
+      for (const step of steps) run(["sh", "-c", step], { ...env, ...exports, CORGI_PANE: undefined }, cwd, o.wait);
+    };
+    return { dir: scratch, sandbox, display, window, env: { ...env, ...exports }, driver, terminal, steps, close };
   } catch (error) {
     await close();
     throw error;
@@ -438,10 +701,21 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
 }
 
 export async function capture(options: Partial<Options> = {}, recipe: Recipe = {}): Promise<void> {
-  const session = await start({ ...defaults, ...options }, recipe.prepare);
+  const o = { ...defaults, ...options };
+  const out = o.out ?? "ghostty-screenshot.png";
+  const session = await start(o, recipe.prepare);
   try {
-    if (recipe.drive) await recipe.drive(session.driver);
-    else await session.driver.screenshot(options.out ?? defaults.out);
+    if (!recipe.drive && video(out)) {
+      const recording = await session.driver.record(out);
+      session.steps(o.steps);
+      // The viewer draws a step's last change after the step returns.
+      await Bun.sleep(1000);
+      await recording.stop();
+    } else {
+      session.steps(o.steps);
+      if (recipe.drive) await recipe.drive(session.driver);
+      else await session.driver.screenshot(out);
+    }
   } finally {
     await session.close();
   }
@@ -451,12 +725,15 @@ export async function capture(options: Partial<Options> = {}, recipe: Recipe = {
 async function serve(o: Options): Promise<void> {
   const session = await start(o);
   try {
+    session.steps(o.steps);
     if (interrupted) return;
     const file: SessionFile = {
       pid: process.pid,
       started: startTime(process.pid)!,
       display: session.display,
       window: session.window,
+      cols: o.cols,
+      rows: o.rows,
       wait: o.wait,
     };
     writeFileSync(join(session.dir, "session.json"), JSON.stringify(file));
@@ -466,6 +743,7 @@ async function serve(o: Options): Promise<void> {
         `session ${session.dir}`,
         ...(session.sandbox ? [`  drive:      ${bin}/corgi action help`] : []),
         `  screenshot: ${bin}/screenshot -o shot.png`,
+        `  record:     ${bin}/record start -o demo.mp4, then ${bin}/record stop`,
         `  env:        . ${session.dir}/env.sh   (CORGI_SOCKET, DISPLAY, GHOSTTY_WINDOW, PATH)`,
         `  stop:       bun ${import.meta.path} stop --session ${session.dir}`,
       ].join("\n"),
@@ -476,15 +754,26 @@ async function serve(o: Options): Promise<void> {
   }
 }
 
-/** A process's start time from /proc, or null when there is no such process. */
-function startTime(pid: number): string | null {
+/** A process's fields from /proc after its command name, starting with its state. */
+function procStat(pid: number): string[] | null {
   try {
     // The command name in parentheses may hold spaces; the fields after it don't.
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? null;
+    return stat.slice(stat.lastIndexOf(")") + 2).split(" ");
   } catch {
     return null;
   }
+}
+
+/** A process's start time, or null when there is no such process. */
+function startTime(pid: number): string | null {
+  return procStat(pid)?.[19] ?? null;
+}
+
+/** Whether the process that started at started is still running and not a zombie. */
+function running(pid: number, started: string): boolean {
+  const fields = procStat(pid);
+  return !!fields && fields[0] !== "Z" && fields[19] === started;
 }
 
 /** The session named by --session or $CORGI_CAPTURE_SESSION, else the only one running. */
@@ -520,7 +809,7 @@ async function shot(o: Options): Promise<void> {
   // Each shot grabs into its own file, so concurrent shots don't share one.
   const frame = join(dir, `frame-${process.pid}.png`);
   try {
-    save(o.out, await settledFrame(file.display, file.window, frame, file.wait));
+    save(o.out ?? "ghostty-screenshot.png", await settledFrame(file.display, file.window, frame, file.wait));
   } finally {
     rmSync(frame, { force: true });
   }
@@ -553,6 +842,17 @@ if (import.meta.main) {
       case "stop":
         await stop(o);
         break;
+      case "record start": {
+        const [dir, file] = findSession(o);
+        const out = o.out ?? resolve("ghostty-recording.mp4");
+        await startRecording(dir, file, out, o.idle);
+        break;
+      }
+      case "record stop": {
+        const [dir, file] = findSession(o);
+        await stopRecording(dir, file.wait);
+        break;
+      }
     }
   } catch (error) {
     console.error(`ghostty_screenshot: ${(error as Error).message}`);

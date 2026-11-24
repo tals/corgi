@@ -367,11 +367,40 @@ bun tools/ghostty_screenshot.ts stop
 
 `. $SESSION/env.sh` puts `corgi` and `screenshot` on PATH and sets
 `CORGI_SOCKET`, `DISPLAY` and `GHOSTTY_WINDOW`, so xdotool can send keys and
-clicks too. `shot` and `stop` find the session from `--session`,
+clicks too. `shot`, `record` and `stop` find the session from `--session`,
 `$CORGI_CAPTURE_SESSION` or, when only one is running, by themselves. The
 session cleans up when stopped, on SIGINT or SIGTERM, or when Ghostty exits.
 
-Inspect regenerated PNGs before committing them. This runs on Linux directly
+For a video, give an `.mp4` or `.gif` output; it records the `--do` steps:
+
+```sh
+bun tools/ghostty_screenshot.ts --do 'corgi action help' --do 'sleep 1' \
+  --do 'xdotool key Escape' -o /tmp/help.mp4
+```
+
+In a session, `record start` and `record stop` bracket whatever you do in
+between, across as many commands as you like:
+
+```sh
+$SESSION/bin/record start -o /tmp/demo.mp4
+$SESSION/bin/corgi action help
+xdotool key Escape                     # after . $SESSION/env.sh
+$SESSION/bin/record stop               # writes /tmp/demo.mp4
+```
+
+Videos include the pointer. They hold the first and last screens for
+`--idle` seconds (default 2) and cut any longer pause down to that, so the
+time spent deciding the next step doesn't reach the video. A pause can hold
+changes under 8 cells, such as a resource meter or the corgi's blink. To keep a
+deliberate pause, raise `--idle` on `record start` or the capture.
+
+MP4 is the format for PRs: GitHub plays it inline, and `gh pr create --attach
+./demo.mp4` uploads it. The tool records losslessly, then encodes H.264 with
+every pixel doubled so 4:2:0 chroma subsampling can't put halos around colored
+text. A GIF keeps the window's size and plays without a click, but is larger
+for anything long.
+
+Inspect regenerated PNGs and videos before committing or attaching them. This runs on Linux directly
 or in a container with the dependencies installed.
 
 ## Reload, restart and recovery

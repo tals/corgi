@@ -27,12 +27,13 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
   in your terminal; with no name it lists them. Add an entry there for a new one.
 - **UI driver:** `bun tools/ui_driver.ts run current -e 'key ctrl+b c; snap'` drives a
   viewer in a PTY and records its screens. See `tools/ui_driver.ts`.
-- **Screenshots:** `bun tools/ghostty_screenshot.ts --sandbox NAME -o shot.png`
-  captures a live Ghostty window on Xvfb. Use this for documentation and UI
-  screenshots so fonts, box drawing and Kitty images retain terminal fidelity.
+- **Screenshots and videos:** `bun tools/ghostty_screenshot.ts --sandbox NAME -o shot.png`
+  captures a live Ghostty window on Xvfb; `-o demo.mp4` records the `--do`
+  steps instead. Use this for documentation and UI screenshots and videos so
+  fonts, box drawing and Kitty images retain terminal fidelity.
   Do not repaint terminal cells into SVG, canvas or another terminal renderer.
   `serve` keeps one running for an agent to drive over its socket and capture
-  on demand; see HACKING.md.
+  on demand, with `record start` and `record stop` around a take; see HACKING.md.
 
 ## Layout
 
@@ -189,18 +190,21 @@ because the code touches them. Explain an unchanged version only when the
 change would otherwise leave a real compatibility question.
 
 **PRs.** Use the same title and core description as the intended commit. Add
-only what helps review or try the change: a screenshot, runnable example,
-material limitation or concise verification. Usually a `Tested: ...` line is
-enough; include failures or checks not run when they affect confidence. Don't
-add Summary / Changes / Validation / Compatibility sections by habit, or a
-list of every test and edge case. Larger explanations can link to docs or a
-report. State results for the current change, not an earlier revision.
+only what helps review or try the change: a screenshot or video, runnable
+example, material limitation or concise verification. When a change alters
+what the UI does, such as a flow, an animation or the response to a key or
+click, attach a short video of it in a sandbox; a screenshot suits a static
+look. Usually a `Tested: ...` line is enough; include failures or checks not
+run when they affect confidence. Don't add Summary / Changes / Validation /
+Compatibility sections by habit, or a list of every test and edge case. Larger
+explanations can link to docs or a report. State results for the current
+change, not an earlier revision.
 
-Attach screenshots with `--attach` on `gh pr create` or `gh pr edit`: write
-`![alt](./shot.png)` in the `--body-file`, and `gh` uploads the file and
-rewrites the link. Save later edits with `gh pr edit` too; an attachment in a
-body saved through `gh api` stays private. Never push images to a branch for a
-PR.
+Attach screenshots and videos with `--attach` on `gh pr create` or `gh pr edit`:
+write `![alt](./shot.png)` or `![](./demo.mp4)` in the `--body-file`, and `gh`
+uploads the file and rewrites the link; a video plays inline. Save later edits
+with `gh pr edit` too; an attachment in a body saved through `gh api` stays
+private. Never push images or videos to a branch for a PR.
 
 **Before sending.** Read the message without the diff. Can a reader identify
 the main change and its reason or use? Does each remaining detail change that
