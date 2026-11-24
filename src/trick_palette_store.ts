@@ -102,7 +102,14 @@ export class Store {
     return refs
       .slice(0, 256)
       .sort()
-      .map(ref => palette.summary(ref, this.get(ref)));
+      .flatMap(ref => {
+        try {
+          return [palette.summary(ref, this.get(ref))];
+        } catch {
+          // A malformed or misnamed file leaves the rest listed, as the watcher does.
+          return [];
+        }
+      });
   }
   private async change(ref: string, edit: (state: palette.State | null) => palette.State): Promise<palette.State> {
     const file = this.path(ref);

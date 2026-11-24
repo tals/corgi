@@ -111,6 +111,10 @@ test("palette limits and malformed stores fail without destroying saved choices"
     const file = join(f.root, "one/a/bounded.json");
     writeFileSync(file, "broken");
     await expect(a.store.set("a/bounded", 0, "accent")).rejects.toThrow();
+    // Listing skips files it can't read, and keeps the rest.
+    await a.maps("kept", ["warm"])("x");
+    writeFileSync(join(f.root, "one/a/globals.stray.json"), "{}");
+    expect(a.store.list().map(summary => summary.ref)).toEqual(["a/kept"]);
   } finally {
     f.close();
   }
