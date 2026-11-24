@@ -69,3 +69,10 @@ test("plans read as Claude's tier refines its kind", () => {
   ])
     expect(claude.plan(kind, tier).text()).toBe(label);
 });
+test("Claude's session starting again after a compaction ends it", () => {
+  const hook = (v: object) => claude.adapter.hook({ session_id: "s", hook_event_name: "SessionStart", ...v })?.kind;
+  expect(hook({ source: "compact" })).toBe("compact_end");
+  expect(hook({ source: "startup" })).toBe("session_start");
+  expect(hook({ source: "compact", agent_id: "a" })).toBeUndefined();
+  expect(claude.events).not.toContain("PostCompact");
+});

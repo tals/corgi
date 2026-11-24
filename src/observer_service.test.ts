@@ -524,11 +524,11 @@ test("a compaction's end has its new size read at once and applied between scans
   pane.attachment.select(actor);
   const workers = start(server),
     refresh = spyOn(workers.usage, "refresh");
-  const send = (seq: bigint, name: string) =>
+  const send = (seq: bigint, name: string, source?: string) =>
     hook(server, {
       pane: 1,
       provider: "claude",
-      event: { hook_event_name: name, session_id: "compacting" },
+      event: { hook_event_name: name, session_id: "compacting", source },
       seq,
       pid: 42,
       background: true,
@@ -537,7 +537,8 @@ test("a compaction's end has its new size read at once and applied between scans
   const since = actor.state.compacting_since;
   expect(since).toBeGreaterThan(0);
   expect(refresh).not.toHaveBeenCalled();
-  send(2n, "PostCompact");
+  // Claude starts its session again once the compaction ends.
+  send(2n, "SessionStart", "compact");
   expect(actor.state).toMatchObject({ state: "working", compacting: false });
   expect(refresh).toHaveBeenCalledWith(actor.id, Math.floor(since / 1000));
   workers.usage.stop();

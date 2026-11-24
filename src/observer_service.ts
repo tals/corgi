@@ -337,10 +337,10 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
         prompt: actor.prompt_watch,
       },
       seen = watcher(workers, judge, pane.account()).read(view, pane.detection, known, now);
-    const target = actor && pane.detection.screen_only ? actor.state : pane.attachment.provisional;
+    const target = actor && pane.detection.screen_only ? actor.state : pane.attachment.provisional,
+      since = actor?.state.compacting_since ?? 0;
     if (seen.shown && speaks && (claim || job)) ding = pane.detection.show(target, seen.shown, watched);
     if (actor) {
-      const since = actor.state.compacting_since;
       if (target !== actor.state) actor.screen(pane.attachment.provisional, ding, now);
       if (actor.state.state === "working") actor.observeCompactionScreen(seen.compacting, now);
       if (seen.interrupted) actor.state.abandonTurn(now);

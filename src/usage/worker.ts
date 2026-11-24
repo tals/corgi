@@ -307,20 +307,23 @@ export class Worker {
   activate() {
     this.timer = setInterval(() => void this.step(), 50);
   }
-  /** Every transcript each 250 ms; between, those of compactions that just ended. */
+  /** Every transcript each fifth tick; between, those of compactions that just
+   * ended. A full scan that finds a run in flight waits for the next tick. */
   private async step() {
-    const now = Date.now();
-    if (now - this.ran >= 250) {
-      this.ran = now;
-      await this.run();
-    } else if (this.urgent.size) await this.run(true);
+    if (this.running) return;
+    // A fifth tick that fires a little early still counts.
+    const full = Date.now() - this.ran >= 225;
+    if (full) this.ran = Date.now();
+    else if (!this.urgent.size) return;
+    await this.run(!full);
   }
   /** Reads `actor`'s transcript first, every 50 ms for a few seconds, until it
    * gives a context reading from after its compaction began at `since`, in ms.
    * Providers report a compaction's end before they write its new size, and
    * readings from before it may still be unread. */
   refresh(actor: number, since: number) {
-    this.urgent.set(actor, { until: Date.now() + 5000, since });
+    const pending = this.urgent.get(actor);
+    this.urgent.set(actor, { until: Date.now() + 5000, since: Math.min(pending?.since ?? since, since) });
   }
   /** Stops reading between runs, so a handoff can apply what the worker found. */
   async pause() {
