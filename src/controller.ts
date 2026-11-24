@@ -4026,6 +4026,11 @@ export class Controller {
         }
         break;
       }
+      case "open-image": {
+        const path = this.pointedImage();
+        if (path) this.queueEffect({ open_image: path });
+        break;
+      }
       case "paste":
         if (this.clipboard !== null) {
           // A pane still opening takes no pastes.
@@ -10557,16 +10562,23 @@ export class Controller {
     const source = this.linkAt(link.x, link.y);
     if (!linkTooltip.sameLink(source, link)) return null;
     const file = this.hoveredFile(link);
-    const open_image =
-      file?.image &&
-      !this.machine.remote &&
-      this.host.opens_desktop &&
-      linkTooltip.geometry(this.width, this.height, link, null, true)
-        ? file.path
-        : undefined;
+    const image = this.desktopImage(file);
+    const open_image = image && linkTooltip.geometry(this.width, this.height, link, null, true) ? image : undefined;
     let thumbnail = this.linkThumbnail(file);
     if (thumbnail) thumbnail = linkTooltip.fit(this.width, this.height, link, thumbnail, !!open_image);
     return { link, copied: this.link_tooltip.copied_until > milliTimestamp(), thumbnail, open_image };
+  }
+  private desktopImage(file: LinkedFile | null): string | undefined {
+    return file?.image && !this.machine.remote && this.host.opens_desktop ? file.path : undefined;
+  }
+  /** A key dismisses the card, but the image link under the pointer still opens. */
+  private pointedImage(): string | undefined {
+    const card = this.linkCard();
+    if (card) return card.open_image;
+    const pointer = this.pointer;
+    if (!pointer || !this.linkHoverIdle() || this.ui_mouse_down || this.paste_card) return;
+    const link = this.linkAt(pointer.x, pointer.y);
+    return link ? this.desktopImage(this.hoveredFile(link)) : undefined;
   }
   /** Loads the thumbnail on the pane's machine when the host shows Kitty
    * images and reports its cell size. */
@@ -10633,7 +10645,7 @@ export class Controller {
         if (button === 0 && card?.link === pressed.link && hit === pressed.button) {
           if (hit === "copy") await this.perform({ name: "copy-link" });
           if (hit === "open" && card.open_image && card.open_image === pressed.image)
-            this.queueEffect({ open_image: card.open_image });
+            await this.perform({ name: "open-image" });
         }
       }
       return true;

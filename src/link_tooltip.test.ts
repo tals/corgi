@@ -5,6 +5,7 @@ import type { Controller } from "./controller";
 import { attached, mouse, onePane } from "./fixtures/viewer";
 import * as viewer from "./viewer";
 import * as viewerNative from "./viewer_native";
+import * as protocol from "./protocol";
 import { Writer } from "./text";
 import { png_base64 } from "./assets/corgi_badge";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -408,6 +409,38 @@ test("an image link's popover copies its path and opens the original from its th
     expect(s.effects).toEqual([]);
     await s.input(mouse(0, 4, 6));
     await s.input(mouse(0, 4, 6, true));
+    expect(s.effects).toEqual([{ open_image: path }]);
+    await s.input(mouse(35, 2, 1));
+    s.clearEffects();
+    const binding = spyOn(s.prefs, "bindings").mockReturnValue([
+      { key: 111, mods: { alt: true }, prefixed: false, action: { name: "open-image" } },
+    ]);
+    try {
+      await s.input(Buffer.from("\x1b[111;3u"));
+      expect(s.effects).toEqual([{ open_image: path }]);
+    } finally {
+      binding.mockRestore();
+    }
+    s.clearEffects();
+    await viewer.receive(
+      s,
+      {
+        type: "view",
+        viewer_protocol: protocol.viewer_version,
+        session: null,
+        session_hash: 0,
+        resources: null,
+        resources_hash: 0,
+        surfaces: [],
+        controls: [{ seq: 1, kind: "action", name: "open-image" }],
+        viewer: 1,
+        bell_seq: 0,
+        bell_kind: "none",
+        detach: false,
+      },
+      { seq: 0n },
+      false,
+    );
     expect(s.effects).toEqual([{ open_image: path }]);
     await s.input(mouse(35, 90, 20));
     s.frame();
