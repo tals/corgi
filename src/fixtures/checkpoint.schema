@@ -10,6 +10,10 @@ $.link_labels.entries[64]?.attempted: bool
 $.link_labels.entries[64]?.pending: bool
 $.link_labels.entries[64]?.name: custom bounded_text.BoundedText(32)
 $.link_labels.generation: u64
+$.announced_ports[].pane: u32
+$.announced_ports[].port: u16
+$.announced_ports[].bind_address: string
+$.announced_ports[].announced: enum http https address flag
 $.last_agent: provider
 $.agent_yolo{provider}: bool
 $.agent_hidden{provider}: bool

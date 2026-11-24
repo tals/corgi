@@ -795,6 +795,20 @@ test("live checkpoint size depends on retained state not output volume", () => {
     old.destroy();
   }
 });
+test("announced ports survive live checkpoints only", async () => {
+  const r = fresh(),
+    announced = { pane: 1, port: 4000, bind_address: "*", announced: "http" as const };
+  r.ports.restore([announced]);
+  try {
+    for (const live of [true, false]) {
+      using next = new Runtime();
+      await restore(next, cp.capture(r, live), live);
+      expect(next.ports.announced()).toEqual(live ? [announced] : []);
+    }
+  } finally {
+    r.destroy();
+  }
+});
 test("link cache and spent inference attempts survive live checkpoints only", async () => {
   const r = fresh();
   r.link_labels.generation = 3n;

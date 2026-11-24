@@ -188,6 +188,7 @@ export function capture(r: Runtime, live: boolean) {
     next_conversation: r.conversations.next_id,
     worktree_placements: r.worktree_tracker.capture(),
     link_labels: live ? r.link_labels : new Cache(),
+    announced_ports: live ? r.ports.announced() : [],
     last_agent: r.last_agent,
     agent_yolo: r.agent_yolo,
     agent_hidden: r.agent_hidden,
@@ -340,6 +341,7 @@ export async function restore(
     );
     r.link_labels = Cache.restore(r.link_labels);
   }
+  if (live && state.announced_ports) r.ports.restore(state.announced_ports);
   for (const w of state.workspaces) {
     check(
       !w.id || w.id >= state.next_workspace,
