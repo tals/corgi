@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as tricks from "./tricks";
 import * as trickHost from "./trick_host";
 import * as trickConfig from "./trick_config";
@@ -11,6 +14,7 @@ import { Rect } from "./layout";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 import { Runtime } from "./runtime";
+import { until } from "./fixtures/until";
 import type { Session } from "./headless";
 
 test("a sketch manifest only names its entry point", () => {
@@ -60,6 +64,37 @@ test("snapshots leave out the Corgi prompt's own conversations", () => {
   } finally {
     r.sessions = [];
     r.destroy();
+  }
+});
+
+test("stopping a trick doesn't wait on a helper that holds its pipes open", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-tricks-")),
+    pid = join(root, "helper.pid"),
+    previous = process.env.CORGI_TRICKS_DIR;
+  mkdirSync(join(root, "helper"));
+  writeFileSync(
+    join(root, "helper", "trick.toml"),
+    `version = 1\nid = "helper"\ncommand = ["sh", "-c", "setsid sh -c 'echo $$ > ${pid}; exec sleep 30' & exec sleep 30"]\n`,
+  );
+  process.env.CORGI_TRICKS_DIR = root;
+  const host = new trickHost.Host(
+    join(root, "control.sock"),
+    "/bin/false",
+    () => ({ agents: [], workspaces: [] }),
+    () => {},
+  );
+  try {
+    await host.reload(root);
+    expect(host.status()[0]).toMatchObject({ id: "helper", running: true });
+    await until(() => existsSync(pid));
+    expect(await Promise.race([host.stop().then(() => "stopped"), Bun.sleep(2000).then(() => "hung")])).toBe("stopped");
+  } finally {
+    try {
+      process.kill(Number(readFileSync(pid, "utf8")), "SIGKILL");
+    } catch {}
+    if (previous === undefined) delete process.env.CORGI_TRICKS_DIR;
+    else process.env.CORGI_TRICKS_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

@@ -346,6 +346,8 @@ export class Host {
         r.child.kill("SIGKILL");
       }
     }
+    // Nothing a surviving helper writes reaches the daemon.
+    for (const stream of [r.child.stdin, r.child.stdout, r.child.stderr]) stream.destroy();
   }
   private async stopProcesses(selected: Set<string> | null = null) {
     const running = this.running.filter(r => !selected || selected.has(basename(dirname(r.status.path))));
@@ -431,7 +433,12 @@ export class Host {
           detached: true,
           stdio: "pipe",
         });
-        const exited = new Promise<void>(done => child.once("close", () => done()));
+        // A helper the trick starts in its own session can keep its pipes
+        // open after it exits, so "close" alone could wait on the helper.
+        const exited = new Promise<void>(done => {
+          child.once("exit", () => done());
+          child.once("close", () => done());
+        });
         const r: Running = {
           palettes: new Set(),
           instance: crypto.randomUUID(),
