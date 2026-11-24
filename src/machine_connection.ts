@@ -448,8 +448,9 @@ export class Endpoint {
       this.update = undefined;
       if (factory) this.newPath = factory;
       // An incompatible or unreachable daemon may now be usable, also when
-      // another window or computer moved it meanwhile. A live link does its own handoff.
-      if ((factory || this.status === "incompatible") && !this.checked && !this.handoff && !this.shut_down)
+      // another window or computer moved it meanwhile. A live link does its
+      // own handoff; an incompatible daemon left none, whatever keys it held.
+      if (!this.shut_down && (this.status === "incompatible" || (factory && !this.checked && !this.handoff)))
         this.reconnect();
     } catch (error) {
       if (job.signal.aborted) return;
@@ -458,7 +459,7 @@ export class Endpoint {
           ? error
           : new machine_update.Failure(errors.name(error) || "MachineUpdateFailed");
       // Its hello says what the machine runs now; an incompatible one doesn't retry the update.
-      if (this.status === "incompatible" && !this.handoff && !this.shut_down) this.reconnect();
+      if (this.status === "incompatible" && !this.shut_down) this.reconnect();
     } finally {
       if (this.updating === job) {
         this.updating = null;

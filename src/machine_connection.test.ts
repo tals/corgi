@@ -439,6 +439,8 @@ test("a machine another window moved to this release meanwhile comes online", as
   try {
     endpoint.pump(false);
     await until(() => endpoint.status === "incompatible");
+    // Its link held keys through the reload that took the machine away.
+    Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
     moved = true;
     // This window's update waited out the other's and found nothing to do.
     finished.resolve(null);
@@ -478,6 +480,7 @@ test("a failed update looks again at an incompatible machine", async () => {
   try {
     endpoint.pump(false);
     await until(() => endpoint.status === "incompatible");
+    Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
     // Another viewer of this release moved it first, and this one's install lost.
     moved = true;
     finished.reject(new machine_update.Failure("InstallationChanged"));
