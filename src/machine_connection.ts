@@ -1180,6 +1180,7 @@ export class Endpoint {
           resources: null,
           resources_hash: machine.runtime.resources_hash ?? 0n,
           surfaces: [],
+          tricks: machine.runtime.tricks,
           controls: [],
           viewer: machine.viewer_id,
           bell_seq: this.bell.seq,

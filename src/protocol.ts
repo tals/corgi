@@ -61,6 +61,7 @@ export interface View<Session = unknown, Resources = unknown> {
   resources_hash: bigint;
   surfaces: SurfaceView[];
   patches?: SurfacePatch[];
+  tricks?: import("./tricks").View[];
   bell_seq: bigint;
   bell_kind: "none" | "finished" | "needs_input";
   controls: Control[];
@@ -109,6 +110,14 @@ export const operations = [
   "hello",
   "link.open",
   "link.resume",
+  "tricks.list",
+  "tricks.reload",
+  "tricks.configure",
+  "tricks.press",
+  "tricks.palettes",
+  "tricks.palette",
+  "tricks.palette.set",
+  "tricks.palette.colors",
   "session.command",
   "session.locate",
   "workspace.archive.preview",
@@ -583,14 +592,13 @@ function validate(value: any, type: string, strict = false): any {
   }
   if (type === "theme") {
     try {
-      return Object.assign(
-        new Theme(),
-        struct(
-          value,
-          { foreground: ["?rgb", null], background: ["?rgb", null], palette: ["[]?rgb", Array(16).fill(null)] },
-          false,
-        ),
+      const theme = struct(
+        value,
+        { foreground: ["?rgb", null], background: ["?rgb", null], palette: ["[]?rgb", Array(16).fill(null)] },
+        false,
       );
+      if (theme.palette.length !== 16) throw Error("UnexpectedToken");
+      return Object.assign(new Theme(), theme);
     } catch {
       return null;
     }
@@ -635,8 +643,6 @@ function struct(value: any, fields: Fields, strict: boolean) {
     }
     out[key] = validate(source[key], type, strict);
   }
-  if (fields === structures.rgb) return out;
-  if (Object.hasOwn(out, "palette") && out.palette.length !== 16) throw Error("UnexpectedToken");
   return out;
 }
 const structures = {
@@ -750,6 +756,11 @@ const requests = {
   "launcher.catalog": { workspace: ["u32", 0], cwd: ["string", ""], preview: ["bool", true] },
   "launcher.models": { row: "string", workspace: ["u32", 0], cwd: ["string", ""] },
   "link.resume": { link: "string" },
+  "tricks.palette": { palette: "string" },
+  "tricks.palette.set": { palette: "string", key: ["json", null], color: ["json", null], all: ["bool", false] },
+  "tricks.palette.colors": { palette: "string", colors: ["json", null] },
+  "tricks.configure": { id: ["?string", null], enabled: ["?bool", null], autoreload: ["?bool", null] },
+  "tricks.press": { action: "string", viewer: "u32" },
   "session.locate": { pane: "u32" },
   "session.snapshot": { resources: ["?bool", null], worktree_detail: ["?u32", null] },
   "viewer.watch": { viewer: "u32" },
@@ -1016,6 +1027,14 @@ export interface ReplyPayloads {
   "link.resume": Ok & { link: string; viewer: boolean };
   startup: Ok & { cancelled: boolean };
   "startup.kill": Ok;
+  "tricks.list": Ok & import("./trick_config").Info;
+  "tricks.reload": Ok & import("./trick_config").Info;
+  "tricks.configure": Ok & import("./trick_config").Info;
+  "tricks.press": Ok & { accepted: boolean };
+  "tricks.palettes": Ok & { palettes: import("./trick_palette").Summary[] };
+  "tricks.palette": Ok & import("./trick_palette").Info;
+  "tricks.palette.set": Ok & import("./trick_palette").Info;
+  "tricks.palette.colors": Ok & import("./trick_palette").Info;
   "session.command": Ok & { result: Result };
   "session.locate": Ok & { result: Result };
   "workspace.archive.preview": Ok & { preview: import("./workspace_archive").Preview };

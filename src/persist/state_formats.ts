@@ -33,6 +33,7 @@ import * as r_08e793e2e4fa from "./revisions/20261122_195524_08e793e2e4fa_add_fi
 import * as r_1047006f32d4 from "./revisions/20261122_231223_1047006f32d4_add_folder_list_find_and_open_rpcs";
 import * as r_531e30a41925 from "./revisions/20261124_035837_531e30a41925_keep_announced_ports_through_a_live_handoff";
 import * as r_428273850636 from "./revisions/20261124_160133_428273850636_add_pane_view_and_a_pane_s_viewer_shown_file";
+import * as r_904e5f6a3ee6 from "./revisions/20261124_225325_904e5f6a3ee6_retain_trick_account_and_public_environment_meta";
 
 export const revisions = [
   r_1dfaa1773956.revision,
@@ -68,9 +69,10 @@ export const revisions = [
   r_1047006f32d4.revision,
   r_531e30a41925.revision,
   r_428273850636.revision,
+  r_904e5f6a3ee6.revision,
 ];
 export const heads = {
-  state: r_428273850636.revision.id,
+  state: r_904e5f6a3ee6.revision.id,
   checkpoint: r_1dfaa1773956.revision.id,
   handoff: r_3a005bd21b0d.revision.id,
   workspaces: r_f4c12b1642bd.revision.id,

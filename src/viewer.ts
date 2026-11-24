@@ -1,6 +1,7 @@
 import type { State as ClipboardState } from "./host_clipboard";
 import * as composition from "./composition";
 import * as telemetry from "./telemetry";
+import * as tricks from "./tricks";
 //! Each invocation owns its UI, local selections, and input parser. The daemon
 //! sends shared session organization and terminal surfaces, never Corgi frames.
 //! Mirrors viewer.zig.
@@ -258,6 +259,7 @@ export async function receive(
   if (reply.session) view.receiveSnapshot(reply.session, machine);
   machine.runtime.snapshot_hash = reply.session_hash == null ? null : BigInt(reply.session_hash);
   if (reply.resources) machine.runtime.receiveResources(reply.resources);
+  machine.runtime.tricks = tricks.views(reply.tricks);
   machine.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
   machine.viewer_id = reply.viewer ?? 0;
   // A machine in the background still opens the links its panes' programs

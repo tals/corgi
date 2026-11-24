@@ -8,6 +8,10 @@ import * as archiveSummary from "./archive_summary";
 import { homedir, hostname } from "node:os";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
+import * as trickUi from "./trick_ui";
+import * as tricks from "./tricks";
+import * as trickConfig from "./trick_config";
+import * as trickPalette from "./trick_palette";
 import * as keys from "./keys";
 import * as keyboard from "./keyboard";
 import * as textArea from "./text_area";
@@ -400,6 +404,8 @@ export class Controller {
   archived_expanded = false;
   archived_offset = 0;
   input_state = new InputState();
+  trick_controls: trickUi.Controls = { hits: [], focus: null };
+  private trick_pressed = false;
   effects: Effect[] = [];
   executable = "";
   width = 100;
@@ -3470,6 +3476,7 @@ export class Controller {
   async perform(act: Action): Promise<void> {
     this.message = "";
     if (this.stillOpening(act)) return;
+    if (!["tricks", "trick-next", "trick-prev", "trick-press"].includes(act.name)) this.trick_controls.focus = null;
     switch (act.name) {
       case "dock":
         return this.commitDock();
@@ -3526,6 +3533,57 @@ export class Controller {
       case "machines":
         if (this.onMachines) this.onMachines();
         else this.notice(i18n.t`Add a machine with corgi machine add NAME`);
+        break;
+      case "focus-agent": {
+        const id = tricks.agentId(act.value),
+          [kind, number] = id.split(":");
+        this.closeMenu();
+        this.selectAgent(
+          kind === "pane"
+            ? viewerRef.pane(this.machine.id, Number(number))
+            : viewerRef.headless(this.machine.id, Number(number)),
+        );
+        break;
+      }
+      case "tricks":
+      case "trick-next":
+      case "trick-prev": {
+        if (act.name === "tricks") this.closeMenu();
+        this.frame();
+        const controls = this.trick_controls,
+          hits = controls.hits;
+        if (!hits.length) {
+          this.notice(i18n.t` No trick buttons visible`);
+          break;
+        }
+        const before = hits.findIndex(hit => hit.slot === controls.focus);
+        const index =
+          act.name === "tricks" || before < 0
+            ? 0
+            : (before + (act.name === "trick-prev" ? -1 : 1) + hits.length) % hits.length;
+        controls.focus = hits[index].slot;
+        this.dirty = true;
+        break;
+      }
+      case "trick-press": {
+        this.frame();
+        const action =
+          typeof act.value === "string" && act.value
+            ? act.value
+            : this.trick_controls.hits.find(hit => hit.slot === this.trick_controls.focus)?.action;
+        if (!action || !this.trick_controls.hits.some(hit => hit.action === action)) break;
+        const owner = this.machines.find(machine =>
+          machine.runtime.tricks.some(view => tricks.actions(view.content).includes(action)),
+        );
+        if (!owner || !owner.viewer_id) break;
+        if (owner !== this.machine) this.onMachine(owner, null);
+        await call(owner.connection, "tricks.press", { action, viewer: owner.viewer_id });
+        this.dirty = true;
+        break;
+      }
+      case "trick-close":
+        this.trick_controls.focus = null;
+        this.dirty = true;
         break;
       case "worktrees": {
         this.openWorktreeCard(act.value, true);
@@ -6531,6 +6589,40 @@ export class Controller {
     this.dirty = true;
     if (apply === null) return;
     switch (apply.kind) {
+      case "trick_palette_open":
+      case "trick_palette_colors":
+      case "trick_palette_set": {
+        const setup = this.corgi_setup;
+        if (!setup) return;
+        try {
+          if (apply.kind === "trick_palette_open") {
+            setup.trick_palette_ref = apply.ref;
+            setup.trick_palette = apply.ref
+              ? trickPalette.info(await call(this.connection, "tricks.palette", { palette: apply.ref }))
+              : null;
+            setup.cursor = 0;
+          } else if (apply.kind === "trick_palette_colors") {
+            setup.trick_palette = trickPalette.info(
+              await call(this.connection, "tricks.palette.colors", {
+                palette: apply.ref,
+                colors: apply.colors,
+              }),
+            );
+          } else {
+            const reply = await call(this.connection, "tricks.palette.set", {
+              palette: apply.ref,
+              key: apply.key,
+              color: apply.color,
+              all: apply.all ?? false,
+            });
+            setup.trick_palette = trickPalette.info(reply);
+          }
+          setup.tricks_error = null;
+        } catch (error) {
+          setup.tricks_error = String(error);
+        }
+        return;
+      }
       case "language":
         this.prefs.language = apply.language;
         localeHost.initialize(apply.language);
@@ -6541,6 +6633,22 @@ export class Controller {
           this.notice((error as Error).message);
         }
         return;
+      case "trick":
+      case "tricks_reload": {
+        const setup = this.corgi_setup;
+        if (!setup) return;
+        try {
+          const reply =
+            apply.kind === "tricks_reload"
+              ? await call(this.connection, "tricks.reload", {})
+              : await call(this.connection, "tricks.configure", { id: apply.id, enabled: apply.enabled });
+          setup.tricks = trickConfig.info(reply);
+          setup.tricks_error = null;
+        } catch (error) {
+          setup.tricks_error = String(error);
+        }
+        return;
+      }
       case "moonlander":
         return this.perform({ name: "moonlander" });
       case "shell":
@@ -6872,6 +6980,16 @@ export class Controller {
       return;
     }
     this.endSigninExit();
+    if (this.trick_controls.focus !== null) {
+      this.frame();
+      if (this.trick_controls.focus !== null) {
+        if (byte === 27) await this.perform({ name: "trick-close" });
+        else if (byte === 9 || byte === 106) await this.perform({ name: "trick-next" });
+        else if (byte === 107) await this.perform({ name: "trick-prev" });
+        else if (byte === 13 || byte === 32) await this.perform({ name: "trick-press" });
+        return;
+      }
+    }
     const cl = this.input_state;
     if (cl.tab_drag) {
       this.cancelDock();
@@ -6991,7 +7109,7 @@ export class Controller {
           setup.move(false, s, this.host.prefs);
           break;
         case 108:
-          setup.openOptions(s, this.host.prefs);
+          await this.applySetup(setup.right(s, this.host.prefs));
           break;
         case 104:
           setup.back();
@@ -7349,6 +7467,7 @@ export class Controller {
   }
   /** The keyboard's owner when a paste begins, in `key`'s order. */
   private pasteTarget(): Paste {
+    if (this.trick_controls.focus !== null) return "discard";
     if (this.archive_dialog) return "discard";
     if (this.signin) return "signin";
     if (this.prompt.open) return "prompt";
@@ -7979,7 +8098,13 @@ export class Controller {
       }
       // Resolve Corgi shortcuts before encoding for the child. A
       // Kitty Ctrl-B/Ctrl-T are otherwise invisible to the byte handlers.
-      const owned = this.hasMenu() || this.editingName() || this.copy_mode || this.search_mode || this.reviewKeys();
+      const owned =
+        this.trick_controls.focus !== null ||
+        this.hasMenu() ||
+        this.editingName() ||
+        this.copy_mode ||
+        this.search_mode ||
+        this.reviewKeys();
       // Corgi's own text boxes read some keys in sequences legacy encoding can't make.
       const edit = owned ? keyboard.editSequence(key_event) : null;
       const legacy = Array.from(
@@ -8032,6 +8157,11 @@ export class Controller {
     } else if (input.kind === "mouse") await this.mouse(input.mouse);
     else if (cl.tab_drag) {
       this.cancelDock();
+    } else if (this.trick_controls.focus !== null) {
+      this.frame();
+      if (parsed_key === "up" || parsed_key === "shift_tab" || parsed_key === "left")
+        await this.perform({ name: "trick-prev" });
+      else if (parsed_key === "down" || parsed_key === "right") await this.perform({ name: "trick-next" });
     } else if (this.archive_dialog) {
       const action = this.archive_dialog.key(parsed_key ?? text);
       if (action) await this.perform(action);
@@ -8092,7 +8222,7 @@ export class Controller {
         // The worktree folder field took it.
       } else if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.host.prefs);
       else if (parsed_key === "down") setup.move(true, s, this.host.prefs);
-      else if (parsed_key === "right") setup.openOptions(s, this.host.prefs);
+      else if (parsed_key === "right") await this.applySetup(setup.right(s, this.host.prefs));
       else if (parsed_key === "left") setup.back();
       this.dirty = true;
     } else if (this.agent_launcher) {
@@ -8389,6 +8519,22 @@ export class Controller {
       this.pending_open = null;
       if (open && !this.pressesLink(open, x, y) && this.showsPane(open))
         this.openLink(open.url, open.machine, open.file);
+    }
+    if (this.trick_pressed) {
+      if (release) {
+        this.trick_pressed = false;
+      }
+      return;
+    }
+    if (!release && button === 0 && this.machines.some(machine => machine.runtime.tricks.length)) {
+      this.frame();
+      const hit = this.trick_controls.hits.findLast(hit => hit.rect.contains(x, y));
+      if (hit) {
+        this.trick_pressed = true;
+        await this.perform({ name: "trick-press", value: hit.action });
+        return;
+      }
+      this.trick_controls.focus = null;
     }
     if (!release && (button & 32) === 0) this.endSigninExit();
     // A double-click needs two left presses in a row on one sidebar row's
@@ -10618,6 +10764,7 @@ export class Controller {
     if (!release && isHover(button)) {
       if (
         moved &&
+        !trickUi.containsPopover(this.trick_controls, x, y) &&
         !this.linkHoverContains(x, y) &&
         // Moving along a file's name keeps its peek's wait.
         !this.waitsOnFile(x, y) &&
@@ -10671,6 +10818,7 @@ export class Controller {
     let target: linkTooltip.Target | null = null;
     const pointer = this.pointer;
     if (pointer && this.linkHoverIdle() && !this.ui_mouse_down) {
+      if (trickUi.containsPopover(this.trick_controls, pointer.x, pointer.y)) return true;
       if (this.linkHoverContains(pointer.x, pointer.y)) return true;
       if (!this.signin && !this.corgi_setup) {
         if (this.worktreeHoverContains(pointer.x, pointer.y)) return true;
@@ -10746,12 +10894,14 @@ export class Controller {
   compose(retain = true): composition.Output {
     this.next_frame = Infinity;
     if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;
+    this.trick_controls.hits = [];
     // Each frame lists its pictures anew; presenting it shows the host the change.
     const pictures = this.host.images.frame(this.cell_pixels ?? { width: 1, height: 1 });
     this.pictures = this.supports_kitty_graphics && this.cell_pixels ? pictures : null;
     this.images.begin();
     const retained = retain ? new composition.Frame() : undefined;
     const frame = this.renderFrame(retained);
+    if (!this.trick_controls.hits.some(hit => hit.slot === this.trick_controls.focus)) this.trick_controls.focus = null;
     this.images.end();
     if (!retained?.panes.length) return frame;
     return retained.finish(frame);
@@ -10861,6 +11011,9 @@ export class Controller {
       this.width,
       this.height,
       render.ui({
+        tricks: this.runtime.tricks,
+        agent_tricks: target => this.rowOf(target)?.machine.runtime.tricks ?? [],
+        trick_controls: this.trick_controls,
         prefs: this.host.prefs,
         pointer: this.pointer,
         iterm2_pointer: this.host.iterm2_pointer,
