@@ -28,12 +28,13 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
 - **UI driver:** `bun tools/ui_driver.ts run current -e 'key ctrl+b c; snap'` drives a
   viewer in a PTY and records its screens. See `tools/ui_driver.ts`.
 - **Screenshots and videos:** `bun tools/ghostty_screenshot.ts --sandbox NAME -o shot.png`
-  captures a live Ghostty window on Xvfb; `-o demo.mp4` records the `--do`
-  steps instead. Use this for documentation and UI screenshots and videos so
-  fonts, box drawing and Kitty images retain terminal fidelity.
+  captures a live Ghostty window on Xvfb; `--do 'action help; key esc'` runs a
+  UI-driver script first, and `-o demo.mp4` records it instead. Use this for
+  documentation and UI screenshots and videos so fonts, box drawing and Kitty
+  images retain terminal fidelity.
   Do not repaint terminal cells into SVG, canvas or another terminal renderer.
-  `serve` keeps one running for an agent to drive over its socket and capture
-  on demand, with `record start` and `record stop` around a take; see HACKING.md.
+  `serve` keeps one running, and `drive 'SCRIPT'` sends it scripts with `shot`
+  and `record start` / `record stop`; see HACKING.md.
 
 ## Layout
 

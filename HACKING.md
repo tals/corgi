@@ -333,71 +333,60 @@ and records screens. It uses `dist/corgi`, so rebuild first. Scripts live in
 The command reference is at the top of the driver. Use
 [UI tokens and rules](docs/ui_styleguide.md) for visual work.
 
-For PNG screenshots, use a live Ghostty window on a private Xvfb display:
+For screenshots and videos, use a live Ghostty window on a private Xvfb display:
 
 ```sh
 bun tools/ghostty_screenshot.ts --sandbox review -o /tmp/review.png
-bun tools/ghostty_screenshot.ts --do 'corgi action help' -o /tmp/help.png
+bun tools/ghostty_screenshot.ts --do 'action help' -o /tmp/help.png
+bun tools/ghostty_screenshot.ts --do 'action help; wait 1000; key esc' -o /tmp/help.mp4
 ```
 
-Install Ghostty, Xvfb, xdotool and ffmpeg first (`sudo apt install xvfb xdotool
-ffmpeg` on Ubuntu, plus Ghostty). `GHOSTTY_BIN` selects another Ghostty build.
+Install Ghostty, Xvfb, ffmpeg and the XTEST and XFixes libraries first (`sudo
+apt install xvfb ffmpeg libxtst6 libxfixes3` on Ubuntu, plus Ghostty).
+`GHOSTTY_BIN` selects another Ghostty build.
 The tool uses software GL and captures the window at native resolution, keeping
 Ghostty's font shaping, box drawing, colors and Kitty images. Use `--size 110x32`
 and `--font-size 16` to control the capture; no image scaling is applied.
 The UI driver's cell dumps are useful for assertions, but repainting them into
 SVG, canvas or another terminal renderer does not produce a faithful screenshot.
 
-Each capture owns a disposable sandbox, Ghostty process and X display, and
-removes them on success or failure. `--do` steps run after the viewer attaches;
-they receive `corgi` on PATH and `DISPLAY` / `GHOSTTY_WINDOW` for xdotool. For
-repeatable screenshot sets, import `capture` with a `prepare` callback to set up
-the sandbox and a `drive` callback to send keys, move the mouse and save images.
+`--do` takes a script: the UI driver's commands (`key`, `type`, `click`,
+`clicktext`, `hovertext`, `waittext`, `settle`, `wait` and the rest)
+separated by `;`, plus `action NAME` and `corgi ARGS` for the sandbox's corgi,
+`shot PATH`, and `record start PATH` and `record stop`. Ghostty runs
+[a relay](tools/ghostty_relay.ts) in front of the viewer. Keys reach the
+viewer as terminal input; the mouse moves through X like a hand, in eased
+steps, so Ghostty sees every hover and reports it to the viewer itself.
 
-To drive a sandbox step by step and take screenshots when you want them, keep
-a session running:
+To drive a sandbox step by step, keep a session running and send it scripts:
 
 ```sh
 bun tools/ghostty_screenshot.ts serve --sandbox review > /tmp/serve.log &
-SESSION=/tmp/corgi-ghostty-…           # the directory on the log's first line, "session DIR"
-$SESSION/bin/corgi action review       # the sandbox's corgi, over its socket
-$SESSION/bin/screenshot -o /tmp/review.png
+bun tools/ghostty_screenshot.ts drive 'action review; shot /tmp/review.png'
+bun tools/ghostty_screenshot.ts drive 'record start /tmp/demo.mp4; clicktext Files; wait 1000; record stop'
 bun tools/ghostty_screenshot.ts stop
 ```
 
-`. $SESSION/env.sh` puts `corgi` and `screenshot` on PATH and sets
-`CORGI_SOCKET`, `DISPLAY` and `GHOSTTY_WINDOW`, so xdotool can send keys and
-clicks too. `shot`, `record` and `stop` find the session from `--session`,
-`$CORGI_CAPTURE_SESSION` or, when only one is running, by themselves. The
-session cleans up when stopped, on SIGINT or SIGTERM, or when Ghostty exits.
+`drive` and `stop` find the session from `--session`, `$CORGI_CAPTURE_SESSION`
+or, when only one is running, by themselves; the log's first line names its
+folder. Scripts run one at a time. The relay serves HTTP on
+`$SESSION/session.sock` (`POST /drive`, `GET /screen`). Code takes the same
+scripts: `capture()` with a `drive` callback starts a fresh sandbox, and
+`attach()` joins a running session. A session cleans up when stopped, on
+SIGINT or SIGTERM, or when Ghostty exits.
 
-For a video, give an `.mp4` or `.gif` output; it records the `--do` steps:
-
-```sh
-bun tools/ghostty_screenshot.ts --do 'corgi action help' --do 'sleep 1' \
-  --do 'xdotool key Escape' -o /tmp/help.mp4
-```
-
-In a session, `record start` and `record stop` bracket whatever you do in
-between, across as many commands as you like:
-
-```sh
-$SESSION/bin/record start -o /tmp/demo.mp4
-$SESSION/bin/corgi action help
-xdotool key Escape                     # after . $SESSION/env.sh
-$SESSION/bin/record stop               # writes /tmp/demo.mp4
-```
-
-Videos include the pointer. They hold the first and last screens for
-`--idle` seconds (default 2) and cut any longer pause down to that, so the
-time spent deciding the next step doesn't reach the video. A pause can hold
-changes under 8 cells, such as a resource meter or the corgi's blink. To keep a
-deliberate pause, raise `--idle` on `record start` or the capture.
+Videos keep the time each script runs and cut the time between scripts down
+to `--idle` seconds (default 1), so the time spent deciding the next step
+doesn't reach the video; a script's own `wait` stays. They hold the first and
+last screens for `--idle` too. The pointer is drawn where it went, in the
+shape Ghostty showed (arrow, hand, I-beam, resize or move): it grows while it
+moves, and each press leaves a fading ring. `record start PATH xcursor` also
+writes PATH's `.xcursor` twin with X's own cursor, to compare against.
 
 MP4 is the format for PRs: GitHub plays it inline, and `gh pr create --attach
-./demo.mp4` uploads it. The tool records losslessly, then encodes H.264 with
-every pixel doubled so 4:2:0 chroma subsampling can't put halos around colored
-text. A GIF keeps the window's size and plays without a click, but is larger
+./demo.mp4` uploads it. The tool records losslessly, then encodes H.264 at 60
+frames a second with every pixel doubled, so 4:2:0 chroma subsampling can't put
+halos around colored text. A GIF keeps the window's size and plays without a click, but is larger
 for anything long.
 
 Inspect regenerated PNGs and videos before committing or attaching them. This runs on Linux directly

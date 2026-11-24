@@ -115,13 +115,149 @@ export function parseScript(source: string): string[][] {
     .map(words);
 }
 
-export class Session {
+/**
+ * Sends scenario commands to a viewer as a terminal would, and reads its
+ * screen back. Session runs a viewer of its own; the Ghostty capture's relay
+ * drives one inside a real Ghostty, its mouse through X.
+ */
+export abstract class Driver {
+  abstract screen: Terminal;
+  lastData = Date.now();
+  lastInput = 0;
+  protected abstract send(data: string): void;
+  write(data: string) {
+    this.lastInput = Date.now();
+    this.send(data);
+  }
+  text(): string[] {
+    return this.screen
+      .text()
+      .replace(/\n$/, "")
+      .split("\n")
+      .map(l => l.replace(/\s+$/, ""));
+  }
+  async settle(quiet = 200, max = 3000) {
+    const until = Date.now() + max;
+    await Bun.sleep(30);
+    // The answer to the last input first, for up to a second, then quiet.
+    const answered = Math.min(until, this.lastInput + 1000);
+    while (Date.now() < answered && this.lastData <= this.lastInput) await Bun.sleep(10);
+    while (Date.now() < until && Date.now() - this.lastData < quiet) await Bun.sleep(20);
+  }
+  find(text: string, nth = 1): [number, number] {
+    let count = 0;
+    const lines = this.text();
+    for (let y = 0; y < lines.length; y++) {
+      // Columns count cells: wide glyphs take two.
+      const cells = [...lines[y]];
+      let from = 0;
+      for (;;) {
+        const at = lines[y].indexOf(text, from);
+        if (at < 0) break;
+        if (++count === nth) {
+          const before = [...lines[y].slice(0, at)];
+          const x = before.reduce((w, ch) => w + (Bun.stringWidth(ch) || 1), 0);
+          void cells;
+          return [x + 1, y + 1];
+        }
+        from = at + 1;
+      }
+    }
+    throw new Error(`no screen text ${JSON.stringify(text)} (#${nth})\n${lines.join("\n")}`);
+  }
+  /** An SGR mouse report: a press or motion, or with release a button let go. */
+  report(code: number, x: number, y: number, release = false) {
+    this.write(`\x1b[<${code};${x};${y}${release ? "m" : "M"}`);
+  }
+  mouse(button: number, x: number, y: number, release = true) {
+    this.report(button, x, y);
+    if (release) this.report(button, x, y, true);
+  }
+  async exec(cmd: string[]): Promise<void> {
+    const [op, ...args] = cmd;
+    switch (op) {
+      case "key":
+        for (const k of args) {
+          this.write(encodeKey(k));
+          await Bun.sleep(40);
+        }
+        break;
+      case "type":
+        this.write(args.join(" "));
+        break;
+      case "click":
+        this.mouse(args[2] === "right" ? 2 : 0, +args[0], +args[1]);
+        break;
+      case "move":
+        this.report(35, +args[0], +args[1]);
+        break;
+      case "drag":
+      case "dragtext": {
+        // Press at the start, move with the button held in steps, release.
+        const [x1, y1, x2, y2] =
+          op === "dragtext" ? [...this.find(args[0], 1), ...this.find(args[1], 1)] : args.slice(0, 4).map(Number);
+        this.report(0, x1, y1);
+        await Bun.sleep(30);
+        const steps = Math.max(1, Math.abs(x2 - x1), Math.abs(y2 - y1));
+        for (let i = 1; i <= steps; i++) {
+          const x = Math.round(x1 + ((x2 - x1) * i) / steps);
+          const y = Math.round(y1 + ((y2 - y1) * i) / steps);
+          this.report(32, x, y);
+          await Bun.sleep(10);
+        }
+        this.report(0, x2, y2, true);
+        break;
+      }
+      case "paste":
+        this.write(`\x1b[200~${args.join(" ").replaceAll("\\n", "\r")}\x1b[201~`);
+        break;
+      case "scroll":
+        this.report(args[2] === "up" ? 64 : 65, +args[0], +args[1]);
+        break;
+      case "holdclicktext": {
+        const ms = Number(args[1]);
+        if (!Number.isFinite(ms) || ms <= 0)
+          throw new Error("holdclicktext expects text and a positive duration in ms");
+        const [x, y] = this.find(args[0]);
+        this.mouse(0, x, y, false);
+        await Bun.sleep(ms);
+        this.report(0, x, y, true);
+        break;
+      }
+      case "clicktext":
+      case "hovertext":
+      case "rclicktext": {
+        const [x, y] = this.find(args[0], args[1] ? +args[1] : 1);
+        if (op === "hovertext") this.report(35, x, y);
+        else this.mouse(op === "rclicktext" ? 2 : 0, x, y);
+        break;
+      }
+      case "wait":
+        await Bun.sleep(+args[0]);
+        break;
+      case "settle":
+        await this.settle();
+        break;
+      case "waittext": {
+        const until = Date.now() + (args[1] ? +args[1] : 5000);
+        while (!this.text().some(l => l.includes(args[0]))) {
+          if (Date.now() > until) throw new Error(`timed out waiting for ${args[0]}\n${this.text().join("\n")}`);
+          await Bun.sleep(30);
+        }
+        break;
+      }
+      default:
+        throw new Error(`unknown UI scenario command ${op}`);
+    }
+  }
+}
+
+export class Session extends Driver {
   terminal: Bun.Terminal;
   screen: Terminal;
   proc!: ReturnType<typeof Bun.spawn>;
   output = "";
   bytes = 0;
-  lastData = Date.now();
   mark = 0;
   home: string;
   cwd: string;
@@ -147,6 +283,7 @@ export class Session {
     public cols = 100,
     public rows = 30,
   ) {
+    super();
     this.home = mkdtempSync(join(tmpdir(), "corgi-ui-driver-"));
     this.env = {
       ...process.env,
@@ -241,54 +378,13 @@ export class Session {
     }
     this.proc = Bun.spawn([this.exe, "--no-update"], { env: this.env, cwd: this.cwd, terminal: this.terminal });
   }
-  lastInput = 0;
-  write(data: string) {
-    this.lastInput = Date.now();
+  protected send(data: string) {
     this.terminal.write(data);
-  }
-  text(): string[] {
-    return this.screen
-      .text()
-      .replace(/\n$/, "")
-      .split("\n")
-      .map(l => l.replace(/\s+$/, ""));
   }
   styled(): string[] {
     return this.screen.surface(0).surface.lines;
   }
-  async settle(quiet = 200, max = 3000) {
-    const until = Date.now() + max;
-    await Bun.sleep(30);
-    // The answer to the last input first, for up to a second, then quiet.
-    const answered = Math.min(until, this.lastInput + 1000);
-    while (Date.now() < answered && this.lastData <= this.lastInput) await Bun.sleep(10);
-    while (Date.now() < until && Date.now() - this.lastData < quiet) await Bun.sleep(20);
-  }
-  find(text: string, nth = 1): [number, number] {
-    let count = 0;
-    const lines = this.text();
-    for (let y = 0; y < lines.length; y++) {
-      // Columns count cells: wide glyphs take two.
-      const cells = [...lines[y]];
-      let from = 0;
-      for (;;) {
-        const at = lines[y].indexOf(text, from);
-        if (at < 0) break;
-        if (++count === nth) {
-          const before = [...lines[y].slice(0, at)];
-          const x = before.reduce((w, ch) => w + (Bun.stringWidth(ch) || 1), 0);
-          void cells;
-          return [x + 1, y + 1];
-        }
-        from = at + 1;
-      }
-    }
-    throw new Error(`no screen text ${JSON.stringify(text)} (#${nth})\n${lines.join("\n")}`);
-  }
-  mouse(button: number, x: number, y: number, release = true) {
-    this.write(`\x1b[<${button};${x};${y}M` + (release ? `\x1b[<${button};${x};${y}m` : ""));
-  }
-  async exec(cmd: string[]) {
+  async exec(cmd: string[]): Promise<void> {
     const [op, ...args] = cmd;
     switch (op) {
       case "size":
@@ -299,62 +395,6 @@ export class Session {
       case "theme":
         this.useTheme(args.join(" "));
         break;
-      case "key":
-        for (const k of args) {
-          this.write(encodeKey(k));
-          await Bun.sleep(40);
-        }
-        break;
-      case "type":
-        this.write(args.join(" "));
-        break;
-      case "click":
-        this.mouse(args[2] === "right" ? 2 : 0, +args[0], +args[1]);
-        break;
-      case "move":
-        this.write(`\x1b[<35;${+args[0]};${+args[1]}M`);
-        break;
-      case "drag":
-      case "dragtext": {
-        // Press at the start, move with the button held in steps, release.
-        const [x1, y1, x2, y2] =
-          op === "dragtext" ? [...this.find(args[0], 1), ...this.find(args[1], 1)] : args.slice(0, 4).map(Number);
-        this.write(`\x1b[<0;${x1};${y1}M`);
-        await Bun.sleep(30);
-        const steps = Math.max(1, Math.abs(x2 - x1), Math.abs(y2 - y1));
-        for (let i = 1; i <= steps; i++) {
-          const x = Math.round(x1 + ((x2 - x1) * i) / steps);
-          const y = Math.round(y1 + ((y2 - y1) * i) / steps);
-          this.write(`\x1b[<32;${x};${y}M`);
-          await Bun.sleep(10);
-        }
-        this.write(`\x1b[<0;${x2};${y2}m`);
-        break;
-      }
-      case "paste":
-        this.write(`\x1b[200~${args.join(" ").replaceAll("\\n", "\r")}\x1b[201~`);
-        break;
-      case "scroll":
-        this.write(`\x1b[<${args[2] === "up" ? 64 : 65};${+args[0]};${+args[1]}M`);
-        break;
-      case "holdclicktext": {
-        const ms = Number(args[1]);
-        if (!Number.isFinite(ms) || ms <= 0)
-          throw new Error("holdclicktext expects text and a positive duration in ms");
-        const [x, y] = this.find(args[0]);
-        this.mouse(0, x, y, false);
-        await Bun.sleep(ms);
-        this.write(`\x1b[<0;${x};${y}m`);
-        break;
-      }
-      case "clicktext":
-      case "hovertext":
-      case "rclicktext": {
-        const [x, y] = this.find(args[0], args[1] ? +args[1] : 1);
-        if (op === "hovertext") this.write(`\x1b[<35;${x};${y}M`);
-        else this.mouse(op === "rclicktext" ? 2 : 0, x, y);
-        break;
-      }
       case "resize": {
         const [c, r] = args[0].split("x").map(Number);
         this.cols = c;
@@ -362,20 +402,6 @@ export class Session {
         this.lastInput = Date.now();
         this.terminal.resize(c, r);
         this.screen.resize(c, r);
-        break;
-      }
-      case "wait":
-        await Bun.sleep(+args[0]);
-        break;
-      case "settle":
-        await this.settle();
-        break;
-      case "waittext": {
-        const until = Date.now() + (args[1] ? +args[1] : 5000);
-        while (!this.text().some(l => l.includes(args[0]))) {
-          if (Date.now() > until) throw new Error(`timed out waiting for ${args[0]}\n${this.text().join("\n")}`);
-          await Bun.sleep(30);
-        }
         break;
       }
       case "snap":
@@ -411,7 +437,7 @@ export class Session {
         this.records.push({ kind: "raw", name: args[0] ?? "raw", text: JSON.stringify(this.output.slice(this.mark)) });
         break;
       default:
-        throw new Error(`unknown UI scenario command ${op}`);
+        return super.exec(cmd);
     }
   }
   async close() {
