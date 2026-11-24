@@ -51,18 +51,31 @@ export function parse(text: string): Span[] {
       }
     }
     const delimiter = text.startsWith("**", i) ? "**" : text[i] === "*" || text[i] === "`" ? text[i] : "";
-    const end = delimiter ? text.indexOf(delimiter, i + delimiter.length) : -1;
-    if (end > i + delimiter.length) {
+    const found = delimiter ? span(text, i + delimiter.length, delimiter) : null;
+    if (found) {
       flush();
       push({
-        text: text.slice(i + delimiter.length, end),
+        text: found.text,
         ...(delimiter === "**" ? { bold: true } : delimiter === "*" ? { italic: true } : { color: "muted" }),
       });
-      i = end + delimiter.length;
+      i = found.end;
       continue;
     }
     plain += text[i++];
   }
   flush();
   return result;
+}
+/** The text of a span starting at `start` up to its closing `delimiter`, and
+ * where it ends; escapes hide delimiters. Null when empty or unclosed. */
+function span(text: string, start: number, delimiter: string): { text: string; end: number } | null {
+  let inner = "";
+  for (let i = start; i < text.length;) {
+    if (text[i] === "\\" && i + 1 < text.length) {
+      inner += text[i + 1];
+      i += 2;
+    } else if (text.startsWith(delimiter, i)) return inner ? { text: inner, end: i + delimiter.length } : null;
+    else inner += text[i++];
+  }
+  return null;
 }

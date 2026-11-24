@@ -31,6 +31,13 @@ test("unknown markup stays literal and escaped metadata cannot insert formatting
   expect(markup.parse("!(unknown) !(provider:pi)")).toEqual([{ text: "?" }, { text: " " }, { text: "π" }]);
 });
 
+test("escaped metadata stays literal inside emphasis and code", () => {
+  expect(markup.parse(`**${markup.escape("f(x)")}**`)).toEqual([{ text: "f(x)", bold: true }]);
+  expect(markup.parse(`**${markup.escape("a*")}** b`)).toEqual([{ text: "a*", bold: true }, { text: " b" }]);
+  expect(markup.parse(`*${markup.escape("x*y")}*`)).toEqual([{ text: "x*y", italic: true }]);
+  expect(markup.parse(`\`${markup.escape("a` \\ b")}\``)).toEqual([{ text: "a` \\ b", color: "muted" }]);
+});
+
 test("markup and wire styles have bounded lengths and reject terminal controls", () => {
   for (const text of ["x\x1b[2J", "x\n", "x\u009b", "x\u2028"])
     expect(() => markup.parse(text)).toThrow("ControlCharacter");
