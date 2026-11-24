@@ -3,6 +3,8 @@
 import * as viewerRef from "./viewer_ref";
 import * as agentOrder from "./agent_order";
 import * as startup from "./startup";
+import * as trickUi from "./trick_ui";
+import type * as tricks from "./tricks";
 import * as sidebar from "./sidebar";
 import * as mirror from "./mirror";
 import * as subagentTooltip from "./subagent_tooltip";
@@ -15,6 +17,17 @@ export interface Row {
   start: number;
 }
 
+/** What a trick's `where` selects on pane `p`, in workspace `workspace`. */
+export function paneTrick(p: mirror.Pane, workspace: number): tricks.Selection {
+  return {
+    id: `pane:${p.id}`,
+    provider: p.agent.provider ?? undefined,
+    account: p.agent.account,
+    workspace,
+    session: p.agent.session,
+    state: p.agent.state,
+  };
+}
 /** Local rows enter the shared UI with qualified identities. */
 export function qualify(entry: Listed, machine: number): sidebar.Entry {
   const t = entry.target;
@@ -53,35 +66,50 @@ export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: numb
     const tab = ws.model.tabForPane(p.id);
     if (tab !== null) tabs[tab].push(p);
   }
-  const rows: Row[] = tabs.flat().map(p => ({
-    entry: sidebar.entry<agentOrder.Target, number>({
-      conversation: p.agent.conversation,
-      target: { pane: p.id },
-      starred: starred({ pane: p.id }),
-      starting: starting({ pane: p.id }),
-      name: p.label.length > 0 ? p.label : p.agent.name,
-      provider: p.agent.provider,
-      state: p.agent.state,
-      attention: p.agent.attention,
-      cwd: p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd,
-      tool_active: p.agent.tool_active,
-      compacting: p.agent.compacting,
-      compacting_since: p.agent.compacting_since,
-      paused: p.agent.paused,
-      retry_at: p.agent.retry_at,
-      subagents: { ...p.agent.subagents },
-      unread: mirror.unread(p.agent.observation),
-      activity: (() => {
-        const wait = runtime.startup_waits.find(w => w.pane === p.id);
-        return wait ? startup.label(wait) : p.agent.activity;
-      })(),
-      reopened: p.restoring.length > 0 && !p.dormant,
-    }),
-    start: stateStart(p.agent),
-  }));
+  const rows: Row[] = tabs.flat().map(p => {
+    const trick = paneTrick(p, ws.id);
+    return {
+      entry: sidebar.entry<agentOrder.Target, number>({
+        decoration: trickUi.decoration(runtime.tricks, trick),
+        trick,
+        conversation: p.agent.conversation,
+        target: { pane: p.id },
+        starred: starred({ pane: p.id }),
+        starting: starting({ pane: p.id }),
+        name: p.label.length > 0 ? p.label : p.agent.name,
+        provider: p.agent.provider,
+        state: p.agent.state,
+        attention: p.agent.attention,
+        cwd: p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd,
+        tool_active: p.agent.tool_active,
+        compacting: p.agent.compacting,
+        compacting_since: p.agent.compacting_since,
+        paused: p.agent.paused,
+        retry_at: p.agent.retry_at,
+        subagents: { ...p.agent.subagents },
+        unread: mirror.unread(p.agent.observation),
+        activity: (() => {
+          const wait = runtime.startup_waits.find(w => w.pane === p.id);
+          return wait ? startup.label(wait) : p.agent.activity;
+        })(),
+        reopened: p.restoring.length > 0 && !p.dormant,
+      }),
+      start: stateStart(p.agent),
+    };
+  });
   for (const session of sessions(runtime)) {
     if (session.workspace !== ws.id) continue;
+    const trick: tricks.Selection = {
+      id: `headless:${session.id}`,
+      provider: session.provider,
+      account: session.agent?.account,
+      workspace: ws.id,
+      session: session.session,
+      state: session.state,
+    };
     const entry = sidebar.entry<agentOrder.Target, number>({
+      decoration: trickUi.decoration(runtime.tricks, trick),
+      trick,
       target: { headless: session.id },
       starred: starred({ headless: session.id }),
       starting: starting({ headless: session.id }),

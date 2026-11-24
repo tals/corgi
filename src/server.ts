@@ -3,6 +3,7 @@ import * as signinService from "./signin_service";
 import * as accountService from "./account_service";
 import * as startup from "./startup_service";
 import * as archiveInventory from "./archive_inventory";
+import * as trickHost from "./trick_host";
 import * as launcherConfig from "./launcher_config";
 import { Provider } from "./providers";
 import * as discovery from "./discovery";
@@ -56,6 +57,7 @@ import * as legacy_socket from "./legacy_socket";
 import * as start_lock from "./start_lock";
 export class Server {
   readonly instance = crypto.randomUUID();
+  tricks: trickHost.Host;
   summaries: SummaryWorker | null = null;
   usage: UsageWorker | null = null;
   runtime = new Runtime();
@@ -151,7 +153,23 @@ export class Server {
     readonly socket: string,
     readonly executable: string,
     readonly build_id: string,
-  ) {}
+  ) {
+    this.tricks = new trickHost.Host(
+      socket,
+      executable,
+      () => trickHost.snapshot(this.runtime),
+      () => {
+        this.dirty = true;
+        this.wakeViewers();
+      },
+      (id, agent) => {
+        viewer.queue(this, viewer.targetViewer(this, id), { kind: "action", name: "focus-agent", value: agent });
+        this.wakeViewers();
+      },
+      // A message waits on its provider beside the queue, as the CLI's does.
+      command => ("agent.message" in command ? this.message(command) : this.queued(command)),
+    );
+  }
   /** The active workspace a viewer opens on, or null when none remain. */
   initialWorkspace(): Workspace | null {
     const preferred = this.runtime.workspaces.get(this.preferred_workspace);
@@ -218,6 +236,19 @@ export class Server {
     for (const p of this.runtime.panes) p.terminal.applyTheme(this.theme);
     this.dirty = true;
   }
+  /** Runs `command` as a job on the queue, for a caller awaiting its result. */
+  private queued(command: protocol.CommandInput): Promise<protocol.Result> {
+    return new Promise((resolve, reject) =>
+      this.enqueue(async () => {
+        try {
+          resolve(await this.execute(command));
+        } catch (error) {
+          reject(error);
+        }
+        this.publish();
+      }),
+    );
+  }
   /** Runs an `agent.message` beside the job queue: a provider's channel can
    * take seconds to answer, and the queue keeps every viewer going. */
   async message(command: protocol.CommandInput): Promise<protocol.Result> {
@@ -255,7 +286,7 @@ export class Server {
       }
   }
   wakeSeq(id: number): bigint {
-    let seq = this.runtime.shown + this.bell_seq;
+    let seq = this.runtime.shown + this.bell_seq + this.tricks.revision;
     for (const c of this.clients)
       if (c.viewer && c.viewer_id === id) {
         seq += c.next_control;
@@ -282,6 +313,7 @@ export class Server {
   private publish(): boolean {
     const telemetry_started = telemetry.begin();
     try {
+      this.tricks.publish();
       if (this.subscribedRevision === this.runtime.revision && !this.dirty) return false;
       if (this.subscribedRevision !== this.runtime.revision) {
         const shown = this.subscribedShown !== this.runtime.shown,
@@ -356,10 +388,12 @@ export class Server {
       // to say which terminal it runs in, so the check can name it.
       if (this.install)
         this.updateTimer = setTimeout(() => void this.checkForUpdates(), Math.min(10_000, this.updateInterval()));
+      await this.tricks.reload();
       process.on("SIGTERM", () => void this.shutdown());
       process.on("SIGINT", () => void this.shutdown());
       await this.saveWorkspaces();
     } catch (error) {
+      await this.tricks.stop();
       clearInterval(this.timer);
       this.signins.destroy();
       for (const c of [...this.clients]) c.close();
@@ -549,6 +583,7 @@ export class Server {
     for (const p of this.runtime.panes) p.terminal.resume();
     for (const s of this.runtime.sessions) s.resume();
     this.startLoop();
+    void this.tricks.reload();
   }
   /** A client on `transport`, or with `respond` for one HTTP request; neither
    * for one with no connection. */
@@ -859,6 +894,40 @@ export class Server {
         if (compress) cl.compress();
         return;
       }
+      case "tricks.list":
+        reply.ok(this.tricks.info());
+        return;
+      case "tricks.palettes":
+        reply.ok({ palettes: this.tricks.palettes.list() });
+        return;
+      case "tricks.palette":
+        reply.ok(this.tricks.palette(request.payload.palette));
+        return;
+      case "tricks.palette.set":
+        await this.tricks.palettes.set(
+          request.payload.palette,
+          request.payload.key,
+          request.payload.color,
+          request.payload.all,
+        );
+        reply.ok(this.tricks.palette(request.payload.palette));
+        return;
+      case "tricks.palette.colors":
+        await this.tricks.palettes.scheme(request.payload.palette, request.payload.colors);
+        reply.ok(this.tricks.palette(request.payload.palette));
+        return;
+      case "tricks.reload":
+        await this.tricks.reload();
+        reply.ok(this.tricks.info());
+        return;
+      case "tricks.configure":
+        await this.tricks.configure(request.payload);
+        reply.ok(this.tricks.info());
+        return;
+      case "tricks.press":
+        viewer.targetViewer(this, request.payload.viewer);
+        reply.ok({ accepted: this.tricks.press(request.payload.action, request.payload.viewer) });
+        return;
       case "ping":
         reply.send({ ok: true, pid: process.pid });
         return;
@@ -1122,6 +1191,7 @@ export class Server {
         return;
       case "hook":
         await observers.hook(this, request.payload);
+        this.tricks.hook(request.payload);
         reply.send({ ok: true });
         return;
       case "test.advance": {
@@ -1530,6 +1600,7 @@ export class Server {
     this.socketPath?.release();
     if (this.start_lock >= 0) start_lock.release(this.start_lock);
     this.start_lock = -1;
+    await this.tricks.stop();
     await launch.stop(this);
     observers.stop(this);
     importer.stop(this);

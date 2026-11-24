@@ -150,11 +150,28 @@ test("frames that change something and failures wake the viewer; unchanged frame
     f.send({ ok: true, pid: 1 });
     await f.until(() => acknowledged);
     expect(wakes).toBe(1);
-    f.send({ type: "viewer.frame", sequence, view: frame(2) });
+    f.send({ type: "viewer.frame", sequence, view: { ...frame(), bell_seq: 1 } });
     await f.until(() => wakes === 2);
+    expect(f.stream.take()?.news).toBe(true);
+    const drawing: protocol.Reply<"viewer.sync"> = {
+      ...frame(),
+      bell_seq: 1,
+      tricks: [{ kind: "overlay", anchor: "top-right", lines: [[{ text: "Ready" }]] }],
+    };
+    f.send({ type: "viewer.frame", sequence, view: drawing });
+    await f.until(() => wakes === 3);
+    expect(f.stream.take()).toMatchObject({ news: true, frame: { tricks: drawing.tricks } });
+    f.send({ type: "viewer.frame", sequence, view: drawing });
+    await f.until(() => f.stream.take() !== null);
+    expect(wakes).toBe(3);
+    f.send({ type: "viewer.frame", sequence, view: { ...drawing, tricks: [] } });
+    await f.until(() => wakes === 4);
+    expect(f.stream.take()).toMatchObject({ news: true, frame: { tricks: [] } });
+    f.send({ type: "viewer.frame", sequence, view: frame(2) });
+    await f.until(() => wakes === 5);
     expect(f.stream.take()).toMatchObject({ frame: { session_hash: 2 }, news: true });
     f.connection.close();
-    await f.until(() => wakes === 3);
+    await f.until(() => wakes === 6);
     expect(() => f.stream.check()).toThrow("ConnectionClosed");
   } finally {
     f.close();

@@ -54,6 +54,7 @@ export function fill(w: Writer, x: number, y: number, width: number, here: boole
  * options keep their ● and ○. */
 export interface Toggle {
   label: string;
+  indent?: number;
   on: boolean;
   /** Whether the cursor is on the row. */
   here: boolean;
@@ -76,6 +77,7 @@ export function drawToggle(w: Writer, x: number, y: number, width: number, t: To
     t.on ? "● " + i18n.t`On` : "○ " + i18n.t`Off`,
     t.on && !disabled ? p.accent : p.quiet,
     disabled,
+    t.indent,
   );
 }
 /** A dropdown setting's row: its name, and the choice in use with ▾ at the
@@ -89,8 +91,17 @@ export function drawChoice(
   choice: string,
   on: boolean,
   here: boolean,
+  color?: Rgb,
+  color_width = displayWidth(choice),
 ): void {
   const p = fill(w, x, y, width, here);
+  if (color) {
+    const value = "   " + choice + " ".repeat(sat(color_width, displayWidth(choice))) + " ▾";
+    drawValue(w, p, x, y, width, label, value, p.label);
+    w.write(at(x + width - 2 - displayWidth(value), y));
+    palette.chips(w, [color], 2, p.background);
+    return;
+  }
   drawValue(w, p, x, y, width, label, `${on ? "●" : "○"} ${choice} ▾`, on ? p.accent : p.quiet);
 }
 function drawValue(
@@ -103,9 +114,10 @@ function drawValue(
   value: string,
   style: string,
   disabled = false,
+  indent = 6,
 ) {
   const value_x = x + width - 2 - displayWidth(value);
-  w.write(at(x + 6, y) + (disabled ? p.quiet : p.label));
-  writeEllipsis(w, label, sat(value_x - 1, x + 6));
+  w.write(at(x + indent, y) + (disabled ? p.quiet : p.label));
+  writeEllipsis(w, label, sat(value_x - 1, x + indent));
   w.write(at(value_x, y) + style + value);
 }

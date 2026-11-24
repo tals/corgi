@@ -7,6 +7,7 @@ import { quote, registerCase, writeExecutable } from "./support";
 /** OpenCode's background service, answering over HTTP and announcing each
  * change on its event stream as the real one does. */
 class Service {
+  credential = "work";
   turn = 0;
   text = "";
   done = false;
@@ -137,6 +138,20 @@ class Service {
           : [],
       });
     if (path.startsWith("/api/model/default")) return Response.json({ data: { providerID: "test", id: "model" } });
+    if (path.startsWith("/api/provider?")) return Response.json({ data: [{ id: "test", integrationID: "fixture" }] });
+    if (path === "/api/credential")
+      return Response.json({
+        data: [
+          { id: "unrelated", integrationID: "other", active: true, label: "Other" },
+          {
+            id: this.credential,
+            integrationID: "fixture",
+            active: true,
+            label: this.credential,
+            value: { access: "secret-token" },
+          },
+        ],
+      });
     return new Response("", { status: 404 });
   }
   stop() {
@@ -271,6 +286,65 @@ else if (args[0] === 'api') {
     await this.rpc({ op: "startup.kill", id: wait.id });
     await this.until(async () => !(await this.session()).startup_waits.some((w: any) => w.id === wait.id));
     await this.until(() => processPath(pid) === null);
+  }
+  async test_native_headless_account_tracks_opencode_switches() {
+    await this.create("wait");
+    const identity = async () => (await this.session()).headless_sessions[0]?.agent.account;
+    await this.until(async () => (await identity())?.id === '["opencode2","work"]');
+    this.service.credential = "personal";
+    this.service.emit("credential.switched");
+    await this.until(async () => (await identity())?.id === '["opencode2","personal"]');
+    this.assertEqual(await identity(), {
+      id: '["opencode2","personal"]',
+      name: "personal",
+      directory: null,
+      loginId: "personal",
+      email: null,
+      type: null,
+      plan: null,
+      usage: null,
+    });
+  }
+  async test_native_pane_account_tracks_opencode_switches() {
+    await this.command("agent.create", { workspace: 1, provider: "opencode2", account: "" });
+    const identity = async () =>
+      (await this.session()).panes.find((p: any) => p.agent.provider === "opencode2")?.agent.account;
+    await this.until(async () => (await identity())?.id === '["opencode2","work"]');
+    this.service.credential = "personal";
+    this.service.emit("credential.switched");
+    await this.until(async () => (await identity())?.id === '["opencode2","personal"]');
+    this.assertEqual(await identity(), {
+      id: '["opencode2","personal"]',
+      name: "personal",
+      directory: null,
+      loginId: "personal",
+      email: null,
+      type: null,
+      plan: null,
+      usage: null,
+    });
+  }
+  async test_manager_keeps_configured_opencode_visible_without_account_creation() {
+    writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
+    const workspace = (await this.session()).workspaces[0].id,
+      view = await Viewer.create(this, 180, 40);
+    await view.input("\x02A");
+    await this.until(async () => (await view.poll()).data.includes("OpenCode"));
+    const rows = screen_text((await view.poll()).data, 180, 40),
+      y = rows.findIndex(row => row.includes("Manage agents")),
+      x = rows[y].indexOf("Manage agents");
+    await view.input(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
+    await view.advance(0.3);
+    await this.until(async () => (await view.poll()).data.includes("Add agent"));
+    const managed = screen_text((await view.poll()).data, 180, 40).join("\n");
+    this.assertIn("OpenCode", managed);
+    this.assertFalse(managed.split("\n").some(row => row.includes("New ") && row.includes("OpenCode")));
+    await this.command("agent.workspace_visibility", { workspace, row: "opencode2", shown: false });
+    await view.input("\x1b[D");
+    await view.advance(0.3);
+    await this.until(async () => !(await view.poll()).data.includes("OpenCode"));
+    await this.command("agent.workspace_visibility", { workspace, row: "opencode2", shown: true });
+    await this.until(async () => (await view.poll()).data.includes("OpenCode"));
   }
   async create(prompt: string) {
     const result = await this.rpc({

@@ -294,22 +294,26 @@ test("a focus control waits past any time limit while the daemon says its pane i
   }
 });
 
-test("a machine in the background opens the links its panes ask for, while its other controls wait", async () => {
+test("a machine in the background opens links and selects agents its tricks ask for, while its other controls wait", async () => {
   const shown = new Machine(never),
     background = new Machine(never, "atlas", true);
   const view = new Controller(shown);
   view.adopt(background);
+  const focusAgent = spyOn(view, "focusAgent").mockImplementation(() => {});
   const controls = [
     { seq: 1, kind: "action", name: "open-url", value: "http://localhost:3000/" },
-    { seq: 2, kind: "focus", id: 31 },
-    { seq: 3, kind: "action", name: "open-url", value: "https://example.com/" },
+    { seq: 2, kind: "action", name: "focus-agent", value: "pane:4" },
+    { seq: 3, kind: "focus", id: 31 },
+    { seq: 4, kind: "action", name: "open-url", value: "https://example.com/" },
   ] as protocol.Wire<protocol.Control[]>;
-  expect(viewer.leadingLinks(controls, 0n)).toEqual(controls.slice(0, 1));
+  expect(viewer.leadingRequests(controls, 0n)).toEqual(controls.slice(0, 2));
   // A control taken already, its ack still on the way, doesn't hold the link behind it.
-  expect(viewer.leadingLinks(controls.slice(1), 2n)).toEqual(controls.slice(1));
+  expect(viewer.leadingRequests(controls.slice(2), 3n)).toEqual(controls.slice(2));
   await viewer.receive(view, reply(null, controls), { seq: 0n }, false, background);
   expect(view.effects).toEqual([{ open_url: "http://localhost:3000/", machine: background.id }]);
-  expect(background.last_control).toBe(1n);
+  // A trick's button selects its agent on the machine it's on.
+  expect(focusAgent.mock.calls).toEqual([["pane:4", background]]);
+  expect(background.last_control).toBe(2n);
   // The focus waits for its machine to be shown, and the link behind it with it.
-  expect(background.waiting_controls).toEqual(controls.slice(1));
+  expect(background.waiting_controls).toEqual(controls.slice(2));
 });

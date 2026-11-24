@@ -1,0 +1,4 @@
+version = 1
+id = "attention-radar"
+description = "Jump to agents that need your attention."
+entry = "main.mjs"
