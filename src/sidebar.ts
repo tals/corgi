@@ -208,6 +208,12 @@ export type Scope = "workspace" | "all";
 export type Sort = "activity" | "manual";
 /** One of the sidebar's two lists. */
 export type Section = "workspaces" | "agents";
+export type Grip = "width" | "split" | "height";
+type Band = { rows: number };
+const band_min = 10;
+const band_default = 24;
+const band_pane_rows = 12;
+const scope_top_width = 40;
 /** Header totals for a group entry; `current` marks the selected workspace. */
 export interface Group {
   agents: number;
@@ -727,6 +733,8 @@ export class View {
   animate: ((at_ms: number) => void) | null = null;
   cols = 0;
   rows = 0;
+  /** The terminal's rows; on top, `rows` are the band's. */
+  screen = 0;
   width = 0;
   count = 0;
   offset = 0;
@@ -769,6 +777,8 @@ export class View {
   panel = 0;
   /** The row being renamed in place, if any. */
   rename: RenameState | null = null;
+  band: Band | null = null;
+  part: Section | null = null;
 
   clone(): View {
     return Object.assign(Object.create(View.prototype), this) as View;
@@ -790,10 +800,56 @@ export class View {
   sidebarWidth(): number {
     return this.inner ? this.width + lists_x : this.width;
   }
+  single(): Section | null {
+    return this.drawer ?? this.part;
+  }
+  agents(): View {
+    if (!this.band) return this;
+    const v = this.column();
+    v.part = "agents";
+    v.inner = false;
+    v.width = this.cols - this.sidebarWidth();
+    return v;
+  }
+  column(): View {
+    if (!this.band) return this;
+    const v = this.clone();
+    v.band = null;
+    return v;
+  }
+  agentsX(): number {
+    return this.band ? this.width : 0;
+  }
+  sectionAt(x: number, y: number): Section {
+    if (this.band) return x >= this.width ? "agents" : "workspaces";
+    return y < this.middle() ? "workspaces" : "agents";
+  }
+  contains(x: number, y: number): boolean {
+    if (this.band) return y >= 0 && y < this.band.rows && x >= 0 && x < this.cols;
+    return this.width > 0 && x >= 0 && x < this.width;
+  }
+  grip(x: number, y: number): Grip | null {
+    if (!this.contains(x, y)) return null;
+    if (this.band && y === this.band.rows - 1) return "height";
+    if (x === this.width - 1) return "width";
+    return this.splitHandle(x, y) ? "split" : null;
+  }
+  beside(): number {
+    return this.band ? 0 : this.width;
+  }
+  tabY(): number {
+    return this.band ? this.band.rows : 0;
+  }
+  static bandFor(cols: number, rows: number, open: boolean, preferred: number | null): number {
+    const most = rows - band_pane_rows;
+    if (!open || cols < 64 || most < band_min) return 0;
+    return clamp(preferred ?? Math.min(band_default, Math.floor(rows / 4)), band_min, most);
+  }
   middle(): number {
-    // A drawer's list runs from its box's top edge to the bottom one.
-    if (this.drawer === "workspaces") return this.rows;
-    if (this.drawer === "agents") return 1;
+    // A drawer's list runs from its box's top edge to the bottom one. On
+    // top, the band's rule closes the workspace list as the split rule does.
+    if (this.single() === "workspaces") return this.drawer === null ? this.rows + 1 : this.rows;
+    if (this.single() === "agents") return 1;
     return this.split === null ? Math.floor(sat(this.rows, 1) / 2) : View.splitFor(this.rows, this.split);
   }
   /** Keeps one workspace above the divider and an agent below it. */
@@ -802,6 +858,7 @@ export class View {
   }
   /** The rule between workspaces and agents drags the split. */
   splitHandle(x: number, y: number): boolean {
+    if (this.part !== null) return false;
     if (this.framed()) return this.lists().splitHandle(x - lists_x, y);
     return this.width > 0 && x < this.width - 1 && y === this.middle() - 1;
   }
@@ -838,15 +895,21 @@ export class View {
   /** Whether row `y` of the right border edges the focused list's box. The
    * rule between the lists edges both, as a divider does two panes. */
   outlines(y: number): boolean {
-    if (this.focus === null) return false;
-    return this.focus === "workspaces" ? y >= 1 && y < this.middle() : y >= this.middle() - 1;
+    const focus = this.focused();
+    if (focus === null) return false;
+    return focus === "workspaces" ? y >= 1 && y < this.middle() : y >= this.middle() - 1;
   }
-  /** The focused list's box: its top and bottom rows. */
+  private focused(): Section | null {
+    return this.part === null || this.focus === this.part ? this.focus : null;
+  }
+  /** The focused list's box: its top and bottom rows. On top, the band's
+   * rule is its bottom edge. */
   box(): { top: number; bottom: number } | null {
-    if (this.focus === null || this.width === 0) return null;
-    return this.focus === "workspaces"
+    const focus = this.focused();
+    if (focus === null || this.width === 0) return null;
+    return focus === "workspaces"
       ? { top: 1, bottom: this.middle() - 1 }
-      : { top: this.middle() - 1, bottom: this.rows - 1 };
+      : { top: this.middle() - 1, bottom: this.part === null ? this.rows - 1 : this.rows };
   }
   /** The rule row below the workspace list. */
   workspaceEnd(): number {
@@ -858,7 +921,7 @@ export class View {
     return Math.min(this.archived_count, Math.floor(room / 3), Math.max(1, Math.floor(room / 6)));
   }
   archivedHeader(): number | null {
-    return this.archived_count && this.drawer !== "agents"
+    return this.archived_count && this.single() !== "agents"
       ? Math.max(1, this.middle() - 2 - this.archivedCapacity() * 3)
       : null;
   }
@@ -922,7 +985,8 @@ export class View {
   static fitWidth(cols: number, width: number, preferred: number): number {
     return width > 0 ? clamp(preferred, 20, cols - 20) : width;
   }
-  static paneArea(cols: number, rows: number, width: number, panel: number, drawer: Section | null): Rect {
+  static paneArea(cols: number, rows: number, width: number, panel: number, drawer: Section | null, band = 0): Rect {
+    if (band > 0) return new Rect(0, band + 1, sat(cols, panel), sat(rows, band + 1));
     const x = drawer !== null ? 0 : width;
     return new Rect(x, 1, sat(cols - x, panel), sat(rows, 1));
   }
@@ -933,12 +997,19 @@ export class View {
     offset: number,
     count: number,
     split: number | null = null,
+    band = 0,
   ): View {
     const v = new View();
     v.cols = cols;
     v.rows = rows;
+    v.screen = rows;
     v.split = split;
     v.width = View.widthFor(cols, open, rows);
+    if (band > 0 && v.width > 0) {
+      v.band = { rows: band };
+      v.rows = band - 1;
+      v.part = "workspaces";
+    }
     v.count = count;
     v.capacity = 1;
     v.offset = 0;
@@ -950,10 +1021,12 @@ export class View {
   /** The list runs to the bottom row unless the search hint or a box's
    * edge takes it; a drawer is always boxed. */
   listEnd(): number {
+    if (this.band) return this.agents().listEnd();
     const boxed = this.drawer !== null || this.box()?.bottom === this.rows - 1;
     return this.search !== null || boxed ? sat(this.rows, 1) : this.rows;
   }
   listRows(): number {
+    if (this.band) return this.agents().listRows();
     return sat(this.listEnd(), this.middle() + 2);
   }
   /** Rows end here for drawing: above the bottom badge while it shows. */
@@ -975,7 +1048,7 @@ export class View {
   /** The badge counting agents scrolled out of sight `above` the list or
    * `below` it, on the blank row under the header or the bottom row. */
   badge(side: "above" | "below"): Badge | null {
-    if (this.width === 0 || this.entries.length === 0 || this.search !== null || this.drawer === "workspaces")
+    if (this.width === 0 || this.entries.length === 0 || this.search !== null || this.single() === "workspaces")
       return null;
     const { counts, prev, next } = this.index;
     // Rows end above a bottom badge.
@@ -1075,6 +1148,7 @@ export class View {
   }
   /** Entries that fit in the list starting at `from`, below its pinned headers. */
   fits(from: number): number {
+    if (this.band) return this.agents().fits(from);
     let used = this.pinned(from).length;
     let n = 0;
     for (const e of this.entries.slice(Math.min(from, this.entries.length))) {
@@ -1085,6 +1159,7 @@ export class View {
     return Math.max(1, n);
   }
   maxOffset(): number {
+    if (this.band) return this.agents().maxOffset();
     if (this.entries.length === 0) return sat(this.count, this.capacity);
     let used = 0;
     let start = this.entries.length;
@@ -1166,6 +1241,7 @@ export class View {
   }
   /** The smallest scroll change that shows entry `index`. */
   reveal(index: number): number {
+    if (this.band) return this.agents().reveal(index);
     if (index < this.offset) return index;
     let offset = this.offset;
     while (offset < index && index >= offset + (this.entries.length > 0 ? this.fits(offset) : this.capacity))
@@ -1187,11 +1263,13 @@ export class View {
     return result;
   }
   searchOffset(): number {
+    if (this.band) return this.agents().searchOffset();
     const search = this.search;
     if (!search) return 0;
     return sat(search.cursor, sat(this.width, 5));
   }
   searchCursor(w: Writer): void {
+    if (this.band) return w.withColumns(this.width, () => this.agents().searchCursor(w));
     const search = this.search;
     if (!search) return;
     if (this.width === 0) return;
@@ -1218,6 +1296,10 @@ export class View {
    * name, or the text typed into it, rather than filling the room before
    * the row's right side. Null while the row is not on screen. */
   fieldRect(target: RenameTarget, workspaces: WorkspaceEntry[]): FieldRect | null {
+    if (this.band && !viewerRef.isWorkspace(target)) {
+      const rect = this.agents().fieldRect(target, workspaces);
+      return rect && { ...rect, x: rect.x + this.width };
+    }
     if (this.framed()) {
       const rect = this.lists().fieldRect(target, workspaces);
       return rect && { ...rect, x: rect.x + lists_x };
@@ -1225,7 +1307,7 @@ export class View {
     const v = this;
     if (v.width === 0) return null;
     if (viewerRef.isWorkspace(target)) {
-      if (v.drawer === "agents") return null;
+      if (v.single() === "agents") return null;
       const index = workspaces.findIndex(ws => ws.id === target);
       if (index < v.workspace_offset || index < 0 || v.workspace_collapsed[index]) return null;
       const y = v.workspaceY(index);
@@ -1236,7 +1318,7 @@ export class View {
       const name = displayWidth(workspaceName(ws)) + (ws.archived ? displayWidth(archivedSuffix()) : 0);
       return { x: 1, y, width: renameColumns(open ? renameTextWidth(open) : name, room), message_y: y + 1 };
     }
-    if (v.drawer === "workspaces") return null;
+    if (v.single() === "workspaces") return null;
     const index = v.entries.findIndex(e => viewerRef.isPane(e.target) && e.target === target);
     if (index < 0 || index < v.offset) return null;
     const end = v.drawEnd(v.badge("below"));
@@ -1296,17 +1378,20 @@ export class View {
     writeEllipsis(w, message, this.width - 3);
   }
   area(): Rect {
+    if (this.band) return View.paneArea(this.cols, this.screen, this.width, this.panel, null, this.band.rows);
     return View.paneArea(this.cols, this.rows, this.width, this.panel, this.drawer);
   }
   tabX(): number {
+    if (this.band) return 0;
     return this.width > 0 && this.drawer === null ? this.width : this.cols >= 64 ? 3 : 0;
   }
   hit(x: number, y: number): Hit {
+    if (this.band) return x >= this.width ? this.agents().hit(x - this.width, y) : this.column().hit(x, y);
     if (this.framed()) return this.lists().hit(x - lists_x, y);
     const v = this;
     if (v.width === 0) return v.cols >= 64 && x < 3 && y === 0 ? hit("toggle") : hit("none");
     if (x >= v.width - 1 || y >= v.rows) return hit("none");
-    if (y === 0 && v.drawer !== "agents") {
+    if (y === 0 && v.single() !== "agents") {
       if (v.workspaceScope()?.contains(x, y)) return hit("workspace_scope");
       if (x >= v.width - (v.workspace_scope ? 2 : 5)) return hit("toggle");
       if (v.workspace_scope ? x >= v.width - 8 && x < v.width - 3 : x >= v.width - 11 && x < v.width - 6)
@@ -1379,6 +1464,7 @@ export class View {
   /** The header and spacer above the rows, and the terminal's last row.
    * Never scroll over workspaces or beside the list. */
   agentDragEdge(x: number, y: number): -1 | 0 | 1 {
+    if (this.band) return this.agents().agentDragEdge(x - this.width, y);
     if (this.framed()) return this.lists().agentDragEdge(x - lists_x, y);
     if (this.width === 0 || x < 0 || x >= this.width - 1 || this.listRows() === 0 || this.count === 0) return 0;
     if (y >= this.middle() && y < this.middle() + 2) return -1;
@@ -1387,6 +1473,7 @@ export class View {
   /** Use the same row heights and viewport as hit testing. The marker sits
    * just above the destination row, including the gap after the last row. */
   agentDrop(x: number, y: number): { index: number; y: number } | null {
+    if (this.band) return x < this.width ? null : this.agents().agentDrop(x - this.width, y);
     if (this.framed()) return this.lists().agentDrop(x - lists_x, y);
     const v = this;
     if (v.width === 0 || x >= v.width - 1 || y < v.middle() + 2 || y >= v.listEnd() || v.entries.length === 0)
@@ -1471,6 +1558,13 @@ export class View {
       if (v.cols >= 64) w.write(`${w.cup(1, 1)}\x1b[1m` + fg("strong") + " > \x1b[0m");
       return;
     }
+    if (v.band) {
+      // First, so the focused list's box draws its bottom edge over it.
+      v.drawBandRule(w);
+      v.column().drawFrame(w, entries, workspaces, now_ms, archived);
+      w.withColumns(v.width, () => v.agents().drawFrame(w, entries, workspaces, now_ms, archived));
+      return;
+    }
     if (v.framed()) {
       for (let row = 0; row < v.rows; row++) w.write(`${w.cup(row + 1, 1)}${panel}` + " ".repeat(lists_x));
       w.withColumns(lists_x, () => v.lists().drawFrame(w, entries, workspaces, now_ms, archived));
@@ -1484,7 +1578,8 @@ export class View {
       w.write((v.outlines(row) ? outline : fg("line")) + "│");
     }
     v.drawScope(w);
-    if (v.search) {
+    const listed = v.single() !== "workspaces";
+    if (listed && v.search) {
       const search = v.search;
       v.line(w, v.middle() + 1, "/ ", new Style({ fg: "strong", bg: "surface" }).sgr());
       w.splat(" ", v.width - 5);
@@ -1498,7 +1593,7 @@ export class View {
           plain = new Style({ fg: "text", bg: "surface" }).sgr();
         w.write(shown.slice(0, a) + palette.selection + shown.slice(a, b) + plain + shown.slice(b));
       }
-    } else if (v.drawer === null) {
+    } else if (listed && v.drawer === null) {
       const label = newAgentLabel(v.width);
       w.write(w.cup(v.middle() + 1, v.width - displayWidth(label) - 1) + button + label + panel);
       // The focused agent list shows where `/` opens its search.
@@ -1507,27 +1602,32 @@ export class View {
         w.write(new Style({ fg: "faint", bg: "bg" }).sgr() + " " + i18n.t`search`);
       }
     }
-    if (v.drawer !== "agents") {
+    if (v.single() !== "agents") {
       v.drawWorkspaces(w, workspaces, now_ms);
       v.drawArchives(w, archived);
     }
-    if (v.drawer === "workspaces") {
+    if (v.single() === "workspaces") {
       w.write("\x1b[0m");
       return;
     }
     if (v.drawer === null) {
       // The rule meets the border, so an outline turns the corner. Its grip
       // sets it apart from the section rules and the scrollbar thumb.
-      const boxed = v.focus !== null,
+      const boxed = v.focused() !== null,
         stroke = boxed ? "─" : "━",
         run = Math.max(0, v.width - 2),
-        grip = run >= split_grip.length + 4 ? split_grip : "",
+        grip = v.part === null && run >= split_grip.length + 4 ? split_grip : "",
         left = Math.floor((run - grip.length) / 2);
       w.write(w.cup(v.middle(), 2) + (boxed ? outline : panel + fg("line")) + stroke.repeat(left));
       if (grip) w.write(boxed ? grip : fg("faint") + grip + fg("line"));
-      w.write(stroke.repeat(run - left - grip.length) + (!boxed ? "┥" : v.focus === "agents" ? "┐" : "┘"));
+      w.write(stroke.repeat(run - left - grip.length) + (!boxed ? "┥" : v.focused() === "agents" ? "┐" : "┘"));
     }
     v.drawAgents(w, entries, now_ms);
+  }
+  private drawBandRule(w: Writer): void {
+    const corner = this.width - 1;
+    w.write(`${w.cup(this.rows + 1, 1)}${panel}${fg("line")}${"━".repeat(corner)}┷`);
+    w.write("━".repeat(sat(this.cols - 1, corner + 1)) + "┙\x1b[0m");
   }
   /** The focused list's box: the lists' view draws its right edge and the
    * rule; this closes it on the left and, off the rule, on top and bottom. */
@@ -1535,7 +1635,7 @@ export class View {
     const box = this.box();
     if (box === null) return;
     const v = this,
-      rule = v.drawer === null ? v.middle() - 1 : -1;
+      rule = v.drawer === null && v.part !== "workspaces" ? v.middle() - 1 : -1;
     w.write(outline);
     for (let y = box.top; y <= box.bottom; y++)
       w.write(w.cup(y + 1, 1) + (y === box.top ? "┌" : y === box.bottom ? "└" : "│"));
@@ -2387,7 +2487,7 @@ export function resourceAt(v: View, workspaces: WorkspaceEntry[], x: number, y: 
   return null;
 }
 function resourceCardFits(v: View): boolean {
-  return resourceTooltip.geometry(v.cols, v.rows, v.sidebarWidth(), 0) !== null;
+  return resourceTooltip.geometry(v.cols, v.screen, v.sidebarWidth(), 0) !== null;
 }
 /** Whether the row shows CPU (0), memory (1) or GPU (2), the last only while
  * the workspace uses one; its place stays reserved on every host.
@@ -2787,10 +2887,13 @@ export class ScopeMenu {
   }
   /** Under the agents header, or moved up as far as it must to fit. */
   static bounds(side: View, cols: number, rows: number): Rect {
-    const width = Math.min(sat(cols, 1 + lists_x), Math.max(sat(side.width, 2 + lists_x), 26));
+    const agents = side.agents(),
+      x = side.agentsX() + 1 + lists_x;
+    const wide = Math.max(sat(agents.width, 2 + lists_x), 26),
+      width = Math.min(sat(cols, x), side.band ? Math.min(wide, scope_top_width) : wide);
     const height = Math.min(scope_rows.length + 2, sat(rows, 1));
-    const y = Math.min(side.middle() + 1, sat(sat(rows, 1), height));
-    return new Rect(1 + lists_x, y, width, height);
+    const y = Math.min(agents.middle() + 1, sat(sat(rows, 1), height));
+    return new Rect(x, y, width, height);
   }
   static hit(side: View, cols: number, rows: number, x: number, y: number): ScopeChoice | null {
     const b = ScopeMenu.bounds(side, cols, rows);

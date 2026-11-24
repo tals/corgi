@@ -267,3 +267,12 @@ test("a click, cancellation, resize, or changed entries cannot keep drag scrolli
     expect(drag.drop).toBeNull();
   }
 });
+test("on top, only the agent column takes drops", () => {
+  const entries = [row(viewerRef.pane(0, 1), "idle"), row(viewerRef.pane(0, 2), "idle")],
+    view = View.init(100, 60, true, 0, entries.length, null, 20).withEntries(entries),
+    x = view.agentsX() + 5;
+  let y = 0;
+  while (y < view.rows && !view.agentDrop(x, y)) y++;
+  expect(view.agentDrop(x, y)).not.toBeNull();
+  for (const over of [0, 5, view.width - 1]) expect(view.agentDrop(over, y)).toBeNull();
+});

@@ -282,6 +282,7 @@ export interface Ui {
   /** The sidebar row being renamed in place. */
   inline_rename: RenameState | null;
   sidebar_open: boolean;
+  sidebar_band: number;
   /** The folded sidebar's list that shows as a drawer over the panes. */
   sidebar_drawer: Section | null;
   corgi_badge: corgiBadge.Mode;
@@ -320,8 +321,8 @@ export interface Ui {
   review_keys: boolean;
   /** Draws the review panel over its columns. */
   review_draw: ((w: Writer) => void) | null;
-  /** A review shown dimmed at the right edge, over the panel or the panes. */
-  review_ghost: { width: number; draw: (w: Writer) => void } | null;
+  /** A review shown dimmed in `rect` at the right edge, over the panel or the panes. */
+  review_ghost: { rect: Rect; draw: (w: Writer) => void } | null;
   /** Draws an account's sign-in over the whole screen, its cursor included. */
   signin_draw: ((w: Writer, pointer: Pointer | null) => linkTooltip.Link | null) | null;
   /** With every workspace closed, the button that creates one. */
@@ -384,6 +385,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     archive_dialog: null,
     inline_rename: null,
     sidebar_open: true,
+    sidebar_band: 0,
     sidebar_drawer: null,
     corgi_badge: "none",
     supports_kitty_graphics: false,
@@ -657,7 +659,7 @@ function badgeCovered(u: Ui, side: SidebarView, width: number, height: number, p
   const boxes = [...menuBoxes(u, width, height, side.area()), ...prompt];
   if (u.connection_card && noOverlay(u)) boxes.push(u.connection_card.rect);
   if (u.agent_launcher) boxes.push(u.agent_launcher.bounds(width, height, side));
-  if (u.agent_search) boxes.push(new Rect(0, side.middle() + 1, side.width, 1));
+  if (u.agent_search) boxes.push(new Rect(side.agentsX(), side.agents().middle() + 1, side.agents().width, 1));
   if (u.dialog) {
     const d = NameView.init(width, height, u.dialog);
     boxes.push(new Rect(d.x, d.y, d.width, d.height));
@@ -749,13 +751,14 @@ function drawTabs(
   panes: Pane[],
   preset: keymap.Preset,
   left: number,
+  top: number,
   space: number,
   thumb: TabThumb | null,
   /** Collects the tabs' brand marks; null shows none and leaves them no room. */
   marks: TabMark[] | null = null,
 ): void {
   const model = view.model;
-  w.write(`\x1b[1;${left + 1}H`);
+  w.write(`\x1b[${top + 1};${left + 1}H`);
   let x = 0;
   const start = tabStart(view, space);
   for (let i = start; i < model.count; i++) {
@@ -803,7 +806,15 @@ function drawTabs(
 /** The sidebar a frame of `u` draws, so hit tests find what it shows. */
 export function sidebarView(u: Ui, width: number, height: number): SidebarView {
   const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
-  let side = SidebarView.init(width, height, u.sidebar_open, u.sidebar_offset, entries.length, u.prefs.sidebar_split)
+  let side = SidebarView.init(
+    width,
+    height,
+    u.sidebar_open,
+    u.sidebar_offset,
+    entries.length,
+    u.prefs.sidebar_split,
+    u.sidebar_band,
+  )
     .withSearch(u.agent_search)
     .withWidth(u.prefs.sidebar_width)
     .withPanel(u.review_width);
@@ -873,7 +884,7 @@ export function frame(
   const tab_end = width - side.panel;
   const tab_space = sat(tab_end - side.tabX(), 3);
   // The scrollbar shows while the pointer is where the wheel scrolls the tabs.
-  const over_tabs = u.pointer !== null && u.pointer.y === 0 && u.pointer.x >= side.tabX() && noOverlay(u);
+  const over_tabs = u.pointer !== null && u.pointer.y === side.tabY() && u.pointer.x >= side.tabX() && noOverlay(u);
   const thumb = over_tabs ? tabThumb(view, tab_end - side.tabX()) : null;
   // Marks take room in their tabs only where the host can show them.
   const marks: TabMark[] | null = u.pictures && u.cell_pixels ? [] : null;
@@ -887,17 +898,17 @@ export function frame(
   const create_lit = none !== null && (none.focused || on_create);
   if (none) {
     const tabs = new Writer();
-    drawTabs(tabs, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
+    drawTabs(tabs, view, panes, u.prefs.preset, side.tabX(), side.tabY(), tab_space, thumb, marks);
     sidebar.writeExit(w, tabs.buffered(), noWorkspace.dim);
   } else if (u.workspace_loading && model.count === 0) {
-    w.write(`\x1b[1;${side.tabX() + 1}H` + palette.fg("faint"));
+    w.write(`\x1b[${side.tabY() + 1};${side.tabX() + 1}H` + palette.fg("faint"));
     writeEllipsis(w, " ▰▰▰▰▰▰▰▰   ▰▰▰▰▰▰   ▰▰▰▰▰▰▰▰ ", tab_space);
-    w.write(`\x1b[3;${side.area().x + 2}H` + palette.fg("muted"));
+    w.write(`\x1b[${side.area().y + 2};${side.area().x + 2}H` + palette.fg("muted"));
     writeEllipsis(w, i18n.t`Loading tabs…`, Math.max(0, side.area().w - 2));
     w.write("\x1b[0m");
-  } else if (layout) drawTabs(w, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
+  } else if (layout) drawTabs(w, view, panes, u.prefs.preset, side.tabX(), side.tabY(), tab_space, thumb, marks);
   if (u.tab_drop_x !== null)
-    w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
+    w.write(`\x1b[${side.tabY() + 1};${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
   if (none) {
     const button = new Writer();
     noWorkspace.draw(button, side.area(), create_lit);
@@ -916,7 +927,7 @@ export function frame(
     const newAgent = hint({ name: "new" }, i18n.t`agent picker`),
       shortcuts = hint({ name: "help" }, i18n.t`shortcuts`);
     const empty = i18n.t` No panes. ${newAgent} | ${shortcuts}`;
-    w.write(`\x1b[2;${side.area().x + 1}H`);
+    w.write(`\x1b[${side.area().y + 1};${side.area().x + 1}H`);
     writeEllipsis(w, empty, side.area().w);
   }
   const area = side.area();
@@ -1023,7 +1034,7 @@ export function frame(
         const git = sidebar.gitActionWorkspace(side, u.workspaces, u.git_hover, pointer.x, pointer.y);
         if (git) link_pointer = link_pointer || git.git_push.phase === "idle" || git.git_push.phase === "failed";
         if (on_create || on_none !== null) link_pointer = true;
-        if (layout && pointer.y === 0 && pointer.x >= side.tabX()) {
+        if (layout && pointer.y === side.tabY() && pointer.x >= side.tabX()) {
           const add_x = side.tabX() + addTabX(view, width - side.tabX() - side.panel);
           link_pointer = link_pointer || (pointer.x >= add_x && pointer.x < add_x + 3);
         }
@@ -1031,11 +1042,11 @@ export function frame(
           port_url = sidebar.portLink(side, u.workspaces, pointer.x, pointer.y);
         hovered_uri = port && port_url ? sidebar.linkStatus(port, port_url) : null;
         // The sidebar's last column drags its width, ahead of any control there.
-        if (side.width > 0 && pointer.x === side.width - 1) resize_hover = "horizontal";
+        const grip = side.grip(pointer.x, pointer.y);
+        if (grip) resize_hover = grip === "width" ? "horizontal" : "vertical";
         else if (u.review_width > 0 && pointer.x === width - u.review_width) resize_hover = "horizontal";
         else if (u.review_width > 0 && pointer.x > width - u.review_width && pointer.y === u.review_split)
           resize_hover = "vertical";
-        else if (side.splitHandle(pointer.x, pointer.y)) resize_hover = "vertical";
         else {
           const hit = view.dividerAt(area, pointer.x, pointer.y);
           if (hit) resize_hover = hit.axis;
@@ -1159,7 +1170,8 @@ export function frame(
     cover(sync_at);
   }
   // Under the sidebar, which covers what a drawer hides.
-  if (u.ghost) cover(drawGhost(w, u.ghost, side.drawer !== null ? side.width : u.ghost.area.x));
+  if (u.ghost)
+    cover(drawGhost(w, u.ghost, side.drawer !== null ? side.width : u.ghost.area.x, side.band ? "top" : "bottom"));
   if (u.workspace_ghost) cover(drawWorkspaceGhost(w, u.workspace_ghost, panes, side, width, u.prefs.preset));
   const grips =
     u.pointer && noPopup(u) && !u.copy_mode && !u.sidebar_focus
@@ -1343,7 +1355,7 @@ export function frame(
   // Over the push card it previews, so the card's rows stay where they were.
   if (u.review_ghost) {
     u.review_ghost.draw(w);
-    cover(new Rect(width - u.review_ghost.width, 0, u.review_ghost.width, height));
+    cover(u.review_ghost.rect);
   }
   if (u.copy_feedback && width >= 27 && height >= 5) {
     cover(new Rect(width - 27, 1, 27, 3));
@@ -1498,7 +1510,7 @@ export function frame(
   if (u.pictures && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
     for (const { brand, x, y } of archive_marks) tabIcons.place(u.pictures, brand, x, y, u.cell_pixels);
   if (marks && u.pictures && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
-    for (const { brand, x } of marks) tabIcons.place(u.pictures, brand, x, 0, u.cell_pixels);
+    for (const { brand, x } of marks) tabIcons.place(u.pictures, brand, x, side.tabY(), u.cell_pixels);
   if (dragging) {
     w.write("\x1b[?25l");
     pane_cursor = null;
@@ -1710,17 +1722,29 @@ function dividerGlyph(up: boolean, down: boolean, left: boolean, right: boolean,
   if (down) return left ? "┐" : right ? "┌" : "│";
   return horizontal ? "│" : "─";
 }
-/** The bottom half of the pane area as entering `g`'s agent would show it,
- * dimmed under a dashed edge naming it from column `left`, past a drawer.
- * Every cell sits where entering leaves it, so entering only reveals the rest. */
-export function drawGhost(w: Writer, g: Ghost, left = g.area.x): Rect | null {
+/** Half the pane area as entering `g`'s agent would show it, dimmed beside a
+ * dashed edge naming it from column `left`, past a drawer: the bottom half,
+ * or the top under a sidebar on top, nearer its list. Every cell sits where
+ * entering leaves it, so entering only reveals the rest. */
+export function drawGhost(w: Writer, g: Ghost, left = g.area.x, half: "top" | "bottom" = "bottom"): Rect | null {
   const { pane, rect, area } = g;
   const cut = area.y + Math.floor(area.h / 2);
   if (cut === area.y || area.w === 0) return null;
+  const top = half === "top",
+    name = pane.label || pane.agent.name || providerName(pane.agent);
   w.write("\x1b[0m" + ghost_band);
-  for (let y = cut; y < area.y + area.h; y++) {
+  for (let y = top ? area.y : cut; y < (top ? cut : area.y + area.h); y++) {
     w.write(`\x1b[${y + 1};${area.x + 1}H`);
     w.splat(" ", area.w);
+  }
+  if (top) {
+    if (rect.y < cut) {
+      pane.terminal.updateRender();
+      w.write(pane.terminal.rows(pane.id, rect.x, rect.y, rect.w, Math.min(rect.h, cut - rect.y), true, null));
+    }
+    // The dashed edge sits on the row below the band.
+    drawEdge(w, cut, left, area.x + area.w - left, name, "↑");
+    return new Rect(area.x, area.y, area.w, cut - area.y + 1);
   }
   const from = Math.max(0, cut - rect.y);
   if (from < rect.h) {
@@ -1728,7 +1752,7 @@ export function drawGhost(w: Writer, g: Ghost, left = g.area.x): Rect | null {
     w.write(rowsFrom(pane.terminal.rows(pane.id, rect.x, rect.y, rect.w, rect.h, true, null), rect, from));
   }
   // The dashed edge sits on the row above the band.
-  drawEdge(w, cut - 1, left, area.x + area.w - left, pane.label || pane.agent.name || providerName(pane.agent), "↓");
+  drawEdge(w, cut - 1, left, area.x + area.w - left, name, "↓");
   return new Rect(area.x, cut - 1, area.w, area.y + area.h - cut + 1);
 }
 /** A ghost's dashed edge on row `y`, `room` columns from `left`, naming it
@@ -1756,14 +1780,14 @@ export function drawWorkspaceGhost(
   if (cut === area.y || area.w === 0) return null;
   const tabs = side.tabX(),
     tab_space = sat(width - tabs - side.panel, 3);
-  w.write(`\x1b[0m\x1b[1;${tabs + 1}H`);
+  w.write(`\x1b[0m\x1b[${side.tabY() + 1};${tabs + 1}H`);
   w.splat(" ", sat(width - side.panel, tabs));
   w.write(ghost_band);
   for (let y = area.y; y < cut; y++) {
     w.write(`\x1b[${y + 1};${area.x + 1}H`);
     w.splat(" ", area.w);
   }
-  drawTabs(w, g.view, panes, preset, tabs, tab_space, null);
+  drawTabs(w, g.view, panes, preset, tabs, side.tabY(), tab_space, null);
   for (const place of g.view.placements(area)) {
     const r = place.rect,
       p = panes.find(pane => pane.id === place.id);
@@ -1775,7 +1799,8 @@ export function drawWorkspaceGhost(
   const left = side.drawer !== null ? side.width : area.x;
   // The dashed edge sits on the row below the band.
   drawEdge(w, cut, left, area.x + area.w - left, directoryLabel(g.name, null, 160), "↑");
-  return new Rect(area.x, 0, area.w, cut + 1);
+  // From the tabs down: a sidebar on top keeps its own images.
+  return new Rect(area.x, side.tabY(), area.w, cut + 1 - side.tabY());
 }
 /** `rows` from viewport row `from` on: each row opens with its own cursor move and style. */
 function rowsFrom(rows: string, rect: Rect, from: number): string {

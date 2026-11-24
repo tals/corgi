@@ -24,7 +24,7 @@ import * as onboarding from "./onboarding";
 import * as catalog from "./import/catalog";
 import * as importPicker from "./import/picker";
 import type { Template as Action } from "./action";
-import type { Preferences } from "./preferences";
+import { sidebar_positions, type Preferences, type SidebarPosition } from "./preferences";
 import * as ghosttyIntegration from "./ghostty_integration";
 import type { State as IntegrationState } from "./ghostty_integration";
 import type { State as ClipboardState } from "./host_clipboard";
@@ -110,6 +110,7 @@ export const Summarizer = {
 export type Item =
   | "flourishes"
   | "readings"
+  | "sidebar"
   | "clever_corgi"
   | "theme"
   | "language"
@@ -141,6 +142,7 @@ const list = (): ListRow[] => [
   "shell",
   "keyboard",
   "source_control",
+  "sidebar",
   null,
   "agents",
   null,
@@ -159,6 +161,7 @@ export const items = list().filter((row): row is Item => typeof row === "string"
 const labels = (): Record<Item, string> => ({
   flourishes: i18n.t`Visual flourishes`,
   readings: i18n.t`Resources`,
+  sidebar: i18n.t`Sidebar`,
   clever_corgi: i18n.t`Clever Corgi`,
   theme: i18n.t`Theme`,
   language: i18n.t`Language`,
@@ -198,6 +201,7 @@ export type Apply =
   | { kind: "inference_use"; use: Use; on: boolean }
   | { kind: "readings" | "smart_links" | "auto_retry" | "ghostty"; on: boolean }
   | { kind: "corgi_intensity"; value: number }
+  | { kind: "sidebar_position"; position: SidebarPosition }
   | { kind: "theme"; theme: palette.Theme }
   | { kind: "language"; language: i18n.Locale | undefined }
   | { kind: "shell"; entry: shellPicker.Entry }
@@ -1778,6 +1782,13 @@ export class Menu implements LinkSource {
           { tag: "note", text: i18n.t`Preview` },
           ...Array.from({ length: 8 }, (_, row): Line => ({ tag: "corgi_preview", row })),
         ];
+      case "sidebar":
+        return [
+          title(i18n.t`Sidebar`),
+          lead(i18n.t`Where the workspace and agent lists sit.`),
+          blank,
+          ...sidebarOptions(prefs.sidebar_position).map(option),
+        ];
       case "readings":
         return [
           title(i18n.t`Resource readings`),
@@ -2132,6 +2143,8 @@ export class Menu implements LinkSource {
         };
       case "readings":
         return flag(prefs.resources.enabled);
+      case "sidebar":
+        return { text: sidebarLabel(prefs.sidebar_position), tone: "muted" };
       case "clever_corgi":
         return { text: "", tone: "faint" };
       case "theme":
@@ -2264,6 +2277,38 @@ function pickerArea(l: Layout, line: number): Rect {
   const x0 = l.options.x + 2,
     right = l.options.x + l.options.w - 1;
   return new Rect(x0, l.b.y + 2 + line, right - x0, l.body - line);
+}
+function sidebarLabel(position: SidebarPosition): string {
+  switch (position) {
+    case "left":
+      return i18n.t`Left`;
+    case "top":
+      return i18n.t`Top`;
+    case "auto":
+      return i18n.t`Auto`;
+  }
+}
+function sidebarDetail(position: SidebarPosition): string {
+  switch (position) {
+    case "left":
+      return i18n.t`a column beside the panes`;
+    case "top":
+      return i18n.t`a band above the panes`;
+    case "auto":
+      return i18n.t`top on a portrait window`;
+  }
+}
+function sidebarOptions(current: SidebarPosition): Option[] {
+  return sidebar_positions.map(position => sidebarOption(position, current));
+}
+function sidebarOption(position: SidebarPosition, current: SidebarPosition): Option {
+  return {
+    label: sidebarLabel(position),
+    detail: sidebarDetail(position),
+    mark: position === current ? "on" : "off",
+    apply: position === current ? null : { kind: "sidebar_position", position },
+    action: i18n.t`use`,
+  };
 }
 function onOff(enabled: boolean, kind: "readings", details: [string, string]): Option[] {
   return [true, false].map((value, i) => ({
