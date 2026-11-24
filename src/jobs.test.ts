@@ -97,6 +97,38 @@ test("a job nobody polls dies after the idle time, and one that fails says why",
   expect(second).toBe("UnknownJob");
 });
 
+test("work can wait for a poll to take its results, so each reply carries a part", async () => {
+  const all = new jobs.Jobs();
+  const sent: number[] = [];
+  const { job } = await all.begin(owner, async j => {
+    for (let i = 1; i <= 3; i++) {
+      await j.taken();
+      sent.push(i);
+      j.emit(i);
+    }
+  });
+  await Bun.sleep(10);
+  // One part waits for its poll; the next isn't made until then.
+  expect(sent).toEqual([1]);
+  const polls: unknown[][] = [];
+  for (let news = await all.poll(owner, job, 50); ; news = await all.poll(owner, job, 50)) {
+    polls.push(news.results);
+    if (news.done) break;
+  }
+  expect(polls.flat()).toEqual([1, 2, 3]);
+  expect(polls.every(results => results.length <= 1)).toBe(true);
+  // A cancelled job's work isn't left waiting.
+  let waited = false;
+  const stuck = await all.begin(owner, async j => {
+    j.emit(0);
+    await j.taken();
+    waited = true;
+  });
+  all.cancel(owner, stuck.job);
+  await Bun.sleep(1);
+  expect(waited).toBe(true);
+});
+
 test("a viewer follows a job through its daemon, and an abort cancels it there", async () => {
   const all = new jobs.Jobs();
   const asked: string[] = [];

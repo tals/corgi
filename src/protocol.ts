@@ -168,6 +168,8 @@ export const operations = [
   "file.count",
   "file.scan",
   "file.thumbnail",
+  "file.list",
+  "file.walk",
   "job.poll",
   "job.cancel",
   "folder.list",
@@ -875,14 +877,18 @@ const requests = {
   "review.recognize": { cwd: "string", hashes: "[]string" },
   // The file peek's and a link's picture's reads on another computer; see
   // file_access.ts. `id` is the file's as `file.stat` found it: a path that
-  // names another refuses.
-  "file.stat": { path: "string", cwd: ["string", ""] },
+  // names another refuses. With `directory`, `file.stat` finds a folder too.
+  "file.stat": { path: "string", cwd: ["string", ""], directory: ["bool", false] },
   "file.read": { path: "string", id: "string", at: "u64", length: "u32" },
   "file.count": { path: "string", id: "string", from: "u64", to: "u64" },
   // Starts the job that finds a line, scanning `budget` bytes at most
   // before it answers that the line is far; see jobs.ts for `wait`.
   "file.scan": { path: "string", id: "string", line: "u64", budget: "u64", wait: ["u32", 0] },
   "file.thumbnail": { path: "string", width: "u32", height: "u32", pixels: "u32" },
+  // The directory browser's listing of a folder, and its search's walk below
+  // one, which runs as a job whose results are batches of paths.
+  "file.list": { path: "string" },
+  "file.walk": { path: "string" },
   // A job's news, waiting up to `wait` ms for some, and its end; see jobs.ts.
   "job.poll": { job: "u32", wait: ["u32", 0] },
   "job.cancel": { job: "u32" },
@@ -1091,6 +1097,8 @@ export interface ReplyPayloads {
       png: string;
       frames: (Omit<import("./picture").Frame, "png"> & { png: string })[];
     };
+  "file.list": Ok & import("./file_access").Listing;
+  "file.walk": Ok & { job: number } & import("./jobs").Poll;
   "job.poll": Ok & import("./jobs").Poll;
   "job.cancel": Ok;
   /** The folders in `path`, null when it can't be read, and the daemon's home folder. */

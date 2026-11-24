@@ -30,25 +30,34 @@ function folder(): string {
 }
 /** Another computer's files as a daemon here answers for them, each
  * request crossing as JSON and decoded as the daemon decodes it; a scan
- * for a line runs as a job there. */
-function daemon(): { files: fileAccess.Files; asked: string[]; jobs: jobs.Jobs } {
+ * for a line and a folder's walk run as jobs there, as server.ts runs them. */
+function daemon(): { files: fileAccess.Files; asked: string[]; jobs: jobs.Jobs; replies: number[] } {
   const asked: string[] = [],
-    all = new jobs.Jobs(),
+    replies: number[] = [];
+  const all = new jobs.Jobs(),
     owner = {};
+  const answer = async (op: string, wire: any): Promise<unknown> => {
+    const request = protocol.decoded(op as protocol.Op, wire) as any;
+    switch (request.op) {
+      case "file.scan":
+        return all.begin(owner, job => fileAccess.scan(request.payload, job), request.payload.wait);
+      case "file.walk":
+        return all.begin(owner, job => fileAccess.walkJob(request.payload.path, job), jobs.poll_wait);
+      case "job.poll":
+        return all.poll(owner, request.payload.job, request.payload.wait);
+      case "job.cancel":
+        all.cancel(owner, request.payload.job);
+        return {};
+    }
+    return fileAccess.answer(request);
+  };
   const files = fileAccess.remote(async (op, payload) => {
     asked.push(op);
-    const wire = JSON.parse(JSON.stringify(payload));
-    const answer =
-      op === "file.scan"
-        ? all.begin(owner, job => fileAccess.scan(protocol.decode("file.scan", wire), job), wire.wait)
-        : op === "job.poll"
-          ? all.poll(owner, wire.job, wire.wait)
-          : op === "job.cancel"
-            ? Promise.resolve(all.cancel(owner, wire.job) ?? {})
-            : fileAccess.answer(protocol.decoded(op, wire) as any);
-    return JSON.parse(JSON.stringify(await answer));
+    const reply = JSON.stringify(await answer(op, JSON.parse(JSON.stringify(payload))));
+    replies.push(reply.length);
+    return JSON.parse(reply);
   });
-  return { files, asked, jobs: all };
+  return { files, asked, jobs: all, replies };
 }
 const numbered = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) => `line ${from + i}`).join("\n") + "\n";
@@ -92,6 +101,57 @@ test("lists a folder's entries with what links lead to, up to a limit", async ()
   const listed = await fileAccess.here.list(many);
   expect(listed.entries).toHaveLength(fileAccess.list_limit);
   expect(listed.more).toBe(true);
+});
+
+test("another computer's daemon finds its folders, lists them, and walks one for a search in parts", async () => {
+  const dir = folder();
+  mkdirSync(join(dir, "src", "deep"), { recursive: true });
+  writeFileSync(join(dir, "src", "a.ts"), "abc");
+  // Names long enough that the walk takes several parts.
+  const long = "n".repeat(200);
+  for (let i = 0; i < 4000; i++) writeFileSync(join(dir, "src", "deep", `${long}${i}`), "");
+  const { files, asked, jobs: running, replies } = daemon();
+  expect(await files.find("src", dir, true)).toEqual(await fileAccess.here.find("src", dir, true));
+  expect(files.find("src", dir)).rejects.toThrow("NotAFile");
+  const listed = await files.list(join(dir, "src"));
+  expect(listed).toEqual(await fileAccess.here.list(join(dir, "src")));
+  const walked: string[] = [];
+  let batches = 0;
+  const end = await files.walk(
+    dir,
+    batch => {
+      batches++;
+      for (const e of batch) walked.push(e.directory ? e.path + "/" : e.path);
+    },
+    new AbortController().signal,
+  );
+  expect(end).toMatchObject({ mode: "files", scanned: 4003, done: true, capped: null, error: null });
+  expect(walked.sort().slice(0, 3)).toEqual(["src/", "src/a.ts", "src/deep/"]);
+  expect(walked).toHaveLength(4003);
+  // Each poll brought one part, small next to the 4 MiB a reply may take.
+  expect(batches).toBeGreaterThan(2);
+  expect(Math.max(...replies)).toBeLessThan(fileAccess.walk_part * 2);
+  expect(asked.filter(op => op === "file.walk")).toHaveLength(1);
+  expect(running.size).toBe(0);
+});
+
+test("a search on another computer stops its walk there when the browser lets it go", async () => {
+  const dir = folder();
+  for (let i = 0; i < 400; i++) writeFileSync(join(dir, `f${i}`.padEnd(200, "x")), "");
+  const { files, asked, jobs: running } = daemon();
+  const abort = new AbortController();
+  const end = await files.walk(dir, () => abort.abort(), abort.signal);
+  expect(end).toMatchObject({ done: true, error: null });
+  await Bun.sleep(10);
+  expect(asked).toContain("job.cancel");
+  expect(running.size).toBe(0);
+  // A daemon from before folders ignores the ask and finds only files.
+  const old = fileAccess.remote(async (op, payload) => {
+    const { directory: _, ...rest } = payload as Record<string, unknown>;
+    const reply = await fileAccess.answer(protocol.decoded(op as protocol.Op, rest) as any);
+    return { ...reply, directory: undefined };
+  });
+  expect(old.find(dir, "", true)).rejects.toThrow("NotAFile");
 });
 
 test("reads another computer's file through its daemon, a megabyte a request", async () => {

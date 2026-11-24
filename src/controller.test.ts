@@ -5,6 +5,7 @@ import * as protocol from "./protocol";
 import * as fileAccess from "./file_access";
 import * as filePane from "./file_pane";
 import * as handoffUpload from "./handoff_upload";
+import * as jobs from "./jobs";
 import { transport } from "./fixtures/transport";
 import * as worktrees from "./fixtures/worktrees";
 import { scopedEnv } from "./fixtures/env";
@@ -5301,6 +5302,85 @@ test("on another computer, a file's name peeks through that computer's daemon an
     await s.expireInput();
     expect(created).toHaveLength(1);
     expect(created[0][2]).toBe(`exec /opt/corgi __view ${join(dir, "app.ts")} --line 30`);
+  } finally {
+    native.destroy();
+    setSystemTime();
+    clock.reset();
+    viewer.close(s);
+    other.runtime.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("on another computer, a folder's name is browsed and searched through that computer's daemon", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-browse-remote-")));
+  mkdirSync(join(dir, "src", "lib"), { recursive: true });
+  writeFileSync(join(dir, "src", "lib", "util.ts"), "y");
+  const asked: string[] = [];
+  const running = new jobs.Jobs(),
+    owner = {};
+  const s: any = new Controller({ request: transport(async () => ({})).request });
+  const other = new Machine(
+    {
+      request: transport(async (op, fields) => {
+        if (!op.startsWith("file.") && !op.startsWith("job.")) return {};
+        asked.push(op);
+        const request = protocol.decoded(op, fields) as any;
+        if (op === "file.walk")
+          return running.begin(owner, job => fileAccess.walkJob(request.payload.path, job), jobs.poll_wait);
+        if (op === "job.poll") return running.poll(owner, request.payload.job, request.payload.wait);
+        if (op === "job.cancel") return (running.cancel(owner, request.payload.job), {});
+        return fileAccess.answer(request);
+      }).request,
+    },
+    "work",
+    true,
+  );
+  s.adopt(other);
+  const snapshot: any = folders(dir);
+  snapshot.panes[0].cwd = dir;
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(snapshot, other);
+  s.switchMachine(other);
+  other.executable = "/opt/corgi";
+  s.width = 120;
+  s.height = 40;
+  s.input_state.attached = true;
+  setSystemTime(new Date(1000));
+  const created: unknown[][] = [];
+  s.create = async (...args: unknown[]) => {
+    created.push(args);
+    return 2;
+  };
+  const rect = s.layoutView().placements(s.area())[0].rect;
+  const native = NativeTerminal.create(rect.w, rect.h);
+  try {
+    native.feed("  see src/ here");
+    s.pane(1).terminal.receive(native.surface(1));
+    const name = [rect.x + 7, rect.y + 1];
+    const mouse = (button: number, [x, y]: number[], release = false) =>
+      mouseInput(s, `\x1b[<${button};${x};${y}${release ? "m" : "M"}`);
+    await mouse(35, name);
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.frame();
+    await s.dir_browsers.current.listed;
+    clock.advance(1000);
+    expect(s.frame().replace(/\x1b\[[\d;?]*[A-Za-z]/g, "")).toContain("lib/");
+    expect(asked).toEqual(["file.stat", "file.list"]);
+    await mouse(0, name);
+    await mouse(0, name, true);
+    await s.input(bytes("util"));
+    const browser = s.dir_pin.browser;
+    await browser.search.walked;
+    for (let i = 0; i < 100 && browser.search.scoring; i++) await new Promise(resolve => setTimeout(resolve, 1));
+    expect(browser.row(0).path).toBe("lib/util.ts");
+    expect(asked).toContain("file.walk");
+    await s.input(bytes("\r"));
+    await s.folder_opening;
+    expect(created).toHaveLength(1);
+    expect(created[0][2]).toBe(`exec /opt/corgi __view ${join(dir, "src", "lib", "util.ts")}`);
+    expect(running.size).toBe(0);
   } finally {
     native.destroy();
     setSystemTime();

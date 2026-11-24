@@ -197,7 +197,8 @@
   },
   "file.stat": {
     "path": "src/app.ts",
-    "cwd": "/work/corgi"
+    "cwd": "/work/corgi",
+    "directory": true
   },
   "file.read": {
     "path": "/work/corgi/server.log",
@@ -223,6 +224,12 @@
     "width": 640,
     "height": 480,
     "pixels": 4000000
+  },
+  "file.list": {
+    "path": "/work/corgi/src"
+  },
+  "file.walk": {
+    "path": "/work/corgi"
   },
   "job.poll": {
     "job": 7,

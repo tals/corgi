@@ -15,6 +15,10 @@ export interface Job {
   progress(value: unknown): void;
   /** A result for the next poll; each is delivered once. */
   emit(value: unknown): void;
+  /** Resolves once a poll has taken every result emitted so far, or the
+   * job ended: work that finds results faster than they're fetched waits
+   * on it, so a poll's reply stays small. */
+  taken(): Promise<void>;
 }
 /** A poll's answer: the latest progress, the results since the last poll,
  * and whether the job is over, with why when it failed. */
@@ -38,6 +42,8 @@ interface Entry {
   control: AbortController;
   /** A poll waiting for news. */
   waiting: (() => void) | null;
+  /** Work waiting for its results to be taken. */
+  takers: (() => void)[];
   idle: ReturnType<typeof setTimeout> | null;
 }
 /** The jobs a daemon runs, each for the connection that started it. */
@@ -62,6 +68,7 @@ export class Jobs {
         error: null,
         control,
         waiting: null,
+        takers: [],
         idle: null,
       };
     this.entries.set(id, entry);
@@ -74,6 +81,10 @@ export class Jobs {
         entry.results.push(value);
         this.wake(entry);
       },
+      taken: () =>
+        entry.results.length === 0 || entry.done
+          ? Promise.resolve()
+          : new Promise<void>(resolve => entry.takers.push(resolve)),
     };
     void Promise.resolve()
       .then(() => run(job))
@@ -111,6 +122,7 @@ export class Jobs {
       });
     }
     const out = { progress: entry.progress, results: entry.results.splice(0), done: entry.done, error: entry.error };
+    for (const taken of entry.takers.splice(0)) taken();
     // Its last news delivered, or the owner gone meanwhile, nothing keeps it.
     if (entry.done || this.entries.get(id) !== entry) this.remove(id, entry);
     else this.touch(id, entry);
@@ -142,6 +154,7 @@ export class Jobs {
     }
     entry.control.abort(Error(reason));
     this.wake(entry);
+    for (const taken of entry.takers.splice(0)) taken();
   }
   private remove(id: number, entry: Entry): void {
     if (entry.idle) clearTimeout(entry.idle);

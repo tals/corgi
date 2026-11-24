@@ -1296,6 +1296,7 @@ export class Server {
       case "file.read":
       case "file.count":
       case "file.thumbnail":
+      case "file.list":
         this.defer(cl, reply, null, () => fileAccess.answer(request));
         return;
       case "file.scan": {
@@ -1305,6 +1306,11 @@ export class Server {
         );
         return;
       }
+      case "file.walk":
+        this.defer(cl, reply, null, () =>
+          this.remote_jobs.begin(cl, job => fileAccess.walkJob(request.payload.path, job), jobs.poll_wait),
+        );
+        return;
       case "job.poll":
         this.defer(cl, reply, null, () => this.remote_jobs.poll(cl, request.payload.job, request.payload.wait));
         return;
