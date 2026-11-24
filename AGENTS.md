@@ -196,20 +196,33 @@ change would otherwise leave a real compatibility question.
 
 **PRs.** Use the same title and core description as the intended commit. Add
 only what helps review or try the change: a screenshot or video, runnable
-example, material limitation or concise verification. When a change alters
-what the UI does, such as a flow, an animation or the response to a key or
-click, attach a short video of it in a sandbox; a screenshot suits a static
-look. Usually a `Tested: ...` line is enough; include failures or checks not
-run when they affect confidence. Don't add Summary / Changes / Validation /
-Compatibility sections by habit, or a list of every test and edge case. Larger
-explanations can link to docs or a report. State results for the current
-change, not an earlier revision.
+example, material limitation or concise verification. Usually a `Tested: ...`
+line is enough; include failures or checks not run when they affect
+confidence. Don't add Summary / Changes / Validation / Compatibility sections
+by habit, or a list of every test and edge case. Larger explanations can link
+to docs or a report. State results for the current change, not an earlier
+revision.
 
 Attach screenshots and videos with `--attach` on `gh pr create` or `gh pr edit`:
 write `![alt](./shot.png)` or `![](./demo.mp4)` in the `--body-file`, and `gh`
 uploads the file and rewrites the link; a video plays inline. Save later edits
 with `gh pr edit` too; an attachment in a body saved through `gh api` stays
 private. Never push images or videos to a branch for a PR.
+
+**Visual changes.** A PR that changes what the UI shows or does includes a
+capture from `tools/ghostty_screenshot.ts`, never a hand-made mockup: a
+screenshot for a static look, a short MP4 for a flow, animation, hover or
+click. Pick or add a world in `tools/sandboxes/` that shows the change, script
+the take (or keep a `serve` session and `drive` it step by step; see
+HACKING.md), and look at the result before attaching it. You can't watch a
+video, so read its frame grids, a second a frame and 16 to a grid:
+
+```sh
+bun tools/ghostty_screenshot.ts --sandbox launcher --do 'action help; wait 800; key esc' -o demo.mp4
+ffmpeg -i demo.mp4 -vf "fps=1,scale=800:-2,tile=4x4" grid%02d.png
+```
+
+The tool needs Linux with Xvfb; from a Mac, run it on a Linux machine over SSH.
 
 **Before sending.** Read the message without the diff. Can a reader identify
 the main change and its reason or use? Does each remaining detail change that
