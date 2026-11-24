@@ -583,6 +583,13 @@ export class Server {
       () => {
         this.closing?.(client);
         this.remote_jobs.drop(client);
+        // A view lasts as long as the process that named it stays connected.
+        for (const pane of this.runtime.panes) {
+          if (pane.view?.owner !== client) continue;
+          pane.view = null;
+          this.dirty = true;
+          this.runtime.changed();
+        }
         this.handoff_uploads.drop(client);
         if (this.handed_off) return;
         if (client.viewer) viewer.data(this, client)?.close();
@@ -1019,6 +1026,16 @@ export class Server {
         observers.claimPane(this, request.payload);
         reply.ok({});
         return;
+      case "pane.view": {
+        const { pane: id, path, line, column } = request.payload,
+          pane = this.runtime.pane(id);
+        if (!pane) throw Error("NoPane");
+        pane.view = path === null ? null : { path, line, column, owner: cl };
+        this.dirty = true;
+        this.runtime.changed();
+        reply.ok({});
+        return;
+      }
       case "action":
         await viewer.action(this, cl, request.payload, reply);
         return;

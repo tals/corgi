@@ -321,6 +321,11 @@ export class Reader {
     if (this.log) return logSyntax.spans(shown);
     return this.lang ? syntax.lineSpans(this.lang, shown) : [];
   }
+  /** The column a line's text starts at, past the fold marks and the line numbers. */
+  textColumn(folds: boolean): number {
+    const last = this.source.number(this.source.count - 1);
+    return (folds ? 2 : 0) + (last === null ? 0 : Math.max(3, String(last).length)) + 1;
+  }
   /** Draws `h` rows from the top into `c` at `x`, `y`, `w` wide. */
   draw(c: Canvas, x: number, y: number, w: number, h: number, look: Look): void {
     const colors = palette.colors,
@@ -335,7 +340,7 @@ export class Reader {
     const last = s.number(s.count - 1),
       digits = last === null ? 0 : Math.max(3, String(last).length),
       marks = look.folds ? 2 : 0,
-      text_x = x + marks + digits + 1,
+      text_x = x + this.textColumn(look.folds ?? false),
       bar = look.scrollbar && rows.length > h ? 1 : 0,
       text_w = Math.max(0, x + w - bar - text_x);
     const pinned = this.pinned(h, look.context ?? false);

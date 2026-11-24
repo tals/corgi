@@ -547,8 +547,20 @@ export interface Pane {
   forking: boolean;
   /** Nothing runs yet: focusing it starts `restoring` here. */
   dormant: boolean;
+  /** The file this viewer shows in its place, which `corgi __view` named. */
+  view: FileView | null;
   /** When this viewer first saw it restoring, which its animation starts from. */
   restoring_since: number;
+}
+export interface FileView {
+  path: string;
+  line: number | null;
+  column: number | null;
+}
+function fileView(value: any): FileView | null {
+  if (typeof value?.path !== "string") return null;
+  const whole = (n: unknown) => (typeof n === "number" && Number.isInteger(n) && n > 0 ? n : null);
+  return { path: value.path, line: whole(value.line), column: whole(value.column) };
 }
 /** protocol.zig's `Workspace`, with its model parsed. */
 export interface Workspace {
@@ -810,6 +822,7 @@ export class Runtime {
           restoring: info.restoring ?? "",
           forking: info.forking === true,
           dormant: info.dormant === true,
+          view: fileView(info.view),
           restoring_since: was_restoring ? previous!.restoring_since : now,
         });
       }

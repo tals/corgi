@@ -271,6 +271,10 @@ export class Pane {
   ghost: Ghost | null = null;
   /** Recovered with nothing running: its old screen, faded, until `Runtime.wake`. */
   dormant = false;
+  /** The file `corgi __view` asks this pane's viewers to show in its place,
+   * while the connection that named it, `owner`, stays open; its process
+   * names it again after a reload. */
+  view: { path: string; line: number | null; column: number | null; owner: object } | null = null;
   /** Archived commands wait at the prompt, including after cold recovery. */
   manual_resume = false;
   /** A program archiving found running, typed at the prompt when no agent

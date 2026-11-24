@@ -34,6 +34,7 @@ function fixture(split = true) {
       restoring: "",
       forking: false,
       dormant: false,
+      view: null,
       restoring_since: 0,
       terminal: new mirror.Terminal(
         transport(async () => ({})),

@@ -268,6 +268,13 @@ $.requests|pane.agent.pane: u32
 $.requests|pane.agent.provider: optional
 $.requests|pane.agent.provider?: provider
 $.requests|pane.agent.owner: i32
+$.requests|pane.view.pane: u32
+$.requests|pane.view.path: optional
+$.requests|pane.view.path?: string
+$.requests|pane.view.line: optional
+$.requests|pane.view.line?: u32
+$.requests|pane.view.column: optional
+$.requests|pane.view.column?: u32
 $.requests|conversation.list: {}
 $.requests|conversation.acknowledge.conversation: u32
 $.requests|conversation.acknowledge.through: u64
@@ -931,6 +938,12 @@ $.snapshot.panes[].account: string
 $.snapshot.panes[].restoring: string
 $.snapshot.panes[].forking: bool
 $.snapshot.panes[].dormant: bool
+$.snapshot.panes[].view: optional
+$.snapshot.panes[].view?.path: string
+$.snapshot.panes[].view?.line: optional
+$.snapshot.panes[].view?.line?: u32
+$.snapshot.panes[].view?.column: optional
+$.snapshot.panes[].view?.column?: u32
 $.snapshot.headless_sessions[].agent: optional
 $.snapshot.headless_sessions[].agent?.conversation: u32
 $.snapshot.headless_sessions[].agent?.subagents.running: u32

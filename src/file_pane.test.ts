@@ -2,10 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as fileAccess from "./file_access";
 import * as filePane from "./file_pane";
 import { Source } from "./file_source";
 import { Reader } from "./file_view";
 import * as terminalInput from "./terminal_input";
+import { Writer } from "./text";
 
 const dirs: string[] = [];
 const opened: Source[] = [];
@@ -99,4 +101,70 @@ test("the editor opens at the named line while it shows, and at the top line onc
   view.draw(60, 12);
   expect(view.lineShown(12)).toBe(view.reader.top + 1);
   expect(view.lineShown(12)).not.toBe(50);
+});
+
+test("frames what a viewer asks a pane's process, whole or in pieces, among keys", () => {
+  const edit = filePane.editRequest(42);
+  expect(filePane.requests(edit)).toEqual({ found: [{ edit: 42 }], other: "", rest: "" });
+  expect(
+    filePane.requests("j" + filePane.quiet_request + "k" + filePane.editRequest(null) + filePane.quit_request),
+  ).toEqual({ found: ["quiet", { edit: null }, "quit"], other: "jk", rest: "" });
+  // Keys pass, an arrow's Escape too; a lone Escape waits to see what follows.
+  expect(filePane.requests("j\x1b[Bq")).toEqual({ found: [], other: "j\x1b[Bq", rest: "" });
+  expect(filePane.requests("j\x1b")).toEqual({ found: [], other: "j", rest: "\x1b" });
+  // A read can end at any byte, the first Escape too.
+  for (let cut = 1; cut < edit.length; cut++) {
+    const first = filePane.requests("j" + edit.slice(0, cut));
+    expect(first.found).toEqual([]);
+    expect(first.other).toBe("j");
+    expect(filePane.requests(first.rest + edit.slice(cut))).toEqual({ found: [{ edit: 42 }], other: "", rest: "" });
+  }
+});
+
+test("a viewer reads a pane's file itself and keeps its keys from the pane's process", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-file-pane-"));
+  dirs.push(dir);
+  const path = join(dir, "app.ts");
+  writeFileSync(path, Array.from({ length: 200 }, (_, i) => `const v${i + 1} = ${i + 1};`).join("\n"));
+  let woke!: () => void;
+  const ready = new Promise<void>(resolve => (woke = resolve));
+  const panes = new filePane.Panes(() => woke());
+  const named = { path, line: 100, column: null };
+  const told: number[] = [];
+  panes.sync([{ id: 3, view: named }], fileAccess.here, id => told.push(id));
+  const hosted = panes.get(3)!;
+  // The same name keeps what's open, and its process is told once.
+  panes.sync([{ id: 3, view: { ...named } }], fileAccess.here, id => told.push(id));
+  expect(panes.get(3)).toBe(hosted);
+  expect(told).toEqual([3]);
+  await ready;
+  opened.push(hosted.view!.reader.source);
+  const text = () => {
+    const w = new Writer();
+    hosted.draw(w, 10, 5, 60, 20, null);
+    return w.s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "");
+  };
+  expect(text()).toContain("const v100 = 100;");
+  const top = hosted.view!.reader.top;
+  expect(hosted.key("j", 20)).toBe("");
+  expect(hosted.view!.reader.top).toBe(top + 1);
+  hosted.mouse(65, 4, 4, false, 20);
+  expect(hosted.view!.reader.top).toBe(top + 4);
+  // A drag selects the text it crosses, without the line numbers, and copies it on release.
+  text();
+  const col = hosted.view!.textColumn,
+    first = hosted.view!.reader.source.number(hosted.view!.reader.at(2, 18, true)!.row)!;
+  expect(hosted.mouse(0, col + 6, 3, false, 20)).toBeNull();
+  expect(hosted.mouse(32, col + 8, 4, false, 20)).toBeNull();
+  expect(hosted.mouse(0, col + 8, 4, true, 20)).toBe(`v${first} = ${first};\nconst v${first + 1}`);
+  // A click alone copies nothing, and Shift changes nothing.
+  expect(hosted.mouse(4, col + 6, 3, false, 20)).toBeNull();
+  expect(hosted.mouse(4, col + 6, 3, true, 20)).toBeNull();
+  // A paste isn't keys. The editor and the end are the process's to do.
+  expect(hosted.key("qqq", 20)).toBe("");
+  expect(hosted.key("e", 20)).toBe(filePane.editRequest(hosted.view!.lineShown(20)));
+  expect(hosted.key("q", 20)).toBe(filePane.quit_request);
+  // A pane that names no file lets go of it.
+  panes.sync([{ id: 3, view: null }], fileAccess.here);
+  expect(panes.get(3)).toBeNull();
 });
