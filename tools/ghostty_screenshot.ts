@@ -501,7 +501,8 @@ async function encode(raw: string, file: RecordingFile): Promise<void> {
   const base =
     `setpts=PTS-STARTPTS,fps=${FPS},` +
     `tpad=start_mode=clone:start_duration=${file.idle}:stop_mode=clone:stop_duration=${file.idle}`;
-  const hold = Math.round(file.idle * FPS);
+  // At least a frame: with none, a screen that never changes would lose them all.
+  const hold = Math.max(1, Math.round(file.idle * FPS));
   const lead = Math.min(FPS / 2, Math.floor(hold / 2));
   const spans = stills(await changes(cellFrames(raw, base, file.cols, file.rows), hold), hold, lead);
   const drop = spans.map(([from, to]) => (to === null ? `gte(n,${from})` : `between(n,${from},${to - 1})`));
