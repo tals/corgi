@@ -15,6 +15,8 @@ export function elapsed(ms: number): string {
 }
 export class Progress {
   private stage: string | null = null;
+  /** What `started` times, such as an upload after the download it needed. */
+  private moving: string | null = null;
   private started: number | null = null;
   private tick = 0;
   constructor(private output: Report = print) {}
@@ -39,8 +41,9 @@ export class Progress {
   }
   private moved(stage: string, compact: string, bytes: number, total: number, detail: string): void {
     const now = performance.now();
-    if (this.started === null) {
+    if (this.started === null || this.moving !== stage) {
       this.stage = null;
+      this.moving = stage;
       this.started = now;
     } else if (now - this.tick < 500 && bytes !== total) return;
     this.tick = now;
