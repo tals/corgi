@@ -155,6 +155,10 @@ paragraphs when the old behavior explains the fix. These are options, not a
 template: don't manufacture an "it couldn't do X" preamble for every feature,
 repeat the subject in the body, or add headings to a small change.
 
+**Lines.** Never hard-wrap prose to fit a column limit; GitHub keeps every
+newline. Write each line as one short, complete statement, and cut a thought
+or split it into bullets when it runs long.
+
 **Choose what earns space.**
 
 - Lead with the behavior, capability or reason for the change. For a bug,
