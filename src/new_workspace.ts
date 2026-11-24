@@ -524,8 +524,9 @@ export class Dialog extends nameDialog.Dialog {
   readonly machines: Machine[];
   /** The list of machines is open, and has the keys. */
   choosing = false;
-  /** The machine highlighted in that list. */
+  /** The machine highlighted in that list, and the first it shows. */
   highlight = 0;
+  private list_first = 0;
   /** The pointer is on the machine's name. */
   hovering = false;
   /** Where a chosen machine's folders are read. */
@@ -588,6 +589,15 @@ export class Dialog extends nameDialog.Dialog {
     if (this.saving) return;
     this.choosing = true;
     this.highlight = Math.max(0, this.machines.indexOf(this.machine!));
+    this.list_first = 0;
+  }
+  /** The first machine the list shows in `rows`, scrolled only as far as
+   * keeps the highlight in view. */
+  machineWindow(rows: number): number {
+    const last = Math.max(0, this.machines.length - rows);
+    this.list_first = Math.max(Math.min(this.list_first, this.highlight), this.highlight - rows + 1);
+    this.list_first = Math.max(0, Math.min(this.list_first, last));
+    return this.list_first;
   }
   /** Moves through the open list; down past the last machine closes it, as
    * down past the last folder returns to the name. */
@@ -602,6 +612,8 @@ export class Dialog extends nameDialog.Dialog {
     const machine = this.machines[index];
     if (!machine || machine === this.machine) return;
     const focused = this.browser.focused;
+    // The name changes width under the pointer; its next move lights it again.
+    this.hovering = false;
     this.browser.changed = () => {};
     this.machine = machine;
     this.online = this.ready();
@@ -978,7 +990,7 @@ export class View extends nameDialog.View {
     });
     // Above the keys.
     const rows = Math.max(1, Math.min(choices.length, this.buttons_y - chip.y - 3)),
-      first = Math.max(0, d.highlight - rows + 1),
+      first = d.machineWindow(rows),
       width = Math.min(this.width - 2, Math.max(32, dropdown.width(choices))),
       x = Math.max(this.x + 1, Math.min(chip.x, this.x + this.width - 1 - width));
     return { box: new Rect(x, chip.y + 1, width, rows + 2), first, choices: choices.slice(first, first + rows) };
@@ -1195,7 +1207,8 @@ export class View extends nameDialog.View {
         new Style({ fg: presence.connection_status?.color ?? "warm", bg: "surface" }).sgr(),
     );
     writeEllipsis(w, presence.stopped ? i18n.t`${name} isn't connected` : i18n.t`Connecting to ${name}…`, room);
-    if (d.moving !== null) return;
+    // One that stopped trying doesn't connect by itself.
+    if (d.moving !== null || presence.stopped) return;
     w.write(`\x1b[${f.list_y + 2};${x}H` + new Style({ fg: "faint", bg: "surface" }).sgr());
     writeEllipsis(w, i18n.t`Its folders show, and ↵ creates, once it connects.`, room);
   }

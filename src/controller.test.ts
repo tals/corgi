@@ -1711,6 +1711,29 @@ test("a new workspace goes on the machine its dialog chose, which the viewer the
   }
 });
 
+test("a machine list the screen shrank under closes before the pointer lands", async () => {
+  const s = controller(async op => {
+    if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
+    throw Error("UnexpectedRequest");
+  });
+  const other = new Machine({ request: transport(async () => folders("/w")).request }, "work", true);
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  try {
+    await s.perform({ name: "new-workspace" });
+    const d = s.name_dialog;
+    await s.input(bytes("\x0f"));
+    expect(d.choosing).toBe(true);
+    s.height = 12;
+    await s.input(bytes("\x1b[<35;1;1M"));
+    expect(d.choosing).toBe(false);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 /** Two agents side by side in workspace 1, and one in workspace 2. */
 function pair() {
   return {

@@ -11,6 +11,10 @@ button, chosen from the start: Enter, a click, or the sidebar's `[ + ]` opens
 the New workspace dialog. A fresh install starts there after onboarding, and
 Corgi keeps starting there until you make one.
 
+The New workspace dialog starts at the folder of the last workspace created with
+it, or at the current workspace's folder until then. Cancelling it changes
+nothing.
+
 ## Follow activity
 
 | Indicator | Meaning |

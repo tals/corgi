@@ -9140,6 +9140,8 @@ export class Controller {
     }
     if (this.name_dialog) {
       const dialog = this.name_dialog;
+      // As for keys: a list the screen shrank under is closed before the pointer lands.
+      this.fitNameDialog();
       if (!release && button === 0) {
         this.ui_mouse_down = true;
         switch (dialog.press(NameView.init(this.width, this.height, dialog), x, y, milliTimestamp())) {

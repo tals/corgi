@@ -913,6 +913,49 @@ test("up from the name opens the list of machines, whose arrows move by key or c
   expect([d.choosing, d.browser.focused]).toEqual([false, true]);
 });
 
+test("a long list of machines scrolls only to keep the highlight in view", async () => {
+  const { local, devbox, gpu, places } = machines();
+  const transport = { request: async () => ({}) } as unknown as Transport;
+  const all = [local, devbox, gpu, ...Array.from({ length: 20 }, (_, i) => new Machine(transport, `m${i}`, true))];
+  const d = new Dialog(await browse("/home/me/code"), null, { machine: local, machines: all, start: () => "/home/me" });
+  d.places = places;
+  d.fit(100, 20);
+  d.key(15);
+  for (let i = 0; i < 20; i++) d.sequence("\x1b[B");
+  const v = d.view(100, 20)!,
+    list = v.machineList()!;
+  expect(list.choices.length).toBeLessThan(all.length);
+  expect(list.first + list.choices.length - 1).toBe(20);
+  // The pointer on the top row highlights it, and the rows stay put under it.
+  d.hover(v, list.box.x + 2, list.box.y + 1);
+  expect(d.highlight).toBe(list.first);
+  expect(v.machineList()!.first).toBe(list.first);
+  d.sequence("\x1b[A");
+  expect(v.machineList()!.first).toBe(list.first - 1);
+});
+
+test("a machine that stopped trying says it isn't connected, and not that it will", async () => {
+  const { gpu, dialog } = machines();
+  const d = await dialog();
+  const waiting = gpu.presence();
+  gpu.presence = () => ({ ...waiting, stopped: true, connection_status: null });
+  d.choose(2);
+  await settle();
+  const text = screen(d);
+  expect(text).toContain("gpu-box isn't connected");
+  expect(text).not.toContain("once it connects");
+});
+
+test("choosing a machine puts out the light on its name, whose width changed", async () => {
+  const { dialog } = machines();
+  const d = await dialog();
+  const chip = d.view(100, 30)!.chip!;
+  d.hover(d.view(100, 30)!, chip.x, chip.y);
+  expect(d.hovering).toBe(true);
+  d.choose(1);
+  expect(d.hovering).toBe(false);
+});
+
 test("a workspace being created stays on its machine", async () => {
   const { local, dialog } = machines();
   const d = await dialog();
