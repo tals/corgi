@@ -86,6 +86,8 @@ export function snapshot(r: Runtime): tricks.Snapshot {
     });
   }
   for (const s of r.sessions) {
+    // The Corgi prompt's own sessions are the user's chats, not agents.
+    if (s.corgi) continue;
     const a = s.attachment.agent();
     agents.push({
       id: `headless:${s.id}`,

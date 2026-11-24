@@ -10,6 +10,8 @@ import * as viewerRef from "./viewer_ref";
 import { Rect } from "./layout";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
+import { Runtime } from "./runtime";
+import type { Session } from "./headless";
 
 test("a sketch manifest only names its entry point", () => {
   const m = trickHost.manifest('version = 1\nid = "account-colors"\nentry = "main.mjs"');
@@ -34,6 +36,31 @@ test("a sketch manifest only names its entry point", () => {
   expect(() =>
     trickHost.manifest('version = 1\nid = "test"\nentry = "main.mjs"\n[subscribe]\nevents = ["snapshot"]'),
   ).toThrow("SubscribeInRegister");
+});
+
+test("snapshots leave out the Corgi prompt's own conversations", () => {
+  const r = new Runtime(),
+    agent = { account: null, displayName: () => "Chat", activity: { text: () => "" }, observation: { completed: 0n } };
+  const session = (id: number, corgi: boolean) =>
+    ({
+      id,
+      corgi,
+      provider: "claude",
+      account: "",
+      env: {},
+      workspace_id: 1,
+      session: "thread",
+      status: () => "idle",
+      attention: () => "none",
+      attachment: { agent: () => agent },
+    }) as unknown as Session;
+  r.sessions.push(session(1, true), session(2, false));
+  try {
+    expect(trickHost.snapshot(r).agents.map(a => a.id)).toEqual(["headless:2"]);
+  } finally {
+    r.sessions = [];
+    r.destroy();
+  }
 });
 
 test("selectors match resolved account IDs and validate subscription names", () => {
