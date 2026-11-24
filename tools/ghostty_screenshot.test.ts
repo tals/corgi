@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { changes, recordingLock, stills } from "./ghostty_screenshot";
@@ -52,7 +52,7 @@ describe("stills", () => {
   });
 });
 
-// Owners are told apart by their start time in /proc.
+// flock and setsid come from util-linux.
 describe.skipIf(process.platform !== "linux")("recordingLock", () => {
   const inSession = async (fn: (dir: string) => Promise<void>) => {
     const dir = mkdtempSync(join(tmpdir(), "corgi-recording-lock-"));
@@ -62,22 +62,33 @@ describe.skipIf(process.platform !== "linux")("recordingLock", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   };
+  const busy = "another record start or stop is still running";
 
   test("lets one record command use the session's files at a time", () =>
     inSession(async dir => {
       await recordingLock(dir, async () => {
-        await expect(recordingLock(dir, async () => {})).rejects.toThrow(
-          "another record start or stop is still running",
-        );
+        await expect(recordingLock(dir, async () => {})).rejects.toThrow(busy);
       });
       expect(await recordingLock(dir, async () => "next")).toBe("next");
-      expect(existsSync(join(dir, "recording.lock"))).toBe(false);
     }));
 
-  test("takes over a lock whose command died", () =>
+  test("frees the lock when its command is killed", () =>
     inSession(async dir => {
-      // The same PID, but started at another time.
-      writeFileSync(join(dir, "recording.lock"), JSON.stringify({ pid: process.pid, started: "0" }));
-      expect(await recordingLock(dir, async () => "taken")).toBe("taken");
+      const source = `import { recordingLock } from ${JSON.stringify(join(import.meta.dir, "ghostty_screenshot.ts"))};
+        await recordingLock(${JSON.stringify(dir)}, async () => { console.log("held"); await Bun.sleep(60_000); });`;
+      const command = Bun.spawn([process.execPath, "-e", source], { stdout: "pipe", stderr: "inherit" });
+      const reader = command.stdout.getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe("held\n");
+      await expect(recordingLock(dir, async () => {})).rejects.toThrow(busy);
+      command.kill("SIGKILL");
+      await command.exited;
+      // The lock's holder sees its pipe close and exits.
+      let taken = false;
+      for (let i = 0; i < 50 && !taken; i++)
+        taken = await recordingLock(dir, async () => true).catch(async () => {
+          await Bun.sleep(20);
+          return false;
+        });
+      expect(taken).toBe(true);
     }));
 });

@@ -48,7 +48,6 @@ import {
   chmodSync,
   closeSync,
   existsSync,
-  linkSync,
   mkdirSync,
   mkdtempSync,
   openSync,
@@ -132,9 +131,6 @@ interface RecordingFile {
   cols: number;
   rows: number;
 }
-
-/** What recording.lock holds: the record command using the session's recording files. */
-type Owner = Pick<RecordingFile, "pid" | "started">;
 
 const defaults: Options = {
   sandbox: "launcher",
@@ -317,48 +313,49 @@ function ffmpeg(...args: string[]): void {
   if (!result.success) throw Error(`ffmpeg: ${result.stderr.toString().trim() || `exit ${result.exitCode}`}`);
 }
 
-function readJSON<T>(path: string): T | null {
+function readRecording(dir: string): RecordingFile | null {
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as T;
+    return JSON.parse(readFileSync(join(dir, "recording.json"), "utf8")) as RecordingFile;
   } catch {
     return null;
   }
 }
 
-function readRecording(dir: string): RecordingFile | null {
-  return readJSON<RecordingFile>(join(dir, "recording.json"));
-}
-
 /**
  * Runs fn holding the session's recording lock, so a record command never
  * overwrites or removes files another is still using, such as the take a
- * record stop is encoding. A lock left by a process that died is taken over.
+ * record stop is encoding. flock releases it however its holder exits.
  */
 export async function recordingLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
-  const lock = join(dir, "recording.lock");
-  const mine = `${lock}.${process.pid}`;
-  const owner: Owner = { pid: process.pid, started: startTime(process.pid)! };
-  writeFileSync(mine, JSON.stringify(owner));
+  // The pipe's lifetime owns the lock. setsid keeps Ctrl-C from releasing it early.
+  const holder = Bun.spawn(
+    [
+      ...["setsid", "flock", "--exclusive", "--nonblock", "--conflict-exit-code", "75", join(dir, "recording.lock")],
+      ...["sh", "-c", "printf 'locked\\n'; cat >/dev/null"],
+    ],
+    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+  );
+  const reader = holder.stdout.getReader();
+  let reply = "";
   try {
-    // A hard link appears whole, and only where no lock exists.
-    for (;;) {
-      try {
-        linkSync(mine, lock);
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      }
-      const holder = readJSON<Owner>(lock);
-      if (holder && running(holder.pid, holder.started)) throw Error("another record start or stop is still running");
-      rmSync(lock, { force: true });
+    while (!reply.includes("\n")) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      reply += new TextDecoder().decode(chunk.value);
     }
   } finally {
-    rmSync(mine, { force: true });
+    reader.releaseLock();
+  }
+  if (reply !== "locked\n") {
+    holder.stdin.end();
+    if ((await holder.exited) === 75) throw Error("another record start or stop is still running");
+    throw Error(`flock: ${(await new Response(holder.stderr).text()).trim() || `exit ${holder.exitCode}`}`);
   }
   try {
     return await fn();
   } finally {
-    rmSync(lock, { force: true });
+    holder.stdin.end();
+    await holder.exited;
   }
 }
 
