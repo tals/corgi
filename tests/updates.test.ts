@@ -1062,7 +1062,7 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     const events = await newer();
     expect(events.at(-1)).toEqual({ type: "ready" });
     expect(events.some(event => event.message === "Downloading")).toBe(true);
-    expect(events.some(event => event.message === "Downloading here…")).toBe(false);
+    expect(events.some(event => event.message?.startsWith("Downloading here"))).toBe(false);
     await runsRelease("1.0.2", pid);
     // Viewers this move leaves behind can say whose it was.
     expect((await rpc({ op: "hello" })).moved_by).toBe(hostname().split(".")[0]);
@@ -1086,7 +1086,12 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
       const file = join(root, `releases/${v}/corgi`);
       await mkdir(dirname(file), { recursive: true, mode: 0o700 });
       await writeFile(file, (await readFile(fixture(v))).subarray(0, 1 << 20), { mode: 0o700 });
-      return async () => expect(sha(await readFile(file))).toBe(sha(await readFile(fixture(v))));
+      // As a viewer's copy a kill cut short leaves it.
+      await writeFile(file + ".partial", "partial");
+      return async () => {
+        expect(sha(await readFile(file))).toBe(sha(await readFile(fixture(v))));
+        expect(await Bun.file(file + ".partial").exists()).toBe(false);
+      };
     };
     // The machine's own updater replaces it with what it downloads.
     let whole = await cut("1.0.1");
@@ -1123,6 +1128,30 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     expect(hello.server_pid).toBe(server_pid);
     expect(hello.moved_by).toBe(hostname().split(".")[0]);
     expect(await readFile(join(root, "previous"), "utf8")).toBe("1.0.0");
+  },
+  60_000,
+);
+
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a move that switched the daemon keeps its computer's name though saving the release failed",
+  async () => {
+    await shellPid();
+    const old = join(root, "releases/1.0.0/corgi"),
+      basis = sha(await readFile(old));
+    // Where `previous` goes can't be written.
+    await mkdir(join(root, "previous"));
+    const manifest = join(home, "incoming.json");
+    await writeFile(manifest, manifests.get("1.0.1")!);
+    const move = await exec(
+      [fixture("1.0.1"), "__machine-install", old, basis, manifest],
+      { ...env, CORGI_MOVED_BY: "desk" },
+      false,
+    );
+    expect(move.code).not.toBe(0);
+    const hello = await rpc({ op: "hello" });
+    expect(hello.release_version).toBe("1.0.1");
+    expect(hello.moved_by).toBe("desk");
+    await rm(join(root, "previous"), { recursive: true });
   },
   60_000,
 );

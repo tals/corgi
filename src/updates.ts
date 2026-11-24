@@ -496,6 +496,8 @@ async function feed(
         if (current === null) throw Error("MissingInstalledVersion");
         if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0)) {
           privateDirectory(dir);
+          // A viewer's copy of this release a kill cut short.
+          rmSync(dest + ".partial", { force: true });
           if (!(await holds(dest, own(m)))) {
             // Changed since it was checked: the next check downloads it again.
             if (present) return true;

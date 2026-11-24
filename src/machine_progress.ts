@@ -30,7 +30,7 @@ export class Progress {
   /** A release the machine downloads itself, or, `here`, one this computer downloads for it. */
   downloaded(received: number, total: number, host: string, here = false): void {
     this.moved(
-      "Downloading",
+      here ? "Downloading here" : "Downloading",
       "↓",
       received,
       total,

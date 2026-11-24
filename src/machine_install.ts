@@ -9,6 +9,7 @@ import {
   readFileSync,
   rmdirSync,
   mkdtempSync,
+  rmSync,
 } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import * as updates from "./updates";
@@ -96,13 +97,17 @@ export async function install(
   by = "",
 ): Promise<string> {
   let undo = () => {};
+  let switching = "";
   const moving = (build_id: string) => {
+    switching = build_id;
     if (by) undo = moved.record(os.socketPath(), by, build_id);
   };
   try {
     return await replace(candidate, destination, expected, manifest, moving);
   } catch (error) {
-    undo();
+    // A daemon that switched anyway keeps the name of the computer that switched it.
+    const live = switching ? await hello(new rpc_http.Client(os.socketPath())).catch(() => null) : null;
+    if (live?.build_id !== switching) undo();
     throw error;
   }
 }
@@ -127,6 +132,8 @@ async function replace(
       const version = build.slot(incoming);
       const directory = join(root, "releases", version);
       const target = join(directory, "corgi");
+      // A copy a kill cut short.
+      rmSync(target + ".partial", { force: true });
       const done = current === version && holds(target);
       if (
         !done &&
