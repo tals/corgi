@@ -2993,9 +2993,10 @@ export class Controller {
       if (index === null) return;
       initial = this.runtime.workspaces.items[index].name;
     }
-    // Without a workspace, a remote machine's dialog starts at its home, not the viewer's folder.
-    const start = this.machine.remote && !this.current().id ? "~" : this.currentCwd();
-    this.name_dialog = id === null ? this.folderDialog(start, null) : Dialog.init({ workspace_name: id }, initial);
+    this.name_dialog =
+      id === null
+        ? this.folderDialog(this.workspaceStart(this.machine), null)
+        : Dialog.init({ workspace_name: id }, initial);
     this.prepareName();
   }
   /** Opens the folder browser on workspace `id`'s folder, to move it. */
@@ -3007,17 +3008,30 @@ export class Controller {
     this.prepareName();
     this.fitNameDialog();
   }
-  /** The folder browser at `cwd`, on the shown machine's folders. */
+  /** The folder browser at `cwd`, on the shown machine's folders. A new
+   * workspace may go on another machine instead. */
   private folderDialog(cwd: string, moving: newWorkspace.Moving | null): newWorkspace.Dialog {
-    const files = new newWorkspace.Reader(
-        this.machine.remote ? newWorkspace.remote(this.machine) : newWorkspace.here(),
-      ),
-      dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(cwd, files), moving);
+    const files = new newWorkspace.Reader(newWorkspace.place(this.machine)),
+      dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(cwd, files), moving, {
+        machine: this.machine,
+        machines: moving === null ? this.machines : [],
+        start: machine => this.workspaceStart(machine),
+      });
     dialog.changed = () => {
       this.dirty = true;
       this.wake();
     };
     return dialog;
+  }
+  /** Where the New workspace dialog browses `machine` from: the folder the
+   * last workspace it made there went in, else that of the workspace shown
+   * there. Without one, a remote machine starts at its home, not the
+   * viewer's folder. */
+  private workspaceStart(machine: Machine): string {
+    if (machine.new_workspace_folder !== null) return machine.new_workspace_folder;
+    if (machine === this.machine) return machine.remote && !this.current().id ? "~" : this.currentCwd();
+    const ws = machine.navigation.current(machine.runtime.workspaces);
+    return ws.id ? ws.cwd : machine.remote ? "~" : this.start_folder;
   }
   /** Adds a workspace, and shows it unless the user has gone elsewhere. */
   private newWorkspace(name: string, cwd: string): void {
@@ -3094,6 +3108,8 @@ export class Controller {
     if (dialog.saving) return;
     const target = dialog.target,
       fresh = dialog instanceof newWorkspace.Dialog ? dialog : null,
+      // A new workspace goes on the machine its dialog chose.
+      machine = fresh?.machine ?? this.machine,
       name = dialog.name(),
       here = this.here();
     if ("workspace_name" in target && !name) {
@@ -3113,7 +3129,7 @@ export class Controller {
       }
     };
     dialog.saving = true;
-    this.later(async lane => {
+    machine.tasks.start(async lane => {
       let pane: number | null = null;
       try {
         // The folder is checked, and made, on the machine the workspace is on.
@@ -3128,8 +3144,13 @@ export class Controller {
         else if ("workspace_name" in target) {
           if (target.workspace_name === null) {
             const id = (await this.execute({ "workspace.create": { name, cwd } }, lane)).workspace;
+            // Only a workspace made is remembered; a cancel leaves no trace.
+            machine.new_workspace_folder = cwd;
             dialog.saving = false;
-            if (here()) this.switchWorkspace(id);
+            if (here()) {
+              if (machine === this.machine) this.switchWorkspace(id);
+              else this.onMachine(machine, { workspace: id });
+            }
             return close();
           }
           await this.edit(
@@ -9119,6 +9140,8 @@ export class Controller {
     }
     if (this.name_dialog) {
       const dialog = this.name_dialog;
+      // As for keys: a list the screen shrank under is closed before the pointer lands.
+      this.fitNameDialog();
       if (!release && button === 0) {
         this.ui_mouse_down = true;
         switch (dialog.press(NameView.init(this.width, this.height, dialog), x, y, milliTimestamp())) {
@@ -9135,6 +9158,8 @@ export class Controller {
       } else if (!release && button === 32) {
         dialog.drag(NameView.init(this.width, this.height, dialog), x);
         this.dirty = true;
+      } else if (!release && button === 35) {
+        if (dialog.hover(NameView.init(this.width, this.height, dialog), x, y)) this.dirty = true;
       } else if (release) dialog.release();
       return;
     }
@@ -10788,6 +10813,7 @@ export class Controller {
     if (!this.agent_picker) this.revealLaunched(entries);
     this.readAhead(entries);
     this.revealTab();
+    if (this.name_dialog instanceof newWorkspace.Dialog) this.name_dialog.catchUp();
     if (this.pointer) {
       const hit = sidebar.gitActionWorkspace(
         this.sidebarView(entries),

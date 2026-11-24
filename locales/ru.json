@@ -474,6 +474,7 @@
   "${name} is ${type}, not a folder": "${name} — ${type}, а не папка",
   "${name} is checked out already": "${name} уже открыта в рабочем дереве",
   "${name} is read-only; Corgi leaves it as it is": "${name} доступен только для чтения; Corgi его не меняет",
+  "${name} isn't connected": "${name}: нет подключения",
   "${name} · ${count} worktree": {
     "plural": "count",
     "forms": {
@@ -677,6 +678,7 @@
   "Compared with local ${branch} · last known data": "Сравнение с локальной веткой ${branch} · последние известные данные",
   "Comparison branch unavailable": "Ветка для сравнения недоступна",
   "Connect your Command keys": "Подключите клавиши Command",
+  "Connecting to ${name}…": "Подключение к ${name}…",
   "Connecting to Herdr": "Подключение к Herdr",
   "Control Corgi panes, agents, or workspaces:": "Управление панелями, агентами и пространствами Corgi:",
   "Copied ${count} note.": {
@@ -871,6 +873,7 @@
   "Invalid config.json; keeping the working shortcuts.": "Ошибка в config.json; сохранены работающие сочетания.",
   "It runs in a background session, outside any pane": "Работает в фоновом сеансе, вне панелей",
   "Its diff starts collapsed. Enter loads it.": "Изменения изначально свёрнуты. Enter загружает их.",
+  "Its folders show, and ↵ creates, once it connects.": "Папки появятся, а ↵ создаст пространство после подключения.",
   "Join our Discord community:": "Наше сообщество в Discord:",
   "Jump to attention": "Перейти к требующему внимания",
   "Jump to who needs you": "Перейти к тому, кому вы нужны",
@@ -1531,6 +1534,7 @@
   "load the diff": "загрузить изменения",
   "locked": "заблокировано",
   "macOS terminals skip ~/.bashrc until ~/.bash_profile loads it.": "Терминалы macOS не читают ~/.bashrc, пока его не загрузит ~/.bash_profile.",
+  "machine": "компьютер",
   "metered": "по расходу",
   "missing": "отсутствует",
   "move": "переместить",
@@ -1551,6 +1555,7 @@
   "note": "заметка",
   "now": "сейчас",
   "off": "выкл.",
+  "on ${machine}": "на ${machine}",
   "open": "открыть",
   "our TypeScript runtime": "наша среда TypeScript",
   "our terminal engine": "наш движок терминала",

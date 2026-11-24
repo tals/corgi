@@ -1,15 +1,18 @@
 //! The New workspace dialog: a name, and the folder it starts in, picked
 //! from the folders under a field. The field is the truth: moving through
 //! the list writes the folder into it. The name follows the folder until
-//! edited, and ↵ creates it.
+//! edited, and ↵ creates it. With other machines, the title names the one
+//! it goes on, and ^O, ↑ from the name or a click on that name lists the others.
 import * as i18n from "./i18n";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import * as palette from "./palette";
-import { Style, fgRgb, bgRgb, mix, colors } from "./palette";
+import { Style, fgRgb, bgRgb, mix, colors, keycap } from "./palette";
 import * as keys from "./keys";
 import * as errors from "./errors";
 import * as folders from "./folders";
+import * as dropdown from "./dropdown";
+import { Rect } from "./layout";
 import { call } from "./mirror";
 import type { Machine } from "./machine";
 import * as nameDialog from "./name_dialog";
@@ -17,13 +20,20 @@ import * as workspace from "./workspace";
 import { printable, writeField, type Key, type KeySpec, type Result } from "./name_dialog";
 import * as scrollThumb from "./scroll_thumb";
 import { relativeTime } from "./sidebar";
-import { Writer, writeEllipsis, displayWidth } from "./text";
+import { Writer, writeEllipsis, displayWidth, ellipsis } from "./text";
 
 /** The most folders the list shows at once. */
 const folder_rows = 10;
-/** A press on the folder field, a folder in the list, or out and in. */
+/** A press on the folder field, a folder in the list, or out and in; on the
+ * title's machine, or a machine in its list. */
 export type Hit =
-  nameDialog.Hit | { tag: "folder"; field: number } | { tag: "entry"; index: number } | { tag: "open" } | { tag: "up" };
+  | nameDialog.Hit
+  | { tag: "folder"; field: number }
+  | { tag: "entry"; index: number }
+  | { tag: "open" }
+  | { tag: "up" }
+  | { tag: "machine" }
+  | { tag: "machine_row"; index: number };
 
 /** Where a dialog's folders are read: this computer, or a remote machine
  * through its daemon. */
@@ -53,6 +63,10 @@ export function remote(machine: Machine): Place {
     ask: (op, path) => call(machine.connection, op, { path }),
     lost: error => !errors.reply(error),
   };
+}
+/** `machine`'s folders: this computer's, or a remote machine's. */
+export function place(machine: Machine): Place {
+  return machine.remote ? remote(machine) : here();
 }
 
 /** A place's folders as the browser reads them, kept until the dialog makes
@@ -212,9 +226,7 @@ export class Browser {
   ) {
     this.field = nameDialog.Dialog.init({ folder: null }, "");
     files.answered = () => {
-      // The machine keeps what it answered; what it has dropped is asked again.
-      this.listed = null;
-      this.reread();
+      this.retry();
       this.changed();
     };
   }
@@ -223,6 +235,12 @@ export class Browser {
     const b = new Browser(cwd, files);
     b.show(cwd);
     return b;
+  }
+  /** Looks again: the machine keeps what it answered, and what it has
+   * dropped, as after a lost link, is asked again. */
+  retry(): void {
+    this.listed = null;
+    this.reread();
   }
   get home(): string {
     return this.files.home;
@@ -480,10 +498,19 @@ export interface Moving {
   name: string;
 }
 
+/** The machine the browser's folders are on, and the machines a new
+ * workspace may go on instead. */
+export interface On {
+  machine: Machine;
+  machines: Machine[];
+  /** The folder another machine's field starts at, the first time it's chosen. */
+  start: (machine: Machine) => string;
+}
+
 /** The dialog: the name above, the browser below. Tab, and Up and Down past
  * either end, move the keys between them. */
 export class Dialog extends nameDialog.Dialog {
-  browser: Browser;
+  browser!: Browser;
   /** The name is the browser's folder's, following it until edited. */
   follows_folder = true;
   /** The workspace this moves, or null when it creates one. */
@@ -492,18 +519,38 @@ export class Dialog extends nameDialog.Dialog {
   compact = false;
   /** Told when the browser changes without a key: the machine answered, or made a folder. */
   changed: () => void = () => {};
+  /** The machine the workspace goes on; null for this computer, not named. */
+  machine: Machine | null;
+  readonly machines: Machine[];
+  /** The list of machines is open, and has the keys. */
+  choosing = false;
+  /** The machine highlighted in that list, and the first it shows. */
+  highlight = 0;
+  private list_first = 0;
+  /** The pointer is on the machine's name. */
+  hovering = false;
+  /** Where a chosen machine's folders are read. */
+  places: (machine: Machine) => Place = place;
+  /** Each machine's folder field, kept while the dialog is open. */
+  private browsers = new Map<Machine, Browser>();
+  private start: (machine: Machine) => string;
+  /** The whole card shows, the machine's name in its title. */
+  private roomy = false;
+  /** The machine was online when last looked at. */
+  private online: boolean;
 
   /** Opens on the name, which follows the browser's folder. Moving a
    * workspace opens on the folder, and its name follows only while it is
    * still its folder's. */
-  constructor(browser: Browser, moving: Moving | null = null) {
+  constructor(browser: Browser, moving: Moving | null = null, on: On | null = null) {
     super({ workspace_name: moving?.workspace ?? null });
-    this.browser = browser;
-    browser.changed = () => {
-      this.follow();
-      this.changed();
-    };
+    this.use(browser);
     this.moving = moving?.workspace ?? null;
+    this.machine = on?.machine ?? null;
+    this.machines = on?.machines ?? [];
+    this.start = on?.start ?? (() => "~");
+    if (this.machine) this.browsers.set(this.machine, browser);
+    this.online = this.ready();
     browser.focused = moving !== null;
     if (moving && moving.name !== workspace.folderName(browser.folder())) {
       this.follows_folder = false;
@@ -511,15 +558,82 @@ export class Dialog extends nameDialog.Dialog {
     }
     this.follow();
   }
+  private use(browser: Browser): void {
+    this.browser = browser;
+    browser.changed = () => {
+      this.follow();
+      this.changed();
+    };
+  }
   /** The real path of the folder to create the workspace in; see `Browser.confirm`. */
   confirm(): Promise<string | null> {
     return this.browser.confirm();
+  }
+  /** A new workspace with machines to choose from. */
+  offers(): boolean {
+    return this.moving === null && this.machines.length > 1;
+  }
+  /** The machine is online: its folders show, and ↵ goes ahead. */
+  ready(): boolean {
+    return this.machine?.presence().online ?? true;
+  }
+  /** Lists the folders a machine couldn't before it came online. */
+  catchUp(): void {
+    const online = this.ready();
+    if (online && !this.online) this.browser.retry();
+    this.online = online;
+  }
+  /** Opens the list of machines on the one the workspace goes on, unless
+   * it is already being created there. */
+  openMachines(): void {
+    if (this.saving) return;
+    this.choosing = true;
+    this.highlight = Math.max(0, this.machines.indexOf(this.machine!));
+    this.list_first = 0;
+  }
+  /** The first machine the list shows in `rows`, scrolled only as far as
+   * keeps the highlight in view. */
+  machineWindow(rows: number): number {
+    const last = Math.max(0, this.machines.length - rows);
+    this.list_first = Math.max(Math.min(this.list_first, this.highlight), this.highlight - rows + 1);
+    this.list_first = Math.max(0, Math.min(this.list_first, last));
+    return this.list_first;
+  }
+  /** Moves through the open list; down past the last machine closes it, as
+   * down past the last folder returns to the name. */
+  private move(down: boolean): void {
+    if (down && this.highlight === this.machines.length - 1) this.choosing = false;
+    else this.highlight = Math.max(0, this.highlight + (down ? 1 : -1));
+  }
+  /** Puts the workspace on machine `index`, in the folder field it had
+   * when last chosen, or at its start the first time. */
+  choose(index: number): void {
+    this.choosing = false;
+    const machine = this.machines[index];
+    if (!machine || machine === this.machine) return;
+    const focused = this.browser.focused;
+    // The name changes width under the pointer; its next move lights it again.
+    this.hovering = false;
+    this.browser.changed = () => {};
+    this.machine = machine;
+    this.online = this.ready();
+    let browser = this.browsers.get(machine);
+    if (!browser) {
+      browser = Browser.init(this.start(machine), new Reader(this.places(machine)));
+      this.browsers.set(machine, browser);
+      // It may have come online while another was chosen.
+    } else if (this.online) browser.retry();
+    this.use(browser);
+    browser.focused = focused;
+    this.follow();
   }
   /** Keys stay on the name while the screen is too small to draw the folder
    * field, and on the folder while it is the only field drawn. */
   fit(width: number, height: number): void {
     const v = this.view(width, height);
     this.compact = v?.compact ?? false;
+    this.roomy = v !== null && !v.compact;
+    if (!this.roomy) this.choosing = false;
     if (!v) this.browser.focused = false;
     else if (this.compact) this.browser.focused = true;
   }
@@ -538,12 +652,22 @@ export class Dialog extends nameDialog.Dialog {
   }
   key(byte: number): Result {
     const b = this.browser;
+    if (this.choosing) {
+      if (byte === 13) this.choose(this.highlight);
+      else if (byte === 27 || byte === 15) this.choosing = false;
+      return "none";
+    }
+    // ^O, which no field takes.
+    if (byte === 15) {
+      if (this.offers() && this.roomy) this.openMachines();
+      return "none";
+    }
     if (byte === 9) {
       if (!this.compact) b.focused = !b.focused;
       this.follow();
       return "none";
     }
-    if (byte === 13) return "save";
+    if (byte === 13) return this.ready() ? "save" : "none";
     if (b.focused && byte !== 27) {
       b.key(byte);
       this.follow();
@@ -555,6 +679,7 @@ export class Dialog extends nameDialog.Dialog {
     return result;
   }
   pasteByte(byte: number): void {
+    if (this.choosing) return;
     if (this.browser.focused) {
       this.browser.paste(byte);
       return this.follow();
@@ -566,6 +691,10 @@ export class Dialog extends nameDialog.Dialog {
   sequence(seq: string): void {
     const b = this.browser;
     const key = keys.parse(seq);
+    if (this.choosing) {
+      if (key === "up" || key === "down") this.move(key === "down");
+      return;
+    }
     if (key === "shift_tab") {
       if (!this.compact) b.focused = !b.focused;
       this.follow();
@@ -580,10 +709,15 @@ export class Dialog extends nameDialog.Dialog {
     }
   }
   /** Up and Down go round the name, the folder field and its folders, the
-   * name past either end of the list. False when they move within the folder. */
+   * name past either end of the list; with other machines, up from the name
+   * opens theirs instead. False when they move within the folder. */
   private round(down: boolean): boolean {
     const b = this.browser;
     if (this.compact) return false;
+    if (!b.focused && !down && this.offers() && this.roomy) {
+      this.openMachines();
+      return true;
+    }
     if (!b.focused) {
       b.focused = true;
       if (!down && b.count() > 0) b.pick(b.count() - 1);
@@ -594,10 +728,43 @@ export class Dialog extends nameDialog.Dialog {
     b.focused = false;
     return true;
   }
-  /** The name field takes the keys back, and the folder's rows browse. */
+  /** The name field takes the keys back, and the folder's rows browse. The
+   * machine's name always opens its list; while open, a machine chooses it,
+   * and a press off the list and its keys closes it. */
   press(v: nameDialog.View, x: number, y: number, now: number): Result {
     const found: Hit = v instanceof View ? v.at(x, y) : v.hit(x, y);
+    if (this.choosing) {
+      switch (found.tag) {
+        case "machine_row":
+          this.choose(found.index);
+          break;
+        case "save":
+          this.choose(this.highlight);
+          break;
+        // The ↑↓ key's halves.
+        case "up":
+        case "open":
+          this.move(found.tag === "open");
+          break;
+        case "machine":
+        case "key":
+          break;
+        default:
+          this.choosing = false;
+      }
+      return "none";
+    }
     switch (found.tag) {
+      case "machine":
+        this.openMachines();
+        return "none";
+      // Past the arrows, which are out and in, the only key is ^O's.
+      case "key":
+        this.openMachines();
+        return "none";
+      case "save":
+        if (!this.ready()) return "none";
+        break;
       case "field":
         this.browser.focused = false;
         break;
@@ -613,6 +780,17 @@ export class Dialog extends nameDialog.Dialog {
     }
     return super.press(v, x, y, now);
   }
+  /** The pointer on the machine's name lights it, and in the open list
+   * highlights the machine under it. */
+  hover(v: nameDialog.View, x: number, y: number): boolean {
+    const found: Hit = v instanceof View ? v.at(x, y) : { tag: "none" };
+    const hovering = found.tag === "machine",
+      highlight = this.choosing && found.tag === "machine_row" ? found.index : this.highlight,
+      changed = hovering !== this.hovering || highlight !== this.highlight;
+    this.hovering = hovering;
+    this.highlight = highlight;
+    return changed;
+  }
 }
 
 /** The card's rows below the name: the folder field and the folders in it,
@@ -627,15 +805,60 @@ interface Folders {
   first: number;
   entries: number;
 }
-const browserKeys = (moving: boolean) =>
-  [
-    { key: "↵", label: moving ? i18n.t`save` : i18n.t`create`, hit: { tag: "save" } },
-    { key: "←→", label: i18n.t`out / in`, hit: { tag: "key", index: 1 }, split: true },
+/** The arrows' place among the keys. */
+const arrows = 1;
+const browserKeys = (d: Dialog): KeySpec[] => {
+  const machine: KeySpec[] = d.offers() ? [{ key: "^O", label: i18n.t`machine`, hit: { tag: "key", index: 2 } }] : [];
+  return [
+    { key: "↵", label: d.moving !== null ? i18n.t`save` : i18n.t`create`, hit: { tag: "save" } },
+    { key: "←→", label: i18n.t`out / in`, hit: { tag: "key", index: arrows }, split: true },
+    ...machine,
     { key: "esc", label: i18n.t`cancel`, hit: { tag: "cancel" } },
-  ] satisfies KeySpec[];
+  ];
+};
+/** The keys while the list of machines is open. */
+const machineKeys = (): KeySpec[] => [
+  { key: "↵", label: i18n.t`choose`, hit: { tag: "save" } },
+  { key: "↑↓", label: i18n.t`machine`, hit: { tag: "key", index: arrows }, split: true },
+  { key: "esc", label: i18n.t`close`, hit: { tag: "cancel" } },
+];
 /** Wide enough for the labelled keys two columns apart, and a column either side. */
-const browserWidth = (moving: boolean) =>
-  browserKeys(moving).reduce((n, k) => n + nameDialog.labelled(k), 0) + 2 * (browserKeys(moving).length - 1) + 4;
+const browserWidth = (d: Dialog) =>
+  browserKeys(d).reduce((n, k) => n + nameDialog.labelled(k), 0) + 2 * (browserKeys(d).length - 1) + 4;
+/** How a machine's link stands, as its header in the sidebar says. */
+function linkRuns(machine: Machine): dropdown.Run[] {
+  if (!machine.remote) return [[i18n.t`this machine`, "faint"]];
+  const presence = machine.presence(),
+    status = presence.connection_status;
+  if (status) {
+    const metrics = status.metrics ?? (status.seconds === null ? "" : `${status.seconds}s`);
+    return [[[status.label, metrics].filter(Boolean).join(" "), status.color]];
+  }
+  if (!presence.online) return [[i18n.t`connecting`, "warm"]];
+  const quality = presence.link_quality;
+  if (quality === null) return [];
+  const color = quality >= 3 ? "accent" : "warm";
+  return [..."▂▄▆█"].map((bar, i): dropdown.Run => [bar, i < quality ? color : "line"]);
+}
+/** "on" around the machine's name in the title, as translated: what comes
+ * before the name, and after it. The name's chip has room of its own around it. */
+function titleOn(): [string, string] {
+  const machine = "\0";
+  const [before, ...after] = i18n.t`on ${machine}`.split("\0");
+  return [before.trimEnd(), after.join("").trimStart()];
+}
+/** The machine's name in the title, padded a column either side and with
+ * ▾; the title before it, clipped to `title` columns; and ^O's cap at
+ * `key`, when it fits. */
+interface Chip {
+  x: number;
+  y: number;
+  width: number;
+  title: number;
+  key: number | null;
+}
+/** ^O's cap, right after the machine's name and its padding. */
+const chip_key = " ^O ";
 /** Out and in before the folder has the keys: caps barely raised off the
  * panel, and the arrows and label in the border's color. */
 let quiet_cap: string, quiet_label: string;
@@ -687,12 +910,14 @@ export class View extends nameDialog.View {
   dialog!: Dialog;
   /** The folder field alone, in the plain dialog's place. */
   compact = false;
+  /** The machine's name in the title, when there are others to choose. */
+  chip: Chip | null = null;
 
   /** Without room for three folders, the plain dialog is used instead; moving
    * a workspace keeps its folder field, alone, in the plain dialog's place. */
   static layout(width: number, height: number, d: Dialog): View | null {
     const rows = Math.min(folder_rows, height - 15);
-    const w = Math.max(nameDialog.View.plainWidth(width), Math.min(width - 4, browserWidth(d.moving !== null)));
+    const w = Math.max(nameDialog.View.plainWidth(width), Math.min(width - 4, browserWidth(d)));
     if (rows < 3 || w < 20) return d.moving !== null ? View.compactLayout(width, height, d) : null;
     const h = rows + 13;
     const x = Math.floor((width - w) / 2);
@@ -725,11 +950,54 @@ export class View extends nameDialog.View {
         entries: b.count(),
       },
     });
+    if (d.offers()) v.chip = v.machineChip(d);
     return v;
+  }
+  /** After the title and "on", the machine's name, then ^O's cap. Short of
+   * room, the cap goes first, then the title gives way to the name's first
+   * columns. */
+  private machineChip(d: Dialog): Chip {
+    const left = this.text_x - 1,
+      room = this.x + this.width - 2 - left,
+      [before, after] = titleOn(),
+      full = displayWidth(this.fullTitle()),
+      name = displayWidth(printable(d.machine!.name)),
+      // "on" and the name's padding and ▾.
+      on = (before ? 1 + displayWidth(before) : 0) + 4 + displayWidth(after),
+      key = displayWidth(chip_key);
+    const title = Math.min(full, Math.max(0, room - on - Math.min(name, 8))),
+      x = left + title + (before ? 1 + displayWidth(before) : 0),
+      width = Math.max(1, Math.min(name, room - title - on)) + 4,
+      fits = full + on + name + key <= room;
+    return { x, y: this.title_y, width, title, key: fits ? x + width + displayWidth(after) : null };
+  }
+  /** The open list of machines, under the machine's name and inside the
+   * card: its box, the first machine it shows, and the rows. */
+  machineList(): { box: Rect; first: number; choices: dropdown.Choice[] } | null {
+    const d = this.dialog,
+      chip = this.chip;
+    if (!d.choosing || !chip) return null;
+    const choices = d.machines.map((machine, i): dropdown.Choice => {
+      const runs = linkRuns(machine);
+      return {
+        text: printable(machine.name),
+        note: runs.map(([part]) => part).join(""),
+        runs,
+        current: machine === d.machine,
+        hovered: i === d.highlight,
+        dim: !machine.presence().online,
+      };
+    });
+    // Above the keys.
+    const rows = Math.max(1, Math.min(choices.length, this.buttons_y - chip.y - 3)),
+      first = d.machineWindow(rows),
+      width = Math.min(this.width - 2, Math.max(32, dropdown.width(choices))),
+      x = Math.max(this.x + 1, Math.min(chip.x, this.x + this.width - 1 - width));
+    return { box: new Rect(x, chip.y + 1, width, rows + 2), first, choices: choices.slice(first, first + rows) };
   }
   /** The folder field laid out as the plain dialog lays out its field, with no list. */
   private static compactLayout(width: number, height: number, d: Dialog): View {
-    const w = Math.min(width, Math.max(nameDialog.View.plainWidth(width), Math.min(width - 4, browserWidth(true))));
+    const w = Math.min(width, Math.max(nameDialog.View.plainWidth(width), Math.min(width - 4, browserWidth(d))));
     const h = Math.min(height, 7);
     const y = Math.floor((height - h) / 2);
     const field_y = y + (h >= 7 ? 3 : h >= 5 ? 2 : 1);
@@ -756,15 +1024,25 @@ export class View extends nameDialog.View {
     return v;
   }
   protected keys(): KeySpec[] {
-    return browserKeys(this.dialog.moving !== null);
+    return this.dialog.choosing ? machineKeys() : browserKeys(this.dialog);
   }
-  protected title(d: nameDialog.Dialog): string {
-    return this.dialog.moving !== null ? i18n.t`Change folder` : super.title(d);
+  protected title(): string {
+    return this.chip ? ellipsis(this.fullTitle(), this.chip.title) : this.fullTitle();
   }
-  /** What a press lands on, the folder field and list included. */
+  private fullTitle(): string {
+    return this.dialog.moving !== null ? i18n.t`Change folder` : super.title(this.dialog);
+  }
+  /** What a press lands on, the folder field and list included, and the
+   * machine's name and the machines under it. */
   at(x: number, y: number): Hit {
     const v = this;
     const f = v.folders;
+    const list = v.machineList(),
+      row = list && dropdown.hit(list.box, list.choices.length, x, y);
+    if (list && row !== null) return { tag: "machine_row", index: list.first + row };
+    const chip = v.chip;
+    if (chip && y === chip.y && x >= chip.x && x < chip.x + chip.width) return { tag: "machine" };
+    if (chip?.key && y === chip.y && x >= chip.key && x < chip.key + displayWidth(chip_key)) return { tag: "machine" };
     // The field's fill beside the text answers too.
     const across = x + 1 >= v.text_x && x < v.text_x + v.text_width + 1;
     const column = Math.min(Math.max(0, x - v.text_x), v.text_width);
@@ -772,7 +1050,7 @@ export class View extends nameDialog.View {
     const index = f.first + y - f.list_y;
     if (across && y >= f.list_y && y < f.list_y + f.rows && index < f.entries) return { tag: "entry", index };
     const found = v.hit(x, y);
-    if (found.tag !== "key") return found;
+    if (found.tag !== "key" || found.index !== arrows) return found;
     // The arrows' ← goes up; → and the label open.
     const b = v.buttons()[found.index];
     return x < b.x + (b.cap ? 4 : 1) ? { tag: "up" } : { tag: "open" };
@@ -792,20 +1070,49 @@ export class View extends nameDialog.View {
       return;
     }
     const { left, room } = v.heading(d, w, number);
+    if (v.chip) v.drawMachine(w, v.chip);
     if (b.problem) {
       w.write(`\x1b[${v.title_y + 2};${left + 1}H` + new Style({ fg: "hot", bg: "surface" }).sgr());
       writeEllipsis(w, problemMessage(b.problem), room);
     }
     v.drawFolders(w, left);
     v.drawButtons(w);
-    if (b.focused) v.placeCursor(b.field, w, v.folders.offset, v.folders.field_y);
+    const list = v.machineList();
+    // The open list has the keys, and no cursor shows.
+    if (list) dropdown.draw(w, list.box, list.choices);
+    else if (b.focused) v.placeCursor(b.field, w, v.folders.offset, v.folders.field_y);
     else v.placeCursor(d, w);
   }
-  /** Out and in stay quiet until the folder has the keys. */
+  /** "on" and the machine's name after the title: lit under the pointer or
+   * while its list is open, and warm while the machine isn't online. */
+  private drawMachine(w: Writer, chip: Chip): void {
+    const d = this.dialog,
+      [before, after] = titleOn();
+    const muted = new Style({ fg: "muted", bg: "surface" }).sgr();
+    if (before) w.write(`\x1b[${chip.y + 1};${chip.x - displayWidth(before) + 1}H${muted}${before}`);
+    const bg = d.choosing || d.hovering ? "selected" : "surface",
+      tone = d.choosing ? "strong" : d.ready() ? "accent" : "warm";
+    w.write(`\x1b[${chip.y + 1};${chip.x + 1}H` + new Style({ fg: "text", bg }).sgr() + " ");
+    w.write(new Style({ fg: tone, bg, bold: true }).sgr());
+    writeEllipsis(w, printable(d.machine!.name), chip.width - 4);
+    w.write(new Style({ fg: d.choosing ? "strong" : "muted", bg }).sgr() + " ▾ ");
+    if (after) w.write(muted + after);
+    if (chip.key !== null) w.write(`\x1b[${chip.y + 1};${chip.key + 1}H${keycap}${chip_key}`);
+  }
+  /** Out and in stay quiet until the folder has the keys, and ↵ while the
+   * machine isn't online. */
   protected look(k: Key, i: number): { cap: string; label: string; bare: string } {
-    if (k.hit.tag === "key" && !this.dialog.browser.focused)
-      return { cap: quiet_cap, label: quiet_label, bare: quiet_label };
+    const d = this.dialog;
+    const quiet =
+      !d.choosing &&
+      ((k.hit.tag === "key" && k.hit.index === arrows && !d.browser.focused) || (k.hit.tag === "save" && !d.ready()));
+    if (quiet) return { cap: quiet_cap, label: quiet_label, bare: quiet_label };
     return super.look(k, i);
+  }
+  /** The machine's name and the machines in its list point too. */
+  points(x: number, y: number): boolean {
+    const tag = this.at(x, y).tag;
+    return tag === "machine" || tag === "machine_row" || super.points(x, y);
   }
   /** The labels over the two fields, the folder field, and the folders in
    * it, then any offer to create: the highlighted one on `selected` behind
@@ -833,6 +1140,7 @@ export class View extends nameDialog.View {
     // Text starts a column in from the focus bar, and stops short of the scroll thumb.
     const text_x = left + 4;
     const text_width = v.text_width - 3;
+    if (!v.dialog.ready()) return v.drawWaiting(w, text_x, text_width);
     for (let row = 0; row < f.rows; row++) {
       const index = f.first + row;
       if (index >= b.count()) break;
@@ -887,5 +1195,21 @@ export class View extends nameDialog.View {
         const bg = f.first + k === b.highlight ? "selected" : "surface";
         w.write(`\x1b[${f.list_y + k + 1};${right}H` + new Style({ fg: "line", bg }).sgr() + "┃");
       }
+  }
+  /** In place of the folders, the machine that isn't online yet. */
+  private drawWaiting(w: Writer, x: number, room: number): void {
+    const d = this.dialog,
+      f = this.folders,
+      presence = d.machine!.presence(),
+      name = printable(d.machine!.name);
+    w.write(
+      `\x1b[${f.list_y + 1};${x}H` +
+        new Style({ fg: presence.connection_status?.color ?? "warm", bg: "surface" }).sgr(),
+    );
+    writeEllipsis(w, presence.stopped ? i18n.t`${name} isn't connected` : i18n.t`Connecting to ${name}…`, room);
+    // One that stopped trying doesn't connect by itself.
+    if (d.moving !== null || presence.stopped) return;
+    w.write(`\x1b[${f.list_y + 2};${x}H` + new Style({ fg: "faint", bg: "surface" }).sgr());
+    writeEllipsis(w, i18n.t`Its folders show, and ↵ creates, once it connects.`, room);
   }
 }

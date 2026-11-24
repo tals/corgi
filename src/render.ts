@@ -1057,11 +1057,7 @@ export function frame(
     } else if (u.archive_dialog) {
       link_pointer = u.archive_dialog.view(width, height, area).hit(pointer.x, pointer.y) !== null;
     } else if (u.dialog) {
-      const dialog_view = NameView.init(width, height, u.dialog);
-      // Clicks outside the dialog also cancel; only the buttons point.
-      const inside = pointer.x >= dialog_view.x && pointer.x < dialog_view.x + dialog_view.width;
-      link_pointer =
-        inside && pointer.y === dialog_view.buttons_y && dialog_view.hit(pointer.x, pointer.y).tag !== "none";
+      link_pointer = NameView.init(width, height, u.dialog).points(pointer.x, pointer.y);
     }
   }
   if (u.agent_launcher !== null && u.pointer) {

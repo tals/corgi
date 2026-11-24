@@ -701,3 +701,314 @@ test("something else where the field names a folder is shown, with its size and 
 test("sizes read in bytes, then KB or MB", () => {
   expect([0, 980, 1229, 34 * 1048576].map(size)).toEqual(["0 B", "980 B", "1.2 KB", "34 MB"]);
 });
+
+/** This computer and two remote machines, `devbox` online and `gpu-box`
+ * connecting, whose folders `places` reads. */
+function machines() {
+  const transport = { request: async () => ({}) } as unknown as Transport;
+  const presence =
+    (online: boolean, quality: 0 | 1 | 2 | 3 | 4 | null = null) =>
+    () => ({
+      online,
+      link_quality: quality,
+      connecting: !online,
+      stopped: false,
+      connection_status: online ? null : { label: "connecting", seconds: 3, color: "warm" as const },
+      description: "",
+      cached: [],
+      seen: true,
+      stale: false,
+    });
+  const local = new Machine(transport, "studio"),
+    devbox = new Machine(transport, "devbox", true),
+    gpu = new Machine(transport, "gpu-box", true);
+  devbox.presence = presence(true, 4);
+  gpu.presence = presence(false);
+  const devboxTree: Record<string, string[]> = { "/home/me": ["code"], "/home/me/code": ["infra", "llm-evals"] };
+  const link = { up: false };
+  /** gpu-box's daemon answers once `link` is up. */
+  const places = (machine: Machine): Place => {
+    if (machine === local) return computer();
+    const tree = machine === devbox ? devboxTree : { "/home/me": ["code"], "/home/me/code": ["training"] };
+    return {
+      home: "/home/me",
+      ask: async (op, path) => {
+        if (machine === gpu && !link.up) throw Error("StaleConnection");
+        return op === "folder.list"
+          ? { folders: tree[path] ?? null, home: "/home/me" }
+          : { deepest: { path, found: folder } };
+      },
+      lost: () => true,
+    };
+  };
+  /** Each machine first browses its code folder. */
+  const start = () => "/home/me/code";
+  const dialog = async (moving: { workspace: number; name: string } | null = null, all = [local, devbox, gpu]) => {
+    const d = new Dialog(await browse("/home/me/code"), moving, { machine: local, machines: all, start });
+    d.places = places;
+    d.fit(100, 30);
+    return d;
+  };
+  return { local, devbox, gpu, link, places, dialog };
+}
+/** The dialog's rows as text, as a 100×30 terminal shows them. */
+function screen(d: Dialog): string {
+  const terminal = new Terminal(100, 30);
+  try {
+    terminal.feed(draw(d));
+    return terminal.text();
+  } finally {
+    terminal.destroy();
+  }
+}
+const labels = (d: Dialog) =>
+  d
+    .view(100, 30)!
+    .buttons()
+    .map(b => b.label);
+
+test("with other machines, the title names the one the workspace goes on, and ^O lists them", async () => {
+  const { local, devbox, dialog } = machines();
+  const d = await dialog();
+  expect(screen(d)).toContain("New workspace on studio ▾");
+  expect(labels(d)).toEqual(["create", "out / in", "machine", "cancel"]);
+  d.key(15);
+  expect([d.choosing, d.highlight]).toEqual([true, 0]);
+  expect(labels(d)).toEqual(["choose", "machine", "close"]);
+  const open = screen(d);
+  for (const text of [/✓ studio +this machine/, /devbox +▂▄▆█/, /gpu-box +connecting 3s/]) expect(open).toMatch(text);
+  // The list has the keys, and the cursor goes.
+  expect(draw(d)).not.toContain("\x1b[?25h");
+  d.key(c("x"));
+  expect(d.name()).toBe("code");
+  d.sequence("\x1b[B");
+  expect(d.key(13)).toBe("none");
+  expect([d.choosing, d.machine]).toEqual([false, devbox]);
+  // Its own folders are browsed there, and the name follows them.
+  await settle();
+  expect([d.browser.field.raw(), d.browser.entries, d.name()]).toEqual(["~/code/", ["infra", "llm-evals"], "code"]);
+  expect(screen(d)).toContain("New workspace on devbox ▾");
+  expect(d.key(13)).toBe("save");
+  // Esc closes the list, not the dialog.
+  d.key(15);
+  expect(d.key(27)).toBe("none");
+  expect([d.choosing, d.machine]).toEqual([false, devbox]);
+  d.key(15);
+  d.sequence("\x1b[A");
+  d.key(13);
+  expect(d.machine).toBe(local);
+});
+
+test("a machine still connecting is chosen, and its folders show and ↵ creates once it's online", async () => {
+  const { gpu, link, dialog } = machines();
+  const d = await dialog();
+  d.key(15);
+  d.sequence("\x1b[B");
+  d.sequence("\x1b[B");
+  expect(d.highlight).toBe(2);
+  d.key(13);
+  await settle();
+  expect([d.machine, d.ready(), d.browser.reading]).toEqual([gpu, false, true]);
+  expect(draw(d)).toContain("Connecting to gpu-box…");
+  expect(d.key(13)).toBe("none");
+  const v = d.view(100, 30)!;
+  expect(d.press(v, v.buttons()[0].x, v.buttons_y, 0)).toBe("none");
+  // Looking again before it's online asks nothing new.
+  d.catchUp();
+  await settle();
+  expect(d.browser.reading).toBe(true);
+  link.up = true;
+  const connecting = gpu.presence();
+  gpu.presence = () => ({ ...connecting, online: true, connecting: false, connection_status: null });
+  d.catchUp();
+  await settle();
+  expect([d.browser.reading, d.browser.entries]).toEqual([false, ["training"]]);
+  expect(screen(d)).toContain("training");
+  expect(d.key(13)).toBe("save");
+});
+
+test("the machine's name opens its list on every click; a machine chooses it, and a press elsewhere closes it", async () => {
+  const { devbox, dialog } = machines();
+  const d = await dialog();
+  const v = d.view(100, 30)!;
+  const chip = v.chip!;
+  expect(v.at(chip.x, chip.y)).toEqual({ tag: "machine" });
+  expect(v.points(chip.x + chip.width - 1, chip.y)).toBe(true);
+  expect(d.hover(v, chip.x, chip.y)).toBe(true);
+  expect(d.hover(v, chip.x + 1, chip.y)).toBe(false);
+  expect(d.hovering).toBe(true);
+  expect(d.press(v, chip.x, chip.y, 0)).toBe("none");
+  expect(d.choosing).toBe(true);
+  // Again, it stays open.
+  d.press(v, chip.x, chip.y, 0);
+  expect(d.choosing).toBe(true);
+  const list = v.machineList()!;
+  expect(d.hover(v, list.box.x + 2, list.box.y + 3)).toBe(true);
+  expect(d.highlight).toBe(2);
+  expect(v.points(list.box.x + 2, list.box.y + 2)).toBe(true);
+  d.press(v, list.box.x + 2, list.box.y + 2, 0);
+  expect([d.choosing, d.machine]).toEqual([false, devbox]);
+  // Off the list, a press closes it, and doesn't cancel the dialog.
+  d.press(v, chip.x, chip.y, 0);
+  expect(d.press(v, v.x - 1, v.y, 0)).toBe("none");
+  expect([d.choosing, d.machine]).toEqual([false, devbox]);
+  // ^O's key opens it too, and so does its cap after the name.
+  d.press(v, v.buttons()[2].x, v.buttons_y, 0);
+  expect(d.choosing).toBe(true);
+  d.key(27);
+  expect(screen(d)).toMatch(/New workspace on devbox ▾ +\^O/);
+  const key = d.view(100, 30)!.chip!.key!;
+  expect(d.press(v, key + 1, chip.y, 0)).toBe("none");
+  expect(d.choosing).toBe(true);
+});
+
+test("each machine keeps its own folder field, as left, while the dialog is open", async () => {
+  const { local, dialog } = machines();
+  const d = await dialog();
+  const choose = (index: number) => {
+    d.openMachines();
+    d.highlight = index;
+    d.key(13);
+  };
+  const type = (text: string) => {
+    for (const ch of text) d.key(c(ch));
+  };
+  d.key(9);
+  type("corgi");
+  expect([d.browser.field.raw(), d.name()]).toEqual(["~/code/corgi", "corgi"]);
+  choose(1);
+  await settle();
+  // devbox starts at its own folder, not the one typed on studio.
+  expect([d.browser.field.raw(), d.browser.entries, d.name(), d.browser.focused]).toEqual([
+    "~/code/",
+    ["infra", "llm-evals"],
+    "code",
+    true,
+  ]);
+  type("infra");
+  choose(0);
+  expect([d.machine, d.browser.field.raw(), d.name()]).toEqual([local, "~/code/corgi", "corgi"]);
+  choose(1);
+  expect([d.browser.field.raw(), d.name()]).toEqual(["~/code/infra", "infra"]);
+});
+
+test("up from the name opens the list of machines, whose arrows move by key or click, and down past the last closes it", async () => {
+  const { local, dialog } = machines();
+  const d = await dialog();
+  d.sequence("\x1b[A");
+  expect([d.choosing, d.highlight]).toEqual([true, 0]);
+  const v = d.view(100, 30)!,
+    arrows = v.buttons()[1];
+  d.press(v, arrows.x + 4, v.buttons_y, 0);
+  expect(d.highlight).toBe(1);
+  d.press(v, arrows.x, v.buttons_y, 0);
+  expect(d.highlight).toBe(0);
+  d.sequence("\x1b[B");
+  d.sequence("\x1b[B");
+  expect([d.choosing, d.highlight]).toEqual([true, 2]);
+  d.sequence("\x1b[B");
+  expect([d.choosing, d.machine, d.browser.focused]).toEqual([false, local, false]);
+  // Down from the name still goes to the folder.
+  d.sequence("\x1b[B");
+  expect([d.choosing, d.browser.focused]).toEqual([false, true]);
+});
+
+test("a long list of machines scrolls only to keep the highlight in view", async () => {
+  const { local, devbox, gpu, places } = machines();
+  const transport = { request: async () => ({}) } as unknown as Transport;
+  const all = [local, devbox, gpu, ...Array.from({ length: 20 }, (_, i) => new Machine(transport, `m${i}`, true))];
+  const d = new Dialog(await browse("/home/me/code"), null, { machine: local, machines: all, start: () => "/home/me" });
+  d.places = places;
+  d.fit(100, 20);
+  d.key(15);
+  for (let i = 0; i < 20; i++) d.sequence("\x1b[B");
+  const v = d.view(100, 20)!,
+    list = v.machineList()!;
+  expect(list.choices.length).toBeLessThan(all.length);
+  expect(list.first + list.choices.length - 1).toBe(20);
+  // The pointer on the top row highlights it, and the rows stay put under it.
+  d.hover(v, list.box.x + 2, list.box.y + 1);
+  expect(d.highlight).toBe(list.first);
+  expect(v.machineList()!.first).toBe(list.first);
+  d.sequence("\x1b[A");
+  expect(v.machineList()!.first).toBe(list.first - 1);
+});
+
+test("a machine that stopped trying says it isn't connected, and not that it will", async () => {
+  const { gpu, dialog } = machines();
+  const d = await dialog();
+  const waiting = gpu.presence();
+  gpu.presence = () => ({ ...waiting, stopped: true, connection_status: null });
+  d.choose(2);
+  await settle();
+  const text = screen(d);
+  expect(text).toContain("gpu-box isn't connected");
+  expect(text).not.toContain("once it connects");
+});
+
+test("choosing a machine puts out the light on its name, whose width changed", async () => {
+  const { dialog } = machines();
+  const d = await dialog();
+  const chip = d.view(100, 30)!.chip!;
+  d.hover(d.view(100, 30)!, chip.x, chip.y);
+  expect(d.hovering).toBe(true);
+  d.choose(1);
+  expect(d.hovering).toBe(false);
+});
+
+test("a workspace being created stays on its machine", async () => {
+  const { local, dialog } = machines();
+  const d = await dialog();
+  const v = d.view(100, 30)!;
+  d.saving = true;
+  d.key(15);
+  d.sequence("\x1b[A");
+  d.press(v, v.chip!.x, v.chip!.y, 0);
+  expect([d.choosing, d.machine]).toEqual([false, local]);
+});
+
+test("in a narrow card, the machine's name stays inside it, the title giving way", async () => {
+  const { dialog } = machines();
+  const original = i18n.language();
+  try {
+    for (const locale of i18n.locales) {
+      i18n.setLanguage(locale);
+      const d = await dialog();
+      d.fit(32, 30);
+      const v = d.view(32, 30)!,
+        chip = v.chip!,
+        w = new Writer(),
+        terminal = new Terminal(32, 30);
+      expect(chip.x + chip.width).toBeLessThanOrEqual(v.x + v.width - 2);
+      expect(chip.key).toBeNull();
+      try {
+        v.draw(d, w, 1);
+        terminal.feed(w.s);
+        const row = terminal.text().split("\n")[chip.y].trimEnd();
+        expect(row).toContain(" studio ▾");
+        expect(row.endsWith("│")).toBe(true);
+        expect(displayWidth(row)).toBe(v.x + v.width);
+      } finally {
+        terminal.destroy();
+      }
+    }
+  } finally {
+    i18n.setLanguage(original);
+  }
+});
+
+test("with one machine, or moving a workspace, the title names none and ^O does nothing", async () => {
+  const { local, dialog } = machines();
+  for (const d of [await dialog(null, [local]), await dialog({ workspace: 1, name: "code" })]) {
+    expect(draw(d)).not.toContain("▾");
+    expect(d.view(100, 30)!.chip).toBeNull();
+    expect(labels(d)).not.toContain("machine");
+    d.key(15);
+    expect(d.choosing).toBe(false);
+  }
+  // Too small for the card, the plain dialog has no list to open.
+  const d = await dialog();
+  d.fit(100, 12);
+  d.key(15);
+  expect(d.choosing).toBe(false);
+});
