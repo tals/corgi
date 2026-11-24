@@ -45,6 +45,13 @@ export interface Transport {
   remote?: boolean;
   image?: (path: string, mime: string, progress?: ImageProgress) => Promise<string>;
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
+  /** A request whose reply comes after parts, each passed to `more`; absent
+   * where a transport takes one answer only. */
+  streamed?<K extends protocol.Op>(
+    op: K,
+    fields: protocol.RequestInput<K>,
+    more: (part: unknown) => void,
+  ): Promise<protocol.Response<K>>;
 }
 /** An RPC call that throws the daemon's error name, as Zig's `call` does. */
 export async function call<K extends protocol.Op>(

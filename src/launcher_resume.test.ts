@@ -10,6 +10,11 @@ import {
   dayLabel,
   ageLabel,
   collapsed_rows,
+  mention_tries,
+  around,
+  answerOf,
+  mentionsOf,
+  newest,
   type Account,
   type Location,
   type Entry,
@@ -129,6 +134,8 @@ test("expanded groups by day and widens; search finds open conversations and cou
     1000,
   );
   const v = new View();
+  // Titles alone, as from a daemon that can't search conversations' text.
+  v.mentions.unsupported = true;
   v.expand();
   expect(v.scope).toBe("workspace");
   let rows = v.lines(c);
@@ -408,6 +415,7 @@ test("an open conversation's Where and search follow the worktree its agent move
     ),
     view = new View({ expanded: true, focused: true }),
     area = new Area(0, 1, 140, 10);
+  view.mentions.unsupported = true;
   view.startSearch();
   for (const ch of "site/wt") view.query.key(ch.charCodeAt(0));
   expect(view.lines(c)).toEqual([{ heading: "open" }, { open: 0 }, { heading: "results" }]);
@@ -451,4 +459,390 @@ test("a conversation from another account ends its title with the account's name
   expect(lines[1]).toContain("Fix login");
   expect(lines[1].indexOf("work") + 4).toBe(13 + v.columns(96).title);
   expect(lines[2]).not.toContain("work");
+});
+
+/** A `conversation.grep` line for a Claude conversation's first hit. */
+const said = (session: string, text: string) => ({
+  source: { provider: "claude", session, cwd: "/w/corgi", updated_at: 1 },
+  hits: [{ text, context: false, role: "user" }],
+});
+
+test("conversations whose text holds the search follow the title matches, as the daemon finds them", () => {
+  const entries = [
+    testEntry("a", "/w/corgi", "Sidebar flicker fix", 900),
+    testEntry("b", "/w/corgi", "Release notes", 800),
+    testEntry("c", "/w/other", "Docs pass", 700),
+    testEntry("d", "/w/corgi", "Theme work", 600),
+  ];
+  const c = new Context(
+    { pending: false, entries },
+    "/w/corgi",
+    "/w/corgi",
+    [{ provider: "claude", session: "d", pane: 2, folder: "/w/corgi" }],
+    1000,
+  );
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  const type = (text: string) => {
+    for (const ch of text) v.query.key(ch.charCodeAt(0));
+  };
+  // Too short to look for in what was said.
+  type("si");
+  expect(v.mentionQuery()).toBe("");
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }]);
+  type("debar ");
+  expect(v.mentionQuery()).toBe("sidebar");
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }, { note: "searching" }]);
+  const search = v.searchMentions("sidebar");
+  v.addMentions(
+    search,
+    mentionsOf([said("b", "move the Sidebar rule"), said("a", "a title match already"), said("c", "x")]),
+  );
+  v.addMentions(search, mentionsOf([said("d", "the open one"), said("b", "a later hit stays out")]));
+  // An earlier search's matches don't count.
+  v.addMentions(search - 1, mentionsOf([said("d", "theme")]));
+  // An open conversation only its text matched comes with the rest, below the
+  // title matches, which keep their rows.
+  expect(v.lines(c)).toEqual([
+    { heading: "results" },
+    { entry: 0 },
+    { heading: "mentions" },
+    { mention: 1 },
+    { mention: 3 },
+    { note: "searching" },
+    { elsewhere: 1 },
+  ]);
+  expect(v.mention(entries[1])).toBe("move the Sidebar rule");
+  v.endMentions(search, false);
+  expect(v.lines(c)).not.toContainEqual({ note: "searching" });
+  v.home();
+  expect(v.entry(c, v.lines(c))!.title).toBe("Sidebar flicker fix");
+  v.move(c, v.lines(c), 1);
+  expect(v.entry(c, v.lines(c))!.title).toBe("Release notes");
+  v.endMentions(search, true);
+  expect(v.lines(c).at(-2)).toEqual({ note: "cut" });
+  // The excerpt shows where the search was said, in the last message's place.
+  const w = new Writer(),
+    host = new Terminal(120, 14);
+  v.mentions.hits.set("|claude:b", "x".repeat(90) + " move the Sidebar rule");
+  v.draw(w, c, new Area(0, 1, 120, 12));
+  host.feed(w.s);
+  const text = host.text();
+  host.destroy();
+  expect(text).toContain("Mentioned in 2 more");
+  expect(text.split("\n").find(l => l.includes("Release notes"))).toMatch(/… ?[a-z ]*the Sidebar rule/);
+  // Typing on waits for the next search; leaving the search forgets it.
+  type("x");
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }, { note: "searching" }]);
+  v.leaveSearch();
+  expect(v.mentions.query).toBe("");
+});
+
+test("another machine's closed conversations show only everywhere, under its name, with their own text hits", () => {
+  const nocap = { id: 7, name: "nocap" },
+    here = [testEntry("a", "/w/corgi", "Release notes", 900), testEntry("b", "/w/corgi", "Docs pass", 700)],
+    there = [
+      { ...testEntry("a", "/home/t/corgi", "Release notes", 800), machine: nocap },
+      { ...testEntry("c", "/home/t/corgi", "Server move", 750), machine: nocap },
+    ],
+    entries = newest(here, there);
+  expect(entries.map(e => e.updated_at)).toEqual([900, 800, 750, 700]);
+  const c = new Context(
+    { pending: false, entries },
+    "/w/corgi",
+    "/w/corgi",
+    [{ provider: "claude", session: "a", pane: 3, folder: "/home/t/corgi", machine: 7 }],
+    1000,
+  );
+  // The same session here and there are two conversations; only the one
+  // there runs in a pane.
+  expect(c.opened(entries[0])).toBeNull();
+  expect(c.opened(entries[1])?.pane).toBe(3);
+  expect(c.where(entries[1]).label).toBe("nocap · corgi");
+  expect(c.inScope(entries[1], "workspace")).toBe(false);
+  expect(c.inScope(entries[1], "everywhere")).toBe(true);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  const search = v.searchMentions("deploy");
+  v.addMentions(search, mentionsOf([said("a", "deploy it there"), said("c", "deploy it too")]), 7);
+  v.addMentions(search, mentionsOf([said("b", "deploy it here")]));
+  expect(v.mention(entries[0])).toBe("");
+  expect(v.mention(entries[1])).toBe("deploy it there");
+  expect(v.mention(entries[3])).toBe("deploy it here");
+  // The open one shows in any scope; the closed one is counted rather than listed.
+  expect(v.lines(c).filter(l => "mention" in l)).toEqual([{ mention: 1 }, { mention: 3 }]);
+  expect(v.lines(c)).toContainEqual({ elsewhere: 1 });
+  v.scope = "everywhere";
+  expect(v.lines(c).filter(l => "mention" in l)).toEqual([{ mention: 1 }, { mention: 2 }, { mention: 3 }]);
+});
+
+test("a search in any scope finds what another machine runs, and counts what it closed", () => {
+  const entries = [
+    { ...testEntry("a", "/home/t/corgi", "Release notes", 900), machine: { id: 7, name: "nocap" } },
+    { ...testEntry("b", "/home/t/corgi", "Release plan", 800), machine: { id: 7, name: "nocap" } },
+  ];
+  const c = new Context(
+    { pending: false, entries },
+    "/w/corgi",
+    "/w/corgi",
+    [{ provider: "claude", session: "a", pane: 3, folder: "/home/t/corgi", machine: 7 }],
+    1000,
+  );
+  const v = new View();
+  v.startSearch();
+  for (const ch of "release") v.query.key(ch.charCodeAt(0));
+  expect(v.scope).toBe("workspace");
+  expect(v.lines(c)).toEqual([
+    { heading: "open" },
+    { open: 0 },
+    { heading: "results" },
+    { note: "searching" },
+    { elsewhere: 1 },
+  ]);
+  // The count beside the search includes what's open.
+  const w = new Writer(),
+    host = new Terminal(120, 14);
+  v.draw(w, c, new Area(0, 1, 120, 12));
+  host.feed(w.s);
+  const text = host.text();
+  host.destroy();
+  expect(text).toContain("1 of 1");
+});
+
+test("a failed text search is tried again a few times, keeping what it found, then says so", () => {
+  const entries = [testEntry("a", "/w/corgi", "Release notes", 900), testEntry("b", "/w/corgi", "Docs pass", 800)];
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  let search = v.searchMentions("deploy");
+  v.addMentions(search, mentionsOf([said("a", "deploy it")]));
+  v.failMentions(search, 10_000);
+  // Waiting to try again, it shows what came and still says it's searching.
+  expect(v.mentions.retry_at).toBe(12_000);
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { heading: "mentions" }, { mention: 0 }, { note: "searching" }]);
+  search = v.searchMentions("deploy");
+  expect(v.mention(entries[0])).toBe("deploy it");
+  v.failMentions(search, 20_000);
+  expect(v.mentions.retry_at).toBe(24_000);
+  search = v.searchMentions("deploy");
+  v.failMentions(search, 30_000);
+  expect(v.mentions.retry_at).toBe(0);
+  expect(v.lines(c).at(-1)).toEqual({ note: "failed" });
+  // A search that gets through starts the count over.
+  search = v.searchMentions("deploy");
+  v.endMentions(search, false);
+  expect(v.mentions.failures).toBe(0);
+  expect(v.lines(c)).not.toContainEqual({ note: "failed" });
+});
+
+test("a retry knows which machines failed, and a cut one machine reported stays until a search starts over", () => {
+  const v = new View();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  let search = v.searchMentions("deploy");
+  v.failMentions(search, 10_000, [7], true);
+  expect(v.mentions.failed).toEqual([7]);
+  search = v.searchMentions("deploy");
+  v.endMentions(search, false);
+  expect(v.mentions.cut).toBe(true);
+  expect(v.mentions.failed).toEqual([]);
+  // A new search starts over.
+  v.endMentions(v.searchMentions("deploy"), true);
+  v.searchMentions("deploy it");
+  expect(v.mentions.cut).toBe(false);
+});
+
+test("a machine that connects again starts its tries over, keeping what was found and the cut", () => {
+  const entries = [testEntry("a", "/w/corgi", "Release notes", 900)];
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  let search = v.searchMentions("deploy");
+  v.addMentions(search, mentionsOf([said("a", "deploy it")]));
+  v.failMentions(search, 1000, [7], true);
+  v.failMentions(v.searchMentions("deploy"), 2000, [7]);
+  expect(v.mentions.failures).toBe(2);
+  // Machine 7 drops off, and is asked alone once it's back.
+  search = v.searchMentions("deploy", true);
+  expect(v.mentions).toMatchObject({ failures: 0, cut: true });
+  expect(v.mention(entries[0])).toBe("deploy it");
+  // Still starting up, its first failure isn't the last try.
+  v.failMentions(search, 3000, [7]);
+  expect(v.lines(c)).toContainEqual({ note: "searching" });
+});
+
+test("open conversations only their text matched never take a title match's place among the open ones", () => {
+  const entries = ["a", "b", "c", "d"].map((id, i) =>
+    testEntry(id, "/w/corgi", id === "d" ? "Deploy script" : "Other " + id, 900 - i),
+  );
+  const open = entries.map((e, i) => ({ provider: e.provider, session: e.session, pane: i + 1, folder: "/w/corgi" }));
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", open, 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  const before = v.entry(c, v.lines(c))!;
+  const search = v.searchMentions("deploy");
+  v.addMentions(search, mentionsOf([said("a", "deploy"), said("b", "deploy"), said("c", "deploy")]));
+  const rows = v.lines(c);
+  expect(rows.slice(0, 2)).toEqual([{ heading: "open" }, { open: 3 }]);
+  expect(rows).toContainEqual({ mention: 0 });
+  // What Enter takes stays put as the mentions arrive.
+  expect(v.entry(c, rows)).toBe(before);
+});
+
+test("a cancelled search is forgotten, so the same text is searched again", () => {
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  const search = v.searchMentions("deploy");
+  v.abandonMentions();
+  // Its late answer doesn't count, and the next poll searches anew.
+  v.endMentions(search, false);
+  expect(v.mentions.query).toBe("");
+  expect(v.searchMentions("deploy")).toBeGreaterThan(search);
+});
+
+test("a grep part or reply yields its mentions and whether it was cut", () => {
+  expect(answerOf({ more: true, matches: [said("a", "x")] })).toEqual({
+    mentions: [{ key: "claude:a", text: "x" }],
+    cut: false,
+  });
+  expect(answerOf({ ok: true, matches: [], summary: { truncated: false, limit_reached: true } }).cut).toBe(true);
+  expect(answerOf(null)).toEqual({ mentions: [], cut: false });
+});
+
+test("an answer to a search left behind can't end the next search for the same text", () => {
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  const first = v.searchMentions("deploy");
+  v.leaveSearch();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  const second = v.searchMentions("deploy");
+  expect(second).toBeGreaterThan(first);
+  // The first search's late Cancelled arrives.
+  v.endMentions(first, false);
+  expect(v.mentions.searching).toBe(true);
+});
+
+test("grep lines become conversations and first hits; anything else is skipped", () => {
+  expect(
+    mentionsOf([
+      said("a", "tab\there\u0085"),
+      { source: { provider: "claude", session: "b" }, hits: [{ text: "before", context: true }, { text: "match" }] },
+      { source: { provider: "nope", session: "c" }, hits: [{ text: "x" }] },
+      { source: { provider: "claude" }, hits: [{ text: "x" }] },
+      { source: { provider: "claude", session: "d" }, count: 3 },
+      null,
+    ]),
+  ).toEqual([
+    { key: "claude:a", text: "tab here " },
+    { key: "claude:b", text: "match" },
+  ]);
+  expect(mentionsOf({ not: "lines" })).toEqual([]);
+});
+
+test("an excerpt starts a little before the search when it would end out of sight", () => {
+  expect(around("short Sidebar line", "sidebar", 40)).toBe("short Sidebar line");
+  const long = "a".repeat(50) + " Sidebar rule";
+  const shown = around(long, "sidebar", 20);
+  expect(shown.startsWith("…")).toBe(true);
+  expect(shown.indexOf("Sidebar")).toBeLessThan(20);
+  expect(shown.indexOf("Sidebar")).toBeGreaterThan(1);
+  expect(around(long, "missing", 20)).toBe(long);
+  // Case folds as the daemon's search does, without shifting where the match is.
+  const turkish = "İstanbul " + "a".repeat(40) + " Deploy now";
+  expect(around(turkish, "deploy", 20)).toMatch(/^…a* Deploy now$/);
+  // The lead-in starts on a whole character.
+  const emoji = "🙂".repeat(30) + " Deploy";
+  const cut = around(emoji, "deploy", 20);
+  expect(cut).toMatch(/^…(🙂)+ Deploy$/u);
+  // A match that would end under the line's last "…" is brought into view.
+  expect(around("a".repeat(13) + "Sidebar more text", "sidebar", 20)).toMatch(/^…a* ?Sidebar more text$/);
+});
+
+test("the search takes text in any script, typed as its UTF-8 bytes", () => {
+  const entries = [
+    testEntry("a", "/w/corgi", "サイドバーの日本語化", 900),
+    testEntry("b", "/w/corgi", "Исправить Боковую панель", 800),
+    testEntry("c", "/w/corgi", "Release notes", 700),
+  ];
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  const type = (text: string) => {
+    for (const byte of Buffer.from(text)) v.query.key(byte);
+  };
+  // One wide character is too little to look for in what was said; two are a word.
+  type("日");
+  expect(v.search()).toBe("日");
+  expect(v.mentionQuery()).toBe("");
+  type("本");
+  expect(v.mentionQuery()).toBe("日本");
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }, { note: "searching" }]);
+  // Backspace takes a whole character.
+  v.query.key(127);
+  expect(v.search()).toBe("日");
+  v.query.clear();
+  // Two narrow letters stay too short, in any script; titles match whatever the case.
+  type("да");
+  expect(v.mentionQuery()).toBe("");
+  v.query.clear();
+  type("боковую");
+  expect(v.mentionQuery()).toBe("боковую");
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 1 }, { note: "searching" }]);
+});
+
+test("a search that gave up starts its tries over once the machine that failed is waited for", () => {
+  const entries = [testEntry("a", "/w/corgi", "Release notes", 900)];
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  let search = v.searchMentions("deploy");
+  for (let i = 0; i < mention_tries; i++) {
+    v.failMentions(search, 1000, [0]);
+    if (i < mention_tries - 1) search = v.searchMentions("deploy");
+  }
+  expect(v.lines(c)).toContainEqual({ note: "failed" });
+  // Its machine is away: the list goes back to searching, and waiting changes nothing more.
+  expect(v.deferMentions(5000)).toBe(true);
+  expect(v.lines(c)).toContainEqual({ note: "searching" });
+  expect(v.deferMentions(6000)).toBe(false);
+  expect(v.mentions).toMatchObject({ failures: 0, failed: [0], retry_at: 6000 });
+  // Back, it's asked again, with every try ahead of it.
+  search = v.searchMentions("deploy");
+  v.failMentions(search, 7000, [0]);
+  expect(v.lines(c)).toContainEqual({ note: "searching" });
+});
+
+test("a search that only ran out of time is tried again at once, however often", () => {
+  const entries = [testEntry("a", "/w/corgi", "Release notes", 900)];
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  // A long history takes several searches to index; none of them is a failure.
+  for (let i = 0; i < mention_tries + 2; i++) {
+    v.failMentions(v.searchMentions("deploy"), 1000 + i, [0], false, true);
+    expect(v.mentions).toMatchObject({ failures: 0, failed: [0], retry_at: 1000 + i });
+    expect(v.lines(c)).toContainEqual({ note: "searching" });
+  }
+  // Any other failure still counts.
+  for (let i = 0; i < mention_tries; i++) v.failMentions(v.searchMentions("deploy"), 2000, [0]);
+  expect(v.lines(c)).toContainEqual({ note: "failed" });
 });

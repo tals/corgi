@@ -1031,6 +1031,20 @@ export class Server {
       case "conversation.list":
         reply.send({ ok: true, conversations: session.snapshot(this.runtime).conversations });
         return;
+      case "conversation.grep": {
+        const grep = await import("./conversation_grep_service"),
+          q = request.payload;
+        this.defer(cl, reply, null, (signal, more) =>
+          grep.searches.search(this.runtime, cl, q, signal, q.stream ? more : null),
+        );
+        return;
+      }
+      case "conversation.grep.cancel": {
+        const grep = await import("./conversation_grep_service");
+        grep.searches.stop(cl, request.payload.key);
+        reply.ok();
+        return;
+      }
       case "conversation.acknowledge": {
         const actor = this.runtime.conversations.byId(request.payload.conversation);
         if (!actor) throw Error("NoConversation");
@@ -1338,8 +1352,16 @@ export class Server {
   }
   /** Replies once `work` finishes, letting the client's later requests run
    * meanwhile. A request without an id holds them, so its replies stay in order.
-   * Reload refuses while `busy` work runs, saying which, and answers the rest with `Reloading`. */
-  private defer(cl: Client, reply: Reply, busy: protocol.Busy | null, work: () => Promise<object>): void {
+   * Reload refuses while `busy` work runs, saying which, answers the rest with
+   * `Reloading` and aborts `signal`. `more` sends a `{more: true}` part before
+   * the reply; null where a request takes only one answer, as untagged and HTTP ones do. */
+  private defer(
+    cl: Client,
+    reply: Reply,
+    busy: protocol.Busy | null,
+    work: (signal: AbortSignal, more: ((value: object) => void) | null) => Promise<object>,
+  ): void {
+    const abort = new AbortController();
     let held = reply.id === null;
     cl.held ||= held;
     const release = () => {
@@ -1354,7 +1376,13 @@ export class Server {
       answered = true;
       reply.send(value);
     };
-    const pending = work().then(
+    const more =
+      reply.id !== null && !cl.http
+        ? (value: object) => {
+            if (!answered) reply.send({ more: true, ...value });
+          }
+        : null;
+    const pending = work(abort.signal, more).then(
       value => answer({ ok: true, ...value }),
       error => answer({ err: error instanceof Error ? error.message : String(error) }),
     );
@@ -1362,6 +1390,7 @@ export class Server {
       busy,
       drop: () => {
         answer({ err: "Reloading" });
+        abort.abort();
         release();
       },
     });

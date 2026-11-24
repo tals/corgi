@@ -974,8 +974,11 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await this.assertSelected(view, "Claude Code", 100);
     await view.input("\x1b[B");
     await this.assertSelected(view, "New terminal", 100);
-    // Manage is the title's button; with no conversations below, down stops.
+    // Manage is the title's button; down goes on into the conversations,
+    // whose search shows with none to list.
     await view.input("\x1b[B");
+    await this.assertSelected(view, "/  Search every folder", 100);
+    await view.input("\x1b[A");
     await this.assertSelected(view, "New terminal", 100);
     await view.input("\x1b[A");
     await this.assertSelected(view, "Claude Code", 100);

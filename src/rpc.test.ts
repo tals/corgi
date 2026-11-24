@@ -412,3 +412,26 @@ test.each([false, true])("reload waits out a busy daemon until its deadline (exp
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a streamed reply's parts reach their callback before the reply, and stray parts fail the connection", async () => {
+  const remote = await peer((message, socket) => {
+    if (message.op !== "conversation.grep") return;
+    send(socket, { more: true, matches: [1], request_id: message.request_id });
+    send(socket, { more: true, matches: [2], request_id: message.request_id });
+    send(socket, { ok: true, matches: [], request_id: message.request_id });
+  });
+  try {
+    const parts: unknown[] = [];
+    const reply = await remote.conn.streamed("conversation.grep", { patterns: ["x"], workspace: "*" }, part =>
+      parts.push(part),
+    );
+    expect(parts).toEqual([{ matches: [1] }, { matches: [2] }]);
+    expect(reply).toEqual({ ok: true, matches: [] } as any);
+    // A plain request has nowhere to put parts.
+    await expect(remote.conn.request("conversation.grep", { patterns: ["x"], workspace: "*" })).rejects.toThrow(
+      "UnexpectedReply",
+    );
+  } finally {
+    await remote.close();
+  }
+});

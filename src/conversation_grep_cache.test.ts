@@ -15,7 +15,10 @@ const options: Options = {
   workspace: "/project",
   age: 0,
   patterns: ["needle"],
-  flags: [],
+  case: "sensitive",
+  fixed: false,
+  word: false,
+  line: false,
   limit: 0,
   maxCount: 3,
   context: 0,
@@ -91,6 +94,149 @@ test("cold and warm queries reuse the index, refresh appended records and keep l
   }
 });
 
+test("a transcript that only grew is read on from where indexing stopped; one rewritten or replaced is read whole", async () => {
+  const w = world("grown"),
+    file = w.source("one");
+  fs.appendFileSync(file, message("Grown title"));
+  fs.appendFileSync(file, message("first needle", "assistant"));
+  const unlock = await lock(w.cache),
+    read = spyOn(grep, "read");
+  const hits = async () => {
+    const index = await refresh(w.cache, options, undefined, w.locations);
+    return (await search(w.cache, selected(index, options), options))[0]?.hits.map(h => [h.text, h.ref]) ?? [];
+  };
+  try {
+    expect(await hits()).toEqual([["first needle", "3"]]);
+    expect(read).toHaveBeenCalledTimes(1);
+    // A live agent writes on, stopping mid-record, then finishes it.
+    const next = message("second needle", "assistant");
+    fs.appendFileSync(file, message("more needle") + next.slice(0, 10));
+    expect(await hits()).toEqual([
+      ["first needle", "3"],
+      ["more needle", "4"],
+    ]);
+    fs.appendFileSync(file, next.slice(10));
+    const index = await refresh(w.cache, options, undefined, w.locations);
+    expect((await search(w.cache, selected(index, options), options))[0].hits.map(h => [h.text, h.ref])).toEqual([
+      ["first needle", "3"],
+      ["more needle", "4"],
+      ["second needle", "5"],
+    ]);
+    expect(index.sources[0].title).toBe("Grown title");
+    expect(read).toHaveBeenCalledTimes(1);
+    // Rewritten shorter: what was read isn't all there, so the whole is read again.
+    const lines = fs.readFileSync(file, "utf8").split("\n");
+    fs.writeFileSync(file, lines.slice(0, 3).join("\n") + "\n");
+    expect(await hits()).toEqual([["first needle", "3"]]);
+    expect(read).toHaveBeenCalledTimes(2);
+    // Replaced by another file under the name: a new inode is read whole too.
+    const swap = file + ".swap";
+    fs.writeFileSync(swap, fs.readFileSync(file, "utf8") + message("swapped needle"));
+    fs.renameSync(swap, file);
+    expect(await hits()).toEqual([
+      ["first needle", "3"],
+      ["swapped needle", "4"],
+    ]);
+    expect(read).toHaveBeenCalledTimes(3);
+  } finally {
+    read.mockRestore();
+    unlock();
+  }
+});
+
+test("a search stopped after indexing but before saving leaves nothing to read on from twice", async () => {
+  const w = world("unsaved"),
+    file = w.source("one");
+  fs.appendFileSync(file, message("first needle"));
+  const unlock = await lock(w.cache);
+  try {
+    await refresh(w.cache, options, undefined, w.locations);
+    // The next search stores the grown transcript, then stops before saving the index.
+    fs.appendFileSync(file, message("second needle"));
+    const stopped = await open(w.cache, options, undefined, w.locations);
+    for (const source of stopped.sources) await stopped.update(source);
+    fs.appendFileSync(file, message("third needle"));
+    const index = await refresh(w.cache, options, undefined, w.locations);
+    expect((await search(w.cache, selected(index, options), options))[0].hits.map(h => [h.text, h.ref])).toEqual([
+      ["first needle", "2"],
+      ["second needle", "3"],
+      ["third needle", "4"],
+    ]);
+  } finally {
+    unlock();
+  }
+});
+
+test("a conversation indexed before anyone spoke is named by the first to speak once it's read on", async () => {
+  const w = world("unnamed"),
+    file = w.source("one");
+  fs.appendFileSync(file, message("needle warming up", "assistant"));
+  const unlock = await lock(w.cache),
+    read = spyOn(grep, "read");
+  try {
+    let index = await refresh(w.cache, options, undefined, w.locations);
+    await search(w.cache, selected(index, options), options);
+    expect(index.sources[0].title).toBe("");
+    fs.appendFileSync(file, message("Name it later") + message("needle again", "assistant"));
+    index = await refresh(w.cache, options, undefined, w.locations);
+    await search(w.cache, selected(index, options), options);
+    expect(index.sources[0].title).toBe("Name it later");
+    expect(read).toHaveBeenCalledTimes(1);
+  } finally {
+    read.mockRestore();
+    unlock();
+  }
+});
+
+test("a pattern that looks for nothing around it still finds a message's later lines", async () => {
+  const w = world("lookaround"),
+    file = w.source("one");
+  fs.appendFileSync(file, message("other\nneedle\nother"));
+  const unlock = await lock(w.cache);
+  try {
+    for (const pattern of ["(?<!.)needle", "(?=(.*))\\1(?<=needle)"]) {
+      const query = { ...options, patterns: [pattern] },
+        index = await refresh(w.cache, query, undefined, w.locations);
+      expect((await search(w.cache, selected(index, query), query))[0]?.hits.map(h => h.text)).toEqual(["needle"]);
+    }
+  } finally {
+    unlock();
+  }
+});
+
+test("a place an older writer left behind its stamp isn't read on from", async () => {
+  const w = world("mixed"),
+    file = w.source("one");
+  fs.appendFileSync(file, message("first needle"));
+  const unlock = await lock(w.cache),
+    index = path.join(w.cache, "index.json");
+  try {
+    await refresh(w.cache, options, undefined, w.locations);
+    const stale = JSON.parse(fs.readFileSync(index, "utf8")).sources[0].indexed_end;
+    // An older Corgi indexes the grown transcript whole, keeping the field it doesn't know.
+    fs.appendFileSync(file, message("second needle"));
+    await refresh(w.cache, options, undefined, w.locations);
+    const manifest = JSON.parse(fs.readFileSync(index, "utf8"));
+    manifest.sources[0].indexed_end = stale;
+    fs.writeFileSync(index, JSON.stringify(manifest));
+    fs.appendFileSync(file, message("third needle"));
+    const read = spyOn(grep, "read");
+    try {
+      const grown = await refresh(w.cache, options, undefined, w.locations);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect((await search(w.cache, selected(grown, options), options))[0].hits.map(h => h.text)).toEqual([
+        "first needle",
+        "second needle",
+        "third needle",
+      ]);
+    } finally {
+      read.mockRestore();
+    }
+  } finally {
+    unlock();
+  }
+});
+
 test("scope skips other content, tools are lazy, and a partial last record becomes searchable", async () => {
   const w = world("scope"),
     file = w.source("one"),
@@ -137,7 +283,7 @@ test("scope skips other content, tools are lazy, and a partial last record becom
   );
 });
 
-test("compressed archives, replacement identity and removal refresh without SQLite", async () => {
+test("compressed archives are found, taken as written once, and leave when removed, without SQLite", async () => {
   const w = world("archive"),
     file = w.source("one");
   fs.appendFileSync(file, message("Archived needle"));
@@ -157,11 +303,36 @@ test("compressed archives, replacement identity and removal refresh without SQLi
         message("Replacement needle"),
     ),
   );
-  const replaced = await refresh(w.cache, options, undefined, w.locations);
-  expect(replaced.sources.map(s => s.session)).toEqual(["two"]);
+  // An archive is written once: one already seen isn't checked again, even swapped.
+  expect((await refresh(w.cache, options, undefined, w.locations)).sources.map(s => s.session)).toEqual(["one"]);
+  // A new one is found.
+  const another = path.join(archived, "two.jsonl.zst");
+  fs.renameSync(compressed, another);
+  expect((await refresh(w.cache, options, undefined, w.locations)).sources.map(s => s.session)).toEqual(["two"]);
   expect(fs.existsSync(path.join(w.cache, first.sources[0].file))).toBe(false);
-  fs.unlinkSync(compressed);
+  fs.unlinkSync(another);
   expect((await refresh(w.cache, options, undefined, w.locations)).sources).toEqual([]);
+});
+
+test("an archive that couldn't be read is looked at again once it changes", async () => {
+  const w = world("broken-archive"),
+    archived = path.join(w.root, "archived_sessions");
+  fs.mkdirSync(archived);
+  const compressed = path.join(archived, "one.jsonl.zst");
+  // Caught half written.
+  fs.writeFileSync(compressed, "not zstd yet");
+  const first = await refresh(w.cache, options, undefined, w.locations);
+  expect(first.sources).toEqual([]);
+  expect(first.ignored).toEqual([expect.objectContaining({ source: compressed, failed: true })]);
+  // Unchanged, it stays left out.
+  expect((await refresh(w.cache, options, undefined, w.locations)).sources).toEqual([]);
+  fs.writeFileSync(
+    compressed,
+    Bun.zstdCompressSync(
+      JSON.stringify({ type: "session_meta", payload: { id: "one", cwd: "/project" } }) + "\n" + message("Done needle"),
+    ),
+  );
+  expect((await refresh(w.cache, options, undefined, w.locations)).sources.map(s => s.session)).toEqual(["one"]);
 });
 
 test("a transcript that can't be read is skipped with a warning until it changes, and the rest still search", async () => {
@@ -367,4 +538,44 @@ test("a conversation decoded by an older version is indexed again when a search 
   const tools = { ...options, tools: true };
   expect(await refresh(w.cache, tools, undefined, w.locations)).toMatchObject({ refreshed: 1 });
   expect(await refresh(w.cache, tools, undefined, w.locations)).toMatchObject({ refreshed: 0 });
+});
+
+test("a search repairs cache files that are gone, cut short or don't parse, and an index it can't read", async () => {
+  const w = world("heal"),
+    names = ["gone", "empty", "garbled", "kept"];
+  for (const name of names) fs.appendFileSync(w.source(name), message(`${name} needle`) + message("more", "assistant"));
+  const index = path.join(w.cache, "index.json");
+  const found = async (readOnly = false) => {
+    const session = await open(w.cache, options, undefined, w.locations, readOnly);
+    const matches = await search(w.cache, session.sources, { ...options, open: session.messages });
+    session.save();
+    return { hits: matches.map(m => m.hits[0].text).sort(), manifest: session.manifest };
+  };
+  const all = names.map(name => `${name} needle`).sort();
+  const first = await found();
+  expect(first.hits).toEqual(all);
+  const file = (name: string) => path.join(w.cache, first.manifest.sources.find(s => s.session === name)!.file);
+  const kept = fs.statSync(file("kept")).mtimeMs;
+  const damage = () => {
+    fs.rmSync(file("gone"));
+    fs.writeFileSync(file("empty"), "");
+    fs.writeFileSync(file("garbled"), '{"role":"user","text":"gar');
+  };
+  // Without the lock, the transcripts are read for this search and nothing is written.
+  damage();
+  expect((await found(true)).hits).toEqual(all);
+  expect(fs.existsSync(file("gone"))).toBe(false);
+  // With it, they're indexed again, and only they are.
+  const healed = await found();
+  expect(healed.hits).toEqual(all);
+  expect(healed.manifest.refreshed).toBe(3);
+  expect(fs.statSync(file("kept")).mtimeMs).toBe(kept);
+  expect(await found()).toMatchObject({ hits: all, manifest: { refreshed: 0 } });
+  // An index that's empty, cut short or not an index is indexed afresh.
+  const good = fs.readFileSync(index, "utf8");
+  for (const bad of ["", good.slice(0, good.length / 2), JSON.stringify({ index_version: 1, sources: "none" })]) {
+    fs.writeFileSync(index, bad);
+    expect(await found()).toMatchObject({ hits: all, manifest: { refreshed: 4 } });
+    expect(JSON.parse(fs.readFileSync(index, "utf8")).sources.length).toBe(4);
+  }
 });

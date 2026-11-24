@@ -265,7 +265,7 @@ test("conversations sit below the agents and their rows hit-test", () => {
   expect(m.resumeHit(120, 40, side, b.x + 2, first_line + 2)).toBeNull();
   expect(m.resumeHit(120, 40, side, b.x + 2, first_line + 3)).toEqual({ row: 2 });
   expect(m.resumeHit(120, 40, side, b.x + 2, first_line - 1)).toBeNull();
-  expect(b.h).toBeGreaterThanOrEqual(m.rowsHeight());
+  expect(b.h).toBeGreaterThanOrEqual(m.rowsHeight(40));
   m.resume_view.expand();
   expect(m.bounds(120, 40, side).w).toBe(b.w);
 });
@@ -368,8 +368,9 @@ test("launcher hides providers that are not installed", () => {
   m.normalize();
   expect(m.selected).toBe("claude");
   const b = m.bounds(120, 24, side);
-  // Border, headings, two rows, a gap, footer and border.
-  expect(b.h).toBe(7);
+  // Border, headings, two rows, a gap, the conversations' rule, heading and
+  // search row with gaps, footer and border.
+  expect(b.h).toBe(11);
   expect(m.hit(120, 24, side, b.x + 2, b.y + 2)).toBe("claude");
   expect(m.hit(120, 24, side, b.x + 2, b.y + 3)).toBe("terminal");
   m.move(true, true);
@@ -380,6 +381,39 @@ test("launcher hides providers that are not installed", () => {
   m.normalize();
   expect(m.selected).toBe("terminal");
   expect(m.first()).toBe("terminal");
+});
+
+test("conversations show while there's room for them, with nothing said of them before the first read", () => {
+  const m = menu();
+  m.preview.installed = byProvider(p => p === "claude");
+  m.normalize();
+  let side = SidebarView.init(120, 24, true, 0, 0);
+  expect(m.hasResume(24)).toBe(true);
+  let text = screen(m, 120, 24, side).join("\n");
+  expect(text).toContain("Search every folder");
+  expect(text).not.toContain("none here");
+  m.history = { pending: false, entries: [] };
+  expect(screen(m, 120, 24, side).join("\n")).toContain("Resume · none here");
+  // Too short for them, the launcher keeps its agents and leaves them out.
+  side = SidebarView.init(120, 9, true, 0, 0);
+  expect(m.hasResume(9)).toBe(false);
+  expect(m.bounds(120, 9, side).h).toBe(7);
+  text = screen(m, 120, 9, side).join("\n");
+  expect(text).toContain("New terminal");
+  expect(text).not.toContain("Resume");
+});
+
+test("a search opened where the full list wouldn't fit keeps to the room the short one had", () => {
+  const m = menu();
+  m.preview.installed = byProvider(p => p === "claude");
+  m.normalize();
+  const side = SidebarView.init(120, 11, true, 0, 0);
+  expect(m.hasResume(11)).toBe(true);
+  m.resume_view.startSearch();
+  for (const ch of "needle") m.resume_view.query.key(ch.charCodeAt(0));
+  expect(m.hasResume(11)).toBe(true);
+  expect(m.bounds(120, 11, side).h).toBe(11);
+  expect(screen(m, 120, 11, side).join("\n")).toContain("needle");
 });
 
 test("first load shows discovery instead of speculative launcher or Active rows", () => {

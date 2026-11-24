@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { compile, scan, type Query, type Row } from "./conversation_grep_regex";
+import { compile, plain, scan, type Query, type Row } from "./conversation_grep_regex";
 
 async function rows(text: string, patterns: string[], options: Partial<Query> = {}) {
-  const query = { patterns, flags: [], before: 0, after: 0, maxCount: 100, ...options },
+  const query = { ...plain, patterns, before: 0, after: 0, maxCount: 100, ...options },
     found: Row<{ text: string; number: number }>[] = [];
   const lines = text
     .replace(/\n$/, "")
@@ -24,13 +24,13 @@ const lines = async (text: string, patterns: string[], options: Partial<Query> =
 test("case, literal, word and line flags behave as in rg", async () => {
   const text = "Merge here\nmerge\nsubmerged\ncafé\ncafés\nC:\\tmp\\work\na.b\n";
   expect(await lines(text, ["merge"])).toEqual([2, 3]);
-  expect(await lines(text, ["merge"], { flags: ["-S"] })).toEqual([1, 2, 3]);
-  expect(await lines(text, ["Merge"], { flags: ["-S"] })).toEqual([1]);
-  expect(await lines(text, ["Merge"], { flags: ["-i", "-s"] })).toEqual([1]);
-  expect(await lines(text, ["merge"], { flags: ["-i", "-w"] })).toEqual([1, 2]);
-  expect(await lines(text, ["café"], { flags: ["-w"] })).toEqual([4]);
-  expect(await lines(text, ["merge", "Merge here"], { flags: ["-x"] })).toEqual([1, 2]);
-  expect(await lines(text, ["C:\\tmp\\work", "a.b"], { flags: ["-F"] })).toEqual([6, 7]);
+  expect(await lines(text, ["merge"], { case: "smart" })).toEqual([1, 2, 3]);
+  expect(await lines(text, ["Merge"], { case: "smart" })).toEqual([1]);
+  expect(await lines(text, ["Merge"], { case: "sensitive" })).toEqual([1]);
+  expect(await lines(text, ["merge"], { case: "insensitive", word: true })).toEqual([1, 2]);
+  expect(await lines(text, ["café"], { word: true })).toEqual([4]);
+  expect(await lines(text, ["merge", "Merge here"], { line: true })).toEqual([1, 2]);
+  expect(await lines(text, ["C:\\tmp\\work", "a.b"], { fixed: true })).toEqual([6, 7]);
   expect(await lines(text, ["\\p{Lu}"])).toEqual([1, 6]);
 });
 

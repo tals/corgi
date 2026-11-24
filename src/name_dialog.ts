@@ -27,15 +27,33 @@ export type Target =
   /** The shell new panes run, typed from the shell picker. */
   | { shell: null }
   /** The new-workspace dialog's folder field. */
-  | { folder: null };
+  | { folder: null }
+  /** A search box's query, which looks through text written in any language. */
+  | { search: null };
 export const targetKind = (
   t: Target,
-): "pane" | "rename" | "workspace_name" | "agent_command" | "agent_name" | "agent" | "fork" | "shell" | "folder" =>
-  Object.keys(t)[0] as any;
-/** Whether names keep non-ASCII text, which the agents' own names carry. */
+):
+  | "pane"
+  | "rename"
+  | "workspace_name"
+  | "agent_command"
+  | "agent_name"
+  | "agent"
+  | "fork"
+  | "shell"
+  | "folder"
+  | "search" => Object.keys(t)[0] as any;
+/** Whether the text keeps non-ASCII characters, which the agents' own names
+ * carry and a search looks for. */
 function unicodeTarget(t: Target): boolean {
   return (
-    "agent_name" in t || "agent_command" in t || "agent" in t || "fork" in t || "folder" in t || "workspace_name" in t
+    "agent_name" in t ||
+    "agent_command" in t ||
+    "agent" in t ||
+    "fork" in t ||
+    "folder" in t ||
+    "workspace_name" in t ||
+    "search" in t
   );
 }
 export type Result = "none" | "save" | "cancel";

@@ -12,6 +12,8 @@ interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   encoding?: string[];
+  /** Takes the `{more: true}` parts a streamed reply sends first. */
+  more?: (part: unknown) => void;
 }
 export interface ConnectionInit {
   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
@@ -156,6 +158,12 @@ export class Connection {
     }
     const pending = this.pending.get(id);
     if (!pending) throw Error("UnexpectedReply");
+    if (message.more === true) {
+      if (!pending.more) throw Error("UnexpectedReply");
+      const { request_id: _, more: __, ...part } = message;
+      pending.more(part);
+      return;
+    }
     const selected = protocol.encoding(message.content_encoding);
     if (
       message.content_encoding !== undefined &&
@@ -200,7 +208,16 @@ export class Connection {
     // Replies are raw operation-specific JSON. Consumers normalize their model.
     return this.rawRequest(protocol.envelope(op, args[0])) as Promise<protocol.Response<K>>;
   }
-  async rawRequest(value: unknown): Promise<unknown> {
+  /** A request whose reply comes after parts, each passed to `more` as it arrives. */
+  streamed<K extends protocol.Op>(
+    op: K,
+    fields: protocol.RequestInput<K>,
+    more: (part: unknown) => void,
+  ): Promise<protocol.Response<K>> {
+    if (!this.requestIds) throw Error("UnsupportedStream");
+    return this.rawRequest(protocol.envelope(op, fields), more) as Promise<protocol.Response<K>>;
+  }
+  async rawRequest(value: unknown, more?: (part: unknown) => void): Promise<unknown> {
     const closed = this.closed ?? this.ending;
     if (closed) throw closed;
     const message = json.object(value);
@@ -254,6 +271,7 @@ export class Connection {
       };
       this.pending.set(id, {
         encoding,
+        more,
         resolve: value => {
           done(false);
           resolve(value);

@@ -187,6 +187,7 @@ const result = await Bun.build({
     `${root}/src/main.ts`,
     `${root}/src/providers/codex/files_worker.ts`,
     `${root}/src/trackers/resources_worker.ts`,
+    `${root}/src/conversation_grep_worker.ts`,
   ],
   target: "bun",
   compile: { target: `bun-${platform}-${arch}` as any, outfile: candidate },

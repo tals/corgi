@@ -129,6 +129,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" ",": on (not saved for next start)"]': v0 => ` ${v0}：已开启（下次启动不保留）`,
     '[" "," / resources "]': v0 => ` ${v0} / 资源 `,
     '[" "," is busy: rename it once its input box is empty"]': v0 => ` ${v0} 正忙：输入框为空后才能重命名`,
+    '[" "," isn\'t connected"]': v0 => ` ${v0} 未连接`,
     '[" "," session ",": ",". Inspect: corgi headless events "," ",""]': (v0, v1, v2, v3, v4) =>
       ` ${v0} 会话 ${v1}：${v2}。查看详情：corgi headless events ${v3} ${v1}`,
     '[" ",": waiting for a session ID"]': v0 => ` ${v0}：等待会话 ID`,
@@ -151,6 +152,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Couldn\'t add ",": ",""]': (v0, v1) => ` 无法添加 ${v0}：${v1}`,
     '[" Couldn\'t mark as unread"]': () => ` 无法标为未读`,
     '[" Couldn\'t open ",": ",""]': (v0, v1) => ` 无法打开 ${v0}：${v1}`,
+    '[" Couldn\'t open it: ",""]': v0 => ` 无法打开：${v0}`,
     '[" Couldn\'t remove ",": ",""]': (v0, v1) => ` 无法移除 ${v0}：${v1}`,
     '[" Deleted "," and its folder"]': v0 => ` 已删除 ${v0} 及其文件夹`,
     '[" Dings enabled"]': () => ` 提示音已开启`,
@@ -535,6 +537,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Couldn\'t read the workspace list. R refreshes."]': () => `无法读取工作区列表。按 R 刷新。`,
     '["Couldn\'t read this source. R retries."]': () => `无法读取此来源。按 R 重试。`,
     '["Couldn\'t save the pasted image"]': () => `无法保存粘贴的图片`,
+    '["Couldn\'t search conversations"]': () => `无法搜索会话`,
     '["Create "]': () => `创建 `,
     '["Create workspace"]': () => `创建工作区`,
     '["Creating workspaces and shells"]': () => `正在创建工作区和 Shell`,
@@ -708,6 +711,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Mark as unread"]': () => `标为未读`,
     '["Mem"]': () => `内存`,
     '["Memory"]': () => `内存`,
+    '["Mentioned in "," more"]': v0 => `另有 ${v0} 个会话提到`,
     '["Metered"]': () => `按量计费`,
     '["Missing"]': () => `缺失`,
     '["Mixed"]': () => `混合`,
@@ -800,6 +804,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Nothing is waiting"]': () => `没有等待中的任务`,
     '["Observed tokens"]': () => `已观测的 Token`,
     '["Off"]': () => `关闭`,
+    '["Older mentions not shown · type more to narrow"]': () => `较早的提及未显示 · 多输入几个字以缩小范围`,
     '["On"]': () => `开启`,
     '["Onboarding"]': () => `入门设置`,
     '["Open"]': () => `打开`,
@@ -935,6 +940,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Search conversation text"]': () => `搜索对话文本`,
     '["Search models"]': () => `搜索模型`,
     '["Search models, agents and accounts"]': () => `搜索模型、代理和账户`,
+    '["Searching conversations…"]': () => `正在搜索会话…`,
     '["Select"]': () => `选择`,
     '["Select tab"]': () => `选择标签页`,
     '["Select workspace"]': () => `选择工作区`,
@@ -1578,6 +1584,7 @@ ${v1} 使用该账号。
     '[" "," / resources "]': v0 => ` ${v0} / リソース `,
     '[" "," is busy: rename it once its input box is empty"]': v0 =>
       ` ${v0}は操作中です。入力欄を空にしてから名前を変更してください`,
+    '[" "," isn\'t connected"]': v0 => ` ${v0} は接続されていません`,
     '[" "," session ",": ",". Inspect: corgi headless events "," ",""]': (v0, v1, v2, v3, v4) =>
       ` ${v0}のセッション${v1}：${v2}。詳細：corgi headless events ${v3} ${v1}`,
     '[" ",": waiting for a session ID"]': v0 => ` ${v0}：セッションIDを待機中`,
@@ -1602,6 +1609,7 @@ ${v1} 使用该账号。
     '[" Couldn\'t add ",": ",""]': (v0, v1) => ` ${v0}を追加できませんでした：${v1}`,
     '[" Couldn\'t mark as unread"]': () => ` 未読にできませんでした`,
     '[" Couldn\'t open ",": ",""]': (v0, v1) => ` ${v0}を開けませんでした：${v1}`,
+    '[" Couldn\'t open it: ",""]': v0 => ` 開けませんでした: ${v0}`,
     '[" Couldn\'t remove ",": ",""]': (v0, v1) => ` ${v0}を削除できませんでした：${v1}`,
     '[" Deleted "," and its folder"]': v0 => ` ${v0}とそのフォルダーを削除しました`,
     '[" Dings enabled"]': () => ` 通知音を有効にしました`,
@@ -2006,6 +2014,7 @@ ${v1} 使用该账号。
     '["Couldn\'t read the workspace list. R refreshes."]': () => `ワークスペース一覧を読み取れませんでした。Rで更新。`,
     '["Couldn\'t read this source. R retries."]': () => `取り込み元を読み込めません。Rで再試行。`,
     '["Couldn\'t save the pasted image"]': () => `貼り付けた画像を保存できませんでした`,
+    '["Couldn\'t search conversations"]': () => `会話を検索できませんでした`,
     '["Create "]': () => `作成 `,
     '["Create workspace"]': () => `ワークスペースを作成`,
     '["Creating workspaces and shells"]': () => `ワークスペースとシェルを作成中`,
@@ -2182,6 +2191,7 @@ ${v1} 使用该账号。
     '["Mark as unread"]': () => `未読にする`,
     '["Mem"]': () => `メモリ`,
     '["Memory"]': () => `メモリ`,
+    '["Mentioned in "," more"]': v0 => `ほかに ${v0} 件の会話で言及`,
     '["Metered"]': () => `従量課金`,
     '["Missing"]': () => `見つかりません`,
     '["Mixed"]': () => `混在`,
@@ -2276,6 +2286,7 @@ ${v1} 使用该账号。
     '["Nothing is waiting"]': () => `待機中の処理はありません`,
     '["Observed tokens"]': () => `観測されたトークン`,
     '["Off"]': () => `オフ`,
+    '["Older mentions not shown · type more to narrow"]': () => `古い言及は表示されていません · 入力を増やして絞り込む`,
     '["On"]': () => `オン`,
     '["Onboarding"]': () => `初期設定`,
     '["Open"]': () => `開く`,
@@ -2416,6 +2427,7 @@ ${v1} 使用该账号。
     '["Search conversation text"]': () => `会話の本文を検索`,
     '["Search models"]': () => `モデルを検索`,
     '["Search models, agents and accounts"]': () => `モデル、エージェント、アカウントを検索`,
+    '["Searching conversations…"]': () => `会話を検索中…`,
     '["Select"]': () => `選択`,
     '["Select tab"]': () => `タブを選択`,
     '["Select workspace"]': () => `ワークスペースを選択`,
@@ -3067,6 +3079,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" "," / resources "]': v0 => ` ${v0} / 리소스 `,
     '[" "," is busy: rename it once its input box is empty"]': v0 =>
       ` ${v0} 작업 중: 입력창이 비었을 때 이름을 변경하세요`,
+    '[" "," isn\'t connected"]': v0 => ` ${v0}에 연결되어 있지 않습니다`,
     '[" "," session ",": ",". Inspect: corgi headless events "," ",""]': (v0, v1, v2, v3, v4) =>
       ` ${v0} 세션 ${v1}: ${v2}. 확인: corgi headless events ${v3} ${v1}`,
     '[" ",": waiting for a session ID"]': v0 => ` ${v0}: 세션 ID 대기 중`,
@@ -3090,6 +3103,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Couldn\'t add ",": ",""]': (v0, v1) => ` ${v0} 추가 실패: ${v1}`,
     '[" Couldn\'t mark as unread"]': () => ` 읽지 않음으로 표시할 수 없습니다`,
     '[" Couldn\'t open ",": ",""]': (v0, v1) => ` ${v0} 열기 실패: ${v1}`,
+    '[" Couldn\'t open it: ",""]': v0 => ` 열 수 없습니다: ${v0}`,
     '[" Couldn\'t remove ",": ",""]': (v0, v1) => ` ${v0} 제거 실패: ${v1}`,
     '[" Deleted "," and its folder"]': v0 => ` ${v0} 및 해당 폴더를 삭제했습니다`,
     '[" Dings enabled"]': () => ` 알림음 켜짐`,
@@ -3493,6 +3507,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
       `작업 공간 목록을 읽지 못했습니다. R로 새로 고침하세요.`,
     '["Couldn\'t read this source. R retries."]': () => `이 소스를 읽을 수 없습니다. R로 다시 시도하세요.`,
     '["Couldn\'t save the pasted image"]': () => `붙여넣은 이미지를 저장할 수 없습니다`,
+    '["Couldn\'t search conversations"]': () => `대화를 검색할 수 없습니다`,
     '["Create "]': () => `만들기 `,
     '["Create workspace"]': () => `작업 공간 만들기`,
     '["Creating workspaces and shells"]': () => `작업 공간과 셸 생성 중`,
@@ -3669,6 +3684,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Mark as unread"]': () => `읽지 않음으로 표시`,
     '["Mem"]': () => `메모리`,
     '["Memory"]': () => `메모리`,
+    '["Mentioned in "," more"]': v0 => `그 밖에 ${v0}개 대화에서 언급됨`,
     '["Metered"]': () => `사용량 과금`,
     '["Missing"]': () => `없음`,
     '["Mixed"]': () => `혼합`,
@@ -3761,6 +3777,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Nothing is waiting"]': () => `대기 중인 작업 없음`,
     '["Observed tokens"]': () => `관측된 토큰`,
     '["Off"]': () => `끔`,
+    '["Older mentions not shown · type more to narrow"]': () => `이전 언급은 표시되지 않음 · 더 입력해 범위 좁히기`,
     '["On"]': () => `켬`,
     '["Onboarding"]': () => `시작 안내`,
     '["Open"]': () => `열기`,
@@ -3900,6 +3917,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Search conversation text"]': () => `대화 본문 검색`,
     '["Search models"]': () => `모델 검색`,
     '["Search models, agents and accounts"]': () => `모델, 에이전트, 계정 검색`,
+    '["Searching conversations…"]': () => `대화 검색 중…`,
     '["Select"]': () => `선택`,
     '["Select tab"]': () => `탭 선택`,
     '["Select workspace"]': () => `작업 공간 선택`,
@@ -4554,6 +4572,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" "," / resources "]': v0 => ` ${v0} / ресурсы `,
     '[" "," is busy: rename it once its input box is empty"]': v0 =>
       ` ${v0} занят: переименуйте его, когда поле ввода опустеет`,
+    '[" "," isn\'t connected"]': v0 => ` ${v0} не подключён`,
     '[" "," session ",": ",". Inspect: corgi headless events "," ",""]': (v0, v1, v2, v3, v4) =>
       ` Сеанс ${v0} ${v1}: ${v2}. Подробнее: corgi headless events ${v3} ${v1}`,
     '[" ",": waiting for a session ID"]': v0 => ` ${v0}: ожидание ID сеанса`,
@@ -4579,6 +4598,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Couldn\'t add ",": ",""]': (v0, v1) => ` Не удалось добавить ${v0}: ${v1}`,
     '[" Couldn\'t mark as unread"]': () => ` Не удалось отметить как непрочитанное`,
     '[" Couldn\'t open ",": ",""]': (v0, v1) => ` Не удалось открыть ${v0}: ${v1}`,
+    '[" Couldn\'t open it: ",""]': v0 => ` Не удалось открыть: ${v0}`,
     '[" Couldn\'t remove ",": ",""]': (v0, v1) => ` Не удалось удалить ${v0}: ${v1}`,
     '[" Deleted "," and its folder"]': v0 => ` ${v0} и его папка удалены`,
     '[" Dings enabled"]': () => ` Звуки включены`,
@@ -5427,6 +5447,7 @@ profile/ID, имя копии или command/N — как в выводе launch
       `Не удалось прочитать список пространств. R — обновить.`,
     '["Couldn\'t read this source. R retries."]': () => `Не удалось прочитать источник. R — повторить.`,
     '["Couldn\'t save the pasted image"]': () => `Не удалось сохранить вставленное изображение`,
+    '["Couldn\'t search conversations"]': () => `Не удалось выполнить поиск по беседам`,
     '["Create "]': () => `Создать `,
     '["Create workspace"]': () => `Создать пространство`,
     '["Creating workspaces and shells"]': () => `Создание пространств и оболочек`,
@@ -5605,6 +5626,20 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Mark as unread"]': () => `Отметить непрочитанным`,
     '["Mem"]': () => `Пам.`,
     '["Memory"]': () => `Память`,
+    '["Mentioned in "," more"]': v0 => {
+      switch (plural("ru", Number(v0))) {
+        case "one":
+          return `Упоминается ещё в ${v0} беседе`;
+        case "few":
+          return `Упоминается ещё в ${v0} беседах`;
+        case "many":
+          return `Упоминается ещё в ${v0} беседах`;
+        case "other":
+          return `Упоминается ещё в ${v0} беседы`;
+        default:
+          return `Упоминается ещё в ${v0} беседы`;
+      }
+    },
     '["Metered"]': () => `По расходу`,
     '["Missing"]': () => `Отсутствует`,
     '["Mixed"]': () => `Смешанный`,
@@ -5699,6 +5734,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Nothing is waiting"]': () => `Нет ожидающих задач`,
     '["Observed tokens"]': () => `Учтённые токены`,
     '["Off"]': () => `Выкл.`,
+    '["Older mentions not shown · type more to narrow"]': () => `Старые упоминания не показаны · уточните запрос`,
     '["On"]': () => `Вкл.`,
     '["Onboarding"]': () => `Первоначальная настройка`,
     '["Open"]': () => `Открыть`,
@@ -5840,6 +5876,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Search conversation text"]': () => `Поиск по тексту диалогов`,
     '["Search models"]': () => `Поиск моделей`,
     '["Search models, agents and accounts"]': () => `Поиск моделей, агентов и аккаунтов`,
+    '["Searching conversations…"]': () => `Поиск по беседам…`,
     '["Select"]': () => `Выбрать`,
     '["Select tab"]': () => `Выбрать вкладку`,
     '["Select workspace"]': () => `Выбрать пространство`,

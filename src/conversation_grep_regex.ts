@@ -1,9 +1,23 @@
 // Matching lines for corgi grep: JavaScript regex, one line at a time, with grep's
 // case, literal, word, line, context and count flags.
 
-type Query = {
+import type { Request } from "./protocol";
+
+/** How case counts: as typed (-s), ignored (-i), or ignored unless a pattern has an uppercase letter (-S). */
+type Case = Request<"conversation.grep">["case"];
+/** What rg's -s/-i/-S, -F, -w and -x set. */
+type Flags = {
+  case: Case;
+  /** Patterns are literal text. */
+  fixed: boolean;
+  /** Matches are whole words. */
+  word: boolean;
+  /** Matches are whole lines; wins over `word`. */
+  line: boolean;
+};
+const plain: Flags = { case: "sensitive", fixed: false, word: false, line: false };
+type Query = Flags & {
   patterns: string[];
-  flags: string[];
   before: number;
   after: number;
   maxCount: number;
@@ -14,19 +28,21 @@ type Row<L> = { type: "match" | "context"; line: L; submatches: Submatch[] };
 // Unicode word characters, so -w treats "café" as one word.
 const word = "[\\p{Alphabetic}\\p{M}\\p{Nd}\\p{Pc}\\p{Join_Control}]";
 
+const escape = (pattern: string) => pattern.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&");
+/** Whether `query` ignores case: always, or with -S while its text has no capitals. */
+function insensitive(query: Query): boolean {
+  const text = query.fixed ? query.patterns.join("") : query.patterns.join("").replace(/\\(?:[pP]\{[^}]*\}|.)/gsu, "");
+  return query.case === "insensitive" || (query.case === "smart" && !/\p{Lu}/u.test(text));
+}
+
 export function compile(query: Query): RegExp {
-  let caseMode: "-i" | "-s" | "-S" = "-s";
-  for (const flag of query.flags) if (flag === "-i" || flag === "-s" || flag === "-S") caseMode = flag;
-  const fixed = query.flags.includes("-F"),
-    patterns = query.patterns.map(p => (fixed ? p.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&") : p));
-  const literals = fixed ? patterns.join("") : patterns.join("").replace(/\\(?:[pP]\{[^}]*\}|.)/gsu, "");
-  const insensitive = caseMode === "-i" || (caseMode === "-S" && !/\p{Lu}/u.test(literals));
+  const patterns = query.patterns.map(p => (query.fixed ? escape(p) : p));
   let source = patterns.map(p => `(?:${p})`).join("|");
-  if (query.flags.includes("-x")) source = `^(?:${source})$`;
-  else if (query.flags.includes("-w")) source = `(?<!${word})(?:${source})(?!${word})`;
+  if (query.line) source = `^(?:${source})$`;
+  else if (query.word) source = `(?<!${word})(?:${source})(?!${word})`;
   // Lines hold no newline, so . matches any character.
   try {
-    return new RegExp(source, "gsu" + (insensitive ? "i" : ""));
+    return new RegExp(source, "gsu" + (insensitive(query) ? "i" : ""));
   } catch (error) {
     throw Error(
       `regex parse error: ${(error as Error).message}. Patterns are JavaScript regex: ` +
@@ -78,4 +94,5 @@ export async function scan<L extends { text: string }>(
   }
 }
 
-export type { Query, Row };
+export { plain };
+export type { Case, Flags, Query, Row };
