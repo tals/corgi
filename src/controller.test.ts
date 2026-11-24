@@ -5192,6 +5192,11 @@ test("a folder's name lists it after the pointer rests on it; a click pins it to
     expect(plain(s.frame())).toContain("esc close");
     await mouse(0, [rect.x + 30, rect.y + 20]);
     expect(s.dir_pin).toBeNull();
+    // A Ctrl+click on the name pins it at once, and keeps it.
+    clock.advance(clock.double_click_ms * 2);
+    await mouse(16, name);
+    await mouse(16, name, true);
+    expect(s.dir_pin?.browser.root).toBe(join(dir, "src"));
   } finally {
     native.destroy();
     setSystemTime();

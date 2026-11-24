@@ -8879,8 +8879,9 @@ export class Controller {
               };
               this.closeMenu();
             } else {
-              this.openLink(click.url, click.machine ?? this.machine, click.file);
+              // Closing the menu first: a folder's link opens a browser, which a menu's close would put away.
               this.closeMenu();
+              this.openLink(click.url, click.machine ?? this.machine, click.file);
             }
           }
           cl.port_click = null;
