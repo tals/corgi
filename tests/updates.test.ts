@@ -1006,10 +1006,7 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     expect(await readFile(join(root, "staged"), "utf8")).toBe("1.0.1");
     const served = downloads.length;
     const sync = await machineViewer("1.0.1");
-    // The machine's own `update auto off` keeps it where it is.
-    expect((await sync()).at(-1)).toEqual({ type: "current" });
-    expect((await readFile(join(root, "current"), "utf8")).trim()).toBe("1.0.0");
-    await cli(["update", "auto", "on"]);
+    // The machine's `update auto off` only stops its own hourly updates.
     const events = await sync();
     expect(events.at(-1)).toEqual({ type: "ready" });
     expect(events.some(event => event.message === "Downloading")).toBe(false);
@@ -1032,10 +1029,6 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     await rm(join(root, "staged"));
     expect((await rpc({ op: "hello" })).release_version).toBe("1.0.0");
     const sync = await machineViewer("1.0.1");
-    // Not while the machine's automatic updates are off.
-    expect((await sync()).at(-1)).toEqual({ type: "current" });
-    expect((await rpc({ op: "hello" })).release_version).toBe("1.0.0");
-    await cli(["update", "auto", "on"]);
     expect((await sync()).at(-1)).toEqual({ type: "ready" });
     await runsRelease("1.0.1", pid);
     expect((await sync()).at(-1)).toEqual({ type: "current" });
@@ -1044,20 +1037,21 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
 );
 
 test.skipIf(!!process.env.CORGI_OLD_EXE)(
-  "a machine downloads a release it lacks; a newer one stays",
+  "a machine follows its viewer's release up and down, downloading each once",
   async () => {
-    // The viewer runs the channel's latest, which the machine's own updater then finds current.
-    latest = "1.0.2";
     const pid = await shellPid();
-    await cli(["update", "auto", "on"]);
-    const events = await (await machineViewer("1.0.2"))();
+    const newer = await machineViewer("1.0.2");
+    const events = await newer();
     expect(events.at(-1)).toEqual({ type: "ready" });
     expect(events.some(event => event.message === "Downloading")).toBe(true);
     expect(events.some(event => event.message === "Downloading here…")).toBe(false);
-    expect(downloads).toEqual(["1.0.2"]);
     await runsRelease("1.0.2", pid);
-    expect((await (await machineViewer("1.0.1"))()).at(-1)).toEqual({ type: "current" });
+    expect((await (await machineViewer("1.0.1"))()).at(-1)).toEqual({ type: "ready" });
+    await runsRelease("1.0.1", pid);
+    // The machine kept the release it left.
+    expect((await newer()).at(-1)).toEqual({ type: "ready" });
     await runsRelease("1.0.2", pid);
+    expect(downloads).toEqual(["1.0.2", "1.0.1"]);
   },
   60_000,
 );

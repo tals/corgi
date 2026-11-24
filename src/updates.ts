@@ -549,18 +549,46 @@ function runtimeHolds(dir: string): boolean {
     }
   });
 }
+/** How long, and how many of, the releases viewers asked a machine for stay
+ * for a viewer to switch it back to. */
+const requested_ms = 14 * 86_400_000,
+  requested_kept = 3;
+/** Marks the release in `dir` as one a viewer asked this machine for. Only
+ * prune reads it, so an install doesn't fail over it. */
+export function requested(dir: string): void {
+  try {
+    write(dir, "requested", String(Date.now()));
+  } catch {}
+}
+/** The releases in `dir` viewers asked for lately, newest first. */
+function asked(dir: string): string[] {
+  const since = Date.now() - requested_ms;
+  return readdirSync(dir)
+    .flatMap(v => {
+      try {
+        const at = Number(read(join(dir, v), "requested"));
+        return at > since ? [{ v, at }] : [];
+      } catch {
+        return [];
+      }
+    })
+    .sort((a, b) => b.at - a.at)
+    .slice(0, requested_kept)
+    .map(r => r.v);
+}
 /** Removes the releases nothing needs: all but the current one, the previous
- * one kept for rollback, a staged update and any a runtime runs. Normally
- * only older releases go; `downloads` says the download lock is held too,
- * so superseded downloads can go regardless of version. */
+ * one kept for rollback, a staged update, the ones viewers asked for lately
+ * and any a runtime runs. Normally only older releases go; `downloads` says
+ * the download lock is held too, so superseded downloads can go regardless
+ * of version. */
 export function prune(root: string, downloads = false) {
   try {
     const guard = openSync(join(root, "releases.lock"), "a", 0o600);
     try {
       if (!flock(guard)) return;
       const current = pointer(root, "current"),
-        keep = [current, pointer(root, "previous"), pointer(root, "staged")],
-        dir = join(root, "releases");
+        dir = join(root, "releases"),
+        keep = [current, pointer(root, "previous"), pointer(root, "staged"), ...asked(dir)];
       if (current === null) return;
       for (const v of readdirSync(dir))
         try {
@@ -943,12 +971,6 @@ export async function command(args: string[], daemon: rpc_http.Client, exe: stri
   if (rollback && !existsSync(join(root, "previous"))) throw Error("NoPreviousRelease");
   await select(rel, root, daemon, true, true, rollback);
   console.log("Corgi is ready.");
-}
-/** Whether `corgi update auto` leaves the installation running `exe` on; a
- * build no installation manages has no setting to turn it off. */
-export function automatic(exe: string): boolean {
-  const root = managed(release(exe), exe);
-  return !root || !existsSync(join(root, "auto-off"));
 }
 /** Downloads a newer release for the next launch to activate, as a runtime
  * running `exe` does about hourly while automatic updates are on; false when

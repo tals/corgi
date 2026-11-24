@@ -74,8 +74,6 @@ export interface Build {
   socket: string;
   update_abi: string;
   delta_transfer: "rsync-zstd-v1" | "";
-  /** Whether `corgi update auto` leaves automatic updates on there. */
-  automatic: boolean;
 }
 export function target(value: string): Target {
   switch (value) {
@@ -100,7 +98,6 @@ export function describe(executable: string, { hash = true } = {}): Build {
     socket: os.socketPath(),
     update_abi: updates.abi,
     delta_transfer: "rsync-zstd-v1",
-    automatic: updates.automatic(executable),
   };
 }
 export function parse(value: unknown, platform: Target, executable: string): Build {
@@ -124,8 +121,6 @@ export function parse(value: unknown, platform: Target, executable: string): Bui
     socket: optional("socket"),
     // Absent on older binaries. Only the exact advertised protocol is usable.
     delta_transfer: v.delta_transfer === "rsync-zstd-v1" ? "rsync-zstd-v1" : "",
-    // XXX: Remove for next protocol bump. Absent on older binaries, which had no say.
-    automatic: v.automatic !== false,
   };
   for (const path of [result.executable, result.socket])
     if (path && (!path.startsWith("/") || /[\x00-\x1f\x7f]/.test(path))) throw Error("InvalidRemotePath");
@@ -140,10 +135,6 @@ export function released(v: string): boolean {
   } catch {
     return false;
   }
-}
-/** Automatic updates move an older release forward to the viewer's, never back or off a development build. */
-export function upgrades(local: Identity, remote: Identity): boolean {
-  return released(local.version) && released(remote.version) && updates.compare(remote.version, local.version) < 0;
 }
 /** Setup selects the invoking build, regardless of branch ancestry or release order. */
 export function matches(local: Build, remote: Build): boolean {

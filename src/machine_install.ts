@@ -98,6 +98,7 @@ export async function install(
       if (live) await reload(daemon, target, incoming.build_id);
       os.atomicWrite(join(root, "previous"), current, 0o600);
       os.atomicWrite(join(root, "current"), version, 0o600);
+      updates.requested(directory);
       return target;
     } finally {
       unlock();

@@ -35,7 +35,7 @@ Setup matches the remote Corgi installation to this build, upgrading or downgrad
 Add uses normal SSH prompts; viewers reconnect with SSH keys/agent or noninteractive
 corporate SSH authentication.
 Development launches through ./go.ts update machines automatically in the background.
-A release viewer upgrades machines on older releases to its own as it connects.
+A release viewer moves machines to its own release as it connects.
 In the viewer, Ctrl+] or clicking the machine name opens the machine picker.
 `;
 export async function manage(args: string[]): Promise<void> {
@@ -160,7 +160,7 @@ export async function synchronize(
   try {
     const installation = await setup.reconcile(old.target, old.executable, [], old.socket, deployment, {
       verifiedBuild: deployment && (hash => dev.recorded(old, hash)),
-      onlyUpgrade: !deployment,
+      automatic: !deployment,
       progress,
       signal,
     });

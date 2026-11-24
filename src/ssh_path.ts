@@ -77,8 +77,7 @@ export function sshEndpoint(profile: Profile, probe: Probe, host: Host): Endpoin
         }
       : undefined,
     hello =>
-      dev.enabled()
-        ? builds.compare(builds.viewer, builds.identity(hello)) === "match" && dev.recorded(profile, hello.build_id)
-        : !builds.upgrades(builds.viewer, builds.identity(hello)),
+      builds.compare(builds.viewer, builds.identity(hello)) === "match" &&
+      (!dev.enabled() || dev.recorded(profile, hello.build_id)),
   );
 }

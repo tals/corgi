@@ -7,17 +7,10 @@ import * as dev from "./machine_deploy";
 import * as progressInfo from "./machine_progress";
 import * as updates from "./updates";
 
-/** A release viewer moves saved machines' older releases forward to its own,
- * unless `corgi update auto off` turned automatic updates off. */
+/** A release viewer moves saved machines to its own release, as a development launch does to its checkout. */
 export function releases(): boolean {
   const own = updates.release(buildId.self());
-  return (
-    !dev.skipUpdates() &&
-    builds.released(builds.viewer.version) &&
-    !!own.feed_url &&
-    own.public_key.length === 64 &&
-    updates.automatic(buildId.self())
-  );
+  return !dev.skipUpdates() && builds.released(builds.viewer.version) && !!own.feed_url && own.public_key.length === 64;
 }
 type Event =
   ({ type: "progress" } & progressInfo.Status) | { type: "ready" | "current" } | { type: "error"; message: string };

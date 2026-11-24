@@ -89,8 +89,8 @@ export interface Installation {
 }
 export interface Options {
   verifiedBuild?: (hash: string) => boolean;
-  /** Only move an older release forward, as automatic updates do. */
-  onlyUpgrade?: boolean;
+  /** A machine already running this build is left as it is, as automatic updates do. */
+  automatic?: boolean;
   progress?: progress.Report;
   signal?: AbortSignal;
 }
@@ -148,7 +148,7 @@ if [ -n "$p" ] && [ "$(basename "$(dirname "$(dirname "$p")")")" = releases ]; t
   p="$root/releases/$v/corgi"
 fi
 printf '%s\\n' "$p"
-if [ -n "$p" ]; then ${deployment || options.onlyUpgrade ? "CORGI_MACHINE_PROBE=1 " : ""}"$p" __update-info; fi`,
+if [ -n "$p" ]; then ${deployment || options.automatic ? "CORGI_MACHINE_PROBE=1 " : ""}"$p" __update-info; fi`,
     undefined,
     !reuseLogin,
   );
@@ -185,19 +185,17 @@ if [ -n "$p" ]; then ${deployment || options.onlyUpgrade ? "CORGI_MACHINE_PROBE=
   ) {
     return matching(installed.build_id);
   }
-  if (options.onlyUpgrade && !(installed?.automatic && build.upgrades(local, installed))) {
-    // Another runtime may have moved the installation past the one on this socket.
-    const running = !!probe && typeof probe === "object" && "machine" in probe;
-    if (installed?.automatic && !running && build.matches(local, installed)) return matching(installed.build_id);
+  // Another runtime can have installed this build without the one on this socket running it yet.
+  const running = !!probe && typeof probe === "object" && "machine" in probe;
+  if (options.automatic && running && installed && build.matches(local, installed))
     return { executable: lines[3] || executable, unchanged: true };
-  }
   const directory = mkdtempSync(join(tmpdir(), "corgi-setup-"));
   try {
     const prepared = deployment ? await artifact(local, target, directory, options) : null;
     if (installed && (prepared ? installed.build_id === prepared.hash : build.matches(local, installed))) {
       if (prepared) deployment?.record({ hash: prepared.hash, target, stamp: prepared.stamp });
       process.stderr.write(`Corgi builds match on ${host}.\n`);
-      return matching(prepared?.hash);
+      return matching(prepared?.hash ?? installed.build_id);
     }
     process.stderr.write(`${installed ? "Switching to" : "Installing"} Corgi ${local.version} on ${host}…\n`);
     if (!deployment && build.released(local.version)) {
