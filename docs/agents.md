@@ -247,6 +247,11 @@ and platform-specific IDs normalize at the provider boundary; unknown IDs stay
 recognizable. Provider-specific assumptions and exceptions belong in the
 adapters. Live meters are not a durable ledger.
 
+When a compaction ends, its conversation's transcript is read ahead of the
+others every 50 ms for up to five seconds, until it gives a new reading, and
+the reading reaches viewers without waiting for the next scan. Providers
+report the end before they write the new size.
+
 ## Checklists
 
 A provider that keeps a task list reports it as a

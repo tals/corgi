@@ -293,13 +293,33 @@ export class Worker {
   readers = new Map<Provider, TranscriptReader | null>();
   timer: ReturnType<typeof setInterval> | null = null;
   running = false;
+  /** Conversations whose compaction just ended: until when they're read first,
+   * and the context reading they had then. */
+  private urgent = new Map<number, { until: number; at: number }>();
+  /** Whether a waiting result holds an urgent conversation's new reading. */
+  fresh = false;
+  private ran = 0;
   static start() {
     const w = new Worker();
     w.activate();
     return w;
   }
   activate() {
-    this.timer = setInterval(() => void this.run(), 250);
+    this.timer = setInterval(() => void this.step(), 50);
+  }
+  /** Every transcript each 250 ms; between, those of compactions that just ended. */
+  private async step() {
+    const now = Date.now();
+    if (now - this.ran >= 250) {
+      this.ran = now;
+      await this.run();
+    } else if (this.urgent.size) await this.run(true);
+  }
+  /** Reads `actor`'s transcript first, every 50 ms for a few seconds, until it
+   * gives a new context reading. Providers report a compaction's end before
+   * they write its new size. */
+  refresh(actor: number) {
+    this.urgent.set(actor, { until: Date.now() + 5000, at: this.watchers.get(actor)?.context.at ?? 0 });
   }
   /** Stops reading between runs, so a handoff can apply what the worker found. */
   async pause() {
@@ -378,16 +398,26 @@ export class Worker {
   take() {
     const out = this.results;
     this.results = [];
+    this.fresh = false;
     return out;
   }
-  async run() {
+  /** Reads the transcripts of urgent conversations, then, unless `urgent_only`,
+   * the next of the rest. */
+  async run(urgent_only = false) {
     if (this.running || this.stopping || this.pausing) return;
     this.running = true;
     try {
-      for (const reader of this.readers.values()) await reader?.refresh?.();
-      const count = Math.min(64, this.requests.length);
-      const batch = Array.from({ length: count }, (_, i) => this.requests[(this.cursor + i) % this.requests.length]);
-      if (this.requests.length) this.cursor = (this.cursor + count) % this.requests.length;
+      const now = Date.now();
+      for (const [actor, urgent] of this.urgent) if (now >= urgent.until) this.urgent.delete(actor);
+      if (!urgent_only) for (const reader of this.readers.values()) await reader?.refresh?.();
+      const count = urgent_only ? 0 : Math.min(64, this.requests.length);
+      const batch = [
+        ...this.requests.filter(r => this.urgent.has(r.actor)),
+        ...Array.from({ length: count }, (_, i) => this.requests[(this.cursor + i) % this.requests.length]).filter(
+          r => !this.urgent.has(r.actor),
+        ),
+      ];
+      if (count) this.cursor = (this.cursor + count) % this.requests.length;
       for (const queued of batch) {
         const window = this.windows.get(queued.workspace),
           req = { ...queued, since: window?.since ?? queued.since };
@@ -448,6 +478,11 @@ export class Worker {
         if (existing) this.results[this.results.indexOf(existing)] = r;
         else this.results.push(r);
         if (t.progress.turn.text() === req.agent.turnId()) t.progress.dirty = false;
+        const urgent = this.urgent.get(req.actor);
+        if (urgent && t.context.at !== urgent.at) {
+          this.urgent.delete(req.actor);
+          this.fresh = true;
+        }
       }
     } finally {
       this.running = false;

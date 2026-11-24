@@ -508,6 +508,7 @@ export class Server {
     return (
       this.dirty ||
       this.bell ||
+      this.usage?.fresh === true ||
       this.runtime.renames.length > 0 ||
       this.runtime.wanted_names.length > 0 ||
       this.clients.some(c => c.headless_start !== null || launch.due(this, c)) ||

@@ -40,6 +40,7 @@ export const events = [
   "Stop",
   "SessionEnd",
   "PreCompact",
+  "PostCompact",
   "Notification",
   "PostToolUseFailure",
   "SubagentStart",
