@@ -4,6 +4,7 @@ import * as i18n from "./i18n";
 import type { Quality } from "./connection_stats";
 import * as signalBars from "./signal_bars";
 import * as trickUi from "./trick_ui";
+import type * as tricks from "./tricks";
 import * as palette from "./palette";
 import { Provider, adapter } from "./providers";
 import { Style, colors, fg, bg, fgRgb, bgRgb, mix, underline } from "./palette";
@@ -230,6 +231,8 @@ export interface Subagents {
 }
 export interface Entry<T = Target, Workspace = viewerRef.Workspace> {
   decoration: trickUi.Decoration;
+  /** What a trick's `where` selects on its agent, for its other surfaces. */
+  trick: tricks.Selection;
   worktree: { workspace: Workspace; path: string; ghost: boolean; end?: boolean } | null;
   conversation: number;
   children: number;
@@ -280,6 +283,7 @@ export function entry<const T = Target, Workspace = viewerRef.Workspace>(
 ): Entry<T, Workspace> {
   return {
     decoration: { suffix: [] },
+    trick: {},
     worktree: null,
     conversation: 0,
     children: 0,

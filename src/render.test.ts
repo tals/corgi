@@ -43,6 +43,7 @@ import * as trickStyle from "./trick_style";
 import * as markup from "./trick_markup";
 import * as tricks from "./tricks";
 import * as trickUi from "./trick_ui";
+import * as agentRows from "./agent_rows";
 
 function emptyView() {
   return new View(new Model(), new Selection());
@@ -343,6 +344,7 @@ test("agent drawing hooks target their own pane and popover and keep logos above
       name: "Brand",
       provider: "claude",
       decoration: trickUi.decoration(views, { id: `pane:${id}` }),
+      trick: { id: `pane:${id}` },
     }),
   );
   const top = sidebar.View.init(120, 40, true, 0, entries.length).middle() + 2;
@@ -389,6 +391,72 @@ test("agent drawing hooks target their own pane and popover and keep logos above
     expect(screen.text()).not.toContain("Card *");
     state.agent_launcher = new LauncherMenu({ workspace: 1, selected: "claude", last: "claude", pinned: true });
     expect(frame(view, panes, 120, 40, state)).not.toContain("Pane");
+  } finally {
+    screen.destroy();
+  }
+});
+
+test("pane and popover patches select an agent by account and workspace, as its row does", () => {
+  const model = new Model(),
+    selection = new Selection(),
+    view = new View(model, selection);
+  const id = model.newTab("");
+  selection.reconcile(model);
+  const pane = {
+    id,
+    label: "",
+    cwd: "/tmp",
+    command: "",
+    brand: null,
+    account: "",
+    agent: agent({
+      provider: "claude",
+      name: "Brand",
+      account: { id: "claude:work", name: "Work", directory: null },
+    }),
+    restoring: "",
+    terminal: {
+      updateRender() {},
+      hyperlinks: () => [],
+      cursor: () => null,
+      cursorStyle: () => "default",
+      rows: () => "",
+    },
+  } as unknown as Pane;
+  const where = { account: "claude:work", workspace: 7 };
+  const views = tricks.views([
+    { kind: "decorate", surface: "popover", where, suffix: markup.parse("Card") },
+    { kind: "decorate", surface: "pane", where, suffix: markup.parse("Pane") },
+    { kind: "decorate", surface: "pane", where: { workspace: 8 }, suffix: markup.parse("Elsewhere") },
+  ]);
+  const trick = agentRows.paneTrick(pane, 7);
+  const entries = [
+    sidebar.entry({
+      target: viewerRef.pane(1, id),
+      name: "Brand",
+      provider: "claude",
+      trick,
+      decoration: { suffix: [] },
+    }),
+  ];
+  const top = sidebar.View.init(120, 40, true, 0, entries.length).middle() + 2;
+  const state = ui({
+    sidebar_open: true,
+    agents: entries,
+    tricks: views,
+    workspace_id: 7,
+    message: "",
+    copy_mode: false,
+  });
+  const screen = new Terminal(120, 40);
+  try {
+    screen.feed(frame(view, [pane], 120, 40, state));
+    expect(screen.text()).toContain("Pane");
+    expect(screen.text()).not.toContain("Elsewhere");
+    state.pointer = { x: 5, y: top };
+    state.link_tooltip = true;
+    screen.feed(frame(view, [pane], 120, 40, state));
+    expect(screen.text()).toContain("Card");
   } finally {
     screen.destroy();
   }

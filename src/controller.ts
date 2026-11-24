@@ -11013,6 +11013,7 @@ export class Controller {
       render.ui({
         tricks: this.runtime.tricks,
         agent_tricks: target => this.rowOf(target)?.machine.runtime.tricks ?? [],
+        workspace_id: this.current().id,
         trick_controls: this.trick_controls,
         prefs: this.host.prefs,
         pointer: this.pointer,

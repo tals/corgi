@@ -1,10 +1,11 @@
-import * as viewerRef from "./viewer_ref";
+import type * as viewerRef from "./viewer_ref";
 import type { Template as Action } from "./action";
 import type * as workspaceArchive from "./workspace_archive";
 import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
 import * as trickUi from "./trick_ui";
+import * as agentRows from "./agent_rows";
 import type { View as TrickView } from "./tricks";
 import * as palette from "./palette";
 import * as docking from "./docking";
@@ -217,6 +218,8 @@ export interface Ui {
   docking: Docking | null;
   tricks: TrickView[];
   agent_tricks: ((target: viewerRef.Agent) => TrickView[]) | null;
+  /** The shown workspace's ID on its daemon, which tricks select its panes by. */
+  workspace_id: number;
   trick_controls: trickUi.Controls | null;
   prefs: Preferences;
   pointer: Pointer | null;
@@ -341,6 +344,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
   return {
     tricks: [],
     agent_tricks: null,
+    workspace_id: 0,
     trick_controls: null,
     prefs: new Preferences(),
     pointer: null,
@@ -1168,17 +1172,7 @@ export function frame(
       p.dormant;
     if (u.supports_kitty_graphics) pictured.push({ pane: p, rect: r, hidden });
     if (!hidden) {
-      const patch = trickUi.decoration(
-        u.tricks,
-        {
-          id: `pane:${p.id}`,
-          provider: p.agent.provider ?? undefined,
-          account: p.agent.account,
-          session: p.agent.session,
-          state: p.agent.state,
-        },
-        "pane",
-      );
+      const patch = trickUi.decoration(u.tricks, agentRows.paneTrick(p, u.workspace_id), "pane");
       for (const box of trickUi.pane(w, patch, r, trick_icons, covered.length, controls)) cover(box);
     }
   }
@@ -1367,13 +1361,10 @@ export function frame(
       else {
         const agent = sidebar.agentAt(side, u.agents, pointer.x, pointer.y);
         if (agent) {
-          const target = agent.target,
-            id = sidebar.isAgent(target)
-              ? `${viewerRef.isPane(target) ? "pane" : "headless"}:${viewerRef.parts(target).id}`
-              : "";
+          const target = agent.target;
           const patch = trickUi.decoration(
             sidebar.isAgent(target) && u.agent_tricks ? u.agent_tricks(target) : u.tricks,
-            { id, provider: agent.provider ?? undefined, state: agent.state },
+            agent.trick,
             "popover",
           );
           const box = subagentTooltip.draw(
