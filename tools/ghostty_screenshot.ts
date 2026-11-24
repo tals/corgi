@@ -191,9 +191,13 @@ function parse(argv: string[]): [Mode, Options] {
   return [mode, o];
 }
 
-/** Set by the CLI's signal handlers; waits then throw, so startup cleans up what it started. */
+/**
+ * Set by the CLI's signal handlers: waits throw, and a script the process is
+ * waiting on is let go, so it cleans up what it started.
+ */
 let interrupted: NodeJS.Signals | null = null;
 const signalled = Promise.withResolvers<"signal">();
+const released = new AbortController();
 
 function until<T>(read: () => T | Promise<T>, seconds = 20): Promise<NonNullable<T>> {
   return video.until(() => {
@@ -231,6 +235,9 @@ export async function drive(dir: string, script: string): Promise<string[]> {
     body: JSON.stringify({ script, cwd: process.cwd() }),
     // Scripts can wait, record and encode for minutes.
     timeout: false,
+    signal: released.signal,
+  }).catch(error => {
+    throw interrupted ? Error(`interrupted by ${interrupted}`) : error;
   });
   const reply = (await response.json()) as { output?: string[]; error?: string };
   if (!response.ok) throw new DriveError(reply.error ?? `the relay answered ${response.status}`, reply.output ?? []);
@@ -517,6 +524,7 @@ if (import.meta.main) {
     process.on(signal, () => {
       interrupted = signal;
       signalled.resolve("signal");
+      released.abort();
     });
   try {
     const [mode, o] = parse(process.argv.slice(2));
