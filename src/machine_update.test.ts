@@ -23,6 +23,7 @@ test.test("helper progress is sanitized and malformed events are rejected", () =
       metrics: "50% 64 KiB/s",
       detail: "Compressed delta",
     });
+  test.expect(update.event({ type: "current" })).toEqual({ type: "current" });
   test.expect(update.event({ type: "error", message: "Compiler failed\n" })).toEqual({
     type: "error",
     message: "Compiler failed ",

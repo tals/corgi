@@ -5,8 +5,15 @@ import * as buildId from "./build_id";
 import * as machines from "./machines";
 import * as dev from "./machine_deploy";
 import * as progressInfo from "./machine_progress";
+import * as updates from "./updates";
 
-type Event = ({ type: "progress" } & progressInfo.Status) | { type: "ready" } | { type: "error"; message: string };
+/** A release viewer moves saved machines to its own release, as a development launch does to its checkout. */
+export function releases(): boolean {
+  const own = updates.release(buildId.self());
+  return !dev.skipUpdates() && builds.released(builds.viewer.version) && !!own.feed_url && own.public_key.length === 64;
+}
+type Event =
+  ({ type: "progress" } & progressInfo.Status) | { type: "ready" | "current" } | { type: "error"; message: string };
 function clean(value: unknown): string {
   if (typeof value !== "string" || value.length > 4096) throw Error("InvalidMachineUpdateEvent");
   return value.replace(/[\x00-\x1f\x7f]/g, " ");
@@ -15,7 +22,8 @@ export function event(value: unknown): Event {
   if (!value || typeof value !== "object" || !("type" in value)) throw Error("InvalidMachineUpdateEvent");
   switch (value.type) {
     case "ready":
-      return { type: "ready" };
+    case "current":
+      return { type: value.type };
     case "error":
       if ("message" in value) return { type: "error", message: clean(value.message) };
       break;
@@ -43,7 +51,7 @@ export class Failure extends Error {
   }
 }
 async function readProgress(output: AsyncIterable<Uint8Array>, progress: progressInfo.Report) {
-  let result: Extract<Event, { type: "ready" | "error" }> | null = null;
+  let result: Exclude<Event, { type: "progress" }> | null = null;
   let pending = "";
   const decoder = new TextDecoder();
   for await (const bytes of output) {
@@ -59,6 +67,7 @@ async function readProgress(output: AsyncIterable<Uint8Array>, progress: progres
           progress(value.message, { metrics: value.metrics, detail: value.detail, compact: value.compact });
           break;
         case "ready":
+        case "current":
         case "error":
           result = value;
           break;
@@ -68,19 +77,24 @@ async function readProgress(output: AsyncIterable<Uint8Array>, progress: progres
   }
   return pending ? null : result;
 }
+/** Brings the machine to this build: a development launch's checkout, or,
+ * with `releases`, this release when the machine runs an older one. Null
+ * when the machine needed nothing. */
 export async function prepare(
   profile: machines.Profile,
   {
     progress = progressInfo.print,
     signal,
     interactive = false,
+    releases: follow = false,
   }: {
     progress?: progressInfo.Report;
     signal?: AbortSignal;
     interactive?: boolean;
+    releases?: boolean;
   } = {},
-): Promise<machines.Profile> {
-  if (!dev.enabled()) return profile;
+): Promise<machines.Profile | null> {
+  if (!dev.enabled() && !(follow && releases())) return profile;
   signal?.throwIfAborted();
   const child = child_process.spawn(
     buildId.self(),
@@ -111,10 +125,11 @@ export async function prepare(
   try {
     const [code, result] = await Promise.all([exited, readProgress(child.stdout, progress)]);
     signal?.throwIfAborted();
-    if (code !== 0 || result?.type !== "ready") {
+    if (code !== 0 || (result?.type !== "ready" && result?.type !== "current")) {
       const summary = result?.type === "error" ? result.message : "Update helper stopped before finishing.";
       throw new Failure(diagnostic.trim() || summary, summary);
     }
+    if (result.type === "current") return null;
     const refreshed = machines.find(profile.name);
     if (refreshed.target !== profile.target || refreshed.socket !== profile.socket) throw Error("MachineChanged");
     return refreshed;

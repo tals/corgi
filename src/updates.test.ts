@@ -26,6 +26,7 @@ import {
   check,
   save,
   prune,
+  requested,
   pluginOf,
   forget,
   channelOf,
@@ -135,7 +136,7 @@ test("only an installed release with a feed is managed", () => {
 function installation(versions: string[], pointers: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), "corgi-prune-"));
   for (const v of versions) {
-    mkdirSync(join(root, "releases", v), { recursive: true });
+    mkdirSync(join(root, "releases", v), { recursive: true, mode: 0o700 });
     writeFileSync(join(root, "releases", v, "corgi"), "");
   }
   for (const [name, v] of Object.entries(pointers)) writeFileSync(join(root, name), v);
@@ -181,6 +182,27 @@ test("a finished download removes the update it replaces", () => {
     mkdirSync(join(root, "releases", "notes"));
     prune(root, true);
     expect(releases(root)).toEqual(["1.0.0", "1.0.3", "notes"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("the last three releases viewers asked for stay for two weeks", () => {
+  const root = installation(["1.0.0", "1.0.1", "1.0.2", "1.0.3", "1.0.4", "1.0.5", "1.0.6"], {
+    current: "1.0.6",
+    previous: "1.0.5",
+  });
+  const day = 86_400_000;
+  try {
+    requested(join(root, "releases", "1.0.0"));
+    for (const [v, ago] of [
+      ["1.0.1", 2],
+      ["1.0.2", 3],
+      ["1.0.3", 4],
+      ["1.0.4", 20],
+    ] as const)
+      writeFileSync(join(root, "releases", v, "requested"), String(Date.now() - ago * day));
+    prune(root, true);
+    expect(releases(root)).toEqual(["1.0.0", "1.0.1", "1.0.2", "1.0.5", "1.0.6"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

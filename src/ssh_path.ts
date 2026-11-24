@@ -70,9 +70,14 @@ export function sshEndpoint(profile: Profile, probe: Probe, host: Host): Endpoin
     sshPath(profile),
     probe,
     host,
-    dev.enabled()
-      ? async (signal, progress) => sshPath(await update.prepare(profile, { signal, progress }))
+    dev.enabled() || update.releases()
+      ? async (signal, progress) => {
+          const updated = await update.prepare(profile, { signal, progress, releases: true });
+          return updated && sshPath(updated);
+        }
       : undefined,
-    hello => builds.compare(builds.viewer, builds.identity(hello)) === "match" && dev.recorded(profile, hello.build_id),
+    hello =>
+      builds.compare(builds.viewer, builds.identity(hello)) === "match" &&
+      (!dev.enabled() || dev.recorded(profile, hello.build_id)),
   );
 }

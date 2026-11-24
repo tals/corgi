@@ -2,6 +2,7 @@ import type { Installation } from "./machine_setup";
 import * as ssh from "./ssh";
 import { Remote, startup_ms } from "./daemon_transport";
 import * as preferences from "./preferences";
+import { createHash } from "node:crypto";
 import { readFileSync, existsSync, openSync, closeSync, statSync } from "node:fs";
 import { join, dirname, isAbsolute } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -101,6 +102,29 @@ export function find(value: string): Profile {
   const profile = read().find(p => p.name === value);
   if (!profile) throw Error("UnknownMachine");
   return profile;
+}
+/** Holds the machine's update lock: one automatic update of it at a time from this computer. */
+export async function updating(profile: Profile, signal?: AbortSignal): Promise<() => void> {
+  const directory = dirname(catalogPath());
+  os.privateDirectory(directory);
+  const key = createHash("sha256")
+    .update(JSON.stringify([profile.name, profile.target, profile.socket]))
+    .digest("hex")
+    .slice(0, 20);
+  const fd = openSync(join(directory, `update-${key}.lock`), "a", 0o600);
+  try {
+    while (!flock(fd)) {
+      signal?.throwIfAborted();
+      await Bun.sleep(50);
+    }
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
+  return () => {
+    flock(fd, false);
+    closeSync(fd);
+  };
 }
 export async function edit(change: (profiles: Profile[]) => Profile[], file = catalogPath()): Promise<void> {
   os.privateDirectory(dirname(file));

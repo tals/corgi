@@ -5,7 +5,7 @@ import { generateKeyPairSync, sign, createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm, symlink } from "node:fs/promises";
 import { closeSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { EXE, Lines, Pty, deadline, versioned, quote, waitUntil } from "./support";
 import { running } from "./runtime";
@@ -26,6 +26,8 @@ let latest = "1.0.1",
   unavailable = false,
   badAbi = false;
 let requests = 0;
+/** The releases whose binaries were served. */
+let downloads: string[] = [];
 let beforeDownload: (() => Promise<void>) | null = null;
 const binaries = new Map<string, Uint8Array>();
 const manifests = new Map<string, string>();
@@ -55,6 +57,7 @@ const server = Bun.serve({
     // A release's own manifest, which a plugin's pin names.
     if (path === `/releases/${v}/manifest.json` && manifests.has(v)) return new Response(manifests.get(v)!);
     if (path.endsWith("/corgi")) {
+      downloads.push(v);
       await beforeDownload?.();
       const binary = binaries.get(v);
       return new Response(corrupt ? new Uint8Array([0, 1]) : binary && new Uint8Array(binary));
@@ -113,6 +116,7 @@ beforeEach(async () => {
   latestTest = null;
   invalid = corrupt = unavailable = badAbi = false;
   requests = 0;
+  downloads = [];
   beforeDownload = null;
   home = await mkdtemp("/tmp/cu-");
   root = join(home, "install");
@@ -942,3 +946,116 @@ test("machine setup bootstraps a single standalone command and refuses wrappers"
   expect(refused.err).toContain("CannotReplaceCorgiWrapper");
   expect(await readFile(destination, "utf8")).toBe("#!/bin/sh\nexit 0\n");
 });
+
+/** Release `v` as a viewer whose saved machine "work" is this test's
+ * installation, through an ssh that runs the machine's commands here. */
+async function machineViewer(v: string) {
+  const state = join(home, "viewer"),
+    tools = join(home, "viewer-bin");
+  await mkdir(join(state, "corgi/remote"), { recursive: true, mode: 0o700 });
+  await mkdir(tools, { recursive: true });
+  await writeFile(
+    join(tools, "ssh"),
+    `#!/bin/sh\nfor last; do :; done\nexport PATH=${quote(env.PATH)} XDG_STATE_HOME=${quote(env.XDG_STATE_HOME)}\nexec /bin/sh -c "$last"\n`,
+    { mode: 0o755 },
+  );
+  await writeFile(
+    join(state, "corgi/remote/machines.json"),
+    JSON.stringify({ version: 1, machines: [{ name: "work", target: "work", executable: bin, socket, home }] }),
+  );
+  const viewer = { ...env, XDG_STATE_HOME: state, PATH: `${tools}:${env.PATH}`, CORGI_MACHINE_SYNC: "1" };
+  const info = JSON.parse((await exec([fixture(v), "__update-info"], viewer)).out);
+  const revision = JSON.stringify([info.version, info.commit, info.source_hash]);
+  return async () => {
+    const { out, err, code } = await exec(
+      [fixture(v), "__machine-sync", "work", "work", socket, revision],
+      viewer,
+      false,
+    );
+    const events = out
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line));
+    if (code) throw new Error(`machine sync: ${code}\n${out}\n${err}`);
+    return events;
+  };
+}
+/** A shell in the machine's runtime, whose process an update must keep. */
+async function shellPid(): Promise<number> {
+  await cli(["start"]);
+  const session = await rpc({ op: "session.snapshot" });
+  await rpc({
+    op: "session.command",
+    command: { "pane.create": { workspace: session.workspaces[0].id, cwd: home, command: "exec /bin/sh" } },
+  });
+  return (await rpc({ op: "session.snapshot" })).panes[0].pid;
+}
+async function runsRelease(v: string, pid: number) {
+  expect((await readFile(join(root, "current"), "utf8")).trim()).toBe(v);
+  const hello = await rpc({ op: "hello" });
+  expect(hello.release_version).toBe(v);
+  expect(hello.executable).toBe(await realpath(join(root, `releases/${v}/corgi`)));
+  expect((await rpc({ op: "session.snapshot" })).panes[0].pid).toBe(pid);
+}
+
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a release viewer moves its machine to its release with the copy the machine already downloaded",
+  async () => {
+    const pid = await shellPid();
+    await cli(["update", "--download-only"]);
+    expect(await readFile(join(root, "staged"), "utf8")).toBe("1.0.1");
+    const served = downloads.length;
+    const sync = await machineViewer("1.0.1");
+    // The machine's `update auto off` only stops its own hourly updates.
+    const events = await sync();
+    expect(events.at(-1)).toEqual({ type: "ready" });
+    expect(events.some(event => event.message === "Downloading")).toBe(false);
+    expect(downloads.length).toBe(served);
+    await runsRelease("1.0.1", pid);
+    // Once it matches, the next connect leaves it be.
+    expect((await sync()).at(-1)).toEqual({ type: "current" });
+  },
+  60_000,
+);
+
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a runtime another one left behind catches up to the installed release",
+  async () => {
+    const pid = await shellPid();
+    await cli(["update", "--download-only"]);
+    // Another socket's runtime made 1.0.1 current; this one still runs 1.0.0.
+    await writeFile(join(root, "previous"), "1.0.0");
+    await writeFile(join(root, "current"), "1.0.1");
+    await rm(join(root, "staged"));
+    expect((await rpc({ op: "hello" })).release_version).toBe("1.0.0");
+    const sync = await machineViewer("1.0.1");
+    expect((await sync()).at(-1)).toEqual({ type: "ready" });
+    await runsRelease("1.0.1", pid);
+    expect((await sync()).at(-1)).toEqual({ type: "current" });
+  },
+  60_000,
+);
+
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a machine follows its viewer's release up and down, downloading each once",
+  async () => {
+    const pid = await shellPid();
+    const newer = await machineViewer("1.0.2");
+    const events = await newer();
+    expect(events.at(-1)).toEqual({ type: "ready" });
+    expect(events.some(event => event.message === "Downloading")).toBe(true);
+    expect(events.some(event => event.message === "Downloading here…")).toBe(false);
+    await runsRelease("1.0.2", pid);
+    // Viewers this move leaves behind can say whose it was.
+    expect((await rpc({ op: "hello" })).moved_by).toBe(hostname().split(".")[0]);
+    expect((await (await machineViewer("1.0.1"))()).at(-1)).toEqual({ type: "ready" });
+    await runsRelease("1.0.1", pid);
+    // The machine kept the release it left.
+    expect((await newer()).at(-1)).toEqual({ type: "ready" });
+    await runsRelease("1.0.2", pid);
+    expect(downloads).toEqual(["1.0.2", "1.0.1"]);
+    // Each move cleans up after itself, though the machine's own updates are off.
+    expect((await readdir(join(root, "releases"))).sort()).toEqual(["1.0.1", "1.0.2"]);
+  },
+  60_000,
+);

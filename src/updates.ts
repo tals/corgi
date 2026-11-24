@@ -367,16 +367,21 @@ function verifyFile(path: string, t: Target): Buffer {
     throw Error("UpdateChecksumMismatch");
   return bytes;
 }
-/** Fetch one exact signed release, using the caller's existing update trust. */
-export async function artifact(rel: Release, v: string, target: Platform, directory: string): Promise<string> {
+/** The signed manifest of exact release `v` and its `target`, checked with the caller's existing update trust. */
+export async function published(rel: Release, v: string, target: Platform, signal?: AbortSignal) {
   version(v);
-  const bytes = (await fetchBytes(rel, `${rel.feed_url}/releases/${v}/manifest.json`, 1024 * 1024)).toString();
+  const bytes = (await fetchBytes(rel, `${rel.feed_url}/releases/${v}/manifest.json`, 1024 * 1024, signal)).toString();
   const m = parse(rel, bytes, target);
   if (m.version !== v) throw Error("WrongReleaseManifest");
-  atomicWrite(join(directory, "manifest.json"), bytes, 0o600);
+  return { bytes, commit: m.commit, ...m.targets[target]! };
+}
+/** Fetch one exact signed release, using the caller's existing update trust. */
+export async function artifact(rel: Release, v: string, target: Platform, directory: string): Promise<string> {
+  const m = await published(rel, v, target);
+  atomicWrite(join(directory, "manifest.json"), m.bytes, 0o600);
   const file = join(directory, "corgi");
-  atomicWrite(file, await fetchBytes(rel, m.targets[target]!.url, m.targets[target]!.size), 0o700);
-  verifyFile(file, m.targets[target]!);
+  atomicWrite(file, await fetchBytes(rel, m.url, m.size), 0o700);
+  verifyFile(file, m);
   return file;
 }
 /** Looks for a newer release on the installation's channel, or on `choice`,
@@ -544,18 +549,46 @@ function runtimeHolds(dir: string): boolean {
     }
   });
 }
+/** How long, and how many of, the releases viewers asked a machine for stay
+ * for a viewer to switch it back to. */
+const requested_ms = 14 * 86_400_000,
+  requested_kept = 3;
+/** Marks the release in `dir` as one a viewer asked this machine for. Only
+ * prune reads it, so an install doesn't fail over it. */
+export function requested(dir: string): void {
+  try {
+    write(dir, "requested", String(Date.now()));
+  } catch {}
+}
+/** The releases in `dir` viewers asked for lately, newest first. */
+function asked(dir: string): string[] {
+  const since = Date.now() - requested_ms;
+  return readdirSync(dir)
+    .flatMap(v => {
+      try {
+        const at = Number(read(join(dir, v), "requested"));
+        return at > since ? [{ v, at }] : [];
+      } catch {
+        return [];
+      }
+    })
+    .sort((a, b) => b.at - a.at)
+    .slice(0, requested_kept)
+    .map(r => r.v);
+}
 /** Removes the releases nothing needs: all but the current one, the previous
- * one kept for rollback, a staged update and any a runtime runs. Normally
- * only older releases go; `downloads` says the download lock is held too,
- * so superseded downloads can go regardless of version. */
+ * one kept for rollback, a staged update, the ones viewers asked for lately
+ * and any a runtime runs. Normally only older releases go; `downloads` says
+ * the download lock is held too, so superseded downloads can go regardless
+ * of version. */
 export function prune(root: string, downloads = false) {
   try {
     const guard = openSync(join(root, "releases.lock"), "a", 0o600);
     try {
       if (!flock(guard)) return;
       const current = pointer(root, "current"),
-        keep = [current, pointer(root, "previous"), pointer(root, "staged")],
-        dir = join(root, "releases");
+        dir = join(root, "releases"),
+        keep = [current, pointer(root, "previous"), pointer(root, "staged"), ...asked(dir)];
       if (current === null) return;
       for (const v of readdirSync(dir))
         try {
@@ -1010,7 +1043,13 @@ export async function internal(args: string[], exe: string): Promise<boolean> {
       let machine;
       if (process.env.CORGI_MACHINE_PROBE === "1") {
         const live = await new rpc_http.Client(installed.socket).discover(1000, 0, 0).catch(() => null);
-        if (live && "build_id" in live && live.build_id === installed.build_id)
+        // Test releases share their bytes, so the release must match too.
+        if (
+          live &&
+          "build_id" in live &&
+          live.build_id === installed.build_id &&
+          live.release_version === installed.version
+        )
           machine = (await import("./machine_cli")).remoteInfo(exe);
       }
       console.log(JSON.stringify({ ...installed, platform, test_mode: r.test_mode, machine }));

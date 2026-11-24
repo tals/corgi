@@ -9,11 +9,9 @@ export interface Identity {
   commit: string;
   source_hash: string;
 }
-export const viewer: Identity = {
-  version: config.releaseVersion,
-  commit: config.releaseCommit,
-  source_hash: config.sourceHash,
-};
+const own = updates.release(buildId.self());
+// As the daemon's hello names its release.
+export const viewer: Identity = { version: own.version, commit: own.commit, source_hash: config.sourceHash };
 // Pin automatic work to the running viewer even if dist/corgi is replaced while it is open.
 export const revision = JSON.stringify([viewer.version, viewer.commit, viewer.source_hash]);
 export function requireRevision(expected: string): void {

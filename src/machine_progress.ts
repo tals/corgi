@@ -25,19 +25,22 @@ export class Progress {
     this.output(stage + "…", { detail });
   }
   uploaded(sent: number, total: number, kind: "delta" | "full"): void {
+    this.moved("Uploading", "↑", sent, total, kind === "delta" ? "Compressed delta" : "Full executable");
+  }
+  /** A release the machine downloads itself. */
+  downloaded(received: number, total: number, host: string): void {
+    this.moved("Downloading", "↓", received, total, `Downloading the release on ${host}`);
+  }
+  private moved(stage: string, compact: string, bytes: number, total: number, detail: string): void {
     const now = performance.now();
     if (this.started === null) {
       this.stage = null;
       this.started = now;
-    } else if (now - this.tick < 500 && sent !== total) return;
+    } else if (now - this.tick < 500 && bytes !== total) return;
     this.tick = now;
-    const percent = total ? Math.floor((100 * sent) / total) : 100;
-    const rate = (sent * 1000) / Math.max(1, now - this.started);
-    this.output("Uploading", {
-      metrics: `${percent}% ${size(rate)}/s`,
-      compact: "↑",
-      detail: `${kind === "delta" ? "Compressed delta" : "Full executable"} · ${size(total)}`,
-    });
+    const percent = total ? Math.floor((100 * bytes) / total) : 100;
+    const rate = (bytes * 1000) / Math.max(1, now - this.started);
+    this.output(stage, { metrics: `${percent}% ${size(rate)}/s`, compact, detail: `${detail} · ${size(total)}` });
   }
 }
 export function size(bytes: number): string {

@@ -11,6 +11,7 @@ import * as os from "./os";
 import * as transferFile from "./machine_transfer_file";
 import * as progress from "./machine_progress";
 import * as dev from "./machine_deploy";
+import * as errors from "./errors";
 import * as setup_ssh from "./machine_setup_ssh";
 export { run, sendDelta } from "./machine_setup_ssh";
 
@@ -29,6 +30,20 @@ function platform(target: build.Target): updates.Platform {
     default:
       throw Error("UnsupportedReleasePlatform");
   }
+}
+/** The signed release for `target`, for the machine to download itself. */
+async function release(local: build.Build, target: build.Target, signal?: AbortSignal): Promise<setup_ssh.Release> {
+  const trust = updates.release(local.executable);
+  const m = await updates.published(trust, local.version, platform(target), signal);
+  if (m.commit !== local.commit) throw Error("WrongReleaseCommit");
+  return {
+    version: local.version,
+    manifest: m.bytes,
+    url: m.url,
+    sha256: m.sha256,
+    size: m.size,
+    http: trust.test_mode,
+  };
 }
 function snapshot(file: string) {
   const stamp = dev.fileStamp(file);
@@ -69,9 +84,13 @@ export interface Installation {
   executable: string;
   build_id?: string;
   info?: machines.Info;
+  /** Setup left the machine as it was, so its saved paths stand. */
+  unchanged?: boolean;
 }
 export interface Options {
   verifiedBuild?: (hash: string) => boolean;
+  /** A machine already running this build is left as it is, as automatic updates do. */
+  automatic?: boolean;
   progress?: progress.Report;
   signal?: AbortSignal;
 }
@@ -95,8 +114,9 @@ export async function reconcile(
   // A source run has no commit or artifact to compare or install.
   if (!import.meta.filename.startsWith("/$bunfs/")) throw Error("BuildCorgiBeforeMachineSetup");
   options.progress?.("Checking…", { detail: "Reading the local build identity" });
-  // Dev setup hashes the immutable snapshot for the target, which may be a cross-build.
-  const local = build.describe(buildId.self(), { hash: !deployment });
+  // Dev setup hashes the immutable snapshot for the target, which may be a
+  // cross-build. A release is named by its version.
+  const local = build.describe(buildId.self(), { hash: !deployment && !build.released(build.viewer.version) });
   if (deployment && build.released(local.version)) throw Error("DevelopmentBuildRequired");
   const status = new progress.Progress(options.progress);
   status.show("Checking", `Reading the installed executable on ${host}`);
@@ -128,7 +148,7 @@ if [ -n "$p" ] && [ "$(basename "$(dirname "$(dirname "$p")")")" = releases ]; t
   p="$root/releases/$v/corgi"
 fi
 printf '%s\\n' "$p"
-if [ -n "$p" ]; then ${deployment ? "CORGI_MACHINE_PROBE=1 " : ""}"$p" __update-info; fi`,
+if [ -n "$p" ]; then ${deployment || options.automatic ? "CORGI_MACHINE_PROBE=1 " : ""}"$p" __update-info; fi`,
     undefined,
     !reuseLogin,
   );
@@ -165,15 +185,38 @@ if [ -n "$p" ]; then ${deployment ? "CORGI_MACHINE_PROBE=1 " : ""}"$p" __update-
   ) {
     return matching(installed.build_id);
   }
+  // Another runtime can have installed this build without the one on this socket running it yet.
+  const running = !!probe && typeof probe === "object" && "machine" in probe;
+  if (options.automatic && running && installed && build.matches(local, installed))
+    return { executable: lines[3] || executable, unchanged: true };
   const directory = mkdtempSync(join(tmpdir(), "corgi-setup-"));
   try {
     const prepared = deployment ? await artifact(local, target, directory, options) : null;
     if (installed && (prepared ? installed.build_id === prepared.hash : build.matches(local, installed))) {
       if (prepared) deployment?.record({ hash: prepared.hash, target, stamp: prepared.stamp });
       process.stderr.write(`Corgi builds match on ${host}.\n`);
-      return matching(prepared?.hash);
+      return matching(prepared?.hash ?? installed.build_id);
     }
     process.stderr.write(`${installed ? "Switching to" : "Installing"} Corgi ${local.version} on ${host}…\n`);
+    if (!deployment && build.released(local.version)) {
+      try {
+        const signed = await release(local, target, options.signal);
+        const info = await setup_ssh.installRelease(
+          host,
+          executable,
+          installed,
+          socket,
+          signed,
+          status,
+          options.signal,
+        );
+        process.stderr.write(`Corgi is ready on ${host}: ${info.executable}.\n`);
+        return { executable: info.executable, build_id: signed.sha256, info };
+      } catch (error) {
+        if (!errors.is(error, "RemoteDownloadFailed")) throw error;
+        status.show("Downloading here", `${host} couldn't download Corgi ${local.version}`);
+      }
+    }
     const { data, hash, stamp } = prepared ?? (await artifact(local, target, directory, options));
     if (deployment) {
       const info = await setup_ssh.installDev(host, executable, installed, socket, data, hash, status, options.signal);

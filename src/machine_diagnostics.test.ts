@@ -2,6 +2,8 @@ import { sshEndpoint } from "./ssh_path";
 import { expect, test } from "bun:test";
 import { Notice } from "./machine_diagnostics";
 import { Endpoint } from "./machine_connection";
+import { Failure } from "./machine_update";
+import * as machine_path from "./machine_path";
 import { Host } from "./host";
 import { Probe } from "./terminal_info";
 import { Terminal } from "./pane/terminal";
@@ -56,6 +58,31 @@ test("incompatible diagnostics suggest a read-only status check", () => {
     terminal.feed(notice.draw(80, 25));
     expect(terminal.text()).toContain("corgi machine status work");
     expect(terminal.text()).not.toContain("machine check");
+  } finally {
+    terminal.destroy();
+  }
+});
+
+test("a machine another viewer moved says how to take it back, and why taking it back failed", () => {
+  const endpoint = new Endpoint(
+    "work",
+    true,
+    ["work"],
+    machine_path.local("/nonexistent/control.sock"),
+    new Probe(),
+    new Host(),
+    async () => null,
+  );
+  endpoint.status = "incompatible";
+  endpoint.error = "IncompatibleRemoteCorgi";
+  Reflect.set(endpoint, "updateFailure", new Failure("curl: (6) Could not resolve host", "MachineSetupCommandFailed"));
+  const notice = new Notice();
+  notice.show(endpoint);
+  const terminal = new Terminal(100, 25);
+  try {
+    terminal.feed(notice.draw(100, 25));
+    expect(terminal.text()).toContain("Ctrl+R moves it back");
+    expect(terminal.text()).toContain("Could not resolve host");
   } finally {
     terminal.destroy();
   }

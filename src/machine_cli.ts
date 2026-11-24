@@ -35,6 +35,7 @@ Setup matches the remote Corgi installation to this build, upgrading or downgrad
 Add uses normal SSH prompts; viewers reconnect with SSH keys/agent or noninteractive
 corporate SSH authentication.
 Development launches through ./go.ts update machines automatically in the background.
+A release viewer moves machines to its own release as it connects.
 In the viewer, Ctrl+] or clicking the machine name opens the machine picker.
 `;
 export async function manage(args: string[]): Promise<void> {
@@ -80,7 +81,7 @@ export async function manage(args: string[]): Promise<void> {
           stderr: "inherit",
         });
         if (await child.exited) throw Error("SshAuthenticationFailed");
-        profile = await machineUpdate.prepare(profile);
+        profile = (await machineUpdate.prepare(profile)) ?? profile;
       }
       await check(profile);
       process.stdout.write(json.stringify({ ok: true, machine: profile.name, status: "reachable" }) + "\n");
@@ -137,25 +138,33 @@ export async function manage(args: string[]): Promise<void> {
       if (args.length && args[0] !== "--help") process.exitCode = 2;
   }
 }
-/** Runs in a helper process so builds, hashes and uploads leave the viewer responsive. */
+/** Runs in a helper process so builds, hashes and uploads leave the viewer
+ * responsive; false when the machine needed nothing. */
 export async function synchronize(
   name: string,
   target: string,
   socket: string,
   progress: Report,
   signal: AbortSignal,
-): Promise<void> {
-  if (!dev.enabled()) throw Error("DevelopmentBuildRequired");
+): Promise<boolean> {
+  if (!dev.enabled() && !machineUpdate.releases()) throw Error("AutomaticMachineUpdatesOff");
   const old = machines.find(name);
   if (old.target !== target || old.socket !== socket) throw Error("MachineChanged");
-  progress("Checking…", { detail: "Checking the deployment receipt" });
-  const deployment = await dev.acquire(old, signal);
+  // A release has no receipt: the machine's own version says what it runs.
+  let deployment: Awaited<ReturnType<typeof dev.acquire>> | undefined;
+  let unlock = () => {};
+  if (dev.enabled()) {
+    progress("Checking…", { detail: "Checking the deployment receipt" });
+    deployment = await dev.acquire(old, signal);
+  } else unlock = await machines.updating(old, signal);
   try {
     const installation = await setup.reconcile(old.target, old.executable, [], old.socket, deployment, {
-      verifiedBuild: hash => dev.recorded(old, hash),
+      verifiedBuild: deployment && (hash => dev.recorded(old, hash)),
+      automatic: !deployment,
       progress,
       signal,
     });
+    if (installation.unchanged) return false;
     signal.throwIfAborted();
     if (!installation.info) progress("Refreshing…", { detail: "Reading the installed daemon and bridge paths" });
     const info = await machines.discover(old.target, installation, old.socket, signal);
@@ -166,8 +175,10 @@ export async function synchronize(
         return { ...old, executable: info.executable, bridge: info.bridge };
       }),
     );
+    return true;
   } finally {
-    deployment.close();
+    deployment?.close();
+    unlock();
   }
 }
 async function check(profile: machines.Profile): Promise<void> {
