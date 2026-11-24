@@ -99,6 +99,8 @@ export async function install(
       os.atomicWrite(join(root, "previous"), current, 0o600);
       os.atomicWrite(join(root, "current"), version, 0o600);
       updates.requested(directory);
+      // Viewers move a machine whose own updates are off too.
+      updates.prune(root);
       return target;
     } finally {
       unlock();

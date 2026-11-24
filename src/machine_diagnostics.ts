@@ -31,6 +31,7 @@ export class Notice {
         "",
         "Another viewer moved this machine to a release this one can't talk to.",
         "Ctrl+R moves it back to this viewer's release; its shells and agents keep running.",
+        ...(endpoint.updateError ? ["", "Update failed", ...this.updateLines(endpoint)] : []),
       ];
       this.offset = 0;
       return true;

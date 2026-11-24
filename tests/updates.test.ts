@@ -1054,6 +1054,8 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     expect((await newer()).at(-1)).toEqual({ type: "ready" });
     await runsRelease("1.0.2", pid);
     expect(downloads).toEqual(["1.0.2", "1.0.1"]);
+    // Each move cleans up after itself, though the machine's own updates are off.
+    expect((await readdir(join(root, "releases"))).sort()).toEqual(["1.0.1", "1.0.2"]);
   },
   60_000,
 );
