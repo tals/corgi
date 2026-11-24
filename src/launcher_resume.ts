@@ -468,6 +468,15 @@ export class View {
     m.failed = failed;
     m.retry_at = m.failures < mention_tries ? now + 2000 * m.failures : 0;
   }
+  /** Puts the next try off at `now` ms, while a machine that failed is away,
+   * and forgets the tries its outage cost. True when the list shows it. */
+  deferMentions(now: number): boolean {
+    const m = this.mentions,
+      shown = m.retry_at === 0;
+    m.failures = 0;
+    m.retry_at = now;
+    return shown;
+  }
   /** Whether every word of the search is in `e`'s text or branch, or in
    * `shown`, the branch its Where shows. */
   matches(e: Entry, shown: string | null = null): boolean {

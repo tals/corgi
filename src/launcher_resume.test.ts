@@ -10,6 +10,7 @@ import {
   dayLabel,
   ageLabel,
   collapsed_rows,
+  mention_tries,
   around,
   answerOf,
   mentionsOf,
@@ -783,4 +784,28 @@ test("the search takes text in any script, typed as its UTF-8 bytes", () => {
   type("боковую");
   expect(v.mentionQuery()).toBe("боковую");
   expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 1 }, { note: "searching" }]);
+});
+
+test("a search that gave up starts its tries over once the machine that failed is waited for", () => {
+  const entries = [testEntry("a", "/w/corgi", "Release notes", 900)];
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  let search = v.searchMentions("deploy");
+  for (let i = 0; i < mention_tries; i++) {
+    v.failMentions(search, 1000, [0]);
+    if (i < mention_tries - 1) search = v.searchMentions("deploy");
+  }
+  expect(v.lines(c)).toContainEqual({ note: "failed" });
+  // Its machine is away: the list goes back to searching, and waiting changes nothing more.
+  expect(v.deferMentions(5000)).toBe(true);
+  expect(v.lines(c)).toContainEqual({ note: "searching" });
+  expect(v.deferMentions(6000)).toBe(false);
+  expect(v.mentions).toMatchObject({ failures: 0, failed: [0], retry_at: 6000 });
+  // Back, it's asked again, with every try ahead of it.
+  search = v.searchMentions("deploy");
+  v.failMentions(search, 7000, [0]);
+  expect(v.lines(c)).toContainEqual({ note: "searching" });
 });

@@ -5568,6 +5568,12 @@ export class Controller {
       due = retry
         ? query !== "" && m.retry_at > 0 && now >= m.retry_at
         : !query || now - m.typed_at >= mentions_pause_ms;
+    // A machine that failed and is away is waited for: its outage isn't the
+    // search's failure, so its tries start over once it's back.
+    if (retry && query && machines.some(machine => m.failed.includes(machine.id) && !machine.presence().online)) {
+      if (view.deferMentions(now)) this.dirty = true;
+      return;
+    }
     if (!due) return;
     // A retry asks only the machines that failed.
     const asked = retry && m.failed.length ? machines.filter(machine => m.failed.includes(machine.id)) : machines;
