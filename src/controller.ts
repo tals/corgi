@@ -350,6 +350,8 @@ class InputState {
   /** The pane whose app took the held mouse button; its drag and release
    * follow it outside the pane. */
   pane_press: number | null = null;
+  /** The link under a hover card dismissed by the current key or prefix. */
+  key_link: linkTooltip.Link | null = null;
   /** Where the bracketed paste in progress goes; null outside a paste. */
   paste: Paste | null = null;
   tab_drag: TabDrag | null = null;
@@ -7784,9 +7786,15 @@ export class Controller {
     if (data.length) cl.active = true;
     for (let i = 0; i < data.length; i++) {
       if (!active()) return;
+      const input = data[i];
+      cl.key_link =
+        input.kind === "key" || input.kind === "text"
+          ? (this.pointedLinkCard() ?? (this.prefix ? cl.key_link : null))
+          : null;
       try {
-        await this.inputEvent(data[i], active);
+        await this.inputEvent(input, active);
       } catch (error) {
+        cl.key_link = null;
         if (cl !== this.input_state) throw error;
         const pasting = cl.paste !== null;
         this.cancelPaste();
@@ -7798,12 +7806,16 @@ export class Controller {
           await this.route(data.slice(end + 1), current);
         }
         throw error;
+      } finally {
+        if (!this.prefix) cl.key_link = null;
       }
     }
   }
   private async textInput(buf: number[], current: () => boolean): Promise<void> {
     let used = 0;
     while (used < buf.length && current()) {
+      // A text input can contain several keys. Only the first and its prefix share the card.
+      if (used > 0 && !this.prefix) this.input_state.key_link = null;
       const byte = buf[used];
       if (byte >= 128) {
         const decoded = keyboard.textKey(buf.slice(used, used + 4));
@@ -10571,14 +10583,19 @@ export class Controller {
   private desktopImage(file: LinkedFile | null): string | undefined {
     return file?.image && !this.machine.remote && this.host.opens_desktop ? file.path : undefined;
   }
-  /** A key dismisses the card, but the image link under the pointer still opens. */
+  private pointedLinkCard(): linkTooltip.Link | null {
+    const pointer = this.pointer,
+      link = this.link_tooltip.target?.link;
+    return pointer && link && this.linkHoverContains(pointer.x, pointer.y) ? link : null;
+  }
+  /** Use the card's link even when a shortcut has dismissed it. */
   private pointedImage(): string | undefined {
-    const card = this.linkCard();
-    if (card) return card.open_image;
     const pointer = this.pointer;
     if (!pointer || !this.linkHoverIdle() || this.ui_mouse_down || this.paste_card) return;
-    const link = this.linkAt(pointer.x, pointer.y);
-    return link ? this.desktopImage(this.hoveredFile(link)) : undefined;
+    const card_link = this.input_state.key_link ?? this.pointedLinkCard();
+    const link = this.linkAt(card_link?.x ?? pointer.x, card_link?.y ?? pointer.y);
+    if (!link || (card_link && !linkTooltip.sameLink(link, card_link))) return;
+    return this.desktopImage(this.hoveredFile(link));
   }
   /** Loads the thumbnail on the pane's machine when the host shows Kitty
    * images and reports its cell size. */

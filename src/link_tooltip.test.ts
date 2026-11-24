@@ -473,6 +473,91 @@ test("an image link's popover copies its path and opens the original from its th
     rmSync(dir, { recursive: true, force: true });
   }
 });
+test.each([
+  ["preview", true, 6],
+  ["Open image button", false, 4],
+] as const)("image shortcuts over the %s open the card's link", async (_, graphics, row) => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-image-shortcut-"));
+  const original = join(dir, "original.png"),
+    underneath = join(dir, "underneath.png");
+  const png = Buffer.from(png_base64, "base64");
+  writeFileSync(original, png);
+  writeFileSync(underneath, png);
+  const link = (path: string) => `\x1b]8;;file://${path}\x1b\\[Image]\x1b]8;;\x1b\\`;
+  const s = linkViewer(link(original) + `\x1b[${row};1H` + link(underneath));
+  s.host.opens_desktop = true;
+  s.supports_kitty_graphics = graphics;
+  s.cell_pixels = { width: 10, height: 20 };
+  s.prefs.prefix = "ctrl+b";
+  const binding = spyOn(s.prefs, "bindings").mockReturnValue([
+    { key: 111, mods: { alt: true }, prefixed: false, action: { name: "open-image" } },
+    { key: 111, mods: {}, prefixed: false, action: { name: "open-image" } },
+    { key: 111, mods: {}, prefixed: true, action: { name: "open-image" } },
+  ]);
+  const show = async (at: number) => {
+    setSystemTime(new Date(at));
+    await s.input(mouse(35, 2, 1));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.frame();
+    await s.thumbnails.loading;
+    setSystemTime(new Date(at + 150));
+    expect(s.frame()).toContain("Open image");
+    await s.input(mouse(35, 4, row));
+    expect(s.frame()).toContain("Open image");
+  };
+  try {
+    // Resolve the link the card will cover so falling through to it would open a different file.
+    setSystemTime(new Date(1000));
+    await s.input(mouse(35, 4, row));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    await s.input(Buffer.from("\x1b[111;3u"));
+    expect(s.effects).toEqual([{ open_image: underneath }]);
+    s.clearEffects();
+
+    await show(1200);
+    await s.input(Buffer.from("\x1b[111;3u"));
+    expect(s.effects).toEqual([{ open_image: original }]);
+    s.clearEffects();
+
+    await show(1400);
+    await s.input(Buffer.from("\x02"));
+    s.frame();
+    await s.input(Buffer.from("o"));
+    expect(s.effects).toEqual([{ open_image: original }]);
+    s.clearEffects();
+
+    await show(1600);
+    await s.input(Buffer.from("\x02"));
+    await s.input(mouse(35, 90, 20));
+    await s.input(Buffer.from("o"));
+    expect(s.effects).toEqual([]);
+
+    await show(1800);
+    await s.input(Buffer.from("\x02"));
+    await s.input(Buffer.from("xo"));
+    expect(s.effects).toEqual([{ open_image: underneath }]);
+    s.clearEffects();
+
+    await show(2000);
+    await s.input(Buffer.from("\x02"));
+    const updated = new Terminal(100, 29);
+    try {
+      updated.feed(link(underneath) + `\x1b[${row};1H` + link(underneath));
+      s.runtime.pane(1)!.terminal.receive(updated.surface(2));
+      await s.input(Buffer.from("o"));
+      expect(s.effects).toEqual([]);
+    } finally {
+      updated.destroy();
+    }
+  } finally {
+    binding.mockRestore();
+    setSystemTime();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 test("an arrow over the resource card selects its top row first, or else moves from the hovered one", async () => {
   const s = linkViewer();
   s.prefs.resources.enabled = true;
