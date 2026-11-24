@@ -21,7 +21,7 @@ import {
   type Endpoint,
   type Interface,
 } from "./ports";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as os from "node:os";
@@ -222,6 +222,7 @@ test("servers announce ports by URL, address or port number", () => {
   expect(announcement("listening on [::]:8080", 8080)).toBe("address");
   expect(announcement("2026/10/08 Listening on :8080", 8080)).toBe("address");
   expect(announcement("Local: http://localhost:5174/", 5173)).toBeNull();
+  expect(announcement("Local: http://localhost:4000/\nLocal: https://localhost:4000/", 4000)).toBe("https");
   expect(announcement("connected to 127.0.0.1:3000", 3000)).toBeNull();
 });
 test("internal and incidental mentions of a port are not announcements", () => {
@@ -264,4 +265,106 @@ test("only listeners whose pane printed their port are probed", async () => {
   expect(tracker.due(printed, 100000)).toBe(true);
   expect(tracker.due(silent, 100000)).toBe(false);
   expect(tracker.due(silent, 10_000_000)).toBe(false);
+});
+test("servers on one port and different addresses keep their own schemes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-ports-"));
+  try {
+    const tracker = new Tracker(),
+      plain = endpoint({ pid: 999998, bind_address: "127.0.0.1", port: 4000, scheme: "unknown", http_status: null }),
+      tls = endpoint({ pid: 999999, bind_address: "127.0.0.2", port: 4000, scheme: "unknown", http_status: null });
+    for (const [e, url] of [
+      [plain, "http://127.0.0.1:4000"],
+      [tls, "https://127.0.0.2:4000"],
+    ] as const) {
+      const log = join(dir, `${e.pid}.log`);
+      writeFileSync(log, `Listening on ${url}\n`);
+      tracker.origins.set(e.pid, { args: [], outputs: [log] });
+    }
+    await tracker.judge([plain, tls], 100000, () => "");
+    expect(tracker.announced().map(a => [a.bind_address, a.announced])).toEqual([
+      ["127.0.0.1", "http"],
+      ["127.0.0.2", "https"],
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+/** Runs `body` on the macOS scan path, with `ps`, `lsof` and `curl` stand-ins
+ * for a `bun` server on port 4000 under pane 1's shell. */
+async function onFakeHost(
+  body: (host: {
+    fail(failing: boolean): void;
+    restart(pid: number, scheme?: "http" | "https"): void;
+  }) => Promise<void>,
+) {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-ports-")),
+    broken = join(dir, "broken"),
+    server = join(dir, "server"),
+    scheme = join(dir, "scheme"),
+    script = (name: string, text: string) => {
+      writeFileSync(join(dir, name), "#!/bin/sh\n" + text);
+      chmodSync(join(dir, name), 0o755);
+    };
+  writeFileSync(server, "101");
+  writeFileSync(scheme, "http");
+  script(
+    "ps",
+    `pid=$(cat '${server}'); case "$*" in *-axo*) printf '100 1 100 zsh\\n%s 100 %s bun\\n' $pid $pid ;; *) echo "$pid bun --hot src/index.ts" ;; esac\n`,
+  );
+  script(
+    "lsof",
+    `pid=$(cat '${server}'); case "$*" in *-iTCP*) [ -e '${broken}' ] && exit 2; printf 'p%s\\ncbun\\nf5\\ntIPv6\\nPTCP\\nn*:4000\\nTST=LISTEN\\n' $pid ;; *) exit 1 ;; esac\n`,
+  );
+  script("curl", `served=$(cat '${scheme}'); case "$*" in *"$served://"*) printf 308 ;; *) exit 35 ;; esac\n`);
+  const path = process.env.PATH,
+    platform = process.platform;
+  process.env.PATH = `${dir}:${path}`;
+  Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+  try {
+    await body({
+      fail: failing => (failing ? writeFileSync(broken, "") : rmSync(broken, { force: true })),
+      restart: (pid, served = "http") => {
+        writeFileSync(server, String(pid));
+        writeFileSync(scheme, served);
+      },
+    });
+  } finally {
+    process.env.PATH = path;
+    Object.defineProperty(process, "platform", { value: platform, configurable: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+test("a port its pane announced keeps its link after the output is cleared", async () => {
+  await onFakeHost(async host => {
+    const link = async (tracker: Tracker, text: string) => {
+      tracker.roots = [{ pid: 100, pane: 1, workspace: 1, agent_pid: 0 }];
+      await tracker.scan(() => text);
+      tracker.current = tracker.pending;
+      const e = tracker.current.workspace(1).endpoints[0];
+      return e ? url(e, false) : null;
+    };
+    const tracker = new Tracker(),
+      cleared = "[x9] Reloaded in 12ms: src/App.tsx + 1 more";
+    expect(await link(tracker, "Started http://localhost:4000")).toBe("http://localhost:4000");
+    host.fail(true);
+    expect(await link(tracker, cleared)).toBeNull();
+    host.fail(false);
+    expect(await link(tracker, cleared)).toBe("http://localhost:4000");
+    host.restart(102);
+    expect(await link(tracker, cleared)).toBe("http://localhost:4000");
+    const next = new Tracker();
+    next.restore(tracker.announced());
+    host.fail(true);
+    expect(await link(next, cleared)).toBeNull();
+    host.fail(false);
+    expect(await link(next, cleared)).toBe("http://localhost:4000");
+    expect(await link(new Tracker(), cleared)).toBeNull();
+    host.restart(103, "https");
+    expect(await link(next, "Started http://localhost:4000\nStarted https://localhost:4000")).toBe(
+      "https://localhost:4000",
+    );
+    next.roots = [];
+    await next.scan(() => "");
+    expect(next.announced()).toEqual([]);
+  });
 });

@@ -409,9 +409,10 @@ const stronger = (a: Announcement, than: Announcement | null) => strength[a] > (
 const serving = /\b(listen|serv|running|started|starting|ready|available|bound|open)/i;
 // A distributed job logs its own sockets; those are not for browsers.
 const internal = /\b(c10d|nccl|gloo|rdzv|rendezvous|tcpstore)\b/i;
-/** Whether `text` says a server listens on `port`: a URL with the port, or an
- * address or "port N" on a line about serving. Ports nobody printed, like the
- * ones NCCL or ZMQ bind with port 0, stay unannounced. */
+/** Whether `text` says a server listens on `port`: a URL with the port, the
+ * latest one if it printed several, or an address or "port N" on a line about
+ * serving. Ports nobody printed, like the ones NCCL or ZMQ bind with port 0,
+ * stay unannounced. */
 export function announcement(text: string, port: number): Announcement | null {
   const digits = String(port);
   if (!text.includes(digits)) return null;
@@ -422,7 +423,7 @@ export function announcement(text: string, port: number): Announcement | null {
     "i",
   );
   let found: Announcement | null = null;
-  for (const line of text.split("\n")) {
+  for (const line of text.split("\n").reverse()) {
     if (!line.includes(digits) || internal.test(line)) continue;
     for (const m of line.matchAll(/\b(https?):\/\/(?:\[[0-9A-Fa-f:.]*\]|[\w.-]+):(\d{1,5})(?!\d)/gi))
       if (Number(m[2]) === port) return m[1].toLowerCase() === "https" ? "https" : "http";
@@ -546,10 +547,12 @@ export async function probe(e: Endpoint, announced: Announcement, signal?: Abort
 export type Lead = {
   seen_at: number;
   checked_at: number;
-  announced: Announcement | null;
   failures: number;
 };
 const leadKey = (e: Endpoint) => `${e.pid} ${e.pane} ${e.port} ${e.ipv6} ${e.transport} ${e.bind_address}`;
+/** A port a pane's server announced, on the address it binds. */
+export type Announced = { pane: number; port: number; bind_address: string; announced: Announcement };
+const announcedKey = (e: Omit<Announced, "announced">) => `${e.pane} ${e.port} ${e.bind_address}`;
 export class Tracker {
   current = new Snapshot();
   pending = new Snapshot();
@@ -560,6 +563,10 @@ export class Tracker {
   next_refresh = 0;
   abort = new AbortController();
   leads = new Map<string, Lead>();
+  /** What each pane's servers announced, kept as long as the pane: the
+   * server may restart, and its output may be cleared, as `bun --hot` does on
+   * every reload. */
+  announcements = new Map<string, Announced>();
   origins = new Map<number, Origin>();
   /** Off, no port is probed and no link is offered. */
   enabled = true;
@@ -573,6 +580,19 @@ export class Tracker {
   }
   busy() {
     return this.thread !== null;
+  }
+  /** What panes announced, for a live handoff. */
+  announced(): Announced[] {
+    return [...this.announcements.values()];
+  }
+  restore(saved: Announced[]) {
+    for (const a of saved)
+      this.announcements.set(announcedKey(a), {
+        pane: a.pane,
+        port: a.port,
+        bind_address: a.bind_address,
+        announced: a.announced,
+      });
   }
   tick(runtime: Runtime) {
     let changed = false;
@@ -641,7 +661,7 @@ export class Tracker {
       };
     for (const e of pending) {
       const key = leadKey(e),
-        lead = this.leads.get(key) ?? { seen_at: now, checked_at: 0, announced: null, failures: 0 },
+        lead = this.leads.get(key) ?? { seen_at: now, checked_at: 0, failures: 0 },
         origin = this.origins.get(e.pid),
         sources = [await read(`pane ${e.pane}`, () => paneText(e.pane))];
       for (const path of origin?.outputs ?? []) sources.push(await read(path, () => outputText(path)));
@@ -651,9 +671,16 @@ export class Tracker {
         if (said && stronger(said, found)) found = said;
       }
       // A stronger announcement, like the URL a server prints once it is
-      // ready, ends the wait left by probes that got no answer.
-      if (found && stronger(found, lead.announced)) {
-        lead.announced = found;
+      // ready, ends the wait left by probes that got no answer. A URL with
+      // the other scheme replaces the old, as when a server restarts with TLS.
+      const known = this.announcements.get(announcedKey(e))?.announced ?? null;
+      if (found && found !== known && (!known || strength[found] >= strength[known])) {
+        this.announcements.set(announcedKey(e), {
+          pane: e.pane,
+          port: e.port,
+          bind_address: e.bind_address,
+          announced: found,
+        });
         lead.failures = 0;
         e.probed_at = 0;
       }
@@ -663,15 +690,17 @@ export class Tracker {
   }
   /** Only announced listeners are probed. */
   due(e: Endpoint, now: number) {
-    const lead = this.leads.get(leadKey(e));
-    if (e.transport !== "tcp" || !lead?.announced) return false;
+    if (e.transport !== "tcp" || !this.announcements.has(announcedKey(e))) return false;
     if (e.probed_at === 0) return true;
-    const wait = e.http_status === null ? retryDelay(lead.failures) : browserResponse(e.http_status) ? 60000 : 15000;
+    const failures = this.leads.get(leadKey(e))?.failures ?? 0,
+      wait = e.http_status === null ? retryDelay(failures) : browserResponse(e.http_status) ? 60000 : 15000;
     return now - e.probed_at > wait;
   }
   async scan(paneText: (pane: number) => string) {
     const telemetry_started = telemetry.begin();
     try {
+      const panes = new Set(this.roots.map(r => r.pane));
+      for (const [key, a] of this.announcements) if (!panes.has(a.pane)) this.announcements.delete(key);
       if (!this.roots.length) return;
       let list = process.platform === "linux" ? paneProcesses(this.roots) : null;
       if (!list) {
@@ -720,13 +749,14 @@ export class Tracker {
       await this.judge(listeners, now, paneText);
       for (let i = 0; i < 4 && this.enabled && !this.stopping; i++) {
         const oldest = listeners.filter(e => this.due(e, now)).sort((a, b) => a.probed_at - b.probed_at)[0],
-          lead = oldest && this.leads.get(leadKey(oldest));
-        if (!lead?.announced) break;
-        const result = await probe(oldest, lead.announced, this.abort.signal);
+          announced = oldest && this.announcements.get(announcedKey(oldest))?.announced;
+        if (!announced) break;
+        const result = await probe(oldest, announced, this.abort.signal),
+          lead = this.leads.get(leadKey(oldest));
         oldest.scheme = result.scheme;
         oldest.http_status = result.status;
         oldest.probed_at = now;
-        lead.failures = result.status === null ? lead.failures + 1 : 0;
+        if (lead) lead.failures = result.status === null ? lead.failures + 1 : 0;
       }
       this.pending = Object.assign(new Snapshot(), {
         processes_available: true,
