@@ -91,12 +91,13 @@ an agent that is waiting on a prompt.
 `await corgi.send(agent, text, { enter })` types literal text into an agent's
 pane as `corgi pane send` does, as a bracketed paste when the agent asked for
 one; `enter` defaults to false. Headless agents have no pane, so `send` rejects
-them with `NoPane`. Both
+them with `NoPane`, and a hibernated or exited pane with `PaneAsleep` or
+`PaneExited`. Both
 take an agent or its `id`, need no button press and act at once: guard event
 handlers, for example with a `corgi.set` flag, so one change can't prompt an
 agent twice. Text must fit in 63 KiB once JSON-escaped, or the call rejects
-with `TextTooLong`. Time spent waiting on either call doesn't count toward a
-callback's five seconds.
+with `TextTooLong`. A callback's own waits on either call don't count toward
+its five seconds, up to 30 seconds of waiting in all.
 
 Strings support **bold**, *italic*, backtick literal text, backslash escapes and
 `!(brand-reference)` icons. Use `corgi.escape(agent.name)` for literal metadata.

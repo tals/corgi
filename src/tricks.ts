@@ -4,6 +4,7 @@ import type { State, Attention } from "./agents";
 import * as process_name from "./process_name";
 import type { Identity } from "./account_identity";
 import * as trickPalette from "./trick_palette";
+import * as agentOrder from "./agent_order";
 
 export const version = 2;
 export const max_bytes = 65536;
@@ -112,9 +113,9 @@ function string(value: unknown, limit = 1024): string {
 }
 /** Text for an agent: it must fit in one protocol line once JSON escapes it. */
 function prompt(value: unknown): string {
-  const result = string(value, max_bytes);
-  if (new TextEncoder().encode(JSON.stringify(result)).length > max_bytes - 1024) throw Error("TextTooLong");
-  return result;
+  if (typeof value !== "string") throw Error("InvalidString");
+  if (new TextEncoder().encode(JSON.stringify(value)).length > max_bytes - 1024) throw Error("TextTooLong");
+  return value;
 }
 export function key(value: unknown): string {
   return reference(string(value, 80));
@@ -287,8 +288,7 @@ export function mapActions(node: Element, map: (action: string) => string, slot?
 }
 export function agentId(value: unknown): string {
   const id = string(value, 80);
-  if (!/^(pane|headless):[1-9][0-9]*$/.test(id) || !Number.isSafeInteger(Number(id.split(":")[1])))
-    throw Error("InvalidAgent");
+  if (!agentOrder.parse(id)) throw Error("InvalidAgent");
   return id;
 }
 export function view(value: unknown, local = false): View {

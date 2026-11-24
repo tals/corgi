@@ -362,14 +362,16 @@ test("a trick can message an agent or send to its pane without a button press", 
   void h.runner.corgi.message(agent, "x".repeat(60000));
   expect(h.sent.at(-1)).toMatchObject({ op: "agent.message" });
   await expect(h.runner.corgi.message(agent, "\x01".repeat(12000))).rejects.toThrow("TextTooLong");
+  await expect(h.runner.corgi.message(agent, "x".repeat(70000))).rejects.toThrow("TextTooLong");
+  await expect(h.runner.corgi.message("pane:4294967296", "x")).rejects.toThrow("InvalidAgent");
   expect(h.failures).toEqual([]);
 });
-test("a callback's clock stops while it waits on a message", async () => {
+test("a callback's clock stops while it waits on its own message, for a while", async () => {
   jest.useFakeTimers();
   try {
     const h = harness(on =>
-      on("agent.changed", async () => {
-        await h.runner.corgi.message("pane:1", "go");
+      on("agent.changed", async ({ agent }) => {
+        await h.runner.corgi.message("pane:1", agent.name);
         await h.runner.corgi.get("after", null);
       }),
     );
@@ -377,13 +379,36 @@ test("a callback's clock stops while it waits on a message", async () => {
     h.receive({ event: "agent.changed", agent, previous: null });
     await flush();
     expect(h.sent.at(-1)).toMatchObject({ op: "agent.message" });
-    jest.advanceTimersByTime(60000);
+    jest.advanceTimersByTime(29000);
     expect(h.failures).toEqual([]);
     h.receive({ id: h.sent.at(-1)!.id, result: { delivery: "message", queued: false } });
     await flush();
+    // Its own time runs again once the message is answered.
     expect(h.sent.at(-1)).toMatchObject({ op: "kv.get" });
     jest.advanceTimersByTime(5001);
     expect(h.failures).toEqual(["HandlerTimeout"]);
+    // Waiting has a limit too.
+    const slow = harness(on => on("agent.changed", () => slow.runner.corgi.message("pane:1", "go").then(() => {})));
+    await flush();
+    slow.receive({ event: "agent.changed", agent, previous: null });
+    await flush();
+    jest.advanceTimersByTime(30001);
+    expect(slow.failures).toEqual(["HandlerTimeout"]);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+test("a message sent outside a callback leaves the running callback's clock alone", async () => {
+  jest.useFakeTimers();
+  try {
+    const h = harness(on => on("agent.changed", () => h.runner.corgi.get("never", null).then(() => {})));
+    await flush();
+    h.receive({ event: "agent.changed", agent, previous: null });
+    await flush();
+    const pending = h.runner.corgi.message("pane:1", "from a timer").catch(error => error.message);
+    jest.advanceTimersByTime(5001);
+    expect(h.failures).toEqual(["HandlerTimeout"]);
+    expect(await pending).toBe("HandlerTimeout");
   } finally {
     jest.useRealTimers();
   }

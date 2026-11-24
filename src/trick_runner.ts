@@ -61,6 +61,19 @@ type Message =
   | { event: "palette.changed"; name: string; state: trickPalette.State }
   | { event: "ui.press"; action: string; viewer: number }
   | { id: string | null; error?: string; result?: unknown };
+/** How long, in ms, all of one callback's `message` and `send` calls may wait
+ * on the daemon, beyond its own five seconds. */
+const max_wait = 30000;
+/** One callback's time: what it has left of its own, what it has spent
+ * waiting, and since when it has been doing which. */
+type Clock = {
+  left: number;
+  waited: number;
+  since: number;
+  waiting: boolean;
+  waits: number;
+  timer: ReturnType<typeof setTimeout> | null;
+};
 /** This pipe has one writer: the daemon running the same protocol. */
 function message(line: string): Message {
   const value = tricks.object(JSON.parse(line));
@@ -89,10 +102,9 @@ export class Runner {
   private started = false;
   private ready = false;
   private stopped = false;
-  /** The running callback's time left, while one runs, and whether its clock
-   * is stopped by `waits` calls the daemon bounds instead. */
-  private handler: { left: number; since: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
-  private waits = 0;
+  /** The running callback's clock, and the one its own calls see. */
+  private handler: Clock | null = null;
+  private clocks = new AsyncLocalStorage<Clock>();
   private patches = new Map<string, { agent?: string; json: string; actions: string[] }>();
   private callbacks = new Map<string, elements.Press>();
   private agents = new Map<string, tricks.Agent>();
@@ -239,25 +251,29 @@ export class Runner {
     if (this.stopped) throw Error("TrickStopped");
     this.send(value);
   }
-  /** `call`, with the running callback's clock stopped meanwhile: a provider
-   * channel can take longer than a callback may, and the daemon bounds it. */
+  /** `call`, with the calling callback's clock stopped meanwhile, up to
+   * `max_wait` in all: a provider channel can take longer than a callback
+   * may. Calls from timers and other callbacks leave the clock running. */
   private async wait(value: object): Promise<unknown> {
-    if (this.waits++ === 0 && this.handler?.timer) {
-      clearTimeout(this.handler.timer);
-      this.handler.timer = null;
-      this.handler.left -= performance.now() - this.handler.since;
-    }
+    const clock = this.clocks.getStore();
+    if (!clock || clock !== this.handler) return this.call(value);
+    if (clock.waits++ === 0) this.tick(clock, true);
     try {
       return await this.call(value);
     } finally {
-      if (--this.waits === 0 && this.handler) this.clock();
+      if (--clock.waits === 0 && clock === this.handler) this.tick(clock, false);
     }
   }
-  /** Runs the running callback's clock for the time it has left. */
-  private clock() {
-    const handler = this.handler!;
-    handler.since = performance.now();
-    handler.timer = setTimeout(() => this.close(Error("HandlerTimeout")), Math.max(0, handler.left));
+  /** Charges `clock` for the time since it last changed, then times the
+   * callback out once it runs out of its own time, or of waiting time. */
+  private tick(clock: Clock, waiting: boolean) {
+    const now = performance.now();
+    if (clock.timer) clearTimeout(clock.timer);
+    if (clock.waiting) clock.waited += now - clock.since;
+    else clock.left -= now - clock.since;
+    Object.assign(clock, { since: now, waiting });
+    const left = waiting ? max_wait - clock.waited : clock.left;
+    clock.timer = setTimeout(() => this.close(Error("HandlerTimeout")), Math.max(0, left));
   }
   private call(value: object): Promise<unknown> {
     const id = String(++this.next);
@@ -354,48 +370,20 @@ export class Runner {
       this.jobs = this.jobs
         .then(async () => {
           if (this.stopped) return;
-          this.handler = { left: 5000, since: 0, timer: null };
-          if (!this.waits) this.clock();
+          const clock: Clock = {
+            left: 5000,
+            waited: 0,
+            since: performance.now(),
+            waiting: false,
+            waits: 0,
+            timer: null,
+          };
+          this.handler = clock;
+          this.tick(clock, false);
           try {
-            if (value.event === "ready") {
-              if (this.ready) throw Error("AlreadyStarted");
-              this.ready = true;
-              await this.trick.register(this.on, this.corgi);
-              this.started = true;
-              this.subscribe();
-            } else if (value.event === "palette.changed") {
-              this.palettes.update(value.name, value.state);
-              for (const agent of this.agents.values()) await this.draw(agent, agent);
-            } else if (value.event === "ui.refresh") {
-              this.refreshing = false;
-              for (const agent of this.agents.values()) await this.draw(agent, agent);
-            } else if (value.event === "ui.press") {
-              const callback = this.callbacks.get(value.action);
-              if (!callback) return;
-              const interaction = { viewer: value.viewer, active: true };
-              try {
-                await this.interaction.run(interaction, callback);
-              } finally {
-                interaction.active = false;
-              }
-              for (const agent of this.agents.values()) await this.draw(agent, agent);
-            } else {
-              if (!this.started) throw Error("NotStarted");
-              for (const handler of this.handlers) if (handler.events.includes(value.event)) await handler.run(value);
-              if (value.event === "agent.changed" && this.ui_handlers.size) {
-                this.agents.set(value.agent.id, value.agent);
-                await this.draw(value.agent, value.previous);
-              }
-              if (value.event === "agent.removed") {
-                this.agents.delete(value.agent.id);
-                for (const [key, patch] of this.patches)
-                  if (patch.agent === value.agent.id) {
-                    this.remove(key);
-                  }
-              }
-            }
+            await this.clocks.run(clock, () => this.handle(value));
           } finally {
-            if (this.handler.timer) clearTimeout(this.handler.timer);
+            if (clock.timer) clearTimeout(clock.timer);
             this.handler = null;
           }
         })
@@ -406,6 +394,46 @@ export class Runner {
         });
     } catch (error) {
       this.close(error instanceof Error ? error : Error(String(error)));
+    }
+  }
+  /** Runs the callbacks one protocol event asks for. */
+  private async handle(value: Extract<Message, { event: string }>) {
+    if (value.event === "ready") {
+      if (this.ready) throw Error("AlreadyStarted");
+      this.ready = true;
+      await this.trick.register(this.on, this.corgi);
+      this.started = true;
+      this.subscribe();
+    } else if (value.event === "palette.changed") {
+      this.palettes.update(value.name, value.state);
+      for (const agent of this.agents.values()) await this.draw(agent, agent);
+    } else if (value.event === "ui.refresh") {
+      this.refreshing = false;
+      for (const agent of this.agents.values()) await this.draw(agent, agent);
+    } else if (value.event === "ui.press") {
+      const callback = this.callbacks.get(value.action);
+      if (!callback) return;
+      const interaction = { viewer: value.viewer, active: true };
+      try {
+        await this.interaction.run(interaction, callback);
+      } finally {
+        interaction.active = false;
+      }
+      for (const agent of this.agents.values()) await this.draw(agent, agent);
+    } else {
+      if (!this.started) throw Error("NotStarted");
+      for (const handler of this.handlers) if (handler.events.includes(value.event)) await handler.run(value);
+      if (value.event === "agent.changed" && this.ui_handlers.size) {
+        this.agents.set(value.agent.id, value.agent);
+        await this.draw(value.agent, value.previous);
+      }
+      if (value.event === "agent.removed") {
+        this.agents.delete(value.agent.id);
+        for (const [key, patch] of this.patches)
+          if (patch.agent === value.agent.id) {
+            this.remove(key);
+          }
+      }
     }
   }
   close(error = Error("TrickDisconnected")) {

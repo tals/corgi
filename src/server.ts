@@ -166,17 +166,8 @@ export class Server {
         viewer.queue(this, viewer.targetViewer(this, id), { kind: "action", name: "focus-agent", value: agent });
         this.wakeViewers();
       },
-      command =>
-        new Promise((resolve, reject) =>
-          this.enqueue(async () => {
-            try {
-              resolve(await this.execute(command));
-            } catch (error) {
-              reject(error);
-            }
-            this.publish();
-          }),
-        ),
+      // A message waits on its provider beside the queue, as the CLI's does.
+      command => ("agent.message" in command ? this.message(command) : this.queued(command)),
     );
   }
   /** The active workspace a viewer opens on, or null when none remain. */
@@ -244,6 +235,19 @@ export class Server {
     this.theme.merge(next);
     for (const p of this.runtime.panes) p.terminal.applyTheme(this.theme);
     this.dirty = true;
+  }
+  /** Runs `command` as a job on the queue, for a caller awaiting its result. */
+  private queued(command: protocol.CommandInput): Promise<protocol.Result> {
+    return new Promise((resolve, reject) =>
+      this.enqueue(async () => {
+        try {
+          resolve(await this.execute(command));
+        } catch (error) {
+          reject(error);
+        }
+        this.publish();
+      }),
+    );
   }
   /** Runs an `agent.message` beside the job queue: a provider's channel can
    * take seconds to answer, and the queue keeps every viewer going. */

@@ -147,6 +147,8 @@ email, plan, and the last reported usage in the agent's popover.
 | `corgi.ui` | The same element builders for independent overlays |
 | `corgi.refresh()` | Coalesce a refresh of this trick's agent UI hooks |
 | `await corgi.focus(agent)` | From a button callback, select an agent in the viewer that pressed it |
+| `await corgi.message(agent, text)` | Prompt an agent as `corgi message` does; resolves to `{ delivery, queued }` |
+| `await corgi.send(agent, text, { enter })` | Type literal text into an agent's pane as `corgi pane send` does |
 | `corgi.draw(key, view)` | Insert or replace a named overlay |
 | `corgi.clear(key)` | Remove an overlay |
 | `corgi.escape(text)` | Escape literal text interpolated into Markdown |
@@ -382,6 +384,20 @@ It selects that agent using Corgi's normal navigation, in the viewer that
 pressed the button. Other viewers keep their focus. Headless agents use the
 existing headless-agent selection behavior.
 
+`corgi.message(agent, text)` and `corgi.send(agent, text, { enter })` take an
+agent object or its ID too, and work outside button callbacks. `message` uses
+the agent's own channel when one reaches it, and otherwise types the text and
+presses Enter. It resolves to `{ delivery, queued }`: `delivery` is
+`"message"` or `"typed"`, and `queued` says the agent was mid-turn. It fails as
+the CLI does, for example with `AgentBlocked` rather than type into an agent
+that is waiting on a prompt, or `DeliveryUnknown` when the agent may have the
+message: check before sending it again. `send` types into the pane, as a paste
+when the program asked for one, and presses Enter only with `enter: true`.
+Headless agents have no pane, so `send` rejects them with `NoPane`. Text must
+fit in 63 KiB once JSON-escaped (`TextTooLong`). Both act at once: guard event
+handlers so one change can't prompt an agent twice. A callback's own waits on
+them don't count toward its five seconds, up to 30 seconds of waiting in all.
+
 Drawings own their callbacks. Replacement, removal, agent disappearance,
 crash or reload retires old controls; stale presses are ignored. Identical
 drawings send no update, while their callbacks receive the latest captured
@@ -593,6 +609,8 @@ to no events until they subscribe.
 | `ui.set` | `key`, `view` |
 | `ui.remove` | `key` |
 | `ui.focus` | `viewer` from a press event, `agent` ID |
+| `agent.message` | `agent` ID, `text`; replies `{ delivery, queued }` |
+| `agent.send` | `agent` ID, `text`, optional `enter` (default false) |
 | `kv.get`, `kv.delete` | `key` |
 | `kv.set` | `key`, `value` |
 | `palette.define` | `name`, optional `colors` array |
