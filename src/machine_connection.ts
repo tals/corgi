@@ -1170,7 +1170,7 @@ export class Endpoint {
       if (
         this.controls.length &&
         (visible ||
-          viewer.leadingLinks(this.controls, machine.last_control).some(c => BigInt(c.seq) > machine.last_control))
+          viewer.leadingRequests(this.controls, machine.last_control).some(c => BigInt(c.seq) > machine.last_control))
       ) {
         reply ??= {
           type: "view",

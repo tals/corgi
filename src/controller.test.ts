@@ -155,7 +155,7 @@ test("trick keyboard focus follows updated buttons, drops hidden targets and nev
   }
 });
 
-test("a remote sidebar trick switches to its owner and sends daemon-local viewer and agent IDs", async () => {
+test("a remote sidebar trick is pressed in place, and its focus request switches to its owner", async () => {
   const s = controller(),
     local = s.machine,
     calls: unknown[] = [],
@@ -187,17 +187,18 @@ test("a remote sidebar trick switches to its owner and sends daemon-local viewer
   s.host.prefs.agent_sort = "manual";
   s.sidebar_open = true;
   s.input_state.attached = true;
-  s.onMachine = (machine: Machine) => s.switchMachine(machine);
+  const chosen: unknown[] = [];
+  s.onMachine = (machine: Machine, focus: unknown) => void chosen.push([machine.name, focus]);
   try {
     s.frame();
     const hit = s.trick_controls.hits.find((hit: { action: string }) => hit.action === "remote-instance.go");
     expect(hit).toBeDefined();
     await s.input(bytes(`\x1b[<0;${hit.rect.x + 1};${hit.rect.y + 1}M`));
-    expect(s.machine).toBe(other);
     expect(calls).toEqual([{ action: "remote-instance.go", viewer: 29 }]);
-    await s.perform({ name: "focus-agent", value: "pane:2" });
-    expect(s.focused()?.id).toBe(2);
-    expect(s.machine).toBe(other);
+    expect(chosen).toEqual([]);
+    // The callback's corgi.focus comes back from the owner's daemon.
+    s.focusAgent("pane:2", other);
+    expect(chosen).toEqual([["work", { pane: 2 }]]);
   } finally {
     viewer.close(s);
     if (s.machine !== local) local.runtime.destroy();

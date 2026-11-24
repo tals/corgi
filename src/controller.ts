@@ -3534,17 +3534,9 @@ export class Controller {
         if (this.onMachines) this.onMachines();
         else this.notice(i18n.t`Add a machine with corgi machine add NAME`);
         break;
-      case "focus-agent": {
-        const id = tricks.agentId(act.value),
-          [kind, number] = id.split(":");
-        this.closeMenu();
-        this.selectAgent(
-          kind === "pane"
-            ? viewerRef.pane(this.machine.id, Number(number))
-            : viewerRef.headless(this.machine.id, Number(number)),
-        );
+      case "focus-agent":
+        this.focusAgent(act.value ?? "");
         break;
-      }
       case "tricks":
       case "trick-next":
       case "trick-prev": {
@@ -3576,7 +3568,7 @@ export class Controller {
           machine.runtime.tricks.some(view => tricks.actions(view.content).includes(action)),
         );
         if (!owner || !owner.viewer_id) break;
-        if (owner !== this.machine) this.onMachine(owner, null);
+        // The viewer stays put; a callback's corgi.focus switches machines.
         await call(owner.connection, "tricks.press", { action, viewer: owner.viewer_id });
         this.dirty = true;
         break;
@@ -4402,6 +4394,14 @@ export class Controller {
   }
   private queueEffect(effect: Effect): void {
     this.effects.push(effect);
+  }
+  /** Selects the agent a trick names by its ID on `machine`'s daemon. */
+  focusAgent(id: string, machine = this.machine): void {
+    const [kind, number] = tricks.agentId(id).split(":");
+    this.closeMenu();
+    this.selectAgent(
+      kind === "pane" ? viewerRef.pane(machine.id, Number(number)) : viewerRef.headless(machine.id, Number(number)),
+    );
   }
   /** A link a pane's program on `machine` asked to open, through its BROWSER. */
   openRequested(url: string, machine = this.machine): void {
