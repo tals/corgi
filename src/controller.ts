@@ -7607,6 +7607,7 @@ export class Controller {
       const d = this.name_dialog;
       return d instanceof newWorkspace.Dialog && d.browser.focused ? d.browser.field.area : d.area;
     }
+    if (this.dir_pin) return this.dir_pin.browser.query;
     return this.reviewKeys() ? this.review.typingArea() : null;
   }
   private pastePane(): Pane | null {

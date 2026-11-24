@@ -5089,6 +5089,18 @@ test("a folder's name lists it after the pointer rests on it; a click pins it to
     shown = plain(s.frame());
     expect(shown).toContain("lib/util.ts");
     expect(shown).toContain("1/3");
+    // Cmd-X and Cmd-C take its selection to the clipboard, as in every text box.
+    await s.input(bytes("\x1b[97;9u"));
+    await s.input(bytes("\x1b[120;9u"));
+    expect([s.clipboard, browser.text]).toEqual(["util", ""]);
+    await s.input(bytes("util"));
+    s.clipboard = null;
+    await s.input(bytes("\x1b[97;9u"));
+    await s.input(bytes("\x1b[99;9u"));
+    expect([s.clipboard, browser.text]).toEqual(["util", "util"]);
+    await browser.search.walked;
+    for (let i = 0; i < 100 && browser.search.scoring; i++) await new Promise(resolve => setTimeout(resolve, 1));
+    expect(plain(s.frame())).toContain("lib/util.ts");
     // Enter opens the file in a pane beside, as a file's name does, and puts the card away.
     await s.input(bytes("\r"));
     await s.folder_opening;
