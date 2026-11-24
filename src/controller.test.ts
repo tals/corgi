@@ -3486,7 +3486,7 @@ test("the prompt's conversation is a Corgi agent while a Corgi pane holds it, an
     ]);
     expect(entries.find((e: sidebar.Entry) => e.name === "Corgi")).toMatchObject({ state: "blocked", unread: true });
     expect(s.workspaceEntries()[0]).toMatchObject({ agents: 2, attention: 1, unread: 1 });
-    expect(s.firstUnreadAgent(0)).toEqual(viewerRef.headless(s.machine.id, 7));
+    expect(s.firstUnreadAgent(1)).toEqual(viewerRef.headless(s.machine.id, 7));
     const focus = spyOn(s, "focusPane");
     s.selectAgent(viewerRef.headless(s.machine.id, 7));
     expect(focus).toHaveBeenCalledWith(1);
@@ -5196,6 +5196,43 @@ test("a remembered name prefills the next rename until Escape, success or the pa
   } finally {
     setSystemTime();
     viewer.close(s);
+  }
+});
+
+test("unread on a workspace of the machine not shown opens its first unread agent", async () => {
+  const s = controller(async () => ({}));
+  const other = workMachine();
+  s.adopt(other);
+  const local: any = pair();
+  // Agent 3, alone on /b, finished unseen.
+  local.panes[2].agent.observation = { completed: 2, read: 0 };
+  s.receiveSnapshot(local);
+  s.receiveSnapshot(folders("/w"), other);
+  s.input_state.attached = true;
+  const chosen: [string, unknown][] = [];
+  s.onMachine = (machine: Machine, focus: unknown) => void chosen.push([machine.name, focus]);
+  const clickUnread = async () => {
+    const rows = s.workspaceRows(),
+      row = rows.find((row: sidebar.WorkspaceEntry) => row.name === "/b"),
+      view = s.sidebarView(s.sidebarEntries()),
+      x = view.unreadRange(row).start,
+      y = view.fieldRect(row.id, rows).y + 1;
+    expect(view.unreadHit(row, x, y)).toBe(true);
+    await s.input(bytes(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`));
+    await s.settle();
+  };
+  try {
+    // Shown here, the click lands on agent 3.
+    await clickUnread();
+    expect([s.current().id, s.focused().id]).toEqual([2, 3]);
+    s.switchWorkspace(1);
+    // Shown on work, the same click should ask for agent 3 on this computer.
+    s.switchMachine(other);
+    await clickUnread();
+    expect(chosen).toEqual([["local", { pane: 3 }]]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
   }
 });
 

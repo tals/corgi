@@ -2094,15 +2094,16 @@ export class Controller {
     }
     return entries;
   }
-  private firstUnreadAgent(workspace_index: number): Target | null {
-    const ws = this.runtime.workspaces.items[workspace_index];
+  private firstUnreadAgent(workspace: number, machine = this.machine): Target | null {
+    const runtime = machine.runtime,
+      ws = runtime.workspaces.items.find(ws => ws.id === workspace);
+    if (!ws) return null;
     for (let tab_index = 0; tab_index < ws.model.count; tab_index++)
-      for (const p of this.runtime.panes)
+      for (const p of runtime.panes)
         if (p.agent.provider !== null && ws.model.tabForPane(p.id) === tab_index && unread(p.agent.observation))
-          return viewerRef.pane(this.machine.id, p.id);
-    for (const session of this.listedSessions())
-      if (session.workspace === ws.id && unread(session.observation))
-        return viewerRef.headless(this.machine.id, session.id);
+          return viewerRef.pane(machine.id, p.id);
+    for (const session of agentRows.sessions(runtime))
+      if (session.workspace === ws.id && unread(session.observation)) return viewerRef.headless(machine.id, session.id);
     return null;
   }
   /** The headless sessions the sidebar lists: the agents', and the prompt's
@@ -8791,7 +8792,14 @@ export class Controller {
             const index = found.workspace;
             const row = this.workspaceRows()[index];
             if (row.external) {
-              this.selectRow(row.id);
+              // Its unread label opens the first unread agent on that machine.
+              const owner = this.rowOf(row.id)!;
+              const target =
+                button !== 2 && !resource_workspace_press && side.unreadHit(row, x, y)
+                  ? this.firstUnreadAgent(owner.id, owner.machine)
+                  : null;
+              if (target) this.selectAgent(target);
+              else this.selectRow(row.id);
               break;
             }
             const workspace = this.rowOf(row.id)!.id;
@@ -8806,8 +8814,7 @@ export class Controller {
                 break;
               }
               const jump = !resource_workspace_press && side.unreadHit(row, x, y);
-              const local_index = this.runtime.workspaces.index(workspace);
-              const target = jump && local_index !== null ? this.firstUnreadAgent(local_index) : null;
+              const target = jump ? this.firstUnreadAgent(workspace) : null;
               this.switchWorkspace(workspace);
               if (jump) {
                 if (target) {
