@@ -39,6 +39,10 @@ handoff keeps its shells and agents running. `corgi update auto off` on the
 machine stops only its own hourly updates. Add/check install releases the same
 way.
 
+Each viewer moves a machine once, when it starts. A viewer left unable to talk
+to the release another viewer moved it to says so, naming that computer, and
+Ctrl+R takes the machine back to its own release.
+
 With saved profiles, `corgi` starts locally and connects to the other machines
 independently in the background. The sidebar shows **all workspaces**, with a
 shaded machine header above each group and reception bars for remote link

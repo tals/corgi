@@ -186,6 +186,11 @@ export class Endpoint {
   private cache: Cache;
   private updating: AbortController | null = null;
   daemonVersion: buildInfo.Identity | null = null;
+  /** The computer whose viewer moved the daemon to its build, when it said. */
+  movedBy = "";
+  /** The update this endpoint starts with, which Ctrl+R runs again for a
+   * machine another viewer moved to a release this one can't talk to. */
+  private readonly follow: typeof this.update;
   get daemonVersionLive(): boolean {
     return !!this.connection;
   }
@@ -220,6 +225,7 @@ export class Endpoint {
     private update?: (signal: AbortSignal, progress: progress.Report) => Promise<machine_path.Factory | null>,
     private currentBuild?: (hello: machine_path.Hello) => boolean,
   ) {
+    this.follow = update;
     this.sample = newPath(false, false);
     this.machine = new Machine(this.transport(), this.name, remote);
     // Forwards outlive paths: each connection takes the current one's way.
@@ -441,7 +447,7 @@ export class Endpoint {
       if (!factory) return;
       this.newPath = factory;
       // An incompatible or unreachable daemon may now be usable. A live link does its own handoff.
-      if (!this.checked && !this.handoff && !this.shut_down) this.retry();
+      if (!this.checked && !this.handoff && !this.shut_down) this.reconnect();
     } catch (error) {
       if (!job.signal.aborted)
         this.updateFailure =
@@ -467,13 +473,21 @@ export class Endpoint {
     this.updateFailure = null;
     this.clearUpdateTimer();
   }
+  /** Whether Ctrl+R takes the machine back from another viewer's release. */
+  get reclaimable(): boolean {
+    return this.status === "incompatible" && !!this.follow;
+  }
   retry(): void {
     if (this.stopped) return;
+    if (this.reclaimable) this.update = this.follow;
     if (this.updateError) {
       this.updateFailure = null;
       void this.startUpdate();
       if (this.status === "online") return;
     }
+    this.reconnect();
+  }
+  private reconnect(): void {
     this.shut_down = false;
     this.releaseHandoff();
     this.interruption++;
@@ -554,7 +568,8 @@ export class Endpoint {
       case "paused":
         return "Paused · automatic retries stopped";
       case "incompatible":
-        return "Incompatible Corgi · install a matching version, then retry";
+        if (!this.follow) return "Incompatible Corgi · install a matching version, then retry";
+        return `Moved to Corgi ${this.daemonVersion?.version || "another build"}${this.movedBy ? ` by ${this.movedBy}` : ""} · Ctrl+R takes it back`;
       case "online":
         return this.error || "online";
     }
@@ -824,6 +839,8 @@ export class Endpoint {
     }
     this.clearUpdateTimer();
     this.daemonVersion = buildInfo.identity(hello);
+    this.movedBy =
+      typeof hello.moved_by === "string" ? hello.moved_by.replace(/[\x00-\x1f\x7f]/g, "").slice(0, 64) : "";
     if (
       this.update &&
       !this.updating &&

@@ -5,7 +5,7 @@ import { generateKeyPairSync, sign, createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm, symlink } from "node:fs/promises";
 import { closeSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { EXE, Lines, Pty, deadline, versioned, quote, waitUntil } from "./support";
 import { running } from "./runtime";
@@ -1046,6 +1046,8 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     expect(events.some(event => event.message === "Downloading")).toBe(true);
     expect(events.some(event => event.message === "Downloading here…")).toBe(false);
     await runsRelease("1.0.2", pid);
+    // Viewers this move leaves behind can say whose it was.
+    expect((await rpc({ op: "hello" })).moved_by).toBe(hostname().split(".")[0]);
     expect((await (await machineViewer("1.0.1"))()).at(-1)).toEqual({ type: "ready" });
     await runsRelease("1.0.1", pid);
     // The machine kept the release it left.

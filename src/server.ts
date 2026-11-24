@@ -38,6 +38,7 @@ import * as observers from "./observer_service";
 import * as trackers from "./trackers";
 import * as updates from "./updates";
 import * as errors from "./errors";
+import * as machine_moved from "./machine_moved";
 import * as fileAccess from "./file_access";
 import * as handoffUpload from "./handoff_upload";
 import * as jobs from "./jobs";
@@ -818,7 +819,8 @@ export class Server {
         if (encoding && !cl.canCompress) throw Error("InvalidEncodingNegotiation");
         const compress = encoding && v.runtime_protocol === protocol.version;
         cl.protocol_version = v.runtime_protocol === protocol.version ? protocol.version : null;
-        const release = updates.release(this.executable);
+        const release = updates.release(this.executable),
+          moved_by = machine_moved.by(this.socket, this.build_id);
         reply.send({
           type: "hello",
           protocol: protocol.version,
@@ -834,6 +836,7 @@ export class Server {
           handoff: transfer.protocol,
           viewer_protocol: protocol.viewer_version,
           instance: this.instance,
+          ...(moved_by ? { moved_by } : {}),
           ...(compress ? { content_encoding: encoding } : {}),
         });
         if (compress) cl.compress();

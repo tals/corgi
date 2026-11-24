@@ -25,6 +25,16 @@ export class Notice {
       return true;
     }
     if (!endpoint.error) return false;
+    if (endpoint.reclaimable) {
+      this.message = [
+        `${endpoint.name} · ${endpoint.description()}`,
+        "",
+        "Another viewer moved this machine to a release this one can't talk to.",
+        "Ctrl+R moves it back to this viewer's release; its shells and agents keep running.",
+      ];
+      this.offset = 0;
+      return true;
+    }
     const command = endpoint.issue === "auth" || endpoint.issue === "host-key" ? "reconnect" : "status";
     this.message = [
       `${endpoint.name} · ${endpoint.issue === "auth" ? "Authentication required" : "Connection problem"}`,

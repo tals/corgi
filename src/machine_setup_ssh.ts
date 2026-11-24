@@ -7,6 +7,7 @@ import * as transfer from "./machine_transfer";
 import * as transferFile from "./machine_transfer_file";
 import * as progress from "./machine_progress";
 import * as machines from "./machines";
+import * as moved from "./machine_moved";
 
 /** How long a setup step may take. */
 export const step_ms = 180_000;
@@ -195,6 +196,7 @@ export async function installDev(
   const delta = !!installed?.delta_transfer;
   const script = `set -eu
 unset CORGI_MACHINE CORGI_PANE CORGI_VIEWER
+export CORGI_MOVED_BY=${quote(moved.host())}
 ${targetSocket ? "export CORGI_SOCKET=" + quote(targetSocket) : ""}
 umask 077
 stage=$(mktemp -d "$HOME/.corgi-setup.XXXXXXXX")
@@ -311,6 +313,7 @@ export async function installRelease(
   const protocols = release.http ? "=http,https" : "=https";
   const script = `set -eu
 unset CORGI_MACHINE CORGI_PANE CORGI_VIEWER
+export CORGI_MOVED_BY=${quote(moved.host())}
 ${targetSocket ? "export CORGI_SOCKET=" + quote(targetSocket) : ""}
 umask 077
 stage=$(mktemp -d "$HOME/.corgi-setup.XXXXXXXX")

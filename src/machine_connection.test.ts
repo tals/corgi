@@ -378,6 +378,58 @@ test("an update the machine didn't need leaves an incompatible daemon to the use
   }
 });
 
+test("a machine another viewer moved away says whose release it runs, and Ctrl+R takes it back", async () => {
+  const daemon = await flakyDaemon();
+  let moved = true;
+  // Another viewer's release, which this one can't talk to.
+  const path: machine_path.Factory = (fresh, race, start) => {
+    const real = machine_path.local(daemon.path)(fresh, race, start);
+    if (!moved) return real;
+    return {
+      ...real,
+      async open(...args) {
+        const opened = await real.open(...args);
+        return {
+          ...opened,
+          hello: { ...opened.hello, protocol: opened.hello.protocol + 1, release_version: "1.4.0", moved_by: "desk" },
+        };
+      },
+    };
+  };
+  const jobs: { finish: (factory: machine_path.Factory | null) => void }[] = [];
+  const endpoint = new Endpoint(
+    "work",
+    true,
+    ["work"],
+    path,
+    new Probe(),
+    new Host(),
+    () => new Promise(finish => jobs.push({ finish })),
+    () => false,
+  );
+  try {
+    endpoint.pump(false);
+    await until(() => endpoint.status === "incompatible" && jobs.length === 1);
+    // This viewer's own start found nothing to do; the other viewer moved it since.
+    jobs[0].finish(null);
+    await until(() => !endpoint.updateMessage);
+    expect(endpoint.description()).toBe("Moved to Corgi 1.4.0 by desk · Ctrl+R takes it back");
+    endpoint.retry();
+    endpoint.pump(false);
+    await until(() => jobs.length === 2);
+    moved = false;
+    jobs[1].finish(path);
+    await until(() => endpoint.status === "connecting");
+    endpoint.pump(false);
+    await until(() => endpoint.status === "online");
+    expect(endpoint.movedBy).toBe("");
+    expect(jobs).toHaveLength(2);
+  } finally {
+    await endpoint.close();
+    await daemon.close();
+  }
+});
+
 test("a machine keeps its data across reconnects to its daemon but not the daemon's replacement", async () => {
   const daemon = await flakyDaemon(),
     endpoint = daemon.endpoint,

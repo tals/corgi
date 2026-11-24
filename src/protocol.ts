@@ -947,6 +947,8 @@ export interface ReplyPayloads {
     viewer_protocol?: number;
     instance?: string;
     content_encoding?: Encoding;
+    /** The computer whose viewer moved this machine to this build. */
+    moved_by?: string;
   };
   ping: Ok & { pid: number };
   /** From the daemon that took over, once it listens. */
