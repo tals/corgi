@@ -295,6 +295,8 @@ async function* fetchChunks(
   const moved = () => {
     clearTimeout(timer);
     timer = setTimeout(() => stall.abort(Error("UpdateDownloadStalled")), stalled_ms);
+    // Like a fetch's own timeout, it keeps no process alive.
+    timer.unref();
   };
   let origin = "";
   try {
