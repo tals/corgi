@@ -96,12 +96,11 @@ With saved machines, the New workspace dialog names the machine it creates on,
 as in **New workspace on studio ▾ ^O**, starting with the one shown. Click the
 name, press **Ctrl+O**, or press Up from the name field for the machines and
 their status; arrows and Enter, or a click, choose one. Each machine keeps its
-own folder: switching back finds it as you left it, and a machine not yet
-browsed starts at the folder of the last workspace created on it this way, or
-else at its current workspace's folder. Cancelling remembers nothing. A machine
-that is still connecting can be chosen: its folders show, and Enter creates the
-workspace, once it connects. The viewer then switches to the new workspace on
-its machine.
+own folder: switching back finds it as you left it, and each starts at the
+folder of the last workspace created on it this way, or else at its current
+workspace's folder. Cancelling remembers nothing. A machine that is still
+connecting can be chosen: its folders show, and Enter creates the workspace,
+once it connects. The viewer then switches to the new workspace on its machine.
 
 `corgi --machine workbox` starts on that host. `corgi --machine local` opens the
 ordinary local viewer. `CORGI_MACHINE=workbox` is an optional CLI default outside

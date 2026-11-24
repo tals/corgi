@@ -1701,6 +1701,10 @@ test("a new workspace goes on the machine its dialog chose, which the viewer the
     await s.input(bytes("\x1b[27u"));
     expect(s.name_dialog).toBeNull();
     expect(other.new_workspace_folder).toBe(cwd);
+    // The machine shown starts at its remembered folder too, past its workspace's.
+    s.machine.new_workspace_folder = "/a/b";
+    await s.perform({ name: "new-workspace" });
+    expect(s.name_dialog.browser.folder()).toBe("/a/b");
   } finally {
     viewer.close(s);
     other.runtime.destroy();

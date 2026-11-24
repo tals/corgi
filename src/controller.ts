@@ -2993,9 +2993,10 @@ export class Controller {
       if (index === null) return;
       initial = this.runtime.workspaces.items[index].name;
     }
-    // Without a workspace, a remote machine's dialog starts at its home, not the viewer's folder.
-    const start = this.machine.remote && !this.current().id ? "~" : this.currentCwd();
-    this.name_dialog = id === null ? this.folderDialog(start, null) : Dialog.init({ workspace_name: id }, initial);
+    this.name_dialog =
+      id === null
+        ? this.folderDialog(this.workspaceStart(this.machine), null)
+        : Dialog.init({ workspace_name: id }, initial);
     this.prepareName();
   }
   /** Opens the folder browser on workspace `id`'s folder, to move it. */
@@ -3014,7 +3015,7 @@ export class Controller {
       dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(cwd, files), moving, {
         machine: this.machine,
         machines: moving === null ? this.machines : [],
-        start: machine => machine.new_workspace_folder ?? this.workspaceFolder(machine),
+        start: machine => this.workspaceStart(machine),
       });
     dialog.changed = () => {
       this.dirty = true;
@@ -3022,8 +3023,13 @@ export class Controller {
     };
     return dialog;
   }
-  /** The folder of the workspace `machine` shows, or where a new one there starts without one. */
-  private workspaceFolder(machine: Machine): string {
+  /** Where the New workspace dialog browses `machine` from: the folder the
+   * last workspace it made there went in, else that of the workspace shown
+   * there. Without one, a remote machine starts at its home, not the
+   * viewer's folder. */
+  private workspaceStart(machine: Machine): string {
+    if (machine.new_workspace_folder !== null) return machine.new_workspace_folder;
+    if (machine === this.machine) return machine.remote && !this.current().id ? "~" : this.currentCwd();
     const ws = machine.navigation.current(machine.runtime.workspaces);
     return ws.id ? ws.cwd : machine.remote ? "~" : this.start_folder;
   }
