@@ -803,7 +803,6 @@ test("a machine still connecting is chosen, and its folders show and ↵ creates
   d.key(15);
   d.sequence("\x1b[B");
   d.sequence("\x1b[B");
-  d.sequence("\x1b[B");
   expect(d.highlight).toBe(2);
   d.key(13);
   await settle();
@@ -851,9 +850,76 @@ test("the machine's name opens its list on every click; a machine chooses it, an
   d.press(v, chip.x, chip.y, 0);
   expect(d.press(v, v.x - 1, v.y, 0)).toBe("none");
   expect([d.choosing, d.machine]).toEqual([false, devbox]);
-  // ^O's key opens it too.
+  // ^O's key opens it too, and so does its cap after the name.
   d.press(v, v.buttons()[2].x, v.buttons_y, 0);
   expect(d.choosing).toBe(true);
+  d.key(27);
+  expect(screen(d)).toMatch(/New workspace on devbox ▾ +\^O/);
+  const key = d.view(100, 30)!.chip!.key!;
+  expect(d.press(v, key + 1, chip.y, 0)).toBe("none");
+  expect(d.choosing).toBe(true);
+});
+
+test("up from the name opens the list of machines, whose arrows move by key or click, and down past the last closes it", async () => {
+  const { local, dialog } = machines();
+  const d = await dialog();
+  d.sequence("\x1b[A");
+  expect([d.choosing, d.highlight]).toEqual([true, 0]);
+  const v = d.view(100, 30)!,
+    arrows = v.buttons()[1];
+  d.press(v, arrows.x + 4, v.buttons_y, 0);
+  expect(d.highlight).toBe(1);
+  d.press(v, arrows.x, v.buttons_y, 0);
+  expect(d.highlight).toBe(0);
+  d.sequence("\x1b[B");
+  d.sequence("\x1b[B");
+  expect([d.choosing, d.highlight]).toEqual([true, 2]);
+  d.sequence("\x1b[B");
+  expect([d.choosing, d.machine, d.browser.focused]).toEqual([false, local, false]);
+  // Down from the name still goes to the folder.
+  d.sequence("\x1b[B");
+  expect([d.choosing, d.browser.focused]).toEqual([false, true]);
+});
+
+test("a workspace being created stays on its machine", async () => {
+  const { local, dialog } = machines();
+  const d = await dialog();
+  const v = d.view(100, 30)!;
+  d.saving = true;
+  d.key(15);
+  d.sequence("\x1b[A");
+  d.press(v, v.chip!.x, v.chip!.y, 0);
+  expect([d.choosing, d.machine]).toEqual([false, local]);
+});
+
+test("in a narrow card, the machine's name stays inside it, the title giving way", async () => {
+  const { dialog } = machines();
+  const original = i18n.language();
+  try {
+    for (const locale of i18n.locales) {
+      i18n.setLanguage(locale);
+      const d = await dialog();
+      d.fit(32, 30);
+      const v = d.view(32, 30)!,
+        chip = v.chip!,
+        w = new Writer(),
+        terminal = new Terminal(32, 30);
+      expect(chip.x + chip.width).toBeLessThanOrEqual(v.x + v.width - 2);
+      expect(chip.key).toBeNull();
+      try {
+        v.draw(d, w, 1);
+        terminal.feed(w.s);
+        const row = terminal.text().split("\n")[chip.y].trimEnd();
+        expect(row).toContain(" studio ▾");
+        expect(row.endsWith("│")).toBe(true);
+        expect(displayWidth(row)).toBe(v.x + v.width);
+      } finally {
+        terminal.destroy();
+      }
+    }
+  } finally {
+    i18n.setLanguage(original);
+  }
 });
 
 test("with one machine, or moving a workspace, the title names none and ^O does nothing", async () => {

@@ -2,12 +2,12 @@
 //! from the folders under a field. The field is the truth: moving through
 //! the list writes the folder into it. The name follows the folder until
 //! edited, and ↵ creates it. With other machines, the title names the one
-//! it goes on, and ^O or a click on that name lists the others.
+//! it goes on, and ^O, ↑ from the name or a click on that name lists the others.
 import * as i18n from "./i18n";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import * as palette from "./palette";
-import { Style, fgRgb, bgRgb, mix, colors } from "./palette";
+import { Style, fgRgb, bgRgb, mix, colors, keycap } from "./palette";
 import * as keys from "./keys";
 import * as errors from "./errors";
 import * as folders from "./folders";
@@ -20,7 +20,7 @@ import * as workspace from "./workspace";
 import { printable, writeField, type Key, type KeySpec, type Result } from "./name_dialog";
 import * as scrollThumb from "./scroll_thumb";
 import { relativeTime } from "./sidebar";
-import { Writer, writeEllipsis, displayWidth } from "./text";
+import { Writer, writeEllipsis, displayWidth, ellipsis } from "./text";
 
 /** The most folders the list shows at once. */
 const folder_rows = 10;
@@ -582,10 +582,18 @@ export class Dialog extends nameDialog.Dialog {
     if (online && !this.online) this.browser.retry();
     this.online = online;
   }
-  /** Opens the list of machines on the one the workspace goes on. */
+  /** Opens the list of machines on the one the workspace goes on, unless
+   * it is already being created there. */
   openMachines(): void {
+    if (this.saving) return;
     this.choosing = true;
     this.highlight = Math.max(0, this.machines.indexOf(this.machine!));
+  }
+  /** Moves through the open list; down past the last machine closes it, as
+   * down past the last folder returns to the name. */
+  private move(down: boolean): void {
+    if (down && this.highlight === this.machines.length - 1) this.choosing = false;
+    else this.highlight = Math.max(0, this.highlight + (down ? 1 : -1));
   }
   /** Puts the workspace on machine `index`, its folders browsed from the
    * folder typed for the last one. */
@@ -665,8 +673,7 @@ export class Dialog extends nameDialog.Dialog {
     const b = this.browser;
     const key = keys.parse(seq);
     if (this.choosing) {
-      if (key === "up" || key === "down")
-        this.highlight = Math.max(0, Math.min(this.machines.length - 1, this.highlight + (key === "down" ? 1 : -1)));
+      if (key === "up" || key === "down") this.move(key === "down");
       return;
     }
     if (key === "shift_tab") {
@@ -683,10 +690,15 @@ export class Dialog extends nameDialog.Dialog {
     }
   }
   /** Up and Down go round the name, the folder field and its folders, the
-   * name past either end of the list. False when they move within the folder. */
+   * name past either end of the list; with other machines, up from the name
+   * opens theirs instead. False when they move within the folder. */
   private round(down: boolean): boolean {
     const b = this.browser;
     if (this.compact) return false;
+    if (!b.focused && !down && this.offers() && this.roomy) {
+      this.openMachines();
+      return true;
+    }
     if (!b.focused) {
       b.focused = true;
       if (!down && b.count() > 0) b.pick(b.count() - 1);
@@ -710,10 +722,13 @@ export class Dialog extends nameDialog.Dialog {
         case "save":
           this.choose(this.highlight);
           break;
-        case "machine":
-        case "key":
+        // The ↑↓ key's halves.
         case "up":
         case "open":
+          this.move(found.tag === "open");
+          break;
+        case "machine":
+        case "key":
           break;
         default:
           this.choosing = false;
@@ -813,12 +828,18 @@ function titleOn(): [string, string] {
   const [before, ...after] = i18n.t`on ${machine}`.split("\0");
   return [before.trimEnd(), after.join("").trimStart()];
 }
-/** The machine's name in the title, padded a column either side and with ▾. */
+/** The machine's name in the title, padded a column either side and with
+ * ▾; the title before it, clipped to `title` columns; and ^O's cap at
+ * `key`, when it fits. */
 interface Chip {
   x: number;
   y: number;
   width: number;
+  title: number;
+  key: number | null;
 }
+/** ^O's cap, right after the machine's name and its padding. */
+const chip_key = " ^O ";
 /** Out and in before the folder has the keys: caps barely raised off the
  * panel, and the arrows and label in the border's color. */
 let quiet_cap: string, quiet_label: string;
@@ -913,13 +934,23 @@ export class View extends nameDialog.View {
     if (d.offers()) v.chip = v.machineChip(d);
     return v;
   }
-  /** After the title and "on", the machine's name, as much of it as fits. */
+  /** After the title and "on", the machine's name, then ^O's cap. Short of
+   * room, the cap goes first, then the title gives way to the name's first
+   * columns. */
   private machineChip(d: Dialog): Chip {
     const left = this.text_x - 1,
-      [before, after] = titleOn();
-    const x = left + displayWidth(this.title(d)) + (before ? 1 + displayWidth(before) : 0);
-    const room = this.x + this.width - 2 - x - displayWidth(after) - 4;
-    return { x, y: this.title_y, width: Math.max(1, Math.min(displayWidth(printable(d.machine!.name)), room)) + 4 };
+      room = this.x + this.width - 2 - left,
+      [before, after] = titleOn(),
+      full = displayWidth(this.fullTitle()),
+      name = displayWidth(printable(d.machine!.name)),
+      // "on" and the name's padding and ▾.
+      on = (before ? 1 + displayWidth(before) : 0) + 4 + displayWidth(after),
+      key = displayWidth(chip_key);
+    const title = Math.min(full, Math.max(0, room - on - Math.min(name, 8))),
+      x = left + title + (before ? 1 + displayWidth(before) : 0),
+      width = Math.max(1, Math.min(name, room - title - on)) + 4,
+      fits = full + on + name + key <= room;
+    return { x, y: this.title_y, width, title, key: fits ? x + width + displayWidth(after) : null };
   }
   /** The open list of machines, under the machine's name and inside the
    * card: its box, the first machine it shows, and the rows. */
@@ -976,8 +1007,11 @@ export class View extends nameDialog.View {
   protected keys(): KeySpec[] {
     return this.dialog.choosing ? machineKeys() : browserKeys(this.dialog);
   }
-  protected title(d: nameDialog.Dialog): string {
-    return this.dialog.moving !== null ? i18n.t`Change folder` : super.title(d);
+  protected title(): string {
+    return this.chip ? ellipsis(this.fullTitle(), this.chip.title) : this.fullTitle();
+  }
+  private fullTitle(): string {
+    return this.dialog.moving !== null ? i18n.t`Change folder` : super.title(this.dialog);
   }
   /** What a press lands on, the folder field and list included, and the
    * machine's name and the machines under it. */
@@ -989,6 +1023,7 @@ export class View extends nameDialog.View {
     if (list && row !== null) return { tag: "machine_row", index: list.first + row };
     const chip = v.chip;
     if (chip && y === chip.y && x >= chip.x && x < chip.x + chip.width) return { tag: "machine" };
+    if (chip?.key && y === chip.y && x >= chip.key && x < chip.key + displayWidth(chip_key)) return { tag: "machine" };
     // The field's fill beside the text answers too.
     const across = x + 1 >= v.text_x && x < v.text_x + v.text_width + 1;
     const column = Math.min(Math.max(0, x - v.text_x), v.text_width);
@@ -1043,6 +1078,7 @@ export class View extends nameDialog.View {
     writeEllipsis(w, printable(d.machine!.name), chip.width - 4);
     w.write(new Style({ fg: d.choosing ? "strong" : "muted", bg }).sgr() + " ▾ ");
     if (after) w.write(muted + after);
+    if (chip.key !== null) w.write(`\x1b[${chip.y + 1};${chip.key + 1}H${keycap}${chip_key}`);
   }
   /** Out and in stay quiet until the folder has the keys, and ↵ while the
    * machine isn't online. */
