@@ -558,7 +558,8 @@ export class Endpoint {
   description(now = performance.now()): string {
     if (this.updateProgress)
       return [this.updateProgress.message, this.updateProgress.metrics].filter(Boolean).join(" ");
-    return this.updateError ? "Update failed" : this.connectionDescription(now);
+    // A move that lost to another viewer's says whose release won; its details keep the failure.
+    return this.updateError && !this.reclaimable ? "Update failed" : this.connectionDescription(now);
   }
   connectionDescription(now = performance.now()): string {
     switch (this.status) {

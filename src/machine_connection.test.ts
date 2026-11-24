@@ -507,7 +507,7 @@ test("a machine another viewer moved away says whose release it runs, and Ctrl+R
       },
     };
   };
-  const jobs: { finish: (factory: machine_path.Factory | null) => void }[] = [];
+  const jobs: { finish: (factory: machine_path.Factory | null) => void; fail: (error: Error) => void }[] = [];
   const endpoint = new Endpoint(
     "work",
     true,
@@ -515,7 +515,7 @@ test("a machine another viewer moved away says whose release it runs, and Ctrl+R
     path,
     new Probe(),
     new Host(),
-    () => new Promise(finish => jobs.push({ finish })),
+    () => new Promise((finish, fail) => jobs.push({ finish, fail })),
     () => false,
   );
   try {
@@ -526,16 +526,25 @@ test("a machine another viewer moved away says whose release it runs, and Ctrl+R
     await until(() => !endpoint.updateMessage);
     await until(() => (endpoint.pump(false), endpoint.status === "incompatible"));
     expect(endpoint.description()).toBe("Moved to Corgi 1.4.0 by desk · Ctrl+R takes it back");
+    // A move of this viewer's that lost to the other one's says the same.
     endpoint.retry();
     endpoint.pump(false);
     await until(() => jobs.length === 2);
+    jobs[1].fail(new machine_update.Failure("InstallationChanged"));
+    await until(() => !!endpoint.updateError);
+    await until(() => (endpoint.pump(false), endpoint.status === "incompatible"));
+    expect(endpoint.description()).toBe("Moved to Corgi 1.4.0 by desk · Ctrl+R takes it back");
+    expect(endpoint.updateLog).toBe("InstallationChanged");
+    endpoint.retry();
+    endpoint.pump(false);
+    await until(() => jobs.length === 3);
     moved = false;
-    jobs[1].finish(path);
+    jobs[2].finish(path);
     await until(() => endpoint.status === "connecting");
     endpoint.pump(false);
     await until(() => endpoint.status === "online");
     expect(endpoint.movedBy).toBe("");
-    expect(jobs).toHaveLength(2);
+    expect(jobs).toHaveLength(3);
   } finally {
     await endpoint.close();
     await daemon.close();
