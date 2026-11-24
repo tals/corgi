@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { changes, stills } from "./ghostty_screenshot";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { changes, recordingLock, stills } from "./ghostty_screenshot";
 
 /** A 40-cell frame, black but for the given cells. */
 function frame(...cells: number[]): Uint8Array {
@@ -47,4 +50,34 @@ describe("stills", () => {
   test("holds a screen that never changes", () => {
     expect(stills([0], 60, 15)).toEqual([[60, null]]);
   });
+});
+
+// Owners are told apart by their start time in /proc.
+describe.skipIf(process.platform !== "linux")("recordingLock", () => {
+  const inSession = async (fn: (dir: string) => Promise<void>) => {
+    const dir = mkdtempSync(join(tmpdir(), "corgi-recording-lock-"));
+    try {
+      await fn(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  test("lets one record command use the session's files at a time", () =>
+    inSession(async dir => {
+      await recordingLock(dir, async () => {
+        await expect(recordingLock(dir, async () => {})).rejects.toThrow(
+          "another record start or stop is still running",
+        );
+      });
+      expect(await recordingLock(dir, async () => "next")).toBe("next");
+      expect(existsSync(join(dir, "recording.lock"))).toBe(false);
+    }));
+
+  test("takes over a lock whose command died", () =>
+    inSession(async dir => {
+      // The same PID, but started at another time.
+      writeFileSync(join(dir, "recording.lock"), JSON.stringify({ pid: process.pid, started: "0" }));
+      expect(await recordingLock(dir, async () => "taken")).toBe("taken");
+    }));
 });

@@ -48,6 +48,7 @@ import {
   chmodSync,
   closeSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   openSync,
@@ -131,6 +132,9 @@ interface RecordingFile {
   cols: number;
   rows: number;
 }
+
+/** What recording.lock holds: the record command using the session's recording files. */
+type Owner = Pick<RecordingFile, "pid" | "started">;
 
 const defaults: Options = {
   sandbox: "launcher",
@@ -313,67 +317,108 @@ function ffmpeg(...args: string[]): void {
   if (!result.success) throw Error(`ffmpeg: ${result.stderr.toString().trim() || `exit ${result.exitCode}`}`);
 }
 
-function readRecording(dir: string): RecordingFile | null {
+function readJSON<T>(path: string): T | null {
   try {
-    return JSON.parse(readFileSync(join(dir, "recording.json"), "utf8")) as RecordingFile;
+    return JSON.parse(readFileSync(path, "utf8")) as T;
   } catch {
     return null;
   }
 }
 
+function readRecording(dir: string): RecordingFile | null {
+  return readJSON<RecordingFile>(join(dir, "recording.json"));
+}
+
+/**
+ * Runs fn holding the session's recording lock, so a record command never
+ * overwrites or removes files another is still using, such as the take a
+ * record stop is encoding. A lock left by a process that died is taken over.
+ */
+export async function recordingLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
+  const lock = join(dir, "recording.lock");
+  const mine = `${lock}.${process.pid}`;
+  const owner: Owner = { pid: process.pid, started: startTime(process.pid)! };
+  writeFileSync(mine, JSON.stringify(owner));
+  try {
+    // A hard link appears whole, and only where no lock exists.
+    for (;;) {
+      try {
+        linkSync(mine, lock);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      const holder = readJSON<Owner>(lock);
+      if (holder && running(holder.pid, holder.started)) throw Error("another record start or stop is still running");
+      rmSync(lock, { force: true });
+    }
+  } finally {
+    rmSync(mine, { force: true });
+  }
+  try {
+    return await fn();
+  } finally {
+    rmSync(lock, { force: true });
+  }
+}
+
 /** Starts recording a session's window losslessly; returns once frames arrive. */
 async function startRecording(dir: string, screen: Screen, out: string, idle: number): Promise<void> {
-  const current = readRecording(dir);
-  if (current && running(current.pid, current.started)) throw Error("already recording; run record stop first");
-  const { w, h, x, y } = geometry(screen.display, screen.window, screen.wait);
-  const [raw, log, progress] = ["recording.mkv", "recording.log", "recording.progress"].map(name => join(dir, name));
-  rmSync(progress, { force: true });
-  const errors = openSync(log, "w");
-  // Not -nostdin: ffmpeg 7.1 ignores SIGINT with it, and stdin is /dev/null anyway.
-  // Detached, so a recording started by `record start` outlives that command.
-  const recorder = spawn(
-    "ffmpeg",
-    [
-      ...["-hide_banner", "-loglevel", "error", "-y"],
-      ...["-f", "x11grab", "-draw_mouse", "1", "-framerate", String(FPS), "-video_size", `${w}x${h}`],
-      ...["-i", `:${screen.display}+${x},${y}`],
-      ...["-c:v", "libx264rgb", "-preset", "ultrafast", "-qp", "0"],
-      ...["-progress", progress, "-stats_period", "0.1", raw],
-    ],
-    { detached: true, stdio: ["ignore", "ignore", errors] },
-  );
-  closeSync(errors);
-  recorder.on("error", () => {});
-  recorder.unref();
-  const pid = recorder.pid;
-  const started = pid && startTime(pid);
-  if (!pid || !started) throw Error(`ffmpeg did not start: ${readFileSync(log, "utf8")}`);
-  const file: RecordingFile = { pid, started, out, idle, width: w, height: h, cols: screen.cols, rows: screen.rows };
-  writeFileSync(join(dir, "recording.json"), JSON.stringify(file));
-  await until(() => {
-    if (!running(pid, started)) throw Error(`ffmpeg exited: ${readFileSync(log, "utf8")}`);
-    return existsSync(progress) && /^frame=[1-9]/m.test(readFileSync(progress, "utf8"));
-  }, screen.wait);
+  await recordingLock(dir, async () => {
+    const current = readRecording(dir);
+    if (current && running(current.pid, current.started)) throw Error("already recording; run record stop first");
+    const { w, h, x, y } = geometry(screen.display, screen.window, screen.wait);
+    const [raw, log, progress] = ["recording.mkv", "recording.log", "recording.progress"].map(name => join(dir, name));
+    rmSync(progress, { force: true });
+    const errors = openSync(log, "w");
+    // Not -nostdin: ffmpeg 7.1 ignores SIGINT with it, and stdin is /dev/null anyway.
+    // Detached, so a recording started by `record start` outlives that command.
+    const recorder = spawn(
+      "ffmpeg",
+      [
+        ...["-hide_banner", "-loglevel", "error", "-y"],
+        ...["-f", "x11grab", "-draw_mouse", "1", "-framerate", String(FPS), "-video_size", `${w}x${h}`],
+        ...["-i", `:${screen.display}+${x},${y}`],
+        ...["-c:v", "libx264rgb", "-preset", "ultrafast", "-qp", "0"],
+        ...["-progress", progress, "-stats_period", "0.1", raw],
+      ],
+      { detached: true, stdio: ["ignore", "ignore", errors] },
+    );
+    closeSync(errors);
+    recorder.on("error", () => {});
+    recorder.unref();
+    const pid = recorder.pid;
+    const started = pid && startTime(pid);
+    if (!pid || !started) throw Error(`ffmpeg did not start: ${readFileSync(log, "utf8")}`);
+    const file: RecordingFile = { pid, started, out, idle, width: w, height: h, cols: screen.cols, rows: screen.rows };
+    writeFileSync(join(dir, "recording.json"), JSON.stringify(file));
+    await until(() => {
+      if (!running(pid, started)) throw Error(`ffmpeg exited: ${readFileSync(log, "utf8")}`);
+      return existsSync(progress) && /^frame=[1-9]/m.test(readFileSync(progress, "utf8"));
+    }, screen.wait);
+  });
 }
 
 /** Stops a session's recording and writes its video. */
 async function stopRecording(dir: string, wait: number): Promise<void> {
-  const file = readRecording(dir);
-  if (!file) throw Error("not recording; run record start first");
-  if (running(file.pid, file.started)) {
-    process.kill(file.pid, "SIGINT");
-    try {
-      await until(() => !running(file.pid, file.started), wait);
-    } catch (error) {
-      if (interrupted) throw error;
-      // A Matroska file reads back without its trailer.
-      process.kill(file.pid, "SIGKILL");
+  await recordingLock(dir, async () => {
+    const file = readRecording(dir);
+    if (!file) throw Error("not recording; run record start first");
+    if (running(file.pid, file.started)) {
+      process.kill(file.pid, "SIGINT");
+      try {
+        await until(() => !running(file.pid, file.started), wait);
+      } catch (error) {
+        if (interrupted) throw error;
+        // A Matroska file reads back without its trailer.
+        process.kill(file.pid, "SIGKILL");
+      }
     }
-  }
-  await encode(join(dir, "recording.mkv"), file);
-  for (const name of ["recording.json", "recording.mkv", "recording.log", "recording.progress", "palette.png"])
-    rmSync(join(dir, name), { force: true });
-  console.log(file.out);
+    await encode(join(dir, "recording.mkv"), file);
+    for (const name of ["recording.json", "recording.mkv", "recording.log", "recording.progress", "palette.png"])
+      rmSync(join(dir, name), { force: true });
+    console.log(file.out);
+  });
 }
 
 /** Ends a recording without writing it, when its session closes. */
