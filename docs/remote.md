@@ -92,6 +92,14 @@ workspace's machine streams terminal surfaces; other machines update metadata
 and resource readings without resizing panes or marking output read. Resource
 sampling stays enabled across workspace switches while readings are displayed.
 
+With saved machines, the New workspace dialog names the machine it creates on,
+as in **New workspace on studio ▾**, starting with the one shown. Click the
+name or press **Ctrl+O** for the machines and their status; arrows and Enter,
+or a click, choose one, and the folder typed is browsed there. A machine that
+is still connecting can be chosen: its folders show, and Enter creates the
+workspace, once it connects. The viewer then switches to the new workspace on
+its machine.
+
 `corgi --machine workbox` starts on that host. `corgi --machine local` opens the
 ordinary local viewer. `CORGI_MACHINE=workbox` is an optional CLI default outside
 Corgi panes; an explicit `--machine` takes precedence. Switching the viewer never

@@ -3007,12 +3007,14 @@ export class Controller {
     this.prepareName();
     this.fitNameDialog();
   }
-  /** The folder browser at `cwd`, on the shown machine's folders. */
+  /** The folder browser at `cwd`, on the shown machine's folders. A new
+   * workspace may go on another machine instead. */
   private folderDialog(cwd: string, moving: newWorkspace.Moving | null): newWorkspace.Dialog {
-    const files = new newWorkspace.Reader(
-        this.machine.remote ? newWorkspace.remote(this.machine) : newWorkspace.here(),
-      ),
-      dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(cwd, files), moving);
+    const files = new newWorkspace.Reader(newWorkspace.place(this.machine)),
+      dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(cwd, files), moving, {
+        machine: this.machine,
+        machines: moving === null ? this.machines : [],
+      });
     dialog.changed = () => {
       this.dirty = true;
       this.wake();
@@ -3094,6 +3096,8 @@ export class Controller {
     if (dialog.saving) return;
     const target = dialog.target,
       fresh = dialog instanceof newWorkspace.Dialog ? dialog : null,
+      // A new workspace goes on the machine its dialog chose.
+      machine = fresh?.machine ?? this.machine,
       name = dialog.name(),
       here = this.here();
     if ("workspace_name" in target && !name) {
@@ -3113,7 +3117,7 @@ export class Controller {
       }
     };
     dialog.saving = true;
-    this.later(async lane => {
+    machine.tasks.start(async lane => {
       let pane: number | null = null;
       try {
         // The folder is checked, and made, on the machine the workspace is on.
@@ -3129,7 +3133,10 @@ export class Controller {
           if (target.workspace_name === null) {
             const id = (await this.execute({ "workspace.create": { name, cwd } }, lane)).workspace;
             dialog.saving = false;
-            if (here()) this.switchWorkspace(id);
+            if (here()) {
+              if (machine === this.machine) this.switchWorkspace(id);
+              else this.onMachine(machine, { workspace: id });
+            }
             return close();
           }
           await this.edit(
@@ -9135,6 +9142,8 @@ export class Controller {
       } else if (!release && button === 32) {
         dialog.drag(NameView.init(this.width, this.height, dialog), x);
         this.dirty = true;
+      } else if (!release && button === 35) {
+        if (dialog.hover(NameView.init(this.width, this.height, dialog), x, y)) this.dirty = true;
       } else if (release) dialog.release();
       return;
     }
@@ -10788,6 +10797,7 @@ export class Controller {
     if (!this.agent_picker) this.revealLaunched(entries);
     this.readAhead(entries);
     this.revealTab();
+    if (this.name_dialog instanceof newWorkspace.Dialog) this.name_dialog.catchUp();
     if (this.pointer) {
       const hit = sidebar.gitActionWorkspace(
         this.sidebarView(entries),

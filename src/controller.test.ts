@@ -1641,6 +1641,61 @@ test("open adds a workspace for a folder no workspace is on", async () => {
   }
 });
 
+test("a new workspace goes on the machine its dialog chose, which the viewer then shows", async () => {
+  const s = controller(async op => {
+    if (op === "launcher.catalog") return { agents: [], data: { accounts: [], removed: [] } };
+    throw Error("UnexpectedRequest");
+  });
+  const sent: unknown[] = [];
+  const other = new Machine(
+    {
+      request: transport(async (op, fields: any) => {
+        switch (op) {
+          case "folder.list":
+            return { folders: ["infra"], home: "/home/w" };
+          case "folder.find":
+            return { deepest: { path: fields.path, found: { kind: "folder", size: 0, modified: 0 } } };
+          case "folder.open":
+            sent.push({ [op]: fields.path });
+            return { opened: { path: fields.path } };
+          case "session.command":
+            sent.push(fields.command);
+            return { result: { workspace: 4 } };
+          default:
+            return folders("/w");
+        }
+      }).request,
+    },
+    "work",
+    true,
+  );
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  const chosen: [string, unknown][] = [];
+  s.onMachine = (machine: Machine, focus: unknown) => void chosen.push([machine.name, focus]);
+  try {
+    await s.perform({ name: "new-workspace" });
+    const d = s.name_dialog;
+    expect(d.machines).toEqual([s.machine, other]);
+    // ^O, down to work, and ↵ choose it; ↵ again creates it there.
+    await s.input(bytes("\x0f\x1b[B\r"));
+    expect(d.machine).toBe(other);
+    for (let i = 0; i < 100 && d.browser.reading; i++) await Bun.sleep(1);
+    expect(d.browser.entries).toEqual(["infra"]);
+    const name = d.name(),
+      cwd = d.browser.folder();
+    await s.input(bytes("\r"));
+    await other.tasks.idle();
+    expect(sent).toEqual([{ "folder.open": cwd }, { "workspace.create": { name, cwd } }]);
+    expect(chosen).toEqual([["work", { workspace: 4 }]]);
+    expect(s.name_dialog).toBeNull();
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 /** Two agents side by side in workspace 1, and one in workspace 2. */
 function pair() {
   return {

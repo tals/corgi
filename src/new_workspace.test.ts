@@ -701,3 +701,173 @@ test("something else where the field names a folder is shown, with its size and 
 test("sizes read in bytes, then KB or MB", () => {
   expect([0, 980, 1229, 34 * 1048576].map(size)).toEqual(["0 B", "980 B", "1.2 KB", "34 MB"]);
 });
+
+/** This computer and two remote machines, `devbox` online and `gpu-box`
+ * connecting, whose folders `places` reads. */
+function machines() {
+  const transport = { request: async () => ({}) } as unknown as Transport;
+  const presence =
+    (online: boolean, quality: 0 | 1 | 2 | 3 | 4 | null = null) =>
+    () => ({
+      online,
+      link_quality: quality,
+      connecting: !online,
+      stopped: false,
+      connection_status: online ? null : { label: "connecting", seconds: 3, color: "warm" as const },
+      description: "",
+      cached: [],
+      seen: true,
+      stale: false,
+    });
+  const local = new Machine(transport, "studio"),
+    devbox = new Machine(transport, "devbox", true),
+    gpu = new Machine(transport, "gpu-box", true);
+  devbox.presence = presence(true, 4);
+  gpu.presence = presence(false);
+  const devboxTree: Record<string, string[]> = { "/home/me": ["code"], "/home/me/code": ["infra", "llm-evals"] };
+  const link = { up: false };
+  /** gpu-box's daemon answers once `link` is up. */
+  const places = (machine: Machine): Place => {
+    if (machine === local) return computer();
+    const tree = machine === devbox ? devboxTree : { "/home/me": ["code"], "/home/me/code": ["training"] };
+    return {
+      home: "/home/me",
+      ask: async (op, path) => {
+        if (machine === gpu && !link.up) throw Error("StaleConnection");
+        return op === "folder.list"
+          ? { folders: tree[path] ?? null, home: "/home/me" }
+          : { deepest: { path, found: folder } };
+      },
+      lost: () => true,
+    };
+  };
+  const dialog = async (moving: { workspace: number; name: string } | null = null, all = [local, devbox, gpu]) => {
+    const d = new Dialog(await browse("/home/me/code"), moving, { machine: local, machines: all });
+    d.places = places;
+    d.fit(100, 30);
+    return d;
+  };
+  return { local, devbox, gpu, link, places, dialog };
+}
+/** The dialog's rows as text, as a 100×30 terminal shows them. */
+function screen(d: Dialog): string {
+  const terminal = new Terminal(100, 30);
+  try {
+    terminal.feed(draw(d));
+    return terminal.text();
+  } finally {
+    terminal.destroy();
+  }
+}
+const labels = (d: Dialog) =>
+  d
+    .view(100, 30)!
+    .buttons()
+    .map(b => b.label);
+
+test("with other machines, the title names the one the workspace goes on, and ^O lists them", async () => {
+  const { local, devbox, dialog } = machines();
+  const d = await dialog();
+  expect(screen(d)).toContain("New workspace on studio ▾");
+  expect(labels(d)).toEqual(["create", "out / in", "machine", "cancel"]);
+  d.key(15);
+  expect([d.choosing, d.highlight]).toEqual([true, 0]);
+  expect(labels(d)).toEqual(["choose", "machine", "close"]);
+  const open = screen(d);
+  for (const text of [/✓ studio +this machine/, /devbox +▂▄▆█/, /gpu-box +connecting 3s/]) expect(open).toMatch(text);
+  // The list has the keys, and the cursor goes.
+  expect(draw(d)).not.toContain("\x1b[?25h");
+  d.key(c("x"));
+  expect(d.name()).toBe("code");
+  d.sequence("\x1b[B");
+  expect(d.key(13)).toBe("none");
+  expect([d.choosing, d.machine]).toEqual([false, devbox]);
+  // The folder typed is browsed there, and the name follows it.
+  await settle();
+  expect([d.browser.field.raw(), d.browser.entries, d.name()]).toEqual(["~/code/", ["infra", "llm-evals"], "code"]);
+  expect(screen(d)).toContain("New workspace on devbox ▾");
+  expect(d.key(13)).toBe("save");
+  // Esc closes the list, not the dialog.
+  d.key(15);
+  expect(d.key(27)).toBe("none");
+  expect([d.choosing, d.machine]).toEqual([false, devbox]);
+  d.key(15);
+  d.sequence("\x1b[A");
+  d.key(13);
+  expect(d.machine).toBe(local);
+});
+
+test("a machine still connecting is chosen, and its folders show and ↵ creates once it's online", async () => {
+  const { gpu, link, dialog } = machines();
+  const d = await dialog();
+  d.key(15);
+  d.sequence("\x1b[B");
+  d.sequence("\x1b[B");
+  d.sequence("\x1b[B");
+  expect(d.highlight).toBe(2);
+  d.key(13);
+  await settle();
+  expect([d.machine, d.ready(), d.browser.reading]).toEqual([gpu, false, true]);
+  expect(draw(d)).toContain("Connecting to gpu-box…");
+  expect(d.key(13)).toBe("none");
+  const v = d.view(100, 30)!;
+  expect(d.press(v, v.buttons()[0].x, v.buttons_y, 0)).toBe("none");
+  // Looking again before it's online asks nothing new.
+  d.catchUp();
+  await settle();
+  expect(d.browser.reading).toBe(true);
+  link.up = true;
+  const connecting = gpu.presence();
+  gpu.presence = () => ({ ...connecting, online: true, connecting: false, connection_status: null });
+  d.catchUp();
+  await settle();
+  expect([d.browser.reading, d.browser.entries]).toEqual([false, ["training"]]);
+  expect(screen(d)).toContain("training");
+  expect(d.key(13)).toBe("save");
+});
+
+test("the machine's name opens its list on every click; a machine chooses it, and a press elsewhere closes it", async () => {
+  const { devbox, dialog } = machines();
+  const d = await dialog();
+  const v = d.view(100, 30)!;
+  const chip = v.chip!;
+  expect(v.at(chip.x, chip.y)).toEqual({ tag: "machine" });
+  expect(v.points(chip.x + chip.width - 1, chip.y)).toBe(true);
+  expect(d.hover(v, chip.x, chip.y)).toBe(true);
+  expect(d.hover(v, chip.x + 1, chip.y)).toBe(false);
+  expect(d.hovering).toBe(true);
+  expect(d.press(v, chip.x, chip.y, 0)).toBe("none");
+  expect(d.choosing).toBe(true);
+  // Again, it stays open.
+  d.press(v, chip.x, chip.y, 0);
+  expect(d.choosing).toBe(true);
+  const list = v.machineList()!;
+  expect(d.hover(v, list.box.x + 2, list.box.y + 3)).toBe(true);
+  expect(d.highlight).toBe(2);
+  expect(v.points(list.box.x + 2, list.box.y + 2)).toBe(true);
+  d.press(v, list.box.x + 2, list.box.y + 2, 0);
+  expect([d.choosing, d.machine]).toEqual([false, devbox]);
+  // Off the list, a press closes it, and doesn't cancel the dialog.
+  d.press(v, chip.x, chip.y, 0);
+  expect(d.press(v, v.x - 1, v.y, 0)).toBe("none");
+  expect([d.choosing, d.machine]).toEqual([false, devbox]);
+  // ^O's key opens it too.
+  d.press(v, v.buttons()[2].x, v.buttons_y, 0);
+  expect(d.choosing).toBe(true);
+});
+
+test("with one machine, or moving a workspace, the title names none and ^O does nothing", async () => {
+  const { local, dialog } = machines();
+  for (const d of [await dialog(null, [local]), await dialog({ workspace: 1, name: "code" })]) {
+    expect(draw(d)).not.toContain("▾");
+    expect(d.view(100, 30)!.chip).toBeNull();
+    expect(labels(d)).not.toContain("machine");
+    d.key(15);
+    expect(d.choosing).toBe(false);
+  }
+  // Too small for the card, the plain dialog has no list to open.
+  const d = await dialog();
+  d.fit(100, 12);
+  d.key(15);
+  expect(d.choosing).toBe(false);
+});

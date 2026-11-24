@@ -348,6 +348,10 @@ export class Dialog {
   release(): void {
     this.pressed_at = null;
   }
+  /** The pointer moved to `x`, `y` with no button down; whether that changed what shows. */
+  hover(_v: View, _x: number, _y: number): boolean {
+    return false;
+  }
 }
 
 interface Card {
@@ -556,6 +560,12 @@ export class View {
     if (y === v.field_y && across) return { tag: "field", field: v.offset + column };
     if (y === v.buttons_y) for (const b of v.buttons()) if (x >= b.x && x < b.x + b.width) return b.hit;
     return { tag: "none" };
+  }
+  /** Whether the pointer shows a hand at `x`, `y`: over a button. A press
+   * outside the dialog cancels it too, but doesn't point. */
+  points(x: number, y: number): boolean {
+    const inside = x >= this.x && x < this.x + this.width;
+    return inside && y === this.buttons_y && this.hit(x, y).tag !== "none";
   }
   /** Drawn like the launcher and the menus: a rounded box on `surface`, a
    * gutter inside it, the field inset on `selected`, and keycap buttons. */
