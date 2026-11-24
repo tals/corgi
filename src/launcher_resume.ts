@@ -208,8 +208,8 @@ export class Mentions {
   typed_at = 0;
   /** Counts the searches sent, so only the latest one's answers count. */
   generation = 0;
-  /** The machines the search went to, by id: another scope may take in more. */
-  targets = "";
+  /** The machines the search went to, by id: one that connects later is asked then. */
+  targets: number[] = [];
   /** Searches for `query` that failed in a row. */
   failures = 0;
   /** When to search for `query` again after a failure, in ms; 0 when not waiting to. */
@@ -413,20 +413,18 @@ export class View {
     return m.query === this.mentionQuery() && m.failures >= mention_tries && m.retry_at === 0;
   }
   /** Notes a search for `query` going out, and returns its generation. Another
-   * try at the same query keeps what earlier ones found; `anew`, as when
-   * another machine connects, it still starts the count of tries over. */
+   * try at the same query keeps what earlier ones found; `anew`, as when a
+   * machine connects again, it still starts the count of tries over. */
   searchMentions(query: string, anew = false): number {
     const m = this.mentions,
       changed = m.query !== query;
     if (changed) {
       m.query = query;
       m.hits = new Map();
-    }
-    if (changed || anew) {
       m.cut = false;
-      m.failures = 0;
       m.failed = [];
     }
+    if (changed || anew) m.failures = 0;
     m.searching = query !== "";
     m.retry_at = 0;
     return ++m.generation;
@@ -458,15 +456,17 @@ export class View {
     m.failed = [];
   }
   /** Search `generation` failed at `now` ms on the `failed` machines, by id;
-   * they're tried again later, a few times. */
-  failMentions(generation: number, now: number, failed: number[] = [], cut = false): void {
+   * they're tried again later, a few times. One that only ran out of time,
+   * `slow`, is tried again at once and as often as it takes: a daemon keeps
+   * what it indexed, so each try gets further through a long history. */
+  failMentions(generation: number, now: number, failed: number[] = [], cut = false, slow = false): void {
     const m = this.mentions;
     if (m.generation !== generation) return;
     m.searching = false;
     m.cut ||= cut;
-    m.failures++;
     m.failed = failed;
-    m.retry_at = m.failures < mention_tries ? now + 2000 * m.failures : 0;
+    if (slow) m.retry_at = now;
+    else m.retry_at = ++m.failures < mention_tries ? now + 2000 * m.failures : 0;
   }
   /** Puts the next try off at `now` ms, while a machine that failed is away,
    * and forgets the tries its outage cost. True when the list shows it. */

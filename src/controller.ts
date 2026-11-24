@@ -5508,15 +5508,17 @@ export class Controller {
       this.dirty = true;
     }
     for (const machine of others) {
-      const read = reads.get(machine.id) ?? { at: 0, reading: false, pending: true, entries: [] };
+      const read = reads.get(machine.id) ?? { at: 0, wait: 1000, reading: false, pending: true, entries: [] };
       reads.set(machine.id, read);
-      // A daemon still reading its list the first time is asked again shortly.
-      if (read.reading || !read.pending || now - read.at < 1000) continue;
+      // A daemon still reading its list the first time is asked again shortly;
+      // one that fails, less and less often.
+      if (read.reading || !read.pending || now - read.at < read.wait) continue;
       read.reading = true;
       void call(machine.connection, "agent.history", {})
         .then(
           reply => {
             read.pending = reply.history?.pending === true;
+            read.wait = 1000;
             const entries = (reply.history?.entries ?? [])
               .filter((e: unknown) => Provider.parse((e as { provider?: unknown } | null)?.provider))
               .map(launcherResume.historyEntry);
@@ -5525,7 +5527,9 @@ export class Controller {
               .map(e => ({ ...e, machine: { id: machine.id, name: machine.name } }));
             if (reads.get(machine.id) === read) show();
           },
-          () => {},
+          () => {
+            read.wait = Math.min(read.wait * 2, 30_000);
+          },
         )
         .finally(() => {
           read.reading = false;
@@ -5548,7 +5552,6 @@ export class Controller {
       m = view.mentions,
       query = view.mentionQuery(),
       machines = this.mentionMachines(view),
-      targets = machines.map(machine => machine.id).join(","),
       now = milliTimestamp();
     if (query !== m.typed) {
       m.typed = query;
@@ -5562,23 +5565,36 @@ export class Controller {
       this.dirty = true;
     }
     if (!machines.length) return;
-    // The same search goes again only when a failed one's retry is due, or
-    // another machine connects.
-    const retry = query === m.query && targets === m.targets,
-      due = retry
-        ? query !== "" && m.retry_at > 0 && now >= m.retry_at
-        : !query || now - m.typed_at >= mentions_pause_ms;
+    // The same search goes again only when a failed one's retry is due, or to
+    // a machine that has connected since. One that left is asked nothing more.
+    const same = query === m.query,
+      joined = same && query ? machines.filter(machine => !m.targets.includes(machine.id)) : [],
+      retry = same && !joined.length;
+    if (same) {
+      m.targets = m.targets.filter(id => machines.some(machine => machine.id === id));
+      m.failed = m.failed.filter(id => m.targets.includes(id));
+    }
     // A machine that failed and is away is waited for: its outage isn't the
     // search's failure, so its tries start over once it's back.
     if (retry && query && machines.some(machine => m.failed.includes(machine.id) && !machine.presence().online)) {
       if (view.deferMentions(now)) this.dirty = true;
       return;
     }
+    // A machine that joins waits for the search that's out, whose answers a
+    // newer one would leave behind.
+    const due = joined.length
+      ? !m.searching
+      : retry
+        ? query !== "" && m.retry_at > 0 && now >= m.retry_at
+        : !query || now - m.typed_at >= mentions_pause_ms;
     if (!due) return;
-    // A retry asks only the machines that failed.
-    const asked = retry && m.failed.length ? machines.filter(machine => m.failed.includes(machine.id)) : machines;
-    const generation = view.searchMentions(query, !retry);
-    m.targets = targets;
+    // A retry asks only the machines that failed, and a machine that joins is
+    // asked with them; the rest have answered.
+    const again = same && (joined.length > 0 || m.failed.length > 0),
+      asked = again ? machines.filter(machine => joined.includes(machine) || m.failed.includes(machine.id)) : machines;
+    // A machine back from an outage starts its tries over.
+    const generation = view.searchMentions(query, joined.length > 0);
+    m.targets = machines.map(machine => machine.id);
     this.dirty = true;
     if (!query) return;
     const out = { connections: asked.map(machine => machine.connection), view };
@@ -5602,11 +5618,12 @@ export class Controller {
     };
     // Done once every machine answered; the ones that failed are tried again.
     let left = asked.length,
-      cut = false;
+      cut = false,
+      slow = true;
     const failed: number[] = [];
     const settle = () => {
       if (--left > 0) return;
-      if (failed.length) view.failMentions(generation, milliTimestamp(), failed, cut);
+      if (failed.length) view.failMentions(generation, milliTimestamp(), failed, cut, slow);
       else view.endMentions(generation, cut);
       if (this.mentions_out === out) this.mentions_out = null;
       this.dirty = true;
@@ -5633,14 +5650,15 @@ export class Controller {
             view.mentions.unable.add(machine.id);
             // Leaving it out isn't a new search for the rest.
             if (view.mentions.generation === generation)
-              view.mentions.targets = view.mentions.targets
-                .split(",")
-                .filter(id => id !== String(machine.id))
-                .join(",");
+              view.mentions.targets = view.mentions.targets.filter(id => id !== machine.id);
           }
           // A cancelled search gave way to a newer one, or to none. Anything
           // else, a reload, a lost connection or a stopped worker, is tried again.
-          else if (!errors.is(error, "Cancelled")) failed.push(machine.id);
+          else if (!errors.is(error, "Cancelled")) {
+            failed.push(machine.id);
+            // Out of time, as on a history never indexed, isn't a failure to count.
+            slow &&= errors.is(error, "SearchTimedOut");
+          }
         }
         settle();
       })();

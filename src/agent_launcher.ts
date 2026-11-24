@@ -190,7 +190,7 @@ export class Menu {
   /** Each other machine's list, read once while the launcher's open, by machine id. */
   elsewhere_reads = new Map<
     number,
-    { at: number; reading: boolean; pending: boolean; entries: launcherResume.Entry[] }
+    { at: number; wait: number; reading: boolean; pending: boolean; entries: launcherResume.Entry[] }
   >();
   selected: Row = Provider.first;
   /** Whether Find agents is running; null when unsupported. */

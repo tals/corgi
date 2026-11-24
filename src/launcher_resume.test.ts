@@ -651,12 +651,31 @@ test("a retry knows which machines failed, and a cut one machine reported stays 
   v.endMentions(search, false);
   expect(v.mentions.cut).toBe(true);
   expect(v.mentions.failed).toEqual([]);
-  // The same search sent anew, as to other machines, starts over, as a new one does.
-  v.searchMentions("deploy", true);
-  expect(v.mentions.cut).toBe(false);
+  // A new search starts over.
   v.endMentions(v.searchMentions("deploy"), true);
   v.searchMentions("deploy it");
   expect(v.mentions.cut).toBe(false);
+});
+
+test("a machine that connects again starts its tries over, keeping what was found and the cut", () => {
+  const entries = [testEntry("a", "/w/corgi", "Release notes", 900)];
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  let search = v.searchMentions("deploy");
+  v.addMentions(search, mentionsOf([said("a", "deploy it")]));
+  v.failMentions(search, 1000, [7], true);
+  v.failMentions(v.searchMentions("deploy"), 2000, [7]);
+  expect(v.mentions.failures).toBe(2);
+  // Machine 7 drops off, and is asked alone once it's back.
+  search = v.searchMentions("deploy", true);
+  expect(v.mentions).toMatchObject({ failures: 0, cut: true });
+  expect(v.mention(entries[0])).toBe("deploy it");
+  // Still starting up, its first failure isn't the last try.
+  v.failMentions(search, 3000, [7]);
+  expect(v.lines(c)).toContainEqual({ note: "searching" });
 });
 
 test("open conversations only their text matched never take a title match's place among the open ones", () => {
@@ -808,4 +827,22 @@ test("a search that gave up starts its tries over once the machine that failed i
   search = v.searchMentions("deploy");
   v.failMentions(search, 7000, [0]);
   expect(v.lines(c)).toContainEqual({ note: "searching" });
+});
+
+test("a search that only ran out of time is tried again at once, however often", () => {
+  const entries = [testEntry("a", "/w/corgi", "Release notes", 900)];
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
+  const v = new View();
+  v.expand();
+  v.startSearch();
+  for (const ch of "deploy") v.query.key(ch.charCodeAt(0));
+  // A long history takes several searches to index; none of them is a failure.
+  for (let i = 0; i < mention_tries + 2; i++) {
+    v.failMentions(v.searchMentions("deploy"), 1000 + i, [0], false, true);
+    expect(v.mentions).toMatchObject({ failures: 0, failed: [0], retry_at: 1000 + i });
+    expect(v.lines(c)).toContainEqual({ note: "searching" });
+  }
+  // Any other failure still counts.
+  for (let i = 0; i < mention_tries; i++) v.failMentions(v.searchMentions("deploy"), 2000, [0]);
+  expect(v.lines(c)).toContainEqual({ note: "failed" });
 });
