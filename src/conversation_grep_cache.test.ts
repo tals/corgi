@@ -539,3 +539,43 @@ test("a conversation decoded by an older version is indexed again when a search 
   expect(await refresh(w.cache, tools, undefined, w.locations)).toMatchObject({ refreshed: 1 });
   expect(await refresh(w.cache, tools, undefined, w.locations)).toMatchObject({ refreshed: 0 });
 });
+
+test("a search repairs cache files that are gone, cut short or don't parse, and an index it can't read", async () => {
+  const w = world("heal"),
+    names = ["gone", "empty", "garbled", "kept"];
+  for (const name of names) fs.appendFileSync(w.source(name), message(`${name} needle`) + message("more", "assistant"));
+  const index = path.join(w.cache, "index.json");
+  const found = async (readOnly = false) => {
+    const session = await open(w.cache, options, undefined, w.locations, readOnly);
+    const matches = await search(w.cache, session.sources, { ...options, open: session.messages });
+    session.save();
+    return { hits: matches.map(m => m.hits[0].text).sort(), manifest: session.manifest };
+  };
+  const all = names.map(name => `${name} needle`).sort();
+  const first = await found();
+  expect(first.hits).toEqual(all);
+  const file = (name: string) => path.join(w.cache, first.manifest.sources.find(s => s.session === name)!.file);
+  const kept = fs.statSync(file("kept")).mtimeMs;
+  const damage = () => {
+    fs.rmSync(file("gone"));
+    fs.writeFileSync(file("empty"), "");
+    fs.writeFileSync(file("garbled"), '{"role":"user","text":"gar');
+  };
+  // Without the lock, the transcripts are read for this search and nothing is written.
+  damage();
+  expect((await found(true)).hits).toEqual(all);
+  expect(fs.existsSync(file("gone"))).toBe(false);
+  // With it, they're indexed again, and only they are.
+  const healed = await found();
+  expect(healed.hits).toEqual(all);
+  expect(healed.manifest.refreshed).toBe(3);
+  expect(fs.statSync(file("kept")).mtimeMs).toBe(kept);
+  expect(await found()).toMatchObject({ hits: all, manifest: { refreshed: 0 } });
+  // An index that's empty, cut short or not an index is indexed afresh.
+  const good = fs.readFileSync(index, "utf8");
+  for (const bad of ["", good.slice(0, good.length / 2), JSON.stringify({ index_version: 1, sources: "none" })]) {
+    fs.writeFileSync(index, bad);
+    expect(await found()).toMatchObject({ hits: all, manifest: { refreshed: 4 } });
+    expect(JSON.parse(fs.readFileSync(index, "utf8")).sources.length).toBe(4);
+  }
+});

@@ -129,7 +129,7 @@ function* lines(messages: Iterable<Message>, skip?: (text: string) => boolean): 
   }
 }
 /** A conversation's messages from its cache files. */
-async function cached(cache: string, source: Source, tools = false): Promise<Lanes> {
+async function cached(cache: string, source: Source, tools = false): Promise<{ text: Message[]; tools?: Message[] }> {
   const text = records(await Bun.file(path.join(cache, source.file)).text());
   if (!tools) return { text };
   return { text, tools: records(await Bun.file(path.join(cache, source.key + ".tools.jsonl")).text()) };

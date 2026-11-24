@@ -47,6 +47,30 @@ export function stale(s: Source, version: string, tools = false): boolean {
   );
 }
 
+/** The index as last saved; null when there's none, or it can't be read as
+ * one, as after a crash or a cleared cache. The search then indexes afresh. */
+async function lastSaved(file: string): Promise<Index | null> {
+  let text: string;
+  try {
+    text = await Bun.file(file).text();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  try {
+    const value = JSON.parse(text);
+    const entries = (list: unknown, ...fields: string[]) =>
+      Array.isArray(list) && list.every(e => e && fields.every(field => typeof e[field] === "string"));
+    return value?.index_version === 1 &&
+      entries(value.sources, "key", "source", "stamp", "provider", "account", "session") &&
+      (value.ignored === undefined || entries(value.ignored, "source", "stamp"))
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Waits for the index lock, for callers that must write the index. */
 export async function lock(cache: string): Promise<() => void> {
   const start = performance.now();
@@ -85,13 +109,7 @@ export async function open(
 ): Promise<Session> {
   const start = performance.now(),
     file = path.join(cache, "index.json");
-  let previous: Index | null = null;
-  try {
-    const value = await Bun.file(file).json();
-    if (value.index_version === 1) previous = value;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
+  const previous = await lastSaved(file);
   const { sources, warnings, ignored } = await discover(
     previous?.sources,
     locations,
@@ -210,16 +228,19 @@ export async function open(
     update,
     fresh: source => !behind(source),
     async messages(source) {
-      const normalized = await update(source);
-      if (normalized === null) return null;
-      if (normalized) return { text: normalized.messages, ...(options.tools ? { tools: normalized.tools } : {}) };
-      try {
-        return await cached(cache, source, options.tools);
-      } catch (error) {
-        // The lock holder retired it: its transcript is gone.
-        if (readOnly && (error as NodeJS.ErrnoException).code === "ENOENT") return null;
-        throw error;
+      let normalized = await update(source);
+      if (normalized === undefined) {
+        try {
+          const lanes = await cached(cache, source, options.tools);
+          if (lanes.text.length === source.messages) return lanes;
+        } catch {}
+        // Its cache files are gone, cut short or don't parse: the transcript
+        // is read again. One the lock holder retired is gone too, and is skipped.
+        source.indexed_stamp = source.tools_stamp = undefined;
+        normalized = await update(source);
       }
+      if (!normalized) return null;
+      return { text: normalized.messages, ...(options.tools ? { tools: normalized.tools } : {}) };
     },
     save() {
       if (readOnly || !(discovered || manifest.refreshed || unreadable.size)) return;
