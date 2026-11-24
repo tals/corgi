@@ -209,6 +209,28 @@ test("binding a viewer without switching machines does not fetch history twice",
   }
 });
 
+test("choosing a Corgi conversation a pane holds shows that pane", async () => {
+  const endpoint = localEndpoint("/tmp/corgi-choose-test/control.sock", new Probe(), new Host()),
+    view = new Controller(endpoint.machine);
+  endpoint.controller = view;
+  view.receiveSnapshot({
+    workspaces: [1, 2].map(id => ({
+      id,
+      name: `workspace-${id}`,
+      cwd: "/tmp",
+      model: { nodes: [{ pane: id }], tabs: [{ id, root: 0, title: "" }], revision: 0 },
+    })),
+    panes: [1, 2].map(id => ({ id, workspace: id, tab: id, cols: 80, rows: 24 })),
+    headless_sessions: [{ id: 7, workspace: 2, provider: "claude", corgi: true, session: "c1", pane: 2 }],
+  });
+  try {
+    endpoint.choose({ headless: 7 }, endpoint.instance);
+    expect([view.current().id, view.focused()?.id]).toEqual([2, 2]);
+  } finally {
+    await endpoint.close();
+  }
+});
+
 test("switching away and back during viewer binding keeps history connected", async () => {
   const bound = Promise.withResolvers<void>(),
     daemon = await flakyDaemon(true, false, bound.promise),

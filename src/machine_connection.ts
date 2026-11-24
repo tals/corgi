@@ -1,4 +1,5 @@
 import * as viewerRef from "./viewer_ref";
+import * as agentRows from "./agent_rows";
 import * as telemetry from "./telemetry";
 import { Queue, pasting, type Input } from "./terminal_input";
 import { Stats } from "./connection_stats";
@@ -1173,7 +1174,9 @@ function show(view: Controller, at: Focus): void {
   const runtime = view.runtime;
   if ("workspace" in at) {
     if (runtime.workspaces.index(at.workspace) !== null) view.switchWorkspace(at.workspace);
-  } else if ("pane" in at ? runtime.workspaces.owner(at.pane) : runtime.sessions.some(s => s.id === at.headless))
+  } else if (
+    "pane" in at ? runtime.workspaces.owner(at.pane) : agentRows.sessions(runtime).some(s => s.id === at.headless)
+  )
     view.selectAgent(
       "pane" in at ? viewerRef.pane(view.machine.id, at.pane) : viewerRef.headless(view.machine.id, at.headless),
     );
