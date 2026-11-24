@@ -103,6 +103,12 @@
     "provider": "claude",
     "owner": 123
   },
+  "pane.view": {
+    "pane": 1,
+    "path": "/tmp/app.ts",
+    "line": 42,
+    "column": 7
+  },
   "conversation.list": {},
   "conversation.acknowledge": {
     "conversation": 1,

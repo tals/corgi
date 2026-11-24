@@ -139,6 +139,7 @@ export const operations = [
   "pane.paste",
   "pane.idle",
   "pane.agent",
+  "pane.view",
   "conversation.list",
   "conversation.acknowledge",
   "conversation.grep",
@@ -793,6 +794,9 @@ const requests = {
   "pane.paste": { pane: "u32", text: ["?string", null], image: ["?image", null] },
   "pane.idle": { workspace: ["u32", 0], cwd: ["string", ""], first: ["bool", false] },
   "pane.agent": { pane: "u32", provider: ["?provider", null], owner: "i32" },
+  // `corgi __view` names the file its pane's viewers show in its place, or
+  // with no path takes the pane back; see file_pane.ts.
+  "pane.view": { pane: "u32", path: ["?string", null], line: ["?u32", null], column: ["?u32", null] },
   "pane.acknowledge": {
     pane: "u32",
     session: ["string", ""],
@@ -1051,6 +1055,7 @@ export interface ReplyPayloads {
   "viewer.list": Ok & { viewers: ViewerInfo[] };
   "viewer.image": Ok & { data: string | null };
   "pane.agent": Ok;
+  "pane.view": Ok;
   "pane.paste": Ok & { pasted: boolean };
   "pane.idle": Ok & { panes: { pane: number; tab: number; workspace: number; cwd: string }[] };
   "pane.surface": {

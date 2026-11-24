@@ -3,6 +3,7 @@ import { Machine } from "./machine";
 import type { Progress as ImageProgress } from "./image_upload";
 import * as protocol from "./protocol";
 import * as fileAccess from "./file_access";
+import * as filePane from "./file_pane";
 import * as handoffUpload from "./handoff_upload";
 import { transport } from "./fixtures/transport";
 import * as worktrees from "./fixtures/worktrees";
@@ -4931,6 +4932,62 @@ test("a file's name peeks after the pointer rests on it, and a click opens it in
     native.destroy();
     setSystemTime();
     clock.reset();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a pane that names a file shows it from this viewer, and its keys scroll here", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-file-pane-")));
+  const file = join(dir, "app.ts");
+  writeFileSync(file, Array.from({ length: 200 }, (_, i) => `const v${i + 1} = ${i + 1};`).join("\n"));
+  const s: any = new Controller({ request: transport(async () => ({})).request });
+  const snapshot: any = folders(dir);
+  snapshot.panes[0].view = { path: file, line: 100, column: null };
+  s.receiveSnapshot(snapshot);
+  s.width = 120;
+  s.height = 40;
+  s.input_state.attached = true;
+  s.focusPane(1);
+  const rect = s.layoutView().placements(s.area())[0].rect;
+  const native = NativeTerminal.create(rect.w, rect.h);
+  try {
+    // Its process draws nothing, and takes the mouse so the wheel comes here.
+    native.feed("\x1b[?1049h\x1b[?1003h\x1b[?1006h");
+    const terminal = s.pane(1).terminal,
+      pending = () => Buffer.from(terminal.pending).toString("latin1");
+    terminal.receive(native.surface(1));
+    const shown = () => s.frame().replace(/\x1b\[[\d;?]*[A-Za-z]/g, "");
+    expect(shown()).toContain("Reading…");
+    // Its process hears that this viewer draws the file.
+    expect(pending()).toBe(filePane.quiet_request);
+    terminal.pending.length = 0;
+    const hosted = s.file_panes.get(1);
+    while (!hosted.view) await Bun.sleep(1);
+    expect(shown()).toContain("const v100 = 100;");
+    const top = hosted.view.reader.top;
+    await s.input(bytes("j"));
+    expect(hosted.view.reader.top).toBe(top + 1);
+    await mouseInput(s, `\x1b[<65;${rect.x + 5};${rect.y + 5}M`);
+    expect(hosted.view.reader.top).toBe(top + 4);
+    expect(pending()).toBe("");
+    // A paste is no keys.
+    await s.input(bytes("\x1b[200~q\x1b[201~"));
+    expect(pending()).toBe("");
+    expect(hosted.view.reader.top).toBe(top + 4);
+    // The editor and closing are its process's.
+    await s.input(bytes("e"));
+    expect(pending()).toBe(filePane.editRequest(hosted.view.lineShown(rect.h)));
+    terminal.pending.length = 0;
+    await s.input(bytes("q"));
+    expect(pending()).toBe(filePane.quit_request);
+    // While the editor has the pane, it is a terminal again.
+    snapshot.panes[0].view = null;
+    s.receiveSnapshot(snapshot);
+    expect(shown()).not.toContain("const v");
+    expect(s.file_panes.get(1)).toBeNull();
+  } finally {
+    native.destroy();
     viewer.close(s);
     rmSync(dir, { recursive: true, force: true });
   }
