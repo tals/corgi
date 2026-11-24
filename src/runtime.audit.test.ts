@@ -271,6 +271,27 @@ test("after a restore, only agents still starting up wait in working", async () 
     r.destroy();
   }
 });
+test("a resumed conversation isn't new, though its receipts count no turn", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const a = await r.create(opts),
+      agent = r.pane(a)!.agent();
+    Object.assign(agent, { provider: "codex", state: "idle" });
+    // Its last turn is read from its history, which receipts don't count.
+    agent.recordCompletion("t1", "completed", "protocol", true);
+    expect(agent.observation.completed).toBe(0n);
+    r.raiseEntered();
+    expect(r.startingAgents(ws)).toEqual([]);
+    // A cold restore leaves it unknown; it's still not new.
+    restore(ws);
+    agent.state = "unknown";
+    r.raiseEntered();
+    expect(r.startingAgents(ws)).toEqual([]);
+    expect(ws.sections.get(`pane:${a}`)).toBe("idle");
+  } finally {
+    r.destroy();
+  }
+});
 test("a snapshot shows an agent's new section with its place at the top of it", async () => {
   const { r, ws, opts } = fixture();
   try {

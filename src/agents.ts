@@ -177,6 +177,11 @@ export class Agent {
   finishedTurn(turn: string) {
     return turn ? turn === this.last_finished_turn.text() : this.finished_since_activity;
   }
+  /** Whether its conversation has finished a turn, even one only read from
+   * its history, which receipts don't count. */
+  hasFinished() {
+    return this.observation.completed > 0n || this.last_finished_turn.len > 0;
+  }
   /** The screen saw a turn finish before any hook reported this conversation. */
   screenFinished() {
     return this.last_seq === 0n && this.observation.source === "screen" && this.finished_since_activity;

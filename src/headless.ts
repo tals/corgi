@@ -290,6 +290,9 @@ export class Session {
     }
     return result;
   }
+  hasFinished() {
+    return [this.attachment.provisional, ...this.members.map(owner => owner.state)].some(a => a.hasFinished());
+  }
   acknowledge() {
     this.attachment.provisional.acknowledge();
     for (const owner of this.members) owner.state.acknowledge();
