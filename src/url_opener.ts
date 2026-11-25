@@ -16,7 +16,7 @@ export class Openers {
   }
   open(url: string) {
     if (!webLinks.openable(url)) throw Error("InvalidURL");
-    void this.launch(url);
+    this.spawn(url);
   }
   async openImage(path: string): Promise<void> {
     if (!isAbsolute(path) || !linkThumbnail.isImage(path)) throw Error("NotAnImage");
@@ -27,8 +27,9 @@ export class Openers {
     const code = await this.launch(resolved);
     if (code !== null && code !== 0) throw Error("OpenImageFailed");
   }
-  /** The opener's exit code if it exits while launching; null if it's still running. */
-  private launch(target: string): Promise<number | null> {
+  /** Starts an opener, which counts toward the limit until it exits. A
+   * pane's program can ask for links, so they keep to it. */
+  private spawn(target: string): Bun.Subprocess {
     this.reap();
     if (this.children.size >= 8) throw Error("TooManyOpenRequests");
     const child = Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", target], {
@@ -39,15 +40,22 @@ export class Openers {
       stderr: "ignore",
     });
     this.children.add(child);
+    void child.exited.then(() => this.children.delete(child));
+    return child;
+  }
+  /** Opens an image: the opener's exit code if it exits while launching;
+   * null if it's still running, as a viewer it runs in the foreground is.
+   * An image opens only where the user points, so that one stops counting
+   * toward the limit. */
+  private async launch(target: string): Promise<number | null> {
+    const child = this.spawn(target);
     let timer: Timer | undefined;
-    const launched = Promise.race([
+    const code = await Promise.race([
       child.exited,
       new Promise<null>(resolve => (timer = setTimeout(resolve, this.launching_ms, null))),
     ]);
-    void launched.then(() => {
-      clearTimeout(timer);
-      this.children.delete(child);
-    });
-    return launched;
+    clearTimeout(timer);
+    this.children.delete(child);
+    return code;
   }
 }

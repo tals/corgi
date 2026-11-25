@@ -72,7 +72,7 @@ test("images Bun can't decode here still open, by their header", async () => {
   }
 });
 
-test("a viewer left open counts as opened and frees its launch slot", async () => {
+test("a viewer left open counts as opened and frees its launch slot, which a link's opener keeps", async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-image-opener-")));
   const sleep = Bun.which("sleep")!;
   using env = scopedEnv({ PATH: dir });
@@ -83,6 +83,11 @@ test("a viewer left open counts as opened and frees its launch slot", async () =
     writeFileSync(image, Buffer.from(png_base64, "base64"));
     const openers = new Openers(50);
     for (let i = 0; i < 9; i++) await openers.openImage(image);
+    // A pane's program can ask for links, so eight still running is the most.
+    const links = new Openers(50);
+    for (let i = 0; i < 8; i++) links.open("https://example.com/" + i);
+    await Bun.sleep(100);
+    expect(() => links.open("https://example.com/8")).toThrow("TooManyOpenRequests");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
