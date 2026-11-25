@@ -7,6 +7,7 @@ import * as viewer from "./viewer";
 import * as viewerNative from "./viewer_native";
 import * as protocol from "./protocol";
 import { Writer } from "./text";
+import { Rect } from "./layout";
 import { png_base64 } from "./assets/corgi_badge";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -499,6 +500,33 @@ test("an image card too tight for both keeps its picture and leaves opening to t
     expect(frame).toContain("Copy path");
     expect(frame).not.toContain("Open image");
     expect(s.host.images.present().draw).toContain("a=p,");
+    await s.input(Buffer.from("\x1b[111;3u"));
+    expect(s.effects).toEqual([{ open_image: path }]);
+  } finally {
+    binding.mockRestore();
+    setSystemTime();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("the image shortcut leaves alone a link a card covers", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-image-covered-"));
+  const path = join(dir, "secret.png");
+  writeFileSync(path, Buffer.from(png_base64, "base64"));
+  const s = linkViewer(`\x1b[6;1H\x1b]8;;file://${path}\x1b\\[Image]\x1b]8;;\x1b\\`);
+  s.host.opens_desktop = true;
+  const binding = spyOn(s.prefs, "bindings").mockReturnValue([
+    { key: 111, mods: { alt: true }, prefixed: false, action: { name: "open-image" } },
+  ]);
+  try {
+    setSystemTime(new Date(1000));
+    await s.input(mouse(35, 2, 6));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.connection_card = { rect: new Rect(0, 4, 40, 5), lines: [{ text: "atlas · online" }] };
+    await s.input(Buffer.from("\x1b[111;3u"));
+    expect(s.effects).toEqual([]);
+    s.connection_card = null;
     await s.input(Buffer.from("\x1b[111;3u"));
     expect(s.effects).toEqual([{ open_image: path }]);
   } finally {

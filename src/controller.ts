@@ -10591,13 +10591,25 @@ export class Controller {
       link = this.link_tooltip.target?.link;
     return pointer && link && this.linkHoverContains(pointer.x, pointer.y) ? link : null;
   }
+  /** The link under the pointer when no card covers it. */
+  private uncoveredLink(): linkTooltip.Link | null {
+    const pointer = this.pointer;
+    if (!pointer || this.connection_card?.rect.contains(pointer.x, pointer.y)) return null;
+    const { x, y } = pointer;
+    if (
+      !this.signin &&
+      !this.corgi_setup &&
+      (this.worktreeHoverContains(x, y) || this.resourceHoverContains(x, y) || this.gitHoverContains(x, y))
+    )
+      return null;
+    return this.linkAt(x, y);
+  }
   /** Use the card's link even when a shortcut has dismissed it. */
   private pointedImage(): string | undefined {
-    const pointer = this.pointer;
-    if (!pointer || !this.linkHoverIdle() || this.ui_mouse_down || this.paste_card) return;
-    const card_link = this.input_state.key_link ?? this.pointedLinkCard();
-    const link = this.linkAt(card_link?.x ?? pointer.x, card_link?.y ?? pointer.y);
-    if (!link || (card_link && !linkTooltip.sameLink(link, card_link))) return;
+    if (!this.pointer || !this.linkHoverIdle() || this.ui_mouse_down || this.paste_card) return;
+    const pointed = this.input_state.key_link ?? this.pointedLinkCard() ?? this.uncoveredLink();
+    const link = pointed && this.linkAt(pointed.x, pointed.y);
+    if (!link || !linkTooltip.sameLink(link, pointed)) return;
     return this.desktopImage(this.hoveredFile(link));
   }
   /** Loads the thumbnail on the pane's machine when the host shows Kitty
