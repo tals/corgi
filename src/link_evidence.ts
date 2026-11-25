@@ -7,6 +7,8 @@ export interface Token {
   start: number;
   end: number;
   path: boolean;
+  /** Includes the matching Markdown delimiters; the visible link excludes them. */
+  code?: { start: number; close: number; end: number };
 }
 
 const max_path = 1024;
@@ -33,9 +35,15 @@ function suffix(text: string, at: number) {
   return line ? { uri: ":" + line + (col ? ":" + col : ""), end: pattern.lastIndex } : null;
 }
 
-function plain(text: string, start: number, raw: string, quote: string | null): Token | null {
-  const after = start + raw.length + Number(quote !== null);
-  if (!/[/.:(#]/.test(raw) && !/[:(#,]/.test(text[after] ?? "")) return null;
+function plain(
+  text: string,
+  start: number,
+  raw: string,
+  quote: string | null,
+  after = start + raw.length + Number(quote !== null),
+): Token | null {
+  const code = quote === "`";
+  if (!code && !/[/.:(#]/.test(raw) && !/[:(#,]/.test(text[after] ?? "")) return null;
   if (raw.length > max_path || byteLength(raw) > max_path) return null;
   let name = raw;
   let end = start + name.length;
@@ -48,11 +56,11 @@ function plain(text: string, start: number, raw: string, quote: string | null): 
     if (
       !name ||
       name !== name.trim() ||
-      !/^[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200d /._+@~(),'&=\[\]-]+$/u.test(name)
+      !/^[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200d /._+@~(),`'&=#\[\]-]+$/u.test(name)
     )
       return null;
     // An external suffix is a location too; the quote stays outside the span.
-    where ??= suffix(text, end + 1);
+    where ??= suffix(text, after);
     if (!where && quote === '"') {
       const python = /, line ([1-9]\d{0,8})(?!\d)/y;
       python.lastIndex = end + 1;
@@ -65,7 +73,12 @@ function plain(text: string, start: number, raw: string, quote: string | null): 
     where = suffix(text, end);
     if (where) end = where.end;
   }
-  return pathLike(name, where !== null) ? { uri: name + (where?.uri ?? ""), start, end, path: true } : null;
+  return (code &&
+    !name.endsWith("/") &&
+    (/^[A-Z](?:[A-Za-z]*file|[A-Z0-9_-]{2,})$/.test(name) || (name.includes(" ") && /[\p{L}\p{N}]/u.test(name)))) ||
+    pathLike(name, where !== null)
+    ? { uri: name + (where?.uri ?? ""), start, end, path: true }
+    : null;
 }
 
 /** The URL ends before unmatched closing brackets and sentence punctuation.
@@ -92,11 +105,50 @@ function urlEnd(text: string, start: number, end: number): number {
   return end;
 }
 
+/** Pair whole backtick runs in each paragraph, even when their contents
+ * aren't a filename. A closing delimiter cannot open a second span. */
+export function codePairs(text: string): Map<number, number> {
+  const pairs = new Map<number, number>();
+  if (!text.includes("`")) return pairs;
+  const runs = [...text.matchAll(/`+|\r?\n[ \t]*\r?\n/g)];
+  const next = new Map<number, number>();
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const { 0: run, index } = runs[i];
+    if (run[0] !== "`") {
+      next.clear();
+      continue;
+    }
+    const close = next.get(run.length);
+    if (close !== undefined) pairs.set(index, close);
+    next.set(run.length, index);
+  }
+  let after = 0;
+  for (const { 0: run, index } of runs) {
+    const close = pairs.get(index);
+    if (close === undefined) continue;
+    let slash = index;
+    while (slash > 0 && text[slash - 1] === "\\") slash--;
+    if (index < after || (index - slash) % 2) pairs.delete(index);
+    else {
+      after = close + run.length;
+      if (
+        run.length >= 3 &&
+        !text.slice(text.lastIndexOf("\n", index - 1) + 1, index).trim() &&
+        text.indexOf("\n", index) >= 0 &&
+        text.indexOf("\n", index) < close
+      )
+        pairs.delete(index);
+    }
+  }
+  return pairs;
+}
+
 export function* tokens(text: string): Generator<Token> {
   // Plain prose without a slash, dot or line number cannot name a target.
-  if (!/[/.]|[:(]\d|#L\d|", line \d/.test(text)) return;
-  const scan = /[a-z][\w+.-]*:\/\/|["'`]|[\p{L}\p{N}\p{M}\p{Extended_Pictographic}\u200d/._+@~-]+/giu;
+  if (!/[/.`]|[:(]\d|#L\d|", line \d/.test(text)) return;
+  const scan = /[a-z][\w+.-]*:\/\/|`+|["']|[\p{L}\p{N}\p{M}\p{Extended_Pictographic}\u200d/._+@~-]+/giu;
   const body = /[^\s<>"`\x00-\x1f\x7f]*/uy;
+  const pairs = codePairs(text);
   let m;
   while ((m = scan.exec(text))) {
     const raw = m[0],
@@ -114,8 +166,22 @@ export function* tokens(text: string): Generator<Token> {
       if (byteLength(uri) <= max_url) yield { uri, start, end, path: false };
       continue;
     }
+    if (raw[0] === "`") {
+      const close = pairs.get(start);
+      if (close === undefined || close - scan.lastIndex > max_path + 2) continue;
+      const original = text.slice(scan.lastIndex, close);
+      const content = original.replace(/\r\n|[\r\n]/g, " ");
+      const pad = Number(content.startsWith(" ") && content.endsWith(" "));
+      const after = close + raw.length;
+      const found = plain(text, scan.lastIndex + pad, content.slice(pad, content.length - pad), "`", after);
+      if (found) {
+        yield { ...found, end: close - pad, code: { start, close, end: after } };
+        scan.lastIndex = after;
+      }
+      continue;
+    }
     if (start > 0 && !/[\s([{<'"`=:,|]/.test(text[start - 1])) continue;
-    if (raw === '"' || raw === "'" || raw === "`") {
+    if (raw === '"' || raw === "'") {
       const ahead = text.slice(scan.lastIndex, scan.lastIndex + max_path + 1);
       const close = ahead.indexOf(raw);
       if (close < 1) continue;
@@ -135,6 +201,7 @@ export function* tokens(text: string): Generator<Token> {
 }
 
 const capacity = 256;
+const unqualified_limit = 32;
 const edge_bytes = 8192;
 let revision = 0;
 
@@ -142,6 +209,7 @@ let revision = 0;
  * moves on membership changes and is distinct across this daemon's sessions. */
 export class Dictionary {
   private recent = new Map<string, string>();
+  private unqualified = new Set<string>();
   revision = 0;
   has(uri: string): boolean {
     return this.recent.has(uri);
@@ -152,14 +220,27 @@ export class Dictionary {
   /** Fill any open slots with the most recent spellings from before a handoff. */
   addOlder(older: Dictionary) {
     if (this.full) return;
-    const missing = [...older.recent].filter(([uri]) => !this.has(uri)).slice(this.recent.size - capacity);
+    const missing: [string, string][] = [],
+      unqualified: string[] = [];
+    for (const entry of [...older.recent].reverse()) {
+      const uri = entry[0];
+      if (this.has(uri)) continue;
+      if (older.unqualified.has(uri)) {
+        if (this.unqualified.size + unqualified.length >= unqualified_limit) continue;
+        unqualified.push(uri);
+      }
+      missing.push(entry);
+      if (this.recent.size + missing.length === capacity) break;
+    }
     if (!missing.length) return;
-    this.recent = new Map([...missing, ...this.recent]);
+    this.recent = new Map([...missing.reverse(), ...this.recent]);
+    this.unqualified = new Set([...unqualified.reverse(), ...this.unqualified]);
     this.revision = ++revision;
   }
   clear() {
     if (!this.recent.size) return;
     this.recent.clear();
+    this.unqualified.clear();
     this.revision = ++revision;
   }
   add(text: string) {
@@ -177,7 +258,8 @@ export class Dictionary {
     if (start >= 0) this.scan(last.toString("utf8", start + 1));
   }
   private scan(text: string) {
-    for (const { uri } of tokens(text)) this.remember(uri);
+    for (const { uri, code } of tokens(text))
+      this.remember(uri, !!code && uri.includes(" ") && !pathLike(uri, /:\d+$/.test(uri)));
     // Normalized tool arguments put one field on a line. A path field's
     // value can contain literal spaces without shell quotes.
     for (const [, value] of text.matchAll(/^(?:file_path|path|filename): ([^\r\n]{1,1024})$/gm)) {
@@ -186,17 +268,27 @@ export class Dictionary {
       if (found) this.remember(found.uri);
     }
   }
-  private remember(uri: string) {
+  private remember(uri: string, unqualified = false) {
     const known = this.recent.get(uri);
     if (known !== undefined) {
       this.recent.delete(known);
       this.recent.set(known, known);
+      if (this.unqualified.delete(known) && unqualified) this.unqualified.add(known);
       return;
     }
-    if (this.recent.size >= capacity) this.recent.delete(this.recent.keys().next().value!);
+    // Extensionless code spans also include commands. They can replace one
+    // another, but cannot evict paths or URLs from a full dictionary.
+    if (this.full || (unqualified && this.unqualified.size >= unqualified_limit)) {
+      const oldest =
+        this.unqualified.values().next().value ?? (unqualified ? undefined : this.recent.keys().next().value);
+      if (oldest === undefined) return;
+      this.recent.delete(oldest);
+      this.unqualified.delete(oldest);
+    }
     // Own the small spelling without retaining a tool output through a substring.
     const owned = Buffer.from(uri).toString();
     this.recent.set(owned, owned);
+    if (unqualified) this.unqualified.add(owned);
     this.revision = ++revision;
   }
 }

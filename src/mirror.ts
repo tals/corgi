@@ -123,7 +123,7 @@ export class Terminal {
   private paste_split = false;
   private links: Link[] | null = null;
   private installed: surface.View | null = null;
-  private link_context: { binding: bigint; cwd: string } | null = null;
+  private link_context: { binding: bigint; cwd: string; phrases: boolean } | null = null;
   private wrapped: (wrappedLink.Target & { id: bigint }) | null = null;
   private link_notice = 0;
   private lookup: { start: number; end: number; y: number } | null = null;
@@ -194,9 +194,16 @@ export class Terminal {
     if (this.resting) clearTimeout(this.resting.timer);
     this.resting = null;
   }
-  linkContext(binding: bigint, enabled: boolean, cwd: string): void {
-    if (enabled ? this.link_context?.binding === binding && this.link_context.cwd === cwd : !this.link_context) return;
-    this.link_context = enabled ? { binding, cwd } : null;
+  linkContext(binding: bigint, enabled: boolean, cwd: string, phrases = false): void {
+    if (
+      enabled
+        ? this.link_context?.binding === binding &&
+          this.link_context.cwd === cwd &&
+          this.link_context.phrases === phrases
+        : !this.link_context
+    )
+      return;
+    this.link_context = enabled ? { binding, cwd, phrases } : null;
     this.clearWrapped();
   }
   linkNotice(seq: number): void {
@@ -255,7 +262,8 @@ export class Terminal {
     const view = this.installed,
       context = this.link_context;
     if (!view || !context || this.closed || this.holding_selection || this.answered(x, y)) return;
-    if (this.link_row?.y !== y) this.link_row = { y, spans: wrappedLink.regions(view.surface.lines, y) };
+    if (this.link_row?.y !== y)
+      this.link_row = { y, spans: wrappedLink.regions(view.surface.lines, y, context.phrases) };
     const lookup: { start: number; end: number; y: number } = { start: x, end: x + 1, y };
     if (this.wrapped) {
       this.wrapped = null;
@@ -981,7 +989,12 @@ export class Runtime {
           term = new Terminal(conn, info.id, info.cols, info.rows);
           created.push(term);
         }
-        term.linkContext(BigInt(info.binding ?? 0n), value.wrapped_links === true, info.agent?.cwd || info.cwd || "");
+        term.linkContext(
+          BigInt(info.binding ?? 0n),
+          value.wrapped_links === true,
+          info.agent?.cwd || info.cwd || "",
+          !!info.agent?.conversation,
+        );
         const was_restoring = previous ? previous.restoring.length > 0 && !previous.dormant : false;
         panes.push({
           id: info.id,

@@ -73,3 +73,26 @@ test("large tool outputs retain whole lines within 8 KiB of either end", () => {
   dictionary.add(first + "数".repeat(3000) + "\nassets/outside.png\n" + "数".repeat(3000) + last);
   expect(dictionary.has("assets/outside.png")).toBe(false);
 });
+
+test("Markdown paths use matching backtick runs and retain filename spaces and literal ticks", () => {
+  const text = "Use `Release Notes` or `` a `draft` file.md ``:12 and `https://example.org`, then `Plan B.pdf`.";
+  expect(Array.from(evidence.tokens(text), t => [text.slice(t.start, t.end), t.uri])).toEqual([
+    ["Release Notes", "Release Notes"],
+    ["a `draft` file.md", "a `draft` file.md:12"],
+    ["https://example.org", "https://example.org"],
+    ["Plan B.pdf", "Plan B.pdf"],
+  ]);
+  expect([...evidence.tokens("`Release\r\nNotes`")][0]).toMatchObject({ uri: "Release Notes", start: 1, end: 15 });
+  for (const value of ["\\`Release Notes`", "``Release Notes```", "`Release\n\nNotes`"])
+    expect([...evidence.tokens(value)].some(t => t.code)).toBe(false);
+});
+
+test("ordinary inline identifiers do not crowd filenames out of a conversation", () => {
+  const dict = new evidence.Dictionary();
+  dict.add("See `My spec.md`");
+  for (let i = 0; i < 300; i++) dict.add("Set `flag" + i + "` to `true` and run `command number " + i + "`");
+  expect(dict.has("My spec.md")).toBe(true);
+  expect(dict.has("true")).toBe(false);
+  expect(dict.has("command number 0")).toBe(false);
+  expect(dict.has("command number 299")).toBe(true);
+});

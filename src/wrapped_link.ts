@@ -23,36 +23,134 @@ export interface Row {
   cells: string[];
 }
 
-/** Cells on the hovered row that could belong to a multi-row token. Run once
- * for a resting pointer; the daemon resolves actual cell widths and barriers. */
-export function regions(lines: string[], y: number): Span[] {
+/** Rendered Markdown may show the code span's words without its backticks.
+ * Only an exact transcript spelling can turn such a phrase into a file lookup. */
+function renderedHint(text: string): boolean {
+  return /\/|\.[A-Za-z0-9_]{1,16}\b|\b[A-Z][\p{L}\p{N}_-]* +[A-Z]|\b[A-Z][A-Za-z]*file\b|\b[A-Z]{3}/u.test(text);
+}
+
+/** A TUI can render inline code in its own style and omit the backticks. */
+function styledNames(line: string, indent: number): evidence.Token[] {
+  const styles = [...line.matchAll(/\x1b\[0;[0-9;:]+m/g)];
+  if (styles.length < 2) return [];
+  const names: evidence.Token[] = [];
+  let offset = Bun.stripANSI(line.slice(0, styles[0].index)).length - indent;
+  for (const [i, style] of styles.entries()) {
+    const part = Bun.stripANSI(line.slice(style.index + style[0].length, styles[i + 1]?.index));
+    const uri = part.trim(),
+      start = offset + part.length - part.trimStart().length;
+    if (
+      uri.length <= 1024 &&
+      uri.includes(" ") &&
+      /^[\p{L}\p{M}\p{N}\p{Extended_Pictographic} /._@~#()'&=+\[\]-]+$/u.test(uri)
+    )
+      names.push({ uri, start, end: start + uri.length, path: true });
+    offset += part.length;
+  }
+  return names;
+}
+
+function* screenTokens(text: string, phrases: boolean, firstEnd: number, lastStart: number, styled?: evidence.Token[]) {
+  for (const token of evidence.tokens(text)) yield { token, phrase: false };
+  for (const token of styled ?? []) {
+    if (text.slice(token.start, token.end) === token.uri) yield { token, phrase: true };
+  }
+  if (!phrases || !renderedHint(text)) return;
+  const words = /[\p{L}\p{M}\p{N}\p{Extended_Pictographic}_./@~#()'&=+\[\]-]+/gu;
+  const recent: number[] = [];
+  let end = 0;
+  for (const word of text.matchAll(words)) {
+    const start = word.index;
+    if (recent.length && !/^ +$/.test(text.slice(end, start))) recent.length = 0;
+    recent.push(start);
+    if (recent.length > 8) recent.shift();
+    if (recent[0] >= firstEnd) break;
+    end = start + word[0].length;
+    if (end <= lastStart) continue;
+    const finish = end - (word[0].match(/[.,]+$/)?.[0].length ?? 0);
+    if (finish <= start) continue;
+    for (const from of recent) {
+      if (from >= firstEnd || finish - from > 1024) continue;
+      const uri = text.slice(from, finish);
+      // Bare ordinary words and sentences don't trigger transcript lookups.
+      if (from === start ? !/^(?:[A-Z][A-Za-z]*file|[A-Z][A-Z0-9_-]{2,})$/.test(uri) : !renderedHint(uri)) continue;
+      yield { token: { uri, start: from, end: finish, path: true } as evidence.Token, phrase: true };
+    }
+  }
+}
+
+function* windows(parts: string[], anchor: number, phrases: boolean, styled: evidence.Token[], wraps?: boolean[]) {
+  let paragraph = "";
+  const rowStarts = parts.map((part, row) => {
+    if (row && !wraps?.[row - 1]) paragraph += "\n";
+    const start = paragraph.length;
+    paragraph += part;
+    return start;
+  });
+  const pairs = evidence.codePairs(paragraph);
+  for (let first = anchor; first >= Math.max(0, anchor - 7); first--) {
+    const starts: number[] = [],
+      wordStarts: number[] = [];
+    let joined = "",
+      words = "";
+    for (let last = first; last < Math.min(parts.length, first + 8); last++) {
+      const part = parts[last];
+      if (!part) break;
+      if (last > first && !wraps?.[last - 1]) words += " ";
+      starts.push(joined.length);
+      wordStarts.push(words.length);
+      joined += part;
+      words += part;
+      if (last < anchor) continue;
+      for (const spaced of [false, true]) {
+        if (spaced && (words.length === joined.length || !(words.includes("`") || (phrases && renderedHint(words)))))
+          continue;
+        const offsets = spaced ? wordStarts : starts,
+          text = spaced ? words : joined;
+        for (const { token, phrase } of screenTokens(
+          text,
+          phrases,
+          offsets[1] ?? Infinity,
+          offsets[last - first],
+          first === last ? styled : undefined,
+        )) {
+          if (!token.code && !phrase && (last === first || spaced)) continue;
+          const extent = token.code ?? token;
+          if (last > first && (extent.start >= offsets[1] || extent.end <= offsets[last - first])) continue;
+          if (token.code) {
+            const open = rowStarts[first] + token.code.start;
+            const close = rowStarts[last] + token.code.close - offsets[last - first];
+            if (pairs.get(open) !== close) continue;
+          }
+          yield { first, last, text, offsets, token, phrase, spaced };
+        }
+      }
+    }
+  }
+}
+
+/** Cells on the hovered row that could belong to a recovered target. */
+export function regions(lines: string[], y: number, phrases = false): Span[] {
   const firstRow = Math.max(0, y - 7);
   const rows = lines.slice(firstRow, y + 8).map(line => Bun.stripANSI(line).trimEnd());
   const at = y - firstRow,
     row = rows[at];
-  if (!row?.trim() || !rows.some(r => /[/.#:(]/.test(r))) return [];
+  if (!row?.trim()) return [];
   const spans: Span[] = [];
   const plain = /^[\x20-\x7e]*$/.test(row),
     indent = row.length - row.trimStart().length;
-  for (let first = 0; first <= at; first++) {
-    let joined = "",
-      anchor = 0,
-      second = 0;
-    for (let last = first; last < Math.min(first + 8, rows.length); last++) {
-      const part = rows[last].trimStart();
-      if (!part) break;
-      const start = joined.length;
-      joined += part;
-      if (last === at) anchor = start;
-      if (last === first + 1) second = start;
-      if (last < at || last === first) continue;
-      for (const token of evidence.tokens(joined)) {
-        if (token.start >= second || token.end <= start) continue;
-        const lo = plain ? indent + Math.max(0, token.start - anchor) : 0,
-          hi = plain ? Math.min(row.length, indent + token.end - anchor) : Infinity;
-        if (!spans.some(s => s.start === lo && s.end === hi)) spans.push({ row: y, start: lo, end: hi });
-      }
-    }
+  const styled = phrases ? styledNames(lines[y], indent) : [];
+  if (!styled.length && !rows.some(r => /[/.#:(`]/.test(r) || (phrases && /[A-Z]/.test(r)))) return [];
+  for (const { first, offsets, token } of windows(
+    rows.map(r => r.trimStart()),
+    at,
+    phrases,
+    styled,
+  )) {
+    const offset = offsets[at - first];
+    const start = plain ? indent + Math.max(0, token.start - offset) : 0,
+      end = plain ? Math.min(row.length, indent + token.end - offset) : Infinity;
+    if (end > start && !spans.some(s => s.start === start && s.end === end)) spans.push({ row: y, start, end });
   }
   return spans;
 }
@@ -85,7 +183,13 @@ export function fingerprint(lines: string[]): bigint {
   return BigInt.asUintN(64, BigInt(Bun.hash(lines.join("\n"))));
 }
 
-export function inspect(rows: Row[], x: number, y: number, known: Pick<evidence.Dictionary, "has"> | null) {
+export function inspect(
+  rows: Row[],
+  x: number,
+  y: number,
+  known: Pick<evidence.Dictionary, "has"> | null,
+  phrases = known !== null,
+) {
   const missing = new Set<string>(),
     range = { start: 0, end: 65536 };
   const matches: Candidate[] = [];
@@ -94,67 +198,72 @@ export function inspect(rows: Row[], x: number, y: number, known: Pick<evidence.
   if (anchor < 0) return probe;
   const pieces = rows.map((row, i) => piece(row, !(row.continued || rows[i - 1]?.wrap), !row.wrap));
 
-  for (let first = Math.max(0, anchor - 7); first <= anchor; first++) {
-    let text = "",
-      sure = true,
+  const parts = pieces.map(p => p.text.slice(p.start, p.end));
+  for (const { first, last, text, offsets, token, phrase, spaced } of windows(
+    parts,
+    anchor,
+    phrases,
+    phrases && rows[anchor].line ? styledNames(rows[anchor].line, pieces[anchor].start) : [],
+    rows.map(r => r.wrap),
+  )) {
+    // The visible window may begin or end in the middle of a longer token.
+    if (
+      (token.code &&
+        ((token.code.end === text.length &&
+          rows[last].wrap &&
+          (parts[last + 1] === undefined || parts[last + 1].startsWith("`"))) ||
+          (token.code.start === 0 &&
+            rows[first].continued &&
+            (parts[first - 1] === undefined || parts[first - 1].endsWith("`"))))) ||
+      (rows[last].wrap &&
+        /^[.,;:!?')\]}]*$/.test(text.slice(token.end)) &&
+        !/^\s/.test(pieces[last + 1]?.text ?? "") &&
+        !token.code) ||
+      ((rows[first].continued || rows[first - 1]?.wrap) &&
+        token.start === 0 &&
+        !/\s$/.test(pieces[first - 1]?.text ?? "")) ||
+      text.slice(token.start, token.end).includes("\0")
+    )
+      continue;
+    let sure = true,
       plausible = true,
       listing = false;
-    const starts: number[] = [];
-    for (let last = first; last < Math.min(rows.length, first + 8); last++) {
-      const p = pieces[last];
-      if (p.start >= p.end) break;
-      if (last > first && !rows[last - 1].wrap) {
-        const prev = pieces[last - 1],
-          width = prev.row.cells.length,
-          end = prev.cols[prev.end];
-        // A directory listing also spells a plausible (and often real) path.
-        listing ||= /^\s*[^\s]+\/$/.test(prev.text.slice(0, prev.end)) && end * 2 < width;
-        sure = false;
-        plausible &&= end + Math.min(8, Math.floor(width / 4)) >= width;
-      }
-      starts.push(text.length);
-      text += p.text.slice(p.start, p.end);
-      if (last <= first || last < anchor) continue;
-      for (const token of evidence.tokens(text)) {
-        if (token.start >= starts[1] || token.end <= starts.at(-1)!) continue;
-        if (listing && token.path) continue;
-        const attested = known?.has(token.uri) === true;
-        // A bounded window cannot establish a target ending inside a real soft wrap.
-        if (
-          (p.row.wrap &&
-            /^[.,;:!?\x27)\]}]*$/.test(text.slice(token.end)) &&
-            !/^\s/.test(pieces[last + 1]?.text ?? "")) ||
-          ((rows[first].continued || rows[first - 1]?.wrap) &&
-            token.start === 0 &&
-            !/\s$/.test(pieces[first - 1]?.text ?? "")) ||
-          text.slice(token.start, token.end).includes("\0")
-        )
-          continue;
-        const spans = starts.map((offset, i) => {
-          const part = pieces[first + i];
-          return {
-            row: part.row.row,
-            start: part.cols[part.start + Math.max(0, token.start - offset)],
-            end: part.cols[Math.min(part.end, part.start + token.end - offset)],
-          };
-        });
-        const at = spans[anchor - first];
-        // A miss and its evidence watch cover every cell with the same candidates.
-        if (x < at.start) range.end = Math.min(range.end, at.start);
-        else if (x >= at.end) range.start = Math.max(range.start, at.end);
-        else {
-          range.start = Math.max(range.start, at.start);
-          range.end = Math.min(range.end, at.end);
-        }
-        if (x < at.start || x >= at.end) continue;
-        if (!attested && !sure) missing.add(token.uri);
-        if (!sure && !attested && (!plausible || !token.path)) continue;
-        matches.push({
-          target: { uri: token.uri, path: token.path, spans, file: null },
-          rank: attested ? 2 : sure ? 1 : 0,
-        });
-      }
+    for (let i = first; i < last; i++) {
+      if (rows[i].wrap) continue;
+      const prev = pieces[i],
+        width = prev.row.cells.length,
+        end = prev.cols[prev.end];
+      sure = false;
+      plausible &&= end + Math.min(8, Math.floor(width / 4)) >= width;
+      listing ||= /^\s*[^\s]+\/$/.test(prev.text.slice(0, prev.end)) && end * 2 < width;
     }
+    if (listing && token.path && !token.code) continue;
+    const spans: Span[] = [];
+    for (let i = first; i <= last; i++) {
+      const p = pieces[i],
+        offset = offsets[i - first];
+      const lo = p.start + Math.max(0, token.start - offset),
+        hi = Math.min(p.end, p.start + token.end - offset);
+      if (hi > lo) spans.push({ row: p.row.row, start: p.cols[lo], end: p.cols[hi] });
+    }
+    const at = spans.find(s => s.row === y);
+    if (!at) continue;
+    // A miss and its evidence watch cover every cell with the same candidates.
+    if (x < at.start) range.end = Math.min(range.end, at.start);
+    else if (x >= at.end) range.start = Math.max(range.start, at.end);
+    else {
+      range.start = Math.max(range.start, at.start);
+      range.end = Math.min(range.end, at.end);
+    }
+    if (x < at.start || x >= at.end) continue;
+    const attested = known?.has(token.uri) === true;
+    if (!attested && (!sure || phrase) && (!phrase || missing.size < 64)) missing.add(token.uri);
+    if (phrase && !attested) continue;
+    if (!sure && !attested && !token.code && (!plausible || !token.path)) continue;
+    matches.push({
+      target: { uri: token.uri, path: token.path, spans, file: null },
+      rank: (token.code ? 16 : 0) + (attested ? 8 : 0) + (sure ? 2 : 0) + Number(spaced),
+    });
   }
   matches.sort((a, b) => b.rank - a.rank || b.target.uri.length - a.target.uri.length);
   return probe;

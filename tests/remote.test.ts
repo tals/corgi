@@ -142,11 +142,14 @@ class Remote extends runtime.Runtime {
     await this.until(() => status()?.includes(uri), 10);
   }
   async test_clicking_a_wrapped_relative_path_opens_the_file_in_the_remote_pane_cwd() {
+    await this.openWrappedRelative("assets/preview-no", "tes.txt", "assets/preview-notes.txt");
+  }
+  async test_clicking_a_markdown_filename_split_at_a_space_opens_the_remote_file() {
+    await this.openWrappedRelative("``assets/preview", "notes.txt``", "assets/preview notes.txt");
+  }
+  private async openWrappedRelative(first: string, rest: string, path: string) {
     const remote = this.remote!,
-      cwd = join(remote.temp.name, "checkout"),
-      first = "assets/preview-no",
-      rest = "tes.txt",
-      path = first + rest,
+      cwd = join(fs.realpathSync(remote.temp.name), "checkout"),
       marker = "REMOTE_ONLY_FILE_CONTENT";
     fs.mkdirSync(join(cwd, "assets"), { recursive: true });
     fs.writeFileSync(join(cwd, path), marker + "\n");

@@ -402,7 +402,7 @@ export async function wrapped(s: Server, cl: Client, q: Request<"viewer.wrapped_
     verify,
   });
   if (verify && wrappedLink.fingerprint(rows.map(r => r.line!)) !== q.fingerprint) return reply.ok({ target: null });
-  const probe = wrappedLink.inspect(rows, q.x, q.y, dictionary);
+  const probe = wrappedLink.inspect(rows, q.x, q.y, dictionary, !!actor);
   if (actor && probe.missing.size) {
     s.usage?.requestLinkHistory(actor.id);
     viewer.wrapped_watch = {

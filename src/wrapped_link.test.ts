@@ -290,3 +290,125 @@ test("a filesystem miss tries at most four distinct spellings", async () => {
   expect(new Set(checked).size).toBe(4);
   expect(checked).toHaveLength(4);
 });
+
+test("Markdown filenames cover the spaces on one row or across a word wrap", async () => {
+  const tried: string[] = [];
+  const files = {
+    async find(path: string) {
+      tried.push(path);
+      if (!["Release Notes", "a `draft` file.md", "assets/preview notes.txt"].includes(path)) throw Error("missing");
+      return { path: "/cwd/" + path, size: 2, mtime: 0, id: path };
+    },
+  };
+  for (const [lines, name, at, spans] of [
+    [["See `Release Notes`."], "Release Notes", [11, 0], [{ row: 0, start: 5, end: 18 }]],
+    [["`` a `draft` file.md ``"], "a `draft` file.md", [10, 0], [{ row: 0, start: 3, end: 20 }]],
+    [
+      ["See ``assets/preview", "  notes.txt``."],
+      "assets/preview notes.txt",
+      [2, 1],
+      [
+        { row: 0, start: 6, end: 20 },
+        { row: 1, start: 2, end: 11 },
+      ],
+    ],
+  ] as const) {
+    const [x, y] = at;
+    expect(wrapped.regions([...lines], y).some(s => s.start <= x && x < s.end)).toBe(true);
+    tried.length = 0;
+    const target = await resolve(rows([...lines]), x, y, null, files, "/cwd");
+    expect(target).toMatchObject({ uri: name, spans });
+    expect(tried).toEqual([name]);
+  }
+  tried.length = 0;
+  expect(await resolve(rows(["`Release Notes`"]), 0, 0, null, files, "/cwd")).toBeNull();
+  expect(tried).toEqual([]);
+});
+
+test("rendered Markdown uses an exact transcript spelling before checking a multiword name", async () => {
+  const lines = ["Open Release Notes.pdf now"],
+    cells = rows(lines),
+    x = 5;
+  const dictionary = new Dictionary(),
+    tried: string[] = [];
+  const files = {
+    async find(path: string) {
+      tried.push(path);
+      return { path, size: 1, mtime: 0, id: path };
+    },
+  };
+  expect(wrapped.regions(lines, 0, false)).toEqual([]);
+  expect(wrapped.regions(lines, 0, true).some(s => s.start <= x && x < s.end)).toBe(true);
+  const miss = wrapped.inspect(cells, x, 0, dictionary);
+  expect(miss.missing.has("Release Notes.pdf")).toBe(true);
+  expect(await wrapped.resolve(miss, files, "/cwd")).toBeNull();
+  expect(tried).toEqual([]);
+  dictionary.add("Open `Release Notes.pdf` now");
+  const hit = await resolve(cells, x, 0, dictionary, files, "/cwd");
+  expect(hit).toMatchObject({ uri: "Release Notes.pdf", spans: [{ row: 0, start: 5, end: 22 }] });
+  expect(tried).toEqual(["Release Notes.pdf"]);
+});
+
+test("rendered titles, directory paths, and filenames with punctuation need conversation evidence", async () => {
+  for (const path of ["Release Notes", "Makefile", "assets/Release Notes", "Q1 (draft) notes.pdf"]) {
+    const lines = ["Open " + path + " now."],
+      cells = rows(lines);
+    const dictionary = new Dictionary();
+    dictionary.add("`" + path + "`");
+    const tried: string[] = [];
+    const files = {
+      async find(name: string) {
+        tried.push(name);
+        if (name !== path) throw Error("missing");
+        return { path: name, size: 1, mtime: 0, id: name };
+      },
+    };
+    expect(wrapped.regions(lines, 0, true).some(s => s.start <= 5 && 5 < s.end)).toBe(true);
+    expect((await resolve(cells, 5, 0, dictionary, files, "/"))?.uri).toBe(path);
+    expect(tried).toEqual([path]);
+  }
+  expect(wrapped.regions(["These are ordinary words in a sentence."], 0, true)).toEqual([]);
+});
+
+test("an earlier row's closing backticks cannot quote the prose before the next filename", async () => {
+  const lines = ["Compare `old notes.md` with `new", "notes.md` then open `draft.md`."];
+  const x = lines[1].indexOf("then");
+  const checked: string[] = [];
+  const files = {
+    async find(path: string) {
+      checked.push(path);
+      throw Error("missing");
+    },
+  };
+  expect(wrapped.regions(lines, 1).some(s => s.start <= x && x < s.end)).toBe(false);
+  expect(await resolve(rows(lines), x, 1, null, files, "/")).toBeNull();
+  expect(checked).toEqual([]);
+});
+
+test("a styled lowercase code span resolves only after its complete spelling is in the transcript", async () => {
+  const t = Terminal.create(60, 4),
+    dictionary = new Dictionary(),
+    checked: string[] = [];
+  const files = {
+    async find(path: string) {
+      checked.push(path);
+      return { path, size: 1, mtime: 0, id: path };
+    },
+  };
+  try {
+    t.feed("Open \x1b[38;5;45mrelease notes\x1b[0m now");
+    const lines = t.surface(1).surface.lines,
+      cells = t.native({ op: "linkWindow", x: 5, y: 0 });
+    expect(wrapped.regions(lines, 0, true).some(s => s.start === 5 && s.end === 18)).toBe(true);
+    expect(await resolve(cells, 5, 0, dictionary, files, "/")).toBeNull();
+    expect(checked).toEqual([]);
+    dictionary.add("Open `release notes` now");
+    expect(await resolve(cells, 12, 0, dictionary, files, "/")).toMatchObject({
+      uri: "release notes",
+      spans: [{ row: 0, start: 5, end: 18 }],
+    });
+    expect(checked).toEqual(["release notes"]);
+  } finally {
+    t.destroy();
+  }
+});

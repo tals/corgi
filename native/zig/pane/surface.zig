@@ -259,7 +259,7 @@ pub fn linkWindow(allocator: std.mem.Allocator, t: *terminal.Terminal, offset: ?
                 } else value.* = try allocator.dupe(u8, bytes[0..n]);
             }
         }
-        const line = if (verify) blk: {
+        const line = if (verify or row == y) blk: {
             var out: std.Io.Writer.Allocating = .init(allocator);
             try writeRow(&out.writer, state, t.hyperlinks(), pane, row, state.cols, false);
             break :blk out.written();
