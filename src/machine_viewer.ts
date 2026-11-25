@@ -23,6 +23,7 @@ import * as discovery from "./discovery";
 import * as corgiAnimation from "./corgi_animation";
 import { attach } from "./host";
 import { Openers } from "./url_opener";
+import * as imageCopy from "./image_copy";
 import * as portForwards from "./port_forwards";
 import { sshViewer } from "./trackers/ports";
 import { Wake } from "./wake";
@@ -165,6 +166,7 @@ export async function run(
   let previous: composition.Output = "";
   let paste_owner: { endpoint: Endpoint; epoch: number; dropped: boolean } | null = null;
   const openers = new Openers();
+  const copies = new imageCopy.Copies();
   /** Opens a link in this computer's browser. One to another machine's own
    * loopback opens through a forward of its port. */
   const openLink = (url: string, from: Endpoint | null) => {
@@ -248,6 +250,13 @@ export async function run(
         return cardAct("stop");
     }
   };
+  /** An image's path here: its own, or a copy of another computer's. */
+  const imageHere = async ({ open_image: path, machine }: Extract<Effect, { open_image: string }>) => {
+    if (machine === undefined) return path;
+    const from = endpoints.find(e => e.machine.id === machine);
+    if (!from) throw Error("UnknownMachine");
+    return copies.fetch(view.filesOn(from.machine).files, path);
+  };
   const openDesktop = (effect: Exclude<Effect, { write_terminal: string }>) => {
     if ("open_url" in effect) {
       openLink(effect.open_url, endpoints.find(e => e.machine.id === effect.machine) ?? null);
@@ -259,7 +268,10 @@ export async function run(
       view.notice(i18n.t` Couldn't open ${name}: ${reason}`);
       notify();
     };
-    if (host.opens_desktop) void openers.openImage(effect.open_image).catch(failed);
+    if (host.opens_desktop)
+      void imageHere(effect)
+        .then(path => openers.openImage(path))
+        .catch(failed);
     else failed(Error("NoDesktop"));
   };
   /** Opens desktop effects without waiting for the shown machine's turn. */
@@ -770,6 +782,7 @@ export async function run(
     return active.relaunch;
   } finally {
     process.off("SIGWINCH", onResize);
+    copies.close();
     view.saveAgentScroll();
     // The last frame's answer would otherwise reach the shell as typing.
     const until = Date.now() + framePacing.settle_ms;

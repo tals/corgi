@@ -166,8 +166,10 @@ import { Opening } from "./opening";
 import { Machine, type Focus, type Stopped } from "./machine";
 
 /** `machine` names the SSH machine whose pane had the link, which may point
- * at that machine's own loopback; a link from this computer has none. */
-export type Effect = { write_terminal: string } | { open_url: string; machine?: number } | { open_image: string };
+ * at that machine's own loopback, or whose image it is; a link from this
+ * computer has none. */
+export type Effect =
+  { write_terminal: string } | { open_url: string; machine?: number } | { open_image: string; machine?: number };
 type HoverMenu = "launcher" | "scope";
 /** A paste goes to the text field that owned the keyboard when it began, or
  * to the focused pane when none did. */
@@ -546,7 +548,7 @@ export class Controller {
   /** Each machine's files, read here or through its daemon, and whether the
    * paths its panes show name them. */
   private file_places = new WeakMap<Machine, { files: fileAccess.Files; refs: fileRef.Resolver }>();
-  private filesOn(machine: Machine): { files: fileAccess.Files; refs: fileRef.Resolver } {
+  filesOn(machine: Machine): { files: fileAccess.Files; refs: fileRef.Resolver } {
     let place = this.file_places.get(machine);
     if (!place) {
       const files = machine.remote
@@ -4035,7 +4037,8 @@ export class Controller {
       }
       case "open-image": {
         const path = this.pointedImage();
-        if (path) this.queueEffect({ open_image: path });
+        if (path)
+          this.queueEffect(this.machine.remote ? { open_image: path, machine: this.machine.id } : { open_image: path });
         break;
       }
       case "paste":
@@ -10605,8 +10608,9 @@ export class Controller {
     if (!card || (button === "open" && !card.open_image)) return null;
     return { name: button === "copy" ? "copy-link" : "open-image" };
   }
+  /** The image a card opens in this computer's desktop viewer; another computer's opens from a copy here. */
   private desktopImage(file: LinkedFile | null): string | undefined {
-    return file?.image && !this.machine.remote && this.host.opens_desktop ? file.path : undefined;
+    return file?.image && this.host.opens_desktop ? file.path : undefined;
   }
   private pointedLinkCard(): linkTooltip.Link | null {
     const pointer = this.pointer,
