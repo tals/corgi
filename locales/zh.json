@@ -88,7 +88,6 @@
   " Couldn't add ${branch}: ${reason}": " 无法添加 ${branch}：${reason}",
   " Couldn't mark as unread": " 无法标为未读",
   " Couldn't open ${name}: ${reason}": " 无法打开 ${name}：${reason}",
-  " Couldn't open image ${name}": " 无法打开图像 ${name}",
   " Couldn't open it: ${why}": " 无法打开：${why}",
   " Couldn't remove ${name}: ${reason}": " 无法移除 ${name}：${reason}",
   " Deleted ${name} and its folder": " 已删除 ${name} 及其文件夹",

@@ -88,7 +88,6 @@
   " Couldn't add ${branch}: ${reason}": " ${branch} 추가 실패: ${reason}",
   " Couldn't mark as unread": " 읽지 않음으로 표시할 수 없습니다",
   " Couldn't open ${name}: ${reason}": " ${name} 열기 실패: ${reason}",
-  " Couldn't open image ${name}": " 이미지 ${name}을(를) 열 수 없습니다",
   " Couldn't open it: ${why}": " 열 수 없습니다: ${why}",
   " Couldn't remove ${name}: ${reason}": " ${name} 제거 실패: ${reason}",
   " Deleted ${name} and its folder": " ${name} 및 해당 폴더를 삭제했습니다",

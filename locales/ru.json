@@ -88,7 +88,6 @@
   " Couldn't add ${branch}: ${reason}": " Не удалось добавить ${branch}: ${reason}",
   " Couldn't mark as unread": " Не удалось отметить как непрочитанное",
   " Couldn't open ${name}: ${reason}": " Не удалось открыть ${name}: ${reason}",
-  " Couldn't open image ${name}": " Не удалось открыть изображение «${name}»",
   " Couldn't open it: ${why}": " Не удалось открыть: ${why}",
   " Couldn't remove ${name}: ${reason}": " Не удалось удалить ${name}: ${reason}",
   " Deleted ${name} and its folder": " ${name} и его папка удалены",

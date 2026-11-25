@@ -88,7 +88,6 @@
   " Couldn't add ${branch}: ${reason}": " ${branch}を追加できませんでした：${reason}",
   " Couldn't mark as unread": " 未読にできませんでした",
   " Couldn't open ${name}: ${reason}": " ${name}を開けませんでした：${reason}",
-  " Couldn't open image ${name}": " 画像「${name}」を開けませんでした",
   " Couldn't open it: ${why}": " 開けませんでした: ${why}",
   " Couldn't remove ${name}: ${reason}": " ${name}を削除できませんでした：${reason}",
   " Deleted ${name} and its folder": " ${name}とそのフォルダーを削除しました",

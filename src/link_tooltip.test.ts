@@ -112,8 +112,8 @@ test("both link popover labels keep the right border aligned and stay inside the
 });
 
 const url = "https://example.com/docs";
-function linkViewer(output = url, host: "pane" | "signin" = "pane") {
-  const s = attached(100, 30);
+function linkViewer(output = url, host: "pane" | "signin" = "pane", height = 30) {
+  const s = attached(100, height);
   s.sidebar_open = false;
   s.receiveSnapshot(onePane({}, { cols: 100 }));
   if (host === "signin") {
@@ -124,7 +124,7 @@ function linkViewer(output = url, host: "pane" | "signin" = "pane") {
     signin.child.feed(output);
     s.signin = signin;
   } else {
-    const source = new Terminal(100, 29);
+    const source = new Terminal(100, height - 1);
     try {
       source.feed(output);
       s.runtime.pane(1)!.terminal.receive(source.surface(1));
@@ -468,6 +468,41 @@ test("an image link's popover copies its path and opens the original from its th
     await s.input(mouse(0, 4, 6, true));
     expect(s.effects).toEqual([]);
   } finally {
+    setSystemTime();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("an image card too tight for both keeps its picture and leaves opening to the shortcut", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-thumb-"));
+  const path = join(dir, "shot.png");
+  writeFileSync(path, await new Bun.Image(Buffer.from(png_base64, "base64")).resize(1000, 400).png().buffer());
+  // Three rows fit a picture below the link, and none above it.
+  const s = linkViewer(`\x1b[4;1H\x1b]8;;file://${path}\x1b\\[Image #1]\x1b]8;;\x1b\\`, "pane", 12);
+  s.host.opens_desktop = true;
+  s.cell_pixels = { width: 10, height: 20 };
+  const binding = spyOn(s.prefs, "bindings").mockReturnValue([
+    { key: 111, mods: { alt: true }, prefixed: false, action: { name: "open-image" } },
+  ]);
+  try {
+    setSystemTime(new Date(1000));
+    await s.input(mouse(35, 2, 4));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    setSystemTime(new Date(1150));
+    // Without a picture, the card has room for the open row.
+    expect(s.frame()).toContain("Open image");
+    s.supports_kitty_graphics = true;
+    s.frame();
+    await s.thumbnails.loading;
+    const frame = s.frame();
+    expect(frame).toContain("Copy path");
+    expect(frame).not.toContain("Open image");
+    expect(s.host.images.present().draw).toContain("a=p,");
+    await s.input(Buffer.from("\x1b[111;3u"));
+    expect(s.effects).toEqual([{ open_image: path }]);
+  } finally {
+    binding.mockRestore();
     setSystemTime();
     viewer.close(s);
     rmSync(dir, { recursive: true, force: true });

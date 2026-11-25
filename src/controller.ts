@@ -10574,10 +10574,13 @@ export class Controller {
     const source = this.linkAt(link.x, link.y);
     if (!linkTooltip.sameLink(source, link)) return null;
     const file = this.hoveredFile(link);
-    const image = this.desktopImage(file);
-    const open_image = image && linkTooltip.geometry(this.width, this.height, link, null, true) ? image : undefined;
-    let thumbnail = this.linkThumbnail(file);
-    if (thumbnail) thumbnail = linkTooltip.fit(this.width, this.height, link, thumbnail, !!open_image);
+    const image = this.desktopImage(file),
+      loaded = this.linkThumbnail(file),
+      fit = (open: boolean) => loaded && linkTooltip.fit(this.width, this.height, link, loaded, open);
+    // The picture comes first: where the open row leaves it no room, the shortcut still opens the image.
+    const thumbnail = (image && fit(true)) || fit(false) || null;
+    const open_image =
+      image && linkTooltip.geometry(this.width, this.height, link, thumbnail, true) ? image : undefined;
     return { link, copied: this.link_tooltip.copied_until > milliTimestamp(), thumbnail, open_image };
   }
   private desktopImage(file: LinkedFile | null): string | undefined {

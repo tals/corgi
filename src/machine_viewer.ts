@@ -253,13 +253,14 @@ export async function run(
       openLink(effect.open_url, endpoints.find(e => e.machine.id === effect.machine) ?? null);
       return;
     }
-    const failed = () => {
-      const name = basename(effect.open_image);
-      view.notice(i18n.t` Couldn't open image ${name}`);
+    const failed = (error: unknown) => {
+      const name = basename(effect.open_image),
+        reason = errors.name(error) ?? i18n.t`unknown error`;
+      view.notice(i18n.t` Couldn't open ${name}: ${reason}`);
       notify();
     };
     if (host.opens_desktop) void openers.openImage(effect.open_image).catch(failed);
-    else failed();
+    else failed(Error("NoDesktop"));
   };
   /** Opens desktop effects without waiting for the shown machine's turn. */
   const openDesktopEffects = () => {
