@@ -26,6 +26,9 @@ const signatures = [
   [0x42, 0x4d],
   [0x49, 0x49, 0x2a, 0x00],
   [0x4d, 0x4d, 0x00, 0x2a],
+  // BigTIFF.
+  [0x49, 0x49, 0x2b, 0x00],
+  [0x4d, 0x4d, 0x00, 0x2b],
 ].map(bytes => Buffer.from(bytes));
 /** HEIF and AVIF brands, which follow `ftyp` in an ISO media file. */
 const brands = new Set(["heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1", "avif", "avis"]);

@@ -52,6 +52,7 @@ test("images Bun can't decode here still open, by their header", async () => {
       Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from("ftyp" + brand + "\0\0\0\0")]);
     const files = {
       "scan.tiff": Buffer.from([0x49, 0x49, 0x2a, 0x00, 8, 0, 0, 0]),
+      "big.tif": Buffer.from([0x4d, 0x4d, 0x00, 0x2b, 0, 8, 0, 0]),
       "scan.TIF": Buffer.from([0x4d, 0x4d, 0x00, 0x2a, 0, 0, 0, 8]),
       "photo.heic": iso("heic"),
       "photo.avif": iso("avif"),
@@ -72,7 +73,7 @@ test("images Bun can't decode here still open, by their header", async () => {
   }
 });
 
-test("a viewer left open counts as opened and frees its launch slot, which a link's opener keeps", async () => {
+test("a viewer left open counts as opened, and toward the limit until it closes", async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-image-opener-")));
   const sleep = Bun.which("sleep")!;
   using env = scopedEnv({ PATH: dir });
@@ -81,13 +82,11 @@ test("a viewer left open counts as opened and frees its launch slot, which a lin
     writeFileSync(join(dir, command), `#!/bin/sh\n${sleep} 1\nexit 1\n`, { mode: 0o700 });
     const image = join(dir, "shot.png");
     writeFileSync(image, Buffer.from(png_base64, "base64"));
+    // A pane's program can ask for either, so eight still running is the most.
     const openers = new Openers(50);
-    for (let i = 0; i < 9; i++) await openers.openImage(image);
-    // A pane's program can ask for links, so eight still running is the most.
-    const links = new Openers(50);
-    for (let i = 0; i < 8; i++) links.open("https://example.com/" + i);
-    await Bun.sleep(100);
-    expect(() => links.open("https://example.com/8")).toThrow("TooManyOpenRequests");
+    for (let i = 0; i < 7; i++) await openers.openImage(image);
+    openers.open("https://example.com/");
+    await expect(openers.openImage(image)).rejects.toThrow("TooManyOpenRequests");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

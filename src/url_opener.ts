@@ -27,8 +27,8 @@ export class Openers {
     const code = await this.launch(resolved);
     if (code !== null && code !== 0) throw Error("OpenImageFailed");
   }
-  /** Starts an opener, which counts toward the limit until it exits. A
-   * pane's program can ask for links, so they keep to it. */
+  /** Starts an opener, which counts toward the limit until it exits: a
+   * pane's program can ask for links and images. */
   private spawn(target: string): Bun.Subprocess {
     this.reap();
     if (this.children.size >= 8) throw Error("TooManyOpenRequests");
@@ -44,9 +44,7 @@ export class Openers {
     return child;
   }
   /** Opens an image: the opener's exit code if it exits while launching;
-   * null if it's still running, as a viewer it runs in the foreground is.
-   * An image opens only where the user points, so that one stops counting
-   * toward the limit. */
+   * null if it's still running, as a viewer it runs in the foreground is. */
   private async launch(target: string): Promise<number | null> {
     const child = this.spawn(target);
     let timer: Timer | undefined;
@@ -55,7 +53,6 @@ export class Openers {
       new Promise<null>(resolve => (timer = setTimeout(resolve, this.launching_ms, null))),
     ]);
     clearTimeout(timer);
-    this.children.delete(child);
     return code;
   }
 }
