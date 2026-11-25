@@ -130,8 +130,6 @@ const corgiPrefix: Binding[] = [
   { key: 32, mods: {}, prefixed: true, action: { name: "prompt" } },
   { key: 105, mods: {}, prefixed: true, action: { name: "setup" } },
   { key: 63, mods: {}, prefixed: true, action: { name: "help" } },
-  { key: 121, mods: {}, prefixed: true, action: { name: "copy-link" } },
-  { key: 111, mods: {}, prefixed: true, action: { name: "open-image" } },
   {
     key: 37,
     mods: {},
@@ -292,8 +290,6 @@ const tables: Record<Preset, Binding[]> = {
     { key: 32, mods: {}, prefixed: true, action: { name: "prompt" } },
     { key: 67, mods: {}, prefixed: true, action: { name: "setup" } },
     { key: 63, mods: {}, prefixed: true, action: { name: "help" } },
-    { key: 121, mods: {}, prefixed: true, action: { name: "copy-link" } },
-    { key: 79, mods: {}, prefixed: true, action: { name: "open-image" } },
     prompt_chord,
   ],
   herdr: [
@@ -411,8 +407,6 @@ const tables: Record<Preset, Binding[]> = {
     { key: 32, mods: {}, prefixed: true, action: { name: "prompt" } },
     { key: 115, mods: {}, prefixed: true, action: { name: "setup" } },
     { key: 63, mods: {}, prefixed: true, action: { name: "help" } },
-    { key: 121, mods: {}, prefixed: true, action: { name: "copy-link" } },
-    { key: 79, mods: {}, prefixed: true, action: { name: "open-image" } },
     prompt_chord,
   ],
   cmux: [

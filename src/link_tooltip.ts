@@ -46,24 +46,19 @@ export interface Card {
   link: Link;
   copied: boolean;
   thumbnail: Thumbnail | null;
+  /** The image the card opens on this computer's desktop. */
   open_image?: string;
-  keys: Keys;
-}
-/** The keycaps of the card's actions under the current shortcuts; null where unbound. */
-export interface Keys {
-  copy: string | null;
-  open: string | null;
-}
-export const no_keys: Keys = { copy: null, open: null };
-/** A card's rows: Copy always, then Open when the image opens here. */
-export interface Rows {
-  open: boolean;
-  keys: Keys;
-}
-export function rows(card: Card): Rows {
-  return { open: !!card.open_image, keys: card.keys };
+  /** The card has room for its Open row; the picture and key open the image either way. */
+  open_row?: boolean;
 }
 export type Button = "copy" | "open";
+/** The keys a shown card takes, as its keycaps show them. */
+export const keys: Record<Button, string> = { copy: "c", open: "o" };
+/** The row an unmodified key acts as on a shown card, or null. */
+export function keyButton(codepoint: number): Button | null {
+  const key = String.fromCodePoint(codepoint);
+  return key === keys.copy ? "copy" : key === keys.open ? "open" : null;
+}
 /** The path a file:// link names, which the card copies instead of the URL. */
 export function filePath(uri: string): string | null {
   if (!/^file:/i.test(uri)) return null;
@@ -106,11 +101,8 @@ function same(a: Target, b: Target) {
 function delay(target: Target | null): number {
   return target?.resource != null || target?.link != null ? 150 : 500;
 }
-/** The keycap column: wide enough for each shown row's key, or a ✓. */
-function capWidth(r: Rows): number {
-  const keys = [r.keys.copy, r.open ? r.keys.open : null].filter(key => key !== null);
-  return Math.max(3, ...keys.map(key => displayWidth(key) + 2));
-}
+/** The keycap column, which a ✓ takes once the link is copied. */
+const cap = 3;
 /** The card under or over the link at `anchor`: its action rows, then
  * `thumbnail` under a rule. A thumbnail that fits neither below nor above
  * the link gets null, and the card goes without it. */
@@ -119,15 +111,15 @@ export function geometry(
   height: number,
   anchor: { x: number; y: number },
   thumbnail: Thumbnail | null = null,
-  r: Rows = { open: false, keys: no_keys },
+  openImage = false,
 ): Rect | null {
   const cells = thumbnail ? thumbnailCells(thumbnail) : { cols: 0, rows: 0 };
-  const labels = [i18n.t`Copied`, i18n.t`Copy path`, i18n.t`Copy link`, ...(r.open ? [openLabel()] : [])];
-  const w = Math.max(17, 4 + capWidth(r) + Math.max(...labels.map(displayWidth)) + 1, cells.cols + 2),
-    h = 3 + Number(r.open) + (thumbnail ? cells.rows + 1 : 0);
+  const labels = [i18n.t`Copied`, i18n.t`Copy path`, i18n.t`Copy link`, ...(openImage ? [openLabel()] : [])];
+  const w = Math.max(17, 4 + cap + Math.max(...labels.map(displayWidth)) + 1, cells.cols + 2),
+    h = 3 + Number(openImage) + (thumbnail ? cells.rows + 1 : 0);
   if (width < w || height < h + 1) return null;
   const below = anchor.y + h < height;
-  if ((thumbnail || r.open) && !below && anchor.y < h) return null;
+  if ((thumbnail || openImage) && !below && anchor.y < h) return null;
   return new Rect(Math.max(0, Math.min(anchor.x, width - w)), below ? anchor.y + 1 : Math.max(0, anchor.y - h), w, h);
 }
 /** `t`, shrunk if it must be for its card to fit beside `anchor` on a
@@ -137,17 +129,17 @@ export function fit(
   height: number,
   anchor: { x: number; y: number },
   t: Thumbnail,
-  r: Rows = { open: false, keys: no_keys },
+  openImage = false,
 ): Thumbnail | null {
-  if (geometry(width, height, anchor, t, r)) return t;
+  if (geometry(width, height, anchor, t, openImage)) return t;
   // The card adds a border, its action rows and a rule to the picture's rows.
-  const space = { cols: width - 2, rows: Math.max(height - anchor.y - 5, anchor.y - 4) - Number(r.open) };
+  const space = { cols: width - 2, rows: Math.max(height - anchor.y - 5, anchor.y - 4) - Number(openImage) };
   const scale = Math.min((space.cols * t.cell.width) / t.width, (space.rows * t.cell.height) / t.height),
     cols = Math.min(space.cols, Math.max(1, Math.round((t.width * scale) / t.cell.width))),
     rows = Math.min(space.rows, Math.max(1, Math.round((t.height * scale) / t.cell.height)));
   if (rows < 3) return null;
   const shrunk = { width: cols * t.cell.width, height: rows * t.cell.height, cell: t.cell, of: t };
-  return geometry(width, height, anchor, shrunk, r) ? shrunk : null;
+  return geometry(width, height, anchor, shrunk, openImage) ? shrunk : null;
 }
 export function copyAt(rect: Rect, x: number, y: number): boolean {
   return y === rect.y + 1 && x > rect.x && x < rect.x + rect.w - 1;
@@ -157,8 +149,9 @@ export function copyAt(rect: Rect, x: number, y: number): boolean {
 export function buttonAt(rect: Rect, card: Card, x: number, y: number): Button | null {
   if (copyAt(rect, x, y)) return "copy";
   if (!card.open_image || x <= rect.x || x >= rect.x + rect.w - 1) return null;
-  if (y === rect.y + 2) return "open";
-  return card.thumbnail && y > rect.y + 3 && y < rect.y + rect.h - 1 ? "open" : null;
+  if (card.open_row && y === rect.y + 2) return "open";
+  const rule = rect.y + 2 + Number(!!card.open_row);
+  return card.thumbnail && y > rule && y < rect.y + rect.h - 1 ? "open" : null;
 }
 function openLabel(): string {
   return i18n.t`Open image`;
@@ -166,28 +159,25 @@ function openLabel(): string {
 export function draw(w: Writer, rect: Rect, card: Card, hovered: Button | null): void {
   const border = new palette.Style({ fg: "line", bg: "surface" }).sgr();
   const rule = "─".repeat(rect.w - 2);
-  const cap = capWidth(rows(card));
   const label = card.copied
     ? i18n.t`Copied`
     : card.link.path || filePath(card.link.uri) !== null
       ? i18n.t`Copy path`
       : i18n.t`Copy link`;
   w.write(border + `\x1b[${rect.y + 1};${rect.x + 1}H┌${rule}┐`);
-  // A keycap where the row's shortcut is bound, as menus show them; a ✓ once copied.
-  const button = (y: number, key: string | null, label: string, name: Button) => {
+  // Each row's key as a keycap, as menus show theirs; a ✓ once copied.
+  const button = (y: number, label: string, name: Button) => {
     const style = new palette.Style({ fg: "strong", bg: hovered === name ? "selected" : "surface" }).sgr();
     w.write(`\x1b[${y + 1};${rect.x + 1}H│${style} `);
-    if (name === "copy" && card.copied) w.write(" ✓ ");
-    else if (key !== null) w.write(palette.keycap + ` ${key} ` + style);
-    w.splat(" ", cap - (name === "copy" && card.copied ? 3 : key === null ? 0 : displayWidth(key) + 2));
+    w.write(name === "copy" && card.copied ? " ✓ " : palette.keycap + ` ${keys[name]} ` + style);
     w.write(" " + label);
     w.splat(" ", rect.w - 4 - cap - displayWidth(label));
     w.write(border + "│");
   };
-  button(rect.y + 1, card.keys.copy, label, "copy");
-  if (card.open_image) button(rect.y + 2, card.keys.open, openLabel(), "open");
+  button(rect.y + 1, label, "copy");
+  if (card.open_row) button(rect.y + 2, openLabel(), "open");
   if (card.thumbnail) {
-    const top = rect.y + 2 + Number(!!card.open_image);
+    const top = rect.y + 2 + Number(!!card.open_row);
     w.write(`\x1b[${top + 1};${rect.x + 1}H├${rule}┤`);
     // The thumbnail draws over these rows.
     for (let y = top + 1; y < rect.y + rect.h - 1; y++)

@@ -930,7 +930,7 @@ export function frame(
     if (box) covered.push(box);
   };
   const link_rect = u.link_card
-    ? linkTooltip.geometry(width, height, u.link_card.link, u.link_card.thumbnail, linkTooltip.rows(u.link_card))
+    ? linkTooltip.geometry(width, height, u.link_card.link, u.link_card.thumbnail, !!u.link_card.open_row)
     : null;
   const on_link_card = u.pointer !== null && link_rect !== null && link_rect.contains(u.pointer.x, u.pointer.y);
   const on_peek = u.pointer !== null && u.file_peek !== null && u.file_peek.rect.contains(u.pointer.x, u.pointer.y);

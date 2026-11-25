@@ -197,16 +197,3 @@ test("prefix Space toggles the Corgi prompt in every preset, and Ctrl+Shift+K wh
     "| Corgi prompt | `prefix Space`, `Ctrl+Shift+K` | `prefix Space`, `Ctrl+Shift+K` | `prefix Space`, `Ctrl+Shift+K` | `prefix Space` |\n",
   );
 });
-
-test("every preset binds the link card's copy and open keys behind the prefix", async () => {
-  const { first, format } = await import("./bindings");
-  for (const [preset, open] of [
-    ["corgi", "o"],
-    ["tmux", "O"],
-    ["herdr", "O"],
-    ["cmux", "o"],
-  ] as [Preset, string][]) {
-    expect(format(first(preset, { name: "copy-link" }, true)!)).toBe("y");
-    expect(format(first(preset, { name: "open-image" }, true)!)).toBe(open);
-  }
-});

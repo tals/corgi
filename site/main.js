@@ -3357,12 +3357,10 @@ function linkCards(f, links, img, rest) {
       }
       const thumbnail = link.image ? picture() : null;
       // The slice's right edge is the terminal's, which keeps the card in.
-      // The keycap is the Corgi preset's, with its default prefix.
-      const card = { link: { uri: link.uri, ...anchor }, copied: false, thumbnail, keys: { copy: "Ctrl+B y", open: null } };
-      rect = linkTooltip.geometry(f.c0 + f.cols, rows, anchor, thumbnail, linkTooltip.rows(card));
+      rect = linkTooltip.geometry(f.c0 + f.cols, rows, anchor, thumbnail);
       if (!rect) return;
       const out = new Writer();
-      linkTooltip.draw(out, rect, card, null);
+      linkTooltip.draw(out, rect, { link: { uri: link.uri, ...anchor }, copied: false, thumbnail }, null);
       drawOver(g, out, rows);
       if (!thumbnail) return;
       // Centered in the rows between the rule and the bottom border, as link_thumbnail.ts places it.
