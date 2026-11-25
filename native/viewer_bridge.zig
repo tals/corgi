@@ -72,12 +72,16 @@ pub export fn viewer_update_render(t: *pane.Terminal) i32 {
 }
 
 /// The pane's rows inside `x, y, w, h`, as render.zig draws them.
-pub export fn viewer_rows(t: *pane.Terminal, id: u32, x: u16, y: u16, w: u16, h: u16, dimmed: bool, hovering: bool, hovered: u64) i64 {
+pub export fn viewer_rows(t: *pane.Terminal, id: u32, x: u16, y: u16, w: u16, h: u16, dimmed: bool, hovering: bool, hovered: u64, spans: [*]const u16, span_count: usize, target: [*]const u8, target_len: usize) i64 {
     out.clearRetainingCapacity();
     const state = &t.render;
     for (0..@min(state.rows, h)) |row| {
         out.writer.print("\x1b[{d};{d}H", .{ y + row + 1, x + 1 }) catch return -1;
-        pane.surface.writeRowHovered(&out.writer, state, t.hyperlinks(), @enumFromInt(id), row, w, dimmed, if (hovering) hovered else null) catch return -1;
+        const overlay: ?pane.hyperlinks.Link = for (0..span_count) |i| {
+            const span = spans[i * 3 ..][0..3];
+            if (span[0] == row) break .{ .row = row, .start = span[1], .end = span[2], .id = hovered, .uri = target[0..target_len], .path = target_len == 0 };
+        } else null;
+        pane.surface.writeRowOverlay(&out.writer, state, t.hyperlinks(), @enumFromInt(id), row, w, dimmed, if (hovering) hovered else null, overlay) catch return -1;
     }
     return written();
 }

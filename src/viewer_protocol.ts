@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, isAbsolute } from "node:path";
 import { version } from "./viewer_version";
 import { parse as parseAction } from "./action";
+import * as wrappedLink from "./wrapped_link";
+import * as fileAccess from "./file_access";
 import * as surface from "./pane/surface";
 import * as session from "./session";
 import * as workspace from "./workspace";
@@ -197,6 +199,9 @@ function capture(
     resources: resources_hash === resourcesHash ? null : readings,
     resources_hash: resourcesHash,
     surfaces: surfaces ? frames(s, cl) : [],
+    ...(cl.wrapped_notice && cl.wrapped_notice.seq !== cl.stream?.wrapped_seq
+      ? { wrapped_notice: cl.wrapped_notice }
+      : {}),
     bell_seq: s.bell_seq,
     bell_kind: s.last_bell_kind,
     controls: cl.controls,
@@ -306,6 +311,7 @@ export function remember(cl: Client, view: View, wake: bigint, now = Date.now())
   cl.cancelFrame();
   if (!cl.stream) return;
   cl.stream.sent = now;
+  if (view.wrapped_notice) cl.stream.wrapped_seq = view.wrapped_notice.seq;
   cl.stream.wake = wake;
   cl.stream.session_hash = view.session_hash;
   cl.stream.resources_hash = view.resources_hash;
@@ -345,6 +351,70 @@ export async function pick(s: Server, cl: Client, q: Request<"viewer.pick">, rep
   const p = s.runtime.pane(q.pane);
   if (!p) throw new Error("NoPane");
   reply.ok(await p.displayed().pick(q.unit, q.x, q.y, q.to_x, q.to_y, viewport(q.offset)!));
+}
+/** Only a new spelling relevant to the last lookup wakes this viewer. */
+export function wrappedWake(s: Server, cl: Client): bigint {
+  const watch = cl.wrapped_watch;
+  if (watch) {
+    const pane = s.runtime.pane(watch.pane);
+    if (
+      pane?.attachment.generation !== watch.binding ||
+      pane.attachment.actor?.id !== watch.actor ||
+      !cl.interests.some(i => i.pane === watch.pane)
+    )
+      cl.wrapped_watch = null;
+    else {
+      const known = s.usage?.linkEvidence(watch.actor);
+      if (known && known.revision !== watch.revision) {
+        watch.revision = known.revision;
+        if ([...watch.missing].some(uri => known.has(uri))) {
+          cl.wrapped_watch = null;
+          cl.wrapped_notice = { pane: watch.pane, seq: ++cl.wrapped_seq };
+        }
+      }
+    }
+  }
+  return BigInt(cl.wrapped_seq);
+}
+/** Resolve the same displayed cells on whichever daemon owns the pane. */
+export async function wrapped(s: Server, cl: Client, q: Request<"viewer.wrapped_link">, reply = new Reply(cl)) {
+  const viewer = owner(s, cl),
+    pane = s.runtime.pane(q.pane);
+  if (!pane || !viewer.interests.some(i => i.pane === q.pane)) throw Error("NoPane");
+  const terminal = pane.displayed(),
+    actor = pane.attachment.actor;
+  const dictionary = s.usage?.linkEvidence(actor?.id ?? 0) ?? null;
+  const current = () =>
+    s.runtime.pane(q.pane) === pane &&
+    pane.displayed() === terminal &&
+    terminal.surface_identity === q.identity &&
+    pane.attachment.generation === q.binding;
+  viewer.wrapped_watch = null;
+  viewer.wrapped_notice = null;
+  if (!current()) return reply.ok({ target: null });
+  const verify = terminal.surface_revision !== q.revision;
+  const rows: wrappedLink.Row[] = terminal.native({
+    op: "linkWindow",
+    pane: q.pane,
+    offset: viewport(q.offset),
+    x: q.x,
+    y: q.y,
+    verify,
+  });
+  if (verify && wrappedLink.fingerprint(rows.map(r => r.line!)) !== q.fingerprint) return reply.ok({ target: null });
+  const probe = wrappedLink.inspect(rows, q.x, q.y, dictionary);
+  if (actor && probe.missing.size) {
+    s.usage?.requestLinkHistory(actor.id);
+    viewer.wrapped_watch = {
+      pane: pane.id,
+      actor: actor.id,
+      binding: q.binding,
+      revision: dictionary?.revision ?? 0,
+      missing: probe.missing,
+    };
+  }
+  const target = await wrappedLink.resolve(probe, fileAccess.here, pane.agent().cwd.text() || pane.cwd);
+  reply.ok(current() ? { target, range: probe.range } : { target: null });
 }
 export function image(s: Server, cl: Client, q: Request<"viewer.image">, reply = new Reply(cl)) {
   const viewer = owner(s, cl);

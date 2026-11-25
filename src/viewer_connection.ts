@@ -101,6 +101,7 @@ export class Connection implements Transport {
       case "viewer.surfaces":
       case "viewer.image":
       case "viewer.search":
+      case "viewer.wrapped_link":
       case "viewer.pick":
       case "pane.surface":
         return this.content(op, ...args);

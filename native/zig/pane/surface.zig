@@ -58,6 +58,10 @@ pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const 
 }
 
 pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: PaneId, row: usize, cols: u16, dimmed: bool, hovered: ?u64) !void {
+    return writeRowOverlay(w, state, links, pane, row, cols, dimmed, hovered, null);
+}
+
+pub fn writeRowOverlay(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: PaneId, row: usize, cols: u16, dimmed: bool, hovered: ?u64, overlay: ?hyperlink.Link) !void {
     const cells = state.row_data.items(.cells)[row];
     var active_link: ?u64 = null;
     var link_index: usize = 0;
@@ -72,7 +76,7 @@ pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: [
         while (link_index < links.len and links[link_index].row == row and links[link_index].end <= col) link_index += 1;
         const at_link = link_index < links.len and links[link_index].row == row and
             links[link_index].start <= col and col < links[link_index].end;
-        const link: ?hyperlink.Link = if (!style.flags.invisible and at_link) links[link_index] else null;
+        const link: ?hyperlink.Link = if (style.flags.invisible) null else if (overlay != null and overlay.?.start <= col and col < overlay.?.end) overlay else if (at_link) links[link_index] else null;
         const link_id: ?u64 = if (link) |value| value.id else null;
         if (hovered != null and link_id == hovered) style.flags.underline = .single;
         // A path found in plain text stays Corgi's: the host can't open a relative one.
@@ -200,15 +204,8 @@ pub fn captureView(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Termin
     const screen = t.vt.screens.active;
     const pages = &screen.pages;
     const bottom = pages.total_rows -| t.vt.rows;
-    const saved = t.borrowViewport();
-    const synchronized = t.vt.modes.get(.synchronized_output);
-    const borrowed = !synchronized and (offset != null or pages.viewport != .active or saved.selection != null);
-    defer if (borrowed) saved.restore();
-    if (borrowed) {
-        screen.selection = null;
-        if (offset) |row| t.vt.scrollViewport(.{ .row = row }) else t.vt.scrollViewport(.bottom);
-        t.vt.flags.dirty.clear = true;
-    }
+    const saved = borrowRenderViewport(t, offset);
+    defer if (saved) |v| v.restore();
     return .{
         .surface = try capture(allocator, id, t),
         .stamp = stamp(t, offset),
@@ -217,6 +214,62 @@ pub fn captureView(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Termin
         .modes = modes(t),
     };
 }
+fn borrowRenderViewport(t: *terminal.Terminal, offset: ?usize) ?terminal.Terminal.BorrowedViewport {
+    const saved = t.borrowViewport();
+    if (t.vt.modes.get(.synchronized_output) or (offset == null and t.vt.screens.active.pages.viewport == .active and saved.selection == null)) return null;
+    t.vt.screens.active.selection = null;
+    if (offset) |row| t.vt.scrollViewport(.{ .row = row }) else t.vt.scrollViewport(.bottom);
+    t.vt.flags.dirty.clear = true;
+    return saved;
+}
+
+const LinkRow = struct { row: usize, wrap: bool, continued: bool, cells: []const []const u8, line: ?[]const u8 };
+
+/// Actual cells near a pointer. OSC 8 and concealed cells are barriers even when
+/// their labels look like paths. Empty strings occupy the spacer of a wide cell.
+pub fn linkWindow(allocator: std.mem.Allocator, t: *terminal.Terminal, offset: ?usize, x: usize, y: usize, pane: PaneId, verify: bool) ![]const LinkRow {
+    const saved = borrowRenderViewport(t, offset);
+    defer if (saved) |v| v.restore();
+    try t.updateRender();
+    const state = &t.render;
+    if (x >= state.cols or y >= state.rows) return &.{};
+    const first = y -| 7;
+    const rows = try allocator.alloc(LinkRow, @min(state.rows, y + 8) - first);
+    for (rows, first..) |*dest, row| {
+        const cells = state.row_data.items(.cells)[row];
+        const values = try allocator.alloc([]const u8, cells.len);
+        for (cells.items(.raw), values, 0..) |cell, *value, col| {
+            if (cell.wide == .spacer_head or cell.wide == .spacer_tail) {
+                value.* = "";
+            } else if (cell.hyperlink or (cell.style_id != 0 and cells.items(.style)[col].flags.invisible)) {
+                value.* = "\x00";
+            } else if (cell.codepoint() == 0 or (cell.codepoint() == ' ' and cell.content_tag != .codepoint_grapheme)) {
+                value.* = " ";
+            } else {
+                var bytes: [4]u8 = undefined;
+                const n = try std.unicode.utf8Encode(cell.codepoint(), &bytes);
+                if (cell.content_tag == .codepoint_grapheme) {
+                    var str: std.ArrayList(u8) = .empty;
+                    try str.appendSlice(allocator, bytes[0..n]);
+                    for (cells.items(.grapheme)[col]) |extra| {
+                        const count = try std.unicode.utf8Encode(extra, &bytes);
+                        try str.appendSlice(allocator, bytes[0..count]);
+                    }
+                    value.* = str.items;
+                } else value.* = try allocator.dupe(u8, bytes[0..n]);
+            }
+        }
+        const line = if (verify) blk: {
+            var out: std.Io.Writer.Allocating = .init(allocator);
+            try writeRow(&out.writer, state, t.hyperlinks(), pane, row, state.cols, false);
+            break :blk out.written();
+        } else null;
+        const raw = state.row_data.items(.raw)[row];
+        dest.* = .{ .row = row, .wrap = raw.wrap, .continued = raw.wrap_continuation, .cells = values, .line = line };
+    }
+    return rows;
+}
+
 /// How a viewer encodes input for the program in `t`.
 pub fn modes(t: *const terminal.Terminal) Modes {
     return .{
@@ -508,6 +561,8 @@ test "canonical cache keeps borrowed viewports independent and snapshots owned" 
         const view = try captureView(arena.allocator(), @enumFromInt(1), t, offset);
         if (offset) |row| reference.vt.scrollViewport(.{ .row = row }) else reference.vt.scrollViewport(.bottom);
         try expectCanonical(@enumFromInt(1), reference, view.surface);
+        const rows = try linkWindow(arena.allocator(), t, offset, 1, 1, @enumFromInt(1), true);
+        for (rows) |row| try std.testing.expectEqualStrings(view.surface.lines[row.row], row.line.?);
         try std.testing.expectEqualDeep(viewport, t.vt.screens.active.pages.viewport);
         try std.testing.expect(t.vt.screens.active.selection.?.eql(selection.?));
     }

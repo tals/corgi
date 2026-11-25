@@ -64,6 +64,7 @@ export interface View<Session = unknown, Resources = unknown> {
   bell_seq: bigint;
   bell_kind: "none" | "finished" | "needs_input";
   controls: Control[];
+  wrapped_notice?: { pane: number; seq: number };
   viewer: number;
   /** Always false; retained for older viewers. Detach uses an action control. */
   detach: boolean;
@@ -133,6 +134,7 @@ export const operations = [
   "viewer.receipt",
   "viewer.search",
   "viewer.pick",
+  "viewer.wrapped_link",
   "viewer.image",
   "pane.acknowledge",
   "pane.mark_unread",
@@ -781,6 +783,16 @@ const requests = {
   "viewer.data": { link: "string" },
   "viewer.receipt": { sequence: "u32", frame: "u64", active: ["bool", false] },
   "viewer.search": { pane: "u32", needle: "string", skip: ["u64", 0] },
+  "viewer.wrapped_link": {
+    pane: "u32",
+    fingerprint: "u64",
+    identity: "u64",
+    revision: "u64",
+    offset: ["?u64", null],
+    binding: "u64",
+    x: "u16",
+    y: "u16",
+  },
   "viewer.pick": {
     pane: "u32",
     offset: "u64",
@@ -1045,6 +1057,10 @@ export interface ReplyPayloads {
   "viewer.search": Ok & {
     offset: bigint | null;
     match?: { x: number; y: number; end_x: number; end_y: number } | null;
+  };
+  "viewer.wrapped_link": Ok & {
+    target: import("./wrapped_link").Target | null;
+    range?: { start: number; end: number };
   };
   "viewer.pick": Ok & {
     match: { x: number; y: number; end_x: number; end_y: number } | null;

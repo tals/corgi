@@ -5,6 +5,8 @@ import { constants } from "node:fs";
 import { Agent, Provider, Text } from "../agents";
 import { adapter } from "../providers";
 import type { TranscriptReader } from "../providers/adapter";
+import type { Search } from "../providers/search";
+import * as linkEvidence from "../link_evidence";
 import { str, timestampMs, Text as Note } from "../providers/common";
 import { Model } from "../providers/model";
 import { parse } from "../json";
@@ -50,8 +52,13 @@ export class Result {
     return agent.provider ? (adapter(agent.provider).transcript?.fallback(this, agent, now) ?? false) : false;
   }
 }
+const history_bytes = 256 * 1024;
+
 export class Tail {
   actor = 0;
+  readonly evidence = new linkEvidence.Dictionary();
+  private recordTexts: Search["recordTexts"];
+  history: { end: number; requested: boolean } | null = null;
   initial_until = 0;
   tracker = new Tracker();
   progress = new Tools();
@@ -144,6 +151,7 @@ export class Tail {
     if (saved.file) {
       Object.assign(t, hydrate({ inode: 0, device: 0, offset: 0 }, saved.file));
       t.discard = hydrate(false, saved.file.discard);
+      if (t.offset > 0) t.history = { end: t.offset, requested: false };
     } else if (saved.position) t.carried = hydrate({ inode: 0, device: 0, offset: 0 }, saved.position);
     t.initial_until = hydrate(0, saved.initial_until);
     t.catch_up = hydrate(false, saved.catch_up);
@@ -168,6 +176,49 @@ export class Tail {
     const id = str(message, "model");
     if (id && id !== "<synthetic>") this.model = Model.resolve(id);
   }
+  private remember(value: unknown, session: string, into = this.evidence) {
+    if (!this.recordTexts) return;
+    try {
+      for (const text of this.recordTexts(value, session)) into.add(text);
+    } catch {
+      // A malformed message may still carry valid usage.
+    }
+  }
+  /** One bounded look behind the handoff cursor, if an unresolved hover asks. */
+  async readHistory(req: Request) {
+    const history = this.history;
+    this.history = null;
+    if (!history?.requested || this.evidence.full) return;
+    try {
+      this.recordTexts ??= (await adapter(req.agent.provider!).search?.())?.recordTexts;
+      if (!this.recordTexts) return;
+      const file = await open(
+        req.agent.transcriptPath(),
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+      try {
+        const stat = await file.stat();
+        if (!stat.isFile() || stat.ino !== this.inode || stat.dev !== this.device || stat.size < history.end) return;
+        const start = Math.max(0, history.end - history_bytes);
+        const bytes = Buffer.alloc(history.end - start);
+        const { bytesRead } = await file.read(bytes, 0, bytes.length, start);
+        const lines = bytes.toString("utf8", 0, bytesRead).split("\n");
+        const older = new linkEvidence.Dictionary();
+        for (let i = start ? 1 : 0; i < lines.length - 1; i++) {
+          try {
+            this.remember(parse(lines[i]), req.agent.sessionId(), older);
+          } catch {
+            // Malformed records give no evidence.
+          }
+        }
+        this.evidence.addOlder(older);
+      } finally {
+        await file.close();
+      }
+    } catch {
+      // Historical hover evidence is optional. Usage keeps its own cursor.
+    }
+  }
   ingest(req: Request, reader: TranscriptReader, bytes: Buffer | string, start_offset: number) {
     const telemetry_started = telemetry.begin();
     try {
@@ -190,8 +241,10 @@ export class Tail {
         if (!complete) continue;
         if (!this.discard)
           try {
-            const value = parse(this.partial.toString()),
-              appended = start_offset + start > this.initial_until,
+            const value = parse(this.partial.toString());
+            const offset = start_offset + start;
+            if (offset > this.initial_until - history_bytes) this.remember(value, req.agent.sessionId());
+            const appended = offset > this.initial_until,
               stamp = timestampMs(str(value, "timestamp")),
               delta = reader.record(this, req, value, appended, stamp);
             if (appended && stamp !== null && stamp > req.since) found.add(delta);
@@ -230,6 +283,8 @@ export class Tail {
         const resumed =
           this.inode !== 0 && stat.ino === this.inode && stat.dev === this.device && stat.size >= this.offset;
         if (!resumed) {
+          this.evidence.clear();
+          this.history = null;
           const first = await head(file);
           adapter(req.agent.provider!).transcript?.verify?.(first, req.agent.sessionId());
           const carried = this.carried,
@@ -240,7 +295,7 @@ export class Tail {
               stat.size >= carried.offset;
           this.carried = null;
           this.initial_until = continues ? carried.offset : stat.size;
-          this.offset = Math.max(0, this.initial_until - 256 * 1024);
+          this.offset = Math.max(0, this.initial_until - history_bytes);
           const catch_up = req.child && !this.opened && stat.size <= 2 * 1024 * 1024;
           if (catch_up) this.offset = 0;
           this.catch_up = catch_up;
@@ -264,6 +319,7 @@ export class Tail {
         this.device = stat.dev;
         if (!named.isFile() || named.ino !== this.inode || named.dev !== this.device || stat.size < this.offset)
           throw Error("Replaced");
+        this.recordTexts ??= (await adapter(req.agent.provider!).search?.())?.recordTexts;
         if (stat.size === this.offset) return new Counts();
         const bytes = Buffer.alloc(65536),
           start = this.offset,
@@ -380,6 +436,13 @@ export class Worker {
     this.results = [];
     return out;
   }
+  linkEvidence(actor: number): linkEvidence.Dictionary | null {
+    return this.watchers.get(actor)?.evidence ?? null;
+  }
+  requestLinkHistory(actor: number) {
+    const history = this.watchers.get(actor)?.history;
+    if (history) history.requested = true;
+  }
   async run() {
     if (this.running || this.stopping || this.pausing) return;
     this.running = true;
@@ -403,6 +466,7 @@ export class Worker {
         if (req.agent.transcript.len)
           try {
             delta = await t.poll(req, reader, window);
+            if (t.history?.requested) await t.readHistory(req);
           } catch {
             if (t.live.meter.value.known) t.live.meter.lose();
             t.closeFile();

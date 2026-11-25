@@ -1045,9 +1045,14 @@ export class Endpoint {
         // a chat moved into a pane take it too, and never the control
         // connection, opening it on a machine not shown, such as a prompt
         // conversation's.
-        const contents = ["viewer.surfaces", "viewer.image", "viewer.search", "viewer.pick", "pane.surface"].includes(
-          op,
-        );
+        const contents = [
+          "viewer.surfaces",
+          "viewer.image",
+          "viewer.search",
+          "viewer.pick",
+          "viewer.wrapped_link",
+          "pane.surface",
+        ].includes(op);
         let conn: Connection | null, keepalive: ReturnType<typeof setInterval> | undefined;
         if (
           [

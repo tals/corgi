@@ -619,7 +619,7 @@ export function snapshot(r: Runtime) {
   return { ...build(r, false), resources: r.resources.current };
 }
 export function viewerSnapshot(r: Runtime) {
-  return build(r, true);
+  return { ...build(r, true), wrapped_links: true };
 }
 function build(r: Runtime, viewer: boolean) {
   // An agent's new state and its place at the top of its new section go out

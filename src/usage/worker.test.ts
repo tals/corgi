@@ -703,6 +703,36 @@ test("a handoff's usage tail counts on from where the last daemon stopped", asyn
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a failed hover history read after a handoff leaves the usage cursor intact", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-usage-history-"));
+  try {
+    const { file, req, tail } = await counting(root);
+    appendFileSync(file, usageLine("m2", 10, 2));
+    await tail.poll(req, reader(req));
+    const resumed = Worker.restore(json.clone([tail.capture()]));
+    resumed.requests = [req];
+    const opened = spyOn(fs, "open").mockRejectedValueOnce(Error("Unreadable"));
+    try {
+      resumed.requestLinkHistory(1);
+      await resumed.run();
+      resumed.requestLinkHistory(1);
+      await resumed.run();
+      expect(opened).toHaveBeenCalledTimes(1);
+      const after = resumed.watchers.get(1)!;
+      expect(after.offset).toBe(tail.offset);
+      appendFileSync(file, usageLine("m3", 20, 3));
+      await resumed.run();
+      expect(after.live.meter.value.tokens.input).toBe(30n);
+      expect(after.live.meter.value.partial).toBe(false);
+    } finally {
+      opened.mockRestore();
+      resumed.stop();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("a Codex subagent's count stays whole through a handoff", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-usage-"));
   try {
@@ -900,4 +930,84 @@ test("a usage worker is captured only once paused, with its results applied", as
   expect(w.capture()).toEqual([]);
   w.unpause();
   expect(() => w.capture()).toThrow("UsageBusy");
+});
+
+test("tool output alone updates session link evidence without publishing usage", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-usage-links-"));
+  const worker = new Worker(),
+    req = request("claude");
+  const file = join(root, "session.jsonl");
+  const message = (type: string, sessionId: string, content: unknown) =>
+    JSON.stringify({ type, sessionId, message: { role: type, content } }) + "\n";
+  const result = (session: string, text: string) =>
+    message("user", session, [{ type: "tool_result", tool_use_id: "read", content: text }]);
+  try {
+    writeFileSync(
+      file,
+      message("assistant", "session", [
+        { type: "text", text: "Visit https://example.org/image" },
+        { type: "tool_use", name: "Read", input: { file_path: "assets/launch image.png" }, id: "read" },
+      ]),
+    );
+    req.agent.transcript = new Path(file);
+    worker.requests = [req];
+    await worker.run();
+    const dictionary = worker.linkEvidence(1)!;
+    expect(dictionary.has("assets/launch image.png")).toBe(true);
+    expect(dictionary.has("https://example.org/image")).toBe(true);
+    expect(worker.linkEvidence(2)).toBeNull();
+    worker.take();
+    const first = dictionary.revision;
+    appendFileSync(file, result("other-session", "/other/private.png") + result("session", "try /tmp/generated.png"));
+    await worker.run();
+    expect(worker.take()).toEqual([]);
+    expect(dictionary.has("/tmp/generated.png")).toBe(true);
+    expect(dictionary.has("/other/private.png")).toBe(false);
+    expect(dictionary.revision).toBeGreaterThan(first);
+    await worker.run();
+    expect(worker.take()).toEqual([]);
+    await worker.pause();
+    const saved = worker.capture();
+    expect(json.stringify(saved)).not.toContain("generated.png");
+    const resumed = Worker.restore(json.clone(saved));
+    resumed.requests = [req];
+    const opened = spyOn(fs, "open");
+    try {
+      const links = resumed.linkEvidence(1)!;
+      await resumed.run();
+      expect(links.has("/tmp/generated.png")).toBe(false);
+      expect(opened).toHaveBeenCalledTimes(0);
+      const fresh = Array.from({ length: 255 }, (_, n) => "assets/new-" + n + ".png");
+      appendFileSync(file, result("session", fresh.join(" ")));
+      await resumed.run();
+      expect(opened).toHaveBeenCalledTimes(1);
+      expect(links.has(fresh[0])).toBe(true);
+      expect(links.has("/tmp/generated.png")).toBe(false);
+      resumed.requestLinkHistory(1);
+      await resumed.run();
+      expect(opened).toHaveBeenCalledTimes(2);
+      expect(links.has("/tmp/generated.png")).toBe(true);
+      expect(links.has("https://example.org/image")).toBe(false);
+      resumed.requestLinkHistory(1);
+      await resumed.run();
+      expect(opened).toHaveBeenCalledTimes(2);
+      appendFileSync(file, result("session", "assets/last.png"));
+      await resumed.run();
+      expect(links.has("/tmp/generated.png")).toBe(false);
+      expect(links.has(fresh[0])).toBe(true);
+      expect(resumed.take()).toEqual([]);
+    } finally {
+      opened.mockRestore();
+    }
+    resumed.stop();
+    worker.unpause();
+    renameSync(file, join(root, "old"));
+    writeFileSync(file, result("session", "/tmp/replacement.png"));
+    await worker.run();
+    expect(dictionary.has("/tmp/generated.png")).toBe(false);
+    expect(dictionary.has("/tmp/replacement.png")).toBe(true);
+  } finally {
+    worker.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

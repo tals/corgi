@@ -9538,6 +9538,11 @@ export class Controller {
       // events expose Ctrl, but do not encode the Command modifier.
       const plain_link = button === 0 && !term.mouseEvents();
       if (!release && (button === 16 || plain_link) && !this.copy_mode) {
+        if (!pane.view)
+          await term.pressLink(x - p.rect.x, y - p.rect.y, () => {
+            this.dirty = true;
+            this.wake();
+          });
         for (const link of term.hyperlinks()) {
           if (link.row !== y - p.rect.y || x - p.rect.x < link.start || x - p.rect.x >= link.end) continue;
           // A file's name opens it in a pane of its own; an image shows in its card.
@@ -10536,6 +10541,17 @@ export class Controller {
       if (!place.rect.contains(x, y)) continue;
       const pane = this.pane(place.id);
       if (!pane || pane.restoring) return null;
+      if (!pane.view && this.pointer?.x === x && this.pointer?.y === y) {
+        pane.terminal.hoverLink(
+          x - place.rect.x,
+          y - place.rect.y,
+          () => this.pointer?.x === x && this.pointer.y === y && this.pane(pane.id)?.terminal === pane.terminal,
+          () => {
+            this.dirty = true;
+            this.wake();
+          },
+        );
+      }
       return linkTooltip.at(pane.terminal, place.rect, x, y);
     }
     return null;
@@ -10553,6 +10569,8 @@ export class Controller {
     if (pane === null) return null;
     const ref = fileRef.parse(uri, path, this.machine.remote ? null : undefined);
     if (!ref) return null;
+    const recovered = path && pane.terminal.wrappedFile(uri);
+    if (recovered) return { path: recovered, ref, image: linkThumbnail.isImage(recovered) };
     const status = this.file_refs.get(ref, pane.agent.cwd || pane.cwd);
     return status.kind === "file" ? { path: status.path, ref, image: linkThumbnail.isImage(status.path) } : null;
   }

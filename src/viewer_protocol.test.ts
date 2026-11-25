@@ -18,10 +18,16 @@ import {
   open,
   sync,
   surfaces,
+  wrapped,
+  wrappedWake,
   image,
   start,
   receipt,
 } from "./viewer_protocol";
+import { Actor } from "./conversations";
+import { Dictionary } from "./link_evidence";
+import { Worker } from "./usage/worker";
+import { fingerprint } from "./wrapped_link";
 import { Pane, Ghost } from "./runtime";
 import { Terminal } from "./pane/terminal";
 import * as viewer_stream from "./viewer_stream";
@@ -545,4 +551,68 @@ test("a stream forgets the screens of panes its viewer stopped watching", async 
   expect(retained()).toEqual(panes);
   await sync(s, client, protocol.decode("viewer.sync", { workspace: 1, focus: panes[0], interests: [interests[0]] }));
   expect(retained()).toEqual([panes[0]]);
+});
+
+test("unrelated live output cannot stale a wrapped hover but changed target cells do", async () => {
+  const server = fixture(),
+    terminal = new Terminal(18, 24),
+    pane = new Pane(1, terminal, "/tmp");
+  server.runtime.panes.push(pane);
+  const client = peer(server),
+    sent = spyOn(client, "queue").mockImplementation(() => {});
+  const url = "https://example.org/long-report";
+  terminal.feed(url);
+  const first = terminal.surface(1),
+    q = {
+      pane: 1,
+      x: 2,
+      y: 1,
+      binding: pane.attachment.generation,
+      offset: null,
+      identity: first.stamp.identity,
+      revision: first.stamp.revision,
+      fingerprint: fingerprint(first.surface.lines.slice(0, 9)),
+    };
+  terminal.feed("\x1b[22;1Hbusy");
+  expect(terminal.surface_revision).toBeGreaterThan(q.revision);
+  await wrapped(server, client, q);
+  expect(sent.mock.calls.at(-1)![0]).toMatchObject({ target: { uri: url } });
+  terminal.feed("\x1b[2;1Hnew");
+  await wrapped(server, client, q);
+  expect(sent.mock.calls.at(-1)![0]).toMatchObject({ target: null });
+});
+
+test("only an exact missing spelling wakes a viewer and only once", async () => {
+  const server = fixture(),
+    pane = new Pane(1, new Terminal(32, 5), "/tmp"),
+    client = peer(server);
+  server.runtime.panes.push(pane);
+  const actor = new Actor({ id: 7 }),
+    dictionary = new Dictionary();
+  pane.attachment.select(actor);
+  server.usage = new Worker();
+  spyOn(server.usage, "linkEvidence").mockReturnValue(dictionary);
+  spyOn(client, "queue").mockImplementation(() => {});
+  pane.terminal.feed("https://example.org/rec\r\nord");
+  const view = pane.terminal.surface(1);
+  await wrapped(server, client, {
+    pane: 1,
+    x: 2,
+    y: 1,
+    binding: pane.attachment.generation,
+    offset: null,
+    identity: view.stamp.identity,
+    revision: view.stamp.revision,
+    fingerprint: fingerprint(view.surface.lines),
+  });
+  for (let i = 0; i < 100; i++) {
+    dictionary.add("https://other.test/" + i);
+    expect(wrappedWake(server, client)).toBe(0n);
+  }
+  dictionary.add("https://example.org/record");
+  expect(wrappedWake(server, client)).toBe(1n);
+  expect(client.wrapped_notice).toEqual({ pane: 1, seq: 1 });
+  dictionary.add("https://other.test/again");
+  expect(wrappedWake(server, client)).toBe(1n);
+  server.usage.stop();
 });
