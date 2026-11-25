@@ -84,10 +84,9 @@ function same(a: Target, b: Target) {
     (a.agent ?? null) === (b.agent ?? null)
   );
 }
-/** How long the pointer rests on a file's name before its peek opens. */
-export const file_delay = 1000;
+/** How long the pointer rests on a target before its card opens; a file's
+ * peek waits as a link's card does. */
 function delay(target: Target | null): number {
-  if (target?.file) return file_delay;
   return target?.resource != null || target?.link != null ? 150 : 500;
 }
 /** The card under or over the link at `anchor`, with `thumbnail` under a

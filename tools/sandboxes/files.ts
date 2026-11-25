@@ -63,7 +63,7 @@ export const world: World = {
         "⏺ Read(package.json)",
         "  ⎿ Read 39 lines",
         "",
-        "Rest the pointer on a path for two seconds; click one to open it.",
+        "Rest the pointer on a path to peek; click one to open it.",
       ].join("\n"),
     );
   },
@@ -106,7 +106,7 @@ export const world: World = {
     return [
       'Tab "transcript": paths to peek at and open; tab "writer" grows logs/server.log.',
       ...table([
-        ["rest", "on a path for 2 s: its peek, at the line the text names"],
+        ["rest", "on a path: its peek, at the line the text names"],
         ["trace.log:6000000", "a line deep in 600 MB: the peek asks before it scans, then shows progress"],
         ["wheel", "in the peek: scroll; up on the log pauses it"],
         ["click", "a path or a peek line: opens it in a pane beside"],

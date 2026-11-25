@@ -48,8 +48,8 @@ test("a link found to name a file waits for its peek rather than showing its cop
   expect(s.ready({ link: pointed }, 0)).toBe(false);
   expect(s.ready({ link: pointed, file: true }, 100)).toBe(false);
   expect(s.target?.file).toBe(true);
-  expect(s.ready({ link: pointed, file: true }, 1099)).toBe(false);
-  expect(s.ready({ link: pointed, file: true }, 1100)).toBe(true);
+  expect(s.ready({ link: pointed, file: true }, 249)).toBe(false);
+  expect(s.ready({ link: pointed, file: true }, 250)).toBe(true);
 });
 test("tooltip waits for rest and requires fresh movement after interaction", () => {
   const s = new State(),
