@@ -237,43 +237,54 @@ test.each(["pane", "signin"] as const)("%s link popover dismisses on input or ch
   }
 });
 
-test.each(["pane", "signin"] as const)("%s card takes its keys while it shows, but not over a sign-in", async host => {
-  const s = linkViewer(url, host);
-  const child = s.signin?.child ?? s.runtime.pane(1)!.terminal.inner;
-  const send = spyOn(child, "send").mockImplementation(() => {});
-  const show = async (at: number) => {
-    setSystemTime(new Date(at));
-    await s.input(mouse(35, 3, 1));
-    s.frame();
-    setSystemTime(new Date(at + 150));
-    const rendered = new Terminal(s.width, s.height);
+test.each(["pane", "signin"] as const)(
+  "%s card takes its keys while it shows, but not from sign-in or review typing",
+  async host => {
+    const s = linkViewer(url, host);
+    const child = s.signin?.child ?? s.runtime.pane(1)!.terminal.inner;
+    const send = spyOn(child, "send").mockImplementation(() => {});
+    const show = async (at: number) => {
+      setSystemTime(new Date(at));
+      await s.input(mouse(35, 3, 1));
+      s.frame();
+      setSystemTime(new Date(at + 150));
+      const rendered = new Terminal(s.width, s.height);
+      try {
+        rendered.feed(s.frame());
+        return rendered.text();
+      } finally {
+        rendered.destroy();
+      }
+    };
     try {
-      rendered.feed(s.frame());
-      return rendered.text();
+      const shown = await show(1000);
+      await s.input(Buffer.from("c"));
+      if (host === "pane") {
+        expect(shown).toMatch(/│  c  Copy link +│/);
+        expect(s.clipboard).toBe(url);
+        expect(s.frame()).toMatch(/✓ +Copied/);
+        // While the review panel has the keyboard, the card leaves typing to it.
+        await s.input(mouse(35, 90, 20));
+        await s.input(Buffer.from("\x02e"));
+        expect(s.keyboard).toBe("review");
+        s.clipboard = null;
+        expect(await show(3000)).toMatch(/│ {5}Copy link +│/);
+        await s.input(Buffer.from("c"));
+        expect(s.clipboard).toBeNull();
+      } else {
+        // Sign-in takes typing, so its card shows no keys and c reaches it.
+        expect(shown).toMatch(/│ {5}Copy link +│/);
+        expect(s.clipboard).toBeNull();
+        expect(send).toHaveBeenCalled();
+        expect(s.frame()).not.toContain("Copy link");
+      }
     } finally {
-      rendered.destroy();
+      setSystemTime();
+      send.mockRestore();
+      close(s);
     }
-  };
-  try {
-    const shown = await show(1000);
-    await s.input(Buffer.from("c"));
-    if (host === "pane") {
-      expect(shown).toMatch(/│  c  Copy link +│/);
-      expect(s.clipboard).toBe(url);
-      expect(s.frame()).toMatch(/✓ +Copied/);
-    } else {
-      // Sign-in takes typing, so its card shows no keys and c reaches it.
-      expect(shown).toMatch(/│ {5}Copy link +│/);
-      expect(s.clipboard).toBeNull();
-      expect(send).toHaveBeenCalled();
-      expect(s.frame()).not.toContain("Copy link");
-    }
-  } finally {
-    setSystemTime();
-    send.mockRestore();
-    close(s);
-  }
-});
+  },
+);
 
 test.each(["pane", "signin"] as const)(
   "%s popover clicks and cancelled drags do not reach mouse-aware programs",

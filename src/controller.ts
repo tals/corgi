@@ -10628,7 +10628,7 @@ export class Controller {
       thumbnail,
       open_image: image,
       open_row,
-      keyless: !!this.signin || !!this.corgi_setup,
+      keyless: !!this.signin || !!this.corgi_setup || this.reviewKeys(),
       selected: this.chosenLinkRow(open_row),
     };
   }

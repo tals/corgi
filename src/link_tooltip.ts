@@ -50,7 +50,8 @@ export interface Card {
   open_image?: string;
   /** The card has room for its Open row; the picture and key open the image either way. */
   open_row?: boolean;
-  /** The card takes no keys, where they type into sign-in or setup, and shows no keycaps. */
+  /** The card takes no keys, and shows no keycaps, where typing goes to
+   * sign-in, setup or the review panel. */
   keyless?: boolean;
   /** The row the arrow keys chose, which Enter acts on. */
   selected?: Button;
