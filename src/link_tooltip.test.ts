@@ -236,6 +236,46 @@ test.each(["pane", "signin"] as const)("%s link popover dismisses on input or ch
   }
 });
 
+test.each(["pane", "signin"] as const)("%s card keys act only with the pointer on the card", async host => {
+  const s = linkViewer(url, host);
+  const child = s.signin?.child ?? s.runtime.pane(1)!.terminal.inner;
+  const send = spyOn(child, "send").mockImplementation(() => {});
+  const show = async (at: number) => {
+    setSystemTime(new Date(at));
+    await s.input(mouse(35, 3, 1));
+    s.frame();
+    setSystemTime(new Date(at + 150));
+    s.frame();
+    await s.input(mouse(35, 4, 3));
+    const rendered = new Terminal(s.width, s.height);
+    try {
+      rendered.feed(s.frame());
+      return rendered.text();
+    } finally {
+      rendered.destroy();
+    }
+  };
+  try {
+    const shown = await show(1000);
+    await s.input(Buffer.from("c"));
+    if (host === "pane") {
+      expect(shown).toMatch(/│  c  Copy link +│/);
+      expect(s.clipboard).toBe(url);
+      expect(s.frame()).toMatch(/✓ +Copied/);
+    } else {
+      // Sign-in takes typing, so its card shows no keys and c reaches it.
+      expect(shown).toMatch(/│ {5}Copy link +│/);
+      expect(s.clipboard).toBeNull();
+      expect(send).toHaveBeenCalled();
+      expect(s.frame()).not.toContain("Copy link");
+    }
+  } finally {
+    setSystemTime();
+    send.mockRestore();
+    close(s);
+  }
+});
+
 test.each(["pane", "signin"] as const)(
   "%s popover clicks and cancelled drags do not reach mouse-aware programs",
   async host => {
@@ -474,7 +514,7 @@ test("an image link's popover copies its path and opens the original from its th
     rmSync(dir, { recursive: true, force: true });
   }
 });
-test("a card shows its keys as keycaps with Open above the picture, and takes c and o while shown", async () => {
+test("a card shows its keys as keycaps with Open above the picture, and takes c and o under the pointer", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-thumb-"));
   const path = join(dir, "shot.png");
   writeFileSync(path, await new Bun.Image(Buffer.from(png_base64, "base64")).resize(1000, 400).png().buffer());
@@ -483,6 +523,7 @@ test("a card shows its keys as keycaps with Open above the picture, and takes c 
   s.supports_kitty_graphics = true;
   s.cell_pixels = { width: 10, height: 20 };
   const show = async (at: number) => {
+    await s.input(mouse(35, 90, 20));
     setSystemTime(new Date(at));
     await s.input(mouse(35, 2, 1));
     s.frame();
@@ -503,7 +544,13 @@ test("a card shows its keys as keycaps with Open above the picture, and takes c 
     } finally {
       rendered.destroy();
     }
-    // c copies and the card stays to confirm it; o opens the image.
+    // A pointer left resting on the link doesn't take them: c dismisses the card and types.
+    await s.input(Buffer.from("c"));
+    expect(s.clipboard).toBeNull();
+    expect(s.frame()).not.toContain("Copy path");
+    // On the card, c copies and the card stays to confirm it; o opens the image.
+    await show(1500);
+    await s.input(mouse(35, 4, 7));
     await s.input(Buffer.from("c"));
     expect(s.clipboard).toBe(path);
     expect(s.frame()).toMatch(/✓ +Copied/);
@@ -520,7 +567,8 @@ test("a card shows its keys as keycaps with Open above the picture, and takes c 
     expect(s.effects).toEqual([]);
     // Without a desktop the card has no Open row, and o goes to the pane.
     s.host.opens_desktop = false;
-    await show(2000);
+    expect(await show(2000)).toContain("Copy path");
+    await s.input(mouse(35, 4, 7));
     await s.input(Buffer.from("o"));
     expect(s.effects).toEqual([]);
     expect(s.frame()).not.toContain("Copy path");

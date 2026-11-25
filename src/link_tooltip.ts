@@ -50,11 +50,13 @@ export interface Card {
   open_image?: string;
   /** The card has room for its Open row; the picture and key open the image either way. */
   open_row?: boolean;
+  /** The card takes no keys, where they type into sign-in or setup, and shows no keycaps. */
+  keyless?: boolean;
 }
 export type Button = "copy" | "open";
 /** The keys a shown card takes, as its keycaps show them. */
 export const keys: Record<Button, string> = { copy: "c", open: "o" };
-/** The row an unmodified key acts as on a shown card, or null. */
+/** The row an unmodified key acts as while the pointer is on a shown card, or null. */
 export function keyButton(codepoint: number): Button | null {
   const key = String.fromCodePoint(codepoint);
   return key === keys.copy ? "copy" : key === keys.open ? "open" : null;
@@ -169,7 +171,9 @@ export function draw(w: Writer, rect: Rect, card: Card, hovered: Button | null):
   const button = (y: number, label: string, name: Button) => {
     const style = new palette.Style({ fg: "strong", bg: hovered === name ? "selected" : "surface" }).sgr();
     w.write(`\x1b[${y + 1};${rect.x + 1}H│${style} `);
-    w.write(name === "copy" && card.copied ? " ✓ " : palette.keycap + ` ${keys[name]} ` + style);
+    if (name === "copy" && card.copied) w.write(" ✓ ");
+    else if (card.keyless) w.splat(" ", cap);
+    else w.write(palette.keycap + ` ${keys[name]} ` + style);
     w.write(" " + label);
     w.splat(" ", rect.w - 4 - cap - displayWidth(label));
     w.write(border + "│");

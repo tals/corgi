@@ -10596,16 +10596,29 @@ export class Controller {
     // The picture comes first: where the open row leaves it no room, the shortcut still opens the image.
     const thumbnail = (image && fit(true)) || fit(false) || null;
     const open_row = !!image && !!linkTooltip.geometry(this.width, this.height, link, thumbnail, true);
-    return { link, copied: this.link_tooltip.copied_until > milliTimestamp(), thumbnail, open_image: image, open_row };
+    return {
+      link,
+      copied: this.link_tooltip.copied_until > milliTimestamp(),
+      thumbnail,
+      open_image: image,
+      open_row,
+      keyless: !!this.signin || !!this.corgi_setup,
+    };
+  }
+  private linkCardRect(card: linkTooltip.Card): Rect | null {
+    return linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, !!card.open_row);
   }
   /** The action of a shown card's own key, which acts as clicking its row
-   * does; null for keys that dismiss it and reach the pane. */
+   * does; null for keys that dismiss it and reach the pane. Only a pointer
+   * on the card itself takes them, not one left resting on the link. */
   private linkCardKey(key: keyboard.Key): Action | null {
     const m = key.mods,
-      button = linkTooltip.keyButton(key.codepoint);
-    if (!button || this.prefix || m.ctrl || m.alt || m.super || m.shift) return null;
-    const card = this.pointedLinkCard() && this.linkCard();
-    if (!card || (button === "open" && !card.open_image)) return null;
+      button = linkTooltip.keyButton(key.codepoint),
+      pointer = this.pointer;
+    if (!button || !pointer || this.prefix || m.ctrl || m.alt || m.super || m.shift) return null;
+    const card = this.linkCard();
+    if (!card || card.keyless || (button === "open" && !card.open_image)) return null;
+    if (!this.linkCardRect(card)?.contains(pointer.x, pointer.y)) return null;
     return { name: button === "copy" ? "copy-link" : "open-image" };
   }
   /** The image a card opens in this computer's desktop viewer; another computer's opens from a copy here. */
@@ -10655,8 +10668,7 @@ export class Controller {
       return file.rect.contains(x, y) || linkTooltip.sameLink(this.linkAt(x, y), this.link_tooltip.target?.link);
     const card = this.linkCard();
     if (!card) return false;
-    const rect = linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, !!card.open_row);
-    if (rect?.contains(x, y)) return true;
+    if (this.linkCardRect(card)?.contains(x, y)) return true;
     const link = this.linkAt(x, y);
     return linkTooltip.sameLink(link, card.link);
   }
@@ -10696,7 +10708,7 @@ export class Controller {
       return true;
     }
     const card = this.linkCard(),
-      rect = card ? linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, !!card.open_row) : null,
+      rect = card ? this.linkCardRect(card) : null,
       hit = card && rect ? linkTooltip.buttonAt(rect, card, x, y) : null;
     if (this.link_press !== null) {
       this.pointer = { x, y };
