@@ -5,7 +5,7 @@ import { Hooks, field, str, type Hook, type Outcome } from "../common";
 import { ScreenWatcher } from "../watcher";
 import * as commandLine from "../command_line";
 import { Pi, summaryArgs } from "./headless";
-import { directory, extension, source } from "./integration";
+import { directory, extension } from "./integration";
 import { transcript } from "./transcript";
 import * as socket from "./socket";
 import { info } from "./info";
@@ -193,6 +193,5 @@ export const adapter: Adapter = {
       const r = extension("install", account);
       if (r.outcome === "failed") console.error("hook setup:", r.error);
     },
-    snippet: () => source,
   },
 };

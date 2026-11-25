@@ -51,8 +51,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
       `  corgi help [COMMAND ...]      查看命令或命令组的帮助`,
     '["  corgi history [--limit N] [--json]  past conversations, newest first"]': () =>
       `  corgi history [--limit N] [--json]  历史对话，最新的在前`,
-    '["  corgi hooks claude|codex       print hook configuration"]': () =>
-      `  corgi hooks claude|codex       输出钩子配置`,
     '["  corgi integration COMMAND     status, install, uninstall hooks"]': () =>
       `  corgi integration COMMAND     查看状态、安装或卸载钩子`,
     '["  corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux"]': () =>
@@ -1510,8 +1508,6 @@ ${v1} 使用该账号。
       `  corgi help [COMMAND ...]      コマンドやグループのヘルプを表示`,
     '["  corgi history [--limit N] [--json]  past conversations, newest first"]': () =>
       `  corgi history [--limit N] [--json]  過去の会話を新しい順に表示`,
-    '["  corgi hooks claude|codex       print hook configuration"]': () =>
-      `  corgi hooks claude|codex       フック設定を出力`,
     '["  corgi integration COMMAND     status, install, uninstall hooks"]': () =>
       `  corgi integration COMMAND     フックの状態確認、インストール、削除`,
     '["  corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux"]': () =>
@@ -3009,8 +3005,6 @@ Corgiに登録された全アカウントが対象になります。--accountで
       `  corgi help [COMMAND ...]      명령 또는 명령 그룹의 도움말`,
     '["  corgi history [--limit N] [--json]  past conversations, newest first"]': () =>
       `  corgi history [--limit N] [--json]  이전 대화를 최신순으로 표시`,
-    '["  corgi hooks claude|codex       print hook configuration"]': () =>
-      `  corgi hooks claude|codex       훅 설정 출력`,
     '["  corgi integration COMMAND     status, install, uninstall hooks"]': () =>
       `  corgi integration COMMAND     훅 상태 확인, 설치, 제거`,
     '["  corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux"]': () =>
@@ -4507,8 +4501,6 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       `  corgi help [COMMAND ...]      справка по команде или группе`,
     '["  corgi history [--limit N] [--json]  past conversations, newest first"]': () =>
       `  corgi history [--limit N] [--json]  прошлые диалоги, сначала новые`,
-    '["  corgi hooks claude|codex       print hook configuration"]': () =>
-      `  corgi hooks claude|codex       вывести настройки хуков`,
     '["  corgi integration COMMAND     status, install, uninstall hooks"]': () =>
       `  corgi integration COMMAND     состояние, установка и удаление хуков`,
     '["  corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux"]': () =>

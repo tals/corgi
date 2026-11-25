@@ -548,10 +548,6 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     await this.until(() => existsSync(code) && file(code).endsWith("\n"));
     this.assertEqual([file(code), file(out), file(err)], ["0\n", "", ""]);
     await this.until(async () => (await this.panes()).find((p: any) => p.id === pane)?.state === "working");
-    for (const provider of ["claude", "codex"]) {
-      const config = JSON.parse(await this.run_cli("hooks", provider));
-      this.assertIn("PermissionRequest", config.hooks);
-    }
   }
   async test_automatic_hook_install_preserves_settings_and_is_idempotent() {
     const original = {
@@ -616,19 +612,20 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     );
     this.assertIn("status", await this.run_cli("integration", "--help"));
   }
-  async test_invalid_or_symlink_settings_are_left_intact() {
+  async test_invalid_settings_are_left_intact_and_linked_ones_get_hooks() {
     mkdirSync(this.env.CODEX_HOME!, { recursive: true });
     mkdirSync(this.env.CLAUDE_CONFIG_DIR!, { recursive: true });
     const bad = join(this.env.CODEX_HOME!, "hooks.json");
     writeFileSync(bad, "{broken");
     const target = join(this.temp.name, "external.json");
-    writeFileSync(target, "{}");
+    writeFileSync(target, '{"theme":"dark"}');
     const link = join(this.env.CLAUDE_CONFIG_DIR!, "settings.json");
     symlinkSync(target, link);
     await this.restart_runtime();
+    await this.until(() => file(target).includes("CORGI_BIN"));
     await this.open_pane({ cwd: this.temp.name });
     this.assertEqual(file(bad), "{broken");
-    this.assertEqual(file(target), "{}");
+    this.assertEqual(json(target).theme, "dark");
     this.assertTrue((await import("node:fs")).lstatSync(link).isSymbolicLink());
   }
   async test_plain_commands_gain_hooks_without_wrappers() {

@@ -568,8 +568,6 @@ export interface Adapter extends Info {
     startup(account: string, handoff: boolean, cwd?: string): Promise<void>;
     /** Refreshes hooks in the launch wrapper's account environment before exec. */
     prepare_on_launch?: boolean;
-    /** Settings that make it report to Corgi, to add by hand. */
-    snippet(executable: string): string;
   };
 }
 /** One thing `corgi integration` added, found or removed. */

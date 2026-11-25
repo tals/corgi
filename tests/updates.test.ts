@@ -12,6 +12,7 @@ import { running } from "./runtime";
 import { channelKeys, installer, targets as releaseTargets } from "../scripts/publish.ts";
 import { Scope } from "../scripts/process_scope";
 import { flock } from "../src/native_bridge";
+import * as current_release from "../src/current_release";
 import * as text from "../src/text";
 import * as updates from "../src/updates";
 let base: string;
@@ -487,8 +488,7 @@ test("pane commands use their socket's release through the stable launcher", asy
   await writeFile(target, `#!/bin/sh\nprintf '%s\\n' "$CORGI_APP_EXE" "$@"\n`, { mode: 0o700 });
   try {
     const launcher = join(root, "bin/corgi");
-    // Asking for hook snippets creates the same launcher that panes inherit.
-    await cli(["hooks", "claude"]);
+    current_release.path(target);
     const paneEnv = { ...env, CORGI_PANE: "1" };
     for (const args of [["list"], ["--no-agent", "list"], ["pane", "read", "--contains", "a b"]]) {
       const result = await exec([launcher, ...args], paneEnv);
@@ -913,7 +913,6 @@ test("updates remove releases two behind, except one another runtime runs", asyn
         await rpc({ op: "session.command", command: { "pane.read": { target: pane, view: "screen" } } })
       ).result.text.includes(`CLI_${launcher}`),
     );
-    expect((await cli(["hooks", "claude"])).out).toContain(launcher);
   } finally {
     await exec([bin, "shutdown"], secondEnv, false);
   }

@@ -17,7 +17,7 @@ import {
   accessSync,
   constants,
 } from "node:fs";
-import { dirname, isAbsolute } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { userInfo } from "node:os";
 import { randomUUID } from "node:crypto";
 import { n, ptr } from "./native_ffi";
@@ -340,6 +340,33 @@ export function shellEscape(args: Array<string | Uint8Array>): string | null {
 }
 export function socketPath(): string {
   return env("CORGI_SOCKET") ?? `/tmp/corgi-${process.getuid?.() ?? userInfo().uid}/control.sock`;
+}
+/** Where writing `file` belongs: a file linked from dotfiles stays a link,
+ * through a chain of them, even when the last target doesn't exist yet. */
+export function linkTarget(file: string): string {
+  let path = resolve(sep),
+    hops = 0;
+  const pending = (isAbsolute(file) ? file : `${process.cwd()}${sep}${file}`).split(sep);
+  while (pending.length) {
+    const part = pending.shift()!;
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      path = dirname(path);
+      continue;
+    }
+    const next = join(path, part);
+    try {
+      const link = readlinkSync(next);
+      if (++hops > 40) throw Error("Too many symbolic links");
+      if (isAbsolute(link)) path = resolve(sep);
+      pending.unshift(...link.split(sep));
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EINVAL" && code !== "ENOENT") throw error;
+      path = next;
+    }
+  }
+  return path;
 }
 export function atomicWrite(path: string, data: string | Uint8Array, mode = 0o600, private_parent = true): void {
   if (private_parent) privateDirectory(dirname(path));

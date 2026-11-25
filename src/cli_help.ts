@@ -185,7 +185,6 @@ export function main(): string {
     i18n.t`  corgi start                   start detached runtime`,
     i18n.t`  corgi action NAME [VALUE] [--viewer ID]  run a viewer action, named below`,
     i18n.t`  corgi agent claude|codex ...   optional discovered-binary launcher`,
-    i18n.t`  corgi hooks claude|codex       print hook configuration`,
     i18n.t`  corgi integration COMMAND     status, install, uninstall hooks`,
     i18n.t`  corgi account COMMAND         list, add, login, remove provider accounts`,
     i18n.t`  corgi which claude|codex      show automatically selected executable`,

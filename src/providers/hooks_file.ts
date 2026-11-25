@@ -1,7 +1,9 @@
 //! The hooks settings file Claude Code and Codex both read:
 //! `{hooks: {Event: [{matcher?, hooks: [{type: "command", command}]}]}}`.
 import {
+  accessSync,
   closeSync,
+  constants,
   existsSync,
   lstatSync,
   openSync,
@@ -13,7 +15,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { flock } from "../native_bridge";
-import { atomicWrite, quote } from "../os";
+import { atomicWrite, linkTarget } from "../os";
 import type { IntegrationStepResult } from "./adapter";
 /** The handler Corgi adds: it reports only from panes Corgi runs. */
 export function command(id: string): string {
@@ -28,10 +30,6 @@ const hook_name = "Reporting to Corgi";
 function handlers(events: readonly string[], command: string) {
   const handler = { type: "command", command, timeout: 2, statusMessage: hook_name };
   return { hooks: Object.fromEntries(events.map(event => [event, [{ hooks: [handler] }]])) };
-}
-/** Hook settings that run `executable` on `events`, to add by hand. */
-export function snippet(id: string, events: readonly string[], executable: string): string {
-  return JSON.stringify(handlers(events, `${quote(executable)} hook ${id}`), null, 2);
 }
 /** `existing` with `command` on every event in `events`, or null if it already is. */
 export function merged(existing: string, events: readonly string[], command: string): string | null {
@@ -124,9 +122,21 @@ function read(path: string) {
   if (stat && stat.size > 1024 * 1024) throw Error("FileTooBig");
   return { stat, before: stat ? readFileSync(path, "utf8") : "{}" };
 }
+/** Writes `text` over `path`, unless its owner made it read-only, as Nix's
+ * home-manager does. */
+function write(path: string, text: string, mode: number | null) {
+  try {
+    if (mode !== null) accessSync(path, constants.W_OK);
+    atomicWrite(path, text, mode ?? 0o600, false);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EACCES" || code === "EPERM" || code === "EROFS") throw Error("HookSettingsReadOnly");
+    throw error;
+  }
+}
 /** `shared`, the default account's settings file, when `path` links to it,
  * as an account folder shares the default's: Corgi edits that one in place
- * of the link. Any other link stays as it is, and Corgi leaves it alone. */
+ * of the link. */
 function linked(path: string, shared: string | null): string {
   if (shared === null) return path;
   const real = (file: string) => {
@@ -159,15 +169,17 @@ export class File {
     this.command = command(id);
   }
   /** Edits the file under Corgi's lock. `change` returns the new text, or
-   * null to leave the file as it is. */
+   * null to leave the file as it is. A file linked from dotfiles is edited
+   * where it lives, and its backup and Corgi's lock stay beside the link. */
   private edit(change: (text: string) => string | null, backup: boolean) {
     if (!existsSync(this.directory)) return "no_config";
+    const path = linkTarget(this.path);
     // Settings that need no change are left untouched, lock file and all.
-    if (change(read(this.path).before) === null) return "unchanged";
+    if (change(read(path).before) === null) return "unchanged";
     const lock = openSync(join(dirname(this.path), ".corgi-hooks.lock"), "a", 0o600);
     try {
       if (!flock(lock)) throw Error("HookSettingsBusy");
-      const { stat, before } = read(this.path),
+      const { stat, before } = read(path),
         after = change(before);
       if (after === null) return "unchanged";
       if (stat && backup)
@@ -176,8 +188,8 @@ export class File {
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         }
-      if (stat ? readFileSync(this.path, "utf8") !== before : existsSync(this.path)) throw Error("HookSettingsChanged");
-      atomicWrite(this.path, after + "\n", stat ? stat.mode & 0o777 : 0o600, false);
+      if (stat ? readFileSync(path, "utf8") !== before : existsSync(path)) throw Error("HookSettingsChanged");
+      write(path, after + "\n", stat ? stat.mode & 0o777 : null);
       return "changed";
     } finally {
       flock(lock, false);

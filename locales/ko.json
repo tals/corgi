@@ -23,7 +23,6 @@
   "  corgi help --all              list every command": "  corgi help --all              모든 명령 표시",
   "  corgi help [COMMAND ...]      show help for a command or group": "  corgi help [COMMAND ...]      명령 또는 명령 그룹의 도움말",
   "  corgi history [--limit N] [--json]  past conversations, newest first": "  corgi history [--limit N] [--json]  이전 대화를 최신순으로 표시",
-  "  corgi hooks claude|codex       print hook configuration": "  corgi hooks claude|codex       훅 설정 출력",
   "  corgi integration COMMAND     status, install, uninstall hooks": "  corgi integration COMMAND     훅 상태 확인, 설치, 제거",
   "  corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux": "  corgi keys [PRESET]           단축키 목록: corgi, tmux, herdr, cmux",
   "  corgi launcher copy --from ID --workspace ID  replace destination order and visibility": "  corgi launcher copy --from ID --workspace ID  대상의 순서와 표시 여부 교체",

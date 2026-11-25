@@ -209,6 +209,5 @@ export const adapter: Adapter = {
           r => r.outcome === "failed" && console.error("Codex title setup:", r.error),
         );
     },
-    snippet: executable => hooksFile.snippet("codex", events, executable),
   },
 };

@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import {
+  chmodSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -84,8 +85,7 @@ test("installing leaves hook settings that already have every hook untouched", (
 test("an account whose settings link to the default's gets its hooks there, and the link stays", () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-hooks-")),
     home = join(root, "home"),
-    work = join(root, "work"),
-    elsewhere = join(root, "dotfiles.json");
+    work = join(root, "work");
   try {
     mkdirSync(home);
     mkdirSync(work);
@@ -100,13 +100,47 @@ test("an account whose settings link to the default's gets its hooks there, and 
     ]);
     expect(new File("claude", home, "settings.json", claude.events).install().outcome).toBe("present");
     expect(readdirSync(work)).toEqual(["settings.json"]);
-    // A link anywhere else stays as it is.
-    writeFileSync(elsewhere, "{}");
-    rmSync(join(work, "settings.json"));
-    symlinkSync(elsewhere, join(work, "settings.json"));
-    expect(new File("claude", work, "settings.json", claude.events, home).install().outcome).toBe("failed");
-    expect(readFileSync(elsewhere, "utf8")).toBe("{}");
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("settings linked from dotfiles get hooks where they live, and the link stays", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-hooks-")),
+    home = join(root, "home"),
+    dotfiles = join(root, "dotfiles"),
+    link = join(home, "settings.json"),
+    target = join(dotfiles, "claude.json"),
+    original = '{"theme":"dark"}';
+  try {
+    mkdirSync(home);
+    mkdirSync(dotfiles);
+    writeFileSync(target, original);
+    symlinkSync("../dotfiles/claude.json", link);
+    const file = new File("claude", home, "settings.json", claude.events);
+    expect(file.install().outcome).toBe("added");
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(readFileSync(target, "utf8")).theme).toBe("dark");
+    expect(file.status().events).toEqual([claude.events.length, claude.events.length]);
+    // The backup and lock stay out of the dotfiles.
+    expect(readdirSync(dotfiles)).toEqual(["claude.json"]);
+    expect(readFileSync(link + ".corgi-backup", "utf8")).toBe(original);
+    expect(file.install().outcome).toBe("present");
+    expect(file.uninstall().result.outcome).toBe("removed");
+    expect(JSON.parse(readFileSync(target, "utf8"))).toEqual(JSON.parse(original));
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    // A link to a file not made yet makes it.
+    rmSync(target);
+    expect(file.install().outcome).toBe("added");
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(file.status().outcome).toBe("present");
+    // One its owner made read-only, as home-manager does, stays as it is.
+    writeFileSync(target, original);
+    chmodSync(target, 0o400);
+    chmodSync(dotfiles, 0o500);
+    expect(file.install()).toMatchObject({ outcome: "failed", error: "HookSettingsReadOnly" });
+    expect(readFileSync(target, "utf8")).toBe(original);
+  } finally {
+    chmodSync(dotfiles, 0o700);
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as discovery from "./discovery";
 import * as integration from "./integration";
-import { Provider, adapter } from "./providers";
+import { Provider } from "./providers";
+import * as ompIntegration from "./providers/omp/integration";
+import * as piIntegration from "./providers/pi/integration";
+
+const sources = { pi: piIntegration.source, omp: ompIntegration.source };
 
 async function isolated(run: (root: string) => Promise<void>) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-integration-"))),
@@ -77,7 +81,7 @@ test.each(["pi", "omp"] as const)(
           writeFileSync(extension, `// Corgi's ${provider === "pi" ? "Pi" : "omp"} integration.\n// old version\n`);
         }
         await integration.prepare(provider, account, handoff);
-        expect(readFileSync(extension, "utf8")).toBe(adapter(provider).integration.snippet(""));
+        expect(readFileSync(extension, "utf8")).toBe(sources[provider]);
       });
   },
 );
@@ -92,7 +96,7 @@ test.each(["pi", "omp"] as const)(
       expect(existsSync(extension)).toBe(false);
       standalone(root, provider);
       await integration.prepare(provider, account);
-      expect(readFileSync(extension, "utf8")).toBe(adapter(provider).integration.snippet(""));
+      expect(readFileSync(extension, "utf8")).toBe(sources[provider]);
     });
   },
 );
@@ -108,7 +112,7 @@ test.each(["pi", "omp"] as const)("workspace-only %s prepares hooks alongside da
     ]);
     expect(discovery.installed(provider)).toBe(false);
     expect(discovery.installed(provider, install.cwd)).toBe(true);
-    expect(readFileSync(extension, "utf8")).toBe(adapter(provider).integration.snippet(""));
+    expect(readFileSync(extension, "utf8")).toBe(sources[provider]);
     expect(existsSync(install.ran)).toBe(false);
     expect(existsSync(install.shim)).toBe(false);
   });
@@ -141,7 +145,7 @@ test.each(["pi", "omp"] as const)("launching workspace-only %s installs hooks be
       new Response(child.stderr).text(),
     ]);
     expect({ code, output, error }).toEqual({ code: 0, output: "extension ready\n", error: "" });
-    expect(readFileSync(extension, "utf8")).toBe(adapter(provider).integration.snippet(""));
+    expect(readFileSync(extension, "utf8")).toBe(sources[provider]);
     expect(existsSync(install.shim)).toBe(false);
   });
 });

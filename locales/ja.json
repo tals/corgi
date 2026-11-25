@@ -23,7 +23,6 @@
   "  corgi help --all              list every command": "  corgi help --all              すべてのコマンドを表示",
   "  corgi help [COMMAND ...]      show help for a command or group": "  corgi help [COMMAND ...]      コマンドやグループのヘルプを表示",
   "  corgi history [--limit N] [--json]  past conversations, newest first": "  corgi history [--limit N] [--json]  過去の会話を新しい順に表示",
-  "  corgi hooks claude|codex       print hook configuration": "  corgi hooks claude|codex       フック設定を出力",
   "  corgi integration COMMAND     status, install, uninstall hooks": "  corgi integration COMMAND     フックの状態確認、インストール、削除",
   "  corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux": "  corgi keys [PRESET]           ショートカット一覧：corgi、tmux、herdr、cmux",
   "  corgi launcher copy --from ID --workspace ID  replace destination order and visibility": "  corgi launcher copy --from ID --workspace ID  コピー先の順序と表示設定を置き換え",
