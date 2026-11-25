@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -35,6 +36,12 @@ test("a config.toml linked from dotfiles is backed up beside the link", () => {
     rmSync(link);
     symlinkSync(dotfiles, link);
     expect(() => backup(link)).toThrow("ConfigNotRegular");
+    // A read-only one, as home-manager links, gets no backup.
+    rmSync(link);
+    symlinkSync(join(dotfiles, "config.toml"), link);
+    chmodSync(join(dotfiles, "config.toml"), 0o444);
+    expect(() => backup(link)).toThrow("ConfigReadOnly");
+    expect(existsSync(link + ".corgi-backup")).toBe(false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

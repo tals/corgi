@@ -368,6 +368,24 @@ export function linkTarget(file: string): string {
   }
   return path;
 }
+/** Whether Corgi may replace the file at `path`, through any links: neither
+ * it nor its folder is read-only, as Nix's home-manager makes them. A file
+ * without write bits counts as read-only even for root, whom access(2) lets
+ * through. A missing folder throws. */
+export function replaceable(path: string): boolean {
+  const target = linkTarget(path),
+    writable = (file: string) => {
+      accessSync(file, constants.W_OK);
+      return (statSync(file).mode & 0o222) !== 0;
+    };
+  try {
+    return (!existsSync(target) || writable(target)) && writable(dirname(target));
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EACCES" || code === "EPERM" || code === "EROFS") return false;
+    throw error;
+  }
+}
 export function atomicWrite(path: string, data: string | Uint8Array, mode = 0o600, private_parent = true): void {
   if (private_parent) privateDirectory(dirname(path));
   else mkdirSync(dirname(path), { recursive: true });

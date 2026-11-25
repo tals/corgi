@@ -1,5 +1,6 @@
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
+import { replaceable } from "../../os";
 import type { Position, Removal } from "../hooks_file";
 /** What Corgi writes when the title is unset. */
 const unset_title = ["app-name", "thread-id", "activity", "project"];
@@ -75,7 +76,8 @@ export function movedApprovals(
 }
 /** Saves `path` beside itself once, before Corgi first has Codex edit it.
  * Codex writes through a link from dotfiles, so one is backed up by the file
- * it points to, and the backup stays beside the link. */
+ * it points to, and the backup stays beside the link. A read-only one, which
+ * Codex couldn't edit, gets none. */
 export function backup(path: string): void {
   let stat;
   try {
@@ -86,6 +88,7 @@ export function backup(path: string): void {
   }
   if (!stat.isFile()) throw Error("ConfigNotRegular");
   if (stat.size > 1024 * 1024) throw Error("FileTooBig");
+  if (!replaceable(path)) throw Error("ConfigReadOnly");
   try {
     writeFileSync(path + ".corgi-backup", readFileSync(path), { flag: "wx", mode: 0o600 });
   } catch (error) {
