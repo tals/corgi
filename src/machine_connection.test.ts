@@ -440,12 +440,16 @@ test("a machine another window moved to this release meanwhile comes online", as
     endpoint.pump(false);
     await until(() => endpoint.status === "incompatible");
     // Its link held keys through the reload that took the machine away.
+    enqueue(endpoint, Uint8Array.of(97));
     Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
     moved = true;
     // This window's update waited out the other's and found nothing to do.
     finished.resolve(null);
     await until(() => (endpoint.pump(false), endpoint.status === "online"));
     expect(endpoint.updateError).toBe("");
+    // The keys go on once, as typed.
+    expect(Reflect.get(endpoint, "handoff")).toBeNull();
+    expect(queued(endpoint)).toEqual([97]);
   } finally {
     await endpoint.close();
     await daemon.close();
@@ -480,12 +484,15 @@ test("a failed update looks again at an incompatible machine", async () => {
   try {
     endpoint.pump(false);
     await until(() => endpoint.status === "incompatible");
+    enqueue(endpoint, Uint8Array.of(97));
     Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
     // Another viewer of this release moved it first, and this one's install lost.
     moved = true;
     finished.reject(new machine_update.Failure("InstallationChanged"));
     await until(() => (endpoint.pump(false), endpoint.status === "online"));
     expect(endpoint.updateError).toBe("");
+    expect(Reflect.get(endpoint, "handoff")).toBeNull();
+    expect(queued(endpoint)).toEqual([97]);
   } finally {
     await endpoint.close();
     await daemon.close();
