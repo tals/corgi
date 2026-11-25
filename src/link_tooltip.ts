@@ -47,6 +47,21 @@ export interface Card {
   copied: boolean;
   thumbnail: Thumbnail | null;
   open_image?: string;
+  keys: Keys;
+}
+/** The keycaps of the card's actions under the current shortcuts; null where unbound. */
+export interface Keys {
+  copy: string | null;
+  open: string | null;
+}
+export const no_keys: Keys = { copy: null, open: null };
+/** A card's rows: Copy always, then Open when the image opens here. */
+export interface Rows {
+  open: boolean;
+  keys: Keys;
+}
+export function rows(card: Card): Rows {
+  return { open: !!card.open_image, keys: card.keys };
 }
 export type Button = "copy" | "open";
 /** The path a file:// link names, which the card copies instead of the URL. */
@@ -91,27 +106,28 @@ function same(a: Target, b: Target) {
 function delay(target: Target | null): number {
   return target?.resource != null || target?.link != null ? 150 : 500;
 }
-/** The card under or over the link at `anchor`, with `thumbnail` under a
- * rule below its copy row. A thumbnail that fits neither below nor above the
- * link gets null, and the card goes without it. */
+/** The keycap column: wide enough for each shown row's key, or a ✓. */
+function capWidth(r: Rows): number {
+  const keys = [r.keys.copy, r.open ? r.keys.open : null].filter(key => key !== null);
+  return Math.max(3, ...keys.map(key => displayWidth(key) + 2));
+}
+/** The card under or over the link at `anchor`: its action rows, then
+ * `thumbnail` under a rule. A thumbnail that fits neither below nor above
+ * the link gets null, and the card goes without it. */
 export function geometry(
   width: number,
   height: number,
   anchor: { x: number; y: number },
   thumbnail: Thumbnail | null = null,
-  openImage = false,
+  r: Rows = { open: false, keys: no_keys },
 ): Rect | null {
   const cells = thumbnail ? thumbnailCells(thumbnail) : { cols: 0, rows: 0 };
-  const w = Math.max(
-      17,
-      ...[i18n.t` ✓  Copied`, i18n.t` ⧉  Copy path`, i18n.t` ⧉  Copy link`].map(label => displayWidth(label) + 4),
-      cells.cols + 2,
-      openImage ? displayWidth(openLabel()) + 4 : 0,
-    ),
-    h = 3 + (thumbnail ? cells.rows + 1 : 0) + Number(openImage);
+  const labels = [i18n.t`Copied`, i18n.t`Copy path`, i18n.t`Copy link`, ...(r.open ? [openLabel()] : [])];
+  const w = Math.max(17, 4 + capWidth(r) + Math.max(...labels.map(displayWidth)) + 1, cells.cols + 2),
+    h = 3 + Number(r.open) + (thumbnail ? cells.rows + 1 : 0);
   if (width < w || height < h + 1) return null;
   const below = anchor.y + h < height;
-  if ((thumbnail || openImage) && !below && anchor.y < h) return null;
+  if ((thumbnail || r.open) && !below && anchor.y < h) return null;
   return new Rect(Math.max(0, Math.min(anchor.x, width - w)), below ? anchor.y + 1 : Math.max(0, anchor.y - h), w, h);
 }
 /** `t`, shrunk if it must be for its card to fit beside `anchor` on a
@@ -121,53 +137,62 @@ export function fit(
   height: number,
   anchor: { x: number; y: number },
   t: Thumbnail,
-  openImage = false,
+  r: Rows = { open: false, keys: no_keys },
 ): Thumbnail | null {
-  if (geometry(width, height, anchor, t, openImage)) return t;
-  // The card adds a border, a copy row and a rule to the picture's rows.
-  const space = { cols: width - 2, rows: Math.max(height - anchor.y - 5, anchor.y - 4) - Number(openImage) };
+  if (geometry(width, height, anchor, t, r)) return t;
+  // The card adds a border, its action rows and a rule to the picture's rows.
+  const space = { cols: width - 2, rows: Math.max(height - anchor.y - 5, anchor.y - 4) - Number(r.open) };
   const scale = Math.min((space.cols * t.cell.width) / t.width, (space.rows * t.cell.height) / t.height),
     cols = Math.min(space.cols, Math.max(1, Math.round((t.width * scale) / t.cell.width))),
     rows = Math.min(space.rows, Math.max(1, Math.round((t.height * scale) / t.cell.height)));
   if (rows < 3) return null;
   const shrunk = { width: cols * t.cell.width, height: rows * t.cell.height, cell: t.cell, of: t };
-  return geometry(width, height, anchor, shrunk, openImage) ? shrunk : null;
+  return geometry(width, height, anchor, shrunk, r) ? shrunk : null;
 }
 export function copyAt(rect: Rect, x: number, y: number): boolean {
   return y === rect.y + 1 && x > rect.x && x < rect.x + rect.w - 1;
 }
+/** The row or picture at (`x`, `y`) that acts: Copy, or Open on its row
+ * or the picture of an image that opens here. */
 export function buttonAt(rect: Rect, card: Card, x: number, y: number): Button | null {
   if (copyAt(rect, x, y)) return "copy";
   if (!card.open_image || x <= rect.x || x >= rect.x + rect.w - 1) return null;
-  const first = rect.y + (card.thumbnail ? 3 : 2);
-  return y >= first && y < rect.y + rect.h - 1 ? "open" : null;
+  if (y === rect.y + 2) return "open";
+  return card.thumbnail && y > rect.y + 3 && y < rect.y + rect.h - 1 ? "open" : null;
 }
 function openLabel(): string {
-  return " ↗  " + i18n.t`Open image`;
+  return i18n.t`Open image`;
 }
 export function draw(w: Writer, rect: Rect, card: Card, hovered: Button | null): void {
   const border = new palette.Style({ fg: "line", bg: "surface" }).sgr();
   const rule = "─".repeat(rect.w - 2);
+  const cap = capWidth(rows(card));
   const label = card.copied
-    ? i18n.t` ✓  Copied`
+    ? i18n.t`Copied`
     : card.link.path || filePath(card.link.uri) !== null
-      ? i18n.t` ⧉  Copy path`
-      : i18n.t` ⧉  Copy link`;
+      ? i18n.t`Copy path`
+      : i18n.t`Copy link`;
   w.write(border + `\x1b[${rect.y + 1};${rect.x + 1}H┌${rule}┐`);
-  const button = (y: number, label: string, name: Button) => {
-    w.write(`\x1b[${y + 1};${rect.x + 1}H│`);
-    w.write(new palette.Style({ fg: "strong", bg: hovered === name ? "selected" : "surface" }).sgr());
-    w.write(label);
-    w.splat(" ", rect.w - 2 - displayWidth(label));
+  // A keycap where the row's shortcut is bound, as menus show them; a ✓ once copied.
+  const button = (y: number, key: string | null, label: string, name: Button) => {
+    const style = new palette.Style({ fg: "strong", bg: hovered === name ? "selected" : "surface" }).sgr();
+    w.write(`\x1b[${y + 1};${rect.x + 1}H│${style} `);
+    if (name === "copy" && card.copied) w.write(" ✓ ");
+    else if (key !== null) w.write(palette.keycap + ` ${key} ` + style);
+    w.splat(" ", cap - (name === "copy" && card.copied ? 3 : key === null ? 0 : displayWidth(key) + 2));
+    w.write(" " + label);
+    w.splat(" ", rect.w - 4 - cap - displayWidth(label));
     w.write(border + "│");
   };
-  button(rect.y + 1, label, "copy");
-  if (card.thumbnail) w.write(`\x1b[${rect.y + 3};${rect.x + 1}H├${rule}┤`);
-  // The thumbnail draws over these rows.
-  const bottom = rect.y + rect.h - 1;
-  for (let y = rect.y + 3; y < bottom - Number(!!card.open_image); y++)
-    w.write(`\x1b[${y + 1};${rect.x + 1}H│${" ".repeat(rect.w - 2)}│`);
-  if (card.open_image) button(bottom - 1, openLabel(), "open");
+  button(rect.y + 1, card.keys.copy, label, "copy");
+  if (card.open_image) button(rect.y + 2, card.keys.open, openLabel(), "open");
+  if (card.thumbnail) {
+    const top = rect.y + 2 + Number(!!card.open_image);
+    w.write(`\x1b[${top + 1};${rect.x + 1}H├${rule}┤`);
+    // The thumbnail draws over these rows.
+    for (let y = top + 1; y < rect.y + rect.h - 1; y++)
+      w.write(`\x1b[${y + 1};${rect.x + 1}H│${" ".repeat(rect.w - 2)}│`);
+  }
   w.write(`\x1b[${rect.y + rect.h};${rect.x + 1}H└${rule}┘\x1b[0m`);
 }
 export class State {

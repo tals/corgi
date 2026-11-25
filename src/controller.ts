@@ -4021,9 +4021,14 @@ export class Controller {
         this.copyText(String(act.value ?? ""));
         break;
       case "copy-link": {
-        const card = this.linkCard();
-        if (card) {
-          this.copyQuietly(linkTooltip.filePath(card.link.uri) ?? card.link.uri);
+        // A shown card confirms the copy itself; a shortcut has dismissed it.
+        const card = this.linkCard(),
+          link = card?.link ?? this.pointedLink();
+        if (!link) break;
+        const text = linkTooltip.filePath(link.uri) ?? link.uri;
+        if (!card) this.copyText(text);
+        else {
+          this.copyQuietly(text);
           this.link_tooltip.copied_until = milliTimestamp() + 1000;
         }
         break;
@@ -10576,12 +10581,22 @@ export class Controller {
     const file = this.hoveredFile(link);
     const image = this.desktopImage(file),
       loaded = this.linkThumbnail(file),
-      fit = (open: boolean) => loaded && linkTooltip.fit(this.width, this.height, link, loaded, open);
+      keys = this.linkKeys(),
+      fit = (open: boolean) => loaded && linkTooltip.fit(this.width, this.height, link, loaded, { open, keys });
     // The picture comes first: where the open row leaves it no room, the shortcut still opens the image.
     const thumbnail = (image && fit(true)) || fit(false) || null;
     const open_image =
-      image && linkTooltip.geometry(this.width, this.height, link, thumbnail, true) ? image : undefined;
-    return { link, copied: this.link_tooltip.copied_until > milliTimestamp(), thumbnail, open_image };
+      image && linkTooltip.geometry(this.width, this.height, link, thumbnail, { open: true, keys }) ? image : undefined;
+    return { link, copied: this.link_tooltip.copied_until > milliTimestamp(), thumbnail, open_image, keys };
+  }
+  /** The keycaps of a link card's actions under the current shortcuts. */
+  private linkKeys(): linkTooltip.Keys {
+    const key = (name: "copy-link" | "open-image") => {
+      const table = this.prefs.bindings(),
+        b = bindings.first(table, { name }, true) ?? bindings.first(table, { name }, false);
+      return b ? (b.prefixed ? keymap.prefixName(this.prefs.prefix) + " " : "") + bindings.format(b) : null;
+    };
+    return { copy: key("copy-link"), open: key("open-image") };
   }
   private desktopImage(file: LinkedFile | null): string | undefined {
     return file?.image && !this.machine.remote && this.host.opens_desktop ? file.path : undefined;
@@ -10604,13 +10619,17 @@ export class Controller {
       return null;
     return this.linkAt(x, y);
   }
-  /** Use the card's link even when a shortcut has dismissed it. */
-  private pointedImage(): string | undefined {
-    if (!this.pointer || !this.linkHoverIdle() || this.ui_mouse_down || this.paste_card) return;
+  /** The link a card shortcut acts on: the card's even when the shortcut
+   * has dismissed it, or the one under the pointer that no card covers. */
+  private pointedLink(): linkTooltip.Link | null {
+    if (!this.pointer || !this.linkHoverIdle() || this.ui_mouse_down || this.paste_card) return null;
     const pointed = this.input_state.key_link ?? this.pointedLinkCard() ?? this.uncoveredLink();
     const link = pointed && this.linkAt(pointed.x, pointed.y);
-    if (!link || !linkTooltip.sameLink(link, pointed)) return;
-    return this.desktopImage(this.hoveredFile(link));
+    return link && linkTooltip.sameLink(link, pointed) ? link : null;
+  }
+  private pointedImage(): string | undefined {
+    const link = this.pointedLink();
+    return link ? this.desktopImage(this.hoveredFile(link)) : undefined;
   }
   /** Loads the thumbnail on the pane's machine when the host shows Kitty
    * images and reports its cell size. */
@@ -10625,7 +10644,7 @@ export class Controller {
       return file.rect.contains(x, y) || linkTooltip.sameLink(this.linkAt(x, y), this.link_tooltip.target?.link);
     const card = this.linkCard();
     if (!card) return false;
-    const rect = linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, !!card.open_image);
+    const rect = linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, linkTooltip.rows(card));
     if (rect?.contains(x, y)) return true;
     const link = this.linkAt(x, y);
     return linkTooltip.sameLink(link, card.link);
@@ -10666,7 +10685,9 @@ export class Controller {
       return true;
     }
     const card = this.linkCard(),
-      rect = card ? linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, !!card.open_image) : null,
+      rect = card
+        ? linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, linkTooltip.rows(card))
+        : null,
       hit = card && rect ? linkTooltip.buttonAt(rect, card, x, y) : null;
     if (this.link_press !== null) {
       this.pointer = { x, y };
@@ -10804,7 +10825,11 @@ export class Controller {
         target = { link, file: true };
         // Read while the peek waits to open.
         this.file_peeks.get(file.path, file.ref, this.filesOn(this.machine).files);
-      } else if (link && (!link.path || file?.image) && linkTooltip.geometry(this.width, this.height, link)) {
+      } else if (
+        link &&
+        (!link.path || file?.image) &&
+        linkTooltip.geometry(this.width, this.height, link, null, { open: false, keys: this.linkKeys() })
+      ) {
         target = { link };
         // Loads while the card waits to open.
         this.linkThumbnail(file);

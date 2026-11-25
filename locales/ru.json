@@ -225,9 +225,6 @@
       "other": " ⋯ ${hidden} строки "
     }
   },
-  " ✓  Copied": " ✓  Скопировано",
-  " ⧉  Copy link": " ⧉  Скопировать ссылку",
-  " ⧉  Copy path": " ⧉  Скопировать путь",
   "$${name} isn't a variable": "$${name} — не переменная",
   "$${name} isn't a variable; did you mean ${suggestion}?": "$${name} — не переменная; возможно, вы имели в виду ${suggestion}?",
   "${agent} reads the clipboard on ${host}.": "${agent} читает буфер обмена на ${host}.",
@@ -681,6 +678,7 @@
   "Connecting to ${name}…": "Подключение к ${name}…",
   "Connecting to Herdr": "Подключение к Herdr",
   "Control Corgi panes, agents, or workspaces:": "Управление панелями, агентами и пространствами Corgi:",
+  "Copied": "Скопировано",
   "Copied ${count} note.": {
     "plural": "count",
     "forms": {
@@ -707,6 +705,8 @@
   "Copy details for a bug report": "Скопировать сведения для отчёта об ошибке",
   "Copy full path": "Скопировать полный путь",
   "Copy hovered link": "Скопировать ссылку под курсором",
+  "Copy link": "Скопировать ссылку",
+  "Copy path": "Скопировать путь",
   "Copy sessions, scrollback and commands. Source processes stay in tmux.": "Копирует сеансы, историю и команды. Исходные процессы остаются в tmux.",
   "Copy text": "Скопировать текст",
   "Copy workspaces and surfaces. Source processes stay in cmux.": "Копирует пространства и панели. Исходные процессы остаются в cmux.",

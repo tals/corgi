@@ -64,7 +64,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Command menu, as Ctrl-B opens it. Press or click a shortcut to see what it does."]': () =>
       `Ctrl-B 打开的命令菜单。按下或点击快捷键即可体验。`,
     '["Compacting context"]': () => `压缩上下文`,
-    '["Copied"]': () => `已复制`,
     '["Copy the install command"]': () => `复制安装命令`,
     '["Corgi carrying out those commands."]': () => `Corgi 正在执行这些命令。`,
     '["Corgi loves both."]': () => `Corgi 两个都喜欢。`,
@@ -257,7 +256,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Command menu, as Ctrl-B opens it. Press or click a shortcut to see what it does."]': () =>
       `Ctrl-B で開くコマンドメニュー。ショートカットを押すかクリックして試せます。`,
     '["Compacting context"]': () => `コンテキストを圧縮中`,
-    '["Copied"]': () => `コピーしました`,
     '["Copy the install command"]': () => `インストールコマンドをコピー`,
     '["Corgi carrying out those commands."]': () => `コマンドを実行する Corgi。`,
     '["Corgi loves both."]': () => `Corgi はどちらも大好き。`,
@@ -458,7 +456,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Command menu, as Ctrl-B opens it. Press or click a shortcut to see what it does."]': () =>
       `Ctrl-B로 여는 명령 메뉴입니다. 단축키를 누르거나 클릭해서 동작을 확인하세요.`,
     '["Compacting context"]': () => `컨텍스트 압축 중`,
-    '["Copied"]': () => `복사됨`,
     '["Copy the install command"]': () => `설치 명령 복사`,
     '["Corgi carrying out those commands."]': () => `명령을 실행하는 Corgi입니다.`,
     '["Corgi loves both."]': () => `Corgi는 둘 다 좋아합니다.`,
@@ -656,7 +653,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Command menu, as Ctrl-B opens it. Press or click a shortcut to see what it does."]': () =>
       `Меню команд, открываемое по Ctrl-B. Нажмите клавишу или щёлкните по сочетанию, чтобы попробовать его.`,
     '["Compacting context"]': () => `Сжимает контекст`,
-    '["Copied"]': () => `Скопировано`,
     '["Copy the install command"]': () => `Скопировать команду установки`,
     '["Corgi carrying out those commands."]': () => `Corgi выполняет эти команды.`,
     '["Corgi loves both."]': () => `Corgi любит и то и другое.`,

@@ -38,11 +38,13 @@ export function startsImage(head: Uint8Array): boolean {
   const tag = (at: number) => bytes.subarray(at, at + 4).toString("latin1");
   return (tag(0) === "RIFF" && tag(8) === "WEBP") || (tag(4) === "ftyp" && brands.has(tag(8)));
 }
-/** Places `t` in the card at `rect`, centered in the rows below its copy row's rule. */
+/** Places `t` in the card at `rect`, centered in the rows between the rule
+ * below its action rows and its bottom border. */
 export function place(frame: hostImages.FrameImages, rect: Rect, t: Thumbnail): void {
-  const left = Math.floor(((rect.w - 2) * t.cell.width - t.width) / 2),
-    top = Math.floor((thumbnailCells(t).rows * t.cell.height - t.height) / 2);
-  placeAt(frame, rect.x + 1, rect.y + 3, t, left, top);
+  const rows = thumbnailCells(t).rows,
+    left = Math.floor(((rect.w - 2) * t.cell.width - t.width) / 2),
+    top = Math.floor((rows * t.cell.height - t.height) / 2);
+  placeAt(frame, rect.x + 1, rect.y + rect.h - 1 - rows, t, left, top);
 }
 /** Places `t` with its corner at column `col` of row `row`, shifted `left`
  * and `top` pixels further in. */

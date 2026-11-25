@@ -254,9 +254,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" … "," more characters"]': v0 => ` … 另有 ${v0} 个字符`,
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-点击打开 · 点击复制 `,
     '[" ⋯ "," lines "]': v0 => ` ⋯ ${v0} 行 `,
-    '[" ✓  Copied"]': () => ` ✓  已复制`,
-    '[" ⧉  Copy link"]': () => ` ⧉  复制链接`,
-    '[" ⧉  Copy path"]': () => ` ⧉  复制路径`,
     '["$"," isn\'t a variable"]': v0 => `$${v0} 不是有效变量`,
     '["$"," isn\'t a variable; did you mean ","?"]': (v0, v1) => `$${v0} 不是有效变量；你是指 ${v1} 吗？`,
     '[""," reads the clipboard on ","."]': (v0, v1) => `${v0} 读取的是 ${v1} 上的剪贴板。`,
@@ -501,6 +498,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Connecting to ","…"]': v0 => `正在连接 ${v0}…`,
     '["Connecting to Herdr"]': () => `正在连接 Herdr`,
     '["Control Corgi panes, agents, or workspaces:"]': () => `控制 Corgi 窗格、智能体或工作区：`,
+    '["Copied"]': () => `已复制`,
     '["Copied "," note."]': v0 => `已复制 ${v0} 条批注。`,
     '["Copied "," notes."]': v0 => `已复制 ${v0} 条批注。`,
     '["Copies the conversation into a new tab"]': () => `将对话复制到新标签页`,
@@ -511,6 +509,8 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Copy details for a bug report"]': () => `复制问题报告所需信息`,
     '["Copy full path"]': () => `复制完整路径`,
     '["Copy hovered link"]': () => `复制光标下的链接`,
+    '["Copy link"]': () => `复制链接`,
+    '["Copy path"]': () => `复制路径`,
     '["Copy sessions, scrollback and commands. Source processes stay in tmux."]': () =>
       `复制会话、滚屏记录和命令。源进程继续在 tmux 中运行。`,
     '["Copy text"]': () => `复制文本`,
@@ -1724,9 +1724,6 @@ ${v1} 使用该账号。
     '[" … "," more characters"]': v0 => ` … 残り${v0}文字`,
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-クリックで開く · クリックでコピー `,
     '[" ⋯ "," lines "]': v0 => ` ⋯ ${v0}行 `,
-    '[" ✓  Copied"]': () => ` ✓  コピーしました`,
-    '[" ⧉  Copy link"]': () => ` ⧉  リンクをコピー`,
-    '[" ⧉  Copy path"]': () => ` ⧉  パスをコピー`,
     '["$"," isn\'t a variable"]': v0 => `$${v0}という変数はありません`,
     '["$"," isn\'t a variable; did you mean ","?"]': (v0, v1) => `$${v0}という変数はありません。${v1}ですか？`,
     '[""," reads the clipboard on ","."]': (v0, v1) => `${v0}は${v1}のクリップボードを読み取ります。`,
@@ -1979,6 +1976,7 @@ ${v1} 使用该账号。
     '["Connecting to Herdr"]': () => `Herdrに接続中`,
     '["Control Corgi panes, agents, or workspaces:"]': () =>
       `Corgiのペイン、エージェント、ワークスペースを操作するには：`,
+    '["Copied"]': () => `コピーしました`,
     '["Copied "," note."]': v0 => `${v0}件のコメントをコピーしました。`,
     '["Copied "," notes."]': v0 => `${v0}件のコメントをコピーしました。`,
     '["Copies the conversation into a new tab"]': () => `会話を新しいタブにコピーします`,
@@ -1990,6 +1988,8 @@ ${v1} 使用该账号。
     '["Copy details for a bug report"]': () => `バグ報告用の情報をコピー`,
     '["Copy full path"]': () => `フルパスをコピー`,
     '["Copy hovered link"]': () => `カーソル下のリンクをコピー`,
+    '["Copy link"]': () => `リンクをコピー`,
+    '["Copy path"]': () => `パスをコピー`,
     '["Copy sessions, scrollback and commands. Source processes stay in tmux."]': () =>
       `セッション・画面履歴・コマンドをコピーします。元のプロセスはtmuxに残ります。`,
     '["Copy text"]': () => `テキストをコピー`,
@@ -3222,9 +3222,6 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" … "," more characters"]': v0 => ` … ${v0}자 더`,
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-클릭 열기 · 클릭 복사 `,
     '[" ⋯ "," lines "]': v0 => ` ⋯ ${v0}행 `,
-    '[" ✓  Copied"]': () => ` ✓  복사됨`,
-    '[" ⧉  Copy link"]': () => ` ⧉  링크 복사`,
-    '[" ⧉  Copy path"]': () => ` ⧉  경로 복사`,
     '["$"," isn\'t a variable"]': v0 => `$${v0}은(는) 변수가 아닙니다`,
     '["$"," isn\'t a variable; did you mean ","?"]': (v0, v1) => `$${v0}은(는) 변수가 아닙니다. ${v1}을(를) 뜻했나요?`,
     '[""," reads the clipboard on ","."]': (v0, v1) => `${v0}: ${v1}의 클립보드를 읽습니다.`,
@@ -3478,6 +3475,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Connecting to ","…"]': v0 => `${v0}에 연결 중…`,
     '["Connecting to Herdr"]': () => `Herdr에 연결 중`,
     '["Control Corgi panes, agents, or workspaces:"]': () => `Corgi 패널, 에이전트 또는 작업 공간 제어:`,
+    '["Copied"]': () => `복사됨`,
     '["Copied "," note."]': v0 => `메모 ${v0}개를 복사했습니다.`,
     '["Copied "," notes."]': v0 => `메모 ${v0}개를 복사했습니다.`,
     '["Copies the conversation into a new tab"]': () => `대화를 새 탭으로 복사합니다`,
@@ -3489,6 +3487,8 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Copy details for a bug report"]': () => `버그 신고용 정보 복사`,
     '["Copy full path"]': () => `전체 경로 복사`,
     '["Copy hovered link"]': () => `가리킨 링크 복사`,
+    '["Copy link"]': () => `링크 복사`,
+    '["Copy path"]': () => `경로 복사`,
     '["Copy sessions, scrollback and commands. Source processes stay in tmux."]': () =>
       `세션, 스크롤 기록과 명령을 복사합니다. 원본 프로세스는 tmux에 남습니다.`,
     '["Copy text"]': () => `텍스트 복사`,
@@ -4789,9 +4789,6 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
           return ` ⋯ ${v0} строки `;
       }
     },
-    '[" ✓  Copied"]': () => ` ✓  Скопировано`,
-    '[" ⧉  Copy link"]': () => ` ⧉  Скопировать ссылку`,
-    '[" ⧉  Copy path"]': () => ` ⧉  Скопировать путь`,
     '["$"," isn\'t a variable"]': v0 => `$${v0} — не переменная`,
     '["$"," isn\'t a variable; did you mean ","?"]': (v0, v1) =>
       `$${v0} — не переменная; возможно, вы имели в виду ${v1}?`,
@@ -5398,6 +5395,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Connecting to ","…"]': v0 => `Подключение к ${v0}…`,
     '["Connecting to Herdr"]': () => `Подключение к Herdr`,
     '["Control Corgi panes, agents, or workspaces:"]': () => `Управление панелями, агентами и пространствами Corgi:`,
+    '["Copied"]': () => `Скопировано`,
     '["Copied "," note."]': v0 => {
       switch (plural("ru", Number(v0))) {
         case "one":
@@ -5435,6 +5433,8 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Copy details for a bug report"]': () => `Скопировать сведения для отчёта об ошибке`,
     '["Copy full path"]': () => `Скопировать полный путь`,
     '["Copy hovered link"]': () => `Скопировать ссылку под курсором`,
+    '["Copy link"]': () => `Скопировать ссылку`,
+    '["Copy path"]': () => `Скопировать путь`,
     '["Copy sessions, scrollback and commands. Source processes stay in tmux."]': () =>
       `Копирует сеансы, историю и команды. Исходные процессы остаются в tmux.`,
     '["Copy text"]': () => `Скопировать текст`,
