@@ -122,12 +122,12 @@ function read(path: string) {
   if (stat && stat.size > 1024 * 1024) throw Error("FileTooBig");
   return { stat, before: stat ? readFileSync(path, "utf8") : "{}" };
 }
-/** Writes `text` over `path`, unless its owner made it read-only, as Nix's
- * home-manager does. */
-function write(path: string, text: string, mode: number | null) {
+/** Throws unless Corgi may replace `path`: its folder exists, and neither it
+ * nor the folder is read-only, as Nix's home-manager makes them. */
+function writable(path: string, exists: boolean) {
   try {
-    if (mode !== null) accessSync(path, constants.W_OK);
-    atomicWrite(path, text, mode ?? 0o600, false);
+    if (exists) accessSync(path, constants.W_OK);
+    accessSync(dirname(path), constants.W_OK);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "EACCES" || code === "EPERM" || code === "EROFS") throw Error("HookSettingsReadOnly");
@@ -182,6 +182,7 @@ export class File {
       const { stat, before } = read(path),
         after = change(before);
       if (after === null) return "unchanged";
+      writable(path, stat !== null);
       if (stat && backup)
         try {
           writeFileSync(this.path + ".corgi-backup", before, { flag: "wx", mode: 0o600 });
@@ -189,7 +190,7 @@ export class File {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         }
       if (stat ? readFileSync(path, "utf8") !== before : existsSync(path)) throw Error("HookSettingsChanged");
-      write(path, after + "\n", stat ? stat.mode & 0o777 : null);
+      atomicWrite(path, after + "\n", stat ? stat.mode & 0o777 : 0o600, false);
       return "changed";
     } finally {
       flock(lock, false);

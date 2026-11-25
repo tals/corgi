@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import type { Position, Removal } from "../hooks_file";
 /** What Corgi writes when the title is unset. */
@@ -73,10 +73,13 @@ export function movedApprovals(
     }
   return isDeepStrictEqual(next, state) ? null : { state: next, moved };
 }
+/** Saves `path` beside itself once, before Corgi first has Codex edit it.
+ * Codex writes through a link from dotfiles, so one is backed up by the file
+ * it points to, and the backup stays beside the link. */
 export function backup(path: string): void {
   let stat;
   try {
-    stat = lstatSync(path);
+    stat = statSync(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;

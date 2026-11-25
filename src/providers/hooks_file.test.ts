@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -133,12 +134,22 @@ test("settings linked from dotfiles get hooks where they live, and the link stay
     expect(file.install().outcome).toBe("added");
     expect(lstatSync(link).isSymbolicLink()).toBe(true);
     expect(file.status().outcome).toBe("present");
-    // One its owner made read-only, as home-manager does, stays as it is.
+    // A link into a folder that's gone doesn't bring it back.
+    rmSync(link);
+    symlinkSync(join(root, "gone", "claude.json"), link);
+    expect(file.install().outcome).toBe("failed");
+    expect(existsSync(join(root, "gone"))).toBe(false);
+    // One its owner made read-only, as home-manager does, stays as it is,
+    // with no backup of it.
+    rmSync(link);
+    symlinkSync(target, link);
+    rmSync(link + ".corgi-backup");
     writeFileSync(target, original);
     chmodSync(target, 0o400);
     chmodSync(dotfiles, 0o500);
     expect(file.install()).toMatchObject({ outcome: "failed", error: "HookSettingsReadOnly" });
     expect(readFileSync(target, "utf8")).toBe(original);
+    expect(existsSync(link + ".corgi-backup")).toBe(false);
   } finally {
     chmodSync(dotfiles, 0o700);
     rmSync(root, { recursive: true, force: true });

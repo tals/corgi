@@ -896,8 +896,8 @@ test("updates remove releases two behind, except one another runtime runs", asyn
     await waitFor(async () => !running(second));
     await update(env, "rollback");
     expect(await installed()).toEqual(["1.0.2", "1.0.3"]);
-    // The pane opened under 1.0.1 still finds the CLI, as do hooks. Corgi
-    // resolves its own path, and macOS's /tmp is a link to /private/tmp.
+    // The pane opened under 1.0.1 still finds the CLI. Corgi resolves its
+    // own path, and macOS's /tmp is a link to /private/tmp.
     const launcher = join(await realpath(root), "bin/corgi");
     await rpc({
       op: "session.command",
