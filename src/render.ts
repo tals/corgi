@@ -929,7 +929,9 @@ export function frame(
   const cover = (box: Rect | null) => {
     if (box) covered.push(box);
   };
-  const link_rect = u.link_card ? linkTooltip.geometry(width, height, u.link_card.link, u.link_card.thumbnail) : null;
+  const link_rect = u.link_card
+    ? linkTooltip.geometry(width, height, u.link_card.link, u.link_card.thumbnail, !!u.link_card.open_row)
+    : null;
   const on_link_card = u.pointer !== null && link_rect !== null && link_rect.contains(u.pointer.x, u.pointer.y);
   const on_peek = u.pointer !== null && u.file_peek !== null && u.file_peek.rect.contains(u.pointer.x, u.pointer.y);
   const pinned = u.resource_card?.pinned ?? false;
@@ -956,10 +958,12 @@ export function frame(
     side.hit(u.pointer.x, u.pointer.y).tag !== "workspace";
   // The machine card hides the links beneath it too.
   const on_machine_card = u.pointer !== null && !!u.connection_card?.rect.contains(u.pointer.x, u.pointer.y);
+  const link_button =
+    on_link_card && u.link_card ? linkTooltip.buttonAt(link_rect!, u.link_card, u.pointer!.x, u.pointer!.y) : null;
   if (u.pointer) {
     const pointer = u.pointer;
     if (on_link_card) {
-      link_pointer = linkTooltip.copyAt(link_rect!, pointer.x, pointer.y);
+      link_pointer = link_button !== null;
     } else if (on_git) {
       link_pointer = gitTooltip.rowAt(git_rect!, git_ws!, height, pointer.x, pointer.y) !== null;
     } else if (on_card) {
@@ -1446,7 +1450,7 @@ export function frame(
   // A sign-in takes the whole screen, its cursor included.
   if (u.signin_draw) {
     hovered_uri = u.signin_draw(w, on_link_card ? null : u.pointer)?.uri ?? null;
-    link_pointer = on_link_card && linkTooltip.copyAt(link_rect!, u.pointer!.x, u.pointer!.y);
+    link_pointer = link_button !== null;
     resize_hover = null;
   } else {
     side.searchCursor(w);
@@ -1456,7 +1460,7 @@ export function frame(
   if (u.link_card && link_rect && u.pointer) {
     w.write("\x1b[?25l");
     pane_cursor = null;
-    linkTooltip.draw(w, link_rect, u.link_card, linkTooltip.copyAt(link_rect, u.pointer.x, u.pointer.y));
+    linkTooltip.draw(w, link_rect, u.link_card, u.link_card.selected ?? link_button);
     if (u.pictures && u.link_card.thumbnail) linkThumbnail.place(u.pictures, link_rect, u.link_card.thumbnail);
     cover(link_rect);
   }

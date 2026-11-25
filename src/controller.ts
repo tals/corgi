@@ -166,8 +166,10 @@ import { Opening } from "./opening";
 import { Machine, type Focus, type Stopped } from "./machine";
 
 /** `machine` names the SSH machine whose pane had the link, which may point
- * at that machine's own loopback; a link from this computer has none. */
-export type Effect = { write_terminal: string } | { open_url: string; machine?: number };
+ * at that machine's own loopback, or whose image it is; a link from this
+ * computer has none. */
+export type Effect =
+  { write_terminal: string } | { open_url: string; machine?: number } | { open_image: string; machine?: number };
 type HoverMenu = "launcher" | "scope";
 /** A paste goes to the text field that owned the keyboard when it began, or
  * to the focused pane when none did. */
@@ -350,6 +352,8 @@ class InputState {
   /** The pane whose app took the held mouse button; its drag and release
    * follow it outside the pane. */
   pane_press: number | null = null;
+  /** The link under a hover card dismissed by the current key or prefix. */
+  key_link: linkTooltip.Link | null = null;
   /** Where the bracketed paste in progress goes; null outside a paste. */
   paste: Paste | null = null;
   tab_drag: TabDrag | null = null;
@@ -540,11 +544,11 @@ export class Controller {
     this.host.iterm2_pointer = value;
   }
   link_tooltip = new linkTooltip.State();
-  link_copy_press: linkTooltip.Link | null = null;
+  link_press: { link: linkTooltip.Link; button: linkTooltip.Button | null; image?: string } | null = null;
   /** Each machine's files, read here or through its daemon, and whether the
    * paths its panes show name them. */
   private file_places = new WeakMap<Machine, { files: fileAccess.Files; refs: fileRef.Resolver }>();
-  private filesOn(machine: Machine): { files: fileAccess.Files; refs: fileRef.Resolver } {
+  filesOn(machine: Machine): { files: fileAccess.Files; refs: fileRef.Resolver } {
     let place = this.file_places.get(machine);
     if (!place) {
       const files = machine.remote
@@ -4019,13 +4023,50 @@ export class Controller {
         this.copyText(String(act.value ?? ""));
         break;
       case "copy-link": {
-        const card = this.linkCard();
-        if (card) {
-          this.copyQuietly(linkTooltip.filePath(card.link.uri) ?? card.link.uri);
+        // A shown card confirms the copy itself; a shortcut has dismissed it.
+        const card = this.linkCard(),
+          link = card?.link ?? this.pointedLink();
+        if (!link) break;
+        const text = linkTooltip.filePath(link.uri) ?? link.uri;
+        if (!card) this.copyText(text);
+        else {
+          this.copyQuietly(text);
           this.link_tooltip.copied_until = milliTimestamp() + 1000;
         }
         break;
       }
+      case "open-image": {
+        const path = this.pointedImage();
+        if (path)
+          this.queueEffect(this.machine.remote ? { open_image: path, machine: this.machine.id } : { open_image: path });
+        break;
+      }
+      case "link-next":
+      case "link-prev": {
+        // The first arrow comes in from the card's edge, down at the top and up
+        // at the bottom, or moves from the row the pointer is on.
+        const card = this.linkCard(),
+          rect = card && this.linkCardRect(card),
+          pointer = this.pointer;
+        if (!card || !rect || !pointer) break;
+        const rows = linkTooltip.rows(card),
+          down = act.name === "link-next",
+          current = card.selected ?? linkTooltip.buttonAt(rect, card, pointer.x, pointer.y),
+          from = current ? rows.indexOf(current) : down ? -1 : rows.length,
+          at = Math.max(0, Math.min(rows.length - 1, from + (down ? 1 : -1)));
+        this.link_tooltip.chosen = { button: rows[at], x: pointer.x, y: pointer.y };
+        this.dirty = true;
+        break;
+      }
+      case "link-go": {
+        const selected = this.linkCard()?.selected;
+        if (selected) await this.perform({ name: selected === "copy" ? "copy-link" : "open-image" });
+        break;
+      }
+      case "link-close":
+        this.link_tooltip.cancel();
+        this.dirty = true;
+        break;
       case "paste":
         if (this.clipboard !== null) {
           // A pane still opening takes no pastes.
@@ -4975,7 +5016,7 @@ export class Controller {
           this.signin = null;
           this.signin_drag = null;
           this.link_tooltip.cancel();
-          this.link_copy_press = null;
+          this.link_press = null;
           this.agent_launcher = launcher;
           this.corgi_setup = setup;
           if (launch) launch.preview = this.launch_previews.current(launch.cwd, this.runtime.accounts);
@@ -7779,9 +7820,15 @@ export class Controller {
     if (data.length) cl.active = true;
     for (let i = 0; i < data.length; i++) {
       if (!active()) return;
+      const input = data[i];
+      cl.key_link =
+        input.kind === "key" || input.kind === "text"
+          ? (this.pointedLinkCard() ?? (this.prefix ? cl.key_link : null))
+          : null;
       try {
-        await this.inputEvent(data[i], active);
+        await this.inputEvent(input, active);
       } catch (error) {
+        cl.key_link = null;
         if (cl !== this.input_state) throw error;
         const pasting = cl.paste !== null;
         this.cancelPaste();
@@ -7793,12 +7840,16 @@ export class Controller {
           await this.route(data.slice(end + 1), current);
         }
         throw error;
+      } finally {
+        if (!this.prefix) cl.key_link = null;
       }
     }
   }
   private async textInput(buf: number[], current: () => boolean): Promise<void> {
     let used = 0;
     while (used < buf.length && current()) {
+      // A text input can contain several keys. Only the first and its prefix share the card.
+      if (used > 0 && !this.prefix) this.input_state.key_link = null;
       const byte = buf[used];
       if (byte >= 128) {
         const decoded = keyboard.textKey(buf.slice(used, used + 4));
@@ -7834,6 +7885,12 @@ export class Controller {
         if (this.prefix) this.prefix = false;
         else for (let i = used; i < used + decoded.length; i++) await this.key(buf[i], true);
         used += decoded.length;
+        continue;
+      }
+      const card_action = this.linkCardKey({ codepoint: byte, mods: {} });
+      if (card_action) {
+        await this.perform(card_action);
+        used += 1;
         continue;
       }
       this.closePasteCard();
@@ -7890,6 +7947,8 @@ export class Controller {
     }
     if (input.kind === "text") return this.textInput(Array.from(input.bytes), current);
     if (input.bytes.length === 1 && input.bytes[0] === 27) {
+      const close = this.linkCardKey({ codepoint: 27, mods: {} });
+      if (close) return this.perform(close);
       this.pinWorktreeInput("\x1b");
       this.link_tooltip.cancel();
       this.dirty = true;
@@ -7923,6 +7982,8 @@ export class Controller {
         return;
       }
     }
+    const card_action = input.kind === "key" ? this.linkCardKey(input.key) : null;
+    if (card_action) return this.perform(card_action);
     if (input.kind !== "mouse") {
       this.endSigninExit();
       this.pinWorktreeInput(latin1(seq));
@@ -10556,17 +10617,95 @@ export class Controller {
       return null;
     const source = this.linkAt(link.x, link.y);
     if (!linkTooltip.sameLink(source, link)) return null;
-    let thumbnail = this.linkThumbnail(link);
-    if (thumbnail) thumbnail = linkTooltip.fit(this.width, this.height, link, thumbnail);
-    return { link, copied: this.link_tooltip.copied_until > milliTimestamp(), thumbnail };
+    const file = this.hoveredFile(link);
+    const image = this.desktopImage(file),
+      loaded = this.linkThumbnail(file),
+      fit = (open: boolean) => loaded && linkTooltip.fit(this.width, this.height, link, loaded, open);
+    // The picture comes first: where the open row leaves it no room, the shortcut still opens the image.
+    const thumbnail = (image && fit(true)) || fit(false) || null;
+    const open_row = !!image && !!linkTooltip.geometry(this.width, this.height, link, thumbnail, true);
+    return {
+      link,
+      copied: this.link_tooltip.copied_until > milliTimestamp(),
+      thumbnail,
+      open_image: image,
+      open_row,
+      keyless: !!this.signin || !!this.corgi_setup || this.reviewKeys(),
+      selected: this.chosenLinkRow(open_row),
+    };
   }
-  /** The thumbnail of the image `link` names on its pane's machine, where
-   * the host shows Kitty images and reports its cell size; it starts
-   * loading on first ask. */
-  private linkThumbnail(link: linkTooltip.Link): linkTooltip.Thumbnail | null {
+  /** The row the arrow keys chose, while the pointer stays where it was then. */
+  private chosenLinkRow(open_row: boolean): linkTooltip.Button | undefined {
+    const chosen = this.link_tooltip.chosen,
+      pointer = this.pointer;
+    if (!chosen || pointer?.x !== chosen.x || pointer.y !== chosen.y) return undefined;
+    return chosen.button === "copy" || open_row ? chosen.button : undefined;
+  }
+  private linkCardRect(card: linkTooltip.Card): Rect | null {
+    return linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, !!card.open_row);
+  }
+  /** The action of a key a shown card takes: its rows' own keys, which act
+   * as clicking the row does, the arrows between rows, and Enter and Escape
+   * once an arrow has chosen one. Null for keys that dismiss it and reach
+   * the pane. */
+  private linkCardKey(key: keyboard.Key): Action | null {
+    const m = key.mods;
+    if (this.prefix || m.ctrl || m.alt || m.super || m.shift) return null;
+    const card = this.pointedLinkCard() && this.linkCard();
+    if (!card || card.keyless) return null;
+    switch (key.codepoint) {
+      case keyboard.arrow_down:
+        return { name: "link-next" };
+      case keyboard.arrow_up:
+        return { name: "link-prev" };
+      case 13:
+        return card.selected ? { name: "link-go" } : null;
+      case 27:
+        return card.selected ? { name: "link-close" } : null;
+    }
+    const button = linkTooltip.keyButton(key.codepoint);
+    if (!button || (button === "open" && !card.open_image)) return null;
+    return { name: button === "copy" ? "copy-link" : "open-image" };
+  }
+  /** The image a card opens in this computer's desktop viewer; another computer's opens from a copy here. */
+  private desktopImage(file: LinkedFile | null): string | undefined {
+    return file?.image && this.host.opens_desktop ? file.path : undefined;
+  }
+  private pointedLinkCard(): linkTooltip.Link | null {
+    const pointer = this.pointer,
+      link = this.link_tooltip.target?.link;
+    return pointer && link && this.linkHoverContains(pointer.x, pointer.y) ? link : null;
+  }
+  /** The link under the pointer when no card covers it. */
+  private uncoveredLink(): linkTooltip.Link | null {
+    const pointer = this.pointer;
+    if (!pointer || this.connection_card?.rect.contains(pointer.x, pointer.y)) return null;
+    const { x, y } = pointer;
+    if (
+      !this.signin &&
+      !this.corgi_setup &&
+      (this.worktreeHoverContains(x, y) || this.resourceHoverContains(x, y) || this.gitHoverContains(x, y))
+    )
+      return null;
+    return this.linkAt(x, y);
+  }
+  /** The link a card shortcut acts on: the card's even when the shortcut
+   * has dismissed it, or the one under the pointer that no card covers. */
+  private pointedLink(): linkTooltip.Link | null {
+    if (!this.pointer || !this.linkHoverIdle() || this.ui_mouse_down || this.paste_card) return null;
+    const pointed = this.input_state.key_link ?? this.pointedLinkCard() ?? this.uncoveredLink();
+    const link = pointed && this.linkAt(pointed.x, pointed.y);
+    return link && linkTooltip.sameLink(link, pointed) ? link : null;
+  }
+  private pointedImage(): string | undefined {
+    const link = this.pointedLink();
+    return link ? this.desktopImage(this.hoveredFile(link)) : undefined;
+  }
+  /** Loads the thumbnail on the pane's machine when the host shows Kitty
+   * images and reports its cell size. */
+  private linkThumbnail(file: LinkedFile | null): linkTooltip.Thumbnail | null {
     const cell = this.cell_pixels;
     if (!this.supports_kitty_graphics || !cell) return null;
-    const file = this.hoveredFile(link);
     return file?.image ? this.thumbnails.get(file.path, this.filesOn(this.machine).files, cell) : null;
   }
   private linkHoverContains(x: number, y: number): boolean {
@@ -10575,12 +10714,11 @@ export class Controller {
       return file.rect.contains(x, y) || linkTooltip.sameLink(this.linkAt(x, y), this.link_tooltip.target?.link);
     const card = this.linkCard();
     if (!card) return false;
-    const rect = linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail);
-    if (rect?.contains(x, y)) return true;
+    if (this.linkCardRect(card)?.contains(x, y)) return true;
     const link = this.linkAt(x, y);
     return linkTooltip.sameLink(link, card.link);
   }
-  /** The same copy-button capture for every terminal showing a link card. */
+  /** The same button capture for every terminal showing a link card. */
   private async linkMouse(button: number, x: number, y: number, release: boolean): Promise<boolean> {
     // The file peek scrolls under the wheel and opens its file on a click.
     const file = this.fileCard();
@@ -10616,21 +10754,25 @@ export class Controller {
       return true;
     }
     const card = this.linkCard(),
-      rect = card ? linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail) : null;
-    if (this.link_copy_press !== null) {
+      rect = card ? this.linkCardRect(card) : null,
+      hit = card && rect ? linkTooltip.buttonAt(rect, card, x, y) : null;
+    if (this.link_press !== null) {
       this.pointer = { x, y };
       this.dirty = true;
       if (release) {
-        const pressed = this.link_copy_press;
-        this.link_copy_press = null;
-        if (button === 0 && card?.link === pressed && rect && linkTooltip.copyAt(rect, x, y))
-          await this.perform({ name: "copy-link" });
+        const pressed = this.link_press;
+        this.link_press = null;
+        if (button === 0 && card?.link === pressed.link && hit === pressed.button) {
+          if (hit === "copy") await this.perform({ name: "copy-link" });
+          if (hit === "open" && card.open_image && card.open_image === pressed.image)
+            await this.perform({ name: "open-image" });
+        }
       }
       return true;
     }
     if (rect?.contains(x, y) && !release && (button === 35 || button === 0)) {
       this.pointer = { x, y };
-      if (button === 0) this.link_copy_press = card!.link;
+      if (button === 0) this.link_press = { link: card!.link, button: hit, image: card!.open_image };
       this.dirty = true;
       return true;
     }
@@ -10753,7 +10895,7 @@ export class Controller {
       } else if (link && (!link.path || file?.image) && linkTooltip.geometry(this.width, this.height, link)) {
         target = { link };
         // Loads while the card waits to open.
-        this.linkThumbnail(link);
+        this.linkThumbnail(file);
       }
     }
     if (!target?.file) this.file_peeks.clear();

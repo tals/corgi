@@ -5,7 +5,10 @@ import type { Controller } from "./controller";
 import { attached, mouse, onePane } from "./fixtures/viewer";
 import * as viewer from "./viewer";
 import * as viewerNative from "./viewer_native";
+import * as palette from "./palette";
+import * as protocol from "./protocol";
 import { Writer } from "./text";
+import { Rect } from "./layout";
 import { png_base64 } from "./assets/corgi_badge";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -87,14 +90,14 @@ test("both link popover labels keep the right border aligned and stay inside the
     for (const x of [2, 39]) {
       const rect = geometry(40, 10, { x, y: 5 })!;
       for (const [uri, label] of [
-        ["https://example.com", "⧉  Copy link"],
-        ["file:///tmp/shot.png", "⧉  Copy path"],
+        ["https://example.com", "c  Copy link"],
+        ["file:///tmp/shot.png", "c  Copy path"],
         ["https://example.com", "✓  Copied"],
       ]) {
         const w = new Writer();
         for (let y = 0; y < 10; y++) w.write(`\x1b[${y + 1};1H` + "#".repeat(40));
         const link = { source, id: 1n, uri, x, y: 5 };
-        draw(w, rect, { link, copied: label.includes("Copied"), thumbnail: null }, true);
+        draw(w, rect, { link, copied: label.includes("Copied"), thumbnail: null }, "copy");
         terminal.feed(w.buffered());
         const rows = terminal.text().split("\n");
         expect(rows[rect.y][rect.x + rect.w - 1]).toBe("┐");
@@ -111,8 +114,8 @@ test("both link popover labels keep the right border aligned and stay inside the
 });
 
 const url = "https://example.com/docs";
-function linkViewer(output = url, host: "pane" | "signin" = "pane") {
-  const s = attached(100, 30);
+function linkViewer(output = url, host: "pane" | "signin" = "pane", height = 30) {
+  const s = attached(100, height);
   s.sidebar_open = false;
   s.receiveSnapshot(onePane({}, { cols: 100 }));
   if (host === "signin") {
@@ -123,7 +126,7 @@ function linkViewer(output = url, host: "pane" | "signin" = "pane") {
     signin.child.feed(output);
     s.signin = signin;
   } else {
-    const source = new Terminal(100, 29);
+    const source = new Terminal(100, height - 1);
     try {
       source.feed(output);
       s.runtime.pane(1)!.terminal.receive(source.surface(1));
@@ -181,7 +184,7 @@ test.each(["pane", "signin"] as const)(
         await s.input(mouse(0, 4, 3, true));
         expect(s.clipboard).toBe(url);
         expect(s.effects).toEqual([{ write_terminal: `\x1b]52;c;${Buffer.from(url).toString("base64")}\x07` }]);
-        expect(s.frame()).toContain("✓  Copied");
+        expect(s.frame()).toMatch(/✓ +Copied/);
         expect(s.frame()).not.toContain("Copied to clipboard");
         setSystemTime(new Date(2150));
         await s.expireInput();
@@ -233,6 +236,55 @@ test.each(["pane", "signin"] as const)("%s link popover dismisses on input or ch
     close(s);
   }
 });
+
+test.each(["pane", "signin"] as const)(
+  "%s card takes its keys while it shows, but not from sign-in or review typing",
+  async host => {
+    const s = linkViewer(url, host);
+    const child = s.signin?.child ?? s.runtime.pane(1)!.terminal.inner;
+    const send = spyOn(child, "send").mockImplementation(() => {});
+    const show = async (at: number) => {
+      setSystemTime(new Date(at));
+      await s.input(mouse(35, 3, 1));
+      s.frame();
+      setSystemTime(new Date(at + 150));
+      const rendered = new Terminal(s.width, s.height);
+      try {
+        rendered.feed(s.frame());
+        return rendered.text();
+      } finally {
+        rendered.destroy();
+      }
+    };
+    try {
+      const shown = await show(1000);
+      await s.input(Buffer.from("c"));
+      if (host === "pane") {
+        expect(shown).toMatch(/│  c  Copy link +│/);
+        expect(s.clipboard).toBe(url);
+        expect(s.frame()).toMatch(/✓ +Copied/);
+        // While the review panel has the keyboard, the card leaves typing to it.
+        await s.input(mouse(35, 90, 20));
+        await s.input(Buffer.from("\x02e"));
+        expect(s.keyboard).toBe("review");
+        s.clipboard = null;
+        expect(await show(3000)).toMatch(/│ {5}Copy link +│/);
+        await s.input(Buffer.from("c"));
+        expect(s.clipboard).toBeNull();
+      } else {
+        // Sign-in takes typing, so its card shows no keys and c reaches it.
+        expect(shown).toMatch(/│ {5}Copy link +│/);
+        expect(s.clipboard).toBeNull();
+        expect(send).toHaveBeenCalled();
+        expect(s.frame()).not.toContain("Copy link");
+      }
+    } finally {
+      setSystemTime();
+      send.mockRestore();
+      close(s);
+    }
+  },
+);
 
 test.each(["pane", "signin"] as const)(
   "%s popover clicks and cancelled drags do not reach mouse-aware programs",
@@ -369,11 +421,12 @@ test("a file link's popover offers and copies its path", async () => {
   }
 });
 
-test("an image link's popover shows a thumbnail on Kitty hosts and frees it when it closes", async () => {
+test("an image link's popover copies its path and opens the original from its thumbnail or button", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-thumb-"));
   const path = join(dir, "shot.png");
   writeFileSync(path, await new Bun.Image(Buffer.from(png_base64, "base64")).resize(1000, 400).png().buffer());
   const s = linkViewer(`\x1b]8;;file://${path}\x1b\\[Image #1]\x1b]8;;\x1b\\`);
+  s.host.opens_desktop = true;
   s.supports_kitty_graphics = true;
   s.cell_pixels = { width: 10, height: 20 };
   try {
@@ -388,10 +441,11 @@ test("an image link's popover shows a thumbnail on Kitty hosts and frees it when
     setSystemTime(new Date(1150));
     const frame = s.frame();
     expect(frame).toContain("Copy path");
+    expect(frame).toContain("Open image");
     expect(frame).toContain("├" + "─".repeat(64) + "┤");
-    // 1000×400 shrinks to 280×112: 28 cells by 6, centered in the rows.
+    // 1000×400 shrinks to 280×112: 28 cells by 6, centered in the rows under the Open row and rule.
     const shown = s.host.images.present(),
-      id = /\x1b\[6;4H\x1b_Ga=p,i=(\d+),p=\d+,Y=2,z=1,C=1,q=1\x1b\\/.exec(shown.draw)?.[1];
+      id = /\x1b\[7;4H\x1b_Ga=p,i=(\d+),p=\d+,Y=2,z=1,C=1,q=1\x1b\\/.exec(shown.draw)?.[1];
     expect(id).toBeDefined();
     // The viewer sends it ahead of the frame, once.
     expect(shown.send).toContain(`\x1b_Ga=t,t=d,f=100,i=${id},q=1,m=`);
@@ -400,13 +454,348 @@ test("an image link's popover shows a thumbnail on Kitty hosts and frees it when
     await s.input(mouse(0, 4, 3));
     await s.input(mouse(0, 4, 3, true));
     expect(s.clipboard).toBe(path);
+    s.clearEffects();
+    await s.input(mouse(0, 4, 3));
+    await s.input(mouse(0, 4, 6, true));
+    expect(s.effects).toEqual([]);
+    await s.input(mouse(0, 4, 6));
+    await s.input(mouse(0, 4, 6, true));
+    expect(s.effects).toEqual([{ open_image: path }]);
+    await s.input(mouse(35, 2, 1));
+    s.clearEffects();
+    const binding = spyOn(s.prefs, "bindings").mockReturnValue([
+      { key: 111, mods: { alt: true }, prefixed: false, action: { name: "open-image" } },
+    ]);
+    try {
+      await s.input(Buffer.from("\x1b[111;3u"));
+      expect(s.effects).toEqual([{ open_image: path }]);
+    } finally {
+      binding.mockRestore();
+    }
+    s.clearEffects();
+    await viewer.receive(
+      s,
+      {
+        type: "view",
+        viewer_protocol: protocol.viewer_version,
+        session: null,
+        session_hash: 0,
+        resources: null,
+        resources_hash: 0,
+        surfaces: [],
+        controls: [{ seq: 1, kind: "action", name: "open-image" }],
+        viewer: 1,
+        bell_seq: 0,
+        bell_kind: "none",
+        detach: false,
+      },
+      { seq: 0n },
+      false,
+    );
+    expect(s.effects).toEqual([{ open_image: path }]);
     await s.input(mouse(35, 90, 20));
     s.frame();
     const closed = s.host.images.present();
     expect(closed.draw).toContain(`a=d,d=i,i=${id},`);
     expect(closed.redraw).not.toContain(`a=p,i=${id},`);
     expect(closed.free).toContain(`\x1b_Ga=d,d=I,i=${id},q=2\x1b\\`);
+    s.supports_kitty_graphics = false;
+    s.clearEffects();
+    await s.input(mouse(35, 2, 1));
+    s.frame();
+    setSystemTime(new Date(1300));
+    expect(s.frame()).toContain("Open image");
+    await s.input(mouse(0, 4, 4));
+    await s.input(mouse(0, 4, 4, true));
+    expect(s.effects).toEqual([{ open_image: path }]);
+    s.host.opens_desktop = false;
+    s.supports_kitty_graphics = true;
+    s.clearEffects();
+    const headless = s.frame();
+    expect(headless).toContain("Copy path");
+    expect(headless).not.toContain("Open image");
+    expect(s.host.images.present().draw).toContain(`a=p,i=${id},`);
+    await s.input(mouse(0, 4, 6));
+    await s.input(mouse(0, 4, 6, true));
+    expect(s.effects).toEqual([]);
   } finally {
+    setSystemTime();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("a card shows its keys as keycaps with Open above the picture, and takes c and o while shown", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-thumb-"));
+  const path = join(dir, "shot.png");
+  writeFileSync(path, await new Bun.Image(Buffer.from(png_base64, "base64")).resize(1000, 400).png().buffer());
+  const s = linkViewer(`\x1b]8;;file://${path}\x1b\\[Image #1]\x1b]8;;\x1b\\`);
+  s.host.opens_desktop = true;
+  s.supports_kitty_graphics = true;
+  s.cell_pixels = { width: 10, height: 20 };
+  const show = async (at: number) => {
+    await s.input(mouse(35, 90, 20));
+    setSystemTime(new Date(at));
+    await s.input(mouse(35, 2, 1));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.frame();
+    await s.thumbnails.loading;
+    setSystemTime(new Date(at + 150));
+    return s.frame();
+  };
+  try {
+    const rendered = new Terminal(s.width, s.height);
+    try {
+      rendered.feed(await show(1000));
+      const rows = rendered.text().split("\n");
+      expect(rows[3]).toMatch(/│  c  Copy path +│/);
+      expect(rows[4]).toMatch(/│  o  Open image +│/);
+      expect(rows[5]).toMatch(/├─+┤/);
+    } finally {
+      rendered.destroy();
+    }
+    // c copies and the card stays to confirm it; o opens the image.
+    await s.input(Buffer.from("c"));
+    expect(s.clipboard).toBe(path);
+    expect(s.frame()).toMatch(/✓ +Copied/);
+    s.clearEffects();
+    await s.input(Buffer.from("o"));
+    expect(s.effects).toEqual([{ open_image: path }]);
+    // Other keys dismiss the card and reach the pane, and so do c and o after it.
+    s.clipboard = null;
+    await s.input(Buffer.from("x"));
+    expect(s.frame()).not.toContain("Copy path");
+    s.clearEffects();
+    await s.input(Buffer.from("co"));
+    expect(s.clipboard).toBeNull();
+    expect(s.effects).toEqual([]);
+    // Without a desktop the card has no Open row, and o goes to the pane.
+    s.host.opens_desktop = false;
+    expect(await show(2000)).toContain("Copy path");
+    await s.input(Buffer.from("o"));
+    expect(s.effects).toEqual([]);
+    expect(s.frame()).not.toContain("Copy path");
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("arrows choose a card's row, which Enter acts on and Escape closes, until the pointer moves", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-thumb-"));
+  const path = join(dir, "shot.png");
+  writeFileSync(path, Buffer.from(png_base64, "base64"));
+  const s = linkViewer(`\x1b]8;;file://${path}\x1b\\[Image #1]\x1b]8;;\x1b\\`);
+  s.host.opens_desktop = true;
+  const sent = spyOn(s as any, "sendInput").mockImplementation(() => {});
+  const show = async (at: number) => {
+    await s.input(mouse(35, 90, 20));
+    setSystemTime(new Date(at));
+    await s.input(mouse(35, 2, 1));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    setSystemTime(new Date(at + 150));
+    expect(s.frame()).toContain("Open image");
+  };
+  const chosen = () => s.link_tooltip.chosen?.button ?? null;
+  try {
+    await show(1000);
+    // Down comes in at the top row, and up at the bottom one; the next ones move, and stop at the ends.
+    const lit = (key: string) =>
+      new palette.Style({ fg: "strong", bg: "selected" }).sgr() + " " + palette.keycap + ` ${key} `;
+    await s.input(Buffer.from("\x1b[B"));
+    expect(chosen()).toBe("copy");
+    expect(s.frame()).toContain(lit("c"));
+    await s.input(Buffer.from("\x1b[B"));
+    await s.input(Buffer.from("\x1b[B"));
+    expect(chosen()).toBe("open");
+    const frame = s.frame();
+    expect([frame.includes(lit("c")), frame.includes(lit("o"))]).toEqual([false, true]);
+    await s.input(Buffer.from("\r"));
+    expect(s.effects).toEqual([{ open_image: path }]);
+    await s.input(Buffer.from("\x1b[A"));
+    await s.input(Buffer.from("\r"));
+    expect(s.clipboard).toBe(path);
+    expect(s.frame()).toMatch(/✓ +Copied/);
+    // Escape closes the card rather than reach the pane, as Kitty's Escape does.
+    await s.input(Buffer.from("\x1b"));
+    await s.expireInput();
+    expect(s.frame()).not.toContain("Copy path");
+    await show(2000);
+    await s.input(Buffer.from("\x1b[A"));
+    expect(chosen()).toBe("open");
+    await s.input(Buffer.from("\x1b[A"));
+    await s.input(Buffer.from("\x1b[A"));
+    expect(chosen()).toBe("copy");
+    await s.input(Buffer.from("\x1b[27u"));
+    expect(s.frame()).not.toContain("Copy path");
+    expect(sent).not.toHaveBeenCalled();
+    // The pointer moving takes over from the arrows, and Enter goes to the pane.
+    await show(3000);
+    await s.input(Buffer.from("\x1b[B"));
+    await s.input(mouse(35, 3, 1));
+    s.clipboard = null;
+    s.clearEffects();
+    await s.input(Buffer.from("\r"));
+    expect([s.clipboard, s.effects]).toEqual([null, []]);
+    expect(sent).toHaveBeenCalled();
+  } finally {
+    sent.mockRestore();
+    setSystemTime();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("an image card too tight for both keeps its picture and leaves opening to the shortcut", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-thumb-"));
+  const path = join(dir, "shot.png");
+  writeFileSync(path, await new Bun.Image(Buffer.from(png_base64, "base64")).resize(1000, 400).png().buffer());
+  // Three rows fit a picture below the link, and none above it.
+  const s = linkViewer(`\x1b[4;1H\x1b]8;;file://${path}\x1b\\[Image #1]\x1b]8;;\x1b\\`, "pane", 12);
+  s.host.opens_desktop = true;
+  s.cell_pixels = { width: 10, height: 20 };
+  const binding = spyOn(s.prefs, "bindings").mockReturnValue([
+    { key: 111, mods: { alt: true }, prefixed: false, action: { name: "open-image" } },
+  ]);
+  try {
+    setSystemTime(new Date(1000));
+    await s.input(mouse(35, 2, 4));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    setSystemTime(new Date(1150));
+    // Without a picture, the card has room for the open row.
+    expect(s.frame()).toContain("Open image");
+    s.supports_kitty_graphics = true;
+    s.frame();
+    await s.thumbnails.loading;
+    const frame = s.frame();
+    expect(frame).toContain("Copy path");
+    expect(frame).not.toContain("Open image");
+    expect(s.host.images.present().draw).toContain("a=p,");
+    // The picture and the card's key still open it.
+    await s.input(mouse(0, 4, 8));
+    await s.input(mouse(0, 4, 8, true));
+    expect(s.effects).toEqual([{ open_image: path }]);
+    s.clearEffects();
+    await s.input(Buffer.from("o"));
+    expect(s.effects).toEqual([{ open_image: path }]);
+    s.clearEffects();
+    await s.input(Buffer.from("\x1b[111;3u"));
+    expect(s.effects).toEqual([{ open_image: path }]);
+  } finally {
+    binding.mockRestore();
+    setSystemTime();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("the image shortcut leaves alone a link a card covers", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-image-covered-"));
+  const path = join(dir, "secret.png");
+  writeFileSync(path, Buffer.from(png_base64, "base64"));
+  const s = linkViewer(`\x1b[6;1H\x1b]8;;file://${path}\x1b\\[Image]\x1b]8;;\x1b\\`);
+  s.host.opens_desktop = true;
+  const binding = spyOn(s.prefs, "bindings").mockReturnValue([
+    { key: 111, mods: { alt: true }, prefixed: false, action: { name: "open-image" } },
+  ]);
+  try {
+    setSystemTime(new Date(1000));
+    await s.input(mouse(35, 2, 6));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.connection_card = { rect: new Rect(0, 4, 40, 5), lines: [{ text: "atlas · online" }] };
+    await s.input(Buffer.from("\x1b[111;3u"));
+    expect(s.effects).toEqual([]);
+    s.connection_card = null;
+    await s.input(Buffer.from("\x1b[111;3u"));
+    expect(s.effects).toEqual([{ open_image: path }]);
+  } finally {
+    binding.mockRestore();
+    setSystemTime();
+    viewer.close(s);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test.each([
+  ["preview", true, 6],
+  ["Open image button", false, 4],
+] as const)("image shortcuts over the %s open the card's link", async (_, graphics, row) => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-image-shortcut-"));
+  const original = join(dir, "original.png"),
+    underneath = join(dir, "underneath.png");
+  const png = Buffer.from(png_base64, "base64");
+  writeFileSync(original, png);
+  writeFileSync(underneath, png);
+  const link = (path: string) => `\x1b]8;;file://${path}\x1b\\[Image]\x1b]8;;\x1b\\`;
+  const s = linkViewer(link(original) + `\x1b[${row};1H` + link(underneath));
+  s.host.opens_desktop = true;
+  s.supports_kitty_graphics = graphics;
+  s.cell_pixels = { width: 10, height: 20 };
+  s.prefs.prefix = "ctrl+b";
+  const binding = spyOn(s.prefs, "bindings").mockReturnValue([
+    { key: 111, mods: { alt: true }, prefixed: false, action: { name: "open-image" } },
+    { key: 111, mods: {}, prefixed: false, action: { name: "open-image" } },
+    { key: 111, mods: {}, prefixed: true, action: { name: "open-image" } },
+  ]);
+  const show = async (at: number) => {
+    setSystemTime(new Date(at));
+    await s.input(mouse(35, 2, 1));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    s.frame();
+    await s.thumbnails.loading;
+    setSystemTime(new Date(at + 150));
+    expect(s.frame()).toContain("Open image");
+    await s.input(mouse(35, 4, row));
+    expect(s.frame()).toContain("Open image");
+  };
+  try {
+    // Resolve the link the card will cover so falling through to it would open a different file.
+    setSystemTime(new Date(1000));
+    await s.input(mouse(35, 4, row));
+    s.frame();
+    await Promise.all(s.file_refs.checks);
+    await s.input(Buffer.from("\x1b[111;3u"));
+    expect(s.effects).toEqual([{ open_image: underneath }]);
+    s.clearEffects();
+
+    await show(1200);
+    await s.input(Buffer.from("\x1b[111;3u"));
+    expect(s.effects).toEqual([{ open_image: original }]);
+    s.clearEffects();
+
+    await show(1400);
+    await s.input(Buffer.from("\x02"));
+    s.frame();
+    await s.input(Buffer.from("o"));
+    expect(s.effects).toEqual([{ open_image: original }]);
+    s.clearEffects();
+
+    await show(1600);
+    await s.input(Buffer.from("\x02"));
+    await s.input(mouse(35, 90, 20));
+    await s.input(Buffer.from("o"));
+    expect(s.effects).toEqual([]);
+
+    await show(1800);
+    await s.input(Buffer.from("\x02"));
+    await s.input(Buffer.from("xo"));
+    expect(s.effects).toEqual([{ open_image: underneath }]);
+    s.clearEffects();
+
+    await show(2000);
+    await s.input(Buffer.from("\x02"));
+    const updated = new Terminal(100, 29);
+    try {
+      updated.feed(link(underneath) + `\x1b[${row};1H` + link(underneath));
+      s.runtime.pane(1)!.terminal.receive(updated.surface(2));
+      await s.input(Buffer.from("o"));
+      expect(s.effects).toEqual([]);
+    } finally {
+      updated.destroy();
+    }
+  } finally {
+    binding.mockRestore();
     setSystemTime();
     viewer.close(s);
     rmSync(dir, { recursive: true, force: true });
@@ -486,7 +875,7 @@ test("setup's issue link shows the link card, which copies it", async () => {
     await s.input(mouse(0, link.start + 4, link.row + 2));
     await s.input(mouse(0, link.start + 4, link.row + 2, true));
     expect(s.clipboard).toBe(link.uri);
-    expect(s.frame()).toContain("✓  Copied");
+    expect(s.frame()).toMatch(/✓ +Copied/);
   } finally {
     setSystemTime();
     close(s);

@@ -3360,13 +3360,13 @@ function linkCards(f, links, img, rest) {
       rect = linkTooltip.geometry(f.c0 + f.cols, rows, anchor, thumbnail);
       if (!rect) return;
       const out = new Writer();
-      linkTooltip.draw(out, rect, { link: { uri: link.uri, ...anchor }, copied: false, thumbnail }, false);
+      linkTooltip.draw(out, rect, { link: { uri: link.uri, ...anchor }, copied: false, thumbnail }, null);
       drawOver(g, out, rows);
       if (!thumbnail) return;
-      // Centered in the rows under the copy row's rule, as link_thumbnail.ts places it.
+      // Centered in the rows between the rule and the bottom border, as link_thumbnail.ts places it.
       const room = linkTooltip.thumbnailCells(thumbnail).rows;
       const left = ((rect.x + 1 - f.c0) * PIC_CELL.width + ((rect.w - 2) * PIC_CELL.width - thumbnail.width) / 2) / 100;
-      const top = ((rect.y + 3 - f.r0) * PIC_CELL.height + (room * PIC_CELL.height - thumbnail.height) / 2) / 100;
+      const top = ((rect.y + rect.h - 1 - room - f.r0) * PIC_CELL.height + (room * PIC_CELL.height - thumbnail.height) / 2) / 100;
       Object.assign(img.style, { left: `${left}em`, top: `${top}em`, width: `${thumbnail.width / 100}em`, height: `${thumbnail.height / 100}em` });
       img.hidden = false;
     },

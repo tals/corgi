@@ -243,6 +243,11 @@ pastes upload the image directly over SSH and paste the resulting **remote** pat
 Uploads are limited to 32 MiB and validate the image format. Clipboard operations
 remain bound to the machine and pane that owned them when the paste began.
 
+**Open image** on a remote pane's image link copies the image, up to 128 MiB, into
+a private temporary folder here and opens the copy in this computer's image
+viewer. Opening it again reuses the copy until the image changes. The viewer
+removes its copies when it exits.
+
 A remote daemon must speak exactly this viewer's runtime and viewer protocols
 (`version` and `viewer_version` in `src/protocol.ts`), which setup ensures by
 matching the two builds; its `hello` must also carry `viewer_protocol` and

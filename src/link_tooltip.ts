@@ -46,6 +46,27 @@ export interface Card {
   link: Link;
   copied: boolean;
   thumbnail: Thumbnail | null;
+  /** The image the card opens on this computer's desktop. */
+  open_image?: string;
+  /** The card has room for its Open row; the picture and key open the image either way. */
+  open_row?: boolean;
+  /** The card takes no keys, and shows no keycaps, where typing goes to
+   * sign-in, setup or the review panel. */
+  keyless?: boolean;
+  /** The row the arrow keys chose, which Enter acts on. */
+  selected?: Button;
+}
+export type Button = "copy" | "open";
+/** The keys a shown card takes, as its keycaps show them. */
+export const keys: Record<Button, string> = { copy: "c", open: "o" };
+/** The row an unmodified key acts as on a shown card, or null. */
+export function keyButton(codepoint: number): Button | null {
+  const key = String.fromCodePoint(codepoint);
+  return key === keys.copy ? "copy" : key === keys.open ? "open" : null;
+}
+/** The rows the arrow keys move between, top first. */
+export function rows(card: Card): Button[] {
+  return card.open_row ? ["copy", "open"] : ["copy"];
 }
 /** The path a file:// link names, which the card copies instead of the URL. */
 export function filePath(uri: string): string | null {
@@ -89,61 +110,90 @@ function same(a: Target, b: Target) {
 function delay(target: Target | null): number {
   return target?.resource != null || target?.link != null ? 150 : 500;
 }
-/** The card under or over the link at `anchor`, with `thumbnail` under a
- * rule below its copy row. A thumbnail that fits neither below nor above the
- * link gets null, and the card goes without it. */
+/** The keycap column, which a ✓ takes once the link is copied. */
+const cap = 3;
+/** The card under or over the link at `anchor`: its action rows, then
+ * `thumbnail` under a rule. A thumbnail that fits neither below nor above
+ * the link gets null, and the card goes without it. */
 export function geometry(
   width: number,
   height: number,
   anchor: { x: number; y: number },
   thumbnail: Thumbnail | null = null,
+  openImage = false,
 ): Rect | null {
   const cells = thumbnail ? thumbnailCells(thumbnail) : { cols: 0, rows: 0 };
-  const w = Math.max(
-      17,
-      ...[i18n.t` ✓  Copied`, i18n.t` ⧉  Copy path`, i18n.t` ⧉  Copy link`].map(label => displayWidth(label) + 4),
-      cells.cols + 2,
-    ),
-    h = 3 + (thumbnail ? cells.rows + 1 : 0);
+  const labels = [i18n.t`Copied`, i18n.t`Copy path`, i18n.t`Copy link`, ...(openImage ? [openLabel()] : [])];
+  const w = Math.max(17, 4 + cap + Math.max(...labels.map(displayWidth)) + 1, cells.cols + 2),
+    h = 3 + Number(openImage) + (thumbnail ? cells.rows + 1 : 0);
   if (width < w || height < h + 1) return null;
   const below = anchor.y + h < height;
-  if (thumbnail && !below && anchor.y < h) return null;
+  if ((thumbnail || openImage) && !below && anchor.y < h) return null;
   return new Rect(Math.max(0, Math.min(anchor.x, width - w)), below ? anchor.y + 1 : Math.max(0, anchor.y - h), w, h);
 }
 /** `t`, shrunk if it must be for its card to fit beside `anchor` on a
  * `width` by `height` screen; null when even a small one wouldn't. */
-export function fit(width: number, height: number, anchor: { x: number; y: number }, t: Thumbnail): Thumbnail | null {
-  if (geometry(width, height, anchor, t)) return t;
-  // The card adds a border, a copy row and a rule to the picture's rows.
-  const space = { cols: width - 2, rows: Math.max(height - anchor.y - 5, anchor.y - 4) };
+export function fit(
+  width: number,
+  height: number,
+  anchor: { x: number; y: number },
+  t: Thumbnail,
+  openImage = false,
+): Thumbnail | null {
+  if (geometry(width, height, anchor, t, openImage)) return t;
+  // The card adds a border, its action rows and a rule to the picture's rows.
+  const space = { cols: width - 2, rows: Math.max(height - anchor.y - 5, anchor.y - 4) - Number(openImage) };
   const scale = Math.min((space.cols * t.cell.width) / t.width, (space.rows * t.cell.height) / t.height),
     cols = Math.min(space.cols, Math.max(1, Math.round((t.width * scale) / t.cell.width))),
     rows = Math.min(space.rows, Math.max(1, Math.round((t.height * scale) / t.cell.height)));
   if (rows < 3) return null;
   const shrunk = { width: cols * t.cell.width, height: rows * t.cell.height, cell: t.cell, of: t };
-  return geometry(width, height, anchor, shrunk) ? shrunk : null;
+  return geometry(width, height, anchor, shrunk, openImage) ? shrunk : null;
 }
 export function copyAt(rect: Rect, x: number, y: number): boolean {
   return y === rect.y + 1 && x > rect.x && x < rect.x + rect.w - 1;
 }
-export function draw(w: Writer, rect: Rect, card: Card, hovered: boolean): void {
+/** The row or picture at (`x`, `y`) that acts: Copy, or Open on its row
+ * or the picture of an image that opens here. */
+export function buttonAt(rect: Rect, card: Card, x: number, y: number): Button | null {
+  if (copyAt(rect, x, y)) return "copy";
+  if (!card.open_image || x <= rect.x || x >= rect.x + rect.w - 1) return null;
+  if (card.open_row && y === rect.y + 2) return "open";
+  const rule = rect.y + 2 + Number(!!card.open_row);
+  return card.thumbnail && y > rule && y < rect.y + rect.h - 1 ? "open" : null;
+}
+function openLabel(): string {
+  return i18n.t`Open image`;
+}
+export function draw(w: Writer, rect: Rect, card: Card, hovered: Button | null): void {
   const border = new palette.Style({ fg: "line", bg: "surface" }).sgr();
   const rule = "─".repeat(rect.w - 2);
   const label = card.copied
-    ? i18n.t` ✓  Copied`
+    ? i18n.t`Copied`
     : card.link.path || filePath(card.link.uri) !== null
-      ? i18n.t` ⧉  Copy path`
-      : i18n.t` ⧉  Copy link`;
+      ? i18n.t`Copy path`
+      : i18n.t`Copy link`;
   w.write(border + `\x1b[${rect.y + 1};${rect.x + 1}H┌${rule}┐`);
-  w.write(`\x1b[${rect.y + 2};${rect.x + 1}H│`);
-  w.write(new palette.Style({ fg: "strong", bg: hovered ? "selected" : "surface" }).sgr());
-  w.write(label);
-  w.splat(" ", rect.w - 2 - displayWidth(label));
-  w.write(border + "│");
-  if (rect.h > 3) w.write(`\x1b[${rect.y + 3};${rect.x + 1}H├${rule}┤`);
-  // The thumbnail draws over these rows.
-  for (let y = rect.y + 3; y < rect.y + rect.h - 1; y++)
-    w.write(`\x1b[${y + 1};${rect.x + 1}H│${" ".repeat(rect.w - 2)}│`);
+  // Each row's key as a keycap, as menus show theirs; a ✓ once copied.
+  const button = (y: number, label: string, name: Button) => {
+    const style = new palette.Style({ fg: "strong", bg: hovered === name ? "selected" : "surface" }).sgr();
+    w.write(`\x1b[${y + 1};${rect.x + 1}H│${style} `);
+    if (name === "copy" && card.copied) w.write(" ✓ ");
+    else if (card.keyless) w.splat(" ", cap);
+    else w.write(palette.keycap + ` ${keys[name]} ` + style);
+    w.write(" " + label);
+    w.splat(" ", rect.w - 4 - cap - displayWidth(label));
+    w.write(border + "│");
+  };
+  button(rect.y + 1, label, "copy");
+  if (card.open_row) button(rect.y + 2, openLabel(), "open");
+  if (card.thumbnail) {
+    const top = rect.y + 2 + Number(!!card.open_row);
+    w.write(`\x1b[${top + 1};${rect.x + 1}H├${rule}┤`);
+    // The thumbnail draws over these rows.
+    for (let y = top + 1; y < rect.y + rect.h - 1; y++)
+      w.write(`\x1b[${y + 1};${rect.x + 1}H│${" ".repeat(rect.w - 2)}│`);
+  }
   w.write(`\x1b[${rect.y + rect.h};${rect.x + 1}H└${rule}┘\x1b[0m`);
 }
 export class State {
@@ -152,17 +202,21 @@ export class State {
   since = 0;
   shown = false;
   copied_until = 0;
+  /** The row the arrow keys chose, kept while the pointer stays at (`x`, `y`). */
+  chosen: { button: Button; x: number; y: number } | null = null;
   cancel() {
     this.suppressed = true;
     this.target = null;
     this.shown = false;
     this.copied_until = 0;
+    this.chosen = null;
   }
   move() {
     this.suppressed = false;
     this.target = null;
     this.shown = false;
     this.copied_until = 0;
+    this.chosen = null;
   }
   due(now: number) {
     return !this.suppressed && this.target !== null && !this.shown && now - this.since >= delay(this.target);
@@ -172,6 +226,7 @@ export class State {
       this.target = null;
       this.shown = false;
       this.copied_until = 0;
+      this.chosen = null;
       return false;
     }
     if (!this.target || !same(this.target, target)) {
@@ -179,6 +234,7 @@ export class State {
       this.since = now;
       this.shown = false;
       this.copied_until = 0;
+      this.chosen = null;
       return false;
     }
     this.shown = now - this.since >= delay(target);

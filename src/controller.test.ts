@@ -5153,7 +5153,7 @@ test("on another computer, a file's name peeks through that computer's daemon an
   }
 });
 
-test("on another computer, an image link's card shows the picture that computer's daemon shrank", async () => {
+test("on another computer, an image link's card shows the picture that computer's daemon shrank and opens it here", async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-thumb-remote-")));
   const path = join(dir, "shot.png");
   writeFileSync(path, await new Bun.Image(Buffer.from(png_base64, "base64")).resize(1000, 400).png().buffer());
@@ -5180,6 +5180,7 @@ test("on another computer, an image link's card shows the picture that computer'
   s.height = 40;
   s.input_state.attached = true;
   s.supports_kitty_graphics = true;
+  s.host.opens_desktop = true;
   s.cell_pixels = { width: 10, height: 20 };
   setSystemTime(new Date(1000));
   const rect = s.layoutView().placements(s.area())[0].rect;
@@ -5196,6 +5197,7 @@ test("on another computer, an image link's card shows the picture that computer'
     setSystemTime(new Date(1200));
     const frame = s.frame();
     expect(frame).toContain("Copy path");
+    expect(frame).toContain("Open image");
     // The card places the picture, which the viewer sends ahead of the frame.
     const shown = s.host.images.present(),
       id = /\x1b_Ga=p,i=(\d+),/.exec(shown.draw)?.[1];
@@ -5203,6 +5205,17 @@ test("on another computer, an image link's card shows the picture that computer'
     expect(shown.send).toContain(`\x1b_Ga=t,t=d,f=100,i=${id},q=1,m=`);
     // Only the shrunk picture crossed: the image itself was never read.
     expect(asked).toEqual(["file.stat", "file.thumbnail"]);
+    // Opening it names that computer, whose copy the viewer opens here.
+    await s.perform({ name: "open-image" });
+    expect(s.effects).toEqual([{ open_image: path, machine: other.id }]);
+    // A viewer with no desktop of its own opens neither computer's.
+    s.clearEffects();
+    s.host.opens_desktop = false;
+    const headless = s.frame();
+    expect(headless).toContain("Copy path");
+    expect(headless).not.toContain("Open image");
+    await s.perform({ name: "open-image" });
+    expect(s.effects).toEqual([]);
   } finally {
     native.destroy();
     setSystemTime();

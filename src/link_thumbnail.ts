@@ -19,11 +19,35 @@ export function isImage(path: string): boolean {
   const dot = path.lastIndexOf(".");
   return dot > path.lastIndexOf("/") && extensions.has(path.slice(dot + 1).toLowerCase());
 }
-/** Places `t` in the card at `rect`, centered in the rows below its copy row's rule. */
+const signatures = [
+  [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  [0xff, 0xd8, 0xff],
+  [0x47, 0x49, 0x46, 0x38],
+  [0x42, 0x4d],
+  [0x49, 0x49, 0x2a, 0x00],
+  [0x4d, 0x4d, 0x00, 0x2a],
+  // BigTIFF.
+  [0x49, 0x49, 0x2b, 0x00],
+  [0x4d, 0x4d, 0x00, 0x2b],
+].map(bytes => Buffer.from(bytes));
+/** HEIF and AVIF brands, which follow `ftyp` in an ISO media file. */
+const brands = new Set(["heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1", "avif", "avis"]);
+/** Whether `head`, a file's first 12 bytes or more, starts an image of a
+ * type `isImage` names. Desktop viewers open these where Bun can't decode
+ * them, such as HEIC on Linux. */
+export function startsImage(head: Uint8Array): boolean {
+  const bytes = Buffer.from(head);
+  if (signatures.some(s => bytes.subarray(0, s.length).equals(s))) return true;
+  const tag = (at: number) => bytes.subarray(at, at + 4).toString("latin1");
+  return (tag(0) === "RIFF" && tag(8) === "WEBP") || (tag(4) === "ftyp" && brands.has(tag(8)));
+}
+/** Places `t` in the card at `rect`, centered in the rows between the rule
+ * below its action rows and its bottom border. */
 export function place(frame: hostImages.FrameImages, rect: Rect, t: Thumbnail): void {
-  const left = Math.floor(((rect.w - 2) * t.cell.width - t.width) / 2),
-    top = Math.floor((thumbnailCells(t).rows * t.cell.height - t.height) / 2);
-  placeAt(frame, rect.x + 1, rect.y + 3, t, left, top);
+  const rows = thumbnailCells(t).rows,
+    left = Math.floor(((rect.w - 2) * t.cell.width - t.width) / 2),
+    top = Math.floor((rows * t.cell.height - t.height) / 2);
+  placeAt(frame, rect.x + 1, rect.y + rect.h - 1 - rows, t, left, top);
 }
 /** Places `t` with its corner at column `col` of row `row`, shifted `left`
  * and `top` pixels further in. */

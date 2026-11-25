@@ -3,10 +3,11 @@
  * and a log another tab keeps writing to.
  *
  * - transcript: paths to code with a line, a stack frame with a column, a
- *   file without a line, and the log. Rest the pointer on one to peek.
+ *   file without a line, the log, and a screenshot. Rest the pointer on one
+ *   to peek, or on the screenshot for its picture.
  * - writer: appends to logs/server.log, so its peek and its pane follow.
  */
-import { closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import { closeSync, copyFileSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { table, type World } from "../sandbox";
 
@@ -41,6 +42,8 @@ export const world: World = {
     s.write(join(s.dir, "src", "highlight.ts"), readFileSync(join(root, "src/review/syntax.ts"), "utf8"));
     s.write(join(s.dir, "package.json"), readFileSync(join(root, "package.json"), "utf8"));
     s.write(join(s.dir, "logs", "server.log"), log(200_000));
+    mkdirSync(join(s.dir, "shots"), { recursive: true });
+    copyFileSync(join(root, "docs/images/manage-agents/manage.png"), join(s.dir, "shots", "manage-agents.png"));
     // About 600 MB and 6.5 million lines: a line deep in it is asked about before it's scanned for.
     huge(join(s.dir, "logs", "trace.log"), 65_536, 100);
     s.write(
@@ -62,6 +65,9 @@ export const world: World = {
         "",
         "⏺ Read(package.json)",
         "  ⎿ Read 39 lines",
+        "",
+        "⏺ Bash(bun tools/ghostty_screenshot.ts --sandbox launcher -o shots/manage-agents.png)",
+        "  ⎿ Saved shots/manage-agents.png",
         "",
         "Rest the pointer on a path to peek; click one to open it.",
       ].join("\n"),
@@ -110,6 +116,7 @@ export const world: World = {
         ["trace.log:6000000", "a line deep in 600 MB: the peek asks before it scans, then shows progress"],
         ["wheel", "in the peek: scroll; up on the log pauses it"],
         ["click", "a path or a peek line: opens it in a pane beside"],
+        ["rest", "on shots/manage-agents.png: its picture; c copies and o or a click opens it, or arrows and enter"],
         ["q", "in that pane: close it; e opens $EDITOR there"],
       ]),
     ];

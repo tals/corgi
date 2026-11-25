@@ -73,8 +73,8 @@ export const ask_after = 32 << 20;
 const count_limit = 64 << 20;
 /** The most bytes one reply from a daemon carries; a longer read asks for several at once. */
 export const read_limit = 64 << 10;
-/** The largest image file shrunk for a thumbnail. */
-const image_limit = 128 << 20;
+/** The largest image file shrunk for a thumbnail, or copied here to open. */
+export const image_limit = 128 << 20;
 /** The most a daemon's thumbnail reply carries, as base64. It shares the
  * data connection with pane screens, which a reply past 4 MiB would close. */
 export const thumbnail_limit = 512 << 10;

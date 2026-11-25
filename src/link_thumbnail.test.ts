@@ -44,7 +44,7 @@ test("a thumbnail is centered in its cells", () => {
     `\x1b[7;7H\x1b_Ga=p,i=${id},p=1,X=2,Y=5,z=1,C=1,q=1\x1b\\`,
   );
   // A narrow picture in the card's minimum width starts columns in.
-  expect(placed(new Rect(0, 0, 17, 5), { width: 40, height: 40, cell, image })).toBe(
+  expect(placed(new Rect(0, 0, 17, 6), { width: 40, height: 40, cell, image })).toBe(
     `\x1b[4;7H\x1b_Ga=p,i=${id},p=1,X=5,z=1,C=1,q=1\x1b\\`,
   );
 });
