@@ -271,7 +271,8 @@ export async function run(
     if (host.opens_desktop)
       void imageHere(effect)
         .then(path => openers.openImage(path))
-        .catch(failed);
+        // A copy that finishes after the viewer has gone opens nothing.
+        .catch(error => errors.is(error, "Closed") || failed(error));
     else failed(Error("NoDesktop"));
   };
   /** Opens desktop effects without waiting for the shown machine's turn. */

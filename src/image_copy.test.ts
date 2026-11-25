@@ -79,10 +79,17 @@ test("another computer's image is copied whole into a private folder under its o
   expect(readFileSync(copy)).toEqual(png);
   expect(statSync(dirname(copy)).mode & 0o777).toBe(0o700);
   expect(statSync(copy).mode & 0o777).toBe(0o600);
-  expect(asked).toEqual(["file.stat", "file.read"]);
-  // Another of the same name gets a folder of its own.
+  // It checks the image didn't change while it copied.
+  expect(asked).toEqual(["file.stat", "file.read", "file.stat"]);
+  // Opened again, the image is the same copy, until it changes.
+  asked.length = 0;
+  expect(await copies.fetch(files, path)).toBe(copy);
+  expect(asked).toEqual(["file.stat"]);
+  writeFileSync(path, Buffer.concat([png, Buffer.from("changed")]));
   const again = await copies.fetch(files, path);
   expect(dirname(again)).not.toBe(dirname(copy));
+  expect(readFileSync(again)).toEqual(Buffer.concat([png, Buffer.from("changed")]));
+  // The copy a desktop viewer may still have open stays.
   expect(readFileSync(copy)).toEqual(png);
   // The opener checks the copy as it does any image here.
   writeFileSync(join(there, "notes.png"), "plain text");
@@ -164,4 +171,61 @@ test("a viewer removes its copies as it exits, and the next copy removes an earl
   );
   copies.close();
   expect(readdirSync(root).sort()).toEqual([basename(recent), basename(other)].sort());
+});
+
+test("opening an image again while it copies waits for the same copy", async () => {
+  const root = folder();
+  const { files, reads } = lying(png);
+  const copies = new Copies(root);
+  const [a, b] = await Promise.all([copies.fetch(files, "/x/shot.png"), copies.fetch(files, "/x/shot.png")]);
+  expect(a).toBe(b);
+  expect(reads.reduce((sum, n) => sum + n, 0)).toBe(png.length);
+  expect(readdirSync(root)).toHaveLength(1);
+});
+
+test("a copy cut short, or of an image that changes as it copies, fails and leaves nothing", async () => {
+  const root = folder();
+  const { files } = lying(png);
+  // The image ends early, as one still being written does.
+  const short = {
+    ...files,
+    open: async () => ({
+      ...(await files.open("/x")),
+      read: async (at: number) => png.subarray(at, Math.min(at + 100, 100)),
+    }),
+  };
+  await expect(new Copies(root).fetch(short, "/x/shot.png")).rejects.toThrow("FileChanged");
+  // The image grows past the size it had when the copy began.
+  let mtime = 0;
+  const growing = {
+    ...files,
+    open: async () => {
+      const handle = await files.open("/x");
+      return { ...handle, info: async () => ({ ...(await handle.info()), mtime: mtime++ }) };
+    },
+  };
+  await expect(new Copies(root).fetch(growing, "/x/shot.png")).rejects.toThrow("FileChanged");
+  expect(readdirSync(root)).toEqual([]);
+});
+
+test("a copy that finishes after the viewer exits is removed and opens nothing", async () => {
+  const root = folder();
+  const { files } = lying(png);
+  let release = () => {};
+  const held = new Promise<void>(resolve => (release = resolve));
+  const slow = {
+    ...files,
+    open: async () => {
+      const handle = await files.open("/x");
+      return { ...handle, read: async (at: number, length: number) => (await held, handle.read(at, length)) };
+    },
+  };
+  const copies = new Copies(root);
+  const copying = copies.fetch(slow, "/x/shot.png");
+  await Bun.sleep(10);
+  copies.close();
+  release();
+  await expect(copying).rejects.toThrow("Closed");
+  await expect(copies.fetch(files, "/x/shot.png")).rejects.toThrow("Closed");
+  expect(readdirSync(root)).toEqual([]);
 });
