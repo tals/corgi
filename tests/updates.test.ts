@@ -2,9 +2,9 @@
 // installation is touched. A test build at releases/<v>/corgi is release <v>.
 import { beforeAll, afterAll, beforeEach, afterEach, test, expect } from "bun:test";
 import { generateKeyPairSync, sign, createHash } from "node:crypto";
-import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm, symlink, utimes } from "node:fs/promises";
 import { closeSync, openSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { hostname, tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { EXE, Lines, Pty, deadline, versioned, quote, waitUntil } from "./support";
@@ -1062,7 +1062,7 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     const events = await newer();
     expect(events.at(-1)).toEqual({ type: "ready" });
     expect(events.some(event => event.message === "Downloading")).toBe(true);
-    expect(events.some(event => event.message === "Downloading here…")).toBe(false);
+    expect(events.some(event => event.message?.startsWith("Downloading here"))).toBe(false);
     await runsRelease("1.0.2", pid);
     // Viewers this move leaves behind can say whose it was.
     expect((await rpc({ op: "hello" })).moved_by).toBe(hostname().split(".")[0]);
@@ -1074,6 +1074,144 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
     expect(downloads).toEqual(["1.0.2", "1.0.1"]);
     // Each move cleans up after itself, though the machine's own updates are off.
     expect((await readdir(join(root, "releases"))).sort()).toEqual(["1.0.1", "1.0.2"]);
+  },
+  60_000,
+);
+
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a release copy a full disk or a kill cut short doesn't hold that release back",
+  async () => {
+    const pid = await shellPid();
+    const cut = async (v: string) => {
+      const file = join(root, `releases/${v}/corgi`);
+      await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+      await writeFile(file, (await readFile(fixture(v))).subarray(0, 1 << 20), { mode: 0o700 });
+      // As a viewer's copy a kill cut short leaves it.
+      await writeFile(file + ".partial", "partial");
+      return async () => {
+        expect(sha(await readFile(file))).toBe(sha(await readFile(fixture(v))));
+        expect(await Bun.file(file + ".partial").exists()).toBe(false);
+      };
+    };
+    // The machine's own updater replaces it with what it downloads.
+    let whole = await cut("1.0.1");
+    await cli(["update", "--download-only"]);
+    expect(await readFile(join(root, "staged"), "utf8")).toBe("1.0.1");
+    await whole();
+    // And so does a viewer's move.
+    whole = await cut("1.0.2");
+    expect((await (await machineViewer("1.0.2"))()).at(-1)).toEqual({ type: "ready" });
+    await runsRelease("1.0.2", pid);
+    await whole();
+  },
+  60_000,
+);
+
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a machine another viewer of the release moved first counts as moved, and keeps that viewer's name",
+  async () => {
+    const pid = await shellPid();
+    const old = join(root, "releases/1.0.0/corgi"),
+      basis = sha(await readFile(old));
+    // Both viewers found 1.0.0; the first one's move lands first.
+    expect((await (await machineViewer("1.0.1"))()).at(-1)).toEqual({ type: "ready" });
+    const { server_pid } = await rpc({ op: "hello" });
+    const manifest = join(home, "incoming.json");
+    await writeFile(manifest, manifests.get("1.0.1")!);
+    const second = await exec([fixture("1.0.1"), "__machine-install", old, basis, manifest], {
+      ...env,
+      CORGI_MOVED_BY: "desk",
+    });
+    expect(JSON.parse(second.out).executable).toBe(await realpath(join(root, "releases/1.0.1/corgi")));
+    await runsRelease("1.0.1", pid);
+    const hello = await rpc({ op: "hello" });
+    expect(hello.server_pid).toBe(server_pid);
+    expect(hello.moved_by).toBe(hostname().split(".")[0]);
+    expect(await readFile(join(root, "previous"), "utf8")).toBe("1.0.0");
+  },
+  60_000,
+);
+
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a move that switched the daemon keeps its computer's name though saving the release failed",
+  async () => {
+    await shellPid();
+    const old = join(root, "releases/1.0.0/corgi"),
+      basis = sha(await readFile(old));
+    // Where `previous` goes can't be written.
+    await mkdir(join(root, "previous"));
+    const manifest = join(home, "incoming.json");
+    await writeFile(manifest, manifests.get("1.0.1")!);
+    const move = await exec(
+      [fixture("1.0.1"), "__machine-install", old, basis, manifest],
+      { ...env, CORGI_MOVED_BY: "desk" },
+      false,
+    );
+    expect(move.code).not.toBe(0);
+    const hello = await rpc({ op: "hello" });
+    expect(hello.release_version).toBe("1.0.1");
+    expect(hello.moved_by).toBe("desk");
+    await rm(join(root, "previous"), { recursive: true });
+  },
+  60_000,
+);
+
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a move waits out another install's handoff",
+  async () => {
+    const pid = await shellPid();
+    const lock = openSync(join(root, "activation.lock"), "a", 0o600);
+    let synced: { type: string }[] | null = null,
+      failed: unknown = null;
+    try {
+      expect(flock(lock)).toBe(true);
+      const sync = (await machineViewer("1.0.1"))().then(
+        events => (synced = events),
+        error => (failed = error),
+      );
+      // The move has its release and is installing it.
+      await waitFor(async () => {
+        const ps = await exec(["ps", "-A", "-o", "args="]);
+        return ps.out.split("\n").some(line => line.includes("__machine-install-session") && line.includes(home));
+      });
+      // Longer than its checks take: it waits at the lock rather than give up.
+      await Bun.sleep(3000);
+      expect(failed).toBeNull();
+      expect(synced).toBeNull();
+      expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
+      closeSync(lock);
+      await sync;
+    } finally {
+      try {
+        closeSync(lock);
+      } catch {}
+    }
+    expect(synced!.at(-1)).toEqual({ type: "ready" });
+    await runsRelease("1.0.1", pid);
+  },
+  60_000,
+);
+
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a move removes what moves a reboot or a kill cut short left behind",
+  async () => {
+    await shellPid();
+    const gone = Bun.spawn(["true"]);
+    await gone.exited;
+    const stage = (name: string) => join(home, `.corgi-setup.${name}`);
+    // A move whose shell is gone, a stage untouched for two days, a move
+    // still running and a stage of an older viewer's upload under way.
+    const stale = [stage(`${gone.pid}.aaaaaaaa`), stage("bbbbbbbb")],
+      kept = [stage(`${process.pid}.cccccccc`), stage("dddddddd")];
+    for (const dir of [...stale, ...kept]) {
+      await mkdir(join(dir, "releases"), { recursive: true });
+      await writeFile(join(dir, "releases/corgi"), "partial");
+    }
+    const old = Date.now() / 1000 - 2 * 86_400;
+    for (const path of ["releases/corgi", "releases", ""]) await utimes(join(stale[1], path), old, old);
+    expect((await (await machineViewer("1.0.1"))()).at(-1)).toEqual({ type: "ready" });
+    const left = (await readdir(home)).filter(name => name.startsWith(".corgi-setup."));
+    expect(left.sort()).toEqual(kept.map(dir => basename(dir)).sort());
   },
   60_000,
 );

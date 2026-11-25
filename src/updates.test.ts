@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   openSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -27,6 +28,8 @@ import {
   save,
   prune,
   requested,
+  moved,
+  setupLock,
   pluginOf,
   forget,
   channelOf,
@@ -204,6 +207,38 @@ test("the last three releases viewers asked for stay for two weeks", () => {
     prune(root, true);
     expect(releases(root)).toEqual(["1.0.0", "1.0.1", "1.0.2", "1.0.5", "1.0.6"]);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("a viewer's move forgets a staged update it caught up with, but not a newer one", () => {
+  const root = installation(["1.0.0", "1.0.1", "1.0.2"], { current: "1.0.0", staged: "1.0.1" });
+  try {
+    moved(root, "1.0.1");
+    expect(
+      ["current", "previous", "staged"].map(name =>
+        existsSync(join(root, name)) ? readFileSync(join(root, name), "utf8") : null,
+      ),
+    ).toEqual(["1.0.1", "1.0.0", null]);
+    writeFileSync(join(root, "staged"), "1.0.2");
+    moved(root, "1.0.0");
+    expect(readFileSync(join(root, "staged"), "utf8")).toBe("1.0.2");
+    expect(existsSync(join(root, "releases/1.0.0/requested"))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("a machine install waits out another's activation, for as long as it's told", async () => {
+  const root = installation(["1.0.0"], { current: "1.0.0" }),
+    fd = openSync(join(root, "activation.lock"), "a");
+  try {
+    expect(flock(fd)).toBe(true);
+    await expect(setupLock(root)).rejects.toThrow("UpdateInProgress");
+    await expect(setupLock(root, 50)).rejects.toThrow("UpdateInProgress");
+    const waiting = setupLock(root, 5_000);
+    setTimeout(() => flock(fd, false), 50);
+    (await waiting)();
+  } finally {
+    closeSync(fd);
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -15,6 +15,8 @@ export function elapsed(ms: number): string {
 }
 export class Progress {
   private stage: string | null = null;
+  /** What `started` times, such as an upload after the download it needed. */
+  private moving: string | null = null;
   private started: number | null = null;
   private tick = 0;
   constructor(private output: Report = print) {}
@@ -27,14 +29,21 @@ export class Progress {
   uploaded(sent: number, total: number, kind: "delta" | "full"): void {
     this.moved("Uploading", "↑", sent, total, kind === "delta" ? "Compressed delta" : "Full executable");
   }
-  /** A release the machine downloads itself. */
-  downloaded(received: number, total: number, host: string): void {
-    this.moved("Downloading", "↓", received, total, `Downloading the release on ${host}`);
+  /** A release the machine downloads itself, or, `here`, one this computer downloads for it. */
+  downloaded(received: number, total: number, host: string, here = false): void {
+    this.moved(
+      here ? "Downloading here" : "Downloading",
+      "↓",
+      received,
+      total,
+      here ? `Downloading the release here, as ${host} couldn't` : `Downloading the release on ${host}`,
+    );
   }
   private moved(stage: string, compact: string, bytes: number, total: number, detail: string): void {
     const now = performance.now();
-    if (this.started === null) {
+    if (this.started === null || this.moving !== stage) {
       this.stage = null;
+      this.moving = stage;
       this.started = now;
     } else if (now - this.tick < 500 && bytes !== total) return;
     this.tick = now;

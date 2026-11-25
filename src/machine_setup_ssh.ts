@@ -16,6 +16,24 @@ export const install_ms = 600_000;
 /** A build copy takes as long as the link needs, but not this long without
  * moving a byte, as when the other end's disk hangs. */
 export const stalled_ms = 120_000;
+/** A machine whose download of a release averages under this many bytes a
+ * second for a minute can't download it, and leaves it to the viewer, which
+ * uploads what the machine lacks. */
+const floor_rate = 10 * 1024;
+/** Makes `$stage` in a shell script, after removing the stages moves a
+ * reboot or a kill cut short left: their shell is gone, or nothing in them
+ * changed for a day. The shell's PID names its stage. */
+const stage = `for old in "$HOME"/.corgi-setup.*; do
+  [ -d "$old" ] || continue
+  name=\${old##*/.corgi-setup.}
+  owner=\${name%%.*}
+  case "$owner" in
+    "$name"|''|*[!0-9]*) ;;
+    *) kill -0 "$owner" 2>/dev/null || { rm -rf "$old" 2>/dev/null || true; continue; } ;;
+  esac
+  [ -n "$(find "$old" -mmin -1440 2>/dev/null | head -n 1)" ] || rm -rf "$old" 2>/dev/null || true
+done
+stage=$(mktemp -d "$HOME/.corgi-setup.$$.XXXXXXXX")`;
 /** How long a step may take in all, or, for a copy, without progress. */
 export type Limit = { total: number } | { idle: number };
 /** Writes `input` to a command as it takes it, saying so after each piece. */
@@ -199,7 +217,7 @@ unset CORGI_MACHINE CORGI_PANE CORGI_VIEWER
 export CORGI_MOVED_BY=${quote(moved.host())}
 ${targetSocket ? "export CORGI_SOCKET=" + quote(targetSocket) : ""}
 umask 077
-stage=$(mktemp -d "$HOME/.corgi-setup.XXXXXXXX")
+${stage}
 trap 'rm -f "$stage/corgi"; rmdir "$stage"' 0
 trap 'exit 1' HUP INT TERM
 checksum() {
@@ -316,7 +334,7 @@ unset CORGI_MACHINE CORGI_PANE CORGI_VIEWER
 export CORGI_MOVED_BY=${quote(moved.host())}
 ${targetSocket ? "export CORGI_SOCKET=" + quote(targetSocket) : ""}
 umask 077
-stage=$(mktemp -d "$HOME/.corgi-setup.XXXXXXXX")
+${stage}
 pid=
 # A download the viewer cut short goes with its stage.
 trap 'if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi; rm -rf "$stage"' 0
@@ -344,11 +362,20 @@ if [ -z "$file" ] || [ ! -f "$file" ] || [ "$(checksum "$file")" != "$hash" ]; t
   fi
   pid=$!
   # A line a second, even before the first byte, leaves a stuck download to its own timeouts.
+  seconds=0
+  mark=0
   while kill -0 "$pid" 2>/dev/null; do
     sleep 1
     size=0
-    if [ -f "$file" ]; then size=$(wc -c < "$file"); fi
+    if [ -f "$file" ]; then size=$(wc -c < "$file" | tr -d ' '); fi
     printf 'received %s\\n' "$size"
+    # One that can't average 10 KiB/s over a minute goes to the viewer.
+    seconds=$((seconds + 1))
+    if [ "$seconds" -ge 60 ]; then
+      [ $((size - mark)) -ge ${floor_rate * 60} ] || exit 3
+      seconds=0
+      mark=$size
+    fi
   done
   wait "$pid" || exit 3
   pid=
