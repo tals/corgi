@@ -4043,15 +4043,17 @@ export class Controller {
       }
       case "link-next":
       case "link-prev": {
-        // The first arrow chooses the top row, or the next from the row the pointer is on.
+        // The first arrow comes in from the card's edge, down at the top and up
+        // at the bottom, or moves from the row the pointer is on.
         const card = this.linkCard(),
           rect = card && this.linkCardRect(card),
           pointer = this.pointer;
         if (!card || !rect || !pointer) break;
         const rows = linkTooltip.rows(card),
+          down = act.name === "link-next",
           current = card.selected ?? linkTooltip.buttonAt(rect, card, pointer.x, pointer.y),
-          from = current ? rows.indexOf(current) : -1,
-          at = from < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, from + (act.name === "link-next" ? 1 : -1)));
+          from = current ? rows.indexOf(current) : down ? -1 : rows.length,
+          at = Math.max(0, Math.min(rows.length - 1, from + (down ? 1 : -1)));
         this.link_tooltip.chosen = { button: rows[at], x: pointer.x, y: pointer.y };
         this.dirty = true;
         break;

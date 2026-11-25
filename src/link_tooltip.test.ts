@@ -600,7 +600,7 @@ test("arrows choose a card's row, which Enter acts on and Escape closes, until t
   const chosen = () => s.link_tooltip.chosen?.button ?? null;
   try {
     await show(1000);
-    // The first arrow chooses the top row; the next ones move, and stop at the ends.
+    // Down comes in at the top row, and up at the bottom one; the next ones move, and stop at the ends.
     const lit = (key: string) =>
       new palette.Style({ fg: "strong", bg: "selected" }).sgr() + " " + palette.keycap + ` ${key} `;
     await s.input(Buffer.from("\x1b[B"));
@@ -622,6 +622,9 @@ test("arrows choose a card's row, which Enter acts on and Escape closes, until t
     await s.expireInput();
     expect(s.frame()).not.toContain("Copy path");
     await show(2000);
+    await s.input(Buffer.from("\x1b[A"));
+    expect(chosen()).toBe("open");
+    await s.input(Buffer.from("\x1b[A"));
     await s.input(Buffer.from("\x1b[A"));
     expect(chosen()).toBe("copy");
     await s.input(Buffer.from("\x1b[27u"));
