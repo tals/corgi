@@ -4041,6 +4041,30 @@ export class Controller {
           this.queueEffect(this.machine.remote ? { open_image: path, machine: this.machine.id } : { open_image: path });
         break;
       }
+      case "link-next":
+      case "link-prev": {
+        // The first arrow chooses the top row, or the next from the row the pointer is on.
+        const card = this.linkCard(),
+          rect = card && this.linkCardRect(card),
+          pointer = this.pointer;
+        if (!card || !rect || !pointer) break;
+        const rows = linkTooltip.rows(card),
+          current = card.selected ?? linkTooltip.buttonAt(rect, card, pointer.x, pointer.y),
+          from = current ? rows.indexOf(current) : -1,
+          at = from < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, from + (act.name === "link-next" ? 1 : -1)));
+        this.link_tooltip.chosen = { button: rows[at], x: pointer.x, y: pointer.y };
+        this.dirty = true;
+        break;
+      }
+      case "link-go": {
+        const selected = this.linkCard()?.selected;
+        if (selected) await this.perform({ name: selected === "copy" ? "copy-link" : "open-image" });
+        break;
+      }
+      case "link-close":
+        this.link_tooltip.cancel();
+        this.dirty = true;
+        break;
       case "paste":
         if (this.clipboard !== null) {
           // A pane still opening takes no pastes.
@@ -7921,6 +7945,8 @@ export class Controller {
     }
     if (input.kind === "text") return this.textInput(Array.from(input.bytes), current);
     if (input.bytes.length === 1 && input.bytes[0] === 27) {
+      const close = this.linkCardKey({ codepoint: 27, mods: {} });
+      if (close) return this.perform(close);
       this.pinWorktreeInput("\x1b");
       this.link_tooltip.cancel();
       this.dirty = true;
@@ -10603,22 +10629,40 @@ export class Controller {
       open_image: image,
       open_row,
       keyless: !!this.signin || !!this.corgi_setup,
+      selected: this.chosenLinkRow(open_row),
     };
+  }
+  /** The row the arrow keys chose, while the pointer stays where it was then. */
+  private chosenLinkRow(open_row: boolean): linkTooltip.Button | undefined {
+    const chosen = this.link_tooltip.chosen,
+      pointer = this.pointer;
+    if (!chosen || pointer?.x !== chosen.x || pointer.y !== chosen.y) return undefined;
+    return chosen.button === "copy" || open_row ? chosen.button : undefined;
   }
   private linkCardRect(card: linkTooltip.Card): Rect | null {
     return linkTooltip.geometry(this.width, this.height, card.link, card.thumbnail, !!card.open_row);
   }
-  /** The action of a shown card's own key, which acts as clicking its row
-   * does; null for keys that dismiss it and reach the pane. Only a pointer
-   * on the card itself takes them, not one left resting on the link. */
+  /** The action of a key a shown card takes: its rows' own keys, which act
+   * as clicking the row does, the arrows between rows, and Enter and Escape
+   * once an arrow has chosen one. Null for keys that dismiss it and reach
+   * the pane. */
   private linkCardKey(key: keyboard.Key): Action | null {
-    const m = key.mods,
-      button = linkTooltip.keyButton(key.codepoint),
-      pointer = this.pointer;
-    if (!button || !pointer || this.prefix || m.ctrl || m.alt || m.super || m.shift) return null;
-    const card = this.linkCard();
-    if (!card || card.keyless || (button === "open" && !card.open_image)) return null;
-    if (!this.linkCardRect(card)?.contains(pointer.x, pointer.y)) return null;
+    const m = key.mods;
+    if (this.prefix || m.ctrl || m.alt || m.super || m.shift) return null;
+    const card = this.pointedLinkCard() && this.linkCard();
+    if (!card || card.keyless) return null;
+    switch (key.codepoint) {
+      case keyboard.arrow_down:
+        return { name: "link-next" };
+      case keyboard.arrow_up:
+        return { name: "link-prev" };
+      case 13:
+        return card.selected ? { name: "link-go" } : null;
+      case 27:
+        return card.selected ? { name: "link-close" } : null;
+    }
+    const button = linkTooltip.keyButton(key.codepoint);
+    if (!button || (button === "open" && !card.open_image)) return null;
     return { name: button === "copy" ? "copy-link" : "open-image" };
   }
   /** The image a card opens in this computer's desktop viewer; another computer's opens from a copy here. */

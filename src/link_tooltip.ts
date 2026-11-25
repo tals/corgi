@@ -52,14 +52,20 @@ export interface Card {
   open_row?: boolean;
   /** The card takes no keys, where they type into sign-in or setup, and shows no keycaps. */
   keyless?: boolean;
+  /** The row the arrow keys chose, which Enter acts on. */
+  selected?: Button;
 }
 export type Button = "copy" | "open";
 /** The keys a shown card takes, as its keycaps show them. */
 export const keys: Record<Button, string> = { copy: "c", open: "o" };
-/** The row an unmodified key acts as while the pointer is on a shown card, or null. */
+/** The row an unmodified key acts as on a shown card, or null. */
 export function keyButton(codepoint: number): Button | null {
   const key = String.fromCodePoint(codepoint);
   return key === keys.copy ? "copy" : key === keys.open ? "open" : null;
+}
+/** The rows the arrow keys move between, top first. */
+export function rows(card: Card): Button[] {
+  return card.open_row ? ["copy", "open"] : ["copy"];
 }
 /** The path a file:// link names, which the card copies instead of the URL. */
 export function filePath(uri: string): string | null {
@@ -195,17 +201,21 @@ export class State {
   since = 0;
   shown = false;
   copied_until = 0;
+  /** The row the arrow keys chose, kept while the pointer stays at (`x`, `y`). */
+  chosen: { button: Button; x: number; y: number } | null = null;
   cancel() {
     this.suppressed = true;
     this.target = null;
     this.shown = false;
     this.copied_until = 0;
+    this.chosen = null;
   }
   move() {
     this.suppressed = false;
     this.target = null;
     this.shown = false;
     this.copied_until = 0;
+    this.chosen = null;
   }
   due(now: number) {
     return !this.suppressed && this.target !== null && !this.shown && now - this.since >= delay(this.target);
@@ -215,6 +225,7 @@ export class State {
       this.target = null;
       this.shown = false;
       this.copied_until = 0;
+      this.chosen = null;
       return false;
     }
     if (!this.target || !same(this.target, target)) {
@@ -222,6 +233,7 @@ export class State {
       this.since = now;
       this.shown = false;
       this.copied_until = 0;
+      this.chosen = null;
       return false;
     }
     this.shown = now - this.since >= delay(target);

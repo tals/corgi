@@ -1460,7 +1460,7 @@ export function frame(
   if (u.link_card && link_rect && u.pointer) {
     w.write("\x1b[?25l");
     pane_cursor = null;
-    linkTooltip.draw(w, link_rect, u.link_card, link_button);
+    linkTooltip.draw(w, link_rect, u.link_card, u.link_card.selected ?? link_button);
     if (u.pictures && u.link_card.thumbnail) linkThumbnail.place(u.pictures, link_rect, u.link_card.thumbnail);
     cover(link_rect);
   }

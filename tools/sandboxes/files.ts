@@ -116,7 +116,7 @@ export const world: World = {
         ["trace.log:6000000", "a line deep in 600 MB: the peek asks before it scans, then shows progress"],
         ["wheel", "in the peek: scroll; up on the log pauses it"],
         ["click", "a path or a peek line: opens it in a pane beside"],
-        ["rest", "on shots/manage-agents.png: its picture; on the card, c copies and o or a click opens it"],
+        ["rest", "on shots/manage-agents.png: its picture; c copies and o or a click opens it, or arrows and enter"],
         ["q", "in that pane: close it; e opens $EDITOR there"],
       ]),
     ];
