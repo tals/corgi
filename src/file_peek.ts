@@ -1,5 +1,5 @@
 //! The file peek: a card under a file's name in a pane, once the pointer has
-//! rested on the name for `link_tooltip.file_delay`. It shows the line the text named in the
+//! rested on the name as long as a link's card waits. It shows the line the text named in the
 //! middle of what's around it, or a log's newest lines as they come. The
 //! wheel scrolls it, and a click opens the file in a pane of its own. The
 //! file is read while the pointer waits, so the card opens filled. A line

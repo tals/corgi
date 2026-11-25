@@ -4985,10 +4985,10 @@ test("a file's name peeks after the pointer rests on it, and a click opens it in
     s.frame();
     await s.file_peeks.current.opened;
     // Moving along the name keeps its wait.
-    clock.advance(700);
+    clock.advance(100);
     await mouse(35, at(5));
     s.frame();
-    clock.advance(299);
+    clock.advance(49);
     expect(s.frame()).not.toContain("click to open");
     clock.advance(1);
     const shown = s.frame().replace(/\x1b\[[\d;?]*[A-Za-z]/g, "");
