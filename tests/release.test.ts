@@ -603,7 +603,8 @@ test("isolated builds keep a separate local cache and resolve ZIG from the relea
 test("an isolated checkout runs the main checkout's pinned Zig", async () => {
   await releaseFixture(async (dir, git) => {
     await mkdir(join(dir, "scripts"));
-    await writeFile(join(dir, "scripts/zig"), await Bun.file(join(import.meta.dir, "../scripts/zig")).text());
+    for (const file of ["zig", "tools.sh"])
+      await writeFile(join(dir, "scripts", file), await Bun.file(join(import.meta.dir, "../scripts", file)).text());
     await chmod(join(dir, "scripts/zig"), 0o755);
     git("add", "scripts");
     git("commit", "-m", "zig wrapper");

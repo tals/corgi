@@ -1,44 +1,72 @@
 /**
- * Grabs a capture's Ghostty window from its X display: screenshots once the
- * screen holds still, and lossless recordings encoded with the time between
- * scripts cut and the pointer drawn in where it went, in the shape it had.
+ * Records a capture's ghostty-host: screenshots once the screen holds still,
+ * and videos encoded with the time between scripts cut and the pointer drawn
+ * in where it went, in the shape Ghostty gave it, beside a timeline of the
+ * pointer, the keys and the script's steps.
  */
 import type { FileSink } from "bun";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
+import * as ghostty_host from "./ghostty_host";
 
-/** Frames a second in a video; the pointer moves at this rate. */
+/** Frames a second in a video unless asked otherwise. */
 export const FPS = 60;
-/** Frames a second grabbed from the window; the encoder repeats them to FPS. */
-const GRAB_FPS = 30;
 
-/** Where a capture's window is and how it records. */
+/** The capture's terminal and how it records. */
 export interface Screen {
-  display: string;
-  x: number;
-  y: number;
+  /** ghostty-host's socket. */
+  socket: string;
+  /** The frame, in pixels. */
   width: number;
   height: number;
   cols: number;
   rows: number;
-  /** Seconds a grab or a recording's start may take. */
+  /** A cell's size, and the padding left of and above the grid, in pixels. */
+  cell: [number, number];
+  padding: [number, number];
+  /** Seconds a screenshot or a recording's start may take. */
   wait: number;
   /** Seconds a video opens and closes on, and the most it keeps between scripts. */
   idle: number;
+  /** A video's frames a second unless record start names it. */
+  fps: number;
 }
 
-/** Where the pointer was moved (ms since the epoch; pixels in the window), and whether a button went down there. */
+/** A cell's middle (columns and rows from 1), in pixels. */
+export function cellCenter(screen: Screen, col: number, row: number): [number, number] {
+  return [screen.padding[0] + (col - 0.5) * screen.cell[0], screen.padding[1] + (row - 0.5) * screen.cell[1]];
+}
+
+/** What the mouse did (ms since the epoch; pixels in the frame). */
 export interface PointerEvent {
   t: number;
   x: number;
   y: number;
-  press: boolean;
+  action: "move" | "press" | "release" | "scroll";
+  button?: "left" | "right" | "middle";
+  /** Wheel notches, up when positive. */
+  dy?: number;
 }
 
-/** When the cursor became the one with this name, as X reports it. */
+/** When the pointer became the one with this CSS cursor name, as Ghostty asked for it. */
 export interface ShapeEvent {
   t: number;
   name: string | null;
+}
+
+/** Keys pressed, text typed or pasted, as the script gave them. */
+export interface KeyEvent {
+  t: number;
+  kind: "key" | "type" | "paste";
+  value: string;
+}
+
+/** A script command and when it ran; text commands also say the cell they found. */
+export interface Step {
+  t: number;
+  end: number;
+  command: string[];
+  cell?: [number, number];
 }
 
 /** A stretch of time, in ms since the epoch. */
@@ -53,6 +81,8 @@ export interface Take {
   scripts: Span[];
   pointer: PointerEvent[];
   shapes: ShapeEvent[];
+  keys: KeyEvent[];
+  steps: Step[];
 }
 
 export type Video = "mp4" | "gif";
@@ -126,106 +156,98 @@ const graphOption = (() => {
   };
 })();
 
-function input(screen: Screen): string[] {
-  return [
-    "-f",
-    "x11grab",
-    "-video_size",
-    `${screen.width}x${screen.height}`,
-    "-i",
-    `:${screen.display}+${screen.x},${screen.y}`,
-  ];
-}
-
-let grabs = 0;
-
-/** The window's pixels as a PNG once three grabs in a row match; grabs go to their own file in dir. */
-export async function settled(screen: Screen, dir: string, alive = () => {}): Promise<Buffer> {
-  const frame = join(dir, `frame-${process.pid}-${++grabs}.png`);
-  // Wait for layout, hover timers and the renderer before checking stable pixels.
-  await Bun.sleep(700);
-  let previous: Buffer | null = null,
-    same = 0;
+/** The screen as a PNG once nothing has been drawn for a while. */
+export async function settled(screen: Screen, alive = () => {}): Promise<Uint8Array> {
+  const host = new ghostty_host.Host(screen.socket);
+  // Let layout and hover timers start before waiting for the screen to hold still.
+  await Bun.sleep(300);
   await until(async () => {
     alive();
-    await ffmpeg(["-nostdin", "-draw_mouse", "0", ...input(screen), "-frames:v", "1", frame]);
-    const pixels = readFileSync(frame);
-    same = previous?.equals(pixels) ? same + 1 : 0;
-    previous = pixels;
-    return same >= 2;
-  }, screen.wait).finally(() => rmSync(frame, { force: true }));
-  return previous!;
+    return host.settle(700, 1000);
+  }, screen.wait);
+  return host.png();
 }
 
-/** Starts a lossless recorder, its frames stamped with wall-clock times; returns once frames arrive. */
-async function recorder(dir: string, screen: Screen, name: string, cursor: boolean): Promise<Bun.Subprocess> {
-  const [log, progress] = [`${name}.log`, `${name}.progress`].map(file => join(dir, file));
-  rmSync(progress, { force: true });
-  // Not -nostdin: ffmpeg 7.1 ignores SIGINT with it, and stdin is /dev/null anyway.
-  const p = Bun.spawn(
-    [
-      ...["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-use_wallclock_as_timestamps", "1"],
-      ...["-draw_mouse", cursor ? "1" : "0", "-framerate", String(GRAB_FPS), ...input(screen)],
-      ...["-c:v", "libx264rgb", "-preset", "ultrafast", "-qp", "0", "-copyts"],
-      ...["-progress", progress, "-stats_period", "0.1", join(dir, `${name}.mkv`)],
-    ],
-    { stdin: "ignore", stdout: "ignore", stderr: Bun.file(log) },
-  );
+/** Reads the first line a process prints, within seconds, then drains the rest so it never blocks on a full pipe. */
+export async function firstLine(p: { stdout: ReadableStream<Uint8Array> }, seconds: number): Promise<string> {
+  const reader = p.stdout.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let timer: Timer | undefined;
+  const deadline = new Promise<null>(resolve => (timer = setTimeout(() => resolve(null), seconds * 1000)));
   try {
-    await until(() => {
-      if (p.exitCode !== null) throw Error(`ffmpeg exited: ${readFileSync(log, "utf8")}`);
-      return existsSync(progress) && /^frame=[1-9]/m.test(readFileSync(progress, "utf8"));
-    }, screen.wait);
-  } catch (error) {
-    p.kill("SIGKILL");
-    throw error;
+    while (!text.includes("\n")) {
+      const chunk = await Promise.race([reader.read(), deadline]);
+      if (!chunk) throw Error(`nothing within ${seconds}s`);
+      if (chunk.done) break;
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally {
+    clearTimeout(timer);
   }
-  return p;
+  void (async () => {
+    while (!(await reader.read()).done);
+  })().catch(() => {});
+  return text.split("\n")[0];
 }
 
-/**
- * A recording of the window, without X's cursor so the pointer can be drawn
- * in. With xcursor, a second recording keeps X's own cursor, for comparing.
- */
+/** A recording of the screen at fps, made by ghostty_record.ts; the pointer is drawn in on stop. */
 export class Recording {
   private constructor(
     readonly dir: string,
     readonly screen: Screen,
     readonly out: string,
-    private recorders: Bun.Subprocess[],
+    readonly fps: number,
+    /** When its first frame was. */
+    readonly start: number,
+    private recorder: Bun.Subprocess,
   ) {}
 
-  static async start(dir: string, screen: Screen, out: string, xcursor = false): Promise<Recording> {
-    const recorders = [await recorder(dir, screen, "recording", false)];
+  static async start(dir: string, screen: Screen, out: string, fps: number): Promise<Recording> {
+    const log = join(dir, "recording.log");
+    const p = Bun.spawn(
+      [
+        process.execPath,
+        join(import.meta.dir, "ghostty_record.ts"),
+        screen.socket,
+        String(fps),
+        join(dir, "recording.mkv"),
+      ],
+      { stdin: "ignore", stdout: "pipe", stderr: Bun.file(log) },
+    );
     try {
-      if (xcursor) recorders.push(await recorder(dir, screen, "xcursor", true));
+      const line = await firstLine(p, screen.wait);
+      const start = (JSON.parse(line || "{}") as { start?: number }).start;
+      if (typeof start !== "number") throw Error(`the recorder failed: ${readFileSync(log, "utf8")}`);
+      return new Recording(dir, screen, out, fps, start, p);
     } catch (error) {
-      recorders[0].kill("SIGKILL");
+      p.kill("SIGKILL");
       throw error;
     }
-    return new Recording(dir, screen, out, recorders);
   }
 
-  /** Stops recording and writes the video, and with xcursor its .xcursor twin; returns their paths. */
+  /** Stops recording and writes the video and its timeline; returns their paths. */
   async stop(take: Take): Promise<string[]> {
-    for (const p of this.recorders) p.kill("SIGINT");
-    for (const p of this.recorders) {
-      const stopped = await Promise.race([p.exited.then(() => true), Bun.sleep(this.screen.wait * 1000)]);
-      // A Matroska file reads back without its trailer.
-      if (!stopped) p.kill("SIGKILL");
-      await p.exited;
-    }
+    const log = join(this.dir, "recording.log");
+    this.recorder.kill("SIGINT");
     try {
-      return await encode(this.dir, this.screen, this.out, take, this.recorders.length > 1);
+      const stopped = await Promise.race([this.recorder.exited.then(() => true), Bun.sleep(this.screen.wait * 1000)]);
+      // A Matroska file reads back without its trailer.
+      if (!stopped) this.recorder.kill("SIGKILL");
+      const code = await this.recorder.exited;
+      if (stopped && code !== 0) throw Error(`the recorder failed: ${readFileSync(log, "utf8")}`);
+      const times = await encode(this.dir, this.screen, this.out, take, this.start, this.fps);
+      const file = timelinePath(this.out);
+      writeFileSync(file, `${JSON.stringify(timeline(take, times, this.fps, this.screen, this.out))}\n`);
+      return [this.out, file];
     } finally {
-      for (const name of ["recording", "xcursor"])
-        for (const ext of ["mkv", "log", "progress"]) rmSync(join(this.dir, `${name}.${ext}`), { force: true });
+      for (const ext of ["mkv", "log"]) rmSync(join(this.dir, `recording.${ext}`), { force: true });
     }
   }
 
   /** Ends the recording without writing it, when its session closes. */
   abandon(): void {
-    for (const p of this.recorders) p.kill("SIGKILL");
+    this.recorder.kill("SIGKILL");
   }
 }
 
@@ -270,18 +292,21 @@ export function glide(from: [number, number], to: [number, number]): [number, nu
 }
 
 /** The pointer shapes drawn. */
-export type Shape = "arrow" | "hand" | "text" | "resize" | "move";
+export type Shape = "arrow" | "hand" | "text" | "ew" | "ns" | "move";
 
+/** Ghostty's CSS cursor names with a drawing of their own. */
 const shapeNames: Record<string, Shape> = {
   pointer: "hand",
-  hand1: "hand",
-  hand2: "hand",
   text: "text",
-  xterm: "text",
-  "ew-resize": "resize",
-  "col-resize": "resize",
-  sb_h_double_arrow: "resize",
-  fleur: "move",
+  "vertical-text": "text",
+  "ew-resize": "ew",
+  "col-resize": "ew",
+  "e-resize": "ew",
+  "w-resize": "ew",
+  "ns-resize": "ns",
+  "row-resize": "ns",
+  "n-resize": "ns",
+  "s-resize": "ns",
   move: "move",
   "all-scroll": "move",
 };
@@ -399,13 +424,21 @@ const designs: Record<Shape, { parts: Part[]; hotspot: Point }> = {
     ],
     hotspot: [3, 8.5],
   },
-  resize: {
+  ew: {
     parts: [
       { from: [5, 8], to: [15, 8], r: 1.1 },
       arrowhead([0, 8], [5.5, 8], 4.2),
       arrowhead([20, 8], [14.5, 8], 4.2),
     ],
     hotspot: [10, 8],
+  },
+  ns: {
+    parts: [
+      { from: [8, 5], to: [8, 15], r: 1.1 },
+      arrowhead([8, 0], [8, 5.5], 4.2),
+      arrowhead([8, 20], [8, 14.5], 4.2),
+    ],
+    hotspot: [8, 10],
   },
   move: {
     parts: [
@@ -522,22 +555,25 @@ interface Look {
 }
 
 /**
- * A value per frame as an ffmpeg expression of the frame's time t: a flat
- * sum over the runs where it holds, each from half a frame before its first
- * frame to half after its last. Commands sent with sendcmd reach an overlay
- * a few frames early, while it waits on its other input, and its n counts
- * from 1.
+ * A value per frame as an ffmpeg expression of the frame's time t: a
+ * balanced tree of if(lt(t,edge),…) over the runs where it holds, each run
+ * starting half a frame before its first frame. FFmpeg 9 refuses a flat
+ * sum of runs as nested too deep; a tree nests log(runs) deep. Not sendcmd:
+ * its commands reach an overlay a few frames early, and its n counts from 1.
  */
-export function perFrame(values: number[]): string {
-  const terms: string[] = [];
-  const edge = (frame: number) => ((frame - 0.5) / FPS).toFixed(5);
-  for (let i = 0; i < values.length;) {
-    let j = i;
-    while (values[j + 1] === values[i]) j++;
-    if (values[i]) terms.push(`between(t,${edge(i)},${edge(j + 1)})*${values[i]}`);
-    i = j + 1;
-  }
-  return terms.join("+") || "0";
+export function perFrame(values: number[], fps = FPS): string {
+  const runs: [number, number][] = [];
+  values.forEach((value, frame) => {
+    if (runs.at(-1)?.[1] !== value) runs.push([frame, value]);
+  });
+  if (!runs.length) return "0";
+  const edge = (frame: number) => ((frame - 0.5) / fps).toFixed(5);
+  const tree = (lo: number, hi: number): string => {
+    if (lo === hi) return String(runs[lo][1]);
+    const mid = (lo + hi + 1) >> 1;
+    return `if(lt(t,${edge(runs[mid][0])}),${tree(lo, mid - 1)},${tree(mid, hi)})`;
+  };
+  return tree(0, runs.length - 1);
 }
 
 /**
@@ -546,14 +582,15 @@ export function perFrame(values: number[]): string {
  * press, and each press leaves a ring that spreads and fades. Tiles are drawn
  * when asked for, and a tile that looks like the last one is reused.
  */
-export function pointerTiles(take: Take, times: number[], scale: number, cellHeight: number): Pointer {
+export function pointerTiles(take: Take, times: number[], scale: number, cellHeight: number, fps = FPS): Pointer {
   const height = cellHeight * 1.3 * scale,
     grown = 1.35,
     reach = height * 0.6;
   const size = 2 * Math.ceil(height * grown + reach + 8);
   const pointer = [...take.pointer].sort((a, b) => a.t - b.t);
   const shapes = [...take.shapes].sort((a, b) => a.t - b.t);
-  const presses = pointer.filter(e => e.press);
+  // The wheel's buttons don't show a press.
+  const presses = pointer.filter(e => e.action === "press");
   const looks: (Look | null)[] = [];
   const [x, y]: [number[], number[]] = [[], []];
   let grow = 1,
@@ -568,7 +605,7 @@ export function pointerTiles(take: Take, times: number[], scale: number, cellHei
     }
     const [px, py] = [at[0] * scale, at[1] * scale];
     // Speed only between frames next to each other in time; a cut is not a move.
-    const next = i > 0 && Math.abs(t - times[i - 1] - 1000 / FPS) < 2;
+    const next = i > 0 && Math.abs(t - times[i - 1] - 1000 / fps) < 2;
     const speed = next && last ? Math.hypot(px - last[0], py - last[1]) / height : 0;
     last = [px, py];
     grow += (1 + (grown - 1) * clamp(speed / 0.25) - grow) * 0.2;
@@ -610,31 +647,25 @@ export function pointerTiles(take: Take, times: number[], scale: number, cellHei
   return { size, x, y, count: times.length, frame };
 }
 
-/** A recording's first frame, in seconds since the epoch. */
-async function startTime(raw: string): Promise<number> {
-  const p = Bun.spawn(["ffprobe", "-v", "error", "-show_entries", "format=start_time", "-of", "csv=p=0", raw], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [text, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
-  const start = Number(text.trim());
-  if (code !== 0 || !Number.isFinite(start)) throw Error(`ffprobe could not read ${raw}'s start`);
-  return start;
-}
-
 /**
  * Encodes the take: from record start to record stop, with every script's
  * time and at most idle between scripts, held idle at each end, and the
- * pointer drawn over it. With xcursor, also X's own cursor, cut the same way.
- * Returns the videos written.
+ * pointer drawn over it. Returns when each of the video's frames was, in ms
+ * since the epoch.
  */
-async function encode(dir: string, screen: Screen, out: string, take: Take, xcursor: boolean): Promise<string[]> {
+async function encode(
+  dir: string,
+  screen: Screen,
+  out: string,
+  take: Take,
+  start: number,
+  fps: number,
+): Promise<number[]> {
   const raw = join(dir, "recording.mkv");
-  const hold = Math.max(1, Math.round(screen.idle * FPS));
-  const lead = Math.min(FPS / 2, Math.floor(hold / 2));
-  const start = await startTime(raw);
-  const frameAt = (ms: number) => Math.max(0, Math.round((ms / 1000 - start) * FPS));
-  const timeAt = (frame: number) => (start + frame / FPS) * 1000;
+  const hold = Math.max(1, Math.round(screen.idle * fps));
+  const lead = Math.min(Math.floor(fps / 2), Math.floor(hold / 2));
+  const frameAt = (ms: number) => Math.max(0, Math.round(((ms - start) / 1000) * fps));
+  const timeAt = (frame: number) => start + (frame * 1000) / fps;
   const [first, last] = [frameAt(take.from), Math.max(frameAt(take.from), frameAt(take.to))];
   const kept = keep(
     first,
@@ -655,18 +686,17 @@ async function encode(dir: string, screen: Screen, out: string, take: Take, xcur
     else drop.push([n, n]);
   }
   const select = drop.map(([a, b]) => `between(n,${a},${b})`).join("+");
-  const timeline = (skip = 0) =>
-    `setpts=PTS-STARTPTS,fps=${FPS},trim=start_frame=${Math.max(0, first + skip)}:end_frame=${last + skip + 1}` +
-    `,setpts=PTS-STARTPTS` +
+  const cut =
+    `setpts=PTS-STARTPTS,trim=start_frame=${first}:end_frame=${last + 1},setpts=PTS-STARTPTS` +
     (select ? `,select='not(${select})'` : "") +
-    `,setpts=N/${FPS}/TB,tpad=start=${hold}:start_mode=clone:stop=${hold}:stop_mode=clone,setpts=N/${FPS}/TB`;
+    `,setpts=N/${fps}/TB,tpad=start=${hold}:start_mode=clone:stop=${hold}:stop_mode=clone,setpts=N/${fps}/TB`;
   const times = [
     ...Array<number>(hold).fill(timeAt(first)),
     ...kept.map(timeAt),
     ...Array<number>(hold).fill(timeAt(last)),
   ];
   // Doubled pixels give each 2x2 chroma sample one color. Past H.264 level
-  // 5.1's frame size, an MP4 keeps the window's size, padded to even.
+  // 5.1's frame size, an MP4 keeps the screen's size, padded to even.
   const doubled = video(out) === "mp4" && screen.width * screen.height * 4 <= 4096 * 2304;
   const scale = doubled ? 2 : 1;
   const size = doubled
@@ -674,19 +704,85 @@ async function encode(dir: string, screen: Screen, out: string, take: Take, xcur
     : video(out) === "mp4"
       ? "pad=ceil(iw/2)*2:ceil(ih/2)*2"
       : "null";
-  const pointer = pointerTiles(take, times, scale, screen.height / screen.rows);
+  const pointer = pointerTiles(take, times, scale, screen.cell[1], fps);
   const tiles = ["-f", "rawvideo", "-pixel_format", "rgba", "-video_size", `${pointer.size}x${pointer.size}`];
   const graph =
-    `[0:v]${timeline()},${size}[screen];[screen][1:v]overlay=format=gbrp:eof_action=pass` +
-    `:x='${perFrame(pointer.x)}':y='${perFrame(pointer.y)}'`;
-  await write(["-i", raw, ...tiles, "-framerate", String(FPS), "-i", "pipe:0"], graph, out, dir, pointer);
-  if (!xcursor) return [out];
-  // The second recorder started a little later; line its frames up with the first's.
-  const other = join(dir, "xcursor.mkv");
-  const shift = Math.round(((await startTime(other)) - start) * FPS);
-  const twin = out.replace(/(\.[^./]+)$/, ".xcursor$1");
-  await write(["-i", other], `[0:v]${timeline(-shift)},${size}`, twin, dir, null);
-  return [out, twin];
+    `[0:v]${cut},${size}[screen];[screen][1:v]overlay=format=gbrp:eof_action=pass` +
+    `:x='${perFrame(pointer.x, fps)}':y='${perFrame(pointer.y, fps)}'`;
+  await write(["-i", raw, ...tiles, "-framerate", String(fps), "-i", "pipe:0"], graph, out, dir, pointer);
+  return times;
+}
+
+/** Where a video's timeline goes: demo.mp4's is demo.timeline.json. */
+export function timelinePath(out: string): string {
+  return out.replace(/(\.[^./]+)?$/, ".timeline.json");
+}
+
+/** A timeline entry, at t seconds into the video (its frame t * fps). */
+export type Moment =
+  | { t: number; type: "move"; x: number; y: number }
+  | { t: number; type: "press" | "release"; button: string; x: number; y: number }
+  | { t: number; type: "scroll"; dy: number; x: number; y: number }
+  | { t: number; type: "shape"; shape: string }
+  | { t: number; type: "key" | "type" | "paste"; value: string }
+  | { t: number; end: number; type: "step"; command: string; cell?: [number, number] };
+
+/**
+ * What happened in a video and when: the pointer's moves, buttons and
+ * wheel in the screen's pixels, the shapes Ghostty gave it, the keys, and
+ * each script command. A moment in time the video cut lands on the frame
+ * shown in its place.
+ */
+export function timeline(take: Take, times: number[], fps: number, screen: Screen, out: string) {
+  const frame = (ms: number) => {
+    let [lo, hi] = [0, times.length - 1];
+    // Before the first frame kept, as the take began: that frame, after the opening hold.
+    ms = Math.max(ms, times[0]);
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (times[mid] <= ms) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  const at = (ms: number) => Math.round((frame(ms) / fps) * 1000) / 1000;
+  const px = (v: number) => Math.round(v * 10) / 10;
+  const inside = (ms: number) => ms >= take.from && ms <= take.to;
+  const moments: Moment[] = [
+    ...take.pointer
+      .filter(e => inside(e.t))
+      .map((e): Moment => {
+        const [t, x, y] = [at(e.t), px(e.x), px(e.y)];
+        switch (e.action) {
+          case "move":
+            return { t, type: "move", x, y };
+          case "scroll":
+            return { t, type: "scroll", dy: e.dy ?? 0, x, y };
+          default:
+            return { t, type: e.action, button: e.button ?? "left", x, y };
+        }
+      }),
+    ...take.shapes.map((e): Moment => ({ t: at(Math.max(e.t, take.from)), type: "shape", shape: e.name ?? "default" })),
+    ...take.keys.filter(e => inside(e.t)).map((e): Moment => ({ t: at(e.t), type: e.kind, value: e.value })),
+    ...take.steps
+      .filter(e => inside(e.t))
+      .map((e): Moment => ({ t: at(e.t), end: at(e.end), type: "step", command: e.command.join(" "), cell: e.cell })),
+  ];
+  moments.sort((a, b) => a.t - b.t);
+  return {
+    video: out,
+    fps,
+    duration: Math.round((times.length / fps) * 1000) / 1000,
+    screen: {
+      width: screen.width,
+      height: screen.height,
+      cols: screen.cols,
+      rows: screen.rows,
+      cell: screen.cell,
+      padding: screen.padding,
+    },
+    events: moments,
+  };
 }
 
 /**

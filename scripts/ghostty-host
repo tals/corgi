@@ -1,0 +1,38 @@
+#!/bin/sh
+# Runs ghostty-host, the windowless Ghostty that tools/ghostty_screenshot.ts
+# captures in: $GHOSTTY_HOST, or the pinned build in .tools, downloaded and
+# checked against its checksum on first use. With --path it prints the
+# binary's path instead. Builds come from github.com/tals/ghostty's
+# vX.Y.Z-corgi.N tags (corgi/build.ts there).
+set -eu
+. "$(dirname -- "$0")/tools.sh"
+version=1.4.0-corgi.1
+name="ghostty-host-$version-$platform-$arch"
+project="$root/.tools/$name/ghostty-host"
+url="https://corgi.computer/ghostty-host/$version/$name.tar.gz"
+case "$platform-$arch" in
+    macos-aarch64) sum=7f09b9a4a9593795b4989e40f94a6e46ad6d7be8a56e4a3f2c5859accd507bb4 ;;
+    linux-x86_64) sum=f55618749ff2d17783ec332e31e293f559a46f57d5cc3956941200c04365e562 ;;
+    linux-aarch64) sum=d9216941c3e0afd2dfd344480f4d52c2428beb042cae8b82af770614b880d186 ;;
+    *) sum= ;;
+esac
+
+if [ -n "${GHOSTTY_HOST:-}" ]; then
+    binary=$GHOSTTY_HOST
+elif [ -x "$project" ]; then
+    binary=$project
+elif main_copy "$name/ghostty-host"; then
+    binary=$shared
+elif [ -n "$sum" ]; then
+    fetch "ghostty-host $version" "$url" "$sum" "$name"
+    binary=$project
+else
+    printf 'No ghostty-host %s build for %s-%s.\n' "$version" "$platform" "$arch" >&2
+    printf 'Build one from github.com/tals/ghostty (corgi/build.ts) and set GHOSTTY_HOST to it.\n' >&2
+    exit 1
+fi
+if [ "${1:-}" = --path ]; then
+    printf '%s\n' "$binary"
+    exit 0
+fi
+exec "$binary" "$@"

@@ -28,7 +28,7 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
 - **UI driver:** `bun tools/ui_driver.ts run current -e 'key ctrl+b c; snap'` drives a
   viewer in a PTY and records its screens. See `tools/ui_driver.ts`.
 - **Screenshots and videos:** `bun tools/ghostty_screenshot.ts --sandbox NAME -o shot.png`
-  captures a live Ghostty window on Xvfb; `--do 'action help; key esc'` runs a
+  captures a live Ghostty terminal; `--do 'action help; key esc'` runs a
   UI-driver script first, and `-o demo.mp4` records it instead. Use this for
   documentation and UI screenshots and videos so fonts, box drawing and Kitty
   images retain terminal fidelity.
@@ -215,14 +215,17 @@ screenshot for a static look, a short MP4 for a flow, animation, hover or
 click. Pick or add a world in `tools/sandboxes/` that shows the change, script
 the take (or keep a `serve` session and `drive` it step by step; see
 HACKING.md), and look at the result before attaching it. You can't watch a
-video, so read its frame grids, a second a frame and 16 to a grid:
+video, so read its frame grids, a second a frame and 16 to a grid, and its
+`.timeline.json`, which says when the pointer moved and changed shape, which
+keys went in and when each script step ran:
 
 ```sh
 bun tools/ghostty_screenshot.ts --sandbox launcher --do 'action help; wait 800; key esc' -o demo.mp4
 ffmpeg -i demo.mp4 -vf "fps=1,scale=800:-2,tile=4x4" grid%02d.png
 ```
 
-The tool needs Linux with Xvfb; from a Mac, run it on a Linux machine over SSH.
+It runs on macOS and Linux; `scripts/ghostty-host` fetches the windowless
+Ghostty it captures in.
 
 **Before sending.** Read the message without the diff. Can a reader identify
 the main change and its reason or use? Does each remaining detail change that

@@ -88,6 +88,12 @@ const sourceSHA256 = inputs.source(root);
 const expectedSource = option("expected-source");
 if (expectedSource && sourceSHA256 !== expectedSource)
   throw Error("Checkout changed. Restart ./go.ts to build this revision.");
+// Like Zig, the windowless Ghostty that captures run in comes down with a
+// checkout's first build. CI and builds for another target never capture.
+if (!explicitTarget && !process.env.CI) {
+  const host = Bun.spawnSync([`${root}/scripts/ghostty-host`, "--path"], { stdout: "ignore", stderr: "inherit" });
+  if (!host.success) process.stderr.write("Could not fetch ghostty-host; a capture fetches it when it runs.\n");
+}
 if (!process.argv.includes("--no-native")) {
   const args = [`${root}/scripts/zig`, "build", "--build-file", `${root}/native/build.zig`, "-Doptimize=ReleaseFast"];
   // An explicit --target builds for the oldest systems a release supports, not this machine.

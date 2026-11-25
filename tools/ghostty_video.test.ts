@@ -49,11 +49,12 @@ test("a glide eases in and out over 0.35 to 0.8 seconds by distance", () => {
 });
 
 test("cursor names map to the shapes drawn", () => {
-  expect(["default", "pointer", "text", "ew-resize", "fleur", "wait", null].map(video.shapeOf)).toEqual([
+  expect(["default", "pointer", "text", "ew-resize", "row-resize", "move", "wait", null].map(video.shapeOf)).toEqual([
     "arrow",
     "hand",
     "text",
-    "resize",
+    "ew",
+    "ns",
     "move",
     "arrow",
     "arrow",
@@ -62,9 +63,9 @@ test("cursor names map to the shapes drawn", () => {
 
 describe("the pointer over time", () => {
   const moves: video.PointerEvent[] = [
-    { t: 1000, x: 0, y: 0, press: false },
-    { t: 1016, x: 16, y: 0, press: false },
-    { t: 2000, x: 16, y: 0, press: true },
+    { t: 1000, x: 0, y: 0, action: "move" },
+    { t: 1016, x: 16, y: 0, action: "move" },
+    { t: 2000, x: 16, y: 0, action: "press" },
   ];
 
   test("is partway between two steps of a glide, and still between moves", () => {
@@ -102,9 +103,17 @@ describe("pointerTiles", () => {
     t: 1000 + i * 16,
     x: 20 + i * 10,
     y: 20,
-    press: false,
+    action: "move",
   }));
-  const take = (pointer: video.PointerEvent[]): video.Take => ({ from: 0, to: 5000, scripts: [], pointer, shapes: [] });
+  const take = (pointer: video.PointerEvent[]): video.Take => ({
+    from: 0,
+    to: 5000,
+    scripts: [],
+    pointer,
+    shapes: [],
+    keys: [],
+    steps: [],
+  });
   const times = (from: number, count: number) => Array.from({ length: count }, (_, i) => from + i * frame);
   const opaque = (tile: Uint8Array) => tile.reduce((n, v, i) => n + (i % 4 === 3 && v > 128 ? 1 : 0), 0);
 
@@ -121,17 +130,25 @@ describe("pointerTiles", () => {
   });
 
   test("leaves a ring where a button went down, and places each tile over the pointer", () => {
-    const pressed: video.PointerEvent[] = [{ t: 1000, x: 40, y: 40, press: true }];
+    const pressed: video.PointerEvent[] = [{ t: 1000, x: 40, y: 40, action: "press" }];
     const { frame, x, y, size } = video.pointerTiles(take(pressed), times(1000, 40), 1, 20);
     expect(opaque(frame(10))).toBeGreaterThan(opaque(frame(39)));
     expect([x[0], y[0]]).toEqual([40 - size / 2, 40 - size / 2]);
   });
 });
 
-test("perFrame says each frame's value by its time", () => {
+test("perFrame says each frame's value by its time, in a balanced tree", () => {
   const edge = (frame: number) => ((frame - 0.5) / video.FPS).toFixed(5);
   expect(video.perFrame([-5, -5, 7, 0, 0, 9])).toBe(
-    `between(t,${edge(0)},${edge(2)})*-5+between(t,${edge(2)},${edge(3)})*7+between(t,${edge(5)},${edge(6)})*9`,
+    `if(lt(t,${edge(3)}),if(lt(t,${edge(2)}),-5,7),if(lt(t,${edge(5)}),0,9))`,
   );
   expect(video.perFrame([0, 0])).toBe("0");
+  expect(video.perFrame([])).toBe("0");
+  // Each if() adds two levels; 1000 runs nest about 20 deep, where a flat sum would nest 1000.
+  let [depth, deepest] = [0, 0];
+  for (const c of video.perFrame(Array.from({ length: 1000 }, (_, i) => i))) {
+    depth += c === "(" ? 1 : c === ")" ? -1 : 0;
+    deepest = Math.max(deepest, depth);
+  }
+  expect(deepest).toBeLessThan(25);
 });

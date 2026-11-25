@@ -1,12 +1,12 @@
 # Localization in Ghostty
 
-These are native-resolution captures of live Ghostty windows on Xvfb, using
+These are native-resolution captures of live Ghostty terminals, using
 the isolated launcher sandbox and its fake agents. Ghostty draws the fonts,
 box lines, colors and Kitty graphics. The PNGs are neither scaled nor repainted.
 CJK fallback fonts were supplied through an isolated Fontconfig configuration.
 
-Regenerate the full set with Ghostty, Xvfb, ffmpeg, the XTEST and XFixes
-libraries, and fonts covering the selected languages installed:
+Regenerate the full set with ffmpeg and fonts covering the selected languages
+installed; the capture tool fetches its Ghostty:
 
 ```sh
 bun build.ts
