@@ -1,9 +1,0 @@
-{
-  "parent": "1047006f32d4",
-  "structures": {
-    "checkpoint": "7bed8746e92e447bcb581da012df1788c68ff08aea8af214a2fb790434509788",
-    "handoff": "f6e0fec939ab4328770ffa1d64207b79c4d35548c510c622fae9977e65db4d03",
-    "protocol": "4023eea8d1625daa09bda702bc821aea08f1966d1c5c2832467a315d7591d179",
-    "viewer": "aed40ec8d3a7fec57790189898ed1ae3fc270afc00a7f210567aaa631c3e35a7"
-  }
-}
