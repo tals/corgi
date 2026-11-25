@@ -656,11 +656,6 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       process.exitCode = await account.command(args.slice(1), agent);
       return;
     }
-    case "hooks": {
-      if (args.length !== 2) throw Error("Usage");
-      process.stdout.write(adapter(provider(args[1])).integration.snippet(current_release.path(executable)) + "\n");
-      return;
-    }
     case "agent": {
       if (args.length < 2) throw Error("Usage");
       const integration = await import("./integration");

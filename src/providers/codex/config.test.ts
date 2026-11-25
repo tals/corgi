@@ -1,5 +1,51 @@
 import { test, expect } from "bun:test";
-import { titleItems, edit, restoredTitle, movedApprovals } from "./config";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { titleItems, edit, restoredTitle, movedApprovals, backup } from "./config";
+test("a config.toml linked from dotfiles is backed up beside the link", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-codex-")),
+    home = join(root, "home"),
+    dotfiles = join(root, "dotfiles"),
+    link = join(home, "config.toml");
+  try {
+    mkdirSync(home);
+    mkdirSync(dotfiles);
+    writeFileSync(join(dotfiles, "config.toml"), 'model = "o3"\n');
+    symlinkSync("../dotfiles/config.toml", link);
+    backup(link);
+    expect(readFileSync(link + ".corgi-backup", "utf8")).toBe('model = "o3"\n');
+    expect(readdirSync(dotfiles)).toEqual(["config.toml"]);
+    // A link to a file not made yet has nothing to back up.
+    rmSync(link);
+    rmSync(link + ".corgi-backup");
+    symlinkSync(join(dotfiles, "missing.toml"), link);
+    backup(link);
+    expect(existsSync(link + ".corgi-backup")).toBe(false);
+    // A link to a folder is still refused.
+    rmSync(link);
+    symlinkSync(dotfiles, link);
+    expect(() => backup(link)).toThrow("ConfigNotRegular");
+    // A read-only one, as home-manager links, gets no backup.
+    rmSync(link);
+    symlinkSync(join(dotfiles, "config.toml"), link);
+    chmodSync(join(dotfiles, "config.toml"), 0o444);
+    expect(() => backup(link)).toThrow("ConfigReadOnly");
+    expect(existsSync(link + ".corgi-backup")).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("title setup preserves custom items and is idempotent", () => {
   expect(titleItems({ terminal_title: ["activity", "project"] })).toEqual(["activity", "project", "thread-id"]);
   expect(titleItems({ terminal_title: ["thread-id", "project"] })).toBeNull();

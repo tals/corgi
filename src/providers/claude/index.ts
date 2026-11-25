@@ -163,6 +163,5 @@ export const adapter: Adapter = {
       const hooks = settings(account).install();
       if (hooks.outcome === "failed") console.error("hook setup:", hooks.error);
     },
-    snippet: executable => hooksFile.snippet("claude", events, executable),
   },
 };

@@ -14,8 +14,8 @@ function script(root: string): string {
   ].join("\n");
 }
 /** A fixed path that runs the current release, for what outlives any one
- * release: pane shells' PATH and hand-installed hooks. `exe` itself when it
- * isn't an installed release. */
+ * release, such as pane shells' PATH. `exe` itself when it isn't an
+ * installed release. */
 export function path(exe: string): string {
   const releases = dirname(dirname(exe)),
     root = dirname(releases);

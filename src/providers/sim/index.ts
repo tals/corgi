@@ -102,7 +102,6 @@ export const adapter: Adapter = {
     uninstall: async account => [settings(account).uninstall().result],
     status: async account => [settings(account).status()],
     startup: async account => void settings(account).install(),
-    snippet: executable => hooksFile.snippet("sim", events, executable),
   },
 };
 export const sim = "sim" as Provider;

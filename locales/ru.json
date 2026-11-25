@@ -23,7 +23,6 @@
   "  corgi help --all              list every command": "  corgi help --all              список всех команд",
   "  corgi help [COMMAND ...]      show help for a command or group": "  corgi help [COMMAND ...]      справка по команде или группе",
   "  corgi history [--limit N] [--json]  past conversations, newest first": "  corgi history [--limit N] [--json]  прошлые диалоги, сначала новые",
-  "  corgi hooks claude|codex       print hook configuration": "  corgi hooks claude|codex       вывести настройки хуков",
   "  corgi integration COMMAND     status, install, uninstall hooks": "  corgi integration COMMAND     состояние, установка и удаление хуков",
   "  corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux": "  corgi keys [PRESET]           список сочетаний: corgi, tmux, herdr, cmux",
   "  corgi launcher copy --from ID --workspace ID  replace destination order and visibility": "  corgi launcher copy --from ID --workspace ID  заменить порядок и видимость в целевом пространстве",

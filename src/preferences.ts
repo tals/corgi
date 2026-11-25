@@ -4,7 +4,7 @@
 //! never reads them. The viewer saved-state history moves fields between them.
 //! A setting or shortcut this build can't use falls back alone and is
 //! reported; saving rewrites only the fields it changes.
-import { join, dirname, basename, resolve, isAbsolute, sep } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { tmpdir, userInfo } from "node:os";
 import {
   readFileSync,
@@ -15,7 +15,6 @@ import {
   closeSync,
   renameSync,
   statSync,
-  readlinkSync,
   accessSync,
   fchmodSync,
   constants,
@@ -733,35 +732,8 @@ export function sharedLock(): string {
   os.privateDirectory(folder);
   return join(folder, "preferences.lock");
 }
-/** Where writing `file` belongs: a config.json linked from dotfiles stays a
- * link, through a chain of them, even when the last target doesn't exist yet. */
-function target(file: string): string {
-  let path = resolve(sep),
-    hops = 0;
-  const pending = (isAbsolute(file) ? file : `${process.cwd()}${sep}${file}`).split(sep);
-  while (pending.length) {
-    const part = pending.shift()!;
-    if (!part || part === ".") continue;
-    if (part === "..") {
-      path = dirname(path);
-      continue;
-    }
-    const next = join(path, part);
-    try {
-      const link = readlinkSync(next);
-      if (++hops > 40) throw Error("Too many symbolic links");
-      if (isAbsolute(link)) path = resolve(sep);
-      pending.unshift(...link.split(sep));
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EINVAL" && code !== "ENOENT") throw error;
-      path = next;
-    }
-  }
-  return path;
-}
 function atomicWrite(file: string, text: string): void {
-  const path = target(file);
+  const path = os.linkTarget(file);
   let mode = 0o600;
   try {
     mode = statSync(path).mode & 0o777;

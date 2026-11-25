@@ -122,6 +122,5 @@ export const adapter: Adapter = {
     uninstall: async () => [],
     status: async () => [],
     async startup() {},
-    snippet: () => "OpenCode reports through its local API; no hooks are installed.",
   },
 };
