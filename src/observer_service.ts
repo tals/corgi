@@ -337,7 +337,8 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
         prompt: actor.prompt_watch,
       },
       seen = watcher(workers, judge, pane.account()).read(view, pane.detection, known, now);
-    const target = actor && pane.detection.screen_only ? actor.state : pane.attachment.provisional;
+    const target = actor && pane.detection.screen_only ? actor.state : pane.attachment.provisional,
+      since = actor?.state.compacting_since ?? 0;
     if (seen.shown && speaks && (claim || job)) ding = pane.detection.show(target, seen.shown, watched);
     if (actor) {
       if (target !== actor.state) actor.screen(pane.attachment.provisional, ding, now);
@@ -346,6 +347,7 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
       if (seen.answered) actor.state.observeAnswer(seen.answered, now);
       if (actor.state.permission_review)
         ding = actor.state.observePermissionPrompt(seen.prompt === true, watched, now) || ding;
+      compacted(workers, actor, since);
     }
   }
   if (!claim) pane.resume_hint.observe(pane.agent());
@@ -411,16 +413,23 @@ function routed(runtime: Runtime, pane: Pane, held: Held, binds: boolean) {
 }
 function apply(server: Server, actor: Actor, held: Held, now: number) {
   const runtime = server.runtime,
-    workers = start(server);
+    workers = start(server),
+    since = actor.state.compacting_since;
   if (held.pid > 0) actor.pid = held.pid;
   attention(
     server,
     runtime.conversations.observeHook(actor, held.event, held.seq, actorWatched(server, actor.id), now, held.presence),
     actor.state.state,
   );
+  compacted(workers, actor, since);
   workers.summaries.reconcile(runtime.conversations.items, runtime.panes);
   if (held.event.initial_request) workers.summaries.names.offer(actor, held.event.initial_request);
   changed(server);
+}
+/** Has the size left by a compaction that began at `since`, in µs, read now
+ * rather than in its turn. */
+function compacted(workers: Workers, actor: Actor, since: number) {
+  if (since && !actor.state.compacting) workers.usage.refresh(actor.id, Math.floor(since / 1000));
 }
 /** Applies what usage counting found to its conversations and their workspaces. */
 function applyUsage(server: Server, workers: Workers) {
@@ -487,6 +496,8 @@ export async function tick(server: Server) {
   const workers = start(server),
     runtime = server.runtime,
     now = clock.milliTimestamp();
+  // A compaction's new size goes out once its transcript gives it.
+  if (workers.usage.fresh) applyUsage(server, workers);
   if (workers.settling || now - workers.detected >= 250) {
     workers.detected = now;
     const panes = runtime.panes.filter(pane => !pane.terminal.exited && (workers.settling || pane.detectionDue(now)));
@@ -517,6 +528,7 @@ export async function tick(server: Server) {
         telemetry.count("agent.provider.results");
         const actor = snapshotActor(server, provider, snapshot);
         if (!actor) continue;
+        const since = actor.state.compacting_since;
         const retry_at = agentRetry.observe(
           runtime,
           provider,
@@ -530,6 +542,7 @@ export async function tick(server: Server) {
           actor.observeSnapshot(snapshot, actorWatched(server, actor.id), clock.microTimestamp(), retry_at > 0),
           actor.state.state,
         );
+        compacted(workers, actor, since);
         if (snapshot.lifecycle) {
           runtime.conversations.observeChildren(actor, snapshot, clock.microTimestamp());
           workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes);

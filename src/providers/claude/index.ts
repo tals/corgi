@@ -2,7 +2,7 @@ import * as effort from "../effort";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { lstatSync } from "node:fs";
-import { Hooks, planLabel } from "../common";
+import { Hooks, planLabel, str } from "../common";
 import type { Adapter } from "../adapter";
 import * as hooksFile from "../hooks_file";
 import { Watcher } from "./screen";
@@ -48,6 +48,14 @@ export const events = [
 const settings = (account: string) =>
   new hooksFile.File("claude", dir(account), "settings.json", events, account ? configDir() : null);
 const hooks = new Hooks();
+/** Claude starts its session again once a compaction ends, so that start is
+ * the compaction's end. Its PostCompact hook came only in 2.1.76, and an
+ * older Claude skips a whole settings file that names a hook it lacks. */
+function compactEnd(v: unknown) {
+  return str(v, "hook_event_name") === "SessionStart" && str(v, "source") === "compact"
+    ? { ...(v as object), hook_event_name: "PostCompact" }
+    : v;
+}
 export const adapter: Adapter = {
   ...info,
   caps,
@@ -77,7 +85,7 @@ export const adapter: Adapter = {
     signin,
   },
   watch: () => new Watcher(),
-  hook: v => hooks.decode(v),
+  hook: v => hooks.decode(compactEnd(v)),
   origin: hookOrigin,
   unnest,
   launch: {

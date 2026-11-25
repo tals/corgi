@@ -518,6 +518,43 @@ test("transcript checklists cannot replace newer hooks and stay with their own c
   expect(actor.checklist.items).toEqual([]);
 });
 
+test("a compaction's end has its new size read at once and applied between scans", async () => {
+  const { server, pane, registry } = fixture();
+  const actor = registry.get("claude", "compacting");
+  pane.attachment.select(actor);
+  const workers = start(server),
+    refresh = spyOn(workers.usage, "refresh");
+  const send = (seq: bigint, name: string, source?: string) =>
+    hook(server, {
+      pane: 1,
+      provider: "claude",
+      event: { hook_event_name: name, session_id: "compacting", source },
+      seq,
+      pid: 42,
+      background: true,
+    });
+  send(1n, "PreCompact");
+  const since = actor.state.compacting_since;
+  expect(since).toBeGreaterThan(0);
+  expect(refresh).not.toHaveBeenCalled();
+  // Claude starts its session again once the compaction ends.
+  send(2n, "SessionStart", "compact");
+  expect(actor.state).toMatchObject({ state: "working", compacting: false });
+  expect(refresh).toHaveBeenCalledWith(actor.id, Math.floor(since / 1000));
+  workers.usage.stop();
+  const result = new UsageResult();
+  result.actor = actor.id;
+  result.context.used = 9000n;
+  workers.usage.results.push(result);
+  workers.detected = Date.now() + 60_000;
+  await tick(server);
+  expect(actor.context.used).toBe(0n);
+  workers.usage.fresh = true;
+  await tick(server);
+  expect(actor.context.used).toBe(9000n);
+  expect(workers.usage.fresh).toBe(false);
+});
+
 test("local Codex identity attaches without lifecycle authority and admits only matching hooks", () => {
   const { server, pane, terminal, registry } = fixture();
   const request = {

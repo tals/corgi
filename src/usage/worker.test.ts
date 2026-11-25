@@ -136,6 +136,79 @@ test("usage reads count against visits after scheduling and during file I/O", as
   }
 });
 
+test("a compaction's end has its transcript read first until its new size shows", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-usage-")),
+    runtime = new Runtime(),
+    workspace = new Workspace(1, root),
+    worker = new Worker(),
+    terminals = [Terminal.create(20, 4), Terminal.create(20, 4)];
+  const call = (session: string, at: number, input: number) =>
+    JSON.stringify({
+      type: "assistant",
+      sessionId: session,
+      timestamp: new Date(at).toISOString(),
+      message: { id: `${session}-${at}`, model: "claude-opus-5-5", usage: { input_tokens: input, output_tokens: 1 } },
+    }) + "\n";
+  const boundary = (session: string, at: number, post: number) =>
+    JSON.stringify({
+      type: "system",
+      subtype: "compact_boundary",
+      sessionId: session,
+      timestamp: new Date(at).toISOString(),
+      compactMetadata: { trigger: "auto", preTokens: 900000, postTokens: post },
+    }) + "\n";
+  runtime.workspaces.items.push(workspace);
+  const [compacting, other] = ["compacting", "other"].map((session, i) => {
+    const actor = runtime.conversations.get("claude", session),
+      pane = new Pane(i + 1, terminals[i], root);
+    actor.workspace = workspace.id;
+    actor.state.transcript = new Path(join(root, `${session}.jsonl`));
+    writeFileSync(actor.state.transcriptPath(), "");
+    runtime.panes.push(pane);
+    pane.attachment.select(actor);
+    return actor;
+  });
+  try {
+    worker.reconcile(runtime);
+    await worker.run();
+    appendFileSync(compacting.state.transcriptPath(), call("compacting", 1000, 900000));
+    await worker.run();
+    worker.take();
+    // The provider reports the end before it writes the new size, and a
+    // reading from before the compaction began doesn't count as it.
+    worker.refresh(compacting.id, 1500);
+    await worker.run(true);
+    expect(worker.fresh).toBe(false);
+    appendFileSync(compacting.state.transcriptPath(), call("compacting", 1200, 950000));
+    await worker.run(true);
+    expect(worker.fresh).toBe(false);
+    expect(worker.take().map(r => r.context.used)).toEqual([950000n]);
+    appendFileSync(compacting.state.transcriptPath(), boundary("compacting", 2000, 9000));
+    appendFileSync(other.state.transcriptPath(), call("other", 2000, 50));
+    await worker.run(true);
+    expect(worker.fresh).toBe(true);
+    const results = worker.take();
+    expect(results.map(r => r.actor)).toEqual([compacting.id]);
+    expect(results[0].context.used).toBe(9000n);
+    expect(worker.fresh).toBe(false);
+    // Once read, it waits its turn with the rest.
+    appendFileSync(compacting.state.transcriptPath(), call("compacting", 3000, 12000));
+    await worker.run(true);
+    expect(worker.take()).toEqual([]);
+    await worker.run();
+    expect(new Map(worker.take().map(r => [r.actor, r.context.used]))).toEqual(
+      new Map([
+        [compacting.id, 12000n],
+        [other.id, 50n],
+      ]),
+    );
+  } finally {
+    worker.stop();
+    runtime.destroy();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("usage results collected during a transcript read do not swallow the next count", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-usage-")),
     file = join(root, "usage.jsonl"),
