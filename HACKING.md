@@ -397,6 +397,14 @@ lists, in the video's seconds, the pointer's moves, presses and shapes, the
 keys and text typed, what a click opened, and each script command with the
 cell a text command found.
 
+To fast-forward a long stretch, such as an agent at work, put `speed 8` before
+it and `speed reset` after it: `drive 'speed 8; wait 60000; speed reset'`. Any
+speed of at least 1 works, such as `speed 2.5`, and `speed 8 top` puts the
+badge at the top instead of the bottom. While sped up, a badge centered on the
+video rises in with the speed and the wall-clock time since the speed-up
+began, and sinks away on reset. The holds at each end stay at real time, and
+press rings play at the video's pace.
+
 MP4 is the format for PRs: GitHub plays it inline, and `gh pr create --attach
 ./demo.mp4` uploads it. The tool records losslessly, then encodes H.264 at 60
 frames a second (`--fps 30` or 15, or `record start PATH 30`) with every pixel doubled, so 4:2:0 chroma subsampling can't put

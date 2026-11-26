@@ -11,7 +11,7 @@
  *                200 {"output": [...]}, or 422 {"output": [...], "error": "..."}
  *   GET /screen  {"lines": [...]}
  *
- * A script is ui_driver commands, plus action, corgi, shot and record (see
+ * A script is ui_driver commands, plus action, corgi, shot, record and speed (see
  * ghostty_screenshot.ts). Scripts run one at a time, in the order they arrive.
  */
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -33,6 +33,8 @@ class Relay extends ui_driver.Driver {
   keys: video.KeyEvent[] = [];
   opens: video.OpenEvent[] = [];
   steps: video.Step[] = [];
+  /** The recording's speed commands. */
+  private paces: video.PaceEvent[] = [];
   recording: video.Recording | null = null;
   /** When the recording began, once record start returned. */
   private recordingFrom = 0;
@@ -237,6 +239,13 @@ class Relay extends ui_driver.Driver {
         return this.play(op, args);
       case "record":
         return this.record(args);
+      case "speed": {
+        if (!this.recording) throw Error("speed needs a recording; record start first");
+        const pace = video.paceOf(args);
+        if (!pace) throw Error("speed takes a speed of at least 1 and top or bottom, such as speed 4 top, or reset");
+        this.paces.push({ t: Date.now(), ...pace });
+        return;
+      }
       default:
         return super.exec(cmd);
     }
@@ -258,7 +267,14 @@ class Relay extends ui_driver.Driver {
         this.log(Date.now(), { action: "move" });
       }
       // Where the pointer rests as the recording begins is all it needs from before.
-      [this.pointer, this.shapes, this.keys, this.opens, this.steps] = [this.pointer.slice(-1), [], [], [], []];
+      [this.pointer, this.shapes, this.keys, this.opens, this.steps, this.paces] = [
+        this.pointer.slice(-1),
+        [],
+        [],
+        [],
+        [],
+        [],
+      ];
       this.unwatch = this.watch();
       try {
         this.recording = await video.Recording.start(this.dir, this.where(), out, fps);
@@ -282,6 +298,7 @@ class Relay extends ui_driver.Driver {
         keys: this.keys,
         opens: this.opens,
         steps: this.steps,
+        paces: this.paces,
       };
       this.output.push(...(await recording.stop(take)));
     } else throw Error("record needs start or stop");

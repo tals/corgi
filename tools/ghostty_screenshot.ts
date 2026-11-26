@@ -5,6 +5,7 @@
  *   bun tools/ghostty_screenshot.ts --sandbox review -o review.png
  *   bun tools/ghostty_screenshot.ts --do 'action help' -o help.png
  *   bun tools/ghostty_screenshot.ts --do 'action help; wait 1000; key down down' -o help.mp4
+ *   bun tools/ghostty_screenshot.ts --do 'action help; speed 8; wait 16000; speed reset; key esc' -o help.mp4
  *   bun tools/ghostty_screenshot.ts -- /bin/sh -c 'printf "hello\\n"; sleep 30'
  *
  * A session keeps the sandbox running for an agent to drive, a script at a time:
@@ -22,6 +23,10 @@
  *   shot PATH                a screenshot once the screen holds still
  *   record start PATH [FPS]  a video, .mp4 or .gif, of everything until
  *   record stop              which writes it, and its .timeline.json
+ *   speed N [top|bottom]     while recording, play from here on N times as
+ *                            fast (4, x4 or 2.5), with a badge centered at the
+ *                            bottom (default) or top
+ *   speed reset              back to real time; the badge goes away
  * Code drives with capture(options, { drive }) or attach(), and driver.drive(script).
  *
  * Options:
@@ -53,7 +58,9 @@
  * to --idle seconds, and hold the first and last screens that long. The
  * pointer is drawn where it went, in the shape Ghostty gave it (arrow, hand,
  * I-beam, either resize or move): it grows while it moves, and a press leaves a
- * fading ring. MP4s are H.264 with the screen's pixels doubled, so 4:2:0
+ * fading ring. While sped up, a badge rises in with ×N and the wall-clock time
+ * since the speed-up began, and sinks away on speed reset; the holds stay at
+ * real time. MP4s are H.264 with the screen's pixels doubled, so 4:2:0
  * chroma can't smear colored text; GIFs keep the screen's size. Beside each
  * video, its timeline says when the pointer moved, pressed and changed shape,
  * which keys went in, and when each script command ran, in the video's seconds.

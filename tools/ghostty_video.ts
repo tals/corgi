@@ -90,6 +90,8 @@ export interface Take {
   keys: KeyEvent[];
   opens: OpenEvent[];
   steps: Step[];
+  /** Speed commands; the kept time plays at each one's speed from then on. */
+  paces: PaceEvent[];
 }
 
 export type Video = "mp4" | "gif";
@@ -103,6 +105,39 @@ export function video(path: string): Video | null {
     default:
       return null;
   }
+}
+
+/** Where a speed-up's badge sits: centered at the video's bottom or top. */
+export type Place = "bottom" | "top";
+
+/** How fast the video plays, 1 at real time, and where its badge sits. */
+export interface Pace {
+  speed: number;
+  place: Place;
+}
+
+/** A pace from t on, ms since the epoch. */
+export interface PaceEvent extends Pace {
+  t: number;
+}
+
+const realTime: Pace = { speed: 1, place: "bottom" };
+
+/** A speed command's arguments: a speed of at least 1 (4, x4 or 2.5) and top or bottom, or reset. */
+export function paceOf(args: string[]): Pace | null {
+  const [rate, place = "bottom", ...rest] = args;
+  if (rate === "reset") return args.length === 1 ? realTime : null;
+  if (rest.length || (place !== "bottom" && place !== "top")) return null;
+  const match = /^x?(\d+(?:\.\d+)?)$/.exec(rate ?? "");
+  const speed = match ? Number(match[1]) : 0;
+  return speed >= 1 ? { speed, place } : null;
+}
+
+/** The pace at t: the last change at or before it. */
+export function paceAt(events: PaceEvent[], t: number): Pace {
+  let pace = realTime;
+  for (const event of events) if (event.t <= t) pace = event;
+  return pace;
 }
 
 /** Throws on timeouts rather than silently capturing an unready screen. */
@@ -120,6 +155,36 @@ export async function until<T>(read: () => T | Promise<T>, seconds = 20): Promis
 interface Frames {
   count: number;
   frame(i: number): Uint8Array;
+}
+
+/** RGBA pictures laid over a video, one per frame. */
+export interface Layer extends Frames {
+  width: number;
+  height: number;
+}
+
+/**
+ * Layers as one stream, each frame's pictures stacked top to bottom from the
+ * left, so one pipe keeps them in step; tops says where each one starts.
+ */
+export function stack(layers: Layer[]): Layer & { tops: number[] } {
+  const width = Math.max(...layers.map(layer => layer.width));
+  const tops = layers.map((_, i) => layers.slice(0, i).reduce((sum, layer) => sum + layer.height, 0));
+  const height = tops.at(-1)! + layers.at(-1)!.height;
+  let previous: { parts: Uint8Array[]; frame: Uint8Array } | null = null;
+  const frame = (i: number) => {
+    const parts = layers.map(layer => layer.frame(i));
+    if (previous?.parts.every((part, k) => part === parts[k])) return previous.frame;
+    const rgba = new Uint8Array(width * height * 4);
+    layers.forEach((layer, k) => {
+      const row = layer.width * 4;
+      for (let y = 0; y < layer.height; y++)
+        rgba.set(parts[k].subarray(y * row, (y + 1) * row), (tops[k] + y) * width * 4);
+    });
+    previous = { parts, frame: rgba };
+    return rgba;
+  };
+  return { width, height, tops, count: layers[0].count, frame };
 }
 
 /**
@@ -287,6 +352,39 @@ export function keep(first: number, last: number, scripts: [number, number][], h
     } else between.push(f);
   close(true);
   return kept;
+}
+
+/** Runs of equal values as [first, last, value], first and last inclusive. */
+function runsOf<T>(values: T[]): [number, number, T][] {
+  const runs: [number, number, T][] = [];
+  values.forEach((value, i) => {
+    const run = runs.at(-1);
+    if (run && run[2] === value) run[1] = i;
+    else runs.push([i, i, value]);
+  });
+  return runs;
+}
+
+/**
+ * Which kept frames a video shows when each plays at its speed: in a run at
+ * speed s from a, the n-th whenever floor((n - a) / s) steps; and the last,
+ * so it closes on the last screen. pick() says the same to ffmpeg's select
+ * in the same arithmetic.
+ */
+export function picks(speeds: number[]): number[] {
+  const shown: number[] = [];
+  for (const [a, b, s] of runsOf(speeds))
+    for (let n = a; n <= b; n++)
+      if (Math.floor((n - a) / s) > Math.floor((n - a - 1) / s) || n === speeds.length - 1) shown.push(n);
+  return shown;
+}
+
+function pick(speeds: number[]): string | null {
+  const fast = runsOf(speeds).filter(([, , s]) => s > 1);
+  if (!fast.length) return null;
+  const within = fast.map(([a, b]) => `between(n,${a},${b})`).join("+");
+  const steps = fast.map(([a, b, s]) => `between(n,${a},${b})*gt(floor((n-${a})/${s}),floor((n-${a}-1)/${s}))`);
+  return `max(max(1-(${within}),eq(n,${speeds.length - 1})),${steps.join("+")})`;
 }
 
 function ease(k: number): number {
@@ -468,19 +566,22 @@ const designs: Record<Shape, { parts: Part[]; hotspot: Point }> = {
   },
 };
 
-/** Each design's extent in its units, for drawing only near it. */
+/** Parts' extent as [[left, right], [top, bottom]], for drawing only near them. */
+function bounds(parts: Part[]): [number, number][] {
+  const ends = parts.flatMap(part =>
+    "r" in part
+      ? [part.from, part.to].flatMap(([x, y]) => [
+          [x - part.r, y - part.r],
+          [x + part.r, y + part.r],
+        ])
+      : part.polygon,
+  );
+  return [0, 1].map(axis => [Math.min(...ends.map(p => p[axis])), Math.max(...ends.map(p => p[axis]))]);
+}
+
+/** Each design's extent in its units. */
 const extents = Object.fromEntries(
-  Object.entries(designs).map(([shape, { parts }]) => {
-    const ends = parts.flatMap(part =>
-      "r" in part
-        ? [part.from, part.to].flatMap(([x, y]) => [
-            [x - part.r, y - part.r],
-            [x + part.r, y + part.r],
-          ])
-        : part.polygon,
-    );
-    return [shape, [0, 1].map(axis => [Math.min(...ends.map(p => p[axis])), Math.max(...ends.map(p => p[axis]))])];
-  }),
+  Object.entries(designs).map(([shape, { parts }]) => [shape, bounds(parts)]),
 ) as Record<Shape, [number, number][]>;
 
 const clamp = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -598,11 +699,20 @@ export function perFrame(values: number[], fps = FPS): string {
 
 /**
  * The pointer for each frame shown at times (ms since the epoch), scale times
- * the window's pixels. It grows while it moves and settles at rest, dips on a
- * press, and each press leaves a ring that spreads and fades. Tiles are drawn
- * when asked for, and a tile that looks like the last one is reused.
+ * the window's pixels, each frame played at its speed in speeds (1 if
+ * missing). It grows while it moves and settles at rest, dips on a press,
+ * and each press leaves a ring that spreads and fades at the video's pace.
+ * Tiles are drawn when asked for, and a tile that looks like the last one
+ * is reused.
  */
-export function pointerTiles(take: Take, times: number[], scale: number, cellHeight: number, fps = FPS): Pointer {
+export function pointerTiles(
+  take: Take,
+  times: number[],
+  scale: number,
+  cellHeight: number,
+  fps = FPS,
+  speeds: number[] = [],
+): Pointer {
   const height = cellHeight * 1.3 * scale,
     grown = 1.35,
     reach = height * 0.6;
@@ -611,6 +721,15 @@ export function pointerTiles(take: Take, times: number[], scale: number, cellHei
   const shapes = [...take.shapes].sort((a, b) => a.t - b.t);
   // The wheel's buttons don't show a press.
   const presses = pointer.filter(e => e.action === "press");
+  // Time as the video plays it: the wall time between frames over the later one's speed.
+  const clock: number[] = [];
+  times.forEach((t, i) => clock.push(i ? clock[i - 1] + (t - times[i - 1]) / (speeds[i] ?? 1) : t));
+  const clockAt = (t: number) => {
+    const j = times.findIndex(time => time >= t);
+    if (j === -1) return clock.at(-1)! + (t - times.at(-1)!);
+    return j ? clock[j - 1] + (t - times[j - 1]) / (speeds[j] ?? 1) : clock[0] - (times[0] - t);
+  };
+  const pressed = presses.map(press => clockAt(press.t));
   const looks: (Look | null)[] = [];
   const [x, y]: [number[], number[]] = [[], []];
   let grow = 1,
@@ -624,16 +743,18 @@ export function pointerTiles(take: Take, times: number[], scale: number, cellHei
       return;
     }
     const [px, py] = [at[0] * scale, at[1] * scale];
-    // Speed only between frames next to each other in time; a cut is not a move.
-    const next = i > 0 && Math.abs(t - times[i - 1] - 1000 / fps) < 2;
-    const speed = next && last ? Math.hypot(px - last[0], py - last[1]) / height : 0;
+    const speed = speeds[i] ?? 1;
+    // Motion only between frames next to each other in time, a speed-up's
+    // stride apart at most; a cut is not a move.
+    const next = i > 0 && t > times[i - 1] && t - times[i - 1] < (Math.ceil(speed) * 1000) / fps + 2;
+    const motion = next && last ? Math.hypot(px - last[0], py - last[1]) / height : 0;
     last = [px, py];
-    grow += (1 + (grown - 1) * clamp(speed / 0.25) - grow) * 0.2;
+    grow += (1 + (grown - 1) * clamp(motion / 0.25) - grow) * 0.2;
     let zoom = grow;
     const [cx, cy] = [Math.round(px), Math.round(py)];
     const rings: [number, number, number][] = [];
-    for (const press of presses) {
-      const since = t - press.t;
+    for (const [k, press] of presses.entries()) {
+      const since = clock[i] - pressed[k];
       if (since < 0 || since > 450) continue;
       if (since < 200) zoom *= 1 - 0.15 * Math.sin((Math.PI * since) / 200);
       rings.push([press.x * scale - cx + size / 2, press.y * scale - cy + size / 2, since / 450]);
@@ -667,16 +788,306 @@ export function pointerTiles(take: Take, times: number[], scale: number, cellHei
   return { size, x, y, count: times.length, frame };
 }
 
+/** Points along an ellipse around (cx, cy), between two angles in degrees clockwise from 3 o'clock. */
+function arc(cx: number, cy: number, rx: number, ry: number, from: number, to: number): Point[] {
+  const steps = Math.ceil(Math.abs(to - from) / 12);
+  return Array.from({ length: steps + 1 }, (_, i) => {
+    const a = ((from + ((to - from) * i) / steps) * Math.PI) / 180;
+    return [cx + rx * Math.cos(a), cy + ry * Math.sin(a)];
+  });
+}
+
+const six: Point[][] = [arc(3, 7, 3, 3, 0, 360), arc(5, 7, 5, 7, 180, 262)];
+
+/** The badge's figures as lines through points, in units where a figure is 10 tall. */
+const figures: Record<string, { width: number; lines: Point[][] }> = {
+  "0": { width: 6, lines: [arc(3, 5, 3, 5, 0, 360)] },
+  "1": {
+    width: 2.6,
+    lines: [
+      [
+        [0, 2.2],
+        [2.6, 0],
+        [2.6, 10],
+      ],
+    ],
+  },
+  "2": {
+    width: 6,
+    lines: [[...arc(3, 3, 3, 3, 195, 400), [0, 10], [6, 10]]],
+  },
+  "3": {
+    width: 6,
+    lines: [
+      [...arc(2.95, 2.5, 2.75, 2.5, 205, 450), [2.2, 5]],
+      [[2.2, 5], ...arc(3, 7.5, 3, 2.5, 270, 515)],
+    ],
+  },
+  "4": {
+    width: 6,
+    lines: [
+      [
+        [4.5, 10],
+        [4.5, 0],
+        [0, 7],
+        [6, 7],
+      ],
+    ],
+  },
+  "5": {
+    width: 6,
+    lines: [[[5.6, 0], [0.9, 0], [0.5, 4.7], ...arc(3, 6.75, 3, 3.25, 232, 512)]],
+  },
+  "6": { width: 6, lines: six },
+  "7": {
+    width: 6,
+    lines: [
+      [
+        [0, 0],
+        [6, 0],
+        [1.8, 10],
+      ],
+    ],
+  },
+  "8": { width: 6, lines: [arc(3, 2.45, 2.65, 2.45, 0, 360), arc(3, 7.45, 3, 2.55, 0, 360)] },
+  "9": { width: 6, lines: six.map(line => line.map(([x, y]): Point => [6 - x, 10 - y])) },
+  ".": { width: 0, lines: [[[0, 10]]] },
+  ":": { width: 0, lines: [[[0, 2.8]], [[0, 7.2]]] },
+  "+": {
+    width: 5,
+    lines: [
+      [
+        [0, 5],
+        [5, 5],
+      ],
+      [
+        [2.5, 2.5],
+        [2.5, 7.5],
+      ],
+    ],
+  },
+  "×": {
+    width: 5,
+    lines: [
+      [
+        [0, 2.6],
+        [5, 7.6],
+      ],
+      [
+        [5, 2.6],
+        [0, 7.6],
+      ],
+    ],
+  },
+};
+
+/**
+ * Text in the badge's figures, cap pixels tall in strokes stroke wide, from
+ * (x, top): its parts and width. Digits are tabular, so a count keeps its width.
+ */
+export function typeset(
+  text: string,
+  x: number,
+  top: number,
+  cap: number,
+  stroke: number,
+): { parts: Part[]; width: number } {
+  const [unit, r, gap] = [(cap - stroke) / 10, stroke / 2, cap * 0.16];
+  const parts: Part[] = [];
+  let at = x;
+  for (const char of text) {
+    const figure = figures[char];
+    if (!figure) throw Error(`the badge has no figure for ${char}`);
+    const width = /\d/.test(char) ? figures["0"].width : figure.width;
+    const indent = (width - figure.width) / 2;
+    for (const line of figure.lines) {
+      const points = line.map(([fx, fy]): Point => [at + r + (indent + fx) * unit, top + r + fy * unit]);
+      if (points.length === 1) parts.push({ from: points[0], to: points[0], r });
+      for (let i = 1; i < points.length; i++) parts.push({ from: points[i - 1], to: points[i], r });
+    }
+    at += width * unit + stroke + gap;
+  }
+  return { parts, width: at - gap - x };
+}
+
+/** Paints parts over an RGBA picture width pixels wide in one gray at alpha, smoothed at their edges. */
+function paint(rgba: Uint8Array, width: number, parts: Part[], value: number, alpha: number) {
+  const height = rgba.length / 4 / width;
+  const [[left, right], [top, bottom]] = bounds(parts);
+  for (let y = Math.max(0, Math.floor(top) - 1); y <= Math.min(height - 1, Math.ceil(bottom)); y++)
+    for (let x = Math.max(0, Math.floor(left) - 1); x <= Math.min(width - 1, Math.ceil(right)); x++) {
+      let d = Infinity;
+      for (const part of parts) d = Math.min(d, signed(x + 0.5, y + 0.5, part));
+      over(rgba, (y * width + x) * 4, value, alpha * clamp(0.5 - d));
+    }
+}
+
+/** Wall-clock time as +m:ss, or +h:mm:ss from an hour on. */
+export function elapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const [h, m] = [Math.floor(s / 3600), Math.floor(s / 60) % 60];
+  const two = (n: number) => String(n).padStart(2, "0");
+  return h ? `+${h}:${two(m)}:${two(s % 60)}` : `+${m}:${two(s % 60)}`;
+}
+
+/** A speed-up's badge: a picture per frame, laid over the video at (x, y[i]). */
+export interface Badge extends Layer {
+  x: number;
+  y: number[];
+}
+
+/** Eases out past 1 and back, by about a tenth. */
+function backOut(k: number): number {
+  const [c1, c3] = [1.5, 2.5];
+  return 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2;
+}
+
+/** What a frame's badge shows: its run's card, texts, how far it sits from rest, and how opaque. */
+interface BadgeLook {
+  card: number;
+  label: string;
+  clock: string;
+  shift: number;
+  fade: number;
+}
+
+/**
+ * A speed-up's badge for each frame shown at times, each played at its
+ * speed in speeds, in a video size pixels across whose cells are cell pixels
+ * tall: a dark pill centered at the bottom or top, as places say, with
+ * ×speed and the wall-clock time since the speed-up began. It rises in as a
+ * run of sped-up frames starts and sinks away after it ends. Pictures are
+ * drawn when asked for, and a frame that looks like the last reuses its one.
+ */
+export function badgeTiles(
+  times: number[],
+  speeds: number[],
+  places: Place[],
+  cell: number,
+  [videoWidth, videoHeight]: [number, number],
+  fps = FPS,
+): Badge {
+  // Frames it takes to rise in, and to sink away.
+  const [intro, outro] = [Math.round(0.45 * fps), Math.round(0.3 * fps)];
+  const tall = Math.round(cell * 2.4),
+    cap = tall * 0.44,
+    bold = cap * 0.15,
+    thin = cap * 0.12,
+    pad = tall * 0.38,
+    gap = tall * 0.26,
+    margin = Math.round(cell),
+    travel = tall * 0.7,
+    blur = tall * 0.22,
+    drop = tall * 0.08;
+  const label = (speed: number) => `×${speed}`;
+  const measure = (text: string, stroke: number) => typeset(text, 0, 0, cap, stroke).width;
+  // A card per edge it sits at in each sped-up run; its clock counts from the run's start.
+  const cards = runsOf(speeds.map(speed => speed > 1))
+    .filter(([, , fast]) => fast)
+    .flatMap(([from, to]) =>
+      runsOf(places.slice(from, to + 1)).map(([a, b, place]) => {
+        [a, b] = [from + a, from + b];
+        const slot = Math.max(...speeds.slice(a, b + 1).map(speed => measure(label(speed), bold)));
+        const clock = measure(elapsed(times[b] - times[from]), thin);
+        return { a, b, from, place, slot, clock, across: 2 * pad + slot + 2 * gap + clock };
+      }),
+    );
+  const width = Math.ceil(Math.max(0, ...cards.map(card => card.across)) + 2 * blur + 4);
+  const height = 2 * Math.ceil(tall / 2 + travel + blur + drop + 2);
+  const rest = { top: margin + tall / 2, bottom: videoHeight - margin - tall / 2 };
+  const looks: (BadgeLook | null)[] = times.map(() => null);
+  const y = times.map(() => Math.round(rest.bottom - height / 2));
+  cards.forEach((card, k) => {
+    const away = card.place === "bottom" ? travel : -travel;
+    // Moved to the other edge, it rises in there once it has sunk away from the last.
+    const begin = cards[k - 1]?.b === card.a - 1 ? card.a + outro - 1 : card.a;
+    if (begin > card.b) return;
+    for (let i = begin; i <= Math.min(times.length - 1, card.b + outro - 1); i++) {
+      const [inside, at] = [i <= card.b, Math.min(i, card.b)];
+      const step = inside ? clamp((i - begin + 1) / intro) : (i - card.b) / outro;
+      looks[i] = {
+        card: k,
+        label: label(speeds[at]),
+        clock: elapsed(times[at] - times[card.from]),
+        shift: away * (inside ? 1 - backOut(step) : step ** 2),
+        fade: inside ? 1 - (1 - clamp(step / 0.7)) ** 3 : 1 - step ** 1.5,
+      };
+      y[i] = Math.round(rest[card.place] - height / 2);
+    }
+  });
+  const blank = new Uint8Array(width * height * 4);
+  const draw = (look: BadgeLook) => {
+    const rgba = new Uint8Array(width * height * 4);
+    const card = cards[look.card];
+    const [cx, cy, r] = [width / 2, height / 2 + look.shift, tall / 2];
+    const [left, right] = [cx - card.across / 2, cx + card.across / 2];
+    const pill = (dy: number): Part => ({ from: [left + r, cy + dy], to: [right - r, cy + dy], r });
+    const shadow = pill(drop);
+    for (let py = Math.max(0, Math.floor(cy + drop - r - blur)); py < Math.min(height, cy + drop + r + blur); py++)
+      for (let px = Math.max(0, Math.floor(left - blur)); px < Math.min(width, right + blur); px++) {
+        const d = signed(px + 0.5, py + 0.5, shadow);
+        over(rgba, (py * width + px) * 4, 0, 0.45 * look.fade * clamp(0.5 - d / (2 * blur)) ** 2);
+      }
+    const body = pill(0),
+      line = Math.max(1, tall * 0.012);
+    for (let py = Math.max(0, Math.floor(cy - r - 1)); py < Math.min(height, cy + r + 1); py++)
+      for (let px = Math.max(0, Math.floor(left - 1)); px < Math.min(width, right + 1); px++) {
+        const d = signed(px + 0.5, py + 0.5, body);
+        const cover = clamp(0.5 - d);
+        if (!cover) continue;
+        const o = (py * width + px) * 4;
+        // A little lighter at the top, and a hairline inside the edge.
+        over(rgba, o, 38 - 26 * clamp((py + 0.5 - (cy - r)) / tall), 0.9 * look.fade * cover);
+        over(rgba, o, 255, 0.16 * look.fade * (cover - clamp(0.5 - (d + line))));
+      }
+    const top = cy - cap / 2;
+    const name = typeset(look.label, 0, 0, cap, bold).width;
+    paint(rgba, width, typeset(look.label, left + pad + (card.slot - name) / 2, top, cap, bold).parts, 255, look.fade);
+    const divider = left + pad + card.slot + gap;
+    const rule = Math.max(0.5, tall * 0.012);
+    paint(
+      rgba,
+      width,
+      [{ from: [divider, cy - tall * 0.22], to: [divider, cy + tall * 0.22], r: rule }],
+      255,
+      0.3 * look.fade,
+    );
+    const clock = typeset(look.clock, 0, 0, cap, thin).width;
+    paint(rgba, width, typeset(look.clock, right - pad - clock, top, cap, thin).parts, 255, 0.85 * look.fade);
+    return rgba;
+  };
+  let previous: { key: string; tile: Uint8Array } | null = null;
+  const frame = (i: number) => {
+    const look = looks[i];
+    if (!look) return blank;
+    const key = JSON.stringify(look, (_, v) => (typeof v === "number" ? Math.round(v * 100) / 100 : v));
+    if (previous?.key !== key) previous = { key, tile: draw(look) };
+    return previous.tile;
+  };
+  return { width, height, x: Math.round((videoWidth - width) / 2), y, count: times.length, frame };
+}
+
 /** How many frames a video holds still at each end. */
 function holdFrames(screen: Screen, fps: number): number {
   return Math.max(1, Math.round(screen.idle * fps));
 }
 
 /**
+ * What each frame of a video shows: of kept frames grabbed at times, those
+ * picks() shows at the paces then, held hold frames at real time at each end.
+ */
+export function shownFrames(times: number[], paces: PaceEvent[], hold: number): PaceEvent[] {
+  const held = (t: number) => Array.from({ length: hold }, (): PaceEvent => ({ t, ...realTime }));
+  const shown = picks(times.map(t => paceAt(paces, t).speed)).map(n => ({ ...paceAt(paces, times[n]), t: times[n] }));
+  return [...held(times[0]), ...shown, ...held(times.at(-1)!)];
+}
+
+/**
  * Encodes the take: from record start to record stop, with every script's
  * time and at most idle between scripts, held idle at each end, and the
- * pointer drawn over it. Returns when each of the video's frames was, in ms
- * since the epoch.
+ * pointer drawn over it. Kept time plays at the speed commands' speeds, with
+ * a badge while it's sped up; the holds stay at real time. Returns when each
+ * of the video's frames was, in ms since the epoch.
  */
 async function encode(
   dir: string,
@@ -711,30 +1122,51 @@ async function encode(
     else drop.push([n, n]);
   }
   const select = drop.map(([a, b]) => `between(n,${a},${b})`).join("+");
+  const grabbed = kept.map(timeAt);
+  const fast = pick(grabbed.map(t => paceAt(take.paces, t).speed));
   const cut =
     `setpts=PTS-STARTPTS,trim=start_frame=${first}:end_frame=${last + 1},setpts=PTS-STARTPTS` +
     (select ? `,select='not(${select})'` : "") +
+    (fast ? `,select='${fast}'` : "") +
     `,setpts=N/${fps}/TB,tpad=start=${hold}:start_mode=clone:stop=${hold}:stop_mode=clone,setpts=N/${fps}/TB`;
-  const times = [
-    ...Array<number>(hold).fill(timeAt(first)),
-    ...kept.map(timeAt),
-    ...Array<number>(hold).fill(timeAt(last)),
-  ];
+  const frames = shownFrames(grabbed, take.paces, hold);
+  const times = frames.map(frame => frame.t);
+  const speeds = frames.map(frame => frame.speed);
   // Doubled pixels give each 2x2 chroma sample one color. Past H.264 level
   // 5.1's frame size, an MP4 keeps the screen's size, padded to even.
   const doubled = video(out) === "mp4" && screen.width * screen.height * 4 <= 4096 * 2304;
   const scale = doubled ? 2 : 1;
+  const even = (n: number) => (video(out) === "mp4" ? 2 * Math.ceil(n / 2) : n);
   const size = doubled
     ? "scale=iw*2:ih*2:flags=neighbor"
     : video(out) === "mp4"
       ? "pad=ceil(iw/2)*2:ceil(ih/2)*2"
       : "null";
-  const pointer = pointerTiles(take, times, scale, screen.cell[1], fps);
-  const tiles = ["-f", "rawvideo", "-pixel_format", "rgba", "-video_size", `${pointer.size}x${pointer.size}`];
+  const pointer = pointerTiles(take, times, scale, screen.cell[1], fps, speeds);
+  const tile: Layer = { ...pointer, width: pointer.size, height: pointer.size };
+  const badge = fast
+    ? badgeTiles(
+        times,
+        speeds,
+        frames.map(frame => frame.place),
+        screen.cell[1] * scale,
+        [even(screen.width * scale), even(screen.height * scale)],
+        fps,
+      )
+    : null;
+  // The badge rides under the pointer's tile in the one pipe, and is drawn under the pointer.
+  const both = badge && stack([tile, badge]);
+  const piped: Layer = both ?? tile;
+  const place = `overlay=format=gbrp:eof_action=pass:x='${perFrame(pointer.x, fps)}':y='${perFrame(pointer.y, fps)}'`;
   const graph =
-    `[0:v]${cut},${size}[screen];[screen][1:v]overlay=format=gbrp:eof_action=pass` +
-    `:x='${perFrame(pointer.x, fps)}':y='${perFrame(pointer.y, fps)}'`;
-  await write(["-i", raw, ...tiles, "-framerate", String(fps), "-i", "pipe:0"], graph, out, dir, pointer);
+    badge && both
+      ? `[1:v]split[a][b];[a]crop=${tile.width}:${tile.height}:0:0[pointer];` +
+        `[b]crop=${badge.width}:${badge.height}:0:${both.tops[1]}[badge];` +
+        `[0:v]${cut},${size}[screen];` +
+        `[screen][badge]overlay=format=gbrp:x=${badge.x}:y='${perFrame(badge.y, fps)}'[badged];[badged][pointer]${place}`
+      : `[0:v]${cut},${size}[screen];[screen][1:v]${place}`;
+  const tiles = ["-f", "rawvideo", "-pixel_format", "rgba", "-video_size", `${piped.width}x${piped.height}`];
+  await write(["-i", raw, ...tiles, "-framerate", String(fps), "-i", "pipe:0"], graph, out, dir, piped);
   return times;
 }
 
