@@ -63,6 +63,13 @@ appendFileSync(${JSON.stringify(folder.log)},JSON.stringify({argv:process.argv.s
     await rm(this.root, { recursive: true, force: true });
   }
 }
+// Without --no-install, Bun fetches the extension's missing SDK imports from npm.
 function spawn(path: string, env: Record<string, string | undefined>, cwd?: string) {
-  return Bun.spawn([process.execPath, path], { cwd, env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  return Bun.spawn([process.execPath, "--no-install", path], {
+    cwd,
+    env,
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
 }
