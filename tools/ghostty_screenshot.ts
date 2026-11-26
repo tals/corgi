@@ -42,11 +42,11 @@
  * .tools on first use; GHOSTTY_HOST runs another build. Each run owns a
  * disposable sandbox and terminal. No personal config is loaded. A link or
  * file a capture opens never reaches the desktop: the terminal shows
- * "Opened …", and $SESSION/opened.log and the timeline note it. The host
- * runs tools/ghostty_relay.ts in front of the viewer, and scripts reach it over
- * HTTP on $SESSION/session.sock: keys arrive as terminal bytes, and the mouse
- * goes into Ghostty a step at a time like a hand's, so Ghostty sees every
- * step and reports it to the viewer itself.
+ * "Opened …" beside the click, and $SESSION/opened.log and the timeline
+ * note it. The host runs tools/ghostty_relay.ts in front of the viewer, and
+ * scripts reach it over HTTP on $SESSION/session.sock: keys arrive as
+ * terminal bytes, and the mouse goes into Ghostty a step at a time like a
+ * hand's, so Ghostty sees every step and reports it to the viewer itself.
  *
  * Videos keep the time each script runs, cut the time between scripts down
  * to --idle seconds, and hold the first and last screens that long. The

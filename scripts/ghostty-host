@@ -7,14 +7,14 @@
 # points this at a newly published one.
 set -eu
 . "$(dirname -- "$0")/tools.sh"
-version=20261126T040212Z-5d29d6c79f09
+version=20261126T053529Z-039f7e23eb34
 name="ghostty-host-$version-$platform-$arch"
 project="$root/.tools/$name/ghostty-host"
 url="https://corgi.computer/ghostty-host/$version/$name.tar.gz"
 case "$platform-$arch" in
-    macos-aarch64) sum=f336b68ce72bd2b7209673042b1c560cde9036cd265ddf5ed3842873bc856086 ;;
-    linux-x86_64) sum=f75188a79688a525dc6809a9d626e64360a73e6b7dc8e9a7112b20f1d64ee6e8 ;;
-    linux-aarch64) sum=f909e8a20dc70d3952452499e3f3e76f273c34d9106bd2e0530bd05b1de3d4eb ;;
+    macos-aarch64) sum=e4d8f5ec86aa12662833969672cab3d720d98abbf938f0c6e83aa40d2302a2c0 ;;
+    linux-x86_64) sum=f977b68a664b833d509966e9b8663d91c00ab6e0573552dbb704f93d881645ad ;;
+    linux-aarch64) sum=019e83c0166bb48ff2c103c3ab0cd695e97e1a0970dfbe301588e07af94a6848 ;;
     *) sum= ;;
 esac
 

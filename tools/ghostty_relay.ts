@@ -41,6 +41,8 @@ class Relay extends ui_driver.Driver {
   private running = 0;
   /** Where the pointer is in the frame, once a script has moved it. */
   private at: [number, number] | null = null;
+  /** Where and when a button last went down. */
+  private pressed: { t: number; at: [number, number] } | null = null;
   /** Ends watching the pointer's shape, while recording. */
   private unwatch: (() => Promise<void>) | null = null;
   /** The cell the running text command found. */
@@ -105,6 +107,7 @@ class Relay extends ui_driver.Driver {
     const action = down ? "press" : "release";
     await this.host().mouse({ action, button: buttons[button] });
     this.lastInput = Date.now();
+    if (down) this.pressed = { t: this.lastInput, at: this.at! };
     this.log(this.lastInput, { action, button: buttons[button] });
   }
   private async tap(button: 1 | 3) {
@@ -280,10 +283,13 @@ class Relay extends ui_driver.Driver {
   /** Shows that the capture opened a link or file, which it didn't, and notes it while recording. */
   async opened(target: string) {
     if (!target) return;
-    if (this.recording) this.opens.push({ t: Date.now(), target });
-    const where = /^[a-z][a-z0-9+.-]*:\/\//i.test(target) ? " in the browser" : "";
+    const now = Date.now();
+    if (this.recording) this.opens.push({ t: now, target });
+    // Beside the click that opened it, if one just did; a program's own open goes to the corner.
+    const click = this.pressed && now - this.pressed.t < 2000 ? this.pressed.at : null;
+    const shown = target.replace(/^(https?|file):\/\//i, "").replace(/(.)\/$/, "$1");
     await this.host()
-      .toast(`Opened ${target}${where}`)
+      .toast(`${OPEN_ICON} Opened`, shown, click)
       .catch(error => log(`toast: ${(error as Error).message}`));
   }
   async drive(script: string, cwd: string): Promise<{ output: string[]; error?: string }> {
@@ -304,6 +310,9 @@ class Relay extends ui_driver.Driver {
     }
   }
 }
+
+/** Material Design's open-in-new, from the Nerd Font symbols Ghostty carries. */
+const OPEN_ICON = "\u{f03cc}";
 
 /** Ghostty's grid, read afresh: Bun's process.stdout.columns stays at its first value. */
 function size(): [number, number] {

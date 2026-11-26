@@ -108,9 +108,12 @@ export class Host {
     };
   }
 
-  /** Shows text over the bottom row, right-aligned, for ms; Ghostty draws it. */
-  async toast(text: string, ms = 2500): Promise<void> {
-    await this.json("POST", "/toast", { text, ms });
+  /**
+   * Shows a pill with text, then strong in bold, for ms: on the row above
+   * frame pixel at, or at the bottom right. Ghostty draws it.
+   */
+  async toast(text: string, strong = "", at: [number, number] | null = null, ms = 2500): Promise<void> {
+    await this.json("POST", "/toast", { text, strong, ms, ...(at && { x: at[0], y: at[1] }) });
   }
 
   /** Whether nothing was drawn for quietMs, within timeoutMs. */
