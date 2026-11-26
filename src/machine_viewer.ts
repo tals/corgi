@@ -84,6 +84,8 @@ export async function run(
     localEndpoint(local, probe, host, options.start_local, options.local_running),
     ...saved.map(profile => sshEndpoint(profile, probe, host)),
   ];
+  /** The saved machine each SSH endpoint reaches, so removing one removes that machine alone. */
+  const profiles = new Map(saved.map((profile, i) => [endpoints[i + 1], profile] as const));
   let active = endpoints.find(e => e.name === selected);
   if (!active) throw Error("UnknownMachine");
   // Typing waits in the panes it's meant for until their machine catches
@@ -370,6 +372,7 @@ export async function run(
   adds.added = profile => {
     const endpoint = sshEndpoint(profile, probe, host);
     endpoints.push(endpoint);
+    profiles.set(endpoint, profile);
     view.adopt(endpoint.machine);
     endpoint.controller = view;
     wire(endpoint);
@@ -380,7 +383,7 @@ export async function run(
   const removeMachine = async (endpoint: Endpoint) => {
     if (!endpoint.remote) return;
     try {
-      await machines.remove(endpoint.name);
+      await machines.remove(endpoint.name, profiles.get(endpoint) ?? null);
     } catch (error) {
       const name = endpoint.name,
         reason = errors.name(error) ?? i18n.t`unknown error`;
@@ -398,6 +401,7 @@ export async function run(
     if (clipboard.owner?.endpoint === endpoint) clipboard.owner = null;
     if (connection_hover.machine === endpoint.name) closeCard();
     endpoints.splice(index, 1);
+    profiles.delete(endpoint);
     view.forget(endpoint.machine);
     // The dropdown stays, the last SSH machine gone too: it can add one.
     if (workspaces.open) workspaces.settle();
