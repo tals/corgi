@@ -7,6 +7,7 @@ import * as i18n from "./i18n";
 import * as palette from "./palette";
 import * as docking from "./docking";
 import * as dockingGrip from "./docking_grip";
+import * as gripBand from "./grip_band";
 import * as hostImages from "./host_images";
 import type { DockDrop } from "./protocol";
 import * as composition from "./composition";
@@ -1192,6 +1193,10 @@ export function frame(
     side.archive_marks = (brand, x, y) => {
       archive_marks.push({ brand, x, y });
     };
+  if (!dim_sidebar && u.pictures && !u.signin_draw && !u.signin_exit) {
+    const pictures = u.pictures;
+    side.band_image = (x, y, count, start, grip) => gripBand.place(pictures, x, y, count, start, grip);
+  }
   if (dim_sidebar) {
     const dimmed = new Writer();
     side.draw(dimmed, entries, workspaces, u.archived_workspaces);

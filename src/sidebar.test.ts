@@ -25,6 +25,9 @@ import {
   resourceAt,
   agentAt,
   writeExit,
+  shadeRows,
+  shadow_ink,
+  workspace_shadow_ink,
   writeRevealedDetail,
   linkRange,
   portLabel,
@@ -320,7 +323,12 @@ test("a hovered agent's rows tint halfway to selected, and a selected one keeps 
   const sleeper = corgiAnimation.idle(6, { background: hover_rgb });
   expect(count(out, sleeper)).toBe(1);
   entries[0].focused = true;
-  out = draw(view, entries, []);
+  // The rule's band fades through every shade from the panel to selected, so
+  // only the agent rows count.
+  out = draw(view, entries, [])
+    .split(/(?=\x1b\[\d+;\d+H)/)
+    .filter(part => !part.startsWith(`\x1b[${view.middle()};`))
+    .join("");
   expect(has(out, hover_bg)).toBe(false);
   expect(has(out, "\x1b[0m" + selected_bg)).toBe(true);
 });
@@ -1477,6 +1485,33 @@ test("the agents drawer runs the agent list from the top, under its header alone
   expect(lines.join("\n")).not.toContain("Project");
 });
 
+/** The rule row's cells from the lists' first column: each one's glyph, its background (null for
+ * the terminal's) and whether it carries the band's lines. */
+function bandCells(frame: string, row: number) {
+  // The rule is the last write to its row; the panel's fill comes first.
+  const text = frame
+    .split(`\x1b[${row};2H`)
+    .at(-1)!
+    .split(/\x1b\[\d+;\d+H/)[0];
+  const cells: { ch: string; bg: palette.Rgb | null; lined: boolean }[] = [];
+  let bg: palette.Rgb | null = null,
+    lined = false;
+  for (const [, params, ch] of text.matchAll(/\x1b\[([\d;:]*)m|([^\x1b])/g)) {
+    if (ch !== undefined) {
+      cells.push({ ch, bg, lined });
+      continue;
+    }
+    const p = params.split(";");
+    for (let i = 0; i < p.length; i++) {
+      if (p[i] === "0") ((bg = null), (lined = false));
+      else if (p[i] === "53") lined = true;
+      else if (p[i] === "48" && p[i + 1] === "2") ((bg = p.slice(i + 2, i + 5).map(Number) as palette.Rgb), (i += 4));
+      else if (p[i] === "38" && p[i + 1] === "2") i += 4;
+    }
+  }
+  return cells;
+}
+
 test("the focused list sits in a box in the focused pane's outline, sharing the rule", () => {
   const outline = new Style({ bg: "bg" }).sgr() + fgRgb(palette.outline);
   const view = View.init(100, 30, true, 0, 0);
@@ -1491,9 +1526,25 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   const rule = (left: string, stroke: string, right: string) =>
     left + stroke.repeat(10) + grip + stroke.repeat(10) + right;
   let lines = box(view);
-  expect(lines[13]).toBe(rule("  ", "━", "┥"));
-  expect(has(draw(view, [], []), panel + fg("line") + "━")).toBe(true);
-  expect(has(draw(view, [], []), fg("faint") + grip + fg("line") + "━")).toBe(true);
+  // Unboxed, the rule is a band in the selected gray around the grip, lined
+  // above and below, that fades into the panel toward both ends.
+  expect(lines[13]).toBe(rule("  ", " ", "│"));
+  const band = bandCells(draw(view, [], []), 14);
+  const at = band.findIndex(c => c.ch === "⠶");
+  const strength = (c: (typeof band)[number]) =>
+    (c.bg ?? colors.bg).reduce((s, v, i) => s + Math.abs(v - colors.bg[i]), 0);
+  expect(band.length).toBe(26);
+  expect(band[at - 1]).toMatchObject({ bg: colors.selected, lined: true });
+  for (const end of [band[0], band[band.length - 1]]) expect(end).toMatchObject({ bg: colors.bg, lined: false });
+  for (let i = at - 1; i > 0; i--) expect(strength(band[i - 1])).toBeLessThanOrEqual(strength(band[i]));
+  for (let i = at + 3; i < band.length - 1; i++) expect(strength(band[i + 1])).toBeLessThanOrEqual(strength(band[i]));
+  // A host that holds the band as an image gets it placed under the row,
+  // which keeps the panel.
+  const kitty = view.clone(),
+    taken: number[][] = [];
+  kitty.band_image = (...at) => (taken.push(at), true);
+  expect(bandCells(draw(kitty, [], []), 14).every(c => c.bg?.join() === colors.bg.join() && !c.lined)).toBe(true);
+  expect(taken).toEqual([[1, 13, 26, 11, 5]]);
   view.focus = "agents";
   lines = box(view);
   expect(lines[12]).toBe(" ".repeat(27) + "│");
@@ -2171,6 +2222,46 @@ test("the rename field hugs a row's name and says where its message goes", () =>
     viewerRef.isPane(e.target) && viewerRef.parts(e.target).id === 2 ? { ...e, notes: 2 } : e,
   );
   expect(view.withEntries(busy).fieldRect(viewerRef.pane(0, 2), three_workspaces)!.width).toBe(21 - 8);
+});
+
+test("a cut edge shades the rows above it, colors they inherit included", () => {
+  const ink = (rgb: palette.Rgb, keep: number) => fgRgb(mix(colors.bg, rgb, keep));
+  const frame = "\x1b[1;1H" + fgRgb([200, 100, 50]) + "a" + "\x1b[2;1H" + "b" + "\x1b[3;1H" + "c";
+  const out = shadeRows(frame, row => (row === 1 ? 40 : null));
+  // Row 1 writes no colors of its own, so it fades the ones row 0 left; row 2 gets them back whole.
+  const row = (n: number) => `\x1b[${n};1H`;
+  expect(out).toBe(
+    frame.split(row(2))[0] + row(2) + ink([200, 100, 50], 40) + "b" + row(3) + ink([200, 100, 50], 100) + "c",
+  );
+});
+
+test("while more lie below, the rule and the list's end shade the rows above them", () => {
+  const workspaces = Array.from({ length: 8 }, (_, i) =>
+    workspaceEntry({ id: viewerRef.workspace(1, i + 1), name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
+  );
+  const entries = agents(20);
+  const faded = (keep: number) =>
+    (["faint", "muted", "text"] as const).map(token => fgRgb(mix(colors.bg, colors[token], keep)));
+  const rows = (v: View) => draw(v, entries, workspaces).split(/(?=\x1b\[\d+;\d+H)/);
+  const shaded = (v: View, row: number, keep: number) =>
+    rows(v).some(part => part.startsWith(`\x1b[${row + 1};`) && faded(keep).some(ink => part.includes(ink)));
+  const view = View.init(100, 30, true, 0, entries.length).withWorkspaces(8, 0).withEntries(entries);
+  const end = view.workspaceEnd();
+  expect(shaded(view, end - 1, workspace_shadow_ink[0])).toBe(true);
+  expect(shaded(view, end - 2, workspace_shadow_ink[1])).toBe(true);
+  expect(shaded(view, end - 3, workspace_shadow_ink[1])).toBe(false);
+  // A row too short for another workspace stays blank; the shadow starts above it.
+  const gap = View.init(100, 40, true, 0, entries.length).withWorkspaces(8, 0).withEntries(entries);
+  expect(gap.workspaceEnd() - 2 - gap.workspaceCapacity() * 3).toBe(1);
+  expect(shaded(gap, gap.workspaceEnd() - 2, workspace_shadow_ink[0])).toBe(true);
+  // The agent list's end, above the badge counting the agents below it.
+  const bottom = view.drawEnd(view.badge("below"));
+  expect(shaded(view, bottom - 1, shadow_ink[0])).toBe(true);
+  // Scrolled to the end of both, nothing is cut, so nothing fades.
+  const done = view.withWorkspaces(8, 99).withEntries(entries);
+  done.offset = done.maxOffset();
+  expect(shaded(done, end - 1, workspace_shadow_ink[0])).toBe(false);
+  expect(shaded(done, done.drawEnd(done.badge("below")) - 1, shadow_ink[0])).toBe(false);
 });
 
 test("a renamed row scrolled out of its list has no field, and the last visible line puts the message above", () => {

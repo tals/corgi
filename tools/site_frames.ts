@@ -12,7 +12,8 @@
  *   bun tools/site_frames.ts --dump DIR also write each screen as .ansi
  *
  * The page draws these as cell grids: each frame is rows of [text, style]
- * runs, and a style is [fg, bg, bold, underline, underline color] with
+ * runs, and a style is [fg, bg, bold, underline, underline color], and
+ * `true` after them when overlined, with
  * Corgi's palette tokens by name. The workspaces, agents and numbers below
  * are the page's story; the drawing is Corgi's.
  */

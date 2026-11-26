@@ -53,8 +53,8 @@ const mix = (a, b, t) => "#" + rgb(a).map((x, i) => Math.round(x + (rgb(b)[i] - 
 // ---------------------------------------------------------------- styles
 const STYLES = DATA.styles;
 const styleIndex = new Map(STYLES.map((s, i) => [JSON.stringify(s), i]));
-function style(fg, bg = null, bold = false, ul = 0, ulc = null) {
-  const s = [fg, bg, bold, ul, ulc], key = JSON.stringify(s);
+function style(fg, bg = null, bold = false, ul = 0, ulc = null, ol = false) {
+  const s = ol ? [fg, bg, bold, ul, ulc, true] : [fg, bg, bold, ul, ulc], key = JSON.stringify(s);
   if (!styleIndex.has(key)) { styleIndex.set(key, STYLES.length); STYLES.push(s); }
   return styleIndex.get(key);
 }
@@ -62,9 +62,9 @@ const PLAIN = style(null);
 const looks = [];
 function look(id) {
   if (looks[id]) return looks[id];
-  const [fg, bg, bold, ul, ulc] = STYLES[id];
+  const [fg, bg, bold, ul, ulc, ol] = STYLES[id];
   const token = (c) => c && !c.startsWith("#");
-  const cls = [token(fg) && "f-" + fg, token(bg) && "k-" + bg, bold && "b", ul && "u", ul === 4 && "ud"].filter(Boolean).join(" ");
+  const cls = [token(fg) && "f-" + fg, token(bg) && "k-" + bg, bold && "b", ul && "u", ul === 4 && "ud", ol && "o"].filter(Boolean).join(" ");
   return (looks[id] = { cls, color: fg && !token(fg) ? fg : "", bg: bg && !token(bg) ? bg : "", ulc: ulc ? (token(ulc) ? `var(--${ulc})` : ulc) : "" });
 }
 
@@ -148,7 +148,7 @@ function clearSpan(g, row, span) {
 
 const blank = (rows, cols) => Array.from({ length: rows }, () => Array.from({ length: cols }, () => [" ", PLAIN]));
 // The style `s` would give, keeping the cell's underline (agent separators).
-const keepRule = (s, cell) => { const [fg, bg, bold] = STYLES[s], [, , , ul, ulc] = STYLES[cell[1]]; return ul ? style(fg, bg, bold, ul, ulc) : s; };
+const keepRule = (s, cell) => { const [fg, bg, bold] = STYLES[s], [, , , ul, ulc, ol] = STYLES[cell[1]]; return ul || ol ? style(fg, bg, bold, ul, ulc, ol) : s; };
 function put(g, r, c, text, s) {
   return cellGrid.put(g[r], c, text, s);
 }
@@ -1365,18 +1365,18 @@ function drawWatch(t) {
   // The workspace not shown fades back, until the pointer comes to it.
   const other = W.ws === "C" ? "M" : "C";
   if (W.wsHover !== other && W.res !== other) for (const r of WS_ROWS[other]) for (let c = 0; c < W.width - 1; c++) {
-    const [ch, s] = g[r][c], [fg, bg, bold, ul, ulc] = STYLES[s];
-    if (fg) g[r][c] = [ch, style(mix(fg, "bg", 0.45), bg, bold, ul, ulc)];
+    const [ch, s] = g[r][c], [fg, bg, bold, ul, ulc, ol] = STYLES[s];
+    if (fg) g[r][c] = [ch, style(mix(fg, "bg", 0.45), bg, bold, ul, ulc, ol)];
   }
   // A hovered resource row brightens, as drawResources draws it.
   if (W.res) for (let c = BAR + 1; c < W.width - 2; c++) {
-    const row = RES_ROW[W.res], [ch, s] = g[row][c], [fg, , bold, ul, ulc] = STYLES[s];
-    g[row][c] = [ch, style(fg === "faint" || fg === "muted" ? "text" : fg, "selected", bold, ul, ulc)];
+    const row = RES_ROW[W.res], [ch, s] = g[row][c], [fg, , bold, ul, ulc, ol] = STYLES[s];
+    g[row][c] = [ch, style(fg === "faint" || fg === "muted" ? "text" : fg, "selected", bold, ul, ulc, ol)];
   }
   // The hovered agent's tint goes under any card: a phone's card covers it.
   if (W.hover != null) for (const r of [WATCH_ROWS[W.hover], WATCH_ROWS[W.hover] + 1]) for (let c = BAR; c < W.width - 2; c++) {
-    const [ch, s] = g[r][c], [fg, bg, bold, ul, ulc] = STYLES[s];
-    if (bg === "bg") g[r][c] = [ch, style(fg, HOVER_BG, bold, ul, ulc)];
+    const [ch, s] = g[r][c], [fg, bg, bold, ul, ulc, ol] = STYLES[s];
+    if (bg === "bg") g[r][c] = [ch, style(fg, HOVER_BG, bold, ul, ulc, ol)];
   }
   if (W.link) CHIP.forEach((cell, c) => (g[WATCH_ROWS_N - 1][c] = cell));
   if (W.res) { const rect = resRect(W.res); paste(g, resCells("laptop", W.res, t, watchRes, rect, !!W.resPointer, W.resPointer), rect); }
@@ -1534,9 +1534,9 @@ watchEl.addEventListener("click", (e) => {
 // spill past its line: the sidebar header it opens from keeps none of its
 // own either, and its "workspaces" sits well back so the card leads.
 const OV_STEP = 2400, OV_CARD = F.ov_card.map((g) => g.map((row, r) => row.map(([ch, s]) => {
-  const [fg, bg, bold, ul, ulc] = STYLES[s];
+  const [fg, bg, bold, ul, ulc, ol] = STYLES[s];
   if (r > 1 && bg !== "bg") return [ch, s];
-  return [ch, style(r > 1 || !fg ? fg : mix(fg, "bg", 0.65), null, bold, ul, ulc)];
+  return [ch, style(r > 1 || !fg ? fg : mix(fg, "bg", 0.65), null, bold, ul, ulc, ol)];
 })));
 const overviewEl = document.getElementById("v-overview");
 const overviewScreen = new Screen(overviewEl, OV_CARD[0][0].length, OV_CARD[0].length, { badge: true });
@@ -1616,8 +1616,8 @@ function drawKeys() {
       const c0 = K.lit === "prefix" ? (r === b.y + 3 ? b.x + 11 : -1) : cells[r].indexOf(K.lit);
       const c1 = K.lit === "prefix" ? b.x + 20 : cells[r].lastIndexOf(K.lit);
       for (let c = Math.max(0, c0); c0 >= 0 && c <= c1; c++) {
-        const [fg, bg, bold, ul, ulc] = STYLES[g[r][c][1]];
-        g[r][c] = [g[r][c][0], style(fg, bg === "line" ? "faint" : "selected", bold, ul, ulc)];
+        const [fg, bg, bold, ul, ulc, ol] = STYLES[g[r][c][1]];
+        g[r][c] = [g[r][c][0], style(fg, bg === "line" ? "faint" : "selected", bold, ul, ulc, ol)];
       }
     }
   }
@@ -2746,16 +2746,16 @@ function session(init = {}) {
     // The workspace not shown fades back until the pointer comes to it.
     const other = S.ws === "C" ? "M" : "C";
     if (!S.alone && S.wsHover !== other && S.res !== other) for (const r of WS_ROWS[other]) for (let c = 0; c < SW - 1; c++) {
-      const [ch, s] = g[r][c], [fg, bg, bold, ul, ulc] = STYLES[s];
-      if (fg) g[r][c] = [ch, style(mix(fg, "bg", 0.45), bg, bold, ul, ulc)];
+      const [ch, s] = g[r][c], [fg, bg, bold, ul, ulc, ol] = STYLES[s];
+      if (fg) g[r][c] = [ch, style(mix(fg, "bg", 0.45), bg, bold, ul, ulc, ol)];
     }
     if (S.res) for (let c = BAR + 1; c < SW - 2; c++) {
-      const row = RES_ROW[S.res], [ch, s] = g[row][c], [fg, , bold, ul, ulc] = STYLES[s];
-      g[row][c] = [ch, style(fg === "faint" || fg === "muted" ? "text" : fg, "selected", bold, ul, ulc)];
+      const row = RES_ROW[S.res], [ch, s] = g[row][c], [fg, , bold, ul, ulc, ol] = STYLES[s];
+      g[row][c] = [ch, style(fg === "faint" || fg === "muted" ? "text" : fg, "selected", bold, ul, ulc, ol)];
     }
     if (S.hover != null) for (const r of [WATCH_ROWS[S.hover], WATCH_ROWS[S.hover] + 1]) for (let c = BAR; c < SW - 2; c++) {
-      const [ch, s] = g[r][c], [fg, bg, bold, ul, ulc] = STYLES[s];
-      if (bg === "bg") g[r][c] = [ch, style(fg, HOVER_BG, bold, ul, ulc)];
+      const [ch, s] = g[r][c], [fg, bg, bold, ul, ulc, ol] = STYLES[s];
+      if (bg === "bg") g[r][c] = [ch, style(fg, HOVER_BG, bold, ul, ulc, ol)];
     }
     drawPanes(g, t);
     if (S.review) drawReview(g, review, S.reviewKeys && S.active, S.rows);
