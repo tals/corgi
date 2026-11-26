@@ -1,7 +1,7 @@
 //! A file a pane's text names: a path the native layer found in plain text
 //! (`Link.path`), or a file:// link, with the line and column the text gave.
-//! The viewer checks that it names a file on the pane's machine before it
-//! underlines it, peeks at it or opens it.
+//! The viewer checks that it names a file or a folder on the pane's machine
+//! before it underlines it, peeks at it, browses it or opens it.
 import { homedir, hostname } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import type * as fileAccess from "./file_access";
@@ -55,7 +55,11 @@ export function candidates(path: string, cwd: string, home = homedir()): string[
   return out;
 }
 
-export type Status = { kind: "pending" } | { kind: "missing" } | { kind: "file"; path: string; size: number };
+export type Status =
+  | { kind: "pending" }
+  | { kind: "missing" }
+  | { kind: "file"; path: string; size: number }
+  | { kind: "directory"; path: string };
 interface Entry {
   status: Status;
   at: number;
@@ -64,8 +68,8 @@ interface Entry {
 /** How long an answer holds before the next ask checks again. */
 const fresh_ms = 3000;
 const max_entries = 512;
-/** Whether the names in a machine's panes are its files, checked in the
- * background and remembered a while; `wake` redraws once an answer changes. */
+/** Whether the names in a machine's panes are its files or folders, checked
+ * in the background and remembered a while; `wake` redraws once an answer changes. */
 export class Resolver {
   private entries = new Map<string, Entry>();
   /** The checks in flight, for tests to wait on. */
@@ -92,12 +96,15 @@ export class Resolver {
     return entry.status;
   }
   private async check(entry: Entry, path: string, cwd: string): Promise<void> {
-    const info = await this.files.find(path, cwd).catch(() => null);
-    const found: Status = info ? { kind: "file", path: info.path, size: info.size } : { kind: "missing" };
+    const info = await this.files.find(path, cwd, true).catch(() => null);
+    const found: Status = !info
+      ? { kind: "missing" }
+      : info.directory
+        ? { kind: "directory", path: info.path }
+        : { kind: "file", path: info.path, size: info.size };
     entry.checking = false;
     const before = entry.status;
     entry.status = found;
-    if (before.kind !== found.kind || (before.kind === "file" && found.kind === "file" && before.path !== found.path))
-      this.wake();
+    if (before.kind !== found.kind || ("path" in before && "path" in found && before.path !== found.path)) this.wake();
   }
 }

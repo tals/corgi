@@ -85,6 +85,16 @@ offers to find the line, shows the scan's progress once you click, and keeps
 an index of where lines start under the tmp directory, so a later scan of the
 same file resumes where it left off. The pane scans without asking.
 
+A folder's name, such as `src/` or an entry of `ls --hyperlink`, lists the
+folder the same way, folders first. Click the name or the card to pin it and
+type to search every path below it, fzf-style: inside a Git work tree it
+searches what `git ls-files` lists, so ignored files stay out, and elsewhere
+the file system, skipping `.git`. Results arrive and re-rank as the search
+walks, which stops at 100,000 entries or 10 seconds. ↑/↓ or Ctrl-P/Ctrl-N
+select, Enter opens a file in a pane beside or goes into a folder, Backspace on
+an empty query goes up, and Esc or a click outside puts the card away. A click
+on an entry opens it as Enter does; a double-click only selects it.
+
 Closing a tab or pane ends its processes. **prefix u** reopens the latest
 recoverable closed agent in the workspace, resuming its conversation; closed
 shells and unsaved application memory cannot be restored. **prefix q** detaches

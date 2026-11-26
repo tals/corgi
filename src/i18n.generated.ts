@@ -227,6 +227,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" any key closes "]': () => ` 按任意键关闭 `,
     '[" back "]': () => ` 返回 `,
     '[" c Clone "]': () => ` c 克隆 `,
+    '[" click to browse · scroll "]': () => ` 点击浏览 · 滚动 `,
     '[" click to open · scroll "]': () => ` 点击打开 · 滚动 `,
     '[" click to open · scroll to the end to follow "]': () => ` 点击打开 · 滚到底部继续跟随 `,
     '[" click to open · scroll up to pause "]': () => ` 点击打开 · 向上滚动暂停 `,
@@ -234,6 +235,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" cpu "]': () => ` CPU `,
     '[" disk I/O "]': () => ` 磁盘 I/O `,
     '[" e Edit "]': () => ` e 编辑 `,
+    '[" first "," shown "]': v0 => ` 仅显示前 ${v0} 项 `,
     '[" h Activate "]': () => ` h 启用 `,
     '[" h Hide "]': () => ` h 隐藏 `,
     '[" hold ⌫ "]': () => ` 按住 ⌫ `,
@@ -242,6 +244,9 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" now"]': () => ` 当前`,
     '[" remove"]': () => ` 移除`,
     '[" sort: "]': () => ` 排序：`,
+    '[" stopped after "," s "]': v0 => ` ${v0} 秒后停止 `,
+    '[" stopped at "," entries "]': v0 => ` 已在 ${v0} 项处停止 `,
+    '[" type to search · ⏎ open · ⌫ up · esc close "]': () => ` 输入以搜索 · ⏎ 打开 · ⌫ 上一级 · esc 关闭 `,
     '[" vs "]': () => ` 对比 `,
     '[" z: files "]': () => ` z：文件 `,
     '[" · "," new"]': v0 => ` · 新增 ${v0} 行`,
@@ -250,6 +255,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" · over SSH"]': () => ` · 通过 SSH`,
     '[" · release to cancel"]': () => ` · 松开取消`,
     '[" … "," more characters"]': v0 => ` … 另有 ${v0} 个字符`,
+    '[" ↑↓ select · ⏎ open · esc close "]': () => ` ↑↓ 选择 · ⏎ 打开 · esc 关闭 `,
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-点击打开 · 点击复制 `,
     '[" ⋯ "," lines "]': v0 => ` ⋯ ${v0} 行 `,
     '["$"," isn\'t a variable"]': v0 => `$${v0} 不是有效变量`,
@@ -266,6 +272,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[""," commits"]': v0 => `${v0} 次提交`,
     '[""," file"]': v0 => `${v0} 个文件`,
     '[""," files"]': v0 => `${v0} 个文件`,
+    '[""," folder"]': v0 => `${v0} 个文件夹`,
+    '[""," folders"]': v0 => `${v0} 个文件夹`,
     '[""," hunk"]': v0 => `${v0} 处更改`,
     '[""," hunks"]': v0 => `${v0} 处更改`,
     '[""," in ",""]': (v0, v1) => `${v1} 中有 ${v0} 个`,
@@ -443,6 +451,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Can\'t read it: ",""]': v0 => `无法读取：${v0}`,
     '["Can\'t read this folder"]': () => `无法读取此文件夹`,
     '["Can\'t save "," (",")"]': (v0, v1) => `无法保存 ${v0}（${v1}）`,
+    '["Can\'t search this folder"]': () => `无法搜索此文件夹`,
     '["Cancel"]': () => `取消`,
     '["Change folder"]': () => `更改文件夹`,
     '["Change navigation"]': () => `跳转更改区块`,
@@ -575,6 +584,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Edit ›"]': () => `编辑 ›`,
     '["Edit, delete"]': () => `编辑、删除`,
     '["Empty file"]': () => `空文件`,
+    '["Empty folder"]': () => `空文件夹`,
     '["Ended"]': () => `已结束`,
     '["Enter a command."]': () => `请输入命令。`,
     '["Enter a workspace name."]': () => `请输入工作区名称。`,
@@ -775,6 +785,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["No image on the clipboard"]': () => `剪贴板中没有图片`,
     '["No lines changed"]': () => `没有更改的行`,
     '["No linked worktrees"]': () => `没有关联的工作树`,
+    '["No matches"]': () => `无匹配项`,
     '["No matches."]': () => `无匹配项。`,
     '["No matching actions."]': () => `没有匹配的操作。`,
     '["No matching agents"]': () => `没有匹配的智能体`,
@@ -945,6 +956,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Search models, agents and accounts"]': () => `搜索模型、代理和账户`,
     '["Search or type a host"]': () => `搜索或输入主机`,
     '["Searching conversations…"]': () => `正在搜索会话…`,
+    '["Searching…"]': () => `正在搜索…`,
     '["Select"]': () => `选择`,
     '["Select tab"]': () => `选择标签页`,
     '["Select workspace"]': () => `选择工作区`,
@@ -1234,6 +1246,7 @@ ${v1} 使用该账号。
     '["chosen"]': () => `已选`,
     '["clean"]': () => `无更改`,
     '["clear"]': () => `清除`,
+    '["click to search below"]': () => `点击以搜索其下所有内容`,
     '["clone"]': () => `克隆`,
     '["close"]': () => `关闭`,
     '["command"]': () => `命令`,
@@ -1284,6 +1297,7 @@ ${v1} 使用该账号。
     '["git couldn\'t remove it"]': () => `git 无法移除它`,
     '["git counts +"," −","."]': (v0, v1) => `git 统计 +${v0} −${v1}。`,
     '["git didn\'t answer"]': () => `git 未响应`,
+    '["git · "]': () => `git · `,
     '["go to its row"]': () => `前往该行`,
     '["go to pane"]': () => `前往窗格`,
     '["gpu memory"]': () => `显存`,
@@ -1400,6 +1414,7 @@ ${v1} 使用该账号。
     '["type a path"]': () => `输入路径`,
     '["type to find"]': () => `输入以查找`,
     '["type to search"]': () => `输入以搜索`,
+    '["type to search below"]': () => `输入以搜索其下所有内容`,
     '["uncommitted"]': () => `未提交`,
     '["unexpected value; using the default"]': () => `值无效，使用默认值`,
     '["unfold"]': () => `展开`,
@@ -1703,6 +1718,7 @@ ${v1} 使用该账号。
     '[" any key closes "]': () => ` 何かキーを押すと閉じます `,
     '[" back "]': () => ` 戻る `,
     '[" c Clone "]': () => ` c 複製 `,
+    '[" click to browse · scroll "]': () => ` クリックで閲覧 · スクロール `,
     '[" click to open · scroll "]': () => ` クリックで開く · スクロール `,
     '[" click to open · scroll to the end to follow "]': () => ` クリックで開く · 末尾までスクロールで追従 `,
     '[" click to open · scroll up to pause "]': () => ` クリックで開く · 上にスクロールで一時停止 `,
@@ -1710,6 +1726,7 @@ ${v1} 使用该账号。
     '[" cpu "]': () => ` CPU `,
     '[" disk I/O "]': () => ` ディスクI/O `,
     '[" e Edit "]': () => ` e 編集 `,
+    '[" first "," shown "]': v0 => ` 先頭の${v0}件を表示 `,
     '[" h Activate "]': () => ` h 表示 `,
     '[" h Hide "]': () => ` h 非表示 `,
     '[" hold ⌫ "]': () => ` ⌫を長押し `,
@@ -1718,6 +1735,9 @@ ${v1} 使用该账号。
     '[" now"]': () => ` 今`,
     '[" remove"]': () => ` 削除`,
     '[" sort: "]': () => ` 並べ替え：`,
+    '[" stopped after "," s "]': v0 => ` ${v0}秒で停止 `,
+    '[" stopped at "," entries "]': v0 => ` ${v0}件で停止 `,
+    '[" type to search · ⏎ open · ⌫ up · esc close "]': () => ` 入力で検索 · ⏎ 開く · ⌫ 上へ · esc 閉じる `,
     '[" vs "]': () => ` 対 `,
     '[" z: files "]': () => ` z: ファイル `,
     '[" · "," new"]': v0 => ` · 新着${v0}行`,
@@ -1726,6 +1746,7 @@ ${v1} 使用该账号。
     '[" · over SSH"]': () => ` · SSH接続`,
     '[" · release to cancel"]': () => ` · 離すとキャンセル`,
     '[" … "," more characters"]': v0 => ` … 残り${v0}文字`,
+    '[" ↑↓ select · ⏎ open · esc close "]': () => ` ↑↓ 選択 · ⏎ 開く · esc 閉じる `,
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-クリックで開く · クリックでコピー `,
     '[" ⋯ "," lines "]': v0 => ` ⋯ ${v0}行 `,
     '["$"," isn\'t a variable"]': v0 => `$${v0}という変数はありません`,
@@ -1742,6 +1763,8 @@ ${v1} 使用该账号。
     '[""," commits"]': v0 => `${v0}コミット`,
     '[""," file"]': v0 => `${v0}ファイル`,
     '[""," files"]': v0 => `${v0}ファイル`,
+    '[""," folder"]': v0 => `${v0}フォルダー`,
+    '[""," folders"]': v0 => `${v0}フォルダー`,
     '[""," hunk"]': v0 => `${v0}個の変更ブロック`,
     '[""," hunks"]': v0 => `${v0}個の変更ブロック`,
     '[""," in ",""]': (v0, v1) => `${v1}内に${v0}件`,
@@ -1926,6 +1949,7 @@ ${v1} 使用该账号。
     '["Can\'t read it: ",""]': v0 => `読み込めません: ${v0}`,
     '["Can\'t read this folder"]': () => `このフォルダーを読み込めません`,
     '["Can\'t save "," (",")"]': (v0, v1) => `${v0} を保存できません（${v1}）`,
+    '["Can\'t search this folder"]': () => `このフォルダーを検索できません`,
     '["Cancel"]': () => `キャンセル`,
     '["Change folder"]': () => `フォルダーを変更`,
     '["Change navigation"]': () => `操作方法を変更`,
@@ -2064,6 +2088,7 @@ ${v1} 使用该账号。
     '["Edit ›"]': () => `編集 ›`,
     '["Edit, delete"]': () => `編集・削除`,
     '["Empty file"]': () => `空のファイル`,
+    '["Empty folder"]': () => `空のフォルダー`,
     '["Ended"]': () => `終了`,
     '["Enter a command."]': () => `コマンドを入力してください。`,
     '["Enter a workspace name."]': () => `ワークスペース名を入力してください。`,
@@ -2268,6 +2293,7 @@ ${v1} 使用该账号。
     '["No image on the clipboard"]': () => `クリップボードに画像がありません`,
     '["No lines changed"]': () => `変更された行はありません`,
     '["No linked worktrees"]': () => `リンクされたワークツリーなし`,
+    '["No matches"]': () => `該当なし`,
     '["No matches."]': () => `該当するものはありません。`,
     '["No matching actions."]': () => `一致する操作はありません。`,
     '["No matching agents"]': () => `一致するエージェントなし`,
@@ -2444,6 +2470,7 @@ ${v1} 使用该账号。
     '["Search models, agents and accounts"]': () => `モデル、エージェント、アカウントを検索`,
     '["Search or type a host"]': () => `検索またはホストを入力`,
     '["Searching conversations…"]': () => `会話を検索中…`,
+    '["Searching…"]': () => `検索中…`,
     '["Select"]': () => `選択`,
     '["Select tab"]': () => `タブを選択`,
     '["Select workspace"]': () => `ワークスペースを選択`,
@@ -2740,6 +2767,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["chosen"]': () => `指定済み`,
     '["clean"]': () => `変更なし`,
     '["clear"]': () => `クリア`,
+    '["click to search below"]': () => `クリックして配下を検索`,
     '["clone"]': () => `複製`,
     '["close"]': () => `閉じる`,
     '["command"]': () => `コマンド`,
@@ -2790,6 +2818,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["git couldn\'t remove it"]': () => `Gitで削除できませんでした`,
     '["git counts +"," −","."]': (v0, v1) => `Gitの集計：+${v0} −${v1}。`,
     '["git didn\'t answer"]': () => `Gitが応答しませんでした`,
+    '["git · "]': () => `git · `,
     '["go to its row"]': () => `その行へ移動`,
     '["go to pane"]': () => `ペインへ移動`,
     '["gpu memory"]': () => `GPUメモリ`,
@@ -2907,6 +2936,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["type a path"]': () => `パスを入力`,
     '["type to find"]': () => `入力して検索`,
     '["type to search"]': () => `入力して検索`,
+    '["type to search below"]': () => `入力して配下を検索`,
     '["uncommitted"]': () => `未コミット`,
     '["unexpected value; using the default"]': () => `想定外の値です。既定値を使用します`,
     '["unfold"]': () => `展開`,
@@ -3207,6 +3237,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" any key closes "]': () => ` 아무 키나 눌러 닫기 `,
     '[" back "]': () => ` 뒤로 `,
     '[" c Clone "]': () => ` c 복제 `,
+    '[" click to browse · scroll "]': () => ` 클릭해 탐색 · 스크롤 `,
     '[" click to open · scroll "]': () => ` 클릭해 열기 · 스크롤 `,
     '[" click to open · scroll to the end to follow "]': () => ` 클릭해 열기 · 끝까지 스크롤하면 따라가기 `,
     '[" click to open · scroll up to pause "]': () => ` 클릭해 열기 · 위로 스크롤하면 일시 중지 `,
@@ -3214,6 +3245,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" cpu "]': () => ` CPU `,
     '[" disk I/O "]': () => ` 디스크 I/O `,
     '[" e Edit "]': () => ` e 편집 `,
+    '[" first "," shown "]': v0 => ` 처음 ${v0}개만 표시 `,
     '[" h Activate "]': () => ` h 활성화 `,
     '[" h Hide "]': () => ` h 숨기기 `,
     '[" hold ⌫ "]': () => ` ⌫ 길게 누르기 `,
@@ -3222,6 +3254,9 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" now"]': () => ` 현재`,
     '[" remove"]': () => ` 제거`,
     '[" sort: "]': () => ` 정렬: `,
+    '[" stopped after "," s "]': v0 => ` ${v0}초 후 중단 `,
+    '[" stopped at "," entries "]': v0 => ` ${v0}개에서 중단 `,
+    '[" type to search · ⏎ open · ⌫ up · esc close "]': () => ` 입력해 검색 · ⏎ 열기 · ⌫ 상위 폴더 · esc 닫기 `,
     '[" vs "]': () => ` 대비 `,
     '[" z: files "]': () => ` z: 파일 `,
     '[" · "," new"]': v0 => ` · 새 ${v0}행`,
@@ -3230,6 +3265,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" · over SSH"]': () => ` · SSH 연결`,
     '[" · release to cancel"]': () => ` · 손을 떼면 취소`,
     '[" … "," more characters"]': v0 => ` … ${v0}자 더`,
+    '[" ↑↓ select · ⏎ open · esc close "]': () => ` ↑↓ 선택 · ⏎ 열기 · esc 닫기 `,
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-클릭 열기 · 클릭 복사 `,
     '[" ⋯ "," lines "]': v0 => ` ⋯ ${v0}행 `,
     '["$"," isn\'t a variable"]': v0 => `$${v0}은(는) 변수가 아닙니다`,
@@ -3246,6 +3282,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[""," commits"]': v0 => `커밋 ${v0}개`,
     '[""," file"]': v0 => `파일 ${v0}개`,
     '[""," files"]': v0 => `파일 ${v0}개`,
+    '[""," folder"]': v0 => `폴더 ${v0}개`,
+    '[""," folders"]': v0 => `폴더 ${v0}개`,
     '[""," hunk"]': v0 => `변경 구간 ${v0}개`,
     '[""," hunks"]': v0 => `변경 구간 ${v0}개`,
     '[""," in ",""]': (v0, v1) => `${v1}에 ${v0}개`,
@@ -3432,6 +3470,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Can\'t read it: ",""]': v0 => `읽을 수 없음: ${v0}`,
     '["Can\'t read this folder"]': () => `이 폴더를 읽을 수 없습니다`,
     '["Can\'t save "," (",")"]': (v0, v1) => `${v0}을(를) 저장할 수 없습니다(${v1})`,
+    '["Can\'t search this folder"]': () => `이 폴더를 검색할 수 없습니다`,
     '["Cancel"]': () => `취소`,
     '["Change folder"]': () => `폴더 변경`,
     '["Change navigation"]': () => `탐색 방식 변경`,
@@ -3569,6 +3608,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Edit ›"]': () => `편집 ›`,
     '["Edit, delete"]': () => `편집, 삭제`,
     '["Empty file"]': () => `빈 파일`,
+    '["Empty folder"]': () => `빈 폴더`,
     '["Ended"]': () => `종료됨`,
     '["Enter a command."]': () => `명령을 입력하세요.`,
     '["Enter a workspace name."]': () => `작업 공간 이름을 입력하세요.`,
@@ -3772,6 +3812,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["No image on the clipboard"]': () => `클립보드에 이미지가 없습니다`,
     '["No lines changed"]': () => `변경된 행 없음`,
     '["No linked worktrees"]': () => `연결된 작업 트리 없음`,
+    '["No matches"]': () => `일치하는 항목 없음`,
     '["No matches."]': () => `일치하는 항목이 없습니다.`,
     '["No matching actions."]': () => `일치하는 동작이 없습니다.`,
     '["No matching agents"]': () => `일치하는 에이전트 없음`,
@@ -3946,6 +3987,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Search models, agents and accounts"]': () => `모델, 에이전트, 계정 검색`,
     '["Search or type a host"]': () => `검색하거나 호스트 입력`,
     '["Searching conversations…"]': () => `대화 검색 중…`,
+    '["Searching…"]': () => `검색 중…`,
     '["Select"]': () => `선택`,
     '["Select tab"]': () => `탭 선택`,
     '["Select workspace"]': () => `작업 공간 선택`,
@@ -4243,6 +4285,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["chosen"]': () => `선택됨`,
     '["clean"]': () => `변경 없음`,
     '["clear"]': () => `지우기`,
+    '["click to search below"]': () => `클릭해 하위 항목 검색`,
     '["clone"]': () => `복제`,
     '["close"]': () => `닫기`,
     '["command"]': () => `명령`,
@@ -4293,6 +4336,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["git couldn\'t remove it"]': () => `git이 제거하지 못했습니다`,
     '["git counts +"," −","."]': (v0, v1) => `git 집계: +${v0} −${v1}.`,
     '["git didn\'t answer"]': () => `git 응답 없음`,
+    '["git · "]': () => `git · `,
     '["go to its row"]': () => `해당 행으로 이동`,
     '["go to pane"]': () => `패널로 이동`,
     '["gpu memory"]': () => `GPU 메모리`,
@@ -4410,6 +4454,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["type a path"]': () => `경로 입력`,
     '["type to find"]': () => `입력하여 찾기`,
     '["type to search"]': () => `입력하여 검색`,
+    '["type to search below"]': () => `입력해 하위 항목 검색`,
     '["uncommitted"]': () => `커밋 안 됨`,
     '["unexpected value; using the default"]': () => `예상치 못한 값이므로 기본값을 사용합니다`,
     '["unfold"]': () => `펼치기`,
@@ -4741,6 +4786,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" any key closes "]': () => ` любая клавиша закрывает `,
     '[" back "]': () => ` назад `,
     '[" c Clone "]': () => ` c Копия `,
+    '[" click to browse · scroll "]': () => ` клик — обзор · прокрутка `,
     '[" click to open · scroll "]': () => ` клик — открыть · прокрутка `,
     '[" click to open · scroll to the end to follow "]': () => ` клик — открыть · прокрутите до конца, чтобы следить `,
     '[" click to open · scroll up to pause "]': () => ` клик — открыть · прокрутка вверх — пауза `,
@@ -4748,6 +4794,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" cpu "]': () => ` ЦП `,
     '[" disk I/O "]': () => ` дисковый ввод-вывод `,
     '[" e Edit "]': () => ` e Изменить `,
+    '[" first "," shown "]': v0 => ` показаны первые ${v0} `,
     '[" h Activate "]': () => ` h Включить `,
     '[" h Hide "]': () => ` h Скрыть `,
     '[" hold ⌫ "]': () => ` удерживать ⌫ `,
@@ -4756,6 +4803,22 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" now"]': () => ` сейчас`,
     '[" remove"]': () => ` удалить`,
     '[" sort: "]': () => ` сортировка: `,
+    '[" stopped after "," s "]': v0 => ` остановлен через ${v0} с `,
+    '[" stopped at "," entries "]': v0 => {
+      switch (plural("ru", Number(v0))) {
+        case "one":
+          return ` остановлен на ${v0} записи `;
+        case "few":
+          return ` остановлен на ${v0} записях `;
+        case "many":
+          return ` остановлен на ${v0} записях `;
+        case "other":
+          return ` остановлен на ${v0} записи `;
+        default:
+          return ` остановлен на ${v0} записи `;
+      }
+    },
+    '[" type to search · ⏎ open · ⌫ up · esc close "]': () => ` ввод — поиск · ⏎ открыть · ⌫ вверх · esc закрыть `,
     '[" vs "]': () => ` против `,
     '[" z: files "]': () => ` z: файлы `,
     '[" · "," new"]': v0 => {
@@ -4790,6 +4853,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
           return ` … ещё ${v0} символа`;
       }
     },
+    '[" ↑↓ select · ⏎ open · esc close "]': () => ` ↑↓ выбор · ⏎ открыть · esc закрыть `,
     '[" ⇧⌘-click opens · click copies "]': () => ` ⇧⌘-клик открыть · клик скопировать `,
     '[" ⋯ "," lines "]': v0 => {
       switch (plural("ru", Number(v0))) {
@@ -4896,6 +4960,34 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
           return `${v0} файла`;
         default:
           return `${v0} файла`;
+      }
+    },
+    '[""," folder"]': v0 => {
+      switch (plural("ru", Number(v0))) {
+        case "one":
+          return `${v0} папка`;
+        case "few":
+          return `${v0} папки`;
+        case "many":
+          return `${v0} папок`;
+        case "other":
+          return `${v0} папки`;
+        default:
+          return `${v0} папки`;
+      }
+    },
+    '[""," folders"]': v0 => {
+      switch (plural("ru", Number(v0))) {
+        case "one":
+          return `${v0} папка`;
+        case "few":
+          return `${v0} папки`;
+        case "many":
+          return `${v0} папок`;
+        case "other":
+          return `${v0} папки`;
+        default:
+          return `${v0} папки`;
       }
     },
     '[""," hunk"]': v0 => {
@@ -5357,6 +5449,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Can\'t read it: ",""]': v0 => `Не удалось прочитать: ${v0}`,
     '["Can\'t read this folder"]': () => `Не удалось прочитать эту папку`,
     '["Can\'t save "," (",")"]': (v0, v1) => `Не удаётся сохранить ${v0} (${v1})`,
+    '["Can\'t search this folder"]': () => `Не удалось выполнить поиск в этой папке`,
     '["Cancel"]': () => `Отмена`,
     '["Change folder"]': () => `Сменить папку`,
     '["Change navigation"]': () => `Переход по изменениям`,
@@ -5522,6 +5615,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Edit ›"]': () => `Изменить ›`,
     '["Edit, delete"]': () => `Изменить, удалить`,
     '["Empty file"]': () => `Пустой файл`,
+    '["Empty folder"]': () => `Пустая папка`,
     '["Ended"]': () => `Завершён`,
     '["Enter a command."]': () => `Введите команду.`,
     '["Enter a workspace name."]': () => `Введите название пространства.`,
@@ -5741,6 +5835,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["No image on the clipboard"]': () => `В буфере обмена нет изображения`,
     '["No lines changed"]': () => `Строки не изменены`,
     '["No linked worktrees"]': () => `Нет связанных рабочих деревьев`,
+    '["No matches"]': () => `Ничего не найдено`,
     '["No matches."]': () => `Совпадений нет.`,
     '["No matching actions."]': () => `Подходящих действий нет.`,
     '["No matching agents"]': () => `Подходящих агентов нет`,
@@ -5918,6 +6013,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Search models, agents and accounts"]': () => `Поиск моделей, агентов и аккаунтов`,
     '["Search or type a host"]': () => `Поиск или имя хоста`,
     '["Searching conversations…"]': () => `Поиск по беседам…`,
+    '["Searching…"]': () => `Поиск…`,
     '["Select"]': () => `Выбрать`,
     '["Select tab"]': () => `Выбрать вкладку`,
     '["Select workspace"]': () => `Выбрать пространство`,
@@ -6238,6 +6334,7 @@ ${v1}, чтобы использовать этот аккаунт.
     '["chosen"]': () => `выбрано`,
     '["clean"]': () => `без изменений`,
     '["clear"]': () => `очистить`,
+    '["click to search below"]': () => `клик — поиск внутри`,
     '["clone"]': () => `копия`,
     '["close"]': () => `закрыть`,
     '["command"]': () => `команда`,
@@ -6315,6 +6412,7 @@ ${v1}, чтобы использовать этот аккаунт.
     '["git couldn\'t remove it"]': () => `git не смог его удалить`,
     '["git counts +"," −","."]': (v0, v1) => `по данным git: +${v0} −${v1}.`,
     '["git didn\'t answer"]': () => `git не ответил`,
+    '["git · "]': () => `git · `,
     '["go to its row"]': () => `перейти к его строке`,
     '["go to pane"]': () => `к панели`,
     '["gpu memory"]': () => `память GPU`,
@@ -6432,6 +6530,7 @@ ${v1}, чтобы использовать этот аккаунт.
     '["type a path"]': () => `введите путь`,
     '["type to find"]': () => `введите для поиска`,
     '["type to search"]': () => `введите для поиска`,
+    '["type to search below"]': () => `введите для поиска внутри`,
     '["uncommitted"]': () => `незакоммичено`,
     '["unexpected value; using the default"]': () => `неожиданное значение; используется значение по умолчанию`,
     '["unfold"]': () => `развернуть`,

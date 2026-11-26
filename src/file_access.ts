@@ -1,14 +1,18 @@
-//! The files the file peek and a link's picture read, and names in panes
-//! resolve to: this computer's through node:fs, or another computer's
-//! through its daemon, which reads its own the same way. Scans, such as for
-//! a deep line, and an image's thumbnail are made where the file is, and
-//! another computer's files are read in smaller amounts, since they share
-//! its link with the panes' screens. A scan for a line keeps a line index
-//! where the file is (see `line_index.ts`), and on another computer runs as
-//! a job (see `jobs.ts`), so its progress shows and leaving it stops it.
+//! The files the file peek and a link's picture read, the folders the
+//! directory browser lists and searches, and names in panes resolve to:
+//! this computer's through node:fs, or another computer's through its
+//! daemon, which reads its own the same way. Scans, such as for a deep line
+//! or through a folder's tree, and an image's thumbnail are made where the
+//! file is, and another computer's files are read in smaller amounts, since
+//! they share its link with the panes' screens. A scan for a line keeps a
+//! line index where the file is (see `line_index.ts`), and on another
+//! computer runs as a job (see `jobs.ts`), so its progress shows and leaving
+//! it stops it.
 import { constants, fstatSync, readSync, watch, type BigIntStats } from "node:fs";
-import { open, stat, statfs, type FileHandle } from "node:fs/promises";
+import { open, opendir, stat, statfs, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
+import { join } from "node:path";
+import * as dirWalk from "./dir_walk";
 import * as errors from "./errors";
 import * as fileRef from "./file_ref";
 import * as jobs from "./jobs";
@@ -16,14 +20,36 @@ import * as lineIndex from "./line_index";
 import * as picture from "./picture";
 import type * as protocol from "./protocol";
 
-/** A file as a read checks it. */
+/** A file as a read checks it, or a folder as a find that takes one does. */
 export interface Info {
   path: string;
   size: number;
   mtime: number;
   /** The same while the path names the same file: its device and inode. */
   id: string;
+  directory: boolean;
 }
+/** An entry in a folder's listing. */
+export interface Listed {
+  name: string;
+  /** A folder, or a link to one. */
+  directory: boolean;
+  link: boolean;
+  size: number;
+}
+export interface Listing {
+  entries: Listed[];
+  /** It had more entries than `list_limit`, which were left out. */
+  more: boolean;
+}
+/** The most entries a listing holds. */
+export const list_limit = 2000;
+/** A walk through a folder's tree; see dir_walk.ts. */
+export type Walk = (
+  root: string,
+  sink: (batch: dirWalk.Entry[], progress: dirWalk.Progress) => void,
+  signal: AbortSignal,
+) => Promise<dirWalk.Progress>;
 /** An open file. A scan calls `stop` as it goes, which throws to end it. */
 export interface Handle {
   info(): Promise<Info>;
@@ -52,8 +78,12 @@ export const local_limits: Limits = { whole: 8 << 20, growth: 16 << 20, frames: 
 export const remote_limits: Limits = { whole: 1 << 20, growth: 256 << 10, frames: 4_000_000 };
 export interface Files {
   limits: Limits;
-  /** The file `path` names from `cwd`, as a pane's text names it; throws when it names none. */
-  find(path: string, cwd?: string): Promise<Info>;
+  /** The file `path` names from `cwd`, as a pane's text names it, or with
+   * `directories` a folder too; throws when it names none. */
+  find(path: string, cwd?: string, directories?: boolean): Promise<Info>;
+  /** The folder at `path`'s entries, as they come, up to `list_limit`. */
+  list(path: string): Promise<Listing>;
+  walk: Walk;
   open(path: string): Promise<Handle>;
   /** Change notices for `path` where the file system sends them, else null.
    * `lost` says a watch that worked has stopped. */
@@ -90,7 +120,35 @@ const info = (path: string, s: BigIntStats): Info => ({
   size: Number(s.size),
   mtime: Number(s.mtimeNs) / 1e6,
   id: `${s.dev}:${s.ino}`,
+  directory: s.isDirectory(),
 });
+/** Stats at once for a listing. */
+const list_parallel = 64;
+async function listHere(path: string): Promise<Listing> {
+  const named: { name: string; link: boolean; directory: boolean }[] = [];
+  let more = false;
+  const dir = await opendir(path, { bufferSize: 256 });
+  for await (const entry of dir) {
+    if (named.length >= list_limit) {
+      more = true;
+      break;
+    }
+    named.push({ name: entry.name, link: entry.isSymbolicLink(), directory: entry.isDirectory() });
+  }
+  // Breaking out of the loop closed it.
+  const entries: Listed[] = [];
+  for (let i = 0; i < named.length; i += list_parallel)
+    entries.push(
+      ...(await Promise.all(
+        named.slice(i, i + list_parallel).map(async ({ name, link, directory }) => {
+          // A link shows what it leads to; a broken one, itself.
+          const s = await stat(join(path, name)).catch(() => null);
+          return { name, link, directory: s ? s.isDirectory() : directory, size: s?.isFile() ? s.size : 0 };
+        }),
+      )),
+    );
+  return { entries, more };
+}
 function readNow(fd: number, at: number, length: number): Uint8Array {
   const out = new Uint8Array(Math.max(0, length));
   let got = 0;
@@ -148,12 +206,12 @@ class LocalHandle implements Handle {
 export function local(home = homedir()): Files {
   return {
     limits: local_limits,
-    async find(path, cwd = "") {
+    async find(path, cwd = "", directories = false) {
       let failure: unknown = null;
       for (const candidate of fileRef.candidates(path, cwd, home)) {
         try {
           const found = await stat(candidate, { bigint: true });
-          if (found.isFile()) return info(candidate, found);
+          if (found.isFile() || (directories && found.isDirectory())) return info(candidate, found);
           failure ??= Error("NotAFile");
         } catch (error) {
           failure ??= error;
@@ -161,6 +219,8 @@ export function local(home = homedir()): Files {
       }
       throw failure ?? Error("NotAFile");
     },
+    list: listHere,
+    walk: (root, sink, signal) => dirWalk.walk(root, sink, signal),
     async open(path) {
       // A FIFO's open would wait for a writer, and only files are read.
       const fh = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
@@ -216,8 +276,9 @@ export async function readAll(
   }
 }
 
-/** What another computer's daemon is asked: reads, and the scan for a line as a job. */
-export type RemoteOp = Op | "file.scan" | "job.poll" | "job.cancel";
+/** What another computer's daemon is asked: reads, and the scan for a line
+ * and a folder's walk as jobs. */
+export type RemoteOp = Op | "file.scan" | "file.walk" | "job.poll" | "job.cancel";
 /** Sends `op` to a daemon and resolves with its reply, throwing its error. */
 export type Call = (op: RemoteOp, payload: object) => Promise<unknown>;
 const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
@@ -228,14 +289,58 @@ const fromBase64 = (value: unknown) => Buffer.from(typeof value === "string" ? v
  * names the file it opened, and once the path names another, as after a
  * log's rotation, they throw `FileChanged` rather than mix the two. */
 export function remote(call: Call): Files {
-  const find = async (path: string, cwd = ""): Promise<Info> => {
-    const reply = (await call("file.stat", { path, cwd })) as Record<string, unknown>;
+  const find = async (path: string, cwd = "", directories = false): Promise<Info> => {
+    // A daemon from before folders ignores `directory` and finds only files.
+    const reply = (await call("file.stat", { path, cwd, directory: directories })) as Record<string, unknown>;
     if (typeof reply.path !== "string" || typeof reply.id !== "string") throw Error("UnexpectedReply");
-    return { path: reply.path, size: num(reply.size), mtime: num(reply.mtime), id: reply.id };
+    const directory = directories && reply.directory === true;
+    return { path: reply.path, size: num(reply.size), mtime: num(reply.mtime), id: reply.id, directory };
   };
   return {
     limits: remote_limits,
     find,
+    async list(path) {
+      const reply = (await call("file.list", { path })) as Record<string, unknown>;
+      const entries: unknown[] = Array.isArray(reply.entries) ? reply.entries : [];
+      return {
+        entries: entries.map(entry => {
+          const e = (entry ?? {}) as Record<string, unknown>;
+          return {
+            name: typeof e.name === "string" ? e.name : "",
+            directory: e.directory === true,
+            link: e.link === true,
+            size: num(e.size),
+          };
+        }),
+        more: reply.more === true,
+      };
+    },
+    async walk(root, sink, signal) {
+      const progress = dirWalk.started();
+      try {
+        await jobs.follow(call, () => call("file.walk", { path: root }), {
+          signal,
+          progress: value => {
+            const p = (value ?? {}) as Record<string, unknown>;
+            progress.mode = p.mode === "git" || p.mode === "files" ? p.mode : null;
+            progress.capped = p.capped === "entries" || p.capped === "time" ? p.capped : null;
+          },
+          result: value => {
+            const batch = (Array.isArray(value) ? value : [])
+              .filter((path): path is string => typeof path === "string" && path !== "")
+              .map(path =>
+                path.endsWith("/") ? { path: path.slice(0, -1), directory: true } : { path, directory: false },
+              );
+            progress.scanned += batch.length;
+            sink(batch, { ...progress });
+          },
+        });
+      } catch (error) {
+        if (!signal.aborted) progress.error = errors.name(error) ?? "WalkFailed";
+      }
+      progress.done = true;
+      return progress;
+    },
     async open(path) {
       // Fails as opening a file that isn't there would; its answer is the first `info`.
       let first: Info | null = await find(path);
@@ -386,10 +491,12 @@ export async function scan(payload: protocol.Request<"file.scan">, job: jobs.Job
   }
 }
 
-export type Op = "file.stat" | "file.read" | "file.count" | "file.thumbnail";
+export type Op = "file.stat" | "file.read" | "file.count" | "file.thumbnail" | "file.list";
 /** Answers another computer's read of a file here, as its daemon decoded it. */
 export async function answer(request: Extract<protocol.DecodedRequest, { op: Op }>): Promise<object> {
-  if (request.op === "file.stat") return await here.find(request.payload.path, request.payload.cwd);
+  if (request.op === "file.stat")
+    return await here.find(request.payload.path, request.payload.cwd, request.payload.directory);
+  if (request.op === "file.list") return await here.list(request.payload.path);
   if (request.op === "file.thumbnail") {
     const { path, width, height, pixels } = request.payload;
     const shrunk = await sendable(await readAll(here, path, image_limit), { width, height }, pixels, thumbnail_limit);
@@ -414,4 +521,49 @@ export async function answer(request: Extract<protocol.DecodedRequest, { op: Op 
   } finally {
     await h.close().catch(() => {});
   }
+}
+/** The most path text one part of a walk carries, so each poll's reply,
+ * which shares the data connection with the panes' screens, stays small. */
+export const walk_part = 256 << 10;
+/** Walks `path` here for another computer's directory browser, as a job:
+ * its results are parts of the paths found, a folder's ending in "/", each
+ * made once the last was taken, and its progress says how the walk goes. */
+export async function walkJob(path: string, job: jobs.Job): Promise<void> {
+  const found: string[] = [];
+  let at = 0,
+    ended = false,
+    news: (() => void) | null = null;
+  const said = (p: dirWalk.Progress) => job.progress({ mode: p.mode, scanned: p.scanned, capped: p.capped });
+  const walked = dirWalk
+    .walk(
+      path,
+      (batch, progress) => {
+        for (const entry of batch) found.push(entry.directory ? entry.path + "/" : entry.path);
+        said(progress);
+        news?.();
+      },
+      job.signal,
+    )
+    .finally(() => {
+      ended = true;
+      news?.();
+    });
+  while (!job.signal.aborted) {
+    await job.taken();
+    if (at === found.length) {
+      if (ended) break;
+      await new Promise<void>(resolve => (news = resolve));
+      news = null;
+      continue;
+    }
+    const part: string[] = [];
+    for (let bytes = 0; at < found.length && bytes < walk_part; at++) {
+      part.push(found[at]);
+      bytes += found[at].length + 4;
+    }
+    job.emit(part);
+  }
+  const end = await walked;
+  said(end);
+  if (end.error !== null) throw Error(end.error);
 }

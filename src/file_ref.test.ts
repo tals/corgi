@@ -39,7 +39,7 @@ test("resolves from the pane's folder and home, and tries a diff's a/ and b/ off
   expect(fileRef.candidates("b/src/a.ts", "/work", "/home/me")).toEqual(["/work/b/src/a.ts", "/work/src/a.ts"]);
 });
 
-test("checks names in the background and only files count", async () => {
+test("checks names in the background as files or folders", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-ref-"));
   dirs.push(dir);
   mkdirSync(join(dir, "src"));
@@ -52,9 +52,12 @@ test("checks names in the background and only files count", async () => {
   expect(ask("nope.ts").kind).toBe("pending");
   await Promise.all(resolver.checks);
   expect(ask("src/a.ts")).toEqual({ kind: "file", path: join(dir, "src", "a.ts"), size: 1 });
-  expect(ask("src").kind).toBe("missing");
+  expect(ask("src")).toEqual({ kind: "directory", path: join(dir, "src") });
+  expect(ask("src/").kind).toBe("pending");
   expect(ask("nope.ts").kind).toBe("missing");
   expect(woke).toBe(3);
+  await Promise.all(resolver.checks);
+  expect(ask("src/")).toEqual({ kind: "directory", path: join(dir, "src") });
   expect(resolver.get({ path: "a/src/a.ts", line: 3, column: null }, dir, 0).kind).toBe("pending");
   await Promise.all(resolver.checks);
   expect(resolver.get({ path: "a/src/a.ts", line: 3, column: null }, dir, 0).kind).toBe("file");

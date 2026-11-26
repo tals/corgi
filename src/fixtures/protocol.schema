@@ -329,6 +329,7 @@ $.requests|review.recognize.cwd: string
 $.requests|review.recognize.hashes[]: string
 $.requests|file.stat.path: string
 $.requests|file.stat.cwd: string
+$.requests|file.stat.directory: bool
 $.requests|file.read.path: string
 $.requests|file.read.id: string
 $.requests|file.read.at: u64
@@ -346,6 +347,8 @@ $.requests|file.thumbnail.path: string
 $.requests|file.thumbnail.width: u32
 $.requests|file.thumbnail.height: u32
 $.requests|file.thumbnail.pixels: u32
+$.requests|file.list.path: string
+$.requests|file.walk.path: string
 $.requests|job.poll.job: u32
 $.requests|job.poll.wait: u32
 $.requests|job.cancel.job: u32
