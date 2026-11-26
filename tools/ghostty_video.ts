@@ -918,13 +918,34 @@ export function typeset(
 /** Paints parts over an RGBA picture width pixels wide in one gray at alpha, smoothed at their edges, and only inside clip. */
 function paint(rgba: Uint8Array, width: number, parts: Part[], value: number, alpha: number, clip?: Part) {
   const height = rgba.length / 4 / width;
-  const [[left, right], [top, bottom]] = bounds(parts);
-  for (let y = Math.max(0, Math.floor(top) - 1); y <= Math.min(height - 1, Math.ceil(bottom)); y++)
-    for (let x = Math.max(0, Math.floor(left) - 1); x <= Math.min(width - 1, Math.ceil(right)); x++) {
-      let d = Infinity;
-      for (const part of parts) d = Math.min(d, signed(x + 0.5, y + 0.5, part));
+  // The pixels near a part, as [x0, x1, y0, y1] within the picture.
+  const near = (parts: Part[]) => {
+    const [[left, right], [top, bottom]] = bounds(parts);
+    return [Math.max(0, Math.floor(left) - 1), Math.min(width - 1, Math.ceil(right))].concat([
+      Math.max(0, Math.floor(top) - 1),
+      Math.min(height - 1, Math.ceil(bottom)),
+    ]);
+  };
+  const [x0, x1, y0, y1] = near(parts);
+  if (x1 < x0 || y1 < y0) return;
+  // How much the parts together cover each pixel: the most any one does, each
+  // measured only near itself, as a figure is many short strokes.
+  const across = x1 - x0 + 1;
+  const cover = new Float64Array(across * (y1 - y0 + 1));
+  for (const part of parts) {
+    const [l, r, t, b] = near([part]);
+    for (let y = t; y <= b; y++)
+      for (let x = l; x <= r; x++) {
+        const o = (y - y0) * across + x - x0;
+        cover[o] = Math.max(cover[o], clamp(0.5 - signed(x + 0.5, y + 0.5, part)));
+      }
+  }
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const c = cover[(y - y0) * across + x - x0];
+      if (!c) continue;
       const inside = clip ? clamp(0.5 - signed(x + 0.5, y + 0.5, clip)) : 1;
-      over(rgba, (y * width + x) * 4, value, alpha * inside * clamp(0.5 - d));
+      over(rgba, (y * width + x) * 4, value, alpha * inside * c);
     }
 }
 
@@ -1057,12 +1078,14 @@ export function badgeTiles(
     }
     // The label rolls on a reel: each new speed adds one below, and the
     // reel eases down to it from where it was and at the pace it had, so a
-    // change mid-roll carries on from what shows.
+    // change mid-roll carries on from what shows. It finishes rolling while
+    // the badge sinks away.
+    const through = Math.min(times.length - 1, card.b + outro - 1);
     const reel = [label(speeds[card.a])];
     const roll: number[] = [];
     let [from, pace, to, since] = [0, 0, 0, card.a];
-    for (let i = card.a; i <= card.b; i++) {
-      if (i > card.a && speeds[i] !== speeds[i - 1]) {
+    for (let i = card.a; i <= through; i++) {
+      if (i > card.a && i <= card.b && speeds[i] !== speeds[i - 1]) {
         [from, pace] = [roll.at(-1)!, roll.at(-1)! - (roll.at(-2) ?? 0)];
         [to, since] = [reel.push(label(speeds[i])) - 1, i];
       }
@@ -1071,10 +1094,10 @@ export function badgeTiles(
       const [carry, settle] = [u - 2 * u ** 2 + u ** 3, 3 * u ** 2 - 2 * u ** 3];
       roll.push(u >= 1 ? to : from + pace * swapping * carry + (to - from) * settle);
     }
-    for (let i = begin; i <= Math.min(times.length - 1, card.b + outro - 1); i++) {
+    for (let i = begin; i <= through; i++) {
       const inside = i <= card.b;
       const now = texts(Math.min(i, card.b));
-      const place = roll[Math.min(i, card.b) - card.a];
+      const place = roll[i - card.a];
       const [shown, part] = [Math.floor(place), place % 1];
       const relabel = part > 0 ? { ...now, card: k, label: reel[shown], step: part, all: false } : undefined;
       looks[i] = {

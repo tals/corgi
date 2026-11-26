@@ -446,6 +446,25 @@ describe("badgeTiles", () => {
       expect(Math.abs(moved[i] - moved[i - 1])).toBeLessThan(Math.max(moved[i], moved[i - 1]) / 2 + floor);
   });
 
+  test("finishes rolling a new label while it sinks away", () => {
+    // ×4 three frames before the reset, against a ×4 settled long before it.
+    const make = (four: number) => {
+      const speeds = range(0, 200).map(i => (i < 10 ? 1 : i < four ? 8 : i <= 103 ? 4 : 1));
+      let t = 0;
+      return video.badgeTiles(
+        speeds.map(s => (t += s * frame)),
+        speeds,
+        Array(200).fill("bottom"),
+        28,
+        size,
+      );
+    };
+    const [late, early] = [make(101), make(60)];
+    // Its roll ends 18 frames after it began, while the badge is still sinking: then they read the same.
+    expect(leftSide(late, 119)).toBe(leftSide(early, 119));
+    expect(leftSide(late, 104)).not.toBe(leftSide(early, 104));
+  });
+
   test("keeps rising, without a jump, when a short speed-up is followed by another", () => {
     // A three-frame run ends early in the rise; the next starts two frames later.
     const badge = take2(200, [10, 12], [15, 180]);
