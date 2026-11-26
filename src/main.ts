@@ -374,13 +374,18 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   const original = args,
     alias = providerAlias(os.processArgs(process.pid)?.argv[0] ?? process.argv[0]);
   // Agent mode covers the control CLI and help; a provider alias keeps its own flags.
-  const choice = agent_mode.flags(args),
+  // Every skill command takes the flags; its --account value stays a name.
+  let choice = agent_mode.flags(args);
+  if (choice.args[0] === "skill") choice = agent_mode.flags(args, ["--account"]);
+  const skillCommand = choice.args[0] === "skill",
     accountHelp =
-      ["account", "integration", "skill"].includes(choice.args[0]) &&
+      ["account", "integration"].includes(choice.args[0]) &&
       (cli.asksHelp(choice.args) ||
         choice.args[1] === "help" ||
-        (choice.args[0] !== "account" && choice.args.length === 1)),
-    controls = !alias && (cli.handles(choice.args) || ["help", "--help", "-h"].includes(choice.args[0]) || accountHelp);
+        (choice.args[0] === "integration" && choice.args.length === 1)),
+    controls =
+      !alias &&
+      (cli.handles(choice.args) || ["help", "--help", "-h"].includes(choice.args[0]) || accountHelp || skillCommand);
   if (controls) args = choice.args;
   const agent = controls && agent_mode.enabled(choice.flag, process.env, process.stdout.isTTY === true);
   const command = args[0] ?? "attach";

@@ -25,4 +25,8 @@ test("agent flags are taken out before --, the last one winning", () => {
     flag: null,
     args: ["pane", "send", "3", "--", "--agent"],
   });
+  expect(agent_mode.flags(["skill", "--agent", "status", "--account", "--no-agent"], ["--account"])).toEqual({
+    flag: true,
+    args: ["skill", "status", "--account", "--no-agent"],
+  });
 });

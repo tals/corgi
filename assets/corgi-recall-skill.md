@@ -96,10 +96,11 @@ new session is left to the user.
 Before sending, show the target's ID, name and folder and the full draft.
 Write the draft so the receiver needs no other context: what to do, why, and
 the evidence, summarized; never copy secrets, tokens or credentials into it.
-End it with your reply address as a literal ID: read `$CORGI_PANE`, or
-`$CORGI_HEADLESS_ID` when you have no pane, and write
-`Reply with: corgi message 12 --stdin` (or `headless:4`), never the variable
-itself. Send only after the user explicitly confirms that target and draft,
+End it with your reply address as a literal ID: read `$CORGI_PANE` and write
+`Reply with: corgi message 12 --stdin`, never the variable itself. Without a
+pane (in the Corgi prompt, `$CORGI_HEADLESS_ID` names a chat that messages
+can't reach), write `Reply to the user; this sender can't receive messages.`
+instead. Send only after the user explicitly confirms that target and draft,
 through stdin so quotes in the draft stay text:
 
 ```sh

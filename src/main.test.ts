@@ -336,6 +336,26 @@ test("account command values preserve agent mode flags", async () => {
     process.exitCode = previousExit;
   }
 });
+test("skill commands take agent mode flags anywhere but in an account name", async () => {
+  const skill = spyOn(skillCommand, "command").mockResolvedValue(0),
+    update = spyOn(updates, "internal").mockResolvedValue(false),
+    previousExit = process.exitCode;
+  try {
+    for (const [args, expected, agent] of [
+      [["--agent", "skill", "show", "recall"], ["show", "recall"], true],
+      [["skill", "show", "recall", "--no-agent"], ["show", "recall"], false],
+      [["skill", "status", "--account", "--agent", "--no-agent"], ["status", "--account", "--agent"], false],
+    ] as [string[], string[], boolean][]) {
+      skill.mockClear();
+      await run(args);
+      expect(skill.mock.calls[0]).toEqual([expected, agent]);
+    }
+  } finally {
+    skill.mockRestore();
+    update.mockRestore();
+    process.exitCode = previousExit;
+  }
+});
 test("root help lists every command for agents and with --all", async () => {
   const output = spyOn(process.stdout, "write").mockReturnValue(true);
   try {

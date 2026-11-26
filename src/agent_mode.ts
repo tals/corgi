@@ -29,17 +29,20 @@ export function enabled(flag: boolean | null, env: Record<string, string | undef
   return !terminal && agent(env) !== null;
 }
 /** A command line without its `--agent`/`--no-agent` flags, and the last one
- * given. Words after `--` are text, not flags. */
-export function flags(args: string[]): { flag: boolean | null; args: string[] } {
+ * given. Words after `--`, and the value after any of `options`, are text,
+ * not flags. */
+export function flags(args: string[], options: string[] = []): { flag: boolean | null; args: string[] } {
   let flag: boolean | null = null,
     literal = false;
   const rest: string[] = [];
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (!literal && arg === "--agent") flag = true;
     else if (!literal && arg === "--no-agent") flag = false;
     else {
       if (arg === "--") literal = true;
       rest.push(arg);
+      if (!literal && options.includes(arg) && i + 1 < args.length) rest.push(args[++i]);
     }
   }
   return { flag, args: rest };
