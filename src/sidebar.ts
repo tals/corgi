@@ -15,7 +15,7 @@ import * as worktrees from "./worktrees";
 import type * as hostImages from "./host_images";
 import * as rowGlide from "./row_glide";
 import type { Summary as ArchiveSummary } from "./archive_summary";
-import type { Brand } from "./process_name";
+import { brandOf, type Brand } from "./process_name";
 import * as tabIcons from "./tab_icons";
 import type { Cell } from "./fork_hero";
 import { url as portUrl } from "./trackers/ports";
@@ -147,7 +147,9 @@ export type Heading<Workspace = viewerRef.Workspace> =
   /** Neighbouring rows in one checkout: a linked worktree's, or in "all", a
    * workspace's own; in a section, or a hand-sorted list's null. `run` tells
    * apart two runs of one checkout. */
-  | { section: SectionKind | null; workspace: Workspace; checkout: string | null; run: number };
+  | { section: SectionKind | null; workspace: Workspace; checkout: string | null; run: number }
+  /** A machine's line above its workspaces in the compact tree. */
+  | { machine: string };
 export interface Asleep {
   asleep: string;
   provider: Provider;
@@ -161,8 +163,8 @@ export const isSubhead = (
   t: Target,
 ): t is { section: SectionKind | null; workspace: viewerRef.Workspace; checkout: string | null; run: number } =>
   isHeading(t) && "section" in t && "workspace" in t;
-/** A header that starts a run of rows: a workspace group, or a section. */
-const isOuter = (t: Target): boolean => isGroup(t) || isSection(t);
+/** A header that starts a run of rows: a workspace group, a section, or a machine. */
+const isOuter = (t: Target): boolean => isGroup(t) || isSection(t) || isMachine(t);
 export function sameTarget(a: Target | null | undefined, b: Target | null | undefined): boolean {
   if (a === b) return true;
   if (!a || !b || isAgent(a) || isAgent(b)) return false;
@@ -172,6 +174,7 @@ export function sameTarget(a: Target | null | undefined, b: Target | null | unde
   );
 }
 export const isGroup = (t: Target): t is { group: viewerRef.Workspace } => isHeading(t) && "group" in t;
+export const isMachine = (t: Target): t is { machine: string } => isHeading(t) && "machine" in t;
 /** The entity whose machine owns this target; activity headings have none. */
 export function owner(target: Target): viewerRef.Entity | null {
   if (isAgent(target)) return target;
@@ -227,6 +230,8 @@ export interface Group {
   branch?: boolean;
   /** The machine it's on, while rows name their machines. */
   machine?: string;
+  /** A machine line's link: its reception, or what its connection is doing. */
+  link?: { quality: Quality | null; status: ConnectionStatus | null };
 }
 export interface Subagents {
   running: number;
@@ -277,6 +282,10 @@ export interface Entry<T = Target, Workspace = viewerRef.Workspace> {
   /** A new agent waiting for its first prompt, held in working. */
   starting: boolean;
   starred: boolean;
+  /** One row instead of two: the compact sidebar's name line alone. */
+  compact: boolean;
+  /** Columns the compact tree shifts a row right, under its machine's line. */
+  indent: number;
 }
 export type Data = Omit<Entry, "target" | "worktree">;
 export function entry<const T = Target, Workspace = viewerRef.Workspace>(
@@ -311,6 +320,8 @@ export function entry<const T = Target, Workspace = viewerRef.Workspace>(
     section: null,
     starting: false,
     starred: false,
+    compact: false,
+    indent: 0,
     ...fields,
   };
 }
@@ -726,7 +737,9 @@ export class View {
   cell: Cell | null = null;
   /** The frame's pictures, where the host shows Kitty images. */
   pictures: hostImages.FrameImages | null = null;
-  archive_marks: ((brand: Brand, col: number, row: number) => void) | null = null;
+  /** Places a brand mark `tabIcons.cols` wide at a cell, for archived
+   * programs and compact agent rows. Without it, they show no mark. */
+  brand_marks: ((brand: Brand, col: number, row: number) => void) | null = null;
   /** Places reception bars as an image `signalBars.cells` wide; without it they're blocks. */
   signal_marks: ((quality: Quality, col: number, row: number) => void) | null = null;
   /** Asks for a frame by `at_ms`, in `Date.now()` time, for what moves with time alone. */
@@ -764,6 +777,9 @@ export class View {
   corgi_intensity = 50;
   /** The agents header row as last dragged; null splits the sidebar in half. */
   split: number | null = null;
+  /** One tree of workspaces and their agents under the title, without the
+   * workspace list or a split to drag. */
+  compact = false;
   /** A lit checkout: its rows keep their colors while the rest of the list dims. */
   spotlight: Spotlight | null = null;
   /** A folded sidebar's one list, drawn over the panes from top to bottom.
@@ -850,6 +866,8 @@ export class View {
     // top, the band's rule closes the workspace list as the split rule does.
     if (this.single() === "workspaces") return this.drawer === null ? this.rows + 1 : this.rows;
     if (this.single() === "agents") return 1;
+    // The title, then the rule over the tree.
+    if (this.compact) return 2;
     return this.split === null ? Math.floor(sat(this.rows, 1) / 2) : View.splitFor(this.rows, this.split);
   }
   /** Keeps one workspace above the divider and an agent below it. */
@@ -860,7 +878,7 @@ export class View {
   splitHandle(x: number, y: number): boolean {
     if (this.part !== null) return false;
     if (this.framed()) return this.lists().splitHandle(x - lists_x, y);
-    return this.width > 0 && x < this.width - 1 && y === this.middle() - 1;
+    return this.width > 0 && !this.compact && x < this.width - 1 && y === this.middle() - 1;
   }
   workspaceHeader(index: number, offset = this.workspace_offset): boolean {
     return (
@@ -921,7 +939,7 @@ export class View {
     return Math.min(this.archived_count, Math.floor(room / 3), Math.max(1, Math.floor(room / 6)));
   }
   archivedHeader(): number | null {
-    return this.archived_count && this.single() !== "agents"
+    return this.archived_count && this.single() !== "agents" && !this.compact
       ? Math.max(1, this.middle() - 2 - this.archivedCapacity() * 3)
       : null;
   }
@@ -998,12 +1016,14 @@ export class View {
     count: number,
     split: number | null = null,
     band = 0,
+    compact = false,
   ): View {
     const v = new View();
     v.cols = cols;
     v.rows = rows;
     v.screen = rows;
     v.split = split;
+    v.compact = compact;
     v.width = View.widthFor(cols, open, rows);
     if (band > 0 && v.width > 0) {
       v.band = { rows: band };
@@ -1013,7 +1033,7 @@ export class View {
     v.count = count;
     v.capacity = 1;
     v.offset = 0;
-    v.capacity = Math.max(1, Math.floor(v.listRows() / 2));
+    v.capacity = Math.max(1, Math.floor(v.listRows() / v.agentRows()));
     // Focus and search change the list's end, so `withEntries` clamps the rest.
     v.offset = Math.min(offset, sat(count, 1));
     return v;
@@ -1118,7 +1138,7 @@ export class View {
     }
   }
   static height(e: Entry): number {
-    const content = isHeading(e.target) ? 1 + Number(e.group.gap === true) : 2;
+    const content = isHeading(e.target) ? 1 + Number(e.group.gap === true) : e.compact ? 1 : 2;
     return (
       content +
       (e.worktree?.ghost ? Number(isHeading(e.target) && "worktree" in e.target) + Number(e.worktree.end === true) : 0)
@@ -1170,8 +1190,12 @@ export class View {
     }
     return start;
   }
+  /** Rows an agent takes: its name line, then its activity line unless compact. */
+  agentRows(): number {
+    return this.compact ? 1 : 2;
+  }
   rowsBefore(index: number): number {
-    if (this.entries.length === 0) return index * 2;
+    if (this.entries.length === 0) return index * this.agentRows();
     return this.index.rows[clamp(index, 0, this.entries.length)];
   }
   private static index(entries: Entry[]): Index {
@@ -1307,7 +1331,7 @@ export class View {
     const v = this;
     if (v.width === 0) return null;
     if (viewerRef.isWorkspace(target)) {
-      if (v.single() === "agents") return null;
+      if (v.single() === "agents" || v.compact) return null;
       const index = workspaces.findIndex(ws => ws.id === target);
       if (index < v.workspace_offset || index < 0 || v.workspace_collapsed[index]) return null;
       const y = v.workspaceY(index);
@@ -1327,7 +1351,7 @@ export class View {
     const e = v.entries[index];
     const open = v.renaming(target);
     const width = renameColumns(open ? renameTextWidth(open) : displayWidth(agentName(e)), v.nameRoom(e));
-    return { x: 4, y, width, message_y: y + 1 < end ? y + 1 : y - 1 };
+    return { x: v.nameLead(e) + e.indent, y, width, message_y: y + 1 < end ? y + 1 : y - 1 };
   }
   /** Whether `x`, `y` lands where `target`'s rename field opens: the name
    * and a little past it, never the row's other lines, the workspace
@@ -1339,7 +1363,12 @@ export class View {
   }
   /** The columns an agent row's name has, before its context figure and notes. */
   nameRoom(e: Entry): number {
-    return sat(this.width - 6, nameRight(e, contextFigure(e, false, colors.bg)));
+    return sat(this.width - 2 - this.nameLead(e) - e.indent, rowRight(e, contextFigure(e, false, colors.bg)));
+  }
+  /** The columns before an agent row's name, past its indent: the rail and
+   * status dot, then the agent's mark on a compact row where the host shows images. */
+  nameLead(e: Entry): number {
+    return 4 + (e.compact && this.supports_kitty_graphics ? tabIcons.cols : 0);
   }
   /** Shows the terminal caret in the rename field, as `searchCursor` does
    * for the search; nothing while no renamed row is on screen, or while
@@ -1444,7 +1473,7 @@ export class View {
       layer = -1;
     for (let index = v.offset; index < shown; index++) {
       const e = v.entries.length > 0 ? v.entries[index] : null,
-        h = e ? View.height(e) : 2,
+        h = e ? View.height(e) : v.agentRows(),
         at = top + (e?.slide ?? 0);
       if (y >= at && y < at + h && (e ? v.layer(e) : 2) >= layer) {
         found = index;
@@ -1602,7 +1631,8 @@ export class View {
         w.write(new Style({ fg: "faint", bg: "bg" }).sgr() + " " + i18n.t`search`);
       }
     }
-    if (v.single() !== "agents") {
+    if (v.compact && v.drawer === null) v.drawTitle(w);
+    else if (v.single() !== "agents") {
       v.drawWorkspaces(w, workspaces, now_ms);
       v.drawArchives(w, archived);
     }
@@ -1616,7 +1646,7 @@ export class View {
       const boxed = v.focused() !== null,
         stroke = boxed ? "─" : "━",
         run = Math.max(0, v.width - 2),
-        grip = v.part === null && run >= split_grip.length + 4 ? split_grip : "",
+        grip = v.part === null && !v.compact && run >= split_grip.length + 4 ? split_grip : "",
         left = Math.floor((run - grip.length) / 2);
       w.write(w.cup(v.middle(), 2) + (boxed ? outline : panel + fg("line")) + stroke.repeat(left));
       if (grip) w.write(boxed ? grip : fg("faint") + grip + fg("line"));
@@ -1695,6 +1725,44 @@ export class View {
     } else v.line(w, 0, i18n.t`workspaces`, "\x1b[1m" + fg("strong"));
     w.write(w.cup(1, v.width - (scope ? 7 : 10)) + (create ? palette.call_to_action : button) + `[ + ]${panel}`);
   }
+  /** A machine's shaded header on row `y`: its fold chevron, its name, and
+   * its reception bars or what its connection is doing. */
+  private drawMachine(
+    w: Writer,
+    y: number,
+    name: string,
+    collapsed: boolean,
+    hovered: boolean,
+    link: { quality: Quality | null; status: ConnectionStatus | null },
+    tree = false,
+    focused = false,
+  ): void {
+    const v = this;
+    // The keyboard cursor takes the selected tint, as a workspace's line does.
+    w.write(w.cup(y + 1, 1) + (focused ? selected_bg : hovered ? machine_header_hover : machine_header));
+    w.splat(" ", sat(v.width, 1));
+    // In the compact tree it starts at the left edge, its name over its workspaces' chevrons.
+    const chevron = `${fg("muted")}${collapsed ? "▸" : "▾"}${tree ? " " : "  "}${fg(hovered || focused ? "strong" : "text")}`;
+    w.write(w.cup(y + 1, tree ? 1 : 2) + chevron);
+    const { quality, status } = link;
+    const bars = v.signal_marks ? signalBars.cells : 4;
+    const label = status ? machineStatusLabel(status, v.width, name) : "";
+    const status_width = displayWidth(label);
+    writeEllipsis(w, name, sat(v.width, status ? status_width + 7 : quality === null ? 6 : 8 + bars));
+    if (status) {
+      w.write(w.cup(y + 1, v.width - status_width - 1) + fg(status.color) + label);
+    } else if (quality !== null) {
+      w.write(w.cup(y + 1, v.width - 1 - bars));
+      if (v.signal_marks) {
+        v.signal_marks(quality, w.column + v.width - 2 - bars, y);
+        w.splat(" ", bars);
+      } else {
+        const color = quality >= 3 ? "accent" : "warm";
+        for (const [i, bar] of [..."▂▄▆█"].entries()) w.write(fg(i < quality ? color : "line") + bar);
+      }
+    }
+    w.write(panel);
+  }
   /** The title row and the workspace list above the agents. */
   private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[], now_ms: number): void {
     const v = this;
@@ -1706,35 +1774,11 @@ export class View {
     shown.forEach((ws, index) => {
       const absolute = index + v.workspace_offset;
       const y = v.workspaceY(absolute);
-      if (v.workspaceHeader(absolute)) {
-        const hovered = v.machine_hover === y - 1;
-        w.write(w.cup(y, 1) + (hovered ? machine_header_hover : machine_header));
-        w.splat(" ", sat(v.width, 1));
-        w.write(`${w.cup(y, 2)}${fg("muted")}${ws.collapsed ? "▸" : "▾"}  ${fg(hovered ? "strong" : "text")}`);
-        const quality = ws.link_quality;
-        const bars = v.signal_marks ? signalBars.cells : 4;
-        const status = ws.connection_status;
-        const label = status ? machineStatusLabel(status, v.width, v.workspace_machines[absolute]) : "";
-        const status_width = displayWidth(label);
-        writeEllipsis(
-          w,
-          v.workspace_machines[absolute],
-          sat(v.width, status ? status_width + 7 : quality === null ? 6 : 8 + bars),
-        );
-        if (status) {
-          w.write(w.cup(y, v.width - status_width - 1) + fg(status.color) + label);
-        } else if (quality !== null) {
-          w.write(w.cup(y, v.width - 1 - bars));
-          if (v.signal_marks) {
-            v.signal_marks(quality, w.column + v.width - 2 - bars, y - 1);
-            w.splat(" ", bars);
-          } else {
-            const color = quality >= 3 ? "accent" : "warm";
-            for (const [i, bar] of [..."▂▄▆█"].entries()) w.write(fg(i < quality ? color : "line") + bar);
-          }
-        }
-        w.write(panel);
-      }
+      if (v.workspaceHeader(absolute))
+        v.drawMachine(w, y - 1, v.workspace_machines[absolute], ws.collapsed, v.machine_hover === y - 1, {
+          quality: ws.link_quality,
+          status: ws.connection_status,
+        });
       if (ws.collapsed) return;
       const out = w;
       if (ws.unavailable) w = new Writer(out.column);
@@ -1902,12 +1946,12 @@ export class View {
         const room = this.width - 2 - x;
         if (room <= 0) break;
         const prefix = `${x > 1 ? " " : ""}${compactCount(p.count)}× `;
-        const icon = p.brand && this.archive_marks ? tabIcons.cols : 0;
+        const icon = p.brand && this.brand_marks ? tabIcons.cols : 0;
         const name = p.name.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
         w.write(w.cup(y + 3, x + 1) + new Style({ fg: "muted", bg: ws.active ? "selected" : "surface" }).sgr() + rule);
         writeEllipsis(w, prefix + " ".repeat(icon) + name, room);
         if (p.brand && icon && displayWidth(prefix) + icon < room)
-          this.archive_marks!(p.brand, w.column + x + displayWidth(prefix), y + 2);
+          this.brand_marks!(p.brand, w.column + x + displayWidth(prefix), y + 2);
         x += displayWidth(prefix) + icon + displayWidth(name);
       }
       w.write(panel);
@@ -1949,11 +1993,22 @@ export class View {
     const lastInGroup = (i: number) => {
       const next = entries[i + 1];
       if (!next) return true;
-      if (nested(i)) return isGroup(next.target);
+      if (nested(i)) return isGroup(next.target) || isMachine(next.target);
       return isHeading(next.target) || entries[i].worktree?.path !== next.worktree?.path;
     };
     const heading = (out: Writer, i: number, y: number, stuck: boolean) => {
       const e = entries[i];
+      if (isMachine(e.target))
+        return v.drawMachine(
+          out,
+          y,
+          e.name,
+          e.group.folded,
+          false,
+          e.group.link ?? { quality: null, status: null },
+          true,
+          e.focused,
+        );
       if (isSection(e.target)) return v.drawSection(out, e, e.target.section, y, stuck);
       if (isSubhead(e.target)) return v.drawSubhead(out, e, y, stuck);
       const lead = isGroup(e.target) ? "" : e.worktree?.ghost ? " " : !nested(i) ? "" : lastInGroup(i) ? "╰" : "├";
@@ -2062,6 +2117,11 @@ export class View {
       v.drawGhost(row_writer, e, top);
       finish();
     });
+    // A compact row's next line is the next row, so its rename message goes over it last.
+    visible.forEach((e, index) => {
+      if (e.compact && viewerRef.isPane(e.target))
+        v.drawRenameMessage(w, v.renaming(e.target), lands[index] + e.slide, bg("bg"));
+    });
     if (v.search !== null) v.line(w, v.rows - 1, i18n.t`↑↓  ↵ jump  Esc back`, panel);
     const t = v.thumb();
     if (t)
@@ -2088,7 +2148,10 @@ export class View {
     const selected = ghost || e.focused;
     const background = selected ? colors.selected : hovered ? hover_rgb : colors.bg;
     const row_bg = selected ? selected_bg : hovered ? hover_bg : bg("bg");
-    for (let row = 0; row < 2; row++) {
+    const rows = View.height(e);
+    // The row's background spans the sidebar; its rail and text start past the indent.
+    const ix = x + e.indent;
+    for (let row = 0; row < rows; row++) {
       if (y + row >= v.listEnd()) break;
       w.write(`${w.cup(y + row + 1, x + 1)}\x1b[0m${row_bg}`);
       w.splat(" ", v.width - 1);
@@ -2100,15 +2163,18 @@ export class View {
       const rail = e.focused ? new Style({ fg: "accent" }).sgr() : new Style({ fg: "line" }).sgr();
       const branch = e.focused ? "┣" : last_in_group ? "╰" : "├";
       const through = e.focused || !last_in_group;
-      w.write(`${w.cup(y + 1, x + 1)}${rail}${row_bg}${branch}`);
-      if (through && y + 1 < v.listEnd()) w.write(`${w.cup(y + 2, x + 1)}${e.focused ? "┃" : "│"}`);
+      w.write(`${w.cup(y + 1, ix + 1)}${rail}${row_bg}${branch}`);
+      if (through && rows > 1 && y + 1 < v.listEnd()) w.write(`${w.cup(y + 2, x + 1)}${e.focused ? "┃" : "│"}`);
       w.write(`\x1b[0m${row_bg}`);
     }
     const dot = indicator(e, selected);
     // At work but waiting on the user: its name takes the needs-input color.
     const waits = e.section !== null && (e.state === "blocked" || e.attention === "needs_input");
-    w.write(`${w.cup(y + 1, x + 2)}\x1b[22m${dot.color}${dot.icon}`);
-    const room = v.width - 6;
+    w.write(`${w.cup(y + 1, ix + 2)}\x1b[22m${dot.color}${dot.icon}`);
+    const lead = v.nameLead(e);
+    const room = v.width - 2 - lead - e.indent;
+    const brand = lead > 4 && e.provider ? brandOf(e.provider) : null;
+    if (brand && v.brand_marks && y < v.listEnd()) v.brand_marks(brand, w.column + ix + 3, y);
     // Within a group, a dotted line under the text separates agents. Only
     // Kitty-graphics hosts get it; elsewhere the style could degrade to a
     // solid underline, so those terminals get no separator at all.
@@ -2138,7 +2204,12 @@ export class View {
     const figure = contextFigure(e, compacting, background);
     const figure_width = figure ? displayWidth(figure.text) : 0;
     const notes = noteLabel(e);
-    const right = nameRight(e, figure);
+    const badge = subagentBadge(e.subagents, e.children);
+    const badge_width = displayWidth(badge);
+    // A compact row has no activity line, so its subagents sit after the name.
+    const inline_badge = e.compact && badge_width > 0;
+    const notes_right = nameRight(e, figure),
+      right = rowRight(e, figure);
     const rename = viewerRef.isPane(e.target) ? v.renaming(e.target) : null;
     const name_style = waits
       ? "\x1b[1m" + fg("warm")
@@ -2147,24 +2218,31 @@ export class View {
         : "\x1b[22m" + fg("text");
     // Outside the starred section, a star before the name marks it, in gold.
     const star = rename === null && e.starred && e.section !== "starred" && sat(room, right) > 3;
-    w.write(`${w.cup(y + 1, x + 5)}${star ? "\x1b[1m" + fg("gold") + "★ " : ""}${name_style}`);
+    w.write(`${w.cup(y + 1, ix + lead + 1)}${star ? "\x1b[1m" + fg("gold") + "★ " : ""}${name_style}`);
     if (rename !== null) {
-      v.drawField(w, rename, x + 4, y, sat(room, right));
+      v.drawField(w, rename, ix + lead, y, sat(room, right));
       w.write(row_bg);
     } else if (star) writeEllipsis(w, rowTitle(e), sat(room, right + 2));
     else writeEllipsis(w, agentName(e), sat(room, right));
     w.write("\x1b[22m");
     // Unsent review notes wait for the user, so they take warm.
     if (notes.length > 0 && room > right + 4)
-      w.write(`${w.cup(y + 1, x + v.width - right)}\x1b[1m${fg("warm")}${notes}\x1b[22m`);
+      w.write(`${w.cup(y + 1, x + v.width - notes_right)}\x1b[1m${fg("warm")}${notes}\x1b[22m`);
     if (figure) {
       w.write(w.cup(y + 1, x + v.width - 1 - figure_width));
       w.write(fgRgb(figure.color));
       w.write(figure.text);
     }
+    if (e.compact) {
+      if (inline_badge && room > right + 2) {
+        const color = e.subagents.blocked > 0 ? fg("warm") : fg("accent");
+        w.write(`${w.cup(y + 1, x + v.width - right)}${color}${badge}`);
+      }
+      w.write("\x1b[24;59m");
+      v.drawBar(w, e, x, y, rows, ghost, grouped, gilded, row_bg);
+      return;
+    }
     const detail = rowDetail(e, now_ms);
-    const badge = subagentBadge(e.subagents, e.children);
-    const badge_width = displayWidth(badge);
     const detail_room = sat(room, badge_width + (badge_width > 0 ? 1 : 0));
     const animation_key = animationKey(e);
     const mode = corgiMode(e, v.corgi_intensity, detail_room);
@@ -2229,13 +2307,28 @@ export class View {
       w.write(`${w.cup(y + 2, x + v.width - 1 - badge_width)}${color}${badge}`);
     }
     w.write("\x1b[24;59m");
-    // Without the group rail, the focused agent takes the active workspace's bar.
+    v.drawBar(w, e, x, y, rows, ghost, grouped, gilded, row_bg);
+    v.drawRenameMessage(w, rename, y, row_bg);
+  }
+  /** Without the group rail, the focused agent takes the active workspace's bar. */
+  private drawBar(
+    w: Writer,
+    e: Entry,
+    x: number,
+    y: number,
+    rows: number,
+    ghost: boolean,
+    grouped: boolean,
+    gilded: boolean,
+    row_bg: string,
+  ): void {
     const bar = ghost ? ghost_bar : e.focused && !grouped ? active_bar : gilded ? row_bg + star_trim + "▏" : "";
-    if (bar.length > 0) for (let row = 0; row < 2; row++) w.write(`${w.cup(y + row + 1, x + 1)}${bar}\x1b[0m`);
-    if (rename !== null && rename.message !== null) {
-      const below = y + 1 < v.drawEnd(v.badge("below"));
-      v.drawMessage(w, rename.message, below ? y + 1 : y - 1, below ? row_bg : bg("bg"));
-    }
+    if (bar.length > 0) for (let row = 0; row < rows; row++) w.write(`${w.cup(y + row + 1, x + 1)}${bar}\x1b[0m`);
+  }
+  private drawRenameMessage(w: Writer, rename: RenameState | null, y: number, row_bg: string): void {
+    if (rename === null || rename.message === null) return;
+    const below = y + 1 < this.drawEnd(this.badge("below"));
+    this.drawMessage(w, rename.message, below ? y + 1 : y - 1, below ? row_bg : bg("bg"));
   }
   /** A workspace or worktree group's header. A worktree's under a workspace
    * branches off the workspace's rail with `lead`; a ghost's leaves that
@@ -2243,12 +2336,13 @@ export class View {
   drawHeader(w: Writer, e: Entry, y: number, lead: string, stuck: boolean): void {
     const v = this;
     const g = e.group;
-    const row_bg = e.focused ? selected_bg : bg("bg");
+    // The compact tree tints the current workspace's line, as the workspace list does.
+    const row_bg = e.focused || (e.compact && g.current && isGroup(e.target)) ? selected_bg : bg("bg");
     // Pinned, it underlines its row where the list scrolls beneath.
     w.write(`${w.cup(y + 1, 1)}\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
     w.splat(" ", v.width - 1);
-    if (lead.length > 0) w.write(w.cup(y + 1, 1) + fg("line") + lead);
-    const arrow_x = lead.length;
+    if (lead.length > 0) w.write(w.cup(y + 1, 1 + e.indent) + fg("line") + lead);
+    const arrow_x = e.indent + lead.length;
     w.write(w.cup(y + 1, arrow_x + 1) + fg("muted") + (g.folded ? "▸" : "▾"));
     // Its agents by state, as the worktree overview counts them.
     const bars = histogram(g);
@@ -2278,7 +2372,8 @@ export class View {
       w.write("\x1b[22m" + fg("muted") + machine);
       name_end += displayWidth(machine);
     }
-    if (status_x > name_end + 2) {
+    // The compact tree has no rule, so its machines' lines stand out.
+    if (!e.compact && status_x > name_end + 2) {
       // A heavy, bright rule so each header stands out from its agents; a
       // worktree inside a workspace takes a thin one.
       w.write(`${w.cup(y + 1, name_end + 2)}\x1b[22m` + (lead.length > 0 ? fg("line") : fg("muted")));
@@ -2354,10 +2449,13 @@ export class View {
   }
   scopeArrow(): string {
     if (this.framed()) return this.lists().scopeArrow();
+    // The compact tree always lists every workspace, so it has no scope to pick.
+    if (this.compact) return "";
     return this.width >= 22 ? " ▾" : "▾";
   }
   scopeQualifier(): string {
     if (this.framed()) return this.lists().scopeQualifier();
+    if (this.compact) return "";
     const room = sat(
       sat(this.width, displayWidth(newAgentLabel(this.width)) + 3),
       this.scopeStart() - 1 + displayWidth(this.scopeArrow()),
@@ -2438,6 +2536,11 @@ function noteLabel(e: Entry): string {
   const count = e.notes;
   return count > 0 ? (count === 1 ? i18n.t`${count} note` : i18n.t`${count} notes`) : "";
 }
+/** Columns right of an agent's name: `nameRight`, and on a compact row its subagent badge. */
+function rowRight(e: Entry, figure: { text: string } | null): number {
+  const badge = e.compact ? displayWidth(subagentBadge(e.subagents, e.children)) : 0;
+  return nameRight(e, figure) + (badge > 0 ? badge + 1 : 0);
+}
 /** The columns the context figure and the notes take at the name line's right. */
 function nameRight(e: Entry, figure: { text: string } | null): number {
   const figure_width = figure ? displayWidth(figure.text) : 0;
@@ -2483,6 +2586,24 @@ export function resourceAt(v: View, workspaces: WorkspaceEntry[], x: number, y: 
   const ws = workspaces[i];
   if (ws.unavailable) return null;
   if (!resourceCardFits(v)) return null;
+  for (let reading = 0; reading < 3; reading++) if (shownReading(v.resources, ws.resources, reading)) return ws;
+  return null;
+}
+/** In the compact tree, a workspace's line opens its readings card, as its
+ * readings row does in the full sidebar. */
+export function compactResourceAt(
+  v: View,
+  entries: Entry[],
+  workspaces: WorkspaceEntry[],
+  x: number,
+  y: number,
+): WorkspaceEntry | null {
+  const found = v.hit(x, y);
+  if (found.tag !== "entry" || found.entry >= entries.length) return null;
+  const target = entries[found.entry].target;
+  if (!isGroup(target)) return null;
+  const ws = workspaces.find(w => w.id === target.group);
+  if (!ws || ws.unavailable || !resourceCardFits(v)) return null;
   for (let reading = 0; reading < 3; reading++) if (shownReading(v.resources, ws.resources, reading)) return ws;
   return null;
 }

@@ -3,7 +3,7 @@ import type * as viewerRef from "./viewer_ref";
 //! list. Plain arrows move it within its list, wrapping; prefixed ones move it
 //! between the lists, as they move focus between panes. Opening a row is the
 //! controller's.
-import { isSubhead, sameTarget, type Entry, type Section, type Target } from "./sidebar";
+import { isGroup, isHeading, isSubhead, sameTarget, type Entry, type Section, type Target } from "./sidebar";
 
 /** A workspace row by id, or an agent list row by target. */
 export type Cursor = { workspace: viewerRef.Workspace } | { entry: Target } | { archived: true };
@@ -13,14 +13,20 @@ export function same(a: Cursor, b: Cursor): boolean {
   if ("archived" in a) return "archived" in b;
   return "entry" in b && sameTarget(a.entry, b.entry);
 }
-/** List rows the cursor stops on: not a closing row, nor a workspace's
- * subhead, which only names it. */
+/** List rows a click opens: not a closing row, nor a workspace's subhead,
+ * which only names it. */
 export function stops(e: Entry): boolean {
   return e.exit === null && !(isSubhead(e.target) && e.target.checkout === null);
 }
+/** Rows the keyboard cursor steps to: in the compact tree, an open heading
+ * is passed over for the rows under it, unless it is a workspace with none. */
+export function steps(e: Entry): boolean {
+  const passed = e.compact && isHeading(e.target) && !e.group.folded && !(isGroup(e.target) && e.group.agents === 0);
+  return !passed && stops(e);
+}
 /** The focused agent's row, or the folded header standing in for it, else the list's first. */
 function agentRow(entries: Entry[]): Cursor | null {
-  const row = entries.find(e => e.focused && stops(e)) ?? entries.find(stops);
+  const row = entries.find(e => e.focused && steps(e)) ?? entries.find(steps);
   return row ? { entry: row.target } : null;
 }
 /** Where focus enters: the agent list, else the current workspace's row. */
@@ -53,7 +59,7 @@ export class State {
       if (archived_at !== null) rows.splice(archived_at, 0, { archived: true });
       return rows;
     }
-    return entries.filter(stops).map(e => ({ entry: e.target }));
+    return entries.filter(steps).map(e => ({ entry: e.target }));
   }
   /** Keeps the cursor on its row, or the row now in its place when it closed. */
   reconcile(workspaces: viewerRef.Workspace[], entries: Entry[], archived_at: number | null = null): void {
@@ -85,7 +91,7 @@ export class State {
     }
     if (up || "entry" in cursor) return false;
     const left = this.left;
-    const back = left && entries.some(e => stops(e) && sameTarget(e.target, left)) ? { entry: left } : null;
+    const back = left && entries.some(e => steps(e) && sameTarget(e.target, left)) ? { entry: left } : null;
     this.cursor = back ?? agentRow(entries) ?? cursor;
     return this.cursor !== cursor;
   }

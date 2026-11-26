@@ -805,6 +805,21 @@ test("a read-only config.json stays as it is, and a writable one keeps its mode"
   }
 });
 
+test("the compact sidebar is a setting in config.json", async () => {
+  const { root, where } = await scratch("preferences-compact");
+  try {
+    expect(read(where).compact_sidebar).toBe(false);
+    update({ compact_sidebar: true }, where);
+    expect(await json(where.config)).toEqual({ compact_sidebar: true });
+    expect(read(where).compact_sidebar).toBe(true);
+    await put(where.config, { compact_sidebar: "yes" });
+    expect(read(where).compact_sidebar).toBe(false);
+    expect(inspect(where).problems).toEqual([{ file: where.config, text: expect.stringContaining("compact_sidebar") }]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("choosing the default replaces a value Corgi skips, and keeps fields it doesn't know", async () => {
   const { root, where } = await scratch("preferences-clear");
   try {

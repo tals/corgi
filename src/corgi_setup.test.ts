@@ -1041,6 +1041,12 @@ test("on/off settings flip from the list and offer the opposite", () => {
   expect(menu.focus).toBe("list");
   prefs.resources.enabled = false;
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toMatch(/Resources\s+Off/);
+
+  menu.item = "compact_sidebar";
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toMatch(/Compact sidebar\s+Off/);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "compact_sidebar", on: true });
+  prefs.compact_sidebar = true;
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toMatch(/Compact sidebar\s+On/);
 });
 
 test("Command keys turn on and off under the keymap", () => {

@@ -68,6 +68,18 @@ Use **prefix w** to choose a workspace, **prefix a** to choose an agent, and
 the sidebar, panes and review panel. **prefix b** hides or shows the sidebar.
 [Workspace activity and worktrees](workspaces.md) explains its indicators.
 
+**Corgi setup → Compact sidebar**, or `corgi action compact-sidebar`, puts every
+workspace and its agents in one tree, one line each, in place of the workspace
+and agent lists. Click a workspace's line to switch to it, or its ▾ to fold it.
+From the keyboard, Left folds an agent's workspace and Right unfolds a folded line.
+With remote machines, a shaded line names each machine above its workspaces;
+click it to fold them.
+An agent's line shows its status glyph. In terminals that show images, it also
+shows the agent's logo. Hover an agent's line for its activity. Hover a
+workspace's line for its resource readings. Ports, Git and archived workspaces
+show only in the full sidebar.
+The tree shows only in a sidebar on the left. A sidebar on top keeps its two lists.
+
 Drag terminal text to copy it; hold Shift over mouse-aware applications.
 The wheel enters scroll mode. There, `j/k`, PageUp/PageDown and `g/G` move,
 `/` searches, `n/N` repeat the search, `y` or Enter copies, and `q` exits.

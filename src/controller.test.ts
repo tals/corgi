@@ -1777,6 +1777,102 @@ function pair() {
     headless_sessions: [],
   };
 }
+test("the compact sidebar lists every workspace's agents in one tree, and its lines switch workspace", async () => {
+  const s = controller(),
+    snapshot: any = pair();
+  // Workspace 2 holds only a shell, so it has no agents of its own.
+  snapshot.panes[2].agent = { ...snapshot.panes[2].agent, provider: null };
+  s.prefs.agents = "workspace";
+  s.prefs.agent_sort = "activity";
+  try {
+    s.receiveSnapshot(snapshot);
+    await s.perform({ name: "compact-sidebar" });
+    expect(s.prefs.compact_sidebar).toBe(true);
+    const entries = s.agentEntries() as sidebar.Entry[];
+    const w = (id: number) => viewerRef.workspace(s.machine.id, id),
+      p = (id: number) => viewerRef.pane(s.machine.id, id);
+    // The scope and sort are kept for the full sidebar, but compact lists all, by workspace.
+    expect(entries.map(e => e.target)).toEqual([{ group: w(1) }, p(1), p(2), { group: w(2) }]);
+    expect(entries.every(e => e.compact)).toBe(true);
+    // A folded workspace hides its agents from the tree, but not from search.
+    s.machine.folded_groups.push(1);
+    expect((s.agentEntries() as sidebar.Entry[]).map(e => e.target)).toEqual([{ group: w(1) }, { group: w(2) }]);
+    expect((s.agentEntries(true) as sidebar.Entry[]).map(e => e.target)).toEqual([
+      { group: w(1) },
+      p(1),
+      p(2),
+      { group: w(2) },
+    ]);
+    s.machine.folded_groups.length = 0;
+    // On top, the band keeps its two lists while the setting stays on.
+    s.prefs.sidebar_position = "top";
+    expect(s.compactSidebar()).toBe(false);
+    expect((s.agentEntries() as sidebar.Entry[]).some(e => e.compact)).toBe(false);
+    // Back in a column, a cursor left in the hidden workspace list moves into the tree.
+    await s.perform({ name: "choose-workspace" });
+    expect(s.sidebar_focus!.section()).toBe("workspaces");
+    s.prefs.sidebar_position = "left";
+    (s as any).focusEntries();
+    expect(s.sidebar_focus!.cursor).toEqual({ entry: p(1) });
+    s.giveKeyboard("pane");
+    s.selectAgent({ group: w(2) });
+    expect(s.current().id).toBe(2);
+    await s.perform({ name: "compact-sidebar" });
+    expect(s.prefs.compact_sidebar).toBe(false);
+    expect((s.agentEntries() as sidebar.Entry[]).some(e => e.compact)).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("the compact tree puts each machine's line above its workspaces, and the line folds them", async () => {
+  const s = controller(),
+    other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  try {
+    s.receiveSnapshot(pair());
+    s.receiveSnapshot(pair(), other);
+    await s.perform({ name: "compact-sidebar" });
+    const kinds = (unfolded = false) =>
+      (s.agentEntries(unfolded) as sidebar.Entry[]).map(e =>
+        sidebar.isMachine(e.target)
+          ? `machine ${e.target.machine}`
+          : sidebar.isGroup(e.target)
+            ? `ws ${e.name}`
+            : "agent",
+      );
+    expect(other.presence().online).toBe(true);
+    expect(kinds()).toEqual([
+      `machine ${s.machine.name}`,
+      "ws /a",
+      "agent",
+      "agent",
+      "ws /b",
+      "agent",
+      "machine work",
+      "ws /a",
+      "agent",
+      "agent",
+      "ws /b",
+      "agent",
+    ]);
+    // The machine's line names it, so its workspaces' lines don't.
+    expect(
+      (s.agentEntries() as sidebar.Entry[]).filter(e => sidebar.isGroup(e.target)).map(e => e.group.machine),
+    ).toEqual(["", "", "", ""]);
+    // Machine lines sit at the edge; the rest step in under them.
+    expect((s.agentEntries() as sidebar.Entry[]).map(e => e.indent)).toEqual([0, 2, 2, 2, 2, 2, 0, 2, 2, 2, 2, 2]);
+    s.selectAgent({ machine: "work" });
+    expect(other.collapsed).toBe(true);
+    expect(kinds().slice(-1)).toEqual(["machine work"]);
+    // Search still finds the folded machine's agents.
+    expect(kinds(true).slice(6)).toEqual(["machine work", "ws /a", "agent", "agent", "ws /b", "agent"]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
 test("an agent the daemon holds as starting shows dimmed in working until it lets go", () => {
   const s = controller(),
     snapshot: any = pair();
@@ -1867,6 +1963,26 @@ function steering() {
   s.sendInput = (term: any, data: any) => sent.push([term.id, Buffer.from(data).toString()]);
   return { s, sent };
 }
+
+test("in the compact tree, Left folds an agent's workspace onto its line and Right unfolds it again", async () => {
+  const { s } = steering();
+  try {
+    await s.perform({ name: "compact-sidebar" });
+    s.focusPane(1);
+    await s.perform({ name: "choose-agent" });
+    const w = (id: number) => viewerRef.workspace(s.machine.id, id),
+      p = (id: number) => viewerRef.pane(s.machine.id, id);
+    expect(s.sidebar_focus.cursor).toEqual({ entry: p(1) });
+    await s.input(bytes("\x1b[D"));
+    expect(s.machine.folded_groups).toEqual([1]);
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { group: w(1) } });
+    await s.input(bytes("\x1b[C"));
+    expect(s.machine.folded_groups).toEqual([]);
+    expect(s.sidebar_focus.cursor).toEqual({ entry: p(1) });
+  } finally {
+    viewer.close(s);
+  }
+});
 
 test("prefixed arrows walk the panes into the sidebar, which opens the agent under its cursor", async () => {
   const { s, sent } = steering();

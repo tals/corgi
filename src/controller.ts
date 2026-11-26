@@ -1249,7 +1249,8 @@ export class Controller {
     const focus = this.sidebar_focus;
     if (focus) {
       const toward = this.sidebarView([]).band ? lateral[to] : to;
-      if (toward !== "up" && toward !== "down") return false;
+      // The compact tree is the sidebar's one list.
+      if ((toward !== "up" && toward !== "down") || this.compactSidebar()) return false;
       const entries = this.sidebarEntries();
       if (!focus.cross(this.workspaceRef(this.current().id), entries, toward === "up")) return false;
       this.revealCursor(entries);
@@ -1276,6 +1277,8 @@ export class Controller {
    * current workspace. A folded sidebar opens only for a list, as its drawer. */
   private enterSidebar(list: sidebar.Section | null = null): void {
     this.closeMenu();
+    // The compact tree has no workspace list; its own lines name the workspaces.
+    if (list === "workspaces" && this.compactSidebar()) list = "agents";
     const folded = !this.sidebar_open;
     if (folded && list === null) return;
     this.sidebar_open = true;
@@ -1298,7 +1301,8 @@ export class Controller {
     if (this.sidebar_focus) this.giveKeyboard("pane");
   }
   /** Focuses `list` in the sidebar; its key again puts its drawer away. */
-  private chooseIn(list: sidebar.Section): void {
+  private chooseIn(choice: sidebar.Section): void {
+    const list = choice === "workspaces" && this.compactSidebar() ? "agents" : choice;
     if (this.sidebar_focus?.drawer === list) this.leaveSidebar();
     else this.enterSidebar(list);
   }
@@ -1308,12 +1312,53 @@ export class Controller {
       if ((to === "right") !== this.archived_expanded) await this.perform({ name: "toggle-archived-workspaces" });
       return;
     }
+    if ((to === "left" || to === "right") && this.foldCompact(to === "right")) return;
     if (to === "right") return this.openSidebarRow(true);
     if (to === "left") return;
     const entries = this.sidebarEntries();
     this.sidebar_focus!.move(this.sidebarWorkspaceIds(), entries, to === "down", this.archivedHeaderIndex());
     this.revealCursor(entries);
     this.dirty = true;
+  }
+  /** In the compact tree, Right unfolds the folded line under the cursor and
+   * steps into it; Left folds an agent's workspace onto its line. False when
+   * the cursor's row has nothing to fold that way. */
+  private foldCompact(open: boolean): boolean {
+    const focus = this.sidebar_focus!,
+      cursor = focus.cursor;
+    if (!this.compactSidebar() || !("entry" in cursor)) return false;
+    const entries = this.sidebarEntries(),
+      at = entries.findIndex(e => sidebar.sameTarget(e.target, cursor.entry));
+    if (at < 0) return false;
+    const target = entries[at].target;
+    if (open) {
+      if (!sidebar.isHeading(target) || !entries[at].group.folded) return false;
+      if (sidebar.isGroup(target)) this.toggleGroup(target.group);
+      else if (sidebar.isMachine(target)) {
+        const machine = this.machines.find(m => m.name === target.machine);
+        if (!machine) return false;
+        this.toggleMachine(machine);
+        this.sidebar_rows.discard();
+      } else return false;
+      const opened = this.sidebarEntries(),
+        line = opened.findIndex(e => sidebar.sameTarget(e.target, target));
+      // A workspace without agents keeps the cursor on its line.
+      const next =
+        line >= 0 && !sidebarFocus.steps(opened[line]) ? opened.slice(line + 1).find(sidebarFocus.steps) : null;
+      if (next) focus.cursor = { entry: next.target };
+    } else {
+      if (!sidebar.isAgent(target)) return false;
+      const owner = entries
+        .slice(0, at)
+        .reverse()
+        .find(e => sidebar.isGroup(e.target));
+      if (!owner || !sidebar.isGroup(owner.target)) return false;
+      this.toggleGroup(owner.target.group);
+      focus.cursor = { entry: owner.target };
+    }
+    this.revealCursor(this.sidebarEntries());
+    this.dirty = true;
+    return true;
   }
   private revealCursor(entries: Entry[]): void {
     const cursor = this.sidebar_focus!.cursor;
@@ -1352,7 +1397,7 @@ export class Controller {
       return this.selectAgent(target);
     }
     if (arrow) return this.leaveSidebar();
-    if ("group" in target || "section" in target) return this.selectAgent(target);
+    if ("group" in target || "section" in target || "machine" in target) return this.selectAgent(target);
     await this.perform({ name: "worktree-agent", value: index });
   }
   /** The agent under the sidebar's cursor, where entering it would put it,
@@ -1413,9 +1458,15 @@ export class Controller {
   }
   /** The list while the sidebar has focus, its cursor the one focused row. */
   private focusEntries(): Entry[] {
-    const entries = this.sidebarEntries();
-    this.sidebar_focus!.reconcile(this.sidebarWorkspaceIds(), entries, this.archivedHeaderIndex());
-    return this.sidebar_focus!.mark(entries);
+    const entries = this.sidebarEntries(),
+      focus = this.sidebar_focus!;
+    // A resize can bring in the compact tree under a cursor in the workspace list it hides.
+    if (this.compactSidebar() && focus.section() === "workspaces") {
+      if (focus.drawer === "workspaces") focus.drawer = "agents";
+      focus.cursor = sidebarFocus.initial(this.workspaceRef(this.current().id), entries);
+    }
+    focus.reconcile(this.sidebarWorkspaceIds(), entries, this.archivedHeaderIndex());
+    return focus.mark(entries);
   }
   /** Runs a prefixed binding. Prefixed commands act on panes, so any but one
    * that moves the keyboard gives it back to them; a repeatable one opens its
@@ -1538,6 +1589,10 @@ export class Controller {
         return portrait(this.width, this.height, this.cell_pixels);
     }
   }
+  /** Whether the sidebar shows the compact tree: a column only, as the band on top keeps its two lists. */
+  compactSidebar(): boolean {
+    return this.prefs.compact_sidebar && !this.wantsTop();
+  }
   sidebarBand(): number {
     if (!this.wantsTop() || this.sidebar_focus?.drawer) return 0;
     return sidebar.View.bandFor(this.width, this.height, this.sidebar_open, this.prefs.sidebar_height);
@@ -1552,6 +1607,7 @@ export class Controller {
       entries.length,
       this.host.prefs.sidebar_split,
       this.sidebarBand(),
+      this.compactSidebar(),
     )
       .withSearch(this.agentSearch())
       .withWidth(this.host.prefs.sidebar_width);
@@ -1580,6 +1636,8 @@ export class Controller {
     view.scope_label = this.scopeLabel();
     view.workspace_scope = this.machineScope();
     view.corgi_badge = this.host.corgi_badge;
+    // A compact row's name starts past its agent's mark only where marks show.
+    view.supports_kitty_graphics = this.host.supports_kitty_graphics;
     return view;
   }
   private agentOffset(): { get(): number; set(value: number): void } {
@@ -1632,6 +1690,27 @@ export class Controller {
     } catch (error) {
       this.notice((error as Error).message);
     }
+  }
+  /** Turns the compact sidebar on or off and saves the choice. */
+  private setCompact(on: boolean): void {
+    if (on === this.prefs.compact_sidebar) return;
+    this.showCompact(on);
+    try {
+      preferences.update({ compact_sidebar: on });
+    } catch (error) {
+      this.notice((error as Error).message);
+    }
+  }
+  /** Draws the sidebar compact or full, as `on` says, without saving it. */
+  private showCompact(on: boolean): void {
+    this.prefs.compact_sidebar = on;
+    // The compact tree has no workspace list for the keyboard.
+    if (this.compactSidebar() && this.sidebar_focus !== null && !("entry" in this.sidebar_focus.cursor))
+      this.giveKeyboard("pane");
+    this.closeMenu();
+    // The list's rows are new; nothing should glide from the old ones.
+    this.sidebar_rows.discard();
+    this.dirty = true;
   }
   loadPreferences(): void {
     this.prefs = preferences.load(true);
@@ -1702,6 +1781,7 @@ export class Controller {
       }
       this.dirty = true;
     }
+    if (saved && saved.compact_sidebar !== this.prefs.compact_sidebar) this.showCompact(saved.compact_sidebar);
     if (saved) this.reportPreferences(reading.problems);
     this.wake?.();
   }
@@ -2131,10 +2211,12 @@ export class Controller {
     );
   }
   agentEntries(unfolded = false): Entry[] {
-    const sectioned = this.prefs.agentSort() === "activity",
-      grouped = !sectioned && this.prefs.agents === "all";
-    const machines =
-      this.prefs.agents !== "all" ? [this.machine] : this.machine_filter ? [this.machine_filter] : this.machines;
+    // The compact sidebar lists every workspace's tree, whatever the scope and sort.
+    if (this.compactSidebar()) return this.compactEntries(unfolded);
+    const all = this.prefs.agents === "all",
+      sectioned = this.prefs.agentSort() === "activity",
+      grouped = !sectioned && all;
+    const machines = !all ? [this.machine] : this.machine_filter ? [this.machine_filter] : this.machines;
     const entries: Entry[] = [],
       items: agentSections.Item[] = [],
       held = new Set<string>(),
@@ -2145,48 +2227,17 @@ export class Controller {
         totals = grouped ? this.workspaceEntries(machine) : [];
       for (const ws of machine.runtime.workspaces.items) {
         if (ws.archived && (!shown || ws.id !== this.current().id)) continue;
-        if (this.prefs.agents !== "all" && !this.inScope(ws.id)) continue;
+        if (!all && !this.inScope(ws.id)) continue;
         const workspace = this.workspaceRef(ws.id, machine);
         if (grouped) {
           const total = totals.find(w => w.id === ws.id);
           if (!total || total.agents === 0) continue;
-          const folded = machine.folded_groups.includes(ws.id),
-            here = shown && ws.id === this.current().id;
-          entries.push(
-            sidebar.entry({
-              target: { group: workspace },
-              name: ws.name,
-              focused: folded && here && this.focusedAgent() !== null,
-              group: {
-                agents: total.agents,
-                working: total.working,
-                attention: total.attention,
-                folded,
-                current: here,
-                machine: this.machineLabels() ? machine.name : "",
-              },
-            }),
-          );
-          if (folded) continue;
+          entries.push(...this.workspaceTree(ws, machine, total, this.machineLabels() ? machine.name : "", unfolded));
+          continue;
         }
         const rows = this.machineAgents(ws.id, machine);
         if (!sectioned) {
-          const placed = rows.map(({ entry }) => {
-            const checkout = worktreeAgents.listedWorktree(ws.worktrees, entry.target, entry.cwd);
-            return {
-              entry: {
-                ...entry,
-                worktree: checkout === null ? null : { workspace: ws.id, path: checkout, ghost: false },
-              },
-              workspace: ws.id,
-              checkout,
-            };
-          });
-          entries.push(
-            ...agentSections
-              .labelled(placed, null, false, (id, checkout) => this.checkoutLabel(id, checkout, false, machine))
-              .map(e => agentRows.qualify(e, machine.id)),
-          );
+          entries.push(...this.placedAgents(ws, machine, rows));
           continue;
         }
         for (const { entry, start } of rows) {
@@ -2212,7 +2263,6 @@ export class Controller {
     }
     if (!sectioned) return entries;
     this.agent_since.place(items, held);
-    const all = this.prefs.agents === "all";
     return agentSections.arrange(items, {
       all,
       folded: unfolded ? new Set() : this.folded_sections,
@@ -2225,6 +2275,83 @@ export class Controller {
         return all && this.machineLabels() ? `${owner.machine.name} · ${name}` : name;
       },
     });
+  }
+  /** A workspace's header in the grouped list, then its agents unless it's folded
+   * and the caller did not ask for every agent. */
+  private workspaceTree(
+    ws: Workspace,
+    machine: Machine,
+    total: { agents: number; working: number; attention: number },
+    label: string,
+    unfolded = false,
+  ): Entry[] {
+    const folded = machine.folded_groups.includes(ws.id),
+      here = machine === this.machine && ws.id === this.current().id;
+    const header = sidebar.entry({
+      target: { group: this.workspaceRef(ws.id, machine) },
+      name: ws.name,
+      focused: folded && here && this.focusedAgent() !== null,
+      group: {
+        agents: total.agents,
+        working: total.working,
+        attention: total.attention,
+        folded,
+        current: here,
+        machine: label,
+      },
+    });
+    if (folded && !unfolded) return [header];
+    return [header, ...this.placedAgents(ws, machine, this.machineAgents(ws.id, machine))];
+  }
+  /** A workspace's agents in their order, under labels for their worktrees. */
+  private placedAgents(ws: Workspace, machine: Machine, rows: ReturnType<Controller["machineAgents"]>): Entry[] {
+    const placed = rows.map(({ entry }) => {
+      const checkout = worktreeAgents.listedWorktree(ws.worktrees, entry.target, entry.cwd);
+      return {
+        entry: { ...entry, worktree: checkout === null ? null : { workspace: ws.id, path: checkout, ghost: false } },
+        workspace: ws.id,
+        checkout,
+      };
+    });
+    return agentSections
+      .labelled(placed, null, false, (id, checkout) => this.checkoutLabel(id, checkout, false, machine))
+      .map(e => agentRows.qualify(e, machine.id));
+  }
+  /** The compact sidebar's one tree, in the workspace list's order: each
+   * workspace, empty ones too, with its agents under it. While rows name
+   * machines, a machine's line goes above its workspaces, as in that list. */
+  private compactEntries(unfolded = false): Entry[] {
+    const labels = this.machineLabels(),
+      entries: Entry[] = [];
+    let last: Machine | null = null;
+    for (const row of this.workspaceRows(false, true)) {
+      const owner = this.rowOf(row.id);
+      if (!owner) continue;
+      const { machine, id } = owner;
+      if (labels && machine !== last)
+        entries.push(
+          sidebar.entry({
+            target: { machine: machine.name },
+            name: machine.name,
+            group: {
+              agents: 0,
+              working: 0,
+              attention: 0,
+              folded: machine.collapsed,
+              current: false,
+              link: { quality: row.link_quality, status: row.connection_status },
+            },
+          }),
+        );
+      last = machine;
+      if (labels && machine.collapsed && !unfolded) continue;
+      // An unreachable machine's rows are cached; its line says why.
+      if (machine !== this.machine && !machine.presence().online) continue;
+      const ws = machine.runtime.workspaces.items.find(ws => ws.id === id);
+      if (ws) entries.push(...this.workspaceTree(ws, machine, row, "", unfolded));
+    }
+    const indent = labels ? 2 : 0;
+    return entries.map(e => ({ ...e, compact: true, indent: sidebar.isMachine(e.target) ? 0 : indent }));
   }
   /** A subhead's text for checkout `checkout` of workspace `id`: a worktree's
    * branch, or the workspace's own checkout's branch; in `all`, by workspace. */
@@ -2301,6 +2428,18 @@ export class Controller {
   }
   selectAgent(target: Target): void {
     if (!sidebar.isAgent(target)) {
+      // A machine's line folds its workspaces, as its header in the workspace list does.
+      if (sidebar.isMachine(target)) {
+        const machine = this.machines.find(m => m.name === target.machine);
+        if (machine) this.toggleMachine(machine);
+        this.sidebar_rows.discard();
+        return;
+      }
+      // In the compact tree, a workspace's line does what its row in the workspace list does.
+      if ("group" in target && this.compactSidebar()) {
+        this.selectRow(target.group);
+        return;
+      }
       if ("group" in target) this.toggleGroup(target.group);
       else if ("worktree" in target) {
         if (this.away(target)) this.toggleWorktree({ workspace: target.workspace, path: target.worktree });
@@ -3937,6 +4076,9 @@ export class Controller {
       case "new":
         this.openLauncher(true);
         this.copy_mode = false;
+        break;
+      case "compact-sidebar":
+        this.setCompact(!this.prefs.compact_sidebar);
         break;
       case "sidebar":
         this.sidebar_open = !this.sidebar_open;
@@ -6769,6 +6911,9 @@ export class Controller {
           this.notice((error as Error).message);
         }
         return;
+      case "compact_sidebar":
+        this.setCompact(apply.on);
+        return;
       case "readings":
         this.host.prefs.resources.enabled = apply.on;
         try {
@@ -9436,6 +9581,23 @@ export class Controller {
             const index = found.entry;
             if (entries[index].exit !== null) break;
             const target = entries[index].target;
+            if (sidebar.isMachine(target)) {
+              this.clicks.reset();
+              this.selectAgent(target);
+              break;
+            }
+            // A compact tree's workspace line: its chevron folds it, a right
+            // click opens its menu, and a click anywhere else switches to it.
+            if (entries[index].compact && sidebar.isGroup(target)) {
+              this.clicks.reset();
+              const owner = this.rowOf(target.group);
+              if (button === 2) {
+                if (owner && owner.machine === this.machine) this.openWorkspaceMenu(owner.id, x, y);
+              } else if (x <= sidebar.lists_x + 1 + entries[index].indent) this.toggleGroup(target.group);
+              else this.selectAgent(target);
+              this.dirty = true;
+              break;
+            }
             // Another machine's rows have no menus or drags here: they switch to it, or fold.
             if (button === 2 && sidebar.isSubhead(target)) {
               this.openWorktreeMenu(entries[index], x, y);
@@ -9482,7 +9644,16 @@ export class Controller {
               if (at !== null && view.offset === side.offset) {
                 const owner = this.agentWorkspace(target);
                 if (owner !== null)
-                  this.agent_drag = AgentDrag.init(view, at, x, y, owner, this.current().id, this.prefs.agentSort());
+                  this.agent_drag = AgentDrag.init(
+                    view,
+                    at,
+                    x,
+                    y,
+                    owner,
+                    this.current().id,
+                    // The compact tree is hand-sorted, whatever the full list's sort.
+                    this.compactSidebar() ? "manual" : this.prefs.agentSort(),
+                  );
               }
             }
             break;
@@ -10487,6 +10658,14 @@ export class Controller {
   }
   /** Starts aiming when the pointer steps off the card's row toward the
    * card and keeps the card while each move stays inside the triangle. */
+  /** The workspace whose readings card the pointer at (x, y) opens: its
+   * readings row, or in the compact tree its line. */
+  private resourceRowAt(x: number, y: number): WorkspaceEntry | null {
+    const rows = this.workspaceRows();
+    if (!this.compactSidebar()) return sidebar.resourceAt(this.sidebarView([]), rows, x, y);
+    const entries = this.sidebarEntries();
+    return sidebar.compactResourceAt(this.sidebarView(entries), entries, rows, x, y);
+  }
   private aimResource(x: number, y: number): void {
     const id = this.resourceDetail();
     if (id === null) {
@@ -10494,17 +10673,14 @@ export class Controller {
       return;
     }
     const rect = this.resourceRect()!;
-    const entries = this.workspaceRows();
-    const view = this.sidebarView([]);
-    const on_row = sidebar.resourceAt(view, entries, x, y)?.id === id;
+    const on_row = this.resourceRowAt(x, y)?.id === id;
     if (on_row || this.resourceBridgeContains(rect, x, y)) {
       this.resource_aim = null;
       return;
     }
     if (this.pointer) {
       const from = this.pointer;
-      if (sidebar.resourceAt(view, entries, from.x, from.y)?.id === id)
-        this.resource_aim = { x: from.x, y: from.y, at: 0 };
+      if (this.resourceRowAt(from.x, from.y)?.id === id) this.resource_aim = { x: from.x, y: from.y, at: 0 };
     }
     if (this.resource_aim) {
       if (resourceTooltip.aimed(rect, this.resource_aim, x, y)) this.resource_aim.at = milliTimestamp();
@@ -10912,7 +11088,7 @@ export class Controller {
         (this.signin ||
           (!this.resourceHoverContains(x, y) && !this.worktreeHoverContains(x, y) && !this.gitHoverContains(x, y)))
       ) {
-        const resource_hit = this.signin ? null : sidebar.resourceAt(this.sidebarView([]), this.workspaceRows(), x, y);
+        const resource_hit = this.signin ? null : this.resourceRowAt(x, y);
         if (resource_hit === null || this.resourceDetail() !== resource_hit.id) this.link_tooltip.move();
         this.launcher_hover_blocked = false;
       }
@@ -10964,7 +11140,7 @@ export class Controller {
         if (this.worktreeHoverContains(pointer.x, pointer.y)) return true;
         if (this.resourceHoverContains(pointer.x, pointer.y)) return true;
         if (this.gitHoverContains(pointer.x, pointer.y)) return true;
-        const ws = sidebar.resourceAt(this.sidebarView([]), this.workspaceRows(), pointer.x, pointer.y);
+        const ws = this.resourceRowAt(pointer.x, pointer.y);
         if (ws && resourceTooltip.geometry(this.width, this.height, this.sidebarView([]).width, pointer.y) !== null) {
           target = { resource: ws.id };
           this.resource_card.anchor = pointer.y;
@@ -11221,6 +11397,7 @@ export class Controller {
         inline_rename: this.inline_rename,
         sidebar_open: this.sidebar_open,
         sidebar_band: this.sidebarBand(),
+        sidebar_compact: this.compactSidebar(),
         sidebar_drawer: this.sidebar_focus?.drawer ?? null,
         corgi_badge: this.corgi_badge,
         supports_kitty_graphics: this.supports_kitty_graphics,

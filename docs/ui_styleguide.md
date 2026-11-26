@@ -137,6 +137,7 @@ use `muted` or brighter, not `faint`. Hovered agent rows blend `bg` toward
 ### Status
 
 These are the agent-row indicators in [src/sidebar.ts](../src/sidebar.ts).
+The compact sidebar's one-line rows use the same glyphs.
 Unread names also use `strong`, bold. Ended rows use `muted` when selected.
 
 | State | Glyph | Token |
