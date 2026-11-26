@@ -915,15 +915,16 @@ export function typeset(
   return { parts, width: at - gap - x };
 }
 
-/** Paints parts over an RGBA picture width pixels wide in one gray at alpha, smoothed at their edges. */
-function paint(rgba: Uint8Array, width: number, parts: Part[], value: number, alpha: number) {
+/** Paints parts over an RGBA picture width pixels wide in one gray at alpha, smoothed at their edges, and only inside clip. */
+function paint(rgba: Uint8Array, width: number, parts: Part[], value: number, alpha: number, clip?: Part) {
   const height = rgba.length / 4 / width;
   const [[left, right], [top, bottom]] = bounds(parts);
   for (let y = Math.max(0, Math.floor(top) - 1); y <= Math.min(height - 1, Math.ceil(bottom)); y++)
     for (let x = Math.max(0, Math.floor(left) - 1); x <= Math.min(width - 1, Math.ceil(right)); x++) {
       let d = Infinity;
       for (const part of parts) d = Math.min(d, signed(x + 0.5, y + 0.5, part));
-      over(rgba, (y * width + x) * 4, value, alpha * clamp(0.5 - d));
+      const inside = clip ? clamp(0.5 - signed(x + 0.5, y + 0.5, clip)) : 1;
+      over(rgba, (y * width + x) * 4, value, alpha * inside * clamp(0.5 - d));
     }
 }
 
@@ -954,6 +955,17 @@ interface BadgeLook {
   clock: string;
   shift: number;
   fade: number;
+  swap?: Swap;
+}
+
+/** Texts a badge swaps out as its own swap in, laid out for card, and how far the swap has come, from 0 to 1. */
+interface Swap {
+  card: number;
+  label: string;
+  clock: string;
+  step: number;
+  /** A new speed-up: every text swaps, even one that reads the same. */
+  all: boolean;
 }
 
 /**
@@ -961,8 +973,10 @@ interface BadgeLook {
  * speed in speeds, in a video size pixels across whose cells are cell pixels
  * tall: a dark pill centered at the bottom or top, as places say, with
  * ×speed and the wall-clock time since the speed-up began. It rises in as a
- * run of sped-up frames starts and sinks away after it ends. Pictures are
- * drawn when asked for, and a frame that looks like the last reuses its one.
+ * run of sped-up frames starts and sinks away after it ends; a speed-up that
+ * starts while it sinks swaps its texts in instead, as does a new speed.
+ * Pictures are drawn when asked for, and a frame that looks like the last
+ * reuses its one.
  */
 export function badgeTiles(
   times: number[],
@@ -1002,37 +1016,66 @@ export function badgeTiles(
   const rest = { top: margin + tall / 2, bottom: videoHeight - margin - tall / 2 };
   const looks: (BadgeLook | null)[] = times.map(() => null);
   const y = times.map(() => Math.round(rest.bottom - height / 2));
+  // Frames a swap of the badge's texts takes.
+  const swapping = Math.round(0.3 * fps);
   // The card last drawn, whose badge may still be sinking away.
-  let last: { b: number; place: Place } | null = null;
+  let last: { k: number; b: number } | null = null;
   for (const [k, card] of cards.entries()) {
     const away = card.place === "bottom" ? travel : -travel;
-    // Begun while the last one sinks: at the same edge the badge stays up,
-    // and at the other it rises in once the last has sunk away.
+    const at = Math.round(rest[card.place] - height / 2);
+    const texts = (i: number) => ({ label: label(speeds[i]), clock: elapsed(times[i] - times[card.from]) });
+    // Begun while the last sinks away: at the other edge it rises in once
+    // that has gone. At the same edge the badge stays up: within one
+    // speed-up it carries on, and a new one swaps its texts in over the gap.
+    const prior = last && cards[last.k];
     const follows = last !== null && card.a < last.b + outro;
-    const stays = last !== null && follows && last.place === card.place;
-    const begin = last !== null && follows && !stays ? last.b + outro : card.a;
+    const here = follows && prior?.place === card.place;
+    const begin = follows && !here ? last!.b + outro : card.a;
     if (begin > card.b) continue;
-    if (last !== null && stays) for (let i = last.b + 1; i < card.a; i++) looks[i] = looks[last.b];
+    let swap = (_i: number): Swap | undefined => undefined;
+    if (last !== null && here) {
+      const [end, was] = [last.b, looks[last.b]!];
+      const carries = prior?.from === card.from;
+      const span = Math.max(swapping, card.a - end);
+      if (!carries)
+        swap = i => (i - end < span ? { ...was, card: was.card, step: (i - end) / span, all: true } : undefined);
+      for (let i = end + 1; i < card.a; i++) {
+        looks[i] = { card: k, ...texts(carries ? i : card.a), shift: 0, fade: 1, swap: swap(i) };
+        y[i] = at;
+      }
+    }
+    // Where the speed last changed within the card, to swap the label.
+    let changed = card.a;
     for (let i = begin; i <= Math.min(times.length - 1, card.b + outro - 1); i++) {
-      const [inside, at] = [i <= card.b, Math.min(i, card.b)];
-      const step = inside ? (stays ? 1 : clamp((i - begin + 1) / intro)) : (i - card.b) / outro;
+      const inside = i <= card.b;
+      const step = inside ? (here ? 1 : clamp((i - begin + 1) / intro)) : (i - card.b) / outro;
+      const now = texts(Math.min(i, card.b));
+      if (inside && i > card.a && speeds[i] !== speeds[i - 1]) changed = i;
+      const relabel =
+        inside && changed > card.a && i - changed < swapping
+          ? { ...now, card: k, label: label(speeds[changed - 1]), step: (i - changed + 1) / swapping, all: false }
+          : undefined;
       looks[i] = {
         card: k,
-        label: label(speeds[at]),
-        clock: elapsed(times[at] - times[card.from]),
+        ...now,
         shift: away * (inside ? 1 - backOut(step) : step ** 2),
         fade: inside ? 1 - (1 - clamp(step / 0.7)) ** 3 : 1 - step ** 1.5,
+        swap: (inside ? swap(i) : undefined) ?? relabel,
       };
-      y[i] = Math.round(rest[card.place] - height / 2);
+      y[i] = at;
     }
-    last = card;
+    last = { k, b: card.b };
   }
   const blank = new Uint8Array(width * height * 4);
   const draw = (look: BadgeLook) => {
     const rgba = new Uint8Array(width * height * 4);
-    const card = cards[look.card];
+    const { swap } = look;
+    // A swap eases the pill from the old texts' size to the new ones'.
+    const e = swap ? ease(swap.step) : 1;
+    const [now, was] = [cards[look.card], cards[swap?.card ?? look.card]];
+    const [across, slot] = [was.across + (now.across - was.across) * e, was.slot + (now.slot - was.slot) * e];
     const [cx, cy, r] = [width / 2, height / 2 + look.shift, tall / 2];
-    const [left, right] = [cx - card.across / 2, cx + card.across / 2];
+    const [left, right] = [cx - across / 2, cx + across / 2];
     const pill = (dy: number): Part => ({ from: [left + r, cy + dy], to: [right - r, cy + dy], r });
     const shadow = pill(drop);
     for (let py = Math.max(0, Math.floor(cy + drop - r - blur)); py < Math.min(height, cy + drop + r + blur); py++)
@@ -1052,10 +1095,21 @@ export function badgeTiles(
         over(rgba, o, 38 - 26 * clamp((py + 0.5 - (cy - r)) / tall), 0.9 * look.fade * cover);
         over(rgba, o, 255, 0.16 * look.fade * (cover - clamp(0.5 - (d + line))));
       }
-    const top = cy - cap / 2;
-    const name = typeset(look.label, 0, 0, cap, bold).width;
-    paint(rgba, width, typeset(look.label, left + pad + (card.slot - name) / 2, top, cap, bold).parts, 255, look.fade);
-    const divider = left + pad + card.slot + gap;
+    const [top, rise] = [cy - cap / 2, tall * 0.7];
+    // A text that swaps rolls up out of the pill as the new one rolls in from below.
+    const roll = (old: string | null, text: string, stroke: number, alpha: number, x: (width: number) => number) => {
+      const put = (value: string, dy: number, a: number) => {
+        const parts = typeset(value, x(typeset(value, 0, 0, cap, stroke).width), top + dy, cap, stroke).parts;
+        paint(rgba, width, parts, 255, a * look.fade, body);
+      };
+      if (old === null) return put(text, 0, alpha);
+      put(old, -rise * e, alpha * (1 - e));
+      put(text, rise * (1 - e), alpha * e);
+    };
+    const swaps = (old: string | undefined, text: string) =>
+      swap && old !== undefined && (swap.all || old !== text) ? old : null;
+    roll(swaps(swap?.label, look.label), look.label, bold, 1, w => left + pad + (slot - w) / 2);
+    const divider = left + pad + slot + gap;
     const rule = Math.max(0.5, tall * 0.012);
     paint(
       rgba,
@@ -1064,8 +1118,7 @@ export function badgeTiles(
       255,
       0.3 * look.fade,
     );
-    const clock = typeset(look.clock, 0, 0, cap, thin).width;
-    paint(rgba, width, typeset(look.clock, right - pad - clock, top, cap, thin).parts, 255, 0.85 * look.fade);
+    roll(swaps(swap?.clock, look.clock), look.clock, thin, 0.85, w => right - pad - w);
     return rgba;
   };
   let previous: { key: string; tile: Uint8Array } | null = null;

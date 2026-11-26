@@ -400,11 +400,39 @@ describe("badgeTiles", () => {
     expect(alpha(badge.frame(250))).toBeGreaterThan(0);
   });
 
-  test("stays up through a short gap between speed-ups at one edge", () => {
-    // Two runs two real-time frames apart: the badge holds rather than sinking and rising again.
+  /** The badge's left side, where its label sits, as one number. */
+  const leftSide = (badge: video.Badge, i: number) => {
+    const tile = badge.frame(i);
+    let n = 0;
+    for (let p = 0; p < tile.length; p += 4) if ((p / 4) % badge.width < badge.width * 0.42) n += tile[p] * tile[p + 3];
+    return n;
+  };
+
+  test("swaps in the next speed-up's texts when it starts while the badge sinks", () => {
+    // Two runs two real-time frames apart: the badge stays up rather than sinking and rising again.
     const badge = take2(300, [10, 140], [143, 290]);
     const settled = alpha(badge.frame(120));
-    for (const i of [141, 142, 143, 144]) expect(alpha(badge.frame(i)) / settled).toBeGreaterThan(0.95);
+    for (const i of range(141, 165)) expect(alpha(badge.frame(i)) / settled).toBeGreaterThan(0.9);
+    expect(new Set(badge.y.slice(100, 200)).size).toBe(1);
+    // Mid-swap its texts are on their way; then it reads ×8 again, from +0:00.
+    expect(leftSide(badge, 150)).not.toBe(leftSide(badge, 120));
+    expect(leftSide(badge, 170)).toBe(leftSide(badge, 120));
+  });
+
+  test("swaps its label when the speed changes", () => {
+    const speeds = range(0, 300).map(i => (i < 10 ? 1 : i <= 100 ? 8 : i <= 290 ? 4 : 1));
+    let t = 0;
+    const badge = video.badgeTiles(
+      speeds.map(s => (t += s * frame)),
+      speeds,
+      Array(300).fill("bottom"),
+      28,
+      size,
+    );
+    const [eight, four] = [leftSide(badge, 90), leftSide(badge, 200)];
+    expect(eight).not.toBe(four);
+    expect([eight, four]).not.toContain(leftSide(badge, 109));
+    expect(leftSide(badge, 125)).toBe(four);
   });
 
   test("keeps its edge through a switch too short to show", () => {
