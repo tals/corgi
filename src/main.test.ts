@@ -6,6 +6,7 @@ import * as crash from "./crash";
 import * as updates from "./updates";
 import * as integration from "./integration";
 import * as accountCommand from "./account_command";
+import * as skillCommand from "./skill_command";
 import * as protocol from "./protocol";
 import * as errors from "./errors";
 import * as machineUpdate from "./machine_update";
@@ -14,6 +15,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fr
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname, relative } from "node:path";
+import skill from "../assets/corgi-skill.md" with { type: "text" };
 test("provider named launchers use their original argv0", () => {
   expect(providerAlias("/tmp/codex")).toBe("codex");
   expect(providerAlias("/tmp/claude")).toBe("claude");
@@ -153,6 +155,8 @@ test("--help prints help instead of running the command", async () => {
       [["agent", "--help"], "corgi agent"],
       [["serve", "--help"], "corgi shutdown"],
       [["--skill", "--help"], "corgi --skill"],
+      [["help", "skill"], "Usage: corgi skill"],
+      [["skill", "install", "--help"], "Usage: corgi skill"],
       [["pane", "send", "--stdin", "--help"], "corgi pane send"],
       [["help", "pane", "read"], "corgi pane read"],
       [["--help", "pane", "read"], "corgi pane read"],
@@ -174,6 +178,34 @@ test("--help prints help instead of running the command", async () => {
     output.mockRestore();
     init.mockRestore();
     update.mockRestore();
+  }
+});
+test("--skill prints the Corgi skill and rejects any argument", async () => {
+  const request = spyOn(rpc_http.Client.prototype, "call").mockResolvedValue({ ok: true }),
+    output = spyOn(process.stdout, "write").mockReturnValue(true),
+    errors = spyOn(process.stderr, "write").mockReturnValue(true),
+    previousExit = process.exitCode;
+  try {
+    await run(["--skill"]);
+    expect(output.mock.calls.map(call => String(call[0])).join("")).toBe(skill);
+    for (const args of [
+      ["--skill", "recall"],
+      ["--skill", ""],
+    ]) {
+      output.mockClear();
+      errors.mockClear();
+      process.exitCode = 0;
+      await run(args);
+      expect(process.exitCode).toBe(2);
+      expect(output).not.toHaveBeenCalled();
+      expect(String(errors.mock.calls[0]?.[0])).toContain("corgi --skill");
+    }
+    expect(request).not.toHaveBeenCalled();
+  } finally {
+    request.mockRestore();
+    output.mockRestore();
+    errors.mockRestore();
+    process.exitCode = previousExit;
   }
 });
 test("local pane commands and reload never look up the runtime's executable", async () => {
@@ -205,18 +237,20 @@ test("account and integration help routes distinguish human and agent output", a
     update = spyOn(updates, "internal").mockResolvedValue(false),
     accountHelp = spyOn(accountCommand, "localizedHelp").mockReturnValue("account translated\n"),
     integrationHelp = spyOn(integration, "localizedHelp").mockReturnValue("integration translated\n"),
+    skillHelp = spyOn(skillCommand, "localizedHelp").mockReturnValue("skill translated\n"),
     previousExit = process.exitCode;
   try {
     for (const [topic, reference] of [
       ["account", accountCommand.help],
       ["integration", integration.help],
+      ["skill", skillCommand.help],
     ]) {
       const forms = [
         [topic, "--help"],
         ["help", topic],
         [topic, "help"],
       ];
-      if (topic === "integration") forms.push([topic]);
+      if (topic !== "account") forms.push([topic]);
       for (const args of forms) {
         output.mockClear();
         await run(["--no-agent", ...args]);
@@ -224,10 +258,12 @@ test("account and integration help routes distinguish human and agent output", a
         output.mockClear();
         accountHelp.mockClear();
         integrationHelp.mockClear();
+        skillHelp.mockClear();
         await run(["--agent", ...args]);
         expect(output.mock.calls.map(call => String(call[0])).join("")).toBe(reference);
         expect(accountHelp).not.toHaveBeenCalled();
         expect(integrationHelp).not.toHaveBeenCalled();
+        expect(skillHelp).not.toHaveBeenCalled();
       }
     }
     expect(request).not.toHaveBeenCalled();
@@ -237,6 +273,7 @@ test("account and integration help routes distinguish human and agent output", a
     update.mockRestore();
     accountHelp.mockRestore();
     integrationHelp.mockRestore();
+    skillHelp.mockRestore();
     process.exitCode = previousExit;
   }
 });

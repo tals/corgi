@@ -51,6 +51,7 @@ export function overview(
       [
         ["account", "add claude work", "list, add, login, remove"],
         ["integration", "install claude", "status, install, uninstall"],
+        ["skill", "install recall", "list, show, install, status, uninstall"],
         ["update", "[--check]", i18n.t`Download and apply an update`],
       ],
     ],
@@ -187,6 +188,7 @@ export function main(): string {
     i18n.t`  corgi agent claude|codex ...   optional discovered-binary launcher`,
     i18n.t`  corgi integration COMMAND     status, install, uninstall hooks`,
     i18n.t`  corgi account COMMAND         list, add, login, remove provider accounts`,
+    i18n.t`  corgi skill COMMAND           list, show, install bundled agent skills`,
     i18n.t`  corgi which claude|codex      show automatically selected executable`,
     i18n.t`  corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux`,
     "  corgi headless start PROVIDER PROMPT [--workspace ID]",

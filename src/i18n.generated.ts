@@ -96,6 +96,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
       `  corgi rpc JSON                本地 JSON 控制协议`,
     '["  corgi shutdown                terminate runtime and its panes"]': () =>
       `  corgi shutdown                终止运行服务及其窗格`,
+    '["  corgi skill COMMAND           list, show, install bundled agent skills"]': () =>
+      `  corgi skill COMMAND           列出、显示、安装内置的智能体技能`,
     '["  corgi start                   start detached runtime"]': () =>
       `  corgi start                   在后台启动运行服务`,
     '["  corgi update                  download and safely apply an update"]': () =>
@@ -1110,6 +1112,17 @@ ${v1} 使用该账号。
 未指定智能体时，命令会处理 ${v1}，
 涵盖 Corgi 已知的所有账号；--account 指定单个账号（default 表示默认账号）。
 `,
+    '["Usage: corgi skill COMMAND [NAME] [","] [--account NAME]\\n\\n  list               bundled skills and what each is for\\n  show NAME          print a bundled skill\\n  install NAME       write it into each agent\'s skill folder\\n  status             where each skill is installed, current or outdated\\n  uninstall NAME     remove what install wrote\\n\\nNAME is corgi or recall. Nothing is installed until you run install.\\n"]':
+      v0 => `用法：corgi skill COMMAND [NAME] [${v0}] [--account NAME]
+
+  list               列出内置技能及其用途
+  show NAME          输出一个内置技能
+  install NAME       写入各智能体的技能文件夹
+  status             查看各技能的安装位置，以及是否为最新
+  uninstall NAME     移除 install 写入的内容
+
+NAME 为 corgi 或 recall。运行 install 之前不会安装任何内容。
+`,
     '["Use"]': () => `使用`,
     '["Use ",""]': v0 => `使用 ${v0}`,
     '["Use "," to enable paste with ","."]': (v0, v1) => `使用 ${v0}，即可用 ${v1} 粘贴。`,
@@ -1554,6 +1567,8 @@ ${v1} 使用该账号。
       `  corgi rpc JSON                ローカルJSON操作プロトコル`,
     '["  corgi shutdown                terminate runtime and its panes"]': () =>
       `  corgi shutdown                ランタイムとそのペインを終了`,
+    '["  corgi skill COMMAND           list, show, install bundled agent skills"]': () =>
+      `  corgi skill COMMAND           同梱のエージェント用スキルを一覧、表示、インストール`,
     '["  corgi start                   start detached runtime"]': () =>
       `  corgi start                   バックグラウンドでランタイムを起動`,
     '["  corgi update                  download and safely apply an update"]': () =>
@@ -2605,6 +2620,17 @@ ${v1}を設定してそのアカウントを使います。
 エージェントを省略すると、${v1}の
 Corgiに登録された全アカウントが対象になります。--accountで1つに絞れます（defaultは既定のアカウント）。
 `,
+    '["Usage: corgi skill COMMAND [NAME] [","] [--account NAME]\\n\\n  list               bundled skills and what each is for\\n  show NAME          print a bundled skill\\n  install NAME       write it into each agent\'s skill folder\\n  status             where each skill is installed, current or outdated\\n  uninstall NAME     remove what install wrote\\n\\nNAME is corgi or recall. Nothing is installed until you run install.\\n"]':
+      v0 => `使い方：corgi skill COMMAND [NAME] [${v0}] [--account NAME]
+
+  list               同梱のスキルとそれぞれの用途を表示
+  show NAME          同梱のスキルを出力
+  install NAME       各エージェントのスキルフォルダーに書き込む
+  status             各スキルのインストール先と、最新か古いかを表示
+  uninstall NAME     installが書き込んだものを削除
+
+NAMEはcorgiまたはrecallです。installを実行するまで何もインストールされません。
+`,
     '["Use"]': () => `使用`,
     '["Use ",""]': v0 => `${v0} を使用`,
     '["Use "," to enable paste with ","."]': (v0, v1) => `${v1}で貼り付けるには、${v0}を使ってください。`,
@@ -3052,6 +3078,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
       `  corgi rpc JSON                로컬 JSON 제어 프로토콜`,
     '["  corgi shutdown                terminate runtime and its panes"]': () =>
       `  corgi shutdown                서비스와 패널 종료`,
+    '["  corgi skill COMMAND           list, show, install bundled agent skills"]': () =>
+      `  corgi skill COMMAND           내장 에이전트 스킬 목록, 표시, 설치`,
     '["  corgi start                   start detached runtime"]': () =>
       `  corgi start                   백그라운드 서비스 시작`,
     '["  corgi update                  download and safely apply an update"]': () =>
@@ -4099,6 +4127,17 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
 에이전트를 지정하지 않으면 ${v1}의
 모든 등록된 계정에 적용합니다. --account로 계정 하나를 선택할 수 있습니다(default는 기본 계정).
 `,
+    '["Usage: corgi skill COMMAND [NAME] [","] [--account NAME]\\n\\n  list               bundled skills and what each is for\\n  show NAME          print a bundled skill\\n  install NAME       write it into each agent\'s skill folder\\n  status             where each skill is installed, current or outdated\\n  uninstall NAME     remove what install wrote\\n\\nNAME is corgi or recall. Nothing is installed until you run install.\\n"]':
+      v0 => `사용법: corgi skill COMMAND [NAME] [${v0}] [--account NAME]
+
+  list               내장 스킬과 각 스킬의 용도 표시
+  show NAME          내장 스킬 출력
+  install NAME       각 에이전트의 스킬 폴더에 기록
+  status             각 스킬이 설치된 위치와 최신 여부 표시
+  uninstall NAME     install이 기록한 내용 제거
+
+NAME은 corgi 또는 recall입니다. install을 실행하기 전에는 아무것도 설치되지 않습니다.
+`,
     '["Use"]': () => `사용`,
     '["Use ",""]': v0 => `${v0} 사용`,
     '["Use "," to enable paste with ","."]': (v0, v1) => `${v0}을 사용하면 ${v1} 키로 붙여넣을 수 있습니다.`,
@@ -4549,6 +4588,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       `  corgi rpc JSON                локальный протокол управления JSON`,
     '["  corgi shutdown                terminate runtime and its panes"]': () =>
       `  corgi shutdown                остановить сервер и его панели`,
+    '["  corgi skill COMMAND           list, show, install bundled agent skills"]': () =>
+      `  corgi skill COMMAND           список, просмотр и установка встроенных навыков агентов`,
     '["  corgi start                   start detached runtime"]': () =>
       `  corgi start                   запустить сервер в фоне`,
     '["  corgi update                  download and safely apply an update"]': () =>
@@ -6086,6 +6127,17 @@ ${v1}, чтобы использовать этот аккаунт.
 
 Без указания агента команда охватывает ${v1}
 во всех известных Corgi аккаунтах; --account выбирает один аккаунт (default — основной).
+`,
+    '["Usage: corgi skill COMMAND [NAME] [","] [--account NAME]\\n\\n  list               bundled skills and what each is for\\n  show NAME          print a bundled skill\\n  install NAME       write it into each agent\'s skill folder\\n  status             where each skill is installed, current or outdated\\n  uninstall NAME     remove what install wrote\\n\\nNAME is corgi or recall. Nothing is installed until you run install.\\n"]':
+      v0 => `Использование: corgi skill COMMAND [NAME] [${v0}] [--account NAME]
+
+  list               встроенные навыки и для чего каждый из них
+  show NAME          вывести встроенный навык
+  install NAME       записать навык в папку навыков каждого агента
+  status             где установлен каждый навык, актуален ли он
+  uninstall NAME     удалить то, что записала команда install
+
+NAME: corgi или recall. Пока вы не запустите install, ничего не устанавливается.
 `,
     '["Use"]': () => `Применить`,
     '["Use ",""]': v0 => `Использовать ${v0}`,

@@ -144,10 +144,15 @@ class AgentCli extends Runtime {
       ["shutdown", "--name", "--help"],
       ["help", "pane", "read"],
       ["account", "remove", "--help"],
+      ["skill", "list"],
     ])
       await run([EXE, ...args], {
         env: { ...this.env, CORGI_SOCKET: this.temp.name + "/absent.sock" },
       });
+    const recall = await run([EXE, "skill", "show", "recall"], {
+      env: { ...this.env, CORGI_SOCKET: this.temp.name + "/absent.sock" },
+    });
+    this.assertIn("name: corgi-recall", recall.stdout);
     this.assertIn("Otherwise run: corgi --skill", await this.run_cli("help", "--all"));
     this.assertEqual(
       await this.cli(["pane", "split", "current", "--right"], {

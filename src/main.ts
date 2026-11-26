@@ -376,10 +376,10 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   // Agent mode covers the control CLI and help; a provider alias keeps its own flags.
   const choice = agent_mode.flags(args),
     accountHelp =
-      ["account", "integration"].includes(choice.args[0]) &&
+      ["account", "integration", "skill"].includes(choice.args[0]) &&
       (cli.asksHelp(choice.args) ||
         choice.args[1] === "help" ||
-        (choice.args[0] === "integration" && choice.args.length === 1)),
+        (choice.args[0] !== "account" && choice.args.length === 1)),
     controls = !alias && (cli.handles(choice.args) || ["help", "--help", "-h"].includes(choice.args[0]) || accountHelp);
   if (controls) args = choice.args;
   const agent = controls && agent_mode.enabled(choice.flag, process.env, process.stdout.isTTY === true);
@@ -401,6 +401,11 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       case "integration": {
         const integration = await import("./integration");
         process.stdout.write(agent ? integration.help : integration.localizedHelp());
+        break;
+      }
+      case "skill": {
+        const skill = await import("./skill_command");
+        process.stdout.write(agent ? skill.help : skill.localizedHelp());
         break;
       }
       case "--all":
@@ -649,6 +654,11 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         return;
       }
       if (!(await integration.command(op, name === undefined ? null : provider(name), account))) process.exitCode = 1;
+      return;
+    }
+    case "skill": {
+      const skill = await import("./skill_command");
+      process.exitCode = await skill.command(args.slice(1), agent);
       return;
     }
     case "account": {

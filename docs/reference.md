@@ -483,6 +483,34 @@ agent mode prints the full list either way. Use `corgi pane read --help` or
 [bundled scripting guide](../assets/corgi-skill.md).
 [Agent internals](agents.md) covers hooks and headless provider sessions.
 
+### Recall across sessions
+
+Corgi bundles a second skill,
+[corgi-recall](../assets/corgi-recall-skill.md). It teaches an agent to find
+what earlier or still-running sessions worked out, with `corgi grep`,
+`corgi list` and read-only `corgi memory`, and to hand a task to the live
+session that owns an area with `corgi message`, sending only after you confirm.
+It is not part of the Corgi prompt. Install it so agents load it only when you
+ask for a recall or a handover:
+
+```sh
+corgi skill install recall
+```
+
+This writes `skills/corgi-recall/SKILL.md` into the skill folder of Claude
+Code, Codex, Pi and Oh My Pi, for the default account and every account Corgi
+knows; accounts that share the default's skills are written once. An agent
+that isn't set up is skipped. `corgi skill install recall claude` or
+`--account NAME` picks one agent or account. Nothing is installed until you
+run this, and Corgi never refreshes a copy on its own: after an update,
+`corgi skill status` shows copies that are outdated, and running install again
+refreshes them. A `SKILL.md` there that names another skill is left alone and
+reported as a conflict.
+
+`corgi skill uninstall recall` removes the file and its folder when nothing
+else is in it. `corgi skill list` names the bundled skills, and
+`corgi skill show recall` prints the skill, for agents without a skill folder.
+
 ### Agents behind a bridge
 
 A local SSH, container or Slurm wrapper can identify the agent its pane shows:

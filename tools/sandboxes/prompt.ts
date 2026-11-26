@@ -4,7 +4,7 @@
  * questions for real: it searches those conversations with `corgi grep`, and
  * lists today's commits with links the prompt can preview and review.
  */
-import { mkdirSync, utimesSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { table, type Sandbox, type World } from "../sandbox";
 
@@ -50,38 +50,6 @@ export function onResize(bar: { draw(): void }, events: { cols: number }[]) {
   for (const _ of events) bar.draw();
 }
 `;
-
-/** A Claude conversation in \`cwd\`: alternating user and assistant turns, its
- * AI title, and timestamps \`hours\` ago, a few minutes apart. */
-function transcript(s: Sandbox, cwd: string, id: string, title: string, hours: number, turns: string[]) {
-  const start = Date.now() - hours * 3_600_000,
-    at = (i: number) => new Date(start + i * 4 * 60_000).toISOString(),
-    lines = turns.map((text, i) =>
-      JSON.stringify(
-        i % 2 === 0
-          ? {
-              type: "user",
-              cwd,
-              sessionId: id,
-              gitBranch: "main",
-              timestamp: at(i),
-              message: { role: "user", content: text },
-            }
-          : {
-              type: "assistant",
-              cwd,
-              sessionId: id,
-              timestamp: at(i),
-              message: { role: "assistant", content: [{ type: "text", text }] },
-            },
-      ),
-    );
-  lines.push(JSON.stringify({ type: "ai-title", sessionId: id, aiTitle: title }));
-  const file = join(s.home, ".claude/projects", cwd.replace(/[/.]/g, "-"), `${id}.jsonl`);
-  s.write(file, lines.join("\n") + "\n");
-  const last = new Date(start + (turns.length - 1) * 4 * 60_000);
-  utimesSync(file, last, last);
-}
 
 export const world: World = {
   seed(s) {
@@ -154,29 +122,29 @@ export function picked(account: Account) {
     const [flicker, account, resize, scroll] = log;
 
     // A week of conversations, three of them about a flicker.
-    transcript(s, app, "4f1c2a90-6d1e-4b7a-9a52-3c1d8e2f7a01", "Fix sidebar flicker when tabs move", 30, [
+    s.transcript(app, "4f1c2a90-6d1e-4b7a-9a52-3c1d8e2f7a01", "Fix sidebar flicker when tabs move", 30, [
       "The sidebar flickers when I drag a tab to another workspace. Rows blank out for a frame.",
       "Each row is cleared and then written in a second write, so a frame can land between them and show the row blank. Writing the row in one go fixes the flicker.",
       "Nice, the flicker is gone. Commit it.",
       "Committed as sidebar: write each agent row in one go.",
     ]);
-    transcript(s, app, "8a2e7c13-0b9f-4d61-8e3a-5f7b2c9d1e02", "Tab bar flickers on resize", 52, [
+    s.transcript(app, "8a2e7c13-0b9f-4d61-8e3a-5f7b2c9d1e02", "Tab bar flickers on resize", 52, [
       "Dragging the window edge makes the tab bar flicker in Ghostty.",
       "A drag sends a burst of resize events and the bar redraws for each one. Drawing once per burst stops the flicker.",
     ]);
-    transcript(s, app, "c3d9b5e2-7a41-4f08-b6c2-9e1a4d7f3b03", "Sidebar scroll jumps after folding a group", 3, [
+    s.transcript(app, "c3d9b5e2-7a41-4f08-b6c2-9e1a4d7f3b03", "Sidebar scroll jumps after folding a group", 3, [
       "Folding a group in the sidebar jumps the scroll back to the top. It's not the flicker from before.",
       "Right, this one is the scroll offset: drawRows starts from the top every time. Passing the scroll position through keeps the rows above the fold in place.",
     ]);
-    transcript(s, app, "1b7f4e28-93c5-4a2d-8f61-2d5c9b8a4e04", "Start new agents on the last account", 6, [
+    s.transcript(app, "1b7f4e28-93c5-4a2d-8f61-2d5c9b8a4e04", "Start new agents on the last account", 6, [
       "The launcher always starts agents on my first account. Can it remember the one I picked?",
       "It can save the account in the preferences when you pick one and start there next time.",
     ]);
-    transcript(s, app, "e6a8d3f1-2c7b-4e95-a1d4-7b3f6c2e9a05", "Draft the 1.4 release notes", 80, [
+    s.transcript(app, "e6a8d3f1-2c7b-4e95-a1d4-7b3f6c2e9a05", "Draft the 1.4 release notes", 80, [
       "Draft release notes for 1.4 from the merged PRs.",
       "Here's a first pass grouped by area: sidebar, launcher, tabs and docs.",
     ]);
-    transcript(s, app, "5d2b9f7a-4e1c-4a83-9b26-8c4e1f5a7d06", "Debug the flaky launcher test", 120, [
+    s.transcript(app, "5d2b9f7a-4e1c-4a83-9b26-8c4e1f5a7d06", "Debug the flaky launcher test", 120, [
       "launcher.test.ts times out about one run in ten on CI.",
       "It waits on a fixed sleep for the daemon socket; waiting for the socket itself makes it reliable.",
     ]);

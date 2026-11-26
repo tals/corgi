@@ -60,6 +60,23 @@ corgi pane read 3 --lines 50
 `corgi --help` lists the common commands and `corgi help --all` every one;
 `corgi --skill` prints instructions for agents.
 
+### Recall across sessions
+
+`corgi skill install recall` teaches Claude Code, Codex, Pi and Oh My Pi to
+find what other sessions worked out, in any workspace, and to hand them work.
+Then ask in plain words:
+
+```text
+use what we decided in the importer's date parser review
+what did we find out about the flaky login test last week?
+is anyone still working on the release notes? ask them where they are
+hand this bug to the session working on the importer
+```
+
+The agent names the session it drew from, asks you when several fit, and
+sends a handover only after you confirm it. See
+[Recall across sessions](docs/reference.md#recall-across-sessions).
+
 ## Uninstall
 
 ```sh

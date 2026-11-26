@@ -175,6 +175,8 @@ Hover previews the diff; click opens review. Keep normal prose and formatting;
 don't use `commits` fences. Plain hashes also link to the prompt's workspace.
 Use `@FOLDER` for another repository; `a..b` compares the two endpoints.
 
+To recall what another session concluded or hand it work, load the `corgi-recall` skill (`corgi skill show recall`).
+
 ## Launcher agents
 
 `corgi launcher list` outlines each workspace's launcher: every agent, account

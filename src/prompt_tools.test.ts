@@ -1,5 +1,7 @@
 import { test, expect } from "bun:test";
 import { chatFlag, instructions, tool, toolArgs, toolLine, where } from "./prompt_tools";
+import skill from "../assets/corgi-skill.md" with { type: "text" };
+import recallSkill from "../assets/corgi-recall-skill.md" with { type: "text" };
 
 const bin = "/Users/me/.local/bin/corgi";
 test("the instructions carry the reply format, then the Corgi skill, and each message names its viewer", () => {
@@ -12,6 +14,18 @@ test("the instructions carry the reply format, then the Corgi skill, and each me
   expect(text).toContain("## Read, message and send");
   expect(text).not.toContain("name: corgi");
   expect(where(7, 'my "ws"')).toBe('<corgi viewer="7" workspace="my  ws "/>');
+});
+test("the instructions point to the recall skill without embedding it", () => {
+  const text = instructions(bin),
+    description = /\ndescription: (.*)\n/.exec(recallSkill)?.[1];
+  expect(text).toContain("`corgi skill show recall`");
+  expect(text).not.toContain("# Corgi recall");
+  expect(description).toBeTruthy();
+  expect(text).not.toContain(description!);
+  // The pointer is the only recall guidance the prompt carries.
+  const recall = (lines: string) => lines.split("\n").filter(line => /recall/i.test(line));
+  expect(recall(skill)).toHaveLength(1);
+  expect(recall(text)).toEqual(recall(skill));
 });
 test("a session with Corgi's tool drives Corgi through it; one without, through its shell", () => {
   const shell = instructions(bin),

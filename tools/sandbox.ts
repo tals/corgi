@@ -13,7 +13,16 @@
  * `prompt-replies.json`.
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import * as preferences from "../src/preferences";
 import * as keymap from "../src/keymap";
@@ -194,6 +203,37 @@ export class Sandbox {
     const date = new Date(Date.now() - minutes * 60_000).toISOString();
     this.env.GIT_AUTHOR_DATE = date;
     this.env.GIT_COMMITTER_DATE = date;
+  }
+  /** A Claude conversation in `cwd`: alternating user and assistant turns, its
+   * AI title, and timestamps `hours` ago, a few minutes apart. */
+  transcript(cwd: string, id: string, title: string, hours: number, turns: string[]): void {
+    const start = Date.now() - hours * 3_600_000,
+      at = (i: number) => new Date(start + i * 4 * 60_000).toISOString(),
+      lines = turns.map((text, i) =>
+        JSON.stringify(
+          i % 2 === 0
+            ? {
+                type: "user",
+                cwd,
+                sessionId: id,
+                gitBranch: "main",
+                timestamp: at(i),
+                message: { role: "user", content: text },
+              }
+            : {
+                type: "assistant",
+                cwd,
+                sessionId: id,
+                timestamp: at(i),
+                message: { role: "assistant", content: [{ type: "text", text }] },
+              },
+        ),
+      );
+    lines.push(JSON.stringify({ type: "ai-title", sessionId: id, aiTitle: title }));
+    const file = join(this.home, ".claude/projects", cwd.replace(/[/.]/g, "-"), `${id}.jsonl`);
+    this.write(file, lines.join("\n") + "\n");
+    const last = new Date(start + (turns.length - 1) * 4 * 60_000);
+    utimesSync(file, last, last);
   }
   /** A file of this repository as it is at HEAD, for realistic sample code. */
   pristine(path: string): string {
