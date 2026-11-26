@@ -43,6 +43,20 @@ test("machine catalogs stay private and reject ambiguous names and damaged data"
     rmSync(dir, { recursive: true, force: true });
   }
 });
+test("removing a machine forgets it alone, and says whether it was saved", async () => {
+  const dir = mkdtempSync("/tmp/corgi-machines-");
+  const file = dir + "/machines.json";
+  const p: machines.Profile = { name: "work", target: "work", executable: "/corgi", socket: "/s", home: "/home" };
+  try {
+    await machines.edit(() => [p, { ...p, name: "two" }], file);
+    expect(await machines.remove("work", file)).toBe(true);
+    expect(machines.read(file).map(p => p.name)).toEqual(["two"]);
+    expect(await machines.remove("work", file)).toBe(false);
+    expect(machines.read(file).map(p => p.name)).toEqual(["two"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("a machine updates once at a time from this computer", async () => {
   const dir = mkdtempSync("/tmp/corgi-machines-");

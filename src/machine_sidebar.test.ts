@@ -284,13 +284,75 @@ test("the dropdown filters rows and keeps statuses available through outages", (
   workspaces.selectFilter();
   expect(view.machineScope()).toBe("work");
   expect(view.workspaceRows().map(row => row.name)).toEqual(["work project"]);
-  remote.pause();
-  expect(view.workspaceRows()[0].unavailable).toContain("Paused");
+  remote.status = "incompatible";
+  expect(view.workspaceRows()[0].unavailable).toContain("Incompatible");
   expect(view.workspaceRows()[0].connecting).toBe(false);
   workspaces.show();
   workspaces.retry();
   expect<Status>(remote.status).toBe("connecting");
   expect(workspaces.visible).toBe(true);
+});
+test("^X twice in a row removes the highlighted SSH machine, never this computer", () => {
+  const {
+    endpoints: [local, remote],
+    view,
+    workspaces,
+  } = world("local", "work");
+  local.status = remote.status = "online";
+  remote.updated = 1;
+  workspaces.show();
+  const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(28);
+  const shown = () => screen(side, view.workspaceRows(), workspaces.draw(side));
+  expect(shown()).toContain(" ^X  remove   !  details");
+  workspaces.cursor = 1;
+  expect([workspaces.remove(), workspaces.remove()]).toEqual([null, null]);
+  workspaces.cursor = 2;
+  expect(workspaces.remove()).toBeNull();
+  expect(shown()).toMatch(/work\s+\^X  again to remove/);
+  // Moving off it, or away and back, asks again.
+  workspaces.move(-1);
+  workspaces.move(1);
+  expect(shown()).not.toContain("again");
+  expect(workspaces.remove()).toBeNull();
+  expect(workspaces.remove()).toBe(remote);
+  expect(shown()).not.toContain("again");
+});
+test("a removed machine leaves the sidebar, its filter and the dropdown; its header menu removes it", async () => {
+  const {
+    endpoints: [local, remote],
+    endpoints,
+    view,
+    workspaces,
+  } = world("local", "work");
+  local.status = remote.status = "online";
+  remote.updated = 1;
+  const removed: string[] = [];
+  view.onRemoveMachine = machine => removed.push(machine.name);
+  view.openMachineMenu(local.machine, 1, 2);
+  expect(view.tab_menu).toBeNull();
+  view.openMachineMenu(remote.machine, 1, 2);
+  expect(view.tab_menu!.entries().map(entry => entry.label)).toEqual(["Fold", "Remove machine"]);
+  expect(view.tab_menu!.highlightedItem()).toBe("fold");
+  await Reflect.get(view, "key").call(view, "f".charCodeAt(0));
+  expect([remote.machine.collapsed, view.tab_menu]).toEqual([true, null]);
+  view.openMachineMenu(remote.machine, 1, 2);
+  expect(view.tab_menu!.entries()[0].label).toBe("Unfold");
+  await Reflect.get(view, "key").call(view, "x".charCodeAt(0));
+  expect([removed, view.tab_menu]).toEqual([["work"], null]);
+  // The viewer lets it go, and the highlight keeps to a row.
+  workspaces.show();
+  workspaces.cursor = 2;
+  view.machine_filter = remote.machine;
+  endpoints.splice(1, 1);
+  view.forget(remote.machine);
+  workspaces.settle();
+  expect(workspaces.cursor).toBe(1);
+  expect(view.machine_filter).toBeNull();
+  expect(view.workspaceRows().map(row => row.name)).toEqual(["local project"]);
+  expect(workspaces.visible).toBe(false);
+  // The machine shown can't be let go.
+  view.forget(local.machine);
+  expect(view.machines).toEqual([local.machine]);
 });
 
 test("under a divider, the dropdown lists the SSH config's other hosts, searches as typed, and ↵ adds one in place", () => {
@@ -375,7 +437,6 @@ test("machine filter colors connection states and measured reception, including 
     ["stalled", "warm", "Connection"],
     ["connecting", "warm", "Connecting"],
     ["offline", "hot", "offline"],
-    ["paused", "muted", "Paused"],
     ["incompatible", "hot", "Incompatible"],
   ];
   remote.stats.answer(20, false);
@@ -518,7 +579,7 @@ test("header quality comes from the current connection, without rating local or 
   local.stats.answer(20, false);
   remote.stats.answer(20, false);
   expect(view.workspaceRows().map(row => row.link_quality)).toEqual([null, 4]);
-  for (const status of ["stalled", "offline", "paused", "connecting", "incompatible"] as const) {
+  for (const status of ["stalled", "offline", "connecting", "incompatible"] as const) {
     remote.status = status;
     expect(view.workspaceRows().map(row => row.link_quality)).toEqual([null, 0]);
   }
@@ -566,7 +627,7 @@ test("connection transitions never move workspace content or status hitboxes", (
           const live = screen(side, [row]);
           const unread = side.unreadRange(row);
           for (const connecting of [true, false]) {
-            row.unavailable = connecting ? "Connecting…" : "Paused";
+            row.unavailable = connecting ? "Connecting…" : "Incompatible";
             row.connecting = connecting;
             for (const now of [0, 400, 800, 1200, 1600])
               expect(screen(side, [row], "", now).replace(/[↔×]/g, " ")).toBe(live);
@@ -692,7 +753,7 @@ test("workspace cycling skips intervention states but retains recovery and revea
   local.status = "online";
   const select = spyOn(view, "selectRow").mockImplementation(() => {});
   try {
-    for (const status of ["paused", "incompatible", "attention"] as const) {
+    for (const status of ["incompatible", "attention"] as const) {
       remote.status = status;
       view.navigateWorkspace(false);
       expect(select.mock.calls.at(-1)![0]).toBe(view.workspaceRef(1, local.machine));

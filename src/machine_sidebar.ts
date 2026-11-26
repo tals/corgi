@@ -4,6 +4,7 @@ import * as sidebar from "./sidebar";
 import * as dropdown from "./dropdown";
 import * as text from "./text";
 import * as palette from "./palette";
+import * as i18n from "./i18n";
 import { Rect } from "./layout";
 import * as machineAdd from "./machine_add";
 import * as signalBars from "./signal_bars";
@@ -15,6 +16,10 @@ import * as signalBars from "./signal_bars";
 export class Workspaces {
   open = false;
   offset = 0;
+  /** The machine a first ^X marked; a second removes it. */
+  removing: Endpoint | null = null;
+  /** Where its note's ^X fell when last drawn, for its keycap. */
+  private cap: { x: number; y: number } | null = null;
   readonly list: machineAdd.Listing<Endpoint>;
   constructor(
     readonly endpoints: Endpoint[],
@@ -28,6 +33,7 @@ export class Workspaces {
     return this.list.cursor;
   }
   set cursor(row: number) {
+    if (row !== this.list.cursor) this.removing = null;
     this.list.cursor = row;
   }
   /** The machine on the highlighted row. */
@@ -53,13 +59,16 @@ export class Workspaces {
     this.view.worktree_card.pending_enter = null;
     this.open = true;
     this.offset = 0;
+    this.removing = null;
     this.list.open(this.filter ? this.endpoints.indexOf(this.filter) + 1 : 0);
   }
   hide(): void {
     this.open = false;
+    this.removing = null;
     this.list.close();
   }
   move(delta: number): void {
+    this.removing = null;
     this.list.move(delta);
   }
   /** Lists the machine's workspaces alone, or all of them, and closes; a
@@ -87,10 +96,29 @@ export class Workspaces {
   retry(): void {
     this.endpoint()?.retry();
   }
-  pause(): void {
-    this.endpoint()?.pause();
+  /** The highlighted machine, to remove, on the second ^X in a row; the
+   * first marks it. Never this computer. */
+  remove(): Endpoint | null {
+    const endpoint = this.endpoint();
+    if (!endpoint?.remote) return null;
+    if (this.removing === endpoint) {
+      this.removing = null;
+      return endpoint;
+    }
+    this.removing = endpoint;
+    return null;
+  }
+  /** Keeps the highlight on a row once a machine has gone: the one that took
+   * its place, else the machine above. */
+  settle(): void {
+    const rows = this.list.rows();
+    let at = Math.min(this.list.cursor, rows.length - 1);
+    while (at > 0 && rows[at].kind === "divider") at--;
+    this.list.cursor = Math.max(0, at);
   }
   private choices(width: number): dropdown.Choice[] {
+    // Drawing the rows finds it again.
+    this.cap = null;
     const cursor = this.cursor;
     return this.list.rows().map((row, i): dropdown.Choice => {
       const hovered = cursor === i;
@@ -120,7 +148,12 @@ export class Workspaces {
       online && !endpoint.updateMessage && !endpoint.updateError ? endpoint.error || "online" : endpoint.description();
     // The reception's bars, or online's dot, at the right edge, as the sidebar's headers keep them.
     const runs: dropdown.Run[] = [];
-    if (quality !== null && note_room >= 6) {
+    if (this.removing === endpoint && note_room >= 5)
+      runs.push(
+        [" ^X ", "hot", (x, y) => (this.cap = { x, y })],
+        [text.ellipsis(" " + i18n.t`again to remove`, note_room - 4), "hot"],
+      );
+    else if (quality !== null && note_room >= 6) {
       const bars = signalBars.runs(quality, this.view.framePictures());
       runs.push([text.ellipsis(description, note_room - barsWidth(bars) - 1) + " ", color], ...bars);
     } else {
@@ -147,7 +180,7 @@ export class Workspaces {
     const width = Math.min(
       side.cols,
       66,
-      Math.max(this.endpoints.some(e => e.updateMessage || e.updateError) ? 66 : 38, side.width),
+      Math.max(this.endpoints.some(e => e.updateMessage || e.updateError) ? 66 : 60, side.width),
     );
     const choices = this.choices(width).slice(this.offset, this.offset + capacity);
     const x = Math.max(0, Math.min(anchor?.x ?? 1, side.cols - width));
@@ -169,14 +202,43 @@ export class Workspaces {
     // Drawn over the frame, which cuts its pictures around the box and the hint.
     this.view.framePictures()?.cover(new Rect(box.x, box.y, box.w, box.h + 1));
     const cursor = machineAdd.drawList(writer, box, choices, this.list.query);
-    writer.write(`\x1b[${box.y + box.h + 1};${box.x + 1}H${palette.bg("surface")}${palette.fg("muted")}`);
-    const hint = text.ellipsis(" ↑↓ Enter · ^F fold · ^R retry · ^X pause · ! details", box.w);
-    writer.write(hint + " ".repeat(Math.max(0, box.w - text.displayWidth(hint))) + (cursor || "\x1b[0m\x1b[?25l"));
+    if (this.cap) writer.write(`\x1b[${this.cap.y + 1};${this.cap.x + 1}H${palette.keycap} ^X `);
+    const footer = box.y + box.h + 1,
+      label = new palette.Style({ fg: "faint", bg: "surface" }).sgr();
+    writer.write(`\x1b[${footer};${box.x + 1}H${label}`);
+    writer.splat(" ", box.w);
+    writer.write(`\x1b[${footer};${box.x + 2}H`);
+    drawKeys(writer, box.w - 1, label);
+    writer.write(cursor || "\x1b[0m\x1b[?25l");
     return writer.buffered();
   }
 }
 
 const barsWidth = (runs: dropdown.Run[]) => text.displayWidth(runs.map(([part]) => part).join(""));
+/** The keys the dropdown takes, under it. */
+const keys = (): [string, string][] => [
+  ["↵", i18n.t`choose`],
+  ["^F", i18n.t`fold`],
+  ["^R", i18n.t`retry`],
+  ["^X", i18n.t`remove`],
+  ["!", i18n.t`details`],
+];
+/** Keycaps and their labels, as the launcher's footer shows them: two cells
+ * apart, one when that's too wide, and the last left out when even that is. */
+function drawKeys(w: text.Writer, room: number, label: string): void {
+  const all = keys(),
+    span = (count: number, gap: number) =>
+      all.slice(0, count).reduce((n, [key, name]) => n + text.displayWidth(key) + 3 + text.displayWidth(name), 0) +
+      gap * Math.max(0, count - 1);
+  const gap = span(all.length, 2) <= room ? 2 : 1;
+  let shown = all.length;
+  while (shown > 0 && span(shown, gap) > room) shown--;
+  all
+    .slice(0, shown)
+    .forEach(([key, name], i) =>
+      w.write((i ? " ".repeat(gap) : "") + palette.keycap + ` ${key} ` + label + ` ${name}`),
+    );
+}
 
 function statusColor(status: Status, error: string, quality: number | null): palette.Token {
   switch (status) {
@@ -189,7 +251,5 @@ function statusColor(status: Status, error: string, quality: number | null): pal
     case "incompatible":
     case "attention":
       return "hot";
-    case "paused":
-      return "muted";
   }
 }

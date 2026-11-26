@@ -41,7 +41,7 @@ const handoff_input_limit = 64 * 1024;
 /** How long typing held across a reload waits for the same viewer. */
 const handoff_ms = 30_000;
 
-export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" | "incompatible" | "attention";
+export type Status = "connecting" | "online" | "stalled" | "offline" | "incompatible" | "attention";
 /** Parsed input and whether its machine was dropping input when it arrived. */
 type Typed = Input & { dropped: boolean };
 /** How often an idle viewer's machines are stepped. */
@@ -247,7 +247,7 @@ export class Endpoint {
         online: status === "online",
         link_quality: remote ? (status === "online" ? this.stats.quality : quiet ? null : 0) : null,
         connecting: !quiet && (status === "connecting" || status === "stalled" || status === "offline"),
-        stopped: status === "paused" || status === "attention" || status === "incompatible",
+        stopped: status === "attention" || status === "incompatible",
         connection_status: quiet && !this.updateMessage && !this.updateError ? null : this.headerStatus(),
         description: this.description(),
         cached: this.workspaces,
@@ -504,20 +504,6 @@ export class Endpoint {
     this.next = 0;
     this.retries = 0;
   }
-  pause(): void {
-    if (this.stopped) return;
-    this.cancelUpdate();
-    this.releaseHandoff();
-    this.interruption++;
-    this.disconnect();
-    // Paused, nothing sends them again, and the link they were numbered on
-    // goes with them: a retry opens a fresh one, numbered from the start,
-    // rather than leave the daemon waiting for numbers that will never come.
-    this.settleNumbered(() => true);
-    this.link = null;
-    this.status = "paused";
-    this.error = "";
-  }
   headerStatus(now = performance.now()): WorkspaceEntry["connection_status"] {
     if (this.updateError && !this.error)
       return { label: "Update failed", seconds: null, color: "hot", diagnostic: true };
@@ -548,8 +534,6 @@ export class Endpoint {
         return { label: i18n.t`stalled`, seconds: Math.max(1, Math.floor(this.healthAge(now) / 1000)), color: "warm" };
       case "offline":
         return { label: i18n.t`retry in`, seconds: Math.max(0, Math.ceil((this.next - now) / 1000)), color: "hot" };
-      case "paused":
-        return { label: i18n.t`paused`, seconds: null, color: "muted" };
       case "incompatible":
         return { label: i18n.t`incompatible`, seconds: null, color: "hot" };
       case "online":
@@ -572,8 +556,6 @@ export class Endpoint {
         return `Connection stalled (${Math.max(1, Math.floor((this.stream?.age(now) ?? now - this.task_started) / 1000))}s)${this.racing ? " · trying a fresh SSH connection" : ""}`;
       case "offline":
         return `offline · ${this.error} · retry in ${Math.max(0, Math.ceil((this.next - now) / 1000))}s`;
-      case "paused":
-        return "Paused · automatic retries stopped";
       case "incompatible":
         if (!this.follow) return "Incompatible Corgi · install a matching version, then retry";
         return `Moved to Corgi ${this.daemonVersion?.version || "another build"}${this.movedBy ? ` by ${this.movedBy}` : ""} · Ctrl+R takes it back`;
@@ -584,7 +566,7 @@ export class Endpoint {
   /** When the machine next wants a step, in `performance.now()` time; a
    * running step says when it's done. */
   due(): number {
-    if (this.stopped || this.status === "paused" || this.status === "incompatible" || this.task) return Infinity;
+    if (this.stopped || this.status === "incompatible" || this.task) return Infinity;
     return Math.min(this.next, this.stream?.due() ?? Infinity);
   }
   /** Tells the daemon the host's colors changed, for its panes' programs. */
@@ -604,7 +586,7 @@ export class Endpoint {
       this.syncNavigation();
       this.pumpUi();
     }
-    if (this.stopped || this.status === "paused" || this.status === "incompatible") return;
+    if (this.stopped || this.status === "incompatible") return;
     const now = performance.now();
     if (this.stream && this.status === "online" && this.stream.age(now) >= this.stallMs) {
       this.status = "stalled";
@@ -775,8 +757,7 @@ export class Endpoint {
   woke(): void {
     if (this.sample.races && (this.status === "online" || this.status === "stalled")) this.suspect = true;
   }
-  /** Keys held for a reload go on as typed: a retry or a pause ends the
-   * wait, not them. */
+  /** Keys held for a reload go on as typed: a retry ends the wait, not them. */
   private releaseHandoff(): void {
     if (this.handoff) {
       for (const input of this.input.take()) this.handoff.input.push(input);

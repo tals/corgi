@@ -110,9 +110,7 @@ export async function run(
     behind!.shown = true;
     const status =
       shown.status === "online" ? shown.error || `Syncing… ${Math.floor((now - since) / 1000)}s` : shown.description();
-    const hints = unreachable(shown)
-      ? ["Ctrl+R retry", ...(shown.status === "paused" ? [] : ["Ctrl+X pause"]), ...(shown.error ? ["! details"] : [])]
-      : [];
+    const hints = unreachable(shown) ? ["Ctrl+R retry", ...(shown.error ? ["! details"] : [])] : [];
     if (!shown.reached) hints.push("Ctrl+C quit");
     return { status: `${shown.name}: ${status}`, keys: hints.join(" · ") };
   };
@@ -377,6 +375,39 @@ export async function run(
     wire(endpoint);
     view.dirty = true;
   };
+  /** Forgets a remote machine, as `corgi machine remove` does, and drops its
+   * connection; its agents keep running there. Shown, it gives way to this computer. */
+  const removeMachine = async (endpoint: Endpoint) => {
+    if (!endpoint.remote) return;
+    try {
+      await machines.remove(endpoint.name);
+    } catch (error) {
+      const name = endpoint.name,
+        reason = errors.name(error) ?? i18n.t`unknown error`;
+      view.notice(` Couldn't remove ${name}: ${reason}`);
+      return notify();
+    }
+    const index = endpoints.indexOf(endpoint);
+    if (index < 0) return;
+    if (endpoint === active) {
+      choose(endpoints[0], null);
+      if (workspaces.open) active!.deactivate();
+    }
+    if (behind?.endpoint === endpoint) behind = null;
+    if (paste_owner?.endpoint === endpoint) paste_owner = null;
+    if (clipboard.owner?.endpoint === endpoint) clipboard.owner = null;
+    if (connection_hover.machine === endpoint.name) closeCard();
+    endpoints.splice(index, 1);
+    view.forget(endpoint.machine);
+    // The dropdown stays, the last SSH machine gone too: it can add one.
+    if (workspaces.open) workspaces.settle();
+    notify();
+    await endpoint.close();
+  };
+  view.onRemoveMachine = machine => {
+    const endpoint = endpoints.find(e => e.machine === machine);
+    if (endpoint) void removeMachine(endpoint);
+  };
   const accept = (input: Input) => {
     const value = Buffer.from(input.bytes).toString();
     const key = input.kind === "key" ? input.key : null;
@@ -466,10 +497,12 @@ export async function run(
       const x = hover_mouse.x,
         y = hover_mouse.y;
       const header = sidebar.machineHeaderAt(side, x, y);
-      if (header && hover_mouse.button === 0 && !hover_mouse.release) {
+      if (header && (hover_mouse.button === 0 || hover_mouse.button === 2) && !hover_mouse.release) {
         const endpoint = endpoints.find(e => e.name === header.machine);
         if (endpoint) {
-          if (sidebar.machineDiagnosticAt(side, view.workspaceRows(), x, y)) diagnostic.show(endpoint);
+          // A right press opens a remote machine's menu.
+          if (hover_mouse.button === 2) view.openMachineMenu(endpoint.machine, x, y);
+          else if (sidebar.machineDiagnosticAt(side, view.workspaceRows(), x, y)) diagnostic.show(endpoint);
           else view.toggleMachine(endpoint.machine);
           connection_hover.clear();
           view.connection_card = null;
@@ -548,6 +581,8 @@ export async function run(
       if (!workspaces.open && view.workspaceDragInput(x, y, button, !pressed)) return;
     }
     if (workspaces.open) {
+      // A removal waits only on the very next key.
+      if (cp !== 24) workspaces.removing = null;
       if (value === "!") {
         const endpoint = workspaces.endpoint();
         if (endpoint) diagnostic.show(endpoint);
@@ -580,9 +615,11 @@ export async function run(
         case 18:
           workspaces.retry();
           return;
-        case 24:
-          workspaces.pause();
+        case 24: {
+          const endpoint = workspaces.remove();
+          if (endpoint) void removeMachine(endpoint);
           return;
+        }
       }
       // Typing searches; ⌫, ^U and ^W edit it.
       if (cp === 8 || cp === 21 || cp === 23 || cp === 127) workspaces.list.key(cp);
@@ -602,10 +639,6 @@ export async function run(
       if (value === "!" && diagnostic.show(active!)) return;
       if (cp === 18) {
         active!.retry();
-        return;
-      }
-      if (cp === 24) {
-        active!.pause();
         return;
       }
     }
@@ -850,7 +883,6 @@ function forwardError(error: unknown): string {
 export function unreachable(endpoint: Pick<Endpoint, "status" | "failing">): boolean {
   switch (endpoint.status) {
     case "offline":
-    case "paused":
     case "attention":
     case "incompatible":
       return true;

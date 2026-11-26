@@ -499,6 +499,8 @@ export class Controller {
   onMachines: (() => void) | null = null;
   /** The SSH config's hosts that lists of machines offer to add, in a viewer that can add them. */
   machine_adds: machineAdd.Adds | null = null;
+  /** Removes a machine from this viewer and the saved ones, in a viewer that shows several. */
+  onRemoveMachine: ((machine: Machine) => void) | null = null;
   onConnectivity: (() => void) | null = null;
   paste_target: Paste | null = null;
   paste_progress: pasteProgress.State | null = null;
@@ -781,6 +783,17 @@ export class Controller {
     machine.settled = () => {
       if (this.dirty) this.wake();
     };
+  }
+  /** Lets `machine` go, once another is shown: its rows leave the sidebar. */
+  forget(machine: Machine): void {
+    if (machine === this.machine || !this.machines.includes(machine)) return;
+    this.machines.splice(this.machines.indexOf(machine), 1);
+    this.machines_by_id.delete(machine.id);
+    this.reviewing.delete(machine);
+    if (this.machine_filter === machine) this.machine_filter = null;
+    this.cancelWorkspaceDrag();
+    this.workspace_offset = this.sidebarView([]).workspace_offset;
+    this.dirty = true;
   }
   /** Shows `machine`. What was open for the last one closes, since menus,
    * dialogs and selections name its ids. */
@@ -2458,8 +2471,9 @@ export class Controller {
       .findIndex(tab => tab.id === id);
     return i < 0 ? null : i;
   }
-  /** Whether a tab menu's target (pane, workspace, or tab) has disappeared. */
+  /** Whether a tab menu's target (pane, workspace, tab or machine) has disappeared. */
   private tabMenuStale(context: TabMenu): boolean {
+    if (context.machine) return !this.machines_by_id.has(context.tab);
     if (context.headless) return !this.listedSessions().some(session => session.id === context.tab);
     if (context.worktree !== null) {
       const ws = this.runtime.workspaces.items.find(ws => ws.id === context.tab);
@@ -2578,6 +2592,23 @@ export class Controller {
     this.dirty = true;
     return this.tab_menu;
   }
+  /** Opens a remote machine's header menu: fold its group, or remove it. */
+  openMachineMenu(machine: Machine, x: number, y: number): void {
+    if (!machine.remote || !this.onRemoveMachine || !this.machines.includes(machine)) return;
+    this.closeMenu();
+    this.search_mode = false;
+    this.cancelDividers();
+    this.selection = null;
+    this.tab_menu = new TabMenu({
+      tab: machine.id,
+      machine: true,
+      folded: machine.collapsed,
+      anchor_x: x,
+      anchor_y: y,
+    });
+    this.tab_menu.highlightFirst();
+    this.dirty = true;
+  }
   /** Opens the current workspace's menu one line into its sidebar row and
    * centered across it, or centered near the top with the sidebar closed. */
   private openCurrentWorkspaceMenu(): void {
@@ -2644,6 +2675,12 @@ export class Controller {
     const context = this.tab_menu;
     if (!context) return;
     this.closeMenu();
+    if (context.machine) {
+      const machine = this.machines_by_id.get(context.tab);
+      if (machine && item === "fold") this.toggleMachine(machine);
+      else if (machine && item === "remove") this.onRemoveMachine?.(machine);
+      return;
+    }
     if (context.headless) {
       if (item === "star") await this.perform({ name: "star-session", value: context.tab });
       return;

@@ -141,6 +141,15 @@ export async function edit(change: (profiles: Profile[]) => Profile[], file = ca
     closeSync(fd);
   }
 }
+/** Forgets machine `name`; false when it wasn't saved. Its daemon and agents keep running there. */
+export async function remove(name: string, file = catalogPath()): Promise<boolean> {
+  let found = false;
+  await edit(profiles => {
+    found = profiles.some(p => p.name === name);
+    return profiles.filter(p => p.name !== name);
+  }, file);
+  return found;
+}
 export async function discover(
   host: string,
   installation: Installation,

@@ -72,10 +72,7 @@ export async function manage(args: string[]): Promise<void> {
     }
     case "remove": {
       if (args.length !== 2) throw Error("Usage");
-      await machines.edit(profiles => {
-        if (!profiles.some(p => p.name === args[1])) throw Error("UnknownMachine");
-        return profiles.filter(p => p.name !== args[1]);
-      });
+      if (!(await machines.remove(args[1]))) throw Error("UnknownMachine");
       process.stdout.write(json.stringify({ ok: true, machine: args[1] }) + "\n");
       return;
     }
