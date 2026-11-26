@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as video from "./ghostty_video";
 
 describe("keep", () => {
@@ -123,6 +126,62 @@ test("the pace at a time is the last speed command at or before it", () => {
   ];
   expect([5, 10, 15, 20, 30].map(t => video.paceAt(paces, t).speed)).toEqual([1, 4, 4, 1, 1]);
   expect(video.paceAt(paces, 12).place).toBe("top");
+});
+
+test("a take ends on the last frame at or before record stop, which the recorder wrote", () => {
+  // Frames every 100 ms from 1000: a stop at 1590 is past frame 5, before frame 6.
+  expect(video.takeFrames(1040, 1590, 1000, 10)).toEqual([0, 5]);
+  expect(video.takeFrames(1060, 1600, 1000, 10)).toEqual([1, 6]);
+  expect(video.takeFrames(1500, 1500, 1000, 10)).toEqual([5, 5]);
+  // A stop right on a frame keeps it: 4100 ms at 30 fps is frame 123.
+  expect(video.takeFrames(1000, 5100, 1000, 30)).toEqual([0, 123]);
+  // At every whole millisecond, the last frame is the last tick ghostty_record.ts writes.
+  for (const fps of [15, 30, 60]) {
+    let tick = 0;
+    for (const ms of range(0, 3000)) {
+      while (((tick + 1) * 1000) / fps <= ms) tick++;
+      expect(video.takeFrames(0, ms, 0, fps)[1]).toBe(tick);
+    }
+  }
+});
+
+test.skipIf(!Bun.which("ffmpeg"))("a cut video's frames each get the overlay frame of their own number", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cut-filter-"));
+  try {
+    const fps = 30;
+    // Matroska keeps milliseconds, as the recorder's file does.
+    const raw = join(dir, "raw.mkv");
+    const run = (args: string[]) => {
+      const p = Bun.spawnSync(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", ...args]);
+      if (p.exitCode) throw Error(p.stderr.toString());
+      return p.stdout;
+    };
+    run(["-f", "lavfi", "-i", `testsrc=size=16x16:rate=${fps}`, "-t", "11", "-c:v", "libx264rgb", "-qp", "0", raw]);
+    const [first, last, hold] = [7, 300, 30];
+    const cut = video.cutFilter(first, last, ["not(between(n,100,180))", ""], hold, fps);
+    const count = hold + (last - first + 1 - 81) + hold;
+    // Each overlay frame's pixel says its number, in steps a color conversion can't blur.
+    const tiles = new Uint8Array(count * 4);
+    for (let k = 0; k < count; k++)
+      tiles.set([(k % 16) * 16 + 8, ((k >> 4) % 16) * 16 + 8, (k >> 8) * 16 + 8, 255], k * 4);
+    writeFileSync(join(dir, "tiles.rgba"), tiles);
+    const out = run([
+      ...["-i", raw, "-f", "rawvideo", "-pixel_format", "rgba", "-video_size", "1x1", "-framerate", String(fps)],
+      ...[
+        "-i",
+        join(dir, "tiles.rgba"),
+        "-filter_complex",
+        `[0:v]${cut}[screen];[screen][1:v]overlay=format=gbrp:eof_action=pass,crop=1:1:0:0`,
+      ],
+      ...["-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+    ]);
+    const shown = range(0, out.length / 3).map(
+      i => (out[i * 3] >> 4) + ((out[i * 3 + 1] >> 4) << 4) + ((out[i * 3 + 2] >> 4) << 8),
+    );
+    expect(shown).toEqual(range(0, count));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe("picks", () => {

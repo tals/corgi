@@ -1083,6 +1083,37 @@ export function shownFrames(times: number[], paces: PaceEvent[], hold: number): 
 }
 
 /**
+ * The recording's frames a take spans, from the one nearest from to the
+ * last at or before to. Frame k is the screen at start + k / fps, and the
+ * recorder writes frames up to the stop, so one past to may not exist.
+ */
+export function takeFrames(from: number, to: number, start: number, fps: number): [first: number, last: number] {
+  // Milliseconds times fps first: dividing first can land a frame a hair below its number.
+  const at = (ms: number) => ((ms - start) * fps) / 1000;
+  const first = Math.max(0, Math.round(at(from)));
+  return [first, Math.max(first, Math.floor(at(to)))];
+}
+
+/**
+ * The filter that cuts a recording to a video: its frames first to last
+ * through each select that's given, held hold frames at each end. Frames
+ * are numbered in a 1/fps time base, as an overlay's piped frames are:
+ * setpts truncates N/fps/TB, which put some frames a tick early, in the
+ * recording's milliseconds and even at 1/fps, and an overlay then showed
+ * the picture meant for the frame before.
+ */
+export function cutFilter(first: number, last: number, selects: string[], hold: number, fps: number): string {
+  return (
+    `setpts=PTS-STARTPTS,trim=start_frame=${first}:end_frame=${last + 1},setpts=PTS-STARTPTS` +
+    selects
+      .filter(Boolean)
+      .map(select => `,select='${select}'`)
+      .join("") +
+    `,settb=1/${fps},setpts=N,tpad=start=${hold}:start_mode=clone:stop=${hold}:stop_mode=clone,setpts=N`
+  );
+}
+
+/**
  * Encodes the take: from record start to record stop, with every script's
  * time and at most idle between scripts, held idle at each end, and the
  * pointer drawn over it. Kept time plays at the speed commands' speeds, with
@@ -1102,7 +1133,7 @@ async function encode(
   const lead = Math.min(Math.floor(fps / 2), Math.floor(hold / 2));
   const frameAt = (ms: number) => Math.max(0, Math.round(((ms - start) / 1000) * fps));
   const timeAt = (frame: number) => start + (frame * 1000) / fps;
-  const [first, last] = [frameAt(take.from), Math.max(frameAt(take.from), frameAt(take.to))];
+  const [first, last] = takeFrames(take.from, take.to, start, fps);
   const kept = keep(
     first,
     last,
@@ -1124,11 +1155,7 @@ async function encode(
   const select = drop.map(([a, b]) => `between(n,${a},${b})`).join("+");
   const grabbed = kept.map(timeAt);
   const fast = pick(grabbed.map(t => paceAt(take.paces, t).speed));
-  const cut =
-    `setpts=PTS-STARTPTS,trim=start_frame=${first}:end_frame=${last + 1},setpts=PTS-STARTPTS` +
-    (select ? `,select='not(${select})'` : "") +
-    (fast ? `,select='${fast}'` : "") +
-    `,setpts=N/${fps}/TB,tpad=start=${hold}:start_mode=clone:stop=${hold}:stop_mode=clone,setpts=N/${fps}/TB`;
+  const cut = cutFilter(first, last, [select && `not(${select})`, fast ?? ""], hold, fps);
   const frames = shownFrames(grabbed, take.paces, hold);
   const times = frames.map(frame => frame.t);
   const speeds = frames.map(frame => frame.speed);
