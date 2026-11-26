@@ -16,6 +16,7 @@ import { randomBytes } from "node:crypto";
 import * as keymap from "./keymap";
 import * as keys from "./keys";
 import * as bindings from "./bindings";
+import { scope } from "./action";
 import type { Template as Action } from "./action";
 import type { Key } from "./keyboard";
 export type State = "unavailable" | "disabled" | "enabled" | "failed";
@@ -99,7 +100,7 @@ export function commandKeys(
   if (preset === "cmux")
     return bindings
       .table(source)
-      .filter(b => !b.prefixed)
+      .filter(b => !b.prefixed && scope(b.action) === null)
       .flatMap(b => {
         const host = trigger(b);
         return host === null || host === prefix_host ? [] : [{ host, action: b.action }];
@@ -181,7 +182,7 @@ export class Clash extends Error {
 export function validate(source: bindings.Source): void {
   const seen = new Map<string, bindings.Binding>();
   for (const binding of bindings.table(source)) {
-    if (binding.prefixed) continue;
+    if (binding.prefixed || scope(binding.action) !== null) continue;
     const host = trigger(binding);
     if (host === null) continue;
     const previous = seen.get(host);
@@ -212,7 +213,7 @@ export function transform(bytes: string, chosen: Keys | null): string {
     validate(source);
     out += "# cmux preset; applies throughout Ghostty. Reload with Cmd+Shift+comma.\n";
     for (const b of bindings.table(source))
-      if (!b.prefixed) {
+      if (!b.prefixed && scope(b.action) === null) {
         const host = trigger(b);
         if (host === null) continue;
         if (host === prefix_host) prefix_hosts.add(host);

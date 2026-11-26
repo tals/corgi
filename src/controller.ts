@@ -42,6 +42,7 @@ import type { Entry, Target, WorkspaceEntry, Scope } from "./sidebar";
 import * as resources from "./trackers/resources";
 import * as agentNavigation from "./agent_navigation";
 import * as sidebarFocus from "./sidebar_focus";
+import * as agentSelection from "./agent_selection";
 import { Picker as AgentPicker } from "./agent_navigation";
 import { State as Navigation } from "./navigation";
 import * as navigation from "./navigation";
@@ -59,7 +60,7 @@ import {
   type Workspace,
   type Headless,
 } from "./mirror";
-import { bind as bindAction, needsPane, type Action, type Template } from "./action";
+import { bind as bindAction, needsPane, scope as actionScope, type Action, type Template } from "./action";
 import * as corgiBadge from "./corgi_badge";
 import * as forkHero from "./fork_hero";
 import * as newWorkspace from "./new_workspace";
@@ -623,6 +624,13 @@ export class Controller {
   sidebar_drag: "width" | "split" | null = null;
   agent_drag: AgentDrag | null = null;
   private dock_history = new Map<number, { revision: bigint; undo: number; redo: number }>();
+  agent_selection = new agentSelection.Selection();
+  private agent_selection_bindings = new Map<viewerRef.Agent, string>();
+  private agent_selection_menu: {
+    targets: viewerRef.Agent[];
+    bindings: Map<viewerRef.Agent, string>;
+    back: sidebarFocus.State;
+  } | null = null;
   workspace_drag: WorkspaceDrag | null = null;
   resize_mode = false;
   copy_mode = false;
@@ -789,6 +797,8 @@ export class Controller {
     if (machine === this.machine || !this.machines.includes(machine)) return;
     this.machines.splice(this.machines.indexOf(machine), 1);
     this.machines_by_id.delete(machine.id);
+    this.pruneAgentSelection();
+    this.agent_selection.resetOrder();
     this.reviewing.delete(machine);
     if (this.machine_filter === machine) this.machine_filter = null;
     this.cancelWorkspaceDrag();
@@ -819,6 +829,8 @@ export class Controller {
   /** Closes what names the shown machine's ids, which a switch or a replaced
    * daemon leaves meaning nothing. */
   closeMachineUi(): void {
+    this.agent_selection.clear();
+    this.agent_selection_bindings.clear();
     this.signin?.abandon();
     this.signin = null;
     this.closeMenu();
@@ -1164,6 +1176,8 @@ export class Controller {
   }
   switchWorkspace(id: number): void {
     if (this.runtime.workspaces.loaded && this.runtime.workspaces.index(id) === null) throw Error("NoWorkspace");
+    this.agent_selection.clear();
+    this.agent_selection_bindings.clear();
     this.observeFocus();
     this.rememberAgent();
     if (this.input_state.tab_drag) this.input_state.tab_drag.cancelled = true;
@@ -1269,6 +1283,7 @@ export class Controller {
       current = this.workspaceRef(this.current().id);
     const cursor = list === "workspaces" ? { workspace: current } : sidebarFocus.initial(current, entries);
     this.giveKeyboard({ sidebar: new sidebarFocus.State(cursor, folded ? list : null) });
+    if (!this.agent_selection.active()) this.agent_selection.point("entry" in cursor ? cursor.entry : null);
     this.revealCursor(entries);
   }
   /** Gives the keyboard back to the focused pane, putting a drawer away. */
@@ -1288,8 +1303,12 @@ export class Controller {
     }
     if (to === "right") return this.openSidebarRow(true);
     if (to === "left") return;
+    if (this.agent_selection.visual && this.sidebar_focus?.section() === "agents")
+      return this.perform({ name: to === "down" ? "agent-select-down" : "agent-select-up" });
     const entries = this.sidebarEntries();
     this.sidebar_focus!.move(this.sidebarWorkspaceIds(), entries, to === "down", this.archivedHeaderIndex());
+    const cursor = this.sidebar_focus!.cursor;
+    this.agent_selection.point("entry" in cursor ? cursor.entry : null);
     this.revealCursor(entries);
     this.dirty = true;
   }
@@ -1315,6 +1334,11 @@ export class Controller {
    * to a pane; on a header it goes back to the focused pane. */
   private async openSidebarRow(arrow: boolean): Promise<void> {
     const cursor = this.sidebar_focus!.cursor;
+    if (!arrow && this.agent_selection.visual && "entry" in cursor) {
+      this.agent_selection.commit(cursor.entry);
+      this.dirty = true;
+      return;
+    }
     // An empty workspace list's one choice is to add a workspace; → goes to the button for it.
     if (!this.runtime.workspaces.items.length) {
       this.leaveSidebar();
@@ -1338,7 +1362,15 @@ export class Controller {
   sidebarGhost(): render.Ghost | null {
     const focus = this.sidebar_focus;
     const cursor = focus?.cursor;
-    if (!focus || !cursor || !("entry" in cursor) || !viewerRef.isPane(cursor.entry)) return null;
+    if (
+      !focus ||
+      focus.selecting ||
+      this.agent_selection.active() ||
+      !cursor ||
+      !("entry" in cursor) ||
+      !viewerRef.isPane(cursor.entry)
+    )
+      return null;
     const owner = this.rowOf(cursor.entry);
     return owner?.machine === this.machine ? this.agentGhost(owner.id) : null;
   }
@@ -1402,7 +1434,8 @@ export class Controller {
     this.prefix = false;
     if (this.prompt.open && act.name !== "prompt") this.prompt.hide();
     this.repeat_until = repeats ? Date.now() + bindings.repeat_ms : 0;
-    if (!["focus", "choose-workspace", "choose-agent", "review"].includes(act.name)) this.giveKeyboard("pane");
+    if (actionScope(act) !== "agents" && !["focus", "choose-workspace", "choose-agent", "review"].includes(act.name))
+      this.giveKeyboard("pane");
     await this.invoke(act);
   }
   /** Whether the prefix, or the key after it, was a sign-in's to take. Only
@@ -1496,6 +1529,7 @@ export class Controller {
     view.gpus = resourceTooltip.gpuCount(this.runtime.resources) > 0;
     view.drawer = this.sidebar_focus?.drawer ?? null;
     view.focus = this.sidebar_focus?.section() ?? null;
+    view.selection = this.agentSelectionView(entries);
     view = view.withArchives(
       this.archivedWorkspaces().length,
       this.archived_expanded,
@@ -1516,6 +1550,321 @@ export class Controller {
     view.workspace_scope = this.machineScope();
     view.corgi_badge = this.host.corgi_badge;
     return view;
+  }
+  private agentSelectionBinding(target: viewerRef.Agent): string | null {
+    const owner = this.rowOf(target);
+    if (!owner || !owner.machine.presence().online || this.stale(owner.machine)) return null;
+    const { machine, id } = owner;
+    if (viewerRef.isPane(target)) {
+      const p = machine.runtime.pane(id);
+      return p?.agent.provider ? `${p.binding}:${p.agent.conversation}:${p.agent.session}:${p.agent.provider}` : null;
+    }
+    const session = agentRows.sessions(machine.runtime).find(s => s.id === id);
+    return session ? `${session.provider}:${session.session}:${session.agent?.conversation ?? 0}` : null;
+  }
+  private pruneAgentSelection(): void {
+    const removed = this.agent_selection.keep(target => {
+      const binding = this.agentSelectionBinding(target);
+      return binding !== null && this.agent_selection_bindings.get(target) === binding;
+    });
+    for (const key of this.agent_selection_bindings.keys())
+      if (this.agentSelectionBinding(key) === null) this.agent_selection_bindings.delete(key);
+    if (!this.agent_selection.active()) this.agent_selection_bindings.clear();
+    if (removed) this.notice(i18n.t`${removed} selected agents are no longer available`);
+  }
+  private captureAgentSelection(): void {
+    if (!this.agent_selection.active()) {
+      this.agent_selection_bindings.clear();
+      return;
+    }
+    // Remember identity for every possible range member, including unmarked rows.
+    for (const entry of this.agentEntries(true)) {
+      if (!sidebar.isAgent(entry.target)) continue;
+      const key = entry.target,
+        binding = this.agentSelectionBinding(entry.target);
+      if (binding !== null && (this.agent_selection.has(entry.target) || !this.agent_selection_bindings.has(key)))
+        this.agent_selection_bindings.set(key, binding);
+    }
+  }
+
+  private agentSelectionView(entries: Entry[]): sidebar.View["selection"] {
+    if (this.agent_picker || (this.sidebar_focus?.section() !== "agents" && !this.agent_selection.active()))
+      return null;
+    const hint = (name: "agent-select-toggle" | "agent-select-menu" | "agent-select-range" | "agent-select-all") => {
+      const binding = bindings.find(this.prefs.bindings(), { name });
+      return binding
+        ? (binding.prefixed ? keymap.prefixName(this.prefs.prefix) + " " : "") + bindings.format(binding)
+        : "·";
+    };
+    return {
+      count: this.agent_selection.targets.length,
+      hidden: this.agent_selection.targets.filter(
+        t => !entries.some(e => e.exit === null && sidebar.sameTarget(e.target, t)),
+      ).length,
+      visual: this.agent_selection.visual,
+      toggle: hint("agent-select-toggle"),
+      menu: hint("agent-select-menu"),
+      range: hint("agent-select-range"),
+      all: hint("agent-select-all"),
+    };
+  }
+  private async agentSelectionKey(key: keyboard.Key): Promise<boolean> {
+    if (
+      this.sidebar_focus?.section() !== "agents" ||
+      this.agent_picker ||
+      this.editingName() ||
+      this.tab_menu ||
+      this.help_visible ||
+      this.onboarding ||
+      this.signin
+    )
+      return false;
+    if (!this.prefix && keys.same(key, keymap.prefixKey(this.prefs.prefix))) return false;
+    const act = bindings.lookup(this.prefs.bindings(), this.prefix, key.codepoint, key.mods, "agents");
+    if (!act) return false;
+    if (this.prefix) await this.runPrefixed(act, false);
+    else await this.invoke(act);
+    return true;
+  }
+  private async selectAgents(act: Action): Promise<void> {
+    const focus = this.sidebar_focus;
+    if (!focus || focus.section() !== "agents" || !("entry" in focus.cursor)) return;
+    focus.selecting = true;
+    const entries = this.sidebarEntries(),
+      target = focus.cursor.entry;
+    switch (act.name) {
+      case "agent-select-toggle":
+        if (entries.some(e => sidebar.sameTarget(e.target, target) && e.exit === null && !e.worktree?.ghost))
+          this.agent_selection.toggle(target);
+        break;
+      case "agent-select-range":
+        this.agent_selection.start(entries, target);
+        break;
+      case "agent-select-all":
+        this.agent_selection.all(entries);
+        break;
+      case "agent-select-clear":
+        this.agent_selection.clear();
+        break;
+      case "agent-select-up":
+      case "agent-select-down": {
+        const moved = this.agent_selection.move(entries, target, act.name === "agent-select-down");
+        if (moved) focus.cursor = { entry: moved };
+        break;
+      }
+      case "agent-select-menu":
+        this.openAgentSelectionMenu();
+        return;
+    }
+    this.captureAgentSelection();
+    this.agent_selection.ordered(this.agentEntries(true));
+    this.pointer = null;
+    this.agent_drag = null;
+    this.revealCursor(this.sidebarEntries());
+    this.dirty = true;
+  }
+  private async agentSelectionMouse(button: number, x: number, y: number, release: boolean): Promise<boolean> {
+    if (
+      release ||
+      (button & 0xe0) !== 0 ||
+      this.prefix ||
+      this.tab_menu ||
+      this.agent_picker ||
+      this.editingName() ||
+      this.archive_dialog ||
+      this.corgi_setup ||
+      this.agent_launcher ||
+      this.scope_menu ||
+      this.port_menu ||
+      this.resize_mode ||
+      this.worktree_card.pinned ||
+      this.resource_card.pinned ||
+      this.git_card.pinned
+    )
+      return false;
+    if (this.worktreeRect()?.contains(x, y) || this.resourceRect()?.contains(x, y)) return false;
+    const entries = this.sidebarEntries(),
+      view = this.sidebarView(entries),
+      hit = view.hit(x, y);
+    if (hit.tag === "agent_select" && (button & 3) === 0) {
+      this.enterSidebar("agents");
+      if (this.sidebar_focus) this.sidebar_focus.selecting = true;
+      this.ui_mouse_down = true;
+      return true;
+    }
+    if (hit.tag === "agent_selection" && (button & 3) === 0) {
+      this.ui_mouse_down = true;
+      if (this.sidebar_focus?.section() !== "agents") this.enterSidebar("agents");
+      await this.perform({ name: hit.action });
+      return true;
+    }
+    if (hit.tag !== "entry") return false;
+    const e = entries[hit.entry];
+    if (!e || !sidebar.isAgent(e.target) || e.exit !== null || e.worktree?.ghost) return false;
+    const primary = (button & 3) === 0,
+      secondary = (button & 3) === 2;
+    const toggle = primary && (button & 16) !== 0;
+    const range = primary && ((button & 4) !== 0 || (this.agent_selection.visual && !toggle));
+    if (!range && !toggle && !(secondary && this.agent_selection.active())) return false;
+    this.ui_mouse_down = true;
+    this.agent_drag = null;
+    if (toggle && this.sidebar_focus?.section() !== "agents" && !this.agent_selection.active()) {
+      const previous = this.focusedAgent();
+      if (
+        previous &&
+        entries.some(row => sidebar.sameTarget(row.target, previous) && row.exit === null && !row.worktree?.ghost)
+      )
+        this.agent_selection.toggle(previous);
+    }
+    if (this.sidebar_focus?.section() !== "agents") this.enterSidebar("agents");
+    this.sidebar_focus!.cursor = { entry: e.target };
+    this.sidebar_focus!.selecting = true;
+    if (secondary) {
+      if (!this.agent_selection.has(e.target)) {
+        this.agent_selection.clear();
+        this.agent_selection.toggle(e.target);
+      }
+      this.captureAgentSelection();
+      this.openAgentSelectionMenu(x, y);
+      return true;
+    }
+    if (range) {
+      const visual = this.agent_selection.visual;
+      if (!this.agent_selection.anchor) this.agent_selection.point(this.focusedAgent());
+      this.agent_selection.extend(entries, e.target);
+      if (visual) this.agent_selection.commit(e.target);
+      this.captureAgentSelection();
+      this.agent_selection.ordered(this.agentEntries(true));
+      this.revealCursor(this.sidebarEntries());
+    } else await this.perform({ name: "agent-select-toggle" });
+    this.dirty = true;
+    return true;
+  }
+  private openAgentSelectionMenu(x = this.sidebarView([]).width, y = this.sidebarView([]).middle()): void {
+    const back = this.sidebar_focus;
+    if (!back || !this.agent_selection.targets.length) return;
+    const targets = [...this.agent_selection.targets],
+      saved = new Map(this.agent_selection_bindings);
+    const hidden = this.agentSelectionView(this.sidebarEntries())?.hidden ?? 0;
+    const panes = targets.flatMap(t => {
+      const owner = viewerRef.isPane(t) ? this.rowOf(t) : null;
+      const pane = owner?.machine.runtime.pane(owner.id);
+      return pane ? [pane] : [];
+    });
+    const readable = panes.filter(p => p && p.agent.observation.completed > 0n && !unread(p.agent.observation)).length;
+    this.agent_selection.commit();
+    this.closeMenu();
+    this.agent_selection_menu = { targets, bindings: saved, back };
+    this.tab_menu = new TabMenu({
+      tab: 0,
+      anchor_x: x,
+      anchor_y: y,
+      starred: targets.every(target => {
+        const owner = this.resolveWorkspace(this.agentWorkspace(target)),
+          resolved = this.resolveAgent(target);
+        return resolved && owner?.workspace.pinned_agents.some(t => agentOrder.equal(t, resolved.target));
+      }),
+      selection: {
+        count: targets.length,
+        hidden,
+        panes: panes.length,
+        unread: readable,
+        confirm: false,
+      },
+    });
+    if (!panes.length) this.tab_menu.off.add("close");
+    if (!readable) this.tab_menu.off.add("mark-unread");
+    this.tab_menu.highlightFirst();
+    this.dirty = true;
+  }
+  private closeAgentSelectionMenu(): void {
+    const back = this.agent_selection_menu?.back;
+    this.closeMenu();
+    if (back) {
+      this.giveKeyboard({ sidebar: back });
+      if (back.drawer) this.sidebar_open = true;
+      this.revealCursor(this.sidebarEntries());
+    }
+  }
+  private async agentSelectionAction(item: TabMenuItem): Promise<void> {
+    const context = this.tab_menu,
+      selection = this.agent_selection_menu;
+    if (!context?.selection || !selection) return;
+    if (item === "cancel") return this.closeAgentSelectionMenu();
+    if (item === "close" && !context.selection.confirm) {
+      context.selection.confirm = true;
+      context.highlighted = 0;
+      context.setDetail("close", [[i18n.t`Running work in these panes will stop.`, "warm"]]);
+      this.dirty = true;
+      return;
+    }
+    this.closeAgentSelectionMenu();
+    let changed = 0,
+      skipped = 0,
+      failed = 0;
+    const machines = new Map<Machine, viewerRef.Agent[]>();
+    for (const target of selection.targets) {
+      const owner = this.rowOf(target);
+      if (!owner) {
+        skipped++;
+        continue;
+      }
+      const targets = machines.get(owner.machine) ?? [];
+      targets.push(target);
+      machines.set(owner.machine, targets);
+    }
+    void Promise.all(
+      [...machines].map(([machine, targets]) =>
+        machine.tasks.run(async lane => {
+          for (const ref of targets) {
+            const binding = this.agentSelectionBinding(ref),
+              resolved = this.resolveAgent(ref);
+            if (!resolved || binding === null || selection.bindings.get(ref) !== binding) {
+              skipped++;
+              continue;
+            }
+            const target = resolved.target;
+            try {
+              if (item === "star" || item === "unstar") {
+                const owner = this.resolveWorkspace(this.agentWorkspace(ref)),
+                  ws = owner?.workspace;
+                if (!ws) {
+                  skipped++;
+                  continue;
+                }
+                const pinned = item === "star";
+                if (ws.pinned_agents.some(t => agentOrder.equal(t, target)) === pinned) {
+                  skipped++;
+                  continue;
+                }
+                await this.edit({ "agent.pin": { workspace: ws.id, target, pinned } }, lane, machine);
+              } else if ("pane" in target && item === "close") {
+                await this.edit({ "pane.close": { target: target.pane } }, lane, machine);
+              } else if ("pane" in target && item === "mark-unread") {
+                const p = machine.runtime.pane(target.pane);
+                if (!p || p.agent.observation.completed === 0n || unread(p.agent.observation)) {
+                  skipped++;
+                  continue;
+                }
+                await lane.call("pane.mark_unread", {
+                  pane: p.id,
+                  binding: p.binding,
+                  conversation: p.agent.conversation,
+                  session: p.agent.session,
+                });
+                machine.marked_unread.set(p.id, machine === this.machine && this.focused()?.id === p.id);
+              } else {
+                skipped++;
+                continue;
+              }
+              changed++;
+            } catch {
+              failed++;
+            }
+          }
+        }),
+      ),
+    ).then(() => this.notice(i18n.t`${changed} agents updated · ${skipped} skipped · ${failed} failed`));
   }
   private agentOffset(): { get(): number; set(value: number): void } {
     if (this.host.prefs.agents === "workspace") return this.navigation.agentOffset(this.runtime.workspaces);
@@ -1559,6 +1908,8 @@ export class Controller {
     const change: Partial<Preferences> =
       choice === "activity" || choice === "manual" ? { agent_sort: choice } : { agents: choice };
     Object.assign(this.prefs, change);
+    this.agent_selection.resetOrder();
+    this.captureAgentSelection();
     // The list's rows are new; nothing should glide from the old ones.
     this.sidebar_rows.discard();
     this.dirty = true;
@@ -2102,7 +2453,7 @@ export class Controller {
               },
             }),
           );
-          if (folded) continue;
+          if (folded && !unfolded) continue;
         }
         const rows = this.machineAgents(ws.id, machine);
         if (!sectioned) {
@@ -2174,7 +2525,25 @@ export class Controller {
   }
   private sidebarEntries(): Entry[] {
     const list = this.host.prefs.agents === "workspace" ? this.current().id : 0xffffffff;
-    let entries = this.sidebar_rows.update(list, this.agentEntries(), [], milliTimestamp());
+    let source = this.agent_selection.ordered(this.agentEntries(this.agent_selection.active()));
+    if (this.agent_selection.active()) {
+      const shown: Entry[] = [];
+      for (let i = 0; i < source.length; i++) {
+        const e = source[i],
+          t = e.target;
+        const owner = !sidebar.isAgent(t) && "group" in t ? this.rowOf(t.group) : null;
+        const folded = sidebar.isSection(t)
+          ? this.folded_sections.has(t.section)
+          : owner
+            ? owner.machine.folded_groups.includes(owner.id)
+            : false;
+        shown.push(sidebar.isSection(t) || owner ? { ...e, group: { ...e.group, folded } } : e);
+        if (folded) i = sidebar.groupEnd(source, i) - 1;
+      }
+      source = shown;
+    }
+    source = source.map(e => ({ ...e, marked: this.agent_selection.has(e.target) }));
+    let entries = this.sidebar_rows.update(list, source, [], milliTimestamp());
     const spot = this.spotlight(),
       selected = spot?.path != null ? { workspace: spot.workspace, path: spot.path } : null;
     if (!selected) {
@@ -2246,6 +2615,9 @@ export class Controller {
       this.dirty = true;
       return;
     }
+    this.agent_selection.clear();
+    this.agent_selection.point(target);
+    this.agent_selection_bindings.clear();
     const resolved = this.rowOf(target);
     if (!resolved) return;
     if (resolved.machine !== this.machine) {
@@ -2474,6 +2846,7 @@ export class Controller {
   /** Whether a tab menu's target (pane, workspace, tab or machine) has disappeared. */
   private tabMenuStale(context: TabMenu): boolean {
     if (context.machine) return !this.machines_by_id.has(context.tab);
+    if (context.selection !== null) return false;
     if (context.headless) return !this.listedSessions().some(session => session.id === context.tab);
     if (context.worktree !== null) {
       const ws = this.runtime.workspaces.items.find(ws => ws.id === context.tab);
@@ -2674,6 +3047,7 @@ export class Controller {
   private async tabMenuAction(item: TabMenuItem): Promise<void> {
     const context = this.tab_menu;
     if (!context) return;
+    if (context.selection !== null) return this.agentSelectionAction(item);
     this.closeMenu();
     if (context.machine) {
       const machine = this.machines_by_id.get(context.tab);
@@ -3013,6 +3387,7 @@ export class Controller {
     this.port_menu = null;
     this.tab_menu = null;
     this.menu_pending = null;
+    this.agent_selection_menu = null;
     this.menu_highlight = null;
     this.prefix = false;
     this.resize_mode = false;
@@ -4035,6 +4410,14 @@ export class Controller {
       case "choose-agent":
         this.chooseIn("agents");
         break;
+      case "agent-select-toggle":
+      case "agent-select-range":
+      case "agent-select-all":
+      case "agent-select-clear":
+      case "agent-select-up":
+      case "agent-select-down":
+      case "agent-select-menu":
+        return this.selectAgents(act);
       case "next-agent":
         this.navigateAgent(true);
         break;
@@ -7220,10 +7603,12 @@ export class Controller {
     }
     // Before the sidebar's keys: the workspaces drawer keeps the sidebar focused while its field is open.
     if (this.inline_rename) return this.inlineKey(byte);
+    if (!literal && (await this.agentSelectionKey({ codepoint: byte, mods: {} }))) return;
     if (this.sidebar_focus && !this.prefix) {
       switch (byte) {
         case 27:
-          this.leaveSidebar();
+          if (!this.agent_selection.escape()) this.leaveSidebar();
+          this.captureAgentSelection();
           break;
         case 13:
           await this.openSidebarRow(false);
@@ -7284,7 +7669,8 @@ export class Controller {
       const context = this.tab_menu;
       switch (byte) {
         case 27:
-          this.closeMenu();
+          if (context.selection !== null) this.closeAgentSelectionMenu();
+          else this.closeMenu();
           break;
         case 13: {
           const item = context.highlightedItem();
@@ -7910,6 +8296,10 @@ export class Controller {
           used += decoded.length;
           continue;
         }
+        if (decoded.key && (await this.agentSelectionKey(decoded.key))) {
+          used += decoded.length;
+          continue;
+        }
         if (
           decoded.key &&
           !this.onboarding &&
@@ -7998,6 +8388,7 @@ export class Controller {
       await this.key(27);
       return;
     }
+    if (input.kind === "key" && (await this.agentSelectionKey(input.key))) return;
     if (
       input.kind === "key" &&
       input.key.mods.alt &&
@@ -8603,6 +8994,7 @@ export class Controller {
       } else this.closeInlineRename();
     }
     // A drawer covers the panes: a press opens its row as Enter would, or puts the drawer away.
+    if (await this.agentSelectionMouse(button, x, y, release)) return;
     if (this.sidebar_focus?.drawer && !release && (button & 0xe0) === 0) {
       this.ui_mouse_down = true;
       const focus = this.sidebar_focus,
@@ -9211,7 +9603,8 @@ export class Controller {
         if (index !== null) {
           const item = context.entries()[index].item;
           if (!context.off.has(item)) await this.tabMenuAction(item);
-        } else this.closeMenu();
+        } else if (context.selection !== null) this.closeAgentSelectionMenu();
+        else this.closeMenu();
       } else if (!release && (button === 35 || button === 32)) {
         const index = context.hit(this.width, this.height, x, y);
         if (index !== null && !context.off.has(context.entries()[index].item)) {
@@ -9674,6 +10067,7 @@ export class Controller {
   receiveSnapshot(snapshot: any, machine = this.machine): void {
     if (machine !== this.machine) {
       machine.runtime.receive(machine.connection, snapshot);
+      this.pruneAgentSelection();
       return;
     }
     const had = this.runtime.workspaces.items.length > 0;
@@ -9708,6 +10102,7 @@ export class Controller {
       this.prompt_resumed = true;
       void this.resumePrompt();
     }
+    this.pruneAgentSelection();
     if (this.agent_launcher) {
       const starred = this.historyStars();
       for (const entry of this.agent_launcher.history.entries)
@@ -11120,6 +11515,7 @@ export class Controller {
         copy_mode: this.copy_mode,
         prefix: this.prefix,
         sidebar_focus: this.sidebar_focus?.section() ?? null,
+        agent_selection: this.agentSelectionView(entries),
         ghost: this.previewGhost(),
         workspace_ghost: this.sidebarWorkspaceGhost(),
         menu: this.menu(),
