@@ -205,7 +205,8 @@ test("--skill prints the Corgi skill and rejects any argument", async () => {
     request.mockRestore();
     output.mockRestore();
     errors.mockRestore();
-    process.exitCode = previousExit;
+    // Bun keeps the last code when it is set back to undefined.
+    process.exitCode = previousExit ?? 0;
   }
 });
 test("local pane commands and reload never look up the runtime's executable", async () => {
