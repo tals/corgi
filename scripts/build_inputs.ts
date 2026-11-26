@@ -32,7 +32,15 @@ export function source(root: string): string {
 export function native(root: string, target: string, explicit: boolean, sdk: string): string {
   return crypto
     .createHash("sha256")
-    .update(digest(root, ["native/**/*.{c,h,zig,zon}", "scripts/zig", "build.ts", "scripts/build_inputs.ts"]))
+    .update(
+      digest(root, [
+        "native/**/*.{c,h,zig,zon}",
+        "scripts/zig",
+        "scripts/tools.sh",
+        "build.ts",
+        "scripts/build_inputs.ts",
+      ]),
+    )
     .update(JSON.stringify([target, explicit, sdk, process.env.ZIG ?? ""]))
     .update(
       sdk && fs.existsSync(path.join(sdk, "SDKSettings.json"))

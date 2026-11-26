@@ -165,8 +165,7 @@ class Relay extends ui_driver.Driver {
       let seq = now.seq;
       while (on) {
         const reply = await host.shapes(seq, 200);
-        for (const change of reply.changes)
-          if (change.seq > seq) this.shapes.push({ t: change.time_unix_ns / 1e6, name: change.shape });
+        for (const change of reply.changes) if (change.seq > seq) this.shapes.push({ t: change.t, name: change.shape });
         seq = Math.max(seq, reply.seq);
       }
       // A host gone mid-recording ends the watch; the recording reports it.

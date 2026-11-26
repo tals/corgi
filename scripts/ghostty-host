@@ -2,8 +2,9 @@
 # Runs ghostty-host, the windowless Ghostty that tools/ghostty_screenshot.ts
 # captures in: $GHOSTTY_HOST, or the pinned build in .tools, downloaded and
 # checked against its checksum on first use. With --path it prints the
-# binary's path instead. Builds come from github.com/tals/ghostty's
-# vX.Y.Z-corgi.N tags (corgi/build.ts there).
+# binary's path instead. Builds come from github.com/tals/ghostty's corgi
+# branch (corgi/build.ts there); bun scripts/pin_ghostty_host.ts VERSION
+# points this at a newly published one.
 set -eu
 . "$(dirname -- "$0")/tools.sh"
 version=1.4.0-corgi.1

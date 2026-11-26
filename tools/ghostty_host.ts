@@ -10,18 +10,16 @@ export type MouseAction =
   | { action: "press" | "release"; button: "left" | "right" | "middle" }
   | { action: "scroll"; dy: number };
 
-/** A change of the pointer Ghostty asked for: a CSS cursor name, and whether it shows. */
+/** A pointer Ghostty asked for: a CSS cursor name, from t (ms since the epoch). */
 export interface ShapeChange {
   seq: number;
   shape: string;
-  visible: boolean;
-  time_unix_ns: number;
+  t: number;
 }
 
 export interface Shapes {
   seq: number;
   shape: string;
-  visible: boolean;
   changes: ShapeChange[];
 }
 
@@ -40,11 +38,15 @@ export interface Size {
 /** A frame in the host's stream: GCF1's 64-byte header, then its pixels. */
 export const FRAME_HEADER = 64;
 
+/**
+ * Times here are ms since the epoch and counters plain numbers, as Date.now()
+ * gives: the host's 64-bit nanoseconds become ms where they're read.
+ */
 export interface FrameHeader {
   width: number;
   height: number;
   stride: number;
-  seq: bigint;
+  seq: number;
   /** When it was drawn, in ms since the epoch. */
   time: number;
   bytes: number;
@@ -58,7 +60,7 @@ export function frameHeader(bytes: Uint8Array): FrameHeader | null {
     width: view.getUint32(8, true),
     height: view.getUint32(12, true),
     stride: view.getUint32(16, true),
-    seq: view.getBigUint64(24, true),
+    seq: Number(view.getBigUint64(24, true)),
     time: Number(view.getBigInt64(32, true) / 1000n) / 1000,
     bytes: Number(view.getBigUint64(56, true)),
   };
@@ -95,8 +97,15 @@ export class Host {
   }
 
   /** The pointer's shape, with the changes after seq; waits up to ms for one. */
-  shapes(after: number, ms: number): Promise<Shapes> {
-    return this.json("GET", `/shape?after=${after}&timeout_ms=${ms}`);
+  async shapes(after: number, ms: number): Promise<Shapes> {
+    type Wire = { seq: number; shape: string; changes: { seq: number; shape: string; time_unix_ns: number }[] };
+    const reply = await this.json<Wire>("GET", `/shape?after=${after}&timeout_ms=${ms}`);
+    return {
+      seq: reply.seq,
+      shape: reply.shape,
+      // JSON carries the nanoseconds as a double; ms keep all the precision it has.
+      changes: reply.changes.map(c => ({ seq: c.seq, shape: c.shape, t: c.time_unix_ns / 1e6 })),
+    };
   }
 
   /** Whether nothing was drawn for quietMs, within timeoutMs. */

@@ -6,13 +6,16 @@
  *   bun tools/ghostty_record.ts SOCKET FPS OUT.mkv
  *
  * Prints {"start": ms since the epoch} once its first frame is written. On
- * SIGINT it fills the ticks up to then, closes the file and exits.
+ * SIGINT it takes the frames Ghostty drew before then that are still on their
+ * way, fills the ticks up to then, closes the file and exits.
  */
 import type { FileSink } from "bun";
 import * as ghostty_host from "./ghostty_host";
 
 /** How late a frame may arrive and still land on its own tick. */
 const LATENESS = 100;
+/** How long a stop waits for frames drawn before it, when none drawn after it arrives first. */
+const FLUSH = 150;
 
 const [socket, rate, out] = process.argv.slice(2);
 const fps = Number(rate);
@@ -24,8 +27,10 @@ const host = new ghostty_host.Host(socket);
 const stopping = new AbortController();
 let stopAt: number | null = null;
 process.on("SIGINT", () => {
-  stopAt ??= Date.now();
-  stopping.abort();
+  if (stopAt !== null) return;
+  stopAt = Date.now();
+  // A frame drawn after the stop ends the stream sooner; an idle screen draws none.
+  setTimeout(() => stopping.abort(), FLUSH);
 });
 
 /** A frame's pixels without row padding. */
@@ -72,7 +77,7 @@ const queue = (work: () => Promise<unknown>) => (turn = turn.then(work));
 await fill(start, true);
 console.log(JSON.stringify({ start }));
 // An idle screen draws nothing; ticks still go out while it holds.
-const idle = setInterval(() => queue(() => fill(Date.now() - LATENESS, true)), LATENESS);
+const idle = setInterval(() => queue(() => fill(Math.min(Date.now() - LATENESS, stopAt ?? Infinity), true)), LATENESS);
 
 try {
   const stream = await host.request("GET", `/frames?after=${seq}`, undefined, stopping.signal);
@@ -81,7 +86,7 @@ try {
   let [have, got] = [0, 0];
   let frame: ghostty_host.FrameHeader | null = null;
   let pixels = new Uint8Array(0);
-  for (;;) {
+  stream: for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
     for (let i = 0; i < value.length;) {
@@ -101,6 +106,11 @@ try {
       if (got < frame.bytes) continue;
       const done = frame;
       frame = null;
+      // Drawn after the stop: everything before it is in.
+      if (stopAt !== null && done.time > stopAt) {
+        stopping.abort();
+        break stream;
+      }
       // A frame of another size can't go into this recording.
       if (done.width !== width || done.height !== height) continue;
       const next = pack(pixels, width, height, done.stride);

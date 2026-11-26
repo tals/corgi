@@ -345,10 +345,12 @@ bun tools/ghostty_screenshot.ts --do 'action help; wait 1000; key esc' -o /tmp/h
 
 It needs ffmpeg. `scripts/ghostty-host` downloads the pinned host into
 `.tools` on first use, as `scripts/zig` does Zig; `GHOSTTY_HOST` runs another
-build. Builds come from [tals/ghostty](https://github.com/tals/ghostty), Ghostty
-with a small patch that lets libghostty draw with no view, at its
-`vX.Y.Z-corgi.N` tags; `bun corgi/build.ts --publish` there cross-builds macOS
-arm64 and Linux x86_64 and arm64 and uploads them beside Corgi's releases. On
+build. Builds come from the `corgi` branch of
+[tals/ghostty](https://github.com/tals/ghostty), Ghostty with a small patch that
+lets it draw with no window: `bun corgi/build.ts --publish` there cross-builds
+macOS arm64 and Linux x86_64 and arm64 and uploads them beside Corgi's releases.
+To use a new build, run `bun scripts/pin_ghostty_host.ts VERSION` and commit the
+change it makes to `scripts/ghostty-host`. On
 Linux the host draws with EGL on a GPU or with Mesa's software renderer
 (`libegl1` and `libgl1-mesa-dri` on Ubuntu).
 Captures keep the terminal's native resolution and Ghostty's font shaping, box

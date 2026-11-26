@@ -40,7 +40,8 @@
  *
  * Needs ffmpeg. scripts/ghostty-host downloads the pinned ghostty-host into
  * .tools on first use; GHOSTTY_HOST runs another build. Each run owns a
- * disposable sandbox and terminal. No personal config is loaded. The host
+ * disposable sandbox and terminal. No personal config is loaded, and links
+ * and files a capture opens go to $SESSION/opened.log instead of the desktop. The host
  * runs tools/ghostty_relay.ts in front of the viewer, and scripts reach it over
  * HTTP on $SESSION/session.sock: keys arrive as terminal bytes, and the mouse
  * goes into Ghostty a step at a time like a hand's, so Ghostty sees every
@@ -273,9 +274,26 @@ interface Session {
 /** ghostty-host's binary: $GHOSTTY_HOST, or the pinned build, which scripts/ghostty-host downloads on first use. */
 function hostBinary(): string {
   const p = Bun.spawnSync([join(ROOT, "scripts/ghostty-host"), "--path"], { stdout: "pipe", stderr: "inherit" });
-  const path = p.stdout.toString().trim();
-  if (p.exitCode !== 0 || !existsSync(path)) throw Error("no ghostty-host; see scripts/ghostty-host");
+  const named = p.stdout.toString().trim();
+  // The host runs from the sandbox, so a relative GHOSTTY_HOST is resolved here.
+  const path = named.includes("/") ? resolve(named) : Bun.which(named);
+  if (p.exitCode !== 0 || !path || !existsSync(path)) throw Error("no ghostty-host; see scripts/ghostty-host");
   return path;
+}
+
+/**
+ * A folder for the front of a capture's PATH whose open and xdg-open only note
+ * what they were asked to open in $SESSION/opened.log, so a link or file a
+ * capture clicks never opens on the caller's desktop.
+ */
+function openers(scratch: string): string {
+  const dir = join(scratch, "openers");
+  mkdirSync(dir);
+  for (const name of ["open", "xdg-open"]) {
+    writeFileSync(join(dir, name), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${quote(join(scratch, "opened.log"))}\n`);
+    chmodSync(join(dir, name), 0o755);
+  }
+  return dir;
 }
 
 /** Starts the sandbox and ghostty-host with the relay, and waits for the viewer's first frames. */
@@ -284,6 +302,7 @@ async function start(o: Options, prepare?: Recipe["prepare"], serving = false): 
   for (const tool of ["ffmpeg"]) if (!Bun.which(tool)) throw Error(`no ${tool} on PATH; install ffmpeg`);
   if (!o.command && !existsSync(o.corgi)) throw Error(`no ${o.corgi}; run bun build.ts first`);
   const scratch = mkdtempSync(join(tmpdir(), PREFIX));
+  const shims = openers(scratch);
   let sandbox: Sandbox | null = null;
   let terminal: Bun.Subprocess<"ignore", "pipe"> | undefined;
   const log = join(scratch, "ghostty.log");
@@ -313,6 +332,7 @@ async function start(o: Options, prepare?: Recipe["prepare"], serving = false): 
       // The daemon and its panes never open windows on the caller's desktop.
       delete sandbox.env.DISPLAY;
       delete sandbox.env.WAYLAND_DISPLAY;
+      sandbox.env.PATH = `${shims}:${sandbox.env.PATH}`;
       sandbox.prepareHome();
       world.seed(sandbox);
       sandbox.dated(null);
@@ -326,7 +346,7 @@ async function start(o: Options, prepare?: Recipe["prepare"], serving = false): 
       await prepare?.(sandbox);
     }
     const env: Record<string, string | undefined> = {
-      ...(sandbox?.env ?? process.env),
+      ...(sandbox?.env ?? { ...process.env, PATH: `${shims}:${process.env.PATH}` }),
       DISPLAY: undefined,
       WAYLAND_DISPLAY: undefined,
       CORGI_PANE: undefined,

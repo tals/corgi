@@ -24,7 +24,7 @@ jobs:
       - name: Native layer key
         id: native-key
         shell: bash
-        run: echo "hash=$(git rev-parse HEAD:native HEAD:scripts/zig HEAD:build.ts HEAD:.github/workflows/platform.yml | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
+        run: echo "hash=$(git rev-parse HEAD:native HEAD:scripts/zig HEAD:scripts/tools.sh HEAD:build.ts HEAD:.github/workflows/platform.yml | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
       - id: native
         uses: actions/cache@v6
         with:
