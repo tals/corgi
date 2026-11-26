@@ -44,6 +44,18 @@ function world(...names: string[]) {
     void chosen.push({ machine: machine.name, workspace: focus && "workspace" in focus ? focus.workspace : null });
   return { endpoints, view, chosen, workspaces: new Workspaces(endpoints, view) };
 }
+test("with this computer alone, the dropdown opens only to add a machine", () => {
+  const { endpoints, view, workspaces } = world("local");
+  workspaces.show();
+  expect(workspaces.open).toBe(false);
+  const adds = new machineAdd.Adds({ hosts: () => ["devbox"], saved: () => [], add: () => new Promise(() => {}) });
+  const picker = new Workspaces(endpoints, view, adds);
+  expect(picker.visible).toBe(false);
+  picker.show();
+  expect(picker.open).toBe(true);
+  expect(picker.list.rows().map(row => row.kind)).toEqual(["all", "machine", "divider", "host"]);
+});
+
 test("opening the machine dropdown cancels a worktree entry waiting for history", async () => {
   const { view, workspaces } = world("local", "work");
   try {

@@ -561,6 +561,8 @@ export class Dialog extends nameDialog.Dialog {
     this.machine = on?.machine ?? null;
     this.machines = on?.machines ?? [];
     this.list = new machineAdd.Listing(() => this.machines, on?.adds ?? null);
+    // With this computer alone, the SSH config says whether there's a machine to add.
+    if (this.machines.length < 2) on?.adds?.refresh();
     this.start = on?.start ?? (() => "~");
     if (this.machine) this.browsers.set(this.machine, browser);
     this.online = this.ready();
@@ -582,9 +584,9 @@ export class Dialog extends nameDialog.Dialog {
   confirm(): Promise<string | null> {
     return this.browser.confirm();
   }
-  /** A new workspace with machines to choose from. */
+  /** A new workspace with machines to choose from, or a host in the SSH config to add. */
   offers(): boolean {
-    return this.moving === null && this.machines.length > 1;
+    return this.moving === null && (this.machines.length > 1 || this.list.addable());
   }
   /** The machine is online: its folders show, and ↵ goes ahead. */
   ready(): boolean {

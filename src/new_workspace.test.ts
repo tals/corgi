@@ -1140,3 +1140,24 @@ test("with one machine, or moving a workspace, the title names none and ^O does 
   d.key(15);
   expect(d.choosing).toBe(false);
 });
+
+test("with this computer alone, the list opens once the SSH config names a host to add", async () => {
+  const { local } = machines();
+  const open = async (hosts: string[]) => {
+    const adds = new machineAdd.Adds({ hosts: () => hosts, saved: () => [], add: () => new Promise(() => {}) });
+    const d = new Dialog(await browse("/home/me/code"), null, {
+      machine: local,
+      machines: [local],
+      adds,
+      start: () => "~",
+    });
+    d.fit(100, 30);
+    return d;
+  };
+  expect((await open([])).offers()).toBe(false);
+  const d = await open(["devbox"]);
+  expect(d.offers()).toBe(true);
+  d.key(15);
+  expect(d.choosing).toBe(true);
+  expect(d.list.rows().map(row => row.kind)).toEqual(["machine", "divider", "host"]);
+});

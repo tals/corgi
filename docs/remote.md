@@ -34,6 +34,8 @@ of machines show the other hosts in `~/.ssh/config` under a divider. Enter on
 one adds it as `machine add` does, with its progress in the row, and the viewer
 connects to it without restarting. Typing searches the list; a host it doesn't
 name, such as `devbox` or `tal@10.0.0.5`, is offered as `+ devbox`.
+Before the first, **prefix + Shift+M** opens the picker to add one, and New
+workspace offers its list once the SSH config names a host.
 The viewer can't answer SSH prompts, so the host's key must already be known
 and SSH must log in with a key or agent. Hosts that are patterns, or whose
 block logs in as `git`, are left out.

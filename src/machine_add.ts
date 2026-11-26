@@ -192,6 +192,10 @@ export class Listing<T extends { name: string }> {
   private hosts(): string[] {
     return this.adds?.candidates(this.machines().map(machine => machine.name)) ?? [];
   }
+  /** Whether the SSH config, as last read, names a host that could join the machines. */
+  addable(): boolean {
+    return this.hosts().length > 0;
+  }
   /** The rows `search` lists: what's typed, or with null, all of them. */
   rows(search: string | null = this.query): Row<T>[] {
     const query = search ?? "";

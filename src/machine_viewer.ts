@@ -301,8 +301,9 @@ export async function run(
   const filter = () => {
     if (workspaces.selectFilter()) active!.activate();
   };
-  // With no SSH machine there's no dropdown: the controller says how to add one.
-  view.onMachines = workspaces.visible ? show : null;
+  // The machines action opens the dropdown even before there's an SSH
+  // machine, to add one; the header and Ctrl+] wait for the first.
+  view.onMachines = show;
   // Something to draw: input, a machine's news, or a task that finished.
   let changed = true;
   const notify = () => {

@@ -47,8 +47,9 @@ export class Workspaces {
     for (const endpoint of this.endpoints)
       endpoint.watchResources(this.open ? null : this.view.resourceWorkspace(endpoint.machine));
   }
+  /** Opens with a machine to list, or one to add. */
   show(): void {
-    if (!this.visible) return;
+    if (!this.visible && !this.list.adds) return;
     this.view.worktree_card.pending_enter = null;
     this.open = true;
     this.offset = 0;
