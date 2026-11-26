@@ -2,7 +2,8 @@
 
 ## Get running
 
-Install Bun. `./scripts/zig` downloads the pinned Zig 0.17.0 on first use.
+Install Bun. The first build downloads the pinned Zig 0.17.0, and the
+ghostty-host that screenshots run in, into `.tools`.
 Start in an isolated environment:
 
 ```sh
@@ -333,7 +334,9 @@ and records screens. It uses `dist/corgi`, so rebuild first. Scripts live in
 The command reference is at the top of the driver. Use
 [UI tokens and rules](docs/ui_styleguide.md) for visual work.
 
-For screenshots and videos, use a live Ghostty window on a private Xvfb display:
+For screenshots and videos, capture a live Ghostty terminal in ghostty-host,
+libghostty drawing into memory with no window or display, on an Apple silicon
+Mac or on Linux:
 
 ```sh
 bun tools/ghostty_screenshot.ts --sandbox review -o /tmp/review.png
@@ -341,11 +344,18 @@ bun tools/ghostty_screenshot.ts --do 'action help' -o /tmp/help.png
 bun tools/ghostty_screenshot.ts --do 'action help; wait 1000; key esc' -o /tmp/help.mp4
 ```
 
-Install Ghostty, Xvfb, ffmpeg and the XTEST and XFixes libraries first (`sudo
-apt install xvfb ffmpeg libxtst6 libxfixes3` on Ubuntu, plus Ghostty).
-`GHOSTTY_BIN` selects another Ghostty build.
-The tool uses software GL and captures the window at native resolution, keeping
-Ghostty's font shaping, box drawing, colors and Kitty images. Use `--size 110x32`
+It needs ffmpeg. `scripts/ghostty-host` downloads the pinned host into
+`.tools` on first use, as `scripts/zig` does Zig; `GHOSTTY_HOST` runs another
+build. Builds come from the `corgi` branch of
+[tals/ghostty](https://github.com/tals/ghostty), Ghostty with a small patch that
+lets it draw with no window: `bun corgi/build.ts --publish` there cross-builds
+macOS arm64 and Linux x86_64 and arm64 and uploads them beside Corgi's releases.
+To use a new build, run `bun scripts/pin_ghostty_host.ts VERSION` and commit the
+change it makes to `scripts/ghostty-host`. On
+Linux the host draws with EGL on a GPU or with Mesa's software renderer
+(`libegl1` and `libgl1-mesa-dri` on Ubuntu).
+Captures keep the terminal's native resolution and Ghostty's font shaping, box
+drawing, colors and Kitty images. Use `--size 110x32`
 and `--font-size 16` to control the capture; no image scaling is applied.
 The UI driver's cell dumps are useful for assertions, but repainting them into
 SVG, canvas or another terminal renderer does not produce a faithful screenshot.
@@ -353,10 +363,11 @@ SVG, canvas or another terminal renderer does not produce a faithful screenshot.
 `--do` takes a script: the UI driver's commands (`key`, `type`, `click`,
 `clicktext`, `hovertext`, `waittext`, `settle`, `wait` and the rest)
 separated by `;`, plus `action NAME` and `corgi ARGS` for the sandbox's corgi,
-`shot PATH`, and `record start PATH` and `record stop`. Ghostty runs
+`shot PATH`, and `record start PATH [FPS]` and `record stop`. The host runs
 [a relay](tools/ghostty_relay.ts) in front of the viewer. Keys reach the
-viewer as terminal input; the mouse moves through X like a hand, in eased
-steps, so Ghostty sees every hover and reports it to the viewer itself.
+viewer as terminal input; the mouse goes into Ghostty as its own input, in
+eased steps like a hand's, so Ghostty sees every hover and reports it to the
+viewer itself.
 
 To drive a sandbox step by step, keep a session running and send it scripts:
 
@@ -373,24 +384,26 @@ folder. Scripts run one at a time. The relay serves HTTP on
 `$SESSION/session.sock` (`POST /drive`, `GET /screen`). Code takes the same
 scripts: `capture()` with a `drive` callback starts a fresh sandbox, and
 `attach()` joins a running session. A session cleans up when stopped, on
-SIGINT or SIGTERM, or when Ghostty exits.
+SIGINT or SIGTERM, or when the host exits.
 
 Videos keep the time each script runs and cut the time between scripts down
 to `--idle` seconds (default 1), so the time spent deciding the next step
 doesn't reach the video; a script's own `wait` stays. They hold the first and
 last screens for `--idle` too. The pointer is drawn where it went, in the
-shape Ghostty showed (arrow, hand, I-beam, resize or move): it grows while it
-moves, and each press leaves a fading ring. `record start PATH xcursor` also
-writes PATH's `.xcursor` twin with X's own cursor, to compare against.
+shape Ghostty asked for (arrow, hand, I-beam, either resize or move): it grows
+while it moves, and each press leaves a fading ring. Beside each video, a
+`.timeline.json` of the same name (`demo.mp4` gets `demo.timeline.json`)
+lists, in the video's seconds, the pointer's moves, presses and shapes, the
+keys and text typed, what a click opened, and each script command with the
+cell a text command found.
 
 MP4 is the format for PRs: GitHub plays it inline, and `gh pr create --attach
 ./demo.mp4` uploads it. The tool records losslessly, then encodes H.264 at 60
-frames a second with every pixel doubled, so 4:2:0 chroma subsampling can't put
+frames a second (`--fps 30` or 15, or `record start PATH 30`) with every pixel doubled, so 4:2:0 chroma subsampling can't put
 halos around colored text. A GIF keeps the window's size and plays without a click, but is larger
 for anything long.
 
-Inspect regenerated PNGs and videos before committing or attaching them. This runs on Linux directly
-or in a container with the dependencies installed.
+Inspect regenerated PNGs and videos before committing or attaching them.
 
 ## Reload, restart and recovery
 

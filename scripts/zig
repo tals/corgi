@@ -1,15 +1,7 @@
 #!/bin/sh
 set -eu
-root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+. "$(dirname -- "$0")/tools.sh"
 version=0.17.0
-case "$(uname -s)" in
-    Darwin) platform=macos ;;
-    *) platform=$(uname -s | tr '[:upper:]' '[:lower:]') ;;
-esac
-case "$(uname -m)" in
-    arm64) arch=aarch64 ;;
-    *) arch=$(uname -m) ;;
-esac
 name="zig-$arch-$platform-$version"
 project="$root/.tools/$name/zig"
 url="https://ziglang.org/download/$version/$name.tar.xz"
@@ -20,32 +12,6 @@ case "$arch-$platform" in
     x86_64-linux) sum=1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026 ;;
     *) sum= ;;
 esac
-
-# Fetches the pinned release into .tools, checked against its checksum.
-download() {
-    printf 'Downloading Zig %s into %s/.tools\n' "$version" "$root" >&2
-    mkdir -p "$root/.tools"
-    work=$(mktemp -d "$root/.tools/.zig-download.XXXXXX")
-    trap 'rm -rf "$work"' EXIT
-    # curl's meter shows size, speed and time left; logs only need errors.
-    if [ -t 2 ]; then progress=; else progress=--silent; fi
-    curl -fSL --retry 3 $progress -o "$work/zig.tar.xz" "$url"
-    echo "$sum  $work/zig.tar.xz" | shasum -a 256 -c - >/dev/null
-    printf 'Extracting Zig %s\n' "$version" >&2
-    tar -xJf "$work/zig.tar.xz" -C "$work"
-    # Another build may have finished the same download first.
-    mv "$work/$name" "$root/.tools/" 2>/dev/null || [ -x "$project" ]
-    rm -rf "$work"
-    trap - EXIT
-}
-
-# Finds the main checkout's copy, when this is a linked worktree of it.
-find_shared() {
-    common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-    case $common in */.git) ;; *) return 1 ;; esac
-    shared=${common%/.git}/.tools/$name/zig
-    [ "$shared" != "$project" ] && [ -x "$shared" ] && [ "$("$shared" version 2>/dev/null)" = "$version" ]
-}
 
 if [ -n "${ZIG:-}" ]; then
     found=$("$ZIG" version 2>/dev/null || echo 'not runnable')
@@ -59,10 +25,10 @@ elif command -v zig >/dev/null 2>&1 && [ "$(zig version)" = "$version" ]; then
     compiler=zig
 elif [ -x "$project" ]; then
     compiler=$project
-elif find_shared; then
+elif main_copy "$name/zig" && [ "$("$shared" version 2>/dev/null)" = "$version" ]; then
     compiler=$shared
 elif [ -n "$sum" ]; then
-    download
+    fetch "Zig $version" "$url" "$sum" "$name"
     compiler=$project
 else
     printf 'Corgi needs Zig %s, and has no checksum to download it for %s-%s.\n' "$version" "$arch" "$platform" >&2

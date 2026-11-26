@@ -4,6 +4,8 @@ export const patterns = [
   "corgi.computer/channels/*",
   "corgi.computer/releases/*",
   "corgi.computer/test/*",
+  // ghostty-host builds that scripts/ghostty-host downloads for captures.
+  "corgi.computer/ghostty-host/*",
   "corgi.computer/corgi.computer.git*",
 ];
 

@@ -1,0 +1,42 @@
+#!/bin/sh
+# Runs ghostty-host, the windowless Ghostty that tools/ghostty_screenshot.ts
+# captures in: $GHOSTTY_HOST, or the pinned build in .tools, downloaded and
+# checked against its checksum on first use. With --path it prints the
+# binary's path instead; with --fetch it only fetches it, and says nothing
+# where there's no build for this machine. Builds come from
+# github.com/tals/ghostty's corgi branch (corgi/build.ts there);
+# bun scripts/pin_ghostty_host.ts VERSION points this at a newly published one.
+set -eu
+. "$(dirname -- "$0")/tools.sh"
+version=20261126T062510Z-0d23e14131a5
+name="ghostty-host-$version-$platform-$arch"
+project="$root/.tools/$name/ghostty-host"
+url="https://corgi.computer/ghostty-host/$version/$name.tar.gz"
+case "$platform-$arch" in
+    macos-aarch64) sum=ceaabc5b2d4e78ee7a28174349ee3d6d46197d57d7e22ccf993001d40e3885be ;;
+    linux-x86_64) sum=aa0d2f1803890c3b530789a2bb00332f30cd912f4b72740f6a53e0836f5b9e17 ;;
+    linux-aarch64) sum=ee8965c7ef3dbf4a223d175486f823736d9e12f638bc0f21e4078a44ecd12f31 ;;
+    *) sum= ;;
+esac
+
+if [ "${1:-}" = --fetch ] && [ -z "$sum" ] && [ -z "${GHOSTTY_HOST:-}" ]; then
+    exit 0
+elif [ -n "${GHOSTTY_HOST:-}" ]; then
+    binary=$GHOSTTY_HOST
+elif [ -x "$project" ]; then
+    binary=$project
+elif main_copy "$name/ghostty-host"; then
+    binary=$shared
+elif [ -n "$sum" ]; then
+    fetch "ghostty-host $version" "$url" "$sum" "$name"
+    binary=$project
+else
+    printf 'No ghostty-host %s build for %s-%s.\n' "$version" "$platform" "$arch" >&2
+    printf 'Build one from github.com/tals/ghostty (corgi/build.ts) and set GHOSTTY_HOST to it.\n' >&2
+    exit 1
+fi
+case "${1:-}" in
+    --path) printf '%s\n' "$binary"; exit 0 ;;
+    --fetch) exit 0 ;;
+esac
+exec "$binary" "$@"

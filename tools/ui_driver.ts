@@ -118,7 +118,7 @@ export function parseScript(source: string): string[][] {
 /**
  * Sends scenario commands to a viewer as a terminal would, and reads its
  * screen back. Session runs a viewer of its own; the Ghostty capture's relay
- * drives one inside a real Ghostty, its mouse through X.
+ * drives one inside a real Ghostty, its mouse as Ghostty's own input.
  */
 export abstract class Driver {
   abstract screen: Terminal;
