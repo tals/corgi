@@ -68,6 +68,23 @@ test("in a Git work tree, lists tracked and untracked files and their folders, n
   expect(ignored.paths).toEqual(["out.js"]);
 });
 
+test("a file a merge left in conflict is listed once", async () => {
+  const dir = folder({ "a.txt": "base\n", "b.txt": "" });
+  git(dir, "init", "-q", "-b", "main");
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "base");
+  git(dir, "checkout", "-qb", "other");
+  writeFileSync(join(dir, "a.txt"), "other\n");
+  git(dir, "commit", "-qam", "other");
+  git(dir, "checkout", "-q", "main");
+  writeFileSync(join(dir, "a.txt"), "main\n");
+  git(dir, "commit", "-qam", "main");
+  expect(() => git(dir, "merge", "-q", "other")).toThrow();
+  const { end, paths } = await walked(dir);
+  expect(paths).toEqual(["a.txt", "b.txt"]);
+  expect(end.scanned).toBe(2);
+});
+
 test("elsewhere, walks the file system a level at a time, past .git and through a link only once", async () => {
   const dir = folder({ "a/b/c.txt": "", "a/x.txt": "", "top.txt": "", ".git/HEAD": "", "a/.git/config": "" });
   // A link back up would loop; one to a folder outside leads there once.

@@ -107,9 +107,12 @@ async function gitFiles(
   const timer = setTimeout(end, Math.max(0, deadline - Date.now()));
   let rest: Buffer = Buffer.alloc(0),
     any = false,
-    full = false;
+    full = false,
+    last = "";
   const take = (path: string) => {
-    if (!path || full) return;
+    // A conflicted file is listed once for each side of the merge, one after another.
+    if (!path || full || path === last) return;
+    last = path;
     any = true;
     // The folders a path is in come before it, once each.
     for (let slash = path.indexOf("/"); slash > 0; slash = path.indexOf("/", slash + 1)) {
