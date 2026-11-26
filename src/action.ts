@@ -104,6 +104,13 @@ export const specs = {
   "open-url": "[]const u8",
   "find-agent": "void",
   "choose-agent": "void",
+  "agent-select-toggle": "void",
+  "agent-select-range": "void",
+  "agent-select-all": "void",
+  "agent-select-clear": "void",
+  "agent-select-up": "void",
+  "agent-select-down": "void",
+  "agent-select-menu": "void",
   "next-agent": "void",
   "prev-agent": "void",
   "last-agent": "void",
@@ -201,6 +208,21 @@ export function needsPane(action: Action | Template): boolean {
     "paste",
   ].includes(action.name);
 }
+/** Selection shortcuts belong to the focused agents list, never a child terminal. */
+export function scope(action: Action | Template): "agents" | null {
+  switch (action.name) {
+    case "agent-select-toggle":
+    case "agent-select-range":
+    case "agent-select-all":
+    case "agent-select-clear":
+    case "agent-select-up":
+    case "agent-select-down":
+    case "agent-select-menu":
+      return "agents";
+    default:
+      return null;
+  }
+}
 export function title(action: Action | Template): string {
   if (action.name === "connectivity") return "Developer connectivity";
   const titles: Record<string, string> = {
@@ -242,6 +264,13 @@ export function title(action: Action | Template): string {
     "star-session": i18n.t`Star / unstar headless agent`,
     "find-agent": i18n.t`Find agent`,
     "choose-agent": i18n.t`Choose agent`,
+    "agent-select-toggle": i18n.t`Agents: toggle selection`,
+    "agent-select-range": i18n.t`Agents: select consecutive agents`,
+    "agent-select-all": i18n.t`Agents: select all shown`,
+    "agent-select-clear": i18n.t`Agents: clear selection`,
+    "agent-select-up": i18n.t`Agents: extend selection up`,
+    "agent-select-down": i18n.t`Agents: extend selection down`,
+    "agent-select-menu": i18n.t`Agents: selection actions`,
     "next-agent": i18n.t`Next agent`,
     "prev-agent": i18n.t`Previous agent`,
     "last-agent": i18n.t`Last visited agent`,
