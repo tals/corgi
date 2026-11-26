@@ -125,6 +125,58 @@ export function fade(color: Rgb): Rgb {
     light = r * 299 + g * 587 + b * 114 > 127_500;
   return mix(color, faded[light ? "light" : "dark"], 50);
 }
+/** `mix` by a fraction `t` from 0 to 1, for blends finer than whole percents. */
+export function blend(a: Rgb, b: Rgb, t: number): Rgb {
+  const share = Math.min(1, Math.max(0, t));
+  return a.map((v, i) => Math.round(v + (b[i] - v) * share)) as Rgb;
+}
+/** Euclidean distance between two colors. */
+export function dist(a: Rgb, b: Rgb): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+let section_tint_cap = 0;
+derived(() => {
+  const span = dist(colors.bg, colors.text);
+  const cap = span === 0 ? 0.02 : Math.min(0.25, Math.max(0.02, (0.6 * dist(colors.bg, colors.selected)) / span));
+  const readable = (share: number) => {
+    const ground = blend(colors.bg, colors.text, share);
+    // Leave room for channel rounding at intermediate slider values.
+    return (["muted", "text", "strong", "accent", "warm", "hot", "gold"] as Token[]).every(
+      ink => terminalPalette.contrast(colors[ink], ground) >= 4.6,
+    );
+  };
+  if (readable(cap)) {
+    section_tint_cap = cap;
+    return;
+  }
+  let lo = 0,
+    hi = cap;
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (readable(mid)) lo = mid;
+    else hi = mid;
+  }
+  section_tint_cap = lo;
+});
+/** The workspace section's background for a tint from 0 to 100, or null at
+ * 0: `bg` blended toward `text`, so lighter on dark and darker on light. Full
+ * strength stays within 60% of the way to `selected` and keeps text at 4.5:1,
+ * keeping selected and hovered rows apart from it. Any tint above 0 moves at
+ * least one unit on the channel farthest from `text`, so the tint never steps
+ * back toward `bg`.
+ * Null as well when the theme leaves the background to a terminal that did not
+ * report its colors: `bg` is then only a guess, and a tint from it could paint
+ * a dark band on a light terminal. */
+export function sectionTint(value: number): Rgb | null {
+  if (!(value > 0)) return null;
+  if (terminal === null && !paints(current)) return null;
+  const tinted = blend(colors.bg, colors.text, (Math.min(value, 100) / 100) * section_tint_cap);
+  if (tinted.some((v, i) => v !== colors.bg[i])) return tinted;
+  const gap = colors.bg.map((v, i) => colors.text[i] - v);
+  const widest = gap.reduce((best, d, i) => (Math.abs(d) > Math.abs(gap[best]) ? i : best), 0);
+  tinted[widest] += Math.sign(gap[widest]);
+  return tinted;
+}
 export class Style {
   constructor(
     public value: {
