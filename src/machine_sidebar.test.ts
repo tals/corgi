@@ -3,6 +3,7 @@ import { localEndpoint } from "./machine_connection";
 import { sshEndpoint } from "./ssh_path";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { Workspaces } from "./machine_sidebar";
+import * as machineAdd from "./machine_add";
 import { Endpoint, type Status } from "./machine_connection";
 import { Probe } from "./terminal_info";
 import { Host } from "./host";
@@ -280,6 +281,82 @@ test("the dropdown filters rows and keeps statuses available through outages", (
   expect(workspaces.visible).toBe(true);
 });
 
+test("under a divider, the dropdown lists the SSH config's other hosts, searches as typed, and ↵ adds one in place", async () => {
+  const {
+    endpoints: [local, remote],
+    endpoints,
+    view,
+  } = world("local", "work");
+  local.status = remote.status = "online";
+  remote.updated = 1;
+  const runs: { name: string; target: string }[] = [],
+    probed: string[] = [];
+  const adds = new machineAdd.Adds({
+    hosts: () => ["work", "devbox", "pi"],
+    saved: () => [],
+    add: (name, target) => {
+      runs.push({ name, target });
+      return new Promise(() => {});
+    },
+    probe: (target, stage) => {
+      probed.push(target);
+      stage("authenticating");
+      return new Promise(() => {});
+    },
+    rest_ms: 0,
+  });
+  const workspaces = new Workspaces(endpoints, view, adds);
+  workspaces.show();
+  const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(28).withWorkspaces(2, 0);
+  side.workspace_scope = "all";
+  const rows = () => frame(side, [], workspaces.draw(side)).text.split("\n");
+  const open = rows();
+  expect(open[3]).toMatch(/│ +Search or type a host +│/);
+  expect(open[4]).toMatch(/✓ all +All workspaces/);
+  expect(open[5]).toMatch(/local +● online/);
+  expect(open[6]).toMatch(/work +● online/);
+  expect(open[7]).toMatch(/├─+┤/);
+  expect(open[8]).toMatch(/│ +devbox +│/);
+  expect(open[9]).toMatch(/│ +pi +│/);
+  const bottom = open.findIndex(line => line.includes("╰"));
+  // Down from the last machine steps over the divider, and up steps back.
+  workspaces.cursor = 2;
+  workspaces.move(1);
+  expect(workspaces.list.row()).toMatchObject({ kind: "host", name: "devbox" });
+  expect(rows()[8]).toMatch(/devbox +add/);
+  workspaces.move(-1);
+  expect(workspaces.cursor).toBe(2);
+  // The field and the divider are no rows to press, but inside the box.
+  const x = open[7].indexOf("├") + 2;
+  expect([3, 7, 8].map(y => workspaces.hit(side, x, y))).toEqual(["inside", "inside", 4]);
+  expect(workspaces.hit(side, x, 20)).toBeNull();
+  // Typing searches, and offers a host nothing names; the box stays put.
+  for (const byte of Buffer.from("nas")) workspaces.list.key(byte);
+  let shown = rows();
+  expect(shown[3]).toMatch(/│  nas +│/);
+  // The cursor sits in the field, past what's typed.
+  const field_x = shown[3].indexOf("nas");
+  expect(workspaces.draw(side)).toEndWith(`\x1b[4;${field_x + 4}H\x1b[?25h`);
+  expect(shown[4]).toMatch(/├─+┤/);
+  expect(shown[5]).toMatch(/\+ nas/);
+  expect(shown.findIndex(line => line.includes("╰"))).toBe(bottom);
+  expect(workspaces.list.row()).toMatchObject({ kind: "host", target: "nas", typed: true });
+  // Once the typing rests, it's probed.
+  await Bun.sleep(5);
+  expect(probed).toEqual(["nas"]);
+  expect(rows()[5]).toMatch(/\+ nas +logging in…/);
+  // ↵ adds it, and the list stays open with the add's progress.
+  expect(workspaces.selectFilter()).toBe(false);
+  expect([workspaces.open, runs]).toEqual([true, [{ name: "nas", target: "nas" }]]);
+  expect(rows()[5]).toMatch(/\+ nas +Checking…/);
+  expect(view.machineScope()).toBe("all");
+  // Esc leaves the search before the dropdown.
+  expect(workspaces.list.leave()).toBe(true);
+  shown = rows();
+  expect(shown[3]).toMatch(/Search or type a host/);
+  workspaces.hide();
+  expect(workspaces.list.query).toBeNull();
+});
 test("machine filter colors connection states and measured reception, including clipped notes", () => {
   const {
     endpoints: [local, remote],
@@ -299,6 +376,7 @@ test("machine filter colors connection states and measured reception, including 
     ["incompatible", "hot", "Incompatible"],
   ];
   remote.stats.answer(20, false);
+  // The remote's row is under the field, "all" and local.
   for (const width of [28, 44, 64]) {
     const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(width);
     for (const [status, color, label] of cases) {
@@ -306,9 +384,9 @@ test("machine filter colors connection states and measured reception, including 
       for (const cursor of [0, 2]) {
         workspaces.cursor = cursor;
         const rendered = frame(side, [], workspaces.draw(side));
-        expect(rendered.text.split("\n")[5]).toContain(label);
-        expect(rendered.lines[5]).toContain(`38;2;${palette.colors[color].join(";")}`);
-        if (status !== "online") expect(rendered.text.split("\n")[5]).not.toContain("▂▄▆█");
+        expect(rendered.text.split("\n")[6]).toContain(label);
+        expect(rendered.lines[6]).toContain(`38;2;${palette.colors[color].join(";")}`);
+        if (status !== "online") expect(rendered.text.split("\n")[6]).not.toContain("▂▄▆█");
       }
     }
   }
@@ -316,7 +394,7 @@ test("machine filter colors connection states and measured reception, including 
   const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(64);
   remote.status = "online";
   remote.status = "connecting";
-  expect(frame(side, [], workspaces.draw(side)).text.split("\n")[5]).toContain("▂▄▆█ online");
+  expect(frame(side, [], workspaces.draw(side)).text.split("\n")[6]).toContain("▂▄▆█ online");
   expect(view.machine_filter).toBeNull();
 });
 

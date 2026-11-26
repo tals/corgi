@@ -2,7 +2,9 @@
 //! from the folders under a field. The field is the truth: moving through
 //! the list writes the folder into it. The name follows the folder until
 //! edited, and ↵ creates it. With other machines, the title names the one
-//! it goes on, and ^O, ↑ from the name or a click on that name lists the others.
+//! it goes on, and ^O, ↑ from the name or a click on that name lists the others,
+//! and under a divider the SSH config's hosts, which ↵ adds and then chooses.
+//! Typing there searches them, and offers a host none names.
 import * as i18n from "./i18n";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
@@ -15,6 +17,7 @@ import * as dropdown from "./dropdown";
 import { Rect } from "./layout";
 import { call } from "./mirror";
 import type { Machine } from "./machine";
+import * as machineAdd from "./machine_add";
 import * as nameDialog from "./name_dialog";
 import * as workspace from "./workspace";
 import { printable, writeField, type Key, type KeySpec, type Result } from "./name_dialog";
@@ -33,7 +36,9 @@ export type Hit =
   | { tag: "open" }
   | { tag: "up" }
   | { tag: "machine" }
-  | { tag: "machine_row"; index: number };
+  | { tag: "machine_row"; index: number }
+  /** In the list of machines, on no row: its field, divider or room to spare. */
+  | { tag: "machine_list" };
 
 /** Where a dialog's folders are read: this computer, or a remote machine
  * through its daemon. */
@@ -503,6 +508,8 @@ export interface Moving {
 export interface On {
   machine: Machine;
   machines: Machine[];
+  /** The hosts the list offers to add, under the machines. */
+  adds?: machineAdd.Adds | null;
   /** The folder another machine's field starts at, the first time it's chosen. */
   start: (machine: Machine) => string;
 }
@@ -522,10 +529,13 @@ export class Dialog extends nameDialog.Dialog {
   /** The machine the workspace goes on; null for this computer, not named. */
   machine: Machine | null;
   readonly machines: Machine[];
+  /** The machines, the hosts to add, and what's typed over them. */
+  readonly list: machineAdd.Listing<Machine>;
   /** The list of machines is open, and has the keys. */
   choosing = false;
-  /** The machine highlighted in that list, and the first it shows. */
-  highlight = 0;
+  /** The host being added from the list, chosen once it's a machine while the list stays open. */
+  private pending: string | null = null;
+  /** The first row the list shows. */
   private list_first = 0;
   /** The pointer is on the machine's name. */
   hovering = false;
@@ -548,6 +558,7 @@ export class Dialog extends nameDialog.Dialog {
     this.moving = moving?.workspace ?? null;
     this.machine = on?.machine ?? null;
     this.machines = on?.machines ?? [];
+    this.list = new machineAdd.Listing(() => this.machines, on?.adds ?? null);
     this.start = on?.start ?? (() => "~");
     if (this.machine) this.browsers.set(this.machine, browser);
     this.online = this.ready();
@@ -577,40 +588,74 @@ export class Dialog extends nameDialog.Dialog {
   ready(): boolean {
     return this.machine?.presence().online ?? true;
   }
-  /** Lists the folders a machine couldn't before it came online. */
+  /** Lists the folders a machine couldn't before it came online, and
+   * chooses the host added from the list once it's a machine. */
   catchUp(): void {
     const online = this.ready();
     if (online && !this.online) this.browser.retry();
     this.online = online;
+    if (!this.choosing) this.pending = null;
+    const added = this.machines.find(machine => machine.name === this.pending);
+    if (added) {
+      this.closeMachines();
+      this.chooseMachine(added);
+    }
+  }
+  /** The row highlighted in the open list: the machines, then the divider and the hosts to add. */
+  get highlight(): number {
+    return this.list.cursor;
+  }
+  set highlight(row: number) {
+    this.list.cursor = row;
   }
   /** Opens the list of machines on the one the workspace goes on, unless
    * it is already being created there. */
   openMachines(): void {
     if (this.saving) return;
     this.choosing = true;
-    this.highlight = Math.max(0, this.machines.indexOf(this.machine!));
+    this.list.open(Math.max(0, this.machines.indexOf(this.machine!)));
     this.list_first = 0;
   }
-  /** The first machine the list shows in `rows`, scrolled only as far as
+  /** Closes the list, forgetting what was typed there and stopping its probe. */
+  closeMachines(): void {
+    this.choosing = false;
+    this.pending = null;
+    this.list.close();
+  }
+  /** The first row the list shows in `rows`, scrolled only as far as
    * keeps the highlight in view. */
   machineWindow(rows: number): number {
-    const last = Math.max(0, this.machines.length - rows);
+    const count = this.list.rows().length;
+    this.highlight = Math.max(0, Math.min(this.highlight, count - 1));
+    const last = Math.max(0, count - rows);
     this.list_first = Math.max(Math.min(this.list_first, this.highlight), this.highlight - rows + 1);
     this.list_first = Math.max(0, Math.min(this.list_first, last));
     return this.list_first;
   }
-  /** Moves through the open list; down past the last machine closes it, as
-   * down past the last folder returns to the name. */
+  /** Moves through the open list, over the divider; down past the last row
+   * closes it, as down past the last folder returns to the name. */
   private move(down: boolean): void {
-    if (down && this.highlight === this.machines.length - 1) this.choosing = false;
-    else this.highlight = Math.max(0, this.highlight + (down ? 1 : -1));
+    if (down && this.highlight >= this.list.rows().length - 1) this.closeMachines();
+    else this.list.move(down ? 1 : -1);
   }
-  /** Puts the workspace on machine `index`, in the folder field it had
-   * when last chosen, or at its start the first time. */
+  /** Chooses row `index` of the open list: a machine, or a host, which
+   * starts being added while the list stays open, until it's a machine. */
   choose(index: number): void {
-    this.choosing = false;
-    const machine = this.machines[index];
-    if (!machine || machine === this.machine) return;
+    const row = this.list.row(index);
+    switch (row?.kind) {
+      case "host":
+        this.list.adds?.start(row.name, row.target);
+        this.pending = row.name;
+        return;
+      case "machine":
+        this.closeMachines();
+        return this.chooseMachine(row.machine);
+    }
+  }
+  /** Puts the workspace on `machine`, in the folder field it had when last
+   * chosen, or at its start the first time. */
+  private chooseMachine(machine: Machine): void {
+    if (machine === this.machine) return;
     const focused = this.browser.focused;
     // The name changes width under the pointer; its next move lights it again.
     this.hovering = false;
@@ -633,7 +678,7 @@ export class Dialog extends nameDialog.Dialog {
     const v = this.view(width, height);
     this.compact = v?.compact ?? false;
     this.roomy = v !== null && !v.compact;
-    if (!this.roomy) this.choosing = false;
+    if (!this.roomy && this.choosing) this.closeMachines();
     if (!v) this.browser.focused = false;
     else if (this.compact) this.browser.focused = true;
   }
@@ -654,7 +699,10 @@ export class Dialog extends nameDialog.Dialog {
     const b = this.browser;
     if (this.choosing) {
       if (byte === 13) this.choose(this.highlight);
-      else if (byte === 27 || byte === 15) this.choosing = false;
+      // Esc leaves a search first.
+      else if (byte === 27) this.list.leave() || this.closeMachines();
+      else if (byte === 15) this.closeMachines();
+      else this.list.key(byte);
       return "none";
     }
     // ^O, which no field takes.
@@ -679,7 +727,10 @@ export class Dialog extends nameDialog.Dialog {
     return result;
   }
   pasteByte(byte: number): void {
-    if (this.choosing) return;
+    if (this.choosing) {
+      if (byte >= 32 && byte !== 127) this.list.key(byte);
+      return;
+    }
     if (this.browser.focused) {
       this.browser.paste(byte);
       return this.follow();
@@ -693,6 +744,7 @@ export class Dialog extends nameDialog.Dialog {
     const key = keys.parse(seq);
     if (this.choosing) {
       if (key === "up" || key === "down") this.move(key === "down");
+      else if (!seq.startsWith("\x1b")) for (const byte of Buffer.from(seq)) this.list.key(byte);
       return;
     }
     if (key === "shift_tab") {
@@ -747,10 +799,11 @@ export class Dialog extends nameDialog.Dialog {
           this.move(found.tag === "open");
           break;
         case "machine":
+        case "machine_list":
         case "key":
           break;
         default:
-          this.choosing = false;
+          this.closeMachines();
       }
       return "none";
     }
@@ -816,11 +869,11 @@ const browserKeys = (d: Dialog): KeySpec[] => {
     { key: "esc", label: i18n.t`cancel`, hit: { tag: "cancel" } },
   ];
 };
-/** The keys while the list of machines is open. */
-const machineKeys = (): KeySpec[] => [
+/** The keys while the list of machines is open; esc leaves a search first. */
+const machineKeys = (d: Dialog): KeySpec[] => [
   { key: "↵", label: i18n.t`choose`, hit: { tag: "save" } },
   { key: "↑↓", label: i18n.t`machine`, hit: { tag: "key", index: arrows }, split: true },
-  { key: "esc", label: i18n.t`close`, hit: { tag: "cancel" } },
+  { key: "esc", label: d.list.query === null ? i18n.t`close` : i18n.t`back`, hit: { tag: "cancel" } },
 ];
 /** Wide enough for the labelled keys two columns apart, and a column either side. */
 const browserWidth = (d: Dialog) =>
@@ -977,23 +1030,40 @@ export class View extends nameDialog.View {
     const d = this.dialog,
       chip = this.chip;
     if (!d.choosing || !chip) return null;
-    const choices = d.machines.map((machine, i): dropdown.Choice => {
-      const runs = linkRuns(machine);
-      return {
-        text: printable(machine.name),
-        note: runs.map(([part]) => part).join(""),
-        runs,
-        current: machine === d.machine,
-        hovered: i === d.highlight,
-        dim: !machine.presence().online,
-      };
-    });
-    // Above the keys.
-    const rows = Math.max(1, Math.min(choices.length, this.buttons_y - chip.y - 3)),
+    const now = performance.now();
+    const choice = (row: machineAdd.Row<Machine>, hovered: boolean): dropdown.Choice => {
+      switch (row.kind) {
+        case "machine": {
+          const machine = row.machine,
+            runs = linkRuns(machine);
+          return {
+            text: printable(machine.name),
+            note: runs.map(([part]) => part).join(""),
+            runs,
+            current: machine === d.machine,
+            hovered,
+            dim: !machine.presence().online,
+          };
+        }
+        case "host":
+          return machineAdd.hostChoice(d.list.adds!, row, hovered, now);
+        default:
+          return machineAdd.divider;
+      }
+    };
+    const choices = d.list.rows().map((row, i) => choice(row, i === d.highlight));
+    // Wide enough for a probe's or an add's note beside a long name, and as
+    // wide as every machine and host with nothing typed: a search or an add's
+    // progress shortens to fit rather than widen the list.
+    const widest = dropdown.width(
+      d.list.rows(null).map(row => (row.kind === "host" ? { ...choice(row, false), note: "" } : choice(row, false))),
+    );
+    // Above the keys, with the field on top and room for any search.
+    const rows = Math.max(1, Math.min(d.list.reserve(), this.buttons_y - chip.y - 4)),
       first = d.machineWindow(rows),
-      width = Math.min(this.width - 2, Math.max(32, dropdown.width(choices))),
-      x = Math.max(this.x + 1, Math.min(chip.x, this.x + this.width - 1 - width));
-    return { box: new Rect(x, chip.y + 1, width, rows + 2), first, choices: choices.slice(first, first + rows) };
+      width = Math.min(this.width - 4, Math.max(64, widest)),
+      x = Math.max(this.x + 2, Math.min(chip.x, this.x + this.width - 2 - width));
+    return { box: new Rect(x, chip.y + 1, width, rows + 3), first, choices: choices.slice(first, first + rows) };
   }
   /** The folder field laid out as the plain dialog lays out its field, with no list. */
   private static compactLayout(width: number, height: number, d: Dialog): View {
@@ -1024,7 +1094,7 @@ export class View extends nameDialog.View {
     return v;
   }
   protected keys(): KeySpec[] {
-    return this.dialog.choosing ? machineKeys() : browserKeys(this.dialog);
+    return this.dialog.choosing ? machineKeys(this.dialog) : browserKeys(this.dialog);
   }
   protected title(): string {
     return this.chip ? ellipsis(this.fullTitle(), this.chip.title) : this.fullTitle();
@@ -1037,9 +1107,13 @@ export class View extends nameDialog.View {
   at(x: number, y: number): Hit {
     const v = this;
     const f = v.folders;
-    const list = v.machineList(),
-      row = list && dropdown.hit(list.box, list.choices.length, x, y);
-    if (list && row !== null) return { tag: "machine_row", index: list.first + row };
+    const list = v.machineList();
+    if (list?.box.contains(x, y)) {
+      const at = dropdown.hit(list.box, list.choices.length + 1, x, y),
+        index = list.first + (at ?? 0) - 1;
+      if (at && this.dialog.list.row(index)?.kind !== "divider") return { tag: "machine_row", index };
+      return { tag: "machine_list" };
+    }
     const chip = v.chip;
     if (chip && y === chip.y && x >= chip.x && x < chip.x + chip.width) return { tag: "machine" };
     if (chip?.key && y === chip.y && x >= chip.key && x < chip.key + displayWidth(chip_key)) return { tag: "machine" };
@@ -1078,9 +1152,11 @@ export class View extends nameDialog.View {
     v.drawFolders(w, left);
     v.drawButtons(w);
     const list = v.machineList();
-    // The open list has the keys, and no cursor shows.
-    if (list) dropdown.draw(w, list.box, list.choices);
-    else if (b.focused) v.placeCursor(b.field, w, v.folders.offset, v.folders.field_y);
+    // The open list has the keys, and the cursor sits in its field.
+    if (list) {
+      dropdown.draw(w, list.box, [machineAdd.field, ...list.choices]);
+      w.write(machineAdd.drawField(w, list.box, v.dialog.list.query) || "\x1b[?25l");
+    } else if (b.focused) v.placeCursor(b.field, w, v.folders.offset, v.folders.field_y);
     else v.placeCursor(d, w);
   }
   /** "on" and the machine's name after the title: lit under the pointer or

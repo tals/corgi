@@ -13,6 +13,7 @@ import * as errors from "./errors";
 import { sshEndpoint } from "./ssh_path";
 import * as sidebar from "./sidebar";
 import { Workspaces } from "./machine_sidebar";
+import * as machineAdd from "./machine_add";
 import * as viewer from "./viewer";
 import * as corgiBadge from "./corgi_badge";
 import * as hostBackground from "./host_background";
@@ -135,7 +136,9 @@ export async function run(
     host.prefs.sidebar_width,
   );
   side.resources = host.prefs.resources;
-  const workspaces = new Workspaces(endpoints, view);
+  // The SSH config's other hosts show under the machines wherever they're listed.
+  const adds = (view.machine_adds = new machineAdd.Adds());
+  const workspaces = new Workspaces(endpoints, view, adds);
   const connectivity = new ConnectivityMenu(endpoints);
   const connection_hover = new connectivityCard.Hover();
   const diagnostic = new MachineNotice();
@@ -292,12 +295,11 @@ export async function run(
     if (workspaces.open) active!.deactivate();
   };
   const close = () => {
-    workspaces.open = false;
+    workspaces.hide();
     active!.activate();
   };
   const filter = () => {
-    workspaces.selectFilter();
-    active!.activate();
+    if (workspaces.selectFilter()) active!.activate();
   };
   // With no SSH machine there's no dropdown: the controller says how to add one.
   view.onMachines = workspaces.visible ? show : null;
@@ -308,7 +310,8 @@ export async function run(
     wake.notify();
   };
   view.wake = notify;
-  for (const endpoint of endpoints) {
+  /** Hooks a machine's connection to this viewer's screen, links and clipboard. */
+  const wire = (endpoint: Endpoint) => {
     endpoint.onChange = notify;
     const forwards = endpoint.machine.forwards;
     if (forwards) {
@@ -361,7 +364,21 @@ export async function run(
       const output = probe.clipboard.takeOutput();
       if (output) viewer.writeAll(output);
     };
-  }
+  };
+  for (const endpoint of endpoints) wire(endpoint);
+  // An added machine joins the others, and the picker's row follows it.
+  adds.changed = notify;
+  adds.added = profile => {
+    const row = workspaces.list.row(),
+      following = workspaces.open && row?.kind === "host" && row.name === profile.name,
+      endpoint = sshEndpoint(profile, probe, host);
+    endpoints.push(endpoint);
+    view.adopt(endpoint.machine);
+    endpoint.controller = view;
+    wire(endpoint);
+    if (following) workspaces.list.select(profile.name);
+    view.dirty = true;
+  };
   const accept = (input: Input) => {
     const value = Buffer.from(input.bytes).toString();
     const key = input.kind === "key" ? input.key : null;
@@ -370,6 +387,11 @@ export async function run(
     const codepoint = key?.codepoint ?? (input.bytes.length === 1 ? input.bytes[0] : null);
     const cp = key?.mods.ctrl && codepoint !== null && codepoint >= 64 && codepoint < 128 ? codepoint & 31 : codepoint;
     if (paste) {
+      // A host pasted into the machine dropdown's search.
+      if (workspaces.open && !paste_owner) {
+        if (input.kind === "paste") workspaces.list.type(Buffer.from(input.bytes).toString());
+        return;
+      }
       if (input.kind === "paste_start")
         paste_owner =
           !workspaces.open && !diagnostic.open && !connectivity.open
@@ -514,10 +536,10 @@ export async function run(
           if (button === 64 || button === 65) workspaces.move(button === 64 ? -1 : 1);
           else if (button === 0 || button === 32 || button === 35) {
             const index = workspaces.hit(side, x, y);
-            if (index !== null) workspaces.cursor = index;
+            if (typeof index === "number") workspaces.cursor = index;
             if (button === 0) {
-              if (index !== null) filter();
-              else close();
+              if (typeof index === "number") filter();
+              else if (index === null) close();
               navigation_mouse = true;
             }
           }
@@ -528,13 +550,14 @@ export async function run(
     }
     if (workspaces.open) {
       if (value === "!") {
-        const endpoint = endpoints[workspaces.cursor - 1];
+        const endpoint = workspaces.endpoint();
         if (endpoint) diagnostic.show(endpoint);
         return;
       }
       switch (cp) {
+        // A search goes first, then the dropdown.
         case 27:
-          close();
+          if (!workspaces.list.leave()) close();
           return;
         // As in a pane: it leaves only before anything has come up.
         case 3:
@@ -562,13 +585,12 @@ export async function run(
           workspaces.pause();
           return;
       }
-      if (!key?.mods.ctrl && !key?.mods.alt && codepoint !== null && codepoint >= 32 && codepoint < 127) {
-        const index = endpoints.findIndex(endpoint =>
-          endpoint.name.toLowerCase().startsWith(String.fromCodePoint(codepoint).toLowerCase()),
-        );
-        if (index >= 0) workspaces.cursor = index + 1;
-        else if (codepoint === 97) workspaces.cursor = 0;
-      }
+      // Typing searches; ⌫, ^U and ^W edit it.
+      if (cp === 8 || cp === 21 || cp === 23 || cp === 127) workspaces.list.key(cp);
+      else if (!key?.mods.ctrl && !key?.mods.alt && codepoint !== null && codepoint >= 32 && codepoint < 127)
+        workspaces.list.key(codepoint);
+      // Typing can come several characters at a time.
+      else if (input.kind === "text") workspaces.list.type(value);
       return;
     }
     // With nothing on screen yet, Ctrl+C leaves; after that it's the agent's.
@@ -789,6 +811,7 @@ export async function run(
     const until = Date.now() + framePacing.settle_ms;
     while (probe.pacer.unanswered() && !stdin.ended && Date.now() < until) await wake.wait(until - Date.now());
     stdin.close();
+    adds.close();
     await Promise.all(endpoints.map(endpoint => endpoint.close()));
     viewer.writeAll(host.images.close());
     viewer.close(view);

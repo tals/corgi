@@ -95,16 +95,43 @@ export async function prepare(
   } = {},
 ): Promise<machines.Profile | null> {
   if (!dev.enabled() && !(follow && releases())) return profile;
-  signal?.throwIfAborted();
-  const child = child_process.spawn(
-    buildId.self(),
+  const result = await helper(
     ["__machine-sync", profile.name, profile.target, profile.socket, builds.revision],
-    {
-      env: { ...process.env, CORGI_MACHINE_SYNC: interactive ? "interactive" : "1" },
-      detached: !!signal,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
+    interactive,
+    progress,
+    signal,
   );
+  if (result === "current") return null;
+  const refreshed = machines.find(profile.name);
+  if (refreshed.target !== profile.target || refreshed.socket !== profile.socket) throw Error("MachineChanged");
+  return refreshed;
+}
+/** Sets Corgi up on `target` and saves it as machine `name`, as `corgi
+ * machine add` does, without prompts: SSH must already know the host and
+ * log in on its own. */
+export async function add(
+  name: string,
+  target: string,
+  { progress = progressInfo.print, signal }: { progress?: progressInfo.Report; signal?: AbortSignal } = {},
+): Promise<machines.Profile> {
+  await helper(["__machine-add", name, target, builds.revision], false, progress, signal);
+  const added = machines.find(name);
+  if (added.target !== target) throw Error("MachineChanged");
+  return added;
+}
+/** Runs a machine helper to its end, passing on its progress. */
+async function helper(
+  args: string[],
+  interactive: boolean,
+  progress: progressInfo.Report,
+  signal: AbortSignal | undefined,
+): Promise<"ready" | "current"> {
+  signal?.throwIfAborted();
+  const child = child_process.spawn(buildId.self(), args, {
+    env: { ...process.env, CORGI_MACHINE_SYNC: interactive ? "interactive" : "1" },
+    detached: !!signal,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   const exited = new Promise<number | null>((resolve, reject) => {
     child.once("error", reject);
     child.once("exit", resolve);
@@ -129,10 +156,7 @@ export async function prepare(
       const summary = result?.type === "error" ? result.message : "Update helper stopped before finishing.";
       throw new Failure(diagnostic.trim() || summary, summary);
     }
-    if (result.type === "current") return null;
-    const refreshed = machines.find(profile.name);
-    if (refreshed.target !== profile.target || refreshed.socket !== profile.socket) throw Error("MachineChanged");
-    return refreshed;
+    return result.type;
   } finally {
     signal?.removeEventListener("abort", abort);
     if (child.exitCode === null) child.kill("SIGTERM");

@@ -3,7 +3,8 @@
 //! `selected`, and a lit action the accent too; a dim one steps back while
 //! something else has the keyboard.
 //! A choice with a key shows it as a keycap where ✓ goes. Faint column
-//! headings may sit over the choices, and a note may color its runs.
+//! headings may sit over the choices, a divider between groups of them,
+//! and a note may color its runs.
 //! The sidebar's agent scope, Corgi setup's summaries, the launcher's
 //! worktrees and the review panel's commits open one.
 import { Style, fg, keycap, type Token } from "./palette";
@@ -30,6 +31,8 @@ export interface Choice {
   dim?: boolean;
   /** A non-selectable section heading inside a grouped menu. */
   heading?: boolean;
+  /** A rule across the box, joined to its border, between groups of choices. */
+  divider?: boolean;
   /** Tree depth, with four cells per level. */
   depth?: number;
   /** Visual indentation in cells, independent of sticky parent depth. */
@@ -158,6 +161,11 @@ export function row(
   detail_column?: number,
 ): void {
   const inset = choice.inset ?? (choice.depth ?? 0) * 4;
+  if (choice.divider) {
+    w.write(`\x1b[${b.y + y + 1};${b.x + 1}H` + new Style({ fg: "line", bg: "surface" }).sgr());
+    w.write("├" + "─".repeat(Math.max(0, b.w - 2)) + "┤");
+    return;
+  }
   if (choice.heading && note_column === undefined) {
     const line = b.y + y + 1,
       room = b.w - indent - inset - 4;

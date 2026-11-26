@@ -1,6 +1,7 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import * as preferences from "./preferences";
 import * as os from "./os";
 
@@ -133,6 +134,18 @@ export function shell(script: string): string {
   return 'sh -c "' + script.replace(/[\\$"`]/g, "\\$&") + '"';
 }
 
+/** Why OpenSSH's last complaint in its stderr says it failed, as the
+ * system put it: "Connection refused" from `ssh: connect to host …: Connection refused`.
+ * Each system words a failed lookup its own way. */
+export function reason(message: string): string | null {
+  const complaint = message
+    .split("\n")
+    .map(line => line.trim())
+    .findLast(line => line.startsWith("ssh: "));
+  if (!complaint) return null;
+  if (complaint.startsWith("ssh: Could not resolve hostname")) return "Could not resolve hostname";
+  return complaint.slice(complaint.lastIndexOf(": ") + 2);
+}
 /** Classify OpenSSH's stderr once at the transport boundary. */
 export type Failure = "auth" | "host-key" | "error";
 export function failure(message: string): Failure {
@@ -145,4 +158,143 @@ export function failure(message: string): Failure {
   )
     return "auth";
   return "error";
+}
+
+/** How far a login has got, as `ssh -v` tells it. */
+export type Stage = "connecting" | "authenticating" | "running";
+/** What a probe found: the system the host runs, as `uname -sm` names it,
+ * or why SSH couldn't log in there. */
+export type Probed = { system: string } | { failed: Failure; reason: string | null };
+/** The longest a probe runs, past SSH's own connect timeout. */
+const probe_ms = 45_000;
+/** Logs in to `host` as a background connection does, without prompts,
+ * and asks what system it runs; `stage` hears how far it has got. Null
+ * once `signal` aborts it. */
+export async function probe(host: string, stage: (stage: Stage) => void, signal: AbortSignal): Promise<Probed | null> {
+  if (signal.aborted) return null;
+  const child = Bun.spawn(["ssh", "-v", ...args(host, false, true), shell("uname -sm")], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  let expired = false;
+  const stop = () => child.kill();
+  const timer = setTimeout(() => {
+    expired = true;
+    stop();
+  }, probe_ms);
+  signal.addEventListener("abort", stop, { once: true });
+  // What SSH said besides its debugging, for why it failed.
+  let said = "";
+  const stages = async () => {
+    const decoder = new TextDecoder();
+    let pending = "";
+    for await (const chunk of child.stderr) {
+      pending += decoder.decode(chunk, { stream: true });
+      for (let end = pending.indexOf("\n"); end >= 0; end = pending.indexOf("\n")) {
+        const line = pending.slice(0, end).trimEnd();
+        pending = pending.slice(end + 1);
+        if (line.startsWith("debug1: Connection established")) stage("authenticating");
+        else if (/^Authenticated to |^debug1: Authentication succeeded/.test(line)) stage("running");
+        else if (!line.startsWith("debug")) said = (said + line + "\n").slice(-8192);
+      }
+      if (pending.length > 65536) pending = "";
+    }
+  };
+  try {
+    const [code, output] = await Promise.all([child.exited, new Response(child.stdout).text(), stages()]);
+    if (signal.aborted) return null;
+    if (code === 0) return { system: systemName(output) };
+    return { failed: failure(said), reason: expired ? "timed out" : reason(said) };
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", stop);
+  }
+}
+/** `uname -sm`'s answer, past anything a login shell printed first, with
+ * macOS by its own name. */
+function systemName(output: string): string {
+  const line = output.trim().split("\n").at(-1)?.trim() ?? "";
+  return line
+    .replace(/^Darwin\b/, "macOS")
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .slice(0, 48);
+}
+
+/** The hosts an SSH config names outright, in order: each `Host` alias
+ * that isn't a pattern, through its `Include`s. A block that logs in as
+ * `git` is a forge's, not a machine's. */
+export function configHosts(home = homedir(), file = join(home, ".ssh", "config")): string[] {
+  const hosts: string[] = [];
+  let block: string[] = [],
+    user = "";
+  const end = () => {
+    if (user.toLowerCase() !== "git") for (const name of block) if (!hosts.includes(name)) hosts.push(name);
+    block = [];
+    user = "";
+  };
+  // An included file reads as if written in place, within the block it's in.
+  const read = (path: string, depth: number) => {
+    let text: string;
+    try {
+      text = readFileSync(path, "utf8");
+    } catch {
+      return;
+    }
+    for (const line of text.split("\n")) {
+      const [keyword = "", ...values] = configWords(line);
+      switch (keyword.toLowerCase()) {
+        case "host":
+          end();
+          block = values.filter(value => !/[*?!%]/.test(value));
+          break;
+        case "match":
+          end();
+          break;
+        case "user":
+          user ||= values[0] ?? "";
+          break;
+        case "include":
+          // OpenSSH's own limit, which also ends a file including itself.
+          if (depth < 16)
+            for (const pattern of values)
+              for (const found of included(pattern, home, dirname(file))) read(found, depth + 1);
+      }
+    }
+  };
+  read(file, 0);
+  end();
+  return hosts;
+}
+/** A config line's keyword and arguments, from `Key value` or `Key=value`,
+ * with quoted arguments kept whole; none for a comment. */
+function configWords(line: string): string[] {
+  const [, keyword, rest = ""] = /^\s*([^\s=#]+)\s*=?\s*(.*)$/.exec(line) ?? [];
+  if (!keyword) return [];
+  const values: string[] = [];
+  for (const [, quoted, bare] of rest.matchAll(/"([^"]*)"|(\S+)/g)) {
+    if (bare?.startsWith("#")) break;
+    values.push(quoted ?? bare);
+  }
+  return [keyword, ...values];
+}
+/** The files an `Include` names: from `~` or the config's folder, with
+ * wildcards in the file's name. */
+function included(pattern: string, home: string, folder: string): string[] {
+  const path = pattern.startsWith("~/")
+    ? join(home, pattern.slice(2))
+    : isAbsolute(pattern)
+      ? pattern
+      : join(folder, pattern);
+  const name = basename(path);
+  if (!/[*?[]/.test(name)) return [path];
+  const glob = new Bun.Glob(name);
+  try {
+    return readdirSync(dirname(path))
+      .filter(entry => glob.match(entry))
+      .sort()
+      .map(entry => join(dirname(path), entry));
+  } catch {
+    return [];
+  }
 }

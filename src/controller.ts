@@ -164,6 +164,7 @@ import { shellWords } from "./os";
 import * as tasks from "./tasks";
 import { Opening } from "./opening";
 import { Machine, type Focus, type Stopped } from "./machine";
+import type * as machineAdd from "./machine_add";
 
 /** `machine` names the SSH machine whose pane had the link, which may point
  * at that machine's own loopback, or whose image it is; a link from this
@@ -496,6 +497,8 @@ export class Controller {
   }
   /** Opens the machine dropdown, in a viewer that shows several machines. */
   onMachines: (() => void) | null = null;
+  /** The SSH config's hosts that lists of machines offer to add, in a viewer that can add them. */
+  machine_adds: machineAdd.Adds | null = null;
   onConnectivity: (() => void) | null = null;
   paste_target: Paste | null = null;
   paste_progress: pasteProgress.State | null = null;
@@ -3019,6 +3022,7 @@ export class Controller {
       dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(cwd, files), moving, {
         machine: this.machine,
         machines: moving === null ? this.machines : [],
+        adds: this.machine_adds,
         start: machine => this.workspaceStart(machine),
       });
     dialog.changed = () => {
@@ -3074,6 +3078,8 @@ export class Controller {
     if (d instanceof newWorkspace.Dialog) d.fit(this.width, this.height);
   }
   dismissName(): void {
+    // A host typed in its list of machines isn't probed any longer.
+    if (this.name_dialog instanceof newWorkspace.Dialog && this.name_dialog.choosing) this.name_dialog.closeMachines();
     this.name_dialog = null;
   }
   /** How long the viewer waits between frames: a display frame while a

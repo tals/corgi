@@ -27,6 +27,7 @@ import * as localeHost from "./locale_host";
 import * as i18n from "./i18n";
 import * as preferences from "./preferences";
 import { Provider, adapter } from "./providers";
+import type { Report } from "./machine_progress";
 export const executable = build_id.executablePath(
   import.meta.filename,
   process.execPath,
@@ -210,26 +211,23 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     await remote.manage(args.slice(1));
     return;
   }
-  if (args[0] === "__machine-sync") {
-    if (args.length !== 5) throw Error("Usage");
+  if (args[0] === "__machine-sync" || args[0] === "__machine-add") {
+    const adding = args[0] === "__machine-add";
+    if (args.length !== (adding ? 4 : 5)) throw Error("Usage");
     const cancellation = new AbortController();
     const abort = () => cancellation.abort(Error("MachineUpdateCancelled"));
     process.on("SIGTERM", abort);
     process.on("SIGINT", abort);
     try {
-      (await import("./machine_build")).requireRevision(args[4]);
-      const changed = await (
-        await import("./machine_cli")
-      ).synchronize(
-        args[1],
-        args[2],
-        args[3],
-        (message, extra) => {
-          if (!cancellation.signal.aborted)
-            process.stdout.write(JSON.stringify({ type: "progress", message, ...extra }) + "\n");
-        },
-        cancellation.signal,
-      );
+      (await import("./machine_build")).requireRevision(args.at(-1)!);
+      const cli = await import("./machine_cli");
+      const progress: Report = (message, extra) => {
+        if (!cancellation.signal.aborted)
+          process.stdout.write(JSON.stringify({ type: "progress", message, ...extra }) + "\n");
+      };
+      let changed = true;
+      if (adding) await cli.add(args[1], args[2], "corgi", progress, cancellation.signal);
+      else changed = await cli.synchronize(args[1], args[2], args[3], progress, cancellation.signal);
       process.stdout.write(JSON.stringify({ type: changed ? "ready" : "current" }) + "\n");
     } catch (error) {
       const message = errors.name(error) || "Machine update failed";
