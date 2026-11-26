@@ -24,8 +24,8 @@
  *   record start PATH [FPS]  a video, .mp4 or .gif, of everything until
  *   record stop              which writes it, and its .timeline.json
  *   speed N [top|bottom]     while recording, play from here on N times as
- *                            fast (4, x4 or 2.5), with a badge centered at the
- *                            bottom (default) or top
+ *                            fast (4, x4 or 2.5, up to 1000), with a badge
+ *                            centered at the bottom (default) or top
  *   speed reset              back to real time; the badge goes away
  * Code drives with capture(options, { drive }) or attach(), and driver.drive(script).
  *

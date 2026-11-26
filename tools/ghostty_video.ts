@@ -123,14 +123,17 @@ export interface PaceEvent extends Pace {
 
 const realTime: Pace = { speed: 1, place: "bottom" };
 
-/** A speed command's arguments: a speed of at least 1 (4, x4 or 2.5) and top or bottom, or reset. */
+/** The fastest a speed command plays. */
+export const MAX_SPEED = 1000;
+
+/** A speed command's arguments: a speed from 1 to MAX_SPEED (4, x4 or 2.5) and top or bottom, or reset. */
 export function paceOf(args: string[]): Pace | null {
   const [rate, place = "bottom", ...rest] = args;
   if (rate === "reset") return args.length === 1 ? realTime : null;
   if (rest.length || (place !== "bottom" && place !== "top")) return null;
   const match = /^x?(\d+(?:\.\d+)?)$/.exec(rate ?? "");
   const speed = match ? Number(match[1]) : 0;
-  return speed >= 1 ? { speed, place } : null;
+  return speed >= 1 && speed <= MAX_SPEED ? { speed, place } : null;
 }
 
 /** The pace at t: the last change at or before it. */
@@ -721,13 +724,16 @@ export function pointerTiles(
   const shapes = [...take.shapes].sort((a, b) => a.t - b.t);
   // The wheel's buttons don't show a press.
   const presses = pointer.filter(e => e.action === "press");
-  // Time as the video plays it: the wall time between frames over the later one's speed.
+  // A frame's speed as it follows the one before: the faster of the two, so
+  // the gap on leaving a speed-up counts at its pace.
+  const pace = (i: number) => Math.max(speeds[i] ?? 1, speeds[i - 1] ?? 1);
+  // Time as the video plays it: the wall time between frames over that pace.
   const clock: number[] = [];
-  times.forEach((t, i) => clock.push(i ? clock[i - 1] + (t - times[i - 1]) / (speeds[i] ?? 1) : t));
+  times.forEach((t, i) => clock.push(i ? clock[i - 1] + (t - times[i - 1]) / pace(i) : t));
   const clockAt = (t: number) => {
     const j = times.findIndex(time => time >= t);
     if (j === -1) return clock.at(-1)! + (t - times.at(-1)!);
-    return j ? clock[j - 1] + (t - times[j - 1]) / (speeds[j] ?? 1) : clock[0] - (times[0] - t);
+    return j ? clock[j - 1] + (t - times[j - 1]) / pace(j) : clock[0] - (times[0] - t);
   };
   const pressed = presses.map(press => clockAt(press.t));
   const looks: (Look | null)[] = [];
@@ -743,10 +749,9 @@ export function pointerTiles(
       return;
     }
     const [px, py] = [at[0] * scale, at[1] * scale];
-    const speed = speeds[i] ?? 1;
     // Motion only between frames next to each other in time, a speed-up's
     // stride apart at most; a cut is not a move.
-    const next = i > 0 && t > times[i - 1] && t - times[i - 1] < (Math.ceil(speed) * 1000) / fps + 2;
+    const next = i > 0 && t > times[i - 1] && t - times[i - 1] < (Math.ceil(pace(i)) * 1000) / fps + 2;
     const motion = next && last ? Math.hypot(px - last[0], py - last[1]) / height : 0;
     last = [px, py];
     grow += (1 + (grown - 1) * clamp(motion / 0.25) - grow) * 0.2;
@@ -997,14 +1002,20 @@ export function badgeTiles(
   const rest = { top: margin + tall / 2, bottom: videoHeight - margin - tall / 2 };
   const looks: (BadgeLook | null)[] = times.map(() => null);
   const y = times.map(() => Math.round(rest.bottom - height / 2));
-  cards.forEach((card, k) => {
+  // The card last drawn, whose badge may still be sinking away.
+  let last: { b: number; place: Place } | null = null;
+  for (const [k, card] of cards.entries()) {
     const away = card.place === "bottom" ? travel : -travel;
-    // Moved to the other edge, it rises in there once it has sunk away from the last.
-    const begin = cards[k - 1]?.b === card.a - 1 ? card.a + outro - 1 : card.a;
-    if (begin > card.b) return;
+    // Begun while the last one sinks: at the same edge the badge stays up,
+    // and at the other it rises in once the last has sunk away.
+    const follows = last !== null && card.a < last.b + outro;
+    const stays = last !== null && follows && last.place === card.place;
+    const begin = last !== null && follows && !stays ? last.b + outro : card.a;
+    if (begin > card.b) continue;
+    if (last !== null && stays) for (let i = last.b + 1; i < card.a; i++) looks[i] = looks[last.b];
     for (let i = begin; i <= Math.min(times.length - 1, card.b + outro - 1); i++) {
       const [inside, at] = [i <= card.b, Math.min(i, card.b)];
-      const step = inside ? clamp((i - begin + 1) / intro) : (i - card.b) / outro;
+      const step = inside ? (stays ? 1 : clamp((i - begin + 1) / intro)) : (i - card.b) / outro;
       looks[i] = {
         card: k,
         label: label(speeds[at]),
@@ -1014,7 +1025,8 @@ export function badgeTiles(
       };
       y[i] = Math.round(rest[card.place] - height / 2);
     }
-  });
+    last = card;
+  }
   const blank = new Uint8Array(width * height * 4);
   const draw = (look: BadgeLook) => {
     const rgba = new Uint8Array(width * height * 4);
@@ -1163,7 +1175,7 @@ async function encode(
       ? `[1:v]split[a][b];[a]crop=${tile.width}:${tile.height}:0:0[pointer];` +
         `[b]crop=${badge.width}:${badge.height}:0:${both.tops[1]}[badge];` +
         `[0:v]${cut},${size}[screen];` +
-        `[screen][badge]overlay=format=gbrp:x=${badge.x}:y='${perFrame(badge.y, fps)}'[badged];[badged][pointer]${place}`
+        `[screen][badge]overlay=format=gbrp:eof_action=pass:x=${badge.x}:y='${perFrame(badge.y, fps)}'[badged];[badged][pointer]${place}`
       : `[0:v]${cut},${size}[screen];[screen][1:v]${place}`;
   const tiles = ["-f", "rawvideo", "-pixel_format", "rgba", "-video_size", `${piped.width}x${piped.height}`];
   await write(["-i", raw, ...tiles, "-framerate", String(fps), "-i", "pipe:0"], graph, out, dir, piped);
