@@ -751,9 +751,15 @@ export async function run(
         view.sync_notice = syncNotice(Date.now());
         frame = active.render();
         if (workspaces.open) frame = (typeof frame === "string" ? frame : frame.text()) + workspaces.draw(side);
-        if (connectivity.open)
+        // A card hides the pictures under it, the dropdown's reception too.
+        if (connectivity.open) {
           frame = (typeof frame === "string" ? frame : frame.text()) + connectivity.draw(cols, height);
-        if (diagnostic.open) frame = (typeof frame === "string" ? frame : frame.text()) + diagnostic.draw(cols, height);
+          view.framePictures()?.coverAll(connectivity.box);
+        }
+        if (diagnostic.open) {
+          frame = (typeof frame === "string" ? frame : frame.text()) + diagnostic.draw(cols, height);
+          if (diagnostic.box) view.framePictures()?.coverAll(diagnostic.box);
+        }
         // A card over the dropdown has the keys, and no cursor shows.
         if (workspaces.open && (connectivity.open || diagnostic.open))
           frame = (typeof frame === "string" ? frame : frame.text()) + "\x1b[?25l";

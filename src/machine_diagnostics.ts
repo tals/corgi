@@ -8,6 +8,8 @@ export class Notice {
   private offset = 0;
   private height = 0;
   private length = 0;
+  /** Where the card was last drawn. */
+  box: Rect | null = null;
   get open(): boolean {
     return this.message !== null;
   }
@@ -69,6 +71,7 @@ export class Notice {
     else if (value === "\x1b[6~") this.scroll(this.height);
   }
   draw(cols: number, rows: number): string {
+    this.box = null;
     if (!this.message || cols < 6 || rows < 5) return "";
     const width = Math.min(76, cols);
     const lines = this.message.flatMap(line => (line ? text.wrap(line, width - 4) : [""]));
@@ -81,6 +84,7 @@ export class Notice {
       width,
       this.height + 4,
     );
+    this.box = rect;
     const writer = new text.Writer();
     card.draw(writer, {
       rect,

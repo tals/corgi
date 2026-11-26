@@ -30,7 +30,8 @@ export interface Place {
   cols?: number;
   rows?: number;
   z?: number;
-  /** It belongs to a card drawn over the rest, so nothing covers it. */
+  /** It belongs to a card drawn over the rest: only what `coverAll`
+   * covers cuts it. */
   top?: boolean;
 }
 
@@ -73,6 +74,8 @@ const place = (p: Placement, id: number) =>
 export class FrameImages {
   private shown: { image: Image; at: Place }[] = [];
   private covered: Rect[] = [];
+  /** Cells a card covers, over even the pictures placed `top`. */
+  private over: Rect[] = [];
   private cut: Placement[] | null = null;
   /** The images the host holds for the frame. */
   readonly images = new Set<Image>();
@@ -92,8 +95,16 @@ export class FrameImages {
   }
   /** Cells drawn over the frame's pictures, which are cut around them. */
   cover(box: Rect): void {
+    this.add(this.covered, box);
+  }
+  /** Cells a card draws over everything, which cut even the pictures of
+   * cards drawn before it. */
+  coverAll(box: Rect): void {
+    this.add(this.over, box);
+  }
+  private add(rects: Rect[], box: Rect): void {
     if (box.w <= 0 || box.h <= 0) return;
-    this.covered.push(
+    rects.push(
       new Rect(box.x * this.cell.width, box.y * this.cell.height, box.w * this.cell.width, box.h * this.cell.height),
     );
     this.cut = null;
@@ -111,7 +122,7 @@ export class FrameImages {
         area = scaled
           ? new Rect(left, top, at.cols! * width, at.rows! * height)
           : new Rect(left, top, source.w, source.h),
-        holes = at.top ? [] : this.covered.filter(hole => overlap(area, hole)),
+        holes = [...(at.top ? [] : this.covered), ...this.over].filter(hole => overlap(area, hole)),
         tail = (scaled ? `,c=${at.cols},r=${at.rows}` : "") + `,z=${at.z ?? 1}`;
       if (holes.length === 0 || area.w <= 0 || area.h <= 0) {
         out.push({ image, row: at.row, col: at.col, keys: region(at.region) + offset(at.x ?? 0, at.y ?? 0) + tail });

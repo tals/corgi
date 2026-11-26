@@ -135,6 +135,14 @@ test("a picture is cut around the cells the frame covers, whenever they are cove
   frame.show(image, { col: 2, row: 3, top: true });
   expect(frame.commands()).toContain(placed(image, 3, "4;3"));
   expect(store.present().draw).toBe(placed(image, 3, "4;3"));
+  // A card drawn over that card cuts its picture too.
+  frame = store.frame(cell);
+  frame.show(image, { col: 2, row: 3, top: true });
+  frame.coverAll(new Rect(4, 0, 2, 10));
+  expect(frame.commands()).toBe(
+    placed(image, 1, "4;3", ",x=0,y=0,w=20,h=20") + placed(image, 2, "4;7", ",x=40,y=0,w=20,h=20"),
+  );
+  store.present();
   // All covered, it is placed nowhere and the host keeps it.
   frame = store.frame(cell);
   frame.cover(new Rect(0, 0, 20, 10));
