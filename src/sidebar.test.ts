@@ -1773,6 +1773,17 @@ test("workspace badges count the agents of workspaces scrolled out of sight", ()
   expect(scrolled.lists().workspaceBadge("below")).toBeNull();
   expect(hostText(draw(scrolled, [], workspaces), 80, 30)).toContain("ws 9");
   expect(at(0).lists().workspaceBadge("above")).toBeNull();
+  // Under a machine header at the shortest list, the first workspace's
+  // status would sit where the badge goes: no badge, and its status shows.
+  const short = View.init(80, 30, true, 0, 0, 6).withWorkspaces(
+    2,
+    0,
+    ["atlas", "atlas"],
+    [false, false],
+    workspaces.slice(8).map(workspaceBadgeCounts),
+  );
+  expect(short.lists().workspaceEnd()).toBe(5);
+  expect(short.lists().workspaceBadge("below")).toBeNull();
   // Revealing ws 6 scrolls its status out from under the badge.
   expect(view.workspaceReveal(5)).toBe(3);
   expect(view.workspaceReveal(6)).toBe(4);

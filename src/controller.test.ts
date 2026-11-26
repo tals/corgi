@@ -2032,6 +2032,55 @@ test("prefix w opens a folded sidebar's workspaces as a drawer over the panes, o
   }
 });
 
+test("a badge in the workspace drawer scrolls the list and keeps the drawer", async () => {
+  const s = controller(),
+    count = 12;
+  s.input_state.attached = true;
+  s.receiveSnapshot({
+    workspaces: Array.from({ length: count }, (_, i) => ({
+      id: i + 1,
+      name: `/w${i + 1}`,
+      cwd: `/w${i + 1}`,
+      model: { nodes: [{ pane: i + 1 }], tabs: [{ id: i + 1, root: 0, title: "" }], revision: 0 },
+    })),
+    panes: Array.from({ length: count }, (_, i) => ({
+      id: i + 1,
+      workspace: i + 1,
+      tab: i + 1,
+      cols: 40,
+      rows: 24,
+      agent: {
+        provider: "claude",
+        name: `agent ${i + 1}`,
+        state: i === count - 1 ? "working" : "idle",
+        attention: "none",
+        observation: { completed: 0, read: 0 },
+      },
+    })),
+    conversations: [],
+    headless_sessions: [],
+  });
+  try {
+    s.sidebar_open = false;
+    await s.input(bytes("\x02w"));
+    expect(s.sidebar_focus?.drawer).toBe("workspaces");
+    const side = s.sidebarView(s.sidebarEntries());
+    let badge: { x: number; y: number; offset: number } | null = null;
+    for (let y = 0; y < side.rows && !badge; y++)
+      for (let x = 0; x < side.cols && !badge; x++) {
+        const found = side.hit(x, y);
+        if (found.tag === "active" && found.list === "workspaces") badge = { x, y, offset: found.offset };
+      }
+    expect(badge).not.toBeNull();
+    expect(badge!.offset).toBeGreaterThan(0);
+    await s.input(bytes(`\x1b[<0;${badge!.x + 1};${badge!.y + 1}M\x1b[<0;${badge!.x + 1};${badge!.y + 1}m`));
+    expect(s.sidebar_focus?.drawer).toBe("workspaces");
+    expect(s.workspace_offset).toBe(badge!.offset);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("a workspace drawer click follows saved display order", async () => {
   const { s } = steering();
   try {

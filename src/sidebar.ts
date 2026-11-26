@@ -958,8 +958,8 @@ export class View {
       while (!counted(offset)) offset += 1;
       while (offset < nearest && !fits(offset, nearest)) offset += 1;
     } else {
-      // No room for a workspace above it.
-      if (end < 4) return null;
+      // No room above it for the first workspace's name and status.
+      if (!fits(v.workspace_offset, v.workspace_offset)) return null;
       let past = v.workspace_offset + v.workspaceCapacity();
       while (past < count && !counted(past)) past += 1;
       if (past >= count) return null;
