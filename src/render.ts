@@ -820,6 +820,7 @@ export function sidebarView(u: Ui, width: number, height: number): SidebarView {
       u.workspace_offset,
       workspaces.map(row => row.machine),
       workspaces.map(row => row.collapsed),
+      workspaces.map(sidebar.workspaceBadgeCounts),
     )
     .withEntries(entries)
     .withRename(u.inline_rename);

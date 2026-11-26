@@ -650,12 +650,18 @@ interface Index {
   next: number[];
 }
 type BadgeKind = "working" | "attention" | "unread";
-type BadgeCounts = Record<BadgeKind, number>;
+export type BadgeCounts = Record<BadgeKind, number>;
 export interface Badge extends BadgeCounts {
   x: number;
   y: number;
   side: "above" | "below";
   offset: number;
+}
+/** What a workspace adds to the workspace list's badges: the agents its
+ * status row counts, none while its machine is offline. */
+export function workspaceBadgeCounts(ws: WorkspaceEntry): BadgeCounts {
+  if (ws.unavailable) return { working: 0, attention: 0, unread: 0 };
+  return { working: ws.working, attention: ws.attention, unread: ws.unread };
 }
 /** What an agent counts as in a badge, by the precedence `indicator` shows. */
 export function badgeKind(e: Entry): BadgeKind | null {
@@ -671,8 +677,8 @@ export type Hit =
   | { tag: "agent_new" }
   | { tag: "agent_options" }
   | { tag: "entry"; entry: number }
-  /** A badge counting agents scrolled out of sight, and the scroll that shows the nearest. */
-  | { tag: "active"; offset: number }
+  /** A badge counting agents scrolled out of sight in `list`, and the scroll that shows the nearest. */
+  | { tag: "active"; list: Section; offset: number }
   | { tag: "workspace_new" }
   | { tag: "archives" }
   | { tag: "archived_workspace"; workspace: number }
@@ -752,6 +758,8 @@ export class View {
   workspace_count = 0;
   workspace_machines: string[] = [];
   workspace_collapsed: boolean[] = [];
+  /** Each workspace's agents as its badges count them. */
+  workspace_counts: BadgeCounts[] = [];
   machine_hover: number | null = null;
   workspace_offset = 0;
   archived_count = 0;
@@ -822,22 +830,19 @@ export class View {
     );
   }
   /** Name row, after any machine header; all workspace hit regions share this geometry. */
-  workspaceY(index: number): number {
+  workspaceY(index: number, offset = this.workspace_offset): number {
     let y = 2;
-    for (let i = this.workspace_offset; i <= index; i++) {
-      if (this.workspaceHeader(i)) y++;
+    for (let i = offset; i <= index; i++) {
+      if (this.workspaceHeader(i, offset)) y++;
       if (i === index) return y;
       y += this.workspace_collapsed[i] ? 0 : this.workspaceRows();
     }
     return y;
   }
   workspaceAt(y: number, row: number): number | null {
-    if (y >= this.workspaceEnd()) return null;
-    for (
-      let i = this.workspace_offset;
-      i < Math.min(this.workspace_count, this.workspace_offset + this.workspaceCapacity());
-      i++
-    )
+    if (y >= this.workspaceDrawEnd()) return null;
+    const end = Math.min(this.workspace_count, this.workspace_offset + this.workspaceShown());
+    for (let i = this.workspace_offset; i < end; i++)
       if (!this.workspace_collapsed[i] && y === this.workspaceY(i) + row) return i;
     return null;
   }
@@ -906,8 +911,15 @@ export class View {
     return offset;
   }
   workspaceReveal(index: number): number {
+    // A bottom badge over its status row hides it too.
+    const hidden = (at: number) => {
+      if (index >= at + this.workspaceCapacity(at)) return true;
+      const v = this.clone();
+      v.workspace_offset = at;
+      return v.workspaceY(index) + 1 >= v.workspaceDrawEnd();
+    };
     let offset = Math.min(this.workspace_offset, index);
-    while (offset < index && index >= offset + this.workspaceCapacity(offset)) offset++;
+    while (offset < index && hidden(offset)) offset++;
     return Math.min(offset, this.workspaceMaxOffset());
   }
   /** The workspace list's scrollbar thumb, like the agent list's. */
@@ -918,11 +930,84 @@ export class View {
     const len = clamp(Math.floor((track * this.workspaceCapacity()) / this.workspace_count), 1, track - 1);
     return { start: Math.round(((track - len) * this.workspace_offset) / last), len };
   }
-  withWorkspaces(count: number, offset: number, machines: string[] = [], collapsed: boolean[] = []): View {
+  /** The badge counting agents to see in workspaces scrolled out of sight
+   * `above` the workspace list or `below` it, on the blank row under the
+   * title or the list's last row; as the agent list's, it scrolls to the
+   * nearest and as many more as show with it. Folded machines count none. */
+  workspaceBadge(side: "above" | "below"): Badge | null {
+    const v = this,
+      count = v.workspace_count;
+    if (v.width === 0 || v.drawer === "agents" || v.workspace_counts.length === 0) return null;
+    const counts = (i: number): BadgeCounts =>
+      (!v.workspace_collapsed[i] && v.workspace_counts[i]) || { working: 0, attention: 0, unread: 0 };
+    const counted = (i: number) => {
+      const c = counts(i);
+      return c.working + c.attention + c.unread > 0;
+    };
+    // Rows end above a bottom badge.
+    const end = sat(v.workspaceEnd(), 1);
+    // Whether workspace `i` shows its name and status from scroll `at`.
+    const fits = (at: number, i: number) => i >= at && v.workspaceY(i, at) + 1 < end;
+    let from: number, to: number, offset: number;
+    if (side === "above") {
+      let nearest = v.workspace_offset - 1;
+      while (nearest >= 0 && !counted(nearest)) nearest -= 1;
+      if (nearest < 0) return null;
+      [from, to] = [0, v.workspace_offset];
+      offset = 0;
+      while (!counted(offset)) offset += 1;
+      while (offset < nearest && !fits(offset, nearest)) offset += 1;
+    } else {
+      // No room for a workspace above it.
+      if (end < 4) return null;
+      let past = v.workspace_offset + v.workspaceCapacity();
+      while (past < count && !counted(past)) past += 1;
+      if (past >= count) return null;
+      // It shows for a workspace past the list's end, then also counts one it covers.
+      let covered = v.workspace_offset;
+      while (covered < count && fits(v.workspace_offset, covered)) covered += 1;
+      [from, to] = [covered, count];
+      let nearest = covered;
+      while (nearest < past && !counted(nearest)) nearest += 1;
+      let last = count - 1;
+      while (last > nearest && !(counted(last) && fits(nearest, last))) last -= 1;
+      offset = v.workspace_offset;
+      while (offset < last && !fits(offset, last)) offset += 1;
+      offset = Math.min(offset, v.workspaceMaxOffset());
+    }
+    const badge: Badge = { x: 0, y: side === "above" ? 1 : end, side, working: 0, attention: 0, unread: 0, offset };
+    for (let i = from; i < to; i++) {
+      const c = counts(i);
+      badge.working += c.working;
+      badge.attention += c.attention;
+      badge.unread += c.unread;
+    }
+    badge.x = Math.floor(sat(v.width - 1, displayWidth(View.badgeText(badge))) / 2);
+    return badge;
+  }
+  /** Workspace rows end here for drawing: above the bottom badge while it shows. */
+  workspaceDrawEnd(): number {
+    return this.workspaceBadge("below")?.y ?? this.workspaceEnd();
+  }
+  /** Workspaces drawn from the scroll: those within capacity, then one more
+   * whose name row alone fits. */
+  workspaceShown(): number {
+    const n = this.workspaceCapacity(),
+      next = this.workspace_offset + n;
+    return next < this.workspace_count && this.workspaceY(next) < this.workspaceDrawEnd() ? n + 1 : n;
+  }
+  withWorkspaces(
+    count: number,
+    offset: number,
+    machines: string[] = [],
+    collapsed: boolean[] = [],
+    counts: BadgeCounts[] = [],
+  ): View {
     const result = this.clone();
     result.workspace_count = count;
     result.workspace_machines = machines;
     result.workspace_collapsed = collapsed;
+    result.workspace_counts = counts;
     result.workspace_offset = Math.max(0, Math.min(offset, result.workspaceMaxOffset()));
     return result;
   }
@@ -1046,10 +1131,19 @@ export class View {
     const counts = parts.filter(([n]) => n > 0).map(([n, glyph, warm]) => count(n, glyph, warm));
     return ` ${counts.join(" ")} ${b.side === "above" ? "↑" : "↓"} `;
   }
-  drawBadges(w: Writer): void {
+  /** Both lists' badges that show, each with its list. */
+  private badges(): { list: Section; badge: Badge }[] {
+    const out: { list: Section; badge: Badge }[] = [];
     for (const side of ["above", "below"] as const) {
-      const b = this.badge(side);
-      if (b === null) continue;
+      const agents = this.badge(side),
+        workspaces = this.workspaceBadge(side);
+      if (agents !== null) out.push({ list: "agents", badge: agents });
+      if (workspaces !== null) out.push({ list: "workspaces", badge: workspaces });
+    }
+    return out;
+  }
+  drawBadges(w: Writer): void {
+    for (const { badge: b } of this.badges()) {
       const text = View.badgeText(b, (n, glyph, warm) => `${n} ${warm ? button_warm : button_glyph}${glyph}${button}`);
       w.write(`${w.cup(b.y + 1, b.x + 1)}${button}${text}\x1b[0m`);
     }
@@ -1239,7 +1333,7 @@ export class View {
       const index = workspaces.findIndex(ws => ws.id === target);
       if (index < v.workspace_offset || index < 0 || v.workspace_collapsed[index]) return null;
       const y = v.workspaceY(index);
-      if (y >= v.workspaceEnd()) return null;
+      if (y >= v.workspaceDrawEnd()) return null;
       const ws = workspaces[index];
       const room = sat(linkRange(v, ws, workspaces).start, 2);
       const open = v.renaming(target);
@@ -1333,11 +1427,9 @@ export class View {
       const qualifier = v.scopeQualifier();
       if (x < v.scopeStart() + displayWidth(qualifier) + displayWidth(v.scopeArrow())) return hit("agent_scope");
     }
-    const below = v.badge("below");
-    for (const b of [v.badge("above"), below]) {
-      if (b && y === b.y && x >= b.x && x < b.x + displayWidth(View.badgeText(b)))
-        return { tag: "active", offset: b.offset };
-    }
+    for (const { list, badge: b } of v.badges())
+      if (y === b.y && x >= b.x && x < b.x + displayWidth(View.badgeText(b)))
+        return { tag: "active", list, offset: b.offset };
     if (y < v.middle()) {
       const header = v.archivedHeader();
       if (header !== null) {
@@ -1346,17 +1438,14 @@ export class View {
         if (row >= 0 && row < v.archivedCapacity() * 3)
           return { tag: "archived_workspace", workspace: v.archived_offset + Math.floor(row / 3) };
       }
-      if (y < 2 || y >= v.workspaceEnd()) return hit("none");
-      for (
-        let index = v.workspace_offset;
-        index < Math.min(v.workspace_count, v.workspace_offset + v.workspaceCapacity());
-        index++
-      )
+      if (y < 2 || y >= v.workspaceDrawEnd()) return hit("none");
+      const shown = Math.min(v.workspace_count, v.workspace_offset + v.workspaceShown());
+      for (let index = v.workspace_offset; index < shown; index++)
         if (!v.workspace_collapsed[index] && y >= v.workspaceY(index) && y < v.workspaceY(index) + v.workspaceRows())
           return { tag: "workspace", workspace: index };
       return hit("none");
     }
-    const end = v.drawEnd(below);
+    const end = v.drawEnd(v.badge("below"));
     if (y < v.middle() + 2 || y >= end) return hit("none");
     let top = v.middle() + 2;
     for (const index of v.pinned(v.offset)) {
@@ -1417,7 +1506,7 @@ export class View {
     const v = this;
     if (v.width === 0 || x >= v.width - 1 || y < 2 || y >= v.workspaceEnd() || v.workspace_count === 0) return null;
     let top = 2;
-    const end = Math.min(v.workspace_count, v.workspace_offset + v.workspaceCapacity());
+    const end = Math.min(v.workspace_count, v.workspace_offset + v.workspaceShown());
     for (let i = v.workspace_offset; i < end; i++) {
       top = v.workspaceY(i);
       if (y < top + Math.floor((v.workspaceRows() + 1) / 2)) return { index: i, y: top - 1 };
@@ -1620,18 +1709,25 @@ export class View {
     v.drawTitle(w);
     const shown = workspaces.slice(
       v.workspace_offset,
-      Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),
+      Math.min(workspaces.length, v.workspace_offset + v.workspaceShown()),
     );
-    // While more lie below, the list's last rows fade into the rule (or the
-    // archives above it), from the last row it draws: a row left blank
-    // between them would take the shadow otherwise.
-    const panel_out = w,
-      shadowed = v.workspace_offset + shown.length < workspaces.length;
+    // Rows end above a bottom badge.
+    const end = v.workspaceDrawEnd();
+    // While more lie below, the list's last rows fade into what's under them
+    // (the badge, the archives or the rule), from the last row it draws: a row
+    // left blank between them would take the shadow otherwise.
+    const last = v.workspace_offset + shown.length - 1,
+      drawn_end =
+        shown.length === 0
+          ? end
+          : Math.min(end, v.workspaceY(last) + (workspaces[last].collapsed ? 0 : v.workspaceRows())),
+      panel_out = w,
+      shadowed = v.workspace_offset + v.workspaceCapacity() < workspaces.length;
     if (shadowed) w = new Writer(panel_out.column);
     shown.forEach((ws, index) => {
       const absolute = index + v.workspace_offset;
       const y = v.workspaceY(absolute);
-      if (v.workspaceHeader(absolute)) {
+      if (v.workspaceHeader(absolute) && y - 1 < end) {
         const hovered = v.machine_hover === y - 1;
         w.write(w.cup(y, 1) + (hovered ? machine_header_hover : machine_header));
         w.splat(" ", sat(v.width, 1));
@@ -1660,9 +1756,11 @@ export class View {
         }
         w.write(panel);
       }
-      if (ws.collapsed) return;
+      if (ws.collapsed || y >= end) return;
       const out = w;
-      if (ws.unavailable) w = new Writer(out.column);
+      // A workspace the bottom badge cuts off draws whole, then loses the rows past it.
+      const cut = y + 1 >= end;
+      if (ws.unavailable || cut) w = new Writer(out.column);
       const ghost = v.dragged_workspace === v.workspace_offset + index;
       const tinted = ws.active || ghost;
       const style = tinted ? active_name : panel;
@@ -1697,7 +1795,7 @@ export class View {
         w.write(`${w.cup(y + 2, 1)}${meta}`);
         w.splat(" ", v.width - 1);
       }
-      const divider = index + 1 < Math.min(workspaces.length - v.workspace_offset, v.workspaceCapacity());
+      const divider = index + 1 < shown.length;
       // Without a resource row, the separator underlines the status row,
       // text included, as between agents.
       const rule = divider && v.workspaceRows() === 2 ? rule_underline : "";
@@ -1740,7 +1838,7 @@ export class View {
       } else if (ws.stats.tools > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
       if (tinted) for (const row of [y + 1, y + 2]) w.write(`${w.cup(row, 1)}${bar}`);
       w.write(panel);
-      if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
+      if (v.workspaceRows() === 3 && y + 2 < end) {
         if (tinted) {
           w.write(`${w.cup(y + 3, 1)}${meta}`);
           w.splat(" ", v.width - 1);
@@ -1754,10 +1852,12 @@ export class View {
       }
       if (rename !== null && rename.message !== null)
         v.drawMessage(w, rename.message, y + 1, tinted ? selected_bg : bg("bg"));
-      if (ws.unavailable) {
-        writeExit(out, w.buffered(), 0.5);
+      if (w !== out) {
+        const bytes = cut ? clipRows(w.buffered(), end) : w.buffered();
         w = out;
-        if (ws.connecting) {
+        if (ws.unavailable) writeExit(w, bytes, 0.5);
+        else w.write(bytes);
+        if (ws.unavailable && ws.connecting) {
           // Keep the cached card dim; let the workspace name glimmer at full brightness.
           w.write(`${w.cup(y + 1, 2)}`);
           writeExit(w, style, 0.5);
@@ -1770,15 +1870,7 @@ export class View {
       }
     });
     if (shadowed) {
-      const last = shown.length - 1 + v.workspace_offset,
-        bottom =
-          shown.length === 0
-            ? v.workspaceEnd()
-            : Math.min(
-                v.workspaceEnd(),
-                v.workspaceY(last) + (shown[shown.length - 1].collapsed ? 0 : v.workspaceRows()),
-              );
-      panel_out.write(shadeRows(w.buffered(), shadowAbove(bottom, workspace_shadow_ink)));
+      panel_out.write(shadeRows(w.buffered(), shadowAbove(drawn_end, workspace_shadow_ink)));
       w = panel_out;
     }
     const ws_thumb = v.workspaceThumb();
@@ -2411,8 +2503,9 @@ export function machineHeaderAt(v: View, x: number, y: number): { machine: strin
     if (header) header.rect.x += lists_x;
     return header;
   }
-  if (!v.width || x < 1 || x >= v.width - 1 || y >= v.workspaceEnd()) return null;
-  for (let i = v.workspace_offset; i < v.workspace_offset + v.workspaceCapacity(); i++)
+  if (!v.width || x < 1 || x >= v.width - 1 || y >= v.workspaceDrawEnd()) return null;
+  const end = v.workspace_offset + v.workspaceShown();
+  for (let i = v.workspace_offset; i < end; i++)
     if (v.workspaceHeader(i) && y === v.workspaceY(i) - 1)
       return { machine: v.workspace_machines[i], rect: new Rect(1, y, v.width - 2, 1) };
   return null;
@@ -2422,7 +2515,7 @@ export function machineHeaderAt(v: View, x: number, y: number): { machine: strin
  * row select the workspace, just like its title and status rows. */
 export function resourceAt(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
   if (v.framed()) return resourceAt(v.lists(), workspaces, x - lists_x, y);
-  if (v.workspaceRows() < 3 || v.width === 0 || x < 1 || x >= v.width - 2 || y < 4 || y >= v.workspaceEnd())
+  if (v.workspaceRows() < 3 || v.width === 0 || x < 1 || x >= v.width - 2 || y < 4 || y >= v.workspaceDrawEnd())
     return null;
   const i = v.workspaceAt(y, 2);
   if (i === null || i >= workspaces.length) return null;
@@ -3072,7 +3165,7 @@ export function drawGitAction(w: Writer, v: View, workspaces: WorkspaceEntry[], 
   if (v.width === 0) return;
   const shown = workspaces.slice(
     v.workspace_offset,
-    Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),
+    Math.min(workspaces.length, v.workspace_offset + v.workspaceShown()),
   );
   for (let i = 0; i < shown.length; i++) {
     const ws = shown[i];
@@ -3283,7 +3376,8 @@ export function relativeTime(timestamp: number, now: number): string {
 export function machineDiagnosticAt(v: View, rows: WorkspaceEntry[], x: number, y: number): boolean {
   if (v.framed()) return machineDiagnosticAt(v.lists(), rows, x - lists_x, y);
   if (!machineHeaderAt(v, x, y)) return false;
-  for (let i = v.workspace_offset; i < v.workspace_offset + v.workspaceCapacity(); i++) {
+  const end = v.workspace_offset + v.workspaceShown();
+  for (let i = v.workspace_offset; i < end; i++) {
     const status = rows[i]?.connection_status;
     if (!status?.diagnostic || y !== v.workspaceY(i) - 1) continue;
     const label = machineStatusLabel(status, v.width, v.workspace_machines[i]);

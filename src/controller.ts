@@ -1509,6 +1509,7 @@ export class Controller {
         this.workspace_offset,
         rows.map(row => row.machine),
         rows.map(row => row.collapsed),
+        rows.map(sidebar.workspaceBadgeCounts),
       )
       .withEntries(entries)
       .withRename(this.inline_rename);
@@ -9429,7 +9430,8 @@ export class Controller {
             this.openScopeMenu(true);
             break;
           case "active":
-            this.agentOffset().set(found.offset);
+            if (found.list === "workspaces") this.workspace_offset = found.offset;
+            else this.agentOffset().set(found.offset);
             break;
           case "workspace": {
             const index = found.workspace;

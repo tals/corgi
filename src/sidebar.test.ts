@@ -20,6 +20,7 @@ import {
   animationKey,
   groupEnd,
   workspaceEntry,
+  workspaceBadgeCounts,
   work,
   drawResources,
   resourceAt,
@@ -220,6 +221,30 @@ test("all three workspace rows select while bottom controls remain distinct", ()
   expect(paged.withWorkspaces(8, 0).workspaceThumb()).toEqual({ start: 0, len: 5 });
   expect(view.withWorkspaces(4, 0).workspaceThumb()).toBeNull();
   expect(draw(paged, [], [], 0)).not.toContain(" <  > ");
+});
+
+test("a workspace with one row left above the archives shows its name there", () => {
+  const workspaces = Array.from({ length: 5 }, (_, i) =>
+    workspaceEntry({ id: viewerRef.workspace(1, i + 1), name: `ws ${i}`, cwd: "", active: false }),
+  );
+  const at = (offset: number) =>
+    View.init(100, 30, true, 0, 0).withArchives(1, false, 0).withWorkspaces(workspaces.length, offset);
+  for (const offset of [0, 1]) {
+    const view = at(offset);
+    expect(view.workspaceCapacity()).toBe(3);
+    const lines = hostText(draw(view, [], workspaces)).split("\n");
+    expect(lines[11]).toContain(`ws ${offset + 3}`);
+    expect(lines[11]).not.toContain("○");
+    expect(lines[12]).toContain("▸ 1 archived");
+    expect(view.hit(24, 11)).toEqual(H("workspace", offset + 3));
+    expect(view.workspaceDrop(5, 11)!.index).toBe(offset + 3);
+  }
+  // Scrolling still stops where the last workspace shows whole.
+  expect(at(99).workspace_offset).toBe(2);
+  const end = hostText(draw(at(99), [], workspaces)).split("\n");
+  expect(end[8]).toContain("ws 4");
+  expect(end[11]).not.toContain("ws");
+  expect(at(0).workspaceReveal(3)).toBe(1);
 });
 
 test("unpushed badge retains its columns beside a long workspace name", () => {
@@ -1706,8 +1731,8 @@ test("badges count agents scrolled out of sight and point at the farthest, so th
   expect(lines[20]).toContain(" 1 ▶ 1 ● 1 ● ↓ ");
   const above = view.lists().badge("above")!,
     below = view.lists().badge("below")!;
-  expect(view.hit(above.x + lists_x + 1, above.y)).toEqual({ tag: "active", offset: 0 });
-  expect(view.hit(below.x + lists_x + 1, below.y)).toEqual({ tag: "active", offset: 6 });
+  expect(view.hit(above.x + lists_x + 1, above.y)).toEqual({ tag: "active", list: "agents", offset: 0 });
+  expect(view.hit(below.x + lists_x + 1, below.y)).toEqual({ tag: "active", list: "agents", offset: 6 });
   // There, the three it counted all show, and nothing is left below.
   const scrolled = View.init(80, 21, true, 6, entries.length).withEntries(entries);
   const shown = hostText(draw(scrolled, entries, []), 80, 21);
@@ -1717,6 +1742,45 @@ test("badges count agents scrolled out of sight and point at the farthest, so th
   expect(top.lists().badge("above")).toBeNull();
   const searching = view.withSearch({ text: "", cursor: 0, selection: null });
   expect(searching.lists().badge("below")).toBeNull();
+});
+
+test("workspace badges count the agents of workspaces scrolled out of sight", () => {
+  const busy: Record<number, Partial<WorkspaceEntry>> = {
+    0: { working: 1 },
+    6: { attention: 1 },
+    8: { unread: 2 },
+    9: { working: 2 },
+  };
+  const workspaces = Array.from({ length: 10 }, (_, i) =>
+    workspaceEntry({ id: viewerRef.workspace(1, i + 1), name: `ws ${i}`, cwd: "", active: false, ...busy[i] }),
+  );
+  const at = (offset: number) =>
+    View.init(80, 30, true, 0, 0).withWorkspaces(10, offset, [], [], workspaces.map(workspaceBadgeCounts));
+  const view = at(3);
+  const lines = hostText(draw(view, [], workspaces), 80, 30).split("\n");
+  expect(lines[1]).toContain(" 1 ▶ ↑ ");
+  // The badge takes the list's last row, cutting ws 6 to its name, so it counts it too.
+  expect(lines[11]).toContain("ws 6");
+  expect(lines[12]).toContain(" 2 ▶ 1 ● 2 ● ↓ ");
+  expect(lines[12]).not.toContain("○");
+  expect(view.hit(3, 12)).toEqual(H("none"));
+  const above = view.lists().workspaceBadge("above")!,
+    below = view.lists().workspaceBadge("below")!;
+  expect(view.hit(above.x + lists_x + 1, above.y)).toEqual({ tag: "active", list: "workspaces", offset: 0 });
+  // ws 9 can't show beside ws 6, so it scrolls to show ws 6 through ws 8.
+  expect(view.hit(below.x + lists_x + 1, below.y)).toEqual({ tag: "active", list: "workspaces", offset: 6 });
+  const scrolled = at(6);
+  expect(scrolled.lists().workspaceBadge("below")).toBeNull();
+  expect(hostText(draw(scrolled, [], workspaces), 80, 30)).toContain("ws 9");
+  expect(at(0).lists().workspaceBadge("above")).toBeNull();
+  // Revealing ws 6 scrolls its status out from under the badge.
+  expect(view.workspaceReveal(5)).toBe(3);
+  expect(view.workspaceReveal(6)).toBe(4);
+  expect(workspaceBadgeCounts({ ...workspaces[9], unavailable: "Offline" })).toEqual({
+    working: 0,
+    attention: 0,
+    unread: 0,
+  });
 });
 
 test("a badge scrolls no farther than keeps the nearest it counts in view", () => {
@@ -2250,10 +2314,28 @@ test("while more lie below, the rule and the list's end shade the rows above the
   expect(shaded(view, end - 1, workspace_shadow_ink[0])).toBe(true);
   expect(shaded(view, end - 2, workspace_shadow_ink[1])).toBe(true);
   expect(shaded(view, end - 3, workspace_shadow_ink[1])).toBe(false);
-  // A row too short for another workspace stays blank; the shadow starts above it.
+  // One row left shows the next workspace's name, and the shadow ends on it.
   const gap = View.init(100, 40, true, 0, entries.length).withWorkspaces(8, 0).withEntries(entries);
   expect(gap.workspaceEnd() - 2 - gap.workspaceCapacity() * 3).toBe(1);
-  expect(shaded(gap, gap.workspaceEnd() - 2, workspace_shadow_ink[0])).toBe(true);
+  expect(hostText(draw(gap, entries, workspaces)).split("\n")[gap.workspaceEnd() - 1]).toContain(
+    `ws${gap.workspaceCapacity() + 1}`,
+  );
+  expect(shaded(gap, gap.workspaceEnd() - 1, workspace_shadow_ink[0])).toBe(true);
+  expect(shaded(gap, gap.workspaceEnd() - 2, workspace_shadow_ink[1])).toBe(true);
+  // Above a badge counting busy workspaces below, the shadow ends on the row
+  // over it and leaves the badge be.
+  const busy = view.withWorkspaces(
+    8,
+    0,
+    [],
+    [],
+    workspaces.map((_, i) => ({ working: i === 7 ? 2 : 0, attention: 0, unread: 0 })),
+  );
+  const badge = busy.workspaceBadge("below")!;
+  expect(badge.y).toBe(busy.workspaceDrawEnd());
+  expect(shaded(busy, badge.y - 1, workspace_shadow_ink[0])).toBe(true);
+  expect(shaded(busy, badge.y - 2, workspace_shadow_ink[1])).toBe(true);
+  expect(shaded(busy, badge.y, workspace_shadow_ink[0])).toBe(false);
   // The agent list's end, above the badge counting the agents below it.
   const bottom = view.drawEnd(view.badge("below"));
   expect(shaded(view, bottom - 1, shadow_ink[0])).toBe(true);
