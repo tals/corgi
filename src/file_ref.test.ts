@@ -46,7 +46,7 @@ test("checks names in the background and only files count", async () => {
   writeFileSync(join(dir, "src", "a.ts"), "x");
   let woke = 0;
   const resolver = new fileRef.Resolver(() => woke++, fileAccess.local("/nowhere"));
-  const ask = (path: string) => resolver.get({ path, line: null, column: null }, dir, 0);
+  const ask = (path: string) => resolver.get({ path, line: null, column: null }, dir, { now: 0 });
   expect(ask("src/a.ts").kind).toBe("pending");
   expect(ask("src").kind).toBe("pending");
   expect(ask("nope.ts").kind).toBe("pending");
@@ -55,7 +55,21 @@ test("checks names in the background and only files count", async () => {
   expect(ask("src").kind).toBe("missing");
   expect(ask("nope.ts").kind).toBe("missing");
   expect(woke).toBe(3);
-  expect(resolver.get({ path: "a/src/a.ts", line: 3, column: null }, dir, 0).kind).toBe("pending");
+  expect(resolver.get({ path: "a/src/a.ts", line: 3, column: null }, dir, { now: 0 }).kind).toBe("pending");
   await Promise.all(resolver.checks);
-  expect(resolver.get({ path: "a/src/a.ts", line: 3, column: null }, dir, 0).kind).toBe("file");
+  expect(resolver.get({ path: "a/src/a.ts", line: 3, column: null }, dir, { now: 0 }).kind).toBe("file");
+});
+
+test("an explicit click shares an expired miss's refresh and gets the new file", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-ref-"));
+  dirs.push(dir);
+  const ref = { path: "result.png", line: null, column: null },
+    resolver = new fileRef.Resolver(() => {}, fileAccess.local(dir));
+  resolver.get(ref, dir, { now: 0 });
+  await Promise.all(resolver.checks);
+  writeFileSync(join(dir, ref.path), "file");
+  expect(resolver.get(ref, dir, { now: 3100 }).kind).toBe("missing");
+  const click = resolver.get(ref, dir, { now: 3100, fresh: true });
+  expect(resolver.checks.size).toBe(1);
+  expect(click.kind === "pending" && (await click.ready).kind).toBe("file");
 });

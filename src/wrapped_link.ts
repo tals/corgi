@@ -29,19 +29,27 @@ function renderedHint(text: string): boolean {
   return /\/|\.[A-Za-z0-9_]{1,16}\b|\b[A-Z][\p{L}\p{N}_-]* +[A-Z]|\b[A-Z][A-Za-z]*file\b|\b[A-Z]{3}/u.test(text);
 }
 
+/** The sentence period may be the first cell after a soft wrap. */
+function withPeriod(text: string, next?: string): string {
+  return next?.startsWith(".") ? text + next.slice(0, 2) : text;
+}
+
 /** A TUI can render inline code in its own style and omit the backticks. */
-function styledNames(line: string, indent: number): evidence.Token[] {
+function styledNames(line: string, indent: number, next?: string): evidence.Token[] {
   const styles = [...line.matchAll(/\x1b\[0;[0-9;:]+m/g)];
   if (styles.length < 2) return [];
   const names: evidence.Token[] = [];
+  const visible = withPeriod(Bun.stripANSI(line), next);
   let offset = Bun.stripANSI(line.slice(0, styles[0].index)).length - indent;
   for (const [i, style] of styles.entries()) {
     const part = Bun.stripANSI(line.slice(style.index + style[0].length, styles[i + 1]?.index));
-    const uri = part.trim(),
-      start = offset + part.length - part.trimStart().length;
+    const trimmed = part.trim(),
+      start = offset + part.length - part.trimStart().length,
+      single = !trimmed.includes(" "),
+      uri = single && trimmed.endsWith(".") ? trimmed.slice(0, -1) : trimmed;
     if (
       uri.length <= 1024 &&
-      uri.includes(" ") &&
+      (!single || evidence.nameBeforePeriod(uri, visible, indent + start + uri.length)) &&
       /^[\p{L}\p{M}\p{N}\p{Extended_Pictographic} /._@~#()'&=+\[\]-]+$/u.test(uri)
     )
       names.push({ uri, start, end: start + uri.length, path: true });
@@ -50,8 +58,16 @@ function styledNames(line: string, indent: number): evidence.Token[] {
   return names;
 }
 
-function* screenTokens(text: string, phrases: boolean, firstEnd: number, lastStart: number, styled?: evidence.Token[]) {
-  for (const token of evidence.tokens(text)) yield { token, phrase: false };
+function* screenTokens(
+  text: string,
+  phrases: boolean,
+  firstEnd: number,
+  lastStart: number,
+  styled?: evidence.Token[],
+  next?: string,
+) {
+  const source = text.endsWith("`") ? withPeriod(text, next) : text;
+  for (const token of evidence.tokens(source)) if (token.end <= text.length) yield { token, phrase: false };
   for (const token of styled ?? []) {
     if (text.slice(token.start, token.end) === token.uri) yield { token, phrase: true };
   }
@@ -113,6 +129,7 @@ function* windows(parts: string[], anchor: number, phrases: boolean, styled: evi
           offsets[1] ?? Infinity,
           offsets[last - first],
           first === last ? styled : undefined,
+          !wraps || wraps[last] ? parts[last + 1] : undefined,
         )) {
           if (!token.code && !phrase && (last === first || spaced)) continue;
           const extent = token.code ?? token;
@@ -139,7 +156,7 @@ export function regions(lines: string[], y: number, phrases = false): Span[] {
   const spans: Span[] = [];
   const plain = /^[\x20-\x7e]*$/.test(row),
     indent = row.length - row.trimStart().length;
-  const styled = phrases ? styledNames(lines[y], indent) : [];
+  const styled = phrases ? styledNames(lines[y], indent, rows[at + 1]) : [];
   if (!styled.length && !rows.some(r => /[/.#:(`]/.test(r) || (phrases && /[A-Z]/.test(r)))) return [];
   for (const { first, offsets, token } of windows(
     rows.map(r => r.trimStart()),
@@ -203,7 +220,9 @@ export function inspect(
     parts,
     anchor,
     phrases,
-    phrases && rows[anchor].line ? styledNames(rows[anchor].line, pieces[anchor].start) : [],
+    phrases && rows[anchor].line
+      ? styledNames(rows[anchor].line, pieces[anchor].start, rows[anchor].wrap ? parts[anchor + 1] : undefined)
+      : [],
     rows.map(r => r.wrap),
   )) {
     // The visible window may begin or end in the middle of a longer token.
@@ -218,7 +237,8 @@ export function inspect(
       (rows[last].wrap &&
         /^[.,;:!?')\]}]*$/.test(text.slice(token.end)) &&
         !/^\s/.test(pieces[last + 1]?.text ?? "") &&
-        !token.code) ||
+        !token.code &&
+        !(phrase && evidence.nameBeforePeriod(token.uri, parts[last + 1] ?? "", 0))) ||
       ((rows[first].continued || rows[first - 1]?.wrap) &&
         token.start === 0 &&
         !/\s$/.test(pieces[first - 1]?.text ?? "")) ||

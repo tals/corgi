@@ -147,7 +147,10 @@ class Remote extends runtime.Runtime {
   async test_clicking_a_markdown_filename_split_at_a_space_opens_the_remote_file() {
     await this.openWrappedRelative("``assets/preview", "notes.txt``", "assets/preview notes.txt");
   }
-  private async openWrappedRelative(first: string, rest: string, path: string) {
+  async test_clicking_an_extensionless_markdown_filename_before_a_period_opens_the_remote_file() {
+    await this.openWrappedRelative("`file", "name`.", "filename", { hover: false });
+  }
+  private async openWrappedRelative(first: string, rest: string, path: string, { hover } = { hover: true }) {
     const remote = this.remote!,
       cwd = join(fs.realpathSync(remote.temp.name), "checkout"),
       marker = "REMOTE_ONLY_FILE_CONTENT";
@@ -172,8 +175,13 @@ class Remote extends runtime.Runtime {
         y = rows.findIndex((line, i) => i > 0 && rows[i - 1].includes(first) && line.includes(rest));
       return y < 0 ? null : { x: rows[y].indexOf(rest) + 1, y };
     });
-    this.terminal!.write(`\x1b[<35;${x + 1};${y + 1}M`);
-    await this.until(() => this.text().includes(marker), 10);
+    if (hover) {
+      this.terminal!.write(`\x1b[<35;${x + 1};${y + 1}M`);
+      await this.until(() => this.text().includes(marker), 10);
+    } else {
+      this.assertNotIn(marker, this.text());
+      this.network!.latency_ms = 100;
+    }
     this.click(x, y);
     await this.until(async () =>
       (await remote.session()).panes.some((p: { view?: { path: string } }) => p.view?.path === join(cwd, path)),

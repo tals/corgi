@@ -96,3 +96,22 @@ test("ordinary inline identifiers do not crowd filenames out of a conversation",
   expect(dict.has("command number 0")).toBe(false);
   expect(dict.has("command number 299")).toBe(true);
 });
+
+test("a sentence period after a Markdown code span can identify an extensionless basename", () => {
+  const text = "Read `filename`. See also `` dépôt-2 ``.";
+  expect([...evidence.tokens(text)].map(t => [text.slice(t.start, t.end), t.uri])).toEqual([
+    ["filename", "filename"],
+    ["dépôt-2", "dépôt-2"],
+  ]);
+  for (const prose of ["Read filename.", "Use `filename` here.", "Use `filename`.value", "Use `filename`..."])
+    expect([...evidence.tokens(prose)].some(t => t.uri === "filename")).toBe(false);
+
+  const dictionary = new evidence.Dictionary();
+  dictionary.add("Open docs/keep.md and `filename`.");
+  expect(dictionary.has("filename")).toBe(true);
+  expect(dictionary.has("filename.")).toBe(false);
+  for (let i = 0; i < 40; i++) dictionary.add("Set `flag" + i + "`.");
+  expect(dictionary.has("docs/keep.md")).toBe(true);
+  expect(dictionary.has("filename")).toBe(false);
+  expect(dictionary.has("flag39")).toBe(true);
+});

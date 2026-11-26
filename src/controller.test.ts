@@ -5153,6 +5153,108 @@ test("on another computer, a file's name peeks through that computer's daemon an
   }
 });
 
+test.each(["open", "move away", "drag", "double", "switch pane", "type"] as const)(
+  "a cold click on a wrapped Markdown image shares one remote lookup: %s",
+  async gesture => {
+    const path = "/a/Release Notes.png",
+      wait = Promise.withResolvers<void>(),
+      asked: string[] = [];
+    const fixture = folders("/a", "/b");
+    const { s, term, rect, done } = showing(
+      "See `Release Notes.png`. ",
+      async op => {
+        asked.push(op);
+        if (op !== "viewer.wrapped_link") throw Error("UnexpectedRequest");
+        await wait.promise;
+        return {
+          ok: true,
+          target: { uri: "Release Notes.png", path: true, file: path, spans: [{ row: 0, start: 5, end: 22 }] },
+        };
+      },
+      fixture,
+      true,
+    );
+    s.host.opens_desktop = true;
+    term.linkContext(0n, true, "/a");
+    const mouse = (b: number, dx = 0, release = false) =>
+      mouseInput(s, `\x1b[<${b};${rect.x + 16 + dx};${rect.y + 1}${release ? "m" : "M"}`);
+    try {
+      await mouse(0);
+      if (gesture === "drag") await mouse(32, 3);
+      await mouse(0, gesture === "drag" ? 3 : 0, true);
+      if (gesture === "double") {
+        clock.advance(30);
+        await mouse(0);
+        await mouse(0, 0, true);
+      }
+      clock.advance(clock.double_click_ms);
+      await s.expireInput();
+      if (gesture === "switch pane") s.focusPane(2);
+      if (gesture === "type") await s.input(bytes("x"));
+      expect(s.effects.filter((e: any) => e.open_image || e.open_url)).toEqual([]);
+      // A hover timer armed during the press can advance the mirror to a blank row
+      // just as the daemon answers the click. The click still owns its verified file.
+      const next = gesture === "move away" ? term.probeLink(2, 12, () => {}) : null;
+      wait.resolve();
+      await next;
+      await Bun.sleep(0);
+      expect(asked.filter(op => op !== "viewer.pick")).toEqual(["viewer.wrapped_link"]);
+      expect(s.effects.filter((e: any) => e.open_image || e.open_url)).toEqual(
+        gesture === "open" || gesture === "move away" ? [{ open_image: path, machine: s.machine.id }] : [],
+      );
+    } finally {
+      wait.resolve();
+      done();
+    }
+  },
+);
+
+test("one click on a cold native image waits for its existing stat", async () => {
+  const wait = Promise.withResolvers<void>(),
+    asked: string[] = [];
+  const { s, rect, done } = showing(
+    "See screenshot.png.",
+    async op => {
+      asked.push(op);
+      if (op !== "file.stat") throw Error("UnexpectedRequest");
+      await wait.promise;
+      return { ok: true, path: "/a/screenshot.png", id: "file", size: 1 };
+    },
+    folders("/a"),
+    true,
+  );
+  s.host.opens_desktop = true;
+  try {
+    s.frame();
+    for (const end of ["M", "m"]) await mouseInput(s, `\x1b[<0;${rect.x + 7};${rect.y + 1}${end}`);
+    clock.advance(clock.double_click_ms);
+    await s.expireInput();
+    expect(s.effects).toEqual([]);
+    wait.resolve();
+    await Bun.sleep(0);
+    expect(asked).toEqual(["file.stat"]);
+    expect(s.effects).toEqual([{ open_image: "/a/screenshot.png", machine: s.machine.id }]);
+  } finally {
+    wait.resolve();
+    done();
+  }
+});
+
+test("a Ctrl-click on a wrapped filename that does not exist reaches a mouse-aware app", async () => {
+  const { s, term, rect, done } = showing("\x1b[?1000h\x1b[?1006hSee `absent file`.", async () => ({
+    ok: true,
+    target: null,
+  }));
+  term.linkContext(0n, true, "/a");
+  try {
+    for (const end of ["M", "m"]) await mouseInput(s, `\x1b[<16;${rect.x + 8};${rect.y + 1}${end}`);
+    expect(Buffer.from(term.pending).toString()).toBe("\x1b[<16;8;1M\x1b[<16;8;1m");
+    expect(s.effects).toEqual([]);
+  } finally {
+    done();
+  }
+});
+
 test("on another computer, an image link's card shows the picture that computer's daemon shrank and opens it here", async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-thumb-remote-")));
   const path = join(dir, "shot.png");
@@ -5187,7 +5289,7 @@ test("on another computer, an image link's card shows the picture that computer'
   const native = NativeTerminal.create(rect.w, rect.h);
   try {
     // Its link names that computer, not this one.
-    native.feed(`\x1b]8;;file://work-box${path}\x1b\\[Image #1]\x1b]8;;\x1b\\`);
+    native.feed(`\x1b[?1000h\x1b[?1006h\x1b]8;;file://work-box${path}\x1b\\[Image #1]\x1b]8;;\x1b\\`);
     s.pane(1).terminal.receive(native.surface(1));
     await mouseInput(s, `\x1b[<35;${rect.x + 3};${rect.y + 1}M`);
     s.frame();
@@ -5216,6 +5318,12 @@ test("on another computer, an image link's card shows the picture that computer'
     expect(headless).not.toContain("Open image");
     await s.perform({ name: "open-image" });
     expect(s.effects).toEqual([]);
+    s.host.opens_desktop = true;
+    expect(s.frame()).toContain("Open image");
+    for (const end of ["M", "m"]) await mouseInput(s, `\x1b[<0;${rect.x + 3};${rect.y + 1}${end}`);
+    expect(s.effects).toEqual([{ open_image: path, machine: other.id }]);
+    expect(s.pane(1).terminal.pending).toEqual([]);
+    expect(asked).toEqual(["file.stat", "file.thumbnail"]);
   } finally {
     native.destroy();
     setSystemTime();

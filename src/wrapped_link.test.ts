@@ -209,7 +209,7 @@ test("a click after a pending hover resolves its own cell, and obsolete underlin
     const painted = t.rows(1, 0, 0, 32, 24, false, link.id);
     expect(painted.split("https://second.test/image").length - 1).toBe(2);
     expect(painted).toMatch(/\x1b\[[0-9;]*\b4(?:;|m)/);
-    await t.probeLink(2, 20, () => {});
+    expect(t.pressLink(2, 20, () => {})).toBeNull();
     source.feed("\x1b[4;1H\x1b[2Kplain text\x1b[5;1H\x1b[2K");
     t.receive(source.surface(1));
     expect(t.hyperlinks().some(l => l.uri === link.uri)).toBe(false);
@@ -242,7 +242,7 @@ test("returning to a pane renews its evidence watch after another pane took it",
   }
 });
 
-test("a stalled lookup releases a click without sending another request", async () => {
+test("a stalled lookup leaves a click pending without blocking input or issuing concurrent requests", async () => {
   const hold = Promise.withResolvers<void>();
   let calls = 0;
   const conn = transport(async () => {
@@ -257,10 +257,12 @@ test("a stalled lookup releases a click without sending another request", async 
     t.receive(source.surface(1));
     t.linkContext(0n, true, "/repo");
     const started = t.probeLink(2, 0, () => {});
-    await t.pressLink(2, 2, () => {});
+    const click = t.pressLink(2, 2, () => {});
+    expect(click).toBeInstanceOf(Promise);
     expect(calls).toBe(1);
     hold.resolve();
-    await started;
+    await Promise.all([started, click]);
+    expect(calls).toBe(2);
   } finally {
     hold.resolve();
     t.destroy();
@@ -323,6 +325,80 @@ test("Markdown filenames cover the spaces on one row or across a word wrap", asy
   tried.length = 0;
   expect(await resolve(rows(["`Release Notes`"]), 0, 0, null, files, "/cwd")).toBeNull();
   expect(tried).toEqual([]);
+});
+
+test("a terminal period and backticks stay outside an extensionless file's hover span", async () => {
+  const lines = ["Open `filename`."],
+    cells = rows(lines);
+  const checked: string[] = [];
+  const files = {
+    async find(path: string) {
+      checked.push(path);
+      return { path, size: 1, mtime: 0, id: path };
+    },
+  };
+  expect(wrapped.regions(lines, 0)).toEqual([{ row: 0, start: 6, end: 14 }]);
+  expect(await resolve(cells, 6, 0, null, files, "/")).toMatchObject({ uri: "filename" });
+  for (const x of [5, 14, 15]) expect(await resolve(cells, x, 0, null, files, "/")).toBeNull();
+  expect(checked).toEqual(["filename"]);
+  expect(wrapped.regions(["Open filename."], 0, true)).toEqual([]);
+});
+
+test("a styled extensionless basename before a period needs exact transcript evidence", async () => {
+  const t = Terminal.create(60, 4);
+  const checked: string[] = [];
+  const files = {
+    async find(path: string) {
+      checked.push(path);
+      return { path, size: 1, mtime: 0, id: path };
+    },
+  };
+  try {
+    for (const tail of ["filename\x1b[0m.", "filename.\x1b[0m"]) {
+      t.feed("\x1b[H\x1b[2JSee \x1b[38;5;45m" + tail);
+      const lines = t.surface(1).surface.lines,
+        cells = t.native({ op: "linkWindow", x: 5, y: 0 });
+      const region = [{ row: 0, start: 4, end: 12 }],
+        dictionary = new Dictionary();
+      expect(wrapped.regions(lines, 0, false)).toEqual([]);
+      expect(wrapped.regions(lines, 0, true)).toEqual(region);
+      const probe = wrapped.inspect(cells, 5, 0, dictionary);
+      expect(probe.missing.has("filename")).toBe(true);
+      expect(await wrapped.resolve(probe, files, "/")).toBeNull();
+      dictionary.add("See `filename`.");
+      expect(await resolve(cells, 5, 0, dictionary, files, "/")).toMatchObject({ uri: "filename", spans: region });
+      expect(await resolve(cells, 12, 0, dictionary, files, "/")).toBeNull();
+    }
+    expect(checked).toEqual(["filename", "filename"]);
+  } finally {
+    t.destroy();
+  }
+});
+
+test("a sentence period on the next soft-wrapped row stays outside the filename", async () => {
+  const dict = new Dictionary();
+  dict.add("Open `filename`.");
+  const files = {
+    async find(path: string) {
+      return { path, size: 1, mtime: 0, id: path };
+    },
+  };
+  for (const [width, text, start] of [
+    [15, "Open `filename`.", 6],
+    [13, "Open \x1b[38;5;45mfilename\x1b[0m.", 5],
+  ] as const) {
+    const t = Terminal.create(width, 3);
+    try {
+      t.feed(text);
+      const region = [{ row: 0, start, end: start + 8 }];
+      const cells = t.native({ op: "linkWindow", x: start, y: 0 });
+      expect(wrapped.regions(t.surface(1).surface.lines, 0, true)).toEqual(region);
+      expect(await resolve(cells, start, 0, dict, files, "/")).toMatchObject({ uri: "filename", spans: region });
+      expect(await resolve(cells, 0, 1, dict, files, "/")).toBeNull();
+    } finally {
+      t.destroy();
+    }
+  }
 });
 
 test("rendered Markdown uses an exact transcript spelling before checking a multiword name", async () => {

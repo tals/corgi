@@ -13,6 +13,17 @@ export interface Token {
 
 const max_path = 1024;
 const max_url = 4096;
+const familiar_name = /^[A-Z](?:[A-Za-z]*file|[A-Z0-9_-]{2,})$/;
+
+/** A single code word can name a file at the end of a sentence. */
+export function nameBeforePeriod(name: string, text: string, after: number): boolean {
+  return (
+    text[after] === "." &&
+    (after + 1 === text.length || /[\s"')\]}”’]/u.test(text[after + 1])) &&
+    /^[\p{L}\p{M}\p{N}_-]+$/u.test(name) &&
+    /\p{L}/u.test(name)
+  );
+}
 
 function pathLike(path: string, numbered: boolean) {
   const name = path.slice(path.lastIndexOf("/") + 1);
@@ -75,7 +86,9 @@ function plain(
   }
   return (code &&
     !name.endsWith("/") &&
-    (/^[A-Z](?:[A-Za-z]*file|[A-Z0-9_-]{2,})$/.test(name) || (name.includes(" ") && /[\p{L}\p{N}]/u.test(name)))) ||
+    (familiar_name.test(name) ||
+      (name.includes(" ") && /[\p{L}\p{N}]/u.test(name)) ||
+      nameBeforePeriod(name, text, after))) ||
     pathLike(name, where !== null)
     ? { uri: name + (where?.uri ?? ""), start, end, path: true }
     : null;
@@ -259,7 +272,7 @@ export class Dictionary {
   }
   private scan(text: string) {
     for (const { uri, code } of tokens(text))
-      this.remember(uri, !!code && uri.includes(" ") && !pathLike(uri, /:\d+$/.test(uri)));
+      this.remember(uri, !!code && !familiar_name.test(uri) && !pathLike(uri, /:\d+$/.test(uri)));
     // Normalized tool arguments put one field on a line. A path field's
     // value can contain literal spaces without shell quotes.
     for (const [, value] of text.matchAll(/^(?:file_path|path|filename): ([^\r\n]{1,1024})$/gm)) {

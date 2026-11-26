@@ -127,7 +127,7 @@ export class Terminal {
   private wrapped: (wrappedLink.Target & { id: bigint }) | null = null;
   private link_notice = 0;
   private lookup: { start: number; end: number; y: number } | null = null;
-  private pending_link: Promise<void> | null = null;
+  private pending_link: Promise<(wrappedLink.Target & { id: bigint }) | null> | null = null;
   private resting: { x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
   private link_row: { y: number; spans: wrappedLink.Span[] } | null = null;
   private changed_rows = new Uint16Array(0);
@@ -241,29 +241,60 @@ export class Terminal {
       }, 75),
     };
   }
-  /** A slow daemon must not hold up the viewer's input queue. */
-  async pressLink(x: number, y: number, wake: () => void): Promise<void> {
-    if (!this.link_context || (!this.pending_link && this.answered(x, y))) return;
-    let expired = false;
-    const pending = (async () => {
-      if (this.pending_link) await this.pending_link;
-      if (!expired) await this.probeLink(x, y, wake);
-    })();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([pending, new Promise<void>(done => (timer = setTimeout(done, 90)))]);
-    } finally {
-      expired = true;
-      clearTimeout(timer);
-    }
+  private linkRegions(view: surface.View, y: number, phrases: boolean): wrappedLink.Span[] {
+    return this.link_row?.y === y ? this.link_row.spans : wrappedLink.regions(view.surface.lines, y, phrases);
   }
-  async probeLink(x: number, y: number, wake: () => void): Promise<void> {
+  /** Return a pending hit only for plausible cells. Release, drag and other
+   * input can proceed while the pane's daemon resolves the pressed text. */
+  pressLink(
+    x: number,
+    y: number,
+    wake: () => void,
+    wanted = () => true,
+  ): Promise<(Link & { file?: string | null }) | null> | null {
+    const view = this.installed,
+      context = this.link_context;
+    if (!view || !context || this.closed || (!this.pending_link && this.answered(x, y))) return null;
+    const regions = this.linkRegions(view, y, context.phrases);
+    if (!regions.some(s => s.start <= x && x < s.end)) return null;
+    const current = () => {
+      const now = this.installed;
+      return (
+        context === this.link_context &&
+        !this.closed &&
+        (view === now ||
+          (!!now &&
+            now.stamp.identity === view.stamp.identity &&
+            now.offset === view.offset &&
+            now.stamp.offset === view.stamp.offset &&
+            now.surface.cols === view.surface.cols &&
+            now.surface.rows === view.surface.rows &&
+            view.surface.lines
+              .slice(Math.max(0, y - 7), y + 8)
+              .every((line, i) => line === now.surface.lines[Math.max(0, y - 7) + i])))
+      );
+    };
+    return (async () => {
+      while (this.pending_link) {
+        await this.pending_link;
+        if (!wanted()) return null;
+      }
+      if (!current()) return null;
+      const target = await this.probeLink(x, y, wake, regions);
+      if (!wanted() || !current()) return null;
+      const span = target?.spans.find(s => s.row === y && s.start <= x && x < s.end);
+      if (target && span) return { ...span, uri: target.uri, path: target.path, id: target.id, file: target.file };
+      return this.hyperlinks().find(link => link.row === y && link.start <= x && x < link.end) ?? null;
+    })();
+  }
+  async probeLink(x: number, y: number, wake: () => void, regions?: wrappedLink.Span[]) {
     while (this.pending_link) await this.pending_link;
     const view = this.installed,
       context = this.link_context;
-    if (!view || !context || this.closed || this.holding_selection || this.answered(x, y)) return;
-    if (this.link_row?.y !== y)
-      this.link_row = { y, spans: wrappedLink.regions(view.surface.lines, y, context.phrases) };
+    if (!view || !context || this.closed || this.holding_selection) return null;
+    if (this.answered(x, y)) return this.wrapped;
+    regions ??= this.linkRegions(view, y, context.phrases);
+    this.link_row = { y, spans: regions };
     const lookup: { start: number; end: number; y: number } = { start: x, end: x + 1, y };
     if (this.wrapped) {
       this.wrapped = null;
@@ -271,7 +302,7 @@ export class Terminal {
       this.rendered = null;
     }
     this.lookup = lookup;
-    if (!this.link_row.spans.some(s => s.start <= x && x < s.end)) return;
+    if (!regions.some(s => s.start <= x && x < s.end)) return null;
     const other = watched.get(this.conn);
     if (other && other !== this) other.clearWrapped();
     watched.set(this.conn, this);
@@ -287,17 +318,19 @@ export class Terminal {
       fingerprint: wrappedLink.fingerprint(view.surface.lines.slice(Math.max(0, y - 7), y + 8)),
     })
       .then(({ target, range }) => {
-        if (this.lookup !== lookup || this.closed) return;
+        if (this.lookup !== lookup || this.closed) return null;
         if (!target && range) Object.assign(lookup, range);
         this.wrapped = target ? { ...target, id: BigInt(Bun.hash(JSON.stringify([target.uri, target.spans]))) } : null;
         this.links = null;
         this.rendered = null;
+        return this.wrapped;
       })
-      .catch(() => {});
+      .catch(() => null);
     this.pending_link = pending;
-    await pending;
+    const target = await pending;
     if (this.pending_link === pending) this.pending_link = null;
     if (!this.closed) wake();
+    return target;
   }
   updateRender(): void {
     if (!this.render_dirty) return;

@@ -55,6 +55,7 @@ import {
   type Agent,
   type Transport,
   type Pane,
+  type Link as PaneLink,
   type Terminal,
   type Workspace,
   type Headless,
@@ -225,7 +226,7 @@ function tabWheel(button: number): boolean | null {
       return null;
   }
 }
-/** A file a link names, which a click opens in `corgi __view`. */
+/** A verified file on the pane’s machine. */
 interface OpenFile {
   path: string;
   line: number | null;
@@ -238,13 +239,18 @@ interface LinkedFile {
   /** It's an image, which the link's card shows. */
   image: boolean;
 }
+interface Destination {
+  url: string;
+  file: OpenFile | null;
+}
+interface ClickTarget extends Destination {
+  /** The pane may still be resolving the cell at release. */
+  resolving?: () => Promise<Destination | null>;
+}
 /** A pressed link or port row, tracked until release confirms it wasn't a drag. */
-interface PortClick {
+interface PortClick extends ClickTarget {
   x: number;
   y: number;
-  url: string;
-  /** Set when the link is a file's name. */
-  file: OpenFile | null;
   menu: viewerRef.Workspace | null;
   pane: number | null;
   /** The machine a sidebar link opens on; a pane's link opens on the one shown. */
@@ -329,10 +335,8 @@ interface Picked {
 }
 /** A plain click's pane link, opened at `due` unless the click turns out to
  * start a double-click. */
-interface PendingOpen {
-  url: string;
+interface PendingOpen extends ClickTarget {
   machine: Machine;
-  file: OpenFile | null;
   pane: number;
   due: number;
 }
@@ -349,6 +353,8 @@ class InputState {
    * shared panes for the viewer that was used most recently. */
   active = false;
   port_click: PortClick | null = null;
+  /** Later input supersedes a click whose target is still being checked. */
+  click_epoch = 0;
   /** The pane whose app took the held mouse button; its drag and release
    * follow it outside the pane. */
   pane_press: number | null = null;
@@ -826,6 +832,7 @@ export class Controller {
     this.link_tooltip.move();
     // A click waiting out a double-click names a pane, and a file, there.
     this.pending_open = null;
+    this.input_state.click_epoch++;
     this.file_peeks.clear();
     this.file_panes.clear();
     this.headless_notice = null;
@@ -4037,8 +4044,7 @@ export class Controller {
       }
       case "open-image": {
         const path = this.pointedImage();
-        if (path)
-          this.queueEffect(this.machine.remote ? { open_image: path, machine: this.machine.id } : { open_image: path });
+        if (path) this.openImage(path, this.machine);
         break;
       }
       case "link-next":
@@ -4412,11 +4418,23 @@ export class Controller {
     if (!webLinks.openable(url)) throw Error("InvalidURL");
     this.openLink(url, machine);
   }
-  /** A clicked link: a file's name opens in a pane, anything else in the
-   * browser, through `machine` when it's another computer's. */
+  private openImage(path: string, machine: Machine): void {
+    if (this.host.opens_desktop)
+      this.queueEffect(machine.remote ? { open_image: path, machine: machine.id } : { open_image: path });
+  }
+  private openClick(target: ClickTarget, machine: Machine, pane: number | null): void {
+    if (!target.resolving) return this.openLink(target.url, machine, target.file);
+    void target.resolving().then(found => {
+      if (found && this.machine === machine && this.focused()?.id === pane) {
+        this.openLink(found.url, machine, found.file);
+        this.wake();
+      }
+    });
+  }
   private openLink(url: string, machine = this.machine, file: OpenFile | null = null): void {
-    if (file) void this.openFile(file.path, file.line, file.column);
-    else this.queueEffect(machine.remote ? { open_url: url, machine: machine.id } : { open_url: url });
+    if (!file) this.queueEffect(machine.remote ? { open_url: url, machine: machine.id } : { open_url: url });
+    else if (linkThumbnail.isImage(file.path)) this.openImage(file.path, machine);
+    else void this.openFile(file.path, file.line, file.column);
   }
   /** Whether a pending open's pane still has focus, on the machine shown. */
   private showsPane(open: PendingOpen): boolean {
@@ -7821,6 +7839,7 @@ export class Controller {
     for (let i = 0; i < data.length; i++) {
       if (!active()) return;
       const input = data[i];
+      if (input.kind !== "mouse" && input.kind !== "sequence") cl.click_epoch++;
       cl.key_link =
         input.kind === "key" || input.kind === "text"
           ? (this.pointedLinkCard() ?? (this.prefix ? cl.key_link : null))
@@ -8376,6 +8395,7 @@ export class Controller {
   }
   private async mouse({ button, x, y, release }: Mouse): Promise<void> {
     const cl = this.input_state;
+    if (!release && (isButton(button) || (button & 64) !== 0)) cl.click_epoch++;
     if (cl.tab_drag) {
       const drag = cl.tab_drag;
       this.pointer = { x, y };
@@ -8469,8 +8489,8 @@ export class Controller {
       // A press on the link itself starts its own click or double-click.
       const open = this.pending_open;
       this.pending_open = null;
-      if (open && !this.pressesLink(open, x, y) && this.showsPane(open))
-        this.openLink(open.url, open.machine, open.file);
+      if (open && !open.resolving && this.showsPane(open) && !this.pressesLink(open, x, y))
+        this.openClick(open, open.machine, open.pane);
     }
     if (!release && (button & 32) === 0) this.endSigninExit();
     // A double-click needs two left presses in a row on one sidebar row's
@@ -8682,6 +8702,8 @@ export class Controller {
     }
     if (this.git_card.pinned && !release && (button === 0 || button === 2)) this.git_card.release();
     else if (!this.git_card.pinned) this.git_card.selected = null;
+    // A visible file preview owns a click on its filename, including in a mouse-aware program.
+    const preview = !release && button === 0 && this.link_tooltip.shown ? this.link_tooltip.target?.link : null;
     this.moveHover(button, x, y, release);
     if (!release && button === 35) this.pollMenuHover();
     // A gesture keeps its drag and release from the app, Shift or not.
@@ -8692,6 +8714,7 @@ export class Controller {
     if (cl.port_click) {
       const click = cl.port_click;
       if ((x !== click.x || y !== click.y) && click.pane !== null) {
+        cl.click_epoch++;
         const p = this.pane(click.pane);
         if (p) {
           // A consumed link press must not leak an unmatched drag
@@ -8717,14 +8740,15 @@ export class Controller {
               // Waits out the double-click window, which may pick the link instead.
               this.pending_open = {
                 url: click.url,
-                machine: this.machine,
+                machine: click.machine ?? this.machine,
                 file: click.file,
+                ...(click.resolving && { resolving: click.resolving }),
                 pane: click.pane,
                 due: click.at + double_click_ms,
               };
               this.closeMenu();
             } else {
-              this.openLink(click.url, click.machine ?? this.machine, click.file);
+              this.openClick(click, click.machine ?? this.machine, click.pane);
               this.closeMenu();
             }
           }
@@ -9531,36 +9555,36 @@ export class Controller {
         const unit = clicks === 2 ? "word" : "line";
         return this.startGesture(p.id, term, p.rect, unit, x - p.rect.x, y - p.rect.y);
       }
-      // Links open on release in the pressed cell, so a drag that ends
-      // on a link never opens it. Plain clicks only claim links when
-      // they would otherwise start a selection; mouse-aware apps keep
-      // them. Cmd-click stays with the host's OSC 8 handler. SGR mouse
-      // events expose Ctrl, but do not encode the Command modifier.
+      // Cmd-click stays with Ghostty. Corgi owns plain clicks used for selection,
+      // and the verified filename under a visible preview in a mouse-aware app.
       const plain_link = button === 0 && !term.mouseEvents();
-      if (!release && (button === 16 || plain_link) && !this.copy_mode) {
-        if (!pane.view)
-          await term.pressLink(x - p.rect.x, y - p.rect.y, () => {
-            this.dirty = true;
-            this.wake();
-          });
-        for (const link of term.hyperlinks()) {
-          if (link.row !== y - p.rect.y || x - p.rect.x < link.start || x - p.rect.x >= link.end) continue;
-          // A file's name opens it in a pane of its own; an image shows in its card.
-          const web = webLinks.openable(link.uri),
-            named = web ? null : this.linkFile(link.uri, link.path === true, this.pane(p.id)),
-            found = named?.image ? null : named;
-          if (!web && !found) continue;
-          cl.port_click = portClick({
-            x,
-            y,
-            url: link.uri,
-            file: found && { path: found.path, line: found.ref.line, column: found.ref.column },
-            pane: p.id,
-            px: x - p.rect.x,
-            py: y - p.rect.y,
-            drag_selects: plain_link,
-          });
-          return;
+      if (!release && !this.copy_mode && (button === 16 || plain_link || preview?.source === term)) {
+        const hit = linkTooltip.at(term, p.rect, x, y);
+        const preview_click = !!(preview && linkTooltip.sameLink(preview, hit) && this.hoveredFile(preview));
+        if (button === 16 || plain_link || preview_click) {
+          const px = x - p.rect.x,
+            py = y - p.rect.y,
+            machine = this.machine;
+          const target = this.pressedTarget(pane, px, py, hit, preview_click);
+          // A mouse-aware program needs its press and release on a miss. For Ctrl-click
+          // give the lookup the same short window as the previous synchronous hit test.
+          let confirmed = target;
+          if (app_mouse && !preview_click && target?.resolving) {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+              confirmed = await Promise.race([
+                target.resolving(),
+                new Promise<null>(done => (timer = setTimeout(() => done(null), 90))),
+              ]);
+            } finally {
+              clearTimeout(timer);
+            }
+          }
+          if (confirmed) {
+            if (plain_link && term.selection) term.clearSelection();
+            cl.port_click = portClick({ ...confirmed, x, y, machine, pane: p.id, px, py, drag_selects: plain_link });
+            return;
+          }
         }
       }
       if (app_mouse) {
@@ -9841,7 +9865,7 @@ export class Controller {
     if (open && milliTimestamp() >= open.due) {
       this.pending_open = null;
       // Dropped once its pane closed or lost focus.
-      if (this.showsPane(open)) this.openLink(open.url, open.machine, open.file);
+      if (this.showsPane(open)) this.openClick(open, open.machine, open.pane);
     }
     if (this.signin_exit) {
       if (this.signin_exit.tick(milliTimestamp())) this.dirty = true;
@@ -10562,17 +10586,83 @@ export class Controller {
     if (this.corgi_setup) return !this.corgi_setup.draggingIntensity();
     return this.hoverIdle();
   }
-  /** The file a link in `pane` names on its machine, once checked: a path
-   * from the folder its agent or shell works in, or a file:// link. An
-   * image shows its picture in the link's card rather than a peek. */
-  private linkFile(uri: string, path: boolean, pane: Pane | null): LinkedFile | null {
-    if (pane === null) return null;
+  /** Both hover and click use the same spelling and filesystem check. Only an
+   * explicit click waits for a cold lookup to finish. */
+  private fileAtLink(uri: string, path: boolean, pane: Pane | null, fresh = false, verified?: string | null) {
+    if (!pane) return null;
     const ref = fileRef.parse(uri, path, this.machine.remote ? null : undefined);
     if (!ref) return null;
-    const recovered = path && pane.terminal.wrappedFile(uri);
-    if (recovered) return { path: recovered, ref, image: linkThumbnail.isImage(recovered) };
-    const status = this.file_refs.get(ref, pane.agent.cwd || pane.cwd);
-    return status.kind === "file" ? { path: status.path, ref, image: linkThumbnail.isImage(status.path) } : null;
+    const recovered = path && (verified ?? pane.terminal.wrappedFile(uri));
+    const status = recovered
+      ? { kind: "file" as const, path: recovered }
+      : this.file_refs.get(ref, pane.agent.cwd || pane.cwd, { fresh });
+    return { ref, status };
+  }
+  private linkFile(uri: string, path: boolean, pane: Pane | null): LinkedFile | null {
+    const named = this.fileAtLink(uri, path, pane);
+    return named?.status.kind === "file"
+      ? { path: named.status.path, ref: named.ref, image: linkThumbnail.isImage(named.status.path) }
+      : null;
+  }
+  private pressedTarget(
+    pane: Pane,
+    x: number,
+    y: number,
+    hit: linkTooltip.Link | null,
+    preview: boolean,
+  ): ClickTarget | null {
+    const term = pane.terminal,
+      machine = this.machine,
+      cl = this.input_state,
+      epoch = cl.click_epoch,
+      binding = pane.binding,
+      cwd = pane.agent.cwd || pane.cwd;
+    const current = () => {
+      const owner = this.pane(pane.id);
+      return (
+        this.input_state === cl &&
+        cl.click_epoch === epoch &&
+        this.machine === machine &&
+        owner?.terminal === term &&
+        owner.binding === binding &&
+        (owner.agent.cwd || owner.cwd) === cwd
+      );
+    };
+    const pending =
+      pane.view || preview
+        ? null
+        : term.pressLink(
+            x,
+            y,
+            () => {
+              this.dirty = true;
+              this.wake();
+            },
+            current,
+          );
+    const destination = pending
+      ? pending.then(link => (link && current() ? this.clickDestination(link, pane) : null))
+      : hit && this.clickDestination(hit, pane);
+    return destination instanceof Promise
+      ? { url: hit?.uri ?? "", file: null, resolving: () => destination.then(found => (current() ? found : null)) }
+      : destination;
+  }
+  private clickDestination(
+    link: Pick<PaneLink, "uri" | "path"> & { file?: string | null },
+    pane: Pane,
+  ): Destination | Promise<Destination | null> | null {
+    const url = link.uri;
+    if (webLinks.openable(url)) return { url, file: null };
+    const named = this.fileAtLink(url, link.path === true, pane, true, link.file);
+    if (!named) return null;
+    const { ref, status } = named;
+    const destination = (path: string) =>
+      linkThumbnail.isImage(path) && !this.host.opens_desktop
+        ? null
+        : { url, file: { path, line: ref.line, column: ref.column } };
+    if (status.kind === "pending")
+      return status.ready.then(found => (found.kind === "file" ? destination(found.path) : null));
+    return status.kind === "file" ? destination(status.path) : null;
   }
   private hoveredFile(link: linkTooltip.Link): LinkedFile | null {
     return this.linkFile(
