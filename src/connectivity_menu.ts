@@ -4,6 +4,7 @@ import * as text from "./text";
 import * as lab from "./remote_lab";
 import * as details from "./connectivity_details";
 import type { Line } from "./connectivity_details";
+import { Rect } from "./layout";
 
 /** The row that turns a real machine's faults on or off. */
 const toggle = 8;
@@ -231,6 +232,10 @@ export class Menu {
   }
   private sliderLabel(): number {
     return Math.min(28, Math.max(10, this.detailWidth() - 12));
+  }
+  /** Where the menu was last drawn. */
+  get box(): Rect {
+    return new Rect(this.x, this.y, this.width, this.height);
   }
   draw(cols: number, rows: number): string {
     const endpoint = this.endpoints[this.selected];

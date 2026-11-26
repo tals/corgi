@@ -141,6 +141,22 @@ export async function edit(change: (profiles: Profile[]) => Profile[], file = ca
     closeSync(fd);
   }
 }
+/** Forgets machine `name`; false when it wasn't saved. With `expected`,
+ * only while the saved machine is still that one: one saved since under the
+ * same name stays. Its daemon and agents keep running there. */
+export async function remove(name: string, expected: Profile | null = null, file = catalogPath()): Promise<boolean> {
+  let removed = false;
+  await edit(profiles => {
+    const saved = profiles.find(p => p.name === name);
+    removed = !!saved && (!expected || sameMachine(saved, expected));
+    return removed ? profiles.filter(p => p !== saved) : profiles;
+  }, file);
+  return removed;
+}
+/** Whether two profiles reach the same machine; an upgrade moves only its executable. */
+function sameMachine(a: Profile, b: Profile): boolean {
+  return a.target === b.target && a.socket === b.socket && a.home === b.home;
+}
 export async function discover(
   host: string,
   installation: Installation,

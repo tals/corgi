@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { cells, pixels, place } from "./signal_bars";
+import { cells, pixels, place, runs } from "./signal_bars";
+import * as dropdown from "./dropdown";
+import { Writer } from "./text";
 import * as hostImages from "./host_images";
 import { Rect } from "./layout";
 import { Terminal } from "./pane/terminal";
@@ -91,4 +93,17 @@ test("signal pixels clip around overlays and restore without uploading again", (
   } finally {
     host.destroy();
   }
+});
+
+test("bars in a dropdown's note are a picture over its blank cells, inside the box that covers them, or glyphs without pictures", () => {
+  expect(runs(3, null).map(([part]) => part)).toEqual([..."▂▄▆█"]);
+  const cell = { width: 10, height: 20 },
+    frame = new hostImages.Store().frame(cell),
+    box = new Rect(4, 2, 30, 4),
+    bars = runs(3, frame);
+  expect(bars.map(([part]) => part)).toEqual([" ".repeat(cells)]);
+  dropdown.row(new Writer(), box, 1, { text: "work", note: "  ", runs: bars, current: false, hovered: false });
+  // At the note's place by the right border, though the box covers the frame.
+  frame.cover(box);
+  expect(frame.placements()).toMatchObject([{ col: box.x + box.w - 2 - cells, row: box.y + 1 }]);
 });

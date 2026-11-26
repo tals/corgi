@@ -9,6 +9,7 @@ import { Style, keycap, selection } from "./palette";
 export { selection } from "./palette";
 import * as keys from "./keys";
 import * as forkHero from "./fork_hero";
+import type * as hostImages from "./host_images";
 import { identify, shell } from "./launch/command";
 import { adapter } from "./providers";
 import { Writer, writeEllipsis, codepointWidth, displayWidth, clipped, byteLength } from "./text";
@@ -141,6 +142,8 @@ export class Dialog {
   overflow = false;
   /** Whether the fork card's hero draws the host's branch glyphs. */
   branch_glyphs = false;
+  /** The frame's pictures, for marks drawn as images; null on a host that shows none. */
+  pictures: hostImages.FrameImages | null = null;
   /** A typed character's bytes until it is whole. */
   private partial: number[] = [];
   /** Empty, whether text filled in later starts selected, as a new dialog's does. */

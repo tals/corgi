@@ -1395,6 +1395,7 @@ export function frame(
       const i = model.tabs.slice(0, model.count).findIndex(tab => tab.id === target);
       if (i >= 0) number = i + 1;
     }
+    dialog.pictures = u.pictures;
     const box = NameView.init(width, height, dialog);
     box.draw(dialog, w, number);
     cover(new Rect(box.x, box.y, box.width, box.height));

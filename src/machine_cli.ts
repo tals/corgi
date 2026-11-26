@@ -37,6 +37,7 @@ corporate SSH authentication.
 Development launches through ./go.ts update machines automatically in the background.
 A release viewer moves machines to its own release as it connects.
 In the viewer, Ctrl+] or clicking the machine name opens the machine picker.
+It also lists the SSH config's other hosts, and typing searches or names another; Enter adds it.
 `;
 export async function manage(args: string[]): Promise<void> {
   process.stderr.write("Remote machines are experimental; bug reports are appreciated (corgi bugreport).\n");
@@ -48,25 +49,7 @@ export async function manage(args: string[]): Promise<void> {
       let executable = "corgi";
       if (rest[0] === "--executable" && rest.length === 2) executable = rest.splice(0)[1];
       if (rest.length) throw Error("Usage");
-      if (machines.read().some(p => p.name === name)) throw Error("MachineExists");
-      process.stderr.write(`Checking ${target} through SSH…\n`);
-      const deployment = dev.enabled() ? dev.initial() : undefined;
-      const installation = await setup.reconcile(target, executable, args, "", deployment);
-      const info = await machines.discover(target, installation);
-      const profile = {
-        name,
-        target,
-        executable: info.executable,
-        socket: info.socket,
-        home: info.home,
-        bridge: info.bridge,
-      };
-      await check(profile);
-      await machines.edit(profiles => {
-        if (profiles.some(p => p.name === name)) throw Error("MachineExists");
-        deployment?.save(profile);
-        return [...profiles, profile];
-      });
+      await add(name, target, executable);
       process.stdout.write(json.stringify({ ok: true, machine: name, target }) + "\n");
       return;
     }
@@ -89,10 +72,7 @@ export async function manage(args: string[]): Promise<void> {
     }
     case "remove": {
       if (args.length !== 2) throw Error("Usage");
-      await machines.edit(profiles => {
-        if (!profiles.some(p => p.name === args[1])) throw Error("UnknownMachine");
-        return profiles.filter(p => p.name !== args[1]);
-      });
+      if (!(await machines.remove(args[1]))) throw Error("UnknownMachine");
       process.stdout.write(json.stringify({ ok: true, machine: args[1] }) + "\n");
       return;
     }
@@ -137,6 +117,38 @@ export async function manage(args: string[]): Promise<void> {
       process.stdout.write(help);
       if (args.length && args[0] !== "--help") process.exitCode = 2;
   }
+}
+/** Sets Corgi up on `target` and saves it as machine `name`, once it answers. */
+export async function add(
+  name: string,
+  target: string,
+  executable = "corgi",
+  progress?: Report,
+  signal?: AbortSignal,
+): Promise<machines.Profile> {
+  machines.name(name);
+  machines.target(target);
+  if (machines.read().some(p => p.name === name)) throw Error("MachineExists");
+  process.stderr.write(`Checking ${target} through SSH…\n`);
+  const deployment = dev.enabled() ? dev.initial() : undefined;
+  const installation = await setup.reconcile(target, executable, [], "", deployment, { progress, signal });
+  progress?.("Connecting…", { detail: `Reading the installed daemon on ${target}` });
+  const info = await machines.discover(target, installation, "", signal);
+  const profile = {
+    name,
+    target,
+    executable: info.executable,
+    socket: info.socket,
+    home: info.home,
+    bridge: info.bridge,
+  };
+  await check(profile);
+  await machines.edit(profiles => {
+    if (profiles.some(p => p.name === name)) throw Error("MachineExists");
+    deployment?.save(profile);
+    return [...profiles, profile];
+  });
+  return profile;
 }
 /** Runs in a helper process so builds, hashes and uploads leave the viewer
  * responsive; false when the machine needed nothing. */

@@ -1,6 +1,7 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
 import * as preferences from "./preferences";
 import * as os from "./os";
 
@@ -133,6 +134,18 @@ export function shell(script: string): string {
   return 'sh -c "' + script.replace(/[\\$"`]/g, "\\$&") + '"';
 }
 
+/** Why OpenSSH's last complaint in its stderr says it failed, as the
+ * system put it: "Connection refused" from `ssh: connect to host …: Connection refused`.
+ * Each system words a failed lookup its own way. */
+export function reason(message: string): string | null {
+  const complaint = message
+    .split("\n")
+    .map(line => line.trim())
+    .findLast(line => line.startsWith("ssh: "));
+  if (!complaint) return null;
+  if (complaint.startsWith("ssh: Could not resolve hostname")) return "Could not resolve hostname";
+  return complaint.slice(complaint.lastIndexOf(": ") + 2);
+}
 /** Classify OpenSSH's stderr once at the transport boundary. */
 export type Failure = "auth" | "host-key" | "error";
 export function failure(message: string): Failure {
@@ -145,4 +158,83 @@ export function failure(message: string): Failure {
   )
     return "auth";
   return "error";
+}
+
+/** The hosts an SSH config names outright, in order: each `Host` alias
+ * that isn't a pattern, through its `Include`s. A block that logs in as
+ * `git` is a forge's, not a machine's. */
+export function configHosts(home = homedir(), file = join(home, ".ssh", "config")): string[] {
+  const hosts: string[] = [];
+  let block: string[] = [],
+    user = "";
+  const end = () => {
+    if (user.toLowerCase() !== "git") for (const name of block) if (!hosts.includes(name)) hosts.push(name);
+    block = [];
+    user = "";
+  };
+  // An included file reads as if written in place, within the block it's in.
+  const read = (path: string, depth: number) => {
+    let text: string;
+    try {
+      text = readFileSync(path, "utf8");
+    } catch {
+      return;
+    }
+    for (const line of text.split("\n")) {
+      const [keyword = "", ...values] = configWords(line);
+      switch (keyword.toLowerCase()) {
+        case "host":
+          end();
+          block = values.filter(value => !/[*?!%]/.test(value));
+          break;
+        case "match":
+          end();
+          break;
+        case "user":
+          user ||= values[0] ?? "";
+          break;
+        case "include":
+          // OpenSSH's own limit, which also ends a file including itself.
+          if (depth < 16)
+            for (const pattern of values)
+              for (const found of included(pattern, home, dirname(file))) read(found, depth + 1);
+      }
+    }
+  };
+  read(file, 0);
+  end();
+  return hosts;
+}
+/** A config line's keyword and arguments, from `Key value` or `Key=value`,
+ * with quoted arguments kept whole; none for a comment. */
+function configWords(line: string): string[] {
+  const [, keyword, rest = ""] = /^\s*([^\s=#]+)\s*=?\s*(.*)$/.exec(line) ?? [];
+  if (!keyword) return [];
+  const values: string[] = [];
+  for (const [, quoted, bare] of rest.matchAll(/"([^"]*)"|(\S+)/g)) {
+    if (bare?.startsWith("#")) break;
+    values.push(quoted ?? bare);
+  }
+  return [keyword, ...values];
+}
+/** The files an `Include` names: from `~` or the config's folder, with
+ * wildcards in the file's name. */
+function included(pattern: string, home: string, folder: string): string[] {
+  const path = pattern.startsWith("~/")
+    ? join(home, pattern.slice(2))
+    : isAbsolute(pattern)
+      ? pattern
+      : join(folder, pattern);
+  const parts = path.split("/"),
+    first = parts.findIndex(part => /[*?[]/.test(part));
+  if (first < 0) return [path];
+  // Matched part by part, as glob(3) does, from the folder before the first wildcard.
+  const glob = new Bun.Glob(parts.slice(first).join("/"));
+  try {
+    return [
+      ...glob.scanSync({ cwd: parts.slice(0, first).join("/") || "/", absolute: true, followSymlinks: true }),
+    ].sort();
+  } catch {
+    return [];
+  }
 }

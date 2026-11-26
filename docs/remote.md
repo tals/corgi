@@ -29,6 +29,17 @@ against their publisher; development artifacts must match the local source.
 See HACKING.md for the handoff baseline, headless-client limitations and
 cross-platform development artifacts. Development launches through `./go.ts` update saved machines to this checkout in the background. To use their installed builds for one launch, run `./go.ts --no-remote-update`.
 
+In the viewer, the machine picker (Ctrl+]) and the New workspace dialog's list
+of machines show the other hosts in `~/.ssh/config` under a divider. Enter on
+one adds it as `machine add` does, with its progress in the row, and the viewer
+connects to it without restarting. Typing searches the list; a host it doesn't
+name, such as `devbox` or `tal@10.0.0.5`, is offered as `+ devbox`.
+Before the first, **prefix + Shift+M** opens the picker to add one, and New
+workspace offers its list once the SSH config names a host.
+The viewer can't answer SSH prompts, so the host's key must already be known
+and SSH must log in with a key or agent. Hosts that are patterns, or whose
+block logs in as `git`, are left out.
+
 A release viewer moves a machine to its own release as it connects, up or
 down, with progress in the machine's header. The machine installs a copy it
 already has, or downloads the release itself with curl or wget; either way it
@@ -65,12 +76,15 @@ Click it, press **Ctrl+]**, or use **prefix + Shift+M** for a dropdown of machin
 and connection status. Arrows and Enter filter the list without switching the
 active workspace; click a workspace to open it. Escape closes the dropdown.
 Ctrl+F folds or unfolds the highlighted machine. Workspace keyboard navigation
-skips paused machines and machines needing attention, but includes machines
-that are connecting or automatically retrying. Opening a workspace unfolds its
+skips machines needing attention, but includes machines that are connecting or
+automatically retrying. Opening a workspace unfolds its
 machine.
 Ctrl+R cancels the highlighted machine's current request or connection attempt
-and retries immediately. Ctrl+X pauses it and stops automatic retries. A machine
-stays in the dropdown through outages so these controls remain available.
+and retries immediately. Ctrl+X, pressed twice, removes it as
+`corgi machine remove` does; right-clicking a machine's header in the sidebar
+offers **Remove machine** too. Corgi forgets the machine, and its agents keep
+running there. A machine stays in the dropdown through outages so these
+controls remain available.
 Local-only Corgi has the same header as before, with no machine dropdown, and
 Ctrl+] goes to the pane.
 
@@ -188,9 +202,9 @@ on the focused pane's top rows: **work: Syncing… 2s**, or the stall, countdown
 or error instead. While that notice shows a machine that isn't online, its
 panes drop typing, clicks and pointer moves rather than hold them for later;
 Corgi's own keys, such as the prefix and **Ctrl+]**, still work. Once the
-machine can't be reached (down, paused or failing to reconnect), **Ctrl+R**
-cancels the current request or SSH handshake and starts a new attempt
-immediately, **Ctrl+X** pauses retries, and **!** shows details. Before the
+machine can't be reached (down or failing to reconnect), **Ctrl+R** cancels
+the current request or SSH handshake and starts a new attempt immediately, and
+**!** shows details. Before the
 machine has first come online, **Ctrl+C** detaches the viewer. These controls
 also work in the machine dropdown, which remains responsive during an outage:
 open it with **Ctrl+]** to manage connections there.
@@ -210,8 +224,8 @@ machine is back online, even if you've moved on to another machine. A paste
 interrupted by an outage finishes after it. Keys meant for a daemon that has since been
 replaced are never sent to the new one. A daemon incarnation identifies which
 cached selections can be restored.
-Pausing or detaching closes only the viewer's connections; remote agents keep
-running. Background retries never install or upgrade a remote daemon. A viewer
+Removing a machine or detaching closes only the viewer's connections; remote
+agents keep running. Background retries never install or upgrade a remote daemon. A viewer
 reaching a machine whose daemon isn't running starts it, as after a crash or a
 reboot, unless it was shut down on purpose: that one stays stopped until you
 retry. `corgi machine status`, remote commands and `list --all-machines` never
@@ -275,7 +289,7 @@ viewers against disposable daemons. It requires `ssh`, `sshd`, and `ssh-keygen`.
 The suite creates temporary keys/configuration and a userspace TCP fault proxy;
 it needs no firewall changes or root access and runs on Linux and macOS.
 Cases cover one-way stalls, a full network blackhole, automatic recovery,
-immediate pause/retry during an RPC or SSH handshake, repeated disconnects,
+immediate retry during an RPC or SSH handshake, repeated disconnects,
 independent local interaction, daemon replacement, and input and pastes held
 through outages.
 They also cover cached cards on reopening and compare typing echo latency with
@@ -286,7 +300,7 @@ For a focused recovery check:
 
 ```sh
 bun build.ts --test
-bun integration.ts remote --jobs 1 -- -t 'shared_master_and_failed_recovery|spotty_connection|pause_and_retry'
+bun integration.ts remote --jobs 1 -- -t 'shared_master_and_failed_recovery|spotty_connection|retry_aborts'
 ```
 
 The master test first proves CLI channels share the viewer's TCP connection.

@@ -5,11 +5,13 @@ import { basename, dirname, join, resolve } from "node:path";
 import { Browser, Dialog, Reader, here, label, remote, size, type Place } from "./new_workspace";
 import type { Found, Op } from "./folders";
 import { Machine } from "./machine";
+import * as machineAdd from "./machine_add";
 import type { Transport } from "./mirror";
 import { printable } from "./name_dialog";
 import { Writer, displayWidth } from "./text";
 import * as i18n from "./i18n";
 import { Terminal } from "./pane/terminal";
+import * as hostImages from "./host_images";
 import { bgRgb, colors, fgRgb, mix } from "./palette";
 
 const c = (s: string) => s.charCodeAt(0);
@@ -777,11 +779,22 @@ test("with other machines, the title names the one the workspace goes on, and ^O
   expect(labels(d)).toEqual(["choose", "machine", "close"]);
   const open = screen(d);
   for (const text of [/✓ studio +this machine/, /devbox +▂▄▆█/, /gpu-box +connecting 3s/]) expect(open).toMatch(text);
-  // The list has the keys, and the cursor goes.
-  expect(draw(d)).not.toContain("\x1b[?25h");
+  // On a host that shows pictures, the bars are the sidebar's, by the list's right edge.
+  d.pictures = new hostImages.Store().frame({ width: 10, height: 20 });
+  const shown = screen(d).split("\n"),
+    row = shown.findIndex(line => line.includes("devbox"));
+  expect(shown[row]).not.toContain("▂▄▆█");
+  expect(d.pictures.placements()).toMatchObject([
+    { row, col: shown[row].indexOf("│", shown[row].indexOf("devbox")) - 4 },
+  ]);
+  d.pictures = null;
+  // The list has the keys, and the cursor sits in its field: typing searches it, not the name.
+  expect(draw(d)).toEndWith("\x1b[7;26H\x1b[?25h");
   d.key(c("x"));
-  expect(d.name()).toBe("code");
-  d.sequence("\x1b[B");
+  expect([d.name(), d.list.query, d.highlight]).toEqual(["code", "x", 0]);
+  // Leaving the search keeps the machine it found.
+  d.key(27);
+  expect([d.choosing, d.highlight]).toEqual([true, 1]);
   expect(d.key(13)).toBe("none");
   expect([d.choosing, d.machine]).toEqual([false, devbox]);
   // Its own folders are browsed there, and the name follows them.
@@ -842,11 +855,15 @@ test("the machine's name opens its list on every click; a machine chooses it, an
   // Again, it stays open.
   d.press(v, chip.x, chip.y, 0);
   expect(d.choosing).toBe(true);
+  // Under the field.
   const list = v.machineList()!;
-  expect(d.hover(v, list.box.x + 2, list.box.y + 3)).toBe(true);
+  expect(d.hover(v, list.box.x + 2, list.box.y + 4)).toBe(true);
   expect(d.highlight).toBe(2);
-  expect(v.points(list.box.x + 2, list.box.y + 2)).toBe(true);
-  d.press(v, list.box.x + 2, list.box.y + 2, 0);
+  expect(v.points(list.box.x + 2, list.box.y + 3)).toBe(true);
+  expect(v.points(list.box.x + 2, list.box.y + 1)).toBe(false);
+  d.press(v, list.box.x + 2, list.box.y + 1, 0);
+  expect(d.choosing).toBe(true);
+  d.press(v, list.box.x + 2, list.box.y + 3, 0);
   expect([d.choosing, d.machine]).toEqual([false, devbox]);
   // Off the list, a press closes it, and doesn't cancel the dialog.
   d.press(v, chip.x, chip.y, 0);
@@ -892,6 +909,117 @@ test("each machine keeps its own folder field, as left, while the dialog is open
   expect([d.browser.field.raw(), d.name()]).toEqual(["~/code/infra", "infra"]);
 });
 
+test("under a divider, the list offers the SSH config's other hosts; one added is chosen while the list is open", async () => {
+  const { local, devbox, gpu, places } = machines();
+  const all = [local, devbox, gpu];
+  const runs: { host: string; finish: () => void }[] = [];
+  const adds = new machineAdd.Adds({
+    hosts: () => ["devbox", "pi", "lab"],
+    saved: () => [],
+    add: async host => {
+      await new Promise<void>(resolve => runs.push({ host, finish: resolve }));
+      return { name: host, target: host, executable: "/corgi", socket: "/socket", home: "/home/me" };
+    },
+  });
+  const d = new Dialog(await browse("/home/me/code"), null, {
+    machine: local,
+    machines: all,
+    adds,
+    start: () => "/home/me",
+  });
+  d.places = places;
+  d.fit(100, 30);
+  d.key(15);
+  const open = screen(d);
+  expect(open).toMatch(/│ +Search or type a host +│/);
+  expect(open).toMatch(/gpu-box +connecting 3s/);
+  expect(open).toMatch(/├─+┤/);
+  expect(open).toMatch(/│ +pi +│/);
+  expect(open).toMatch(/│ +lab +│/);
+  expect(open).not.toMatch(/│ +devbox +│/);
+  // Down from the last machine steps over the divider.
+  d.highlight = 2;
+  d.sequence("\x1b[B");
+  expect(d.highlight).toBe(4);
+  expect(screen(d)).toMatch(/pi +add/);
+  d.sequence("\x1b[A");
+  expect(d.highlight).toBe(2);
+  // The divider is no row: hovering it keeps the highlight, and it doesn't point.
+  const v = d.view(100, 30)!,
+    list = v.machineList()!,
+    rule = list.box.y + 2 + 3;
+  expect(d.hover(v, list.box.x + 2, rule)).toBe(false);
+  expect(v.points(list.box.x + 2, rule)).toBe(false);
+  // ↵ on a host adds it, and the list stays open with its progress.
+  d.sequence("\x1b[B");
+  expect(d.key(13)).toBe("none");
+  expect([d.choosing, d.machine, runs.map(r => r.host)]).toEqual([true, local, ["pi"]]);
+  expect(screen(d)).toMatch(/pi +Checking…/);
+  // Once it's a machine, it's the one the workspace goes on.
+  const pi = new Machine(devbox.connection, "pi", true);
+  pi.presence = devbox.presence;
+  adds.added = () => all.push(pi);
+  runs[0].finish();
+  await settle();
+  d.catchUp();
+  await settle();
+  const hosts = () => d.list.rows().flatMap(row => (row.kind === "host" ? [row.target] : []));
+  expect([d.choosing, d.machine, hosts()]).toEqual([false, pi, ["lab"]]);
+  expect(screen(d)).toContain("New workspace on pi ▾");
+  // An add whose list was closed meanwhile leaves the choice alone.
+  d.key(15);
+  d.highlight = 5;
+  d.key(13);
+  d.key(27);
+  const lab = new Machine(devbox.connection, "lab", true);
+  all.push(lab);
+  d.catchUp();
+  expect(d.machine).toBe(pi);
+});
+
+test("typing in the list of machines searches it, offers a host nothing names, and esc leaves the search first", async () => {
+  const { local, devbox, gpu, places } = machines();
+  const adds = new machineAdd.Adds({
+    hosts: () => ["pi"],
+    saved: () => [],
+    add: () => new Promise(() => {}),
+  });
+  const d = new Dialog(await browse("/home/me/code"), null, {
+    machine: local,
+    machines: [local, devbox, gpu],
+    adds,
+    start: () => "/home/me",
+  });
+  d.places = places;
+  d.fit(100, 30);
+  d.key(15);
+  const box = () => d.view(100, 30)!.machineList()!.box;
+  const opened = box();
+  for (const ch of "dev") d.key(c(ch));
+  let shown = screen(d);
+  expect(shown).toMatch(/│  dev +│/);
+  expect(shown).toMatch(/devbox +▂▄▆█/);
+  expect(shown).toMatch(/\+ dev/);
+  expect(shown).not.toMatch(/this machine|gpu-box|│ +pi +│/);
+  expect(box()).toEqual(opened);
+  expect(labels(d)).toEqual(["choose", "machine", "back"]);
+  // A paste goes in the search too; ⌫ edits it.
+  for (const byte of Buffer.from("-2")) d.pasteByte(byte);
+  d.key(127);
+  expect(d.list.query).toBe("dev-");
+  expect(screen(d)).toMatch(/\+ dev-/);
+  // esc's label, clicked, leaves the search first, as esc does.
+  const v = d.view(100, 30)!,
+    esc = v.buttons().at(-1)!;
+  d.press(v, esc.x, v.buttons_y, 0);
+  expect([d.choosing, d.list.query, labels(d)]).toEqual([true, null, ["choose", "machine", "close"]]);
+  d.key(27);
+  expect([d.choosing, d.machine]).toEqual([false, local]);
+  // Reopened, nothing typed is kept.
+  d.key(15);
+  expect(screen(d)).toMatch(/Search or type a host/);
+});
+
 test("up from the name opens the list of machines, whose arrows move by key or click, and down past the last closes it", async () => {
   const { local, dialog } = machines();
   const d = await dialog();
@@ -926,8 +1054,8 @@ test("a long list of machines scrolls only to keep the highlight in view", async
     list = v.machineList()!;
   expect(list.choices.length).toBeLessThan(all.length);
   expect(list.first + list.choices.length - 1).toBe(20);
-  // The pointer on the top row highlights it, and the rows stay put under it.
-  d.hover(v, list.box.x + 2, list.box.y + 1);
+  // The pointer on the top row, under the field, highlights it, and the rows stay put under it.
+  d.hover(v, list.box.x + 2, list.box.y + 2);
   expect(d.highlight).toBe(list.first);
   expect(v.machineList()!.first).toBe(list.first);
   d.sequence("\x1b[A");
@@ -1011,4 +1139,25 @@ test("with one machine, or moving a workspace, the title names none and ^O does 
   d.fit(100, 12);
   d.key(15);
   expect(d.choosing).toBe(false);
+});
+
+test("with this computer alone, the list opens once the SSH config names a host to add", async () => {
+  const { local } = machines();
+  const open = async (hosts: string[]) => {
+    const adds = new machineAdd.Adds({ hosts: () => hosts, saved: () => [], add: () => new Promise(() => {}) });
+    const d = new Dialog(await browse("/home/me/code"), null, {
+      machine: local,
+      machines: [local],
+      adds,
+      start: () => "~",
+    });
+    d.fit(100, 30);
+    return d;
+  };
+  expect((await open([])).offers()).toBe(false);
+  const d = await open(["devbox"]);
+  expect(d.offers()).toBe(true);
+  d.key(15);
+  expect(d.choosing).toBe(true);
+  expect(d.list.rows().map(row => row.kind)).toEqual(["machine", "divider", "host"]);
 });

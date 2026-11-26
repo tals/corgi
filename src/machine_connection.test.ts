@@ -322,7 +322,7 @@ test("failed and retried builds leave a compatible connection online", async () 
   }
 });
 
-test("a paused update cannot replace the path and a completed update retries an incompatible daemon", async () => {
+test("a completed update retries an incompatible daemon", async () => {
   const daemon = await flakyDaemon();
   const obsolete = (): machine_path.Path => ({
     ...machine_path.local(daemon.path)(false, false),
@@ -348,22 +348,15 @@ test("a paused update cannot replace the path and a completed update retries an 
   try {
     endpoint.pump(false);
     await until(() => endpoint.status === "incompatible");
-    endpoint.pause();
-    expect(jobs[0].signal.aborted).toBe(true);
-    endpoint.retry();
-    endpoint.pump(false);
-    await until(() => endpoint.status === "incompatible");
-    jobs[1].progress("Uploading delta");
-    jobs[0].progress("Stale progress");
-    jobs[0].finish(obsolete);
+    jobs[0].progress("Uploading delta");
     await Bun.sleep(0);
     expect(endpoint.status).toBe("incompatible");
     expect(endpoint.updateMessage).toBe("Uploading delta");
-    jobs[1].finish(machine_path.local(daemon.path));
+    jobs[0].finish(machine_path.local(daemon.path));
     await until(() => endpoint.status === "connecting");
     endpoint.pump(false);
     await until(() => endpoint.status === "online");
-    expect(jobs).toHaveLength(2);
+    expect(jobs).toHaveLength(1);
   } finally {
     await endpoint.close();
     await daemon.close();
@@ -681,30 +674,6 @@ test("a command whose reply a dropped connection lost is sent again with its num
   }
 });
 
-test("a retry after a pause opens a fresh link, so the numbers it dropped leave no gap", async () => {
-  const daemon = await flakyDaemon();
-  const command = { command: { "pane.close": { target: 1 } } } as const;
-  try {
-    await daemon.connect();
-    const dropped = daemon.endpoint.machine.connection.request("session.command", command).then(
-      () => "answered",
-      (error: Error) => error.message,
-    );
-    // Its number is taken, it's never answered, and pausing drops it.
-    await until(() => daemon.seen.some(r => r.op === "session.command"));
-    daemon.endpoint.pause();
-    expect(await dropped).toBe("ReplyLost");
-    daemon.endpoint.retry();
-    await daemon.connect();
-    expect(await daemon.endpoint.machine.connection.request("session.command", command)).toMatchObject({ ok: true });
-    const after = daemon.seen.slice(daemon.seen.findIndex(r => r.op === "session.command") + 1);
-    expect(after.map(r => r.op)).not.toContain("link.resume");
-    expect(after.filter(r => r.op === "session.command").map(r => r.seq)).toEqual([1]);
-  } finally {
-    await daemon.close();
-  }
-});
-
 test("a command in flight when its daemon is replaced fails, since it may have run", async () => {
   const daemon = await flakyDaemon();
   try {
@@ -907,12 +876,6 @@ test("retry replaces a hung step and its late completion cannot clear the replac
     completions[0](true);
     await abandoned;
     expect(Reflect.get(endpoint, "task")).toBe(replacement);
-    endpoint.pause();
-    completions[1](true);
-    await replacement;
-    expect(endpoint.status).toBe("paused");
-    endpoint.pump(true);
-    expect(step).toHaveBeenCalledTimes(2);
   } finally {
     for (const done of completions) done(false);
     await endpoint.close();
@@ -1008,8 +971,6 @@ test("cached identity does not describe the first connection as a reconnect", as
     expect(endpoint.headerStatus(5000)).toEqual({ label: "retry in", seconds: 3, color: "hot" });
     expect(endpoint.headerStatus(6000)?.seconds).toBe(2);
     expect(endpoint.headerStatus(9000)?.seconds).toBe(0);
-    endpoint.status = "paused";
-    expect(endpoint.headerStatus(5000)).toEqual({ label: "paused", seconds: null, color: "muted" });
     endpoint.status = "online";
     expect(endpoint.headerStatus(5000)).toBeNull();
   } finally {
@@ -1079,7 +1040,7 @@ function hungReconnect() {
   };
 }
 
-test("a primary timeout preserves the spare handshake, while pause cancels it", async () => {
+test("a primary timeout preserves the spare handshake, while a retry cancels it", async () => {
   const endpoint = sshEndpoint(recoveryProfile, new Probe(), new Host());
   const close = { calls: 0 };
   const probe = { close: () => close.calls++ };
@@ -1093,7 +1054,7 @@ test("a primary timeout preserves the spare handshake, while pause cancels it", 
     expect(close.calls).toBe(0);
     expect(Reflect.get(endpoint, "probe_path")).toBe(probe);
     expect(Reflect.get(endpoint, "racing")).toBe(true);
-    endpoint.pause();
+    endpoint.retry();
     expect(close.calls).toBe(1);
     expect(Reflect.get(endpoint, "racing")).toBe(false);
   } finally {
@@ -1467,19 +1428,17 @@ test("queue overflow closes a paste whose start already reached the child", asyn
   }
 });
 
-test("keys held through a reload still go after a retry or a pause", async () => {
-  for (const action of ["retry", "pause"] as const) {
-    const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
-    try {
-      enqueue(endpoint, Uint8Array.of(97));
-      Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
-      enqueue(endpoint, Uint8Array.of(98));
-      endpoint[action]();
-      expect(Reflect.get(endpoint, "handoff")).toBeNull();
-      expect(queued(endpoint)).toEqual([97, 98]);
-    } finally {
-      await endpoint.close();
-    }
+test("keys held through a reload still go after a retry", async () => {
+  const endpoint = localEndpoint("/tmp/corgi-handoff-input/control.sock", new Probe(), new Host());
+  try {
+    enqueue(endpoint, Uint8Array.of(97));
+    Reflect.get(endpoint, "holdHandoffInput").call(endpoint);
+    enqueue(endpoint, Uint8Array.of(98));
+    endpoint.retry();
+    expect(Reflect.get(endpoint, "handoff")).toBeNull();
+    expect(queued(endpoint)).toEqual([97, 98]);
+  } finally {
+    await endpoint.close();
   }
 });
 

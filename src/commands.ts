@@ -1,5 +1,5 @@
 //! The resize menu, and the context menus on tabs, workspaces, panes,
-//! agents and worktree groups. Mirrors commands.zig.
+//! agents, worktree groups and machines. Mirrors commands.zig.
 import * as i18n from "./i18n";
 import * as dropdown from "./dropdown";
 import * as palette from "./palette";
@@ -44,7 +44,8 @@ export type Item =
   | "fold"
   | "close-all"
   | "archive"
-  | "unarchive";
+  | "unarchive"
+  | "remove";
 /** A `rule` sets the row apart below a line, and the highlight never starts on it. */
 export interface Row {
   item: Item;
@@ -124,6 +125,8 @@ export class TabMenu {
   /** An agent row's menu; `tab` is the agent's pane. */
   agent = false;
   headless = false;
+  /** A machine header's menu; `tab` is the machine's id, and `folded` whether its group is. */
+  machine = false;
   /** Whether the agent is starred. */
   starred = false;
   archived = false;
@@ -160,6 +163,11 @@ export class TabMenu {
   }
   private rows(): Row[] {
     const title = this.title;
+    if (this.machine)
+      return [
+        row("fold", "f", this.folded ? i18n.t`Unfold` : i18n.t`Fold`),
+        row("remove", "x", i18n.t`Remove machine`, { rule: true }),
+      ];
     if (this.agent || this.headless)
       return agent_actions()
         .filter(entry => !this.headless || entry.item === "star")

@@ -35,7 +35,7 @@ export interface Presence {
   online: boolean;
   link_quality: WorkspaceEntry["link_quality"];
   connecting: boolean;
-  /** Retries have stopped: it's paused, failed or incompatible, and waits for you. */
+  /** Retries have stopped: it failed or is incompatible, and waits for you. */
   stopped: boolean;
   connection_status: WorkspaceEntry["connection_status"];
   /** Why it isn't online. */

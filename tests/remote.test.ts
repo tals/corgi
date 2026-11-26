@@ -1022,7 +1022,7 @@ class Remote extends runtime.Runtime {
     const x = this.text().split("\n")[0].indexOf("all ▾");
     this.click(x, 0);
     await this.until(() => this.text().includes("All workspaces"));
-    await this.until(() => /local\s+● online/.test(this.text()) && /work\s+(?:● |▂▄▆█ )online/.test(this.text()));
+    await this.until(() => /local\s+online ●/.test(this.text()) && /work\s+online (?:●|▂▄▆█)/.test(this.text()));
     this.assertIn("MOUSE_REMOTE", this.text());
     this.terminal!.write("l\r");
     await this.until(() => this.text().includes("local ▾"));
@@ -1031,7 +1031,7 @@ class Remote extends runtime.Runtime {
     await this.online("local");
     this.assertIn("local ▾", this.text().split("\n")[0]);
     this.assertNotIn("REMOTE_WORKSPACE", this.text());
-    this.terminal!.write("\x1da\r");
+    this.terminal!.write("\x1d\x10\r");
     await this.until(() => this.text().includes("all ▾") && this.text().includes("REMOTE_WORKSPACE"));
   }
   async test_machine_collapse_and_authentication_diagnostics_keep_local_input_usable() {
@@ -1054,7 +1054,7 @@ class Remote extends runtime.Runtime {
     writeExecutable(sshPath, original);
     this.assertEqual((await this.cli(["machine", "reconnect", "work"])).status, "reachable");
     this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid, before);
-    this.terminal!.write("\x1dw\x12\x1b");
+    this.terminal!.write("\x1dw\x12\x1d");
     await this.until(() => this.text().includes("REMOTE_WORKSPACE"));
     lines = this.text().split("\n");
     y = lines.findIndex(line => line.includes("▾  work"));
@@ -1541,7 +1541,7 @@ process.stdin.on("data", chunk => {
     await this.until(() => screen().includes("all ▾"), 8);
     this.terminal.write("\x1d");
     await this.until(() => screen().includes("All workspaces"), 5);
-    await this.until(() => /local\s+● online/.test(screen()) && /work\s+(?:● |▂▄▆█ )online/.test(screen()), 5);
+    await this.until(() => /local\s+online ●/.test(screen()) && /work\s+online (?:●|▂▄▆█)/.test(screen()), 5);
     this.terminal.write("w\r");
     await this.until(() => screen().includes("work ▾") && !screen().includes("All workspaces"));
     this.clickWorkspace("REMOTE");
@@ -1894,42 +1894,29 @@ process.stdin.on("data", chunk => {
     this.assertNotIn("DROPPED_DURING_BLACKHOLE", text);
     this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid, pid);
   }
-  async test_pause_and_retry_abort_an_inflight_request_and_a_hung_ssh_handshake_immediately() {
+  async test_retry_aborts_an_inflight_request_and_a_hung_ssh_handshake_immediately() {
     await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
     await this.startViewer();
     await this.online();
     this.network!.set("blackhole");
     await this.until(() => this.text().includes("Connection stalled"), 6);
-    // Stalled, the machine still has its keys; the dropdown retries and pauses.
-    const dropdown = async (keys: string) => {
+    // Stalled, the machine still has its keys; the dropdown retries.
+    const retry = async () => {
       this.terminal!.write("\x1d");
       await this.until(() => this.text().includes("All workspaces"), 1);
-      this.terminal!.write("w" + keys + "\x1b");
-      // Closed before anything else is typed, so the Escape isn't read as Alt.
+      // Ctrl+] closes it, whatever the search.
+      this.terminal!.write("w\x12\x1d");
       await this.until(() => !this.text().includes("All workspaces"), 1);
     };
     const stalled = this.network!.accepted;
-    await dropdown("\x12");
+    await retry();
     await this.until(() => this.network!.accepted > stalled, 2);
-    await dropdown("\x18");
-    await this.until(() => this.text().includes("Paused · automatic retries stopped"), 1);
-    // Paused, it can't be reached: the notice takes them.
-    const connections = this.network!.accepted;
-    this.terminal!.write("\x12");
-    await this.until(() => this.network!.accepted > connections, 2);
+    // The new SSH handshake hangs in the blackhole: another retry doesn't wait for it.
     await this.until(() => this.text().includes("Reconnecting"), 1);
     const attempt = this.network!.accepted;
-    await dropdown("\x12");
+    await retry();
     await this.until(() => this.network!.accepted > attempt, 2);
-    await dropdown("\x18");
-    await this.until(() => this.text().includes("Paused · automatic retries stopped"), 1);
-    const paused = this.network!.accepted;
     this.network!.set("healthy");
-    // The automatic retry interval is real time; a paused endpoint must remain idle past it.
-    await Bun.sleep(1500);
-    this.assertEqual(this.network!.accepted, paused);
-    this.assertIn("Paused", this.text());
-    this.terminal!.write("\x12");
     await this.online();
     await this.sendRemote("AFTER_MANUAL_RETRY");
   }
@@ -1944,7 +1931,7 @@ process.stdin.on("data", chunk => {
       await this.until(() => this.network!.accepted > connections, 3);
       this.terminal!.write("\x1d");
       await this.until(() => this.text().includes("All workspaces"), 1);
-      this.terminal!.write("w\x12\x1b");
+      this.terminal!.write("w\x12\x1d");
       await this.online();
       await this.sendRemote(`RECOVERY_${i}`);
     }

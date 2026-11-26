@@ -3,6 +3,7 @@ import { localEndpoint } from "./machine_connection";
 import { sshEndpoint } from "./ssh_path";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { Workspaces } from "./machine_sidebar";
+import * as machineAdd from "./machine_add";
 import { Endpoint, type Status } from "./machine_connection";
 import { Probe } from "./terminal_info";
 import { Host } from "./host";
@@ -43,6 +44,18 @@ function world(...names: string[]) {
     void chosen.push({ machine: machine.name, workspace: focus && "workspace" in focus ? focus.workspace : null });
   return { endpoints, view, chosen, workspaces: new Workspaces(endpoints, view) };
 }
+test("with this computer alone, the dropdown opens only to add a machine", () => {
+  const { endpoints, view, workspaces } = world("local");
+  workspaces.show();
+  expect(workspaces.open).toBe(false);
+  const adds = new machineAdd.Adds({ hosts: () => ["devbox"], saved: () => [], add: () => new Promise(() => {}) });
+  const picker = new Workspaces(endpoints, view, adds);
+  expect(picker.visible).toBe(false);
+  picker.show();
+  expect(picker.open).toBe(true);
+  expect(picker.list.rows().map(row => row.kind)).toEqual(["all", "machine", "divider", "host"]);
+});
+
 test("opening the machine dropdown cancels a worktree entry waiting for history", async () => {
   const { view, workspaces } = world("local", "work");
   try {
@@ -266,20 +279,149 @@ test("the dropdown filters rows and keeps statuses available through outages", (
   side.workspace_scope = "all";
   const displayed = screen(side, view.workspaceRows(), workspaces.draw(side));
   expect(displayed).toContain("All workspaces");
-  expect(displayed).toMatch(/work\s+● online/);
+  expect(displayed).toMatch(/work\s+online ●/);
   workspaces.move(2);
   workspaces.selectFilter();
   expect(view.machineScope()).toBe("work");
   expect(view.workspaceRows().map(row => row.name)).toEqual(["work project"]);
-  remote.pause();
-  expect(view.workspaceRows()[0].unavailable).toContain("Paused");
+  remote.status = "incompatible";
+  expect(view.workspaceRows()[0].unavailable).toContain("Incompatible");
   expect(view.workspaceRows()[0].connecting).toBe(false);
   workspaces.show();
   workspaces.retry();
   expect<Status>(remote.status).toBe("connecting");
   expect(workspaces.visible).toBe(true);
 });
+test("^X twice in a row removes the highlighted SSH machine, never this computer", () => {
+  const {
+    endpoints: [local, remote],
+    view,
+    workspaces,
+  } = world("local", "work");
+  local.status = remote.status = "online";
+  remote.updated = 1;
+  workspaces.show();
+  const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(28);
+  const shown = () => screen(side, view.workspaceRows(), workspaces.draw(side));
+  expect(shown()).toContain(" ^X  remove   !  details");
+  workspaces.cursor = 1;
+  expect([workspaces.remove(), workspaces.remove()]).toEqual([null, null]);
+  workspaces.cursor = 2;
+  expect(workspaces.remove()).toBeNull();
+  expect(shown()).toMatch(/work\s+\^X  again to remove/);
+  // Moving off it, or away and back, asks again.
+  workspaces.move(-1);
+  workspaces.move(1);
+  expect(shown()).not.toContain("again");
+  expect(workspaces.remove()).toBeNull();
+  expect(workspaces.remove()).toBe(remote);
+  expect(shown()).not.toContain("again");
+});
+test("a removed machine leaves the sidebar, its filter and the dropdown; its header menu removes it", async () => {
+  const {
+    endpoints: [local, remote],
+    endpoints,
+    view,
+    workspaces,
+  } = world("local", "work");
+  local.status = remote.status = "online";
+  remote.updated = 1;
+  const removed: string[] = [];
+  view.onRemoveMachine = machine => removed.push(machine.name);
+  view.openMachineMenu(local.machine, 1, 2);
+  expect(view.tab_menu).toBeNull();
+  view.openMachineMenu(remote.machine, 1, 2);
+  expect(view.tab_menu!.entries().map(entry => entry.label)).toEqual(["Fold", "Remove machine"]);
+  expect(view.tab_menu!.highlightedItem()).toBe("fold");
+  await Reflect.get(view, "key").call(view, "f".charCodeAt(0));
+  expect([remote.machine.collapsed, view.tab_menu]).toEqual([true, null]);
+  view.openMachineMenu(remote.machine, 1, 2);
+  expect(view.tab_menu!.entries()[0].label).toBe("Unfold");
+  await Reflect.get(view, "key").call(view, "x".charCodeAt(0));
+  expect([removed, view.tab_menu]).toEqual([["work"], null]);
+  // The viewer lets it go, and the highlight keeps to a row.
+  workspaces.show();
+  workspaces.cursor = 2;
+  view.machine_filter = remote.machine;
+  endpoints.splice(1, 1);
+  view.forget(remote.machine);
+  workspaces.settle();
+  expect(workspaces.cursor).toBe(1);
+  expect(view.machine_filter).toBeNull();
+  expect(view.workspaceRows().map(row => row.name)).toEqual(["local project"]);
+  expect(workspaces.visible).toBe(false);
+  // The machine shown can't be let go.
+  view.forget(local.machine);
+  expect(view.machines).toEqual([local.machine]);
+});
 
+test("under a divider, the dropdown lists the SSH config's other hosts, searches as typed, and ↵ adds one in place", () => {
+  const {
+    endpoints: [local, remote],
+    endpoints,
+    view,
+  } = world("local", "work");
+  local.status = remote.status = "online";
+  remote.updated = 1;
+  const runs: { name: string; target: string }[] = [];
+  const adds = new machineAdd.Adds({
+    hosts: () => ["work", "devbox", "pi"],
+    saved: () => [],
+    add: (name, target) => {
+      runs.push({ name, target });
+      return new Promise(() => {});
+    },
+  });
+  const workspaces = new Workspaces(endpoints, view, adds);
+  workspaces.show();
+  const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(28).withWorkspaces(2, 0);
+  side.workspace_scope = "all";
+  const rows = () => frame(side, [], workspaces.draw(side)).text.split("\n");
+  const open = rows();
+  expect(open[3]).toMatch(/│ +Search or type a host +│/);
+  expect(open[4]).toMatch(/✓ all +All workspaces/);
+  expect(open[5]).toMatch(/local +online ●/);
+  expect(open[6]).toMatch(/work +online ●/);
+  expect(open[7]).toMatch(/├─+┤/);
+  expect(open[8]).toMatch(/│ +devbox +│/);
+  expect(open[9]).toMatch(/│ +pi +│/);
+  const bottom = open.findIndex(line => line.includes("╰"));
+  // Down from the last machine steps over the divider, and up steps back.
+  workspaces.cursor = 2;
+  workspaces.move(1);
+  expect(workspaces.list.row()).toMatchObject({ kind: "host", name: "devbox" });
+  expect(rows()[8]).toMatch(/devbox +add/);
+  workspaces.move(-1);
+  expect(workspaces.cursor).toBe(2);
+  // The field and the divider are no rows to press, but inside the box.
+  const x = open[7].indexOf("├") + 2;
+  expect([3, 7, 8].map(y => workspaces.hit(side, x, y))).toEqual(["inside", "inside", 4]);
+  expect(workspaces.hit(side, x, 20)).toBeNull();
+  // Typing searches, and offers a host nothing names; the box stays put.
+  for (const byte of Buffer.from("nas")) workspaces.list.key(byte);
+  let shown = rows();
+  expect(shown[3]).toMatch(/│  nas +│/);
+  // The cursor sits in the field, past what's typed.
+  const field_x = shown[3].indexOf("nas");
+  expect(workspaces.draw(side)).toEndWith(`\x1b[4;${field_x + 4}H\x1b[?25h`);
+  expect(shown[4]).toMatch(/├─+┤/);
+  expect(shown[5]).toMatch(/\+ nas/);
+  expect(shown.findIndex(line => line.includes("╰"))).toBe(bottom);
+  expect(workspaces.list.row()).toMatchObject({ kind: "host", target: "nas", typed: true });
+  // Typing reaches no host: until ↵, its row only says ↵ adds it.
+  expect(rows()[5]).toMatch(/\+ nas +add/);
+  // ↵ adds it, and the list stays open with the add's progress.
+  expect(workspaces.selectFilter()).toBe(false);
+  expect([workspaces.open, runs]).toEqual([true, [{ name: "nas", target: "nas" }]]);
+  expect(rows()[5]).toMatch(/\+ nas +Checking…/);
+  expect(view.machineScope()).toBe("all");
+  // Esc leaves the search before the dropdown.
+  expect(workspaces.list.leave()).toBe(true);
+  shown = rows();
+  expect(shown[3]).toMatch(/Search or type a host/);
+  workspaces.hide();
+  expect(workspaces.list.query).toBeNull();
+});
 test("machine filter colors connection states and measured reception, including clipped notes", () => {
   const {
     endpoints: [local, remote],
@@ -295,10 +437,10 @@ test("machine filter colors connection states and measured reception, including 
     ["stalled", "warm", "Connection"],
     ["connecting", "warm", "Connecting"],
     ["offline", "hot", "offline"],
-    ["paused", "muted", "Paused"],
     ["incompatible", "hot", "Incompatible"],
   ];
   remote.stats.answer(20, false);
+  // The remote's row is under the field, "all" and local.
   for (const width of [28, 44, 64]) {
     const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(width);
     for (const [status, color, label] of cases) {
@@ -306,9 +448,9 @@ test("machine filter colors connection states and measured reception, including 
       for (const cursor of [0, 2]) {
         workspaces.cursor = cursor;
         const rendered = frame(side, [], workspaces.draw(side));
-        expect(rendered.text.split("\n")[5]).toContain(label);
-        expect(rendered.lines[5]).toContain(`38;2;${palette.colors[color].join(";")}`);
-        if (status !== "online") expect(rendered.text.split("\n")[5]).not.toContain("▂▄▆█");
+        expect(rendered.text.split("\n")[6]).toContain(label);
+        expect(rendered.lines[6]).toContain(`38;2;${palette.colors[color].join(";")}`);
+        if (status !== "online") expect(rendered.text.split("\n")[6]).not.toContain("▂▄▆█");
       }
     }
   }
@@ -316,7 +458,7 @@ test("machine filter colors connection states and measured reception, including 
   const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(64);
   remote.status = "online";
   remote.status = "connecting";
-  expect(frame(side, [], workspaces.draw(side)).text.split("\n")[5]).toContain("▂▄▆█ online");
+  expect(frame(side, [], workspaces.draw(side)).text.split("\n")[6]).toContain("online ▂▄▆█");
   expect(view.machine_filter).toBeNull();
 });
 
@@ -437,7 +579,7 @@ test("header quality comes from the current connection, without rating local or 
   local.stats.answer(20, false);
   remote.stats.answer(20, false);
   expect(view.workspaceRows().map(row => row.link_quality)).toEqual([null, 4]);
-  for (const status of ["stalled", "offline", "paused", "connecting", "incompatible"] as const) {
+  for (const status of ["stalled", "offline", "connecting", "incompatible"] as const) {
     remote.status = status;
     expect(view.workspaceRows().map(row => row.link_quality)).toEqual([null, 0]);
   }
@@ -485,7 +627,7 @@ test("connection transitions never move workspace content or status hitboxes", (
           const live = screen(side, [row]);
           const unread = side.unreadRange(row);
           for (const connecting of [true, false]) {
-            row.unavailable = connecting ? "Connecting…" : "Paused";
+            row.unavailable = connecting ? "Connecting…" : "Incompatible";
             row.connecting = connecting;
             for (const now of [0, 400, 800, 1200, 1600])
               expect(screen(side, [row], "", now).replace(/[↔×]/g, " ")).toBe(live);
@@ -611,7 +753,7 @@ test("workspace cycling skips intervention states but retains recovery and revea
   local.status = "online";
   const select = spyOn(view, "selectRow").mockImplementation(() => {});
   try {
-    for (const status of ["paused", "incompatible", "attention"] as const) {
+    for (const status of ["incompatible", "attention"] as const) {
       remote.status = status;
       view.navigateWorkspace(false);
       expect(select.mock.calls.at(-1)![0]).toBe(view.workspaceRef(1, local.machine));

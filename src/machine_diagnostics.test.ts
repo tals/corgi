@@ -90,7 +90,7 @@ test("a machine another viewer moved says how to take it back, and why taking it
 
 test("with no problem to show, details don't open and the key stays the pane's", () => {
   const endpoint = work();
-  endpoint.status = "paused";
+  endpoint.status = "incompatible";
   endpoint.error = "";
   const notice = new Notice();
   expect(notice.show(endpoint)).toBe(false);

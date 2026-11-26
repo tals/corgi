@@ -3,15 +3,17 @@
 //! `selected`, and a lit action the accent too; a dim one steps back while
 //! something else has the keyboard.
 //! A choice with a key shows it as a keycap where ✓ goes. Faint column
-//! headings may sit over the choices, and a note may color its runs.
+//! headings may sit over the choices, a divider between groups of them,
+//! and a note may color its runs.
 //! The sidebar's agent scope, Corgi setup's summaries, the launcher's
 //! worktrees and the review panel's commits open one.
 import { Style, fg, keycap, type Token } from "./palette";
 import { Rect } from "./layout";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
-/** Part of a note in its own color. */
-export type Run = [string, Token];
+/** Part of a note in its own color; `at`, when given, learns the cell it
+ * starts on, for a picture drawn over it. */
+export type Run = [string, Token, ((col: number, row: number) => void)?];
 export function sameRuns(a: Run[], b: Run[]): boolean {
   return a.length === b.length && a.every(([text, token], i) => text === b[i][0] && token === b[i][1]);
 }
@@ -30,6 +32,8 @@ export interface Choice {
   dim?: boolean;
   /** A non-selectable section heading inside a grouped menu. */
   heading?: boolean;
+  /** A rule across the box, joined to its border, between groups of choices. */
+  divider?: boolean;
   /** Tree depth, with four cells per level. */
   depth?: number;
   /** Visual indentation in cells, independent of sticky parent depth. */
@@ -158,6 +162,11 @@ export function row(
   detail_column?: number,
 ): void {
   const inset = choice.inset ?? (choice.depth ?? 0) * 4;
+  if (choice.divider) {
+    w.write(`\x1b[${b.y + y + 1};${b.x + 1}H` + new Style({ fg: "line", bg: "surface" }).sgr());
+    w.write("├" + "─".repeat(Math.max(0, b.w - 2)) + "┤");
+    return;
+  }
   if (choice.heading && note_column === undefined) {
     const line = b.y + y + 1,
       room = b.w - indent - inset - 4;
@@ -209,9 +218,14 @@ export function row(
   if (displayWidth(choice.note) > note_room) {
     w.write(fg(faint));
     writeEllipsis(w, choice.note, note_room);
-  } else if (choice.runs)
-    for (const [part, token] of choice.runs) w.write(fg(token === "faint" ? faint : token) + part);
-  else w.write(fg(faint) + choice.note);
+  } else if (choice.runs) {
+    let col = right;
+    for (const [part, token, at] of choice.runs) {
+      at?.(col, b.y + y);
+      w.write(fg(token === "faint" ? faint : token) + part);
+      col += displayWidth(part);
+    }
+  } else w.write(fg(faint) + choice.note);
   w.write(style);
   w.write(`\x1b[${line};${b.x + 1 + indent + inset}H`);
   writeEllipsis(w, choice.text, sat(sat(right, b.x + indent + inset), 2));

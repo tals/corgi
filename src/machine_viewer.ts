@@ -13,6 +13,7 @@ import * as errors from "./errors";
 import { sshEndpoint } from "./ssh_path";
 import * as sidebar from "./sidebar";
 import { Workspaces } from "./machine_sidebar";
+import * as machineAdd from "./machine_add";
 import * as viewer from "./viewer";
 import * as corgiBadge from "./corgi_badge";
 import * as hostBackground from "./host_background";
@@ -83,6 +84,8 @@ export async function run(
     localEndpoint(local, probe, host, options.start_local, options.local_running),
     ...saved.map(profile => sshEndpoint(profile, probe, host)),
   ];
+  /** The saved machine each SSH endpoint reaches, so removing one removes that machine alone. */
+  const profiles = new Map(saved.map((profile, i) => [endpoints[i + 1], profile] as const));
   let active = endpoints.find(e => e.name === selected);
   if (!active) throw Error("UnknownMachine");
   // Typing waits in the panes it's meant for until their machine catches
@@ -109,9 +112,7 @@ export async function run(
     behind!.shown = true;
     const status =
       shown.status === "online" ? shown.error || `Syncing… ${Math.floor((now - since) / 1000)}s` : shown.description();
-    const hints = unreachable(shown)
-      ? ["Ctrl+R retry", ...(shown.status === "paused" ? [] : ["Ctrl+X pause"]), ...(shown.error ? ["! details"] : [])]
-      : [];
+    const hints = unreachable(shown) ? ["Ctrl+R retry", ...(shown.error ? ["! details"] : [])] : [];
     if (!shown.reached) hints.push("Ctrl+C quit");
     return { status: `${shown.name}: ${status}`, keys: hints.join(" · ") };
   };
@@ -135,7 +136,9 @@ export async function run(
     host.prefs.sidebar_width,
   );
   side.resources = host.prefs.resources;
-  const workspaces = new Workspaces(endpoints, view);
+  // The SSH config's other hosts show under the machines wherever they're listed.
+  const adds = (view.machine_adds = new machineAdd.Adds());
+  const workspaces = new Workspaces(endpoints, view, adds);
   const connectivity = new ConnectivityMenu(endpoints);
   const connection_hover = new connectivityCard.Hover();
   const diagnostic = new MachineNotice();
@@ -292,15 +295,15 @@ export async function run(
     if (workspaces.open) active!.deactivate();
   };
   const close = () => {
-    workspaces.open = false;
+    workspaces.hide();
     active!.activate();
   };
   const filter = () => {
-    workspaces.selectFilter();
-    active!.activate();
+    if (workspaces.selectFilter()) active!.activate();
   };
-  // With no SSH machine there's no dropdown: the controller says how to add one.
-  view.onMachines = workspaces.visible ? show : null;
+  // The machines action opens the dropdown even before there's an SSH
+  // machine, to add one; the header and Ctrl+] wait for the first.
+  view.onMachines = show;
   // Something to draw: input, a machine's news, or a task that finished.
   let changed = true;
   const notify = () => {
@@ -308,7 +311,8 @@ export async function run(
     wake.notify();
   };
   view.wake = notify;
-  for (const endpoint of endpoints) {
+  /** Hooks a machine's connection to this viewer's screen, links and clipboard. */
+  const wire = (endpoint: Endpoint) => {
     endpoint.onChange = notify;
     const forwards = endpoint.machine.forwards;
     if (forwards) {
@@ -361,7 +365,53 @@ export async function run(
       const output = probe.clipboard.takeOutput();
       if (output) viewer.writeAll(output);
     };
-  }
+  };
+  for (const endpoint of endpoints) wire(endpoint);
+  // An added machine joins the others; the lists' highlights keep to their rows.
+  adds.changed = notify;
+  adds.added = profile => {
+    const endpoint = sshEndpoint(profile, probe, host);
+    endpoints.push(endpoint);
+    profiles.set(endpoint, profile);
+    view.adopt(endpoint.machine);
+    endpoint.controller = view;
+    wire(endpoint);
+    view.dirty = true;
+  };
+  /** Forgets a remote machine, as `corgi machine remove` does, and drops its
+   * connection; its agents keep running there. Shown, it gives way to this computer. */
+  const removeMachine = async (endpoint: Endpoint) => {
+    if (!endpoint.remote) return;
+    try {
+      await machines.remove(endpoint.name, profiles.get(endpoint) ?? null);
+    } catch (error) {
+      const name = endpoint.name,
+        reason = errors.name(error) ?? i18n.t`unknown error`;
+      view.notice(` Couldn't remove ${name}: ${reason}`);
+      return notify();
+    }
+    const index = endpoints.indexOf(endpoint);
+    if (index < 0) return;
+    if (endpoint === active) {
+      choose(endpoints[0], null);
+      if (workspaces.open) active!.deactivate();
+    }
+    if (behind?.endpoint === endpoint) behind = null;
+    if (paste_owner?.endpoint === endpoint) paste_owner = null;
+    if (clipboard.owner?.endpoint === endpoint) clipboard.owner = null;
+    if (connection_hover.machine === endpoint.name) closeCard();
+    endpoints.splice(index, 1);
+    profiles.delete(endpoint);
+    view.forget(endpoint.machine);
+    // The dropdown stays, the last SSH machine gone too: it can add one.
+    if (workspaces.open) workspaces.settle();
+    notify();
+    await endpoint.close();
+  };
+  view.onRemoveMachine = machine => {
+    const endpoint = endpoints.find(e => e.machine === machine);
+    if (endpoint) void removeMachine(endpoint);
+  };
   const accept = (input: Input) => {
     const value = Buffer.from(input.bytes).toString();
     const key = input.kind === "key" ? input.key : null;
@@ -370,6 +420,12 @@ export async function run(
     const codepoint = key?.codepoint ?? (input.bytes.length === 1 ? input.bytes[0] : null);
     const cp = key?.mods.ctrl && codepoint !== null && codepoint >= 64 && codepoint < 128 ? codepoint & 31 : codepoint;
     if (paste) {
+      // A host pasted into the machine dropdown's search, unless a card covers it.
+      if (workspaces.open && !paste_owner) {
+        if (input.kind === "paste" && !diagnostic.open && !connectivity.open)
+          workspaces.list.type(Buffer.from(input.bytes).toString());
+        return;
+      }
       if (input.kind === "paste_start")
         paste_owner =
           !workspaces.open && !diagnostic.open && !connectivity.open
@@ -445,10 +501,12 @@ export async function run(
       const x = hover_mouse.x,
         y = hover_mouse.y;
       const header = sidebar.machineHeaderAt(side, x, y);
-      if (header && hover_mouse.button === 0 && !hover_mouse.release) {
+      if (header && (hover_mouse.button === 0 || hover_mouse.button === 2) && !hover_mouse.release) {
         const endpoint = endpoints.find(e => e.name === header.machine);
         if (endpoint) {
-          if (sidebar.machineDiagnosticAt(side, view.workspaceRows(), x, y)) diagnostic.show(endpoint);
+          // A right press opens a remote machine's menu.
+          if (hover_mouse.button === 2) view.openMachineMenu(endpoint.machine, x, y);
+          else if (sidebar.machineDiagnosticAt(side, view.workspaceRows(), x, y)) diagnostic.show(endpoint);
           else view.toggleMachine(endpoint.machine);
           connection_hover.clear();
           view.connection_card = null;
@@ -514,10 +572,10 @@ export async function run(
           if (button === 64 || button === 65) workspaces.move(button === 64 ? -1 : 1);
           else if (button === 0 || button === 32 || button === 35) {
             const index = workspaces.hit(side, x, y);
-            if (index !== null) workspaces.cursor = index;
+            if (typeof index === "number") workspaces.cursor = index;
             if (button === 0) {
-              if (index !== null) filter();
-              else close();
+              if (typeof index === "number") filter();
+              else if (index === null) close();
               navigation_mouse = true;
             }
           }
@@ -527,14 +585,17 @@ export async function run(
       if (!workspaces.open && view.workspaceDragInput(x, y, button, !pressed)) return;
     }
     if (workspaces.open) {
+      // A removal waits only on the very next key.
+      if (cp !== 24) workspaces.removing = null;
       if (value === "!") {
-        const endpoint = endpoints[workspaces.cursor - 1];
+        const endpoint = workspaces.endpoint();
         if (endpoint) diagnostic.show(endpoint);
         return;
       }
       switch (cp) {
+        // A search goes first, then the dropdown.
         case 27:
-          close();
+          if (!workspaces.list.leave()) close();
           return;
         // As in a pane: it leaves only before anything has come up.
         case 3:
@@ -558,17 +619,18 @@ export async function run(
         case 18:
           workspaces.retry();
           return;
-        case 24:
-          workspaces.pause();
+        case 24: {
+          const endpoint = workspaces.remove();
+          if (endpoint) void removeMachine(endpoint);
           return;
+        }
       }
-      if (!key?.mods.ctrl && !key?.mods.alt && codepoint !== null && codepoint >= 32 && codepoint < 127) {
-        const index = endpoints.findIndex(endpoint =>
-          endpoint.name.toLowerCase().startsWith(String.fromCodePoint(codepoint).toLowerCase()),
-        );
-        if (index >= 0) workspaces.cursor = index + 1;
-        else if (codepoint === 97) workspaces.cursor = 0;
-      }
+      // Typing searches; ⌫, ^U and ^W edit it.
+      if (cp === 8 || cp === 21 || cp === 23 || cp === 127) workspaces.list.key(cp);
+      else if (!key?.mods.ctrl && !key?.mods.alt && codepoint !== null && codepoint >= 32 && codepoint < 127)
+        workspaces.list.key(codepoint);
+      // Typing can come several characters at a time.
+      else if (input.kind === "text") workspaces.list.type(value);
       return;
     }
     // With nothing on screen yet, Ctrl+C leaves; after that it's the agent's.
@@ -581,10 +643,6 @@ export async function run(
       if (value === "!" && diagnostic.show(active!)) return;
       if (cp === 18) {
         active!.retry();
-        return;
-      }
-      if (cp === 24) {
-        active!.pause();
         return;
       }
     }
@@ -731,9 +789,18 @@ export async function run(
         view.sync_notice = syncNotice(Date.now());
         frame = active.render();
         if (workspaces.open) frame = (typeof frame === "string" ? frame : frame.text()) + workspaces.draw(side);
-        if (connectivity.open)
+        // A card hides the pictures under it, the dropdown's reception too.
+        if (connectivity.open) {
           frame = (typeof frame === "string" ? frame : frame.text()) + connectivity.draw(cols, height);
-        if (diagnostic.open) frame = (typeof frame === "string" ? frame : frame.text()) + diagnostic.draw(cols, height);
+          view.framePictures()?.coverAll(connectivity.box);
+        }
+        if (diagnostic.open) {
+          frame = (typeof frame === "string" ? frame : frame.text()) + diagnostic.draw(cols, height);
+          if (diagnostic.box) view.framePictures()?.coverAll(diagnostic.box);
+        }
+        // A card over the dropdown has the keys, and no cursor shows.
+        if (workspaces.open && (connectivity.open || diagnostic.open))
+          frame = (typeof frame === "string" ? frame : frame.text()) + "\x1b[?25l";
         // Unreachable, the screen changes only with the notice's countdown:
         // that's no reason to draw at full rate.
         const moved = !composition.same(frame, previous) && active.status === "online";
@@ -789,6 +856,7 @@ export async function run(
     const until = Date.now() + framePacing.settle_ms;
     while (probe.pacer.unanswered() && !stdin.ended && Date.now() < until) await wake.wait(until - Date.now());
     stdin.close();
+    adds.close();
     await Promise.all(endpoints.map(endpoint => endpoint.close()));
     viewer.writeAll(host.images.close());
     viewer.close(view);
@@ -819,7 +887,6 @@ function forwardError(error: unknown): string {
 export function unreachable(endpoint: Pick<Endpoint, "status" | "failing">): boolean {
   switch (endpoint.status) {
     case "offline":
-    case "paused":
     case "attention":
     case "incompatible":
       return true;
