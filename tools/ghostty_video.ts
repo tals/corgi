@@ -1018,8 +1018,8 @@ export function badgeTiles(
   const y = times.map(() => Math.round(rest.bottom - height / 2));
   // Frames a swap of the badge's texts takes.
   const swapping = Math.round(0.3 * fps);
-  // The card last drawn, whose badge may still be sinking away.
-  let last: { k: number; b: number } | null = null;
+  // The card last drawn, whose badge may still be sinking away, and the frame its rise began.
+  let last: { k: number; b: number; rose: number } | null = null;
   for (const [k, card] of cards.entries()) {
     const away = card.place === "bottom" ? travel : -travel;
     const at = Math.round(rest[card.place] - height / 2);
@@ -1028,10 +1028,21 @@ export function badgeTiles(
     // that has gone. At the same edge the badge stays up: within one
     // speed-up it carries on, and a new one swaps its texts in over the gap.
     const prior = last && cards[last.k];
-    const follows = last !== null && card.a < last.b + outro;
-    const here = follows && prior?.place === card.place;
+    const follows: boolean = last !== null && card.a < last.b + outro;
+    const here: boolean = follows && prior?.place === card.place;
     const begin = follows && !here ? last!.b + outro : card.a;
     if (begin > card.b) continue;
+    // Staying up, it carries on rising from where the last left off.
+    const rose: number = here ? last!.rose : begin;
+    const risen = (i: number) => {
+      const step = clamp((i - rose + 1) / intro);
+      return { shift: away * (1 - backOut(step)), fade: 1 - (1 - clamp(step / 0.7)) ** 3 };
+    };
+    // Sinking away starts from wherever it had risen to.
+    const sunk = (step: number) => {
+      const from = risen(card.b);
+      return { shift: from.shift + (away - from.shift) * step ** 2, fade: from.fade * (1 - step ** 1.5) };
+    };
     let swap = (_i: number): Swap | undefined => undefined;
     if (last !== null && here) {
       const [end, was] = [last.b, looks[last.b]!];
@@ -1040,7 +1051,7 @@ export function badgeTiles(
       if (!carries)
         swap = i => (i - end < span ? { ...was, card: was.card, step: (i - end) / span, all: true } : undefined);
       for (let i = end + 1; i < card.a; i++) {
-        looks[i] = { card: k, ...texts(carries ? i : card.a), shift: 0, fade: 1, swap: swap(i) };
+        looks[i] = { card: k, ...texts(carries ? i : card.a), ...risen(i), swap: swap(i) };
         y[i] = at;
       }
     }
@@ -1048,7 +1059,6 @@ export function badgeTiles(
     let changed = card.a;
     for (let i = begin; i <= Math.min(times.length - 1, card.b + outro - 1); i++) {
       const inside = i <= card.b;
-      const step = inside ? (here ? 1 : clamp((i - begin + 1) / intro)) : (i - card.b) / outro;
       const now = texts(Math.min(i, card.b));
       if (inside && i > card.a && speeds[i] !== speeds[i - 1]) changed = i;
       const relabel =
@@ -1058,13 +1068,12 @@ export function badgeTiles(
       looks[i] = {
         card: k,
         ...now,
-        shift: away * (inside ? 1 - backOut(step) : step ** 2),
-        fade: inside ? 1 - (1 - clamp(step / 0.7)) ** 3 : 1 - step ** 1.5,
+        ...(inside ? risen(i) : sunk((i - card.b) / outro)),
         swap: (inside ? swap(i) : undefined) ?? relabel,
       };
       y[i] = at;
     }
-    last = { k, b: card.b };
+    last = { k, b: card.b, rose };
   }
   const blank = new Uint8Array(width * height * 4);
   const draw = (look: BadgeLook) => {

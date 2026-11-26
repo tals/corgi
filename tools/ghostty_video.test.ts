@@ -419,6 +419,29 @@ describe("badgeTiles", () => {
     expect(leftSide(badge, 170)).toBe(leftSide(badge, 120));
   });
 
+  test("keeps rising, without a jump, when a short speed-up is followed by another", () => {
+    // A three-frame run ends early in the rise; the next starts two frames later.
+    const badge = take2(200, [10, 12], [15, 180]);
+    /** How far down the badge sits, by its opacity. */
+    const depth = (i: number) => {
+      const tile = badge.frame(i);
+      let [sum, weight] = [0, 0];
+      for (let p = 3; p < tile.length; p += 4)
+        [sum, weight] = [sum + Math.floor(p / 4 / badge.width) * tile[p], weight + tile[p]];
+      return sum / weight;
+    };
+    for (const i of range(13, 45)) {
+      expect(Math.abs(depth(i) - depth(i - 1))).toBeLessThan(12);
+      expect(alpha(badge.frame(i)) / alpha(badge.frame(i - 1))).toBeLessThan(1.6);
+    }
+  });
+
+  test("sinks away from wherever it had risen to", () => {
+    // A run too short to finish rising, then nothing: no jump up before it sinks.
+    const badge = take2(100, [10, 14]);
+    for (const i of range(15, 30)) expect(alpha(badge.frame(i))).toBeLessThanOrEqual(alpha(badge.frame(i - 1)));
+  });
+
   test("swaps its label when the speed changes", () => {
     const speeds = range(0, 300).map(i => (i < 10 ? 1 : i <= 100 ? 8 : i <= 290 ? 4 : 1));
     let t = 0;
