@@ -721,6 +721,15 @@ export function pointerTiles(
   const shapes = [...take.shapes].sort((a, b) => a.t - b.t);
   // The wheel's buttons don't show a press.
   const presses = pointer.filter(e => e.action === "press");
+  // Time as the video plays it: the wall time between frames over the later one's speed.
+  const clock: number[] = [];
+  times.forEach((t, i) => clock.push(i ? clock[i - 1] + (t - times[i - 1]) / (speeds[i] ?? 1) : t));
+  const clockAt = (t: number) => {
+    const j = times.findIndex(time => time >= t);
+    if (j === -1) return clock.at(-1)! + (t - times.at(-1)!);
+    return j ? clock[j - 1] + (t - times[j - 1]) / (speeds[j] ?? 1) : clock[0] - (times[0] - t);
+  };
+  const pressed = presses.map(press => clockAt(press.t));
   const looks: (Look | null)[] = [];
   const [x, y]: [number[], number[]] = [[], []];
   let grow = 1,
@@ -744,8 +753,8 @@ export function pointerTiles(
     let zoom = grow;
     const [cx, cy] = [Math.round(px), Math.round(py)];
     const rings: [number, number, number][] = [];
-    for (const press of presses) {
-      const since = (t - press.t) / speed;
+    for (const [k, press] of presses.entries()) {
+      const since = clock[i] - pressed[k];
       if (since < 0 || since > 450) continue;
       if (since < 200) zoom *= 1 - 0.15 * Math.sin((Math.PI * since) / 200);
       rings.push([press.x * scale - cx + size / 2, press.y * scale - cy + size / 2, since / 450]);
@@ -972,13 +981,17 @@ export function badgeTiles(
     drop = tall * 0.08;
   const label = (speed: number) => `×${speed}`;
   const measure = (text: string, stroke: number) => typeset(text, 0, 0, cap, stroke).width;
+  // A card per edge it sits at in each sped-up run; its clock counts from the run's start.
   const cards = runsOf(speeds.map(speed => speed > 1))
     .filter(([, , fast]) => fast)
-    .map(([a, b]) => {
-      const slot = Math.max(...speeds.slice(a, b + 1).map(speed => measure(label(speed), bold)));
-      const clock = measure(elapsed(times[b] - times[a]), thin);
-      return { a, b, slot, clock, across: 2 * pad + slot + 2 * gap + clock, place: places[a] };
-    });
+    .flatMap(([from, to]) =>
+      runsOf(places.slice(from, to + 1)).map(([a, b, place]) => {
+        [a, b] = [from + a, from + b];
+        const slot = Math.max(...speeds.slice(a, b + 1).map(speed => measure(label(speed), bold)));
+        const clock = measure(elapsed(times[b] - times[from]), thin);
+        return { a, b, from, place, slot, clock, across: 2 * pad + slot + 2 * gap + clock };
+      }),
+    );
   const width = Math.ceil(Math.max(0, ...cards.map(card => card.across)) + 2 * blur + 4);
   const height = 2 * Math.ceil(tall / 2 + travel + blur + drop + 2);
   const rest = { top: margin + tall / 2, bottom: videoHeight - margin - tall / 2 };
@@ -986,13 +999,16 @@ export function badgeTiles(
   const y = times.map(() => Math.round(rest.bottom - height / 2));
   cards.forEach((card, k) => {
     const away = card.place === "bottom" ? travel : -travel;
-    for (let i = card.a; i <= Math.min(times.length - 1, card.b + outro - 1); i++) {
+    // Moved to the other edge, it rises in there once it has sunk away from the last.
+    const begin = cards[k - 1]?.b === card.a - 1 ? card.a + outro - 1 : card.a;
+    if (begin > card.b) return;
+    for (let i = begin; i <= Math.min(times.length - 1, card.b + outro - 1); i++) {
       const [inside, at] = [i <= card.b, Math.min(i, card.b)];
-      const step = inside ? clamp((i - card.a + 1) / intro) : (i - card.b) / outro;
+      const step = inside ? clamp((i - begin + 1) / intro) : (i - card.b) / outro;
       looks[i] = {
         card: k,
         label: label(speeds[at]),
-        clock: elapsed(times[at] - times[card.a]),
+        clock: elapsed(times[at] - times[card.from]),
         shift: away * (inside ? 1 - backOut(step) : step ** 2),
         fade: inside ? 1 - (1 - clamp(step / 0.7)) ** 3 : 1 - step ** 1.5,
       };

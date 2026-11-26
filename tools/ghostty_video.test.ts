@@ -282,6 +282,15 @@ describe("pointerTiles", () => {
     expect(opaque(cut.frame(6))).toBe(opaque(cut.frame(29)));
   });
 
+  test("keeps a press's ring moving on when the speed changes", () => {
+    const pressed: video.PointerEvent[] = [{ t: 1000, x: 40, y: 40, action: "press" }];
+    // 40 frames at real time, by when the ring is gone, then 40 at 8x.
+    const at = [...times(1000, 40), ...range(1, 41).map(i => 1000 + (39 + 8 * i) * frame)];
+    const speeds = [...Array(40).fill(1), ...Array(40).fill(8)];
+    const tiles = video.pointerTiles(take(pressed), at, 1, 20, video.FPS, speeds);
+    expect(opaque(tiles.frame(41))).toBe(opaque(tiles.frame(79)));
+  });
+
   test("plays a press's ring at the video's pace", () => {
     const pressed: video.PointerEvent[] = [{ t: 1000, x: 40, y: 40, action: "press" }];
     const [fast, real] = [4, 1].map(speed =>
@@ -351,6 +360,24 @@ describe("badgeTiles", () => {
     expect(high.y[100]).toBeLessThan(size[1] / 2);
     expect(low.y[100]).toBeGreaterThan(size[1] / 2);
     expect(low.x).toBe(Math.round((size[0] - low.width) / 2));
+  });
+
+  test("moves to the other edge when a speed command asks, after sinking away", () => {
+    const speeds = range(0, 300).map(i => (i >= 10 && i <= 290 ? 8 : 1));
+    const places = range(0, 300).map((i): video.Place => (i > 150 ? "top" : "bottom"));
+    let t = 0;
+    const badge = video.badgeTiles(
+      speeds.map(s => (t += s * frame)),
+      speeds,
+      places,
+      28,
+      size,
+    );
+    expect(badge.y[100]).toBeGreaterThan(size[1] / 2);
+    // The bottom one sinks away before the top one comes down.
+    expect(badge.y[155]).toBeGreaterThan(size[1] / 2);
+    expect(badge.y[250]).toBeLessThan(size[1] / 2);
+    expect(alpha(badge.frame(250))).toBeGreaterThan(0);
   });
 
   test("redraws only when its clock or motion changes", () => {
