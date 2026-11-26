@@ -230,7 +230,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       else changed = await cli.synchronize(args[1], args[2], args[3], progress, cancellation.signal);
       process.stdout.write(JSON.stringify({ type: changed ? "ready" : "current" }) + "\n");
     } catch (error) {
-      const message = errors.name(error) || "Machine update failed";
+      const message = errors.name(error) || (adding ? "Machine add failed" : "Machine update failed");
       process.stdout.write(JSON.stringify({ type: "error", message: message.slice(0, 1024) }) + "\n");
       throw error;
     } finally {

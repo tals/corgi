@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as ssh from "./ssh";
@@ -47,13 +47,19 @@ test("an SSH config's hosts are its plain Host aliases, through Includes, less p
         "Host *",
         "  ServerAliveInterval 30",
         "Include config.d/*.conf",
+        "Include ~/.ssh/hosts/*/config",
       ].join("\n"),
     );
     writeFileSync(join(home, ".orbstack/ssh_config"), "Host orb\n  Hostname localhost\n");
     writeFileSync(join(folder, "config.d/b.conf"), "Host pi\nHost devbox\n");
     writeFileSync(join(folder, "config.d/a.conf"), "host lab\nInclude config.d/a.conf\n");
     writeFileSync(join(folder, "config.d/skipped.txt"), "Host skipped\n");
-    expect(ssh.configHosts(home)).toEqual(["orb", "devbox", "gpu-box", "nocap", "quoted", "lab", "pi"]);
+    // A wildcard can name folders too, and a config can be a link, as dotfiles keep them.
+    for (const name of ["work", "home"]) mkdirSync(join(folder, "hosts", name), { recursive: true });
+    writeFileSync(join(folder, "hosts/work/config"), "Host build\n");
+    writeFileSync(join(home, "linked"), "Host nas\n");
+    symlinkSync(join(home, "linked"), join(folder, "hosts/home/config"));
+    expect(ssh.configHosts(home)).toEqual(["orb", "devbox", "gpu-box", "nocap", "quoted", "lab", "pi", "nas", "build"]);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -68,4 +74,33 @@ test("a failed SSH command's reason is the system's, from OpenSSH's last complai
     "Could not resolve hostname",
   );
   expect(ssh.reason("Permission denied (publickey).")).toBeNull();
+});
+
+test("a probe finishes as ssh exits, though a connection ssh left behind holds its output open", async () => {
+  const bin = mkdtempSync(join(tmpdir(), "corgi-fake-ssh-"));
+  try {
+    writeFileSync(
+      join(bin, "ssh"),
+      '#!/bin/sh\necho "debug1: Connection established" >&2\n(sleep 10 >/dev/null) &\necho "Linux x86_64"\n',
+      { mode: 0o755 },
+    );
+    // In a process of its own, whose ssh is the one above.
+    const script = `const ssh = await import(${JSON.stringify(join(import.meta.dir, "ssh.ts"))});
+const stages = [];
+const found = await ssh.probe("box", stage => stages.push(stage), new AbortController().signal);
+console.log(JSON.stringify({ found, stages }));`;
+    const started = performance.now(),
+      child = Bun.spawn([process.execPath, "-e", script], {
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        stdout: "pipe",
+        stderr: "inherit",
+      });
+    expect(JSON.parse(await new Response(child.stdout).text())).toEqual({
+      found: { system: "Linux x86_64" },
+      stages: ["authenticating"],
+    });
+    expect(performance.now() - started).toBeLessThan(5000);
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
 });

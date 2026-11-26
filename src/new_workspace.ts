@@ -804,6 +804,10 @@ export class Dialog extends nameDialog.Dialog {
         case "machine_list":
         case "key":
           break;
+        // esc's label, as esc does: it leaves a search first.
+        case "cancel":
+          if (!this.list.leave()) this.closeMachines();
+          break;
         default:
           this.closeMachines();
       }
@@ -1051,7 +1055,8 @@ export class View extends nameDialog.View {
           return machineAdd.divider;
       }
     };
-    const choices = d.list.rows().map((row, i) => choice(row, i === d.highlight));
+    const highlight = d.highlight,
+      choices = d.list.rows().map((row, i) => choice(row, i === highlight));
     // Wide enough for a probe's or an add's note beside a long name, and as
     // wide as every machine and host with nothing typed: a search or an add's
     // progress shortens to fit rather than widen the list.

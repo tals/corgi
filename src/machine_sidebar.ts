@@ -90,9 +90,10 @@ export class Workspaces {
     this.endpoint()?.pause();
   }
   private choices(width: number): dropdown.Choice[] {
-    const now = performance.now();
+    const now = performance.now(),
+      cursor = this.cursor;
     return this.list.rows().map((row, i): dropdown.Choice => {
-      const hovered = this.cursor === i;
+      const hovered = cursor === i;
       switch (row.kind) {
         case "all":
           return { text: "all", note: "All workspaces", current: this.filter === null, hovered };

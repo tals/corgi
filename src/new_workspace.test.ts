@@ -1010,7 +1010,10 @@ test("typing in the list of machines searches it, offers a host nothing names, a
   d.key(127);
   expect(d.list.query).toBe("dev-");
   expect(screen(d)).toMatch(/\+ dev-/);
-  d.key(27);
+  // esc's label, clicked, leaves the search first, as esc does.
+  const v = d.view(100, 30)!,
+    esc = v.buttons().at(-1)!;
+  d.press(v, esc.x, v.buttons_y, 0);
   expect([d.choosing, d.list.query, labels(d)]).toEqual([true, null, ["choose", "machine", "close"]]);
   d.key(27);
   expect([d.choosing, d.machine]).toEqual([false, local]);

@@ -129,6 +129,8 @@ export async function add(
   progress?: Report,
   signal?: AbortSignal,
 ): Promise<machines.Profile> {
+  machines.name(name);
+  machines.target(target);
   if (machines.read().some(p => p.name === name)) throw Error("MachineExists");
   process.stderr.write(`Checking ${target} through SSH…\n`);
   const deployment = dev.enabled() ? dev.initial() : undefined;

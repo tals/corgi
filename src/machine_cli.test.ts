@@ -25,3 +25,8 @@ test("a remote command takes the local CLI's --json and --viewer", async () => {
     written.mockRestore();
   }
 });
+
+test("an add checks the machine's name and target before it touches anything, as its helper is handed them raw", async () => {
+  await expect(machineCli.add("bad name", "host")).rejects.toThrow("InvalidMachineName");
+  await expect(machineCli.add("box", "-oProxyCommand=x")).rejects.toThrow("InvalidSshTarget");
+});

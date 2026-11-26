@@ -6,7 +6,7 @@
 //! as `corgi machine add` does; the viewer then shows it beside the others.
 import * as machines from "./machines";
 import * as machineUpdate from "./machine_update";
-import type * as progress from "./machine_progress";
+import type * as machineProgress from "./machine_progress";
 import * as ssh from "./ssh";
 import * as errors from "./errors";
 import * as i18n from "./i18n";
@@ -15,16 +15,18 @@ import { Style, fg, type Token } from "./palette";
 import { Rect } from "./layout";
 import { matches } from "./search";
 import { Typed } from "./text_area";
-import { displayWidth, writeEllipsis, type Writer } from "./text";
+import { codepointWidth, displayWidth, writeEllipsis, type Writer } from "./text";
 
 /** An add under way, with its progress, or how it failed: SSH didn't know
  * the host or couldn't log in, or something else, which `summary` names. */
-export type State = { adding: progress.Status } | { failed: ssh.Failure; summary: string };
+export type State = { adding: machineProgress.Status } | { failed: ssh.Failure; summary: string };
 /** A host's probe: how far its login has got since `since`, in
  * `performance.now()` ms, or what it found. */
 export type Probe = { stage: ssh.Stage; since: number } | ssh.Probed;
 /** How long typing rests on a host before it's probed. */
 export const rest_ms = 600;
+/** The most a search holds: past any host's name, short of a paste of a log. */
+const query_max = 256;
 interface Deps {
   hosts: () => string[];
   saved: () => machines.Profile[];
@@ -76,6 +78,12 @@ export class Adds {
     }
     this.want(null);
     this.probes.clear();
+    // Why an add failed then gives way to what probing finds now.
+    for (const [name, state] of this.states) if ("failed" in state && !this.jobs.has(name)) this.states.delete(name);
+  }
+  /** Whether `target` is a saved machine's name or target. */
+  saves(target: string): boolean {
+    return this.saved.includes(target);
   }
   /** The hosts that could be machines: neither one of `shown`, by name, nor saved. */
   candidates(shown: readonly string[]): string[] {
@@ -92,7 +100,7 @@ export class Adds {
     if (this.jobs.has(name)) return;
     const job = new AbortController();
     this.jobs.set(name, job);
-    this.states.set(name, { adding: { message: "Checking…" } });
+    this.states.set(name, { adding: { message: i18n.t`Checking…` } });
     this.changed();
     this.deps
       .add(name, target, {
@@ -200,8 +208,9 @@ export type HostRow = Extract<Row<unknown>, { kind: "host" }>;
 export class Listing<T extends { name: string }> {
   /** What's typed; null until something is. */
   query: string | null = null;
-  /** The highlighted row. */
-  cursor = 0;
+  private index = 0;
+  /** The highlighted row, which the highlight stays on as rows come and go. */
+  private held: Row<T> | null = null;
   private bytes = new Typed();
   private reserved = 0;
   constructor(
@@ -210,6 +219,27 @@ export class Listing<T extends { name: string }> {
     /** An "all" row first, while nothing is typed. */
     private readonly all = false,
   ) {}
+  /** The highlighted row's index. An add that finishes moves its host up
+   * among the machines, and the rows between; the highlight keeps to its
+   * row, and to the machine a highlighted host became. */
+  get cursor(): number {
+    const held = this.held;
+    if (!held) return this.index;
+    const rows = this.rows();
+    if (rows[this.index] && sameRow(rows[this.index], held)) return this.index;
+    const index = rows.findIndex(
+      row => sameRow(row, held) || (held.kind === "host" && row.kind === "machine" && row.machine.name === held.name),
+    );
+    if (index >= 0) {
+      this.index = index;
+      this.held = rows[index];
+    }
+    return this.index;
+  }
+  set cursor(index: number) {
+    this.index = index;
+    this.held = this.rows()[index] ?? null;
+  }
   /** Opens on row `cursor`, with the SSH config read again. */
   open(cursor = 0): void {
     this.adds?.refresh();
@@ -248,12 +278,18 @@ export class Listing<T extends { name: string }> {
   row(index = this.cursor): Row<T> | null {
     return this.rows()[index] ?? null;
   }
-  /** What's typed, as a host to add, unless it names a machine or a host listed. */
+  /** What's typed, as a host to add, unless it's a machine already, saved or
+   * shown, or names one or a host listed: one name, one machine. */
   private offer(query: string): HostRow | null {
     const target = query.trim(),
-      name = named(target);
-    if (!this.adds || !name) return null;
-    if (this.machines().some(machine => machine.name === name) || this.hosts().includes(target)) return null;
+      name = named(target),
+      adds = this.adds;
+    if (!adds || !name || adds.saves(target) || adds.saves(name)) return null;
+    if (
+      this.machines().some(machine => machine.name === name) ||
+      this.hosts().some(host => host === target || host === name)
+    )
+      return null;
     return { kind: "host", name, target, typed: true };
   }
   /** The most rows any search lists; it only grows while the list is open. */
@@ -271,11 +307,6 @@ export class Listing<T extends { name: string }> {
     let cursor = Math.max(0, Math.min(rows.length - 1, this.cursor + delta));
     while (rows[cursor]?.kind === "divider") cursor += step;
     if (cursor >= 0 && cursor < rows.length) this.cursor = cursor;
-  }
-  /** Highlights machine `name`, as one just added takes its host's place. */
-  select(name: string): void {
-    const index = this.rows().findIndex(row => row.kind === "machine" && row.machine.name === name);
-    if (index >= 0) this.cursor = index;
   }
   /** Takes a key's byte while the list is open: typing, ⌫, ^U and ^W edit
    * what's typed. False for a byte that isn't the search's. */
@@ -303,7 +334,7 @@ export class Listing<T extends { name: string }> {
   type(text: string): void {
     let clean = text.replace(/[\x00-\x1f\x7f]/g, "");
     if (this.query === null) clean = clean.trimStart();
-    if (clean) this.retype((this.query ?? "") + clean);
+    if (clean) this.retype([...((this.query ?? "") + clean)].slice(0, query_max).join(""));
   }
   /** Stops searching; false when nothing was typed. */
   leave(): boolean {
@@ -367,7 +398,7 @@ export function note(state: State | null, probe: Probe | null, hovered: boolean,
     return { text: seconds ? `${label} ${seconds}s` : label, tone: "warm" };
   }
   if (probe && "system" in probe) return { text: "✓ " + probe.system, tone: "accent" };
-  if (probe) return failed(probe.failed, probe.reason ?? "error");
+  if (probe) return failed(probe.failed, probe.reason ?? i18n.t`failed`);
   return { text: hovered ? i18n.t`add` : "", tone: "faint" };
 }
 function failed(failure: ssh.Failure, summary: string): Note {
@@ -427,14 +458,21 @@ function drawField(w: Writer, box: Rect, query: string | null): string {
   w.write(`\x1b[${y + 1};${x + 1}H${style}`);
   w.splat(" ", width);
   w.write(`\x1b[${y + 1};${x + 2}H`);
-  let shown = query ?? "";
-  if (shown) {
-    while (shown && displayWidth(shown) > room) shown = [...shown].slice(1).join("");
-    w.write(shown);
-  } else {
+  const shown = tail(query ?? "", room);
+  if (shown) w.write(shown);
+  else {
     w.write(fg("muted"));
     writeEllipsis(w, i18n.t`Search or type a host`, room);
   }
   w.write("\x1b[0m");
   return `\x1b[0m\x1b[${y + 1};${x + 2 + displayWidth(shown)}H\x1b[?25h`;
+}
+/** The end of `text` that fits in `room` cells. */
+function tail(text: string, room: number): string {
+  const chars = [...text];
+  let start = chars.length,
+    used = 0;
+  while (start > 0 && used + codepointWidth(chars[start - 1].codePointAt(0)!) <= room)
+    used += codepointWidth(chars[--start].codePointAt(0)!);
+  return chars.slice(start).join("");
 }

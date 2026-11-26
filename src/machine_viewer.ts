@@ -366,17 +366,14 @@ export async function run(
     };
   };
   for (const endpoint of endpoints) wire(endpoint);
-  // An added machine joins the others, and the picker's row follows it.
+  // An added machine joins the others; the lists' highlights keep to their rows.
   adds.changed = notify;
   adds.added = profile => {
-    const row = workspaces.list.row(),
-      following = workspaces.open && row?.kind === "host" && row.name === profile.name,
-      endpoint = sshEndpoint(profile, probe, host);
+    const endpoint = sshEndpoint(profile, probe, host);
     endpoints.push(endpoint);
     view.adopt(endpoint.machine);
     endpoint.controller = view;
     wire(endpoint);
-    if (following) workspaces.list.select(profile.name);
     view.dirty = true;
   };
   const accept = (input: Input) => {
@@ -387,9 +384,10 @@ export async function run(
     const codepoint = key?.codepoint ?? (input.bytes.length === 1 ? input.bytes[0] : null);
     const cp = key?.mods.ctrl && codepoint !== null && codepoint >= 64 && codepoint < 128 ? codepoint & 31 : codepoint;
     if (paste) {
-      // A host pasted into the machine dropdown's search.
+      // A host pasted into the machine dropdown's search, unless a card covers it.
       if (workspaces.open && !paste_owner) {
-        if (input.kind === "paste") workspaces.list.type(Buffer.from(input.bytes).toString());
+        if (input.kind === "paste" && !diagnostic.open && !connectivity.open)
+          workspaces.list.type(Buffer.from(input.bytes).toString());
         return;
       }
       if (input.kind === "paste_start")
@@ -756,6 +754,9 @@ export async function run(
         if (connectivity.open)
           frame = (typeof frame === "string" ? frame : frame.text()) + connectivity.draw(cols, height);
         if (diagnostic.open) frame = (typeof frame === "string" ? frame : frame.text()) + diagnostic.draw(cols, height);
+        // A card over the dropdown has the keys, and no cursor shows.
+        if (workspaces.open && (connectivity.open || diagnostic.open))
+          frame = (typeof frame === "string" ? frame : frame.text()) + "\x1b[?25l";
         // Unreachable, the screen changes only with the notice's countdown:
         // that's no reason to draw at full rate.
         const moved = !composition.same(frame, previous) && active.status === "online";

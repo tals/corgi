@@ -153,7 +153,12 @@ async function helper(
     const [code, result] = await Promise.all([exited, readProgress(child.stdout, progress)]);
     signal?.throwIfAborted();
     if (code !== 0 || (result?.type !== "ready" && result?.type !== "current")) {
-      const summary = result?.type === "error" ? result.message : "Update helper stopped before finishing.";
+      const summary =
+        result?.type === "error"
+          ? result.message
+          : args[0] === "__machine-add"
+            ? "Add helper stopped before finishing."
+            : "Update helper stopped before finishing.";
       throw new Failure(diagnostic.trim() || summary, summary);
     }
     return result.type;

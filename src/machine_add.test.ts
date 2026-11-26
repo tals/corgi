@@ -102,6 +102,9 @@ test("an add shows its progress, hands over the machine, and a failure says why 
   runs[4].reject(Error("RemoteDiscoveryFailed"));
   await rest();
   expect(note(a.state("pi"), null, false)).toEqual({ text: "RemoteDiscoveryFailed", tone: "hot" });
+  // A list opened again shows what probing finds now, not why an add failed then.
+  a.refresh();
+  expect(a.state("pi")).toBeNull();
   expect(changes).toBeGreaterThan(6);
   // A host not being added says ↵ adds it only while hovered.
   expect([note(null, null, false).text, note(null, null, true).text]).toEqual(["", "add"]);
@@ -118,9 +121,9 @@ test("an add stopped as the viewer leaves reports nothing more", async () => {
 
 const machine = (name: string) => ({ name });
 /** A list of `local` and `work`, with "all" first, over `hosts` from the SSH config. */
-function listing(hosts = ["devbox", "pi-lab"]) {
+function listing(hosts = ["devbox", "pi-lab"], saved: Profile[] = []) {
   const shown = [machine("local"), machine("work")];
-  const world = adds(hosts);
+  const world = adds(hosts, saved);
   const list = new Listing(() => shown, world.a, true);
   list.open();
   const labels = () =>
@@ -169,6 +172,31 @@ test("typing narrows the machines and hosts, and offers a host nothing names", (
   list.key(21);
   type("work");
   expect(labels()).toEqual(["work"]);
+});
+
+test("what's typed isn't offered as a second machine for a host saved or listed, and a search has a limit", () => {
+  const { list, labels, type } = listing(["devbox"], [profile("gpu", "tal@gpu-box")]);
+  for (const text of ["tal@gpu-box", "gpu", "tal@devbox"]) {
+    list.key(21);
+    type(text);
+    expect(labels()).toEqual([]);
+  }
+  // A paste of a log by mistake stops where no host's name would.
+  list.type("x".repeat(10_000));
+  expect(list.query).toHaveLength(256);
+});
+
+test("as an add finishes, the highlight keeps to its row, and a host's to the machine it became", () => {
+  const { list, shown, labels } = listing(["devbox", "pi", "nas"]);
+  list.cursor = 4;
+  expect(list.row()).toMatchObject({ kind: "host", name: "devbox" });
+  // pi, added from below, joins the machines above the divider.
+  shown.push(machine("pi"));
+  expect(labels()).toEqual(["all", "local", "work", "pi", "──", "devbox", "nas"]);
+  expect(list.row()).toMatchObject({ kind: "host", name: "devbox" });
+  list.cursor = 6;
+  shown.push(machine("nas"));
+  expect([list.cursor, list.row()]).toEqual([4, { kind: "machine", machine: shown[3] }]);
 });
 
 test("the list keeps the rows any search needs, and leaving a search returns to the row it was on", () => {

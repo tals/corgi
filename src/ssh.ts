@@ -1,7 +1,7 @@
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import * as preferences from "./preferences";
 import * as os from "./os";
 
@@ -167,6 +167,10 @@ export type Stage = "connecting" | "authenticating" | "running";
 export type Probed = { system: string } | { failed: Failure; reason: string | null };
 /** The longest a probe runs, past SSH's own connect timeout. */
 const probe_ms = 45_000;
+/** How long a probe still reads ssh's output once ssh has exited. A
+ * connection it left in the background (a jump host's shared connection,
+ * kept by ControlPersist) can hold that output open for minutes. */
+const drain_ms = 250;
 /** Logs in to `host` as a background connection does, without prompts,
  * and asks what system it runs; `stage` hears how far it has got. Null
  * once `signal` aborts it. */
@@ -185,26 +189,36 @@ export async function probe(host: string, stage: (stage: Stage) => void, signal:
   }, probe_ms);
   signal.addEventListener("abort", stop, { once: true });
   // What SSH said besides its debugging, for why it failed.
-  let said = "";
-  const stages = async () => {
-    const decoder = new TextDecoder();
-    let pending = "";
-    for await (const chunk of child.stderr) {
-      pending += decoder.decode(chunk, { stream: true });
-      for (let end = pending.indexOf("\n"); end >= 0; end = pending.indexOf("\n")) {
-        const line = pending.slice(0, end).trimEnd();
-        pending = pending.slice(end + 1);
-        if (line.startsWith("debug1: Connection established")) stage("authenticating");
-        else if (/^Authenticated to |^debug1: Authentication succeeded/.test(line)) stage("running");
-        else if (!line.startsWith("debug")) said = (said + line + "\n").slice(-8192);
+  let said = "",
+    settled = false;
+  const stderr = child.stderr.getReader(),
+    stages = async () => {
+      const decoder = new TextDecoder();
+      let pending = "";
+      for (let read = await stderr.read(); !read.done; read = await stderr.read()) {
+        pending += decoder.decode(read.value, { stream: true });
+        for (let end = pending.indexOf("\n"); end >= 0; end = pending.indexOf("\n")) {
+          const line = pending.slice(0, end).trimEnd();
+          pending = pending.slice(end + 1);
+          if (settled) continue;
+          if (line.startsWith("debug1: Connection established")) stage("authenticating");
+          else if (/^Authenticated to |^debug1: Authentication succeeded/.test(line)) stage("running");
+          else if (!line.startsWith("debug")) said = (said + line + "\n").slice(-8192);
+        }
+        if (pending.length > 65536) pending = "";
       }
-      if (pending.length > 65536) pending = "";
-    }
-  };
+    };
+  const drained = <T>(reading: Promise<T>, otherwise: T) =>
+    Promise.race([reading, Bun.sleep(drain_ms).then(() => otherwise)]);
   try {
-    const [code, output] = await Promise.all([child.exited, new Response(child.stdout).text(), stages()]);
+    const output = new Response(child.stdout).text(),
+      told = stages().catch(() => {});
+    const code = await child.exited;
+    const [text] = await Promise.all([drained(output, ""), drained(told, undefined)]);
+    settled = true;
+    void stderr.cancel().catch(() => {});
     if (signal.aborted) return null;
-    if (code === 0) return { system: systemName(output) };
+    if (code === 0) return { system: systemName(text) };
     return { failed: failure(said), reason: expired ? "timed out" : reason(said) };
   } finally {
     clearTimeout(timer);
@@ -286,14 +300,15 @@ function included(pattern: string, home: string, folder: string): string[] {
     : isAbsolute(pattern)
       ? pattern
       : join(folder, pattern);
-  const name = basename(path);
-  if (!/[*?[]/.test(name)) return [path];
-  const glob = new Bun.Glob(name);
+  const parts = path.split("/"),
+    first = parts.findIndex(part => /[*?[]/.test(part));
+  if (first < 0) return [path];
+  // Matched part by part, as glob(3) does, from the folder before the first wildcard.
+  const glob = new Bun.Glob(parts.slice(first).join("/"));
   try {
-    return readdirSync(dirname(path))
-      .filter(entry => glob.match(entry))
-      .sort()
-      .map(entry => join(dirname(path), entry));
+    return [
+      ...glob.scanSync({ cwd: parts.slice(0, first).join("/") || "/", absolute: true, followSymlinks: true }),
+    ].sort();
   } catch {
     return [];
   }
