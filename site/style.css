@@ -140,9 +140,10 @@ h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var
 .screen .game-link { position: absolute; z-index: 1; top: 0; height: 100%; cursor: pointer; }
 .screen .game-link:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .screen .b { font-weight: 700; }
-/* Only underlined cells are positioned; each positioned cell is a paint layer. */
-.screen .u { position: relative; }
+/* Only lined cells are positioned; each positioned cell is a paint layer. */
+.screen .u, .screen .o { position: relative; }
 .screen .u::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0.12em; border-bottom: 1px solid var(--ulc, currentColor); }
+.screen .o::before { content: ""; position: absolute; left: 0; right: 0; top: 0; border-top: 1px solid currentColor; }
 .screen .ud::after { border-bottom-style: dotted; }
 #v-watch { width: calc(var(--vis, 124) * var(--cell)); overflow: hidden; }
 /* A slice with a phone crop shows its --phone-cols columns there, larger. */

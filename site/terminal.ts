@@ -4,13 +4,14 @@
  * recorder reads Corgi's frames through it, and the page reads the rows it
  * has Corgi draw live.
  *
- * A cell is [text, fg, bg, bold, underline, underline color], with colors
- * named by palette token where Corgi's palette has them and #rrggbb otherwise.
+ * A cell is [text, fg, bg, bold, underline, underline color], and `true`
+ * after them when overlined, with colors named by palette token where
+ * Corgi's palette has them and #rrggbb otherwise.
  */
 import * as palette from "../src/palette";
 import * as text from "../src/text";
 
-export type Cell = [string, string | null, string | null, boolean, number, string | null];
+export type Cell = [string, string | null, string | null, boolean, number, string | null, true?];
 const tokens = new Map(Object.entries(palette.colors).map(([token, rgb]) => [rgb.join(","), token]));
 const color = (rgb: number[]) =>
   tokens.get(rgb.join(",")) ?? "#" + rgb.map(n => n.toString(16).padStart(2, "0")).join("");
@@ -29,6 +30,7 @@ export class Screen {
   inverse = false;
   ul = 0;
   ulc: string | null = null;
+  overline = false;
   constructor(
     readonly cols: number,
     readonly rows: number,
@@ -40,7 +42,7 @@ export class Screen {
   }
   reset() {
     this.fg = this.bg = this.ulc = null;
-    this.bold = this.inverse = false;
+    this.bold = this.inverse = this.overline = false;
     this.ul = 0;
   }
   put(ch: string) {
@@ -61,6 +63,7 @@ export class Screen {
       row[this.x] = this.inverse
         ? [ch, this.bg ?? "bg", this.fg ?? "text", this.bold, this.ul, this.ulc]
         : [ch, this.fg, this.bg, this.bold, this.ul, this.ulc];
+      if (this.overline) row[this.x].push(true);
       if (width === 2) row[this.x + 1] = ["", ...row[this.x].slice(1)] as Cell;
     }
     this.x += width;
@@ -91,6 +94,8 @@ export class Screen {
       else if (n === 27) this.inverse = false;
       else if (n === 4) this.ul = 1;
       else if (n === 24) this.ul = 0;
+      else if (n === 53) this.overline = true;
+      else if (n === 55) this.overline = false;
       else if ((n === 38 || n === 48 || n === 58) && parts[i + 1] === "2") {
         const c = color([Number(parts[i + 2]), Number(parts[i + 3]), Number(parts[i + 4])]);
         if (n === 38) this.fg = c;

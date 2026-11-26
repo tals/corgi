@@ -1271,6 +1271,11 @@ export class Controller {
     this.giveKeyboard({ sidebar: new sidebarFocus.State(cursor, folded ? list : null) });
     this.revealCursor(entries);
   }
+  /** Scrolls `list` to `offset`, where a badge counting its agents out of sight points. */
+  private scrollToActive(list: sidebar.Section, offset: number): void {
+    if (list === "workspaces") this.workspace_offset = offset;
+    else this.agentOffset().set(offset);
+  }
   /** Gives the keyboard back to the focused pane, putting a drawer away. */
   private leaveSidebar(): void {
     if (this.sidebar_focus) this.giveKeyboard("pane");
@@ -1509,6 +1514,7 @@ export class Controller {
         this.workspace_offset,
         rows.map(row => row.machine),
         rows.map(row => row.collapsed),
+        rows.map(sidebar.workspaceBadgeCounts),
       )
       .withEntries(entries)
       .withRename(this.inline_rename);
@@ -8615,6 +8621,7 @@ export class Controller {
         focus.cursor = { workspace: this.workspaceRef(this.archivedWorkspaces()[found.workspace].id) };
       else if (found.tag === "entry" && sidebarFocus.stops(entries[found.entry]))
         focus.cursor = { entry: entries[found.entry].target };
+      else if (found.tag === "active") return this.scrollToActive(found.list, found.offset);
       else {
         this.leaveSidebar();
         if (found.tag === "workspace_new") this.beginWorkspace(null);
@@ -9429,7 +9436,7 @@ export class Controller {
             this.openScopeMenu(true);
             break;
           case "active":
-            this.agentOffset().set(found.offset);
+            this.scrollToActive(found.list, found.offset);
             break;
           case "workspace": {
             const index = found.workspace;

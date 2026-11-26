@@ -162,7 +162,7 @@ process.stdin.on("data", () => process.stdout.write("\\x1b_Ga=d,d=I,i=730140,q=2
     const offset = pty.output.length;
     pty.write("\x1b_Gp=1,i=730031;OK\x1b\\");
     await pty.waitFor(output => output.slice(offset).includes(placement + "0"));
-    this.assertEqual(pty.output.split("\x1b_Ga=t,").length - 1, 1);
+    this.assertEqual(pty.output.split("\x1b_Ga=t,t=d,f=100,s=27,v=27,i=730031").length - 1, 1);
     pty.write("badge-input-ok\r");
     // Redirection creates the file before printf writes it.
     await this.until(() => existsSync(received) && file(received).length > 0);
