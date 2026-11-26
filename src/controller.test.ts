@@ -1566,6 +1566,8 @@ test("change folder browses from the workspace's folder and moves it there", asy
     await read();
     await s.input(bytes("\x1b[D"));
     await read();
+    expect(s.name_dialog.browser.folder()).toBe(join(root, "other"));
+    await s.input(bytes("\x1b[A"));
     expect(s.name_dialog.browser.folder()).toBe(join(root, "app"));
     await s.input(bytes("\r"));
     await s.settle();
