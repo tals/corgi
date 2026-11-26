@@ -267,7 +267,7 @@ test("the dropdown filters rows and keeps statuses available through outages", (
   side.workspace_scope = "all";
   const displayed = screen(side, view.workspaceRows(), workspaces.draw(side));
   expect(displayed).toContain("All workspaces");
-  expect(displayed).toMatch(/work\s+● online/);
+  expect(displayed).toMatch(/work\s+online ●/);
   workspaces.move(2);
   workspaces.selectFilter();
   expect(view.machineScope()).toBe("work");
@@ -313,8 +313,8 @@ test("under a divider, the dropdown lists the SSH config's other hosts, searches
   const open = rows();
   expect(open[3]).toMatch(/│ +Search or type a host +│/);
   expect(open[4]).toMatch(/✓ all +All workspaces/);
-  expect(open[5]).toMatch(/local +● online/);
-  expect(open[6]).toMatch(/work +● online/);
+  expect(open[5]).toMatch(/local +online ●/);
+  expect(open[6]).toMatch(/work +online ●/);
   expect(open[7]).toMatch(/├─+┤/);
   expect(open[8]).toMatch(/│ +devbox +│/);
   expect(open[9]).toMatch(/│ +pi +│/);
@@ -394,7 +394,7 @@ test("machine filter colors connection states and measured reception, including 
   const side = sidebar.View.init(100, 30, true, 0, 0).withWidth(64);
   remote.status = "online";
   remote.status = "connecting";
-  expect(frame(side, [], workspaces.draw(side)).text.split("\n")[6]).toContain("▂▄▆█ online");
+  expect(frame(side, [], workspaces.draw(side)).text.split("\n")[6]).toContain("online ▂▄▆█");
   expect(view.machine_filter).toBeNull();
 });
 

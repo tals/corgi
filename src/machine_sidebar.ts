@@ -118,12 +118,13 @@ export class Workspaces {
     const color = statusColor(status, endpoint.error, quality);
     const description =
       online && !endpoint.updateMessage && !endpoint.updateError ? endpoint.error || "online" : endpoint.description();
+    // The reception's bars, or online's dot, at the right edge, as the sidebar's headers keep them.
     const runs: dropdown.Run[] = [];
     if (quality !== null && note_room >= 6) {
       const bars = signalBars.runs(quality, this.view.framePictures());
-      runs.push(...bars, [" " + text.ellipsis(description, note_room - barsWidth(bars) - 1), color]);
+      runs.push([text.ellipsis(description, note_room - barsWidth(bars) - 1) + " ", color], ...bars);
     } else {
-      const state = online ? "● " + description : description;
+      const state = online ? text.ellipsis(description, Math.max(0, note_room - 2)) + " ●" : description;
       runs.push([text.ellipsis(state, note_room), color]);
     }
     return {
