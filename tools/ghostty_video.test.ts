@@ -60,6 +60,7 @@ describe("timeline", () => {
       pointer: [],
       shapes: [],
       steps: [],
+      opens: [],
       keys: [1000, 1250, 1400].map(t => ({ t, kind: "key", value: "esc" })),
     };
     const { events } = video.timeline(take, times, 10, screen, "demo.mp4");
@@ -143,6 +144,7 @@ describe("pointerTiles", () => {
     pointer,
     shapes: [],
     keys: [],
+    opens: [],
     steps: [],
   });
   const times = (from: number, count: number) => Array.from({ length: count }, (_, i) => from + i * frame);

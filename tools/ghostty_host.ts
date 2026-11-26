@@ -108,6 +108,11 @@ export class Host {
     };
   }
 
+  /** Shows text over the bottom row, right-aligned, for ms; Ghostty draws it. */
+  async toast(text: string, ms = 2500): Promise<void> {
+    await this.json("POST", "/toast", { text, ms });
+  }
+
   /** Whether nothing was drawn for quietMs, within timeoutMs. */
   async settle(quietMs: number, timeoutMs: number): Promise<boolean> {
     const response = await this.request("GET", `/settle?quiet_ms=${quietMs}&timeout_ms=${timeoutMs}`);

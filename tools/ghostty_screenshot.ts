@@ -40,8 +40,9 @@
  *
  * Needs ffmpeg. scripts/ghostty-host downloads the pinned ghostty-host into
  * .tools on first use; GHOSTTY_HOST runs another build. Each run owns a
- * disposable sandbox and terminal. No personal config is loaded, and links
- * and files a capture opens go to $SESSION/opened.log instead of the desktop. The host
+ * disposable sandbox and terminal. No personal config is loaded. A link or
+ * file a capture opens never reaches the desktop: the terminal shows
+ * "Opened …", and $SESSION/opened.log and the timeline note it. The host
  * runs tools/ghostty_relay.ts in front of the viewer, and scripts reach it over
  * HTTP on $SESSION/session.sock: keys arrive as terminal bytes, and the mouse
  * goes into Ghostty a step at a time like a hand's, so Ghostty sees every
@@ -282,15 +283,23 @@ function hostBinary(): string {
 }
 
 /**
- * A folder for the front of a capture's PATH whose open and xdg-open only note
- * what they were asked to open in $SESSION/opened.log, so a link or file a
- * capture clicks never opens on the caller's desktop.
+ * A folder for the front of a capture's PATH whose open and xdg-open never
+ * open anything on the caller's desktop: they note the link or file in
+ * $SESSION/opened.log and tell the relay, which shows "Opened …" in the
+ * terminal and puts it in the timeline.
  */
 function openers(scratch: string): string {
   const dir = join(scratch, "openers");
   mkdirSync(dir);
+  const [log, socket] = [quote(join(scratch, "opened.log")), quote(join(scratch, "session.sock"))];
+  const body = [
+    "#!/bin/sh",
+    `printf '%s\\n' "$*" >> ${log}`,
+    `curl -s -m 2 --unix-socket ${socket} --data-binary "$*" http://relay/opened >/dev/null 2>&1`,
+    "exit 0",
+  ].join("\n");
   for (const name of ["open", "xdg-open"]) {
-    writeFileSync(join(dir, name), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${quote(join(scratch, "opened.log"))}\n`);
+    writeFileSync(join(dir, name), `${body}\n`);
     chmodSync(join(dir, name), 0o755);
   }
   return dir;

@@ -31,6 +31,7 @@ class Relay extends ui_driver.Driver {
   /** The pointer's shapes, keys and steps over time; kept while recording. */
   shapes: video.ShapeEvent[] = [];
   keys: video.KeyEvent[] = [];
+  opens: video.OpenEvent[] = [];
   steps: video.Step[] = [];
   recording: video.Recording | null = null;
   /** When the recording began, once record start returned. */
@@ -241,7 +242,7 @@ class Relay extends ui_driver.Driver {
       if (!Number.isInteger(fps) || fps < 1 || fps > 120)
         throw Error(`record start takes frames a second, not ${args[2]}`);
       // Where the pointer rests as the recording begins is all it needs from before.
-      [this.pointer, this.shapes, this.keys, this.steps] = [this.pointer.slice(-1), [], [], []];
+      [this.pointer, this.shapes, this.keys, this.opens, this.steps] = [this.pointer.slice(-1), [], [], [], []];
       this.unwatch = this.watch();
       try {
         this.recording = await video.Recording.start(this.dir, this.where(), out, fps);
@@ -263,10 +264,20 @@ class Relay extends ui_driver.Driver {
         pointer: this.pointer,
         shapes: this.shapes,
         keys: this.keys,
+        opens: this.opens,
         steps: this.steps,
       };
       this.output.push(...(await recording.stop(take)));
     } else throw Error("record needs start or stop");
+  }
+  /** Shows that the capture opened a link or file, which it didn't, and notes it while recording. */
+  async opened(target: string) {
+    if (!target) return;
+    if (this.recording) this.opens.push({ t: Date.now(), target });
+    const where = /^[a-z][a-z0-9+.-]*:\/\//i.test(target) ? " in the browser" : "";
+    await this.host()
+      .toast(`Opened ${target}${where}`)
+      .catch(error => log(`toast: ${(error as Error).message}`));
   }
   async drive(script: string, cwd: string): Promise<{ output: string[]; error?: string }> {
     [this.output, this.cwd, this.running] = [[], cwd, Date.now()];
@@ -320,6 +331,11 @@ const server = Bun.serve({
     server.timeout(request, 0);
     const path = new URL(request.url).pathname;
     if (request.method === "GET" && path === "/screen") return Response.json({ lines: relay.text() });
+    // From the capture's stand-in open and xdg-open, at once, even while a script runs.
+    if (request.method === "POST" && path === "/opened") {
+      await relay.opened((await request.text()).trim());
+      return Response.json({});
+    }
     if (request.method !== "POST" || path !== "/drive") return Response.json({ error: "not found" }, { status: 404 });
     const body = (await request.json().catch(() => null)) as { script?: unknown; cwd?: unknown } | null;
     if (typeof body?.script !== "string") return Response.json({ error: "drive needs a script" }, { status: 400 });

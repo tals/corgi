@@ -61,6 +61,12 @@ export interface KeyEvent {
   value: string;
 }
 
+/** A link or file the capture was asked to open, which its stand-in opener noted instead. */
+export interface OpenEvent {
+  t: number;
+  target: string;
+}
+
 /** A script command and when it ran; text commands also say the cell they found. */
 export interface Step {
   t: number;
@@ -82,6 +88,7 @@ export interface Take {
   pointer: PointerEvent[];
   shapes: ShapeEvent[];
   keys: KeyEvent[];
+  opens: OpenEvent[];
   steps: Step[];
 }
 
@@ -729,7 +736,7 @@ export type Moment =
   | { t: number; type: "press" | "release"; button: string; x: number; y: number }
   | { t: number; type: "scroll"; dy: number; x: number; y: number }
   | { t: number; type: "shape"; shape: string }
-  | { t: number; type: "key" | "type" | "paste"; value: string }
+  | { t: number; type: "key" | "type" | "paste" | "open"; value: string }
   | { t: number; end: number; type: "step"; command: string; cell?: [number, number] };
 
 /**
@@ -771,6 +778,7 @@ export function timeline(take: Take, times: number[], fps: number, screen: Scree
       }),
     ...take.shapes.map((e): Moment => ({ t: at(Math.max(e.t, take.from)), type: "shape", shape: e.name ?? "default" })),
     ...take.keys.filter(e => inside(e.t)).map((e): Moment => ({ t: at(e.t), type: e.kind, value: e.value })),
+    ...take.opens.filter(e => inside(e.t)).map((e): Moment => ({ t: at(e.t), type: "open", value: e.target })),
     ...take.steps
       .filter(e => inside(e.t))
       .map((e): Moment => ({ t: at(e.t), end: at(e.end), type: "step", command: e.command.join(" "), cell: e.cell })),
