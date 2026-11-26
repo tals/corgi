@@ -66,6 +66,27 @@ describe("timeline", () => {
     const { events } = video.timeline(take, times, 10, screen, "demo.mp4");
     expect(events.map(e => e.t)).toEqual([0.3, 0.5, 0.7]);
   });
+
+  test("starts with where the pointer rested as the take began", () => {
+    const take: video.Take = {
+      from: 1000,
+      to: 1400,
+      scripts: [[1000, 1400]],
+      pointer: [
+        { t: 900, x: 40, y: 20, action: "move" },
+        { t: 1200, x: 50, y: 20, action: "move" },
+      ],
+      shapes: [],
+      steps: [],
+      opens: [],
+      keys: [],
+    };
+    const { events } = video.timeline(take, times, 10, screen, "demo.mp4");
+    expect(events).toEqual([
+      { t: 0.3, type: "move", x: 40, y: 20 },
+      { t: 0.5, type: "move", x: 50, y: 20 },
+    ]);
+  });
 });
 
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => from + i);
@@ -115,7 +136,7 @@ describe("the pointer over time", () => {
   });
 });
 
-test("a pointer is a black body in a white outline", () => {
+test("the arrow is black in a white outline", () => {
   const size = 64,
     rgba = new Uint8Array(size * size * 4);
   video.drawPointer(rgba, size, "arrow", 10, 10, 36);
@@ -127,6 +148,19 @@ test("a pointer is a black body in a white outline", () => {
   expect(edge[0]).toBeGreaterThan(200);
   expect(edge[3]).toBeGreaterThan(200);
   expect(pixel(60, 2)[3]).toBe(0);
+});
+
+test("the hand is white in a black outline", () => {
+  const size = 64,
+    rgba = new Uint8Array(size * size * 4);
+  video.drawPointer(rgba, size, "hand", 20, 10, 36);
+  const pixel = (x: number, y: number) => [...rgba.subarray((y * size + x) * 4, (y * size + x) * 4 + 4)];
+  // Down the pointing finger: white.
+  expect(pixel(20, 20)).toEqual([255, 255, 255, 255]);
+  // Just left of the finger: the black outline.
+  const edge = pixel(15, 20);
+  expect(edge[0]).toBeLessThan(60);
+  expect(edge[3]).toBeGreaterThan(200);
 });
 
 describe("pointerTiles", () => {

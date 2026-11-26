@@ -91,11 +91,15 @@ class Relay extends ui_driver.Driver {
     const begin = Date.now();
     for (const [ms, x, y] of path) {
       await Bun.sleep(Math.max(0, begin + ms - Date.now()));
-      await this.host().mouse({ action: "move", x, y });
-      this.lastInput = Date.now();
-      this.at = [x, y];
-      this.log(this.lastInput, { action: "move" });
+      await this.place(x, y);
     }
+  }
+  /** Puts the pointer at (x, y) in the frame in one step. */
+  private async place(x: number, y: number) {
+    await this.host().mouse({ action: "move", x, y });
+    this.lastInput = Date.now();
+    this.at = [x, y];
+    this.log(this.lastInput, { action: "move" });
   }
   private async press(button: 1 | 2 | 3, down: boolean) {
     const action = down ? "press" : "release";
@@ -241,6 +245,9 @@ class Relay extends ui_driver.Driver {
       const fps = args[2] === undefined ? this.where().fps : Number(args[2]);
       if (!Number.isInteger(fps) || fps < 1 || fps > 120)
         throw Error(`record start takes frames a second, not ${args[2]}`);
+      // A pointer that hasn't moved starts in the middle, as a desktop's does,
+      // so the video shows it from the first frame and its first glide.
+      if (!this.at) await this.place(Math.round(this.where().width / 2), Math.round(this.where().height / 2));
       // Where the pointer rests as the recording begins is all it needs from before.
       [this.pointer, this.shapes, this.keys, this.opens, this.steps] = [this.pointer.slice(-1), [], [], [], []];
       this.unwatch = this.watch();

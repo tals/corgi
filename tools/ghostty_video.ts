@@ -489,13 +489,18 @@ function over(rgba: Uint8Array, o: number, value: number, alpha: number) {
   rgba[o + 3] = a * 255;
 }
 
+/** Shapes drawn white in a black outline, as desktops draw the hand over a link. */
+const light: ReadonlySet<Shape> = new Set(["hand"]);
+
 /**
  * Draws a pointer into a square tile with its hotspot at (hx, hy), height
- * pixels tall: a black body in a white outline over a soft shadow, as X's
- * own cursors are. Edges are smoothed from the distance to the shape.
+ * pixels tall, over a soft shadow: a black body in a white outline, or a
+ * light shape's white in black. Edges are smoothed from the distance to the
+ * shape.
  */
 export function drawPointer(rgba: Uint8Array, size: number, shape: Shape, hx: number, hy: number, height: number) {
   const { parts, hotspot } = designs[shape];
+  const [edge, body] = light.has(shape) ? [0, 255] : [255, 0];
   const unit = height / 17.6,
     outline = Math.max(1, unit * 0.7),
     blur = unit * 1.6,
@@ -519,8 +524,8 @@ export function drawPointer(rgba: Uint8Array, size: number, shape: Shape, hx: nu
       const shadow = distance(cx, cy - drop) - outline;
       const o = (y * size + x) * 4;
       over(rgba, o, 0, 0.3 * clamp(1 - shadow / blur));
-      over(rgba, o, 255, clamp(0.5 - (d - outline)));
-      over(rgba, o, 0, clamp(0.5 - d));
+      over(rgba, o, edge, clamp(0.5 - (d - outline)));
+      over(rgba, o, body, clamp(0.5 - d));
     }
 }
 
@@ -762,20 +767,24 @@ export function timeline(take: Take, times: number[], fps: number, screen: Scree
   const at = (ms: number) => Math.round((frame(ms) / fps) * 1000) / 1000;
   const px = (v: number) => Math.round(v * 10) / 10;
   const inside = (ms: number) => ms >= take.from && ms <= take.to;
+  // Where the pointer rested as the take began, as a move there.
+  const rest = take.pointer.findLast(e => e.t < take.from);
+  const pointer: PointerEvent[] = [
+    ...(rest ? [{ t: take.from, x: rest.x, y: rest.y, action: "move" as const }] : []),
+    ...take.pointer.filter(e => inside(e.t)),
+  ];
   const moments: Moment[] = [
-    ...take.pointer
-      .filter(e => inside(e.t))
-      .map((e): Moment => {
-        const [t, x, y] = [at(e.t), px(e.x), px(e.y)];
-        switch (e.action) {
-          case "move":
-            return { t, type: "move", x, y };
-          case "scroll":
-            return { t, type: "scroll", dy: e.dy ?? 0, x, y };
-          default:
-            return { t, type: e.action, button: e.button ?? "left", x, y };
-        }
-      }),
+    ...pointer.map((e): Moment => {
+      const [t, x, y] = [at(e.t), px(e.x), px(e.y)];
+      switch (e.action) {
+        case "move":
+          return { t, type: "move", x, y };
+        case "scroll":
+          return { t, type: "scroll", dy: e.dy ?? 0, x, y };
+        default:
+          return { t, type: e.action, button: e.button ?? "left", x, y };
+      }
+    }),
     ...take.shapes.map((e): Moment => ({ t: at(Math.max(e.t, take.from)), type: "shape", shape: e.name ?? "default" })),
     ...take.keys.filter(e => inside(e.t)).map((e): Moment => ({ t: at(e.t), type: e.kind, value: e.value })),
     ...take.opens.filter(e => inside(e.t)).map((e): Moment => ({ t: at(e.t), type: "open", value: e.target })),
