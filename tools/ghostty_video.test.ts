@@ -133,6 +133,16 @@ test("a take ends on the last frame at or before record stop, which the recorder
   expect(video.takeFrames(1040, 1590, 1000, 10)).toEqual([0, 5]);
   expect(video.takeFrames(1060, 1600, 1000, 10)).toEqual([1, 6]);
   expect(video.takeFrames(1500, 1500, 1000, 10)).toEqual([5, 5]);
+  // A stop right on a frame keeps it: 4100 ms at 30 fps is frame 123.
+  expect(video.takeFrames(1000, 5100, 1000, 30)).toEqual([0, 123]);
+  // At every whole millisecond, the last frame is the last tick ghostty_record.ts writes.
+  for (const fps of [15, 30, 60]) {
+    let tick = 0;
+    for (const ms of range(0, 3000)) {
+      while (((tick + 1) * 1000) / fps <= ms) tick++;
+      expect(video.takeFrames(0, ms, 0, fps)[1]).toBe(tick);
+    }
+  }
 });
 
 test.skipIf(!Bun.which("ffmpeg"))("a cut video's frames each get the overlay frame of their own number", () => {

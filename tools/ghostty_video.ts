@@ -1088,7 +1088,8 @@ export function shownFrames(times: number[], paces: PaceEvent[], hold: number): 
  * recorder writes frames up to the stop, so one past to may not exist.
  */
 export function takeFrames(from: number, to: number, start: number, fps: number): [first: number, last: number] {
-  const at = (ms: number) => ((ms - start) / 1000) * fps;
+  // Milliseconds times fps first: dividing first can land a frame a hair below its number.
+  const at = (ms: number) => ((ms - start) * fps) / 1000;
   const first = Math.max(0, Math.round(at(from)));
   return [first, Math.max(first, Math.floor(at(to)))];
 }
