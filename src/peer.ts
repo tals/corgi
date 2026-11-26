@@ -71,6 +71,8 @@ export class Client {
   watched = true;
   /** The viewer opens links in a browser on its computer. */
   links = false;
+  /** Whether the viewer shows this machine, focused or not. */
+  visible = true;
   session_hash = 0n;
   session_shown = 0n;
   session_bucket = 0;

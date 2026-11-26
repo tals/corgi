@@ -186,6 +186,7 @@ export function syncRequest(
     session_hash: machine.runtime.snapshot_hash,
     focus: visible ? (view.focused()?.id ?? null) : null,
     watched: visible && view.input_state.watched,
+    visible,
     workspace: machine.navigation.current(machine.runtime.workspaces).id,
     ack: machine.last_control,
     active: visible && view.input_state.active,

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import * as i18n from "./i18n";
-import { Menu, items, status, type Hit } from "./corgi_setup";
+import { Menu, items, status, thresholdChoices, minutesLabel, type Hit } from "./corgi_setup";
 import { Menu as LauncherMenu, preferred_width, preview } from "./agent_launcher";
 import { Rect } from "./layout";
 import * as shellPicker from "./shell_picker";
@@ -1025,6 +1025,52 @@ test("the automatic choice says whom it follows", () => {
   expect(text).toContain("Haiku 5.5");
 });
 
+test("workspace order offers auto-order, stale and archive presets, with a value from the file among them", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "workspaces";
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("too old to order workspaces");
+  menu.auto_order = { enabled: false, pause_after: 5, stale_after: 10, archive_after: 480 };
+  let text = draw(menu, 120, 70, 0, s, prefs).join("\n");
+  expect(text).toMatch(/Workspace order\s+Off/);
+  for (const label of ["Auto-order workspaces", "Stale after", "Archive after", "30 min", "24 h"])
+    expect(text).toContain(label);
+  // The pause is no setup choice; the note says what it does.
+  expect(text).not.toContain("Pause after");
+  expect(text).toContain("stops growing after 5 min");
+  menu.openOptions(s, prefs);
+  const pick = (cursor: number) => {
+    menu.cursor = cursor;
+    return menu.enter(s, prefs);
+  };
+  // 0 toggles; stale is 1 to 4 (10, 15, 30, 60 min); archive is 5 to 11.
+  expect(pick(0)).toEqual({ kind: "auto_order", on: true });
+  // The one in use does nothing.
+  expect(pick(1)).toBeNull();
+  expect(pick(2)).toEqual({ kind: "auto_order_threshold", field: "stale_after", minutes: 15 });
+  expect(pick(11)).toEqual({ kind: "auto_order_threshold", field: "archive_after", minutes: null });
+  // A value the file holds outside the presets shows, chosen, in its place.
+  menu.auto_order = { enabled: true, pause_after: 1, stale_after: 7, archive_after: null };
+  text = draw(menu, 120, 70, 0, s, prefs).join("\n");
+  expect(text).toMatch(/Workspace order\s+On/);
+  expect(text).toContain("7 min");
+  expect(text).toContain("stops growing after 1 min");
+  expect(pick(1)).toBeNull();
+  expect(pick(2)).toEqual({ kind: "auto_order_threshold", field: "stale_after", minutes: 10 });
+  // Archive 60 min would not be longer than stale 60: it is grayed out.
+  menu.auto_order = { enabled: true, pause_after: 5, stale_after: 60, archive_after: 480 };
+  expect(pick(5)).toBeNull();
+  expect(pick(6)).toEqual({ kind: "auto_order_threshold", field: "archive_after", minutes: 120 });
+});
+test("threshold choices keep presets in order and label hours and Off", () => {
+  expect(thresholdChoices("stale_after", 7)).toEqual([7, 10, 15, 30, 60]);
+  expect(thresholdChoices("stale_after", 90)).toEqual([10, 15, 30, 60, 90]);
+  expect(thresholdChoices("archive_after", 90)).toEqual([60, 90, 120, 240, 480, 720, 1440, null]);
+  expect(thresholdChoices("archive_after", 2000)).toEqual([60, 120, 240, 480, 720, 1440, 2000, null]);
+  expect(thresholdChoices("archive_after", null)).toEqual([60, 120, 240, 480, 720, 1440, null]);
+  expect([5, 90, 120, null].map(minutesLabel)).toEqual(["5 min", "90 min", "2 h", "Off"]);
+});
 test("on/off settings flip from the list and offer the opposite", () => {
   const menu = Menu.open(),
     prefs = new Preferences(),

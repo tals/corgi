@@ -20,6 +20,7 @@ import * as worktreeAgents from "./worktree_agents";
 import * as agentRetry from "./agent_retry";
 import * as agentMessage from "./agent_message";
 import * as dockingSession from "./docking_session";
+import * as workspaceActivity from "./workspace_activity";
 import { Row } from "./launch/row";
 import type { Provider } from "./providers";
 export type Context = { socket: string; executable: string; theme: any };
@@ -355,9 +356,15 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     case "workspace.unarchive":
       r.unarchiveWorkspace(request.payload.target);
       break;
-    case "workspace.move":
-      r.workspaces.moveBefore(request.payload.target, request.payload.before);
+    case "workspace.move": {
+      const { target, before } = request.payload;
+      // A move that would break the groups is dropped; a fresh snapshot
+      // snaps back a viewer that showed it.
+      if (workspaceActivity.moveAllowed(r.workspaces.items, target, before, r.auto_order.enabled))
+        r.workspaces.moveBefore(target, before);
+      else r.changed();
       break;
+    }
     case "pane.restore":
       return location(r, await r.reopen(spawnOptions(r, ctx, request.payload.workspace, null, "")));
     case "pane.wake":
@@ -678,6 +685,7 @@ function build(r: Runtime, viewer: boolean) {
     shell: shellStatus(),
     smart_links: r.ports.enabled,
     auto_retry: r.auto_retry,
+    workspace_auto_order: workspaceActivity.wire(r.auto_order),
     system_usage: r.system_usage,
     system_working: r.system_working,
     startup_waits: r.startup_waits,
@@ -705,6 +713,8 @@ function build(r: Runtime, viewer: boolean) {
       closed_agents: r.closedCount(w.id),
       archived: w.archived,
       archive_summary: w.archive_summary,
+      stale_step: workspaceActivity.staleStep(w, r.work_clock.reading, r.auto_order),
+      auto_archived: w.auto_archived,
       git_commits:
         w.git_commits.items?.slice(0, w.git_commits.len).map((c: any) => ({
           timestamp: c.timestamp,

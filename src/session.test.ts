@@ -18,6 +18,65 @@ function setup() {
   return { r, home, away };
 }
 const topology = (r: Runtime) => stringify(r.workspaces.items.map(w => w.model));
+test("with auto-order on, a move that breaks the groups is a no-op that sends a fresh snapshot", async () => {
+  const r = new Runtime();
+  try {
+    r.workspaces.items = [1, 2, 3, 4].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items[2].group = r.workspaces.items[3].group = "stale";
+    const ids = () => r.workspaces.items.map(w => w.id),
+      move = (target: number, before: number) =>
+        execute(r, ctx, protocol.decodeCommand({ "workspace.move": { target, before } }));
+    r.auto_order = { ...r.auto_order, enabled: true };
+    await move(2, 1);
+    expect(ids()).toEqual([2, 1, 3, 4]);
+    // The slot after the last active one is fine.
+    await move(2, 3);
+    expect(ids()).toEqual([1, 2, 3, 4]);
+    for (const [target, before] of [
+      [3, 1],
+      [1, 4],
+      [1, 1],
+    ]) {
+      const revision = r.revision;
+      await move(target, before);
+      expect(ids()).toEqual([1, 2, 3, 4]);
+      expect(r.revision).toBeGreaterThan(revision);
+    }
+    expect(snapshot(r).workspaces.map(w => [w.id, w.stale_step, w.auto_archived])).toEqual([
+      [1, 0, false],
+      [2, 0, false],
+      [3, 0, false],
+      [4, 0, false],
+    ]);
+    r.auto_order = { ...r.auto_order, enabled: false };
+    await move(3, 1);
+    expect(ids()).toEqual([3, 1, 2, 4]);
+  } finally {
+    r.destroy();
+  }
+});
+test("the snapshot carries auto-order settings and each stale workspace's fade step", () => {
+  const r = new Runtime();
+  try {
+    const w = new Workspace(1, "/tmp", "w");
+    r.workspaces.items = [w, new Workspace(2, "/tmp", "x")];
+    r.work_clock.reading = 100 * 60_000;
+    w.group = "stale";
+    w.active_at = r.work_clock.reading - 30 * 60_000;
+    expect(snapshot(r).workspace_auto_order).toEqual({
+      enabled: false,
+      pause_after: 5,
+      stale_after: 10,
+      archive_after: 480,
+    });
+    expect(snapshot(r).workspaces[0].stale_step).toBe(0);
+    r.auto_order = { ...r.auto_order, enabled: true, archive_after: null };
+    expect(snapshot(r).workspace_auto_order.archive_after).toBe(0);
+    expect(snapshot(r).workspaces.map(w => w.stale_step)).toEqual([2, 0]);
+  } finally {
+    r.destroy();
+  }
+});
 test("moving launcher rows atomically persists order and visibility only in the selected workspace", async () => {
   const { r, home, away } = setup();
   try {

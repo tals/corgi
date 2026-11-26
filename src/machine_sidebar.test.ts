@@ -554,6 +554,59 @@ test("workspaces can be interleaved across disconnected machines and keep their 
   }
 });
 
+test("a machine ordering workspaces by activity keeps its places among the others in its own order", () => {
+  const {
+    endpoints: [local, remote],
+    view,
+  } = world("local", "work");
+  local.status = remote.status = "online";
+  const model = { nodes: [], tabs: [], revision: 0 },
+    snapshot = (names: string[], ids: number[], enabled: boolean) => ({
+      workspace_auto_order: { enabled, pause_after: 5, stale_after: 10, archive_after: 480 },
+      workspaces: ids.map(id => ({ id, name: names[id - 1], cwd: "/project", model })),
+    });
+  const locals = ["L1", "L2", "L3"],
+    remotes = ["W1", "W2"];
+  local.machine.runtime.receive(null as any, snapshot(locals, [1, 2, 3], false));
+  remote.machine.runtime.receive(null as any, snapshot(remotes, [1, 2], false));
+  const names = () => view.workspaceRows(true).map(row => row.name);
+  // The viewer interleaves the machines: L1 W1 L2 W2 L3.
+  const byName = new Map(view.workspaceRows(true).map(row => [row.name, row.id]));
+  view.prefs.workspace_order = ["L1", "W1", "L2", "W2", "L3"].map(name => {
+    const row = view.rowOf(byName.get(name)!)!;
+    return JSON.stringify([row.machine.order_scope || row.machine.name, row.id]);
+  });
+  expect(names()).toEqual(["L1", "W1", "L2", "W2", "L3"]);
+  // The local daemon orders its own by activity: L3, L1, L2.
+  local.machine.runtime.receive(null as any, snapshot(locals, [3, 1, 2], true));
+  expect(names()).toEqual(["L3", "W1", "L1", "W2", "L2"]);
+  // The other machine, with auto-order off, keeps the viewer's order.
+  remote.machine.runtime.receive(null as any, snapshot(remotes, [2, 1], false));
+  expect(names()).toEqual(["L3", "W1", "L1", "W2", "L2"]);
+});
+test("a workspace missing from the saved order joins its own machine's rows", () => {
+  const {
+    endpoints: [local, remote],
+    view,
+  } = world("local", "work");
+  local.status = remote.status = "online";
+  const model = { nodes: [], tabs: [], revision: 0 },
+    snapshot = (names: string[]) => ({
+      workspaces: names.map((name, i) => ({ id: i + 1, name, cwd: "/project", model })),
+    });
+  local.machine.runtime.receive(null as any, snapshot(["L1", "L2"]));
+  remote.machine.runtime.receive(null as any, snapshot(["W1"]));
+  const names = () => view.workspaceRows(true).map(row => row.name);
+  view.prefs.workspace_order = view.workspaceRows(true).map(row => {
+    const ref = view.rowOf(row.id)!;
+    return JSON.stringify([ref.machine.order_scope || ref.machine.name, ref.id]);
+  });
+  expect(names()).toEqual(["L1", "L2", "W1"]);
+  // New on each machine: below its own last saved row, not after every machine.
+  local.machine.runtime.receive(null as any, snapshot(["L1", "L2", "L3"]));
+  remote.machine.runtime.receive(null as any, snapshot(["W1", "W2"]));
+  expect(names()).toEqual(["L1", "L2", "L3", "W1", "W2"]);
+});
 test("collapsing an interleaved machine hides its cards without changing selection or saved order", () => {
   const {
     endpoints: [local, remote],

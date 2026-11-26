@@ -145,6 +145,12 @@
   "retry.configure": {
     "enabled": false
   },
+  "workspace_auto_order.configure": {
+    "enabled": true,
+    "pause_after": 5,
+    "stale_after": 10,
+    "archive_after": 0
+  },
   "retry.cancel": {
     "pane": 1
   },

@@ -18,6 +18,11 @@ import * as worktreeAdd from "./worktree_add";
 import * as link from "./link";
 import * as client_socket from "./fixtures/client_socket";
 import { scopedEnv } from "./fixtures/env";
+import * as settings from "./settings";
+import { Reply } from "./peer";
+import * as archiveInventory from "./archive_inventory";
+import * as workspaceActivity from "./workspace_activity";
+import * as headless from "./headless";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -105,6 +110,22 @@ test("a resumed viewer can request and clear background worktree details through
     dispose();
   }
 });
+/** A server whose saved state goes to a folder of its own. */
+function saving() {
+  const directory = mkdtempSync(join(tmpdir(), "corgi-auto-order-")),
+    server = new Server(join(directory, "s"), "", "0".repeat(64));
+  return {
+    server,
+    dispose: async () => {
+      await server.flushWorkspaceWrites();
+      server.runtime.destroy();
+      (server as any).loop.close();
+      rmSync(directory, { recursive: true, force: true });
+    },
+  };
+}
+/** The fade step each workspace's viewers last heard. */
+const staleSteps = (server: Server) => Reflect.get(server, "stale_steps") as Map<number, number>;
 test("session snapshots are shared by subscribers and skipped without them", () => {
   const { server, dispose } = fixture(),
     snapshot = spyOn(session, "snapshot"),
@@ -944,5 +965,465 @@ test("shutdown stops a server a handoff bound that never took the socket", async
     expect(existsSync(bound)).toBe(false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+test("auto-order counts agents processing a turn and keeps the groups each tick", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    tick = () => Reflect.get(server, "autoOrder").call(server),
+    minute = 60_000;
+  try {
+    const [busy, quiet, other] = [1, 2, 3].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(busy, quiet, other);
+    const pane = new Pane(busy.model.newTab(""), Terminal.create(20, 4), "/tmp");
+    r.panes.push(pane);
+    pane.attachment.provisional.provider = "claude";
+    pane.attachment.provisional.state = "working";
+    r.work_clock.reading = 30 * minute;
+    quiet.active_at = 30 * minute - 20 * minute;
+    other.active_at = 30 * minute - 1 * minute;
+    busy.active_at = 1;
+    tick();
+    // Off: groups follow idle time, nothing moves, and no fade goes out.
+    expect(busy.active_at).toBe(30 * minute);
+    expect(r.workspaces.items.map(w => [w.id, w.group])).toEqual([
+      [1, "active"],
+      [2, "stale"],
+      [3, "active"],
+    ]);
+    expect(staleSteps(server).get(2) ?? 0).toBe(0);
+    const revision = r.revision;
+    r.auto_order = { ...r.auto_order, enabled: true };
+    tick();
+    expect(r.workspaces.items.map(w => w.id)).toEqual([1, 3, 2]);
+    expect(staleSteps(server).get(2)).toBe(1);
+    expect(r.revision).toBeGreaterThan(revision);
+    // Waiting on an answer, paused or blocked isn't work.
+    const agent = pane.attachment.provisional;
+    for (const change of [
+      () => (agent.attention = "needs_input"),
+      () => (agent.paused = true),
+      () => (agent.state = "blocked"),
+    ]) {
+      agent.state = "working";
+      agent.attention = "none";
+      agent.paused = false;
+      change();
+      const before = (busy.active_at = r.work_clock.reading - 1);
+      tick();
+      expect(busy.active_at).toBe(before);
+    }
+  } finally {
+    await dispose();
+  }
+});
+test("auto-order counts headless agents processing a turn, but not Corgi's own", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    tick = () => Reflect.get(server, "autoOrder").call(server);
+  try {
+    const ws = new Workspace(1, "/tmp", "w");
+    r.workspaces.items.push(ws);
+    r.work_clock.reading = 5000;
+    const fresh = { corgi: false, exited: false, paused: false, state: "working", attending: "none" },
+      headless = {
+        ...fresh,
+        workspace_id: ws.id,
+        status: () => headless.state,
+        attention: () => headless.attending,
+        agent: () => ({ paused: headless.paused }),
+      };
+    r.sessions.push(headless as any);
+    tick();
+    expect(ws.active_at).toBe(5000);
+    expect(r.work_clock.last_activity).not.toBeNull();
+    for (const change of [
+      () => (headless.corgi = true),
+      () => (headless.exited = true),
+      () => (headless.attending = "needs_input"),
+      () => (headless.paused = true),
+      () => (headless.state = "idle"),
+    ]) {
+      Object.assign(headless, fresh);
+      change();
+      const before = (ws.active_at = r.work_clock.reading - 1);
+      tick();
+      expect(ws.active_at).toBe(before);
+    }
+    r.sessions.length = 0;
+  } finally {
+    await dispose();
+  }
+});
+test("switching auto-order off keeps the order, drops the fade and stops archiving", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    tick = () => Reflect.get(server, "autoOrder").call(server),
+    jobs = () => Reflect.get(server, "jobs") as Promise<void>,
+    minute = 60_000;
+  try {
+    const [a, due, b] = [1, 2, 3].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(a, due, b);
+    r.workspaces.next_id = 4;
+    r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
+    r.work_clock.reading = 100 * minute;
+    a.active_at = b.active_at = r.work_clock.reading;
+    due.active_at = r.work_clock.reading - 9 * minute;
+    tick();
+    expect(r.workspaces.items.map(w => w.id)).toEqual([1, 3, 2]);
+    expect(staleSteps(server).get(due.id)).toBeGreaterThan(0);
+    // Off, then due: the order stays, the fade goes and nothing is archived.
+    r.auto_order = { ...r.auto_order, enabled: false };
+    due.active_at = r.work_clock.reading - 20 * minute;
+    const revision = r.revision;
+    tick();
+    await jobs();
+    expect(r.workspaces.items.map(w => w.id)).toEqual([1, 3, 2]);
+    expect(staleSteps(server).get(due.id)).toBe(0);
+    expect(session.snapshot(r).workspaces.find(w => w.id === due.id)?.stale_step).toBe(0);
+    expect(r.revision).toBeGreaterThan(revision);
+    expect(due.archived).toBe(false);
+    // A closed workspace leaves no bookkeeping behind.
+    const checked = Reflect.get(server, "archive_checked") as Map<number, number>;
+    checked.set(due.id, 0);
+    r.workspaces.items.splice(r.workspaces.items.indexOf(due), 1);
+    tick();
+    expect(staleSteps(server).has(due.id)).toBe(false);
+    expect(checked.has(due.id)).toBe(false);
+  } finally {
+    await dispose();
+  }
+});
+test("only a prompt submitted to Corgi ends a pause, however it arrives", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime;
+  const fake = (session: string, corgi: boolean, exited = false) =>
+    ({
+      corgi,
+      exited,
+      exited_at: Date.now(),
+      ended_read: false,
+      provider: "claude",
+      session,
+      send: () => {
+        if (exited) throw Error("HeadlessExited");
+      },
+      destroy: () => {},
+    }) as any;
+  let starting: any = null;
+  const start = spyOn(headless.Session, "start").mockImplementation(async () => starting);
+  try {
+    r.workspaces.items.push(new Workspace(1, "/tmp", "w"));
+    r.sessions.push(fake("corgi", true), fake("agent", false), fake("ended", true, true));
+    const http = server.addClient(null, false);
+    const marked = () => {
+      const at = r.work_clock.last_activity;
+      r.work_clock.last_activity = null;
+      return at !== null;
+    };
+    const send = async (session: string, input: object) => {
+      await server
+        .request(http, protocol.envelope("headless.send", { provider: "claude", session, input }))
+        .catch(() => {});
+      return marked();
+    };
+    expect(await send("corgi", { kind: "answer", request: "permission-1", allow: false })).toBe(false);
+    expect(await send("corgi", { kind: "interrupt" })).toBe(false);
+    expect(await send("corgi", { kind: "prompt", text: "hi" })).toBe(true);
+    // Only a prompt Corgi's session took counts: not a malformed one, one to
+    // a session that has ended, or one to an agent's or an unknown session.
+    expect(await send("corgi", { kind: "prompt", text: 5 })).toBe(false);
+    expect(await send("ended", { kind: "prompt", text: "hi" })).toBe(false);
+    expect(await send("agent", { kind: "prompt", text: "hi" })).toBe(false);
+    expect(await send("nobody", { kind: "prompt", text: "hi" })).toBe(false);
+    // A new conversation starts over HTTP, not the viewer's connection, and
+    // counts once its first prompt is sent.
+    const begin = async (corgi: boolean, sends = true) => {
+      starting = fake("", false, !sends);
+      await server
+        .request(http, protocol.envelope("headless.start", { provider: "claude", prompt: "hi", cwd: "/tmp", corgi }))
+        .catch(() => {});
+      return marked();
+    };
+    expect(await begin(true)).toBe(true);
+    expect(await begin(false)).toBe(false);
+    expect(await begin(true, false)).toBe(false);
+    r.sessions.length = 0;
+    http.close();
+  } finally {
+    start.mockRestore();
+    await dispose();
+  }
+});
+test("only a viewer's keys and pastes count as typing in a workspace", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime;
+  try {
+    const ws = new Workspace(1, "/tmp", "w");
+    r.workspaces.items.push(ws);
+    const pane = new Pane(ws.model.newTab(""), Terminal.create(20, 4), "/tmp");
+    pane.terminal.exited = true;
+    r.panes.push(pane);
+    r.work_clock.reading = 5000;
+    const viewer = server.addClient(null, false),
+      cli = server.addClient(null, false);
+    viewer.viewer = true;
+    const input = (cl: typeof viewer, data: string) =>
+      server
+        .request(cl, protocol.envelope("session.command", { command: { "pane.input": { target: pane.id, data } } }))
+        .catch(() => {});
+    for (const report of ["\x1b[<64;3;4M", "\x1b[<0;3;4m", "\x1b[I", "\x1b[O\x1b[<65;1;1M"]) {
+      await input(viewer, report);
+      expect(ws.active_at).toBe(0);
+    }
+    expect(r.work_clock.last_activity).toBeNull();
+    await input(cli, "ls\r");
+    expect(ws.active_at).toBe(0);
+    await input(viewer, "l");
+    expect(ws.active_at).toBe(5000);
+    expect(r.work_clock.last_activity).not.toBeNull();
+    r.work_clock.reading = 6000;
+    await server
+      .request(viewer, protocol.envelope("pane.paste", { pane: pane.id, text: "x", image: null }))
+      .catch(() => {});
+    expect(ws.active_at).toBe(6000);
+    viewer.close();
+    cli.close();
+  } finally {
+    await dispose();
+  }
+});
+test("configuring auto-order saves the settings, arms the archive guard and refuses thresholds out of order", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    file = settings.path(server.socket),
+    configure = (payload: Record<string, unknown>) =>
+      server.request(server.addClient(null, false), protocol.envelope("workspace_auto_order.configure", payload));
+  try {
+    r.work_clock.reading = 1000;
+    Reflect.get(server, "armGuard").call(server);
+    expect(r.work_clock.guard).toBe(0);
+    let replies: any[] = [];
+    const reply = spyOn(Reply.prototype, "send").mockImplementation(function (value: any) {
+      replies.push(value);
+    });
+    try {
+      await configure({ enabled: true, archive_after: 60 });
+      expect(replies.pop()).toEqual({
+        ok: true,
+        workspace_auto_order: { enabled: true, pause_after: 5, stale_after: 10, archive_after: 60 },
+      });
+      expect(settings.autoOrder(file)).toEqual({ enabled: true, pause_after: 5, stale_after: 10, archive_after: 60 });
+      expect(r.work_clock.guard).toBe(1000 + 60 * 60_000);
+      // Raising "archive after" keeps the guard; Off and back arms it again.
+      r.work_clock.reading = 5000;
+      await configure({ archive_after: 120 });
+      expect(r.work_clock.guard).toBe(1000 + 60 * 60_000);
+      await configure({ archive_after: 0 });
+      expect(settings.read(file).workspace_archive_after).toBe("off");
+      await configure({ archive_after: 30 });
+      expect(r.work_clock.guard).toBe(5000 + 30 * 60_000);
+      await expect(configure({ pause_after: 10 })).rejects.toThrow("InvalidThresholds");
+      expect(settings.autoOrder(file).pause_after).toBe(5);
+      expect(session.snapshot(r).workspace_auto_order.archive_after).toBe(30);
+    } finally {
+      reply.mockRestore();
+      replies = [];
+    }
+  } finally {
+    await dispose();
+  }
+});
+test("auto-archive waits for what holds a due workspace back, then archives it as a manual archive would", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    minute = 60_000,
+    jobs = () => Reflect.get(server, "jobs") as Promise<void>,
+    check = async (now: number) => {
+      Reflect.get(server, "autoArchive").call(server, now);
+      await jobs();
+    };
+  try {
+    const [due, other] = [1, 2].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(due, other);
+    r.workspaces.next_id = 3;
+    r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
+    r.work_clock.reading = 100 * minute;
+    due.group = "stale";
+    due.active_at = r.work_clock.reading - 10 * minute;
+    other.active_at = r.work_clock.reading;
+    // Before the guard, nothing is checked.
+    r.work_clock.guard = r.work_clock.reading + 1;
+    await check(0);
+    expect(due.archived).toBe(false);
+    r.work_clock.guard = 0;
+    // On screen in a viewer, even one whose terminal lost focus: blocked,
+    // and checked again only a minute later.
+    const viewer = server.addClient(null, false);
+    viewer.viewer = true;
+    viewer.watched = false;
+    viewer.view_workspace = due.id;
+    await check(1000);
+    expect(due.archived).toBe(false);
+    viewer.view_workspace = other.id;
+    await check(30_000);
+    expect(due.archived).toBe(false);
+    // The last workspace not archived stays.
+    other.archived = true;
+    await check(70_000);
+    expect(due.archived).toBe(false);
+    other.archived = false;
+    // A viewer showing another machine only remembers its selection here.
+    viewer.view_workspace = due.id;
+    viewer.visible = false;
+    await check(140_000);
+    expect(due).toMatchObject({ archived: true, auto_archived: true });
+    expect(session.snapshot(r).workspaces.find(w => w.id === due.id)?.auto_archived).toBe(true);
+    // Unarchiving clears the flag and counts as activity.
+    r.unarchiveWorkspace(due.id);
+    expect(due).toMatchObject({ archived: false, auto_archived: false, active_at: r.work_clock.reading });
+    viewer.close();
+  } finally {
+    await dispose();
+  }
+});
+test("auto-archive waits on the process list, served links and waiting headless agents", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    minute = 60_000,
+    jobs = () => Reflect.get(server, "jobs") as Promise<void>,
+    check = async (now: number) => {
+      Reflect.get(server, "autoArchive").call(server, now);
+      await jobs();
+    },
+    inventory = { processes: 0, available: false, partial: false },
+    status = spyOn(archiveInventory, "inventoryStatus").mockImplementation(() => ({ ...inventory })),
+    reported = spyOn(workspaceActivity.Reported.prototype, "report");
+  try {
+    const [due, other] = [1, 2].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(due, other);
+    r.workspaces.next_id = 3;
+    r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
+    r.work_clock.reading = 100 * minute;
+    due.group = "stale";
+    due.active_at = r.work_clock.reading - 10 * minute;
+    other.active_at = r.work_clock.reading;
+    const reasons = () => reported.mock.calls.filter((_, i) => reported.mock.results[i].value).map(c => c[1]);
+    await check(0);
+    await check(60_000);
+    inventory.available = true;
+    inventory.partial = true;
+    await check(120_000);
+    inventory.partial = false;
+    r.ports.enabled = true;
+    const endpoints = spyOn(r.ports.current, "workspace").mockImplementation(() => ({ endpoints: [{}] }) as any);
+    await check(180_000);
+    endpoints.mockRestore();
+    r.ports.enabled = false;
+    r.sessions.push({
+      corgi: false,
+      exited: false,
+      workspace_id: due.id,
+      status: () => "working",
+      attention: () => "needs_input",
+    } as any);
+    await check(240_000);
+    expect(due.archived).toBe(false);
+    // Each reason is logged once, however often it's checked.
+    expect(reasons()).toEqual(["process-list-unavailable", "process-list-partial", "served-link", "waiting-agent"]);
+    r.sessions.length = 0;
+    await check(300_000);
+    expect(due).toMatchObject({ archived: true, auto_archived: true });
+  } finally {
+    status.mockRestore();
+    reported.mockRestore();
+    await dispose();
+  }
+});
+test("auto-archive reads one process list a tick", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    minute = 60_000,
+    status = spyOn(archiveInventory, "inventoryStatus").mockImplementation(() => ({
+      processes: 1,
+      available: true,
+      partial: false,
+    }));
+  try {
+    const items = [1, 2, 3, 4].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(...items);
+    r.workspaces.next_id = 5;
+    r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
+    r.work_clock.reading = 100 * minute;
+    for (const w of items.slice(0, 3)) {
+      w.group = "stale";
+      w.active_at = r.work_clock.reading - 10 * minute;
+    }
+    items[3].active_at = r.work_clock.reading;
+    const autoArchive = (now: number) => Reflect.get(server, "autoArchive").call(server, now);
+    autoArchive(0);
+    expect(status).toHaveBeenCalledTimes(1);
+    autoArchive(250);
+    autoArchive(500);
+    expect(status.mock.calls.map(c => c[1])).toEqual([1, 2, 3]);
+    // Each was checked, so none is read again within the minute.
+    autoArchive(750);
+    expect(status).toHaveBeenCalledTimes(3);
+  } finally {
+    status.mockRestore();
+    await dispose();
+  }
+});
+test("a failed auto-archive stays put, logs once and retries; one held back since its check stays", async () => {
+  const { server, dispose } = saving(),
+    r = server.runtime,
+    minute = 60_000,
+    jobs = () => Reflect.get(server, "jobs") as Promise<void>,
+    check = async (now: number) => {
+      Reflect.get(server, "autoArchive").call(server, now);
+      await jobs();
+    },
+    status = spyOn(archiveInventory, "inventoryStatus").mockImplementation(() => ({
+      processes: 0,
+      available: true,
+      partial: false,
+    })),
+    execute = server.execute.bind(server),
+    failing = { count: 2 },
+    run = spyOn(server, "execute").mockImplementation(async command => {
+      if (failing.count-- > 0) throw Error("ArchiveFailed");
+      return execute(command);
+    }),
+    reported = spyOn(workspaceActivity.Reported.prototype, "report");
+  try {
+    const [due, other] = [1, 2].map(id => new Workspace(id, "/tmp", `w${id}`));
+    r.workspaces.items.push(due, other);
+    r.workspaces.next_id = 3;
+    r.auto_order = { enabled: true, pause_after: 1, stale_after: 3, archive_after: 10 };
+    r.work_clock.reading = 100 * minute;
+    due.group = "stale";
+    due.active_at = r.work_clock.reading - 10 * minute;
+    other.active_at = r.work_clock.reading;
+    await check(0);
+    expect(due).toMatchObject({ archived: false, auto_archived: false });
+    await check(70_000);
+    expect(due).toMatchObject({ archived: false, auto_archived: false });
+    expect(reported.mock.calls.filter((_, i) => reported.mock.results[i].value).map(c => c[1])).toEqual([
+      "ArchiveFailed",
+    ]);
+    // Queued, then a process starts before the archive runs: it stays.
+    Reflect.get(server, "autoArchive").call(server, 140_000);
+    status.mockImplementation(() => ({ processes: 1, available: true, partial: false }));
+    await jobs();
+    expect(due.archived).toBe(false);
+    status.mockImplementation(() => ({ processes: 0, available: true, partial: false }));
+    await check(210_000);
+    expect(due).toMatchObject({ archived: true, auto_archived: true });
+    expect(run).toHaveBeenCalledTimes(3);
+  } finally {
+    status.mockRestore();
+    run.mockRestore();
+    reported.mockRestore();
+    await dispose();
   }
 });

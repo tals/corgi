@@ -47,6 +47,7 @@ import * as viewer from "./viewer";
 import { agent, type Pane } from "./mirror";
 import * as summaries from "./review/summaries";
 import * as sidebar from "./sidebar";
+import * as workspaceRows from "./workspace_rows";
 import * as render from "./render";
 import * as modelPicker from "./model_picker";
 import * as subprocess from "./subprocess";
@@ -517,6 +518,262 @@ function paneless() {
   };
 }
 
+test("setup's auto-order choices go to the daemon, and thresholds out of order are explained", async () => {
+  const sent: unknown[] = [];
+  let order = { enabled: false, pause_after: 5, stale_after: 10, archive_after: 480 };
+  const s: any = new Controller(
+    transport(async (op, fields: any) => {
+      if (op !== "workspace_auto_order.configure") throw Error("UnexpectedRequest");
+      sent.push(fields);
+      const next = { ...order, ...fields };
+      if (next.pause_after >= next.stale_after) return { err: "InvalidThresholds" };
+      order = next;
+      return { ok: true, workspace_auto_order: order };
+    }),
+  );
+  const apply = (value: object) => Reflect.get(s, "applySetup").call(s, value);
+  try {
+    s.receiveSnapshot({ ...folders("/a"), workspace_auto_order: order });
+    await apply({ kind: "auto_order", on: true });
+    expect(s.runtime.workspace_auto_order.enabled).toBe(true);
+    expect(s.message).toBe(" Auto-order workspaces on");
+    await apply({ kind: "auto_order_threshold", field: "archive_after", minutes: null });
+    expect(s.runtime.workspace_auto_order.archive_after).toBeNull();
+    // Setup grays such a choice out; one that slips through is refused and explained.
+    await apply({ kind: "auto_order_threshold", field: "stale_after", minutes: 5 });
+    expect(s.message).toBe(" Stale after must be longer than the pause and shorter than archive after");
+    expect(s.runtime.workspace_auto_order.stale_after).toBe(10);
+    expect(sent).toEqual([{ enabled: true }, { archive_after: 0 }, { stale_after: 5 }]);
+  } finally {
+    viewer.close(s);
+  }
+});
+/** A viewer showing folder "/a" here and, on another machine ordering by
+ * activity, W1, W2 and a stale W3. `answer` takes each workspace.move that
+ * machine's daemon receives; snapshots show `order`, its order. */
+function activityMachines(answer: (target: number, before: number) => Promise<unknown>) {
+  const s = controller(),
+    sent: unknown[] = [],
+    model = { nodes: [], tabs: [], revision: 0 },
+    machine = {
+      order: [1, 2, 3],
+      snapshot: () => ({
+        workspace_auto_order: { enabled: true, pause_after: 5, stale_after: 10, archive_after: 480 },
+        workspaces: machine.order.map(id => ({ id, name: `W${id}`, cwd: "/w", model, stale_step: id === 3 ? 2 : 0 })),
+      }),
+    },
+    other = new Machine(
+      {
+        request: transport(async (op, fields: any) => {
+          if (op === "session.snapshot") return machine.snapshot();
+          sent.push([op, fields.command]);
+          const { target, before } = fields.command["workspace.move"];
+          return answer(target, before);
+        }).request,
+      },
+      "work",
+      true,
+    );
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a"));
+  s.receiveSnapshot(machine.snapshot(), other);
+  const ids = s.workspaceRows(true).map((row: any) => row.id);
+  return {
+    s,
+    other,
+    machine,
+    sent,
+    names: (): string[] => s.workspaceRows(true).map((row: any) => row.name),
+    /** Drops the row at `source` above the one at `index`, or last. */
+    drop(source: number, index: number) {
+      const drag = {
+        drop: { index, y: 0 },
+        ids,
+        source,
+        before: () => (index === ids.length ? ids[source] : ids[index]),
+      };
+      Reflect.get(s, "dropWorkspace").call(s, drag);
+    },
+    settled: () => Promise.all([s.tasks.idle(), other.tasks.idle()]),
+  };
+}
+test("across machines, a drop within one ordering by activity keeps its groups and reaches its daemon", async () => {
+  const at = activityMachines(async (target, before) => {
+    const order = at.machine.order.filter(id => id !== target),
+      index = before === target ? order.length : order.indexOf(before);
+    order.splice(index, 0, target);
+    at.machine.order = order;
+    return { ok: true, result: {} };
+  });
+  const save = spyOn(preferences, "update").mockImplementation(() => {});
+  try {
+    expect(at.names()).toEqual(["/a", "W1", "W2", "W3"]);
+    // Last, or anywhere for the stale one: refused, nothing sent.
+    at.drop(1, 4);
+    at.drop(3, 0);
+    await at.settled();
+    expect(at.sent).toEqual([]);
+    expect(at.names()).toEqual(["/a", "W1", "W2", "W3"]);
+    // Above W3, the slot after the last active one: the daemon hears of it.
+    at.drop(1, 3);
+    await at.settled();
+    expect(at.sent).toEqual([["session.command", { "workspace.move": { target: 1, before: 3 } }]]);
+    expect(at.names()).toEqual(["/a", "W2", "W1", "W3"]);
+    // Above another machine's row: it lands above the next of its own.
+    at.drop(2, 0);
+    await at.settled();
+    expect(at.sent.at(-1)).toEqual(["session.command", { "workspace.move": { target: 2, before: 1 } }]);
+    expect(at.names()).toEqual(["W2", "/a", "W1", "W3"]);
+    expect(at.s.message).toBe("");
+  } finally {
+    save.mockRestore();
+    viewer.close(at.s);
+    at.other.runtime.destroy();
+  }
+});
+test("across machines, a move the daemon drops snaps back quietly, and one whose reply is lost says so", async () => {
+  let reply = Promise.withResolvers<unknown>();
+  // The daemon drops the move, as one whose groups have changed does.
+  const at = activityMachines(() => reply.promise);
+  const save = spyOn(preferences, "update").mockImplementation(() => {});
+  try {
+    at.drop(2, 1);
+    // Shown at once, before the daemon answers.
+    expect(at.names()).toEqual(["/a", "W2", "W1", "W3"]);
+    reply.resolve({ ok: true, result: {} });
+    await at.settled();
+    expect(at.sent).toEqual([["session.command", { "workspace.move": { target: 2, before: 1 } }]]);
+    expect(at.names()).toEqual(["/a", "W1", "W2", "W3"]);
+    expect(at.s.message).toBe("");
+    reply = Promise.withResolvers<unknown>();
+    at.drop(2, 1);
+    expect(at.names()).toEqual(["/a", "W2", "W1", "W3"]);
+    reply.reject(Error("ConnectionClosed"));
+    await at.settled();
+    expect(at.names()).toEqual(["/a", "W1", "W2", "W3"]);
+    expect(at.s.message).toBe(" Connection lost before the reply; check before trying again");
+  } finally {
+    save.mockRestore();
+    viewer.close(at.s);
+    at.other.runtime.destroy();
+  }
+});
+test("a workspace auto-order archives is named in a notice, on any machine", () => {
+  const s = controller(),
+    other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  const archived = (snapshot: any, id: number, auto: boolean) => {
+    snapshot.workspaces[id - 1].archived = true;
+    snapshot.workspaces[id - 1].auto_archived = auto;
+    return snapshot;
+  };
+  try {
+    s.receiveSnapshot(folders("/a", "/b", "/c"));
+    s.receiveSnapshot(folders("/w", "/x"), other);
+    expect(s.message).toBe("");
+    // A manual archive says nothing.
+    s.receiveSnapshot(archived(folders("/a", "/b", "/c"), 3, false));
+    expect(s.message).toBe("");
+    s.receiveSnapshot(archived(archived(folders("/a", "/b", "/c"), 3, false), 2, true));
+    expect(s.message).toBe(" Auto-archived /b");
+    s.message = "";
+    // Only the change is news.
+    s.receiveSnapshot(archived(archived(folders("/a", "/b", "/c"), 3, false), 2, true));
+    expect(s.message).toBe("");
+    s.receiveSnapshot(archived(folders("/w", "/x"), 2, true), other);
+    expect(s.message).toBe(" Auto-archived /x");
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+test("a workspace auto-order moves fades out and in; a drag drop and an auto-archive behave as the user sees them", async () => {
+  const s: any = new Controller(transport(async () => ({ ok: true, result: {} })));
+  s.machine.profiles.loaded = true;
+  const order = { enabled: true, pause_after: 5, stale_after: 10, archive_after: 480 },
+    snapshot = (...ids: number[]) => {
+      const all = folders("/a", "/b", "/c", "/d");
+      return { ...all, workspaces: ids.map(id => all.workspaces[id - 1]), workspace_auto_order: order };
+    },
+    shown = () => s.workspaceRows().map((row: sidebar.WorkspaceEntry) => [row.name, row.fade]),
+    frame = (ms: number) => {
+      clock.advance(ms);
+      s.frame();
+    },
+    d = workspaceRows.State.duration_ms;
+  setSystemTime(new Date(1000));
+  try {
+    s.receiveSnapshot(snapshot(1, 2, 3, 4));
+    s.frame();
+    expect(shown()).toEqual([
+      ["/a", null],
+      ["/b", null],
+      ["/c", null],
+      ["/d", null],
+    ]);
+    expect(s.frameDelay()).not.toBe(30);
+    // /b goes stale: it fades out where it was, the others hold still.
+    s.receiveSnapshot(snapshot(1, 3, 4, 2));
+    expect(shown()).toEqual([
+      ["/a", null],
+      ["/b", 0],
+      ["/c", null],
+      ["/d", null],
+    ]);
+    expect(s.frameDelay()).toBe(30);
+    frame(d / 2);
+    expect(shown()[1]).toEqual(["/b", 0.5]);
+    // Clicks meanwhile find the cards where they are drawn.
+    expect(s.workspaceIds().map((id: viewerRef.Workspace) => viewerRef.parts(id).id)).toEqual([1, 2, 3, 4]);
+    frame(d / 2);
+    expect(shown()).toEqual([
+      ["/a", null],
+      ["/c", null],
+      ["/d", null],
+      ["/b", 1],
+    ]);
+    frame(d / 2);
+    expect(shown()[3]).toEqual(["/b", 0.5]);
+    frame(d / 2);
+    expect(shown().map(([, fade]: [string, number | null]) => fade)).toEqual([null, null, null, null]);
+    expect(s.frameDelay()).not.toBe(30);
+    // A drop shows where it lands at once.
+    const ids = s.workspaceIds();
+    Reflect.get(s, "dropWorkspace").call(s, {
+      drop: { index: 0, y: 0 },
+      ids,
+      source: 1,
+      before: () => ids[0],
+    });
+    expect(shown()).toEqual([
+      ["/c", null],
+      ["/a", null],
+      ["/d", null],
+      ["/b", null],
+    ]);
+    expect(s.frameDelay()).not.toBe(30);
+    await s.tasks.idle();
+    s.receiveSnapshot(snapshot(3, 1, 4, 2));
+    expect(shown().map(([, fade]: [string, number | null]) => fade)).toEqual([null, null, null, null]);
+    // An auto-archived workspace fades out before the gap closes.
+    const archived = snapshot(3, 1, 4, 2);
+    Object.assign(archived.workspaces[3], { archived: true, auto_archived: true });
+    s.receiveSnapshot(archived);
+    expect(shown()).toEqual([
+      ["/c", null],
+      ["/a", null],
+      ["/d", null],
+      ["/b", 0],
+    ]);
+    frame(d);
+    expect(shown().map(([name]: [string]) => name)).toEqual(["/c", "/a", "/d"]);
+    expect(s.frameDelay()).not.toBe(30);
+  } finally {
+    setSystemTime();
+    clock.reset();
+    viewer.close(s);
+  }
+});
 test("attention passes over archived workspaces", async () => {
   const s = controller(),
     snapshot: any = folders("/a", "/b", "/c");

@@ -52,6 +52,7 @@ import * as modelSuggest from "./model_suggest";
 import { routeName } from "./model_series";
 import { milliTimestamp } from "./clock";
 import type { ShellStatus } from "./launch/command";
+import * as workspaceActivity from "./workspace_activity";
 import {
   preferred_width as launcher_width,
   type Menu as LauncherMenu,
@@ -110,6 +111,7 @@ export const Summarizer = {
 export type Item =
   | "flourishes"
   | "readings"
+  | "workspaces"
   | "clever_corgi"
   | "theme"
   | "language"
@@ -141,6 +143,7 @@ const list = (): ListRow[] => [
   "shell",
   "keyboard",
   "source_control",
+  "workspaces",
   null,
   "agents",
   null,
@@ -159,6 +162,7 @@ export const items = list().filter((row): row is Item => typeof row === "string"
 const labels = (): Record<Item, string> => ({
   flourishes: i18n.t`Visual flourishes`,
   readings: i18n.t`Resources`,
+  workspaces: i18n.t`Workspace order`,
   clever_corgi: i18n.t`Clever Corgi`,
   theme: i18n.t`Theme`,
   language: i18n.t`Language`,
@@ -201,6 +205,9 @@ export type Apply =
   | { kind: "theme"; theme: palette.Theme }
   | { kind: "language"; language: i18n.Locale | undefined }
   | { kind: "shell"; entry: shellPicker.Entry }
+  | { kind: "auto_order"; on: boolean }
+  /** A workspace auto-order threshold, in minutes; null for Off. */
+  | { kind: "auto_order_threshold"; field: Threshold; minutes: number | null }
   | { kind: "preset"; preset: km.Preset }
   | { kind: "prefix" }
   | { kind: "keymap" }
@@ -532,6 +539,8 @@ export class Menu implements LinkSource {
   smart_links = true;
   /** Whether the daemon starts a turn again that failed on an overloaded model. */
   auto_retry = true;
+  /** The daemon's workspace auto-order; null for one too old to have it. */
+  auto_order: workspaceActivity.Settings | null = null;
   /** The worktree folder template being typed, while Source control edits it. */
   editing: Dialog | null = null;
   /** A project the worktree folder's preview places a branch in; an example when null. */
@@ -1789,6 +1798,50 @@ export class Menu implements LinkSource {
           blank,
           { tag: "note", text: i18n.t`Sampling stops once every viewer turns it off.` },
         ];
+      case "workspaces": {
+        const order = this.auto_order;
+        if (!order)
+          return [
+            title(i18n.t`Workspace order`),
+            lead(i18n.t`This machine's Corgi is too old to order workspaces by activity.`),
+          ];
+        const threshold = (field: Threshold, heading: string): Line[] => [
+          blank,
+          lead(heading),
+          ...thresholdChoices(field, order[field]).map(minutes =>
+            option({
+              label: minutesLabel(minutes),
+              detail: "",
+              mark: minutes === order[field] ? "on" : "off",
+              apply: minutes === order[field] ? null : { kind: "auto_order_threshold", field, minutes },
+              action: i18n.t`use`,
+              // Stale stays longer than the pause and shorter than archive.
+              disabled: !workspaceActivity.valid({ ...order, [field]: minutes }),
+            }),
+          ),
+        ];
+        const pause = minutesLabel(order.pause_after);
+        return [
+          title(i18n.t`Workspace order`),
+          lead(i18n.t`Busy workspaces stay on top in a steady order; idle ones sink, fade and are archived.`),
+          blank,
+          option({
+            label: i18n.t`Auto-order workspaces`,
+            detail: "",
+            mark: "none",
+            apply: { kind: "auto_order", on: !order.enabled },
+            action: order.enabled ? i18n.t`turn off` : i18n.t`turn on`,
+            toggle: order.enabled,
+          }),
+          ...threshold("stale_after", i18n.t`Stale after idle for`),
+          ...threshold("archive_after", i18n.t`Archive after idle for`),
+          blank,
+          {
+            tag: "note",
+            text: i18n.t`Idle is the time since a workspace's last activity. It stops growing after ${pause} with no activity anywhere, so breaks don't age anything. Once it passes the stale time, the workspace drops below the busy ones and fades. A workspace running a program, waiting on you or on screen is never archived.`,
+          },
+        ];
+      }
       case "clever_corgi": {
         const second = note(s.choice, s);
         return [
@@ -2132,6 +2185,8 @@ export class Menu implements LinkSource {
         };
       case "readings":
         return flag(prefs.resources.enabled);
+      case "workspaces":
+        return this.auto_order ? flag(this.auto_order.enabled) : { text: "", tone: "faint" };
       case "clever_corgi":
         return { text: "", tone: "faint" };
       case "theme":
@@ -2264,6 +2319,31 @@ function pickerArea(l: Layout, line: number): Rect {
   const x0 = l.options.x + 2,
     right = l.options.x + l.options.w - 1;
   return new Rect(x0, l.b.y + 2 + line, right - x0, l.body - line);
+}
+/** A workspace auto-order threshold setup offers; the pause stays at its
+ * default unless settings.json sets it. */
+export type Threshold = "stale_after" | "archive_after";
+/** The preset minutes each threshold offers; null is Off. */
+const threshold_presets: Record<Threshold, (number | null)[]> = {
+  stale_after: [10, 15, 30, 60],
+  archive_after: [60, 120, 240, 480, 720, 1440, null],
+};
+/** A threshold's presets, with `current` among them in order when the
+ * settings file holds another value. */
+export function thresholdChoices(field: Threshold, current: number | null): (number | null)[] {
+  const presets = threshold_presets[field];
+  if (presets.includes(current)) return presets;
+  const at = presets.findIndex(m => m === null || (current !== null && m > current));
+  return at < 0 ? [...presets, current] : [...presets.slice(0, at), current, ...presets.slice(at)];
+}
+/** Minutes as setup shows them: whole hours in hours, null as Off. */
+export function minutesLabel(minutes: number | null): string {
+  if (minutes === null) return i18n.t`Off`;
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return i18n.t`${hours} h`;
+  }
+  return i18n.t`${minutes} min`;
 }
 function onOff(enabled: boolean, kind: "readings", details: [string, string]): Option[] {
   return [true, false].map((value, i) => ({

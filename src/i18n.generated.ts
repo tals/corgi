@@ -136,6 +136,9 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" / memory ",""]': v0 => ` / 内存${v0}`,
     '[" Agent search needs at least 40 columns and 13 rows"]': () => ` 智能体搜索至少需要 40 列、13 行`,
     '[" Agent search: enlarge terminal or Esc"]': () => ` 智能体搜索：请扩大终端，或按 Esc 返回`,
+    '[" Auto-archived ",""]': v0 => ` 已自动归档 ${v0}`,
+    '[" Auto-order workspaces off"]': () => ` 工作区自动排序已关闭`,
+    '[" Auto-order workspaces on"]': () => ` 工作区自动排序已开启`,
     '[" Auto-retry capacity errors off"]': () => ` 容量错误自动重试已关闭`,
     '[" Auto-retry capacity errors on"]': () => ` 容量错误自动重试已开启`,
     '[" Cancel · Esc "]': () => ` 取消 · Esc `,
@@ -210,6 +213,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () => ` 智能链接已关闭：Corgi 不会连接窗格中的端口`,
     '[" Smart Links on"]': () => ` 智能链接已开启`,
     '[" Split "]': () => ` 分屏 `,
+    '[" Stale after must be longer than the pause and shorter than archive after"]': () =>
+      ` 视为不活跃的闲置时间必须长于暂停时间，并短于归档前的闲置时间`,
     '[" Startup waits (",") "]': v0 => ` 启动等待（${v0}） `,
     '[" Still sending the last paste; paste again once it lands"]': () => ` 上一次粘贴仍在发送中；送达后再粘贴`,
     '[" Summaries and link names: ",""]': v0 => ` 摘要与链接名称：${v0}`,
@@ -404,6 +409,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Answers in ","."]': v0 => `响应耗时 ${v0}。`,
     '["Appended to Corgi\'s launch command. Quotes supported."]': () => `追加到 Corgi 的启动命令。支持引号。`,
     '["Archive ","?"]': v0 => `归档 ${v0}？`,
+    '["Archive after idle for"]': () => `闲置多久后归档`,
     '["Archive workspace"]': () => `归档工作区`,
     '["Archiving…"]': () => `正在归档…`,
     '["Arrange"]': () => `排列`,
@@ -414,6 +420,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Auto (last chosen)"]': () => `自动（上次选择）`,
     '["Auto uses the agent CLI\'s last model; default leaves effort to the agent CLI."]': () =>
       `auto 使用智能体 CLI 上次使用的模型；default 让智能体 CLI 决定推理强度。`,
+    '["Auto-order workspaces"]': () => `自动排序工作区`,
     '["Auto-retry capacity errors"]': () => `容量错误自动重试`,
     '["Back to agent"]': () => `返回智能体`,
     '["Background commands"]': () => `后台命令`,
@@ -429,6 +436,8 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Build "," built on ",""]': (v0, v1) => `构建 ${v0}（${v1}）`,
     '["Build: "]': () => `构建版本：`,
     '["Builds"]': () => `构建`,
+    '["Busy workspaces stay on top in a steady order; idle ones sink, fade and are archived."]': () =>
+      `忙碌的工作区按固定顺序留在顶部；闲置的会下沉、变暗，最后被归档。`,
     '["By activity"]': () => `按活动排序`,
     '["COPY"]': () => `复制`,
     '["CORGI"]': () => `CORGI`,
@@ -646,6 +655,9 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["IDs come from list; current means CORGI_PANE, never UI focus."]': () =>
       `ID 来自 list；current 指 CORGI_PANE，始终不表示界面焦点。`,
     '["Idle"]': () => `空闲`,
+    '["Idle is the time since a workspace\'s last activity. It stops growing after "," with no activity anywhere, so breaks don\'t age anything. Once it passes the stale time, the workspace drops below the busy ones and fades. A workspace running a program, waiting on you or on screen is never archived."]':
+      v0 =>
+        `闲置时间是工作区自上次活动以来经过的时间。任何地方都没有活动达到 ${v0} 后，它就不再增长，所以休息不会让工作区变旧。超过视为不活跃的时间后，工作区会移到忙碌的工作区下方并变暗。正在运行程序、等待你回复或显示在屏幕上的工作区永远不会被归档。`,
     '["Image paste"]': () => `粘贴图片`,
     '["Images over 32 MB don\'t paste"]': () => `无法粘贴超过 32 MB 的图片`,
     '["Images paste into a pane"]': () => `图片只能粘贴到窗格中`,
@@ -991,6 +1003,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Split down"]': () => `向下分屏`,
     '["Split layout approximated"]': () => `已近似还原分屏布局`,
     '["Split right"]': () => `向右分屏`,
+    '["Stale after idle for"]': () => `闲置多久后视为不活跃`,
     '["Star"]': () => `收藏`,
     '["Star / unstar agent"]': () => `收藏 / 取消收藏智能体`,
     '["Star / unstar headless agent"]': () => `收藏 / 取消收藏后台智能体`,
@@ -1041,6 +1054,8 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["This file is ",". Finding line "," may take a while."]': (v0, v1) =>
       `此文件大小为 ${v0}。查找第 ${v1} 行可能需要一些时间。`,
     '["This folder has no commit to branch from"]': () => `此文件夹中没有可用于创建分支的提交`,
+    '["This machine\'s Corgi is too old to order workspaces by activity."]': () =>
+      `这台机器上的 Corgi 版本过旧，无法按活动排序工作区。`,
     '["This terminal"]': () => `此终端`,
     '["This terminal sends no paste events."]': () => `此终端不会发送粘贴事件。`,
     '["This viewer has no terminal to paste from."]': () => `此客户端没有可用于粘贴的终端。`,
@@ -1151,6 +1166,7 @@ ${v1} 使用该账号。
     '["Window"]': () => `时间窗口`,
     '["Working"]': () => `工作中`,
     '["Workspace only · opens a new shell"]': () => `仅工作区 · 打开新 Shell`,
+    '["Workspace order"]': () => `工作区顺序`,
     '["Workspaces, tabs, panes and agents"]': () => `工作区、标签页、窗格和智能体`,
     '["Worktree briefs"]': () => `工作树摘要`,
     '["Worktree folder"]': () => `工作树文件夹`,
@@ -1595,6 +1611,9 @@ ${v1} 使用该账号。
     '[" / memory ",""]': v0 => ` / メモリ ${v0}`,
     '[" Agent search needs at least 40 columns and 13 rows"]': () => ` エージェント検索には40列×13行以上必要です`,
     '[" Agent search: enlarge terminal or Esc"]': () => ` エージェント検索：端末を広げるかEscで閉じてください`,
+    '[" Auto-archived ",""]': v0 => ` ${v0} を自動でアーカイブしました`,
+    '[" Auto-order workspaces off"]': () => ` ワークスペースの自動並べ替えはオフです`,
+    '[" Auto-order workspaces on"]': () => ` ワークスペースの自動並べ替えはオンです`,
     '[" Auto-retry capacity errors off"]': () => ` 容量エラーの自動再試行はオフです`,
     '[" Auto-retry capacity errors on"]': () => ` 容量エラーの自動再試行はオンです`,
     '[" Cancel · Esc "]': () => ` キャンセル · Esc `,
@@ -1675,6 +1694,8 @@ ${v1} 使用该账号。
       ` スマートリンクはオフです。ペインのポートには接続しません`,
     '[" Smart Links on"]': () => ` スマートリンクはオンです`,
     '[" Split "]': () => ` 分割 `,
+    '[" Stale after must be longer than the pause and shorter than archive after"]': () =>
+      ` 「非アクティブになるまでの放置時間」は一時停止より長く、「アーカイブまでの放置時間」より短くしてください`,
     '[" Startup waits (",") "]': v0 => ` 起動待ち（${v0}） `,
     '[" Still sending the last paste; paste again once it lands"]': () =>
       ` 前回の貼り付けをまだ送信中です。届いてから貼り付け直してください`,
@@ -1878,6 +1899,7 @@ ${v1} 使用该账号。
     '["Appended to Corgi\'s launch command. Quotes supported."]': () =>
       `Corgiが使う起動コマンドに追加します。引用符も使えます。`,
     '["Archive ","?"]': v0 => `${v0} をアーカイブしますか？`,
+    '["Archive after idle for"]': () => `アーカイブまでの放置時間`,
     '["Archive workspace"]': () => `ワークスペースをアーカイブ`,
     '["Archiving…"]': () => `アーカイブ中…`,
     '["Arrange"]': () => `配置`,
@@ -1888,6 +1910,7 @@ ${v1} 使用该账号。
     '["Auto (last chosen)"]': () => `自動（前回の選択）`,
     '["Auto uses the agent CLI\'s last model; default leaves effort to the agent CLI."]': () =>
       `autoはエージェントCLIで最後に使ったモデルを選び、defaultは推論レベルをCLIに任せます。`,
+    '["Auto-order workspaces"]': () => `ワークスペースを自動で並べ替え`,
     '["Auto-retry capacity errors"]': () => `容量エラーを自動再試行`,
     '["Back to agent"]': () => `エージェントに戻る`,
     '["Background commands"]': () => `バックグラウンドのコマンド`,
@@ -1903,6 +1926,8 @@ ${v1} 使用该账号。
     '["Build "," built on ",""]': (v0, v1) => `ビルド ${v0}（${v1}）`,
     '["Build: "]': () => `ビルド：`,
     '["Builds"]': () => `ビルド`,
+    '["Busy workspaces stay on top in a steady order; idle ones sink, fade and are archived."]': () =>
+      `作業中のワークスペースは順番を保って上に残り、放置されたものは下がって薄くなり、やがてアーカイブされます。`,
     '["By activity"]': () => `状態別`,
     '["COPY"]': () => `コピー`,
     '["CORGI"]': () => `CORGI`,
@@ -2127,6 +2152,9 @@ ${v1} 使用该账号。
     '["IDs come from list; current means CORGI_PANE, never UI focus."]': () =>
       `IDはlistで確認できます。currentはCORGI_PANEを指し、画面のフォーカスとは無関係です。`,
     '["Idle"]': () => `待機中`,
+    '["Idle is the time since a workspace\'s last activity. It stops growing after "," with no activity anywhere, so breaks don\'t age anything. Once it passes the stale time, the workspace drops below the busy ones and fades. A workspace running a program, waiting on you or on screen is never archived."]':
+      v0 =>
+        `放置時間は、ワークスペースで最後に動きがあってからの時間です。どこにも動きがない状態が ${v0} 続くと増えなくなるので、休憩中に古くなることはありません。非アクティブになるまでの時間を過ぎると、ワークスペースは作業中のものより下に移り、薄くなります。プログラムを実行中、あなたの返答待ち、または画面に表示中のワークスペースはアーカイブされません。`,
     '["Image paste"]': () => `画像の貼り付け`,
     '["Images over 32 MB don\'t paste"]': () => `32 MBを超える画像は貼り付けられません`,
     '["Images paste into a pane"]': () => `画像の貼り付けにはペインが必要です`,
@@ -2484,6 +2512,7 @@ ${v1} 使用该账号。
     '["Split down"]': () => `下に分割`,
     '["Split layout approximated"]': () => `分割レイアウトを近い形で再現`,
     '["Split right"]': () => `右に分割`,
+    '["Stale after idle for"]': () => `非アクティブになるまでの放置時間`,
     '["Star"]': () => `スター`,
     '["Star / unstar agent"]': () => `エージェントのスター切り替え`,
     '["Star / unstar headless agent"]': () => `ヘッドレスエージェントのスター切り替え`,
@@ -2536,6 +2565,8 @@ ${v1} 使用该账号。
     '["This file is ",". Finding line "," may take a while."]': (v0, v1) =>
       `このファイルは ${v0} あります。${v1} 行目の検索には時間がかかることがあります。`,
     '["This folder has no commit to branch from"]': () => `このフォルダーには分岐元にできるコミットがありません`,
+    '["This machine\'s Corgi is too old to order workspaces by activity."]': () =>
+      `このマシンの Corgi は古いため、ワークスペースを活動順に並べ替えられません。`,
     '["This terminal"]': () => `この端末`,
     '["This terminal sends no paste events."]': () => `この端末は貼り付けイベントを送信しません。`,
     '["This viewer has no terminal to paste from."]': () => `このビューアーには貼り付け元の端末がありません。`,
@@ -2647,6 +2678,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["Window"]': () => `期間`,
     '["Working"]': () => `作業中`,
     '["Workspace only · opens a new shell"]': () => `ワークスペースのみ · 新しいシェルを開く`,
+    '["Workspace order"]': () => `ワークスペースの順番`,
     '["Workspaces, tabs, panes and agents"]': () => `ワークスペース、タブ、ペイン、エージェント`,
     '["Worktree briefs"]': () => `ワークツリー要約`,
     '["Worktree folder"]': () => `ワークツリーフォルダー`,
@@ -3094,6 +3126,9 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" / memory ",""]': v0 => ` / 메모리 ${v0}`,
     '[" Agent search needs at least 40 columns and 13 rows"]': () => ` 에이전트 검색에는 40열 × 13행 이상이 필요합니다`,
     '[" Agent search: enlarge terminal or Esc"]': () => ` 에이전트 검색: 터미널 늘리기 또는 Esc`,
+    '[" Auto-archived ",""]': v0 => ` ${v0}을(를) 자동으로 보관했습니다`,
+    '[" Auto-order workspaces off"]': () => ` 작업 공간 자동 정렬 꺼짐`,
+    '[" Auto-order workspaces on"]': () => ` 작업 공간 자동 정렬 켜짐`,
     '[" Auto-retry capacity errors off"]': () => ` 용량 오류 자동 재시도 꺼짐`,
     '[" Auto-retry capacity errors on"]': () => ` 용량 오류 자동 재시도 켜짐`,
     '[" Cancel · Esc "]': () => ` 취소 · Esc `,
@@ -3171,6 +3206,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
       ` 스마트 링크 꺼짐: Corgi가 패널의 포트에 연결하지 않습니다`,
     '[" Smart Links on"]': () => ` 스마트 링크 켜짐`,
     '[" Split "]': () => ` 분할 `,
+    '[" Stale after must be longer than the pause and shorter than archive after"]': () =>
+      ` 비활성까지의 유휴 시간은 일시 정지보다 길고 보관까지의 유휴 시간보다 짧아야 합니다`,
     '[" Startup waits (",") "]': v0 => ` 시작 대기 (${v0}) `,
     '[" Still sending the last paste; paste again once it lands"]': () =>
       ` 이전 붙여넣기를 아직 보내는 중입니다. 도착한 뒤 다시 붙여넣으세요`,
@@ -3375,6 +3412,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Appended to Corgi\'s launch command. Quotes supported."]': () =>
       `Corgi 실행 명령 뒤에 추가합니다. 따옴표를 사용할 수 있습니다.`,
     '["Archive ","?"]': v0 => `${v0}을(를) 보관할까요?`,
+    '["Archive after idle for"]': () => `보관까지의 유휴 시간`,
     '["Archive workspace"]': () => `작업 공간 보관`,
     '["Archiving…"]': () => `보관 중…`,
     '["Arrange"]': () => `배치`,
@@ -3385,6 +3423,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Auto (last chosen)"]': () => `자동(마지막 선택)`,
     '["Auto uses the agent CLI\'s last model; default leaves effort to the agent CLI."]': () =>
       `Auto는 에이전트 CLI의 마지막 모델을 사용하고 default는 추론 강도를 CLI에 맡깁니다.`,
+    '["Auto-order workspaces"]': () => `작업 공간 자동 정렬`,
     '["Auto-retry capacity errors"]': () => `용량 오류 자동 재시도`,
     '["Back to agent"]': () => `에이전트로 돌아가기`,
     '["Background commands"]': () => `백그라운드 명령`,
@@ -3401,6 +3440,8 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Build "," built on ",""]': (v0, v1) => `빌드 ${v0} (${v1})`,
     '["Build: "]': () => `빌드: `,
     '["Builds"]': () => `빌드`,
+    '["Busy workspaces stay on top in a steady order; idle ones sink, fade and are archived."]': () =>
+      `바쁜 작업 공간은 순서를 유지한 채 위에 남고, 유휴 작업 공간은 아래로 내려가 흐려지다가 보관됩니다.`,
     '["By activity"]': () => `활동순`,
     '["COPY"]': () => `복사`,
     '["CORGI"]': () => `CORGI`,
@@ -3625,6 +3666,9 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["IDs come from list; current means CORGI_PANE, never UI focus."]': () =>
       `ID는 list에서 확인합니다. current는 CORGI_PANE이며 UI 포커스를 뜻하지 않습니다.`,
     '["Idle"]': () => `대기 중`,
+    '["Idle is the time since a workspace\'s last activity. It stops growing after "," with no activity anywhere, so breaks don\'t age anything. Once it passes the stale time, the workspace drops below the busy ones and fades. A workspace running a program, waiting on you or on screen is never archived."]':
+      v0 =>
+        `유휴 시간은 작업 공간에서 마지막 활동 이후 지난 시간입니다. 어디에서도 활동이 없는 상태가 ${v0} 이어지면 더 늘어나지 않으므로, 쉬는 동안에는 오래되지 않습니다. 비활성까지의 시간이 지나면 작업 공간은 바쁜 작업 공간 아래로 내려가 흐려집니다. 프로그램을 실행 중이거나, 응답을 기다리거나, 화면에 보이는 작업 공간은 보관되지 않습니다.`,
     '["Image paste"]': () => `이미지 붙여넣기`,
     '["Images over 32 MB don\'t paste"]': () => `32 MB가 넘는 이미지는 붙여넣을 수 없습니다`,
     '["Images paste into a pane"]': () => `이미지는 패널에 붙여넣으세요`,
@@ -3978,6 +4022,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Split down"]': () => `아래로 분할`,
     '["Split layout approximated"]': () => `분할 배치를 유사하게 복원함`,
     '["Split right"]': () => `오른쪽으로 분할`,
+    '["Stale after idle for"]': () => `비활성까지의 유휴 시간`,
     '["Star"]': () => `즐겨찾기`,
     '["Star / unstar agent"]': () => `에이전트 즐겨찾기 / 해제`,
     '["Star / unstar headless agent"]': () => `백그라운드 에이전트 즐겨찾기 / 해제`,
@@ -4030,6 +4075,8 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["This file is ",". Finding line "," may take a while."]': (v0, v1) =>
       `이 파일은 ${v0}입니다. ${v1}번째 줄을 찾는 데 시간이 걸릴 수 있습니다.`,
     '["This folder has no commit to branch from"]': () => `이 폴더에는 분기를 시작할 커밋이 없습니다`,
+    '["This machine\'s Corgi is too old to order workspaces by activity."]': () =>
+      `이 기기의 Corgi는 너무 오래되어 작업 공간을 활동 순으로 정렬할 수 없습니다.`,
     '["This terminal"]': () => `이 터미널`,
     '["This terminal sends no paste events."]': () => `이 터미널은 붙여넣기 이벤트를 보내지 않습니다.`,
     '["This viewer has no terminal to paste from."]': () => `이 클라이언트에는 붙여넣을 터미널이 없습니다.`,
@@ -4142,6 +4189,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["Window"]': () => `기간`,
     '["Working"]': () => `작업 중`,
     '["Workspace only · opens a new shell"]': () => `작업 공간만 · 새 셸 열기`,
+    '["Workspace order"]': () => `작업 공간 순서`,
     '["Workspaces, tabs, panes and agents"]': () => `작업 공간, 탭, 패널, 에이전트`,
     '["Worktree briefs"]': () => `작업 트리 요약`,
     '["Worktree folder"]': () => `작업 트리 폴더`,
@@ -4592,6 +4640,9 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Agent search needs at least 40 columns and 13 rows"]': () =>
       ` Для поиска агентов нужно окно не меньше 40 столбцов и 13 строк`,
     '[" Agent search: enlarge terminal or Esc"]': () => ` Поиск агентов: увеличьте терминал или нажмите Esc`,
+    '[" Auto-archived ",""]': v0 => ` ${v0} архивировано автоматически`,
+    '[" Auto-order workspaces off"]': () => ` Автоупорядочивание рабочих пространств выключено`,
+    '[" Auto-order workspaces on"]': () => ` Автоупорядочивание рабочих пространств включено`,
     '[" Auto-retry capacity errors off"]': () => ` Автоповтор при перегрузке выключен`,
     '[" Auto-retry capacity errors on"]': () => ` Автоповтор при перегрузке включён`,
     '[" Cancel · Esc "]': () => ` Отмена · Esc `,
@@ -4697,6 +4748,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       ` Умные ссылки выключены: Corgi не будет подключаться к портам панелей`,
     '[" Smart Links on"]': () => ` Умные ссылки включены`,
     '[" Split "]': () => ` Разделить `,
+    '[" Stale after must be longer than the pause and shorter than archive after"]': () =>
+      ` Время до простоя должно быть больше паузы и меньше времени до архивации`,
     '[" Startup waits (",") "]': v0 => ` Ожидание запуска (${v0}) `,
     '[" Still sending the last paste; paste again once it lands"]': () =>
       ` Предыдущая вставка ещё отправляется; вставьте снова, когда она дойдёт`,
@@ -5291,6 +5344,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Appended to Corgi\'s launch command. Quotes supported."]': () =>
       `Добавляется к команде запуска Corgi. Кавычки поддерживаются.`,
     '["Archive ","?"]': v0 => `Архивировать ${v0}?`,
+    '["Archive after idle for"]': () => `Архивировать после простоя`,
     '["Archive workspace"]': () => `Архивировать рабочее пространство`,
     '["Archiving…"]': () => `Архивация…`,
     '["Arrange"]': () => `Расположение`,
@@ -5301,6 +5355,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Auto (last chosen)"]': () => `Авто (последний выбор)`,
     '["Auto uses the agent CLI\'s last model; default leaves effort to the agent CLI."]': () =>
       `auto использует последнюю модель CLI агента; default оставляет выбор глубины рассуждений CLI агента.`,
+    '["Auto-order workspaces"]': () => `Автоупорядочивать рабочие пространства`,
     '["Auto-retry capacity errors"]': () => `Автоповтор при перегрузке`,
     '["Back to agent"]': () => `Вернуться к агенту`,
     '["Background commands"]': () => `Фоновые команды`,
@@ -5317,6 +5372,8 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Build "," built on ",""]': (v0, v1) => `Сборка ${v0} от ${v1}`,
     '["Build: "]': () => `Сборка: `,
     '["Builds"]': () => `Сборки`,
+    '["Busy workspaces stay on top in a steady order; idle ones sink, fade and are archived."]': () =>
+      `Активные рабочие пространства остаются сверху в неизменном порядке; простаивающие опускаются, тускнеют и архивируются.`,
     '["By activity"]': () => `По активности`,
     '["COPY"]': () => `КОПИРОВАТЬ`,
     '["CORGI"]': () => `CORGI`,
@@ -5571,6 +5628,9 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["IDs come from list; current means CORGI_PANE, never UI focus."]': () =>
       `ID берутся из list; current означает CORGI_PANE, а не выбранную в интерфейсе панель.`,
     '["Idle"]': () => `Бездействует`,
+    '["Idle is the time since a workspace\'s last activity. It stops growing after "," with no activity anywhere, so breaks don\'t age anything. Once it passes the stale time, the workspace drops below the busy ones and fades. A workspace running a program, waiting on you or on screen is never archived."]':
+      v0 =>
+        `Простой означает время с последней активности в рабочем пространстве. Он перестаёт расти, если нигде нет активности ${v0}, поэтому перерывы ничего не старят. Когда простой превысит заданное время, рабочее пространство опускается ниже активных и тускнеет. Рабочее пространство, в котором работает программа, которое ждёт вашего ответа или видно на экране, никогда не архивируется.`,
     '["Image paste"]': () => `Вставка изображений`,
     '["Images over 32 MB don\'t paste"]': () => `Изображения больше 32 MB не вставляются`,
     '["Images paste into a pane"]': () => `Изображения вставляются в панель`,
@@ -5966,6 +6026,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Split down"]': () => `Разделить вниз`,
     '["Split layout approximated"]': () => `Расположение панелей приблизительное`,
     '["Split right"]': () => `Разделить вправо`,
+    '["Stale after idle for"]': () => `Считать простаивающим после`,
     '["Star"]': () => `В избранное`,
     '["Star / unstar agent"]': () => `Добавить / убрать агента из избранного`,
     '["Star / unstar headless agent"]': () => `Добавить / убрать фонового агента из избранного`,
@@ -6018,6 +6079,8 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["This file is ",". Finding line "," may take a while."]': (v0, v1) =>
       `Размер файла ${v0}. Поиск строки ${v1} может занять некоторое время.`,
     '["This folder has no commit to branch from"]': () => `В этой папке нет коммита для создания ветки`,
+    '["This machine\'s Corgi is too old to order workspaces by activity."]': () =>
+      `Corgi на этой машине слишком старый, чтобы упорядочивать рабочие пространства по активности.`,
     '["This terminal"]': () => `Этот терминал`,
     '["This terminal sends no paste events."]': () => `Этот терминал не отправляет события вставки.`,
     '["This viewer has no terminal to paste from."]': () => `У этого клиента нет терминала для вставки.`,
@@ -6130,6 +6193,7 @@ ${v1}, чтобы использовать этот аккаунт.
     '["Window"]': () => `Период`,
     '["Working"]': () => `Работает`,
     '["Workspace only · opens a new shell"]': () => `Только пространство · открывает новую оболочку`,
+    '["Workspace order"]': () => `Порядок рабочих пространств`,
     '["Workspaces, tabs, panes and agents"]': () => `Пространства, вкладки, панели, агенты`,
     '["Worktree briefs"]': () => `Описания рабочих деревьев`,
     '["Worktree folder"]': () => `Папка рабочего дерева`,

@@ -54,6 +54,10 @@ import * as link from "./link";
 import * as socket_server from "./socket_server";
 import * as legacy_socket from "./legacy_socket";
 import * as start_lock from "./start_lock";
+import * as workspaceActivity from "./workspace_activity";
+import { getLogger } from "./log";
+
+const autoOrderLog = getLogger("auto_order");
 export class Server {
   readonly instance = crypto.randomUUID();
   summaries: SummaryWorker | null = null;
@@ -128,6 +132,15 @@ export class Server {
   private workspaceWrites: Promise<void> = Promise.resolve();
   private collecting = false;
   private collected = -Infinity;
+  /** Whether the last tick ordered workspaces automatically. */
+  private auto_ordering = false;
+  /** The fade step each workspace's viewers last heard, by id. */
+  private stale_steps = new Map<number, workspaceActivity.Step>();
+  /** When each workspace due for auto-archive was last checked, by id. */
+  private archive_checked = new Map<number, number>();
+  /** Workspaces queued for auto-archive. */
+  private archiving = new Set<number>();
+  private archive_reported = new workspaceActivity.Reported();
   // Test builds stop with the test process that owns their runtime.
   private owner = testBuild ? Number(process.env.CORGI_TEST_OWNER) || 0 : 0;
   private ownerChecked = 0;
@@ -169,6 +182,7 @@ export class Server {
         await this.runtime.workspaces.save(
           Store.statePath(this.socket),
           this.initialWorkspace()?.id ?? Workspace.Id.none,
+          workspaceActivity.save(this.runtime),
         );
       } catch (error) {
         console.error("workspace save:", error);
@@ -178,6 +192,14 @@ export class Server {
   }
   async flushWorkspaceWrites(): Promise<void> {
     await this.workspaceWrites;
+  }
+  /** Holds auto-archive back a full "archive after" when the settings switch
+   * auto-order on or archive sooner than those last applied. */
+  private armGuard(): void {
+    const r = this.runtime,
+      guard = workspaceActivity.armGuard(r.guard_settings, r.auto_order, r.work_clock.reading);
+    if (guard !== null) r.work_clock.guard = guard;
+    r.guard_settings = { enabled: r.auto_order.enabled, archive_after: r.auto_order.archive_after };
   }
   visitWorkspace(id: number): void {
     const w = this.runtime.workspaces.get(id);
@@ -315,6 +337,7 @@ export class Server {
   async run(): Promise<void> {
     this.runtime.ports.configure(settings.smartLinks(settings.path(this.socket)));
     this.runtime.auto_retry = settings.autoRetry(settings.path(this.socket));
+    this.runtime.auto_order = settings.autoOrder(settings.path(this.socket));
     try {
       let selected: number | null = null;
       const handoff = this.imported;
@@ -325,14 +348,17 @@ export class Server {
           saved = true;
           const preferences = new Store();
           try {
-            selected = await preferences.load(Store.statePath(this.socket));
+            selected = (await preferences.load(Store.statePath(this.socket)))?.selected ?? null;
           } catch (error) {
             console.error("workspace load:", error);
           }
         } else
           try {
-            selected = await this.runtime.workspaces.load(Store.statePath(this.socket));
-            saved = selected !== null;
+            const loaded = await this.runtime.workspaces.load(Store.statePath(this.socket));
+            selected = loaded?.selected ?? null;
+            saved = loaded !== null;
+            // Without a checkpoint, idle times go on from the workspace file.
+            if (loaded) workspaceActivity.restore(this.runtime, loaded.auto_order);
           } catch (error) {
             console.error("workspace load:", error);
           }
@@ -341,6 +367,8 @@ export class Server {
         if (this.default_folder_pending) await this.runtime.workspaces.add("", process.cwd());
         this.preferred_workspace = selected ?? this.runtime.workspaces.items[0]?.id ?? Workspace.Id.none;
       }
+      // Settings edited while the daemon was stopped arm the guard as a change would.
+      this.armGuard();
       // Setup asks which agents are there, so mise answers for its shims first.
       await discovery.ready();
       // A handoff to a newer Corgi may hook more events than the old one did.
@@ -677,6 +705,7 @@ export class Server {
     this.collectStartups();
     this.runtime.reapStopped();
     if (this.runtime.raiseEntered()) this.runtime.changed();
+    this.autoOrder();
     await this.runtime.advanceRenames(clock.milliTimestamp());
     agentEffort.advance(this.runtime, clock.milliTimestamp());
     agentRetry.advance(this.runtime, clock.milliTimestamp(), pane => this.inputAt(pane));
@@ -739,6 +768,132 @@ export class Server {
     }
     // Streams pace their own frames, so they hear every tick.
     if (!this.publish()) this.wakeViewers();
+  }
+  /** Marks the workspaces whose agents process a turn, runs the activity
+   * clock and, with auto-order on, keeps the groups, their order and the fade. */
+  private autoOrder(): void {
+    const r = this.runtime,
+      s = r.auto_order,
+      now = clock.milliTimestamp(),
+      items = r.workspaces.items;
+    for (const p of r.panes)
+      if (!p.dormant && !p.terminal.exited && workspaceActivity.working(p.agent()))
+        r.markActivity(r.workspaces.owner(p.id)?.id ?? null, now);
+    for (const h of r.sessions)
+      if (
+        !h.corgi &&
+        !h.exited &&
+        workspaceActivity.working({ state: h.status(), paused: h.agent().paused, attention: h.attention() })
+      )
+        r.markActivity(h.workspace_id, now);
+    r.work_clock.advance(now, s.pause_after * workspaceActivity.minute_ms);
+    let changed = false;
+    // Switching on groups the workspaces as they stand, then sorts the stale ones.
+    if (!s.enabled || !this.auto_ordering) workspaceActivity.resync(items, r.work_clock.reading, s);
+    if (s.enabled) changed = workspaceActivity.regroup(items, r.work_clock.reading, s);
+    this.auto_ordering = s.enabled;
+    for (const w of items) {
+      const step = workspaceActivity.staleStep(w, r.work_clock.reading, s);
+      if ((this.stale_steps.get(w.id) ?? 0) === step) continue;
+      this.stale_steps.set(w.id, step);
+      changed = true;
+    }
+    if (s.enabled) this.autoArchive(now);
+    // Closed workspaces leave no bookkeeping behind.
+    const open = (id: number) => r.workspaces.get(id) !== null;
+    for (const map of [this.stale_steps, this.archive_checked])
+      for (const id of map.keys()) if (!open(id)) map.delete(id);
+    this.archive_reported.retain(open);
+    if (!changed) return;
+    r.changed();
+    this.dirty = true;
+    void this.saveWorkspaces();
+  }
+  /** Archives each workspace idle for "archive after", once a minute at
+   * most asking what holds it back, and logs each new reason once. Reading
+   * the process list scans every process, so a tick reads it for one
+   * workspace at most and the rest wait for the next. */
+  private autoArchive(now: number): void {
+    const r = this.runtime;
+    let scanned = false;
+    for (const w of r.workspaces.items) {
+      if (!workspaceActivity.due(w, r.work_clock.reading, r.work_clock.guard, r.auto_order)) {
+        this.archive_reported.clear(w.id);
+        this.archive_checked.delete(w.id);
+        continue;
+      }
+      // A check "in the future" is from before a wall clock set back.
+      const since = now - (this.archive_checked.get(w.id) ?? -Infinity);
+      if (this.archiving.has(w.id) || (since >= 0 && since < 60_000)) continue;
+      const facts = this.archiveFacts(w),
+        quick = workspaceActivity.quickBlocker(facts);
+      if (!quick && scanned) continue;
+      this.archive_checked.set(w.id, now);
+      scanned ||= !quick;
+      const reason = quick ?? workspaceActivity.blocker(facts);
+      if (reason) {
+        if (this.archive_reported.report(w.id, reason))
+          autoOrderLog.warn("Auto-archive blocked", { workspace: w.id, name: w.name(), reason });
+        continue;
+      }
+      this.archiving.add(w.id);
+      this.enqueue(() => this.autoArchiveNow(w.id));
+    }
+  }
+  /** What could hold a due workspace back from auto-archive. */
+  private archiveFacts(w: Workspace): workspaceActivity.Facts {
+    const r = this.runtime;
+    return {
+      others: r.workspaces.items.some(o => o.id !== w.id && !o.archived),
+      // Shown counts whether or not its terminal has focus.
+      on_screen: this.clients.some(c => c.viewer && !c.dead && c.visible && c.view_workspace === w.id),
+      waiting:
+        r.panes.some(
+          p =>
+            !p.dormant &&
+            !p.terminal.exited &&
+            workspaceActivity.waiting(p.agent()) &&
+            r.workspaces.owner(p.id)?.id === w.id,
+        ) ||
+        r.sessions.some(
+          s =>
+            !s.corgi &&
+            !s.exited &&
+            s.workspace_id === w.id &&
+            workspaceActivity.waiting({ state: s.status(), attention: s.attention() }),
+        ),
+      inventory: () => archiveInventory.inventoryStatus(r, w.id),
+      served: () => r.ports.enabled && r.ports.current.workspace(w.id).endpoints.length > 0,
+    };
+  }
+  /** Archives `id` as a manual archive would, unless it woke or something
+   * began holding it back since it was checked. */
+  private async autoArchiveNow(id: number): Promise<void> {
+    const r = this.runtime,
+      w = r.workspaces.get(id);
+    try {
+      if (!w || !workspaceActivity.due(w, r.work_clock.reading, r.work_clock.guard, r.auto_order)) return;
+      if (workspaceActivity.blocker(this.archiveFacts(w))) return;
+      // Set first, so the snapshot that shows it archived says why.
+      w.auto_archived = true;
+      try {
+        await this.execute({ "workspace.archive": { target: id } });
+      } catch (error) {
+        w.auto_archived = false;
+        if (this.archive_reported.report(id, errors.name(error) ?? String(error)))
+          autoOrderLog.warn("Auto-archive failed", { workspace: id, name: w.name(), error: errors.name(error) });
+        return;
+      }
+      this.archive_reported.clear(id);
+      autoOrderLog.info("Auto-archived workspace", { workspace: id, name: w.name() });
+    } finally {
+      this.archiving.delete(id);
+    }
+  }
+  /** Keys and pastes a viewer sends a pane count as work in its workspace;
+   * the CLI's, scripts' and other agents' don't. */
+  private typedIn(pane: number): void {
+    this.runtime.markActivity(this.runtime.workspaces.owner(pane)?.id ?? null);
   }
   /** Runs numbered request `seq` once. Sent again, it gets the reply it had. */
   private async once(
@@ -878,6 +1033,10 @@ export class Server {
         setTimeout(() => void this.shutdown(), 0);
         return;
       case "session.command":
+        if (cl.viewer && "pane.input" in request.payload.command) {
+          const input = request.payload.command["pane.input"];
+          if (workspaceActivity.typing(input.data)) this.typedIn(input.target);
+        }
         if ("agent.message" in request.payload.command) {
           const command = request.payload.command;
           this.defer(cl, reply, null, async () => ({ result: await this.message(command) }));
@@ -1017,6 +1176,7 @@ export class Server {
         viewer.markUnread(this, cl, request.payload, reply);
         return;
       case "pane.paste":
+        if (cl.viewer) this.typedIn(request.payload.pane);
         await viewer.paste(this, cl, request.payload, reply);
         return;
       case "pane.idle":
@@ -1228,6 +1388,18 @@ export class Server {
         this.runtime.changed();
         this.dirty = true;
         reply.ok({ auto_retry: request.payload.enabled });
+        return;
+      }
+      case "workspace_auto_order.configure": {
+        const next = workspaceActivity.configure(this.runtime.auto_order, request.payload);
+        if (!next) throw Error("InvalidThresholds");
+        settings.update(settings.path(this.socket), workspaceActivity.toFile(next));
+        this.runtime.auto_order = next;
+        // Switching on, or archiving sooner, waits a full "archive after".
+        this.armGuard();
+        this.runtime.changed();
+        this.dirty = true;
+        reply.ok({ workspace_auto_order: workspaceActivity.wire(next) });
         return;
       }
       case "retry.cancel":

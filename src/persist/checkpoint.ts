@@ -24,6 +24,8 @@ import * as breadcrumbs from "../breadcrumbs";
 import * as agentEffort from "../agent_effort";
 import * as discovery from "../discovery";
 import { adapter } from "../providers";
+import * as workspaceActivity from "../workspace_activity";
+import * as clock from "../clock";
 import { validateCheckpoint } from "./schema";
 import { testBuild } from "../build_assets";
 
@@ -219,7 +221,10 @@ export function capture(r: Runtime, live: boolean) {
       focus: w.focus,
       archived: w.archived,
       archive_summary: w.archive_summary,
+      active_at: w.active_at,
+      group: w.group,
     })),
+    auto_order: workspaceActivity.save(r, live ? clock.milliTimestamp() : null),
     panes: r.panes.map(p => {
       p.refreshCwd();
       if (!p.detection.claim) p.resume_hint.observe(p.agent());
@@ -377,6 +382,8 @@ export async function restore(
     item.focus = w.focus ?? 0;
     item.archived = w.archived === true;
     item.archive_summary = archiveSummary.restore(w.archive_summary);
+    item.active_at = workspaceActivity.activeAt(w.active_at);
+    item.group = workspaceActivity.group(w.group);
     item.away = hydrate(item.away, w.away);
     for (const tab of item.model.tabs)
       check(
@@ -388,6 +395,7 @@ export async function restore(
   }
   r.workspaces.next_id = state.next_workspace;
   r.workspaces.next_pane_id = state.next_pane;
+  workspaceActivity.restore(r, state.auto_order, live ? clock.milliTimestamp() : null);
   r.next_session = state.next_session;
   r.revision = BigInt.asUintN(64, BigInt(state.revision) + 1n);
   r.last_agent = state.last_agent ?? Provider.first;

@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import * as clock from "../clock";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as cp from "./checkpoint";
@@ -404,6 +405,46 @@ test("a workspace's hidden launcher rows survive checkpoints and default for old
     expect(old.workspaces.items[0].launcher_hidden).toEqual([]);
     expect(old.workspaces.items[0].launcher_order).toEqual([]);
   }
+});
+test("the auto-order clock and each workspace's activity survive checkpoints and default for old ones", async () => {
+  for (const live of [true, false])
+    for (const archive_after of [60, null]) {
+      using original = fresh();
+      const ws = original.workspaces.items[0];
+      ws.active_at = 120_000;
+      ws.group = "stale";
+      original.work_clock.reading = 900_000;
+      original.work_clock.guard = 3_600_000;
+      original.guard_settings = { enabled: true, archive_after };
+      // Someone worked a minute ago: only a live handoff keeps the pause going from there.
+      original.work_clock.worked(clock.milliTimestamp() - 60_000);
+      const state = roundtrip(cp.capture(original, live));
+      validateCheckpoint(state);
+      using restored = new Runtime();
+      await restore(restored, state, live);
+      expect(restored.workspaces.items[0]).toMatchObject({ active_at: 120_000, group: "stale" });
+      expect(restored.work_clock.reading).toBe(900_000);
+      expect(restored.work_clock.guard).toBe(3_600_000);
+      expect(restored.guard_settings).toEqual({ enabled: true, archive_after });
+      const since =
+        restored.work_clock.last_activity === null ? null : clock.milliTimestamp() - restored.work_clock.last_activity;
+      if (live) expect(since).toBeWithin(60_000, 70_000);
+      else expect(since).toBeNull();
+      expect(() => validateCheckpoint({ ...state, workspaces: [{ ...state.workspaces[0], group: "asleep" }] })).toThrow(
+        "InvalidEnumTag",
+      );
+      delete state.auto_order;
+      delete state.workspaces[0].active_at;
+      delete state.workspaces[0].group;
+      validateCheckpoint(state);
+      using old = new Runtime();
+      await restore(old, state, live);
+      expect(old.workspaces.items[0]).toMatchObject({ active_at: 0, group: "active" });
+      expect(old.work_clock.reading).toBe(0);
+      expect(old.work_clock.guard).toBe(0);
+      expect(old.guard_settings).toBeNull();
+      expect(old.work_clock.last_activity).toBeNull();
+    }
 });
 test("sidebar order survives live and recovery checkpoints and defaults for old state", async () => {
   const r = fresh(),

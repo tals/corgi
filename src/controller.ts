@@ -2,6 +2,7 @@ import * as workspaceArchive from "./workspace_archive";
 import * as webLinks from "./web_links";
 import type { Input, Mouse } from "./terminal_input";
 import * as archiveSummary from "./archive_summary";
+import * as workspaceActivity from "./workspace_activity";
 //! Viewer-owned navigation, dialogs, input and rendering. Shared mutations
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
@@ -65,6 +66,7 @@ import * as forkHero from "./fork_hero";
 import * as newWorkspace from "./new_workspace";
 import * as noWorkspace from "./no_workspace";
 import { State as SidebarRows } from "./sidebar_rows";
+import * as workspaceRows from "./workspace_rows";
 import * as agentLauncher from "./agent_launcher";
 import { Menu as LauncherMenu, Row, keyAgent, type Row as LauncherRow } from "./agent_launcher";
 import * as agentManager from "./agent_manager";
@@ -488,6 +490,8 @@ export class Controller {
   /** The dormant pane whose resume the daemon hasn't answered yet. */
   private waking: number | null = null;
   sidebar_rows = new SidebarRows();
+  /** The workspace cards as drawn while auto-order moves them. */
+  workspace_rows = new workspaceRows.State();
   get host_pacer(): framePacing.Pacer | null {
     return this.host.pacer;
   }
@@ -831,6 +835,7 @@ export class Controller {
     this.headless_notice = null;
     this.review.pinned = false;
     this.sidebar_rows.discard();
+    this.workspace_rows.discard();
     this.launch_previews.disconnect();
     const changedEvent = this.launch_previews.changedEvent;
     this.launch_previews = new LaunchPreviewStream();
@@ -1087,13 +1092,14 @@ export class Controller {
   /** Shows `command`'s result at once where optimistic.ts can, and returns
    * the task that sends it. The guess stands until the daemon answers; a
    * refusal shows the last snapshot without it. `settle` then tells the
-   * viewer's own guesses whether the daemon took it. */
+   * viewer's own guesses whether the daemon took it. The task runs on a
+   * lane to `machine`. */
   private assume(
     command: CommandInput,
     settle?: (kept: boolean) => void,
+    machine = this.machine,
   ): (lane: tasks.Lane) => Promise<{ pane: number }> {
-    const machine = this.machine,
-      edit = optimistic.edit(command),
+    const edit = optimistic.edit(command),
       forget = edit ? machine.runtime.assume(edit) : () => {};
     this.dirty = true;
     return async lane => {
@@ -1766,8 +1772,24 @@ export class Controller {
   private workspaceIds(): viewerRef.Workspace[] {
     return this.workspaceRows().map(ws => ws.id);
   }
-  /** The sidebar's workspace rows for every machine shown, by row id; see `key`. */
+  /** The sidebar's workspace rows for every machine shown, by row id; see
+   * `key`. As drawn, so clicks find the card under the pointer, unless `all`
+   * or `expanded` asks for the order itself. */
   workspaceRows(all = false, expanded = false): WorkspaceEntry[] {
+    const rows = this.arrangedRows(all, expanded);
+    if (all || expanded) return rows;
+    return this.workspace_rows.update(rows, milliTimestamp(), {
+      group: key => {
+        const row = this.rowOf(key);
+        return row?.machine.runtime.workspace_auto_order?.enabled ? this.machines.indexOf(row.machine) : null;
+      },
+      archived: key => {
+        const row = this.rowOf(key);
+        return row?.machine.runtime.workspaces.items.some(ws => ws.id === row.id && ws.auto_archived) ?? false;
+      },
+    });
+  }
+  private arrangedRows(all: boolean, expanded: boolean): WorkspaceEntry[] {
     const labels = this.machineLabels();
     const rows = this.machines.flatMap(machine => {
       if (!all && this.machine_filter && this.machine_filter !== machine) return [];
@@ -1815,8 +1837,28 @@ export class Controller {
     if (this.machines.length === 1) return rows;
     // Each row's place is looked up once, not on every comparison.
     const order = new Map(this.prefs.workspace_order.map((key, i) => [key, i])),
-      place = new Map(rows.map(row => [row.id, order.get(this.workspaceOrderKey(row.id)) ?? Infinity]));
+      place = new Map(rows.map(row => [row.id, order.get(this.workspaceOrderKey(row.id)) ?? Infinity])),
+      last = new Map<Machine, number>();
+    for (const row of rows) {
+      const machine = this.rowOf(row.id)!.machine,
+        at = place.get(row.id)!;
+      if (at !== Infinity && at > (last.get(machine) ?? -1)) last.set(machine, at);
+    }
+    // One missing from the saved order, such as a new workspace, goes below
+    // its machine's last saved row rather than after every machine.
+    for (const row of rows)
+      if (place.get(row.id) === Infinity) place.set(row.id, (last.get(this.rowOf(row.id)!.machine) ?? Infinity) + 0.5);
     rows.sort((a, b) => place.get(a.id)! - place.get(b.id)!);
+    // A machine ordering its workspaces by activity keeps the places it has
+    // among the others, and fills them in its own order.
+    for (const machine of this.machines) {
+      if (!machine.runtime.workspace_auto_order?.enabled) continue;
+      const slots = rows.flatMap((row, i) => (this.rowOf(row.id)?.machine === machine ? [i] : [])),
+        order = new Map(machine.runtime.workspaces.items.map((ws, i) => [ws.id, i])),
+        rank = (key: viewerRef.Workspace) => order.get(this.rowOf(key)!.id) ?? Infinity,
+        own = slots.map(i => rows[i]).sort((a, b) => rank(a.id) - rank(b.id));
+      for (const [i, slot] of slots.entries()) rows[slot] = own[i];
+    }
     if (all || expanded) return rows;
     const folded = new Set<Machine>();
     return rows.flatMap(row => {
@@ -1854,6 +1896,7 @@ export class Controller {
   private dropWorkspace(drag: WorkspaceDrag): void {
     if (!drag.drop) return;
     const source = drag.ids[drag.source];
+    if (!this.workspaceMoveAllowed(source, drag.before() ?? source)) return;
     if (this.machines.length > 1) {
       const rows = this.workspaceRows(true)
         .map(row => row.id)
@@ -1862,18 +1905,57 @@ export class Controller {
       const at = before === null ? rows.length : rows.indexOf(before);
       if (at < 0) return;
       rows.splice(at, 0, source);
+      this.workspace_rows.place();
       this.prefs.workspace_order = rows.map(id => this.workspaceOrderKey(id));
       try {
         preferences.update({ workspace_order: this.prefs.workspace_order });
       } catch (error) {
         this.notice((error as Error).message);
       }
+      // A machine ordering by activity fills its places in its own order, so
+      // it hears of the move within it too.
+      const row = this.rowOf(source)!;
+      if (row.machine.runtime.workspace_auto_order?.enabled)
+        this.moveOn(row.machine, {
+          "workspace.move": { target: row.id, before: this.localBefore(source, drag.before() ?? source) },
+        });
       this.dirty = true;
       return;
     }
     const target = this.rowOf(source)!,
       before = drag.drop.index >= drag.ids.length ? target.id : this.rowOf(drag.ids[drag.drop.index])!.id;
+    this.workspace_rows.place();
     this.optimistic({ "workspace.move": { target: target.id, before } });
+  }
+  /** Whether workspace row `source` may land above row `before`, or last
+   * when that's itself: a machine ordering its workspaces by activity keeps
+   * its stale ones in place and the rest above them. */
+  private workspaceMoveAllowed(source: viewerRef.Workspace, before: viewerRef.Workspace): boolean {
+    const from = this.rowOf(source),
+      runtime = from?.machine.runtime;
+    if (!from || !runtime?.workspace_auto_order?.enabled) return true;
+    const items = runtime.workspaces.items.map(workspaceActivity.shown);
+    return workspaceActivity.moveAllowed(items, from.id, this.localBefore(source, before), true);
+  }
+  /** The workspace of row `source`'s own machine it lands above when dropped
+   * above row `before`, or last when that's `source`: by that machine's id,
+   * its own for last. Other machines' rows between don't count. */
+  private localBefore(source: viewerRef.Workspace, before: viewerRef.Workspace): number {
+    const from = this.rowOf(source)!;
+    if (this.machines.length === 1) return before === source ? from.id : this.rowOf(before)!.id;
+    const rows = this.workspaceRows(true)
+        .map(row => row.id)
+        .filter(id => id !== source),
+      at = before === source ? rows.length : Math.max(0, rows.indexOf(before)),
+      next = rows.slice(at).find(id => this.rowOf(id)?.machine === from.machine);
+    return next === undefined ? from.id : this.rowOf(next)!.id;
+  }
+  /** Sends `command` to `machine`, shown there at once until it answers. A
+   * move its daemon drops snaps back with its next snapshot; a failure is
+   * told as any task's is. */
+  private moveOn(machine: Machine, command: CommandInput): void {
+    const send = this.assume(command, undefined, machine);
+    machine.tasks.start(async lane => void (await send(lane)));
   }
   cancelWorkspaceDrag(): boolean {
     if (!this.workspace_drag) return false;
@@ -1929,7 +2011,9 @@ export class Controller {
       drag.dragging = true;
       this.clicks.reset();
     }
-    drag.update(this.sidebarView([]), this.workspaceIds(), x, y);
+    drag.update(this.sidebarView([]), this.workspaceIds(), x, y, (source, before) =>
+      this.workspaceMoveAllowed(source, before),
+    );
     if (release && (button & 3) === 0) {
       this.workspace_drag = null;
       this.ui_mouse_down = false;
@@ -2005,6 +2089,7 @@ export class Controller {
           git_diff: ws.git_diff,
           worktrees: ws.worktrees,
           stats: ws.stats,
+          stale_step: ws.stale_step,
         });
         entry.ports = runtime.ports;
         entry.resources = sidebar.resourcesFor(runtime.resources, ws.id);
@@ -3077,8 +3162,8 @@ export class Controller {
     this.name_dialog = null;
   }
   /** How long the viewer waits between frames: a display frame while a
-   * sidebar row glides to another group, 30 ms while overlays, fades or drag
-   * scrolling run, and otherwise the corgi's own pace. */
+   * sidebar row glides to another group, 30 ms while overlays, row or
+   * workspace fades or drag scrolling run, and otherwise the corgi's own pace. */
   frameDelay(): number {
     const now = milliTimestamp();
     const launch = this.launcherModel(),
@@ -3088,6 +3173,7 @@ export class Controller {
       this.overlayOpen() ||
       this.signin_exit ||
       this.sidebar_rows.fading(now) ||
+      this.workspace_rows.fading(now) ||
       this.agent_drag?.scrolling() ||
       this.input_state.tab_drag?.dragging;
     return smooth ? 30 : corgiAnimation.frameDelay();
@@ -6569,6 +6655,7 @@ export class Controller {
     }
     setup.smart_links = this.runtime.smart_links;
     setup.auto_retry = this.runtime.auto_retry;
+    setup.auto_order = this.runtime.workspace_auto_order;
     setup.changed = () => {
       this.dirty = true;
       this.wake();
@@ -6691,6 +6778,10 @@ export class Controller {
         return this.configureSmartLinks(apply.on);
       case "auto_retry":
         return this.configureAutoRetry(apply.on);
+      case "auto_order":
+        return this.configureAutoOrder({ enabled: apply.on });
+      case "auto_order_threshold":
+        return this.configureAutoOrder({ [apply.field]: apply.minutes ?? 0 });
       case "summaries":
         return this.configureSummaries(apply.choice, apply.model, apply.account);
       case "inference_use":
@@ -6799,6 +6890,32 @@ export class Controller {
     this.runtime.auto_retry = enabled;
     if (this.corgi_setup) this.corgi_setup.auto_retry = enabled;
     this.notice(enabled ? i18n.t` Auto-retry capacity errors on` : i18n.t` Auto-retry capacity errors off`);
+  }
+  /** Changes the daemon's workspace auto-order; thresholds in minutes, an
+   * `archive_after` of 0 for Off. */
+  private async configureAutoOrder(changes: {
+    enabled?: boolean;
+    pause_after?: number;
+    stale_after?: number;
+    archive_after?: number;
+  }): Promise<void> {
+    let reply;
+    try {
+      reply = await call(this.connection, "workspace_auto_order.configure", changes);
+    } catch (error) {
+      this.notice(
+        errors.is(error, "InvalidThresholds")
+          ? i18n.t` Stale after must be longer than the pause and shorter than archive after`
+          : i18n.t` Corgi setup: the runtime did not accept the change`,
+      );
+      return;
+    }
+    const order = workspaceActivity.fromWire(reply.workspace_auto_order);
+    this.runtime.workspace_auto_order = order;
+    if (this.corgi_setup) this.corgi_setup.auto_order = order;
+    if (changes.enabled !== undefined)
+      this.notice(changes.enabled ? i18n.t` Auto-order workspaces on` : i18n.t` Auto-order workspaces off`);
+    this.dirty = true;
   }
   /** Whether the focused agent still waits on a retry, which Esc calls off.
    * Once it is due, the retry is under way and Esc is the agent's again. */
@@ -9629,8 +9746,10 @@ export class Controller {
   /** Takes `machine`'s session as its daemon reports it. Only the machine
    * shown has menus and selections to keep in step with it. */
   receiveSnapshot(snapshot: any, machine = this.machine): void {
+    const archived = new Map(machine.runtime.workspaces.items.map(ws => [ws.id, ws.archived]));
     if (machine !== this.machine) {
       machine.runtime.receive(machine.connection, snapshot);
+      this.noticeAutoArchived(machine, archived);
       return;
     }
     const had = this.runtime.workspaces.items.length > 0;
@@ -9640,6 +9759,9 @@ export class Controller {
     const previous_token = had ? this.model().revision : 0n;
     const was_archived = had && this.current().archived;
     this.runtime.receive(this.connection, snapshot);
+    this.noticeAutoArchived(machine, archived);
+    // Another viewer may have changed it while setup is open.
+    if (this.corgi_setup) this.corgi_setup.auto_order = this.runtime.workspace_auto_order;
     if (this.current().archived && (!was_archived || !had)) {
       const active = this.runtime.workspaces.items.find(w => !w.archived);
       if (active) this.switchWorkspace(active.id);
@@ -9687,6 +9809,15 @@ export class Controller {
       tab = model.tabForPane(menu.tab);
     if (tab === null || model.paneCount(model.tabs[tab].root) === 1) menu.off.add("break");
     else menu.off.delete("break");
+  }
+  /** Names each workspace auto-order archived since the last snapshot,
+   * given which were `archived` before it. */
+  private noticeAutoArchived(machine: Machine, archived: Map<number, boolean>): void {
+    for (const ws of machine.runtime.workspaces.items)
+      if (ws.archived && ws.auto_archived && archived.get(ws.id) === false) {
+        const name = ws.name;
+        this.notice(i18n.t` Auto-archived ${name}`);
+      }
   }
   reconcile(): void {
     if (this.agent_picker && this.agent_picker.workspace !== this.current().id) this.agent_picker = null;
@@ -10913,6 +11044,8 @@ export class Controller {
   compose(retain = true): composition.Output {
     this.next_frame = Infinity;
     if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;
+    // Cards auto-order moves take their new places between frames, never mid-input.
+    this.workspace_rows.step(milliTimestamp());
     // Each frame lists its pictures anew; presenting it shows the host the change.
     const pictures = this.host.images.frame(this.cell_pixels ?? { width: 1, height: 1 });
     this.pictures = this.supports_kitty_graphics && this.cell_pixels ? pictures : null;

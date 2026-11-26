@@ -25,7 +25,7 @@ test("a workspace takes its folder's name at creation and keeps it", async () =>
     delete saved.version;
     await writeFile(file, JSON.stringify(saved));
     const restored = new Store();
-    expect(await restored.load(file)).toBe(id);
+    expect((await restored.load(file))?.selected).toBe(id);
     expect(restored.items[0].name()).toBe("My project");
     expect(() => s.rename(id, "")).toThrow("InvalidName");
     await expect(s.edit(id, "", folder)).rejects.toThrow("InvalidName");
@@ -87,17 +87,59 @@ test("workspace state keeps every workspace closed", async () => {
     s.next_id = 4;
     await s.save(file, Workspace.Id.none);
     const restored = new Store();
-    expect(await restored.load(file)).toBe(Workspace.Id.none);
+    expect((await restored.load(file))?.selected).toBe(Workspace.Id.none);
     expect([restored.items, restored.next_id]).toEqual([[], 4]);
     const archived = new Workspace(3, "/tmp", "parked");
     archived.archived = true;
     s.items.push(archived);
     await s.save(file, Workspace.Id.none);
-    expect(await restored.load(file)).toBe(Workspace.Id.none);
+    expect((await restored.load(file))?.selected).toBe(Workspace.Id.none);
     expect(restored.items.map(w => [w.id, w.archived])).toEqual([[3, true]]);
 
     await writeFile(file, JSON.stringify({ version: 2, active: 3, next_id: 4, workspaces: [] }));
     await expect(new Store().load(file)).rejects.toThrow("InvalidWorkspaceState");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("workspace state keeps each workspace's activity and the auto-order clock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corgi-ws-"));
+  try {
+    const file = join(root, "workspaces.json"),
+      s = new Store();
+    s.next_id = 3;
+    const busy = new Workspace(1, "/tmp", "busy"),
+      quiet = new Workspace(2, "/tmp", "quiet");
+    busy.active_at = 5000;
+    quiet.active_at = 1000;
+    quiet.group = "stale";
+    s.items.push(busy, quiet);
+    await s.save(file, 1, {
+      clock: 9000,
+      guard: 7000,
+      applied: { enabled: true, archive_after: 0 },
+      since_activity: null,
+    });
+    const restored = new Store(),
+      loaded = await restored.load(file);
+    expect(loaded).toEqual({
+      selected: 1,
+      auto_order: { clock: 9000, guard: 7000, applied: { enabled: true, archive_after: 0 }, since_activity: null },
+    });
+    expect(restored.items.map(w => [w.active_at, w.group])).toEqual([
+      [5000, "active"],
+      [1000, "stale"],
+    ]);
+    const old = JSON.parse(await readFile(file, "utf8"));
+    delete old.auto_order;
+    old.workspaces[0].active_at = -4;
+    old.workspaces[1].group = "asleep";
+    await writeFile(file, JSON.stringify(old));
+    expect((await restored.load(file))?.auto_order).toBeNull();
+    expect(restored.items.map(w => [w.active_at, w.group])).toEqual([
+      [0, "active"],
+      [1000, "active"],
+    ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
