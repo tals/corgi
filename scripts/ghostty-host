@@ -2,9 +2,10 @@
 # Runs ghostty-host, the windowless Ghostty that tools/ghostty_screenshot.ts
 # captures in: $GHOSTTY_HOST, or the pinned build in .tools, downloaded and
 # checked against its checksum on first use. With --path it prints the
-# binary's path instead. Builds come from github.com/tals/ghostty's corgi
-# branch (corgi/build.ts there); bun scripts/pin_ghostty_host.ts VERSION
-# points this at a newly published one.
+# binary's path instead; with --fetch it only fetches it, and says nothing
+# where there's no build for this machine. Builds come from
+# github.com/tals/ghostty's corgi branch (corgi/build.ts there);
+# bun scripts/pin_ghostty_host.ts VERSION points this at a newly published one.
 set -eu
 . "$(dirname -- "$0")/tools.sh"
 version=20261126T062510Z-0d23e14131a5
@@ -18,7 +19,9 @@ case "$platform-$arch" in
     *) sum= ;;
 esac
 
-if [ -n "${GHOSTTY_HOST:-}" ]; then
+if [ "${1:-}" = --fetch ] && [ -z "$sum" ] && [ -z "${GHOSTTY_HOST:-}" ]; then
+    exit 0
+elif [ -n "${GHOSTTY_HOST:-}" ]; then
     binary=$GHOSTTY_HOST
 elif [ -x "$project" ]; then
     binary=$project
@@ -32,8 +35,8 @@ else
     printf 'Build one from github.com/tals/ghostty (corgi/build.ts) and set GHOSTTY_HOST to it.\n' >&2
     exit 1
 fi
-if [ "${1:-}" = --path ]; then
-    printf '%s\n' "$binary"
-    exit 0
-fi
+case "${1:-}" in
+    --path) printf '%s\n' "$binary"; exit 0 ;;
+    --fetch) exit 0 ;;
+esac
 exec "$binary" "$@"

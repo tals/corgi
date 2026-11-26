@@ -42,8 +42,8 @@ export interface PointerEvent {
   t: number;
   x: number;
   y: number;
-  action: "move" | "press" | "release" | "scroll";
-  button?: "left" | "right" | "middle";
+  action: ghostty_host.MouseAction["action"];
+  button?: ghostty_host.Button;
   /** Wheel notches, up when positive. */
   dy?: number;
 }
@@ -228,7 +228,7 @@ export class Recording {
       if (typeof start !== "number") throw Error(`the recorder failed: ${readFileSync(log, "utf8")}`);
       return new Recording(dir, screen, out, fps, start, p);
     } catch (error) {
-      p.kill("SIGKILL");
+      await end(p);
       throw error;
     }
   }
@@ -240,7 +240,7 @@ export class Recording {
     try {
       const stopped = await Promise.race([this.recorder.exited.then(() => true), Bun.sleep(this.screen.wait * 1000)]);
       // A Matroska file reads back without its trailer.
-      if (!stopped) this.recorder.kill("SIGKILL");
+      if (!stopped) await end(this.recorder);
       const code = await this.recorder.exited;
       if (stopped && code !== 0) throw Error(`the recorder failed: ${readFileSync(log, "utf8")}`);
       const times = await encode(this.dir, this.screen, this.out, take, this.start, this.fps);
@@ -254,8 +254,16 @@ export class Recording {
 
   /** Ends the recording without writing it, when its session closes. */
   abandon(): void {
-    this.recorder.kill("SIGKILL");
+    // The recorder ends its ffmpeg too.
+    this.recorder.kill("SIGTERM");
   }
+}
+
+/** Ends a recorder and its ffmpeg, killing it if it doesn't go. */
+async function end(p: Bun.Subprocess) {
+  p.kill("SIGTERM");
+  if (!(await Promise.race([p.exited.then(() => true), Bun.sleep(2000)]))) p.kill("SIGKILL");
+  await p.exited;
 }
 
 /**
@@ -785,7 +793,9 @@ export function timeline(take: Take, times: number[], fps: number, screen: Scree
           return { t, type: e.action, button: e.button ?? "left", x, y };
       }
     }),
-    ...take.shapes.map((e): Moment => ({ t: at(Math.max(e.t, take.from)), type: "shape", shape: e.name ?? "default" })),
+    ...take.shapes
+      .filter(e => e.t <= take.to)
+      .map((e): Moment => ({ t: at(Math.max(e.t, take.from)), type: "shape", shape: e.name ?? "default" })),
     ...take.keys.filter(e => inside(e.t)).map((e): Moment => ({ t: at(e.t), type: e.kind, value: e.value })),
     ...take.opens.filter(e => inside(e.t)).map((e): Moment => ({ t: at(e.t), type: "open", value: e.target })),
     ...take.steps

@@ -224,8 +224,8 @@ bun tools/ghostty_screenshot.ts --sandbox launcher --do 'action help; wait 800; 
 ffmpeg -i demo.mp4 -vf "fps=1,scale=800:-2,tile=4x4" grid%02d.png
 ```
 
-It runs on macOS and Linux; `scripts/ghostty-host` fetches the windowless
-Ghostty it captures in.
+It runs on Apple silicon Macs and on Linux (x86_64 and arm64);
+`scripts/ghostty-host` fetches the windowless Ghostty it captures in.
 
 **Before sending.** Read the message without the diff. Can a reader identify
 the main change and its reason or use? Does each remaining detail change that

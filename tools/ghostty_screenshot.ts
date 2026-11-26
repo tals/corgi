@@ -21,7 +21,7 @@
  *   corgi ARG …              the sandbox's corgi CLI
  *   shot PATH                a screenshot once the screen holds still
  *   record start PATH [FPS]  a video, .mp4 or .gif, of everything until
- *   record stop              which writes it, and PATH's .timeline.json
+ *   record stop              which writes it, and its .timeline.json
  * Code drives with capture(options, { drive }) or attach(), and driver.drive(script).
  *
  * Options:
@@ -284,6 +284,19 @@ function hostBinary(): string {
 }
 
 /**
+ * The DISPLAY a capture runs with, which no X server answers: Corgi on Linux
+ * takes a DISPLAY for a desktop that opens links, as the stand-in openers do,
+ * and nothing can open a window on it.
+ */
+const NO_DISPLAY = ":1023";
+
+/**
+ * What tells Corgi it's seen over SSH. A capture's terminal is on this
+ * computer even when the capture runs over SSH, so these go.
+ */
+const SSH_SESSION = ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"];
+
+/**
  * A folder for the front of a capture's PATH whose open and xdg-open never
  * open anything on the caller's desktop: they note the link or file in
  * $SESSION/opened.log and tell the relay, which shows "Opened …" in the
@@ -340,8 +353,9 @@ async function start(o: Options, prepare?: Recipe["prepare"], serving = false): 
         if (nested !== undefined) process.env.CORGI_PANE = nested;
       }
       // The daemon and its panes never open windows on the caller's desktop.
-      delete sandbox.env.DISPLAY;
+      sandbox.env.DISPLAY = NO_DISPLAY;
       delete sandbox.env.WAYLAND_DISPLAY;
+      for (const name of SSH_SESSION) delete sandbox.env[name];
       sandbox.env.PATH = `${shims}:${sandbox.env.PATH}`;
       sandbox.prepareHome();
       world.seed(sandbox);
@@ -357,8 +371,9 @@ async function start(o: Options, prepare?: Recipe["prepare"], serving = false): 
     }
     const env: Record<string, string | undefined> = {
       ...(sandbox?.env ?? { ...process.env, PATH: `${shims}:${process.env.PATH}` }),
-      DISPLAY: undefined,
+      DISPLAY: NO_DISPLAY,
       WAYLAND_DISPLAY: undefined,
+      ...Object.fromEntries(SSH_SESSION.map(name => [name, undefined])),
       CORGI_PANE: undefined,
       // For the relay: its session, and the corgi that action and corgi run.
       CORGI_CAPTURE_SESSION: scratch,
@@ -486,11 +501,26 @@ async function serve(o: Options): Promise<void> {
   }
 }
 
-/** When a process started, as ps says, or null when there is no such process. */
+/**
+ * When a process started, or null when there is no such process: on Linux
+ * from /proc, which every Linux has where ps may not; elsewhere from ps.
+ */
 function startTime(pid: number): string | null {
-  const p = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)]);
-  const text = p.stdout.toString().trim();
-  return p.exitCode === 0 && text ? text : null;
+  if (process.platform === "linux")
+    try {
+      // The command name in parentheses may hold spaces; the fields after it don't.
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? null;
+    } catch {
+      return null;
+    }
+  try {
+    const p = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)]);
+    const text = p.stdout.toString().trim();
+    return p.exitCode === 0 && text ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The session named, or $CORGI_CAPTURE_SESSION's, else the only one running. */

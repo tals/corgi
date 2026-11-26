@@ -4,10 +4,12 @@
  * frames, the screen settling and the pointer's shape come out.
  */
 
+export type Button = "left" | "right" | "middle";
+
 /** One of the host's mouse actions, in frame pixels. */
 export type MouseAction =
   | { action: "move"; x: number; y: number }
-  | { action: "press" | "release"; button: "left" | "right" | "middle" }
+  | { action: "press" | "release"; button: Button }
   | { action: "scroll"; dy: number };
 
 /** A pointer Ghostty asked for: a CSS cursor name, from t (ms since the epoch). */
@@ -98,6 +100,11 @@ export class Host {
 
   async size(): Promise<Size> {
     return (await this.json<{ size: Size }>("GET", "/status")).size;
+  }
+
+  /** The seq of the latest frame Ghostty drew, or 0 before the first. */
+  async latestFrame(): Promise<number> {
+    return (await this.json<{ frame: { seq: number } | null }>("GET", "/status")).frame?.seq ?? 0;
   }
 
   /** Returns once Ghostty has handled the events. */

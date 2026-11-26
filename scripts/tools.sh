@@ -20,7 +20,8 @@ fetch() {
     trap 'rm -rf "$work"' EXIT
     # curl's meter shows size, speed and time left; logs only need errors.
     if [ -t 2 ]; then progress=; else progress=--silent; fi
-    curl -fSL --retry 3 $progress -o "$work/archive" "$2"
+    # Give up on a host that doesn't answer or a download that stalls.
+    curl -fSL --retry 2 --connect-timeout 15 --speed-limit 1024 --speed-time 60 $progress -o "$work/archive" "$2"
     echo "$3  $work/archive" | shasum -a 256 -c - >/dev/null
     printf 'Extracting %s\n' "$1" >&2
     case $2 in

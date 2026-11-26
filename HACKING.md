@@ -335,7 +335,8 @@ The command reference is at the top of the driver. Use
 [UI tokens and rules](docs/ui_styleguide.md) for visual work.
 
 For screenshots and videos, capture a live Ghostty terminal in ghostty-host,
-libghostty drawing into memory with no window or display, on macOS or Linux:
+libghostty drawing into memory with no window or display, on an Apple silicon
+Mac or on Linux:
 
 ```sh
 bun tools/ghostty_screenshot.ts --sandbox review -o /tmp/review.png
@@ -390,9 +391,10 @@ to `--idle` seconds (default 1), so the time spent deciding the next step
 doesn't reach the video; a script's own `wait` stays. They hold the first and
 last screens for `--idle` too. The pointer is drawn where it went, in the
 shape Ghostty asked for (arrow, hand, I-beam, either resize or move): it grows
-while it moves, and each press leaves a fading ring. Beside each video,
-`PATH.timeline.json` lists, in the video's seconds, the pointer's moves,
-presses and shapes, the keys and text typed, and each script command with the
+while it moves, and each press leaves a fading ring. Beside each video, a
+`.timeline.json` of the same name (`demo.mp4` gets `demo.timeline.json`)
+lists, in the video's seconds, the pointer's moves, presses and shapes, the
+keys and text typed, what a click opened, and each script command with the
 cell a text command found.
 
 MP4 is the format for PRs: GitHub plays it inline, and `gh pr create --attach

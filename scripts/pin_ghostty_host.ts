@@ -6,10 +6,10 @@
  *
  *   bun scripts/pin_ghostty_host.ts VERSION
  */
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
-const script = join(import.meta.dir, "ghostty-host");
+const script = path.join(import.meta.dir, "ghostty-host");
 const version = process.argv[2];
 if (!version || !/^[\w.+-]+$/.test(version)) {
   console.error("usage: bun scripts/pin_ghostty_host.ts VERSION");
@@ -24,7 +24,7 @@ for (const line of (await listing.text()).split("\n")) {
   if (match?.[2].startsWith(`${version}-`)) sums.set(match[2].slice(version.length + 1), match[1]);
 }
 
-let text = readFileSync(script, "utf8").replace(/^version=.*$/m, `version=${version}`);
+let text = fs.readFileSync(script, "utf8").replace(/^version=.*$/m, `version=${version}`);
 // Every platform the script pins needs a build in this version.
 for (const [, target] of text.matchAll(/^ {4}([a-z]+-[a-z0-9_]+)\) sum=/gm)) {
   const sum = sums.get(target);
@@ -34,5 +34,5 @@ for (const [, target] of text.matchAll(/^ {4}([a-z]+-[a-z0-9_]+)\) sum=/gm)) {
   text = text.replace(new RegExp(`^( {4}${target}\\) sum=)[0-9a-f]*`, "m"), `$1${sum}`);
   console.log(`${target}  ${sum}`);
 }
-writeFileSync(script, text);
+fs.writeFileSync(script, text);
 console.log(`scripts/ghostty-host now pins ${version}`);

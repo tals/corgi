@@ -22,7 +22,7 @@ import * as ghostty_host from "./ghostty_host";
 import * as video from "./ghostty_video";
 import * as ui_driver from "./ui_driver";
 
-const buttons = { 1: "left", 2: "middle", 3: "right" } as const;
+const buttons: Record<1 | 2 | 3, ghostty_host.Button> = { 1: "left", 2: "middle", 3: "right" };
 
 class Relay extends ui_driver.Driver {
   screen: terminal.Terminal;
@@ -168,8 +168,10 @@ class Relay extends ui_driver.Driver {
     const host = this.host();
     let on = true;
     const done = (async () => {
+      // As of when it was asked: a change after that comes with a later time.
+      const asked = Date.now();
       const now = await host.shapes(0, 0);
-      this.shapes.push({ t: Date.now(), name: now.shape });
+      this.shapes.push({ t: asked, name: now.shape });
       let seq = now.seq;
       while (on) {
         const reply = await host.shapes(seq, 200);
@@ -248,9 +250,13 @@ class Relay extends ui_driver.Driver {
       const fps = args[2] === undefined ? this.where().fps : Number(args[2]);
       if (!Number.isInteger(fps) || fps < 1 || fps > 120)
         throw Error(`record start takes frames a second, not ${args[2]}`);
-      // A pointer that hasn't moved starts in the middle, as a desktop's does,
-      // so the video shows it from the first frame and its first glide.
-      if (!this.at) await this.place(Math.round(this.where().width / 2), Math.round(this.where().height / 2));
+      // A pointer that hasn't moved is drawn resting in the middle, as a
+      // desktop's does, so the video shows it from the first frame and its
+      // first glide. Ghostty sees it only once it moves, so it hovers nothing.
+      if (!this.at) {
+        this.at = [Math.round(this.where().width / 2), Math.round(this.where().height / 2)];
+        this.log(Date.now(), { action: "move" });
+      }
       // Where the pointer rests as the recording begins is all it needs from before.
       [this.pointer, this.shapes, this.keys, this.opens, this.steps] = [this.pointer.slice(-1), [], [], [], []];
       this.unwatch = this.watch();
