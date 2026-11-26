@@ -224,6 +224,8 @@ export class Browser {
   private picks: string | null = null;
   /** → pressed meanwhile goes back into it. */
   private reopens = false;
+  /** A dot folder left by going up, listed in its parent while it shows. */
+  private revealed: { parent: string; name: string } | null = null;
   /** Told when the machine's answers or a folder it made change what shows. */
   changed: () => void = () => {};
 
@@ -339,8 +341,9 @@ export class Browser {
     this.reading = names === undefined;
     this.readable = names !== null;
     const lower = prefix.toLowerCase();
+    const revealed = this.revealed?.parent === this.parent ? this.revealed.name : null;
     this.entries = (names ?? []).filter(
-      n => (prefix.startsWith(".") || !n.startsWith(".")) && n.toLowerCase().startsWith(lower),
+      n => (prefix.startsWith(".") || !n.startsWith(".") || n === revealed) && n.toLowerCase().startsWith(lower),
     );
     this.look();
     // Read ahead where → and ← go, so they show their folders at once.
@@ -413,8 +416,10 @@ export class Browser {
   /** Lists the folder above the one listed, on the folder left. */
   up(): void {
     if (this.parent === "/" || this.parent === "~") return;
-    const left = basename(this.parent);
-    this.show(dirname(this.parent));
+    const left = basename(this.parent),
+      above = dirname(this.parent);
+    this.revealed = left.startsWith(".") ? { parent: above, name: left } : null;
+    this.show(above);
     this.picks = left;
     this.pickLeft();
   }

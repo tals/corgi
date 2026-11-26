@@ -19,6 +19,7 @@ const tree: Record<string, string[]> = {
   "/": ["home", "tmp"],
   "/home": ["me"],
   "/home/me": [".config", "code", "Documents", "docs"],
+  "/home/me/.config": ["git"],
   "/home/me/code": ["corgi", "other"],
   "/home/me/code/corgi": [],
 };
@@ -165,6 +166,24 @@ test("right opens the highlighted folder with nothing picked, and left goes up t
   expect(b.field.cursor).toBe(3);
   await press("\x1b[C");
   expect(b.field.cursor).toBe(4);
+});
+
+test("← from a dot folder picks it among the folders above, and → goes back in", async () => {
+  const b = await browse("/home/me/.config");
+  const press = async (seq: string) => {
+    b.sequence(seq);
+    await settle();
+  };
+  await press("\x1b[D");
+  expect(b.entries).toEqual([".config", "code", "Documents", "docs"]);
+  expect([b.highlight, b.field.raw()]).toEqual([0, "~/.config"]);
+  await press("\x1b[C");
+  expect([b.entries, b.field.raw()]).toEqual([["git"], "~/.config/"]);
+  // Elsewhere, dot folders hide again until a dot is typed.
+  await press("\x1b[D");
+  await press("\x1b[D");
+  await press("\x1b[C");
+  expect(b.entries).not.toContain(".config");
 });
 
 test("opening a folder writes it plainly", async () => {
