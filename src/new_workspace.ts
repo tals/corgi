@@ -18,6 +18,8 @@ import { Rect } from "./layout";
 import { call } from "./mirror";
 import type { Machine } from "./machine";
 import * as machineAdd from "./machine_add";
+import * as signalBars from "./signal_bars";
+import type * as hostImages from "./host_images";
 import * as nameDialog from "./name_dialog";
 import * as workspace from "./workspace";
 import { printable, writeField, type Key, type KeySpec, type Result } from "./name_dialog";
@@ -879,7 +881,7 @@ const machineKeys = (d: Dialog): KeySpec[] => [
 const browserWidth = (d: Dialog) =>
   browserKeys(d).reduce((n, k) => n + nameDialog.labelled(k), 0) + 2 * (browserKeys(d).length - 1) + 4;
 /** How a machine's link stands, as its header in the sidebar says. */
-function linkRuns(machine: Machine): dropdown.Run[] {
+function linkRuns(machine: Machine, pictures: hostImages.FrameImages | null): dropdown.Run[] {
   if (!machine.remote) return [[i18n.t`this machine`, "faint"]];
   const presence = machine.presence(),
     status = presence.connection_status;
@@ -889,9 +891,7 @@ function linkRuns(machine: Machine): dropdown.Run[] {
   }
   if (!presence.online) return [[i18n.t`connecting`, "warm"]];
   const quality = presence.link_quality;
-  if (quality === null) return [];
-  const color = quality >= 3 ? "accent" : "warm";
-  return [..."▂▄▆█"].map((bar, i): dropdown.Run => [bar, i < quality ? color : "line"]);
+  return quality === null ? [] : signalBars.runs(quality, pictures);
 }
 /** "on" around the machine's name in the title, as translated: what comes
  * before the name, and after it. The name's chip has room of its own around it. */
@@ -1035,7 +1035,7 @@ export class View extends nameDialog.View {
       switch (row.kind) {
         case "machine": {
           const machine = row.machine,
-            runs = linkRuns(machine);
+            runs = linkRuns(machine, d.pictures);
           return {
             text: printable(machine.name),
             note: runs.map(([part]) => part).join(""),
@@ -1061,7 +1061,7 @@ export class View extends nameDialog.View {
     // Above the keys, with the field on top and room for any search.
     const rows = Math.max(1, Math.min(d.list.reserve(), this.buttons_y - chip.y - 4)),
       first = d.machineWindow(rows),
-      width = Math.min(this.width - 4, Math.max(64, widest)),
+      width = Math.min(this.width - 4, Math.max(64, widest + 2)),
       x = Math.max(this.x + 2, Math.min(chip.x, this.x + this.width - 2 - width));
     return { box: new Rect(x, chip.y + 1, width, rows + 3), first, choices: choices.slice(first, first + rows) };
   }
@@ -1154,8 +1154,7 @@ export class View extends nameDialog.View {
     const list = v.machineList();
     // The open list has the keys, and the cursor sits in its field.
     if (list) {
-      dropdown.draw(w, list.box, [machineAdd.field, ...list.choices]);
-      w.write(machineAdd.drawField(w, list.box, v.dialog.list.query) || "\x1b[?25l");
+      w.write(machineAdd.drawList(w, list.box, list.choices, v.dialog.list.query) || "\x1b[?25l");
     } else if (b.focused) v.placeCursor(b.field, w, v.folders.offset, v.folders.field_y);
     else v.placeCursor(d, w);
   }

@@ -2,6 +2,7 @@ import * as hostImages from "./host_images";
 import * as palette from "./palette";
 import type { Quality } from "./connection_stats";
 import type { Cell } from "./fork_hero";
+import type * as dropdown from "./dropdown";
 
 const key = (cell: Cell) =>
   `${cell.width}x${cell.height}:${[palette.colors.surface, palette.colors.line, palette.colors.accent, palette.colors.warm].join(";")}`;
@@ -48,12 +49,29 @@ export function pixels(quality: Quality, cell: Cell): Uint8Array {
  * were drawn for. */
 const drawn = new Map<Quality, { key: string; image: hostImages.Image }>();
 
-/** Shows `quality`'s bars from column `col` of row `row`. */
-export function place(frame: hostImages.FrameImages, quality: Quality, col: number, row: number, cell: Cell): void {
+/** Shows `quality`'s bars from column `col` of row `row`; on `top`, over
+ * what the frame covers, for bars inside the box that covers it. */
+export function place(
+  frame: hostImages.FrameImages,
+  quality: Quality,
+  col: number,
+  row: number,
+  cell: Cell,
+  top = false,
+): void {
   let bars = drawn.get(quality);
   if (bars?.key !== key(cell)) {
     const image = new hostImages.Image({ rgba: pixels(quality, cell), width: cells * cell.width, height: cell.height });
     drawn.set(quality, (bars = { key: key(cell), image }));
   }
-  frame.show(bars.image, { col, row });
+  frame.show(bars.image, { col, row, top });
+}
+
+/** `quality`'s bars as a dropdown note's runs: blank cells under the
+ * picture on a frame that shows pictures, else glyphs. */
+export function runs(quality: Quality, frame: hostImages.FrameImages | null): dropdown.Run[] {
+  if (frame && fits(frame.cell))
+    return [[" ".repeat(cells), "line", (col, row) => place(frame, quality, col, row, frame.cell, true)]];
+  const color = quality >= 3 ? "accent" : "warm";
+  return [..."▂▄▆█"].map((bar, i): dropdown.Run => [bar, i < quality ? color : "line"]);
 }

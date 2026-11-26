@@ -11,8 +11,9 @@ import { Style, fg, keycap, type Token } from "./palette";
 import { Rect } from "./layout";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
-/** Part of a note in its own color. */
-export type Run = [string, Token];
+/** Part of a note in its own color; `at`, when given, learns the cell it
+ * starts on, for a picture drawn over it. */
+export type Run = [string, Token, ((col: number, row: number) => void)?];
 export function sameRuns(a: Run[], b: Run[]): boolean {
   return a.length === b.length && a.every(([text, token], i) => text === b[i][0] && token === b[i][1]);
 }
@@ -217,9 +218,14 @@ export function row(
   if (displayWidth(choice.note) > note_room) {
     w.write(fg(faint));
     writeEllipsis(w, choice.note, note_room);
-  } else if (choice.runs)
-    for (const [part, token] of choice.runs) w.write(fg(token === "faint" ? faint : token) + part);
-  else w.write(fg(faint) + choice.note);
+  } else if (choice.runs) {
+    let col = right;
+    for (const [part, token, at] of choice.runs) {
+      at?.(col, b.y + y);
+      w.write(fg(token === "faint" ? faint : token) + part);
+      col += displayWidth(part);
+    }
+  } else w.write(fg(faint) + choice.note);
   w.write(style);
   w.write(`\x1b[${line};${b.x + 1 + indent + inset}H`);
   writeEllipsis(w, choice.text, sat(sat(right, b.x + indent + inset), 2));

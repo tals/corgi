@@ -6,6 +6,7 @@ import * as text from "./text";
 import * as palette from "./palette";
 import { Rect } from "./layout";
 import * as machineAdd from "./machine_add";
+import * as signalBars from "./signal_bars";
 
 /** The machine dropdown: which machines' workspaces the sidebar lists, and
  * how each one's connection stands; under a divider, the SSH config's other
@@ -106,7 +107,8 @@ export class Workspaces {
   }
   private machineChoice(endpoint: Endpoint, width: number, hovered: boolean): dropdown.Choice {
     const name = text.ellipsis(endpoint.name, Math.max(1, Math.floor(width / 3)));
-    const room = Math.max(0, width - 8);
+    // As the dropdown lays out a row a cell in from either border.
+    const room = Math.max(0, width - 10);
     const note_room = Math.max(0, room - Math.min(text.displayWidth(name), Math.ceil(room / 2)) - 2);
     // As the sidebar shows it: a connect's first second still looks as before.
     const status = endpoint.display().status,
@@ -117,8 +119,8 @@ export class Workspaces {
       online && !endpoint.updateMessage && !endpoint.updateError ? endpoint.error || "online" : endpoint.description();
     const runs: dropdown.Run[] = [];
     if (quality !== null && note_room >= 6) {
-      for (const [bar, glyph] of [..."▂▄▆█"].entries()) runs.push([glyph, bar < quality ? color : "line"]);
-      runs.push([" " + text.ellipsis(description, note_room - 5), color]);
+      const bars = signalBars.runs(quality, this.view.framePictures());
+      runs.push(...bars, [" " + text.ellipsis(description, note_room - barsWidth(bars) - 1), color]);
     } else {
       const state = online ? "● " + description : description;
       runs.push([text.ellipsis(state, note_room), color]);
@@ -142,8 +144,8 @@ export class Workspaces {
     if (this.cursor >= this.offset + capacity) this.offset = this.cursor - capacity + 1;
     const width = Math.min(
       side.cols,
-      64,
-      Math.max(this.endpoints.some(e => e.updateMessage || e.updateError) ? 64 : 36, side.width),
+      66,
+      Math.max(this.endpoints.some(e => e.updateMessage || e.updateError) ? 66 : 38, side.width),
     );
     const choices = this.choices(width).slice(this.offset, this.offset + capacity);
     const x = Math.max(0, Math.min(anchor?.x ?? 1, side.cols - width));
@@ -162,14 +164,17 @@ export class Workspaces {
   draw(side: sidebar.View): string {
     const { box, choices } = this.layout(side);
     const writer = new text.Writer();
-    dropdown.draw(writer, box, [machineAdd.field, ...choices]);
-    const cursor = machineAdd.drawField(writer, box, this.list.query);
+    // Drawn over the frame, which cuts its pictures around the box and the hint.
+    this.view.framePictures()?.cover(new Rect(box.x, box.y, box.w, box.h + 1));
+    const cursor = machineAdd.drawList(writer, box, choices, this.list.query);
     writer.write(`\x1b[${box.y + box.h + 1};${box.x + 1}H${palette.bg("surface")}${palette.fg("muted")}`);
     const hint = text.ellipsis(" ↑↓ Enter · ^F fold · ^R retry · ^X pause · ! details", box.w);
     writer.write(hint + " ".repeat(Math.max(0, box.w - text.displayWidth(hint))) + (cursor || "\x1b[0m\x1b[?25l"));
     return writer.buffered();
   }
 }
+
+const barsWidth = (runs: dropdown.Run[]) => text.displayWidth(runs.map(([part]) => part).join(""));
 
 function statusColor(status: Status, error: string, quality: number | null): palette.Token {
   switch (status) {

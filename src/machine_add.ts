@@ -10,9 +10,9 @@ import type * as progress from "./machine_progress";
 import * as ssh from "./ssh";
 import * as errors from "./errors";
 import * as i18n from "./i18n";
-import type * as dropdown from "./dropdown";
+import * as dropdown from "./dropdown";
 import { Style, fg, type Token } from "./palette";
-import type { Rect } from "./layout";
+import { Rect } from "./layout";
 import { matches } from "./search";
 import { Typed } from "./text_area";
 import { displayWidth, writeEllipsis, type Writer } from "./text";
@@ -405,12 +405,19 @@ export function hostChoice(adds: Adds, row: HostRow, hovered: boolean, now = per
   };
 }
 export const divider: dropdown.Choice = { text: "", note: "", current: false, hovered: false, divider: true };
-/** The row a list's field takes, which `drawField` draws over. */
-export const field: dropdown.Choice = { text: "", note: "", current: false, hovered: false, heading: true };
-/** The field under `box`'s top border: what's typed, or what typing does.
- * Returns what puts the cursor at its end, for the caller to write last:
- * the field has the keys from the moment the list opens. */
-export function drawField(w: Writer, box: Rect, query: string | null): string {
+/** A list of machines in `box`: the field on its first row, then `choices`
+ * a cell in from the border on either side, as the field is. Returns what
+ * puts the cursor at the field's end, for the caller to write last: the
+ * field has the keys from the moment the list opens. */
+export function drawList(w: Writer, box: Rect, choices: dropdown.Choice[], query: string | null): string {
+  dropdown.draw(w, box, []);
+  const inner = new Rect(box.x + 1, box.y, box.w - 2, box.h);
+  choices.forEach((choice, i) => dropdown.row(w, choice.divider ? box : inner, i + 2, choice));
+  w.write("\x1b[0m");
+  return drawField(w, box, query);
+}
+/** The field under `box`'s top border: what's typed, or what typing does. */
+function drawField(w: Writer, box: Rect, query: string | null): string {
   const style = new Style({ fg: "text", bg: "selected" }).sgr(),
     x = box.x + 2,
     y = box.y + 1,

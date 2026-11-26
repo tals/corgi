@@ -10916,6 +10916,10 @@ export class Controller {
   nextFrame(): number {
     return this.next_frame;
   }
+  /** The pictures of the frame last composed, on a host that shows them. */
+  framePictures(): hostImages.FrameImages | null {
+    return this.pictures;
+  }
   compose(retain = true): composition.Output {
     this.next_frame = Infinity;
     if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;

@@ -11,6 +11,7 @@ import { printable } from "./name_dialog";
 import { Writer, displayWidth } from "./text";
 import * as i18n from "./i18n";
 import { Terminal } from "./pane/terminal";
+import * as hostImages from "./host_images";
 import { bgRgb, colors, fgRgb, mix } from "./palette";
 
 const c = (s: string) => s.charCodeAt(0);
@@ -778,6 +779,15 @@ test("with other machines, the title names the one the workspace goes on, and ^O
   expect(labels(d)).toEqual(["choose", "machine", "close"]);
   const open = screen(d);
   for (const text of [/✓ studio +this machine/, /devbox +▂▄▆█/, /gpu-box +connecting 3s/]) expect(open).toMatch(text);
+  // On a host that shows pictures, the bars are the sidebar's, by the list's right edge.
+  d.pictures = new hostImages.Store().frame({ width: 10, height: 20 });
+  const shown = screen(d).split("\n"),
+    row = shown.findIndex(line => line.includes("devbox"));
+  expect(shown[row]).not.toContain("▂▄▆█");
+  expect(d.pictures.placements()).toMatchObject([
+    { row, col: shown[row].indexOf("│", shown[row].indexOf("devbox")) - 4 },
+  ]);
+  d.pictures = null;
   // The list has the keys, and the cursor sits in its field: typing searches it, not the name.
   expect(draw(d)).toEndWith("\x1b[7;26H\x1b[?25h");
   d.key(c("x"));
