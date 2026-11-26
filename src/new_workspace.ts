@@ -383,6 +383,27 @@ export class Browser {
     const next = this.highlight === null ? (delta > 0 ? 0 : count - 1) : Math.min(this.highlight + delta, count - 1);
     this.pick(next < 0 ? null : next);
   }
+  /** Completes the name after the last slash like zsh: the only match and a
+   * slash, else the start the matches share, else the next match round.
+   * Nothing until the folder is read. */
+  complete(): void {
+    this.problem = null;
+    const entries = this.entries;
+    const n = entries.length;
+    if (n === 0) return;
+    if (n === 1) return this.write(this.typed_parent + entries[0] + "/");
+    if (this.highlight !== null) return this.pick(this.highlight < n ? (this.highlight + 1) % n : 0);
+    const first = entries[0].toLowerCase();
+    let shared = first.length;
+    for (const e of entries.slice(1)) {
+      const lower = e.toLowerCase();
+      let i = 0;
+      while (i < shared && i < lower.length && lower[i] === first[i]) i++;
+      shared = i;
+    }
+    if (shared > this.prefix.length) return this.write(this.typed_parent + entries[0].slice(0, shared));
+    this.pick(0);
+  }
   /** The offer to create leaves the field as typed. */
   pick(index: number | null): void {
     this.highlight = index;
@@ -515,8 +536,9 @@ export interface On {
   start: (machine: Machine) => string;
 }
 
-/** The dialog: the name above, the browser below. Tab, and Up and Down past
- * either end, move the keys between them. */
+/** The dialog: the name above, the browser below. Tab moves the keys to the
+ * folder and completes there; Shift-Tab, and Up and Down past either end,
+ * move them between the two. */
 export class Dialog extends nameDialog.Dialog {
   browser!: Browser;
   /** The name is the browser's folder's, following it until edited. */
@@ -714,7 +736,8 @@ export class Dialog extends nameDialog.Dialog {
       return "none";
     }
     if (byte === 9) {
-      if (!this.compact) b.focused = !b.focused;
+      if (b.focused) b.complete();
+      else b.focused = true;
       this.follow();
       return "none";
     }

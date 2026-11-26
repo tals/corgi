@@ -15,6 +15,10 @@ The New workspace dialog starts at the folder of the last workspace created with
 it, or at the current workspace's folder until then. Cancelling it changes
 nothing.
 
+In the dialog's Folder field, Tab completes folder names the way zsh does: the
+only match, else the start the matches share, then each match in turn.
+Shift-Tab goes back to the name.
+
 ## Follow activity
 
 | Indicator | Meaning |
