@@ -242,7 +242,10 @@ class Relay extends ui_driver.Driver {
       case "speed": {
         if (!this.recording) throw Error("speed needs a recording; record start first");
         const pace = video.paceOf(args);
-        if (!pace) throw Error("speed takes a speed of at least 1 and top or bottom, such as speed 4 top, or reset");
+        if (!pace)
+          throw Error(
+            `speed takes a speed from 1 to ${video.MAX_SPEED} and top or bottom, such as speed 4 top, or reset`,
+          );
         this.paces.push({ t: Date.now(), ...pace });
         return;
       }

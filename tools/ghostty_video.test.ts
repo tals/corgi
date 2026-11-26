@@ -61,6 +61,7 @@ describe("timeline", () => {
       shapes: [],
       steps: [],
       opens: [],
+      paces: [],
       keys: [1000, 1250, 1400].map(t => ({ t, kind: "key", value: "esc" })),
     };
     const { events } = video.timeline(take, times, 10, screen, "demo.mp4");
@@ -79,6 +80,7 @@ describe("timeline", () => {
       shapes: [],
       steps: [],
       opens: [],
+      paces: [],
       keys: [],
     };
     const { events } = video.timeline(take, times, 10, screen, "demo.mp4");
@@ -91,14 +93,15 @@ describe("timeline", () => {
 
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => from + i);
 
-test("a speed command takes a speed of at least 1 and top or bottom, or reset", () => {
-  expect([["4"], ["x2.5"], ["1"], ["016", "top"], ["8", "bottom"], ["reset"]].map(video.paceOf)).toEqual([
+test("a speed command takes a speed from 1 to 1000 and top or bottom, or reset", () => {
+  expect([["4"], ["x2.5"], ["1"], ["016", "top"], ["8", "bottom"], ["reset"], ["1000"]].map(video.paceOf)).toEqual([
     { speed: 4, place: "bottom" },
     { speed: 2.5, place: "bottom" },
     { speed: 1, place: "bottom" },
     { speed: 16, place: "top" },
     { speed: 8, place: "bottom" },
     { speed: 1, place: "bottom" },
+    { speed: 1000, place: "bottom" },
   ]);
   const wrong = [
     [],
@@ -110,6 +113,7 @@ test("a speed command takes a speed of at least 1 and top or bottom, or reset", 
     ["1e3"],
     ["-2"],
     ["fast"],
+    ["1001"],
     ["4", "left"],
     ["4", "top", "x"],
   ];
@@ -291,6 +295,15 @@ describe("pointerTiles", () => {
     expect(opaque(tiles.frame(41))).toBe(opaque(tiles.frame(79)));
   });
 
+  test("ages a press's ring at the video's pace on leaving a speed-up", () => {
+    const pressed: video.PointerEvent[] = [{ t: 1000, x: 40, y: 40, action: "press" }];
+    // 5 frames at 40x, the first a press, then real time 41 frames of wall time on: the ring is still spreading.
+    const at = [...range(0, 5).map(i => 1000 + 40 * i * frame), ...range(1, 31).map(i => 1000 + (200 + i) * frame)];
+    const speeds = [...Array(5).fill(40), ...Array(30).fill(1)];
+    const tiles = video.pointerTiles(take(pressed), at, 1, 20, video.FPS, speeds);
+    expect(opaque(tiles.frame(5))).toBeGreaterThan(opaque(tiles.frame(34)));
+  });
+
   test("plays a press's ring at the video's pace", () => {
     const pressed: video.PointerEvent[] = [{ t: 1000, x: 40, y: 40, action: "press" }];
     const [fast, real] = [4, 1].map(speed =>
@@ -330,6 +343,13 @@ describe("badgeTiles", () => {
     let t = 0;
     const times = speeds.map(s => (t += s * frame));
     return video.badgeTiles(times, speeds, Array(count).fill(place), 28, size);
+  };
+  /** Frames at real time but for the runs [from, to] at speed 8, at the bottom. */
+  const take2 = (count: number, ...runs: [number, number][]) => {
+    const speeds = range(0, count).map(i => (runs.some(([a, b]) => i >= a && i <= b) ? 8 : 1));
+    let t = 0;
+    const times = speeds.map(s => (t += s * frame));
+    return video.badgeTiles(times, speeds, Array(count).fill("bottom"), 28, size);
   };
   const alpha = (tile: Uint8Array) => tile.reduce((n, v, i) => n + (i % 4 === 3 ? v : 0), 0);
   /** The middle row of the pill's opaque body. */
@@ -378,6 +398,29 @@ describe("badgeTiles", () => {
     expect(badge.y[155]).toBeGreaterThan(size[1] / 2);
     expect(badge.y[250]).toBeLessThan(size[1] / 2);
     expect(alpha(badge.frame(250))).toBeGreaterThan(0);
+  });
+
+  test("stays up through a short gap between speed-ups at one edge", () => {
+    // Two runs two real-time frames apart: the badge holds rather than sinking and rising again.
+    const badge = take2(300, [10, 140], [143, 290]);
+    const settled = alpha(badge.frame(120));
+    for (const i of [141, 142, 143, 144]) expect(alpha(badge.frame(i)) / settled).toBeGreaterThan(0.95);
+  });
+
+  test("keeps its edge through a switch too short to show", () => {
+    const speeds = range(0, 300).map(i => (i >= 10 && i <= 290 ? 8 : 1));
+    const places = range(0, 300).map((i): video.Place => (i > 150 && i <= 158 ? "top" : "bottom"));
+    let t = 0;
+    const badge = video.badgeTiles(
+      speeds.map(s => (t += s * frame)),
+      speeds,
+      places,
+      28,
+      size,
+    );
+    expect(range(100, 280).every(i => badge.y[i] > size[1] / 2)).toBe(true);
+    const settled = alpha(badge.frame(120));
+    expect(range(140, 280).every(i => alpha(badge.frame(i)) / settled > 0.95)).toBe(true);
   });
 
   test("redraws only when its clock or motion changes", () => {
