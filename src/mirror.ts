@@ -126,6 +126,8 @@ export class Terminal {
   private link_context: { binding: bigint; cwd: string; phrases: boolean } | null = null;
   private wrapped: (wrappedLink.Target & { id: bigint }) | null = null;
   private link_notice = 0;
+  /** A transport failure backs off background hover requests on this pane. */
+  private hover_retry_at = 0;
   private lookup: { start: number; end: number; y: number } | null = null;
   private pending_link: Promise<(wrappedLink.Target & { id: bigint }) | null> | null = null;
   private resting: { x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
@@ -204,6 +206,7 @@ export class Terminal {
     )
       return;
     this.link_context = enabled ? { binding, cwd, phrases } : null;
+    this.hover_retry_at = 0;
     this.clearWrapped();
   }
   linkNotice(seq: number): void {
@@ -226,6 +229,7 @@ export class Terminal {
       !this.link_context ||
       this.closed ||
       this.holding_selection ||
+      Date.now() < this.hover_retry_at ||
       this.answered(x, y) ||
       (this.resting?.x === x && this.resting.y === y) ||
       this.pending_link
@@ -254,9 +258,12 @@ export class Terminal {
   ): Promise<(Link & { file?: string | null }) | null> | null {
     const view = this.installed,
       context = this.link_context;
-    if (!view || !context || this.closed || (!this.pending_link && this.answered(x, y))) return null;
+    const cached = !this.pending_link && this.answered(x, y);
+    if (!view || !context || this.closed || (cached && this.wrapped)) return null;
     const regions = this.linkRegions(view, y, context.phrases);
     if (!regions.some(s => s.start <= x && x < s.end)) return null;
+    // A file can appear without changing these rows. Retry a completed miss on a press.
+    if (cached) this.lookup = null;
     const current = () => {
       const now = this.installed;
       return (
@@ -319,13 +326,20 @@ export class Terminal {
     })
       .then(({ target, range }) => {
         if (this.lookup !== lookup || this.closed) return null;
+        this.hover_retry_at = 0;
         if (!target && range) Object.assign(lookup, range);
         this.wrapped = target ? { ...target, id: BigInt(Bun.hash(JSON.stringify([target.uri, target.spans]))) } : null;
         this.links = null;
         this.rendered = null;
         return this.wrapped;
       })
-      .catch(() => null);
+      .catch(() => {
+        if (this.lookup === lookup) {
+          this.lookup = null;
+          this.hover_retry_at = Date.now() + 5000;
+        }
+        return null;
+      });
     this.pending_link = pending;
     const target = await pending;
     if (this.pending_link === pending) this.pending_link = null;

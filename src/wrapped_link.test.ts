@@ -1,4 +1,8 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import * as fileAccess from "./file_access";
 import * as wrapped from "./wrapped_link";
 import { Dictionary } from "./link_evidence";
 import { Terminal } from "./pane/terminal";
@@ -148,6 +152,77 @@ test("pointer travel, ordinary text and repeated redraws incur no extra requests
   } finally {
     source.destroy();
     t.destroy();
+  }
+});
+
+test("a click retries a completed hover miss after the named file appears", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-link-")),
+    name = "new file.txt";
+  const source = Terminal.create(32, 4);
+  let requests = 0;
+  const conn = transport(async (_op, fields) => {
+    requests++;
+    const { x, y } = fields as { x: number; y: number };
+    const probe = wrapped.inspect(source.native({ op: "linkWindow", x, y }), x, y, null);
+    return { ok: true, target: await wrapped.resolve(probe, fileAccess.here, dir), range: probe.range };
+  });
+  const term = new mirror.Terminal(conn, 1, 32, 4);
+  try {
+    source.feed("See `new file.txt`.");
+    term.receive(source.surface(1));
+    term.linkContext(0n, true, dir);
+    expect(await term.probeLink(5, 0, () => {})).toBeNull();
+    writeFileSync(join(dir, name), "ready");
+    await term.probeLink(8, 0, () => {});
+    expect(term.pressLink(0, 0, () => {})).toBeNull();
+    expect(requests).toBe(1);
+    expect(await term.pressLink(8, 0, () => {})).toMatchObject({ uri: name, file: join(dir, name) });
+    expect(term.pressLink(6, 0, () => {})).toBeNull();
+    expect(term.wrappedFile(name)).toBe(join(dir, name));
+    expect(requests).toBe(2);
+  } finally {
+    term.destroy();
+    source.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a rejected request leaves the cell retryable without polling on redraw", async () => {
+  const source = Terminal.create(32, 4),
+    hold = Promise.withResolvers<void>();
+  let requests = 0;
+  const conn = transport(async () => {
+    requests++;
+    if (requests === 1) throw Error("Disconnected");
+    await hold.promise;
+    return { ok: true, target: null, range: { start: 5, end: 17 } };
+  });
+  const term = new mirror.Terminal(conn, 1, 32, 4);
+  try {
+    source.feed("See `new file.txt`.");
+    term.receive(source.surface(1));
+    term.linkContext(0n, true, "/repo");
+    expect(await term.probeLink(6, 0, () => {})).toBeNull();
+    for (let i = 0; i < 10; i++)
+      term.hoverLink(
+        6,
+        0,
+        () => true,
+        () => {},
+      );
+    await Bun.sleep(100);
+    expect(requests).toBe(1);
+    // A new probe can use the same cell; a click during that check shares its miss.
+    const retry = term.probeLink(6, 0, () => {});
+    const click = term.pressLink(6, 0, () => {});
+    expect(requests).toBe(2);
+    hold.resolve();
+    await Promise.all([retry, click]);
+    expect(requests).toBe(2);
+  } finally {
+    hold.resolve();
+    term.destroy();
+    source.destroy();
   }
 });
 
