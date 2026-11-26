@@ -647,6 +647,11 @@ export function pointerTiles(take: Take, times: number[], scale: number, cellHei
   return { size, x, y, count: times.length, frame };
 }
 
+/** How many frames a video holds still at each end. */
+function holdFrames(screen: Screen, fps: number): number {
+  return Math.max(1, Math.round(screen.idle * fps));
+}
+
 /**
  * Encodes the take: from record start to record stop, with every script's
  * time and at most idle between scripts, held idle at each end, and the
@@ -662,7 +667,7 @@ async function encode(
   fps: number,
 ): Promise<number[]> {
   const raw = join(dir, "recording.mkv");
-  const hold = Math.max(1, Math.round(screen.idle * fps));
+  const hold = holdFrames(screen, fps);
   const lead = Math.min(Math.floor(fps / 2), Math.floor(hold / 2));
   const frameAt = (ms: number) => Math.max(0, Math.round(((ms - start) / 1000) * fps));
   const timeAt = (frame: number) => start + (frame * 1000) / fps;
@@ -734,6 +739,8 @@ export type Moment =
  * shown in its place.
  */
 export function timeline(take: Take, times: number[], fps: number, screen: Screen, out: string) {
+  // The closing hold repeats the last frame kept; a moment there lands on that frame, before the hold.
+  const lastKept = times.length - 1 - holdFrames(screen, fps);
   const frame = (ms: number) => {
     let [lo, hi] = [0, times.length - 1];
     // Before the first frame kept, as the take began: that frame, after the opening hold.
@@ -743,7 +750,7 @@ export function timeline(take: Take, times: number[], fps: number, screen: Scree
       if (times[mid] <= ms) lo = mid;
       else hi = mid - 1;
     }
-    return lo;
+    return Math.min(lo, lastKept);
   };
   const at = (ms: number) => Math.round((frame(ms) / fps) * 1000) / 1000;
   const px = (v: number) => Math.round(v * 10) / 10;

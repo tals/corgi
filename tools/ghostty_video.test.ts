@@ -36,6 +36,37 @@ describe("keep", () => {
   });
 });
 
+describe("timeline", () => {
+  // 10 fps held 0.3 s at each end, over frames kept at 1000, 1100 … 1400 ms.
+  const screen: video.Screen = {
+    socket: "",
+    width: 80,
+    height: 40,
+    cols: 8,
+    rows: 2,
+    cell: [10, 20],
+    padding: [0, 0],
+    wait: 5,
+    idle: 0.3,
+    fps: 10,
+  };
+  const times = [1000, 1000, 1000, 1000, 1100, 1200, 1300, 1400, 1400, 1400, 1400];
+
+  test("puts a moment on the kept frame showing it, between the holds", () => {
+    const take: video.Take = {
+      from: 1000,
+      to: 1400,
+      scripts: [[1000, 1400]],
+      pointer: [],
+      shapes: [],
+      steps: [],
+      keys: [1000, 1250, 1400].map(t => ({ t, kind: "key", value: "esc" })),
+    };
+    const { events } = video.timeline(take, times, 10, screen, "demo.mp4");
+    expect(events.map(e => e.t)).toEqual([0.3, 0.5, 0.7]);
+  });
+});
+
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => from + i);
 
 test("a glide eases in and out over 0.35 to 0.8 seconds by distance", () => {
