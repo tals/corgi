@@ -958,7 +958,7 @@ interface BadgeLook {
   swap?: Swap;
 }
 
-/** Texts a badge swaps out as its own swap in, laid out for card, and how far the swap has come, from 0 to 1. */
+/** Texts a badge swaps out as its own swap in, laid out for card, and how far the swap has come, eased, from 0 to 1. */
 interface Swap {
   card: number;
   label: string;
@@ -1049,25 +1049,38 @@ export function badgeTiles(
       const carries = prior?.from === card.from;
       const span = Math.max(swapping, card.a - end);
       if (!carries)
-        swap = i => (i - end < span ? { ...was, card: was.card, step: (i - end) / span, all: true } : undefined);
+        swap = i => (i - end < span ? { ...was, card: was.card, step: ease((i - end) / span), all: true } : undefined);
       for (let i = end + 1; i < card.a; i++) {
         looks[i] = { card: k, ...texts(carries ? i : card.a), ...risen(i), swap: swap(i) };
         y[i] = at;
       }
     }
-    // Where the speed last changed within the card, to swap the label.
-    let changed = card.a;
+    // The label rolls on a reel: each new speed adds one below, and the
+    // reel eases down to it from where it was and at the pace it had, so a
+    // change mid-roll carries on from what shows.
+    const reel = [label(speeds[card.a])];
+    const roll: number[] = [];
+    let [from, pace, to, since] = [0, 0, 0, card.a];
+    for (let i = card.a; i <= card.b; i++) {
+      if (i > card.a && speeds[i] !== speeds[i - 1]) {
+        [from, pace] = [roll.at(-1)!, roll.at(-1)! - (roll.at(-2) ?? 0)];
+        [to, since] = [reel.push(label(speeds[i])) - 1, i];
+      }
+      // A cubic from where it was, at its pace, to rest at the new label.
+      const u = clamp((i - since + 1) / swapping);
+      const [carry, settle] = [u - 2 * u ** 2 + u ** 3, 3 * u ** 2 - 2 * u ** 3];
+      roll.push(u >= 1 ? to : from + pace * swapping * carry + (to - from) * settle);
+    }
     for (let i = begin; i <= Math.min(times.length - 1, card.b + outro - 1); i++) {
       const inside = i <= card.b;
       const now = texts(Math.min(i, card.b));
-      if (inside && i > card.a && speeds[i] !== speeds[i - 1]) changed = i;
-      const relabel =
-        inside && changed > card.a && i - changed < swapping
-          ? { ...now, card: k, label: label(speeds[changed - 1]), step: (i - changed + 1) / swapping, all: false }
-          : undefined;
+      const place = roll[Math.min(i, card.b) - card.a];
+      const [shown, part] = [Math.floor(place), place % 1];
+      const relabel = part > 0 ? { ...now, card: k, label: reel[shown], step: part, all: false } : undefined;
       looks[i] = {
         card: k,
         ...now,
+        label: reel[part > 0 ? shown + 1 : shown],
         ...(inside ? risen(i) : sunk((i - card.b) / outro)),
         swap: (inside ? swap(i) : undefined) ?? relabel,
       };
@@ -1080,7 +1093,7 @@ export function badgeTiles(
     const rgba = new Uint8Array(width * height * 4);
     const { swap } = look;
     // A swap eases the pill from the old texts' size to the new ones'.
-    const e = swap ? ease(swap.step) : 1;
+    const e = swap?.step ?? 1;
     const [now, was] = [cards[look.card], cards[swap?.card ?? look.card]];
     const [across, slot] = [was.across + (now.across - was.across) * e, was.slot + (now.slot - was.slot) * e];
     const [cx, cy, r] = [width / 2, height / 2 + look.shift, tall / 2];

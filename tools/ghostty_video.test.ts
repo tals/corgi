@@ -419,6 +419,33 @@ describe("badgeTiles", () => {
     expect(leftSide(badge, 170)).toBe(leftSide(badge, 120));
   });
 
+  test("rolls on from what shows when the speed changes again mid-roll", () => {
+    // ×8, ×4 for six frames, then ×2: the label rolls through ×4 without snapping back to it.
+    const speeds = range(0, 300).map(i => (i < 10 ? 1 : i <= 100 ? 8 : i <= 106 ? 4 : i <= 290 ? 2 : 1));
+    let t = 0;
+    const badge = video.badgeTiles(
+      speeds.map(s => (t += s * frame)),
+      speeds,
+      Array(300).fill("bottom"),
+      28,
+      size,
+    );
+    const label = (i: number) => {
+      const tile = badge.frame(i);
+      return range(0, tile.length / 4)
+        .filter(p => p % badge.width < badge.width * 0.42)
+        .map(p => (tile[p * 4] * tile[p * 4 + 3]) / 255);
+    };
+    const moved = range(101, 127).map(i => {
+      const [a, b] = [label(i - 1), label(i)];
+      return a.reduce((sum, v, p) => sum + Math.abs(v - b[p]), 0);
+    });
+    // Each frame moves about as much as the one before: no snap, and no stop and start.
+    const floor = Math.max(...moved) * 0.15;
+    for (const i of range(1, moved.length))
+      expect(Math.abs(moved[i] - moved[i - 1])).toBeLessThan(Math.max(moved[i], moved[i - 1]) / 2 + floor);
+  });
+
   test("keeps rising, without a jump, when a short speed-up is followed by another", () => {
     // A three-frame run ends early in the rise; the next starts two frames later.
     const badge = take2(200, [10, 12], [15, 180]);
