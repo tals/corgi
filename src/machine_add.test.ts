@@ -280,3 +280,47 @@ test("a host the typing rests on is probed, and typing on stops it for the next"
   a.start("gone");
   expect(note(a.state("gone"), a.probe("gone"), false).text).toBe("Checking…");
 });
+
+test("two lists share probes: one opening or closing leaves the other's alone, and a host both name is probed once", async () => {
+  const world = adds(["devbox"]),
+    { a, probes } = world,
+    shown = [machine("local")],
+    dialog = new Listing(() => shown, a),
+    picker = new Listing(() => shown, a, true),
+    type = (list: Listing<{ name: string }>, text: string) => {
+      for (const byte of Buffer.from(text)) list.key(byte);
+    };
+  dialog.open();
+  type(dialog, "nas");
+  await rest();
+  expect(probes.map(p => p.target)).toEqual(["nas"]);
+  // The picker opening and closing over the dialog stops nothing of its.
+  picker.open();
+  picker.close();
+  expect(probes[0].signal.aborted).toBe(false);
+  expect(a.probe("nas")).toMatchObject({ stage: "connecting" });
+  // Both naming it, it's one probe; the dialog moving on to "na" leaves it to the picker.
+  picker.open();
+  type(picker, "nas");
+  await rest();
+  expect(probes).toHaveLength(1);
+  dialog.key(127);
+  await rest();
+  expect(probes[0].signal.aborted).toBe(false);
+  probes[0].resolve({ system: "Linux x86_64" });
+  await rest();
+  // Its result stays for the picker as the dialog's list opens again.
+  dialog.close();
+  dialog.open();
+  expect(a.probe("nas")).toEqual({ system: "Linux x86_64" });
+  // Once no list names a host, its probe stops.
+  type(dialog, "pi");
+  await rest();
+  picker.close();
+  dialog.close();
+  expect(probes.map(p => [p.target, p.signal.aborted])).toEqual([
+    ["nas", false],
+    ["na", true],
+    ["pi", true],
+  ]);
+});

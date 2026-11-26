@@ -42,12 +42,13 @@ export class Adds {
   /** Adds by machine name. */
   private states = new Map<string, State>();
   private jobs = new Map<string, AbortController>();
-  /** Probes by target: the one under way, and those done since a list opened. */
+  /** Probes by target: those under way, and those done since a list opened. */
   private probes = new Map<string, Probe>();
-  /** The host typing names, probed once it rests there. */
-  private wanted: string | null = null;
-  private resting: ReturnType<typeof setTimeout> | null = null;
-  private probing: AbortController | null = null;
+  /** The host each open list's typing names, probed once typing rests there;
+   * lists that name the same host share its probe. */
+  private wants = new Map<object, string>();
+  private resting = new Map<object, ReturnType<typeof setTimeout>>();
+  private probing = new Map<string, AbortController>();
   private readonly deps: Deps;
   /** Told when an add's or a probe's progress or outcome changes. */
   changed: () => void = () => {};
@@ -64,7 +65,7 @@ export class Adds {
     };
   }
   /** Reads the SSH config and the saved machines again, as a list of
-   * machines opens; hosts are probed afresh. */
+   * machines opens; hosts no list names now are probed afresh. */
   refresh(): void {
     try {
       this.hosts = this.deps.hosts().filter(host => named(host) === host);
@@ -76,8 +77,8 @@ export class Adds {
     } catch {
       this.saved = [];
     }
-    this.want(null);
-    this.probes.clear();
+    for (const [target, probe] of this.probes)
+      if (!("stage" in probe) && !this.named(target)) this.probes.delete(target);
     // Why an add failed then gives way to what probing finds now.
     for (const [name, state] of this.states) if ("failed" in state && !this.jobs.has(name)) this.states.delete(name);
   }
@@ -127,30 +128,46 @@ export class Adds {
         },
       );
   }
-  /** Probes `target` once typing has rested on it, stopping a probe of
-   * another; null stops it. One probed since the list opened isn't again. */
-  want(target: string | null): void {
-    if (target === this.wanted) return;
-    this.wanted = target;
-    if (this.resting) clearTimeout(this.resting);
-    this.resting = null;
-    this.probing?.abort();
-    this.probing = null;
-    // One stopped partway found nothing.
-    for (const [host, probe] of this.probes) if ("stage" in probe) this.probes.delete(host);
+  /** Probes `target` once `list`'s typing has rested on it, in place of the
+   * host it named before; null names none. A host's probe stops once no list
+   * names it, and one probed since a list opened isn't again. */
+  want(list: object, target: string | null): void {
+    const before = this.wants.get(list) ?? null;
+    if (target === before) return;
+    clearTimeout(this.resting.get(list));
+    this.resting.delete(list);
+    if (target === null) this.wants.delete(list);
+    else this.wants.set(list, target);
+    if (before !== null && !this.named(before)) {
+      this.probing.get(before)?.abort();
+      this.probing.delete(before);
+      // Stopped partway, it found nothing.
+      if ("stage" in (this.probes.get(before) ?? {})) this.probes.delete(before);
+    }
     if (target !== null && !this.probes.has(target))
-      this.resting = setTimeout(() => this.run(target), this.deps.rest_ms);
+      this.resting.set(
+        list,
+        setTimeout(() => {
+          this.resting.delete(list);
+          if (!this.probes.has(target)) this.run(target);
+        }, this.deps.rest_ms),
+      );
     this.changed();
   }
+  /** Whether an open list's typing names `target`. */
+  private named(target: string): boolean {
+    for (const wanted of this.wants.values()) if (wanted === target) return true;
+    return false;
+  }
   private run(target: string): void {
-    this.resting = null;
-    const job = (this.probing = new AbortController()),
+    const job = new AbortController(),
       since = performance.now();
+    this.probing.set(target, job);
     this.probes.set(target, { stage: "connecting", since });
     this.changed();
     const done = (probe: Probe) => {
       if (job.signal.aborted) return;
-      this.probing = null;
+      this.probing.delete(target);
       this.probes.set(target, probe);
       this.changed();
     };
@@ -169,11 +186,12 @@ export class Adds {
         error => done({ failed: "error", reason: errors.name(error) }),
       );
   }
-  /** Stops the adds and the probe under way, as the viewer leaves. */
+  /** Stops the adds and the probes under way, as the viewer leaves. */
   close(): void {
-    this.want(null);
-    for (const job of this.jobs.values()) job.abort();
+    for (const list of [...this.wants.keys(), ...this.resting.keys()]) this.want(list, null);
+    for (const job of [...this.jobs.values(), ...this.probing.values()]) job.abort();
     this.jobs.clear();
+    this.probing.clear();
   }
 }
 /** A short reason for a failed add, from what SSH said when it says why. */
@@ -242,6 +260,7 @@ export class Listing<T extends { name: string }> {
   }
   /** Opens on row `cursor`, with the SSH config read again. */
   open(cursor = 0): void {
+    this.adds?.want(this, null);
     this.adds?.refresh();
     this.query = null;
     this.bytes = new Typed();
@@ -252,7 +271,7 @@ export class Listing<T extends { name: string }> {
   close(): void {
     this.query = null;
     this.bytes = new Typed();
-    this.adds?.want(null);
+    this.adds?.want(this, null);
   }
   private hosts(): string[] {
     return this.adds?.candidates(this.machines().map(machine => machine.name)) ?? [];
@@ -355,7 +374,7 @@ export class Listing<T extends { name: string }> {
       first = rows.findIndex(row => row.kind !== "divider");
     this.cursor = Math.max(0, exact >= 0 ? exact : typed ? first : same >= 0 ? same : first);
     const host = rows.find((row): row is HostRow => row.kind === "host" && row.target === typed);
-    this.adds?.want(host?.target ?? null);
+    this.adds?.want(this, host?.target ?? null);
   }
 }
 function label(row: Row<{ name: string }>): string | null {
