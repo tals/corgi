@@ -23,6 +23,15 @@ export interface Shapes {
   changes: ShapeChange[];
 }
 
+/** A callout to show; see Host.toast. */
+export interface Toast {
+  icon?: "chrome";
+  text: string;
+  strong?: string;
+  at?: [number, number] | null;
+  ms?: number;
+}
+
 /** The surface's geometry, in frame pixels. */
 export interface Size {
   width: number;
@@ -109,11 +118,12 @@ export class Host {
   }
 
   /**
-   * Shows a pill with text, then strong in bold, for ms: on the row above
-   * frame pixel at, or at the bottom right. Ghostty draws it.
+   * Shows a callout with icon's logo, text, then strong in bold, for ms:
+   * pointing at frame pixel at, or at the bottom right. Ghostty draws it.
    */
-  async toast(text: string, strong = "", at: [number, number] | null = null, ms = 2500): Promise<void> {
-    await this.json("POST", "/toast", { text, strong, ms, ...(at && { x: at[0], y: at[1] }) });
+  async toast(toast: Toast): Promise<void> {
+    const { at, ...rest } = toast;
+    await this.json("POST", "/toast", { ...rest, ...(at && { x: at[0], y: at[1] }) });
   }
 
   /** Whether nothing was drawn for quietMs, within timeoutMs. */

@@ -285,11 +285,15 @@ class Relay extends ui_driver.Driver {
     if (!target) return;
     const now = Date.now();
     if (this.recording) this.opens.push({ t: now, target });
-    // Beside the click that opened it, if one just did; a program's own open goes to the corner.
-    const click = this.pressed && now - this.pressed.t < 2000 ? this.pressed.at : null;
-    const shown = target.replace(/^(https?|file):\/\//i, "").replace(/(.)\/$/, "$1");
+    // Pointing at the click that opened it, if one just did; a program's own open goes to the corner.
+    const at = this.pressed && now - this.pressed.t < 2000 ? this.pressed.at : null;
+    const web = /^https?:\/\//i.test(target);
+    const strong = target.replace(/^(https?|file):\/\//i, "").replace(/(.)\/$/, "$1");
+    const toast: ghostty_host.Toast = web
+      ? { icon: "chrome", text: "Opened in Chrome:", strong, at }
+      : { text: `${OPEN_ICON} Opened`, strong, at };
     await this.host()
-      .toast(`${OPEN_ICON} Opened`, shown, click)
+      .toast(toast)
       .catch(error => log(`toast: ${(error as Error).message}`));
   }
   async drive(script: string, cwd: string): Promise<{ output: string[]; error?: string }> {
