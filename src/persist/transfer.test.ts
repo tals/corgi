@@ -469,6 +469,11 @@ test("cold recovery of an unknown branch ignores its schema and retains the base
     }),
     decoded = transfer.recover(bytes);
   expect(decoded.migrated).toBe(true);
+  expect(decoded.repairs).toEqual([
+    `state format ${"f".repeat(12)} is unknown to this build; restored the terminal core and dropped the rest`,
+  ]);
+  saved.transfer.format = formats.baseline;
+  expect(transfer.recover(json.stringify(saved)).repairs).toEqual([]);
   using recovered = new Runtime();
   await checkpoint.restore(recovered, decoded.value, false, "/tmp/unused", "/tmp/corgi", false);
   expect(recovered.panes.map(p => p.id)).toEqual(original.panes.map(p => p.id));

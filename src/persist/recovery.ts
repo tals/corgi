@@ -69,7 +69,8 @@ export async function load(r: Runtime, socket: string, executable: string): Prom
   if (decoded.discarded) repairs.push("discarded incompatible auxiliary state; restored the terminal core");
   await recordRepairs(socket, decoded.value, repairs, executable);
   if (decoded.migrated) {
-    atomicWrite(`${source}.v${decoded.from}`, bytes);
+    // Every envelope has the same version, so its format names the backup.
+    atomicWrite(decoded.format ? `${source}.${decoded.format}` : `${source}.v${decoded.from}`, bytes);
     try {
       await save(r, socket);
     } catch (error) {

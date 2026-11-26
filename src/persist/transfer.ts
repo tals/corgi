@@ -174,6 +174,7 @@ export function recover(bytes: string, history = state_formats.history, coreOnly
     return {
       ...decoded,
       repairs: [] as string[],
+      format: null as string | null,
       value: upgrade({ runtime: decoded.value }, history).runtime,
       migrated: decoded.migrated || history.current !== formats.initial,
     };
@@ -198,9 +199,14 @@ export function recover(bytes: string, history = state_formats.history, coreOnly
         )
       : null,
     metadata = restored === null ? {} : json.object(restored);
+  if (!known && !coreOnly && envelope.format !== formats.baseline)
+    repairs.push(
+      `state format ${envelope.format} is unknown to this build; restored the terminal core and dropped the rest`,
+    );
   return {
     value: core.restore(essential, metadata.runtime),
     repairs,
+    format: envelope.format as string | null,
     from: saved.version,
     migrated: coreOnly || envelope.format !== history.current,
   };

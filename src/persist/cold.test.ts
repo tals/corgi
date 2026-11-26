@@ -1,5 +1,5 @@
 import { expect, test, spyOn } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { Runtime, Pane, Launch } from "../runtime";
@@ -55,7 +55,9 @@ test("preflight and cold recovery discard invalid auxiliary data under a recogni
     expect(restored.panes.map(pane => pane.id)).toEqual(state.transfer.core.panes.map(pane => pane.id));
     expect(restored.panes.every(pane => pane.dormant && pane.terminal.fd === -1)).toBe(true);
     expect(restored.panes[0].manual_command).toBe("echo retained");
-    expect(readFileSync(path + ".v6", "utf8")).toBe(bytes);
+    // Named for its format, so a later migration cannot overwrite it.
+    expect(readFileSync(`${path}.${state.transfer.format}`, "utf8")).toBe(bytes);
+    expect(existsSync(path + ".v6")).toBe(false);
     expect(json.parse(readFileSync(path, "utf8")).closed).toEqual([]);
     expect(recovery.takeRepairs(socket)).not.toBeNull();
   } finally {
