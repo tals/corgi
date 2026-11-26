@@ -3,7 +3,6 @@ import { Adds, Listing, note } from "./machine_add";
 import * as machineUpdate from "./machine_update";
 import type { Profile } from "./machines";
 import type { Report } from "./machine_progress";
-import type * as ssh from "./ssh";
 
 const profile = (name: string, target = name): Profile => ({
   name,
@@ -19,17 +18,9 @@ interface Run {
   resolve: (p: Profile) => void;
   reject: (e: unknown) => void;
 }
-interface ProbeRun {
-  target: string;
-  stage: (stage: ssh.Stage) => void;
-  signal: AbortSignal;
-  resolve: (found: ssh.Probed | null) => void;
-}
-/** Adds over a config naming `hosts` and a catalog of `saved`, whose adds
- * and probes wait to be settled; probes start as soon as typing stops. */
+/** Adds over a config naming `hosts` and a catalog of `saved`, whose adds wait to be settled. */
 function adds(hosts: string[], saved: Profile[] = []) {
-  const runs: Run[] = [],
-    probes: ProbeRun[] = [];
+  const runs: Run[] = [];
   const a = new Adds({
     hosts: () => hosts,
     saved: () => saved,
@@ -38,16 +29,10 @@ function adds(hosts: string[], saved: Profile[] = []) {
       runs.push({ name, target, progress: options!.progress!, resolve, reject });
       return promise;
     },
-    probe: (target, stage, signal) => {
-      const { promise, resolve } = Promise.withResolvers<ssh.Probed | null>();
-      probes.push({ target, stage, signal, resolve });
-      return promise;
-    },
-    rest_ms: 0,
   });
   const added: string[] = [];
   a.added = p => void added.push(p.name);
-  return { a, runs, probes, added };
+  return { a, runs, added };
 }
 const rest = () => Bun.sleep(5);
 
@@ -78,9 +63,9 @@ test("an add shows its progress, hands over the machine, and a failure says why 
   a.start("devbox");
   a.start("devbox");
   expect(runs.map(r => [r.name, r.target])).toEqual([["devbox", "devbox"]]);
-  expect(note(a.state("devbox"), null, false)).toEqual({ text: "Checking…", tone: "warm" });
+  expect(note(a.state("devbox"), false)).toEqual({ text: "Checking…", tone: "warm" });
   runs[0].progress("Uploading", { compact: "↑", metrics: "40% 2.0 MiB/s" });
-  expect(note(a.state("devbox"), null, true)).toEqual({ text: "↑ 40% 2.0 MiB/s", tone: "warm" });
+  expect(note(a.state("devbox"), true)).toEqual({ text: "↑ 40% 2.0 MiB/s", tone: "warm" });
   runs[0].resolve(profile("devbox"));
   await rest();
   expect([added, a.state("devbox")]).toEqual([["devbox"], null]);
@@ -88,26 +73,26 @@ test("an add shows its progress, hands over the machine, and a failure says why 
   expect(runs[1].target).toBe("tal@pi");
   runs[1].reject(new machineUpdate.Failure("tal@pi: Permission denied (publickey).", "MachineSetupCommandFailed"));
   await rest();
-  expect(note(a.state("pi"), null, false)).toEqual({ text: "can't log in", tone: "hot" });
+  expect(note(a.state("pi"), false)).toEqual({ text: "can't log in", tone: "hot" });
   a.start("pi");
   runs[2].reject(new machineUpdate.Failure("Host key verification failed.", "MachineSetupCommandFailed"));
   await rest();
-  expect(note(a.state("pi"), null, false)).toEqual({ text: "unknown host key", tone: "hot" });
+  expect(note(a.state("pi"), false)).toEqual({ text: "unknown host key", tone: "hot" });
   a.start("pi");
   const refused = "Checking pi through SSH…\nssh: connect to host 10.0.0.9 port 22: Connection refused\n";
   runs[3].reject(new machineUpdate.Failure(refused, "MachineSetupCommandFailed"));
   await rest();
-  expect(note(a.state("pi"), null, false)).toEqual({ text: "Connection refused", tone: "hot" });
+  expect(note(a.state("pi"), false)).toEqual({ text: "Connection refused", tone: "hot" });
   a.start("pi");
   runs[4].reject(Error("RemoteDiscoveryFailed"));
   await rest();
-  expect(note(a.state("pi"), null, false)).toEqual({ text: "RemoteDiscoveryFailed", tone: "hot" });
-  // A list opened again shows what probing finds now, not why an add failed then.
+  expect(note(a.state("pi"), false)).toEqual({ text: "RemoteDiscoveryFailed", tone: "hot" });
+  // A list opened again no longer says why an add failed then.
   a.refresh();
   expect(a.state("pi")).toBeNull();
   expect(changes).toBeGreaterThan(6);
   // A host not being added says ↵ adds it only while hovered.
-  expect([note(null, null, false).text, note(null, null, true).text]).toEqual(["", "add"]);
+  expect([note(null, false).text, note(null, true).text]).toEqual(["", "add"]);
 });
 
 test("an add stopped as the viewer leaves reports nothing more", async () => {
@@ -145,8 +130,8 @@ function listing(hosts = ["devbox", "pi-lab"], saved: Profile[] = []) {
   return { ...world, shown, list, labels, type };
 }
 
-test("typing narrows the machines and hosts, and offers a host nothing names", () => {
-  const { list, labels, type } = listing();
+test("typing narrows the machines and hosts, offers a host nothing names, and starts nothing", () => {
+  const { list, labels, type, runs } = listing();
   expect(labels()).toEqual(["all", "local", "work", "──", "devbox", "pi-lab"]);
   // A space doesn't start a search; a letter does.
   expect(list.key(32)).toBe(false);
@@ -172,6 +157,8 @@ test("typing narrows the machines and hosts, and offers a host nothing names", (
   list.key(21);
   type("work");
   expect(labels()).toEqual(["work"]);
+  // Only ↵ or a click adds a host; typing one in reaches nothing.
+  expect(runs).toEqual([]);
 });
 
 test("what's typed isn't offered as a second machine for a host saved or listed, and a search has a limit", () => {
@@ -234,93 +221,4 @@ test("the list keeps the rows any search needs, and leaving a search returns to 
   expect([labels(), list.cursor]).toEqual([["──", "devbox", "+ dev"], 1]);
   list.move(-1);
   expect(list.cursor).toBe(1);
-});
-
-test("a host the typing rests on is probed, and typing on stops it for the next", async () => {
-  const { a, list, type, probes } = listing();
-  type("pi-l");
-  type("a");
-  expect(probes).toEqual([]);
-  await rest();
-  // Only the host typing rested on.
-  expect(probes.map(p => p.target)).toEqual(["pi-la"]);
-  const started = a.probe("pi-la") as { stage: ssh.Stage; since: number };
-  expect(started.stage).toBe("connecting");
-  expect(note(null, started, false, started.since + 2500)).toEqual({ text: "connecting… 2s", tone: "warm" });
-  probes[0].stage("authenticating");
-  expect(note(null, a.probe("pi-la"), false, started.since)).toEqual({ text: "logging in…", tone: "warm" });
-  // Typing on stops it, and it leaves nothing behind.
-  type("b");
-  expect(probes[0].signal.aborted).toBe(true);
-  probes[0].resolve(null);
-  expect(a.probe("pi-la")).toBeNull();
-  await rest();
-  // pi-lab, from the config, named just as typed is probed too.
-  expect(probes.map(p => p.target)).toEqual(["pi-la", "pi-lab"]);
-  probes[1].resolve({ system: "Linux x86_64" });
-  await rest();
-  expect(note(null, a.probe("pi-lab"), false)).toEqual({ text: "✓ Linux x86_64", tone: "accent" });
-  // Back on a host probed since the list opened, it isn't probed again.
-  list.key(127);
-  type("b");
-  await rest();
-  expect(probes).toHaveLength(2);
-  list.key(21);
-  type("gone");
-  await rest();
-  probes[2].resolve({ failed: "error", reason: "Could not resolve hostname" });
-  await rest();
-  expect(note(null, a.probe("gone"), true)).toEqual({ text: "Could not resolve hostname", tone: "hot" });
-  // Closing the list stops a probe waiting for the typing to rest.
-  type("x");
-  list.close();
-  await rest();
-  expect(probes).toHaveLength(3);
-  // An add's progress says more than its probe.
-  a.start("gone");
-  expect(note(a.state("gone"), a.probe("gone"), false).text).toBe("Checking…");
-});
-
-test("two lists share probes: one opening or closing leaves the other's alone, and a host both name is probed once", async () => {
-  const world = adds(["devbox"]),
-    { a, probes } = world,
-    shown = [machine("local")],
-    dialog = new Listing(() => shown, a),
-    picker = new Listing(() => shown, a, true),
-    type = (list: Listing<{ name: string }>, text: string) => {
-      for (const byte of Buffer.from(text)) list.key(byte);
-    };
-  dialog.open();
-  type(dialog, "nas");
-  await rest();
-  expect(probes.map(p => p.target)).toEqual(["nas"]);
-  // The picker opening and closing over the dialog stops nothing of its.
-  picker.open();
-  picker.close();
-  expect(probes[0].signal.aborted).toBe(false);
-  expect(a.probe("nas")).toMatchObject({ stage: "connecting" });
-  // Both naming it, it's one probe; the dialog moving on to "na" leaves it to the picker.
-  picker.open();
-  type(picker, "nas");
-  await rest();
-  expect(probes).toHaveLength(1);
-  dialog.key(127);
-  await rest();
-  expect(probes[0].signal.aborted).toBe(false);
-  probes[0].resolve({ system: "Linux x86_64" });
-  await rest();
-  // Its result stays for the picker as the dialog's list opens again.
-  dialog.close();
-  dialog.open();
-  expect(a.probe("nas")).toEqual({ system: "Linux x86_64" });
-  // Once no list names a host, its probe stops.
-  type(dialog, "pi");
-  await rest();
-  picker.close();
-  dialog.close();
-  expect(probes.map(p => [p.target, p.signal.aborted])).toEqual([
-    ["nas", false],
-    ["na", true],
-    ["pi", true],
-  ]);
 });

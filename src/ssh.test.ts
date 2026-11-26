@@ -75,32 +75,3 @@ test("a failed SSH command's reason is the system's, from OpenSSH's last complai
   );
   expect(ssh.reason("Permission denied (publickey).")).toBeNull();
 });
-
-test("a probe finishes as ssh exits, though a connection ssh left behind holds its output open", async () => {
-  const bin = mkdtempSync(join(tmpdir(), "corgi-fake-ssh-"));
-  try {
-    writeFileSync(
-      join(bin, "ssh"),
-      '#!/bin/sh\necho "debug1: Connection established" >&2\n(sleep 10 >/dev/null) &\necho "Linux x86_64"\n',
-      { mode: 0o755 },
-    );
-    // In a process of its own, whose ssh is the one above.
-    const script = `const ssh = await import(${JSON.stringify(join(import.meta.dir, "ssh.ts"))});
-const stages = [];
-const found = await ssh.probe("box", stage => stages.push(stage), new AbortController().signal);
-console.log(JSON.stringify({ found, stages }));`;
-    const started = performance.now(),
-      child = Bun.spawn([process.execPath, "-e", script], {
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-        stdout: "pipe",
-        stderr: "inherit",
-      });
-    expect(JSON.parse(await new Response(child.stdout).text())).toEqual({
-      found: { system: "Linux x86_64" },
-      stages: ["authenticating"],
-    });
-    expect(performance.now() - started).toBeLessThan(5000);
-  } finally {
-    rmSync(bin, { recursive: true, force: true });
-  }
-});

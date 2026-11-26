@@ -1034,7 +1034,6 @@ export class View extends nameDialog.View {
     const d = this.dialog,
       chip = this.chip;
     if (!d.choosing || !chip) return null;
-    const now = performance.now();
     const choice = (row: machineAdd.Row<Machine>, hovered: boolean): dropdown.Choice => {
       switch (row.kind) {
         case "machine": {
@@ -1050,7 +1049,7 @@ export class View extends nameDialog.View {
           };
         }
         case "host":
-          return machineAdd.hostChoice(d.list.adds!, row, hovered, now);
+          return machineAdd.hostChoice(d.list.adds!, row, hovered);
         default:
           return machineAdd.divider;
       }

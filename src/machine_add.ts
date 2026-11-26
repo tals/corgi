@@ -1,9 +1,9 @@
 //! Machines a viewer can add, and the search over a list of machines that
 //! offers them. Under a divider, lists of machines show the hosts this
 //! computer's SSH config names that aren't machines yet, and what's typed
-//! when nothing listed is named by it. Once typing rests on a host, it's
-//! probed over SSH. Adding one sets Corgi up there in a helper and saves it,
-//! as `corgi machine add` does; the viewer then shows it beside the others.
+//! when nothing listed is named by it. Adding one sets Corgi up there in a
+//! helper and saves it, as `corgi machine add` does; the viewer then shows it
+//! beside the others.
 import * as machines from "./machines";
 import * as machineUpdate from "./machine_update";
 import type * as machineProgress from "./machine_progress";
@@ -20,19 +20,12 @@ import { codepointWidth, displayWidth, writeEllipsis, type Writer } from "./text
 /** An add under way, with its progress, or how it failed: SSH didn't know
  * the host or couldn't log in, or something else, which `summary` names. */
 export type State = { adding: machineProgress.Status } | { failed: ssh.Failure; summary: string };
-/** A host's probe: how far its login has got since `since`, in
- * `performance.now()` ms, or what it found. */
-export type Probe = { stage: ssh.Stage; since: number } | ssh.Probed;
-/** How long typing rests on a host before it's probed. */
-export const rest_ms = 600;
 /** The most a search holds: past any host's name, short of a paste of a log. */
 const query_max = 256;
 interface Deps {
   hosts: () => string[];
   saved: () => machines.Profile[];
   add: typeof machineUpdate.add;
-  probe: typeof ssh.probe;
-  rest_ms: number;
 }
 
 export class Adds {
@@ -42,15 +35,8 @@ export class Adds {
   /** Adds by machine name. */
   private states = new Map<string, State>();
   private jobs = new Map<string, AbortController>();
-  /** Probes by target: those under way, and those done since a list opened. */
-  private probes = new Map<string, Probe>();
-  /** The host each open list's typing names, probed once typing rests there;
-   * lists that name the same host share its probe. */
-  private wants = new Map<object, string>();
-  private resting = new Map<object, ReturnType<typeof setTimeout>>();
-  private probing = new Map<string, AbortController>();
   private readonly deps: Deps;
-  /** Told when an add's or a probe's progress or outcome changes. */
+  /** Told when an add's progress or outcome changes. */
   changed: () => void = () => {};
   /** Told with the machine an add saved, for the viewer to show. */
   added: (profile: machines.Profile) => void = () => {};
@@ -59,13 +45,10 @@ export class Adds {
       hosts: () => ssh.configHosts(),
       saved: () => machines.read(),
       add: machineUpdate.add,
-      probe: ssh.probe,
-      rest_ms,
       ...deps,
     };
   }
-  /** Reads the SSH config and the saved machines again, as a list of
-   * machines opens; hosts no list names now are probed afresh. */
+  /** Reads the SSH config and the saved machines again, as a list of machines opens. */
   refresh(): void {
     try {
       this.hosts = this.deps.hosts().filter(host => named(host) === host);
@@ -77,9 +60,7 @@ export class Adds {
     } catch {
       this.saved = [];
     }
-    for (const [target, probe] of this.probes)
-      if (!("stage" in probe) && !this.named(target)) this.probes.delete(target);
-    // Why an add failed then gives way to what probing finds now.
+    // Why an add failed shows until a list opens again.
     for (const [name, state] of this.states) if ("failed" in state && !this.jobs.has(name)) this.states.delete(name);
   }
   /** Whether `target` is a saved machine's name or target. */
@@ -92,9 +73,6 @@ export class Adds {
   }
   state(name: string): State | null {
     return this.states.get(name) ?? null;
-  }
-  probe(target: string): Probe | null {
-    return this.probes.get(target) ?? null;
   }
   /** Adds machine `name`, reached as `target`, unless it's being added; a failed add tries again. */
   start(name: string, target = name): void {
@@ -128,70 +106,10 @@ export class Adds {
         },
       );
   }
-  /** Probes `target` once `list`'s typing has rested on it, in place of the
-   * host it named before; null names none. A host's probe stops once no list
-   * names it, and one probed since a list opened isn't again. */
-  want(list: object, target: string | null): void {
-    const before = this.wants.get(list) ?? null;
-    if (target === before) return;
-    clearTimeout(this.resting.get(list));
-    this.resting.delete(list);
-    if (target === null) this.wants.delete(list);
-    else this.wants.set(list, target);
-    if (before !== null && !this.named(before)) {
-      this.probing.get(before)?.abort();
-      this.probing.delete(before);
-      // Stopped partway, it found nothing.
-      if ("stage" in (this.probes.get(before) ?? {})) this.probes.delete(before);
-    }
-    if (target !== null && !this.probes.has(target))
-      this.resting.set(
-        list,
-        setTimeout(() => {
-          this.resting.delete(list);
-          if (!this.probes.has(target)) this.run(target);
-        }, this.deps.rest_ms),
-      );
-    this.changed();
-  }
-  /** Whether an open list's typing names `target`. */
-  private named(target: string): boolean {
-    for (const wanted of this.wants.values()) if (wanted === target) return true;
-    return false;
-  }
-  private run(target: string): void {
-    const job = new AbortController(),
-      since = performance.now();
-    this.probing.set(target, job);
-    this.probes.set(target, { stage: "connecting", since });
-    this.changed();
-    const done = (probe: Probe) => {
-      if (job.signal.aborted) return;
-      this.probing.delete(target);
-      this.probes.set(target, probe);
-      this.changed();
-    };
-    this.deps
-      .probe(
-        target,
-        stage => {
-          if (job.signal.aborted) return;
-          this.probes.set(target, { stage, since });
-          this.changed();
-        },
-        job.signal,
-      )
-      .then(
-        found => found && done(found),
-        error => done({ failed: "error", reason: errors.name(error) }),
-      );
-  }
-  /** Stops the adds and the probes under way, as the viewer leaves. */
+  /** Stops the adds under way, as the viewer leaves. */
   close(): void {
-    for (const list of [...this.wants.keys(), ...this.resting.keys()]) this.want(list, null);
-    for (const job of [...this.jobs.values(), ...this.probing.values()]) job.abort();
+    for (const job of this.jobs.values()) job.abort();
     this.jobs.clear();
-    this.probing.clear();
   }
 }
 /** A short reason for a failed add, from what SSH said when it says why. */
@@ -260,18 +178,16 @@ export class Listing<T extends { name: string }> {
   }
   /** Opens on row `cursor`, with the SSH config read again. */
   open(cursor = 0): void {
-    this.adds?.want(this, null);
     this.adds?.refresh();
     this.query = null;
     this.bytes = new Typed();
     this.reserved = 0;
     this.cursor = cursor;
   }
-  /** Forgets what was typed, and stops probing it. */
+  /** Forgets what was typed. */
   close(): void {
     this.query = null;
     this.bytes = new Typed();
-    this.adds?.want(this, null);
   }
   private hosts(): string[] {
     return this.adds?.candidates(this.machines().map(machine => machine.name)) ?? [];
@@ -362,7 +278,7 @@ export class Listing<T extends { name: string }> {
     return true;
   }
   /** Lands on the row named just as typed, else the first; with the search
-   * gone, on the row it was on. The host typed is probed once it rests. */
+   * gone, on the row it was on. */
   private retype(query: string | null): void {
     const before = this.row();
     this.query = query;
@@ -373,8 +289,6 @@ export class Listing<T extends { name: string }> {
       same = rows.findIndex(row => before !== null && sameRow(row, before)),
       first = rows.findIndex(row => row.kind !== "divider");
     this.cursor = Math.max(0, exact >= 0 ? exact : typed ? first : same >= 0 ? same : first);
-    const host = rows.find((row): row is HostRow => row.kind === "host" && row.target === typed);
-    this.adds?.want(this, host?.target ?? null);
   }
 }
 function label(row: Row<{ name: string }>): string | null {
@@ -403,21 +317,14 @@ export interface Note {
   text: string;
   tone: Token;
 }
-/** The note for a host's row: what its add is doing or why it failed, else
- * how its probe goes or what it found, else, hovered, that ↵ adds it. */
-export function note(state: State | null, probe: Probe | null, hovered: boolean, now = performance.now()): Note {
+/** The note for a host's row: what its add is doing or why it failed, else,
+ * hovered, that ↵ adds it. */
+export function note(state: State | null, hovered: boolean): Note {
   if (state && "adding" in state) {
     const { message, compact, metrics } = state.adding;
     return { text: [compact ?? message, metrics].filter(Boolean).join(" "), tone: "warm" };
   }
   if (state) return failed(state.failed, state.summary);
-  if (probe && "stage" in probe) {
-    const seconds = Math.floor((now - probe.since) / 1000),
-      label = stageLabel(probe.stage);
-    return { text: seconds ? `${label} ${seconds}s` : label, tone: "warm" };
-  }
-  if (probe && "system" in probe) return { text: "✓ " + probe.system, tone: "accent" };
-  if (probe) return failed(probe.failed, probe.reason ?? i18n.t`failed`);
   return { text: hovered ? i18n.t`add` : "", tone: "faint" };
 }
 function failed(failure: ssh.Failure, summary: string): Note {
@@ -430,28 +337,17 @@ function failed(failure: ssh.Failure, summary: string): Note {
       return { text: summary, tone: "hot" };
   }
 }
-function stageLabel(stage: ssh.Stage): string {
-  switch (stage) {
-    case "connecting":
-      return i18n.t`connecting…`;
-    case "authenticating":
-      return i18n.t`logging in…`;
-    case "running":
-      return i18n.t`logged in…`;
-  }
-}
 /** A host's row: its name, or what was typed after a +, and its note. */
-export function hostChoice(adds: Adds, row: HostRow, hovered: boolean, now = performance.now()): dropdown.Choice {
+export function hostChoice(adds: Adds, row: HostRow, hovered: boolean): dropdown.Choice {
   const state = adds.state(row.name),
-    probe = adds.probe(row.target),
-    { text, tone } = note(state, probe, hovered, now);
+    { text, tone } = note(state, hovered);
   return {
     text: row.typed ? "+ " + row.target : row.name,
     note: text,
     runs: [[text, tone]],
     current: false,
     hovered,
-    dim: !row.typed && !state && !probe,
+    dim: !row.typed && !state,
   };
 }
 export const divider: dropdown.Choice = { text: "", note: "", current: false, hovered: false, divider: true };

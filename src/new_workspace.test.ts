@@ -920,7 +920,6 @@ test("under a divider, the list offers the SSH config's other hosts; one added i
       await new Promise<void>(resolve => runs.push({ host, finish: resolve }));
       return { name: host, target: host, executable: "/corgi", socket: "/socket", home: "/home/me" };
     },
-    probe: () => new Promise(() => {}),
   });
   const d = new Dialog(await browse("/home/me/code"), null, {
     machine: local,
@@ -984,7 +983,6 @@ test("typing in the list of machines searches it, offers a host nothing names, a
     hosts: () => ["pi"],
     saved: () => [],
     add: () => new Promise(() => {}),
-    probe: () => new Promise(() => {}),
   });
   const d = new Dialog(await browse("/home/me/code"), null, {
     machine: local,

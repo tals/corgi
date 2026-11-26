@@ -281,7 +281,7 @@ test("the dropdown filters rows and keeps statuses available through outages", (
   expect(workspaces.visible).toBe(true);
 });
 
-test("under a divider, the dropdown lists the SSH config's other hosts, searches as typed, and ↵ adds one in place", async () => {
+test("under a divider, the dropdown lists the SSH config's other hosts, searches as typed, and ↵ adds one in place", () => {
   const {
     endpoints: [local, remote],
     endpoints,
@@ -289,8 +289,7 @@ test("under a divider, the dropdown lists the SSH config's other hosts, searches
   } = world("local", "work");
   local.status = remote.status = "online";
   remote.updated = 1;
-  const runs: { name: string; target: string }[] = [],
-    probed: string[] = [];
+  const runs: { name: string; target: string }[] = [];
   const adds = new machineAdd.Adds({
     hosts: () => ["work", "devbox", "pi"],
     saved: () => [],
@@ -298,12 +297,6 @@ test("under a divider, the dropdown lists the SSH config's other hosts, searches
       runs.push({ name, target });
       return new Promise(() => {});
     },
-    probe: (target, stage) => {
-      probed.push(target);
-      stage("authenticating");
-      return new Promise(() => {});
-    },
-    rest_ms: 0,
   });
   const workspaces = new Workspaces(endpoints, view, adds);
   workspaces.show();
@@ -341,10 +334,8 @@ test("under a divider, the dropdown lists the SSH config's other hosts, searches
   expect(shown[5]).toMatch(/\+ nas/);
   expect(shown.findIndex(line => line.includes("╰"))).toBe(bottom);
   expect(workspaces.list.row()).toMatchObject({ kind: "host", target: "nas", typed: true });
-  // Once the typing rests, it's probed.
-  await Bun.sleep(5);
-  expect(probed).toEqual(["nas"]);
-  expect(rows()[5]).toMatch(/\+ nas +logging in…/);
+  // Typing reaches no host: until ↵, its row only says ↵ adds it.
+  expect(rows()[5]).toMatch(/\+ nas +add/);
   // ↵ adds it, and the list stays open with the add's progress.
   expect(workspaces.selectFilter()).toBe(false);
   expect([workspaces.open, runs]).toEqual([true, [{ name: "nas", target: "nas" }]]);

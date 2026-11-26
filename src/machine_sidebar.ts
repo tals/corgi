@@ -90,8 +90,7 @@ export class Workspaces {
     this.endpoint()?.pause();
   }
   private choices(width: number): dropdown.Choice[] {
-    const now = performance.now(),
-      cursor = this.cursor;
+    const cursor = this.cursor;
     return this.list.rows().map((row, i): dropdown.Choice => {
       const hovered = cursor === i;
       switch (row.kind) {
@@ -102,7 +101,7 @@ export class Workspaces {
         case "divider":
           return machineAdd.divider;
         case "host":
-          return machineAdd.hostChoice(this.list.adds!, row, hovered, now);
+          return machineAdd.hostChoice(this.list.adds!, row, hovered);
       }
     });
   }

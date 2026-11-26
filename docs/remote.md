@@ -33,9 +33,7 @@ In the viewer, the machine picker (Ctrl+]) and the New workspace dialog's list
 of machines show the other hosts in `~/.ssh/config` under a divider. Enter on
 one adds it as `machine add` does, with its progress in the row, and the viewer
 connects to it without restarting. Typing searches the list; a host it doesn't
-name, such as `devbox` or `tal@10.0.0.5`, is offered as `+ devbox`. Once the
-typing pauses, Corgi logs in to that host over SSH to check it, and the row
-shows how far the login got and the system it found, or why it failed.
+name, such as `devbox` or `tal@10.0.0.5`, is offered as `+ devbox`.
 The viewer can't answer SSH prompts, so the host's key must already be known
 and SSH must log in with a key or agent. Hosts that are patterns, or whose
 block logs in as `git`, are left out.
