@@ -64,6 +64,7 @@ describe("timeline", () => {
       shapes: [],
       steps: [],
       opens: [],
+      paces: [],
       keys: [1000, 1250, 1400].map(t => ({ t, kind: "key", value: "esc" })),
     };
     const { events } = video.timeline(take, times, 10, screen, "demo.mp4");
@@ -82,6 +83,7 @@ describe("timeline", () => {
       shapes: [],
       steps: [],
       opens: [],
+      paces: [],
       keys: [],
     };
     const { events } = video.timeline(take, times, 10, screen, "demo.mp4");
@@ -94,14 +96,15 @@ describe("timeline", () => {
 
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => from + i);
 
-test("a speed command takes a speed of at least 1 and top or bottom, or reset", () => {
-  expect([["4"], ["x2.5"], ["1"], ["016", "top"], ["8", "bottom"], ["reset"]].map(video.paceOf)).toEqual([
+test("a speed command takes a speed from 1 to 1000 and top or bottom, or reset", () => {
+  expect([["4"], ["x2.5"], ["1"], ["016", "top"], ["8", "bottom"], ["reset"], ["1000"]].map(video.paceOf)).toEqual([
     { speed: 4, place: "bottom" },
     { speed: 2.5, place: "bottom" },
     { speed: 1, place: "bottom" },
     { speed: 16, place: "top" },
     { speed: 8, place: "bottom" },
     { speed: 1, place: "bottom" },
+    { speed: 1000, place: "bottom" },
   ]);
   const wrong = [
     [],
@@ -113,6 +116,7 @@ test("a speed command takes a speed of at least 1 and top or bottom, or reset", 
     ["1e3"],
     ["-2"],
     ["fast"],
+    ["1001"],
     ["4", "left"],
     ["4", "top", "x"],
   ];
@@ -350,6 +354,15 @@ describe("pointerTiles", () => {
     expect(opaque(tiles.frame(41))).toBe(opaque(tiles.frame(79)));
   });
 
+  test("ages a press's ring at the video's pace on leaving a speed-up", () => {
+    const pressed: video.PointerEvent[] = [{ t: 1000, x: 40, y: 40, action: "press" }];
+    // 5 frames at 40x, the first a press, then real time 41 frames of wall time on: the ring is still spreading.
+    const at = [...range(0, 5).map(i => 1000 + 40 * i * frame), ...range(1, 31).map(i => 1000 + (200 + i) * frame)];
+    const speeds = [...Array(5).fill(40), ...Array(30).fill(1)];
+    const tiles = video.pointerTiles(take(pressed), at, 1, 20, video.FPS, speeds);
+    expect(opaque(tiles.frame(5))).toBeGreaterThan(opaque(tiles.frame(34)));
+  });
+
   test("plays a press's ring at the video's pace", () => {
     const pressed: video.PointerEvent[] = [{ t: 1000, x: 40, y: 40, action: "press" }];
     const [fast, real] = [4, 1].map(speed =>
@@ -389,6 +402,13 @@ describe("badgeTiles", () => {
     let t = 0;
     const times = speeds.map(s => (t += s * frame));
     return video.badgeTiles(times, speeds, Array(count).fill(place), 28, size);
+  };
+  /** Frames at real time but for the runs [from, to] at speed 8, at the bottom. */
+  const take2 = (count: number, ...runs: [number, number][]) => {
+    const speeds = range(0, count).map(i => (runs.some(([a, b]) => i >= a && i <= b) ? 8 : 1));
+    let t = 0;
+    const times = speeds.map(s => (t += s * frame));
+    return video.badgeTiles(times, speeds, Array(count).fill("bottom"), 28, size);
   };
   const alpha = (tile: Uint8Array) => tile.reduce((n, v, i) => n + (i % 4 === 3 ? v : 0), 0);
   /** The middle row of the pill's opaque body. */
@@ -437,6 +457,126 @@ describe("badgeTiles", () => {
     expect(badge.y[155]).toBeGreaterThan(size[1] / 2);
     expect(badge.y[250]).toBeLessThan(size[1] / 2);
     expect(alpha(badge.frame(250))).toBeGreaterThan(0);
+  });
+
+  /** The badge's left side, where its label sits, as one number. */
+  const leftSide = (badge: video.Badge, i: number) => {
+    const tile = badge.frame(i);
+    let n = 0;
+    for (let p = 0; p < tile.length; p += 4) if ((p / 4) % badge.width < badge.width * 0.42) n += tile[p] * tile[p + 3];
+    return n;
+  };
+
+  test("swaps in the next speed-up's texts when it starts while the badge sinks", () => {
+    // Two runs two real-time frames apart: the badge stays up rather than sinking and rising again.
+    const badge = take2(300, [10, 140], [143, 290]);
+    const settled = alpha(badge.frame(120));
+    for (const i of range(141, 165)) expect(alpha(badge.frame(i)) / settled).toBeGreaterThan(0.9);
+    expect(new Set(badge.y.slice(100, 200)).size).toBe(1);
+    // Mid-swap its texts are on their way; then it reads ×8 again, from +0:00.
+    expect(leftSide(badge, 150)).not.toBe(leftSide(badge, 120));
+    expect(leftSide(badge, 170)).toBe(leftSide(badge, 120));
+  });
+
+  test("rolls on from what shows when the speed changes again mid-roll", () => {
+    // ×8, ×4 for six frames, then ×2: the label rolls through ×4 without snapping back to it.
+    const speeds = range(0, 300).map(i => (i < 10 ? 1 : i <= 100 ? 8 : i <= 106 ? 4 : i <= 290 ? 2 : 1));
+    let t = 0;
+    const badge = video.badgeTiles(
+      speeds.map(s => (t += s * frame)),
+      speeds,
+      Array(300).fill("bottom"),
+      28,
+      size,
+    );
+    const label = (i: number) => {
+      const tile = badge.frame(i);
+      return range(0, tile.length / 4)
+        .filter(p => p % badge.width < badge.width * 0.42)
+        .map(p => (tile[p * 4] * tile[p * 4 + 3]) / 255);
+    };
+    const moved = range(101, 127).map(i => {
+      const [a, b] = [label(i - 1), label(i)];
+      return a.reduce((sum, v, p) => sum + Math.abs(v - b[p]), 0);
+    });
+    // Each frame moves about as much as the one before: no snap, and no stop and start.
+    const floor = Math.max(...moved) * 0.15;
+    for (const i of range(1, moved.length))
+      expect(Math.abs(moved[i] - moved[i - 1])).toBeLessThan(Math.max(moved[i], moved[i - 1]) / 2 + floor);
+  });
+
+  test("finishes rolling a new label while it sinks away", () => {
+    // ×4 three frames before the reset, against a ×4 settled long before it.
+    const make = (four: number) => {
+      const speeds = range(0, 200).map(i => (i < 10 ? 1 : i < four ? 8 : i <= 103 ? 4 : 1));
+      let t = 0;
+      return video.badgeTiles(
+        speeds.map(s => (t += s * frame)),
+        speeds,
+        Array(200).fill("bottom"),
+        28,
+        size,
+      );
+    };
+    const [late, early] = [make(101), make(60)];
+    // Its roll ends 18 frames after it began, while the badge is still sinking: then they read the same.
+    expect(leftSide(late, 119)).toBe(leftSide(early, 119));
+    expect(leftSide(late, 104)).not.toBe(leftSide(early, 104));
+  });
+
+  test("keeps rising, without a jump, when a short speed-up is followed by another", () => {
+    // A three-frame run ends early in the rise; the next starts two frames later.
+    const badge = take2(200, [10, 12], [15, 180]);
+    /** How far down the badge sits, by its opacity. */
+    const depth = (i: number) => {
+      const tile = badge.frame(i);
+      let [sum, weight] = [0, 0];
+      for (let p = 3; p < tile.length; p += 4)
+        [sum, weight] = [sum + Math.floor(p / 4 / badge.width) * tile[p], weight + tile[p]];
+      return sum / weight;
+    };
+    for (const i of range(13, 45)) {
+      expect(Math.abs(depth(i) - depth(i - 1))).toBeLessThan(12);
+      expect(alpha(badge.frame(i)) / alpha(badge.frame(i - 1))).toBeLessThan(1.6);
+    }
+  });
+
+  test("sinks away from wherever it had risen to", () => {
+    // A run too short to finish rising, then nothing: no jump up before it sinks.
+    const badge = take2(100, [10, 14]);
+    for (const i of range(15, 30)) expect(alpha(badge.frame(i))).toBeLessThanOrEqual(alpha(badge.frame(i - 1)));
+  });
+
+  test("swaps its label when the speed changes", () => {
+    const speeds = range(0, 300).map(i => (i < 10 ? 1 : i <= 100 ? 8 : i <= 290 ? 4 : 1));
+    let t = 0;
+    const badge = video.badgeTiles(
+      speeds.map(s => (t += s * frame)),
+      speeds,
+      Array(300).fill("bottom"),
+      28,
+      size,
+    );
+    const [eight, four] = [leftSide(badge, 90), leftSide(badge, 200)];
+    expect(eight).not.toBe(four);
+    expect([eight, four]).not.toContain(leftSide(badge, 109));
+    expect(leftSide(badge, 125)).toBe(four);
+  });
+
+  test("keeps its edge through a switch too short to show", () => {
+    const speeds = range(0, 300).map(i => (i >= 10 && i <= 290 ? 8 : 1));
+    const places = range(0, 300).map((i): video.Place => (i > 150 && i <= 158 ? "top" : "bottom"));
+    let t = 0;
+    const badge = video.badgeTiles(
+      speeds.map(s => (t += s * frame)),
+      speeds,
+      places,
+      28,
+      size,
+    );
+    expect(range(100, 280).every(i => badge.y[i] > size[1] / 2)).toBe(true);
+    const settled = alpha(badge.frame(120));
+    expect(range(140, 280).every(i => alpha(badge.frame(i)) / settled > 0.95)).toBe(true);
   });
 
   test("redraws only when its clock or motion changes", () => {

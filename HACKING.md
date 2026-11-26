@@ -399,7 +399,7 @@ cell a text command found.
 
 To fast-forward a long stretch, such as an agent at work, put `speed 8` before
 it and `speed reset` after it: `drive 'speed 8; wait 60000; speed reset'`. Any
-speed of at least 1 works, such as `speed 2.5`, and `speed 8 top` puts the
+speed from 1 to 1000 works, such as `speed 2.5`, and `speed 8 top` puts the
 badge at the top instead of the bottom. While sped up, a badge centered on the
 video rises in with the speed and the wall-clock time since the speed-up
 began, and sinks away on reset. The holds at each end stay at real time, and

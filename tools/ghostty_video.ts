@@ -123,14 +123,17 @@ export interface PaceEvent extends Pace {
 
 const realTime: Pace = { speed: 1, place: "bottom" };
 
-/** A speed command's arguments: a speed of at least 1 (4, x4 or 2.5) and top or bottom, or reset. */
+/** The fastest a speed command plays. */
+export const MAX_SPEED = 1000;
+
+/** A speed command's arguments: a speed from 1 to MAX_SPEED (4, x4 or 2.5) and top or bottom, or reset. */
 export function paceOf(args: string[]): Pace | null {
   const [rate, place = "bottom", ...rest] = args;
   if (rate === "reset") return args.length === 1 ? realTime : null;
   if (rest.length || (place !== "bottom" && place !== "top")) return null;
   const match = /^x?(\d+(?:\.\d+)?)$/.exec(rate ?? "");
   const speed = match ? Number(match[1]) : 0;
-  return speed >= 1 ? { speed, place } : null;
+  return speed >= 1 && speed <= MAX_SPEED ? { speed, place } : null;
 }
 
 /** The pace at t: the last change at or before it. */
@@ -721,13 +724,16 @@ export function pointerTiles(
   const shapes = [...take.shapes].sort((a, b) => a.t - b.t);
   // The wheel's buttons don't show a press.
   const presses = pointer.filter(e => e.action === "press");
-  // Time as the video plays it: the wall time between frames over the later one's speed.
+  // A frame's speed as it follows the one before: the faster of the two, so
+  // the gap on leaving a speed-up counts at its pace.
+  const pace = (i: number) => Math.max(speeds[i] ?? 1, speeds[i - 1] ?? 1);
+  // Time as the video plays it: the wall time between frames over that pace.
   const clock: number[] = [];
-  times.forEach((t, i) => clock.push(i ? clock[i - 1] + (t - times[i - 1]) / (speeds[i] ?? 1) : t));
+  times.forEach((t, i) => clock.push(i ? clock[i - 1] + (t - times[i - 1]) / pace(i) : t));
   const clockAt = (t: number) => {
     const j = times.findIndex(time => time >= t);
     if (j === -1) return clock.at(-1)! + (t - times.at(-1)!);
-    return j ? clock[j - 1] + (t - times[j - 1]) / (speeds[j] ?? 1) : clock[0] - (times[0] - t);
+    return j ? clock[j - 1] + (t - times[j - 1]) / pace(j) : clock[0] - (times[0] - t);
   };
   const pressed = presses.map(press => clockAt(press.t));
   const looks: (Look | null)[] = [];
@@ -743,10 +749,9 @@ export function pointerTiles(
       return;
     }
     const [px, py] = [at[0] * scale, at[1] * scale];
-    const speed = speeds[i] ?? 1;
     // Motion only between frames next to each other in time, a speed-up's
     // stride apart at most; a cut is not a move.
-    const next = i > 0 && t > times[i - 1] && t - times[i - 1] < (Math.ceil(speed) * 1000) / fps + 2;
+    const next = i > 0 && t > times[i - 1] && t - times[i - 1] < (Math.ceil(pace(i)) * 1000) / fps + 2;
     const motion = next && last ? Math.hypot(px - last[0], py - last[1]) / height : 0;
     last = [px, py];
     grow += (1 + (grown - 1) * clamp(motion / 0.25) - grow) * 0.2;
@@ -910,15 +915,37 @@ export function typeset(
   return { parts, width: at - gap - x };
 }
 
-/** Paints parts over an RGBA picture width pixels wide in one gray at alpha, smoothed at their edges. */
-function paint(rgba: Uint8Array, width: number, parts: Part[], value: number, alpha: number) {
+/** Paints parts over an RGBA picture width pixels wide in one gray at alpha, smoothed at their edges, and only inside clip. */
+function paint(rgba: Uint8Array, width: number, parts: Part[], value: number, alpha: number, clip?: Part) {
   const height = rgba.length / 4 / width;
-  const [[left, right], [top, bottom]] = bounds(parts);
-  for (let y = Math.max(0, Math.floor(top) - 1); y <= Math.min(height - 1, Math.ceil(bottom)); y++)
-    for (let x = Math.max(0, Math.floor(left) - 1); x <= Math.min(width - 1, Math.ceil(right)); x++) {
-      let d = Infinity;
-      for (const part of parts) d = Math.min(d, signed(x + 0.5, y + 0.5, part));
-      over(rgba, (y * width + x) * 4, value, alpha * clamp(0.5 - d));
+  // The pixels near a part, as [x0, x1, y0, y1] within the picture.
+  const near = (parts: Part[]) => {
+    const [[left, right], [top, bottom]] = bounds(parts);
+    return [Math.max(0, Math.floor(left) - 1), Math.min(width - 1, Math.ceil(right))].concat([
+      Math.max(0, Math.floor(top) - 1),
+      Math.min(height - 1, Math.ceil(bottom)),
+    ]);
+  };
+  const [x0, x1, y0, y1] = near(parts);
+  if (x1 < x0 || y1 < y0) return;
+  // How much the parts together cover each pixel: the most any one does, each
+  // measured only near itself, as a figure is many short strokes.
+  const across = x1 - x0 + 1;
+  const cover = new Float64Array(across * (y1 - y0 + 1));
+  for (const part of parts) {
+    const [l, r, t, b] = near([part]);
+    for (let y = t; y <= b; y++)
+      for (let x = l; x <= r; x++) {
+        const o = (y - y0) * across + x - x0;
+        cover[o] = Math.max(cover[o], clamp(0.5 - signed(x + 0.5, y + 0.5, part)));
+      }
+  }
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const c = cover[(y - y0) * across + x - x0];
+      if (!c) continue;
+      const inside = clip ? clamp(0.5 - signed(x + 0.5, y + 0.5, clip)) : 1;
+      over(rgba, (y * width + x) * 4, value, alpha * inside * c);
     }
 }
 
@@ -949,6 +976,17 @@ interface BadgeLook {
   clock: string;
   shift: number;
   fade: number;
+  swap?: Swap;
+}
+
+/** Texts a badge swaps out as its own swap in, laid out for card, and how far the swap has come, eased, from 0 to 1. */
+interface Swap {
+  card: number;
+  label: string;
+  clock: string;
+  step: number;
+  /** A new speed-up: every text swaps, even one that reads the same. */
+  all: boolean;
 }
 
 /**
@@ -956,8 +994,10 @@ interface BadgeLook {
  * speed in speeds, in a video size pixels across whose cells are cell pixels
  * tall: a dark pill centered at the bottom or top, as places say, with
  * ×speed and the wall-clock time since the speed-up began. It rises in as a
- * run of sped-up frames starts and sinks away after it ends. Pictures are
- * drawn when asked for, and a frame that looks like the last reuses its one.
+ * run of sped-up frames starts and sinks away after it ends; a speed-up that
+ * starts while it sinks swaps its texts in instead, as does a new speed.
+ * Pictures are drawn when asked for, and a frame that looks like the last
+ * reuses its one.
  */
 export function badgeTiles(
   times: number[],
@@ -997,30 +1037,90 @@ export function badgeTiles(
   const rest = { top: margin + tall / 2, bottom: videoHeight - margin - tall / 2 };
   const looks: (BadgeLook | null)[] = times.map(() => null);
   const y = times.map(() => Math.round(rest.bottom - height / 2));
-  cards.forEach((card, k) => {
+  // Frames a swap of the badge's texts takes.
+  const swapping = Math.round(0.3 * fps);
+  // The card last drawn, whose badge may still be sinking away, and the frame its rise began.
+  let last: { k: number; b: number; rose: number } | null = null;
+  for (const [k, card] of cards.entries()) {
     const away = card.place === "bottom" ? travel : -travel;
-    // Moved to the other edge, it rises in there once it has sunk away from the last.
-    const begin = cards[k - 1]?.b === card.a - 1 ? card.a + outro - 1 : card.a;
-    if (begin > card.b) return;
-    for (let i = begin; i <= Math.min(times.length - 1, card.b + outro - 1); i++) {
-      const [inside, at] = [i <= card.b, Math.min(i, card.b)];
-      const step = inside ? clamp((i - begin + 1) / intro) : (i - card.b) / outro;
+    const at = Math.round(rest[card.place] - height / 2);
+    const texts = (i: number) => ({ label: label(speeds[i]), clock: elapsed(times[i] - times[card.from]) });
+    // Begun while the last sinks away: at the other edge it rises in once
+    // that has gone. At the same edge the badge stays up: within one
+    // speed-up it carries on, and a new one swaps its texts in over the gap.
+    const prior = last && cards[last.k];
+    const follows: boolean = last !== null && card.a < last.b + outro;
+    const here: boolean = follows && prior?.place === card.place;
+    const begin = follows && !here ? last!.b + outro : card.a;
+    if (begin > card.b) continue;
+    // Staying up, it carries on rising from where the last left off.
+    const rose: number = here ? last!.rose : begin;
+    const risen = (i: number) => {
+      const step = clamp((i - rose + 1) / intro);
+      return { shift: away * (1 - backOut(step)), fade: 1 - (1 - clamp(step / 0.7)) ** 3 };
+    };
+    // Sinking away starts from wherever it had risen to.
+    const sunk = (step: number) => {
+      const from = risen(card.b);
+      return { shift: from.shift + (away - from.shift) * step ** 2, fade: from.fade * (1 - step ** 1.5) };
+    };
+    let swap = (_i: number): Swap | undefined => undefined;
+    if (last !== null && here) {
+      const [end, was] = [last.b, looks[last.b]!];
+      const carries = prior?.from === card.from;
+      const span = Math.max(swapping, card.a - end);
+      if (!carries)
+        swap = i => (i - end < span ? { ...was, card: was.card, step: ease((i - end) / span), all: true } : undefined);
+      for (let i = end + 1; i < card.a; i++) {
+        looks[i] = { card: k, ...texts(carries ? i : card.a), ...risen(i), swap: swap(i) };
+        y[i] = at;
+      }
+    }
+    // The label rolls on a reel: each new speed adds one below, and the
+    // reel eases down to it from where it was and at the pace it had, so a
+    // change mid-roll carries on from what shows. It finishes rolling while
+    // the badge sinks away.
+    const through = Math.min(times.length - 1, card.b + outro - 1);
+    const reel = [label(speeds[card.a])];
+    const roll: number[] = [];
+    let [from, pace, to, since] = [0, 0, 0, card.a];
+    for (let i = card.a; i <= through; i++) {
+      if (i > card.a && i <= card.b && speeds[i] !== speeds[i - 1]) {
+        [from, pace] = [roll.at(-1)!, roll.at(-1)! - (roll.at(-2) ?? 0)];
+        [to, since] = [reel.push(label(speeds[i])) - 1, i];
+      }
+      // A cubic from where it was, at its pace, to rest at the new label.
+      const u = clamp((i - since + 1) / swapping);
+      const [carry, settle] = [u - 2 * u ** 2 + u ** 3, 3 * u ** 2 - 2 * u ** 3];
+      roll.push(u >= 1 ? to : from + pace * swapping * carry + (to - from) * settle);
+    }
+    for (let i = begin; i <= through; i++) {
+      const inside = i <= card.b;
+      const now = texts(Math.min(i, card.b));
+      const place = roll[i - card.a];
+      const [shown, part] = [Math.floor(place), place % 1];
+      const relabel = part > 0 ? { ...now, card: k, label: reel[shown], step: part, all: false } : undefined;
       looks[i] = {
         card: k,
-        label: label(speeds[at]),
-        clock: elapsed(times[at] - times[card.from]),
-        shift: away * (inside ? 1 - backOut(step) : step ** 2),
-        fade: inside ? 1 - (1 - clamp(step / 0.7)) ** 3 : 1 - step ** 1.5,
+        ...now,
+        label: reel[part > 0 ? shown + 1 : shown],
+        ...(inside ? risen(i) : sunk((i - card.b) / outro)),
+        swap: (inside ? swap(i) : undefined) ?? relabel,
       };
-      y[i] = Math.round(rest[card.place] - height / 2);
+      y[i] = at;
     }
-  });
+    last = { k, b: card.b, rose };
+  }
   const blank = new Uint8Array(width * height * 4);
   const draw = (look: BadgeLook) => {
     const rgba = new Uint8Array(width * height * 4);
-    const card = cards[look.card];
+    const { swap } = look;
+    // A swap eases the pill from the old texts' size to the new ones'.
+    const e = swap?.step ?? 1;
+    const [now, was] = [cards[look.card], cards[swap?.card ?? look.card]];
+    const [across, slot] = [was.across + (now.across - was.across) * e, was.slot + (now.slot - was.slot) * e];
     const [cx, cy, r] = [width / 2, height / 2 + look.shift, tall / 2];
-    const [left, right] = [cx - card.across / 2, cx + card.across / 2];
+    const [left, right] = [cx - across / 2, cx + across / 2];
     const pill = (dy: number): Part => ({ from: [left + r, cy + dy], to: [right - r, cy + dy], r });
     const shadow = pill(drop);
     for (let py = Math.max(0, Math.floor(cy + drop - r - blur)); py < Math.min(height, cy + drop + r + blur); py++)
@@ -1040,10 +1140,21 @@ export function badgeTiles(
         over(rgba, o, 38 - 26 * clamp((py + 0.5 - (cy - r)) / tall), 0.9 * look.fade * cover);
         over(rgba, o, 255, 0.16 * look.fade * (cover - clamp(0.5 - (d + line))));
       }
-    const top = cy - cap / 2;
-    const name = typeset(look.label, 0, 0, cap, bold).width;
-    paint(rgba, width, typeset(look.label, left + pad + (card.slot - name) / 2, top, cap, bold).parts, 255, look.fade);
-    const divider = left + pad + card.slot + gap;
+    const [top, rise] = [cy - cap / 2, tall * 0.7];
+    // A text that swaps rolls up out of the pill as the new one rolls in from below.
+    const roll = (old: string | null, text: string, stroke: number, alpha: number, x: (width: number) => number) => {
+      const put = (value: string, dy: number, a: number) => {
+        const parts = typeset(value, x(typeset(value, 0, 0, cap, stroke).width), top + dy, cap, stroke).parts;
+        paint(rgba, width, parts, 255, a * look.fade, body);
+      };
+      if (old === null) return put(text, 0, alpha);
+      put(old, -rise * e, alpha * (1 - e));
+      put(text, rise * (1 - e), alpha * e);
+    };
+    const swaps = (old: string | undefined, text: string) =>
+      swap && old !== undefined && (swap.all || old !== text) ? old : null;
+    roll(swaps(swap?.label, look.label), look.label, bold, 1, w => left + pad + (slot - w) / 2);
+    const divider = left + pad + slot + gap;
     const rule = Math.max(0.5, tall * 0.012);
     paint(
       rgba,
@@ -1052,8 +1163,7 @@ export function badgeTiles(
       255,
       0.3 * look.fade,
     );
-    const clock = typeset(look.clock, 0, 0, cap, thin).width;
-    paint(rgba, width, typeset(look.clock, right - pad - clock, top, cap, thin).parts, 255, 0.85 * look.fade);
+    roll(swaps(swap?.clock, look.clock), look.clock, thin, 0.85, w => right - pad - w);
     return rgba;
   };
   let previous: { key: string; tile: Uint8Array } | null = null;
@@ -1190,7 +1300,7 @@ async function encode(
       ? `[1:v]split[a][b];[a]crop=${tile.width}:${tile.height}:0:0[pointer];` +
         `[b]crop=${badge.width}:${badge.height}:0:${both.tops[1]}[badge];` +
         `[0:v]${cut},${size}[screen];` +
-        `[screen][badge]overlay=format=gbrp:x=${badge.x}:y='${perFrame(badge.y, fps)}'[badged];[badged][pointer]${place}`
+        `[screen][badge]overlay=format=gbrp:eof_action=pass:x=${badge.x}:y='${perFrame(badge.y, fps)}'[badged];[badged][pointer]${place}`
       : `[0:v]${cut},${size}[screen];[screen][1:v]${place}`;
   const tiles = ["-f", "rawvideo", "-pixel_format", "rgba", "-video_size", `${piped.width}x${piped.height}`];
   await write(["-i", raw, ...tiles, "-framerate", String(fps), "-i", "pipe:0"], graph, out, dir, piped);
