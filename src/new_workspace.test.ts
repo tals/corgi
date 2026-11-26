@@ -129,7 +129,7 @@ test("moving through the list writes each folder into the field, and back to wha
   expect(b.field.raw()).toBe("~/d");
 });
 
-test("right opens the highlighted folder and left goes up, each picking the first folder there", async () => {
+test("right opens the highlighted folder with nothing picked, and left goes up to the folder it left", async () => {
   const b = await browse();
   const press = async (seq: string) => {
     b.sequence(seq);
@@ -141,12 +141,12 @@ test("right opens the highlighted folder and left goes up, each picking the firs
   expect(b.highlight).toBe(0);
   expect(b.field.raw()).toBe("/home/me");
   await press("\x1b[C");
-  expect(b.field.raw()).toBe("~/code");
+  expect([b.highlight, b.field.raw()]).toEqual([null, "~/"]);
+  for (let i = 0; i < 3; i++) await press("\x1b[B");
   await press("\x1b[C");
-  expect(b.entries).toEqual(["corgi", "other"]);
-  expect(b.field.raw()).toBe("~/code/corgi");
+  expect([b.highlight, b.field.raw()]).toEqual([null, "~/docs/"]);
   await press("\x1b[D");
-  expect(b.field.raw()).toBe("~/code");
+  expect([b.highlight, b.field.raw()]).toEqual([2, "~/docs"]);
   await press("\x1b[D");
   await press("\x1b[D");
   expect(b.field.raw()).toBe("/home");
@@ -156,15 +156,15 @@ test("right opens the highlighted folder and left goes up, each picking the firs
   // Right at the end of a name opens the first folder it starts.
   b.key(c("h"));
   await press("\x1b[C");
-  expect(b.field.raw()).toBe("/home/me");
+  expect(b.field.raw()).toBe("/home/");
   // Inside the text, left and right move the cursor.
   b.key(127);
   await press("\x1b[D");
   await press("\x1b[D");
-  expect(b.field.raw()).toBe("/home/m");
-  expect(b.field.cursor).toBe(5);
+  expect(b.field.raw()).toBe("/home");
+  expect(b.field.cursor).toBe(3);
   await press("\x1b[C");
-  expect(b.field.cursor).toBe(6);
+  expect(b.field.cursor).toBe(4);
 });
 
 test("opening a folder writes it plainly", async () => {
@@ -174,7 +174,7 @@ test("opening a folder writes it plainly", async () => {
   expect(b.field.raw()).toBe("~/code/../code");
   b.open();
   await settle();
-  expect(b.field.raw()).toBe("~/code/corgi");
+  expect(b.field.raw()).toBe("~/code/");
 });
 
 test("the field resolves home, relative names and dot-dots", async () => {
@@ -208,7 +208,6 @@ test("clicking an entry highlights it, and clicking it again opens it", async ()
   b.click({ tag: "entry", index: 0 }, 0);
   expect(b.focused).toBe(true);
   expect(b.field.raw()).toBe("~/code/corgi");
-  // An empty folder has nothing to pick.
   b.click({ tag: "entry", index: 0 }, 0);
   await settle();
   expect(b.field.raw()).toBe("~/code/corgi/");
@@ -536,19 +535,16 @@ test("~/.. typed before a remote machine's home is known still goes above it", a
   expect(asked).toContain("folder.open ~/../shared");
 });
 
-test("→ pressed before a remote folder is read goes on into its first folder, as on this disk", async () => {
-  const { flush, reader } = remoteMachine({ home: "/home/me" });
-  const b = Browser.init("/home/me", reader());
-  const local = await browse("/home/me");
-  await flush();
-  for (const each of [b, local]) {
-    each.move(1);
-    each.sequence("\x1b[C");
-    each.sequence("\x1b[C");
+test("← before the folder above is read picks the one it left once it is, and → meanwhile goes back in", async () => {
+  for (const back of [false, true]) {
+    const { flush, reader } = remoteMachine({ home: "/home/me" });
+    const b = Browser.init("/home/me/code/other", reader());
+    b.sequence("\x1b[D");
+    expect(b.reading).toBe(true);
+    if (back) b.sequence("\x1b[C");
+    await flush();
+    expect([b.highlight, b.field.raw()]).toEqual(back ? [null, "~/code/other/"] : [1, "~/code/other"]);
   }
-  await flush();
-  expect(b.field.raw()).toBe("~/code/corgi/");
-  expect(local.field.raw()).toBe("~/code/corgi/");
 });
 
 test("a remote machine's dialog can start at its home before knowing where that is", async () => {

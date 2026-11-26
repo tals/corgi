@@ -220,10 +220,10 @@ export class Browser {
   /** The first entry that shows. */
   first = 0;
   private listed: { folder: string; names: string[] | null } | null = null;
-  /** A folder was entered before it was read: its first folder is picked once it is. */
-  private picks_first = false;
-  /** → pressed meanwhile: each goes on into the first folder once it is read. */
-  private opens = 0;
+  /** The folder left by going up to one not read yet, picked once it is. */
+  private picks: string | null = null;
+  /** → pressed meanwhile goes back into it. */
+  private reopens = false;
   /** Told when the machine's answers or a folder it made change what shows. */
   changed: () => void = () => {};
 
@@ -284,12 +284,6 @@ export class Browser {
   private show(folder: string): void {
     this.write(folder === "/" ? "/" : label(folder, this.home) + "/");
   }
-  /** Lists `folder` and picks the first folder in it. */
-  private enter(folder: string): void {
-    this.show(folder);
-    if (this.entries.length > 0) this.pick(0);
-    this.picks_first = this.reading;
-  }
   private write(text: string): void {
     this.field = nameDialog.Dialog.init({ folder: null }, text);
     this.field.selected = false;
@@ -299,8 +293,8 @@ export class Browser {
    * start with what follows its last slash. Dot folders show once a dot is typed. */
   refresh(): void {
     this.typed = this.field.raw();
-    this.picks_first = false;
-    this.opens = 0;
+    this.picks = null;
+    this.reopens = false;
     this.locate();
     this.fill();
     this.highlight = null;
@@ -323,23 +317,19 @@ export class Browser {
     this.locate();
     this.fill();
     if (offer) this.highlight = this.create === null ? null : this.entries.length;
-    if (this.picks_first && !this.reading) this.pickFirst();
+    this.pickLeft();
   }
-  /** Picks the first folder in the one entered before it was read, and goes
-   * on into it for each → pressed meanwhile. */
-  private pickFirst(): void {
-    let opens = this.opens;
-    this.picks_first = false;
-    this.opens = 0;
-    if (this.highlight === null && this.entries.length > 0) this.pick(0);
-    while (opens > 0 && this.highlight !== null && this.highlight < this.entries.length) {
-      opens--;
-      this.enter(join(this.parent, this.entries[this.highlight]));
-      if (this.picks_first) {
-        this.opens = opens;
-        return;
-      }
-    }
+  /** Picks the folder left by going up, once the one above is read, and goes
+   * back into it if → was pressed meanwhile. */
+  private pickLeft(): void {
+    if (this.picks === null || this.reading) return;
+    const index = this.entries.indexOf(this.picks),
+      reopens = this.reopens;
+    this.picks = null;
+    this.reopens = false;
+    if (index < 0) return;
+    this.pick(index);
+    if (reopens) this.open();
   }
   /** The folders listed and the offer to create, from what the machine has answered. */
   private fill(): void {
@@ -405,24 +395,28 @@ export class Browser {
   open(): void {
     const index = this.highlight ?? (this.prefix.length > 0 && this.entries.length > 0 ? 0 : null);
     if (index === null) {
-      if (this.picks_first) this.opens++;
+      if (this.picks !== null) this.reopens = true;
       return;
     }
-    if (index < this.entries.length) return this.enter(join(this.parent, this.entries[index]));
+    if (index < this.entries.length) return this.show(join(this.parent, this.entries[index]));
     const folder = this.folder();
     void this.files.open(folder).then(opened => {
       if (this.folder() !== folder) return;
       if ("path" in opened) {
         // What was read before it was made is stale.
         this.listed = null;
-        this.enter(folder);
+        this.show(folder);
       } else this.problem = opened.problem;
       this.changed();
     });
   }
-  /** Lists the folder above the one listed. */
+  /** Lists the folder above the one listed, on the folder left. */
   up(): void {
-    if (this.parent !== "/" && this.parent !== "~") this.enter(dirname(this.parent));
+    if (this.parent === "/" || this.parent === "~") return;
+    const left = basename(this.parent);
+    this.show(dirname(this.parent));
+    this.picks = left;
+    this.pickLeft();
   }
   /** The first entry that shows in `rows`, keeping the highlight in view. */
   window(rows: number): number {
