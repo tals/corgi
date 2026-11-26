@@ -91,6 +91,62 @@ describe("timeline", () => {
 
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => from + i);
 
+test("a speed command takes a speed of at least 1 and top or bottom, or reset", () => {
+  expect([["4"], ["x2.5"], ["1"], ["016", "top"], ["8", "bottom"], ["reset"]].map(video.paceOf)).toEqual([
+    { speed: 4, place: "bottom" },
+    { speed: 2.5, place: "bottom" },
+    { speed: 1, place: "bottom" },
+    { speed: 16, place: "top" },
+    { speed: 8, place: "bottom" },
+    { speed: 1, place: "bottom" },
+  ]);
+  const wrong = [
+    [],
+    ["0.5"],
+    ["0"],
+    ["x"],
+    ["4."],
+    [".5"],
+    ["1e3"],
+    ["-2"],
+    ["fast"],
+    ["4", "left"],
+    ["4", "top", "x"],
+  ];
+  expect([...wrong, ["reset", "top"]].map(video.paceOf)).toEqual(Array(wrong.length + 1).fill(null));
+});
+
+test("the pace at a time is the last speed command at or before it", () => {
+  const paces: video.PaceEvent[] = [
+    { t: 10, speed: 4, place: "top" },
+    { t: 20, speed: 1, place: "bottom" },
+  ];
+  expect([5, 10, 15, 20, 30].map(t => video.paceAt(paces, t).speed)).toEqual([1, 4, 4, 1, 1]);
+  expect(video.paceAt(paces, 12).place).toBe("top");
+});
+
+describe("picks", () => {
+  test("shows every kept frame at speed 1", () => {
+    expect(video.picks(Array(5).fill(1))).toEqual(range(0, 5));
+  });
+
+  test("shows every speed-th kept frame, and the last", () => {
+    expect(video.picks(Array(10).fill(4))).toEqual([0, 4, 8, 9]);
+    expect(video.picks(Array(9).fill(4))).toEqual([0, 4, 8]);
+    expect(video.picks([4])).toEqual([0]);
+  });
+
+  test("steps 2 and 3 frames apart at speed 2.5", () => {
+    expect(video.picks(Array(11).fill(2.5))).toEqual([0, 3, 5, 8, 10]);
+    expect(video.picks(Array(1000).fill(2.5))).toHaveLength(400 + 1);
+  });
+
+  test("counts each run of a speed from its own first frame", () => {
+    const speeds = [1, 1, 4, 4, 4, 4, 4, 1, 1, 2, 2, 2, 1];
+    expect(video.picks(speeds)).toEqual([0, 1, 2, 6, 7, 8, 9, 11, 12]);
+  });
+});
+
 test("a glide eases in and out over 0.35 to 0.8 seconds by distance", () => {
   const near = video.glide([0, 0], [10, 0]),
     far = video.glide([0, 0], [900, 0]);
@@ -163,6 +219,18 @@ test("the hand is white in a black outline", () => {
   expect(edge[3]).toBeGreaterThan(200);
 });
 
+test("a video's frames keep the times they were grabbed at, sped up or not", () => {
+  const paces: video.PaceEvent[] = [
+    { t: 20, speed: 2, place: "top" },
+    { t: 60, speed: 1, place: "bottom" },
+  ];
+  const times = range(0, 8).map(i => i * 10);
+  const frames = video.shownFrames(times, paces, 2);
+  expect(frames.map(frame => frame.t)).toEqual([0, 0, 0, 10, 20, 40, 60, 70, 70, 70]);
+  expect(frames.map(frame => frame.speed)).toEqual([1, 1, 1, 1, 2, 2, 1, 1, 1, 1]);
+  expect(frames[4].place).toBe("top");
+});
+
 describe("pointerTiles", () => {
   const frame = 1000 / video.FPS;
   const glideRight: video.PointerEvent[] = Array.from({ length: 30 }, (_, i) => ({
@@ -180,6 +248,7 @@ describe("pointerTiles", () => {
     keys: [],
     opens: [],
     steps: [],
+    paces: [],
   });
   const times = (from: number, count: number) => Array.from({ length: count }, (_, i) => from + i * frame);
   const opaque = (tile: Uint8Array) => tile.reduce((n, v, i) => n + (i % 4 === 3 && v > 128 ? 1 : 0), 0);
@@ -202,6 +271,106 @@ describe("pointerTiles", () => {
     expect(opaque(frame(10))).toBeGreaterThan(opaque(frame(39)));
     expect([x[0], y[0]]).toEqual([40 - size / 2, 40 - size / 2]);
   });
+
+  // Frames four apart: a speed-up of 4, or cuts at real time.
+  const strided = (from: number, count: number) => Array.from({ length: count }, (_, i) => from + i * 4 * frame);
+
+  test("grows while it moves in a speed-up, whose frames are a stride apart", () => {
+    const fast = video.pointerTiles(take(glideRight), strided(1000, 30), 1, 20, video.FPS, Array(30).fill(4));
+    expect(opaque(fast.frame(6))).toBeGreaterThan(opaque(fast.frame(29)) * 1.3);
+    const cut = video.pointerTiles(take(glideRight), strided(1000, 30), 1, 20);
+    expect(opaque(cut.frame(6))).toBe(opaque(cut.frame(29)));
+  });
+
+  test("plays a press's ring at the video's pace", () => {
+    const pressed: video.PointerEvent[] = [{ t: 1000, x: 40, y: 40, action: "press" }];
+    const [fast, real] = [4, 1].map(speed =>
+      video.pointerTiles(take(pressed), strided(1000, 40), 1, 20, video.FPS, Array(40).fill(speed)),
+    );
+    const rest = opaque(real.frame(39));
+    expect(opaque(fast.frame(10))).toBeGreaterThan(rest);
+    expect(opaque(real.frame(10))).toBe(rest);
+  });
+});
+
+test("elapsed says wall-clock time as +m:ss, or +h:mm:ss from an hour", () => {
+  expect([0, 999, 1000, 61_500, 600_000, 3_600_000, 3_723_000].map(video.elapsed)).toEqual([
+    "+0:00",
+    "+0:00",
+    "+0:01",
+    "+1:01",
+    "+10:00",
+    "+1:00:00",
+    "+1:02:03",
+  ]);
+});
+
+test("typeset gives every digit one width", () => {
+  const width = (text: string) => video.typeset(text, 0, 0, 20, 3).width;
+  expect(width("+1:11")).toBe(width("+0:00"));
+  expect(width("×1")).toBe(width("×4"));
+  expect(width("×4")).toBeLessThan(width("×2.5"));
+});
+
+describe("badgeTiles", () => {
+  const frame = 1000 / video.FPS;
+  const size: [number, number] = [1200, 800];
+  /** Frames at real time but for those from..to, at speed. */
+  const take = (count: number, from: number, to: number, speed: number, place: video.Place = "bottom") => {
+    const speeds = range(0, count).map(i => (i >= from && i <= to ? speed : 1));
+    let t = 0;
+    const times = speeds.map(s => (t += s * frame));
+    return video.badgeTiles(times, speeds, Array(count).fill(place), 28, size);
+  };
+  const alpha = (tile: Uint8Array) => tile.reduce((n, v, i) => n + (i % 4 === 3 ? v : 0), 0);
+  /** The middle row of the pill's opaque body. */
+  const middle = (tile: Uint8Array, width: number) => {
+    const rows = range(0, tile.length / 4 / width).filter(y => tile[(y * width + Math.floor(width / 2)) * 4 + 3] > 200);
+    return rows[Math.floor(rows.length / 2)];
+  };
+
+  test("shows nothing at real time", () => {
+    const badge = take(200, 60, 140, 4);
+    expect([0, 59, 140 + 30, 199].map(i => alpha(badge.frame(i)))).toEqual([0, 0, 0, 0]);
+  });
+
+  test("rises in from below over its intro and sinks away after a reset", () => {
+    const badge = take(200, 60, 140, 4);
+    const settled = alpha(badge.frame(120));
+    expect(alpha(badge.frame(60))).toBeLessThan(settled / 4);
+    expect(middle(badge.frame(64), badge.width)).toBeGreaterThan(middle(badge.frame(120), badge.width));
+    expect(middle(badge.frame(100), badge.width)).toBe(middle(badge.frame(120), badge.width));
+    expect(alpha(badge.frame(100)) / settled).toBeCloseTo(1, 2);
+    expect(alpha(badge.frame(145))).toBeLessThan(settled);
+    expect(middle(badge.frame(150), badge.width)).toBeGreaterThan(middle(badge.frame(120), badge.width));
+  });
+
+  test("comes down from above at the top", () => {
+    const [low, high] = (["bottom", "top"] as const).map(place => take(200, 60, 140, 4, place));
+    expect(middle(high.frame(64), high.width)).toBeLessThan(middle(high.frame(120), high.width));
+    expect(high.y[100]).toBeLessThan(size[1] / 2);
+    expect(low.y[100]).toBeGreaterThan(size[1] / 2);
+    expect(low.x).toBe(Math.round((size[0] - low.width) / 2));
+  });
+
+  test("redraws only when its clock or motion changes", () => {
+    const badge = take(400, 10, 390, 2);
+    // At 2x, the clock ticks every 30 frames once the intro is over.
+    expect(badge.frame(101)).toBe(badge.frame(100));
+    expect(badge.frame(200)).not.toBe(badge.frame(100));
+  });
+});
+
+test("stack pipes layers as one, each under the last", () => {
+  const solid = (width: number, height: number, value: number): video.Layer => {
+    const rgba = new Uint8Array(width * height * 4).fill(value);
+    return { width, height, count: 2, frame: () => rgba };
+  };
+  const both = video.stack([solid(2, 2, 1), solid(3, 1, 2)]);
+  expect([both.width, both.height, both.tops]).toEqual([3, 3, [0, 2]]);
+  const rows = [...both.frame(0)].filter((_, i) => i % 4 === 0);
+  expect(rows).toEqual([1, 1, 0, 1, 1, 0, 2, 2, 2]);
+  expect(both.frame(1)).toBe(both.frame(0));
 });
 
 test("perFrame says each frame's value by its time, in a balanced tree", () => {

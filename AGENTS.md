@@ -29,7 +29,8 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
   viewer in a PTY and records its screens. See `tools/ui_driver.ts`.
 - **Screenshots and videos:** `bun tools/ghostty_screenshot.ts --sandbox NAME -o shot.png`
   captures a live Ghostty terminal; `--do 'action help; key esc'` runs a
-  UI-driver script first, and `-o demo.mp4` records it instead. Use this for
+  UI-driver script first, and `-o demo.mp4` records it instead (`speed 8` …
+  `speed reset` in the script fast-forwards a long wait, with a badge). Use this for
   documentation and UI screenshots and videos so fonts, box drawing and Kitty
   images retain terminal fidelity.
   Do not repaint terminal cells into SVG, canvas or another terminal renderer.
