@@ -135,6 +135,29 @@ test("a query searches everything below as the walk streams in, ranking again an
   expect(walk.walks[0].signal.aborted).toBe(true);
 });
 
+test("a chosen match that better ones push down stays in view, and the wheel still scrolls away from it", async () => {
+  const dir = folder({ "src/": "" });
+  const walk = fed();
+  const b = new dirBrowser.Browser(dir, () => {}, walk.files);
+  await b.listed;
+  type(b, "app");
+  walk.send(["src/a/p/p.ts"]);
+  await settle(b);
+  b.move(1);
+  walk.send(
+    Array.from({ length: 15 }, (_, i) => `app${i}.ts`),
+    true,
+  );
+  await settle(b);
+  expect(b.index()).toBe(15);
+  expect(shown(b, true)).toContain("src/a/p/p.ts");
+  expect(b.top).toBe(15 - dirBrowser.rows + 1);
+  b.wheel(true);
+  expect(shown(b, true)).not.toContain("src/a/p/p.ts");
+  expect(b.top).toBe(15 - dirBrowser.rows + 1 - dirBrowser.wheel_rows);
+  b.close();
+});
+
 test("a walk's cap shows as a mark on its count and a note", async () => {
   const dir = folder({});
   const walk = fed();

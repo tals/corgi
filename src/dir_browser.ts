@@ -201,6 +201,8 @@ export class Browser {
    * keyboard or a click has moved it; else the first row is selected. */
   selected: string | null = null;
   chosen = false;
+  /** The row the selected entry was last kept in view at. */
+  private shown = 0;
   /** The row at the top. */
   top = 0;
   /** The listing that fills it, for tests to wait on. */
@@ -264,10 +266,12 @@ export class Browser {
     if (this.searching) return this.search?.indexOf(path) ?? -1;
     return this.listing?.findIndex(row => row.path === path) ?? -1;
   }
-  /** Fits the place to `count()`: the top stays in range. */
+  /** Fits the place to `count()`: the top stays in range, and a chosen
+   * entry the ranking moved stays in view. */
   sync(): void {
     this.top = Math.max(0, Math.min(this.top, this.count() - rows));
     if (this.chosen && this.selected !== null && this.row(this.index())?.path !== this.selected) this.chosen = false;
+    if (this.chosen && this.index() !== this.shown) this.reveal(this.index());
   }
   /** The query changed: rank again, from the first row. */
   private edited(): void {
@@ -312,6 +316,11 @@ export class Browser {
     if (!row) return;
     this.selected = row.path;
     this.chosen = true;
+    this.reveal(i);
+  }
+  /** Scrolls row `i` into view. */
+  private reveal(i: number): void {
+    this.shown = i;
     if (i < this.top) this.top = i;
     else if (i >= this.top + rows) this.top = i - rows + 1;
   }
