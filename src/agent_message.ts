@@ -29,6 +29,7 @@ export function enter(t: Terminal) {
 function live(r: Runtime, target: { pane: number }): Pane {
   const pane = r.pane(target.pane);
   if (!pane) throw Error("NoPane");
+  if (pane.pending_fork) throw Error("AgentBusy");
   if (pane.dormant) throw Error("PaneAsleep");
   if (pane.terminal.exited) throw Error("PaneExited");
   // A shell back at its prompt would run the message as a command.

@@ -418,6 +418,14 @@ export type Fork = {
   session: string | null;
   /** Whether `args` names the fork; if not, core renames it once it shows up. */
   named: boolean;
+  /** Completes a native fork in the new pane's interactive composer. */
+  interactive?(command: Pick<CommandLine, "args" | "cwd">, account: string): InteractiveFork;
+};
+export type InteractiveFork = {
+  args: string[];
+  env: [string, string][];
+  finish(terminal: Terminal, live: () => boolean): Promise<string>;
+  close(): void;
 };
 /** What became of starting a failed turn again: "held" when someone worked
  * in its pane meanwhile, so it may try once they stop; "declined" when it

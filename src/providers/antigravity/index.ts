@@ -4,7 +4,8 @@ import type { Adapter } from "../adapter";
 import * as commandLine from "../command_line";
 import * as effort from "../effort";
 import { info } from "./info";
-import { home, customizations, directory, identity } from "./config";
+import { home, customizations, directory, identity, validSession } from "./config";
+import { interactiveFork } from "./fork";
 import * as hooks from "./hooks";
 import { Watcher, rename } from "./screen";
 import { transcript } from "./transcript";
@@ -55,6 +56,15 @@ export const adapter: Adapter = {
     models: (account, quit, cwd) => import("./launcher").then(m => m.models(account, quit, cwd)),
     start: s => [...(s.permissions === "bypass" ? [bypass] : []), ...(s.model ? ["--model", s.model] : []), ...s.args],
     resume: session => ["--conversation", session],
+    fork: ({ session }) =>
+      validSession(session)
+        ? {
+            args: ["--conversation", session],
+            session: null,
+            named: false,
+            interactive: (line, account) => interactiveFork(session, line, account),
+          }
+        : null,
     keep: c =>
       commandLine.keep(c, {
         drop: [

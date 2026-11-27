@@ -33,6 +33,7 @@ import * as worktreeAgents from "./worktree_agents";
 import * as breadcrumbs from "./breadcrumbs";
 import { WantedEffort } from "./agent_effort";
 import * as effort from "./providers/effort";
+import type { InteractiveFork } from "./providers/adapter";
 import type { HeldStop, Retry } from "./agent_retry";
 export type Create = {
   workspace: number;
@@ -53,6 +54,7 @@ export type Create = {
   socket: string;
   executable: string;
 };
+export type ForkWait = { done: Promise<string | null>; cancel: () => void };
 export const closed_per_workspace = 8;
 export class WantedName {
   static wait_ms = 20000;
@@ -60,6 +62,7 @@ export class WantedName {
     public pane: number,
     public name: string,
     public deadline: number,
+    public session?: string,
   ) {}
 }
 export class TypedRename {
@@ -68,6 +71,7 @@ export class TypedRename {
     public pane: number,
     public name: string,
     public deadline: number,
+    public session?: string,
   ) {}
 }
 /** A screen's non-blank rows: how many, and the last one. */
@@ -269,6 +273,8 @@ export class Pane {
   /** The command that attaches to its agent where that already runs. */
   attached: string | null = null;
   ghost: Ghost | null = null;
+  /** The composer is reserved until its native fork command finishes. */
+  pending_fork = false;
   /** Recovered with nothing running: its old screen, faded, until `Runtime.wake`. */
   dormant = false;
   /** The file `corgi __view` asks this pane's viewers to show in its place,
@@ -1080,6 +1086,7 @@ export class Runtime {
   }
   /** The provider of the conversation `p` shows, and how to fork it. */
   static forkSource(p: Pane, name: string | null = null, cwd = p.cwd) {
+    if (p.pending_fork) throw Error("NoConversation");
     const a = p.agent(),
       provider = a.provider;
     if (!provider) throw Error("NoConversation");
@@ -1090,28 +1097,48 @@ export class Runtime {
     if (!branch) throw Error("NoConversation");
     return { provider, branch };
   }
-  async forkAgent(opts: Create, id: number, wanted: string | null) {
+  async forkAgent(opts: Create, id: number, wanted: string | null, defer?: (task: ForkWait) => void) {
     const name = wanted === null ? null : wanted.replace(/^ +| +$/g, "");
     if (name !== null && !validName(name)) throw Error("InvalidName");
     const p = this.pane(id);
     if (!p) throw Error("NoPane");
-    const { provider, branch } = Runtime.forkSource(p, name, opts.cwd),
-      launch = p.launch ?? Launch.observed(provider, p.detection.pid),
-      typed = launch.typed(branch.args, p.resume_hint),
+    const { provider, branch } = Runtime.forkSource(p, name, opts.cwd);
+    let launch = p.launch ?? Launch.observed(provider, p.detection.pid);
+    if (branch.interactive) {
+      const agent = launch.agent ?? Launch.observed(provider, p.detection.pid).agent!,
+        kept = adapter(provider).launch.keep?.({
+          args: [provider, ...(agent.args ?? [])],
+          cwd: opts.cwd,
+          flagged: false,
+          env: [],
+        });
+      // Corgi starts this process. Keep the reusable launch on the pane so
+      // observing its argv cannot carry the temporary fork settings into a resume.
+      launch = new Launch({ ...agent, args: kept?.args ?? agent.args, observed: false });
+    }
+    const typed = launch.typed(branch.args, p.resume_hint),
       old = p.terminal.fadedSnapshot(),
-      forked = {
-        ...opts,
-        ...launch.run(opts.executable, branch.args, p.resume_hint),
-        cols: p.terminal.vt.cols,
-        rows: p.terminal.vt.rows,
-      },
-      frozen = await this.frozenScreen(forked, old),
+      frozen = await this.frozenScreen({ ...opts, cols: p.terminal.cols, rows: p.terminal.rows }, old),
       ws = this.workspaces.owner(id)!,
       sourceTab = ws.model.tabs[ws.model.tabForPane(id)!].id;
+    let interactive: InteractiveFork | undefined;
     let created: number;
     try {
+      interactive = branch.interactive?.(
+        { args: launch.agent?.args ?? [], cwd: opts.cwd },
+        launch.account(provider, opts.cwd),
+      );
+      const run = launch.run(opts.executable, [...branch.args, ...(interactive?.args ?? [])], p.resume_hint),
+        forked = {
+          ...opts,
+          ...run,
+          env: [...(run.env ?? []), ...(interactive?.env ?? [])],
+          cols: p.terminal.vt.cols,
+          rows: p.terminal.vt.rows,
+        };
       created = await this.create(forked);
     } catch (e) {
+      interactive?.close();
       frozen.destroy();
       throw e;
     }
@@ -1131,9 +1158,9 @@ export class Runtime {
       }
     } else {
       fork.attachment.provisional.provider = provider;
-      fork.attachment.provisional.name = new Text(pickedName);
+      if (!interactive) fork.attachment.provisional.name = new Text(pickedName);
     }
-    if (!branch.named && name)
+    if (!interactive && !branch.named && name)
       this.wanted_names.push(new WantedName(created, name, clock.milliTimestamp() + WantedName.wait_ms));
     ws.model.moveTab(ws.model.tabs[ws.model.count - 1].id, ws.model.tabIndex(sourceTab)! + 1);
     ws.model.revision = BigInt.asUintN(64, ws.model.revision + 1n);
@@ -1151,7 +1178,47 @@ export class Runtime {
         console.warn("placing a fork's row:", error);
       }
     }
+    if (interactive) {
+      const task = this.finishFork(fork, interactive, provider, ws.id, name);
+      if (defer) defer(task);
+      else {
+        const error = await task.done;
+        if (error) throw Error(error);
+      }
+    }
     return created;
+  }
+  private finishFork(
+    pane: Pane,
+    operation: InteractiveFork,
+    provider: Provider,
+    workspace: number,
+    name: string | null,
+  ): ForkWait {
+    const terminal = pane.terminal,
+      abort = new AbortController(),
+      live = () => !abort.signal.aborted && this.pane(pane.id)?.terminal === terminal && terminal.owner === "runtime";
+    pane.pending_fork = true;
+    const finish = async () => {
+      try {
+        const session = await operation.finish(terminal, live);
+        if (!live()) throw Error("ForkUnconfirmed");
+        const actor = this.conversations.get(provider, session);
+        actor.state.reopened(clock.microTimestamp());
+        actor.workspace = workspace;
+        pane.attachment.select(actor);
+        if (name)
+          this.wanted_names.push(new WantedName(pane.id, name, clock.milliTimestamp() + WantedName.wait_ms, session));
+        this.changed();
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : "ForkUnconfirmed";
+      } finally {
+        pane.pending_fork = false;
+        operation.close();
+      }
+    };
+    return { done: finish(), cancel: () => abort.abort() };
   }
   /** Changes the star on an agent and remembers its conversation for history. */
   starAgent(ws: Workspace, target: Target, starred: boolean, before: Target | null = null): void {
