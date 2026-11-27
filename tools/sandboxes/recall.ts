@@ -129,11 +129,12 @@ export const world: World = {
       "Agreed; the importer already rejects those files with a clear row error.",
     ]);
 
-    // Signed in, so the agents start without a login screen.
+    // Signed in, so the agents start without a login screen. The real claude
+    // sends accountUuid as the API's user_id, which must not look like an email.
     s.write(
       join(s.home, ".claude/.claude.json"),
       JSON.stringify({
-        oauthAccount: { emailAddress: "you@example.com", accountUuid: "you@example.com" },
+        oauthAccount: { emailAddress: "you@example.com", accountUuid: "00000000-0000-4000-8000-000000000001" },
         hasCompletedOnboarding: true,
       }),
     );
