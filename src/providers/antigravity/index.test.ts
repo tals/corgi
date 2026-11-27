@@ -12,7 +12,7 @@ import { decode, integration } from "./hooks";
 import { catalog } from "./launcher";
 import { entries, database } from "./history";
 import { metadata } from "./observer";
-import { selected, requested } from "./presence";
+import { selected } from "./presence";
 import { path, transcript } from "./transcript";
 import { Tail } from "../../usage/worker";
 import { Agent } from "../../agents";
@@ -132,8 +132,6 @@ test("Antigravity history, child metadata and transcript search use the same con
 test.skipIf(process.platform !== "linux" && process.platform !== "darwin")(
   "Antigravity session selection follows open descriptors",
   async () => {
-    expect(requested(["agy", "--conversation=" + session])).toBe(session);
-    expect(requested(["agy", "--", "--resume", session])).toBeNull();
     const account = mkdtempSync(join(tmpdir(), "corgi-agy-test-")),
       dir = join(directory(account), "presence");
     mkdirSync(dir, { recursive: true });

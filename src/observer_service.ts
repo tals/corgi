@@ -182,17 +182,22 @@ export function snapshotActor(server: Server, provider: Provider, snapshot: Snap
   const actor = runtime.conversations.get(provider, snapshot.session);
   // The snapshot, applied next, speaks for the hooks sent before it was read.
   show(server, pane, actor, snapshot.lifecycle ? BigInt(snapshot.observed_at) : 0n);
+  if (snapshot.request.identity === "process") pane.resume_hint.observe(actor.state);
   if (!actor.workspace || !runtime.workspaces.get(actor.workspace))
     actor.workspace = runtime.workspaces.owner(pane.id)?.id ?? actor.workspace;
   return actor;
 }
-/** The observer can't see the thread the title moved to, so the pane no
- * longer shows a conversation it knows. */
+/** A changed title or a lost process selection no longer identifies the attached conversation. */
 export function missed(server: Server, provider: Provider, request: ObserverRequest) {
   const pane = titled(server.runtime, provider, request),
     actor = pane?.attachment.actor;
-  if (!pane || !actor || pane.attachment.side || actor.state.sessionId().startsWith(request.prefix.text())) return;
+  if (!pane || !actor || pane.attachment.side) return;
+  if (request.identity === "process") {
+    if (actor.state.sessionId() !== request.prefix.text()) return;
+    pane.resume_hint = new ResumeHint();
+  } else if (actor.state.sessionId().startsWith(request.prefix.text())) return;
   pane.attachment.deselect();
+  if (request.identity === "process") pane.attachment.provisional.provider = provider;
   changed(server);
 }
 /** The one known conversation whose session the title names. */

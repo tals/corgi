@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
 import { statSync } from "node:fs";
-import { processArgs } from "../../os";
 import { Path } from "../../bounded_text";
 import type { Runtime } from "../../runtime";
 import type { Observer } from "../adapter";
@@ -8,8 +7,23 @@ import { Child, Name, Role, Snapshot, type Request } from "../snapshot";
 import { Text } from "../common";
 import { directory, validSession } from "./config";
 import { database, workspace } from "./history";
-import { requested, selected } from "./presence";
+import { selected } from "./presence";
 import { path } from "./transcript";
+
+const metadata_ms = 5000;
+
+function indexStamp(file: string) {
+  try {
+    return [file, file + "-wal"]
+      .map(path => {
+        const stat = statSync(path, { throwIfNoEntry: false });
+        return stat ? [stat.ino, stat.size, stat.mtimeMs].join(":") : "";
+      })
+      .join("/");
+  } catch {
+    return null;
+  }
+}
 
 type Row = {
   conversation_id: string;
@@ -58,9 +72,13 @@ export function metadata(db: Database, root: string, out: Snapshot) {
 export class Worker implements Observer {
   running = false;
   stopping = false;
-  private requests: (Request & { alreadyOpen: boolean })[] = [];
-  private results: Snapshot[] = [];
-  private last = new Map<number, string>();
+  private requests: Request[] = [];
+  private results = new Map<number, Snapshot>();
+  private missed = new Map<number, Request>();
+  private last = new Map<
+    number,
+    { generation: bigint; pid: number; session: string; at: number; stamp: string | null }
+  >();
   private timer = setInterval(() => void this.run(), 1000);
   constructor(private account: string) {}
   reconcile(runtime: Runtime) {
@@ -82,7 +100,6 @@ export class Worker implements Observer {
         title_revision: 0n,
         prefix: new Text(p.attachment.actor?.state.sessionId() || ""),
         identity: "process",
-        alreadyOpen: !p.attachment.actor && p.terminal.liveText().includes("Conversation already open"),
       }));
     for (const pane of this.last.keys()) if (!this.requests.some(r => r.pane === pane)) this.last.delete(pane);
   }
@@ -90,44 +107,68 @@ export class Worker implements Observer {
     if (this.running || this.stopping || !this.requests.length) return;
     this.running = true;
     const root = directory(this.account),
-      file = database(root);
+      file = database(root),
+      stamp = indexStamp(file);
     let db: Database | null = null;
     try {
-      const stamp = [file, file + "-wal"]
-        .map(p => {
-          const stat = statSync(p, { throwIfNoEntry: false });
-          return [stat?.ino, stat?.size, stat?.mtimeMs].join(":");
-        })
-        .join("/");
       for (const request of this.requests) {
-        const session =
-          (await selected(request.pid, this.account)) ||
-          (request.alreadyOpen && requested(processArgs(request.pid)?.argv ?? []));
-        if (!session || this.stopping) continue;
-        const key = [request.pid, request.generation, session, stamp].join("/");
-        if (this.last.get(request.pane) === key && request.prefix.text() === session) continue;
+        const session = await selected(request.pid, this.account);
+        if (this.stopping) return;
+        const last = this.last.get(request.pane),
+          now = Date.now();
+        if (!session) {
+          this.results.delete(request.pane);
+          // Allow a transient inspection failure to recover before retiring a recently verified selection.
+          if (
+            session === undefined &&
+            last?.pid === request.pid &&
+            last.session === request.prefix.text() &&
+            now >= last.at &&
+            now - last.at < 2 * metadata_ms
+          )
+            continue;
+          this.last.delete(request.pane);
+          if (request.prefix.len) this.missed.set(request.pane, request);
+          continue;
+        }
+        this.missed.delete(request.pane);
+        // Re-read child status while the index is quiet, before its observation expires.
+        if (
+          last?.pid === request.pid &&
+          last.generation === request.generation &&
+          last.session === session &&
+          last.stamp === stamp &&
+          request.prefix.text() === session &&
+          now >= last.at &&
+          now - last.at < metadata_ms
+        )
+          continue;
         const out = new Snapshot(request, session, "unknown");
         out.lifecycle = false;
         out.transcript = new Path(path(root, session));
-        if (statSync(file, { throwIfNoEntry: false })) {
+        try {
           db ??= new Database(file, { readonly: true });
           metadata(db, root, out);
+        } catch {
+          // The presence lock still identifies the session while agy creates or locks its index.
         }
-        this.last.set(request.pane, key);
-        this.results.push(out);
+        this.last.set(request.pane, { pid: request.pid, generation: request.generation, session, at: now, stamp });
+        this.results.set(request.pane, out);
       }
-    } catch {
-      // The index may be locked or being created while agy changes conversations.
     } finally {
       db?.close();
       this.running = false;
     }
   }
   take() {
-    return this.results.splice(0);
+    const results = [...this.results.values()];
+    this.results.clear();
+    return results;
   }
   takeMissed() {
-    return [];
+    const missed = [...this.missed.values()];
+    this.missed.clear();
+    return missed;
   }
   stop() {
     this.stopping = true;
