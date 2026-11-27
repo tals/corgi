@@ -440,3 +440,60 @@ test("a short tooltip keeps a running tool with its step when later tools finish
   expect(rows.some(r => r.kind === "tool" && r.title === "Call 0" && r.active)).toBe(true);
   expect(planView.tail(view, 5, false).rows.some(r => r.kind === "tool" && r.active)).toBe(false);
 });
+
+test("expanded tools pin the remaining count below the moving window of calls", () => {
+  const view = roadmap.emptyView();
+  const members = Array.from({ length: 44 }, (_, i) => "Read source " + (i + 1));
+  view.tool_rows = [{ first: 1, visit: null, running: false, title: "Inspected sources", members, outcome: "success" }];
+  const lines = (offset: number, count = 12) => {
+    const result: string[] = [];
+    planView.drawRows(view, planView.tail(view, count, false, { id: 1, offset }).rows, 80, {
+      line: (_, text) => result.push(text.trim()),
+      mark: () => {},
+    });
+    return result;
+  };
+  const first = lines(0);
+  expect(first[1]).toBe("· Read source 1");
+  expect(first.at(-1)).toBe("↓ 38 more");
+  const middle = lines(20);
+  expect(middle[1]).toBe("· Read source 21");
+  expect(middle[first.length - 1]).toBe("↓ 18 more");
+  expect(lines(37).at(-1)).toBe("↓ 1 more");
+  const last = lines(1000);
+  expect(last).toHaveLength(first.length);
+  expect(last.at(-2)).toBe("· Read source 44");
+  expect(last.at(-1)).toBe("");
+  expect(lines(0, 4)).toEqual([
+    "▾ ✓ Succeeded (1–2/44) Inspected sources",
+    "· Read source 1",
+    "· Read source 2",
+    "↓ 42 more",
+  ]);
+  view.tool_rows[0].members = members.slice(0, 2);
+  expect(lines(100)).toEqual(["▾ ✓ Succeeded (2) Inspected sources", "· Read source 1", "· Read source 2"]);
+});
+
+test("an opaque result keeps its count and offers details only when recorded", () => {
+  const view = roadmap.emptyView();
+  const row: NonNullable<roadmap.Snapshot["tool_rows"]>[number] = {
+    first: 1,
+    visit: null,
+    running: false,
+    title: "…",
+    members: ["…"],
+    outcome: "success",
+  };
+  view.tool_rows = [row];
+  const draw = () => {
+    const lines: string[] = [];
+    planView.drawRows(view, planView.tail(view, 12, false, { id: 1, offset: 0 }).rows, 80, {
+      line: (_, text) => lines.push(text.trim()),
+      mark: () => {},
+    });
+    return lines;
+  };
+  expect(draw()).toEqual(["✓ Succeeded (1)"]);
+  row.members = ["…", "Run tests", "…"];
+  expect(draw()).toEqual(["▾ ✓ Succeeded (3)", "· Run tests", "· Without a description: 2"]);
+});

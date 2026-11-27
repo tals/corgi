@@ -4,6 +4,7 @@ import {
   Accounts,
   Card,
   Model,
+  ToolDisclosure,
   Tone,
   compact,
   conversation,
@@ -1275,4 +1276,40 @@ test("an agent in another account names it beside its model, its email fainter",
   expect(default_lines[subtitle]).toContain("Claude · Opus 5.5");
   expect(default_lines[subtitle]).not.toContain("side");
   expect(default_lines.filter((_, i) => i !== subtitle)).toEqual(lines.filter((_, i) => i !== subtitle));
+});
+
+test("the last page of tool details leaves its footer blank and opaque counts cannot be clicked", () => {
+  const plan = roadmap.emptyView(),
+    disclosure = new ToolDisclosure();
+  plan.tool_rows = [
+    {
+      first: 1,
+      title: "Read sources",
+      visit: null,
+      running: false,
+      outcome: "success",
+      members: Array.from({ length: 10 }, (_, i) => "File " + i),
+    },
+    { first: 11, title: "…", visit: null, running: false, outcome: "failure", members: ["…"] },
+  ];
+  const frame = () =>
+    render(w => {
+      new Card(w, 0, 60).plan(0, plan, false, 12, disclosure);
+    });
+  frame();
+  disclosure.toggle(11);
+  expect(disclosure.expanded).toBeNull();
+  disclosure.toggle(1);
+  frame();
+  disclosure.scroll(99);
+  expect(disclosure.expanded?.offset).toBe(4);
+  const terminal = new Terminal(60, 16);
+  try {
+    terminal.feed(frame());
+    expect(terminal.text()).toContain("File 9");
+    expect(terminal.text()).not.toContain("?");
+    expect(terminal.text()).not.toContain("more");
+  } finally {
+    terminal.destroy();
+  }
 });

@@ -15,6 +15,7 @@ type ToolRow = {
   members?: string[];
   first?: number;
   range?: string;
+  total?: number;
 };
 type Row =
   | {
@@ -27,12 +28,22 @@ type Row =
       tools?: ToolRow[];
     }
   | ToolRow
+  | { kind: "tool-footer"; parent: Node | null; remaining: number }
   | { kind: "detail"; parent: Node | null; title: string }
   | { kind: "more"; parent: Node; count: number }
   | { kind: "pending"; parent: Node | null; active?: boolean };
 const rowHeight = (row: Row) => (row.kind === "node" && row.node.bump ? 2 : 1);
 const currentStep = (view: roadmap.Snapshot, node: Node) => node.id === view.focus_step && node.state === "active";
 type Block = { episode: Node; heading: Extract<Row, { kind: "node" }>; children: Row[] };
+function toolRow(tool: ObservedTool, parent: Node | null, running: boolean | null): ToolRow {
+  const members = tool.members?.filter(label => label !== "…");
+  const total = tool.members?.length ?? 0;
+  if (members?.length && members.length < total) {
+    const missing = total - members.length;
+    members.push(i18n.t`Without a description: ${missing}`);
+  }
+  return { ...tool, kind: "tool", parent, active: running !== false && tool.running, members, total };
+}
 function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
   if (view.visits.length) {
     const tools = new Map<number | null, roadmap.Snapshot["tool_rows"]>();
@@ -82,12 +93,7 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
       block.children.push(child);
       if (child.kind === "node") {
         for (const tool of tools.get(visit.from) ?? []) {
-          (child.tools ??= []).push({
-            kind: "tool",
-            parent: step,
-            ...tool,
-            active: running !== false && tool.running,
-          });
+          (child.tools ??= []).push(toolRow(tool, step, running));
         }
         child.counts = roadmap.add(child.counts!, visit.counts);
         child.current = running !== false && latest && currentStep(view, step);
@@ -135,12 +141,7 @@ export function tail(
   const groups = blocks(view, running);
   const loose = (view.tool_rows ?? [])
     .filter(r => r.visit === null || !view.visits.length)
-    .map(r => ({
-      kind: "tool" as const,
-      parent: null,
-      ...r,
-      active: running !== false && r.running,
-    }));
+    .map(r => toolRow(r, null, running));
   if (expanded) {
     // Keep the selected summary with its step even if new foreground work arrives.
     const block = groups.find(b => b.children.some(row => row.kind === "tool" && row.first === expanded.id));
@@ -150,9 +151,11 @@ export function tail(
     if (tool?.members?.length) {
       const parent = block?.children.find(r => r.kind === "node" && r.node.id === tool.parent?.id);
       const context: Row[] = block ? [block.heading, ...(parent ? [parent] : []), tool] : [tool];
-      const size = Math.min(6, tool.members.length, count - height(context));
+      const room = count - height(context);
+      const footer = room >= 2 && tool.members.length > Math.min(6, room);
+      const size = Math.min(6, tool.members.length, room - Number(footer));
       if (size > 0) {
-        const compact = tail(view, count - size, running);
+        const compact = tail(view, count - size - Number(footer), running);
         const visible = compact.rows.some(r => r.kind === "tool" && r.first === expanded.id);
         const rows = visible ? compact.rows : context;
         const index = rows.findIndex(r => r.kind === "tool" && r.first === expanded.id);
@@ -160,10 +163,18 @@ export function tail(
         const details: Row[] = tool.members
           .slice(start, start + size)
           .map(title => ({ kind: "detail", parent: tool.parent, title }));
+        if (footer)
+          details.push({ kind: "tool-footer", parent: tool.parent, remaining: tool.members.length - start - size });
         rows.splice(
           index,
           1,
-          { ...tool, range: size < tool.members.length ? `${start + 1}–${start + size}/${tool.members.length}` : "" },
+          {
+            ...tool,
+            range:
+              size < tool.members.length && tool.total === tool.members.length
+                ? `${start + 1}–${start + size}/${tool.members.length}`
+                : "",
+          },
           ...details,
         );
         return { rows, hidden: visible ? compact.hidden : 0 };
@@ -256,13 +267,18 @@ export function drawRows(
   rows.forEach((entry, i) => {
     const next = rows[i + 1],
       last = !next || (next.kind === "node" && next.depth === 0) || (next.kind === "pending" && next.parent === null);
-    if (entry.kind === "detail") {
+    if (entry.kind === "tool-footer") {
+      const remaining = entry.remaining;
       paint.line(
         y++,
-        (entry.parent ? "         " : "      ") + "· " + (entry.title === "…" ? i18n.t`Tool call` : entry.title),
+        remaining ? (entry.parent ? "         " : "      ") + i18n.t`↓ ${remaining} more` : "",
         null,
-        "muted",
+        "faint",
       );
+      return;
+    }
+    if (entry.kind === "detail") {
+      paint.line(y++, (entry.parent ? "         " : "      ") + "· " + entry.title, null, "muted");
       return;
     }
     if (entry.kind === "tool") {
@@ -276,11 +292,11 @@ export function drawRows(
             : entry.outcome === "success"
               ? "✓ " + i18n.t`Succeeded`
               : "· " + i18n.t`Outcome unknown`;
-        const count = entry.range || String(entry.members.length);
-        const caret = entry.range === undefined ? "▸" : "▾";
+        const count = entry.range || String(entry.total);
+        const caret = entry.members.length ? (entry.range === undefined ? "▸ " : "▾ ") : "";
         paint.line(
           y++,
-          indent + caret + " " + status + " (" + count + ")" + name,
+          indent + caret + status + " (" + count + ")" + name,
           null,
           entry.outcome === "failure" ? "hot" : "muted",
         );

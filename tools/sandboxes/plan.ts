@@ -212,8 +212,20 @@ if (import.meta.main) {
     else if ("run" in beat && beat.description) {
       await Promise.all([
         call("Bash", { command: beat.run, description: beat.description }, beat.result, false, 20000),
-        call("Read", { file_path: "src/auth/session.ts" }, "returnPath reads the original request URL", false, 2800),
-        call("Read", { file_path: "src/auth/redirect.ts" }, "The callback redirects to the home page", false, 4400),
+        ...[
+          "session",
+          "redirect",
+          "callback",
+          "middleware",
+          "cookies",
+          "routes",
+          "provider",
+          "state",
+          "return_path",
+          "guard",
+        ].map((name, i) =>
+          call("Read", { file_path: `src/auth/${name}.ts` }, "Read the sign-in source", false, 2800 + i * 200),
+        ),
         call(
           "Bash",
           { command: "cat src/auth/legacy.ts", description: "Check legacy redirect handler" },

@@ -704,7 +704,7 @@ export class Card {
       let y = top + 1;
       const shown = selected.rows.filter(r => r.kind === "detail").length;
       for (const r of selected.rows) {
-        if (r.kind === "tool" && r.first && r.members) {
+        if (r.kind === "tool" && r.first && r.members?.length) {
           disclosure.rows.set(y, r.first);
           if (disclosure.expanded?.id === r.first) disclosure.max_offset = Math.max(0, r.members.length - shown);
         }
@@ -714,7 +714,7 @@ export class Card {
     const used = plan_view.drawRows(view, selected.rows, this.width - 6, {
       line: (offset, label, counts, color) => {
         const y = top + 1 + offset;
-        this.cell(y, 0, counts ? this.textWidth() : this.width - 6, label, tone(color), false);
+        if (label) this.cell(y, 0, counts ? this.textWidth() : this.width - 6, label, tone(color), false);
         if (!counts) return;
         const start = this.textWidth() + this.counts();
         if (this.counts())
