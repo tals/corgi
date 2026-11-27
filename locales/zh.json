@@ -218,8 +218,6 @@
   "${count} unmodified lines": "${count} 行未更改",
   "${count} unread →": "${count} 条未读 →",
   "${count} waiting": "${count} 个等待中",
-  "${count} worktree": "${count} 个工作树",
-  "${count} worktrees": "${count} 个工作树",
   "${days} d": "${days}天",
   "${details} for details · ${all} for everything": "${details} 查看详情 · ${all} 查看全部",
   "${done}/${total} done": "已完成 ${done}/${total}",

@@ -253,6 +253,10 @@ for (const language of ["en", "zh", "ja", "ko", "ru"] as const) {
           cells(row)
             .map(cell => cell.textContent)
             .join("");
+        const recordedStatus = recordings.frames.w34_C00[3].map(([text]: [string, number]) => text).join("");
+        const toolCount = recordedStatus.match(/\d+(?:\.\d+)?[EPTGMk]?⚒/)?.[0].slice(0, -1);
+        if (!toolCount) throw Error("Recorded sidebar has no tool count");
+        expect(sidebar(3)).not.toContain(toolCount);
         for (const row of [4, 7]) {
           const recorded = recordings.frames.w34_C00[row].map(([text]: [string, number]) => text).join("");
           expect(normalize(sidebar(row))).toBe(normalize(recorded));

@@ -30,6 +30,7 @@ import * as webLinks from "./web_links";
 import type { Brief, Snapshot } from "./worktrees";
 import type { Entry as HistoryEntry } from "./launch/history";
 import type { Event } from "./protocol";
+import type { WorkspaceEntry } from "./sidebar";
 import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,11 +54,61 @@ test("the count includes empty linked worktrees and has its own hit area", () =>
   const worktrees = snapshot(),
     ws = workspaceEntry({ id: viewerRef.workspace(1, 1), name: "repo", cwd: "/repo", active: true, worktrees });
   const view = View.init(120, 40, true, 0, 0).withWorkspaces(1, 0);
-  expect(worktreeLabel(ws)).toBe("4 worktrees");
-  expect(worktreeAt(view, [ws], 20, 3)).toBe(ws);
+  expect(worktreeLabel(ws)).toBe("4⑂");
+  expect(worktreeAt(view, [ws], 24, 3)).toBe(ws);
+  expect(worktreeAt(view, [ws], 20, 3)).toBeNull();
   expect(worktreeAt(view, [ws], 20, 2)).toBeNull();
   expect(worktreeAt(view, [ws], 2, 3)).toBeNull();
   expect(worktreeLabel({ ...ws, worktrees: snapshot(0) })).toBe("");
+});
+const statusRow = (ws: WorkspaceEntry, width: number): string => {
+  const view = View.init(100, 30, true, 0, 0).withWidth(width).withWorkspaces(1, 0),
+    w = new Writer();
+  view.draw(w, [], [ws]);
+  return screen.lines(w.buffered(), 100, 30)[3].slice(0, width);
+};
+test("the worktree count yields so the activity indicator stays", () => {
+  const ws = workspaceEntry({
+    id: viewerRef.workspace(1, 1),
+    name: "repo",
+    cwd: "/repo",
+    active: true,
+    working: 1,
+    worktrees: snapshot(18),
+  });
+  const narrow = View.init(100, 30, true, 0, 0).withWidth(27).withWorkspaces(1, 0);
+  for (const unread of [0, 2]) {
+    ws.unread = unread;
+    expect(statusRow(ws, 27)).toContain("▶1");
+    expect(statusRow(ws, 27)).toContain("18⑂");
+    const badge = worktreeBadge(narrow, [ws], ws.id)!;
+    expect(badge.w).toBe(3);
+    expect(worktreeAt(narrow, [ws], badge.x, badge.y)).toBe(ws);
+    expect(worktreeAt(narrow, [ws], badge.x - 1, badge.y)).toBeNull();
+  }
+  expect(statusRow(ws, 27)).toContain("2 unread →");
+  const tiny = View.init(100, 30, true, 0, 0).withWidth(18).withWorkspaces(1, 0);
+  expect(statusRow(ws, 18)).toContain("▶1");
+  expect(statusRow(ws, 18)).not.toContain("⑂");
+  expect(worktreeBadge(tiny, [ws], ws.id)).toBeNull();
+  // The framed sidebar draws in its lists' view, a column narrower.
+  ws.unread = 1;
+  expect(statusRow(ws, 22)).not.toContain("⑂");
+  expect(worktreeBadge(View.init(100, 30, true, 0, 0).withWidth(22).withWorkspaces(1, 0), [ws], ws.id)).toBeNull();
+});
+test("the tool count yields to the activity indicator", () => {
+  const stats = { tools: 999_000, input: 0, output: 0, tokens_known: true };
+  const ws = workspaceEntry({
+    id: viewerRef.workspace(1, 1),
+    name: "repo",
+    cwd: "/repo",
+    active: true,
+    working: 1,
+    unread: 1,
+    stats,
+  });
+  expect(statusRow(ws, 19)).toContain("▶1");
+  expect(statusRow(ws, 19)).not.toContain("⚒");
 });
 test("the count and table hide dead worktrees but retain locked and temporarily unavailable checkouts", () => {
   const data = snapshot(6);
@@ -75,7 +126,7 @@ test("the count and table hide dead worktrees but retain locked and temporarily 
     active: true,
     worktrees: data,
   });
-  expect(worktreeLabel(ws)).toBe("4 worktrees");
+  expect(worktreeLabel(ws)).toBe("4⑂");
   const state = new State(),
     w = new Writer();
   state.selected = data.entries[1].path;
@@ -666,7 +717,7 @@ function browsing() {
   view.link_tooltip.shown = true;
   view.link_tooltip.suppressed = false;
   view.link_tooltip.target = { worktree: view.workspaceRef(1) };
-  view.pointer = { x: 20, y: 3 };
+  view.pointer = { x: 24, y: 3 };
   return { view, requests };
 }
 test("hovered worktrees own legacy, application and Kitty arrows before hover cancellation", async () => {

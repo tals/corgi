@@ -36,8 +36,8 @@ class Worktrees extends Runtime {
       b = await Viewer.create(this, 120, 38);
     await this.advance(4);
     await this.until(async () => (await this.session()).workspaces[0].worktrees?.entries.length === 3);
-    this.assertIn("2 worktrees", (await a.poll()).data);
-    await a.input("\x1b[<35;20;4M");
+    this.assertIn("2⑂", (await a.poll()).data);
+    await a.input("\x1b[<35;25;4M");
     await a.advance(0.6);
     this.assertIn("Compared with local main", (await a.poll()).data);
     this.assertNotIn("Compared with local main", (await b.poll()).data);
@@ -68,8 +68,8 @@ class Worktrees extends Runtime {
     this.assertNotIn("Summary", frame);
     await a.input("\x1b[27u");
     this.assertNotIn("Compared with local main", (await a.poll()).data);
-    this.assertIn("2 worktrees", a.state.data);
-    await a.input("\x1b[<0;20;4M\x1b[<0;20;4m");
+    this.assertIn("2⑂", a.state.data);
+    await a.input("\x1b[<0;25;4M\x1b[<0;25;4m");
     await a.action("worktree-select", realpathSync(join(this.temp.name, ".worktrees/clipboard")));
     await a.input("\r");
     this.assertNotIn("Compared with local main", (await a.poll()).data);

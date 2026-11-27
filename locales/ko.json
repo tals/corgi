@@ -218,8 +218,6 @@
   "${count} unmodified lines": "변경 없는 ${count}행",
   "${count} unread →": "읽지 않음 ${count}개 →",
   "${count} waiting": "${count}개 대기 중",
-  "${count} worktree": "작업 트리 ${count}개",
-  "${count} worktrees": "작업 트리 ${count}개",
   "${days} d": "${days}일",
   "${details} for details · ${all} for everything": "자세히: ${details} · 전체: ${all}",
   "${done}/${total} done": "${done}/${total} 완료",

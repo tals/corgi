@@ -286,8 +286,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[""," unmodified lines"]': v0 => `${v0} 行未更改`,
     '[""," unread →"]': v0 => `${v0} 条未读 →`,
     '[""," waiting"]': v0 => `${v0} 个等待中`,
-    '[""," worktree"]': v0 => `${v0} 个工作树`,
-    '[""," worktrees"]': v0 => `${v0} 个工作树`,
     '[""," d"]': v0 => `${v0}天`,
     '[""," for details · "," for everything"]': (v0, v1) => `${v0} 查看详情 · ${v1} 查看全部`,
     '["","/"," done"]': (v0, v1) => `已完成 ${v0}/${v1}`,
@@ -1768,8 +1766,6 @@ ${v1} 使用该账号。
     '[""," unmodified lines"]': v0 => `変更のない${v0}行`,
     '[""," unread →"]': v0 => `未読${v0}件 →`,
     '[""," waiting"]': v0 => `${v0} 件待機中`,
-    '[""," worktree"]': v0 => `${v0}ワークツリー`,
-    '[""," worktrees"]': v0 => `${v0}ワークツリー`,
     '[""," d"]': v0 => `${v0}日`,
     '[""," for details · "," for everything"]': (v0, v1) => `詳細は ${v0} · すべては ${v1}`,
     '["","/"," done"]': (v0, v1) => `${v0}/${v1}完了`,
@@ -3278,8 +3274,6 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[""," unmodified lines"]': v0 => `변경 없는 ${v0}행`,
     '[""," unread →"]': v0 => `읽지 않음 ${v0}개 →`,
     '[""," waiting"]': v0 => `${v0}개 대기 중`,
-    '[""," worktree"]': v0 => `작업 트리 ${v0}개`,
-    '[""," worktrees"]': v0 => `작업 트리 ${v0}개`,
     '[""," d"]': v0 => `${v0}일`,
     '[""," for details · "," for everything"]': (v0, v1) => `자세히: ${v0} · 전체: ${v1}`,
     '["","/"," done"]': (v0, v1) => `${v0}/${v1} 완료`,
@@ -5131,34 +5125,6 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     },
     '[""," unread →"]': v0 => `непрочитано: ${v0} →`,
     '[""," waiting"]': v0 => `Ожидают: ${v0}`,
-    '[""," worktree"]': v0 => {
-      switch (plural("ru", Number(v0))) {
-        case "one":
-          return `${v0} рабочее дерево`;
-        case "few":
-          return `${v0} рабочих дерева`;
-        case "many":
-          return `${v0} рабочих деревьев`;
-        case "other":
-          return `${v0} рабочего дерева`;
-        default:
-          return `${v0} рабочего дерева`;
-      }
-    },
-    '[""," worktrees"]': v0 => {
-      switch (plural("ru", Number(v0))) {
-        case "one":
-          return `${v0} рабочее дерево`;
-        case "few":
-          return `${v0} рабочих дерева`;
-        case "many":
-          return `${v0} рабочих деревьев`;
-        case "other":
-          return `${v0} рабочего дерева`;
-        default:
-          return `${v0} рабочего дерева`;
-      }
-    },
     '[""," d"]': v0 => `${v0} дн.`,
     '[""," for details · "," for everything"]': (v0, v1) => `${v0} — подробности · ${v1} — все команды`,
     '["","/"," done"]': (v0, v1) => `готово ${v0}/${v1}`,
