@@ -16,6 +16,7 @@ import { selected, requested } from "./presence";
 import { path, transcript } from "./transcript";
 import { Tail } from "../../usage/worker";
 import { Agent } from "../../agents";
+import { Registry } from "../../conversations";
 import * as json from "../../json";
 import { conversations } from "./search";
 
@@ -181,6 +182,31 @@ test("Antigravity transcript usage counts cached input and deduplicates repeated
     tools: 0n,
   });
   expect(t.live.meter.value.tokens.total()).toBe(58n);
+});
+
+test("Antigravity keeps a tool active between its start and finish hooks while the transcript advances", () => {
+  const actor = new Registry().get("antigravity", session),
+    tail = new Tail(),
+    reader = transcript.reader(() => []),
+    toolCall = { name: "run_command", args: { CommandLine: "bun test" } };
+  const hook = (event: string, fields: Record<string, unknown>) =>
+    decode({ conversationId: session, hookEventName: event, ...fields })!;
+  actor.observeHook(hook("PreInvocation", { initialNumSteps: 0 }), 1n, false, 100);
+  tail.progress.bind(actor.state.turnId());
+  actor.observeHook(hook("PreToolUse", { toolCall }), 2n, false, 200);
+  expect(actor.state.tool_active).toBe(true);
+  const counts = reader.record(
+    tail,
+    { actor: 1, workspace: 1, since: 0, agent: actor.state, child: false, tracked_since: 0 },
+    { type: "PLANNER_RESPONSE", step_index: 1, content: "Running tests", tool_calls: [toolCall] },
+    true,
+    300,
+  );
+  expect(counts.tools).toBe(1n);
+  actor.observeTools(tail.progress.view());
+  expect(actor.state.tool_active).toBe(true);
+  actor.observeHook(hook("PostToolUse", { toolCall }), 3n, false, 400);
+  expect(actor.state.tool_active).toBe(false);
 });
 
 test("Antigravity's model list preserves separate effort variants", () => {

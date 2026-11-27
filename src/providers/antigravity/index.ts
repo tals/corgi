@@ -19,7 +19,7 @@ export const adapter: Adapter = {
     children_from_hooks: false,
     follows_cd: false,
     titles_once_loaded: false,
-    transcript_tools: true,
+    transcript_tools: false,
   },
   installs: ({ home, root }) => [
     ...(home ? [join(home, ".local/bin/agy")] : []),
