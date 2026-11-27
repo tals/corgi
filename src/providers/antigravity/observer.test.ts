@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { openSync, closeSync, mkdirSync, mkdtempSync, rmSync, renameSync, writeFileSync } from "node:fs";
+import { openSync, closeSync, mkdirSync, mkdtempSync, realpathSync, rmSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as observers from "../../observer_service";
@@ -18,7 +18,7 @@ const first = "11111111-1111-4111-8111-111111111111",
 const supported = test.skipIf(process.platform !== "linux" && process.platform !== "darwin");
 
 function fixture() {
-  const account = mkdtempSync(join(tmpdir(), "corgi-agy-observer-")),
+  const account = realpathSync(mkdtempSync(join(tmpdir(), "corgi-agy-observer-"))),
     root = directory(account),
     presence = join(root, "presence"),
     server = new Server(join(account, "corgi.sock"), "corgi", "test"),
