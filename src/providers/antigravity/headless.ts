@@ -1,6 +1,8 @@
-import { join, isAbsolute } from "node:path";
-import type { Client, Event, Inference, Input, Place, Saved } from "../adapter";
-import { field, str, number, imageData } from "../common";
+import { randomUUID } from "node:crypto";
+import { constants, copyFileSync, rmSync } from "node:fs";
+import { basename, dirname, join, isAbsolute } from "node:path";
+import type { Client, Event, Image, Inference, Input, Place, Saved } from "../adapter";
+import { field, str, number, imageData, oversized } from "../common";
 import { Tokens } from "../../usage/live";
 import { Stdio } from "../stdio";
 import * as privateHome from "./private";
@@ -73,33 +75,71 @@ export class Antigravity implements Client {
   private call(id: string, method: string, params: unknown) {
     this.io.write({ jsonrpc: "2.0", id, method, params });
   }
-  private next() {
-    if (!this.ready || this.turn || !this.pending.length) return;
-    const input = this.pending[0],
-      turn = "turn-" + ++this.serial;
+  private startPrompt(input: Prompt, turn: string) {
     const prompt = [
       ...(input.text ? [{ type: "text", text: input.text }] : []),
       ...(input.images ?? []).map(image => ({ type: "image", mimeType: image.mime, data: imageData(image) })),
     ];
     this.call(turn, "session/prompt", { sessionId: this.session, prompt });
-    this.pending.shift();
     this.turn = turn;
     this.events.push({ kind: "turn", session: this.session, turn, phase: "started" });
+  }
+  private releaseImages(images?: Image[]) {
+    for (const image of images ?? []) {
+      if (dirname(image.path) !== this.root || !basename(image.path).startsWith("prompt-image-")) continue;
+      try {
+        rmSync(image.path, { force: true });
+      } catch {}
+    }
+  }
+  private queue(input: Prompt) {
+    if (!input.images?.length) {
+      this.pending.push(input);
+      return;
+    }
+    // Only paths enter the handoff. Both daemons can read the private copies until ownership transfers.
+    this.root ||= privateHome.temporary();
+    const images: Image[] = [];
+    try {
+      for (const image of input.images) {
+        const path = join(this.root, "prompt-image-" + randomUUID());
+        copyFileSync(image.path, path, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL);
+        images.push({ path, mime: image.mime });
+        if (oversized(path)) throw Error("ImageTooLarge");
+      }
+      this.pending.push({ ...input, images });
+    } catch (error) {
+      this.releaseImages(images);
+      throw error;
+    }
+  }
+  private next() {
+    while (this.ready && !this.turn && this.pending.length) {
+      const input = this.pending.shift()!,
+        turn = "turn-" + ++this.serial;
+      try {
+        this.startPrompt(input, turn);
+      } catch {
+        this.events.push(
+          { kind: "turn", session: this.session, turn, phase: "started" },
+          { kind: "turn", session: this.session, turn, phase: "ended", outcome: "failed" },
+        );
+      } finally {
+        this.releaseImages(input.images);
+      }
+    }
   }
   send(input: Input) {
     if (input.kind !== "answer" && input.session && input.session !== this.session) throw Error("WrongSession");
     switch (input.kind) {
       case "prompt":
         if (this.pending.length >= 16) throw Error("HeadlessBackpressure");
-        this.pending.push(input);
-        try {
-          this.next();
-        } catch (e) {
-          this.pending.pop();
-          throw e;
-        }
+        if (input.images?.some(image => oversized(image.path))) throw Error("ImageTooLarge");
+        if (this.ready && !this.turn && !this.pending.length) this.startPrompt(input, "turn-" + ++this.serial);
+        else this.queue(input);
         break;
       case "interrupt":
+        for (const input of this.pending) this.releaseImages(input.images);
         this.pending = [];
         if (this.turn) this.io.write({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.session } });
         break;
@@ -124,7 +164,6 @@ export class Antigravity implements Client {
       { kind: "ready" },
     );
     this.startup = { cwd: "", instructions: "", model: "", effort: "" };
-    this.next();
   }
   private selectEffort() {
     if (!this.startup.effort) return this.started();
@@ -232,7 +271,6 @@ export class Antigravity implements Client {
         outcome: !error && stop === "end_turn" ? "completed" : stop === "cancelled" ? "interrupted" : "failed",
       });
       this.turn = "";
-      this.next();
       return;
     }
     if (error) throw Error(str(error, "message") || "AntigravityStartupFailed");
@@ -264,6 +302,7 @@ export class Antigravity implements Client {
   take(): Event[] {
     for (const v of this.io.read()) this.decode(v);
     if (this.io.exited) this.events.push({ kind: "ended" });
+    else this.next();
     return this.events.splice(0);
   }
   wait(deadline: number) {
