@@ -1,6 +1,7 @@
 import * as plan from "./plan";
 import * as checklist from "./checklist";
-import { clip } from "./tools";
+import { clip, type Observation } from "./tools";
+import * as plan_tools from "./plan_tools";
 import type { View } from "../usage/live";
 
 export type Counts = { input: string; cached: string; output: string; tools?: string };
@@ -10,10 +11,12 @@ export type Input = {
   events: plan.Event[];
   support: plan.Event[];
   focus?: string | null;
+  tools?: plan_tools.Input[];
   /** The conversation's title, attached for inference only; never saved. */
   conversation?: string;
 };
 export type Snapshot = {
+  tool_rows?: plan_tools.Row[];
   nodes: plan.Node[];
   visits: Visit[];
   focus: string | null;
@@ -46,6 +49,7 @@ export function content(input: Input) {
 export const emptyView = (): Snapshot => ({
   nodes: [],
   visits: [],
+  tool_rows: [],
   focus: null,
   focus_step: null,
   counts: {},
@@ -130,6 +134,7 @@ export function decode(value: unknown): Snapshot {
   });
   return {
     nodes,
+    tool_rows: plan_tools.decodeRows(v.tool_rows),
     visits: decoded,
     focus: focus as string | null,
     focus_step: step as string | null,
@@ -169,6 +174,7 @@ export function visitAt(visits: Visit[], step: string, event: number) {
 
 /** Observed intervals only. The first sample is a baseline, never historical cost assigned to new work. */
 export class Roadmap {
+  tools = new plan_tools.Ledger();
   state = plan.empty();
   visits: Visit[] = [];
   focus: string | null = null;
@@ -188,7 +194,15 @@ export class Roadmap {
   turn_index = 0;
   checklist_at = 0;
   tail_node: string | null = null;
-  observe(turn: string, status: string, evidence: string, list: checklist.List, usage: View, now: number) {
+  observe(
+    turn: string,
+    status: string,
+    evidence: string,
+    list: checklist.List,
+    usage: View,
+    now: number,
+    calls?: Observation[],
+  ) {
     if (turn !== this.turn) {
       this.turn = turn;
       this.turn_index++;
@@ -227,7 +241,11 @@ export class Roadmap {
       this.unassigned = add(this.unassigned, delta);
       return;
     }
-    if (key === this.last) {
+    const id = (this.pending.at(-1)?.id ?? this.state.through) + 1;
+    const added =
+      (calls !== undefined || key !== this.last) &&
+      this.tools.observe(calls, this.turn_index, id, status === "working");
+    if (key === this.last && !added) {
       const previous = this.pending.at(-1);
       if (previous) this.receipts.push({ event: previous.id, tokens: delta });
       else this.attribute(this.tail_node, delta);
@@ -244,7 +262,6 @@ export class Roadmap {
       this.receipts = this.receipts.filter(r => r.event > dropped.id);
       this.partial = true;
     }
-    const id = (this.pending.at(-1)?.id ?? this.state.through) + 1;
     this.pending.push({
       id,
       line: id,
@@ -263,22 +280,33 @@ export class Roadmap {
   }
   request(): Input | null {
     if (!this.pending.length || this.limited) return null;
+    const events = this.pending.slice(0, 8);
+    const tools = this.tools.input(events[0].id, events.at(-1)!.id);
     return structuredClone({
+      tools,
       state: this.state,
-      events: this.pending.slice(0, 8),
+      events,
       support: this.support,
       focus: this.focus_step,
     });
   }
   apply(input: Input, raw: string) {
     if (input.state.through !== this.state.through) return false;
-    const applied = plan.apply(this.state, raw, input.events).state;
+    const { tool_groups = [], ...patch } = JSON.parse(raw);
+    plan_tools.validateGroups(input.tools ?? [], tool_groups);
+    const applied = plan.apply(this.state, JSON.stringify(patch), input.events).state;
     const visits = appendVisits(this.visits, applied.spans);
     if (applied.nodes.length > 256 || visits.length > 4096) {
       this.limited = true;
+      for (const call of this.tools.calls) call.running = false;
       return false;
     }
     this.visits = visits;
+    this.tools.assign(input.events[0].id, applied.through, tool_groups, event => {
+      const owner = applied.spans.find(s => s.from <= event && event <= s.to)?.node;
+      const target = owner ? visitAt(visits, owner, event) : null;
+      return (target ?? visits.findLast(v => v.from <= event) ?? visits[0])?.from ?? null;
+    });
     const parents = new Map(applied.nodes.map(n => [n.id, n.parent]));
     this.focus = focusEpisode(applied.nodes, applied.spans, this.focus);
     this.focus_step = focusStep(applied.spans, this.focus_step);
@@ -315,6 +343,7 @@ export class Roadmap {
   }
   view(): Snapshot {
     return {
+      tool_rows: this.tools.rows(),
       nodes: this.state.nodes,
       visits: this.visits,
       focus: this.focus,
@@ -368,6 +397,7 @@ export class Roadmap {
         return v as plan.Event;
       });
     };
+    road.tools.restore(v.tool_calls, live);
     road.pending = events(v.pending, 32);
     road.support = events(v.support, 128);
     if (
@@ -406,7 +436,8 @@ export class Roadmap {
   }
   toJSON() {
     return {
-      view: this.view(),
+      view: { ...this.view(), tool_rows: undefined },
+      tool_calls: this.tools.calls,
       through: this.state.through,
       unassigned: this.unassigned,
       baseline: this.baseline,

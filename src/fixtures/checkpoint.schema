@@ -590,3 +590,14 @@ $.conversations[].activity_plan?.view.visits?[].counts.cached: string
 $.conversations[].activity_plan?.view.visits?[].counts.output: string
 $.conversations[].activity_plan?.view.visits?[].counts.tools: optional
 $.conversations[].activity_plan?.view.visits?[].counts.tools?: string
+$.conversations[].activity_plan?.tool_calls[].id: usize
+$.conversations[].activity_plan?.tool_calls[].event: usize
+$.conversations[].activity_plan?.tool_calls[].detail: string
+$.conversations[].activity_plan?.tool_calls[].description: string
+$.conversations[].activity_plan?.tool_calls[].visit: optional
+$.conversations[].activity_plan?.tool_calls[].visit?: usize
+$.conversations[].activity_plan?.tool_calls[].title: string
+$.conversations[].activity_plan?.tool_calls[].running: bool
+$.conversations[].activity_plan?.tool_calls[].key: string
+$.conversations[].activity_plan?.tool_calls[].turn: usize
+$.conversations[].activity_plan?.tool_calls[].group: usize

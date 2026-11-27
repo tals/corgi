@@ -340,9 +340,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["+ Create “","”"]': v0 => `+ 创建“${v0}”`,
     '["+ New shell"]': () => `+ 新建 Shell`,
     '["+"," more"]': v0 => `另有 ${v0} 个`,
-    '["+"," more commands"]': v0 => `另有 ${v0} 条命令`,
     '["+"," more pending"]': v0 => `另有 ${v0} 项待处理`,
-    '["+","+ more commands"]': v0 => `另有 ${v0}+ 条命令`,
     '["... "," more agents"]': v0 => `…另有 ${v0} 个智能体`,
     '["/"]': () => `/`,
     '["/ search  "]': () => `/ 搜索  `,
@@ -416,7 +414,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
       `auto 使用智能体 CLI 上次使用的模型；default 让智能体 CLI 决定推理强度。`,
     '["Auto-retry capacity errors"]': () => `容量错误自动重试`,
     '["Back to agent"]': () => `返回智能体`,
-    '["Background commands"]': () => `后台命令`,
     '["Backspace undo"]': () => `Backspace 撤销`,
     '["Binary file"]': () => `二进制文件`,
     '["Binary file · no text diff"]': () => `二进制文件 · 无文本差异`,
@@ -428,7 +425,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Build ",""]': v0 => `构建 ${v0}`,
     '["Build "," built on ",""]': (v0, v1) => `构建 ${v0}（${v1}）`,
     '["Build: "]': () => `构建版本：`,
-    '["Builds"]': () => `构建`,
     '["By activity"]': () => `按活动排序`,
     '["COPY"]': () => `复制`,
     '["CORGI"]': () => `CORGI`,
@@ -481,7 +477,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Command keys"]': () => `Command 键`,
     '["Command shortcuts"]': () => `Command 快捷键`,
     '["Command too long"]': () => `命令过长`,
-    '["Commands"]': () => `命令`,
     '["Commands print text; --json prints the daemon\'s reply as JSON instead."]': () =>
       `命令默认输出文本；使用 --json 则将守护进程的响应以 JSON 输出。`,
     '["Comment"]': () => `批注`,
@@ -679,7 +674,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Kitty graphics"]': () => `Kitty 图形`,
     '["Language"]': () => `语言`,
     '["Last active"]': () => `最近活动`,
-    '["Last reported"]': () => `最近报告`,
     '["Last seen"]': () => `最近出现`,
     '["Last visited"]': () => `上次访问`,
     '["Last visited agent"]': () => `上次访问的智能体`,
@@ -927,7 +921,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Right"]': () => `右`,
     '["Right / down"]': () => `右 / 下`,
     '["Run Corgi outside "," to enable paste with ","."]': (v0, v1) => `在 ${v0} 外运行 Corgi，即可用 ${v1} 粘贴。`,
-    '["Running"]': () => `运行中`,
     '["Running a tool"]': () => `正在使用工具`,
     '["Runs: "]': () => `执行：`,
     '["SCROLL  j/k move  y copy viewport  q exit"]': () => `滚动  j/k 移动  y 复制可见内容  q 退出`,
@@ -957,7 +950,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Sent "," to ",""]': (v0, v1) => `已向 ${v1} 发送 ${v0}`,
     '["Served links"]': () => `服务链接`,
     '["Served links will go offline."]': () => `服务链接将离线。`,
-    '["Servers"]': () => `服务`,
     '["Session ended"]': () => `会话已结束`,
     '["Set clipboard-read = ask to enable paste with ","."]': v0 => `设置 clipboard-read = ask，即可用 ${v0} 粘贴。`,
     '["Settings"]': () => `设置`,
@@ -1018,7 +1010,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["TOP PROCESSES"]': () => `资源占用最多的进程`,
     '["Terminal"]': () => `终端`,
     '["Terminal capabilities"]': () => `终端能力`,
-    '["Tests"]': () => `测试`,
     '["That key is already in the set."]': () => `此按键已在组内。`,
     '["That key is not supported. Try another key."]': () => `不支持此按键。请换一个试试。`,
     '["That pane closed; the notes are kept."]': () => `窗格已关闭；已保留批注。`,
@@ -1823,9 +1814,7 @@ ${v1} 使用该账号。
     '["+ Create “","”"]': v0 => `+ 「${v0}」を作成`,
     '["+ New shell"]': () => `+ 新しいシェル`,
     '["+"," more"]': v0 => `ほか${v0}件`,
-    '["+"," more commands"]': v0 => `ほか${v0}コマンド`,
     '["+"," more pending"]': v0 => `ほか${v0}件待機中`,
-    '["+","+ more commands"]': v0 => `ほか${v0}+コマンド`,
     '["... "," more agents"]': v0 => `... ほか${v0}エージェント`,
     '["/"]': () => `/`,
     '["/ search  "]': () => `/ 検索  `,
@@ -1905,7 +1894,6 @@ ${v1} 使用该账号。
       `autoはエージェントCLIで最後に使ったモデルを選び、defaultは推論レベルをCLIに任せます。`,
     '["Auto-retry capacity errors"]': () => `容量エラーを自動再試行`,
     '["Back to agent"]': () => `エージェントに戻る`,
-    '["Background commands"]': () => `バックグラウンドのコマンド`,
     '["Backspace undo"]': () => `Backspaceで元に戻す`,
     '["Binary file"]': () => `バイナリファイル`,
     '["Binary file · no text diff"]': () => `バイナリファイル · テキスト差分なし`,
@@ -1917,7 +1905,6 @@ ${v1} 使用该账号。
     '["Build ",""]': v0 => `ビルド ${v0}`,
     '["Build "," built on ",""]': (v0, v1) => `ビルド ${v0}（${v1}）`,
     '["Build: "]': () => `ビルド：`,
-    '["Builds"]': () => `ビルド`,
     '["By activity"]': () => `状態別`,
     '["COPY"]': () => `コピー`,
     '["CORGI"]': () => `CORGI`,
@@ -1971,7 +1958,6 @@ ${v1} 使用该账号。
     '["Command keys"]': () => `Commandキー`,
     '["Command shortcuts"]': () => `Commandキーの操作`,
     '["Command too long"]': () => `コマンドが長すぎます`,
-    '["Commands"]': () => `コマンド`,
     '["Commands print text; --json prints the daemon\'s reply as JSON instead."]': () =>
       `通常はテキストを出力します。--jsonを付けるとデーモンの応答をJSONで出力します。`,
     '["Comment"]': () => `コメント`,
@@ -2178,7 +2164,6 @@ ${v1} 使用该账号。
     '["Kitty graphics"]': () => `Kitty画像表示`,
     '["Language"]': () => `言語`,
     '["Last active"]': () => `最終利用`,
-    '["Last reported"]': () => `最終報告`,
     '["Last seen"]': () => `最終確認`,
     '["Last visited"]': () => `前回の選択先`,
     '["Last visited agent"]': () => `直前のエージェント`,
@@ -2432,7 +2417,6 @@ ${v1} 使用该账号。
     '["Right / down"]': () => `右 / 下`,
     '["Run Corgi outside "," to enable paste with ","."]': (v0, v1) =>
       `${v1}で貼り付けるには、${v0}の外でCorgiを起動してください。`,
-    '["Running"]': () => `実行中`,
     '["Running a tool"]': () => `ツールを実行中`,
     '["Runs: "]': () => `実行内容：`,
     '["SCROLL  j/k move  y copy viewport  q exit"]': () => `スクロール  j/k 移動  y 表示範囲をコピー  q 終了`,
@@ -2463,7 +2447,6 @@ ${v1} 使用该账号。
     '["Sent "," to ",""]': (v0, v1) => `${v1}に${v0}を送信しました`,
     '["Served links"]': () => `公開リンク`,
     '["Served links will go offline."]': () => `公開リンクはオフラインになります。`,
-    '["Servers"]': () => `サーバー`,
     '["Session ended"]': () => `セッション終了`,
     '["Set clipboard-read = ask to enable paste with ","."]': v0 =>
       `${v0}で貼り付けるには、clipboard-read = askに設定してください。`,
@@ -2526,7 +2509,6 @@ ${v1} 使用该账号。
     '["TOP PROCESSES"]': () => `上位プロセス`,
     '["Terminal"]': () => `端末`,
     '["Terminal capabilities"]': () => `端末の機能`,
-    '["Tests"]': () => `テスト`,
     '["That key is already in the set."]': () => `そのキーは登録済みです。`,
     '["That key is not supported. Try another key."]': () => `そのキーは非対応です。別のキーを試してください。`,
     '["That pane closed; the notes are kept."]': () => `ペインが閉じました。コメントは保持しています。`,
@@ -3336,9 +3318,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["+ Create “","”"]': v0 => `+ “${v0}” 만들기`,
     '["+ New shell"]': () => `+ 새 셸`,
     '["+"," more"]': v0 => `${v0}개 더`,
-    '["+"," more commands"]': v0 => `명령 ${v0}개 더`,
     '["+"," more pending"]': v0 => `대기 항목 ${v0}개 더`,
-    '["+","+ more commands"]': v0 => `명령 ${v0}+개 더`,
     '["... "," more agents"]': v0 => `… 에이전트 ${v0}개 더`,
     '["/"]': () => `/`,
     '["/ search  "]': () => `/ 검색  `,
@@ -3417,7 +3397,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
       `Auto는 에이전트 CLI의 마지막 모델을 사용하고 default는 추론 강도를 CLI에 맡깁니다.`,
     '["Auto-retry capacity errors"]': () => `용량 오류 자동 재시도`,
     '["Back to agent"]': () => `에이전트로 돌아가기`,
-    '["Background commands"]': () => `백그라운드 명령`,
     '["Backspace undo"]': () => `Backspace 실행 취소`,
     '["Binary file"]': () => `바이너리 파일`,
     '["Binary file · no text diff"]': () => `바이너리 파일 · 텍스트 차이 없음`,
@@ -3430,7 +3409,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Build ",""]': v0 => `빌드 ${v0}`,
     '["Build "," built on ",""]': (v0, v1) => `빌드 ${v0} (${v1})`,
     '["Build: "]': () => `빌드: `,
-    '["Builds"]': () => `빌드`,
     '["By activity"]': () => `활동순`,
     '["COPY"]': () => `복사`,
     '["CORGI"]': () => `CORGI`,
@@ -3484,7 +3462,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Command keys"]': () => `Command 키`,
     '["Command shortcuts"]': () => `Command 단축키`,
     '["Command too long"]': () => `명령이 너무 깁니다`,
-    '["Commands"]': () => `명령`,
     '["Commands print text; --json prints the daemon\'s reply as JSON instead."]': () =>
       `명령은 텍스트를 출력합니다. --json을 사용하면 데몬 응답을 JSON으로 출력합니다.`,
     '["Comment"]': () => `메모`,
@@ -3690,7 +3667,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Kitty graphics"]': () => `Kitty 그래픽`,
     '["Language"]': () => `언어`,
     '["Last active"]': () => `최근 활동`,
-    '["Last reported"]': () => `최근 보고`,
     '["Last seen"]': () => `마지막 확인`,
     '["Last visited"]': () => `직전 위치`,
     '["Last visited agent"]': () => `직전 에이전트`,
@@ -3941,7 +3917,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Right / down"]': () => `오른쪽 / 아래`,
     '["Run Corgi outside "," to enable paste with ","."]': (v0, v1) =>
       `${v0} 밖에서 Corgi를 실행하면 ${v1} 키로 붙여넣을 수 있습니다.`,
-    '["Running"]': () => `실행 중`,
     '["Running a tool"]': () => `도구 사용 중`,
     '["Runs: "]': () => `실행: `,
     '["SCROLL  j/k move  y copy viewport  q exit"]': () => `스크롤  j/k 이동  y 화면 복사  q 종료`,
@@ -3972,7 +3947,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Sent "," to ",""]': (v0, v1) => `${v1}: ${v0} 전송 완료`,
     '["Served links"]': () => `서비스 링크`,
     '["Served links will go offline."]': () => `서비스 링크는 오프라인이 됩니다.`,
-    '["Servers"]': () => `서버`,
     '["Session ended"]': () => `세션 종료됨`,
     '["Set clipboard-read = ask to enable paste with ","."]': v0 =>
       `clipboard-read = ask로 설정하면 ${v0} 키로 붙여넣을 수 있습니다.`,
@@ -4035,7 +4009,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["TOP PROCESSES"]': () => `주요 프로세스`,
     '["Terminal"]': () => `터미널`,
     '["Terminal capabilities"]': () => `터미널 기능`,
-    '["Tests"]': () => `테스트`,
     '["That key is already in the set."]': () => `이미 키 모음에 있는 키입니다.`,
     '["That key is not supported. Try another key."]': () => `지원하지 않는 키입니다. 다른 키를 사용하세요.`,
     '["That pane closed; the notes are kept."]': () => `패널이 닫혔습니다. 메모는 유지됩니다.`,
@@ -5240,22 +5213,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["+ Create “","”"]': v0 => `+ Создать «${v0}»`,
     '["+ New shell"]': () => `+ Новая оболочка`,
     '["+"," more"]': v0 => `ещё ${v0}`,
-    '["+"," more commands"]': v0 => {
-      switch (plural("ru", Number(v0))) {
-        case "one":
-          return `ещё ${v0} команда`;
-        case "few":
-          return `ещё ${v0} команды`;
-        case "many":
-          return `ещё ${v0} команд`;
-        case "other":
-          return `ещё ${v0} команды`;
-        default:
-          return `ещё ${v0} команды`;
-      }
-    },
     '["+"," more pending"]': v0 => `ещё ${v0} в ожидании`,
-    '["+","+ more commands"]': v0 => `ещё команд: ${v0}+`,
     '["... "," more agents"]': v0 => {
       switch (plural("ru", Number(v0))) {
         case "one":
@@ -5348,7 +5306,6 @@ profile/ID, имя копии или command/N — как в выводе launch
       `auto использует последнюю модель CLI агента; default оставляет выбор глубины рассуждений CLI агента.`,
     '["Auto-retry capacity errors"]': () => `Автоповтор при перегрузке`,
     '["Back to agent"]': () => `Вернуться к агенту`,
-    '["Background commands"]': () => `Фоновые команды`,
     '["Backspace undo"]': () => `Backspace отмена`,
     '["Binary file"]': () => `Двоичный файл`,
     '["Binary file · no text diff"]': () => `Двоичный файл · нет текстовых изменений`,
@@ -5361,7 +5318,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Build ",""]': v0 => `Сборка ${v0}`,
     '["Build "," built on ",""]': (v0, v1) => `Сборка ${v0} от ${v1}`,
     '["Build: "]': () => `Сборка: `,
-    '["Builds"]': () => `Сборки`,
     '["By activity"]': () => `По активности`,
     '["COPY"]': () => `КОПИРОВАТЬ`,
     '["CORGI"]': () => `CORGI`,
@@ -5416,7 +5372,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Command keys"]': () => `Клавиши Command`,
     '["Command shortcuts"]': () => `Сочетания Command`,
     '["Command too long"]': () => `Слишком длинная команда`,
-    '["Commands"]': () => `Команды`,
     '["Commands print text; --json prints the daemon\'s reply as JSON instead."]': () =>
       `Команды выводят текст; --json выводит ответ сервера в формате JSON.`,
     '["Comment"]': () => `Комментировать`,
@@ -5652,7 +5607,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Kitty graphics"]': () => `Графика Kitty`,
     '["Language"]': () => `Язык`,
     '["Last active"]': () => `Последняя активность`,
-    '["Last reported"]': () => `Последние данные`,
     '["Last seen"]': () => `Последняя активность`,
     '["Last visited"]': () => `Вернуться`,
     '["Last visited agent"]': () => `Последний выбранный агент`,
@@ -5920,7 +5874,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Right / down"]': () => `Вправо / вниз`,
     '["Run Corgi outside "," to enable paste with ","."]': (v0, v1) =>
       `Запустите Corgi вне ${v0} для вставки через ${v1}.`,
-    '["Running"]': () => `Выполняется`,
     '["Running a tool"]': () => `Выполняет инструмент`,
     '["Runs: "]': () => `Запуск: `,
     '["SCROLL  j/k move  y copy viewport  q exit"]': () => `ПРОКРУТКА  j/k движение  y копировать экран  q выход`,
@@ -5975,7 +5928,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Sent "," to ",""]': (v0, v1) => `Сигнал ${v0} отправлен: ${v1}`,
     '["Served links"]': () => `Обслуживаемые ссылки`,
     '["Served links will go offline."]': () => `Обслуживаемые ссылки станут недоступны.`,
-    '["Servers"]': () => `Серверы`,
     '["Session ended"]': () => `Сеанс завершён`,
     '["Set clipboard-read = ask to enable paste with ","."]': v0 =>
       `Установите clipboard-read = ask для вставки через ${v0}.`,
@@ -6038,7 +5990,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["TOP PROCESSES"]': () => `ОСНОВНЫЕ ПРОЦЕССЫ`,
     '["Terminal"]': () => `Терминал`,
     '["Terminal capabilities"]': () => `Возможности терминала`,
-    '["Tests"]': () => `Тесты`,
     '["That key is already in the set."]': () => `Эта клавиша уже есть в наборе.`,
     '["That key is not supported. Try another key."]': () => `Эта клавиша не поддерживается. Попробуйте другую.`,
     '["That pane closed; the notes are kept."]': () => `Панель закрылась; заметки сохранены.`,

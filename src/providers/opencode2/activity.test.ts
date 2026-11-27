@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { evidence } from "./activity";
+import { progress } from "./activity";
+const evidence = (messages: Record<string, unknown>[]) => progress(messages).evidence;
 
 const user = (text: string) => ({ id: "msg_user", type: "user", text });
 const assistant = (...content: unknown[]) => ({ type: "assistant", content });

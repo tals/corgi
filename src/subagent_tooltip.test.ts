@@ -19,7 +19,6 @@ import {
   unread_ink,
   status,
   type Conversation,
-  type BackgroundView,
 } from "./subagent_tooltip";
 import { View as UsageView, Tokens } from "./usage/live";
 import { View as ContextView } from "./usage/context_window";
@@ -303,7 +302,7 @@ test("both agent rows open one safe card before a session is bound and exiting r
   expect(text).not.toContain("\x1b[2J");
   expect(text).toContain("Total");
   expect(count(text, "—")).toBe(3);
-  expect(text).toContain("Starting session");
+  expect(text).toContain("◌ Starting");
   entries[0].exit = { frame_ms: 1, progress: 0.5 };
   expect(sidebar.agentAt(view, entries, 5, top)).toBeNull();
 });
@@ -1053,24 +1052,6 @@ test("compact token counts round through unit boundaries without overflow", () =
     expect(compact(value)).toBe(text);
 });
 
-test("background command rows group tasks and bound overflow without claiming stale work is live", () => {
-  const items: BackgroundView["items"] = [
-    { id: "server", label: "bun run dev", group: "servers" },
-    { id: "tests", label: "Parser tests", group: "tests" },
-    { id: "build", label: "Release build", group: "builds" },
-  ];
-  const tasks: BackgroundView = { items, observed_at: microTimestamp(), live: true, truncated: false };
-  const w = new Writer();
-  expect(new Card(w, 0, 64).backgroundTasks(0, tasks, 4)).toBe(4);
-  const frame = w.buffered();
-  expect(frame.indexOf("Tests · Parser tests")).toBeLessThan(frame.indexOf("Servers · bun run dev"));
-  tasks.observed_at -= fresh_window + 1;
-  const small = new Writer();
-  expect(new Card(small, 0, 40).backgroundTasks(0, tasks, 3)).toBe(3);
-  expect(small.buffered()).toContain("Last reported");
-  expect(small.buffered()).toContain("+2 more commands");
-});
-
 test("overview footer shows the running release and a staged update", () => {
   const all = [convo({ id: 1, attachments: 1, agent: agent({ provider: "codex", activity: "" }) })];
   const current = render(w =>
@@ -1205,7 +1186,7 @@ test("timeline rows older than the latest five recede toward the background", ()
   }
 });
 
-test("the subtitle pairs provider and model with the context meter, and activity moves below until there is a timeline", () => {
+test("the subtitle pairs provider and model with the context meter, and starting work keeps the feed header fixed", () => {
   const now = microTimestamp();
   const activity_text = "Running the reload suite against the v5 fixtures";
   const all = [
@@ -1220,13 +1201,20 @@ test("the subtitle pairs provider and model with the context meter, and activity
   ];
   const e = entry({ conversation: 1, name: "api refactor", provider: "codex", state: "working", attention: "none" });
 
-  // No timeline: the activity keeps a whole line under the subtitle.
+  // Tool activity does not add a header line.
   let lines = screenLines(all, e, 100);
   let subtitle = lineWith(lines, "Codex · GPT-6 Astra")!;
   expect(lines[subtitle]).toContain("context ━━━━━");
   expect(lines[subtitle]).toContain("33%");
-  expect(lines[subtitle + 1]).toContain(activity_text);
-  expect(lines[subtitle + 2]).toContain("Tokens");
+  expect(lineWith(lines, activity_text)).toBeNull();
+  expect(lines[subtitle + 1]).toContain("Tokens");
+  all[0].background_tasks = {
+    items: [{ id: "1", label: "Running Bun task", group: "commands" }],
+    live: true,
+    truncated: false,
+    observed_at: now,
+  };
+  expect(screenLines(all, e, 100)).toEqual(lines);
 
   // With a timeline, the activity is its "now" row and the card keeps its height.
   all[0].timeline = { points: [{ at: 1000, activity: activity_text, usage: usage() }], pending: usage() };

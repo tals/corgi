@@ -122,6 +122,7 @@ export function progress(t: Tools, value: any, live: boolean) {
       call.id = key;
       const name = str(block, "name"),
         input = field(block, "input");
+      call.describe(str(input, "description") || str(input, "title"));
       call.append(name + ": ");
       if (name === "Artifact")
         call.detail([str(input, "action"), str(input, "intent"), str(input, "title")].filter(Boolean).join(" "));

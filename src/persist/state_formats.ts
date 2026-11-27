@@ -34,6 +34,7 @@ import * as r_1047006f32d4 from "./revisions/20261122_231223_1047006f32d4_add_fo
 import * as r_531e30a41925 from "./revisions/20261124_035837_531e30a41925_keep_announced_ports_through_a_live_handoff";
 import * as r_428273850636 from "./revisions/20261124_160133_428273850636_add_pane_view_and_a_pane_s_viewer_shown_file";
 import * as r_c9f65235800c from "./revisions/20261127_164716_c9f65235800c_add_long_term_plans_to_activity_summaries_and_co";
+import * as r_b9164a62d4d0 from "./revisions/20261127_184850_b9164a62d4d0_keep_tool_descriptions_and_parallel_groups_in_th";
 
 export const revisions = [
   r_1dfaa1773956.revision,
@@ -70,9 +71,10 @@ export const revisions = [
   r_531e30a41925.revision,
   r_428273850636.revision,
   r_c9f65235800c.revision,
+  r_b9164a62d4d0.revision,
 ];
 export const heads = {
-  state: r_c9f65235800c.revision.id,
+  state: r_b9164a62d4d0.revision.id,
   checkpoint: r_1dfaa1773956.revision.id,
   handoff: r_3a005bd21b0d.revision.id,
   workspaces: r_f4c12b1642bd.revision.id,

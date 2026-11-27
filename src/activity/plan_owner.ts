@@ -35,6 +35,9 @@ error PATH CATEGORY DETAIL
 error PATH resolved RECOVERY_EXPLANATION
 set_owner FIRST..LAST PATH_OR_NONE
 set_focus EVENT_ID PATH
+tool CALL_ID[,CALL_ID...] SHORT_LABEL
+
+When metadata includes tools, each is one observed call with id, event, detail and optional description. Its row sits beneath the step that owns the event. Use the supplied description for a single call: the server displays it automatically. For EVERY call without a description, write a tool line with a concrete 2–6 word action, at most 64 bytes. Related calls in the same event may share one short label; use separate lines for parallel calls doing different things. For example: tool 7,8 Read scraper configuration. Never use event IDs as call IDs or repeat a call. Preserve useful nouns and omit shell syntax.
 
 For example, set /s1 state done changes status. The compact spelling set /s1 done is also accepted. A status update has no text tail: use a separate set /s1 subtitle ... or set /s1 title ... line for text.
 
@@ -304,6 +307,10 @@ export function repairHint(reason: string) {
 
 export function hint(reason: string) {
   switch (reason.split(":", 1)[0]) {
+    case "MissingToolLabel":
+      return "Include a tool line for every call without a supplied description. Related call IDs from the same event may share a label.";
+    case "InvalidToolGroup":
+      return "Use tool ID or comma-separated call IDs from the same event followed by a short plain label. Use each call ID once.";
     case "InvalidFocus":
       return "set_focus takes ONE new event ID then a STEP path. That event must be owned by that same step. Use an actual foreground action, not a result or lifecycle event. Ownership alone never changes focus.";
     case "InvalidCoverage":
@@ -311,7 +318,7 @@ export function hint(reason: string) {
     case "InvalidEvidence":
       return "set_owner takes an explicit inclusive range first (e.g. 4..19), then a STEP path or none. A single event can be 4. Cover exactly the new range, once per event; no old/support events, gaps or overlaps. set_focus does not assign ownership.";
     case "InvalidOperation":
-      return "Use only mkdir, set, cd, mv, error, set_owner, set_focus. set /s1 state done changes status; use separate title/subtitle lines for text, never append text to a status. set_owner 4..19 /s1 assigns events; set_focus 20 /s2 changes focus. No work/note/ignore, _ alias, prose or closing marker. Return the complete replacement program.";
+      return "Use only mkdir, set, cd, mv, error, set_owner, set_focus, tool. set /s1 state done changes status; use separate title/subtitle lines for text, never append text to a status. set_owner 4..19 /s1 assigns events; set_focus 20 /s2 changes focus. No work/note/ignore, _ alias, prose or closing marker. Return the complete replacement program.";
     case "InvalidAssignment":
       return "Owners must be observed, non-planned steps or none. Requests and TODO-only intentions have owner none, planned nodes and no set_focus. Do not change planned to active without actual execution evidence.";
     case "NotDirectory":

@@ -85,6 +85,7 @@ export const focus = (input: Input) =>
     ? (input.state.spans.findLast(s => s.node !== null && s.focus !== false)?.node ?? null)
     : input.focus;
 export type Envelope = {
+  tools?: Input["tools"];
   conversation?: string;
   notes?: string[];
   tree?: ReturnType<typeof node>[];
@@ -100,6 +101,7 @@ export type Envelope = {
 };
 export function envelope(input: Input): Envelope {
   return {
+    ...(input.tools?.length ? { tools: input.tools } : {}),
     ...(input.conversation ? { conversation: input.conversation } : {}),
     ...(notes(input).length ? { notes: notes(input) } : {}),
     tree: input.state.nodes.map(node),

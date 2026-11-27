@@ -180,7 +180,9 @@ export function progress(t: Tools, value: any, live: boolean) {
   if (input) {
     try {
       const args = JSON.parse(input),
-        detail = ["description", "cmd", "command", "code", "query"].map(k => str(args, k)).find(Boolean) ?? input;
+        detail =
+          ["description", "title", "cmd", "command", "code", "query"].map(k => str(args, k)).find(Boolean) ?? input;
+      call.describe(str(args, "description") || str(args, "title"));
       call.detail(detail);
     } catch {
       const start = Buffer.byteLength(call.value);

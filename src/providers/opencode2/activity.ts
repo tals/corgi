@@ -7,6 +7,7 @@ import { messageText } from "./worker";
 function describe(part: unknown) {
   const call = new Call(),
     input = field(field(part, "state"), "input");
+  call.describe(str(input, "description") || str(input, "title"));
   call.append(str(part, "name") + ": ");
   const patch = str(input, "patchText");
   if (patch) {
@@ -25,10 +26,10 @@ function describe(part: unknown) {
 }
 
 /** Only the current turn contributes work, even when its latest message has no text. */
-export function evidence(messages: Record<string, unknown>[]) {
+export function progress(messages: Record<string, unknown>[]) {
   const start = messages.findLastIndex(m => m.type === "user");
-  if (start < 0) return new Text();
   const tools = new Tracker();
+  if (start < 0) return { calls: [], evidence: new Text() };
   let latest = "";
   for (const message of messages.slice(start + 1)) {
     if (message.type !== "assistant") continue;
@@ -46,8 +47,12 @@ export function evidence(messages: Record<string, unknown>[]) {
       else tools.save(call, true);
     }
   }
-  const work = clip(tools.view().evidence.text(), 1200),
+  const view = tools.view();
+  const work = clip(view.evidence.text(), 1200),
     update = latest ? "Latest agent update: " + clip(latest, 600) + "\n" : "",
     request = "User request: " + messageText(messages[start]);
-  return new Text(clip(work + (work && !work.endsWith("\n") ? "\n" : "") + update + request, 2048));
+  return {
+    calls: view.calls,
+    evidence: new Text(clip(work + (work && !work.endsWith("\n") ? "\n" : "") + update + request, 2048)),
+  };
 }

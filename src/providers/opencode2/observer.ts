@@ -68,7 +68,7 @@ export async function snapshot(
   if (user) out.turn = new Turn(str(user, "id"));
   if (idle && (!user || messages.indexOf(idle) > messages.indexOf(user)) && !active[session])
     out.outcome = outcome(idle.outcome);
-  out.evidence = activity.evidence(messages);
+  Object.assign(out, activity.progress(messages));
   const current = messages.slice(user ? messages.indexOf(user) : 0);
   const tools = current
     .flatMap(m => (Array.isArray(m.content) ? m.content : []))

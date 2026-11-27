@@ -1,7 +1,9 @@
 import { Text } from "./summary";
 import { BoundedText } from "../bounded_text";
 class Turn extends BoundedText(160) {}
+export type Observation = { key: string; detail: string; description: string; running: boolean };
 export class View {
+  calls: Observation[] = [];
   road_evidence = new Text();
   commentary = new Text();
   running = 0;
@@ -43,7 +45,20 @@ export function scriptString(args: string, key: string): string | null {
     return args.slice(start, i);
   }
 }
+/** One short line of provider prose, safe to write into a terminal. */
+export function shortLabel(value: string) {
+  const clean = Bun.stripANSI(value)
+    .replace(/[\x00-\x1f\x7f-\x9f\s]+/g, " ")
+    .trim();
+  if (Buffer.byteLength(clean) <= 64) return clean;
+  const head = clip(clean, 61);
+  return (head.replace(/\s+\S*$/, "") || head) + "…";
+}
 export class Call {
+  description = "";
+  describe(value: string) {
+    this.description = shortLabel(value);
+  }
   outcome: "success" | "failure" | null = null;
   result = "";
   id = 0n;
@@ -52,7 +67,9 @@ export class Call {
   static restore(saved: any) {
     if (saved === null) return null;
     if (typeof saved.value !== "string" || Buffer.byteLength(saved.value) > 240) throw Error("InvalidCheckpoint");
-    return Object.assign(new Call(), { id: BigInt(saved.id), live: saved.live === true, value: saved.value });
+    const call = Object.assign(new Call(), { id: BigInt(saved.id), live: saved.live === true, value: saved.value });
+    if (typeof saved.description === "string") call.describe(saved.description);
+    return call;
   }
   /** A finished call with what it reported; older handoffs carry none. */
   static restoreOutcome(saved: any) {
@@ -142,6 +159,8 @@ export class Tracker {
   seen: bigint[] = [];
   recent: Array<Call | null> = [null, null, null];
   outcomes: Call[] = [];
+  /** Includes repeated calls and fast calls that finish between two transcript polls. */
+  finished: Call[] = [];
   dirty = false;
   /** The tracker a handoff carried, or a new one. */
   static restore(saved: any) {
@@ -167,6 +186,14 @@ export class Tracker {
     t.next_pending = saved.next_pending;
     t.seen = saved.seen.map(BigInt);
     t.recent = saved.recent.map(Call.restore);
+    if (saved.finished !== undefined) {
+      if (!Array.isArray(saved.finished) || saved.finished.length > 64) throw Error("InvalidCheckpoint");
+      t.finished = saved.finished.map((item: unknown) => {
+        const call = Call.restore(item);
+        if (!call) throw Error("InvalidCheckpoint");
+        return call;
+      });
+    }
     if (saved.outcomes !== undefined) {
       if (!Array.isArray(saved.outcomes) || saved.outcomes.length > 4) throw Error("InvalidCheckpoint");
       t.outcomes = saved.outcomes.map(Call.restoreOutcome);
@@ -207,6 +234,11 @@ export class Tracker {
     out.completed = this.completed;
     out.commentary = this.commentary;
     out.ended = this.ended;
+    const observe = (call: Call, running: boolean) => {
+      out.calls.push({ key: call.id.toString(16), detail: call.text(), description: call.description, running });
+    };
+    for (const call of this.finished) observe(call, false);
+    for (const call of this.pending) if (call?.live) observe(call, !this.ended);
     let evidence = "",
       active = 0;
     if (!this.ended)
@@ -247,13 +279,20 @@ export class Tracker {
     }
     const old = this.pending[slot];
     call.live = live || (old?.id === call.id && old.live) || false;
-    if ((!old || old.text() !== call.text() || old.live !== call.live) && call.live) this.dirty = true;
+    if (old?.id === call.id && !call.description) call.description = old.description;
+    if (
+      (!old || old.text() !== call.text() || old.description !== call.description || old.live !== call.live) &&
+      call.live
+    )
+      this.dirty = true;
     this.pending[slot] = call;
   }
   finish(call: Call, live: boolean) {
     if (this.seen.length === 256) this.seen.shift();
     this.seen.push(call.id);
     if (!live) return;
+    this.finished.push(call);
+    if (this.finished.length > 64) this.finished.shift();
     this.completed++;
     this.dirty = true;
     // Repeating a command must not erase the failure that preceded its successful retry.

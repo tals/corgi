@@ -324,3 +324,21 @@ $.summaries?.slots[].slot.result?.request.road?.support[].kind: enum user assist
 $.summaries?.slots[].slot.result?.request.road?.support[].text: string
 $.summaries?.slots[].slot.result?.patch: optional
 $.summaries?.slots[].slot.result?.patch?: string
+$.usage?[].progress.pending[64]?.description: string
+$.usage?[].progress.recent[3]?.description: string
+$.usage?[].progress.outcomes[].description: string
+$.usage?[].progress.finished[].id: u64
+$.usage?[].progress.finished[].live: bool
+$.usage?[].progress.finished[].value: string
+$.usage?[].progress.finished[].description: string
+$.usage?[].progress.finished[].outcome: optional
+$.usage?[].progress.finished[].outcome?: enum success failure
+$.usage?[].progress.finished[].result: string
+$.summaries?.slots[].slot.request.road?.tools[].id: usize
+$.summaries?.slots[].slot.request.road?.tools[].event: usize
+$.summaries?.slots[].slot.request.road?.tools[].detail: string
+$.summaries?.slots[].slot.request.road?.tools[].description: string
+$.summaries?.slots[].slot.result?.request.road?.tools[].id: usize
+$.summaries?.slots[].slot.result?.request.road?.tools[].event: usize
+$.summaries?.slots[].slot.result?.request.road?.tools[].detail: string
+$.summaries?.slots[].slot.result?.request.road?.tools[].description: string

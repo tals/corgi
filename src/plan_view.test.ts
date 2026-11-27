@@ -427,3 +427,16 @@ test("a running agent keeps a tail marker between named steps without reopening 
     terminal.destroy();
   }
 });
+
+test("a short tooltip keeps a running tool with its step when later tools finish", () => {
+  const view = fixture();
+  view.nodes[1].bump = null;
+  view.nodes[1].state = "active";
+  view.visits = [{ step: "s", from: 1, to: 9, counts: roadmap.zero() }];
+  view.tool_rows = Array.from({ length: 8 }, (_, i) => ({ visit: 1, title: "Call " + i, running: i === 0 }));
+  const { rows } = planView.tail(view, 5, true);
+  expect(planView.height(rows)).toBeLessThanOrEqual(5);
+  expect(rows.flatMap(r => (r.kind === "node" ? [r.node.id] : []))).toEqual(["e", "s"]);
+  expect(rows.some(r => r.kind === "tool" && r.title === "Call 0" && r.active)).toBe(true);
+  expect(planView.tail(view, 5, false).rows.some(r => r.kind === "tool" && r.active)).toBe(false);
+});

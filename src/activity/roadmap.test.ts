@@ -1,5 +1,9 @@
 import { test, expect } from "bun:test";
 import * as plan from "./plan";
+import * as owner from "./plan_owner";
+import { Tracker } from "./tools";
+import * as claude from "../providers/claude/usage";
+import * as plan_view from "../plan_view";
 import * as roadmap from "./roadmap";
 import { List } from "./checklist";
 import { View, Tokens } from "../usage/live";
@@ -360,4 +364,69 @@ test("plans saved with a goal level restore as top-level episodes and keep episo
     restored.apply(restored.request()!, patch([], 3));
     expect(restored.counts.e).toEqual(restored.counts.s);
   }
+});
+
+test.each([false, true])("parallel tools keep their own lifetimes and step, grouped=%s", grouped => {
+  const road = new roadmap.Roadmap(),
+    tracker = new Tracker();
+  tracker.bind("turn");
+  const observe = () =>
+    road.observe("turn", "working", "Inspect parser", new List(), usage(100n), 10, tracker.view().calls);
+  const start = (id: string, name: string, input: object) =>
+    claude.progress(
+      tracker,
+      { type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } },
+      true,
+    );
+  const finish = (id: string) =>
+    claude.progress(
+      tracker,
+      { type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: "ok" }] } },
+      true,
+    );
+  start("a", "Bash", { description: "Check parser tests", command: "bun test src/parser" });
+  start("b", "Read", { file_path: "src/parser.ts" });
+  observe();
+  const req = road.request()!;
+  expect(req.tools?.map(c => c.description)).toEqual(["Check parser tests", ""]);
+  expect(road.view().tool_rows?.map(r => r.running)).toEqual([true, true]);
+  const program = [
+    "BEGIN_PLAN",
+    "mkdir /e active Fix parser",
+    "set /e subtitle Repair parsing",
+    "mkdir /e/s active Check parser",
+    "set /s subtitle Read the parser and its tests",
+    "set_owner 1 /s",
+    "set_focus 1 /s",
+  ].join("\n");
+  const classify = (line: string) => owner.apply(req, program + "\n" + line);
+  expect(() => classify("")).toThrow("MissingToolLabel");
+  expect(() => classify("tool 2,3 Read parser sources")).toThrow("InvalidToolGroup");
+  const result = classify(grouped ? "tool 1,2 Check parser behavior" : "tool 2 Read parser source");
+  finish("a");
+  observe();
+  expect(road.apply(req, JSON.stringify(result.patch))).toBe(true);
+  const rows = () =>
+    plan_view.tail(road.view(), 10, true).rows.flatMap(r => (r.kind === "tool" ? [[r.title, r.active]] : []));
+  expect(rows()).toEqual(
+    grouped
+      ? [["Check parser behavior", true]]
+      : [
+          ["Check parser tests", false],
+          ["Read parser source", true],
+        ],
+  );
+  const saved = JSON.parse(JSON.stringify(road));
+  expect(roadmap.Roadmap.restore(saved, true).view()).toEqual(road.view());
+  expect(
+    roadmap.Roadmap.restore(saved, false)
+      .view()
+      .tool_rows?.every(r => !r.running),
+  ).toBe(true);
+  finish("b");
+  observe();
+  expect(rows().every(r => r[1] === false)).toBe(true);
+  expect(road.view().tool_rows?.every(r => r.visit === 1)).toBe(true);
+  expect(road.request()).toBeNull();
+  expect(road.counts.e.tools).toBe("0"); // The provider usage meter alone supplies counts.
 });

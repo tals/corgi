@@ -439,8 +439,13 @@ export class Worker {
     this.catalog.close();
     this.slots.fill(null);
   }
-  submit(owner: Actor, evidence: Text, progress: ToolView | null, panes: any[]) {
+  submit(owner: Actor, evidence: Text, progress: ToolView | null, panes: any[], calls?: ToolView["calls"]) {
     const agent = owner.state;
+    if (calls && this.plans && agent.state !== "working" && agent.state !== "blocked") {
+      const slot = this.slots.find(s => s?.request.actor === owner.id && s.request.turn_epoch === agent.turn_epoch);
+      if (slot && this.summarizing()) this.observeRoad(owner, slot, calls);
+      return;
+    }
     if (
       (!this.plans && adapter(owner.provider()).caps.native_activity) ||
       !["working", "blocked"].includes(agent.state) ||
@@ -476,9 +481,10 @@ export class Worker {
     slot.request.generation = agent.activity_generation;
     slot.combine();
     if (progress && agent.turnId() === progress.turn.text()) slot.observeTools(progress, clock.milliTimestamp());
-    if (this.plans) this.observeRoad(owner, slot);
+    if (this.plans)
+      this.observeRoad(owner, slot, calls ?? (progress?.turn.text() === agent.turnId() ? progress.calls : undefined));
   }
-  observeRoad(owner: Actor, slot: Slot) {
+  observeRoad(owner: Actor, slot: Slot, calls?: ToolView["calls"]) {
     const now = clock.milliTimestamp();
     const evidence = slot.transcript_commentary.len
       ? clip(slot.transcript_commentary.text(), 1024) + "\n" + slot.tool_evidence.text()
@@ -495,14 +501,20 @@ export class Worker {
       owner.checklist,
       owner.usageView(now),
       now,
+      calls,
     );
     slot.request.road = owner.activity_plan.request();
     slot.active = !!slot.request.road || owner.state.state === "working";
   }
-  tools(actor: number, agent: Agent, progress: ToolView) {
-    if (agent.turnId() !== progress.turn.text()) return;
-    const slot = this.slots.find(s => s?.request.actor === actor && s.request.turn_epoch === agent.turn_epoch);
-    slot?.observeTools(progress, clock.milliTimestamp());
+  tools(actor: Actor, progress: ToolView, panes: Pane[] = []) {
+    if (actor.state.turnId() !== progress.turn.text()) return;
+    const slot = this.slots.find(s => s?.request.actor === actor.id && s.request.turn_epoch === actor.state.turn_epoch);
+    if (!slot) {
+      if (this.plans && progress.calls.length) this.submit(actor, progress.commentary, progress, panes);
+      return;
+    }
+    slot.observeTools(progress, clock.milliTimestamp());
+    if (this.plans) this.observeRoad(actor, slot, progress.calls);
   }
   reconcile(actors: Actor[], panes: readonly Pane[] = []) {
     const shown = new Set(panes.filter(p => !p.terminal.exited).map(p => p.attachment.actor));

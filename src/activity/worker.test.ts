@@ -545,7 +545,7 @@ test("plan observations retain transcript commentary across sparse metadata refr
     worker.submit(actor, stale, null, []);
     // Fresh provider metadata suppresses the transcript lifecycle fallback,
     // but its commentary still belongs in the plan.
-    worker.tools(actor.id, actor.state, progress);
+    worker.tools(actor, progress);
     worker.reconcile(registry.items);
     const before = actor.activity_plan.pending.length;
     worker.submit(actor, stale, null, []);

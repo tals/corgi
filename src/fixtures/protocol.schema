@@ -1291,3 +1291,7 @@ $.snapshot.conversations[].activity_plan?.visits?[].counts.tools: optional
 $.snapshot.conversations[].activity_plan?.visits?[].counts.tools?: string
 $.requests|viewer.stream: versioned protocol.Request.Sync
 $.requests|viewer.stream.sequence: u32
+$.snapshot.conversations[].activity_plan?.tool_rows[].visit: optional
+$.snapshot.conversations[].activity_plan?.tool_rows[].visit?: usize
+$.snapshot.conversations[].activity_plan?.tool_rows[].title: string
+$.snapshot.conversations[].activity_plan?.tool_rows[].running: bool

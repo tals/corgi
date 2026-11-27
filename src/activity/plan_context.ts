@@ -99,6 +99,7 @@ export class Context {
       const notes = protocol.notes(input);
       content = this.encode({
         ...(notes.length ? { notes } : {}),
+        ...(input.tools?.length ? { tools: input.tools } : {}),
         tree_updates: updates.map(protocol.node),
         support: input.support.filter(e => !support.get(e.id)?.startsWith(e.text)).map(protocol.event),
         focus: protocol.focus(input),

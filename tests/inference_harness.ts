@@ -197,6 +197,18 @@ for await (const line of createInterface({ input: process.stdin })) {
       if (scripted.step && scripted.step !== before) lines.push(`set_focus ${from} /${scripted.step}`);
       result = lines.join("\n");
     }
+    if ((control.ownership || control.script) && result.startsWith("BEGIN_PLAN")) {
+      const calls = JSON.parse(content.split("\n", 1)[0]).tools ?? [];
+      for (const call of calls) {
+        if (call.description) continue;
+        const label = call.detail.startsWith("Read:")
+          ? "Read session return path"
+          : call.detail.startsWith("Edit:")
+            ? "Edit " + call.detail.slice(5).trim()
+            : "Run focused checks";
+        result += "\ntool " + call.id + " " + label;
+      }
+    }
     if ("raw" in control) result = control.raw;
     if (content === "oversize") result = "x".repeat(9000);
     const failed = content === "fail" || !!control.fail;

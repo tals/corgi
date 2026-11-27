@@ -462,7 +462,7 @@ function applyUsage(server: Server, workers: Workers) {
     if (result.fallback(actor.state, now)) {
       if (adapter(actor.provider()).caps.native_activity) actor.checkpointActivity(false, now);
       workers.summaries.submit(actor, result.progress!.commentary, result.progress, runtime.panes);
-    } else if (result.progress) workers.summaries.tools(actor.id, actor.state, result.progress);
+    } else if (result.progress) workers.summaries.tools(actor, result.progress, runtime.panes);
     if (!actor.headless_usage && !workspaceWatched(server, result.workspace))
       runtime.workspaces.get(result.workspace)?.away.record(result.since, result.delta);
     changed(server);
@@ -532,7 +532,7 @@ export async function tick(server: Server) {
         );
         if (snapshot.lifecycle) {
           runtime.conversations.observeChildren(actor, snapshot, clock.microTimestamp());
-          workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes);
+          workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes, snapshot.calls);
         }
         changed(server);
       }

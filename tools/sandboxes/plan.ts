@@ -7,13 +7,14 @@ import * as rpc from "../../src/rpc";
 const name = "Login redirect";
 type Beat =
   | { say: string; queued?: boolean }
-  | { run: string; result: string; failed?: boolean }
+  | { run: string; result: string; failed?: boolean; description?: string }
   | { edit: string }
   | { end: true };
 /** What the agent does, a beat every few seconds. */
 const beats: Beat[] = [
   { say: "After signing in, users land on the home page instead of the page they came from. Fix it." },
   {
+    description: "Find redirect handlers",
     run: "rg -n 'redirect' src/auth",
     result: "src/auth/login.ts:41:  return redirect('/')\nsrc/auth/session.ts:12:export function returnPath(req)",
   },
@@ -46,7 +47,7 @@ const beats: Beat[] = [
 /** The plan the stand-in model reports as each beat's evidence arrives. */
 const script = [
   {
-    when: "rg -n 'redirect'",
+    when: "Find redirect handlers",
     step: "s1",
     lines: [
       "mkdir /e1 active Fix sign-in return page",
@@ -198,7 +199,7 @@ if (import.meta.main) {
         usage,
       },
     });
-    await Bun.sleep(1200);
+    await Bun.sleep(n <= 2 ? 7000 : 1200);
     record("user", {
       message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: result, is_error: failed }] },
     });
@@ -208,7 +209,12 @@ if (import.meta.main) {
       beat.queued
         ? record("attachment", { attachment: { type: "queued_command", prompt: beat.say, origin: { kind: "human" } } })
         : record("user", { message: { role: "user", content: beat.say } });
-    else if ("run" in beat) await call("Bash", { command: beat.run }, beat.result, beat.failed);
+    else if ("run" in beat && beat.description) {
+      await Promise.all([
+        call("Bash", { command: beat.run, description: beat.description }, beat.result),
+        call("Read", { file_path: "src/auth/session.ts" }, "returnPath reads the original request URL"),
+      ]);
+    } else if ("run" in beat) await call("Bash", { command: beat.run }, beat.result, beat.failed);
     else if ("edit" in beat) await call("Edit", { file_path: beat.edit }, "The file has been updated.");
     else record("system", { subtype: "turn_duration" });
     await Bun.sleep(3500);

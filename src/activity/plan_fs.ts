@@ -1,4 +1,5 @@
 import * as plan from "./plan";
+import * as plan_tools from "./plan_tools";
 import * as protocol from "./plan_protocol";
 import * as errors from "../errors";
 import * as inputText from "./plan_input";
@@ -111,6 +112,7 @@ const commands = {
   ignore: true,
   set_owner: true,
   set_focus: true,
+  tool: true,
 } as const;
 type Command = keyof typeof commands;
 type Entry = Pick<plan.Node, "id" | "parent" | "kind">;
@@ -161,6 +163,7 @@ function program(input: Input, raw: string, ownership: boolean) {
     operations: unknown[][] = [],
     evidence = input.events.map(e => e.id);
   const repairs: string[] = [];
+  const groups: plan_tools.Group[] = [];
   const owners: { from: number; to: number; node: string | null }[] = [],
     focusChanges: { at: number; node: string }[] = [];
   let cwd: string | null = null,
@@ -306,6 +309,11 @@ function program(input: Input, raw: string, ownership: boolean) {
         else operations.push(["!", id, kind, detail, proof()]);
         break;
       }
+      case "tool": {
+        const [ids, title] = fields(1, true);
+        groups.push({ ids: ids.split(",").map(Number), title });
+        break;
+      }
       case "set_owner": {
         const [range, path] = fields(2),
           match = /^([1-9][0-9]*)(?:\.\.([1-9][0-9]*))?$/.exec(range);
@@ -388,7 +396,14 @@ function program(input: Input, raw: string, ownership: boolean) {
     (a, b) => order[nodes.get(a[1] as string)!.kind] - order[nodes.get(b[1] as string)!.kind],
   );
   const applied = protocol.applyOperations(input, [...creations, ...operations]);
-  return { ...applied, repairs: [...repairs, ...applied.repairs] };
+  plan_tools.validateGroups(input.tools ?? [], groups);
+  const labeled = new Set(groups.flatMap(group => group.ids));
+  if (input.tools?.some(call => !call.description && !labeled.has(call.id))) throw Error("MissingToolLabel");
+  return {
+    ...applied,
+    patch: { ...applied.patch, ...(groups.length ? { tool_groups: groups } : {}) },
+    repairs: [...repairs, ...applied.repairs],
+  };
 }
 
 /** Encode path-addressed state while retaining literal source events and attribution IDs. */

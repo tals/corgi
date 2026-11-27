@@ -512,17 +512,7 @@
   "+ Create “${branch}”": "+ Создать «${branch}»",
   "+ New shell": "+ Новая оболочка",
   "+${count} more": "ещё ${count}",
-  "+${count} more commands": {
-    "plural": "count",
-    "forms": {
-      "one": "ещё ${count} команда",
-      "few": "ещё ${count} команды",
-      "many": "ещё ${count} команд",
-      "other": "ещё ${count} команды"
-    }
-  },
   "+${count} more pending": "ещё ${count} в ожидании",
-  "+${count}+ more commands": "ещё команд: ${count}+",
   "... ${hidden} more agents": {
     "plural": "hidden",
     "forms": {
@@ -601,7 +591,6 @@
   "Auto uses the agent CLI's last model; default leaves effort to the agent CLI.": "auto использует последнюю модель CLI агента; default оставляет выбор глубины рассуждений CLI агента.",
   "Auto-retry capacity errors": "Автоповтор при перегрузке",
   "Back to agent": "Вернуться к агенту",
-  "Background commands": "Фоновые команды",
   "Backspace undo": "Backspace отмена",
   "Binary file": "Двоичный файл",
   "Binary file · no text diff": "Двоичный файл · нет текстовых изменений",
@@ -613,7 +602,6 @@
   "Build ${commit}": "Сборка ${commit}",
   "Build ${commit} built on ${time}": "Сборка ${commit} от ${time}",
   "Build: ": "Сборка: ",
-  "Builds": "Сборки",
   "By activity": "По активности",
   "Bye! To reinstall: ${command}": "Пока! Чтобы установить снова: ${command}",
   "COPY": "КОПИРОВАТЬ",
@@ -663,7 +651,6 @@
   "Command keys": "Клавиши Command",
   "Command shortcuts": "Сочетания Command",
   "Command too long": "Слишком длинная команда",
-  "Commands": "Команды",
   "Commands print text; --json prints the daemon's reply as JSON instead.": "Команды выводят текст; --json выводит ответ сервера в формате JSON.",
   "Comment": "Комментировать",
   "Commit": "Коммит",
@@ -890,7 +877,6 @@
   "Kitty graphics": "Графика Kitty",
   "Language": "Язык",
   "Last active": "Последняя активность",
-  "Last reported": "Последние данные",
   "Last seen": "Последняя активность",
   "Last visited": "Вернуться",
   "Last visited agent": "Последний выбранный агент",
@@ -1152,7 +1138,6 @@
   "Run ${command} in a terminal outside Corgi.": "Выполните ${command} в терминале вне Corgi.",
   "Run ${command} to start.": "Для запуска выполните ${command}.",
   "Run Corgi outside ${program} to enable paste with ${key}.": "Запустите Corgi вне ${program} для вставки через ${key}.",
-  "Running": "Выполняется",
   "Running a tool": "Выполняет инструмент",
   "Runs: ": "Запуск: ",
   "SCROLL  j/k move  y copy viewport  q exit": "ПРОКРУТКА  j/k движение  y копировать экран  q выход",
@@ -1196,7 +1181,6 @@
   "Sent ${signalName} to ${what}": "Сигнал ${signalName} отправлен: ${what}",
   "Served links": "Обслуживаемые ссылки",
   "Served links will go offline.": "Обслуживаемые ссылки станут недоступны.",
-  "Servers": "Серверы",
   "Session ended": "Сеанс завершён",
   "Set clipboard-read = ask to enable paste with ${key}.": "Установите clipboard-read = ask для вставки через ${key}.",
   "Settings": "Настройки",
@@ -1257,7 +1241,6 @@
   "TOP PROCESSES": "ОСНОВНЫЕ ПРОЦЕССЫ",
   "Terminal": "Терминал",
   "Terminal capabilities": "Возможности терминала",
-  "Tests": "Тесты",
   "That key is already in the set.": "Эта клавиша уже есть в наборе.",
   "That key is not supported. Try another key.": "Эта клавиша не поддерживается. Попробуйте другую.",
   "That pane closed; the notes are kept.": "Панель закрылась; заметки сохранены.",

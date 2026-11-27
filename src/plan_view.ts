@@ -4,8 +4,18 @@ import * as palette from "./palette";
 import * as text from "./text";
 import { Rect } from "./layout";
 
+type ToolRow = { kind: "tool"; parent: Node | null; title: string; active: boolean };
 type Row =
-  | { kind: "node"; node: Node; depth: number; counts?: roadmap.Counts; current?: boolean; returned?: boolean }
+  | {
+      kind: "node";
+      node: Node;
+      depth: number;
+      counts?: roadmap.Counts;
+      current?: boolean;
+      returned?: boolean;
+      tools?: ToolRow[];
+    }
+  | ToolRow
   | { kind: "more"; parent: Node; count: number }
   | { kind: "pending"; parent: Node | null; active?: boolean };
 const rowHeight = (row: Row) => (row.kind === "node" && row.node.bump ? 2 : 1);
@@ -13,6 +23,12 @@ const currentStep = (view: roadmap.Snapshot, node: Node) => node.id === view.foc
 type Block = { episode: Node; heading: Extract<Row, { kind: "node" }>; children: Row[] };
 function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
   if (view.visits.length) {
+    const tools = new Map<number | null, roadmap.Snapshot["tool_rows"]>();
+    for (const tool of view.tool_rows ?? []) {
+      const rows = tools.get(tool.visit) ?? [];
+      rows.push(tool);
+      tools.set(tool.visit, rows);
+    }
     const nodes = new Map(view.nodes.map(n => [n.id, n])),
       seenEpisodes = new Set<string>(),
       bumps = new Map<string, number>(),
@@ -53,6 +69,14 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
           : block.children.splice(index, 1)[0];
       block.children.push(child);
       if (child.kind === "node") {
+        for (const tool of [...(tools.get(visit.from) ?? []), ...(latest ? (tools.get(null) ?? []) : [])]) {
+          (child.tools ??= []).push({
+            kind: "tool",
+            parent: step,
+            title: tool.title,
+            active: running !== false && tool.running,
+          });
+        }
         child.counts = roadmap.add(child.counts!, visit.counts);
         child.current = running !== false && latest && currentStep(view, step);
         if (bumps.get(step.id) === i) child.node.bump = step.bump;
@@ -60,6 +84,8 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
       if (block.heading.current && ["done", "abandoned", "planned"].includes(step.state))
         block.children.push({ kind: "pending", parent: episode });
     });
+    for (const block of blocks)
+      block.children = block.children.flatMap(row => (row.kind === "node" && row.tools ? [row, ...row.tools] : [row]));
     return blocks;
   }
   const step = view.nodes.find(n => n.id === view.focus_step);
@@ -89,10 +115,30 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
 }
 export function tail(view: roadmap.Snapshot, count: number, running: boolean | null = null) {
   const groups = blocks(view, running);
+  const loose = (view.visits.length ? [] : (view.tool_rows ?? [])).map(r => ({
+    kind: "tool" as const,
+    parent: null,
+    title: r.title,
+    active: running !== false && r.running,
+  }));
+  if (!groups.length && loose.length) {
+    const selected = new Set(
+      loose
+        .toReversed()
+        .sort((a, b) => Number(b.active) - Number(a.active))
+        .slice(0, Math.max(0, count)),
+    );
+    return { rows: loose.filter(r => selected.has(r)), hidden: loose.length - selected.size };
+  }
+  if (loose.length) groups.at(-1)?.children.push(...loose);
   let pending: Row | null = null;
   if (
     running &&
-    !groups.some(b => b.children.some(r => r.kind === "node" && (r.current ?? currentStep(view, r.node))))
+    !groups.some(b =>
+      b.children.some(
+        r => (r.kind === "tool" && r.active) || (r.kind === "node" && (r.current ?? currentStep(view, r.node))),
+      ),
+    )
   ) {
     const last = groups.at(-1);
     if (last && (last.heading.current ?? (last.episode.id === view.focus && last.episode.state === "active"))) {
@@ -109,13 +155,12 @@ export function tail(view: roadmap.Snapshot, count: number, running: boolean | n
       (r.kind === "node" &&
         (r.current ?? (currentStep(view, r.node) || (r.node.id === view.focus && r.node.state === "active")))),
   );
-  let rows: Row[] = [];
-  // Keep the latest work and its episode visible in short terminals.
-  for (let start = all.length; start >= 0; start--) {
-    const selected = new Set([...all.slice(start), ...pinned]);
-    let candidate: Row[] = [];
+  const items = all.filter(r => r.kind === "node" || r.kind === "tool");
+  const fit = (selected: Set<Row>) => {
+    const candidate: Row[] = [];
     for (const { episode, heading, children } of groups) {
       if (!selected.has(heading) && !children.some(r => selected.has(r))) continue;
+      const parents = new Set(children.flatMap(r => (r.kind === "tool" && selected.has(r) ? [r.parent?.id] : [])));
       candidate.push(heading);
       let hidden = 0;
       const gap = () => {
@@ -123,18 +168,30 @@ export function tail(view: roadmap.Snapshot, count: number, running: boolean | n
         hidden = 0;
       };
       for (const child of children) {
-        if (selected.has(child)) {
+        if (selected.has(child) || (child.kind === "node" && parents.has(child.node.id))) {
           gap();
           candidate.push(child);
-        } else if (child.kind === "node") hidden++;
+        } else if (child.kind === "node" || child.kind === "tool") hidden++;
       }
       gap();
     }
+    return candidate;
+  };
+  // Keep as many running tools as fit, even when newer calls have already finished.
+  for (const tool of all.filter(r => r.kind === "tool" && r.active).reverse()) {
+    if (height(fit(new Set([...pinned, tool]))) <= room) pinned.push(tool);
+    else break;
+  }
+  let rows: Row[] = [];
+  // Keep the latest work and its episode visible in short terminals.
+  for (let start = all.length; start >= 0; start--) {
+    const selected = new Set([...all.slice(start), ...pinned]);
+    const candidate = fit(selected);
     if (candidate.reduce((sum, r) => sum + rowHeight(r), 0) <= room) rows = candidate;
     if (all.slice(start).reduce((sum, r) => sum + rowHeight(r), 0) > room) break;
   }
   if (pending) rows.push(pending);
-  return { rows, hidden: all.filter(r => r.kind === "node").length - rows.filter(r => r.kind === "node").length };
+  return { rows, hidden: items.length - rows.filter(r => r.kind === "node" || r.kind === "tool").length };
 }
 export const height = (rows: Row[]) => rows.reduce((sum, row) => sum + rowHeight(row), 0);
 export function drawRows(
@@ -150,6 +207,11 @@ export function drawRows(
   rows.forEach((entry, i) => {
     const next = rows[i + 1],
       last = !next || (next.kind === "node" && next.depth === 0) || (next.kind === "pending" && next.parent === null);
+    if (entry.kind === "tool") {
+      const indent = entry.parent ? "     " : "  ";
+      paint.line(y++, indent + (entry.active ? "▶ " : "  ") + entry.title, null, entry.active ? "accent" : "muted");
+      return;
+    }
     if (entry.kind !== "node") {
       if (entry.kind === "pending" && entry.active) paint.line(y++, entry.parent ? "  ┣▶ …" : "▶ …", null, "accent");
       else

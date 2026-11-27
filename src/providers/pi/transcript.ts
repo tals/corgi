@@ -94,7 +94,8 @@ export const transcript: Transcript = {
               call.id = t.progress.key(id);
               call.append(str(b, "name") + ": ");
               const args = field(b, "arguments");
-              call.detail(str(args, "command") || shortPath(str(args, "path")));
+              call.describe(str(args, "description") || str(args, "title") || str(b, "intent") || str(args, "i"));
+              call.detail(call.description || str(args, "command") || shortPath(str(args, "path")));
               t.progress.save(call, true);
             }
           }

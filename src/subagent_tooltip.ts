@@ -426,39 +426,6 @@ export class Card {
   ink(tone: Tone): string {
     return this.faded ? Tone.faded(tone) : Tone.ansi(tone);
   }
-  backgroundTasks(row: number, tasks: BackgroundView, budget: number): number {
-    if (budget < 2 || tasks.items.length === 0) return 0;
-    const age = microTimestamp() - tasks.observed_at;
-    const live = tasks.live && age >= 0 && age <= fresh_window;
-    this.line(row, i18n.t`Background commands`, live ? i18n.t`Running` : i18n.t`Last reported`, "title", "muted");
-    const shown = Math.min(tasks.items.length, budget - 1 - Number(tasks.items.length + 1 > budget || tasks.truncated));
-    const labels: Record<BackgroundGroupName, string> = {
-      tests: i18n.t`Tests`,
-      builds: i18n.t`Builds`,
-      servers: i18n.t`Servers`,
-      commands: i18n.t`Commands`,
-    };
-    let offset = 1;
-    for (const group of ["tests", "builds", "servers", "commands"] as const) {
-      for (const task of tasks.items) {
-        if (task.group !== group || offset > shown) continue;
-        this.line(row + offset, `${labels[group]} · ${task.label}`, "", "text", "muted");
-        offset += 1;
-      }
-    }
-    if (shown < tasks.items.length || tasks.truncated) {
-      const count = tasks.items.length - shown;
-      this.line(
-        row + offset,
-        tasks.truncated ? i18n.t`+${count}+ more commands` : i18n.t`+${count} more commands`,
-        "",
-        "faint",
-        "faint",
-      );
-      offset += 1;
-    }
-    return offset;
-  }
   checklist(row: number, list: checklist.List, view: checklist_view.Window) {
     this.w.write(`\x1b[${row + 2};${this.x + 1}H${base}${this.ink("border")}├${"─".repeat(this.width - 2)}┤`);
     const done = view.done,
@@ -1410,12 +1377,12 @@ export function draw(
   const model = children_available ? Model.init(all, parent) : Object.assign(new Model(), { total: root.usage });
   const width = Math.min(88, cols);
   const pending = root.timeline.points.length > 0;
-  const has_plan = root.activity_plan.nodes.length > 0;
+  const has_plan = root.activity_plan.nodes.length > 0 || !!root.activity_plan.tool_rows?.length;
   const plan_tail = has_plan ? plan_view.tail(root.activity_plan, 16, root_agent.state === "working") : null;
   const plan_height = plan_tail ? Number(plan_tail.hidden > 0) + plan_view.height(plan_tail.rows) : 0;
   const timeline_nodes = Math.min(
     16,
-    has_plan
+    has_plan || !root.timeline.points.length
       ? 0
       : root.timeline.points.length +
           Number(root_agent.state === "working" && root_agent.activity.length === 0 && !root_agent.compacting),
@@ -1423,20 +1390,10 @@ export function draw(
   const timeline_height = timeline_nodes > 0 ? timeline_nodes + 1 : 0;
   const child_footer =
     children_available && model.children === 0 && (entry.subagents.running > 0 || entry.subagents.blocked > 0);
-  const tasks = root.background_tasks;
-  const task_height = tasks.items.length > 0 ? Math.min(8, tasks.items.length + 1 + Number(tasks.truncated)) : 0;
   const todo_view = checklist_view.window(root.checklist);
   const todo_height = checklist_view.visible(root.checklist, microTimestamp()) ? todo_view.rows + 3 : 0;
-  // Until there is a timeline, the activity takes its own line under the subtitle.
-  const activity_row = timeline_nodes === 0 && !has_plan;
   const wanted =
-    7 +
-    Number(activity_row) +
-    timeline_height +
-    plan_height +
-    task_height +
-    todo_height +
-    (model.children > 0 ? model.children + 3 : Number(child_footer));
+    7 + timeline_height + plan_height + todo_height + (model.children > 0 ? model.children + 3 : Number(child_footer));
   const height = Math.min(wanted, rows - 2);
   const x = Math.min(px + 2, cols - width);
   const y = Math.min(py + 1, rows - 1 - height);
@@ -1457,15 +1414,6 @@ export function draw(
   w.write(
     `\x1b[${top + 1};${x + width - 2 - displayWidth(status_text)}H${base}${Tone.ansi(root_status.tone)}${root_status.icon}`,
   );
-  const root_activity =
-    root_agent.activity.length === 0 &&
-    root_agent.recent_activity.length === 0 &&
-    !root_agent.tool_active &&
-    !root_agent.compacting &&
-    !root_agent.subagents.waiting &&
-    root_agent.state === "working"
-      ? thinking()
-      : activity(root_agent);
   // The subtitle names the provider and model, with the context meter beside it.
   const provider = providerName(root_agent);
   const model_label = modelLabel(root);
@@ -1490,23 +1438,19 @@ export function draw(
     w.write(`\x1b[${top + 2};${x + 4 + displayWidth(subtitle)}H${base}${Tone.ansi("faint")}${email}`);
   }
   if (metered) card.meter(top + 1, root.context, root_agent.state === "working" && root_agent.compacting);
-  const header = top + 2 + Number(activity_row);
-  if (activity_row) card.line(top + 2, root_activity, "", "muted", "muted");
+  const header = top + 2;
   card.tokenColumns(header, null, false, "faint");
   card.cell(header + 1, 0, card.textWidth(), i18n.t`Total`, "text", false);
   card.tokenColumns(header + 1, root.usage, false, root.usage.known ? "title" : "muted");
   let row = header + 2;
   const bottom = y + height - 1;
   const minimum_activity = has_plan ? 4 : 2;
-  const todo_room = sat(bottom, row + task_height + minimum_activity + (model.children > 0 ? 3 : Number(child_footer)));
+  const todo_room = sat(bottom, row + minimum_activity + (model.children > 0 ? 3 : Number(child_footer)));
   const fitted_todos = checklist_view.window(root.checklist, 5, Math.max(0, todo_room - 3));
   const todo_budget = todo_height > 0 && fitted_todos.items.length > 0 ? fitted_todos.rows + 3 : 0;
   const todo_top = bottom - todo_budget;
   const footer_row = todo_top - 1;
   const end = model.children > 0 || child_footer ? footer_row : todo_top;
-  // Give requested background work priority on short terminals. The section
-  // stays bounded and reports omitted commands explicitly.
-  row += card.backgroundTasks(row, tasks, Math.min(task_height, sat(end, row + (has_plan ? 4 : 0))));
   // Reserve child rows and the combined total; use the rest for recent phases.
   const room = sat(end, row);
   const total_rows = model.children > 0 ? 2 : 0;
