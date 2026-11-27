@@ -1581,12 +1581,10 @@ process.stdin.on("data", chunk => {
       process.kill(pid, "SIGCONT");
     }
     this.assertFalse((await this.remote!.command("pane.read", { target: 1 })).text.includes("FROM_LOCAL_VIEW"));
-    await this.until(() => screen().includes("▌REMOTE_WORKSPACE") && !screen().includes("Ctrl+R retry"), 12);
-    this.terminal.write("AFTER_RECONNECT\r");
-    await this.remote!.until(
-      async () => (await this.remote!.command("pane.read", { target: 1 })).text.includes("AFTER_RECONNECT"),
-      5,
-    );
+    // A fresh pane frame confirms the viewer has caught up after SIGCONT.
+    await this.remote!.command("pane.input", { target: 1, data: "REMOTE_RESUMED\r" });
+    await this.until(() => screen().includes("REMOTE_RESUMED") && !screen().includes(" ⟳ "), 12);
+    await this.sendRemote("AFTER_RECONNECT");
     // Held, it would have gone ahead of the line typed after the outage.
     this.assertNotIn("TYPED_WHILE_OFFLINE", (await this.remote!.command("pane.read", { target: 1 })).text);
   }
@@ -1613,16 +1611,13 @@ process.stdin.on("data", chunk => {
       this.terminal!.write("\x1d");
       await this.until(() => !this.text().includes("All workspaces"), 1);
       this.clickWorkspace("LOCAL");
-      await this.online("local", 1);
-      this.terminal!.write(`LOCAL_WHILE_RECOVERY_HANGS_${round}\r`);
-      await this.until(
-        async () =>
-          (await this.command("pane.read", { target: 1 })).text.includes(`LOCAL_WHILE_RECOVERY_HANGS_${round}`),
-        1,
-      );
+      await this.until(() => this.text().includes("▌LOCAL_WORKSPACE"), 1);
+      const marker = `LOCAL_WHILE_RECOVERY_HANGS_${round}`;
+      this.terminal!.write(marker + "\r");
+      await this.until(() => this.text().includes(marker), 1);
       this.assertLess(performance.now() - started, 2000);
       this.clickWorkspace("REMOTE");
-      await Bun.sleep(100);
+      await this.until(() => this.text().includes("▌REMOTE_WORKSPACE"), 1);
     }
     await this.until(() => this.network!.accepted > shared + 1, 20);
     await this.online(undefined, 20);
