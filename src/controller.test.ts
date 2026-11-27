@@ -1622,6 +1622,89 @@ test("a new viewer scrolls the agent list where the last one left the same list"
   }
 });
 
+/** A first workspace with one agent and a second with thirty, one per tab:
+ * more than the agent list shows at once. */
+function longList() {
+  const snapshot: any = pair();
+  const ids = Array.from({ length: 30 }, (_, i) => i + 10);
+  snapshot.workspaces[0].model = { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 };
+  snapshot.workspaces[1].model = {
+    nodes: ids.map(id => ({ pane: id })),
+    tabs: ids.map((id, i) => ({ id, root: i, title: "" })),
+    revision: 0,
+  };
+  snapshot.panes = [1, ...ids].map(id => ({
+    id,
+    workspace: id === 1 ? 1 : 2,
+    tab: id,
+    cols: 40,
+    rows: 24,
+    agent: {
+      provider: "claude",
+      name: `agent ${id}`,
+      state: "idle",
+      attention: "none",
+      observation: { completed: 0, read: 0 },
+    },
+  }));
+  return snapshot;
+}
+
+/** Whether pane `id`'s row is in the agent list's visible stretch. */
+function agentShown(s: ReturnType<typeof controller>, id: number): boolean {
+  const entries = s.sidebarEntries(),
+    view = s.sidebarView(entries),
+    index = entries.findIndex((e: sidebar.Entry) => e.target === viewerRef.pane(s.machine.id, id));
+  return index >= view.offset && index < view.offset + view.fits(view.offset);
+}
+
+test("focusing a pane from outside the list scrolls the list to its agent", () => {
+  const s = controller();
+  s.receiveSnapshot(longList());
+  try {
+    s.focusPane(10);
+    s.frame();
+    expect(agentShown(s, 39)).toBe(false);
+    s.focusPane(39);
+    s.frame();
+    expect(agentShown(s, 39)).toBe(true);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("focusing an agent already in view leaves the list's scroll alone", () => {
+  const s = controller();
+  s.receiveSnapshot(longList());
+  try {
+    s.focusPane(10);
+    s.frame();
+    s.agentOffset().set(1);
+    s.focusPane(12);
+    s.frame();
+    expect(s.agentOffset().get()).toBe(1);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("switching back to a workspace scrolls its list to the agent focused there", () => {
+  const s = controller();
+  s.receiveSnapshot(longList());
+  try {
+    s.focusPane(39);
+    s.frame();
+    s.agentOffset().set(0);
+    s.switchWorkspace(1);
+    s.frame();
+    s.switchWorkspace(2);
+    s.frame();
+    expect(agentShown(s, 39)).toBe(true);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("open adds a workspace for a folder no workspace is on", async () => {
   const commands: any[] = [];
   let snapshot = folders("/a");
