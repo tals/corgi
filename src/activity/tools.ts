@@ -1,3 +1,4 @@
+import * as script_tools from "./script_tools";
 import { Text } from "./summary";
 import { BoundedText } from "../bounded_text";
 class Turn extends BoundedText(160) {}
@@ -30,27 +31,6 @@ export function shortPath(path: string) {
   const last = path.lastIndexOf("/"),
     parent = path.lastIndexOf("/", last - 1);
   return parent < 0 ? path : path.slice(parent + 1);
-}
-export function scriptString(args: string, key: string): string | null {
-  let from = 0;
-  while (true) {
-    const at = args.indexOf(key, from);
-    if (at < 0) return null;
-    from = at + key.length;
-    let i = from;
-    if (args[i] === '"') i++;
-    while (args[i] === " ") i++;
-    if (args[i++] !== ":") continue;
-    while (args[i] === " ") i++;
-    if (!['"', "'", "`"].includes(args[i])) continue;
-    const quote = args[i++],
-      start = i;
-    while (i < args.length && args[i] !== quote) {
-      if (args[i] === "\\") i++;
-      i++;
-    }
-    return args.slice(start, i);
-  }
 }
 /** One short line of provider prose, safe to write into a terminal. */
 export function shortLabel(value: string) {
@@ -117,62 +97,27 @@ export class Call {
     }
     return found;
   }
-  appendScriptLine(raw: string) {
-    const line = raw
-      .split(/[\r\n]/, 1)[0]
-      .split(/\\[nr]/, 1)[0]
-      .replace(/\\t/g, " ")
-      .replace(/\\(.)/g, "$1");
-    this.append(clip(line.trim(), 128));
-  }
-  /** A literal array mapped into exec_command({cmd}). Never evaluate the script. */
-  private mappedCommands(code: string) {
-    const array = String.raw`\[\s*"(?:\\.|[^"\\])*"(?:\s*,\s*"(?:\\.|[^"\\])*")*\s*\]`;
-    for (const match of code.matchAll(new RegExp(array, "g"))) {
-      const after = code.slice(match.index! + match[0].length);
-      const variable = code.slice(0, match.index).match(/\b(?:let|const)\s+([$\w]+)\s*=\s*$/)?.[1];
-      const reference = variable ? after.indexOf(variable + ".map(") : 0;
-      if (reference < 0) continue;
-      const use = variable ? after.slice(reference + variable.length) : after;
-      if (
-        !/^\s*\.map\(\s*(?:async\s+)?\(?\s*cmd\s*\)?\s*=>\s*(?:await\s+)?tools\.exec_command\(\s*\{\s*cmd\s*[,}]/.test(
-          use,
-        )
-      )
-        continue;
-      try {
-        const commands: string[] = JSON.parse(match[0]);
-        return commands.map(cmd => clip(cmd.split("\n", 1)[0], 54)).join("; ");
-      } catch {}
-    }
-    return "";
-  }
   script(code: string) {
     const start = Buffer.byteLength(this.value);
-    let found = false,
-      rest = code;
-    while (true) {
-      const at = rest.indexOf("tools.");
-      if (at < 0 || Buffer.byteLength(this.value) >= start + 120) break;
-      rest = rest.slice(at + 6);
-      const name = rest.match(/^[A-Za-z0-9_]+/)?.[0];
-      if (!name) continue;
-      rest = rest.slice(name.length);
-      const end = rest.indexOf("tools."),
-        args = end < 0 ? rest : rest.slice(0, end);
-      if (found) this.append("; ");
-      found = true;
-      if (name === "exec_command") {
-        const cmd = scriptString(args, "cmd");
-        if (cmd !== null) this.appendScriptLine(cmd);
-        else this.append(this.mappedCommands(code) || name);
-      } else if (name === "apply_patch") {
+    const calls = script_tools.read(code);
+    if (!this.description && calls.length === 1 && calls[0].description) this.describe(calls[0].description);
+    for (const [i, call] of calls.entries()) {
+      if (Buffer.byteLength(this.value) >= start + 120) {
+        this.bound(start, true);
+        return true;
+      }
+      if (i) this.append("; ");
+      if (call.name === "apply_patch") {
         this.append("apply_patch ");
-        this.patchFiles(args);
-      } else this.append(name);
+        this.patchFiles(call.args[0]);
+      } else if (call.name === "exec_command" && call.args.length) {
+        this.append(
+          call.args.map(cmd => clip(cmd.split(/\r?\n/, 1)[0].trim(), call.args.length > 1 ? 54 : 128)).join("; "),
+        );
+      } else this.append(call.description || call.name);
     }
-    if (found) this.bound(start, rest.includes("tools."));
-    return found;
+    this.bound(start, false);
+    return calls.length > 0;
   }
 }
 export class Tracker {

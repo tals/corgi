@@ -341,3 +341,53 @@ test("code-mode tool outputs preserve failed commands inside a completed script 
     Tracker.restore(JSON.parse(JSON.stringify(t, (_, v) => (typeof v === "bigint" ? String(v) : v)))).view().calls,
   ).toEqual(t.view().calls);
 });
+
+test("code-mode labels use the command column of parallel tuples and ignore tool names in strings", () => {
+  const t = new Tracker();
+  t.bind("turn");
+  const input =
+    'const work = [["viewer", "cat src/activity/tools.ts"], ["usage", `rg outcome src/usage.ts`]]; ' +
+    "await Promise.allSettled(work.map(async ([label, command]) => text([label, (await tools.exec_command({cmd: command})).output]))); " +
+    'text("tools.exec_command({cmd: decoy})"); // tools.other({})';
+  for (const [id, args] of [
+    ["named", input],
+    [
+      "inline",
+      input
+        .replace("const work = ", "const unrelated = ")
+        .replace("work.map", '[["A","cat a.ts"],["B","cat b.ts"]].map'),
+    ],
+  ]) {
+    codexUsage.progress(
+      t,
+      { type: "response_item", payload: { type: "custom_tool_call", name: "exec", call_id: id, input: args } },
+      true,
+    );
+  }
+  expect(t.view().calls.map(c => c.detail)).toEqual([
+    "exec: cat src/activity/tools.ts; rg outcome src/usage.ts",
+    "exec: cat a.ts; cat b.ts",
+  ]);
+});
+
+test("JSON code wrappers keep the supplied description and a statically known command", () => {
+  const t = new Tracker();
+  t.bind("turn");
+  codexUsage.progress(
+    t,
+    {
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        call_id: "wrapped",
+        name: "exec",
+        arguments: JSON.stringify({
+          description: "Check the parser",
+          code: 'const task="bun test parser"; return tools.exec_command({cmd:task, title:"Nested title"});',
+        }),
+      },
+    },
+    true,
+  );
+  expect(t.view().calls[0]).toMatchObject({ description: "Check the parser", detail: "exec: bun test parser" });
+});

@@ -222,7 +222,7 @@ export function progress(t: Tools, value: any, live: boolean) {
         detail =
           ["description", "title", "cmd", "command", "code", "query"].map(k => str(args, k)).find(Boolean) ?? input;
       call.describe(str(args, "description") || str(args, "title"));
-      call.detail(detail);
+      if (!str(args, "code") || !call.script(str(args, "code"))) call.detail(detail);
     } catch {
       const start = Buffer.byteLength(call.value);
       if (input.trimStart().startsWith("*** Begin Patch") && call.patchFiles(input)) call.bound(start, false);
