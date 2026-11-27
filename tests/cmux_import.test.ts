@@ -125,18 +125,43 @@ class CmuxImport extends TestCase {
     this.assertEqual(new Set(ws.map((w: any) => w.name)), new Set(["Old w1", "Old w2"]));
     this.assertTrue(ws.every((w: any) => w.model.tabs.length === 1));
   }
-  async test_unreadable_source_is_not_reported_as_empty_and_blinks_without_input() {
-    const v = await this.wizard("unreadable", 76, 26);
-    await this.fixture.until(async () => (await this.text(v, 76, 26)).includes("No workspaces could be recovered"));
+  async test_onboarding_skips_import_when_the_only_source_is_unreadable() {
+    const v = await this.wizard("unreadable", 76, 26),
+      seen: string[] = [];
+    await this.fixture.until(async () => {
+      seen.push(await this.text(v, 76, 26));
+      return !seen.at(-1)!.includes("Welcome to Corgi");
+    });
+    for (const text of seen) {
+      this.assertNotIn("I'm confused by this cmux version.", text);
+      this.assertNotIn("No workspaces could be recovered", text);
+    }
+  }
+  async test_setup_reports_an_unreadable_source_and_blinks_without_input() {
+    const v = await this.wizard("unreadable");
+    await this.fixture.until(async () => !(await this.text(v)).includes("Welcome to Corgi"));
+    const ids = async () => (await this.fixture.rpc({ op: "session.snapshot" })).panes.map((p: any) => p.id),
+      panes = await ids();
+    await v.input("\x02i");
+    await this.fixture.until(async () => (await this.text(v)).includes("Corgi setup"));
+    // Import from's cmux row, in the list left of the options.
+    const rows = screen_text((await v.poll()).data, 100, 34),
+      heading = rows.findIndex(row => row.includes("Import from")),
+      y = rows.findIndex((row, i) => i > heading && row.indexOf("cmux") >= 0 && row.indexOf("cmux") < 30);
+    this.assertGreaterEqual(heading, 0);
+    this.assertGreaterEqual(y, 0);
+    const x = rows[y].indexOf("cmux") + 1;
+    await v.input(`\x1b[<0;${x};${y + 1}M\x1b[<0;${x};${y + 1}m`);
+    await this.fixture.until(async () => (await this.text(v)).includes("No workspaces could be recovered"));
     const frames = new Set<string>();
     await this.fixture.until(async () => {
-      const text = await this.text(v, 76, 26);
+      const text = await this.text(v);
       for (const frame of ["ᐱoᴥ°ᐱ", "ᐱ─ᴥ─ᐱ"]) if (text.includes(frame)) frames.add(frame);
       this.assertIn("I'm confused by this cmux version.", text);
       this.assertNotIn("No available sessions found", text);
       return frames.size === 2;
     }, 6);
-    this.assertEqual((await this.fixture.rpc({ op: "session.snapshot" })).panes, []);
+    this.assertEqual(await ids(), panes);
   }
   async test_recovery_notes_keep_mouse_selection_aligned_at_minimum_size() {
     const v = await this.wizard("old", 76, 26);
