@@ -287,6 +287,8 @@ type Line =
   | { tag: "title" | "lead" | "note" | "warn"; text: string }
   /** One line under a setting in a group, aligned with its name. */
   | { tag: "brief"; text: string; tone?: "muted" | "warm" }
+  /** A section's name, or a faint label, in the column where options keep their marks. */
+  | { tag: "section" | "caption"; text: string }
   /** The top or bottom of the box around an `edit` option. */
   | { tag: "box"; edge: "top" | "bottom" }
   /** What a field makes, after an arrow; a long one keeps its end. */
@@ -1318,6 +1320,10 @@ export class Menu implements LinkSource {
         case "warn":
           w.write(at(x0, y) + (line.tag === "warn" ? warm : panel));
           return writeEllipsis(w, line.text, right - x0);
+        case "section":
+        case "caption":
+          w.write(at(x0 + 2, y) + (line.tag === "section" ? bright : panel));
+          return writeEllipsis(w, line.text, right - x0 - 2);
         case "brief":
           w.write(
             at(x0 + 4, y) + (line.tone === "muted" ? settingRow.normal.muted : line.tone === "warm" ? warm : panel),
@@ -1773,10 +1779,10 @@ export class Menu implements LinkSource {
         ];
       case "ui_style":
         return [
-          title(i18n.t`Sidebar`),
+          { tag: "section", text: i18n.t`Sidebar` },
           ...sidebarOptions(prefs.sidebar_position).map(option),
           blank,
-          title(i18n.t`Visual flourishes`),
+          { tag: "section", text: i18n.t`Visual flourishes` },
           option({
             label: i18n.t`Intensity`,
             detail: "",
@@ -1788,7 +1794,7 @@ export class Menu implements LinkSource {
           { tag: "intensity" },
           { tag: "intensity_ends" },
           blank,
-          { tag: "brief", text: i18n.t`Preview` },
+          { tag: "caption", text: i18n.t`Preview` },
           ...Array.from({ length: 8 }, (_, row): Line => ({ tag: "corgi_preview", row })),
         ];
       case "readings":

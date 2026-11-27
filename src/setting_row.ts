@@ -93,14 +93,20 @@ export function drawChoice(
   const p = fill(w, x, y, width, here);
   drawValue(w, p, x, y, width, label, `${on ? "●" : "○"} ${choice} ▾`, on ? p.accent : p.quiet);
 }
-/** A slider's row: its name, and its level at the right edge, green while on. */
+/** A slider's row: its name where options keep their marks, and its level at
+ * the right edge, green while on. */
 export function drawLevel(w: Writer, x: number, y: number, width: number, label: string, level: number, here: boolean) {
-  const p = fill(w, x, y, width, here);
-  drawValue(w, p, x, y, width, label, level === 0 ? i18n.t`Off` : `${level}%`, level === 0 ? p.quiet : p.accent);
+  const p = fill(w, x, y, width, here),
+    t = track(x, width),
+    value = level === 0 ? i18n.t`Off` : `${level}%`,
+    value_x = t.end + 1 - displayWidth(value);
+  w.write(at(t.start, y) + p.label);
+  writeEllipsis(w, label, sat(value_x - 1, t.start));
+  w.write(at(value_x, y) + (level === 0 ? p.quiet : p.accent) + value);
 }
 /** The columns a slider's track spans under its row: from its name to its level's end. */
 export function track(x: number, width: number): { start: number; end: number } {
-  return { start: x + 6, end: x + width - 3 };
+  return { start: x + 4, end: x + width - 3 };
 }
 function drawValue(
   w: Writer,
