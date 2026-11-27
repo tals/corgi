@@ -376,7 +376,7 @@ test("moving between hover menus starts a new wait and keyboard opening bypasses
   }
 });
 
-test.each(setupItems.filter(item => item !== "flourishes"))("Escape closes setup from %s", async item => {
+test.each(setupItems)("Escape closes setup from %s", async item => {
   const s = controller();
   s.receiveSnapshot(folders("/a"));
   s.input_state.attached = true;
@@ -397,6 +397,7 @@ test("Left returns to setup's list while Escape closes an open dropdown", async 
   s.receiveSnapshot(folders("/a"));
   s.input_state.attached = true;
   const menu = SetupMenu.open();
+  menu.item = "clever_corgi";
   menu.openOptions(s.runtime.inference, s.prefs);
   s.corgi_setup = menu;
   try {
@@ -417,6 +418,7 @@ test("Clever Corgi's model search takes typing and bracketed paste without chang
   s.receiveSnapshot(folders("/a"));
   s.input_state.attached = true;
   const menu = SetupMenu.open();
+  menu.item = "clever_corgi";
   menu.openOptions(s.runtime.inference, s.prefs);
   menu.enter(s.runtime.inference, s.prefs);
   s.corgi_setup = menu;
@@ -446,7 +448,7 @@ test("setup previews intensity drags and saves once on release, including outsid
   s.input_state.attached = true;
   s.corgi_setup = SetupMenu.open();
   const menu: SetupMenu = s.corgi_setup;
-  menu.item = "flourishes";
+  menu.item = "ui_style";
   menu.openOptions(s.runtime.inference, s.prefs);
   try {
     let point: { x: number; y: number } | null = null;
@@ -3104,6 +3106,9 @@ test("setup requests models as soon as Clever Corgi is visible without waiting f
   try {
     s.openSetup();
     expect(s.frame()).toContain("Corgi setup");
+    await s.corgi_setup.poll(s.rpc(), s.width, s.height);
+    expect(requests.filter(op => op === "inference.configure")).toHaveLength(0);
+    s.corgi_setup.item = "clever_corgi";
     await s.corgi_setup.poll(s.rpc(), s.width, s.height);
     expect(requests.filter(op => op === "inference.configure")).toHaveLength(1);
     await s.key(13);

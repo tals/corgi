@@ -33,7 +33,7 @@ export const world: World = {
         ["drag", "the rule under the band for its height, the divider for the workspace column"],
         [`${s.prefixName} ↑ ↓`, "into the band from the panes, and back"],
         [`${s.prefixName} ← →`, "between the workspace and agent lists"],
-        ["setup", "Sidebar: Left, Top, or Auto (top on a portrait window)"],
+        ["setup", "UI Style → Sidebar: Left, Top, or Auto (top on a portrait window)"],
       ]),
     ];
   },

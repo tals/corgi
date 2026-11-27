@@ -7151,7 +7151,7 @@ export class Controller {
       }
       switch (byte) {
         case 27:
-          if (!setup.escape()) this.closeMenu();
+          if (!setup.escape(s, this.host.prefs)) this.closeMenu();
           break;
         case 113:
           if (!setup.back()) this.closeMenu();
@@ -8282,7 +8282,7 @@ export class Controller {
     } else if (this.corgi_setup) {
       const setup = this.corgi_setup,
         s = this.runtime.inference,
-        intensity = setup.intensityKey(parsed_key, this.prefs);
+        intensity = setup.intensityKey(parsed_key, s, this.prefs);
       if (setup.managing()) {
         const launch = setup.agents!;
         await this.manageAction(launch.manager.sequence(text, launch.manageModel()));
