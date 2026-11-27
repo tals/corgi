@@ -275,8 +275,14 @@ class AgentMenu extends Viewers {
       grandchild = "66666666-6666-4666-8666-666666666666",
       presence = join(this.temp.name, ".gemini/antigravity-cli/presence"),
       log = join(this.temp.name, "submissions"),
-      modal = join(this.temp.name, "dialog");
+      wake = join(this.temp.name, "wake.json"),
+      modal = join(this.temp.name, "dialog"),
+      sourceDir = realpathSync(this.temp.name),
+      destination = join(sourceDir, "project");
     mkdirSync(presence, { recursive: true });
+    mkdirSync(destination);
+    writeFileSync(join(sourceDir, "settings.json"), '{"editorMode":"vim"}');
+    writeFileSync(join(destination, "settings.json"), '{"editorMode":"default"}');
     this.env.CORGI_ANTIGRAVITY_BIN = writeExecutable(
       join(this.temp.name, "agy"),
       `
@@ -286,7 +292,7 @@ const resumed = process.argv.includes('--conversation');
 let id = resumed ? process.argv[process.argv.lastIndexOf('--conversation')+1] : parent, draft = '', lock;
 const cfg = resumed ? JSON.parse(fs.readFileSync(process.argv[process.argv.lastIndexOf('--settings')+1], 'utf8')) : {};
 function report(state) {
-  if (resumed) cp.execSync(cfg.title.command, { input: JSON.stringify({ conversation_id: id, agent_state: state }) });
+  if (cfg.title?.command) cp.execSync(cfg.title.command, { input: JSON.stringify({ conversation_id: id, agent_state: state }) });
 }
 function draw() {
   process.stdout.write('\\x1b[?2004h\\x1b[2J\\x1b[H────────────\\r\\n> ' + draft + '\\r\\n────────────\\x1b[2;' + (3+draft.length) + 'H');
@@ -300,7 +306,7 @@ process.stdin.on('data', data => {
   if (!resumed) { if (lock === undefined) select(parent); return; }
   for (const c of data.toString().replace(/\\x1b\\[20[01]~/g,'')) {
     if (c === '\\r') {
-      fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([id, draft, process.env.AGY_CLI_DISABLE_AUTO_UPDATE])+'\\n');
+      fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([id, draft, process.env.AGY_CLI_DISABLE_AUTO_UPDATE, cfg.editorMode, process.cwd()])+'\\n');
       if (draft === '/fork') select(id === parent ? child : ${JSON.stringify(grandchild)});
       draft = '';
       report('idle');
@@ -309,16 +315,31 @@ process.stdin.on('data', data => {
   draw();
 });
 draw();
-if (resumed) { report('initializing'); setTimeout(() => report('idle'), 200); }
+if (resumed && !cfg.title?.command) {
+  select(id);
+  fs.writeFileSync(${JSON.stringify(wake)}, JSON.stringify([id, cfg.editorMode, process.cwd()]));
+} else if (resumed) { report('initializing'); setTimeout(() => report('idle'), 200); }
 `,
     );
     await this.restart_runtime();
-    const source = await this.new(this.env.CORGI_ANTIGRAVITY_BIN),
+    await this.command("agent.launcher.configure", { row: "antigravity", flags: "--settings=settings.json" });
+    const { pane: source } = await this.command("agent.create", {
+        workspace: 1,
+        provider: "antigravity",
+        cwd: sourceDir,
+      }),
       state = async (id: number) => (await this.session()).panes.find((p: any) => p.id === id)?.agent;
     await this.until(async () => (await state(source))?.provider === "antigravity");
     this.assertEqual((await this.attempt("agent.fork", { target: source, check: true })).err, "NoConversation");
     await this.command("pane.input", { target: source, data: "\r" });
     await this.until(async () => (await state(source))?.session === parent);
+    await this.rpc({
+      op: "hook",
+      pane: source,
+      provider: "antigravity",
+      event: { hookEventName: "SessionStart", conversationId: parent, cwd: destination },
+    });
+    await this.until(async () => (await state(source))?.cwd === destination);
     const viewer = await this.newViewer();
     await viewer.input(mouse(2, 6, 16));
     this.assertTrue(screen_text(viewer.state.data, 100, 30).some(row => row.includes("Fork")));
@@ -331,8 +352,8 @@ if (resumed) { report('initializing'); setTimeout(() => report('idle'), 200); }
         .split("\n")
         .map(line => JSON.parse(line));
     this.assertEqual(submissions(), [
-      [parent, "/fork", "true"],
-      [child, "/rename Copy", "true"],
+      [parent, "/fork", "true", "vim", destination],
+      [child, "/rename Copy", "true", "vim", destination],
     ]);
     this.assertEqual((await state(pane)).session, child);
     this.assertEqual((await state(source)).session, parent);
@@ -340,7 +361,11 @@ if (resumed) { report('initializing'); setTimeout(() => report('idle'), 200); }
     const nested = await this.command("agent.fork", { target: pane });
     this.assertEqual((await state(nested.pane)).session, grandchild);
     this.assertEqual((await state(pane)).session, child);
-    this.assertEqual(submissions().at(-1), [child, "/fork", "true"]);
+    this.assertEqual(submissions().at(-1), [child, "/fork", "true", "vim", destination]);
+    await this.command("pane.hibernate", { targets: [pane] });
+    await this.command("pane.wake", { target: pane });
+    await this.until(() => existsSync(wake));
+    this.assertEqual(JSON.parse(readFileSync(wake, "utf8")), [child, "vim", destination]);
     writeFileSync(modal, "");
     this.assertEqual((await this.attempt("agent.fork", { target: source, name: "Blocked" })).err, "ForkNotReady");
     this.assertEqual(submissions().length, 3);

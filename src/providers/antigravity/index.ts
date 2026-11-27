@@ -5,7 +5,7 @@ import * as commandLine from "../command_line";
 import * as effort from "../effort";
 import { info } from "./info";
 import { home, customizations, directory, identity, validSession } from "./config";
-import { interactiveFork } from "./fork";
+import { interactiveFork, launchSettings } from "./fork";
 import * as hooks from "./hooks";
 import { Watcher, rename } from "./screen";
 import { transcript } from "./transcript";
@@ -65,8 +65,8 @@ export const adapter: Adapter = {
             interactive: (line, account) => interactiveFork(session, line, account),
           }
         : null,
-    keep: c =>
-      commandLine.keep(c, {
+    keep: c => {
+      const kept = commandLine.keep(c, {
         drop: [
           "-r",
           "--resume",
@@ -96,7 +96,9 @@ export const adapter: Adapter = {
           bypass,
         ],
         env: /^(HOME|XDG_CONFIG_HOME|GEMINI_API_KEY|GOOGLE_APPLICATION_CREDENTIALS)$/,
-      }),
+      });
+      return { args: launchSettings({ args: kept.args, cwd: c.cwd }).args, env: kept.env };
+    },
   },
   rename: { channel: async () => null, typed: rename },
   message: { channel: async () => null, empty: rename.empty },

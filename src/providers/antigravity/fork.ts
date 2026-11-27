@@ -13,21 +13,30 @@ function settings(text: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-/** agy applies only the last --settings. Keep its other overrides and relay the
- * original title command's stdin and stdout, even after the fork completes. */
-function forkSettings(line: Pick<CommandLine, "args" | "cwd">, account: string, root: string) {
-  let last: string | undefined;
+/** agy applies only the last --settings. Preserve its meaning when the next launch changes directory. */
+export function launchSettings(line: Pick<CommandLine, "args" | "cwd">) {
+  const args: string[] = [];
+  let value: string | undefined;
   for (let i = 0; i < line.args.length; i++) {
     const arg = line.args[i];
-    if (arg === "--settings") last = line.args[++i];
-    else if (arg.startsWith("--settings=")) last = arg.slice("--settings=".length);
+    if (arg === "--settings") value = line.args[++i];
+    else if (arg.startsWith("--settings=")) value = arg.slice("--settings=".length);
+    else args.push(arg);
   }
+  if (value !== undefined) {
+    if (!value.trimStart().startsWith("{")) value = resolve(line.cwd, value);
+    args.push("--settings", value);
+  }
+  return { args, value };
+}
+
+/** Relay the original title command's stdin and stdout, even after the fork completes. */
+function forkSettings(line: Pick<CommandLine, "args" | "cwd">, account: string, root: string) {
   const file = join(directory(account), "settings.json"),
     saved = existsSync(file) ? settings(readFileSync(file, "utf8")) : {},
+    { value } = launchSettings(line),
     overrides =
-      last === undefined
-        ? {}
-        : settings(last.trimStart().startsWith("{") ? last : readFileSync(resolve(line.cwd, last), "utf8")),
+      value === undefined ? {} : settings(value.trimStart().startsWith("{") ? value : readFileSync(value, "utf8")),
     title = Object.hasOwn(overrides, "title") ? overrides.title : saved.title,
     original = field(title, "enabled") === false ? "" : str(title, "command"),
     open = "[ -d " + shellQuote(root) + " ]",

@@ -1,15 +1,40 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Terminal } from "../../pane/terminal";
+import { Launch } from "../../runtime";
 import { directory } from "./config";
 import { interactiveFork } from "./fork";
 import { rename } from "./screen";
 
 const source = "11111111-1111-4111-8111-111111111111",
   child = "22222222-2222-4222-8222-222222222222";
+
+test("a shell-started Antigravity keeps relative settings from the process directory and preserves inline JSON", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-fork-settings-"))),
+    script = join(dir, "agy"),
+    json = ' {"editorMode":"vim"}';
+  try {
+    writeFileSync(script, "console.log('ready'); setInterval(() => {}, 60000);");
+    for (const [args, value] of [
+      [["--settings", "custom settings.json"], join(dir, "custom settings.json")],
+      [["--settings=" + json], json],
+    ] as const) {
+      const cli = Bun.spawn([process.execPath, script, ...args], { cwd: dir, stdout: "pipe" });
+      try {
+        await cli.stdout.getReader().read();
+        expect(Launch.observed("antigravity", cli.pid, "/elsewhere").agent?.args).toEqual(["--settings", value]);
+      } finally {
+        cli.kill();
+        await cli.exited;
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("the fork callback preserves launch overrides and the original title after confirmation", () => {
   const home = mkdtempSync(join(tmpdir(), "corgi-fork-title-"));

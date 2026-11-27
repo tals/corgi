@@ -214,7 +214,7 @@ export class Launch {
     ];
   }
   /** How the agent at `pid`, which someone started in a pane's shell, starts again. */
-  static observed(provider: Provider, pid: number) {
+  static observed(provider: Provider, pid: number, cwd: string) {
     const info = pid > 0 ? os.processArgs(pid, process_buffer, { env: true }) : null,
       found = info?.complete ? locate(info.argv) : null,
       kept =
@@ -226,7 +226,7 @@ export class Launch {
               }),
               args: info.argv.slice(found.at),
               flagged: false,
-              cwd: "/",
+              cwd: os.processCwd(pid) ?? cwd,
             })
           : null;
     return new Launch({ provider, args: kept?.args ?? [], env: kept?.env ?? [], observed: true });
@@ -828,7 +828,7 @@ export class Runtime {
         const a = p.agent();
         if (!a.session.len && !p.ghost) p.resume_hint = new ResumeHint();
         p.resume_hint.observe(a);
-        if (a.provider) p.launch ??= Launch.observed(a.provider, p.detection.pid);
+        if (a.provider) p.launch ??= Launch.observed(a.provider, p.detection.pid, p.cwd);
         else if (!p.ghost && !p.manual_resume && (p.idleShell() || p.launch?.agent?.observed)) p.launch = null;
       }
       this.stopShell(p.terminal);
@@ -1116,12 +1116,12 @@ export class Runtime {
     const p = this.pane(id);
     if (!p) throw Error("NoPane");
     const { provider, branch } = Runtime.forkSource(p, name, opts.cwd);
-    let launch = p.launch ?? Launch.observed(provider, p.detection.pid);
+    let launch = p.launch ?? Launch.observed(provider, p.detection.pid, p.cwd);
     if (branch.interactive) {
-      const agent = launch.agent ?? Launch.observed(provider, p.detection.pid).agent!,
+      const agent = launch.agent ?? Launch.observed(provider, p.detection.pid, p.cwd).agent!,
         kept = adapter(provider).launch.keep?.({
           args: [provider, ...(agent.args ?? [])],
-          cwd: opts.cwd,
+          cwd: p.cwd,
           flagged: false,
           env: [],
         });
@@ -1138,8 +1138,8 @@ export class Runtime {
     let created: number;
     try {
       interactive = branch.interactive?.(
-        { args: launch.agent?.args ?? [], cwd: opts.cwd },
-        launch.account(provider, opts.cwd),
+        { args: launch.agent?.args ?? [], cwd: p.cwd },
+        launch.account(provider, p.cwd),
       );
       const run = launch.run(opts.executable, [...branch.args, ...(interactive?.args ?? [])], p.resume_hint),
         forked = {

@@ -289,10 +289,10 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
       pane.releaseDetection();
     // An agent someone typed into the pane's shell comes back as they typed it.
     if (job.pid !== previous && (!pane.launch || pane.launch.agent?.observed))
-      pane.launch = Launch.observed(job.provider, job.pid);
+      pane.launch = Launch.observed(job.provider, job.pid, pane.cwd);
     // A saved command's own variables may be spelled past reading; its agent's say.
     if (job.pid !== previous && pane.launch?.command)
-      pane.running_account = Launch.observed(job.provider, job.pid).account() || null;
+      pane.running_account = Launch.observed(job.provider, job.pid, pane.cwd).account() || null;
     // An agent in an account Corgi hadn't seen, or that wasn't there when
     // Corgi started, gets its hooks and setup from the next start on.
     if (job.pid !== previous) {
