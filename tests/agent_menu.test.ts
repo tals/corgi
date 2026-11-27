@@ -269,6 +269,28 @@ class AgentMenu extends Viewers {
     });
   }
 
+  async test_antigravity_omits_fork_from_its_menu() {
+    const session = "33333333-3333-4333-8333-333333333333",
+      presence = join(this.temp.name, ".gemini/antigravity-cli/presence");
+    mkdirSync(presence, { recursive: true });
+    const script = writeExecutable(
+      join(this.temp.name, "agy"),
+      `process.stdin.on('data', () => require('node:fs').openSync(${JSON.stringify(join(presence, session + ".lock"))}, 'w'));`,
+    );
+    const pane = await this.new(script),
+      state = async () => (await this.session()).panes.find((p: any) => p.id === pane)?.agent;
+    await this.until(async () => (await state())?.provider === "antigravity");
+    this.assertEqual((await this.attempt("agent.fork", { target: pane, check: true })).err, "ForkUnsupported");
+    await this.command("pane.input", { target: pane, data: "\r" });
+    await this.until(async () => (await state())?.session === session);
+    this.assertEqual((await this.attempt("agent.fork", { target: pane })).err, "ForkUnsupported");
+    const viewer = await this.newViewer();
+    await viewer.input(mouse(2, 6, 16));
+    const rows = screen_text(viewer.state.data, 100, 30);
+    this.assertTrue(rows.some(row => row.includes("Rename")));
+    this.assertFalse(rows.some(row => row.includes("Fork")));
+  }
+
   async test_menu_crosses_out_what_the_agent_cannot_do() {
     const pane = await this.new();
     // A short session id is no conversation to fork, and no Claude session

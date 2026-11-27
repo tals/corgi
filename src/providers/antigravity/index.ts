@@ -4,7 +4,7 @@ import type { Adapter } from "../adapter";
 import * as commandLine from "../command_line";
 import * as effort from "../effort";
 import { info } from "./info";
-import { home, customizations, directory, identity, validSession } from "./config";
+import { home, customizations, directory, identity } from "./config";
 import * as hooks from "./hooks";
 import { Watcher, rename } from "./screen";
 import { transcript } from "./transcript";
@@ -55,19 +55,6 @@ export const adapter: Adapter = {
     models: (account, quit, cwd) => import("./launcher").then(m => m.models(account, quit, cwd)),
     start: s => [...(s.permissions === "bypass" ? [bypass] : []), ...(s.model ? ["--model", s.model] : []), ...s.args],
     resume: session => ["--conversation", session],
-    fork: ({ session }) =>
-      validSession(session) ? { args: ["--corgi-fork", session], session: null, named: false } : null,
-    async prepare(args, bin, progress) {
-      const index = args.indexOf("--corgi-fork");
-      if (index < 0) return { args };
-      const source = args[index + 1];
-      if (!validSession(source)) throw Error("InvalidSession");
-      progress?.update("session");
-      const { sessionDirectory } = await import("./history");
-      const cwd = sessionDirectory(directory(), source) || process.cwd();
-      const session = await (await import("./fork")).fork(bin, source, cwd, progress);
-      return { args: [...args.slice(0, index), "--conversation", session, ...args.slice(index + 2)] };
-    },
     keep: c =>
       commandLine.keep(c, {
         drop: [

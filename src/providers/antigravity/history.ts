@@ -14,19 +14,6 @@ export function workspace(uris: string) {
     return "";
   }
 }
-export function sessionDirectory(root: string, id: string) {
-  const db = new Database(database(root), { readonly: true });
-  try {
-    const row = db
-      .query<{ workspace_uris: string }, [string]>(
-        "SELECT workspace_uris FROM conversation_summaries WHERE conversation_id=?",
-      )
-      .get(id);
-    return row && workspace(row.workspace_uris);
-  } finally {
-    db.close();
-  }
-}
 export function entries(root: string, account: string, stopping: () => boolean): Entry[] {
   if (!existsSync(database(root))) return [];
   const db = new Database(database(root), { readonly: true });

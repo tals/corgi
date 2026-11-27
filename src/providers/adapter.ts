@@ -512,7 +512,7 @@ export interface Adapter extends Info {
     attach?(session: string, account: string): string[] | null;
     /** Arguments, after the ones it started with, that fork `from` in `cwd`; null
      * while there is nothing to fork yet. */
-    fork(from: { session: string; transcript: string; cwd: string }, name: string | null): Fork | null;
+    fork?(from: { session: string; transcript: string; cwd: string }, name: string | null): Fork | null;
     /** What a resume or fork keeps of a command line someone typed: the
      * account, MCP servers and feature flags it chose. Not its session,
      * prompt, model or permission checks, which the agent reports as they

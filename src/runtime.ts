@@ -1081,13 +1081,13 @@ export class Runtime {
   /** The provider of the conversation `p` shows, and how to fork it. */
   static forkSource(p: Pane, name: string | null = null, cwd = p.cwd) {
     const a = p.agent(),
-      provider = a.provider,
-      session = a.sessionId(),
-      branch =
-        provider && validRef({ id: session })
-          ? adapter(provider).launch.fork({ session, transcript: a.transcriptPath(), cwd }, name)
-          : null;
-    if (!provider || !branch) throw Error("NoConversation");
+      provider = a.provider;
+    if (!provider) throw Error("NoConversation");
+    const launch = adapter(provider).launch;
+    if (!launch.fork) throw Error("ForkUnsupported");
+    const session = a.sessionId(),
+      branch = validRef({ id: session }) ? launch.fork({ session, transcript: a.transcriptPath(), cwd }, name) : null;
+    if (!branch) throw Error("NoConversation");
     return { provider, branch };
   }
   async forkAgent(opts: Create, id: number, wanted: string | null) {

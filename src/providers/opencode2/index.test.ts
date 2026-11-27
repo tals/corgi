@@ -46,7 +46,7 @@ test("OpenCode discovery rejects v1 and preserves launch choices", () => {
   expect(adapter.version!("opencode v2.1.2\n")).toBe(true);
   expect(adapter.version!("1.2.3\n")).toBe(false);
   expect(adapter.launch.resume(id)).toEqual(["--session", id]);
-  expect(adapter.launch.fork({ session: "bad/session", transcript: "", cwd: "/tmp" }, null)).toBeNull();
+  expect(adapter.launch.fork?.({ session: "bad/session", transcript: "", cwd: "/tmp" }, null)).toBeNull();
   expect(adapter.launch.start({ permissions: "bypass", model: "openai/gpt-5.5#high", args: [] })).toEqual([
     "--auto",
     "--model",

@@ -25,7 +25,7 @@ test("Pi launches, resumes and forks without treating trust as tool approval", (
     "openai-codex/gpt-6-luna",
   ]);
   expect(adapter.launch.resume("id")).toEqual(["--session", "id"]);
-  expect(adapter.launch.fork({ session: "id", transcript: "/tmp/a.jsonl", cwd: "/tmp" }, "name")).toMatchObject({
+  expect(adapter.launch.fork?.({ session: "id", transcript: "/tmp/a.jsonl", cwd: "/tmp" }, "name")).toMatchObject({
     args: ["--fork", "/tmp/a.jsonl", "--name", "name"],
     named: true,
   });

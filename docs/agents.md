@@ -12,6 +12,8 @@ Start `agy` in a pane or choose **Google Antigravity** in the agent launcher. Co
 
 Corgi adds a **Reporting to Corgi** group to `~/.gemini/config/hooks.json`. Antigravity handles tool approval. Corgi reads the selected conversation from the running CLI, so an in-pane `/resume` or `/fork` follows the new conversation. The resume picker reads Antigravity’s local history and `corgi grep --provider antigravity` searches its transcripts. The sidebar uses transcript token counts and the child conversations in Antigravity’s session index. The CLI does not report an account quota or context-window size here.
 
+Use Rename in the right-click menu to rename a conversation. To branch it, type `/fork` in the Antigravity pane.
+
 `corgi headless start antigravity "Summarize this workspace"` starts an ACP session. Further prompts, tool approval answers and interrupts go through the same session. Antigravity is also available for Corgi’s activity summaries. These private inference sessions run in a temporary home and workspace with their own tool restrictions.
 
 ## Executable discovery

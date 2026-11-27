@@ -37,7 +37,7 @@ Run `agy`, `claude`, `codex`, `pi`, `opencode` or `omp` in any pane. Corgi detec
 | Activity summaries                   |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |         ✓          |
 | Subagents                            |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |         ✓          |
 | Context, tokens and rate limits      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |    Tokens only     |
-| Rename and fork                      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |         ✓          |
+| Rename and fork                      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |    Rename only     |
 | Resume after a crash or reboot       |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |         ✓          |
 | Multiple accounts                    |      ✓      |   ✓   |  ✓  | Built-in | Built-in |         —          |
 
