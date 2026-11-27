@@ -1,6 +1,16 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { str } from "../common";
 import { directory, customizations } from "./config";
 
 const prefix = "corgi-agy-";
@@ -17,16 +27,22 @@ export function create(account: string, inference: boolean) {
   try {
     const data = directory(root),
       source = directory(account),
+      settings = join(source, "settings.json"),
       workspace = join(root, "workspace");
     mkdirSync(data, { recursive: true });
     mkdirSync(workspace);
     const token = "antigravity-oauth-token";
     if (existsSync(join(source, token))) symlinkSync(join(source, token), join(data, token));
     if (!inference) {
-      if (existsSync(join(source, "settings.json")))
-        copyFileSync(join(source, "settings.json"), join(data, "settings.json"));
+      if (existsSync(settings)) copyFileSync(settings, join(data, "settings.json"));
       if (existsSync(customizations(account))) symlinkSync(customizations(account), customizations(root));
     } else {
+      // agy uses the selected model provider to choose its authentication method.
+      if (existsSync(settings)) {
+        const modelProvider = str(JSON.parse(readFileSync(settings, "utf8").replace(/^\uFEFF/, "")), "modelProvider");
+        if (modelProvider)
+          writeFileSync(join(data, "settings.json"), JSON.stringify({ modelProvider }), { mode: 0o600 });
+      }
       const agents = join(customizations(root), "agents");
       mkdirSync(agents, { recursive: true });
       writeFileSync(
