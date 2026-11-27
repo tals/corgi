@@ -1,0 +1,36 @@
+[
+  {
+    "id": "question-reference-as-evidence",
+    "label": "question reference as evidence",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "development",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/question-reference-as-evidence.jsonl",
+    "checks": [
+      {
+        "name": "Cedar read serves the requested answer",
+        "kind": "same_episode",
+        "a": 2,
+        "b": 7
+      }
+    ]
+  },
+  {
+    "id": "question-reference-as-deliverable",
+    "label": "question reference as deliverable",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "development",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/question-reference-as-deliverable.jsonl",
+    "checks": [
+      {
+        "name": "Cedar read serves the requested answer",
+        "kind": "different_episode",
+        "a": 2,
+        "b": 7
+      }
+    ]
+  }
+]
