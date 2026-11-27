@@ -1,4 +1,4 @@
-import { Call, Tracker, clip } from "../../activity/tools";
+import { Call, Tracker, clip, shortLabel } from "../../activity/tools";
 import { Text } from "../../activity/summary";
 import { field, str } from "../common";
 import { messageText } from "./worker";
@@ -7,6 +7,7 @@ import { messageText } from "./worker";
 function describe(part: unknown) {
   const call = new Call(),
     input = field(field(part, "state"), "input");
+  call.describe(str(input, "description") || str(input, "title"));
   call.append(str(part, "name") + ": ");
   const patch = str(input, "patchText");
   if (patch) {
@@ -25,10 +26,11 @@ function describe(part: unknown) {
 }
 
 /** Only the current turn contributes work, even when its latest message has no text. */
-export function evidence(messages: Record<string, unknown>[]) {
+export function progress(messages: Record<string, unknown>[]) {
   const start = messages.findLastIndex(m => m.type === "user");
-  if (start < 0) return new Text();
   const tools = new Tracker();
+  if (start < 0) return { calls: [], evidence: new Text() };
+  tools.request = { id: 1, title: shortLabel(messageText(messages[start])) };
   let latest = "";
   for (const message of messages.slice(start + 1)) {
     if (message.type !== "assistant") continue;
@@ -41,13 +43,19 @@ export function evidence(messages: Record<string, unknown>[]) {
       if (status === "streaming") continue;
       const call = describe(part);
       call.id = tools.key(str(part, "id"));
-      if (status === "completed" || status === "error" || typeof field(field(part, "time"), "completed") === "number")
+      call.request = tools.request;
+      if (status === "completed" || status === "error" || typeof field(field(part, "time"), "completed") === "number") {
+        call.outcome = status === "error" ? "failure" : status === "completed" ? "success" : null;
         tools.finish(call, true);
-      else tools.save(call, true);
+      } else tools.save(call, true);
     }
   }
-  const work = clip(tools.view().evidence.text(), 1200),
+  const view = tools.view();
+  const work = clip(view.evidence.text(), 1200),
     update = latest ? "Latest agent update: " + clip(latest, 600) + "\n" : "",
     request = "User request: " + messageText(messages[start]);
-  return new Text(clip(work + (work && !work.endsWith("\n") ? "\n" : "") + update + request, 2048));
+  return {
+    calls: view.calls,
+    evidence: new Text(clip(work + (work && !work.endsWith("\n") ? "\n" : "") + update + request, 2048)),
+  };
 }

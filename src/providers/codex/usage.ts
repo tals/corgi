@@ -9,6 +9,7 @@ import { Text } from "../../activity/summary";
 import type { TranscriptReader } from "../adapter";
 import { Index, Name } from "./files";
 import { Rollout } from "./transcript";
+import * as todos from "./todos";
 const min = (a: bigint, b: bigint) => (a < b ? a : b);
 /** A token total as the app server (camelCase) or a rollout (snake_case) spells it. */
 export function parseTokens(v: any, camel: boolean) {
@@ -112,6 +113,11 @@ export function context(r: Reading, value: any) {
   r.window = window;
   r.at = stamp;
 }
+function exitCode(output: string) {
+  const header = output.split(/\n(?:Final output|Output):/i, 1)[0];
+  const match = header.match(/^(?:Process exited with code|Exit code:)\s*(-?\d+)\s*$/m);
+  return match ? Number(match[1]) : null;
+}
 /** The tools a record starts or finishes, and the agent's commentary. */
 export function progress(t: Tools, value: any, live: boolean) {
   const r = Rollout.decode(value),
@@ -128,6 +134,20 @@ export function progress(t: Tools, value: any, live: boolean) {
     return;
   }
   if (kind !== "response_item" || !t.turn.len || t.ended) return;
+  if (type === "message" && str(p, "role") === "user") {
+    const content = field(p, "content");
+    if (Array.isArray(content)) {
+      const parts = content.map(c => str(c, "text"));
+      const text = content.some(c => str(c, "type") === "input_image")
+        ? parts
+            .filter(s => !/^\s*(?:<image\b[^>]*>|<\/image>)\s*$/.test(s))
+            .join("\n")
+            .trim()
+            .replace(/^(?:\[Image #\d+\]\s*)+/, "") || "[Image #1]"
+        : parts.join("\n");
+      t.ask(text, false);
+    }
+  }
   if (type === "message" && str(p, "role") === "assistant" && str(p, "phase") === "commentary") {
     const content = field(p, "content");
     if (Array.isArray(content)) {
@@ -150,7 +170,55 @@ export function progress(t: Tools, value: any, live: boolean) {
   const key = t.key(id);
   if (t.seen.includes(key)) return;
   if (["function_call_output", "custom_tool_call_output"].includes(type ?? "")) {
-    t.finishId(key, live);
+    const output = field(p, "output");
+    const blocks = Array.isArray(output) ? output.map(block => str(block, "text")) : [];
+    const raw = typeof output === "string" ? output : blocks.join("\n");
+    const header = blocks[0]?.split("\n", 1)[0] ?? "";
+    const wrapper = /^Script completed\b/.test(header) ? "success" : /^Script failed\b/.test(header) ? "failure" : null;
+    let code: number | null = null;
+    let pending = false;
+    if (wrapper) {
+      for (const block of blocks.slice(1)) {
+        try {
+          const item = JSON.parse(block);
+          if (item?.status === "rejected") {
+            code = 1;
+            break;
+          }
+          const shell = item?.status === "fulfilled" ? item.value : item;
+          if (typeof shell?.chunk_id !== "string") continue;
+          if (typeof shell.exit_code === "number") {
+            code = shell.exit_code;
+            if (code !== 0) break;
+          } else if (shell.session_id != null) pending = true;
+        } catch {
+          const exit = exitCode(block);
+          if (exit !== null) {
+            code = exit;
+            if (code !== 0) break;
+          }
+        }
+      }
+    } else {
+      try {
+        const value = JSON.parse(raw);
+        const exit = field(value, "exit_code") ?? field(field(value, "metadata"), "exit_code");
+        if (typeof exit === "number") code = exit;
+      } catch {}
+      code ??= exitCode(raw);
+    }
+    t.finishId(
+      key,
+      live,
+      wrapper === "failure" || (code !== null && code !== 0)
+        ? "failure"
+        : pending
+          ? null
+          : code === 0
+            ? "success"
+            : wrapper,
+      raw.slice(0, 180) + (raw.length > 180 ? " … " + raw.slice(-120) : ""),
+    );
     return;
   }
   if (!["function_call", "custom_tool_call", "local_shell_call", "web_search_call"].includes(type ?? "")) return;
@@ -161,8 +229,10 @@ export function progress(t: Tools, value: any, live: boolean) {
   if (input) {
     try {
       const args = JSON.parse(input),
-        detail = ["description", "cmd", "command", "code", "query"].map(k => str(args, k)).find(Boolean) ?? input;
-      call.detail(detail);
+        detail =
+          ["description", "title", "cmd", "command", "code", "query"].map(k => str(args, k)).find(Boolean) ?? input;
+      call.describe(str(args, "description") || str(args, "title"));
+      if (!str(args, "code") || !call.script(str(args, "code"))) call.detail(detail);
     } catch {
       const start = Buffer.byteLength(call.value);
       if (input.trimStart().startsWith("*** Begin Patch") && call.patchFiles(input)) call.bound(start, false);
@@ -170,6 +240,8 @@ export function progress(t: Tools, value: any, live: boolean) {
     }
   } else if (type === "web_search_call") call.detail(str(field(p, "action"), "query"));
   if (type === "web_search_call" && str(p, "status") === "completed") {
+    call.outcome = "success";
+    call.request = t.request;
     t.finish(call, live);
     return;
   }
@@ -191,6 +263,7 @@ function counts(tracker: Tracker, value: any) {
 /** A reader that names threads from `index`, the session index Codex keeps. */
 /** A reader that names sessions from the session indexes at `indexes`. */
 export function open(indexes: () => string[]): TranscriptReader {
+  const tasks = new WeakMap<object, todos.Reader>();
   const found = new Map<string, Index>(),
     index = (file: string) => {
       let names = found.get(file);
@@ -207,6 +280,10 @@ export function open(indexes: () => string[]): TranscriptReader {
     },
     record(t, _req, value, appended) {
       progress(t.progress, value, appended);
+      let todo = tasks.get(t);
+      if (!todo) tasks.set(t, (todo = new todos.Reader()));
+      const list = todo.record(value);
+      if (list && list.at >= (t.checklist?.at ?? 0)) t.checklist = list;
       t.observeModel(field(value, "payload"));
       const delta = counts(t.tracker, value);
       rolloutTokens(t.live, value, appended, Date.now());

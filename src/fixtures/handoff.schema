@@ -33,6 +33,7 @@ $.summaries?.slots[].slot.request.generation: u64
 $.summaries?.slots[].slot.request.completed_tools: u64
 $.summaries?.slots[].slot.request.turn_epoch: u32
 $.summaries?.slots[].slot.commentary: custom bounded_text.BoundedText(2048)
+$.summaries?.slots[].slot.transcript_commentary: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.tool_evidence: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.next: i64
 $.summaries?.slots[].slot.attempted_tools: u64
@@ -177,18 +178,36 @@ $.usage?[].tracker.next_tool: usize
 $.usage?[].progress.commentary: custom bounded_text.BoundedText(2048)
 $.usage?[].progress.turn: custom bounded_text.BoundedText(160)
 $.usage?[].progress.ended: bool
+$.usage?[].progress.request: optional
+$.usage?[].progress.request?.id: usize
+$.usage?[].progress.request?.title: string
 $.usage?[].progress.completed: u64
 $.usage?[].progress.pending[64]: optional
 $.usage?[].progress.pending[64]?.id: u64
 $.usage?[].progress.pending[64]?.live: bool
 $.usage?[].progress.pending[64]?.value: string
+$.usage?[].progress.pending[64]?.outcome: optional
+$.usage?[].progress.pending[64]?.outcome?: enum success failure
+$.usage?[].progress.pending[64]?.result: string
 $.usage?[].progress.next_pending: usize
 $.usage?[].progress.seen[]: u64
 $.usage?[].progress.recent[3]: optional
 $.usage?[].progress.recent[3]?.id: u64
 $.usage?[].progress.recent[3]?.live: bool
 $.usage?[].progress.recent[3]?.value: string
+$.usage?[].progress.recent[3]?.outcome: optional
+$.usage?[].progress.recent[3]?.outcome?: enum success failure
+$.usage?[].progress.recent[3]?.result: string
 $.usage?[].progress.dirty: bool
+$.usage?[].progress.prompt: custom bounded_text.BoundedText(512)
+$.usage?[].progress.asked[].text: string
+$.usage?[].progress.asked[].queued: bool
+$.usage?[].progress.outcomes[].id: u64
+$.usage?[].progress.outcomes[].live: bool
+$.usage?[].progress.outcomes[].value: string
+$.usage?[].progress.outcomes[].outcome: optional
+$.usage?[].progress.outcomes[].outcome?: enum success failure
+$.usage?[].progress.outcomes[].result: string
 $.usage?[].counter.previous: optional
 $.usage?[].counter.previous?.input: u64
 $.usage?[].counter.previous?.cached_input: u64
@@ -244,3 +263,97 @@ $.next_active: u64
 $.bell_seq: u64
 $.last_bell: i64
 $.last_bell_kind: enum none finished needs_input
+$.summaries?.plans: optional
+$.summaries?.plans?: bool
+$.summaries?.slots[].slot.attempted_road: usize
+$.summaries?.slots[].slot.road_evidence: custom bounded_text.BoundedText(2048)
+$.summaries?.slots[].slot.request.road: optional
+$.summaries?.slots[].slot.request.road?.state.nodes[].id: string
+$.summaries?.slots[].slot.request.road?.state.nodes[].parent: optional
+$.summaries?.slots[].slot.request.road?.state.nodes[].parent?: string
+$.summaries?.slots[].slot.request.road?.state.nodes[].kind: enum goal episode step
+$.summaries?.slots[].slot.request.road?.state.nodes[].title: string
+$.summaries?.slots[].slot.request.road?.state.nodes[].subtitle: string
+$.summaries?.slots[].slot.request.road?.state.nodes[].state: enum planned active done failed blocked abandoned
+$.summaries?.slots[].slot.request.road?.state.nodes[].evidence[]: usize
+$.summaries?.slots[].slot.request.road?.state.nodes[].bump: optional
+$.summaries?.slots[].slot.request.road?.state.nodes[].bump?.kind: enum verification conflict environment permission approach
+$.summaries?.slots[].slot.request.road?.state.nodes[].bump?.state: enum open resolved
+$.summaries?.slots[].slot.request.road?.state.nodes[].bump?.detail: string
+$.summaries?.slots[].slot.request.road?.state.nodes[].bump?.evidence[]: usize
+$.summaries?.slots[].slot.request.road?.state.through: usize
+$.summaries?.slots[].slot.request.road?.focus: optional
+$.summaries?.slots[].slot.request.road?.focus?: string
+$.summaries?.slots[].slot.request.road?.events[].id: usize
+$.summaries?.slots[].slot.request.road?.events[].line: usize
+$.summaries?.slots[].slot.request.road?.events[].at: string
+$.summaries?.slots[].slot.request.road?.events[].turn: usize
+$.summaries?.slots[].slot.request.road?.events[].kind: enum user assistant reasoning tool result plan lifecycle
+$.summaries?.slots[].slot.request.road?.events[].text: string
+$.summaries?.slots[].slot.request.road?.support[].id: usize
+$.summaries?.slots[].slot.request.road?.support[].line: usize
+$.summaries?.slots[].slot.request.road?.support[].at: string
+$.summaries?.slots[].slot.request.road?.support[].turn: usize
+$.summaries?.slots[].slot.request.road?.support[].kind: enum user assistant reasoning tool result plan lifecycle
+$.summaries?.slots[].slot.request.road?.support[].text: string
+$.summaries?.slots[].slot.result?.request.road: optional
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].id: string
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].parent: optional
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].parent?: string
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].kind: enum goal episode step
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].title: string
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].subtitle: string
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].state: enum planned active done failed blocked abandoned
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].evidence[]: usize
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump: optional
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.kind: enum verification conflict environment permission approach
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.state: enum open resolved
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.detail: string
+$.summaries?.slots[].slot.result?.request.road?.state.nodes[].bump?.evidence[]: usize
+$.summaries?.slots[].slot.result?.request.road?.state.through: usize
+$.summaries?.slots[].slot.result?.request.road?.focus: optional
+$.summaries?.slots[].slot.result?.request.road?.focus?: string
+$.summaries?.slots[].slot.result?.request.road?.events[].id: usize
+$.summaries?.slots[].slot.result?.request.road?.events[].line: usize
+$.summaries?.slots[].slot.result?.request.road?.events[].at: string
+$.summaries?.slots[].slot.result?.request.road?.events[].turn: usize
+$.summaries?.slots[].slot.result?.request.road?.events[].kind: enum user assistant reasoning tool result plan lifecycle
+$.summaries?.slots[].slot.result?.request.road?.events[].text: string
+$.summaries?.slots[].slot.result?.request.road?.support[].id: usize
+$.summaries?.slots[].slot.result?.request.road?.support[].line: usize
+$.summaries?.slots[].slot.result?.request.road?.support[].at: string
+$.summaries?.slots[].slot.result?.request.road?.support[].turn: usize
+$.summaries?.slots[].slot.result?.request.road?.support[].kind: enum user assistant reasoning tool result plan lifecycle
+$.summaries?.slots[].slot.result?.request.road?.support[].text: string
+$.summaries?.slots[].slot.result?.patch: optional
+$.summaries?.slots[].slot.result?.patch?: string
+$.usage?[].progress.pending[64]?.description: string
+$.usage?[].progress.pending[64]?.request: optional
+$.usage?[].progress.pending[64]?.request?.id: usize
+$.usage?[].progress.pending[64]?.request?.title: string
+$.usage?[].progress.recent[3]?.description: string
+$.usage?[].progress.recent[3]?.request: optional
+$.usage?[].progress.recent[3]?.request?.id: usize
+$.usage?[].progress.recent[3]?.request?.title: string
+$.usage?[].progress.outcomes[].description: string
+$.usage?[].progress.outcomes[].request: optional
+$.usage?[].progress.outcomes[].request?.id: usize
+$.usage?[].progress.outcomes[].request?.title: string
+$.usage?[].progress.finished[].id: u64
+$.usage?[].progress.finished[].live: bool
+$.usage?[].progress.finished[].value: string
+$.usage?[].progress.finished[].description: string
+$.usage?[].progress.finished[].request: optional
+$.usage?[].progress.finished[].request?.id: usize
+$.usage?[].progress.finished[].request?.title: string
+$.usage?[].progress.finished[].outcome: optional
+$.usage?[].progress.finished[].outcome?: enum success failure
+$.usage?[].progress.finished[].result: string
+$.summaries?.slots[].slot.request.road?.tools[].id: usize
+$.summaries?.slots[].slot.request.road?.tools[].event: usize
+$.summaries?.slots[].slot.request.road?.tools[].detail: string
+$.summaries?.slots[].slot.request.road?.tools[].description: string
+$.summaries?.slots[].slot.result?.request.road?.tools[].id: usize
+$.summaries?.slots[].slot.result?.request.road?.tools[].event: usize
+$.summaries?.slots[].slot.result?.request.road?.tools[].detail: string
+$.summaries?.slots[].slot.result?.request.road?.tools[].description: string

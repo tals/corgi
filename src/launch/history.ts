@@ -7,6 +7,8 @@ import type { SessionHistory } from "../providers/adapter";
 import * as accounts from "../accounts";
 import * as profiles from "../agent_profiles";
 import * as row from "./row";
+import { injected } from "../providers/common";
+export { injected } from "../providers/common";
 export type Entry = {
   provider: Provider;
   /** The account it ran in, "" for the default. */
@@ -56,25 +58,6 @@ export const copied = (e: Entry): Entry => ({
 });
 export function clone(e: Entry) {
   return { ...e };
-}
-/** Text an agent put in the user's turn: commands, reminders, notices, its own context. */
-export function injected(text: string) {
-  const s = text.replace(/^[ \n\t]+/, "");
-  return [
-    "<command-",
-    "<local-command",
-    "<system-reminder",
-    "<task-notification",
-    "<bash-",
-    "Caveat:",
-    "[Request interrupted",
-    "This session is being continued",
-    "# AGENTS.md",
-    "<environment_context",
-    "<user_instructions",
-    "<turn_aborted",
-    "<user_shell_command",
-  ].some(p => s.startsWith(p));
 }
 /** A prompt the user typed, as the launcher shows one: no slash commands either. */
 export function typed(text: string) {

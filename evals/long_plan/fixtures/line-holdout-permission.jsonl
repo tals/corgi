@@ -1,0 +1,7 @@
+{"type": "response_item", "timestamp": "2026-11-08T08:00:01.000Z", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Publish the reviewed docs package to staging."}]}}
+{"type": "response_item", "timestamp": "2026-11-08T08:00:02.000Z", "payload": {"type": "function_call", "name": "exec_command", "call_id": "2", "arguments": "{\"cmd\": \"publish docs --staging\"}"}}
+{"type": "response_item", "timestamp": "2026-11-08T08:00:03.000Z", "payload": {"type": "function_call_output", "call_id": "2", "output": "Exit code 1: permission denied; staging token expired."}}
+{"type": "response_item", "timestamp": "2026-11-08T08:00:04.000Z", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "I renewed the staging token. Retry the same publication."}]}}
+{"type": "response_item", "timestamp": "2026-11-08T08:00:05.000Z", "payload": {"type": "function_call", "name": "exec_command", "call_id": "5", "arguments": "{\"cmd\": \"publish docs --staging\"}"}}
+{"type": "response_item", "timestamp": "2026-11-08T08:00:06.000Z", "payload": {"type": "function_call_output", "call_id": "5", "output": "Exit code 0. Staging package version 12 published."}}
+{"type": "response_item", "timestamp": "2026-11-08T08:00:07.000Z", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Staging publication succeeded after the token renewal."}]}}

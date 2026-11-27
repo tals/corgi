@@ -285,6 +285,55 @@ its time, without deleting it. Pending, active or blocked work keeps the
 section visible, and a new edit shows it again. Partial checklists stay visible
 because missing items may still be open.
 
+## Long-term plans
+
+Activity summaries collect goal → episode → step plans through the activity
+worker by default. No feature flag or separate environment is needed, including
+after reloading a session that used flat summaries. The plan is separate from
+lifecycle and native OMP activity labels. Hover an agent in the sidebar to see
+its plan in the existing tooltip, replacing the flat recent activity list.
+The tree has two levels, episodes and steps,
+with one row per item and the goal in the header. A setback adds one explanation
+line beneath its step. It follows the tail automatically,
+keeping the episode heading above its latest steps. An earlier-item count shows
+omitted history. The tooltip's original Total row stays above the plan;
+provider, context, subagents and TODOs stay in the same card. There is no
+selection or scrolling; moving the pointer away closes the tooltip.
+
+TODO lists express intent. Bounded tool outcomes and commentary support
+problems marked ! only on the affected step. Each problem has a short explanation
+below it; resolved problems gray the ! and strike through that explanation.
+A green ▶ marks the focused episode while it is active. Its current active
+step also gets a green ▶ and bold text; completed episodes and steps are dimmed
+while older unfinished steps keep ordinary text. The trail follows attributed work
+in time order. Returning to an earlier episode or step appends a new visit marked
+↩ at the tail; earlier visits stay in place. Each row counts only work during that
+visit. A problem stays on the visit where it arose, even after returning. Sidebar
+branches (├, ╰, │ and the focused ┣/┃) connect each block. Two or more hidden steps get a “… N more”
+row. The provider lifecycle controls whether play markers are shown. While the
+agent is working without a known active step, a green “▶ …” stays at the tail,
+under the current episode or on its own if that episode is finished. It carries
+no attributed usage and does not reopen completed work. Tokens, tool-call counts and cached input
+appear in columns beside the work and in the total row. Missing usage fields
+stay blank. Stored focus follows the latest attributed work and survives pauses
+and reloads, keeping the episode in the tail after completion. Play icons only
+appear on active work; the agent status reports whether the agent is running.
+Older plans without the optional focus fields show no highlight until new work
+is attributed.
+Live costs count observed intervals after an opening baseline, include cached input once, exclude child
+and summarizer usage, and retain unassigned cost. They are partial coverage,
+not full transcript accounting. Plan and pending intervals survive reload;
+cold recovery establishes a new baseline. The optional visits list preserves
+chronology and costs across reloads. Older plans retain their existing step totals
+as entries without event ranges; newly observed work appends after them. No
+protocol 3 or saved-format 6 migration is needed.
+
+The shared reducer prevents lost failed attempts and contradictory completed
+parents, but semantic errors remain in real replays. See
+[the eval and scorecard](../evals/long_plan/README.md) for datasets, bounds,
+known failures and the browser review generator. Codex and Claude confirmed task tools supply checklists
+through the same boundary as OMP; failed edits never update the list.
+
 ## Inference and data boundaries
 
 Activity summaries, conversation names, worktree briefs and link names share a
@@ -334,9 +383,9 @@ snapshots without changing protocol or saved-format versions.
 Known plan tiers add a defaulted display field to the transient catalog; older
 catalog records normalize it to empty, without a protocol or saved-format bump.
 
-Requests carry bounded current evidence. Activity summaries receive commentary
-and tool descriptions, not tool output; link naming can include visible terminal
-text. Conversation names use at most 2048 bytes of the initial user request,
+Requests carry bounded current evidence. Activity plans receive commentary,
+tool descriptions and bounded outcome excerpts; link naming can include visible
+terminal text. Conversation names use at most 2048 bytes of the initial user request,
 never tool output or assistant commentary. Only untitled root conversations
 attached to live Corgi panes, of providers without automatic titles, opt in;
 explicit names always win. Pending name requests can be reconstructed after

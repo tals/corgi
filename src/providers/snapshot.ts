@@ -1,6 +1,7 @@
 //! What a provider's own protocol shows of a conversation, as its observer
 //! reads it.
 import { BoundedText, Path } from "../bounded_text";
+import type { Observation } from "../activity/tools";
 import { Inventory } from "../activity/background_tasks";
 import { Text as SummaryText } from "../activity/summary";
 import type { Text } from "./common";
@@ -46,6 +47,7 @@ export class Snapshot {
   children_complete = false;
   subagents = { running: 0, blocked: 0, waiting: false };
   evidence = new SummaryText();
+  calls?: Observation[];
   name = new Name();
   request: Request;
   session: string;

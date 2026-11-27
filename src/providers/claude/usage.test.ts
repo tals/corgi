@@ -90,3 +90,23 @@ test.each([
   });
   expect(tail.progress.view().evidence.text()).toBe("Recent completed tools (oldest to newest):\n" + evidence + "\n");
 });
+
+test("messages typed while Claude works join the turn's requests", () => {
+  const { tail, record } = transcript();
+  record({ type: "user", message: { content: "Relax the key repeat timing" } });
+  expect(tail.progress.view().road_evidence.text()).toBe("User request: Relax the key repeat timing\n");
+
+  record({
+    type: "attachment",
+    attachment: { type: "queued_command", prompt: "make a PR when you're done", origin: { kind: "human" } },
+  });
+  record({
+    type: "attachment",
+    attachment: { type: "queued_command", prompt: "task finished", origin: { kind: "task" } },
+  });
+  expect(tail.progress.view().road_evidence.text()).toBe(
+    "User requests this turn (oldest to newest):\n" +
+      "1. Relax the key repeat timing\n" +
+      "2. make a PR when you're done [sent while the agent was working]\n",
+  );
+});

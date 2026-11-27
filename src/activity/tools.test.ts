@@ -2,6 +2,30 @@ import { test, expect } from "bun:test";
 import { Tracker, Call } from "./tools";
 import * as claudeUsage from "../providers/claude/usage";
 import * as codexUsage from "../providers/codex/usage";
+import { parseLabel } from "./summary";
+import * as prompt from "./prompt";
+import { classify } from "./background_tasks";
+import * as claudeConversation from "../providers/claude/conversation";
+test("plan outcomes retain a failed command beside its successful retry while flat evidence stays compact", () => {
+  const tracker = new Tracker();
+  tracker.bind("turn");
+  for (const [id, outcome, result] of [
+    ["failed", "failure", "Existing focus test failed"],
+    ["retry", "success", "All focus tests passed"],
+  ] as const) {
+    const call = new Call();
+    call.id = tracker.key(id);
+    call.append("bun test focus");
+    tracker.save(call, true);
+    tracker.finishId(call.id, true, outcome, result);
+  }
+  const view = tracker.view();
+  expect(view.evidence.text().match(/bun test focus/g)).toHaveLength(1);
+  expect(view.road_evidence.text()).toContain("[failure]: Existing focus test failed");
+  expect(view.road_evidence.text()).toContain("[success]: All focus tests passed");
+  tracker.bind("next");
+  expect(tracker.view().road_evidence.len).toBe(0);
+});
 test("completed tools are deduplicated, historical calls do not advance waves, and turns reset", () => {
   const t = new Tracker(),
     call = {
@@ -32,6 +56,38 @@ test("completed tools are deduplicated, historical calls do not advance waves, a
   codexUsage.progress(t, output, true);
   expect(t.completed).toBe(0n);
 });
+test("a Codex call keeps its original request across a steer, attachment and handoff", () => {
+  let t = new Tracker();
+  t.bind("turn");
+  const ask = (...content: object[]) =>
+    codexUsage.progress(t, { type: "response_item", payload: { type: "message", role: "user", content } }, true);
+  const text = (text: string) => ({ type: "input_text", text });
+  const start = (id: string) => {
+    const call = new Call();
+    call.id = t.key(id);
+    call.append(id);
+    t.save(call, true);
+  };
+  ask(text("Inspect the badge"));
+  start("read");
+  ask(
+    text('<image name=[Image #1] path="/tmp/paste.png">'),
+    { type: "input_image" },
+    text("</image>"),
+    text("[Image #1] Check the broker photo"),
+  );
+  ask(text("<environment_context>"));
+  t = Tracker.restore(JSON.parse(JSON.stringify(t, (_, v) => (typeof v === "bigint" ? String(v) : v))));
+  t.finishId(t.key("read"), true, "success");
+  start("measure");
+  expect(t.view().calls.map(c => [c.running, c.request])).toEqual([
+    [false, { id: 1, title: "Inspect the badge" }],
+    [true, { id: 2, title: "Check the broker photo" }],
+  ]);
+  ask({ type: "input_image" });
+  expect(t.view().request).toEqual({ id: 3, title: "[Image #1]" });
+});
+
 test("code-mode evidence keeps commands and patch files while dropping wrapper", () => {
   const t = new Tracker();
   t.bind("a");
@@ -254,4 +310,116 @@ test("running tools publish stable evidence before completion for both providers
     expect(tracker.view().evidence.text()).not.toContain("Currently running tools");
     expect(tracker.view().evidence.text()).toContain("Recent completed tools");
   }
+});
+
+test("mapped shell commands provide evidence for distinct worktree reads", () => {
+  const code = (names: string[]) =>
+    "const cmds=" +
+    JSON.stringify(names) +
+    ';const r=await Promise.allSettled(cmds.map(cmd=>tools.exec_command({cmd,workdir:load("wt")})));';
+  for (const command of ["cat src/activity/roadmap.ts", "rg -n tooltip src/controller.ts"]) {
+    const item = new Call();
+    expect(item.script(code([command, "git status --short"]))).toBe(true);
+    expect(item.text()).toContain(command);
+    expect(item.text()).not.toContain("exec_command");
+  }
+});
+
+test("code-mode tool outputs preserve failed commands inside a completed script and survive a handoff", () => {
+  const t = new Tracker();
+  t.bind("turn");
+  const shellResult = (code: number) =>
+    JSON.stringify({ status: "fulfilled", value: { chunk_id: "test", exit_code: code, output: "Exit code: 99" } });
+  for (const [id, result] of [
+    ["a", shellResult(7)],
+    ["b", shellResult(0)],
+    ["c", "Exit code: 1\nWall time: 0.2 seconds\nOutput:\nmissing file"],
+    ["d", "Process exited with code 0\nOutput:\nExit code: 99"],
+  ]) {
+    codexUsage.progress(
+      t,
+      {
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: id,
+          input: 'text(await tools.exec_command({cmd:"bun test"}))',
+        },
+      },
+      true,
+    );
+    codexUsage.progress(
+      t,
+      {
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: id,
+          output: [
+            { type: "input_text", text: "Script completed\nWall time 0.1 seconds\nOutput:\n" },
+            {
+              type: "input_text",
+              text: result,
+            },
+          ],
+        },
+      },
+      true,
+    );
+  }
+  expect(t.view().calls.map(c => c.outcome)).toEqual(["failure", "success", "failure", "success"]);
+  expect(
+    Tracker.restore(JSON.parse(JSON.stringify(t, (_, v) => (typeof v === "bigint" ? String(v) : v)))).view().calls,
+  ).toEqual(t.view().calls);
+});
+
+test("code-mode labels use the command column of parallel tuples and ignore tool names in strings", () => {
+  const t = new Tracker();
+  t.bind("turn");
+  const input =
+    'const work = [["viewer", "cat src/activity/tools.ts"], ["usage", `rg outcome src/usage.ts`]]; ' +
+    "await Promise.allSettled(work.map(async ([label, command]) => text([label, (await tools.exec_command({cmd: command})).output]))); " +
+    'text("tools.exec_command({cmd: decoy})"); // tools.other({})';
+  for (const [id, args] of [
+    ["named", input],
+    [
+      "inline",
+      input
+        .replace("const work = ", "const unrelated = ")
+        .replace("work.map", '[["A","cat a.ts"],["B","cat b.ts"]].map'),
+    ],
+  ]) {
+    codexUsage.progress(
+      t,
+      { type: "response_item", payload: { type: "custom_tool_call", name: "exec", call_id: id, input: args } },
+      true,
+    );
+  }
+  expect(t.view().calls.map(c => c.detail)).toEqual([
+    "exec: cat src/activity/tools.ts; rg outcome src/usage.ts",
+    "exec: cat a.ts; cat b.ts",
+  ]);
+});
+
+test("JSON code wrappers keep the supplied description and a statically known command", () => {
+  const t = new Tracker();
+  t.bind("turn");
+  codexUsage.progress(
+    t,
+    {
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        call_id: "wrapped",
+        name: "exec",
+        arguments: JSON.stringify({
+          description: "Check the parser",
+          code: 'const task="bun test parser"; return tools.exec_command({cmd:task, title:"Nested title"});',
+        }),
+      },
+    },
+    true,
+  );
+  expect(t.view().calls[0]).toMatchObject({ description: "Check the parser", detail: "exec: bun test parser" });
 });

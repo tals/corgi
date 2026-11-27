@@ -1,0 +1,68 @@
+[
+  {
+    "id": "fs-cancellation",
+    "label": "Cancel a benchmark while repairing CSV quoting",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/fs-cancellation.jsonl",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "canceled benchmark is skipped, not completed",
+        "kind": "state",
+        "event": 8,
+        "level": "step",
+        "state": "abandoned",
+        "at": 17
+      },
+      {
+        "name": "intentional stop is not an error",
+        "kind": "bump",
+        "event": 8,
+        "category": null
+      },
+      {
+        "name": "failed test stays failed after retry",
+        "kind": "state",
+        "event": 5,
+        "level": "step",
+        "state": "failed",
+        "at": 17
+      },
+      {
+        "name": "quoted-comma failure is resolved",
+        "kind": "bump",
+        "event": 5,
+        "category": "verification",
+        "state": "resolved"
+      },
+      {
+        "name": "only the real CSV test failed",
+        "kind": "bump_count",
+        "count": 1
+      },
+      {
+        "name": "repair and retry stay with CSV correctness",
+        "kind": "same_episode",
+        "a": 5,
+        "b": 15
+      },
+      {
+        "name": "successful retry is complete",
+        "kind": "state",
+        "event": 15,
+        "level": "step",
+        "state": "done",
+        "at": 17
+      },
+      {
+        "name": "resolved test retains recovery explanation",
+        "kind": "subtitle",
+        "event": 5,
+        "level": "step",
+        "pattern": "pass|fix|correct|repair|resolv|verif"
+      }
+    ]
+  }
+]

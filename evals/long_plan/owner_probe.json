@@ -1,0 +1,133 @@
+[
+  {
+    "id": "owner-separate-outcome",
+    "label": "owner separate outcome",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/owner-separate-outcome.jsonl",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "separate requested outcome has a separate episode",
+        "kind": "different_episode",
+        "a": 2,
+        "b": 6
+      },
+      {
+        "name": "new episode describes website typography",
+        "kind": "label",
+        "event": 6,
+        "level": "episode",
+        "pattern": "footer|font|typograph"
+      },
+      {
+        "name": "old episode retains queue scope",
+        "kind": "label",
+        "event": 2,
+        "level": "episode",
+        "pattern": "queue|deliver"
+      },
+      {
+        "name": "queue error remains unresolved",
+        "kind": "bump",
+        "event": 2,
+        "category": "verification",
+        "state": "open"
+      },
+      {
+        "name": "failed queue attempt remains failed",
+        "kind": "state",
+        "event": 2,
+        "level": "step",
+        "state": "failed",
+        "at": 8
+      },
+      {
+        "name": "one actual error",
+        "kind": "bump_count",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "id": "owner-related-documentation",
+    "label": "owner related documentation",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/owner-related-documentation.jsonl",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "workaround documentation retains original episode",
+        "kind": "same_episode",
+        "a": 2,
+        "b": 6
+      },
+      {
+        "name": "documented workaround stays concrete",
+        "kind": "label",
+        "event": 6,
+        "level": "step",
+        "pattern": "queue|workaround"
+      },
+      {
+        "name": "documentation does not resolve the queue error",
+        "kind": "bump",
+        "event": 2,
+        "category": "verification",
+        "state": "open"
+      },
+      {
+        "name": "one actual error",
+        "kind": "bump_count",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "id": "owner-transient-failure",
+    "label": "owner transient failure",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/owner-transient-failure.jsonl",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "missing Python driver is retained as recovered environment error",
+        "kind": "bump",
+        "event": 2,
+        "category": "environment",
+        "state": "resolved"
+      },
+      {
+        "name": "failed initial migration attempt remains failed",
+        "kind": "state",
+        "event": 2,
+        "level": "step",
+        "state": "failed",
+        "at": 10
+      },
+      {
+        "name": "capability probe does not invent a third error",
+        "kind": "bump_count",
+        "count": 2
+      },
+      {
+        "name": "integrity error remains open",
+        "kind": "bump",
+        "event": 8,
+        "category": "verification",
+        "state": "open"
+      },
+      {
+        "name": "successful migration remains with original episode",
+        "kind": "same_episode",
+        "a": 2,
+        "b": 6
+      }
+    ]
+  }
+]

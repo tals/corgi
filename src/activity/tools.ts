@@ -1,7 +1,37 @@
+import { injected } from "../providers/common";
+import * as script_tools from "./script_tools";
 import { Text } from "./summary";
 import { BoundedText } from "../bounded_text";
 class Turn extends BoundedText(160) {}
+export type Outcome = "success" | "failure";
+export type ToolRequest = { id: number; title: string };
+export function readRequest(value: unknown): ToolRequest | null {
+  if (value == null) return null;
+  if (
+    typeof value !== "object" ||
+    !("id" in value) ||
+    typeof value.id !== "number" ||
+    !Number.isSafeInteger(value.id) ||
+    value.id < 1 ||
+    !("title" in value) ||
+    typeof value.title !== "string" ||
+    shortLabel(value.title) !== value.title
+  )
+    throw Error("InvalidToolRequest");
+  return { id: value.id, title: value.title };
+}
+export type Observation = {
+  request?: ToolRequest | null;
+  key: string;
+  detail: string;
+  description: string;
+  running: boolean;
+  outcome?: Outcome | null;
+};
 export class View {
+  request: ToolRequest | null = null;
+  calls: Observation[] = [];
+  road_evidence = new Text();
   commentary = new Text();
   running = 0;
   ended = false;
@@ -21,35 +51,45 @@ export function shortPath(path: string) {
     parent = path.lastIndexOf("/", last - 1);
   return parent < 0 ? path : path.slice(parent + 1);
 }
-export function scriptString(args: string, key: string): string | null {
-  let from = 0;
-  while (true) {
-    const at = args.indexOf(key, from);
-    if (at < 0) return null;
-    from = at + key.length;
-    let i = from;
-    if (args[i] === '"') i++;
-    while (args[i] === " ") i++;
-    if (args[i++] !== ":") continue;
-    while (args[i] === " ") i++;
-    if (!['"', "'", "`"].includes(args[i])) continue;
-    const quote = args[i++],
-      start = i;
-    while (i < args.length && args[i] !== quote) {
-      if (args[i] === "\\") i++;
-      i++;
-    }
-    return args.slice(start, i);
-  }
+/** One short line of provider prose, safe to write into a terminal. */
+export function shortLabel(value: string) {
+  const clean = Bun.stripANSI(value)
+    .replace(/[\x00-\x1f\x7f-\x9f\s]+/g, " ")
+    .trim();
+  if (Buffer.byteLength(clean) <= 64) return clean;
+  const head = clip(clean, 61);
+  return (head.replace(/\s+\S*$/, "") || head) + "…";
 }
 export class Call {
+  request: ToolRequest | null = null;
+  description = "";
+  describe(value: string) {
+    this.description = shortLabel(value);
+  }
+  outcome: "success" | "failure" | null = null;
+  result = "";
   id = 0n;
   live = false;
   value = "";
   static restore(saved: any) {
     if (saved === null) return null;
     if (typeof saved.value !== "string" || Buffer.byteLength(saved.value) > 240) throw Error("InvalidCheckpoint");
-    return Object.assign(new Call(), { id: BigInt(saved.id), live: saved.live === true, value: saved.value });
+    const call = Object.assign(new Call(), { id: BigInt(saved.id), live: saved.live === true, value: saved.value });
+    call.request = readRequest(saved.request);
+    if (typeof saved.description === "string") call.describe(saved.description);
+    return call;
+  }
+  /** A finished call with what it reported; older handoffs carry none. */
+  static restoreOutcome(saved: any) {
+    const call = Call.restore(saved);
+    if (
+      !call ||
+      ![null, "success", "failure"].includes(saved.outcome ?? null) ||
+      typeof (saved.result ?? "") !== "string" ||
+      Buffer.byteLength(saved.result ?? "") > 320
+    )
+      throw Error("InvalidCheckpoint");
+    return Object.assign(call, { outcome: saved.outcome ?? null, result: saved.result ?? "" });
   }
   text() {
     return this.value;
@@ -78,43 +118,34 @@ export class Call {
     }
     return found;
   }
-  appendScriptLine(raw: string) {
-    const line = raw
-      .split(/[\r\n]/, 1)[0]
-      .split(/\\[nr]/, 1)[0]
-      .replace(/\\t/g, " ")
-      .replace(/\\(.)/g, "$1");
-    this.append(clip(line.trim(), 128));
-  }
   script(code: string) {
     const start = Buffer.byteLength(this.value);
-    let found = false,
-      rest = code;
-    while (true) {
-      const at = rest.indexOf("tools.");
-      if (at < 0 || Buffer.byteLength(this.value) >= start + 120) break;
-      rest = rest.slice(at + 6);
-      const name = rest.match(/^[A-Za-z0-9_]+/)?.[0];
-      if (!name) continue;
-      rest = rest.slice(name.length);
-      const end = rest.indexOf("tools."),
-        args = end < 0 ? rest : rest.slice(0, end);
-      if (found) this.append("; ");
-      found = true;
-      if (name === "exec_command") {
-        const cmd = scriptString(args, "cmd");
-        if (cmd !== null) this.appendScriptLine(cmd);
-        else this.append(name);
-      } else if (name === "apply_patch") {
+    const calls = script_tools.read(code);
+    if (!this.description && calls.length === 1 && calls[0].description) this.describe(calls[0].description);
+    for (const [i, call] of calls.entries()) {
+      if (Buffer.byteLength(this.value) >= start + 120) {
+        this.bound(start, true);
+        return true;
+      }
+      if (i) this.append("; ");
+      if (call.name === "apply_patch") {
         this.append("apply_patch ");
-        this.patchFiles(args);
-      } else this.append(name);
+        this.patchFiles(call.args[0]);
+      } else if (call.name === "exec_command" && call.args.length) {
+        this.append(
+          call.args.map(cmd => clip(cmd.split(/\r?\n/, 1)[0].trim(), call.args.length > 1 ? 54 : 128)).join("; "),
+        );
+      } else this.append(call.description || call.name);
     }
-    if (found) this.bound(start, rest.includes("tools."));
-    return found;
+    this.bound(start, false);
+    return calls.length > 0;
   }
 }
 export class Tracker {
+  request: ToolRequest | null = null;
+  prompt = new Text();
+  /** This turn's requests, oldest first: the one that started it and those typed while the agent worked. */
+  asked: { text: string; queued: boolean }[] = [];
   commentary = new Text();
   turn = new Turn();
   ended = false;
@@ -123,6 +154,9 @@ export class Tracker {
   next_pending = 0;
   seen: bigint[] = [];
   recent: Array<Call | null> = [null, null, null];
+  outcomes: Call[] = [];
+  /** Includes repeated calls and fast calls that finish between two transcript polls. */
+  finished: Call[] = [];
   dirty = false;
   /** The tracker a handoff carried, or a new one. */
   static restore(saved: any) {
@@ -140,6 +174,7 @@ export class Tracker {
       saved.recent.length !== 3
     )
       throw Error("InvalidCheckpoint");
+    t.request = readRequest(saved.request);
     t.commentary = Text.fromJSON(saved.commentary);
     t.turn = Turn.fromJSON(saved.turn);
     t.ended = saved.ended === true;
@@ -148,8 +183,46 @@ export class Tracker {
     t.next_pending = saved.next_pending;
     t.seen = saved.seen.map(BigInt);
     t.recent = saved.recent.map(Call.restore);
+    if (saved.finished !== undefined) {
+      if (!Array.isArray(saved.finished) || saved.finished.length > 64) throw Error("InvalidCheckpoint");
+      t.finished = saved.finished.map((item: unknown) => {
+        const call = Call.restoreOutcome(item);
+        if (!call) throw Error("InvalidCheckpoint");
+        return call;
+      });
+    }
+    if (saved.outcomes !== undefined) {
+      if (!Array.isArray(saved.outcomes) || saved.outcomes.length > 4) throw Error("InvalidCheckpoint");
+      t.outcomes = saved.outcomes.map(Call.restoreOutcome);
+    }
+    // Older handoffs carry no request text.
+    if (saved.prompt !== undefined) t.prompt = Text.fromJSON(saved.prompt);
+    if (Array.isArray(saved.asked))
+      t.asked = saved.asked
+        .filter((m: any) => typeof m?.text === "string")
+        .slice(-4)
+        .map((m: any) => ({ text: clip(m.text, 300), queued: m.queued === true }));
+    if (saved.request === undefined) {
+      const text = t.asked.findLast(m => m.text.trim() && !injected(m.text))?.text ?? t.prompt.text();
+      if (text.trim() && !injected(text)) t.request = { id: 1, title: shortLabel(text) };
+    }
     t.dirty = saved.dirty === true;
     return t;
+  }
+  /** A person's message in this turn; `queued` when it arrived while the agent was working. */
+  ask(text: string, queued: boolean) {
+    if (text.trim() && !injected(text)) this.request = { id: (this.request?.id ?? 0) + 1, title: shortLabel(text) };
+    this.prompt = new Text(clip(text, 512));
+    this.asked = [...this.asked, { text: clip(text.replace(/\s+/g, " "), 300), queued }].slice(-4);
+    this.dirty = true;
+  }
+  /** The request heading: one message as before, several as a list so a waiting one stays visible. */
+  requests() {
+    if (this.asked.length < 2) return this.prompt.len ? "User request: " + this.prompt.text() + "\n" : "";
+    return (
+      "User requests this turn (oldest to newest):\n" +
+      this.asked.map((m, i) => `${i + 1}. ${m.text}${m.queued ? " [sent while the agent was working]" : ""}\n`).join("")
+    );
   }
   bind(turn: string) {
     if (!turn || turn === this.turn.text() || Buffer.byteLength(turn) > 160) return;
@@ -160,9 +233,22 @@ export class Tracker {
   view() {
     const out = new View();
     out.turn = this.turn;
+    out.request = this.request;
     out.completed = this.completed;
     out.commentary = this.commentary;
     out.ended = this.ended;
+    const observe = (call: Call, running: boolean) => {
+      out.calls.push({
+        key: call.id.toString(16),
+        detail: call.text(),
+        description: call.description,
+        running,
+        outcome: call.outcome,
+        ...(call.request ? { request: call.request } : {}),
+      });
+    };
+    for (const call of this.finished) observe(call, false);
+    for (const call of this.pending) if (call?.live) observe(call, !this.ended);
     let evidence = "",
       active = 0;
     if (!this.ended)
@@ -177,6 +263,18 @@ export class Tracker {
     if (active > 4) evidence += "Additional tools are running.\n";
     if (this.completed) evidence += "Recent completed tools (oldest to newest):\n";
     for (const call of this.recent) if (call) evidence += call.text() + "\n";
+    const outcomes = this.outcomes
+      .map(call => {
+        const result =
+          Buffer.byteLength(call.result) <= 160
+            ? call.result
+            : clip(call.result, 80) + " … " + clip(call.result.slice(-80), 80);
+        return `${clip(call.text(), 128)} [${call.outcome ?? "outcome unknown"}]: ${result}`;
+      })
+      .join("\n");
+    out.road_evidence = new Text(
+      clip(this.requests() + (outcomes ? "Recent tool outcomes (oldest to newest):\n" + outcomes : ""), 2048),
+    );
     out.evidence = new Text(clip(evidence, 2048));
     return out;
   }
@@ -190,25 +288,40 @@ export class Tracker {
       this.next_pending = (this.next_pending + 1) % 64;
     }
     const old = this.pending[slot];
+    call.request = old?.id === call.id ? old.request : this.request;
     call.live = live || (old?.id === call.id && old.live) || false;
-    if ((!old || old.text() !== call.text() || old.live !== call.live) && call.live) this.dirty = true;
+    if (old?.id === call.id && !call.description) call.description = old.description;
+    if (
+      (!old || old.text() !== call.text() || old.description !== call.description || old.live !== call.live) &&
+      call.live
+    )
+      this.dirty = true;
     this.pending[slot] = call;
   }
   finish(call: Call, live: boolean) {
     if (this.seen.length === 256) this.seen.shift();
     this.seen.push(call.id);
     if (!live) return;
+    this.finished.push(call);
+    if (this.finished.length > 64) this.finished.shift();
     this.completed++;
     this.dirty = true;
+    // Repeating a command must not erase the failure that preceded its successful retry.
+    if (call.outcome || call.result) {
+      this.outcomes.push(call);
+      if (this.outcomes.length > 4) this.outcomes.shift();
+    }
     if (this.recent[2]?.text() !== call.text()) {
       this.recent[0] = this.recent[1];
       this.recent[1] = this.recent[2];
     }
     this.recent[2] = call;
   }
-  finishId(id: bigint, live: boolean) {
+  finishId(id: bigint, live: boolean, outcome: "success" | "failure" | null = null, result = "") {
     const slot = this.pending.findIndex(c => c?.id === id);
     if (slot < 0) return;
+    this.pending[slot]!.outcome = outcome;
+    this.pending[slot]!.result = clip(result.replace(/[\x00-\x1f\x7f-\x9f]/g, " "), 320);
     this.finish(this.pending[slot]!, live);
     this.pending[slot] = null;
   }

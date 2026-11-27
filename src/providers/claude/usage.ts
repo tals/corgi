@@ -10,6 +10,7 @@ import { Model } from "../model";
 import type { TranscriptReader } from "../adapter";
 import type { Tail } from "../../usage/worker";
 import { Line, TaskNotice } from "./transcript";
+import * as todos from "./todos";
 /** The tokens and tool calls an assistant message adds. */
 export function messageTokens(tracker: Tracker, message: any) {
   let delta = new Counts();
@@ -74,6 +75,37 @@ export function progress(t: Tools, value: any, live: boolean) {
     return;
   }
   const content = field(line.message, "content");
+  if (line.type === "user") {
+    const prompt =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content
+              .filter(b => str(b, "type") === "text")
+              .map(b => str(b, "text"))
+              .join("\n")
+          : "";
+    if (prompt && !prompt.startsWith("<task-notification>")) t.ask(prompt, false);
+  }
+  // A message typed while the agent works is delivered as an attachment, not a user line.
+  const attachment = field(value, "attachment");
+  if (
+    line.type === "attachment" &&
+    str(attachment, "type") === "queued_command" &&
+    str(field(attachment, "origin"), "kind") === "human"
+  ) {
+    const queued = field(attachment, "prompt"),
+      text =
+        typeof queued === "string"
+          ? queued
+          : Array.isArray(queued)
+            ? queued
+                .filter(b => str(b, "type") === "text")
+                .map(b => str(b, "text"))
+                .join("\n")
+            : "";
+    if (text) t.ask(text, true);
+  }
   if (!Array.isArray(content)) return;
   for (const block of content) {
     const type = str(block, "type"),
@@ -90,6 +122,7 @@ export function progress(t: Tools, value: any, live: boolean) {
       call.id = key;
       const name = str(block, "name"),
         input = field(block, "input");
+      call.describe(str(input, "description") || str(input, "title"));
       call.append(name + ": ");
       if (name === "Artifact")
         call.detail([str(input, "action"), str(input, "intent"), str(input, "title")].filter(Boolean).join(" "));
@@ -103,7 +136,21 @@ export function progress(t: Tools, value: any, live: boolean) {
       t.save(call, live);
     } else if (line.type === "user" && type === "tool_result") {
       const id = str(block, "tool_use_id");
-      if (id) t.finishId(t.key(id), live);
+      if (id) {
+        const content = field(block, "content"),
+          text =
+            typeof content === "string"
+              ? content
+              : Array.isArray(content)
+                ? content.map(b => str(b, "text")).join("\n")
+                : "";
+        t.finishId(
+          t.key(id),
+          live,
+          field(block, "is_error") === true ? "failure" : "success",
+          text.slice(0, 180) + (text.length > 180 ? " … " + text.slice(-120) : ""),
+        );
+      }
     }
   }
 }
@@ -152,6 +199,7 @@ function notes(t: Tail, session: string, value: any) {
   }
 }
 export function open(): TranscriptReader {
+  const tasks = new WeakMap<object, todos.Reader>();
   return {
     open(t) {
       if (!t.live.meter.value.known) {
@@ -162,6 +210,10 @@ export function open(): TranscriptReader {
     record(t, req, value, appended, stamp) {
       const session = req.agent.sessionId();
       notes(t, session, value);
+      let todo = tasks.get(t);
+      if (!todo) tasks.set(t, (todo = new todos.Reader()));
+      const list = todo.record(value, session);
+      if (list && list.at >= (t.checklist?.at ?? 0)) t.checklist = list;
       if (str(value, "sessionId") === session) {
         progress(t.progress, value, appended);
         context(t.context, value);

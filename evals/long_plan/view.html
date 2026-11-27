@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Corgi · Long-term plan view</title>
+<!--STYLES-->
+<style>
+:root{/*PALETTE*/color-scheme:dark;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text)}
+*{box-sizing:border-box}body{margin:0}main{max-width:1192px;margin:auto;padding:36px 28px 56px;min-width:0}
+.eyebrow{font-size:12px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;margin:0 0 12px}
+h1{font-size:30px;color:var(--strong);font-weight:600;letter-spacing:-.02em;margin:0 0 12px}p{line-height:1.55;margin:0 0 20px;color:var(--muted);max-width:860px}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:24px 0 14px}label{font-size:13px;color:var(--muted)}
+select,button{font:inherit;background:var(--surface);border:1px solid var(--line);border-radius:4px;color:var(--text);padding:8px 10px;max-width:100%}select{min-width:0}button{cursor:pointer}button:hover{background:var(--selected)}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.replay{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:16px;margin:0 0 18px}input[type=range]{width:100%;accent-color:var(--accent)}output{font:12px ui-monospace,monospace;color:var(--muted)}
+.terminal-wrap{border:1px solid var(--line);border-radius:7px;overflow:hidden;max-width:100%;background:var(--bg)}.chrome{height:35px;padding:8px 14px;background:var(--surface);color:var(--muted);font:12px ui-monospace,monospace;display:flex;justify-content:space-between;gap:12px}.chrome span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#screen{margin:auto;--th-cw:9px;--th-ch:20px;--th-font-size:14px;background:var(--bg)}
+.notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px;margin:26px 0}.notes div{min-width:0}.notes strong{font-size:14px;color:var(--strong)}.notes p{font-size:13px;margin-top:8px}
+details{border-top:1px solid var(--line);padding-top:15px;margin-top:8px}summary{cursor:pointer;color:var(--text);font-size:14px}#evidence{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,monospace;max-height:320px;overflow:auto;background:var(--surface);padding:18px}#provenance{font-size:12px;overflow-wrap:anywhere;margin-top:15px}.status{font-size:12px;color:var(--faint);margin-top:12px}
+@media(max-width:760px){main{padding:22px 12px}h1{font-size:25px}.notes{grid-template-columns:minmax(0,1fr);gap:0}.replay{gap:8px}.controls{gap:8px}select{width:100%}.chrome{padding-inline:8px}}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">Corgi / Design study / Recorded development sessions</div>
+<h1>A road through the work.</h1>
+<p>Keep the goal in view. Open an episode to see the investigation, edits, retries and verification that belong together. Each row carries the tokens spent on that work.</p>
+<div class="controls"><label for="session">Historical session</label><select id="session"></select><button id="narrow">Narrow view</button><button id="expand">Expand episodes</button><button id="ansi">Export terminal frame</button></div>
+<div class="replay"><label for="checkpoint">Replay</label><input id="checkpoint" type="range" min="0" value="0"><output id="position"></output></div>
+<div class="terminal-wrap"><div class="chrome"><span>corgi · proposed Plan panel</span><span id="stamp"></span></div><div id="screen" aria-label="Plan hierarchy from a recorded development session"></div></div>
+<div class="status" id="model"></div>
+<div class="notes">
+<div><strong>One episode, several kinds of work</strong><p>Repairing branch history can contain a rebase, conflict resolution, verification and a squash. Routine Git inspection stays with the feature it supports.</p></div>
+<div><strong>Subtitles explain the change</strong><p>The title names the work. The second line carries a finding, approach, blocker or outcome. Failed attempts remain visible when a later retry succeeds.</p></div>
+<div><strong>Tokens follow the evidence</strong><p>Totals include input and output. Cached input is a subset, shown separately. ≈ marks approximate episode attribution; child-agent usage is excluded.</p></div>
+</div>
+<details><summary>Inspect evidence for the selected row</summary><pre id="evidence"></pre></details>
+<p id="provenance"></p>
+<p class="status">Interactive design prototype using Corgi palette tokens and termhtml cells. Keyboard: ↑/↓ select, Enter open/close, Page Up/Down scroll. Controls here illustrate the proposed interaction; production shortcuts are not assigned.</p>
+</main>
+<!--TOOLKIT-->
+<script>
+const DATA=/*DATA*/[];
+const $=id=>document.getElementById(id), esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let active=0,index=0,narrow=false,expanded=new Set(),selected=null,offset=0,ui=null,visible=[];
+const glyph={active:'●',done:'✓',planned:'○',failed:'!',blocked:'●',abandoned:'–'};
+const color={active:'accent',done:'muted',planned:'faint',failed:'hot',blocked:'warm',abandoned:'muted'};
+const compact=value=>{const n=Number(value);return n>=1e6?(n/1e6).toFixed(2)+'m':n>=1e3?(n/1e3).toFixed(1)+'k':String(n)};
+const sum=t=>t?BigInt(t.input)+BigInt(t.output):0n;
+const clean=s=>s.replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/—|–/g,'-').replace(/→/g,'›');
+function chosen(){return DATA[active]}
+function snap(){return chosen().snapshots[index]}
+function initialize(){
+ $('session').innerHTML=DATA.map((d,i)=>`<option value="${i}">${esc(d.provider==='claude'?'Claude':'Codex')} · ${esc(d.id.replace(/^(claude|codex)-/,''))}</option>`).join('');
+ active=Math.max(0,DATA.findIndex(d=>d.id==='claude-ci-full'));
+ $('session').value=active;change();
+}
+function change(){
+ index=chosen().snapshots.length-1;offset=0;expanded=new Set();
+ const nodes=snap().state.nodes;
+ selected=nodes.findLast(n=>n.kind==='episode'&&/branch|rebas|histor/i.test(n.title))?.id||nodes.findLast(n=>n.kind==='episode')?.id;
+ if(selected)expanded.add(selected);
+ $('checkpoint').max=index;$('checkpoint').value=index;render();
+}
+function widget(kind,x,y,w,h,text,fg='text',bg='bg',extra=''){
+ const clipped=clean(text).split('\n').map(line=>line.length>w?line.slice(0,w-1)+'…':line).join('\n');
+ return `<${kind==='button'?'button':'span'} data-tui="${kind}" data-x="${x}" data-y="${y}" data-w="${w}" data-h="${h}" data-fg="${fg}" data-bg="${bg}" ${extra}>${esc(clipped)}</${kind==='button'?'button':'span'}>`;
+}
+function render(){
+ if(!DATA.length)return;
+ if(ui)ui.destroy();
+ const d=chosen(),s=snap(),nodes=s.state.nodes,tokens=s.ledger,host=$('screen');
+ const room=Math.floor((document.querySelector('.terminal-wrap').clientWidth-2)/9);
+ const cols=Math.max(30,Math.min(narrow?72:122,room));
+ const sidebar=cols>=102?24:0,x=sidebar?sidebar+2:2,w=cols-x-2,rows=38;
+ host.innerHTML='';host.dataset.cols=cols;host.dataset.rows=rows;
+ let html='';
+ if(sidebar){
+  html+=widget('text',2,1,20,1,'corgi','strong','bg','data-bold');
+  html+=widget('text',2,3,20,1,'WORKSPACES','faint');
+  html+=widget('text',2,5,20,1,'› corgi','strong','selected');
+  html+=widget('text',2,8,20,1,'AGENTS','faint');
+  html+=widget('text',2,10,20,1,(d.provider==='claude'?'Claude':'Codex')+' session','strong','selected');
+  html+=widget('text',2,11,20,1,'  '+d.id.replace(/^(claude|codex)-/,''),'muted','selected');
+  html+=widget('text',2,15,20,1,'Plan','accent','bg','data-bold');
+  html+=widget('text',2,16,20,2,nodes.filter(n=>n.kind==='episode').length+' episodes\n'+nodes.filter(n=>n.kind==='step').length+' steps','muted');
+  html+=widget('text',2,33,20,2,'Recorded replay\n'+d.provider,'faint');
+  for(let y=0;y<rows;y++)html+=widget('text',sidebar,y,1,1,'│','line');
+ }
+ html+=widget('text',x,1,w-20,1,'Plan','strong','bg','data-bold');
+ html+=widget('text',cols-21,1,19,1,(tokens.known?compact(sum(tokens.observed))+' tokens':'usage unknown').padStart(19),'muted');
+ const roots=nodes.filter(n=>n.kind==='goal');
+ const chosenNode=nodes.find(n=>n.id===selected);let root=chosenNode;
+ while(root?.parent)root=nodes.find(n=>n.id===root.parent);
+ root=root||roots.at(-1);
+ html+=widget('text',x,3,w,1,root?.title||'Waiting for work evidence','strong','bg','data-bold');
+ html+=widget('text',x,4,w,1,root?.subtitle||'A bare request establishes intent; work has not started.','muted');
+ html+=widget('rule',x,6,w,1,'');
+ visible=[];
+ for(const g of roots){
+  if(roots.length>1)visible.push({...g,heading:true});
+  for(const e of nodes.filter(n=>n.parent===g.id)){
+   visible.push(e);
+   if(expanded.has(e.id))visible.push(...nodes.filter(n=>n.parent===e.id));
+  }
+ }
+ offset=Math.min(offset,Math.max(0,visible.length-9));
+ const shown=visible.slice(offset,offset+9);
+ shown.forEach((n,i)=>{
+  const y=8+i*2,isSelected=n.id===selected,depth=n.kind==='step'?2:0,bg=isSelected?'selected':'bg';
+  const prefix=n.heading?'':n.kind==='episode'?(expanded.has(n.id)?'▾ ':'› '):'  ';
+  const label=prefix+(glyph[n.state]||'○')+' '+n.title;
+  const count=tokens.known?'≈ '+compact(sum(tokens.counts[n.id])):'unknown';
+  html+=widget('text',x,y,w,2,'','text',bg);
+  html+=widget('text',x+depth,y,Math.max(4,w-depth-12),1,label,isSelected?'strong':n.kind==='step'?'text':'strong',bg,n.kind!=='step'?'data-bold':'');
+  html+=widget('text',x+depth+prefix.length,y,1,1,glyph[n.state]||'○',color[n.state],bg);
+  html+=widget('text',cols-13,y,11,1,count.padStart(11),isSelected?'muted':'faint',bg);
+  html+=widget('text',x+depth+4,y+1,Math.max(4,w-depth-5),1,n.subtitle,'muted',bg);
+  html+=`<button class="row-hit" tabindex="-1" data-id="${esc(n.id)}" aria-label="${esc(n.title)}" style="position:absolute;z-index:5;opacity:0;left:${x*9}px;top:${y*20}px;width:${w*9}px;height:40px;border:0;padding:0"></button>`;
+ });
+ if(!shown.length)html+=widget('text',x,10,w,2,'No episodes yet.\nMove the replay forward to the first concrete action.','muted');
+ html+=widget('text',x,27,w,1,`${visible.length?offset+1:0}-${Math.min(offset+9,visible.length)} of ${visible.length} rows · unassigned ${compact(sum(tokens.unattributed))} tokens`,'faint');
+ html+=widget('rule',x,28,w,1,'');
+ const detail=nodes.find(n=>n.id===selected)||root,t=detail?tokens.counts[detail.id]:null;
+ html+=widget('text',x,30,w,1,detail?`${glyph[detail.state]} ${detail.title}`:'Select an episode',detail?color[detail.state]:'muted','bg','data-bold');
+ html+=widget('text',x,31,w,2,detail?wrap(detail.subtitle,w):'', 'muted');
+ const breakdown=t&&tokens.known?`Input ${compact(t.input)} · cached ${compact(t.cached)} · output ${compact(t.output)}`:'Usage has not been reported yet';
+ html+=widget('text',x,34,w,2,wrap(breakdown,w),'muted');
+ html+=widget('text',x,36,w,1,`Arrows Select · Enter Expand · PgUp/PgDn Scroll`,'faint');
+ host.innerHTML=html;
+ ui=TermHTML.mount(host,{theme:'corgi'});window.planUI=ui;
+ // The renderer moves source controls into its own layer; row hit targets remain ordinary controls.
+ host.querySelectorAll('.row-hit').forEach(el=>{el.onclick=()=>{const id=el.dataset.id;if(selected===id&&nodes.find(n=>n.id===id)?.kind==='episode')toggle(id);else selected=id;render()};el.onkeydown=keys});
+ host.tabIndex=0;host.onkeydown=keys;
+ host.onwheel=e=>{if(visible.length<=9)return;e.preventDefault();offset=Math.max(0,Math.min(visible.length-9,offset+Math.sign(e.deltaY)*2));render()};
+ $('position').textContent=`${index+1} / ${d.snapshots.length}`;
+ $('stamp').textContent=(d.events.find(e=>e.id===s.through)?.at||'').replace('T',' ').slice(0,19)+' UTC';
+ $('model').textContent=`Historical ${d.provider} session · labels generated by ${d.model} · ${d.complete?'complete selected excerpt':'partial replay'} · event ${s.through}`;
+ $('evidence').textContent=(detail?`${detail.title}\n${detail.subtitle}\nState: ${detail.state}\n\n`:'')+(detail?.evidence||[]).map(id=>{const e=d.events.find(e=>e.id===id);return e?`Event ${id} · line ${e.line} · ${e.kind}\n${e.text}`:''}).join('\n\n');
+ $('provenance').textContent=`Source: ${d.source} · SHA-256 ${d.sha256.slice(0,16)}. Recorded token receipts are exact for this excerpt; assignment to episodes is approximate. ${compact(sum(tokens.unattributed))} tokens have no episode assignment at this checkpoint. This is model output, not a hand-written ideal tree.`;
+}
+function wrap(s,width){let lines=[''];for(const word of clean(s).split(' ')){let i=lines.length-1;if(lines[i].length+word.length+1>width)lines.push(word);else lines[i]+=(lines[i]?' ':'')+word;}return lines.slice(0,2).join('\n')}
+function toggle(id){expanded.has(id)?expanded.delete(id):expanded.add(id)}
+function keys(e){if(!['ArrowDown','ArrowUp','Enter','PageDown','PageUp'].includes(e.key))return;e.preventDefault();e.stopPropagation();let i=Math.max(0,visible.findIndex(n=>n.id===selected));if(e.key==='Enter'){if(visible[i]?.kind==='episode')toggle(visible[i].id)}else if(e.key==='PageDown')offset=Math.min(Math.max(0,visible.length-9),offset+9);else if(e.key==='PageUp')offset=Math.max(0,offset-9);else{ i=Math.max(0,Math.min(visible.length-1,i+(e.key==='ArrowDown'?1:-1)));selected=visible[i]?.id;if(i<offset)offset=i;if(i>=offset+9)offset=i-8;}render();$('screen').focus()}
+$('session').onchange=e=>{active=Number(e.target.value);change()};
+$('checkpoint').oninput=e=>{index=Number(e.target.value);offset=0;render()};
+$('narrow').onclick=()=>{narrow=!narrow;$('narrow').textContent=narrow?'Normal view':'Narrow view';render()};
+$('expand').onclick=()=>{const episodes=snap().state.nodes.filter(n=>n.kind==='episode');if(expanded.size===episodes.length)expanded.clear();else episodes.forEach(n=>expanded.add(n.id));offset=0;render()};
+$('ansi').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([ui.toANSI()],{type:'text/plain'}));a.download='corgi-plan.ansi';a.click();URL.revokeObjectURL(a.href)};
+window.addEventListener('resize',()=>render());initialize();
+</script></body></html>

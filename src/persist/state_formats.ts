@@ -33,6 +33,10 @@ import * as r_08e793e2e4fa from "./revisions/20261122_195524_08e793e2e4fa_add_fi
 import * as r_1047006f32d4 from "./revisions/20261122_231223_1047006f32d4_add_folder_list_find_and_open_rpcs";
 import * as r_531e30a41925 from "./revisions/20261124_035837_531e30a41925_keep_announced_ports_through_a_live_handoff";
 import * as r_428273850636 from "./revisions/20261124_160133_428273850636_add_pane_view_and_a_pane_s_viewer_shown_file";
+import * as r_c9f65235800c from "./revisions/20261127_164716_c9f65235800c_add_long_term_plans_to_activity_summaries_and_co";
+import * as r_b9164a62d4d0 from "./revisions/20261127_184850_b9164a62d4d0_keep_tool_descriptions_and_parallel_groups_in_th";
+import * as r_069d01d2bd60 from "./revisions/20261127_194938_069d01d2bd60_remember_activity_tool_outcomes_and_completed_ca";
+import * as r_4d1f556f7e8b from "./revisions/20261127_220203_4d1f556f7e8b_keep_tool_calls_with_their_starting_step_or_requ";
 
 export const revisions = [
   r_1dfaa1773956.revision,
@@ -68,9 +72,13 @@ export const revisions = [
   r_1047006f32d4.revision,
   r_531e30a41925.revision,
   r_428273850636.revision,
+  r_c9f65235800c.revision,
+  r_b9164a62d4d0.revision,
+  r_069d01d2bd60.revision,
+  r_4d1f556f7e8b.revision,
 ];
 export const heads = {
-  state: r_428273850636.revision.id,
+  state: r_4d1f556f7e8b.revision.id,
   checkpoint: r_1dfaa1773956.revision.id,
   handoff: r_3a005bd21b0d.revision.id,
   workspaces: r_f4c12b1642bd.revision.id,

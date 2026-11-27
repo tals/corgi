@@ -5,7 +5,9 @@ import { Actor, max_actors } from "../conversations";
 import { Agent, Provider, Text } from "../agents";
 import * as summary from "./summary";
 import * as prompt from "./prompt";
-import type { View as ToolView } from "./tools";
+import * as roadmap from "./roadmap";
+import { Recaps } from "./tool_recaps";
+import { clip, type View as ToolView } from "./tools";
 import { Backend, outcome } from "../summary_backend";
 import * as setup from "../inference/setup";
 import { Selection, automatic } from "../inference/models";
@@ -14,6 +16,7 @@ import { adapter } from "../providers";
 import { Meter } from "../usage/live";
 import type { Pane } from "../runtime";
 import * as clock from "../clock";
+import { testBuild } from "../build_assets";
 export const cooldown_ms = 8000,
   tool_quiet_ms = 5000,
   tool_wait_ms = 30000,
@@ -31,6 +34,7 @@ export class Request {
   conversation = new summary.Conversation();
   generation = 0n;
   completed_tools = 0n;
+  road: roadmap.Input | null = null;
   turn_epoch = 0;
   toJSON() {
     return {
@@ -45,6 +49,7 @@ export class Request {
 }
 export class Result {
   number = 0n;
+  patch: string | null = null;
   constructor(
     public request: Request,
     public label: Text | null,
@@ -59,6 +64,20 @@ export class Result {
   }
   apply(actor: Actor) {
     if (actor.id !== this.request.actor) return false;
+    if (this.patch && this.request.road) {
+      const applied = actor.activity_plan.apply(this.request.road, this.patch);
+      outcome(this.number, applied ? null : "superseded");
+      if (
+        applied &&
+        actor.state.turn_epoch === this.request.turn_epoch &&
+        actor.state.state === "working" &&
+        !adapter(actor.provider()).caps.native_activity
+      ) {
+        actor.state.activity = new Text(this.label?.text() ?? "");
+        actor.state.activity_inferred = this.label !== null;
+      }
+      return applied;
+    }
     const agent = actor.state,
       reason = this.stale(agent);
     if (reason) {
@@ -83,6 +102,9 @@ export class Result {
   }
 }
 export class Slot {
+  road_evidence = new summary.Text();
+  transcript_commentary = new summary.Text();
+  attempted_road = 0;
   commentary = new summary.Text();
   tool_evidence = new summary.Text();
   next = 0;
@@ -97,7 +119,12 @@ export class Slot {
   result: Result | null = null;
   constructor(public request: Request) {}
   ready(now: number, away: boolean) {
-    if (!this.active || now < this.next || !this.request.evidence.len) return false;
+    if (!this.active || now < this.next) return false;
+    if (this.request.road) {
+      if (away && this.attempted_road && now - this.attempted_at < away_interval_ms) return false;
+      return this.retry || this.attempted_road !== this.request.road.events.at(-1)!.id;
+    }
+    if (!this.request.evidence.len) return false;
     if (this.retry) return true;
     if (this.attempted_evidence === null) return true;
     if (this.attempted_evidence === summary.hash(this.request.evidence)) return false;
@@ -121,10 +148,13 @@ export class Slot {
       this.attempted_tools = 0n;
       this.retry = false;
     }
+    this.road_evidence = progress.road_evidence;
+    this.transcript_commentary = progress.commentary;
     this.request.completed_tools = progress.completed;
     this.updateTools(progress.evidence, now);
   }
   attempt(now: number) {
+    this.attempted_road = this.request.road?.events.at(-1)?.id ?? 0;
     this.attempted_tools = this.request.completed_tools;
     this.attempted_evidence = summary.hash(this.request.evidence);
     this.attempted_commentary = summary.hash(this.commentary);
@@ -135,6 +165,8 @@ export class Slot {
   }
 }
 export class Worker {
+  // Keep the pre-plan worker available to compatibility fixtures only.
+  plans = !(testBuild && process.env.CORGI_TEST_LEGACY_SUMMARIES === "1");
   names = new conversation_name.Queue();
   prefer_names = true;
   link_requests: Array<links.Request | null> = Array(links.capacity).fill(null);
@@ -155,6 +187,8 @@ export class Worker {
   }
   slots: Array<Slot | null> = Array(max_actors).fill(null);
   implementation = new Backend();
+  recaps = new Recaps();
+  private prefer_recaps = false;
   catalog = new Catalog();
   selected = new Selection();
   system_meter = new Meter();
@@ -304,6 +338,7 @@ export class Worker {
   capture() {
     if (!this.paused || this.running) throw Error("InferenceBusy");
     return {
+      plans: this.plans,
       slots: this.slots.flatMap((slot, index) => (slot ? [{ index, slot }] : [])),
       link_requests: this.link_requests.filter(Boolean),
       link_results: this.link_results,
@@ -331,6 +366,7 @@ export class Worker {
     )
       throw Error("InvalidCheckpoint");
     const worker = new Worker(saved.choice);
+    // Older handoffs' plans:false must not disable the current activity mode.
     worker.selected = Selection.parse(saved.selected);
     worker.launches = setup.Launches.restore(saved.launches);
     for (const key of [
@@ -406,10 +442,15 @@ export class Worker {
     this.catalog.close();
     this.slots.fill(null);
   }
-  submit(owner: Actor, evidence: Text, progress: ToolView | null, panes: any[]) {
+  submit(owner: Actor, evidence: Text, progress: ToolView | null, panes: any[], calls?: ToolView["calls"]) {
     const agent = owner.state;
+    if (calls && this.plans && agent.state !== "working" && agent.state !== "blocked") {
+      const slot = this.slots.find(s => s?.request.actor === owner.id && s.request.turn_epoch === agent.turn_epoch);
+      if (slot && this.summarizing()) this.observeRoad(owner, slot, calls);
+      return;
+    }
     if (
-      adapter(owner.provider()).caps.native_activity ||
+      (!this.plans && adapter(owner.provider()).caps.native_activity) ||
       !["working", "blocked"].includes(agent.state) ||
       !agent.turn.len ||
       !this.summarizing()
@@ -443,27 +484,78 @@ export class Worker {
     slot.request.generation = agent.activity_generation;
     slot.combine();
     if (progress && agent.turnId() === progress.turn.text()) slot.observeTools(progress, clock.milliTimestamp());
+    if (this.plans)
+      this.observeRoad(
+        owner,
+        slot,
+        calls ?? (progress?.turn.text() === agent.turnId() ? progress.calls : undefined),
+        progress?.turn.text() === agent.turnId() ? progress.request : undefined,
+      );
   }
-  tools(actor: number, agent: Agent, progress: ToolView) {
-    if (agent.turnId() !== progress.turn.text()) return;
-    const slot = this.slots.find(s => s?.request.actor === actor && s.request.turn_epoch === agent.turn_epoch);
-    slot?.observeTools(progress, clock.milliTimestamp());
+  observeRoad(owner: Actor, slot: Slot, calls?: ToolView["calls"], request?: ToolView["request"]) {
+    const now = clock.milliTimestamp();
+    const evidence = slot.transcript_commentary.len
+      ? clip(slot.transcript_commentary.text(), 1024) + "\n" + slot.tool_evidence.text()
+      : slot.request.evidence.text();
+    owner.activity_plan.observe(
+      owner.state.turnId(),
+      owner.state.state,
+      (adapter(owner.provider()).caps.native_activity
+        ? "Native tool intent: " + owner.state.activity.text() + "\n"
+        : "") +
+        evidence +
+        "\n" +
+        slot.road_evidence.text(),
+      owner.checklist,
+      owner.usageView(now),
+      now,
+      calls,
+      request,
+    );
+    slot.request.road = owner.activity_plan.request();
+    slot.active = !!slot.request.road || owner.state.state === "working";
+  }
+  tools(actor: Actor, progress: ToolView, panes: Pane[] = []) {
+    if (actor.state.turnId() !== progress.turn.text()) return;
+    const slot = this.slots.find(s => s?.request.actor === actor.id && s.request.turn_epoch === actor.state.turn_epoch);
+    if (!slot) {
+      if (this.plans && progress.calls.length) this.submit(actor, progress.commentary, progress, panes);
+      return;
+    }
+    slot.observeTools(progress, clock.milliTimestamp());
+    if (this.plans) this.observeRoad(actor, slot, progress.calls, progress.request);
   }
   reconcile(actors: Actor[], panes: readonly Pane[] = []) {
     const shown = new Set(panes.filter(p => !p.terminal.exited).map(p => p.attachment.actor));
-    this.names.reconcile(actors.filter(actor => shown.has(actor)));
+    const visible = actors.filter(actor => shown.has(actor));
+    this.names.reconcile(visible);
+    this.recaps.actors = this.plans && this.summarizing() ? visible : [];
+    if (!this.summarizing()) return;
+    if (this.plans)
+      for (const actor of actors) {
+        if (
+          adapter(actor.provider()).caps.native_activity &&
+          actor.state.state === "working" &&
+          actor.state.activity.len &&
+          !this.slots.some(s => s?.request.actor === actor.id)
+        )
+          this.submit(actor, actor.state.activity, null, [...panes]);
+      }
     this.slots = this.slots.map(slot => {
       if (!slot) return null;
       const actor = actors.find(
         a =>
-          !adapter(a.provider()).caps.native_activity &&
           a.id === slot.request.actor &&
-          ["working", "blocked"].includes(a.state.state) &&
-          a.state.turn_epoch === slot.request.turn_epoch,
+          a.state.sessionId() === slot.request.session.text() &&
+          (this.plans ||
+            (!adapter(a.provider()).caps.native_activity &&
+              ["working", "blocked"].includes(a.state.state) &&
+              a.state.turn_epoch === slot.request.turn_epoch)),
       );
       if (actor) {
-        slot.active = actor.state.state === "working";
         slot.request.conversation = actor.status_inference;
+        if (this.plans) this.observeRoad(actor, slot);
+        else slot.active = actor.state.state === "working";
         return slot;
       }
       if (slot.result) outcome(slot.result.number, "not_working");
@@ -521,7 +613,7 @@ export class Worker {
       let index = -1;
       for (let n = 0; n < max_actors && this.summarizing(); n++) {
         const i = (this.cursor + n) % max_actors;
-        if (this.slots[i] && adapter(this.slots[i]!.request.provider).caps.native_activity) {
+        if (!this.plans && this.slots[i] && adapter(this.slots[i]!.request.provider).caps.native_activity) {
           this.slots[i] = null;
           continue;
         }
@@ -559,7 +651,18 @@ export class Worker {
         this.link_results[selected_link] = result;
         return;
       }
+      if (
+        this.plans &&
+        this.summarizing() &&
+        (index < 0 || this.prefer_recaps) &&
+        (await this.recaps.run(this.implementation.pool, now, { load: () => this.stopping }))
+      ) {
+        this.prefer_recaps = false;
+        this.system_meter = this.implementation.pool.system_usage.meter;
+        return;
+      }
       if (index < 0) return;
+      this.prefer_recaps = true;
       this.prefer_links = true;
       const slot = this.slots[index]!,
         request = Object.assign(new Request(), slot.request),
@@ -587,18 +690,20 @@ export class Worker {
             tools_since_last: tools,
           },
           { load: () => this.stopping },
+          request.road && request.name.len ? { ...request.road, conversation: request.name.text() } : request.road,
         );
       this.system_meter = this.implementation.pool.system_usage.meter;
       const current = this.slots[index];
       let discard: "not_working" | "turn_changed" | "evidence_changed" | null = "not_working";
       if (current) {
-        if (!current.request.sameTurn(request)) discard = "turn_changed";
+        if (!request.road && !current.request.sameTurn(request)) discard = "turn_changed";
         else if (attempt.decision) {
-          if (current.request.generation !== request.generation) discard = "evidence_changed";
+          if (!request.road && current.request.generation !== request.generation) discard = "evidence_changed";
           else {
             if (current.result) outcome(current.result.number, "superseded");
             current.result = new Result(request, attempt.decision.label, attempt.decision.action);
             current.result.number = attempt.request;
+            current.result.patch = attempt.patch ?? null;
             discard = null;
           }
         } else {

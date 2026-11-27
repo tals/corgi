@@ -1,0 +1,9 @@
+{
+  "parent": "428273850636",
+  "structures": {
+    "checkpoint": "db9a0eb361a6994f64b686349f0eb2e70fc201fa6712afbf11d31058595ab7fb",
+    "handoff": "a1bcb3b66b00d76fc67cc5673c04b0812e2e74654a7ea32f06c03df638ed8b10",
+    "protocol": "3940abbae79135fbb912bf82fbd57d95e66e881b5aca152660b7ae1ca6b5462a",
+    "viewer": "0019c179968597eacf49c1a0cfde0f3b2c933a12074bdc8d11a9ffd59d75708a"
+  }
+}

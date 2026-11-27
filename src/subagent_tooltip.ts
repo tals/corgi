@@ -1,6 +1,8 @@
 import * as viewerRef from "./viewer_ref";
 //! The agent card a sidebar row opens on hover, and the usage overview the
 //! status bar opens. Mirrors subagent_tooltip.zig.
+import * as roadmap from "./activity/roadmap";
+import * as plan_view from "./plan_view";
 import * as i18n from "./i18n";
 import { microTimestamp, milliTimestamp } from "./clock";
 import { Provider, byProvider, adapter } from "./providers";
@@ -141,6 +143,7 @@ export interface Conversation {
   id: number;
   timeline: { points: ActivityPoint[]; pending: UsageView };
   checklist: checklist.List;
+  activity_plan: roadmap.Snapshot;
   /** The first-party model id; Bedrock and Vertex spellings are resolved. */
   model: string;
   /** Its display name, such as "Opus 5.5"; empty for an unknown shape. */
@@ -193,6 +196,7 @@ export function conversation(value: any = {}): Conversation {
     },
     id: Number(value.id ?? 0),
     checklist: decodeChecklist(value.checklist),
+    activity_plan: roadmap.decode(value.activity_plan),
     timeline: {
       points: (value.timeline?.points ?? []).map((point: any) => ({
         at: Number(point.at ?? 0),
@@ -421,39 +425,6 @@ export class Card {
   ) {}
   ink(tone: Tone): string {
     return this.faded ? Tone.faded(tone) : Tone.ansi(tone);
-  }
-  backgroundTasks(row: number, tasks: BackgroundView, budget: number): number {
-    if (budget < 2 || tasks.items.length === 0) return 0;
-    const age = microTimestamp() - tasks.observed_at;
-    const live = tasks.live && age >= 0 && age <= fresh_window;
-    this.line(row, i18n.t`Background commands`, live ? i18n.t`Running` : i18n.t`Last reported`, "title", "muted");
-    const shown = Math.min(tasks.items.length, budget - 1 - Number(tasks.items.length + 1 > budget || tasks.truncated));
-    const labels: Record<BackgroundGroupName, string> = {
-      tests: i18n.t`Tests`,
-      builds: i18n.t`Builds`,
-      servers: i18n.t`Servers`,
-      commands: i18n.t`Commands`,
-    };
-    let offset = 1;
-    for (const group of ["tests", "builds", "servers", "commands"] as const) {
-      for (const task of tasks.items) {
-        if (task.group !== group || offset > shown) continue;
-        this.line(row + offset, `${labels[group]} · ${task.label}`, "", "text", "muted");
-        offset += 1;
-      }
-    }
-    if (shown < tasks.items.length || tasks.truncated) {
-      const count = tasks.items.length - shown;
-      this.line(
-        row + offset,
-        tasks.truncated ? i18n.t`+${count}+ more commands` : i18n.t`+${count} more commands`,
-        "",
-        "faint",
-        "faint",
-      );
-      offset += 1;
-    }
-    return offset;
   }
   checklist(row: number, list: checklist.List, view: checklist_view.Window) {
     this.w.write(`\x1b[${row + 2};${this.x + 1}H${base}${this.ink("border")}├${"─".repeat(this.width - 2)}┤`);
@@ -703,6 +674,81 @@ export class Card {
           : thinking();
       this.drawPoint(row + nodes, i18n.t`  now`, current, new UsageView(), true, "working");
     }
+  }
+  plan(row: number, view: roadmap.Snapshot, running: boolean, budget: number, disclosure?: ToolDisclosure) {
+    if (budget < 2) return 0;
+    const whole = plan_view.tail(view, budget, running, disclosure?.expanded),
+      selected = whole.hidden ? plan_view.tail(view, budget - 1, running, disclosure?.expanded) : whole,
+      hidden = selected.hidden,
+      top = row - 1 + Number(hidden > 0),
+      tone = (value: palette.Token): Tone => {
+        switch (value) {
+          case "accent":
+            return "working";
+          case "strong":
+            return "title";
+          case "muted":
+            return "muted";
+          case "faint":
+            return "faint";
+          case "warm":
+            return "warm";
+          case "hot":
+            return "hot";
+          default:
+            return "text";
+        }
+      };
+    if (hidden) this.line(row, i18n.t`… ${hidden} earlier items`, "", "faint", "faint");
+    if (disclosure) {
+      let y = top + 1;
+      const shown = selected.rows.filter(r => r.kind === "detail").length;
+      for (const r of selected.rows) {
+        if (r.kind === "tool" && r.first && r.members?.length) {
+          disclosure.rows.set(y, r.first);
+          if (disclosure.expanded?.id === r.first) disclosure.max_offset = Math.max(0, r.members.length - shown);
+        }
+        y += plan_view.height([r]);
+      }
+    }
+    const used = plan_view.drawRows(view, selected.rows, this.width - 6, {
+      line: (offset, label, counts, color) => {
+        const y = top + 1 + offset;
+        if (label) this.cell(y, 0, counts ? this.textWidth() : this.width - 6, label, tone(color), false);
+        if (!counts) return;
+        const start = this.textWidth() + this.counts();
+        if (this.counts())
+          this.cell(
+            y,
+            start - this.counts() + 1,
+            this.counts() - 1,
+            counts.tools === undefined ? "" : compact(BigInt(counts.tools)),
+            "faint",
+            true,
+          );
+        this.cell(
+          y,
+          start + 1,
+          this.numbers(),
+          view.known ? compact(satSub(BigInt(counts.input), BigInt(counts.cached)) + BigInt(counts.output)) : "",
+          tone(color),
+          true,
+        );
+        this.cell(
+          y,
+          start + this.numbers() + 2,
+          this.numbers(),
+          view.known ? compact(BigInt(counts.cached)) : "",
+          "faint",
+          true,
+        );
+      },
+      mark: (offset, column, value, color, bold, strike) => {
+        const style = new palette.Style({ fg: color, bg: "bg", bold, strike });
+        this.w.write(`\x1b[${top + 2 + offset};${this.x + 4 + column}H${style.sgr()}${value}`);
+      },
+    });
+    return used + Number(hidden > 0);
   }
 }
 /** The title row: "Observed tokens", and "2.4M tokens (+38M cached)" at the
@@ -1307,6 +1353,34 @@ export function elapsedCells(window: Window, now: number): number {
   return Math.ceil((into * limit_history.cells) / span);
 }
 
+export class ToolDisclosure {
+  owner: viewerRef.Agent | null = null;
+  rect: Rect | null = null;
+  anchor = { x: 0, y: 0 };
+  rows = new Map<number, number>();
+  expanded: plan_view.Expanded | null = null;
+  max_offset = 0;
+  press: number | null = null;
+  contains(x: number, y: number) {
+    return (
+      this.rect !== null &&
+      (this.rect.contains(x, y) || (Math.abs(x - this.anchor.x) <= 2 && Math.abs(y - this.anchor.y) <= 1))
+    );
+  }
+  start(owner: viewerRef.Agent, x: number, y: number) {
+    if (this.owner !== owner) this.expanded = null;
+    this.owner = owner;
+    this.anchor = { x, y };
+    this.rows.clear();
+    this.max_offset = 0;
+  }
+  toggle(id: number) {
+    if ([...this.rows.values()].includes(id)) this.expanded = this.expanded?.id === id ? null : { id, offset: 0 };
+  }
+  scroll(delta: number) {
+    if (this.expanded) this.expanded.offset = Math.max(0, Math.min(this.max_offset, this.expanded.offset + delta));
+  }
+}
 export function draw(
   w: Writer,
   all: readonly Conversation[],
@@ -1316,6 +1390,7 @@ export function draw(
   px: number,
   py: number,
   accounts: Accounts = new Accounts(),
+  disclosure?: ToolDisclosure,
 ): Rect | null {
   if (cols < 40 || rows < 13) return null;
   const parent = entry.conversation;
@@ -1344,27 +1419,25 @@ export function draw(
   const model = children_available ? Model.init(all, parent) : Object.assign(new Model(), { total: root.usage });
   const width = Math.min(88, cols);
   const pending = root.timeline.points.length > 0;
+  const has_plan = root.activity_plan.nodes.length > 0 || !!root.activity_plan.tool_rows?.length;
+  const plan_tail = has_plan
+    ? plan_view.tail(root.activity_plan, 16, root_agent.state === "working", disclosure?.expanded)
+    : null;
+  const plan_height = plan_tail ? Number(plan_tail.hidden > 0) + plan_view.height(plan_tail.rows) : 0;
   const timeline_nodes = Math.min(
     16,
-    root.timeline.points.length +
-      Number(root_agent.state === "working" && root_agent.activity.length === 0 && !root_agent.compacting),
+    has_plan || !root.timeline.points.length
+      ? 0
+      : root.timeline.points.length +
+          Number(root_agent.state === "working" && root_agent.activity.length === 0 && !root_agent.compacting),
   );
   const timeline_height = timeline_nodes > 0 ? timeline_nodes + 1 : 0;
   const child_footer =
     children_available && model.children === 0 && (entry.subagents.running > 0 || entry.subagents.blocked > 0);
-  const tasks = root.background_tasks;
-  const task_height = tasks.items.length > 0 ? Math.min(8, tasks.items.length + 1 + Number(tasks.truncated)) : 0;
   const todo_view = checklist_view.window(root.checklist);
   const todo_height = checklist_view.visible(root.checklist, microTimestamp()) ? todo_view.rows + 3 : 0;
-  // Until there is a timeline, the activity takes its own line under the subtitle.
-  const activity_row = timeline_nodes === 0;
   const wanted =
-    7 +
-    Number(activity_row) +
-    timeline_height +
-    task_height +
-    todo_height +
-    (model.children > 0 ? model.children + 3 : Number(child_footer));
+    7 + timeline_height + plan_height + todo_height + (model.children > 0 ? model.children + 3 : Number(child_footer));
   const height = Math.min(wanted, rows - 2);
   const x = Math.min(px + 2, cols - width);
   const y = Math.min(py + 1, rows - 1 - height);
@@ -1385,15 +1458,6 @@ export function draw(
   w.write(
     `\x1b[${top + 1};${x + width - 2 - displayWidth(status_text)}H${base}${Tone.ansi(root_status.tone)}${root_status.icon}`,
   );
-  const root_activity =
-    root_agent.activity.length === 0 &&
-    root_agent.recent_activity.length === 0 &&
-    !root_agent.tool_active &&
-    !root_agent.compacting &&
-    !root_agent.subagents.waiting &&
-    root_agent.state === "working"
-      ? thinking()
-      : activity(root_agent);
   // The subtitle names the provider and model, with the context meter beside it.
   const provider = providerName(root_agent);
   const model_label = modelLabel(root);
@@ -1418,28 +1482,36 @@ export function draw(
     w.write(`\x1b[${top + 2};${x + 4 + displayWidth(subtitle)}H${base}${Tone.ansi("faint")}${email}`);
   }
   if (metered) card.meter(top + 1, root.context, root_agent.state === "working" && root_agent.compacting);
-  const header = top + 2 + Number(activity_row);
-  if (activity_row) card.line(top + 2, root_activity, "", "muted", "muted");
+  const header = top + 2;
   card.tokenColumns(header, null, false, "faint");
   card.cell(header + 1, 0, card.textWidth(), i18n.t`Total`, "text", false);
   card.tokenColumns(header + 1, root.usage, false, root.usage.known ? "title" : "muted");
   let row = header + 2;
   const bottom = y + height - 1;
-  const todo_room = sat(bottom, row + task_height + 2 + (model.children > 0 ? 3 : Number(child_footer)));
+  const minimum_activity = has_plan ? 4 : 2;
+  const todo_room = sat(bottom, row + minimum_activity + (model.children > 0 ? 3 : Number(child_footer)));
   const fitted_todos = checklist_view.window(root.checklist, 5, Math.max(0, todo_room - 3));
   const todo_budget = todo_height > 0 && fitted_todos.items.length > 0 ? fitted_todos.rows + 3 : 0;
   const todo_top = bottom - todo_budget;
   const footer_row = todo_top - 1;
   const end = model.children > 0 || child_footer ? footer_row : todo_top;
-  // Give requested background work priority on short terminals. The section
-  // stays bounded and reports omitted commands explicitly.
-  row += card.backgroundTasks(row, tasks, Math.min(task_height, sat(end, row)));
   // Reserve child rows and the combined total; use the rest for recent phases.
   const room = sat(end, row);
   const total_rows = model.children > 0 ? 2 : 0;
-  const reserved_children = Math.min(model.children, sat(room, total_rows + (timeline_nodes > 0 ? 2 : 0)));
+  const reserved_children = Math.min(
+    model.children,
+    sat(room, total_rows + (has_plan ? 4 : timeline_nodes > 0 ? 2 : 0)),
+  );
   const visible_nodes = Math.min(timeline_nodes, sat(sat(room, reserved_children + total_rows), 1));
-  if (visible_nodes > 0) {
+  if (has_plan) {
+    row += card.plan(
+      row,
+      root.activity_plan,
+      root_agent.state === "working",
+      sat(room, reserved_children + total_rows),
+      disclosure,
+    );
+  } else if (visible_nodes > 0) {
     card.timeline(row, root, root_agent, visible_nodes, pending);
     row += visible_nodes + 1;
   }

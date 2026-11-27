@@ -30,6 +30,8 @@
   },
   "dependencies": {
     "@earendil-works/pi-tui": "1.5.2",
+    "acorn": "8.19.0",
+    "acorn-walk": "8.3.5",
     "marked": "18.0.11",
     "marked-cjk-friendly": "0.1.2"
   },

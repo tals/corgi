@@ -66,6 +66,7 @@ export const transcript: Transcript = {
       }
       if (type !== "message") return delta;
       if (role === "user" || role === "assistant") t.spoke_at = Math.max(t.spoke_at, stamp ?? 0);
+      if (role === "user" && appended && t.progress.turn.len) t.progress.ask(messageText(m), false);
       if (role === "assistant") {
         const model = str(m, "model");
         if (model) t.model = Model.resolve(model);
@@ -94,7 +95,8 @@ export const transcript: Transcript = {
               call.id = t.progress.key(id);
               call.append(str(b, "name") + ": ");
               const args = field(b, "arguments");
-              call.detail(str(args, "command") || shortPath(str(args, "path")));
+              call.describe(str(args, "description") || str(args, "title") || str(b, "intent") || str(args, "i"));
+              call.detail(call.description || str(args, "command") || shortPath(str(args, "path")));
               t.progress.save(call, true);
             }
           }
@@ -104,7 +106,12 @@ export const transcript: Transcript = {
           t.progress.commentary = new Summary(clip("Latest agent update: " + text, 2048));
           t.progress.dirty = true;
         }
-      } else if (role === "toolResult" && appended) t.progress.finishId(t.progress.key(str(m, "toolCallId")), true);
+      } else if (role === "toolResult" && appended)
+        t.progress.finishId(
+          t.progress.key(str(m, "toolCallId")),
+          true,
+          field(m, "isError") === true ? "failure" : "success",
+        );
       return delta;
     },
   }),

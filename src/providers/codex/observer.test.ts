@@ -194,6 +194,20 @@ test("a turn's evidence leads with the latest agent message", () => {
   expect(text.startsWith("Latest agent update: Tracing focus changes")).toBe(true);
   expect(text).toContain("User request: Fix tabs");
 });
+test("a steered turn shows the latest user correction instead of the original request", () => {
+  const text = evidence({
+    items: [
+      { type: "userMessage", content: [{ type: "text", text: "Fix the shortcut" }] },
+      { type: "agentMessage", text: "Inspecting key bindings" },
+      { type: "userMessage", content: [{ type: "text", text: "No shortcut; put the plan in the tooltip" }] },
+      { type: "agentMessage", text: "Moving the plan into the tooltip" },
+    ],
+  }).text();
+  expect(text).toContain("User request: No shortcut; put the plan in the tooltip");
+  expect(text).toContain("Latest agent update: Moving the plan into the tooltip");
+  expect(text).not.toContain("Fix the shortcut");
+  expect(text).not.toContain("Inspecting key bindings");
+});
 test("a turn that failed on an overloaded model reads as one a retry may get past", async () => {
   const methods: string[] = [];
   const failed = (codexErrorInfo: string) => ({

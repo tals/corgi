@@ -461,8 +461,8 @@ function applyUsage(server: Server, workers: Workers) {
     const now = clock.microTimestamp();
     if (result.fallback(actor.state, now)) {
       if (adapter(actor.provider()).caps.native_activity) actor.checkpointActivity(false, now);
-      else workers.summaries.submit(actor, result.progress!.commentary, result.progress, runtime.panes);
-    } else if (result.progress) workers.summaries.tools(actor.id, actor.state, result.progress);
+      workers.summaries.submit(actor, result.progress!.commentary, result.progress, runtime.panes);
+    } else if (result.progress) workers.summaries.tools(actor, result.progress, runtime.panes);
     if (!actor.headless_usage && !workspaceWatched(server, result.workspace))
       runtime.workspaces.get(result.workspace)?.away.record(result.since, result.delta);
     changed(server);
@@ -532,7 +532,7 @@ export async function tick(server: Server) {
         );
         if (snapshot.lifecycle) {
           runtime.conversations.observeChildren(actor, snapshot, clock.microTimestamp());
-          workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes);
+          workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes, snapshot.calls);
         }
         changed(server);
       }
@@ -543,6 +543,10 @@ export async function tick(server: Server) {
     if (server.clients.some(client => client.viewer && !client.dead)) workers.summaries.observe(now);
     workers.summaries.remember(runtime.last_agent);
     publishInference(server, workers);
+    if (workers.summaries.recaps.changed) {
+      workers.summaries.recaps.changed = false;
+      changed(server);
+    }
     for (const result of workers.summaries.take()) {
       const actor = runtime.conversations.byId(result.request.actor);
       if (actor && result.apply(actor)) changed(server);

@@ -1,5 +1,9 @@
 # Inference evals
 
+[Long-term plan view](long_plan/README.md) is a separate experimental replay eval
+for goal/episode/step hierarchies, subtitles and token attribution, using private
+historical Claude and Codex sessions and a data-driven terminal UI prototype.
+
 These are small, deterministic assertions around **live model responses** for activity summaries and conversation names. They probe when an activity summarizer should abstain, whether it can still name useful work, and whether it keeps a phase across snapshots instead of adding a row per call. They run the production inference harness, prompt, JSON schema, parser, and bounded conversation-history implementation, through `evals/driver.ts`. They do not open a Corgi runtime or modify a running session.
 
 ```sh

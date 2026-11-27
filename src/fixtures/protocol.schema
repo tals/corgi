@@ -280,6 +280,7 @@ $.requests|conversation.acknowledge.conversation: u32
 $.requests|conversation.acknowledge.through: u64
 $.requests|conversation.acknowledge.attention_at: optional
 $.requests|conversation.acknowledge.attention_at?: i64
+$.requests|conversation.plan.clear.conversation: u32
 $.requests|pane.surface.pane: u32
 $.requests|server.reload.executable: string
 $.requests|recovery.save: {}
@@ -1252,5 +1253,56 @@ $.snapshot.startup_waits[].phase: enum discovering service session installing ag
 $.snapshot.startup_waits[].detail: string
 $.snapshot.startup_waits[].started_at: i64
 $.snapshot.startup_waits[].cancelled: bool
+$.snapshot.conversations[].activity_plan: optional
+$.snapshot.conversations[].activity_plan?.nodes[].id: string
+$.snapshot.conversations[].activity_plan?.nodes[].parent: optional
+$.snapshot.conversations[].activity_plan?.nodes[].parent?: string
+$.snapshot.conversations[].activity_plan?.nodes[].kind: enum goal episode step
+$.snapshot.conversations[].activity_plan?.nodes[].title: string
+$.snapshot.conversations[].activity_plan?.nodes[].subtitle: string
+$.snapshot.conversations[].activity_plan?.nodes[].state: enum planned active done failed blocked abandoned
+$.snapshot.conversations[].activity_plan?.nodes[].evidence[]: usize
+$.snapshot.conversations[].activity_plan?.nodes[].bump: optional
+$.snapshot.conversations[].activity_plan?.nodes[].bump?.kind: enum verification conflict environment permission approach
+$.snapshot.conversations[].activity_plan?.nodes[].bump?.state: enum open resolved
+$.snapshot.conversations[].activity_plan?.nodes[].bump?.detail: string
+$.snapshot.conversations[].activity_plan?.nodes[].bump?.evidence[]: usize
+$.snapshot.conversations[].activity_plan?.counts: any
+$.snapshot.conversations[].activity_plan?.unassigned.input: string
+$.snapshot.conversations[].activity_plan?.unassigned.cached: string
+$.snapshot.conversations[].activity_plan?.unassigned.output: string
+$.snapshot.conversations[].activity_plan?.unassigned.tools: optional
+$.snapshot.conversations[].activity_plan?.unassigned.tools?: string
+$.snapshot.conversations[].activity_plan?.known: bool
+$.snapshot.conversations[].activity_plan?.partial: bool
+$.snapshot.conversations[].activity_plan?.limited: bool
+$.snapshot.conversations[].activity_plan?.focus: optional
+$.snapshot.conversations[].activity_plan?.focus?: string
+$.snapshot.conversations[].activity_plan?.focus_step: optional
+$.snapshot.conversations[].activity_plan?.focus_step?: string
+$.snapshot.conversations[].activity_plan?.visits: optional
+$.snapshot.conversations[].activity_plan?.visits?[].step: string
+$.snapshot.conversations[].activity_plan?.visits?[].from: usize
+$.snapshot.conversations[].activity_plan?.visits?[].to: usize
+$.snapshot.conversations[].activity_plan?.visits?[].counts.input: string
+$.snapshot.conversations[].activity_plan?.visits?[].counts.cached: string
+$.snapshot.conversations[].activity_plan?.visits?[].counts.output: string
+$.snapshot.conversations[].activity_plan?.visits?[].counts.tools: optional
+$.snapshot.conversations[].activity_plan?.visits?[].counts.tools?: string
 $.requests|viewer.stream: versioned protocol.Request.Sync
 $.requests|viewer.stream.sequence: u32
+$.snapshot.conversations[].activity_plan?.tool_rows[].visit: optional
+$.snapshot.conversations[].activity_plan?.tool_rows[].visit?: usize
+$.snapshot.conversations[].activity_plan?.tool_rows[].title: string
+$.snapshot.conversations[].activity_plan?.tool_rows[].running: bool
+$.snapshot.conversations[].activity_plan?.tool_rows[].request: optional
+$.snapshot.conversations[].activity_plan?.tool_rows[].request?.id: usize
+$.snapshot.conversations[].activity_plan?.tool_rows[].request?.title: string
+$.snapshot.conversations[].activity_plan?.tool_rows[].request?.turn: usize
+$.snapshot.conversations[].activity_plan?.tool_rows[].request?.event: usize
+$.snapshot.conversations[].activity_plan?.tool_rows[].outcome: optional
+$.snapshot.conversations[].activity_plan?.tool_rows[].outcome?: enum success failure unknown
+$.snapshot.conversations[].activity_plan?.tool_rows[].first: optional
+$.snapshot.conversations[].activity_plan?.tool_rows[].first?: usize
+$.snapshot.conversations[].activity_plan?.tool_rows[].members: optional
+$.snapshot.conversations[].activity_plan?.tool_rows[].members?[]: string

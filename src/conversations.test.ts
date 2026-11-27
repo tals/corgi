@@ -8,6 +8,32 @@ import { View } from "./activity/tools";
 import { Inventory, Ended } from "./activity/background_tasks";
 import { Hooks } from "./providers/common";
 import * as worktrees from "./worktrees";
+test("clearing a plan retains session usage, checklist and native activity", () => {
+  const actor = new Registry().get("codex", "session");
+  actor.live_usage = new LiveView({
+    known: true,
+    tokens: new Tokens({ input: 2000n, cached_input: 1500n, output: 300n }),
+    tools: 8n,
+  });
+  const usage = actor.live_usage,
+    checklist = actor.checklist;
+  actor.activity_timeline.checkpoint("turn", parseLabel("Old mistaken label")!, usage, 1);
+  actor.status_inference.remember("turn", "old evidence", parseLabel("Old mistaken label")!);
+  actor.state.setActivity("Old mistaken label");
+  actor.state.activity_inferred = true;
+  actor.activity_plan.observe("turn", "working", "Old mistaken label", actor.checklist, usage, 1);
+  actor.clearPlan();
+  expect(actor.activity_plan.state.nodes).toEqual([]);
+  expect(actor.activity_plan.pending).toEqual([]);
+  expect(actor.activity_timeline.points).toEqual([]);
+  expect(actor.status_inference.len).toBe(0);
+  expect(actor.state.activity.len).toBe(0);
+  expect(actor.live_usage).toBe(usage);
+  expect(actor.checklist).toBe(checklist);
+  actor.state.setActivity("Native provider intent");
+  actor.clearPlan();
+  expect(actor.state.activity.text()).toBe("Native provider intent");
+});
 test("child links cannot cross providers reparent or form cycles", () => {
   const r = new Registry(),
     root = r.get("codex", "root"),

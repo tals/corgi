@@ -1,0 +1,75 @@
+[
+  {
+    "id": "context-correct-misunderstanding",
+    "label": "context correct misunderstanding",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "holdout",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/context-correct-misunderstanding.jsonl",
+    "checks": [
+      {
+        "name": "hover work has an accurate episode",
+        "kind": "topic",
+        "event": 7,
+        "level": "episode",
+        "pattern": "^(?!.*shortcut).*(hover|card|detail)"
+      },
+      {
+        "name": "actual edit is not attributed to shortcut investigation",
+        "kind": "topic",
+        "event": 7,
+        "level": "step",
+        "pattern": "^(?!.*shortcut).*(hover|card|detail)"
+      },
+      {
+        "name": "correction retains the original outcome identity",
+        "kind": "same_episode",
+        "a": 2,
+        "b": 7
+      },
+      {
+        "name": "correction is not a command failure",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  },
+  {
+    "id": "context-eval-transcript",
+    "label": "context eval transcript",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "holdout",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/context-eval-transcript.jsonl",
+    "checks": [
+      {
+        "name": "the episode remains classifier evaluation",
+        "kind": "label",
+        "event": 6,
+        "level": "episode",
+        "pattern": "classif|eval"
+      },
+      {
+        "name": "prompt edits are grouped as classification work",
+        "kind": "label",
+        "event": 6,
+        "level": "episode",
+        "pattern": "classif|eval|episode|prompt"
+      },
+      {
+        "name": "implementation step describes the actual prompt edit",
+        "kind": "label",
+        "event": 6,
+        "level": "step",
+        "pattern": "classif|eval|episode|prompt"
+      },
+      {
+        "name": "quoted failure is not a current setback",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  }
+]

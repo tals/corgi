@@ -1,0 +1,5 @@
+{"type": "response_item", "timestamp": "2026-10-30T12:00:00.000Z", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Build the native library."}]}}
+{"type": "response_item", "timestamp": "2026-10-30T12:00:01.000Z", "payload": {"type": "function_call", "name": "functions.exec_command", "call_id": "1", "arguments": "{\"cmd\": \"zig build\"}"}}
+{"type": "response_item", "timestamp": "2026-10-30T12:00:02.000Z", "payload": {"type": "function_call_output", "call_id": "1", "output": "Exit code: 127. zig: command not found"}}
+{"type": "response_item", "timestamp": "2026-10-30T12:00:03.000Z", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "The required Zig compiler is missing. Cannot build until the pinned toolchain is available."}]}}
+{"type": "event_msg", "timestamp": "2026-10-30T12:00:04.000Z", "payload": {"type": "turn_complete"}}

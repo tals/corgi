@@ -142,6 +142,7 @@ export const operations = [
   "pane.view",
   "conversation.list",
   "conversation.acknowledge",
+  "conversation.plan.clear",
   "conversation.grep",
   "conversation.grep.cancel",
   "pane.surface",
@@ -812,6 +813,7 @@ const requests = {
     conversation: ["?u32", null],
   },
   "conversation.acknowledge": { conversation: "u32", through: "u64", attention_at: ["?i64", null] },
+  "conversation.plan.clear": { conversation: "u32" },
   /** `corgi grep`'s options; null takes its default. `workspace` is a workspace
    * ID, an absolute path or '*'; `max_age` is in seconds, 0 for any age. A new
    * search with this connection's `key` ends its last; `stream` sends matches

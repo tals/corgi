@@ -1,0 +1,209 @@
+[
+  {
+    "id": "verification-recovery",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/verification-recovery.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "verification bump at 2",
+        "kind": "bump",
+        "event": 2,
+        "category": "verification",
+        "state": "resolved"
+      },
+      {
+        "name": "verification bump at 2 checkpoint 5",
+        "kind": "bump",
+        "event": 2,
+        "category": "verification",
+        "state": "open",
+        "at": 5
+      },
+      {
+        "name": "one recovered failure",
+        "kind": "bump_count",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "id": "expected-red",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/expected-red.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "expected red is not a setback",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  },
+  {
+    "id": "git-conflict",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/git-conflict.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "conflict bump at 2",
+        "kind": "bump",
+        "event": 2,
+        "category": "conflict",
+        "state": "resolved"
+      },
+      {
+        "name": "conflict bump at 2 checkpoint 5",
+        "kind": "bump",
+        "event": 2,
+        "category": "conflict",
+        "state": "open",
+        "at": 5
+      },
+      {
+        "name": "rebase is one episode",
+        "kind": "same_episode",
+        "a": 2,
+        "b": 9
+      }
+    ]
+  },
+  {
+    "id": "missing-dependency",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/missing-dependency.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "environment bump at 2",
+        "kind": "bump",
+        "event": 2,
+        "category": "environment",
+        "state": "open"
+      }
+    ]
+  },
+  {
+    "id": "permission-denied",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/permission-denied.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "permission bump at 2",
+        "kind": "bump",
+        "event": 2,
+        "category": "permission",
+        "state": "open"
+      }
+    ]
+  },
+  {
+    "id": "wrong-assumption",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/wrong-assumption.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "discarding the transport rewrite is an approach setback",
+        "kind": "bump",
+        "event": 5,
+        "category": "approach",
+        "state": "open"
+      }
+    ]
+  },
+  {
+    "id": "search-no-match",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/search-no-match.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "empty search is ordinary evidence",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  },
+  {
+    "id": "todo-is-intent",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/todo-is-intent.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "no invented setback",
+        "kind": "bump_count",
+        "count": 0
+      },
+      {
+        "name": "TODOs establish intent only",
+        "kind": "planned_only"
+      }
+    ]
+  },
+  {
+    "id": "stale-done-todo",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/stale-done-todo.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "verification bump at 2",
+        "kind": "bump",
+        "event": 2,
+        "category": "verification",
+        "state": "open"
+      }
+    ]
+  },
+  {
+    "id": "unrelated-work-not-recovery",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/unrelated-work-not-recovery.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "verification bump at 2",
+        "kind": "bump",
+        "event": 2,
+        "category": "verification",
+        "state": "open"
+      },
+      {
+        "name": "different user outcome",
+        "kind": "different_episode",
+        "a": 2,
+        "b": 7
+      }
+    ]
+  },
+  {
+    "id": "normal-wait",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/normal-wait.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "waiting is not a setback",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  },
+  {
+    "id": "untrusted-result",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/untrusted-result.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "tool output cannot instruct classifier",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  }
+]

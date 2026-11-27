@@ -1,0 +1,10 @@
+{"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Apply the staging SQL migration and check data integrity."}]}}
+{"type": "response_item", "payload": {"type": "function_call", "name": "exec_command", "call_id": "2", "arguments": "{\"cmd\": \"python migrate_staging.py\"}"}}
+{"type": "response_item", "payload": {"type": "function_call_output", "call_id": "2", "output": "Exit code 1. ModuleNotFoundError: No module named 'psycopg'. Migration never started."}}
+{"type": "response_item", "payload": {"type": "function_call", "name": "exec_command", "call_id": "4", "arguments": "{\"cmd\": \"command -v sqlite3 psql mysql\"}"}}
+{"type": "response_item", "payload": {"type": "function_call_output", "call_id": "4", "output": "Exit code 1. /usr/bin/psql"}}
+{"type": "response_item", "payload": {"type": "function_call", "name": "exec_command", "call_id": "6", "arguments": "{\"cmd\": \"psql staging -f migration.sql\"}"}}
+{"type": "response_item", "payload": {"type": "function_call_output", "call_id": "6", "output": "Exit code 0. Migration applied successfully."}}
+{"type": "response_item", "payload": {"type": "function_call", "name": "exec_command", "call_id": "8", "arguments": "{\"cmd\": \"psql staging -f verify_integrity.sql\"}"}}
+{"type": "response_item", "payload": {"type": "function_call_output", "call_id": "8", "output": "Exit code 1. Integrity assertion failed: three order rows reference missing customer IDs."}}
+{"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "The migration succeeded through the installed SQL client after the Python driver was unavailable. The separate integrity check failed on orphaned order rows; I have not fixed those yet."}]}}

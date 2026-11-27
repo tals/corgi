@@ -1,3 +1,4 @@
+import { Roadmap } from "../activity/roadmap";
 import { isAbsolute } from "node:path";
 import { Runtime, Pane, ClosedAgent, Launch, closed_per_workspace } from "../runtime";
 import * as workspace from "../workspace";
@@ -272,6 +273,7 @@ export function capture(r: Runtime, live: boolean) {
       observed_at: live ? actor.observed_at : 0,
       children_observed_at: live ? actor.children_observed_at : 0,
       checklist: actor.checklist,
+      activity_plan: actor.activity_plan.toJSON(),
       tracked_since: live ? actor.tracked_since : 0,
       headless_meter:
         live && actor.headless_usage
@@ -437,6 +439,7 @@ export async function restore(
     actor.observed_at = live ? (saved.observed_at ?? 0) : 0;
     actor.children_observed_at = live ? (saved.children_observed_at ?? 0) : 0;
     actor.checklist = decodeChecklist(saved.checklist);
+    actor.activity_plan = Roadmap.restore(saved.activity_plan, live);
     if (live && saved.tracked_since) actor.tracked_since = saved.tracked_since;
     if (live && saved.headless_meter) {
       actor.headless_usage = true;

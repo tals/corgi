@@ -5,6 +5,25 @@ import path from "node:path";
 import { field, str } from "../json";
 import { max_image_bytes, type Image, type Permissions, type Programs, type Service } from "./adapter";
 export { field, str } from "../json";
+/** Text an agent put in the user's turn: commands, reminders, notices, its own context. */
+export function injected(text: string) {
+  const s = text.replace(/^[ \n\t]+/, "");
+  return [
+    "<command-",
+    "<local-command",
+    "<system-reminder",
+    "<task-notification",
+    "<bash-",
+    "Caveat:",
+    "[Request interrupted",
+    "This session is being continued",
+    "# AGENTS.md",
+    "<environment_context",
+    "<user_instructions",
+    "<turn_aborted",
+    "<user_shell_command",
+  ].some(p => s.startsWith(p));
+}
 export type Outcome = "completed" | "interrupted" | "failed";
 /** The subscription behind a Pi or omp model provider's OAuth sign-in. */
 export function service(model_provider: string): Service | null {

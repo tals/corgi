@@ -1,0 +1,53 @@
+[
+  {
+    "id": "holdout-todo-verification",
+    "provider": "claude",
+    "source": "evals/long_plan/fixtures/holdout-todo-verification.jsonl",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "a checked TODO cannot resolve a real test failure",
+        "kind": "bump",
+        "event": 4,
+        "category": "verification",
+        "state": "open"
+      }
+    ]
+  },
+  {
+    "id": "holdout-environment-recovery",
+    "provider": "claude",
+    "source": "evals/long_plan/fixtures/holdout-environment-recovery.jsonl",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "environment issue resolves only after build succeeds",
+        "kind": "bump",
+        "event": 2,
+        "category": "environment",
+        "state": "resolved"
+      },
+      {
+        "name": "the failed build remains a failed attempt after recovery",
+        "kind": "state",
+        "event": 2,
+        "level": "step",
+        "state": "failed",
+        "at": 9
+      }
+    ]
+  },
+  {
+    "id": "holdout-source-errors",
+    "provider": "claude",
+    "source": "evals/long_plan/fixtures/holdout-source-errors.jsonl",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "source code strings are not actual setbacks",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  }
+]
