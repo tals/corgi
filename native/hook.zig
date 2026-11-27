@@ -144,7 +144,7 @@ fn attempt(socket: []const u8, head: []const u8, body: []const u8, started: i64)
     // status line may come in pieces.
     var status: [status_len]u8 = undefined;
     var have: usize = 0;
-    while (true) {
+    while (have < status.len) {
         const reloading = starting(socket);
         if (!limit(fd, c.SO_RCVTIMEO, started + if (reloading) reload_us else normal_us)) return .{ .timed_out = if (reloading) .reload else .reply };
         const n = c.read(fd, &buf, buf.len);
@@ -155,12 +155,12 @@ fn attempt(socket: []const u8, head: []const u8, body: []const u8, started: i64)
             continue;
         }
         if (n < 0) switch (std.posix.errno(n)) {
-            .INTR => continue,
-            .AGAIN => if (have < status.len) continue,
+            .INTR, .AGAIN => continue,
             else => {},
         };
-        return if (have == status.len and taken(&status)) .delivered else .refused;
+        return .refused;
     }
+    return if (taken(&status)) .delivered else .refused;
 }
 
 /// A reply's start, through its status code.

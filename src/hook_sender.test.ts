@@ -2,6 +2,7 @@
 //! notes when Corgi doesn't answer.
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
+import * as http from "node:http";
 import * as net from "node:net";
 import { flock } from "./native_bridge";
 import { nativeRoot } from "./native_paths";
@@ -34,17 +35,21 @@ async function send(socket: string): Promise<number> {
 }
 /** A daemon that takes connections and reads requests: answering them with
  * `status`, or not at all. */
-async function daemon(socket: string, answer: boolean, status = () => "200 OK") {
+async function daemon(socket: string, answer: boolean, status = () => 200) {
   const received: string[] = [];
-  const server = net.createServer(peer => {
-    peer.on("error", () => {});
-    peer.on("data", chunk => {
-      received.push(String(chunk));
-      const reply = '{"ok":true}';
-      if (answer)
-        peer.end(
-          `HTTP/1.1 ${status()}\r\nContent-Length: ${text.byteLength(reply)}\r\nConnection: close\r\n\r\n${reply}`,
-        );
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", chunk => (body += chunk));
+    req.on("end", () => {
+      received.push(body);
+      if (!answer) return;
+      const code = status();
+      if (code === 503) {
+        // The refusal is complete even if the peer has yet to close its socket.
+        res.writeHead(code, { "Content-Length": 0 });
+        res.flushHeaders();
+      } else res.writeHead(code).end('{"ok":true}');
     });
   });
   await new Promise<void>(resolve => server.listen(socket, resolve));
@@ -102,7 +107,7 @@ test("a hook stuck counting holds up the next one's count, not its agent", async
   }
 });
 
-test("a reply whose status line comes in pieces delivers the event once", async () => {
+test("a fragmented status delivers the event before the peer closes the socket", async () => {
   using dir = directory();
   let requests = 0;
   const server = net.createServer(peer => {
@@ -112,7 +117,7 @@ test("a reply whose status line comes in pieces delivers the event once", async 
       const reply = '{"ok":true}';
       peer.write("HTTP/1.1 20");
       await Bun.sleep(20);
-      peer.end(`0 OK\r\nContent-Length: ${text.byteLength(reply)}\r\nConnection: close\r\n\r\n${reply}`);
+      peer.write(`0 OK\r\nContent-Length: ${text.byteLength(reply)}\r\nConnection: close\r\n\r\n${reply}`);
     });
   });
   await new Promise<void>(resolve => server.listen(dir.socket, resolve));
@@ -175,7 +180,7 @@ test("a start that never finishes holds the hook 3 s at most", async () => {
 test("a full daemon's refusal is sent again while it reloads, and given up otherwise", async () => {
   using dir = directory();
   let refusals = 2;
-  const full = await daemon(dir.socket, true, () => (refusals-- > 0 ? "503 Service Unavailable" : "200 OK"));
+  const full = await daemon(dir.socket, true, () => (refusals-- > 0 ? 503 : 200));
   try {
     expect(await send(dir.socket)).toBeLessThan(500);
     expect(full.received).toHaveLength(2);
