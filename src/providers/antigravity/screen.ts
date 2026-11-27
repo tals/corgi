@@ -1,4 +1,5 @@
 import type { Terminal } from "../../pane/terminal";
+import { displayWidth } from "../../text";
 import { ScreenWatcher, type Reading } from "../watcher";
 import type { PaneView, PaneMemory, Known } from "../adapter";
 
@@ -32,15 +33,17 @@ export class Watcher extends ScreenWatcher {
     return seen;
   }
 }
-function composer(t: Terminal) {
-  const surface = t.surface(0).surface;
-  const lines = surface.lines.map(s => s.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").trimEnd());
-  const bottom = lines.findLastIndex(line => separator.test(line));
-  if (bottom < 2 || !separator.test(lines[bottom - 2]) || !/^>( |$)/.test(lines[bottom - 1])) return null;
-  return lines[bottom - 1].slice(1).trimStart();
+function holds(t: Terminal, text: string) {
+  const { cursor, lines } = t.surface(0).surface;
+  // Dialogs can leave the previous composer on screen while taking its input.
+  if (!cursor || cursor.x !== 2 + displayWidth(text)) return false;
+  const row = (y: number) => (lines[y] ?? "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").trimEnd();
+  return (
+    separator.test(row(cursor.y - 1)) && row(cursor.y) === ("> " + text).trimEnd() && separator.test(row(cursor.y + 1))
+  );
 }
 export const rename = {
   command: (name: string) => "/rename " + name,
-  empty: (t: Terminal) => composer(t) === "",
-  holds: (t: Terminal, text: string) => composer(t) === text,
+  empty: (t: Terminal) => holds(t, ""),
+  holds,
 };

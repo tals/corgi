@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { Terminal } from "../../pane/terminal";
 import { directory } from "./config";
 import { interactiveFork } from "./fork";
+import { rename } from "./screen";
 
 const source = "11111111-1111-4111-8111-111111111111",
   child = "22222222-2222-4222-8222-222222222222";
@@ -45,6 +46,25 @@ test("the fork callback preserves launch overrides and the original title after 
   }
 });
 
+test("Antigravity only accepts input at the focused composer", () => {
+  const terminal = new Terminal(60, 12);
+  try {
+    terminal.feed("────────────\r\n> \r\n────────────\x1b[2;3H");
+    expect(rename.empty(terminal)).toBe(true);
+    terminal.feed("\x1b[?25l");
+    expect(rename.empty(terminal)).toBe(false);
+    terminal.feed("\x1b[?25h\x1b[5;3H");
+    expect(rename.empty(terminal)).toBe(false);
+    const command = "/rename 設計";
+    terminal.feed("\x1b[2;3H" + command);
+    expect(rename.holds(terminal, command)).toBe(true);
+    terminal.feed("\x1b[D");
+    expect(rename.holds(terminal, command)).toBe(false);
+  } finally {
+    terminal.destroy();
+  }
+});
+
 test("a lost confirmation after Enter never submits /fork a second time", async () => {
   const home = mkdtempSync(join(tmpdir(), "corgi-fork-ack-")),
     fork = interactiveFork(source, { args: [], cwd: home }, home),
@@ -56,7 +76,10 @@ test("a lost confirmation after Enter never submits /fork a second time", async 
         join(dirname(fork.args[1]), "state.json"),
         JSON.stringify({ conversation_id: id, agent_state: state }),
       ),
-    draw = (draft: string) => terminal.feed("\x1b[?2004h\x1b[2J\x1b[H────────────\r\n> " + draft + "\r\n────────────");
+    draw = (draft: string) =>
+      terminal.feed(
+        "\x1b[?2004h\x1b[2J\x1b[H────────────\r\n> " + draft + "\r\n────────────\x1b[2;" + (3 + draft.length) + "H",
+      );
   terminal.send = bytes => {
     input.push(bytes.toString());
     terminal.input_revision++;

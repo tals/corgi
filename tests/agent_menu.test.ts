@@ -289,7 +289,7 @@ function report(state) {
   if (resumed) cp.execSync(cfg.title.command, { input: JSON.stringify({ conversation_id: id, agent_state: state }) });
 }
 function draw() {
-  process.stdout.write('\\x1b[?2004h\\x1b[2J\\x1b[H────────────\\r\\n> ' + draft + '\\r\\n────────────\\r\\n');
+  process.stdout.write('\\x1b[?2004h\\x1b[2J\\x1b[H────────────\\r\\n> ' + draft + '\\r\\n────────────\\x1b[2;' + (3+draft.length) + 'H');
 }
 function select(session) {
   id = session;
