@@ -10,10 +10,13 @@ import { table, type Sandbox, type World } from "../sandbox";
 
 /** tmux's socket directory: apart from your own tmux, and short enough for a socket path. */
 const tmuxDir = (s: Sandbox) => `/tmp/corgi-onboarding-${createHash("sha256").update(s.dir).digest("hex").slice(0, 8)}`;
+/** The world's server, where tmux in its panes finds it. Each command names it: shutdown runs before configure. */
+const socketDir = (s: Sandbox) => join(tmuxDir(s), `tmux-${process.getuid?.() ?? 0}`);
+const tmux = (s: Sandbox, ...args: string[]) => s.run(["tmux", "-S", join(socketDir(s), "default"), ...args]);
 
 function running(s: Sandbox): boolean {
   try {
-    s.run(["tmux", "has-session"]);
+    tmux(s, "has-session");
     return true;
   } catch {
     return false;
@@ -22,7 +25,7 @@ function running(s: Sandbox): boolean {
 
 export const world: World = {
   configure(s) {
-    mkdirSync(tmuxDir(s), { recursive: true, mode: 0o700 });
+    mkdirSync(socketDir(s), { recursive: true, mode: 0o700 });
     s.env.TMUX_TMPDIR = tmuxDir(s);
     // The cmux app, if installed, answers on its own socket; this world's has nothing.
     s.env.CMUX_SOCKET_PATH = join(s.dir, "run", "cmux.sock");
@@ -32,9 +35,9 @@ export const world: World = {
       ["api", ["server", "tests"]],
       ["site", ["dev"]],
     ] as const) {
-      s.run(["tmux", "new-session", "-d", "-s", session, "-n", windows[0], "-c", s.home]);
-      for (const name of windows.slice(1)) s.run(["tmux", "new-window", "-d", "-t", session, "-n", name, "-c", s.home]);
-      s.run(["tmux", "send-keys", "-t", `${session}:${windows[0]}`, `echo ${session} is running`, "Enter"]);
+      tmux(s, "new-session", "-d", "-s", session, "-n", windows[0], "-c", s.home);
+      for (const name of windows.slice(1)) tmux(s, "new-window", "-d", "-t", session, "-n", name, "-c", s.home);
+      tmux(s, "send-keys", "-t", `${session}:${windows[0]}`, `echo ${session} is running`, "Enter");
     }
   },
   seed() {},
@@ -43,7 +46,7 @@ export const world: World = {
     s.corgi(["workspace", "edit", workspace, "--name", "onboarding", "--cwd", s.home]);
   },
   shutdown(s) {
-    if (running(s)) s.run(["tmux", "kill-server"]);
+    if (running(s)) tmux(s, "kill-server");
     rmSync(tmuxDir(s), { recursive: true, force: true });
   },
   intro() {
