@@ -40,6 +40,8 @@ import * as state_formats from "./persist/state_formats";
  * older builds kept beside `enabled` are ignored. */
 export type Resources = { enabled: boolean };
 /** Where an agent list was scrolled: workspace `workspace`'s own list, or the "All" list when null. */
+export type SidebarPosition = "left" | "top" | "auto";
+export const sidebar_positions: readonly SidebarPosition[] = ["left", "top", "auto"];
 export type AgentScroll = { workspace: number | null; offset: number };
 /** The model the Corgi prompt last picked, as `model_picker.Choice`. */
 export type PromptModel = {
@@ -59,6 +61,8 @@ export class Preferences {
   /** The last dragged agents header row, seeding new viewers like the width;
    * null splits the sidebar in half. */
   sidebar_split: number | null = null;
+  sidebar_position: SidebarPosition = "left";
+  sidebar_height: number | null = null;
   /** The last viewer's agent list scroll seeds new viewers that show the same list. */
   agent_scroll: AgentScroll | null = null;
   /** Machine-qualified workspace order in the combined sidebar. */
@@ -125,6 +129,7 @@ const settings: readonly string[] = [
   "corgi_intensity",
   "resources",
   "worktree_folder",
+  "sidebar_position",
 ];
 /** viewer.json, which viewers write. */
 export function path(env = process.env): string {
@@ -527,6 +532,7 @@ function readState(d: Record<string, any>, v: Preferences): void {
   if ("onboarding_complete" in d) v.onboarding_complete = d.onboarding_complete !== false;
   if (whole(d.sidebar_width, 0)) v.sidebar_width = Math.max(d.sidebar_width, 20);
   if (whole(d.sidebar_split, 0)) v.sidebar_split = d.sidebar_split;
+  if (whole(d.sidebar_height, 0)) v.sidebar_height = d.sidebar_height;
   if (whole(d.review_width, 0)) v.review_width = d.review_width;
   if (whole(d.review_tree_rows, 1)) v.review_tree_rows = d.review_tree_rows;
   // A pick this build can't read, such as a provider it doesn't know, falls back.
@@ -547,6 +553,7 @@ function readState(d: Record<string, any>, v: Preferences): void {
 }
 const enums = {
   preset: ["corgi", "tmux", "herdr", "cmux"],
+  sidebar_position: sidebar_positions,
 } as const;
 /** config.json's fields, each read alone: one this build can't use keeps its
  * default and names itself, without costing the others. */

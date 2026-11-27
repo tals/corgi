@@ -967,6 +967,22 @@ test("a ghost dims the bottom half of the pane area, each row where entering lea
   expect(testVisible(text)).toContain("┄┄ ↓ release notes ↓ ┄");
 });
 
+test("under a sidebar on top, a ghost dims the top half instead", () => {
+  const area = new Rect(0, 15, 100, 20),
+    rect = new Rect(0, 15, 100, 20);
+  const pane = stubPane({ id: 3, agent: agent({ name: "release notes", provider: "claude" }) }, stubTerminal(numbered));
+  const out = new Writer();
+  const covered = drawGhost(out, { pane, rect, area }, 0, "top");
+  const text = out.buffered();
+  // The cut is row 25: rows from it on stay as they were.
+  expect(text).toContain("\x1b[16;1Hdimrow0");
+  expect(text).toContain("\x1b[25;1Hdimrow9");
+  expect(text).not.toContain("row10");
+  expect(text).toContain("\x1b[26;1H");
+  expect(testVisible(text)).toContain("┄┄ ↑ release notes ↑ ┄");
+  expect(covered).toEqual(new Rect(0, 15, 100, 11));
+});
+
 test("a workspace ghost dims the top half with its tabs, each row where switching leaves it", () => {
   const m = new Model();
   const selection = new Selection();
@@ -985,6 +1001,17 @@ test("a workspace ghost dims the top half with its tabs, each row where switchin
   expect(text).toContain("\x1b[12;29H");
   expect(testVisible(text)).toContain("┄┄ ↑ alpha ↑ ┄");
   expect(covered).toEqual(new Rect(28, 0, 72, 12));
+  // On top, it covers from the tabs down, leaving the sidebar's images.
+  const band = sidebar.View.init(100, 40, true, 0, 0, null, 12);
+  const top = drawWorkspaceGhost(
+    new Writer(),
+    { name: "alpha", view: new View(m, selection) },
+    [pane],
+    band,
+    100,
+    "corgi",
+  );
+  expect(top).toEqual(new Rect(0, 12, 100, band.area().y + Math.floor(band.area().h / 2) - 11));
 });
 
 test("Manage rows advertise grab, model-pointer and search-text cursors without moving keyboard focus", () => {

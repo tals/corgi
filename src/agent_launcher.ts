@@ -540,8 +540,8 @@ export class Menu {
     // it until the launcher closes, so typing or collapsing doesn't resize it.
     if (this.resume_view.grown && this.hasResume(rowsCount)) height = Math.min(rowsCount, Math.max(30, height));
     return new Rect(
-      Math.min(sat(side.width, 10), cols - width),
-      Math.min(side.middle() + 1, rowsCount - height),
+      Math.min(sat(side.agentsX() + side.agents().width, 10), cols - width),
+      Math.min(side.agents().middle() + 1, rowsCount - height),
       width,
       height,
     );

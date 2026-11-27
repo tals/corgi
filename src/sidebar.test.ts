@@ -138,11 +138,14 @@ test("resource readings turn off as a whole", () => {
   const entries = [workspaceEntry({ id: viewerRef.workspace(1, 1), name: "a", cwd: "", active: true, resources: hot })];
   expect(resourceAt(view, entries, 3, 4)).not.toBeNull();
   let quiet = view.clone();
-  quiet.rows = 20;
+  quiet.rows = quiet.screen = 20;
   expect(resourceAt(quiet, entries, 3, 4)).toBeNull();
   quiet = view.clone();
   quiet.resources = { enabled: false };
   expect(resourceAt(quiet, entries, 3, 4)).toBeNull();
+  // On top, the card measures the window, not the band.
+  const band = View.init(100, 56, true, 0, 0, null, 14).withWorkspaces(1, 0).withWidth(46);
+  expect(resourceAt(band, entries, 4, 4)).not.toBeNull();
 });
 
 test("readings off removes the resource row and moves the separator under the status", () => {

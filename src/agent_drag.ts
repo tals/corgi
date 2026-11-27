@@ -99,7 +99,7 @@ export class Drag {
       this.scroll_direction = edge;
       this.scroll_at = now + scroll_delay_ms;
     }
-    if (edge !== 0) y = Math.max(view.middle() + 2, Math.min(y, view.listEnd() - 1));
+    if (edge !== 0) y = Math.max(view.agents().middle() + 2, Math.min(y, view.listEnd() - 1));
     let drop = view.agentDrop(x, y);
     if (!drop) return;
     if (this.sort === "manual") {

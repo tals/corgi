@@ -182,6 +182,11 @@ type Keyboard = "pane" | "review" | { sidebar: sidebarFocus.State };
  * edge goes on to the next. */
 type Region = "sidebar" | "panes" | "review";
 const regions: Region[] = ["sidebar", "panes", "review"];
+const lateral: Record<Direction, Direction | null> = { left: "up", right: "down", up: null, down: null };
+function portrait(cols: number, rows: number, cell: { width: number; height: number } | null): boolean {
+  const { width, height } = cell ?? { width: 1, height: 2 };
+  return rows * height > cols * width;
+}
 interface PasteCard {
   pane: number;
   notice: hostClipboard.Notice;
@@ -620,7 +625,7 @@ export class Controller {
   hide_connection_signals = false;
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
-  sidebar_drag: "width" | "split" | null = null;
+  sidebar_drag: sidebar.Grip | null = null;
   agent_drag: AgentDrag | null = null;
   private dock_history = new Map<number, { revision: bigint; undo: number; redo: number }>();
   workspace_drag: WorkspaceDrag | null = null;
@@ -1208,8 +1213,7 @@ export class Controller {
   private async moveFocus(to: Direction): Promise<void> {
     this.closeWorktreeCard();
     if (this.moveWithin(to)) return;
-    const at = regions.indexOf(this.region());
-    switch (to === "left" ? regions[at - 1] : to === "right" ? regions[at + 1] : undefined) {
+    switch (this.regionToward(to)) {
       case "sidebar":
         return this.enterSidebar();
       case "panes":
@@ -1217,6 +1221,23 @@ export class Controller {
         return this.sidebar_focus ? this.openSidebarRow(true) : this.giveKeyboard("pane");
       case "review":
         return this.enterReview();
+    }
+  }
+  private regionToward(to: Direction): Region | undefined {
+    const region = this.region();
+    if (!this.sidebarView([]).band) {
+      const at = regions.indexOf(region);
+      return to === "left" ? regions[at - 1] : to === "right" ? regions[at + 1] : undefined;
+    }
+    switch (to) {
+      case "up":
+        return region === "sidebar" ? undefined : "sidebar";
+      case "down":
+        return region === "sidebar" ? "panes" : undefined;
+      case "left":
+        return region === "review" ? "panes" : undefined;
+      case "right":
+        return region === "panes" ? "review" : undefined;
     }
   }
   private region(): Region {
@@ -1227,9 +1248,10 @@ export class Controller {
   private moveWithin(to: Direction): boolean {
     const focus = this.sidebar_focus;
     if (focus) {
-      if (to !== "up" && to !== "down") return false;
+      const toward = this.sidebarView([]).band ? lateral[to] : to;
+      if (toward !== "up" && toward !== "down") return false;
       const entries = this.sidebarEntries();
-      if (!focus.cross(this.workspaceRef(this.current().id), entries, to === "up")) return false;
+      if (!focus.cross(this.workspaceRef(this.current().id), entries, toward === "up")) return false;
       this.revealCursor(entries);
       return true;
     }
@@ -1470,13 +1492,55 @@ export class Controller {
       sidebar.View.widthFor(this.width, this.sidebar_open, this.height, this.agent_picker !== null),
       this.prefs.sidebar_width,
     );
+    const band = width > 0 ? this.sidebarBand() : 0;
     return sidebar.View.paneArea(
       this.width,
       this.height,
       width,
-      this.reviewWidth(width),
+      this.reviewWidth(band > 0 ? 0 : width),
       this.sidebar_focus?.drawer ?? null,
+      band,
     );
+  }
+  private sidebarDragged(drag: sidebar.Grip): Partial<Preferences> {
+    const { sidebar_width, sidebar_split, sidebar_height } = this.host.prefs;
+    switch (drag) {
+      case "width":
+        return { sidebar_width };
+      case "split":
+        return { sidebar_split };
+      case "height":
+        return { sidebar_height };
+    }
+  }
+  private dragSidebar(drag: sidebar.Grip, x: number, y: number): void {
+    switch (drag) {
+      case "width":
+        this.host.prefs.sidebar_width = Math.min(Math.max(x + 1, 20), Math.max(20, sat(this.width, 20)));
+        return;
+      case "split":
+        this.host.prefs.sidebar_split = sidebar.View.splitFor(this.height, y + 1);
+        return;
+      case "height": {
+        const band = sidebar.View.bandFor(this.width, this.height, true, y + 1);
+        if (band > 0) this.host.prefs.sidebar_height = band;
+        return;
+      }
+    }
+  }
+  private wantsTop(): boolean {
+    switch (this.prefs.sidebar_position) {
+      case "left":
+        return false;
+      case "top":
+        return true;
+      case "auto":
+        return portrait(this.width, this.height, this.cell_pixels);
+    }
+  }
+  sidebarBand(): number {
+    if (!this.wantsTop() || this.sidebar_focus?.drawer) return 0;
+    return sidebar.View.bandFor(this.width, this.height, this.sidebar_open, this.prefs.sidebar_height);
   }
   sidebarView(entries: Entry[]): sidebar.View {
     const offset = this.agent_picker ? this.agent_picker.offset : this.agentOffset().get();
@@ -1487,10 +1551,11 @@ export class Controller {
       offset,
       entries.length,
       this.host.prefs.sidebar_split,
+      this.sidebarBand(),
     )
       .withSearch(this.agentSearch())
       .withWidth(this.host.prefs.sidebar_width);
-    view = view.withPanel(this.reviewWidth(view.width));
+    view = view.withPanel(this.reviewWidth(view.beside()));
     // Workspace rows, and so paging, depend on whether readings are shown.
     view.resources = this.prefs.resources;
     view.gpus = resourceTooltip.gpuCount(this.runtime.resources) > 0;
@@ -6695,6 +6760,15 @@ export class Controller {
         this.openHelp();
         this.help.editPrefix();
         return;
+      case "sidebar_position":
+        this.host.prefs.sidebar_position = apply.position;
+        this.dirty = true;
+        try {
+          preferences.update({ sidebar_position: apply.position });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
       case "readings":
         this.host.prefs.resources.enabled = apply.on;
         try {
@@ -8432,7 +8506,7 @@ export class Controller {
           this.cancelDock();
           return;
         }
-        const wheel = !release && y === 0 ? tabWheel(button) : null;
+        const wheel = !release && y === drag.area.y - 1 ? tabWheel(button) : null;
         if (wheel !== null) {
           this.scrollTabs(wheel);
           drag.dragging = true;
@@ -8449,7 +8523,7 @@ export class Controller {
           else {
             const click =
               "tab" in drag.source
-                ? y === 0 &&
+                ? y === drag.area.y - 1 &&
                   render.tabAt(this.layoutView(), this.tabSpace() + 3, x - drag.tabs_x) ===
                     this.model().tabIndex(drag.source.tab)
                 : docking
@@ -8834,15 +8908,12 @@ export class Controller {
       if (release) {
         this.sidebar_drag = null;
         try {
-          if (drag === "width") preferences.update({ sidebar_width: this.host.prefs.sidebar_width });
-          else preferences.update({ sidebar_split: this.host.prefs.sidebar_split });
+          preferences.update(this.sidebarDragged(drag));
         } catch (error) {
           this.notice((error as Error).message);
         }
       } else if (button === 32) {
-        if (drag === "width")
-          this.host.prefs.sidebar_width = Math.min(Math.max(x + 1, 20), Math.max(20, sat(this.width, 20)));
-        else this.host.prefs.sidebar_split = sidebar.View.splitFor(this.height, y + 1);
+        this.dragSidebar(drag, x, y);
         this.dirty = true;
       }
       this.dirty = true;
@@ -9002,6 +9073,7 @@ export class Controller {
       return;
     }
     const tabs_x = this.sidebarView([]).tabX();
+    const tabs_y = this.sidebarView([]).tabY();
     const tabs_width = this.tabSpace() + 3;
     const managerLaunch = this.launcherModel();
     if (managerLaunch?.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
@@ -9171,9 +9243,12 @@ export class Controller {
     }
     if (this.agent_picker) {
       const entries = this.pickerEntries();
-      const view = this.sidebarView(entries);
+      const view = this.sidebarView(entries),
+        list = view.agents(),
+        lx = x - view.agentsX(),
+        over = lx >= 0 && lx < list.width && y < list.rows;
       if (!release && (button === 64 || button === 65)) {
-        if (x < view.width && y >= view.middle()) this.moveAgentPicker(button === 65);
+        if (over && y >= list.middle()) this.moveAgentPicker(button === 65);
         return;
       }
       if (!release && button === 0) {
@@ -9183,18 +9258,18 @@ export class Controller {
           this.agent_picker.selected = entries[hit.entry].target;
           this.acceptAgentPicker();
           return;
-        } else if (x < view.width && y === view.middle() + 1) {
+        } else if (over && y === list.middle() + 1) {
           this.ui_mouse_down = true;
-          this.agent_picker.query.position(view.searchOffset() + sat(x, 3));
+          this.agent_picker.query.position(view.searchOffset() + sat(lx, 3));
           return;
-        } else if (x < view.width && y >= view.middle()) {
+        } else if (over && y >= list.middle()) {
           return;
         }
         // A click elsewhere leaves search and retains its usual action.
         this.closeMenu();
       } else return;
     }
-    if (!release && button === 2 && y === 0 && !this.editingName() && x >= tabs_x) {
+    if (!release && button === 2 && y === tabs_y && !this.editingName() && x >= tabs_x) {
       const index = render.tabAt(this.layoutView(), tabs_width, x - tabs_x);
       if (index !== null) {
         this.ui_mouse_down = true;
@@ -9275,12 +9350,9 @@ export class Controller {
       await this.perform({ name: "worktrees", value: worktree_hit.id });
       return;
     }
-    if (!release && button === 0 && side.width > 0 && x === side.width - 1) {
-      this.sidebar_drag = "width";
-      return;
-    }
-    if (!release && button === 0 && side.splitHandle(x, y)) {
-      this.sidebar_drag = "split";
+    const grip = !release && button === 0 ? side.grip(x, y) : null;
+    if (grip) {
+      this.sidebar_drag = grip;
       return;
     }
     // Do not activate Git or URL controls hidden behind the resource card.
@@ -9324,20 +9396,21 @@ export class Controller {
         return;
       }
     }
-    if ((side.width > 0 && x < side.width) || (y === 0 && x < tabs_x)) {
+    if (side.contains(x, y) || (y === tabs_y && x < tabs_x)) {
       if (!release && (button === 64 || button === 65)) {
         const header = side.archivedHeader();
-        if (header !== null && this.archived_expanded && y >= header && y < side.middle() - 1)
+        if (side.sectionAt(x, y) === "agents")
+          this.agentOffset().set(button === 64 ? sat(side.offset, 1) : Math.min(side.offset + 1, side.maxOffset()));
+        else if (header !== null && this.archived_expanded && y >= header && y < side.middle() - 1)
           this.archived_offset =
             button === 64
               ? sat(side.archived_offset, 1)
               : Math.min(side.archived_offset + 1, sat(side.archived_count, side.archivedCapacity()));
-        else if (y < side.middle())
+        else
           this.workspace_offset =
             button === 64
               ? sat(side.workspace_offset, 1)
               : Math.min(side.workspace_offset + 1, side.workspaceMaxOffset());
-        else this.agentOffset().set(button === 64 ? sat(side.offset, 1) : Math.min(side.offset + 1, side.maxOffset()));
         this.dirty = true;
       } else if (!release && (button === 0 || button === 2)) {
         this.ui_mouse_down = true;
@@ -9488,11 +9561,11 @@ export class Controller {
       }
       return;
     }
-    if (y === 0 && x >= tabs_x && !release) {
+    if (y === tabs_y && x >= tabs_x && !release) {
       const forward = tabWheel(button);
       if (forward !== null) return this.scrollTabs(forward);
     }
-    if (y === 0 && button === 0 && !release) {
+    if (y === tabs_y && button === 0 && !release) {
       const add_x = tabs_x + render.addTabX(this.layoutView(), tabs_width);
       if (x >= add_x && x < add_x + 3) {
         this.ui_mouse_down = true;
@@ -10178,8 +10251,10 @@ export class Controller {
     return spot ? { ...spot, workspace: this.workspaceRef(spot.workspace) } : null;
   }
   private worktreeAgentContains(x: number, y: number): boolean {
-    const side = this.sidebarView([]);
-    return side.width > 0 && x >= 0 && x < side.width - 1 && y >= side.middle() + 2 && y < side.rows;
+    const side = this.sidebarView([]),
+      list = side.agents(),
+      lx = x - side.agentsX();
+    return list.width > 0 && lx >= 0 && lx < list.width - 1 && y >= list.middle() + 2 && y < list.rows;
   }
   /** Keeps a browsed worktree in the agent list. One with no agents gets its
    * newest conversations back as hibernated agents, or, with none, the agent
@@ -11068,7 +11143,8 @@ export class Controller {
     }
     const review_width = this.sidebarView([]).panel,
       review_focused = this.keyboard === "review" && review_width > 0,
-      ghost_width = this.review.ghosted ? review_width || this.ghostWidth(git_ws) : 0;
+      ghost_width = this.review.ghosted ? review_width || this.ghostWidth(git_ws) : 0,
+      ghost_rect = ghost_width > 0 ? this.panelRect(ghost_width) : null;
     this.syncFilePanes();
     return render.frame(
       this.layoutView(),
@@ -11141,6 +11217,7 @@ export class Controller {
         archive_dialog: this.archive_dialog,
         inline_rename: this.inline_rename,
         sidebar_open: this.sidebar_open,
+        sidebar_band: this.sidebarBand(),
         sidebar_drawer: this.sidebar_focus?.drawer ?? null,
         corgi_badge: this.corgi_badge,
         supports_kitty_graphics: this.supports_kitty_graphics,
@@ -11197,16 +11274,17 @@ export class Controller {
         review_keys: review_width > 0 && this.review.keysOpen,
         review_draw:
           review_width > 0
-            ? (w: Writer) =>
-                this.review.draw(w, this.width - review_width, 0, review_width, this.height, review_focused)
-            : null,
-        review_ghost:
-          ghost_width > 0
-            ? {
-                width: ghost_width,
-                draw: (w: Writer) => this.review.drawGhost(w, this.width - ghost_width, 0, ghost_width, this.height),
+            ? (w: Writer) => {
+                const { x, y, w: width, h } = this.panelRect(review_width);
+                this.review.draw(w, x, y, width, h, review_focused);
               }
             : null,
+        review_ghost: ghost_rect
+          ? {
+              rect: ghost_rect,
+              draw: (w: Writer) => this.review.drawGhost(w, ghost_rect.x, ghost_rect.y, ghost_rect.w, ghost_rect.h),
+            }
+          : null,
         signin_draw: this.signin ? (w: Writer, pointer: render.Pointer | null) => this.drawSignin(w, pointer) : null,
         workspace_loading: !this.runtime.workspaces.loaded,
         no_workspace:
@@ -11225,7 +11303,7 @@ export class Controller {
   /** A ghost's columns while the panel is closed: what is left right of the
    * push card, at least the panel's narrowest and at most its width. */
   private ghostWidth(ws: sidebar.WorkspaceEntry | null): number {
-    const most = panel.Panel.fit(this.prefs.review_width, this.width - this.sidebarView([]).width),
+    const most = panel.Panel.fit(this.prefs.review_width, this.width - this.sidebarView([]).beside()),
       rect = ws ? this.gitRect(ws) : null;
     return rect ? Math.min(most, Math.max(panel.min_width, this.width - rect.x - rect.w)) : most;
   }
@@ -11235,7 +11313,11 @@ export class Controller {
   }
   private reviewRect(): Rect | null {
     const width = this.sidebarView([]).panel;
-    return width > 0 ? new Rect(this.width - width, 0, width, this.height) : null;
+    return width > 0 ? this.panelRect(width) : null;
+  }
+  private panelRect(width: number): Rect {
+    const top = this.sidebarView([]).tabY();
+    return new Rect(this.width - width, top, width, this.height - top);
   }
   /** Whether keys go to the review panel: it has the keyboard and room to show. */
   private reviewKeys(): boolean {

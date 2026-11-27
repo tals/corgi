@@ -55,7 +55,7 @@ export class Drag {
     const previous = this.edge;
     this.edge = null;
     if (this.cancelled || !this.dragging) return;
-    if (y === 0 && x >= this.tabs_x && x < this.tabs_x + tabSpace + 3) {
+    if (y === this.area.y - 1 && x >= this.tabs_x && x < this.tabs_x + tabSpace + 3) {
       const tab = render.tabAt(view, tabSpace + 3, x - this.tabs_x);
       const id = tab === null ? null : view.model.tabs[tab].id;
       if (id !== null && tab !== view.selection.active && !("tab" in this.source && this.source.tab === id)) {
