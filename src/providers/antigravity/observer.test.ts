@@ -9,7 +9,7 @@ import { Pane, Launch } from "../../runtime";
 import { Server } from "../../server";
 import { childrenAvailable, conversation } from "../../subagent_tooltip";
 import { directory } from "./config";
-import { database } from "./history";
+import { database } from "./summaries";
 import { Worker } from "./observer";
 import { selected } from "./presence";
 

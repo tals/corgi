@@ -152,15 +152,15 @@ export interface Transcript {
 export interface TranscriptReader {
   /** The time of a record when the provider uses its own timestamp field. */
   timestamp?(value: unknown): number | null;
-  /** Runs once a pass, before any transcript is read. */
-  refresh?(): Promise<void>;
+  /** Runs before the worker reads this pass's followed sessions for this provider. */
+  refresh?(requests: readonly UsageRequest[]): Promise<void>;
   /** Readies `t` for a file it just opened; `head` is the file's first record. */
   open(t: UsageTail, req: UsageRequest, head: unknown, catch_up: boolean): void;
   /** Folds one record into `t`; the tokens and tools it counted. */
   record(t: UsageTail, req: UsageRequest, value: any, appended: boolean, stamp: number | null): Counts;
   /** A session's name, when it comes from somewhere besides its transcript:
    * Corgi then follows the session even without one. */
-  name?(session: string): Text;
+  name?(session: string, account: string): Text;
   close?(): void;
 }
 /** Watches a provider's conversations over its own protocol, for what its

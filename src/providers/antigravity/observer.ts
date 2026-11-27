@@ -1,29 +1,15 @@
 import { Database } from "bun:sqlite";
-import { statSync } from "node:fs";
 import { Path } from "../../bounded_text";
 import type { Runtime } from "../../runtime";
 import type { Observer } from "../adapter";
 import { Child, Name, Role, Snapshot, type Request } from "../snapshot";
 import { Text } from "../common";
 import { directory, validSession } from "./config";
-import { database, workspace } from "./history";
+import { database, indexStamp, workspace } from "./summaries";
 import { selected } from "./presence";
 import { path } from "./transcript";
 
 const metadata_ms = 5000;
-
-function indexStamp(file: string) {
-  try {
-    return [file, file + "-wal"]
-      .map(path => {
-        const stat = statSync(path, { throwIfNoEntry: false });
-        return stat ? [stat.ino, stat.size, stat.mtimeMs].join(":") : "";
-      })
-      .join("/");
-  } catch {
-    return null;
-  }
-}
 
 type Row = {
   conversation_id: string;

@@ -1,19 +1,10 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { SessionHistory } from "../adapter";
 import { copied, source, type Entry } from "../../launch/history";
 import { directory, validSession } from "./config";
+import { database, workspace } from "./summaries";
 
-export const database = (root: string) => join(root, "conversation_summaries.db");
-export function workspace(uris: string) {
-  try {
-    return fileURLToPath(JSON.parse(uris)[0]);
-  } catch {
-    return "";
-  }
-}
 export function entries(root: string, account: string, stopping: () => boolean): Entry[] {
   if (!existsSync(database(root))) return [];
   const db = new Database(database(root), { readonly: true });

@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { statSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import type { Transcript } from "../adapter";
 import { number, str, Text, field, timestampMs } from "../common";
@@ -7,7 +6,7 @@ import { Counts } from "../../usage/tokens";
 import { Tokens } from "../../usage/live";
 import { clip } from "../../activity/tools";
 import { Text as Summary } from "../../activity/summary";
-import { database } from "./history";
+import { database, indexStamp } from "./summaries";
 import { directory } from "./config";
 
 export const path = (root: string, session: string) =>
@@ -36,42 +35,45 @@ export const transcript: Transcript = {
     a.activity_generation = Bun.hash.wyhash(a.turnId(), 0n);
     return true;
   },
-  reader(accounts) {
+  reader() {
     const titles = new Map<string, { stamp: string; names: Map<string, string> }>();
     return {
-      async refresh() {
-        for (const account of ["", ...accounts()]) {
-          const file = database(directory(account));
+      async refresh(requests) {
+        const followed = new Map<string, string[]>();
+        for (const req of requests) {
+          const account = req.account ?? "",
+            session = req.agent.sessionId(),
+            ids = followed.get(account);
+          if (ids) ids.push(session);
+          else followed.set(account, [session]);
+        }
+        for (const account of titles.keys()) if (!followed.has(account)) titles.delete(account);
+        for (const [account, ids] of followed) {
+          const file = database(directory(account)),
+            changed = indexStamp(file);
+          if (!changed) {
+            titles.delete(account);
+            continue;
+          }
           try {
-            const s = statSync(file),
-              wal = statSync(file + "-wal", { throwIfNoEntry: false });
-            const stamp = [s.ino, s.mtimeMs, wal?.size, wal?.mtimeMs].join(":");
-            if (titles.get(file)?.stamp === stamp) continue;
+            const stamp = [changed, ...ids].join("/");
+            if (titles.get(account)?.stamp === stamp) continue;
             const db = new Database(file, { readonly: true });
             try {
-              const names = new Map(
-                db
-                  .query<{ conversation_id: string; title: string }, []>(
-                    "SELECT conversation_id,title FROM conversation_summaries",
-                  )
-                  .all()
-                  .map(r => [r.conversation_id, r.title]),
+              const title = db.query<{ title: string }, [string]>(
+                "SELECT title FROM conversation_summaries WHERE conversation_id = ?",
               );
-              titles.set(file, { stamp, names });
+              titles.set(account, { stamp, names: new Map(ids.map(id => [id, title.get(id)?.title ?? ""])) });
             } finally {
               db.close();
             }
           } catch {
-            titles.delete(file);
+            titles.delete(account);
           }
         }
       },
-      name(session) {
-        for (const { names } of titles.values()) {
-          const title = names.get(session);
-          if (title) return new Text(clip(title, 160));
-        }
-        return new Text();
+      name(session, account) {
+        return new Text(clip(titles.get(account)?.names.get(session) ?? "", 160));
       },
       timestamp: v => timestampMs(str(v, "created_at")),
       open(t, _req, _head, catchUp) {
