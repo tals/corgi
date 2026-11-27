@@ -191,11 +191,11 @@ test("Tricks stays selected while crossing Manage agents toward the open pane", 
   for (const destination of [10, 12, 17]) {
     const menu = Menu.open();
     menu.tricks = { directory: "/tmp/tricks", autoreload: true, watch_error: null, tricks: [] };
-    menu.hover(100, 30, 20, 14, s, prefs, 0);
+    menu.hover(100, 30, 20, 15, s, prefs, 0);
     expect(menu.item).toBe("tricks");
-    menu.hover(100, 30, 21, 14, s, prefs, 200);
+    menu.hover(100, 30, 21, 15, s, prefs, 200);
     let now = 200;
-    for (const [x, y] of walk(21, 14, 36, destination)) {
+    for (const [x, y] of walk(21, 15, 36, destination)) {
       menu.hover(100, 30, x, y, s, prefs, (now += 16));
       expect(menu.item).toBe("tricks");
     }
@@ -280,7 +280,7 @@ test("setup guards the visible pane, including previews and read-only sections",
   }
   // Reading a section should not switch it when crossing another list item.
   const menu = Menu.open();
-  menu.hover(100, 30, 15, 16, s, prefs, 0);
+  menu.hover(100, 30, 15, 17, s, prefs, 0);
   menu.hover(100, 30, 22, 11, s, prefs, 100);
   expect(menu.item).toBe("terminal");
 });
