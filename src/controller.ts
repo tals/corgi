@@ -6995,6 +6995,8 @@ export class Controller {
     this.onboarding = null;
     if (mode === "keyboard") this.keysNotice(reload);
     else if (target !== null && target !== undefined) this.showImported(target);
+    // Command keys need a Ghostty reload, which a skipped import step never got to say.
+    else if (wizard.preset === "cmux") this.keysNotice(reload);
     this.dirty = true;
   }
   /** Saves the shortcut preset and prefix; true when Ghostty needs a reload. */
@@ -9909,6 +9911,7 @@ export class Controller {
       }
     }
     if (this.onboarding && (await this.onboarding.poll(this.rpc()))) this.dirty = true;
+    if (this.onboarding?.done) await this.finishOnboarding();
     if (!valid()) return;
     if (this.corgi_setup && (await this.corgi_setup.poll(this.rpc(), this.width, this.height))) this.dirty = true;
     if (!valid()) return;

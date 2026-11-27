@@ -3,7 +3,7 @@ import { State, bounds, presetLayout } from "./onboarding";
 import * as palette from "./palette";
 import * as i18n from "./i18n";
 import * as screen from "./fixtures/screen";
-import { Worker, workspace, pane, available_sources } from "./import/catalog";
+import { Worker, workspace, pane, available_sources, type Source } from "./import/catalog";
 const conn: any = {
   call: () => {
     throw Error("UnexpectedRpc");
@@ -45,7 +45,7 @@ test("translated welcome hints leave room before the continue button", () => {
     i18n.setLanguage(previous);
   }
 });
-function attach(state: State, source: "tmux" | "herdr", items: any[], message = "") {
+function attach(state: State, source: Source, items: any[], message = "") {
   const worker = new Worker(source);
   worker.done = true;
   worker.catalog.workspaces = items;
@@ -71,14 +71,51 @@ test("onboarding offers only platform-supported presets and import sources", asy
   }
   state.close();
 });
-test("failed discovery does not claim the source has no sessions", () => {
+const session = (name: string) =>
+  workspace({ id: name, name, tabs: [{ id: name, name, nodes: [], panes: [pane({ id: name, name })] }] });
+test("import leaves out sources with nothing to copy", async () => {
   const state = new State();
-  state.step = "import";
-  attach(state, "tmux", [], "FileNotFound");
-  const output = state.frame(76, 26);
-  expect(output.includes("Couldn't read this source.")).toBe(true);
-  expect(output.includes("No available sessions found")).toBe(false);
-  state.close();
+  try {
+    for (const source of available_sources) attach(state, source, [], source === "tmux" ? "NoTmuxSessions" : "");
+    attach(state, "herdr", [session("work")]);
+    state.preset = "tmux";
+    expect(await state.key(13, conn)).toBe(false);
+    expect(state.step).toBe("import");
+    expect(state.sources()).toEqual(["herdr"]);
+    expect(state.picker.source).toBe("herdr");
+    const output = state.frame(100, 34);
+    expect(output).toContain("[ 1 herdr ]");
+    expect(output).not.toContain("tmux");
+    expect(output).not.toContain("Couldn't read this source.");
+    await state.key("1", conn);
+    expect(state.picker.source).toBe("herdr");
+  } finally {
+    state.close();
+  }
+});
+test("import is skipped when no source has anything to copy", async () => {
+  const found = new State(),
+    scanning = new State();
+  try {
+    for (const source of available_sources) attach(found, source, []);
+    expect(await found.key(13, conn)).toBe(true);
+    // Scans that finish after the step opens end it from the poll.
+    const workers = available_sources.map(source => attach(scanning, source, []));
+    for (const worker of workers) worker.done = false;
+    expect(await scanning.key(13, conn)).toBe(false);
+    expect(await scanning.poll(conn)).toBe(false);
+    expect(scanning.done).toBe(false);
+    for (const worker of workers) worker.done = true;
+    expect(await scanning.poll(conn)).toBe(true);
+    expect(scanning.done).toBe(true);
+    // A failed finish doesn't retry on every poll.
+    scanning.fail("ReadOnlyFileSystem");
+    await scanning.poll(conn);
+    expect(scanning.done).toBe(false);
+  } finally {
+    found.close();
+    scanning.close();
+  }
 });
 test("workspace previews keep recovery rows and handoff selection aligned while expanding", async () => {
   const tabs = [

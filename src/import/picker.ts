@@ -85,12 +85,21 @@ export class Picker {
   }
   scan() {
     this.scan_finished = false;
-    if (!this.worker())
+    this.start(this.source);
+  }
+  /** Starts discovering `source`, unless it has begun already. */
+  start(source: catalog.Source) {
+    if (!this.workers.has(source))
       try {
-        this.workers.set(this.source, catalog.Worker.start(this.source));
+        this.workers.set(source, catalog.Worker.start(source));
       } catch (error) {
         this.message = (error as Error).message;
       }
+  }
+  /** Whether `source` was scanned and has nothing to copy: it isn't running, or couldn't be read. */
+  empty(source: catalog.Source): boolean {
+    const worker = this.workers.get(source);
+    return !!worker?.done && worker.catalog.workspaces.length === 0;
   }
   changeSource(source: catalog.Source) {
     if (!catalog.available_sources.includes(source)) return;
