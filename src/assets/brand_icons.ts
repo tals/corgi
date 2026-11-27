@@ -33,4 +33,5 @@ export const art: Record<Brand, Art> = {
   tmux: svg("tmux"),
   omp: svg("omp"),
   opencode: svg("opencode"),
+  antigravity: svg("antigravity"),
 };

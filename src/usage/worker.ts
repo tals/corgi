@@ -192,7 +192,7 @@ export class Tail {
           try {
             const value = parse(this.partial.toString()),
               appended = start_offset + start > this.initial_until,
-              stamp = timestampMs(str(value, "timestamp")),
+              stamp = reader.timestamp ? reader.timestamp(value) : timestampMs(str(value, "timestamp")),
               delta = reader.record(this, req, value, appended, stamp);
             if (appended && stamp !== null && stamp > req.since) found.add(delta);
           } catch {

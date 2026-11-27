@@ -156,6 +156,7 @@ function titled(runtime: Runtime, provider: Provider, request: ObserverRequest) 
     pane.attachment.generation !== request.generation
   )
     return null;
+  if (request.identity === "process") return !pane.detection.claim && pane.agent().provider === provider ? pane : null;
   const title = pane.terminal.titleInfo(),
     prefix = adapter(provider).titleSession?.(title.text);
   if (
@@ -333,7 +334,7 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
         state: actor.state.state,
         authoritative,
         pending_stop: actor.state.observation.pending_stop,
-        permission_review: !!actor.state.permission_review,
+        permission_review: actor.state.permission_review !== null,
         prompt: actor.prompt_watch,
       },
       seen = watcher(workers, judge, pane.account()).read(view, pane.detection, known, now);
@@ -344,7 +345,7 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
       if (actor.state.state === "working") actor.observeCompactionScreen(seen.compacting, now);
       if (seen.interrupted) actor.state.abandonTurn(now);
       if (seen.answered) actor.state.observeAnswer(seen.answered, now);
-      if (actor.state.permission_review)
+      if (actor.state.permission_review !== null)
         ding = actor.state.observePermissionPrompt(seen.prompt === true, watched, now) || ding;
     }
   }
@@ -530,8 +531,9 @@ export async function tick(server: Server) {
           actor.observeSnapshot(snapshot, actorWatched(server, actor.id), clock.microTimestamp(), retry_at > 0),
           actor.state.state,
         );
-        if (snapshot.lifecycle) {
+        if (snapshot.lifecycle || snapshot.children_complete)
           runtime.conversations.observeChildren(actor, snapshot, clock.microTimestamp());
+        if (snapshot.lifecycle) {
           workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes);
         }
         changed(server);

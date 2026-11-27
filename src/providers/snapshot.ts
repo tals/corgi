@@ -20,6 +20,8 @@ export type Request = {
   actor: number;
   generation: bigint;
   title_revision: bigint;
+  /** The foreground process itself identifies the selected conversation. */
+  identity?: "process";
 };
 export class Child {
   session = "";

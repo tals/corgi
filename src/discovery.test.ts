@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as build_id from "./build_id";
 import { check, considered, installed, onDemand, onPath, outdated, rescan, resolve as find } from "./discovery";
-import { Provider } from "./providers";
+import { Provider, adapter } from "./providers";
 test("provider discovery follows current files, permissions and symlink targets", () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-discovery-")),
     command = join(root, "agent"),
@@ -70,11 +70,18 @@ async function isolated(run: (root: string, script: (name: string, body: string)
 
 test("mise resolves every provider without executing its shim or agent", async () => {
   await isolated(async (root, script) => {
-    const versions = { codex: "0.166.0", claude: "2.1.318", pi: "1.20.0", opencode2: "2.1.2", omp: "12.0.0" },
+    const versions = {
+        codex: "0.166.0",
+        claude: "2.1.318",
+        pi: "1.20.0",
+        opencode2: "2.1.2",
+        omp: "12.0.0",
+        antigravity: "1.5.18",
+      },
       called = join(root, "agent-called"),
       shims = join(root, ".local/share/mise/shims");
     for (const p of Provider.all) {
-      script(`.local/share/mise/shims/${p}`, `echo called >> '${called}'; exit 1`);
+      script(`.local/share/mise/shims/${adapter(p).command}`, `echo called >> '${called}'; exit 1`);
       script(`installed/${p}`, `echo called >> '${called}'; exit 1`);
     }
     script(
@@ -82,7 +89,7 @@ test("mise resolves every provider without executing its shim or agent", async (
       `
 echo "$PWD $*" >> '${root}/mise-called'
 case "$1:$2" in
-${Provider.all.map(p => `  which:${p}) if [ "$3" = --version ]; then echo '${versions[p]}'; else echo '${root}/installed/${p}'; fi ;;`).join("\n")}
+${Provider.all.map(p => `  which:${p === "opencode2" ? p : adapter(p).command}) if [ "$3" = --version ]; then echo '${versions[p]}'; else echo '${root}/installed/${p}'; fi ;;`).join("\n")}
   *) exit 1 ;;
 esac`,
     );

@@ -150,6 +150,8 @@ export interface Transcript {
   reader(accounts: () => string[]): TranscriptReader;
 }
 export interface TranscriptReader {
+  /** The time of a record when the provider uses its own timestamp field. */
+  timestamp?(value: unknown): number | null;
   /** Runs once a pass, before any transcript is read. */
   refresh?(): Promise<void>;
   /** Readies `t` for a file it just opened; `head` is the file's first record. */

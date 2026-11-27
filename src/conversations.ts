@@ -109,6 +109,7 @@ export class Actor {
       if (snapshot.transcript.len && !a.transcript.len) a.transcript = snapshot.transcript;
       if (snapshot.cwd.len && !a.cwd.len) a.cwd = snapshot.cwd;
       if (snapshot.name.len && !a.name.len) a.name = snapshot.name;
+      if (snapshot.children_complete) a.subagents = snapshot.subagents;
       return false;
     }
     if (snapshot.observed_at <= a.last_seq) return false;

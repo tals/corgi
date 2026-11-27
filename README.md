@@ -29,20 +29,17 @@ Change the language in **Corgi setup → Language**.
 
 ## Agents
 
-Run `claude`, `codex`, `pi`, `opencode` or `omp` in any pane. Corgi detects
-them automatically and installs hooks for Claude Code and Codex, or an
-extension for Pi and Oh My Pi. OpenCode needs no setup. Codex asks you to
-trust the hooks once, in `/hooks`.
+Run `agy`, `claude`, `codex`, `pi`, `opencode` or `omp` in any pane. Corgi detects them automatically. It installs reporting hooks for Google Antigravity, Claude Code and Codex, and an extension for Pi and Oh My Pi. OpenCode needs no setup. Codex asks you to trust the hooks once, in `/hooks`.
 
-|                                      | Claude Code | Codex | Pi  | OpenCode | Oh My Pi |
-| ------------------------------------ | :---------: | :---: | :-: | :------: | :------: |
-| Status: ▶ working ● needs you ● done |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
-| Activity summaries                   |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
-| Subagents                            |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
-| Context, tokens and rate limits      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
-| Rename and fork                      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
-| Resume after a crash or reboot       |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
-| Multiple accounts                    |      ✓      |   ✓   |  ✓  | Built-in | Built-in |
+|                                      | Claude Code | Codex | Pi  | OpenCode | Oh My Pi | Google Antigravity |
+| ------------------------------------ | :---------: | :---: | :-: | :------: | :------: | :----------------: |
+| Status: ▶ working ● needs you ● done |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |         ✓          |
+| Activity summaries                   |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |         ✓          |
+| Subagents                            |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |         ✓          |
+| Context, tokens and rate limits      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |    Tokens only     |
+| Rename and fork                      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |         ✓          |
+| Resume after a crash or reboot       |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |         ✓          |
+| Multiple accounts                    |      ✓      |   ✓   |  ✓  | Built-in | Built-in |         —          |
 
 ## Scripting
 
