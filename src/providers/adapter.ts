@@ -139,6 +139,9 @@ export interface Transcript {
   verify?(head: unknown, session: string): void;
   /** How a record ends `agent`'s current turn, if it does. */
   completion(agent: Agent, value: unknown): Outcome | null;
+  /** A record that ends `agent`'s turn unless the transcript goes on ("settles"),
+   * or one that shows the turn went on ("continues"). */
+  settling?(agent: Agent, value: unknown): "settles" | "continues" | null;
   /** Shows what transcripts found while nothing better reports the agent;
    * true when its activity moved. */
   fallback(r: UsageResult, agent: Agent, now: number): boolean;
