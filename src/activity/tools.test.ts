@@ -56,6 +56,38 @@ test("completed tools are deduplicated, historical calls do not advance waves, a
   codexUsage.progress(t, output, true);
   expect(t.completed).toBe(0n);
 });
+test("a Codex call keeps its original request across a steer, attachment and handoff", () => {
+  let t = new Tracker();
+  t.bind("turn");
+  const ask = (...content: object[]) =>
+    codexUsage.progress(t, { type: "response_item", payload: { type: "message", role: "user", content } }, true);
+  const text = (text: string) => ({ type: "input_text", text });
+  const start = (id: string) => {
+    const call = new Call();
+    call.id = t.key(id);
+    call.append(id);
+    t.save(call, true);
+  };
+  ask(text("Inspect the badge"));
+  start("read");
+  ask(
+    text('<image name=[Image #1] path="/tmp/paste.png">'),
+    { type: "input_image" },
+    text("</image>"),
+    text("[Image #1] Check the broker photo"),
+  );
+  ask(text("<environment_context>"));
+  t = Tracker.restore(JSON.parse(JSON.stringify(t, (_, v) => (typeof v === "bigint" ? String(v) : v))));
+  t.finishId(t.key("read"), true, "success");
+  start("measure");
+  expect(t.view().calls.map(c => [c.running, c.request])).toEqual([
+    [false, { id: 1, title: "Inspect the badge" }],
+    [true, { id: 2, title: "Check the broker photo" }],
+  ]);
+  ask({ type: "input_image" });
+  expect(t.view().request).toEqual({ id: 3, title: "[Image #1]" });
+});
+
 test("code-mode evidence keeps commands and patch files while dropping wrapper", () => {
   const t = new Tracker();
   t.bind("a");

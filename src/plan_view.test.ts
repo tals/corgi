@@ -454,24 +454,25 @@ test("expanded tools pin the remaining count below the moving window of calls", 
     return result;
   };
   const first = lines(0);
-  expect(first[1]).toBe("· Read source 1");
+  expect(first[2]).toBe("· Read source 1");
   expect(first.at(-1)).toBe("↓ 38 more");
   const middle = lines(20);
-  expect(middle[1]).toBe("· Read source 21");
+  expect(middle[2]).toBe("· Read source 21");
   expect(middle[first.length - 1]).toBe("↓ 18 more");
   expect(lines(37).at(-1)).toBe("↓ 1 more");
   const last = lines(1000);
   expect(last).toHaveLength(first.length);
   expect(last.at(-2)).toBe("· Read source 44");
   expect(last.at(-1)).toBe("");
-  expect(lines(0, 4)).toEqual([
+  expect(lines(0, 5)).toEqual([
+    "Tools",
     "▾ ✓ Succeeded (1–2/44) Inspected sources",
     "· Read source 1",
     "· Read source 2",
     "↓ 42 more",
   ]);
   view.tool_rows[0].members = members.slice(0, 2);
-  expect(lines(100)).toEqual(["▾ ✓ Succeeded (2) Inspected sources", "· Read source 1", "· Read source 2"]);
+  expect(lines(100)).toEqual(["Tools", "▾ ✓ Succeeded (2) Inspected sources", "· Read source 1", "· Read source 2"]);
 });
 
 test("an opaque result keeps its count and offers details only when recorded", () => {
@@ -493,7 +494,7 @@ test("an opaque result keeps its count and offers details only when recorded", (
     });
     return lines;
   };
-  expect(draw()).toEqual(["✓ Succeeded (1)"]);
+  expect(draw()).toEqual(["Tools", "✓ Succeeded (1)"]);
   row.members = ["…", "Run tests", "…"];
-  expect(draw()).toEqual(["▾ ✓ Succeeded (3)", "· Run tests", "· Without a description: 2"]);
+  expect(draw()).toEqual(["Tools", "▾ ✓ Succeeded (3)", "· Run tests", "· Without a description: 2"]);
 });

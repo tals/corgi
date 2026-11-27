@@ -485,9 +485,14 @@ export class Worker {
     slot.combine();
     if (progress && agent.turnId() === progress.turn.text()) slot.observeTools(progress, clock.milliTimestamp());
     if (this.plans)
-      this.observeRoad(owner, slot, calls ?? (progress?.turn.text() === agent.turnId() ? progress.calls : undefined));
+      this.observeRoad(
+        owner,
+        slot,
+        calls ?? (progress?.turn.text() === agent.turnId() ? progress.calls : undefined),
+        progress?.turn.text() === agent.turnId() ? progress.request : undefined,
+      );
   }
-  observeRoad(owner: Actor, slot: Slot, calls?: ToolView["calls"]) {
+  observeRoad(owner: Actor, slot: Slot, calls?: ToolView["calls"], request?: ToolView["request"]) {
     const now = clock.milliTimestamp();
     const evidence = slot.transcript_commentary.len
       ? clip(slot.transcript_commentary.text(), 1024) + "\n" + slot.tool_evidence.text()
@@ -505,6 +510,7 @@ export class Worker {
       owner.usageView(now),
       now,
       calls,
+      request,
     );
     slot.request.road = owner.activity_plan.request();
     slot.active = !!slot.request.road || owner.state.state === "working";
@@ -517,7 +523,7 @@ export class Worker {
       return;
     }
     slot.observeTools(progress, clock.milliTimestamp());
-    if (this.plans) this.observeRoad(actor, slot, progress.calls);
+    if (this.plans) this.observeRoad(actor, slot, progress.calls, progress.request);
   }
   reconcile(actors: Actor[], panes: readonly Pane[] = []) {
     const shown = new Set(panes.filter(p => !p.terminal.exited).map(p => p.attachment.actor));

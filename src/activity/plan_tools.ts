@@ -1,8 +1,9 @@
-import { shortLabel, type Observation, type Outcome } from "./tools";
+import { shortLabel, readRequest, type Observation, type Outcome, type ToolRequest } from "./tools";
 
 export type Input = { id: number; event: number; detail: string; description: string };
 export type Group = { ids: number[]; title: string };
 export type Row = {
+  request?: { turn: number; id: number; title: string; event: number };
   visit: number | null;
   title: string;
   running: boolean;
@@ -11,6 +12,8 @@ export type Row = {
   first?: number;
 };
 type Call = Input & {
+  request?: ToolRequest | null;
+  earlier_request?: boolean;
   visit: number | null;
   title: string;
   running: boolean;
@@ -61,9 +64,27 @@ export class Ledger {
   calls: Call[] = [];
 
   /** A snapshot can repeat, or finish several calls before the next inference. */
-  observe(observed: Observation[] | undefined, turn: number, event: number, working: boolean) {
+  observe(
+    observed: Observation[] | undefined,
+    turn: number,
+    event: number,
+    working: boolean,
+    context?: { request: ToolRequest | null; visit: number | null },
+    previous?: { request: ToolRequest | null; visit: number | null },
+  ) {
     const current = new Map(observed?.map(c => [c.key, c]));
     const existing = new Set<string>();
+    const placement = (request: ToolRequest | null | undefined) => {
+      // A poll can reveal an earlier request's call after the user has steered the turn.
+      if (request && context?.request && request.id !== context.request.id) {
+        const last =
+          previous?.request?.id === request.id
+            ? previous
+            : this.calls.findLast(c => c.turn === turn && c.request?.id === request.id);
+        return { request, visit: last?.visit ?? null, earlier_request: true };
+      }
+      return { request: request ?? context?.request ?? null, visit: context?.visit ?? null, earlier_request: false };
+    };
     for (const call of this.calls) {
       if (call.turn !== turn) {
         call.running = false;
@@ -73,6 +94,12 @@ export class Ledger {
       if (!working || observed) {
         const update = current.get(call.key);
         call.running = working && !!update?.running;
+        if (update?.request && update.request.id !== call.request?.id) {
+          const start = placement(update.request);
+          // A newly identified request can already have a step inferred from the call's own event.
+          if (!call.request && call.visit !== null) start.visit = call.visit;
+          Object.assign(call, start);
+        }
         if (update?.outcome) call.outcome = update.outcome;
         if (update?.description && description(update.description) && update.description !== call.description) {
           call.description = update.description;
@@ -94,7 +121,7 @@ export class Ledger {
         description: description(call.description),
         title: description(call.description) || fallback(call.detail),
         group: id,
-        visit: null,
+        ...placement(call.request),
         running: working && call.running,
         outcome: call.outcome ?? null,
       });
@@ -117,7 +144,7 @@ export class Ledger {
     const labels = new Map(groups.flatMap(g => g.ids.map(id => [id, g] as const)));
     for (const c of this.calls) {
       if (c.event < from || c.event > to) continue;
-      c.visit = visit(c.event);
+      if (!c.earlier_request) c.visit = visit(c.event) ?? c.visit;
       const group = labels.get(c.id);
       if (!group) continue;
       c.group = group.ids[0];
@@ -130,7 +157,8 @@ export class Ledger {
     const buckets = new Map<string, Bucket>();
     for (const c of this.calls) {
       const visit = c.visit === null ? null : (scopes.get(c.visit) ?? c.visit);
-      const key = c.running ? "live:" + c.group : (visit ?? "turn" + c.turn) + ":" + (c.outcome ?? "unknown");
+      const location = visit ?? "turn" + c.turn + "/" + (c.request?.id ?? 0);
+      const key = location + ":" + (c.running ? "live:" + c.group : (c.outcome ?? "unknown"));
       const bucket = buckets.get(key);
       if (bucket) bucket.calls.push(c);
       else buckets.set(key, { visit, calls: [c] });
@@ -143,9 +171,21 @@ export class Ledger {
       .sort((a, b) => Number(b.calls[0].running) - Number(a.calls[0].running))
       .map(({ visit, calls }) => {
         const first = calls[0];
+        const location =
+          visit === null
+            ? {
+                visit,
+                request: {
+                  turn: first.turn,
+                  event: first.event,
+                  id: first.request?.id ?? 0,
+                  title: first.request?.title ?? "",
+                },
+              }
+            : { visit };
         if (first.running)
           return {
-            visit,
+            ...location,
             title: calls.length === 1 ? member(first) : (first.group_title ?? first.title),
             running: true,
           };
@@ -154,15 +194,15 @@ export class Ledger {
         const names = [...new Set(members.filter(t => t !== "…"))];
         const title =
           first.recap?.stamp === stamp ? first.recap.title : shortLabel(names.slice(0, 2).join(" · ")) || "…";
-        return { visit, title, running: false, outcome: first.outcome ?? "unknown", members, first: first.id };
+        return { ...location, title, running: false, outcome: first.outcome ?? "unknown", members, first: first.id };
       });
   }
 
   recaps(scopes: Map<number, number>): Recap[] {
     const requests: Recap[] = [];
-    for (const { visit, calls } of this.buckets(scopes)) {
+    for (const { calls } of this.buckets(scopes)) {
       const first = calls[0];
-      if (visit === null || first.running || calls.length < 2) continue;
+      if (first.running || calls.length < 2) continue;
       const names = calls.map(member),
         stamp = signature(calls, names);
       const labels = [...new Set(names.filter(t => t !== "…"))];
@@ -193,6 +233,7 @@ export class Ledger {
         !integer(c.event) ||
         !integer(c.turn) ||
         !integer(c.group) ||
+        (c.earlier_request !== undefined && typeof c.earlier_request !== "boolean") ||
         typeof c.key !== "string" ||
         c.key.length > 32 ||
         typeof c.detail !== "string" ||
@@ -207,7 +248,12 @@ export class Ledger {
       )
         throw Error("InvalidRoadmap");
       last = c.id;
-      return { ...c, title: shell.test(c.title) ? fallback(c.detail) : c.title, running: live && c.running };
+      return {
+        ...c,
+        request: readRequest(c.request),
+        title: shell.test(c.title) ? fallback(c.detail) : c.title,
+        running: live && c.running,
+      };
     });
   }
 }
@@ -229,7 +275,21 @@ export function decodeRows(value: unknown): Row[] {
   return value.map(row => {
     if (!validRow(row)) throw Error("InvalidRoadmap");
     const { visit, title, running, outcome, members, first } = row;
-    if (outcome === undefined) return { visit, title, running };
+    const request = row.request;
+    if (
+      request != null &&
+      (visit !== null ||
+        !integer(request.turn) ||
+        !integer(request.event) ||
+        !(request.id === 0 || integer(request.id)) ||
+        typeof request.title !== "string" ||
+        shortLabel(request.title) !== request.title)
+    )
+      throw Error("InvalidRoadmap");
+    const location = request
+      ? { visit, request: { turn: request.turn, event: request.event, id: request.id, title: request.title } }
+      : { visit };
+    if (outcome === undefined) return { ...location, title, running };
     if (
       running ||
       !outcomes.has(outcome) ||
@@ -240,6 +300,6 @@ export function decodeRows(value: unknown): Row[] {
       !members.every(label)
     )
       throw Error("InvalidRoadmap");
-    return { visit, title, running, outcome, members, first };
+    return { ...location, title, running, outcome, members, first };
   });
 }

@@ -1,9 +1,27 @@
+import { injected } from "../providers/common";
 import * as script_tools from "./script_tools";
 import { Text } from "./summary";
 import { BoundedText } from "../bounded_text";
 class Turn extends BoundedText(160) {}
 export type Outcome = "success" | "failure";
+export type ToolRequest = { id: number; title: string };
+export function readRequest(value: unknown): ToolRequest | null {
+  if (value == null) return null;
+  if (
+    typeof value !== "object" ||
+    !("id" in value) ||
+    typeof value.id !== "number" ||
+    !Number.isSafeInteger(value.id) ||
+    value.id < 1 ||
+    !("title" in value) ||
+    typeof value.title !== "string" ||
+    shortLabel(value.title) !== value.title
+  )
+    throw Error("InvalidToolRequest");
+  return { id: value.id, title: value.title };
+}
 export type Observation = {
+  request?: ToolRequest | null;
   key: string;
   detail: string;
   description: string;
@@ -11,6 +29,7 @@ export type Observation = {
   outcome?: Outcome | null;
 };
 export class View {
+  request: ToolRequest | null = null;
   calls: Observation[] = [];
   road_evidence = new Text();
   commentary = new Text();
@@ -42,6 +61,7 @@ export function shortLabel(value: string) {
   return (head.replace(/\s+\S*$/, "") || head) + "…";
 }
 export class Call {
+  request: ToolRequest | null = null;
   description = "";
   describe(value: string) {
     this.description = shortLabel(value);
@@ -55,6 +75,7 @@ export class Call {
     if (saved === null) return null;
     if (typeof saved.value !== "string" || Buffer.byteLength(saved.value) > 240) throw Error("InvalidCheckpoint");
     const call = Object.assign(new Call(), { id: BigInt(saved.id), live: saved.live === true, value: saved.value });
+    call.request = readRequest(saved.request);
     if (typeof saved.description === "string") call.describe(saved.description);
     return call;
   }
@@ -121,6 +142,7 @@ export class Call {
   }
 }
 export class Tracker {
+  request: ToolRequest | null = null;
   prompt = new Text();
   /** This turn's requests, oldest first: the one that started it and those typed while the agent worked. */
   asked: { text: string; queued: boolean }[] = [];
@@ -152,6 +174,7 @@ export class Tracker {
       saved.recent.length !== 3
     )
       throw Error("InvalidCheckpoint");
+    t.request = readRequest(saved.request);
     t.commentary = Text.fromJSON(saved.commentary);
     t.turn = Turn.fromJSON(saved.turn);
     t.ended = saved.ended === true;
@@ -179,11 +202,16 @@ export class Tracker {
         .filter((m: any) => typeof m?.text === "string")
         .slice(-4)
         .map((m: any) => ({ text: clip(m.text, 300), queued: m.queued === true }));
+    if (saved.request === undefined) {
+      const text = t.asked.findLast(m => m.text.trim() && !injected(m.text))?.text ?? t.prompt.text();
+      if (text.trim() && !injected(text)) t.request = { id: 1, title: shortLabel(text) };
+    }
     t.dirty = saved.dirty === true;
     return t;
   }
   /** A person's message in this turn; `queued` when it arrived while the agent was working. */
   ask(text: string, queued: boolean) {
+    if (text.trim() && !injected(text)) this.request = { id: (this.request?.id ?? 0) + 1, title: shortLabel(text) };
     this.prompt = new Text(clip(text, 512));
     this.asked = [...this.asked, { text: clip(text.replace(/\s+/g, " "), 300), queued }].slice(-4);
     this.dirty = true;
@@ -205,6 +233,7 @@ export class Tracker {
   view() {
     const out = new View();
     out.turn = this.turn;
+    out.request = this.request;
     out.completed = this.completed;
     out.commentary = this.commentary;
     out.ended = this.ended;
@@ -215,6 +244,7 @@ export class Tracker {
         description: call.description,
         running,
         outcome: call.outcome,
+        ...(call.request ? { request: call.request } : {}),
       });
     };
     for (const call of this.finished) observe(call, false);
@@ -258,6 +288,7 @@ export class Tracker {
       this.next_pending = (this.next_pending + 1) % 64;
     }
     const old = this.pending[slot];
+    call.request = old?.id === call.id ? old.request : this.request;
     call.live = live || (old?.id === call.id && old.live) || false;
     if (old?.id === call.id && !call.description) call.description = old.description;
     if (

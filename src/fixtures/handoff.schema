@@ -178,6 +178,9 @@ $.usage?[].tracker.next_tool: usize
 $.usage?[].progress.commentary: custom bounded_text.BoundedText(2048)
 $.usage?[].progress.turn: custom bounded_text.BoundedText(160)
 $.usage?[].progress.ended: bool
+$.usage?[].progress.request: optional
+$.usage?[].progress.request?.id: usize
+$.usage?[].progress.request?.title: string
 $.usage?[].progress.completed: u64
 $.usage?[].progress.pending[64]: optional
 $.usage?[].progress.pending[64]?.id: u64
@@ -325,12 +328,24 @@ $.summaries?.slots[].slot.result?.request.road?.support[].text: string
 $.summaries?.slots[].slot.result?.patch: optional
 $.summaries?.slots[].slot.result?.patch?: string
 $.usage?[].progress.pending[64]?.description: string
+$.usage?[].progress.pending[64]?.request: optional
+$.usage?[].progress.pending[64]?.request?.id: usize
+$.usage?[].progress.pending[64]?.request?.title: string
 $.usage?[].progress.recent[3]?.description: string
+$.usage?[].progress.recent[3]?.request: optional
+$.usage?[].progress.recent[3]?.request?.id: usize
+$.usage?[].progress.recent[3]?.request?.title: string
 $.usage?[].progress.outcomes[].description: string
+$.usage?[].progress.outcomes[].request: optional
+$.usage?[].progress.outcomes[].request?.id: usize
+$.usage?[].progress.outcomes[].request?.title: string
 $.usage?[].progress.finished[].id: u64
 $.usage?[].progress.finished[].live: bool
 $.usage?[].progress.finished[].value: string
 $.usage?[].progress.finished[].description: string
+$.usage?[].progress.finished[].request: optional
+$.usage?[].progress.finished[].request?.id: usize
+$.usage?[].progress.finished[].request?.title: string
 $.usage?[].progress.finished[].outcome: optional
 $.usage?[].progress.finished[].outcome?: enum success failure
 $.usage?[].progress.finished[].result: string

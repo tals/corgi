@@ -1,6 +1,6 @@
 import * as plan from "./plan";
 import * as checklist from "./checklist";
-import { clip, type Observation } from "./tools";
+import { clip, readRequest, type Observation, type ToolRequest } from "./tools";
 import * as plan_tools from "./plan_tools";
 import type { View } from "../usage/live";
 
@@ -192,6 +192,11 @@ export class Roadmap {
   last = "";
   turn = "";
   turn_index = 0;
+  tool_context: { from: number; request: ToolRequest | null; visit: number | null } = {
+    from: 0,
+    request: null,
+    visit: null,
+  };
   checklist_at = 0;
   tail_node: string | null = null;
   observe(
@@ -202,7 +207,13 @@ export class Roadmap {
     usage: View,
     now: number,
     calls?: Observation[],
+    request = calls?.at(-1)?.request,
   ) {
+    const id = (this.pending.at(-1)?.id ?? this.state.through) + 1;
+    const previous = turn === this.turn ? this.tool_context : undefined;
+    const newRequest = !!request && request.id !== (this.tool_context.request?.id ?? 1);
+    if (turn !== this.turn || newRequest) this.tool_context = { from: id, request: null, visit: null };
+    if (request) this.tool_context.request = request;
     if (turn !== this.turn) {
       this.turn = turn;
       this.turn_index++;
@@ -241,11 +252,10 @@ export class Roadmap {
       this.unassigned = add(this.unassigned, delta);
       return;
     }
-    const id = (this.pending.at(-1)?.id ?? this.state.through) + 1;
     const added =
       (calls !== undefined || key !== this.last) &&
-      this.tools.observe(calls, this.turn_index, id, status === "working");
-    if (key === this.last && !added) {
+      this.tools.observe(calls, this.turn_index, id, status === "working", this.tool_context, previous);
+    if (key === this.last && !added && !newRequest) {
       const previous = this.pending.at(-1);
       if (previous) this.receipts.push({ event: previous.id, tokens: delta });
       else this.attribute(this.tail_node, delta);
@@ -309,6 +319,37 @@ export class Roadmap {
     const parents = new Map(applied.nodes.map(n => [n.id, n.parent]));
     this.focus = focusEpisode(applied.nodes, applied.spans, this.focus);
     this.focus_step = focusStep(applied.spans, this.focus_step);
+    const step = applied.nodes.find(n => n.id === this.focus_step);
+    if (step?.state !== "active") this.tool_context.visit = null;
+    else {
+      const span = applied.spans.findLast(
+        s =>
+          s.to >= this.tool_context.from &&
+          s.node === step.id &&
+          (s.focus !== false ||
+            this.tools.calls.some(
+              c =>
+                c.turn === this.turn_index &&
+                c.event >= this.tool_context.from &&
+                c.event >= s.from &&
+                c.event <= s.to &&
+                c.request?.id === this.tool_context.request?.id,
+            )),
+      );
+      if (span) {
+        const visit = visitAt(visits, step.id, span.to)?.from ?? null;
+        this.tool_context.visit = visit;
+        // Calls can arrive while the first step for this request is being inferred.
+        for (const call of this.tools.calls)
+          if (
+            call.visit === null &&
+            call.event > applied.through &&
+            call.turn === this.turn_index &&
+            call.request?.id === this.tool_context.request?.id
+          )
+            call.visit = visit;
+      }
+    }
     this.tail_node = applied.spans.at(-1)?.node ?? null;
     for (const node of applied.nodes) this.counts[node.id] ??= zero();
     for (const r of this.receipts.filter(r => r.event <= applied.through)) {
@@ -432,6 +473,29 @@ export class Roadmap {
       road[key] = v[key];
     }
     road.turn_index = integer("turn_index");
+    if (v.tool_context != null) {
+      const ctx = object(v.tool_context);
+      if (
+        !Number.isSafeInteger(ctx.from) ||
+        Number(ctx.from) < 0 ||
+        (ctx.visit !== null && !road.visits.some(visit => visit.from === ctx.visit))
+      )
+        throw Error("InvalidRoadmap");
+      road.tool_context = {
+        from: Number(ctx.from),
+        request: readRequest(ctx.request),
+        visit: ctx.visit as number | null,
+      };
+    } else {
+      const last = road.tools.calls.findLast(c => c.turn === road.turn_index && c.visit !== null);
+      if (
+        last &&
+        road.visits.some(v => v.from === last.visit && v.step === road.focus_step) &&
+        saved.nodes.some(n => n.id === road.focus_step && n.state === "active")
+      )
+        road.tool_context.visit = last.visit;
+      road.tool_context.from = road.pending.find(e => e.turn === road.turn_index)?.id ?? road.state.through;
+    }
     road.checklist_at = integer("checklist_at");
     if (
       v.tail_node !== null &&
@@ -464,6 +528,7 @@ export class Roadmap {
       last: this.last,
       turn: this.turn,
       turn_index: this.turn_index,
+      tool_context: this.tool_context,
       checklist_at: this.checklist_at,
       tail_node: this.tail_node,
     };

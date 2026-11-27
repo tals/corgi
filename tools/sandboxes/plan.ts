@@ -127,7 +127,7 @@ export const world: World = {
   },
   seed(s) {
     s.write(join(s.dir, "web/README.md"), "# web\n\nA workspace for watching an agent's plan.\n");
-    s.write(join(s.dir, "plan.json"), JSON.stringify({ delay: 0, label: "Fixing sign-in redirect", script }));
+    s.write(join(s.dir, "plan.json"), JSON.stringify({ delay: 2, label: "Fixing sign-in redirect", script }));
     s.write(
       join(s.home, ".claude/.claude.json"),
       JSON.stringify({

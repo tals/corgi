@@ -1113,6 +1113,7 @@
   "Reopen last closed agent": "Открыть последнего закрытого агента",
   "Reopen tab": "Открыть вкладку снова",
   "Report a bug": "Сообщить об ошибке",
+  "Request ${turn}": "Запрос ${turn}",
   "Resize": "Размер",
   "Resize directly": "Изменить размер напрямую",
   "Resize down": "Размер вниз",

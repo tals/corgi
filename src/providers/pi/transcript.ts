@@ -66,6 +66,7 @@ export const transcript: Transcript = {
       }
       if (type !== "message") return delta;
       if (role === "user" || role === "assistant") t.spoke_at = Math.max(t.spoke_at, stamp ?? 0);
+      if (role === "user" && appended && t.progress.turn.len) t.progress.ask(messageText(m), false);
       if (role === "assistant") {
         const model = str(m, "model");
         if (model) t.model = Model.resolve(model);

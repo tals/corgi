@@ -1295,6 +1295,11 @@ $.snapshot.conversations[].activity_plan?.tool_rows[].visit: optional
 $.snapshot.conversations[].activity_plan?.tool_rows[].visit?: usize
 $.snapshot.conversations[].activity_plan?.tool_rows[].title: string
 $.snapshot.conversations[].activity_plan?.tool_rows[].running: bool
+$.snapshot.conversations[].activity_plan?.tool_rows[].request: optional
+$.snapshot.conversations[].activity_plan?.tool_rows[].request?.id: usize
+$.snapshot.conversations[].activity_plan?.tool_rows[].request?.title: string
+$.snapshot.conversations[].activity_plan?.tool_rows[].request?.turn: usize
+$.snapshot.conversations[].activity_plan?.tool_rows[].request?.event: usize
 $.snapshot.conversations[].activity_plan?.tool_rows[].outcome: optional
 $.snapshot.conversations[].activity_plan?.tool_rows[].outcome?: enum success failure unknown
 $.snapshot.conversations[].activity_plan?.tool_rows[].first: optional

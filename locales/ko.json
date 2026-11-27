@@ -841,6 +841,7 @@
   "Reopen last closed agent": "마지막으로 닫은 에이전트 열기",
   "Reopen tab": "탭 다시 열기",
   "Report a bug": "버그 신고",
+  "Request ${turn}": "요청 ${turn}",
   "Resize": "크기 조절",
   "Resize directly": "직접 크기 조절",
   "Resize down": "아래로 크기 조절",

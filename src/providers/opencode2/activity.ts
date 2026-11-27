@@ -1,4 +1,4 @@
-import { Call, Tracker, clip } from "../../activity/tools";
+import { Call, Tracker, clip, shortLabel } from "../../activity/tools";
 import { Text } from "../../activity/summary";
 import { field, str } from "../common";
 import { messageText } from "./worker";
@@ -30,6 +30,7 @@ export function progress(messages: Record<string, unknown>[]) {
   const start = messages.findLastIndex(m => m.type === "user");
   const tools = new Tracker();
   if (start < 0) return { calls: [], evidence: new Text() };
+  tools.request = { id: 1, title: shortLabel(messageText(messages[start])) };
   let latest = "";
   for (const message of messages.slice(start + 1)) {
     if (message.type !== "assistant") continue;
@@ -42,6 +43,7 @@ export function progress(messages: Record<string, unknown>[]) {
       if (status === "streaming") continue;
       const call = describe(part);
       call.id = tools.key(str(part, "id"));
+      call.request = tools.request;
       if (status === "completed" || status === "error" || typeof field(field(part, "time"), "completed") === "number") {
         call.outcome = status === "error" ? "failure" : status === "completed" ? "success" : null;
         tools.finish(call, true);

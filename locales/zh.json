@@ -841,6 +841,7 @@
   "Reopen last closed agent": "重开最近关闭的智能体",
   "Reopen tab": "重开标签页",
   "Report a bug": "报告问题",
+  "Request ${turn}": "请求 ${turn}",
   "Resize": "调整大小",
   "Resize directly": "直接调整大小",
   "Resize down": "向下调整大小",

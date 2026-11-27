@@ -841,6 +841,7 @@
   "Reopen last closed agent": "最後に閉じたエージェントを再開",
   "Reopen tab": "タブを開き直す",
   "Report a bug": "バグを報告",
+  "Request ${turn}": "リクエスト ${turn}",
   "Resize": "サイズ変更",
   "Resize directly": "直接サイズ変更",
   "Resize down": "下にサイズ変更",

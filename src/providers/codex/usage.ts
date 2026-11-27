@@ -136,7 +136,17 @@ export function progress(t: Tools, value: any, live: boolean) {
   if (kind !== "response_item" || !t.turn.len || t.ended) return;
   if (type === "message" && str(p, "role") === "user") {
     const content = field(p, "content");
-    if (Array.isArray(content)) t.ask(content.map(c => str(c, "text")).join("\n"), false);
+    if (Array.isArray(content)) {
+      const parts = content.map(c => str(c, "text"));
+      const text = content.some(c => str(c, "type") === "input_image")
+        ? parts
+            .filter(s => !/^\s*(?:<image\b[^>]*>|<\/image>)\s*$/.test(s))
+            .join("\n")
+            .trim()
+            .replace(/^(?:\[Image #\d+\]\s*)+/, "") || "[Image #1]"
+        : parts.join("\n");
+      t.ask(text, false);
+    }
   }
   if (type === "message" && str(p, "role") === "assistant" && str(p, "phase") === "commentary") {
     const content = field(p, "content");
@@ -231,6 +241,7 @@ export function progress(t: Tools, value: any, live: boolean) {
   } else if (type === "web_search_call") call.detail(str(field(p, "action"), "query"));
   if (type === "web_search_call" && str(p, "status") === "completed") {
     call.outcome = "success";
+    call.request = t.request;
     t.finish(call, live);
     return;
   }

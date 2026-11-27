@@ -551,6 +551,12 @@ $.conversations[].activity_plan?.tools_baseline?: string
 $.conversations[].activity_plan?.last: string
 $.conversations[].activity_plan?.turn: string
 $.conversations[].activity_plan?.turn_index: usize
+$.conversations[].activity_plan?.tool_context.from: usize
+$.conversations[].activity_plan?.tool_context.request: optional
+$.conversations[].activity_plan?.tool_context.request?.id: usize
+$.conversations[].activity_plan?.tool_context.request?.title: string
+$.conversations[].activity_plan?.tool_context.visit: optional
+$.conversations[].activity_plan?.tool_context.visit?: usize
 $.conversations[].activity_plan?.checklist_at: i64
 $.conversations[].activity_plan?.tail_node: optional
 $.conversations[].activity_plan?.tail_node?: string
@@ -600,6 +606,11 @@ $.conversations[].activity_plan?.tool_calls[].title: string
 $.conversations[].activity_plan?.tool_calls[].running: bool
 $.conversations[].activity_plan?.tool_calls[].key: string
 $.conversations[].activity_plan?.tool_calls[].turn: usize
+$.conversations[].activity_plan?.tool_calls[].request: optional
+$.conversations[].activity_plan?.tool_calls[].request?.id: usize
+$.conversations[].activity_plan?.tool_calls[].request?.title: string
+$.conversations[].activity_plan?.tool_calls[].earlier_request: optional
+$.conversations[].activity_plan?.tool_calls[].earlier_request?: bool
 $.conversations[].activity_plan?.tool_calls[].group: usize
 $.conversations[].activity_plan?.tool_calls[].group_title: optional
 $.conversations[].activity_plan?.tool_calls[].group_title?: string

@@ -191,7 +191,7 @@ test("the runtime wire matches protocol.version", () => {
   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
   expect(protocol.management_version).toBe(1);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "6d97bdb8abfabc50d8c6e5bf04d955518d2351d38a763023564990d47007d970",
+    "90fe7e27bae2fdb5f574f854db303c04716e718ce7673efa52ff73c2b0709c1d",
   );
   const { server, client, dispose } = fixture();
   try {
@@ -297,7 +297,7 @@ test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(7);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "d219c4fede45728b6b8a312cc948348cdc55fbf266efa867f5a6ae3817b60462",
+    "264f3ca9b5dd54b865629a27bb571a5df0282690b59f149f9965147298b0ca4b",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();

@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import * as plan from "./plan";
 import * as owner from "./plan_owner";
-import { Tracker } from "./tools";
+import { Tracker, type Observation } from "./tools";
 import * as claude from "../providers/claude/usage";
 import * as plan_view from "../plan_view";
 import * as roadmap from "./roadmap";
@@ -281,6 +281,7 @@ test("returning work appends a visit, keeps its own usage, and survives live and
     expect(() => roadmap.decode(view)).toThrow("Invalid");
   }
   delete saved.view.visits;
+  delete saved.tool_context;
   road = roadmap.Roadmap.restore(saved, true);
   expect(road.visits.every(v => v.from === 0 && v.to === 0)).toBe(true);
   const legacy = structuredClone(road.visits);
@@ -427,7 +428,7 @@ test.each([false, true])("parallel tools keep their own lifetimes and step, grou
   expect(road.counts.e.tools).toBe("0"); // The provider usage meter alone supplies counts.
 });
 
-test("a call without an owner stays outside the step before and after inference", () => {
+test("a call starts under the active step and a neutral update leaves it there", () => {
   const road = new roadmap.Roadmap();
   road.observe("t", "working", "Run tests", new List(), usage(100n), 1);
   road.apply(road.request()!, patch());
@@ -440,12 +441,12 @@ test("a call without an owner stays outside the step before and after inference"
   };
   road.observe("t", "working", "Check auth", new List(), usage(100n), 2, [call]);
   const parent = () => plan_view.tail(road.view(), 10, true).rows.find(row => row.kind === "tool")?.parent;
-  expect(parent()).toBeNull();
+  expect(parent()?.id).toBe("s");
   road.apply(road.request()!, JSON.stringify({ nodes: [], spans: [{ from: 2, to: 2, node: null }] }));
   road.observe("t", "working", "Resume tests", new List(), usage(120n), 3);
   road.apply(road.request()!, patch([], 3));
-  expect(road.view().tool_rows?.[0].visit).toBeNull();
-  expect(parent()).toBeNull();
+  expect(road.view().tool_rows?.[0].visit).toBe(1);
+  expect(parent()?.id).toBe("s");
 });
 
 test("completed calls fold by result, keep individual labels, and ignore stale recaps", () => {
@@ -500,9 +501,156 @@ test("a shell wrapper with no observable command shows just the live tool marker
       mark: () => {},
     });
   draw();
-  expect(lines).toEqual(["▶ ›_"]);
+  expect(lines).toEqual(["Request 1", "▶ ›_"]);
   road.tools.observe([], 1, 2, false);
   draw();
   expect(lines.at(-1)).toContain("Outcome unknown (1)");
   expect(lines.at(-1)).not.toContain("Succeeded");
+});
+
+test("tools appear with the request or its active step on arrival, and corrections use their start event", () => {
+  const road = new roadmap.Roadmap();
+  const first = { id: 1, title: "Find broker photo data" },
+    next = { id: 2, title: "Check photo dimensions" };
+  const calls: Observation[] = [];
+  const observe = (turn: string, request: typeof first, text: string) =>
+    road.observe(turn, "working", text, new List(), usage(100n), 1, calls, request);
+  const start = (key: string, request: typeof first) =>
+    calls.push({ key, request, description: key, detail: "Read: " + key, running: true });
+  const rows = () => road.view().tool_rows!;
+  const headings = () =>
+    plan_view
+      .tail(road.view(), 25, true)
+      .rows.filter(r => r.kind === "request")
+      .map(r => r.title);
+  start("Read photo schema", first);
+  observe("turn-1", first, "Read schema");
+  expect(headings()).toEqual([first.title]);
+  const firstBatch = road.request()!;
+  start("Read image metadata", first);
+  observe("turn-1", first, "Read metadata");
+  road.apply(firstBatch, patch());
+  expect(rows().map(r => r.visit)).toEqual([1, 1]);
+  start("Write photo field", first);
+  observe("turn-1", first, "Write field");
+  expect(rows().every(r => r.visit === 1)).toBe(true);
+  const other = { ...nodes()[1], id: "photo", title: "Carry broker photo offline", evidence: [3] };
+  road.apply(
+    road.request()!,
+    JSON.stringify({
+      nodes: [other],
+      spans: [
+        { from: 2, to: 2, node: "s", focus: false },
+        { from: 3, to: 3, node: "photo", focus: true },
+      ],
+    }),
+  );
+  expect(rows().map(r => r.visit)).toEqual([1, 1, 3]);
+  start("Preview offline photo", first);
+  observe("turn-1", first, "Preview");
+  const prior = road.request()!;
+  start("Read dimensions", next);
+  calls[0] = { ...calls[0], running: false, outcome: "success" };
+  observe("turn-1", next, "Check dimensions");
+  expect(headings()).toEqual([next.title]);
+  expect(rows().find(r => r.members?.includes("Read photo schema"))?.visit).toBe(1);
+  road.apply(prior, JSON.stringify({ nodes: [], spans: [{ from: 4, to: 4, node: "photo" }] }));
+  expect(rows().find(r => r.title === "Read dimensions")?.request?.title).toBe(next.title);
+  const saved = JSON.parse(JSON.stringify(road));
+  expect(roadmap.Roadmap.restore(saved, true).view()).toEqual(road.view());
+  const third = { id: 1, title: "Measure the badge" };
+  calls.length = 0;
+  start("Measure badge", third);
+  observe("turn-2", third, "Measure");
+  expect(rows().find(r => r.title === "Measure badge")?.request).toMatchObject({ turn: 2, title: third.title });
+  expect(roadmap.decode(road.view())).toEqual(road.view());
+});
+
+test("one poll can deliver an older request's tool result alongside a new request's calls", () => {
+  const road = new roadmap.Roadmap(),
+    first = { id: 1, title: "Inspect the badge" },
+    next = { id: 2, title: "Check the broker photo" };
+  road.observe("turn", "working", first.title, new List(), usage(0n), 1, [], first);
+  road.apply(road.request()!, patch());
+  road.observe(
+    "turn",
+    "working",
+    next.title,
+    new List(),
+    usage(0n),
+    2,
+    [
+      {
+        key: "badge",
+        request: first,
+        description: "Read badge",
+        detail: "Read: badge",
+        running: false,
+        outcome: "success",
+      },
+      { key: "photo", request: next, description: "Read photo", detail: "Read: photo", running: true },
+    ],
+    next,
+  );
+  expect(road.tools.calls.map(c => c.visit)).toEqual([1, null]);
+  const step = { ...nodes()[1], id: "photo", title: next.title, evidence: [2] };
+  road.apply(road.request()!, JSON.stringify({ nodes: [step], spans: [{ from: 2, to: 2, node: "photo" }] }));
+  expect(road.tools.calls.map(c => c.visit)).toEqual([1, 2]);
+});
+
+test("a late start record corrects the request of an already observed tool", () => {
+  const road = new roadmap.Roadmap(),
+    first = { id: 1, title: "Inspect the badge" },
+    next = { id: 2, title: "Check the broker photo" };
+  const old = { key: "read", description: "Inspect fields", detail: "Read: fields", running: true };
+  const badge = { ...old, key: "badge", request: first };
+  const observe = (request: typeof first, calls: Observation[]) =>
+    road.observe("turn", "working", request.title, new List(), usage(0n), 1, calls, request);
+  observe(first, [badge]);
+  road.apply(road.request()!, patch());
+  observe(next, [badge, old]);
+  expect(road.tools.calls[1].request).toEqual(next);
+  observe(next, [badge, { ...old, request: first, running: false, outcome: "success" }]);
+  const step = { ...nodes()[1], id: "photo", title: next.title, evidence: [2] };
+  road.apply(road.request()!, JSON.stringify({ nodes: [step], spans: [{ from: 2, to: 2, node: "photo" }] }));
+  expect(road.tools.calls[1]).toMatchObject({ request: first, visit: 1, outcome: "success" });
+});
+
+test("recovering request metadata preserves the step already inferred for an unidentified call", () => {
+  const road = new roadmap.Roadmap(),
+    first = { id: 1, title: "Inspect the badge" },
+    next = { id: 2, title: "Check the photo" };
+  const call = { key: "read", description: "Read badge fields", detail: "Read: fields", running: true };
+  road.observe("turn", "working", "Read badge", new List(), usage(0n), 1, [call]);
+  road.apply(road.request()!, patch());
+  road.observe(
+    "turn",
+    "working",
+    next.title,
+    new List(),
+    usage(0n),
+    2,
+    [
+      { ...call, request: first },
+      { ...call, key: "photo", request: next },
+    ],
+    next,
+  );
+  expect(road.tools.calls[0]).toMatchObject({ request: first, visit: 1 });
+  expect(road.tools.calls[1]).toMatchObject({ request: next, visit: null });
+});
+
+test("old unassigned tool groups stay beside their original work in the visible chronology", () => {
+  const road = new roadmap.Roadmap();
+  road.observe("old", "working", "Read badge files", new List(), usage(0n), 1, [
+    { key: "a", detail: "Read: badge.ts", description: "Read badge files", running: false, outcome: "success" },
+  ]);
+  road.apply(road.request()!, JSON.stringify({ nodes: [], spans: [{ from: 1, to: 1, node: null }] }));
+  road.observe("new", "working", "Fix retry offsets", new List(), usage(0n), 2);
+  road.apply(road.request()!, patch(nodes(), 2));
+  const saved = JSON.parse(JSON.stringify(road));
+  delete saved.tool_context;
+  delete saved.tool_calls[0].request;
+  const old = roadmap.Roadmap.restore(saved, true);
+  expect(plan_view.tail(old.view(), 10, true).rows.map(r => r.kind)).toEqual(["request", "tool", "node", "node"]);
 });

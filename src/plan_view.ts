@@ -27,6 +27,7 @@ type Row =
       returned?: boolean;
       tools?: ToolRow[];
     }
+  | { kind: "request"; parent: null; title: string }
   | ToolRow
   | { kind: "tool-footer"; parent: Node | null; remaining: number }
   | { kind: "detail"; parent: Node | null; title: string }
@@ -34,7 +35,7 @@ type Row =
   | { kind: "pending"; parent: Node | null; active?: boolean };
 const rowHeight = (row: Row) => (row.kind === "node" && row.node.bump ? 2 : 1);
 const currentStep = (view: roadmap.Snapshot, node: Node) => node.id === view.focus_step && node.state === "active";
-type Block = { episode: Node; heading: Extract<Row, { kind: "node" }>; children: Row[] };
+type Block = { from: number; episode: Node; heading: Extract<Row, { kind: "node" }>; children: Row[] };
 function toolRow(tool: ObservedTool, parent: Node | null, running: boolean | null): ToolRow {
   const members = tool.members?.filter(label => label !== "…");
   const total = tool.members?.length ?? 0;
@@ -68,6 +69,7 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
       let block = blocks.at(-1);
       if (block?.episode.id !== episode.id) {
         block = {
+          from: visit.from,
           episode,
           heading: {
             kind: "node",
@@ -128,7 +130,7 @@ function blocks(view: roadmap.Snapshot, running: boolean | null): Block[] {
         (!step || ["done", "abandoned", "planned"].includes(step.state))
       )
         children.push({ kind: "pending", parent: episode });
-      return { episode, heading, children };
+      return { from: 0, episode, heading, children };
     });
 }
 export type Expanded = { id: number; offset: number };
@@ -138,16 +140,38 @@ export function tail(
   running: boolean | null = null,
   expanded: Expanded | null = null,
 ): { rows: Row[]; hidden: number } {
-  const groups = blocks(view, running);
-  const loose = (view.tool_rows ?? [])
-    .filter(r => r.visit === null || !view.visits.length)
-    .map(r => toolRow(r, null, running));
+  const episodes = blocks(view, running);
+  type RequestBlock = { from: number; episode: null; heading: Extract<Row, { kind: "request" }>; children: Row[] };
+  const requests = new Map<string, RequestBlock>();
+  for (const tool of view.tool_rows ?? []) {
+    if (tool.visit !== null && view.visits.length) continue;
+    const request = tool.request;
+    const key = request ? request.turn + "/" + request.id : "";
+    let block = requests.get(key);
+    if (!block) {
+      const turn = request?.turn;
+      block = {
+        from: request?.event ?? 0,
+        episode: null,
+        heading: {
+          kind: "request",
+          parent: null,
+          title: request?.title || (turn ? i18n.t`Request ${turn}` : i18n.t`Tools`),
+        },
+        children: [],
+      };
+      requests.set(key, block);
+    }
+    block.from = Math.min(block.from, request?.event ?? 0);
+    block.children.push(toolRow(tool, null, running));
+  }
+  const groups = [...episodes, ...requests.values()].sort((a, b) => a.from - b.from);
   if (expanded) {
     // Keep the selected summary with its step even if new foreground work arrives.
     const block = groups.find(b => b.children.some(row => row.kind === "tool" && row.first === expanded.id));
-    const tool: ToolRow | undefined =
-      block?.children.find((r): r is ToolRow => r.kind === "tool" && r.first === expanded.id) ??
-      loose.find(r => r.first === expanded.id);
+    const tool: ToolRow | undefined = block?.children.find(
+      (r): r is ToolRow => r.kind === "tool" && r.first === expanded.id,
+    );
     if (tool?.members?.length) {
       const parent = block?.children.find(r => r.kind === "node" && r.node.id === tool.parent?.id);
       const context: Row[] = block ? [block.heading, ...(parent ? [parent] : []), tool] : [tool];
@@ -181,19 +205,10 @@ export function tail(
       }
     }
   }
-  if (!groups.length && loose.length) {
-    const selected = new Set(
-      loose
-        .toReversed()
-        .sort((a, b) => Number(b.active) - Number(a.active))
-        .slice(0, Math.max(0, count)),
-    );
-    return { rows: loose.filter(r => selected.has(r)), hidden: loose.length - selected.size };
-  }
   let pending: Row | null = null;
   if (
     running &&
-    !loose.some(tool => tool.active) &&
+    groups.at(-1)?.heading.kind !== "request" &&
     !groups.some(b =>
       b.children.some(
         r => (r.kind === "tool" && r.active) || (r.kind === "node" && (r.current ?? currentStep(view, r.node))),
@@ -201,21 +216,25 @@ export function tail(
     )
   ) {
     const last = groups.at(-1);
-    if (last && (last.heading.current ?? (last.episode.id === view.focus && last.episode.state === "active"))) {
+    if (
+      last?.episode &&
+      (last.heading.current ?? (last.episode.id === view.focus && last.episode.state === "active"))
+    ) {
       const placeholder = last.children.find(r => r.kind === "pending");
       if (placeholder?.kind === "pending") placeholder.active = true;
       else last.children.push({ kind: "pending", parent: last.episode, active: true });
     } else pending = { kind: "pending", parent: null, active: true };
   }
   const room = Math.max(0, count - (pending ? 1 : 0));
-  const all = [...groups.flatMap(b => [b.heading, ...b.children]), ...loose];
+  const all = groups.flatMap(b => [b.heading, ...b.children]);
   const pinned = all.filter(
     r =>
       r.kind === "pending" ||
       (r.kind === "node" &&
         (r.current ?? (currentStep(view, r.node) || (r.node.id === view.focus && r.node.state === "active")))),
   );
-  const items = all.filter(r => r.kind === "node" || r.kind === "tool");
+  const item = (r: Row) => r.kind === "node" || r.kind === "tool" || r.kind === "request";
+  const items = all.filter(item);
   const fit = (selected: Set<Row>) => {
     const candidate: Row[] = [];
     for (const { episode, heading, children } of groups) {
@@ -224,7 +243,7 @@ export function tail(
       candidate.push(heading);
       let hidden = 0;
       const gap = () => {
-        if (hidden >= 2 && count >= 4) candidate.push({ kind: "more", parent: episode, count: hidden });
+        if (episode && hidden >= 2 && count >= 4) candidate.push({ kind: "more", parent: episode, count: hidden });
         hidden = 0;
       };
       for (const child of children) {
@@ -235,7 +254,7 @@ export function tail(
       }
       gap();
     }
-    return [...candidate, ...loose.filter(row => selected.has(row))];
+    return candidate;
   };
   // Keep as many running tools as fit, even when newer calls have already finished.
   for (const tool of all.filter(r => r.kind === "tool" && r.active).reverse()) {
@@ -251,7 +270,7 @@ export function tail(
     if (all.slice(start).reduce((sum, r) => sum + rowHeight(r), 0) > room) break;
   }
   if (pending) rows.push(pending);
-  return { rows, hidden: items.length - rows.filter(r => r.kind === "node" || r.kind === "tool").length };
+  return { rows, hidden: items.length - rows.filter(item).length };
 }
 export const height = (rows: Row[]) => rows.reduce((sum, row) => sum + rowHeight(row), 0);
 export function drawRows(
@@ -267,22 +286,21 @@ export function drawRows(
   rows.forEach((entry, i) => {
     const next = rows[i + 1],
       last = !next || (next.kind === "node" && next.depth === 0) || (next.kind === "pending" && next.parent === null);
+    if (entry.kind === "request") {
+      paint.line(y++, entry.title, null, "text");
+      return;
+    }
     if (entry.kind === "tool-footer") {
       const remaining = entry.remaining;
-      paint.line(
-        y++,
-        remaining ? (entry.parent ? "         " : "      ") + i18n.t`↓ ${remaining} more` : "",
-        null,
-        "faint",
-      );
+      paint.line(y++, remaining ? "         " + i18n.t`↓ ${remaining} more` : "", null, "faint");
       return;
     }
     if (entry.kind === "detail") {
-      paint.line(y++, (entry.parent ? "         " : "      ") + "· " + entry.title, null, "muted");
+      paint.line(y++, "         " + "· " + entry.title, null, "muted");
       return;
     }
     if (entry.kind === "tool") {
-      const indent = entry.parent ? "     " : "  ";
+      const indent = "     ";
       const name = entry.title === "…" ? "" : " " + entry.title;
       if (entry.active) paint.line(y++, indent + "▶ ›_" + name, null, "accent");
       else if (entry.outcome && entry.members) {
