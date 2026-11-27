@@ -1,0 +1,89 @@
+[
+  {
+    "id": "episode-new-question",
+    "label": "episode new question",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "holdout",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/episode-new-question.jsonl",
+    "checks": [
+      {
+        "name": "separate architecture question starts an episode",
+        "kind": "different_episode",
+        "a": 2,
+        "b": 6
+      },
+      {
+        "name": "new episode identifies key rotation",
+        "kind": "label",
+        "event": 6,
+        "level": "episode",
+        "pattern": "key|encrypt|rotat"
+      },
+      {
+        "name": "routine investigation has no errors",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  },
+  {
+    "id": "episode-clarify-and-publish",
+    "label": "episode clarify and publish",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "holdout",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/episode-clarify-and-publish.jsonl",
+    "checks": [
+      {
+        "name": "result clarification stays with fix",
+        "kind": "same_episode",
+        "a": 2,
+        "b": 8
+      },
+      {
+        "name": "publication stays with fix",
+        "kind": "same_episode",
+        "a": 2,
+        "b": 12
+      },
+      {
+        "name": "no invented setbacks",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  },
+  {
+    "id": "episode-retry-after-turn",
+    "label": "episode retry after turn",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "holdout",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/episode-retry-after-turn.jsonl",
+    "checks": [
+      {
+        "name": "follow-up diagnosis stays with failed check",
+        "kind": "same_episode",
+        "a": 2,
+        "b": 6
+      },
+      {
+        "name": "repair and retry stay with failed check",
+        "kind": "same_episode",
+        "a": 2,
+        "b": 10
+      },
+      {
+        "name": "failure preserved after recovery",
+        "kind": "bump",
+        "event": 2,
+        "category": "verification",
+        "state": "resolved"
+      }
+    ]
+  }
+]

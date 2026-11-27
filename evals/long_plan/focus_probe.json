@@ -1,0 +1,51 @@
+[
+  {
+    "id": "background-focus",
+    "label": "Background tests while editing docs",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/background-focus.jsonl",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "poll keeps attention on docs",
+        "kind": "focus",
+        "event": 9,
+        "target": 6,
+        "level": "episode"
+      },
+      {
+        "name": "late failure does not move attention",
+        "kind": "focus",
+        "event": 14,
+        "target": 6,
+        "level": "episode"
+      },
+      {
+        "name": "deliberate repair returns to verification",
+        "kind": "focus",
+        "event": 16,
+        "target": 3,
+        "level": "episode"
+      },
+      {
+        "name": "docs and verification are separate",
+        "kind": "different_episode",
+        "a": 6,
+        "b": 3
+      },
+      {
+        "name": "retry retains verification episode",
+        "kind": "same_episode",
+        "a": 3,
+        "b": 18
+      },
+      {
+        "name": "one real verification setback",
+        "kind": "bump_count",
+        "count": 1
+      }
+    ]
+  }
+]

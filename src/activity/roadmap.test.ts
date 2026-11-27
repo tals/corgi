@@ -1,0 +1,363 @@
+import { test, expect } from "bun:test";
+import * as plan from "./plan";
+import * as roadmap from "./roadmap";
+import { List } from "./checklist";
+import { View, Tokens } from "../usage/live";
+import { Actor } from "../conversations";
+import { Request, Result, Worker } from "./worker";
+import { Text } from "../agents";
+
+const event = (id: number): plan.Event => ({ id, line: id, at: "", turn: 1, kind: "result", text: "Test result" });
+const nodes = (): plan.Node[] => [
+  {
+    id: "e",
+    parent: null,
+    kind: "episode",
+    title: "Fix retry offsets",
+    subtitle: "Retain partial file positions",
+    state: "active",
+    evidence: [1],
+  },
+  {
+    id: "s",
+    parent: "e",
+    kind: "step",
+    title: "Verify retry offsets",
+    subtitle: "Run the existing retry tests",
+    state: "active",
+    evidence: [1],
+  },
+];
+const patch = (items = nodes(), from = 1, to = from) =>
+  JSON.stringify({ nodes: items, spans: [{ from, to, node: "s" }] });
+const usage = (input: bigint, cached = 0n) =>
+  new View({ known: true, tokens: new Tokens({ input, cached_input: cached, output: 0n }) });
+
+test("live intervals exclude the opening baseline, conserve tokens and retain late usage", () => {
+  const road = new roadmap.Roadmap();
+  road.observe("t", "working", "Running tests", new List(), usage(1000n, 500n), 1000);
+  road.observe("t", "working", "Tests complete", new List(), usage(1200n, 600n), 2000);
+  const request = road.request()!;
+  expect(road.apply(request, patch(nodes(), 1, 2))).toBe(true);
+  expect(road.counts.e).toEqual({ input: "200", cached: "100", output: "0", tools: "0" });
+  road.observe("t", "working", "Tests complete", new List(), usage(1250n, 610n), 3000);
+  expect(road.counts.e.input).toBe("250");
+  expect(roadmap.total(road.view().unassigned)).toBe(0n);
+  expect(road.view().partial).toBe(true);
+});
+
+test("tool calls roll up once without token receipts, survive handoff and leave old counts unknown", () => {
+  const road = new roadmap.Roadmap(),
+    observe = (tools: bigint) => road.observe("t", "working", "Run tests", new List(), new View({ tools }), 1000);
+  observe(10n);
+  observe(12n);
+  road.apply(road.request()!, patch());
+  expect(road.view().known).toBe(false);
+  expect(road.counts.e.tools).toBe("2");
+  expect(road.counts.s.tools).toBe("2");
+  observe(12n);
+  expect(road.counts.s.tools).toBe("2");
+  observe(13n);
+  expect(road.counts.s.tools).toBe("3");
+  const saved = JSON.parse(JSON.stringify(road)),
+    restored = roadmap.Roadmap.restore(saved, true);
+  restored.observe("t", "working", "Run tests", new List(), new View({ tools: 14n }), 1001);
+  expect(restored.counts.e.tools).toBe("4");
+  delete saved.tools_baseline;
+  for (const count of Object.values(saved.view.counts)) delete (count as roadmap.Counts).tools;
+  const old = roadmap.Roadmap.restore(saved, true);
+  expect(old.counts.e.tools).toBeUndefined();
+  expect(old.tools_baseline).toBeNull();
+});
+
+test("a validated prefix can finish after more evidence or a new turn arrives, but cannot apply twice", () => {
+  const road = new roadmap.Roadmap();
+  road.observe("t", "working", "Running tests", new List(), usage(100n), 1000);
+  const request = road.request()!;
+  road.observe("next", "working", "Review changes", new List(), usage(150n), 2000);
+  expect(road.apply(request, patch())).toBe(true);
+  expect(road.pending.map(e => e.id)).toEqual([2]);
+  expect(road.apply(request, patch())).toBe(false);
+  expect(roadmap.total(road.view().unassigned)).toBe(50n);
+});
+
+test.each([true, false])("pending work, costs and hierarchy survive restoration, live=%s", live => {
+  const road = new roadmap.Roadmap();
+  road.observe("t", "working", "Run tests", new List(), usage(100n), 1000);
+  road.apply(road.request()!, patch());
+  road.observe("t", "working", "Tests failed", new List(), usage(200n), 2000);
+  const saved = JSON.parse(JSON.stringify(road)),
+    restored = roadmap.Roadmap.restore(saved, live);
+  expect(restored.view()).toEqual(road.view());
+  expect(restored.request()).toEqual(road.request());
+  restored.apply(restored.request()!, patch([], 2));
+  expect(restored.counts.e.input).toBe("100");
+  expect(restored.baseline !== null).toBe(live);
+  saved.pending[0].id++;
+  expect(() => roadmap.Roadmap.restore(saved, live)).toThrow("InvalidRoadmap");
+});
+
+test("overrun keeps dropped interval tokens explicitly unassigned and never applies a stale patch", () => {
+  const road = new roadmap.Roadmap();
+  road.observe("t", "working", "Starting", new List(), usage(0n), 1);
+  const old = road.request()!;
+  for (let i = 1; i <= 40; i++) road.observe("t", "working", "Step " + i, new List(), usage(BigInt(i * 10)), i + 1);
+  expect(road.pending).toHaveLength(32);
+  expect(roadmap.total(road.view().unassigned)).toBe(400n);
+  expect(road.apply(old, patch())).toBe(false);
+});
+
+test("done parents reopen around unfinished work and open failures, without rewriting failed attempts", () => {
+  const initial = nodes();
+  initial[0].state = "done";
+  const applied = plan.apply(plan.empty(), patch(initial), [event(1)]).state;
+  expect(applied.nodes.map(n => n.state)).toEqual(["active", "active"]);
+  const failed = {
+    ...applied.nodes[1],
+    state: "failed" as const,
+    bump: { kind: "verification" as const, state: "open" as const, detail: "Existing tests fail", evidence: [2] },
+  };
+  const next = plan.apply(applied, patch([failed], 2), [event(2)]).state;
+  expect(() => plan.apply(next, patch([{ ...failed, state: "done" }], 3), [event(3)])).toThrow("RewrittenFailure");
+  expect(plan.apply(next, patch([{ ...failed, bump: null }], 3), [event(3)]).state.nodes[1].bump).toEqual(failed.bump);
+  expect(() =>
+    plan.apply(next, patch([{ ...failed, bump: { ...failed.bump, state: "resolved" } }], 3), [event(3)]),
+  ).toThrow("MissingRecoveryEvidence");
+  const resolved = { ...failed, bump: { ...failed.bump, state: "resolved" as const, evidence: [2, 3] } };
+  expect(plan.apply(next, patch([resolved], 3), [event(3)]).state.nodes[1].bump?.state).toBe("resolved");
+});
+
+test("late plan results preserve native labels, and never change the new turn's activity", () => {
+  const actor = new Actor({ id: 1 });
+  actor.state.provider = "omp";
+  actor.state.setTurn("t");
+  actor.state.state = "working";
+  actor.state.activity = new Text("Native tool intent");
+  actor.activity_plan.observe("t", "working", "Test downloads", new List(), usage(0n), 1);
+  const request = Object.assign(new Request(), {
+    actor: 1,
+    road: actor.activity_plan.request(),
+    turn_epoch: actor.state.turn_epoch,
+  });
+  const result = new Result(request, new Text("Verify retry offsets"));
+  result.patch = patch();
+  expect(result.apply(actor)).toBe(true);
+  expect(actor.state.activity.text()).toBe("Native tool intent");
+  const worker = new Worker();
+  worker.reconcile([actor]);
+  expect(worker.slots.find(Boolean)?.request.road?.events.at(-1)?.text).toContain("Native tool intent");
+  actor.state.state = "idle";
+  worker.reconcile([actor]);
+  expect(worker.slots.find(Boolean)?.request.road?.events.at(-1)?.text).toContain("lifecycle: idle");
+  worker.stop();
+});
+
+test("checklists are retained as timed intent, not silently converted to completion", () => {
+  const road = new roadmap.Roadmap(),
+    list = List.of([{ text: "Ship fix", status: "done" }], false, 1000);
+  road.observe("t", "working", "Tests still fail", list, usage(10n), 1);
+  expect(road.request()!.events[0].text).toContain('"status":"done"');
+  expect(road.state.nodes).toHaveLength(0);
+  road.observe("t", "working", "Tests still fail", List.of([], false, 2000), usage(10n), 2);
+  expect(road.pending[1].text).toContain('"items":[]');
+});
+
+test("wire plans reject unsafe IDs, controls, fabricated parents, future bumps and malformed counts", () => {
+  const road = new roadmap.Roadmap();
+  road.observe("t", "working", "Test", new List(), usage(0n), 1);
+  road.apply(road.request()!, patch());
+  for (const mutate of [
+    (v: roadmap.Snapshot) => {
+      v.nodes[0].id = "__proto__";
+    },
+    (v: roadmap.Snapshot) => {
+      v.nodes[0].title = "Terminal \x1b command";
+    },
+    (v: roadmap.Snapshot) => {
+      v.nodes[1].parent = "missing";
+    },
+    (v: roadmap.Snapshot) => {
+      v.counts.e.input = "-1";
+    },
+    (v: roadmap.Snapshot) => {
+      v.focus = "s";
+    },
+    (v: roadmap.Snapshot) => {
+      v.focus_step = "e";
+    },
+    (v: roadmap.Snapshot) => {
+      v.focus = null;
+    },
+  ]) {
+    const v = structuredClone(road.view());
+    mutate(v);
+    expect(() => roadmap.decode(v)).toThrow();
+  }
+  expect(roadmap.decode(undefined).nodes).toEqual([]);
+});
+
+test("focus follows attributed work and survives status changes, unassigned events and recovery", () => {
+  const road = new roadmap.Roadmap();
+  road.observe("t", "working", "Running tests", new List(), usage(0n), 1);
+  road.apply(road.request()!, patch());
+  expect(road.view().focus).toBe("e");
+  expect(road.view().focus_step).toBe("s");
+  road.observe("t", "idle", "Finished", new List(), usage(10n), 2);
+  road.apply(
+    road.request()!,
+    JSON.stringify({ nodes: nodes().map(n => ({ ...n, state: "done" })), spans: [{ from: 2, to: 2, node: null }] }),
+  );
+  expect(road.view().focus).toBe("e");
+  expect(road.view().focus_step).toBe("s");
+  road.observe("next", "working", "Again", new List(), usage(10n), 3);
+  road.apply(road.request()!, patch(nodes(), 3));
+  expect(road.view().focus).toBe("e");
+  const second = [
+    { ...nodes()[0], id: "e2", title: "Check integration behavior" },
+    { ...nodes()[1], id: "s2", parent: "e2" },
+  ];
+  road.observe("next", "working", "Run integration suite", new List(), usage(20n), 4);
+  road.apply(road.request()!, JSON.stringify({ nodes: second, spans: [{ from: 4, to: 4, node: "s2" }] }));
+  expect(road.view().focus).toBe("e2");
+  expect(road.view().focus_step).toBe("s2");
+  const saved = JSON.parse(JSON.stringify(road));
+  for (const live of [true, false]) {
+    const restored = roadmap.Roadmap.restore(saved, live).view();
+    expect(restored.focus).toBe("e2");
+    expect(restored.focus_step).toBe("s2");
+  }
+  delete saved.view.focus_step;
+  expect(roadmap.Roadmap.restore(saved, true).view().focus_step).toBeNull();
+  delete saved.view.focus;
+  expect(roadmap.Roadmap.restore(saved, true).view().focus).toBeNull();
+});
+
+test("returning work appends a visit, keeps its own usage, and survives live and cold recovery", () => {
+  let road = new roadmap.Roadmap();
+  const items = [...nodes(), { ...nodes()[1], id: "other", title: "Inspect response logs" }];
+  const apply = (id: number, step: string, input: bigint, additions: plan.Node[] = []) => {
+    road.observe("t", "working", "Work " + id, new List(), usage(input, input / 2n), id);
+    road.apply(road.request()!, JSON.stringify({ nodes: additions, spans: [{ from: id, to: id, node: step }] }));
+  };
+  apply(1, "s", 100n, items);
+  apply(2, "s", 200n);
+  apply(3, "other", 500n);
+  const before = structuredClone(road.visits);
+  apply(4, "s", 700n);
+  expect(road.visits.slice(0, 2)).toEqual(before);
+  expect(road.visits.map(v => [v.step, v.from, v.to, v.counts.input])).toEqual([
+    ["s", 1, 2, "100"],
+    ["other", 3, 3, "300"],
+    ["s", 4, 4, "200"],
+  ]);
+  expect(road.visits.reduce((sum, v) => roadmap.add(sum, v.counts), roadmap.zero())).toEqual(road.counts.e);
+  const saved = JSON.parse(JSON.stringify(road));
+  for (const live of [true, false]) expect(roadmap.Roadmap.restore(saved, live).visits).toEqual(road.visits);
+  road = roadmap.Roadmap.restore(saved, true);
+  road.observe("t", "working", "Work 4", new List(), usage(750n, 375n), 5);
+  expect(road.visits[0].counts.input).toBe("100");
+  expect(road.visits[2].counts.input).toBe("250");
+  expect(roadmap.decode(road.view()).visits).toEqual(road.visits);
+  for (const mutate of [
+    (v: roadmap.Visit[]) => {
+      v[1].from = 2;
+    },
+    (v: roadmap.Visit[]) => {
+      v[0].step = "e";
+    },
+    (v: roadmap.Visit[]) => {
+      v[0].to = Number.MAX_SAFE_INTEGER + 1;
+    },
+    (v: roadmap.Visit[]) => {
+      v[0].counts.cached = "10000";
+    },
+  ]) {
+    const view = structuredClone(road.view());
+    mutate(view.visits);
+    expect(() => roadmap.decode(view)).toThrow("Invalid");
+  }
+  delete saved.view.visits;
+  road = roadmap.Roadmap.restore(saved, true);
+  expect(road.visits.every(v => v.from === 0 && v.to === 0)).toBe(true);
+  const legacy = structuredClone(road.visits);
+  apply(5, "s", 800n);
+  expect(road.visits.slice(0, -1)).toEqual(legacy);
+  expect(road.visits.at(-1)?.counts.input).toBe("100");
+});
+
+test("neutral events and unchanged observations do not create extra visits", () => {
+  const visits = roadmap.appendVisits(
+    [],
+    [
+      { from: 1, to: 1, node: null },
+      { from: 2, to: 3, node: "s" },
+      { from: 4, to: 4, node: null },
+      { from: 5, to: 5, node: "s" },
+    ],
+  );
+  expect(visits.map(v => [v.from, v.to])).toEqual([[2, 5]]);
+  expect(roadmap.appendVisits(visits, [{ from: 6, to: 6, node: null }])).toEqual(visits);
+  const next = roadmap.appendVisits(visits, [{ from: 6, to: 7, node: "s" }]);
+  expect(next[0].to).toBe(7);
+  expect(visits[0].to).toBe(5);
+});
+
+test("background polls and late results update the original visit without stealing focus", () => {
+  const road = new roadmap.Roadmap();
+  const items = [...nodes(), { ...nodes()[1], id: "other", title: "Edit retry handling" }];
+  for (const [index, step, focus] of [
+    [1, "s", true],
+    [2, "other", true],
+    [3, "s", false],
+  ] as const) {
+    road.observe("t", "working", "Observation " + index, new List(), usage(BigInt(index * 100)), index);
+    road.apply(
+      road.request()!,
+      JSON.stringify({
+        nodes: index === 1 ? items : [],
+        spans: [{ from: index, to: index, node: step, focus }],
+      }),
+    );
+  }
+  expect(road.focus_step).toBe("other");
+  expect(road.visits.map(v => [v.step, v.from, v.to, v.counts.input])).toEqual([
+    ["s", 1, 1, "100"],
+    ["other", 2, 2, "100"],
+  ]);
+  // More usage for the same late observation still belongs to the original step.
+  road.observe("t", "working", "Observation 3", new List(), usage(350n), 4);
+  expect(road.visits[0].counts.input).toBe("150");
+  const restored = roadmap.Roadmap.restore(JSON.parse(JSON.stringify(road)), true);
+  expect(restored.focus_step).toBe("other");
+  expect(restored.visits).toEqual(road.visits);
+  restored.observe("t", "working", "New foreground observation", new List(), usage(400n), 5);
+  expect(restored.request()!.focus).toBe("other");
+  expect(road.visits.reduce((sum, v) => roadmap.add(sum, v.counts), roadmap.zero())).toEqual(road.counts.e);
+});
+
+test("plans saved with a goal level restore as top-level episodes and keep episode and step counts", () => {
+  const road = new roadmap.Roadmap();
+  road.observe("t", "working", "Running tests", new List(), usage(100n), 1000);
+  road.observe("t", "working", "Tests complete", new List(), usage(300n, 50n), 2000);
+  road.apply(road.request()!, patch(nodes(), 1, 2));
+  const saved = JSON.parse(JSON.stringify(road)),
+    goal = { ...nodes()[0], id: "g", kind: "goal", title: "Repair downloads" };
+  saved.view.nodes = [goal, ...saved.view.nodes.map((n: plan.Node) => (n.id === "e" ? { ...n, parent: "g" } : n))];
+  saved.view.counts.g = saved.view.counts.e;
+  const view = roadmap.decode(saved.view);
+  expect(view.nodes.map(n => [n.id, n.kind, n.parent])).toEqual([
+    ["e", "episode", null],
+    ["s", "step", "e"],
+  ]);
+  expect(view.counts).toEqual(road.view().counts);
+  expect(view.visits).toEqual(road.visits);
+  for (const live of [true, false]) {
+    const restored = roadmap.Roadmap.restore(saved, live);
+    expect(restored.view()).toEqual(road.view());
+    expect(Object.keys(restored.counts)).toEqual(["e", "s"]);
+    // Later usage still rolls up from the step to its episode.
+    restored.observe("t", "working", "Tests complete again", new List(), usage(400n, 50n), 3000);
+    restored.apply(restored.request()!, patch([], 3));
+    expect(restored.counts.e).toEqual(restored.counts.s);
+  }
+});

@@ -6,6 +6,28 @@ import { View as ToolView } from "./tools";
 import { clone } from "../json";
 import { Path } from "../agents";
 import { Option, Selection, compare } from "../inference/models";
+
+test("new workers and handoffs from the flat summarizer collect long-term plans by default", () => {
+  const worker = new Worker();
+  worker.paused = true;
+  const saved = clone(worker.capture());
+  saved.plans = false;
+  const restored = Worker.restore(saved),
+    actor = new Registry().get("codex", "session");
+  actor.state.state = "working";
+  actor.state.setTurn("turn");
+  try {
+    for (const current of [worker, restored]) {
+      current.submit(actor, new Text("Inspect the saved document index"), null, []);
+      expect(current.plans).toBe(true);
+      expect(current.slots[0]?.request.road?.events.length).toBeGreaterThan(0);
+    }
+  } finally {
+    worker.stop();
+    restored.stop();
+  }
+});
+
 /** A working Codex conversation on turn "t" that `evidence` describes, and a
  * request to summarize it. */
 function summarizing(evidence: string) {
@@ -415,13 +437,13 @@ test("summary slots belong to conversations shared by multiple or detached attac
     expect(worker.slots[0]?.request.actor).toBe(actor.id);
     actor.state.state = "idle";
     worker.reconcile(registry.items);
-    expect(worker.slots[0]).toBeNull();
+    expect(worker.slots[0]?.request.road?.events.at(-1)?.text).toContain("lifecycle: idle");
   } finally {
     worker.stop();
   }
 });
 
-test("summary slots exist only while their conversation is working", () => {
+test("plan slots retain the final observation after a conversation stops working", () => {
   const registry = new Registry();
   const stays = registry.get("codex", "stays");
   const stops = registry.get("codex", "stops");
@@ -437,8 +459,32 @@ test("summary slots exist only while their conversation is working", () => {
     expect(worker.slots.filter(Boolean).length).toBe(2);
     stops.state.state = "idle";
     worker.reconcile(registry.items);
-    expect(worker.slots.filter(Boolean).length).toBe(1);
+    expect(worker.slots.filter(Boolean).length).toBe(2);
     expect(worker.slots[0]?.request.actor).toBe(stays.id);
+    expect(worker.slots[1]?.request.road?.events.at(-1)?.text).toContain("lifecycle: idle");
+  } finally {
+    worker.stop();
+  }
+});
+
+test("plan requests name the conversation without saving the name in the slot", async () => {
+  const actor = new Registry().get("codex", "named");
+  actor.state.state = "working";
+  actor.state.setTurn("turn-1");
+  actor.state.setName("Design long-term plan eval");
+  const worker = new Worker("codex");
+  worker.selected = Object.assign(new Selection(), { provider: "codex", model: "test/model" });
+  worker.catalog.refresh = async () => {};
+  let sent: unknown = null;
+  worker.implementation.infer = async (...args: Parameters<typeof worker.implementation.infer>) => {
+    sent = args[5];
+    return { request: 1n, decision: null };
+  };
+  try {
+    worker.submit(actor, new Text(), null, []);
+    await worker.run();
+    expect(sent).toMatchObject({ conversation: "Design long-term plan eval" });
+    expect(worker.slots[0]?.request.road?.conversation).toBeUndefined();
   } finally {
     worker.stop();
   }
@@ -483,7 +529,57 @@ test("the first summary of a turn sees the tools read with its commentary", () =
   }
 });
 
-test("native OMP activity is not queued or overwritten by old inference results", () => {
+test("plan observations retain transcript commentary across sparse metadata refreshes and handoff", () => {
+  const registry = new Registry(),
+    actor = registry.get("codex", "s"),
+    worker = new Worker();
+  actor.state.state = "working";
+  actor.state.setTurn("turn-1");
+  const stale = new Text("User request: Fix the shortcut"),
+    progress = new ToolView();
+  progress.turn = new Text("turn-1");
+  progress.commentary = new Text("Latest agent update: Move the plan into the existing tooltip; no new shortcut.");
+  progress.evidence = new Text("Recent completed tools:\napply_patch: src/subagent_tooltip.ts\n");
+  progress.road_evidence = new Text("User request: Put the plan in the tooltip\nRecent tool outcomes: patch applied");
+  try {
+    worker.submit(actor, stale, null, []);
+    // Fresh provider metadata suppresses the transcript lifecycle fallback,
+    // but its commentary still belongs in the plan.
+    worker.tools(actor.id, actor.state, progress);
+    worker.reconcile(registry.items);
+    const before = actor.activity_plan.pending.length;
+    worker.submit(actor, stale, null, []);
+    expect(actor.activity_plan.pending.length).toBe(before);
+    const evidence = actor.activity_plan.pending.at(-1)!.text;
+    expect(evidence).toContain("Move the plan into the existing tooltip");
+    expect(evidence).toContain("User request: Put the plan in the tooltip");
+    expect(evidence).toContain("patch applied");
+    expect(evidence).not.toContain("Fix the shortcut");
+
+    worker.paused = true;
+    const saved = clone(worker.capture()),
+      restored = Worker.restore(saved);
+    try {
+      expect(restored.slots[0]!.transcript_commentary.text()).toBe(progress.commentary.text());
+      actor.state.setTurn("turn-2");
+      restored.submit(actor, new Text("User request: Start another task"), null, []);
+      expect(actor.activity_plan.pending.at(-1)!.text).not.toContain("Move the plan");
+    } finally {
+      restored.stop();
+    }
+    Reflect.deleteProperty(saved.slots[0].slot, "transcript_commentary");
+    const legacy = Worker.restore(saved);
+    try {
+      expect(legacy.slots[0]!.transcript_commentary.len).toBe(0);
+    } finally {
+      legacy.stop();
+    }
+  } finally {
+    worker.stop();
+  }
+});
+
+test("native OMP activity feeds the plan without being overwritten by inferred labels", () => {
   const registry = new Registry(),
     omp = registry.get("omp", "native"),
     pi = registry.get("pi", "inferred"),
@@ -494,7 +590,7 @@ test("native OMP activity is not queued or overwritten by old inference results"
       actor.state.setTurn("turn");
       worker.submit(actor, new Text("Inspecting the protocol"), null, []);
     }
-    expect(worker.slots.filter(Boolean).map(slot => slot!.request.actor)).toEqual([pi.id]);
+    expect(worker.slots.filter(Boolean).map(slot => slot!.request.actor)).toEqual([omp.id, pi.id]);
     omp.state.setActivity("Creating live protocol transition smoke");
     const old = Object.assign(new Request(), {
       actor: omp.id,
@@ -504,10 +600,11 @@ test("native OMP activity is not queued or overwritten by old inference results"
     });
     expect(new Result(old, parseLabel("Inspecting protocol")).apply(omp)).toBe(false);
     expect(omp.state.activity.text()).toBe("Creating live protocol transition smoke");
-    worker.slots[1] = new Slot(old);
+    worker.slots[2] = new Slot(old);
     worker.reconcile(registry.items);
-    expect(worker.slots[1]).toBeNull();
-    expect(worker.slots[0]?.request.actor).toBe(pi.id);
+    expect(worker.slots[2]).toBeNull();
+    expect(worker.slots[0]?.request.road?.events.at(-1)?.text).toContain("Creating live protocol transition smoke");
+    expect(worker.slots[1]?.request.actor).toBe(pi.id);
   } finally {
     worker.stop();
   }
@@ -529,7 +626,7 @@ test("actor inference context survives turns and detachment but rejects stale re
     expect(actor.activity_timeline.len).toBe(1);
     actor.state.state = "idle";
     worker.reconcile(registry.items);
-    expect(worker.slots[0]).toBeNull();
+    expect(worker.slots[0]?.request.road?.events.at(-1)?.text).toContain("lifecycle: idle");
     actor.state.state = "working";
     actor.state.setTurn("turn-2");
     worker.submit(actor, evidence, null, []);

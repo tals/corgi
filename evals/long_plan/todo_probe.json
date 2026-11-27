@@ -1,0 +1,29 @@
+[
+  {
+    "id": "todo-specific-intent",
+    "provider": "codex",
+    "source": "evals/long_plan/fixtures/todo-specific-intent.jsonl",
+    "split": "development",
+    "checks": [
+      {
+        "name": "checksums appear as future work",
+        "kind": "planned_step",
+        "pattern": "checksum"
+      },
+      {
+        "name": "restore verification appears as future work",
+        "kind": "planned_step",
+        "pattern": "restor"
+      },
+      {
+        "name": "task intentions receive no work spans",
+        "kind": "planned_only"
+      },
+      {
+        "name": "a task list is not a setback",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  }
+]

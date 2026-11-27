@@ -461,7 +461,7 @@ function applyUsage(server: Server, workers: Workers) {
     const now = clock.microTimestamp();
     if (result.fallback(actor.state, now)) {
       if (adapter(actor.provider()).caps.native_activity) actor.checkpointActivity(false, now);
-      else workers.summaries.submit(actor, result.progress!.commentary, result.progress, runtime.panes);
+      workers.summaries.submit(actor, result.progress!.commentary, result.progress, runtime.panes);
     } else if (result.progress) workers.summaries.tools(actor.id, actor.state, result.progress);
     if (!actor.headless_usage && !workspaceWatched(server, result.workspace))
       runtime.workspaces.get(result.workspace)?.away.record(result.since, result.delta);

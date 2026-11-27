@@ -1,0 +1,5 @@
+{"type": "response_item", "timestamp": "2026-10-30T12:00:00.000Z", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Implement export and verify it."}]}}
+{"type": "response_item", "timestamp": "2026-10-30T12:00:01.000Z", "payload": {"type": "function_call", "name": "functions.update_plan", "call_id": "1", "arguments": "{\"plan\": [{\"step\": \"Implement export\", \"status\": \"pending\"}, {\"step\": \"Verify export\", \"status\": \"pending\"}]}"}}
+{"type": "response_item", "timestamp": "2026-10-30T12:00:02.000Z", "payload": {"type": "function_call_output", "call_id": "1", "output": "Plan updated"}}
+{"type": "response_item", "timestamp": "2026-10-30T12:00:03.000Z", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "I have only written the plan. No source changes or verification yet."}]}}
+{"type": "event_msg", "timestamp": "2026-10-30T12:00:04.000Z", "payload": {"type": "turn_complete"}}

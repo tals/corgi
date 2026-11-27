@@ -1070,6 +1070,23 @@ export class Server {
         reply.send({ ok: true });
         return;
       }
+      case "conversation.plan.clear": {
+        const actor = this.runtime.conversations.byId(request.payload.conversation);
+        if (!actor) throw Error("NoConversation");
+        const summaries = this.summaries;
+        if (summaries?.pausing) throw Error("InferenceBusy");
+        if (summaries) await summaries.pause();
+        try {
+          actor.clearPlan();
+          if (summaries)
+            summaries.slots = summaries.slots.map(slot => (slot?.request.actor === actor.id ? null : slot));
+          this.runtime.changed();
+        } finally {
+          summaries?.unpause();
+        }
+        reply.send({ ok: true });
+        return;
+      }
       case "pane.surface": {
         const p = this.runtime.pane(request.payload.pane);
         if (!p) throw Error("NoPane");

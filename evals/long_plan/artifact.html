@@ -1,0 +1,293 @@
+<title>Corgi Plan Replays</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Stage first: the agent tooltip beside what it shows and the judge's verdict; then Good and Bad example panes, each scrolling on its own; update details folded away. */
+:root {
+  --paper: #f2f4f6;
+  --panel: #ffffff;
+  --sunken: #e9edf1;
+  --ink: #17202a;
+  --ink-2: #47535f;
+  --ink-3: #6f7b88;
+  --rule: #d3dae1;
+  --accent: #2a5bd0;
+  --accent-bg: #e4ebfb;
+  --live: #11764f;
+  --good: #1b7448;
+  --good-bg: #e1f2e8;
+  --bad: #b13827;
+  --bad-bg: #fbe5e0;
+  --warn: #8c620e;
+  --warn-bg: #f7edd3;
+  --path: #87379f;
+  --term-frame: #181b20;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #101318; --panel: #171b21; --sunken: #1e232a; --ink: #e3e7eb; --ink-2: #a8b1bb; --ink-3: #7c8793;
+    --rule: #2a3139; --accent: #8eaeff; --accent-bg: rgba(142, 174, 255, 0.14); --live: #7bf1a8; --good: #80d9a5;
+    --good-bg: rgba(128, 217, 165, 0.12); --bad: #f19b8d; --bad-bg: rgba(241, 155, 141, 0.12); --warn: #e5c38b;
+    --warn-bg: rgba(229, 195, 139, 0.12); --path: #d6aaf2; --term-frame: #0b0d10; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #101318; --panel: #171b21; --sunken: #1e232a; --ink: #e3e7eb; --ink-2: #a8b1bb; --ink-3: #7c8793;
+  --rule: #2a3139; --accent: #8eaeff; --accent-bg: rgba(142, 174, 255, 0.14); --live: #7bf1a8; --good: #80d9a5;
+  --good-bg: rgba(128, 217, 165, 0.12); --bad: #f19b8d; --bad-bg: rgba(241, 155, 141, 0.12); --warn: #e5c38b;
+  --warn-bg: rgba(229, 195, 139, 0.12); --path: #d6aaf2; --term-frame: #0b0d10; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 15px/1.5 var(--sans); }
+.page {
+  max-width: 1440px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 18px 48px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+h1, h2, h3, h4 { margin: 0; text-wrap: balance; }
+h2 { font-size: 16px; font-weight: 650; }
+h3 { font-size: 14px; font-weight: 650; }
+h4 { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
+p { margin: 0; }
+code, pre { font-family: var(--mono); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.note { color: var(--ink-3); font-size: 13px; }
+select, button {
+  font: 14px/1.2 var(--sans); color: var(--ink); background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 6px; padding: 7px 10px; min-height: 36px; max-width: 100%;
+}
+select { min-width: 0; }
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--ink-3); }
+button:disabled { opacity: 0.4; cursor: default; }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; min-width: 0; }
+
+/* Masthead: one line of name and totals */
+.masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+.masthead h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.totals { color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.status { color: var(--ink-2); flex-basis: 100%; }
+
+/* Stage */
+.stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+@media (min-width: 1100px) {
+  .stage { grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); align-items: start; }
+}
+.viewer { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.controls #replay { flex: 1 1 260px; }
+.scrub { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.scrub button { width: 36px; padding: 0; font: 600 18px/1 var(--mono); }
+.scrub input { width: 100%; accent-color: var(--accent); margin: 0; }
+.strip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.position { font: 12.5px/1.4 var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.strip { display: grid; flex: 1 1 200px; min-width: 0; height: 12px; overflow: hidden; }
+.tick { min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 1px; background: var(--rule); }
+.tick.repaired { background: var(--ink-3); }
+.tick.problem { background: var(--warn); }
+.tick.rejected { background: var(--bad); }
+.tick.current { box-shadow: 0 0 0 2px var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 11.5px; color: var(--ink-3); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.term-wrap { overflow-x: auto; padding: 10px; background: var(--term-frame); border-radius: 7px; }
+
+/* Terminal cells: one 1ch span per column, Corgi's colors inline. */
+.screen {
+  --fs: 14.5px;
+  display: inline-block; vertical-align: top; outline: none;
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: var(--fs); line-height: 1.22; font-variant-ligatures: none; white-space: pre;
+}
+.screen .row { display: flex; height: 1.22em; }
+.screen .row > span { flex: none; width: 1ch; overflow: visible; }
+.screen:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+
+/* What you are looking at */
+.context { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; }
+.kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.badge { font: 700 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.1em; padding: 5px 7px; border-radius: 4px; background: var(--sunken); color: var(--ink-2); }
+.badge.good { color: var(--good); background: var(--good-bg); }
+.badge.bad { color: var(--bad); background: var(--bad-bg); }
+.cat { font-size: 12px; color: var(--ink-2); }
+.context h2 { font-size: 18px; line-height: 1.3; }
+.tldr { color: var(--ink); font-size: 14.5px; overflow-wrap: anywhere; }
+.facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+.facts dt { color: var(--ink-3); }
+.facts dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+.facts code { font-size: 12px; color: var(--ink); }
+.facts .open { color: var(--bad); }
+.facts .resolved { color: var(--good); }
+.away { font-size: 13px; color: var(--ink-2); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.away button { min-height: 28px; padding: 3px 9px; font-size: 13px; }
+.judge { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--rule); padding-top: 12px; }
+.judge h3 { display: flex; align-items: baseline; gap: 8px; }
+.score { font: 700 13px/1 var(--mono); padding: 4px 6px; border-radius: 4px; background: var(--sunken); }
+.score.low { color: var(--bad); background: var(--bad-bg); }
+.score.mid { color: var(--warn); background: var(--warn-bg); }
+.score.high { color: var(--good); background: var(--good-bg); }
+.judge p { font-size: 13.5px; color: var(--ink-2); }
+.dims { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 12px/1.5 var(--mono); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.dims b { color: var(--ink); font-weight: 600; }
+.judge details { font-size: 13px; }
+.judge summary { cursor: pointer; color: var(--accent); }
+.judge ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; color: var(--ink-2); }
+.judge li b { color: var(--ink); font-weight: 600; }
+.checks { font-size: 12.5px; color: var(--ink-3); }
+.checks.has { color: var(--bad); }
+
+/* Example panes */
+.examples { display: flex; flex-direction: column; gap: 10px; }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.filters label { font-size: 13px; color: var(--ink-3); }
+.filters select { flex: 0 1 360px; }
+.panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+@media (min-width: 760px) { .panes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.pane { display: flex; flex-direction: column; overflow: hidden; }
+.pane-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+.pane-head h2 { display: flex; align-items: baseline; gap: 6px; }
+.pane.good h2 .badge { color: var(--good); background: var(--good-bg); }
+.pane.bad h2 .badge { color: var(--bad); background: var(--bad-bg); }
+.pane-head .count { font: 12.5px/1 var(--sans); color: var(--ink-3); font-weight: 400; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip {
+  min-height: 24px; padding: 2px 8px; border-radius: 999px; font-size: 12px; color: var(--ink-2);
+  background: var(--sunken); border: 1px solid transparent;
+}
+.chip[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); border-color: var(--accent); }
+.chip span { color: var(--ink-3); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.list { position: relative; height: clamp(15rem, 42vh, 27rem); overflow-y: auto; overscroll-behavior: contain; outline: none; }
+.list:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.empty { padding: 16px 12px; color: var(--ink-3); font-size: 13px; }
+.ex {
+  display: grid; grid-template-columns: auto minmax(min(9rem, 40%), 1fr) minmax(0, max-content);
+  grid-template-areas: "cat title from" "tldr tldr tldr";
+  gap: 1px 8px; align-items: baseline; padding: 7px 12px; border-bottom: 1px solid var(--rule); cursor: pointer;
+}
+.ex:hover { background: var(--sunken); }
+.ex[aria-selected="true"] { background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
+.ex-cat { grid-area: cat; font: 600 10.5px/1.6 var(--mono); text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-3); white-space: nowrap; }
+.bad .ex-cat { color: var(--bad); }
+.good .ex-cat { color: var(--good); }
+.ex-title, .ex-tldr { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex-title { grid-area: title; font-weight: 600; font-size: 14px; }
+.ex-from { grid-area: from; display: flex; justify-content: flex-end; min-width: 0; max-width: 17rem; font: 11.5px/1.5 var(--mono); color: var(--ink-3); white-space: nowrap; }
+.ex-session { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ex-at { flex: none; }
+.ex-tldr { grid-area: tldr; font-size: 13px; color: var(--ink-2); }
+@media (max-width: 560px) {
+  .ex { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "cat title" "tldr tldr" "from from"; }
+  .ex-from { justify-content: flex-start; max-width: none; }
+  .list { height: auto; max-height: 21rem; }
+  .pane-head .chips { flex-wrap: nowrap; overflow-x: auto; flex: 1 1 100%; padding-bottom: 2px; }
+  .chip { flex: none; }
+}
+
+/* Update details */
+.details > summary { cursor: pointer; padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+.details > summary h2 { display: inline; }
+.inspector { display: flex; flex-direction: column; gap: 14px; padding: 0 14px 14px; }
+.inspector section, .inspector details { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.meta { color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-2); }
+.tag.bad { background: var(--bad-bg); color: var(--bad); }
+.tag.warn { background: var(--warn-bg); color: var(--warn); }
+.findings { margin: 0; padding-left: 18px; font-size: 13.5px; display: flex; flex-direction: column; gap: 3px; }
+.findings span { color: var(--ink-2); margin-left: 6px; overflow-wrap: anywhere; }
+.program {
+  margin: 0; padding: 10px 12px; background: var(--sunken); border-radius: 6px; overflow-x: auto;
+  font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.program .line { display: block; padding-left: 2ch; text-indent: -2ch; }
+.program .verb { color: var(--accent); font-weight: 650; }
+.program .path { color: var(--path); }
+.program .range { color: var(--warn); }
+.program .key { color: var(--ink-3); }
+.program .marker { color: var(--ink-3); }
+.repairs { margin: 0; padding-left: 18px; font: 13px/1.5 var(--mono); color: var(--ink-2); }
+.inspector summary { cursor: pointer; font-weight: 650; font-size: 14px; }
+.rejected { border: 1px solid var(--bad-bg); border-radius: 6px; padding: 8px 10px; }
+.rejected summary { color: var(--bad); }
+.reason { font: 12.5px/1.5 var(--mono); color: var(--bad); overflow-wrap: anywhere; white-space: pre-wrap; }
+.events { list-style: none; margin: 0; padding: 0; max-height: 34rem; overflow: auto; border-top: 1px solid var(--rule); }
+.event { padding: 8px 0; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 4px; }
+.event-head { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; font: 12px/1.4 var(--mono); }
+.event-id { font-weight: 700; font-variant-numeric: tabular-nums; }
+.kind { text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; color: var(--ink-3); }
+.kind-user .kind { color: var(--accent); }
+.kind-tool .kind { color: var(--warn); }
+.kind-plan .kind { color: var(--live); }
+.turn { color: var(--ink-3); }
+.owner { color: var(--path); overflow-wrap: anywhere; }
+.owner.none { color: var(--ink-3); }
+.event-text { margin: 0; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); }
+.kind-user .event-text { color: var(--ink); }
+.kind-reasoning .event-text { font-style: italic; color: var(--ink-3); }
+
+footer { color: var(--ink-3); font-size: 12.5px; max-width: 90ch; }
+</style>
+
+<div class="page">
+  <header class="masthead">
+    <h1>Corgi Plan Replays</h1>
+    <p class="totals" id="totals"></p>
+    <p class="status" id="status">Loading replays&hellip;</p>
+  </header>
+
+  <section class="stage" id="stage" aria-label="Agent preview">
+    <div class="panel viewer">
+      <div class="controls">
+        <select id="replay" aria-label="Replay"></select>
+        <select id="rows" aria-label="Terminal height"></select>
+        <select id="cols" aria-label="Terminal width"></select>
+      </div>
+      <div class="scrub">
+        <button type="button" id="prev" aria-label="Previous update">&lsaquo;</button>
+        <input type="range" id="update" min="0" value="0" aria-label="Plan update">
+        <button type="button" id="next" aria-label="Next update">&rsaquo;</button>
+      </div>
+      <div class="strip-row">
+        <output class="position" id="position" for="update"></output>
+        <div class="strip" id="strip"></div>
+        <div class="legend" aria-hidden="true">
+          <span><i style="background: var(--bad)"></i>rejected attempt</span>
+          <span><i style="background: var(--warn)"></i>new problem</span>
+          <span><i style="background: var(--ink-3)"></i>server repair</span>
+        </div>
+      </div>
+      <div class="term-wrap" id="wrap"><div class="screen" id="screen" tabindex="0" aria-label="Corgi agent tooltip; left and right arrows change the update"></div></div>
+    </div>
+    <aside class="panel context" id="context" aria-label="What you are looking at" aria-live="polite"></aside>
+  </section>
+
+  <section class="examples" id="examples" aria-label="Examples" hidden>
+    <div class="filters">
+      <label for="session">Session</label>
+      <select id="session"></select>
+    </div>
+    <div class="panes">
+      <section class="panel pane good" data-verdict="good">
+        <header class="pane-head"><h2 id="good-head"><span class="badge">Good</span><span class="count"></span></h2><div class="chips" role="group" aria-label="Good categories"></div></header>
+        <div class="list" role="listbox" tabindex="0" aria-labelledby="good-head"></div>
+      </section>
+      <section class="panel pane bad" data-verdict="bad">
+        <header class="pane-head"><h2 id="bad-head"><span class="badge">Bad</span><span class="count"></span></h2><div class="chips" role="group" aria-label="Faults"></div></header>
+        <div class="list" role="listbox" tabindex="0" aria-labelledby="bad-head"></div>
+      </section>
+    </div>
+  </section>
+
+  <details class="panel details" id="details">
+    <summary><h2>Update details</h2><span class="note">The model's command program, rejected attempts, server repairs, eval checks and the events it read for the selected update.</span></summary>
+    <div class="inspector" id="inspector"></div>
+  </details>
+
+  <footer>In the tooltip, &#9654; marks foreground work, ! a problem (gray once recovered) and &#8617; a return to an earlier episode; dimmed rows are done. Tokens are uncached input plus output; Cached is separate, as in the tooltip. Example rows and verdicts come from a rubric judge reading the whole session; plan attribution is the updater model's inference. Evidence is clipped to 600 characters per event and raw reasoning is omitted.</footer>
+</div>
+
+<script id="replay-data" type="application/octet-stream"><!--DATA--></script>
+<!--BUNDLES-->
+<script type="module"><!--SCRIPT--></script>

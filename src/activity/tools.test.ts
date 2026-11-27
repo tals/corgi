@@ -2,6 +2,30 @@ import { test, expect } from "bun:test";
 import { Tracker, Call } from "./tools";
 import * as claudeUsage from "../providers/claude/usage";
 import * as codexUsage from "../providers/codex/usage";
+import { parseLabel } from "./summary";
+import * as prompt from "./prompt";
+import { classify } from "./background_tasks";
+import * as claudeConversation from "../providers/claude/conversation";
+test("plan outcomes retain a failed command beside its successful retry while flat evidence stays compact", () => {
+  const tracker = new Tracker();
+  tracker.bind("turn");
+  for (const [id, outcome, result] of [
+    ["failed", "failure", "Existing focus test failed"],
+    ["retry", "success", "All focus tests passed"],
+  ] as const) {
+    const call = new Call();
+    call.id = tracker.key(id);
+    call.append("bun test focus");
+    tracker.save(call, true);
+    tracker.finishId(call.id, true, outcome, result);
+  }
+  const view = tracker.view();
+  expect(view.evidence.text().match(/bun test focus/g)).toHaveLength(1);
+  expect(view.road_evidence.text()).toContain("[failure]: Existing focus test failed");
+  expect(view.road_evidence.text()).toContain("[success]: All focus tests passed");
+  tracker.bind("next");
+  expect(tracker.view().road_evidence.len).toBe(0);
+});
 test("completed tools are deduplicated, historical calls do not advance waves, and turns reset", () => {
   const t = new Tracker(),
     call = {

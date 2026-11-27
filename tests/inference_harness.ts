@@ -3,6 +3,8 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
+const plan_nodes = new Set<string>();
+const scripted = { next: 0, step: "" };
 const emit = (value: any) => console.log(JSON.stringify(value));
 const codex = process.argv.includes("app-server");
 const log = process.env.CORGI_INFERENCE_TEST_LOG;
@@ -118,6 +120,83 @@ for await (const line of createInterface({ input: process.stdin })) {
           ? { action: control.action ?? (label === null ? "none" : "new"), label }
           : { label };
     if (schema && ("label" in control || "name" in control)) result = JSON.stringify(structured);
+    if (control.roadmap && ("nodes" in properties || "ops" in properties || !(codex ? schema : claudeSchema))) {
+      const input = JSON.parse(content.split("\n")[0]),
+        from = input.range?.[0] ?? input.assign_from,
+        to = input.range?.[1] ?? input.assign_through;
+      if (input.tree) plan_nodes.clear();
+      for (const n of input.tree ?? input.tree_updates ?? [])
+        plan_nodes.add(Array.isArray(n) ? n[0].split("/").at(-1) : n.id);
+      const node = (id: string, parent: string | null, kind: string, title: string) => ({
+        id,
+        parent,
+        kind,
+        title,
+        subtitle: "Trace terminal focus through the event handler",
+        state: control.bump && kind === "step" ? "failed" : "active",
+        evidence: [to],
+        bump:
+          control.bump && kind === "step"
+            ? { kind: "verification", state: "open", detail: "Existing focus test fails", evidence: [to] }
+            : null,
+      });
+      const step = control.plan_step === "other" ? "s2" : "s";
+      const additions = plan_nodes.size
+        ? []
+        : [node("e", null, "episode", "Repair focus transitions"), node("s", "e", "step", "Trace focus changes")];
+      if (step === "s2" && !plan_nodes.has("s2"))
+        additions.push(
+          node("e2", null, "episode", "Verify token receipts"),
+          node("s2", "e2", "step", "Check receipt totals"),
+        );
+      for (const n of additions) plan_nodes.add(n.id);
+      result = control.ownership
+        ? [
+            "BEGIN_PLAN",
+            ...additions.flatMap(n => [
+              `mkdir /${n.parent ? n.parent + "/" : ""}${n.id} ${n.state} ${n.title}`,
+              `set /${n.id} subtitle ${n.subtitle}`,
+              ...(n.bump ? [`error /${n.id} ${n.bump.kind} ${n.bump.detail}`] : []),
+            ]),
+            `set_owner ${from}..${to} /${step}`,
+            ...Array.from({ length: to - from + 1 }, (_, i) => `set_focus ${from + i} /${step}`),
+          ].join("\n")
+        : !schema && !claudeSchema
+          ? [
+              "BEGIN_PLAN",
+              ...additions.flatMap(n => [
+                `new ${n.id} ${n.parent ?? "-"} ${n.state} ${n.title}`,
+                `sub ${n.id} ${n.subtitle}`,
+                ...(n.bump ? [`bump ${n.id} ${n.bump.kind} ${n.bump.detail}`] : []),
+              ]),
+              `work ${to} ${step}`,
+            ].join("\n")
+          : JSON.stringify(
+              "ops" in properties
+                ? {
+                    ops: [
+                      ...additions.map(n => ["+", n.id, n.parent, n.title, n.subtitle, n.state, to]),
+                      ...additions.filter(n => n.bump).map(n => ["!", n.id, n.bump!.kind, n.bump!.detail, to]),
+                      ["@", to, step, 1],
+                    ],
+                  }
+                : { nodes: additions, spans: [{ from, to, node: step }] },
+            );
+    }
+    // A scripted plan: each entry applies once, in order, when its pattern first appears in the request.
+    if (control.script && !(codex ? schema : claudeSchema) && content.startsWith("{")) {
+      const [from, to] = JSON.parse(content.split("\n")[0]).range,
+        lines = ["BEGIN_PLAN"],
+        before = scripted.step;
+      while (scripted.next < control.script.length && new RegExp(control.script[scripted.next].when).test(content)) {
+        const entry = control.script[scripted.next++];
+        lines.push(...entry.lines);
+        scripted.step = entry.step ?? scripted.step;
+      }
+      lines.push(`set_owner ${from}..${to} ${scripted.step ? "/" + scripted.step : "none"}`);
+      if (scripted.step && scripted.step !== before) lines.push(`set_focus ${from} /${scripted.step}`);
+      result = lines.join("\n");
+    }
     if ("raw" in control) result = control.raw;
     if (content === "oversize") result = "x".repeat(9000);
     const failed = content === "fail" || !!control.fail;

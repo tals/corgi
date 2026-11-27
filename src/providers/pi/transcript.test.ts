@@ -114,7 +114,8 @@ test("Pi tools start a summary slot on every turn despite newer hook activity", 
     for (const turn of ["turn-1", "turn-2"]) {
       hook("UserPromptSubmit", turn);
       worker.reconcile([actor]);
-      expect(worker.slots.filter(Boolean)).toHaveLength(0);
+      expect(worker.slots.filter(Boolean)).toHaveLength(turn === "turn-1" ? 0 : 1);
+      if (turn === "turn-2") expect(worker.slots[0]?.request.road?.events.length).toBeGreaterThan(0);
       tail.ingest(
         req,
         reader,

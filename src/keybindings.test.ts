@@ -53,6 +53,7 @@ test("every preset can bind the last visited tab and workspace actions", () => {
     expect(bindings.chord(table, false, keys.parseChord("alt+w")!)).toEqual({ name: "last-workspace" });
   }
 });
+
 test("control bytes, CSI-u chords and uppercase letters match the same bindings", () => {
   const table = custom.resolve("corgi", custom.parse({ new: "ctrl+y", "focus:left": "prefix+shift+h" }));
   expect(bindings.lookup(table, false, 25)).toEqual({ name: "new" });

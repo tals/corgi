@@ -1346,6 +1346,7 @@
   "— tokens": "— トークン",
   "‖ paused": "‖ 一時停止",
   "… ${count} done": "… ${count}件完了",
+  "… ${hidden} earlier items": "… 前の ${hidden} 項目",
   "…${count} more": "…ほか${count}件",
   "‹ ${model} · Effort": "‹ ${model} · 推論量",
   "← keys": "← キー",

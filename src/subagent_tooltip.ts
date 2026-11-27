@@ -1,6 +1,8 @@
 import * as viewerRef from "./viewer_ref";
 //! The agent card a sidebar row opens on hover, and the usage overview the
 //! status bar opens. Mirrors subagent_tooltip.zig.
+import * as roadmap from "./activity/roadmap";
+import * as plan_view from "./plan_view";
 import * as i18n from "./i18n";
 import { microTimestamp, milliTimestamp } from "./clock";
 import { Provider, byProvider, adapter } from "./providers";
@@ -141,6 +143,7 @@ export interface Conversation {
   id: number;
   timeline: { points: ActivityPoint[]; pending: UsageView };
   checklist: checklist.List;
+  activity_plan: roadmap.Snapshot;
   /** The first-party model id; Bedrock and Vertex spellings are resolved. */
   model: string;
   /** Its display name, such as "Opus 5.5"; empty for an unknown shape. */
@@ -193,6 +196,7 @@ export function conversation(value: any = {}): Conversation {
     },
     id: Number(value.id ?? 0),
     checklist: decodeChecklist(value.checklist),
+    activity_plan: roadmap.decode(value.activity_plan),
     timeline: {
       points: (value.timeline?.points ?? []).map((point: any) => ({
         at: Number(point.at ?? 0),
@@ -703,6 +707,68 @@ export class Card {
           : thinking();
       this.drawPoint(row + nodes, i18n.t`  now`, current, new UsageView(), true, "working");
     }
+  }
+  plan(row: number, view: roadmap.Snapshot, running: boolean, budget: number) {
+    if (budget < 2) return 0;
+    const whole = plan_view.tail(view, budget, running),
+      selected = whole.hidden ? plan_view.tail(view, budget - 1, running) : whole,
+      hidden = selected.hidden,
+      top = row - 1 + Number(hidden > 0),
+      tone = (value: palette.Token): Tone => {
+        switch (value) {
+          case "accent":
+            return "working";
+          case "strong":
+            return "title";
+          case "muted":
+            return "muted";
+          case "faint":
+            return "faint";
+          case "warm":
+            return "warm";
+          default:
+            return "text";
+        }
+      };
+    if (hidden) this.line(row, i18n.t`… ${hidden} earlier items`, "", "faint", "faint");
+    const used = plan_view.drawRows(view, selected.rows, this.width - 6, {
+      line: (offset, label, counts, color) => {
+        const y = top + 1 + offset;
+        this.cell(y, 0, counts ? this.textWidth() : this.width - 6, label, tone(color), false);
+        if (!counts) return;
+        const start = this.textWidth() + this.counts();
+        if (this.counts())
+          this.cell(
+            y,
+            start - this.counts() + 1,
+            this.counts() - 1,
+            counts.tools === undefined ? "" : compact(BigInt(counts.tools)),
+            "faint",
+            true,
+          );
+        this.cell(
+          y,
+          start + 1,
+          this.numbers(),
+          view.known ? compact(satSub(BigInt(counts.input), BigInt(counts.cached)) + BigInt(counts.output)) : "",
+          tone(color),
+          true,
+        );
+        this.cell(
+          y,
+          start + this.numbers() + 2,
+          this.numbers(),
+          view.known ? compact(BigInt(counts.cached)) : "",
+          "faint",
+          true,
+        );
+      },
+      mark: (offset, column, value, color, bold, strike) => {
+        const style = new palette.Style({ fg: color, bg: "bg", bold, strike });
+        this.w.write(`\x1b[${top + 2 + offset};${this.x + 4 + column}H${style.sgr()}${value}`);
+      },
+    });
+    return used + Number(hidden > 0);
   }
 }
 /** The title row: "Observed tokens", and "2.4M tokens (+38M cached)" at the
@@ -1344,10 +1410,15 @@ export function draw(
   const model = children_available ? Model.init(all, parent) : Object.assign(new Model(), { total: root.usage });
   const width = Math.min(88, cols);
   const pending = root.timeline.points.length > 0;
+  const has_plan = root.activity_plan.nodes.length > 0;
+  const plan_tail = has_plan ? plan_view.tail(root.activity_plan, 16, root_agent.state === "working") : null;
+  const plan_height = plan_tail ? Number(plan_tail.hidden > 0) + plan_view.height(plan_tail.rows) : 0;
   const timeline_nodes = Math.min(
     16,
-    root.timeline.points.length +
-      Number(root_agent.state === "working" && root_agent.activity.length === 0 && !root_agent.compacting),
+    has_plan
+      ? 0
+      : root.timeline.points.length +
+          Number(root_agent.state === "working" && root_agent.activity.length === 0 && !root_agent.compacting),
   );
   const timeline_height = timeline_nodes > 0 ? timeline_nodes + 1 : 0;
   const child_footer =
@@ -1357,11 +1428,12 @@ export function draw(
   const todo_view = checklist_view.window(root.checklist);
   const todo_height = checklist_view.visible(root.checklist, microTimestamp()) ? todo_view.rows + 3 : 0;
   // Until there is a timeline, the activity takes its own line under the subtitle.
-  const activity_row = timeline_nodes === 0;
+  const activity_row = timeline_nodes === 0 && !has_plan;
   const wanted =
     7 +
     Number(activity_row) +
     timeline_height +
+    plan_height +
     task_height +
     todo_height +
     (model.children > 0 ? model.children + 3 : Number(child_footer));
@@ -1425,7 +1497,8 @@ export function draw(
   card.tokenColumns(header + 1, root.usage, false, root.usage.known ? "title" : "muted");
   let row = header + 2;
   const bottom = y + height - 1;
-  const todo_room = sat(bottom, row + task_height + 2 + (model.children > 0 ? 3 : Number(child_footer)));
+  const minimum_activity = has_plan ? 4 : 2;
+  const todo_room = sat(bottom, row + task_height + minimum_activity + (model.children > 0 ? 3 : Number(child_footer)));
   const fitted_todos = checklist_view.window(root.checklist, 5, Math.max(0, todo_room - 3));
   const todo_budget = todo_height > 0 && fitted_todos.items.length > 0 ? fitted_todos.rows + 3 : 0;
   const todo_top = bottom - todo_budget;
@@ -1433,13 +1506,23 @@ export function draw(
   const end = model.children > 0 || child_footer ? footer_row : todo_top;
   // Give requested background work priority on short terminals. The section
   // stays bounded and reports omitted commands explicitly.
-  row += card.backgroundTasks(row, tasks, Math.min(task_height, sat(end, row)));
+  row += card.backgroundTasks(row, tasks, Math.min(task_height, sat(end, row + (has_plan ? 4 : 0))));
   // Reserve child rows and the combined total; use the rest for recent phases.
   const room = sat(end, row);
   const total_rows = model.children > 0 ? 2 : 0;
-  const reserved_children = Math.min(model.children, sat(room, total_rows + (timeline_nodes > 0 ? 2 : 0)));
+  const reserved_children = Math.min(
+    model.children,
+    sat(room, total_rows + (has_plan ? 4 : timeline_nodes > 0 ? 2 : 0)),
+  );
   const visible_nodes = Math.min(timeline_nodes, sat(sat(room, reserved_children + total_rows), 1));
-  if (visible_nodes > 0) {
+  if (has_plan) {
+    row += card.plan(
+      row,
+      root.activity_plan,
+      root_agent.state === "working",
+      sat(room, reserved_children + total_rows),
+    );
+  } else if (visible_nodes > 0) {
     card.timeline(row, root, root_agent, visible_nodes, pending);
     row += visible_nodes + 1;
   }

@@ -41,3 +41,20 @@ test("live edits and clipped panels preserve terminal column positions", () => {
   expect(cells.visible(wide, 0, 1)).toEqual([" ", 7]);
   expect(cells.visible(wide.slice(1), 0)).toEqual([" ", 7]);
 });
+
+test("struck text resets before the next ordinary text", () => {
+  const cells = terminal.grid("\x1b[9mfixed\x1b[29m normal\x1b[9m old\x1b[0m next", 26, 1)[0];
+  expect(
+    cells
+      .filter(c => c[6])
+      .map(c => c[0])
+      .join(""),
+  ).toBe("fixed old");
+  expect(
+    cells
+      .filter(c => !c[6])
+      .map(c => c[0])
+      .join("")
+      .trim(),
+  ).toBe("normal next");
+});

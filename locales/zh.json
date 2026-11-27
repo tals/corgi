@@ -1346,6 +1346,7 @@
   "— tokens": "— Token",
   "‖ paused": "‖ 已暂停",
   "… ${count} done": "…已完成 ${count} 项",
+  "… ${hidden} earlier items": "… 更早的 ${hidden} 项",
   "…${count} more": "…另有 ${count} 个",
   "‹ ${model} · Effort": "‹ ${model} · 推理强度",
   "← keys": "← 按键",

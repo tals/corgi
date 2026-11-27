@@ -518,3 +518,75 @@ $.breadcrumbs[].kind: string
 $.breadcrumbs[].pane: u32
 $.breadcrumbs[].session: u32
 $.breadcrumbs[].actors[]: u32
+$.conversations[].activity_plan: optional
+$.conversations[].activity_plan?.view.nodes[].id: string
+$.conversations[].activity_plan?.view.nodes[].parent: optional
+$.conversations[].activity_plan?.view.nodes[].parent?: string
+$.conversations[].activity_plan?.view.nodes[].kind: enum goal episode step
+$.conversations[].activity_plan?.view.nodes[].title: string
+$.conversations[].activity_plan?.view.nodes[].subtitle: string
+$.conversations[].activity_plan?.view.nodes[].state: enum planned active done failed blocked abandoned
+$.conversations[].activity_plan?.view.nodes[].evidence[]: usize
+$.conversations[].activity_plan?.view.nodes[].bump: optional
+$.conversations[].activity_plan?.view.nodes[].bump?.kind: enum verification conflict environment permission approach
+$.conversations[].activity_plan?.view.nodes[].bump?.state: enum open resolved
+$.conversations[].activity_plan?.view.nodes[].bump?.detail: string
+$.conversations[].activity_plan?.view.nodes[].bump?.evidence[]: usize
+$.conversations[].activity_plan?.view.counts: any
+$.conversations[].activity_plan?.view.unassigned.input: string
+$.conversations[].activity_plan?.view.unassigned.cached: string
+$.conversations[].activity_plan?.view.unassigned.output: string
+$.conversations[].activity_plan?.view.unassigned.tools: optional
+$.conversations[].activity_plan?.view.unassigned.tools?: string
+$.conversations[].activity_plan?.view.known: bool
+$.conversations[].activity_plan?.view.partial: bool
+$.conversations[].activity_plan?.view.limited: bool
+$.conversations[].activity_plan?.view.focus: optional
+$.conversations[].activity_plan?.view.focus?: string
+$.conversations[].activity_plan?.view.focus_step: optional
+$.conversations[].activity_plan?.view.focus_step?: string
+$.conversations[].activity_plan?.through: usize
+$.conversations[].activity_plan?.tools_baseline: optional
+$.conversations[].activity_plan?.tools_baseline?: string
+$.conversations[].activity_plan?.last: string
+$.conversations[].activity_plan?.turn: string
+$.conversations[].activity_plan?.turn_index: usize
+$.conversations[].activity_plan?.checklist_at: i64
+$.conversations[].activity_plan?.tail_node: optional
+$.conversations[].activity_plan?.tail_node?: string
+$.conversations[].activity_plan?.baseline: optional
+$.conversations[].activity_plan?.baseline?.input: string
+$.conversations[].activity_plan?.baseline?.cached: string
+$.conversations[].activity_plan?.baseline?.output: string
+$.conversations[].activity_plan?.unassigned.input: string
+$.conversations[].activity_plan?.unassigned.cached: string
+$.conversations[].activity_plan?.unassigned.output: string
+$.conversations[].activity_plan?.unassigned.tools: optional
+$.conversations[].activity_plan?.unassigned.tools?: string
+$.conversations[].activity_plan?.pending[].id: usize
+$.conversations[].activity_plan?.pending[].line: usize
+$.conversations[].activity_plan?.pending[].at: string
+$.conversations[].activity_plan?.pending[].turn: usize
+$.conversations[].activity_plan?.pending[].kind: enum user assistant reasoning tool result plan lifecycle
+$.conversations[].activity_plan?.pending[].text: string
+$.conversations[].activity_plan?.support[].id: usize
+$.conversations[].activity_plan?.support[].line: usize
+$.conversations[].activity_plan?.support[].at: string
+$.conversations[].activity_plan?.support[].turn: usize
+$.conversations[].activity_plan?.support[].kind: enum user assistant reasoning tool result plan lifecycle
+$.conversations[].activity_plan?.support[].text: string
+$.conversations[].activity_plan?.receipts[].event: usize
+$.conversations[].activity_plan?.receipts[].tokens.input: string
+$.conversations[].activity_plan?.receipts[].tokens.cached: string
+$.conversations[].activity_plan?.receipts[].tokens.output: string
+$.conversations[].activity_plan?.receipts[].tokens.tools: optional
+$.conversations[].activity_plan?.receipts[].tokens.tools?: string
+$.conversations[].activity_plan?.view.visits: optional
+$.conversations[].activity_plan?.view.visits?[].step: string
+$.conversations[].activity_plan?.view.visits?[].from: usize
+$.conversations[].activity_plan?.view.visits?[].to: usize
+$.conversations[].activity_plan?.view.visits?[].counts.input: string
+$.conversations[].activity_plan?.view.visits?[].counts.cached: string
+$.conversations[].activity_plan?.view.visits?[].counts.output: string
+$.conversations[].activity_plan?.view.visits?[].counts.tools: optional
+$.conversations[].activity_plan?.view.visits?[].counts.tools?: string

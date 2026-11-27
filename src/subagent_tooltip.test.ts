@@ -23,6 +23,7 @@ import {
 } from "./subagent_tooltip";
 import { View as UsageView, Tokens } from "./usage/live";
 import { View as ContextView } from "./usage/context_window";
+import { Terminal } from "./pane/terminal";
 import { Window } from "./usage/account";
 import type { Spark, SpendCell } from "./usage/limits";
 import type { Reading } from "./usage/spend";
@@ -38,6 +39,96 @@ import { Model as ProviderModel } from "./providers/model";
 import { byProvider, type ByProvider } from "./providers";
 import { List } from "./activity/checklist";
 import * as checklist_view from "./checklist_view";
+import * as roadmap from "./activity/roadmap";
+
+test("the agent tooltip replaces recent phases with the plan and preserves its original total columns", () => {
+  const plan = roadmap.emptyView();
+  plan.known = true;
+  plan.focus = "e";
+  plan.focus_step = "current";
+  plan.nodes = [
+    {
+      id: "e",
+      parent: null,
+      kind: "episode",
+      title: "Correct retry offsets",
+      subtitle: "Preserve the partial file",
+      state: "active",
+      evidence: [1],
+    },
+    {
+      id: "failed",
+      parent: "e",
+      kind: "step",
+      title: "Run resume tests",
+      subtitle: "Check the restored offset",
+      state: "failed",
+      evidence: [1],
+      bump: { kind: "verification", state: "resolved", detail: "Expected offset 20 but got 0", evidence: [1] },
+    },
+    {
+      id: "current",
+      parent: "e",
+      kind: "step",
+      title: "Fix retry",
+      subtitle: "Retain the saved offset",
+      state: "active",
+      evidence: [2],
+    },
+  ];
+  for (const node of plan.nodes) plan.counts[node.id] = { input: "2000", cached: "1500", output: "300", tools: "4" };
+  const root = convo({
+    id: 1,
+    agent: agent({ provider: "codex", name: "Downloads" }),
+    activity_plan: plan,
+    usage: usage({ input: 4500, cached_input: 3000, output: 500 }),
+    timeline: { points: [{ at: 1, activity: "Obsolete flat phase", usage: usage() }], pending: usage() },
+  });
+  const e = entry({ conversation: 1, provider: "codex", state: "working" });
+  const terminal = new Terminal(100, 30);
+  try {
+    const frame = render(w => draw(w, [root], e, 100, 30, 5, 18));
+    terminal.feed(frame);
+    const screen = terminal.text();
+    expect(screen).not.toContain("Long-term plan");
+    expect(screen).toMatch(/│  Correct retry offsets/);
+    expect(screen).toContain("├! Run resume tests");
+    expect(screen).toContain("┣▶ Fix retry");
+    expect(screen).toContain("Expected offset 20 but got 0");
+    expect(frame).toContain(new palette.Style({ fg: "faint", bg: "bg", bold: false, strike: true }).sgr());
+    expect(screen).not.toContain("Obsolete flat phase");
+    expect(screen).not.toContain("Recent");
+    expect(screen).not.toContain("Esc close");
+    expect(count(screen, "Total")).toBe(1);
+    expect(screen.split("\n").find(row => row.includes("Total"))).toMatch(/Total\s+0\s+2k\s+3k/);
+    expect(screen.split("\n").find(row => row.includes("Fix retry"))).toMatch(/Fix retry\s+4\s+800\s+1\.5k/);
+  } finally {
+    terminal.destroy();
+  }
+  for (let i = 0; i < 30; i++)
+    plan.nodes.splice(-1, 0, { ...plan.nodes[2], id: `old${i}`, title: `Earlier work ${i}`, state: "done" });
+  for (const [cols, rows] of [
+    [100, 18],
+    [64, 13],
+    [40, 13],
+  ]) {
+    const terminal = new Terminal(cols, rows);
+    try {
+      const frame = render(w => draw(w, [root], e, cols, rows, 3, rows - 2));
+      terminal.feed(frame);
+      const screen = terminal.text();
+      expect(screen).toContain("Fix retry");
+      expect(screen).toContain("earlier items");
+      expect(screen).toContain("Total");
+      expect(screen).not.toContain("Earlier work 0");
+      expect(screen).not.toContain("?");
+      expect(screen).not.toContain("(continued)");
+      expect(count(screen, "Fix retry")).toBe(1);
+    } finally {
+      terminal.destroy();
+    }
+  }
+});
 
 test("conversation decodes checklist wire state and defaults an absent field", () => {
   expect(conversation({}).checklist).toEqual(new List());

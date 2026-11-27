@@ -1,0 +1,158 @@
+[
+  {
+    "id": "codex-zstd",
+    "label": "Codex: zstd test",
+    "checks": [
+      {
+        "name": "corpus and benchmark remain one episode",
+        "kind": "same_episode",
+        "a": 12,
+        "b": 20
+      },
+      {
+        "name": "holdout constraint or discovered leakage stays visible",
+        "kind": "subtitle",
+        "event": 20,
+        "level": "step",
+        "pattern": "held.out|hold.?out|separat|train|leak|same workloads"
+      },
+      {
+        "name": "dictionary fairness is recognized",
+        "kind": "topic",
+        "event": 52,
+        "level": "step",
+        "pattern": "dict|train|held.out|hold|captur|corpus|fixture|record"
+      }
+    ]
+  },
+  {
+    "id": "claude-website",
+    "label": "Claude: website animation",
+    "checks": [
+      {
+        "name": "implementation and landing stay one episode",
+        "kind": "same_episode",
+        "a": 36,
+        "b": 126
+      },
+      {
+        "name": "actual failed tests retain resolved setback",
+        "kind": "bump",
+        "event": 98,
+        "category": "verification",
+        "state": "resolved"
+      },
+      {
+        "name": "missing image dependency and failed tests are the two real setbacks",
+        "kind": "bump_count",
+        "count": 2
+      },
+      {
+        "name": "failed test attempt is preserved after successful retry",
+        "kind": "state",
+        "event": 98,
+        "level": "step",
+        "state": "failed",
+        "at": 134
+      },
+      {
+        "name": "episode keeps the animation objective",
+        "kind": "label",
+        "event": 36,
+        "level": "episode",
+        "pattern": "heart|logo|animat"
+      },
+      {
+        "name": "missing Pillow recovered with ffmpeg",
+        "kind": "bump",
+        "event": 77,
+        "category": "environment",
+        "state": "resolved"
+      }
+    ]
+  },
+  {
+    "id": "claude-handoff",
+    "label": "Claude: usage handoff",
+    "checks": [
+      {
+        "name": "overhead experiment is a separate episode",
+        "kind": "different_episode",
+        "a": 91,
+        "b": 150
+      },
+      {
+        "name": "implementation resumes the original handoff repair",
+        "kind": "same_episode",
+        "a": 91,
+        "b": 271
+      },
+      {
+        "name": "rebase is a distinct episode",
+        "kind": "different_episode",
+        "a": 271,
+        "b": 404
+      },
+      {
+        "name": "background completion does not revisit tests",
+        "kind": "focus",
+        "event": 383,
+        "target": 379,
+        "level": "step"
+      },
+      {
+        "name": "post-rebase notification does not revisit tests",
+        "kind": "focus",
+        "event": 427,
+        "target": 423,
+        "level": "step"
+      },
+      {
+        "name": "empty grep result is not a failed integration suite",
+        "kind": "no_bump_started",
+        "from": 428,
+        "to": 429
+      },
+      {
+        "name": "rebase conflict recovered",
+        "kind": "bump",
+        "event": 399,
+        "category": "conflict",
+        "state": "resolved"
+      },
+      {
+        "name": "episode explains reload loss rather than moving to a worktree",
+        "kind": "subtitle",
+        "event": 271,
+        "level": "episode",
+        "pattern": "(handoff|reload|daemon|workspace|restor)"
+      },
+      {
+        "name": "final PR report does not resume implementation",
+        "kind": "focus",
+        "event": 389,
+        "target": 387,
+        "level": "step"
+      },
+      {
+        "name": "implementation is named as implementation, not tracing",
+        "kind": "topic",
+        "event": 272,
+        "level": "step",
+        "pattern": "implement|fix|patch|edit",
+        "at": 285
+      }
+    ]
+  },
+  {
+    "id": "claude-installer",
+    "label": "Claude: installer design discussion",
+    "checks": [
+      {
+        "name": "ordinary research has no setback",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  }
+]

@@ -9,6 +9,7 @@ import { Text } from "../../activity/summary";
 import type { TranscriptReader } from "../adapter";
 import { Index, Name } from "./files";
 import { Rollout } from "./transcript";
+import * as todos from "./todos";
 const min = (a: bigint, b: bigint) => (a < b ? a : b);
 /** A token total as the app server (camelCase) or a rollout (snake_case) spells it. */
 export function parseTokens(v: any, camel: boolean) {
@@ -128,6 +129,10 @@ export function progress(t: Tools, value: any, live: boolean) {
     return;
   }
   if (kind !== "response_item" || !t.turn.len || t.ended) return;
+  if (type === "message" && str(p, "role") === "user") {
+    const content = field(p, "content");
+    if (Array.isArray(content)) t.ask(content.map(c => str(c, "text")).join("\n"), false);
+  }
   if (type === "message" && str(p, "role") === "assistant" && str(p, "phase") === "commentary") {
     const content = field(p, "content");
     if (Array.isArray(content)) {
@@ -150,7 +155,21 @@ export function progress(t: Tools, value: any, live: boolean) {
   const key = t.key(id);
   if (t.seen.includes(key)) return;
   if (["function_call_output", "custom_tool_call_output"].includes(type ?? "")) {
-    t.finishId(key, live);
+    const raw = str(p, "output");
+    let code: number | null = null;
+    try {
+      const v = JSON.parse(raw);
+      const exit = field(v, "exit_code") ?? field(field(v, "metadata"), "exit_code");
+      if (typeof exit === "number") code = exit;
+    } catch {}
+    const match = raw.match(/(?:Process exited with code|Exit code:)\s*(-?\d+)/);
+    if (match) code = Number(match[1]);
+    t.finishId(
+      key,
+      live,
+      code === null ? null : code === 0 ? "success" : "failure",
+      raw.slice(0, 180) + (raw.length > 180 ? " … " + raw.slice(-120) : ""),
+    );
     return;
   }
   if (!["function_call", "custom_tool_call", "local_shell_call", "web_search_call"].includes(type ?? "")) return;
@@ -191,6 +210,7 @@ function counts(tracker: Tracker, value: any) {
 /** A reader that names threads from `index`, the session index Codex keeps. */
 /** A reader that names sessions from the session indexes at `indexes`. */
 export function open(indexes: () => string[]): TranscriptReader {
+  const tasks = new WeakMap<object, todos.Reader>();
   const found = new Map<string, Index>(),
     index = (file: string) => {
       let names = found.get(file);
@@ -207,6 +227,10 @@ export function open(indexes: () => string[]): TranscriptReader {
     },
     record(t, _req, value, appended) {
       progress(t.progress, value, appended);
+      let todo = tasks.get(t);
+      if (!todo) tasks.set(t, (todo = new todos.Reader()));
+      const list = todo.record(value);
+      if (list && list.at >= (t.checklist?.at ?? 0)) t.checklist = list;
       t.observeModel(field(value, "payload"));
       const delta = counts(t.tracker, value);
       rolloutTokens(t.live, value, appended, Date.now());

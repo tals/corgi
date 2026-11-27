@@ -29,7 +29,7 @@ export function evidence(turn: any) {
     out = "";
   for (const item of items) if (str(item, "type") === "agentMessage") latest = str(item, "text");
   if (latest) out = `Latest agent update: ${latest.slice(0, 1400)}\n`;
-  for (const item of items) {
+  for (const item of items.toReversed()) {
     if (str(item, "type") !== "userMessage" || !Array.isArray(field(item, "content"))) continue;
     out += "User request: ";
     for (const part of field(item, "content")) if (str(part, "type") === "text") out += str(part, "text");

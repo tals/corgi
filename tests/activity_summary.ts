@@ -10,12 +10,14 @@ export const lines = (path: string) =>
   existsSync(path) ? readFileSync(path, "utf8").trim().split("\n").filter(Boolean) : [];
 export const now = () => new Date().toISOString();
 export class Summaries extends Titles {
+  legacy_summaries = true;
   backend_dir!: ReturnType<typeof tempDir>;
   log!: string;
   control!: string;
   transcript!: string;
   tool_index = 0;
   async configure() {
+    if (this.legacy_summaries) this.env.CORGI_TEST_LEGACY_SUMMARIES = "1";
     this.env.CORGI_INFERENCE_PROVIDER = "codex";
     this.env.CORGI_INFERENCE_BIN = inferenceProgram;
     this.env.CORGI_INFERENCE_TEST_LOG = this.log;
@@ -101,6 +103,7 @@ export class PiSummaries extends Runtime {
   pane!: number;
   seq = 0;
   async configure() {
+    this.env.CORGI_TEST_LEGACY_SUMMARIES = "1";
     this.env.CORGI_INFERENCE_PROVIDER = "codex";
     this.env.CORGI_INFERENCE_BIN = inferenceProgram;
     this.env.CORGI_INFERENCE_TEST_LOG = this.log;
@@ -228,6 +231,7 @@ export class ClaudeSummaries extends Runtime {
   pane!: number;
   seq = 0;
   async configure() {
+    this.env.CORGI_TEST_LEGACY_SUMMARIES = "1";
     this.env.CORGI_INFERENCE_PROVIDER = "codex";
     this.env.CORGI_INFERENCE_BIN = inferenceProgram;
     this.env.CORGI_INFERENCE_TEST_LOG = this.log;

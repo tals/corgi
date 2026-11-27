@@ -1658,6 +1658,7 @@
   "— tokens": "— токенов",
   "‖ paused": "‖ пауза",
   "… ${count} done": "… выполнено: ${count}",
+  "… ${hidden} earlier items": "… более ранних пунктов: ${hidden}",
   "…${count} more": "…ещё ${count}",
   "‹ ${model} · Effort": "‹ ${model} · Усилие",
   "← keys": "← клавиши",

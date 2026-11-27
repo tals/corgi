@@ -178,6 +178,46 @@ test("a summary doesn't stream", () => {
   const { claude } = client([delta("x")], { schema: false });
   expect(claude.take()).toEqual([{ kind: "conversation", session: "a", parent: null, role: null, shown: true }]);
 });
+test("summary receipts include thinking once and do not sum cumulative model usage", () => {
+  const receipt = {
+    input_tokens: 2,
+    cache_creation_input_tokens: 671,
+    cache_read_input_tokens: 1770,
+    output_tokens: 217,
+    output_tokens_details: { thinking_tokens: 132 },
+  };
+  const { claude } = client(
+    [
+      {
+        type: "assistant",
+        message: { id: "same", usage: { ...receipt, output_tokens: 3 }, content: [{ type: "thinking" }] },
+      },
+      {
+        type: "assistant",
+        message: { id: "same", usage: { ...receipt, output_tokens: 3 }, content: [{ type: "text", text: "{}" }] },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        result: "{}",
+        usage: receipt,
+        modelUsage: { haiku: { outputTokens: 9000, thinkingTokens: 8000 } },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        result: "{}",
+        usage: { ...receipt, output_tokens: 188, output_tokens_details: { thinking_tokens: 109 } },
+        modelUsage: { haiku: { outputTokens: 9188 } },
+      },
+    ],
+    { schema: false },
+  );
+  expect(claude.take().flatMap(e => (e.kind === "usage" ? [e.part!.tokens] : []))).toMatchObject([
+    { input: 2443n, cached_input: 1770n, output: 217n },
+    { input: 2443n, cached_input: 1770n, output: 188n },
+  ]);
+});
 test("Claude's tools say what they are", () => {
   const { claude } = client([
     {

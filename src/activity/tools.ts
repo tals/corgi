@@ -2,6 +2,7 @@ import { Text } from "./summary";
 import { BoundedText } from "../bounded_text";
 class Turn extends BoundedText(160) {}
 export class View {
+  road_evidence = new Text();
   commentary = new Text();
   running = 0;
   ended = false;
@@ -43,6 +44,8 @@ export function scriptString(args: string, key: string): string | null {
   }
 }
 export class Call {
+  outcome: "success" | "failure" | null = null;
+  result = "";
   id = 0n;
   live = false;
   value = "";
@@ -50,6 +53,18 @@ export class Call {
     if (saved === null) return null;
     if (typeof saved.value !== "string" || Buffer.byteLength(saved.value) > 240) throw Error("InvalidCheckpoint");
     return Object.assign(new Call(), { id: BigInt(saved.id), live: saved.live === true, value: saved.value });
+  }
+  /** A finished call with what it reported; older handoffs carry none. */
+  static restoreOutcome(saved: any) {
+    const call = Call.restore(saved);
+    if (
+      !call ||
+      ![null, "success", "failure"].includes(saved.outcome ?? null) ||
+      typeof (saved.result ?? "") !== "string" ||
+      Buffer.byteLength(saved.result ?? "") > 320
+    )
+      throw Error("InvalidCheckpoint");
+    return Object.assign(call, { outcome: saved.outcome ?? null, result: saved.result ?? "" });
   }
   text() {
     return this.value;
@@ -115,6 +130,9 @@ export class Call {
   }
 }
 export class Tracker {
+  prompt = new Text();
+  /** This turn's requests, oldest first: the one that started it and those typed while the agent worked. */
+  asked: { text: string; queued: boolean }[] = [];
   commentary = new Text();
   turn = new Turn();
   ended = false;
@@ -123,6 +141,7 @@ export class Tracker {
   next_pending = 0;
   seen: bigint[] = [];
   recent: Array<Call | null> = [null, null, null];
+  outcomes: Call[] = [];
   dirty = false;
   /** The tracker a handoff carried, or a new one. */
   static restore(saved: any) {
@@ -148,8 +167,33 @@ export class Tracker {
     t.next_pending = saved.next_pending;
     t.seen = saved.seen.map(BigInt);
     t.recent = saved.recent.map(Call.restore);
+    if (saved.outcomes !== undefined) {
+      if (!Array.isArray(saved.outcomes) || saved.outcomes.length > 4) throw Error("InvalidCheckpoint");
+      t.outcomes = saved.outcomes.map(Call.restoreOutcome);
+    }
+    // Older handoffs carry no request text.
+    if (saved.prompt !== undefined) t.prompt = Text.fromJSON(saved.prompt);
+    if (Array.isArray(saved.asked))
+      t.asked = saved.asked
+        .filter((m: any) => typeof m?.text === "string")
+        .slice(-4)
+        .map((m: any) => ({ text: clip(m.text, 300), queued: m.queued === true }));
     t.dirty = saved.dirty === true;
     return t;
+  }
+  /** A person's message in this turn; `queued` when it arrived while the agent was working. */
+  ask(text: string, queued: boolean) {
+    this.prompt = new Text(clip(text, 512));
+    this.asked = [...this.asked, { text: clip(text.replace(/\s+/g, " "), 300), queued }].slice(-4);
+    this.dirty = true;
+  }
+  /** The request heading: one message as before, several as a list so a waiting one stays visible. */
+  requests() {
+    if (this.asked.length < 2) return this.prompt.len ? "User request: " + this.prompt.text() + "\n" : "";
+    return (
+      "User requests this turn (oldest to newest):\n" +
+      this.asked.map((m, i) => `${i + 1}. ${m.text}${m.queued ? " [sent while the agent was working]" : ""}\n`).join("")
+    );
   }
   bind(turn: string) {
     if (!turn || turn === this.turn.text() || Buffer.byteLength(turn) > 160) return;
@@ -177,6 +221,18 @@ export class Tracker {
     if (active > 4) evidence += "Additional tools are running.\n";
     if (this.completed) evidence += "Recent completed tools (oldest to newest):\n";
     for (const call of this.recent) if (call) evidence += call.text() + "\n";
+    const outcomes = this.outcomes
+      .map(call => {
+        const result =
+          Buffer.byteLength(call.result) <= 160
+            ? call.result
+            : clip(call.result, 80) + " … " + clip(call.result.slice(-80), 80);
+        return `${clip(call.text(), 128)} [${call.outcome ?? "outcome unknown"}]: ${result}`;
+      })
+      .join("\n");
+    out.road_evidence = new Text(
+      clip(this.requests() + (outcomes ? "Recent tool outcomes (oldest to newest):\n" + outcomes : ""), 2048),
+    );
     out.evidence = new Text(clip(evidence, 2048));
     return out;
   }
@@ -200,15 +256,22 @@ export class Tracker {
     if (!live) return;
     this.completed++;
     this.dirty = true;
+    // Repeating a command must not erase the failure that preceded its successful retry.
+    if (call.outcome || call.result) {
+      this.outcomes.push(call);
+      if (this.outcomes.length > 4) this.outcomes.shift();
+    }
     if (this.recent[2]?.text() !== call.text()) {
       this.recent[0] = this.recent[1];
       this.recent[1] = this.recent[2];
     }
     this.recent[2] = call;
   }
-  finishId(id: bigint, live: boolean) {
+  finishId(id: bigint, live: boolean, outcome: "success" | "failure" | null = null, result = "") {
     const slot = this.pending.findIndex(c => c?.id === id);
     if (slot < 0) return;
+    this.pending[slot]!.outcome = outcome;
+    this.pending[slot]!.result = clip(result.replace(/[\x00-\x1f\x7f-\x9f]/g, " "), 320);
     this.finish(this.pending[slot]!, live);
     this.pending[slot] = null;
   }

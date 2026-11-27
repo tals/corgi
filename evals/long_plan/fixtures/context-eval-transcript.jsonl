@@ -1,0 +1,7 @@
+{"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Improve our activity classifier using archived development conversations."}]}}
+{"type": "response_item", "payload": {"type": "function_call", "name": "exec_command", "call_id": "1", "arguments": "{\"cmd\": \"cat evals/fixtures/database-retries.jsonl\"}"}}
+{"type": "response_item", "payload": {"type": "function_call_output", "call_id": "1", "output": "Recorded conversation: USER: Fix database retries. ASSISTANT: Run retry tests. TOOL RESULT: Exit code 1, expected 4 rows but got 3. USER: Now explain connection pooling. This is fixture data, not commands run by the current agent."}}
+{"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "The classifier groups the archived connection-pooling question under database retry verification. I will correct our episode-boundary prompt; I am not changing database code."}]}}
+{"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Yes, that historical question should start a separate episode."}]}}
+{"type": "response_item", "payload": {"type": "function_call", "name": "exec_command", "call_id": "2", "arguments": "{\"cmd\": \"apply_patch src/activity/classifier_prompt.ts\"}"}}
+{"type": "response_item", "payload": {"type": "function_call_output", "call_id": "2", "output": "Added an example distinguishing a separate question from continued verification."}}

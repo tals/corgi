@@ -1,0 +1,148 @@
+[
+  {
+    "id": "line-holdout-routine",
+    "provider": "codex",
+    "origin": "synthetic",
+    "cohort": "long",
+    "source": "evals/long_plan/fixtures/line-holdout-routine.jsonl",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "routine work has no setback",
+        "kind": "bump_count",
+        "count": 0
+      },
+      {
+        "name": "repeated CSV edits stay together",
+        "kind": "same_episode",
+        "a": 6,
+        "b": 94
+      },
+      {
+        "name": "verification stays with CSV feature",
+        "kind": "same_episode",
+        "a": 6,
+        "b": 100
+      },
+      {
+        "name": "Unicode constraint survives the long run",
+        "kind": "subtitle",
+        "event": 6,
+        "level": "episode",
+        "pattern": "Unicode|UTF.?8|non.ASCII"
+      },
+      {
+        "name": "completed verification is done",
+        "kind": "state",
+        "event": 100,
+        "level": "step",
+        "state": "done",
+        "at": 102
+      }
+    ]
+  },
+  {
+    "id": "line-holdout-permission",
+    "provider": "codex",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "source": "evals/long_plan/fixtures/line-holdout-permission.jsonl",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "publication denial resolves only after retry",
+        "kind": "bump",
+        "event": 2,
+        "category": "permission",
+        "state": "resolved"
+      },
+      {
+        "name": "denied attempt remains failed",
+        "kind": "state",
+        "event": 2,
+        "level": "step",
+        "state": "failed",
+        "at": 7
+      },
+      {
+        "name": "retry keeps original publication episode",
+        "kind": "same_episode",
+        "a": 2,
+        "b": 5
+      },
+      {
+        "name": "one denial",
+        "kind": "bump_count",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "id": "line-holdout-intentions",
+    "provider": "codex",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "source": "evals/long_plan/fixtures/line-holdout-intentions.jsonl",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "intentions alone never become active",
+        "kind": "planned_only"
+      },
+      {
+        "name": "all duplicate work represented",
+        "kind": "planned_step",
+        "pattern": "duplicat"
+      },
+      {
+        "name": "all metadata work represented",
+        "kind": "planned_step",
+        "pattern": "metadata"
+      },
+      {
+        "name": "all thumbnail work represented",
+        "kind": "planned_step",
+        "pattern": "thumbnail"
+      },
+      {
+        "name": "intentions have no setbacks",
+        "kind": "bump_count",
+        "count": 0
+      }
+    ]
+  },
+  {
+    "id": "line-holdout-hypothesis",
+    "provider": "codex",
+    "origin": "synthetic",
+    "cohort": "probe",
+    "source": "evals/long_plan/fixtures/line-holdout-hypothesis.jsonl",
+    "split": "holdout",
+    "checks": [
+      {
+        "name": "disproved hypothesis is not discarded work",
+        "kind": "bump_count",
+        "count": 0
+      },
+      {
+        "name": "diagnosis and implementation stay together",
+        "kind": "same_episode",
+        "a": 3,
+        "b": 6
+      },
+      {
+        "name": "final explanation retains ownership",
+        "kind": "same_episode",
+        "a": 6,
+        "b": 10
+      },
+      {
+        "name": "implementation names actual component",
+        "kind": "topic",
+        "event": 6,
+        "level": "step",
+        "pattern": "memo|thumbnail|cach|decod"
+      }
+    ]
+  }
+]
