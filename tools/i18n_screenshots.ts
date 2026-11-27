@@ -36,7 +36,7 @@ for (const language of languages) {
             await d.drive(
               [
                 `action setup; ${shot("settings")}`,
-                `key down down down down; ${shot("language")}`,
+                `key down down; ${shot("language")}`,
                 `key esc; action help; ${shot("shortcuts")}`,
                 `key esc; action new-agent; ${shot("agents")}`,
                 `key right; ${shot("manage")}`,

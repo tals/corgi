@@ -22,7 +22,7 @@ class Languages extends Runtime {
     await second.action("setup");
     this.assertIn("Настройка Corgi", first.state.data);
     this.assertIn("Настройка Corgi", second.state.data);
-    for (let i = 0; i < 4; i++) await first.input("\x1b[B");
+    for (let i = 0; i < 2; i++) await first.input("\x1b[B");
     const screen = new terminal.Terminal(112, 36);
     let rows: string[];
     try {

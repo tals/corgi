@@ -21,6 +21,12 @@ function draw(menu: Menu, cols = 100, rows = 30, now = 0, s = status(), prefs = 
   menu.drawAt(w, s, prefs, cols, rows, now);
   return screen.lines(w.s, cols, rows);
 }
+/** Setup opened on Clever Corgi. */
+function clever(): Menu {
+  const menu = Menu.open();
+  menu.item = "clever_corgi";
+  return menu;
+}
 function hits(menu: Menu, cols = 100, rows = 30, s = status(), prefs = new Preferences()): Hit[] {
   const out: Hit[] = [];
   for (let y = 0; y < rows; y++) {
@@ -60,7 +66,7 @@ const no_setup_rpc: Pick<Connection, "call"> = {
 };
 
 test("entering a visible Clever Corgi pane starts discovery asynchronously, not on each picker open", async () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     s = status(),
     prefs = new Preferences(),
     requests: string[] = [],
@@ -125,20 +131,20 @@ test("setup keeps its options while aiming diagonally across list rows and gaps"
     [34, 7, 1400],
   ]) {
     hover(x, y, now);
-    expect(menu.item).toBe("clever_corgi");
+    expect(menu.item).toBe("ui_style");
   }
   // The divider and blank space in the options cancel a pending list hover.
   hover(35, 7, 1450);
   hover(36, 7, 1500);
   expect(await menu.poll(no_setup_rpc, 100, 30, 2000)).toBe(false);
-  expect(menu.item).toBe("clever_corgi");
-  // Up and to the right, toward Keymap's options, crosses Shell.
-  hover(25, 10, 2100);
-  expect(menu.item).toBe("keyboard");
-  hover(30, 9, 2200);
-  expect(menu.item).toBe("keyboard");
+  expect(menu.item).toBe("ui_style");
+  // Up and to the right, toward Resources' options, crosses Shell.
+  hover(25, 13, 2100);
+  expect(menu.item).toBe("readings");
+  hover(28, 11, 2200);
+  expect(menu.item).toBe("readings");
   hover(36, 7, 2300);
-  expect(menu.item).toBe("keyboard");
+  expect(menu.item).toBe("readings");
 });
 
 test("setup selects the crossed row when the pointer pauses", async () => {
@@ -148,9 +154,9 @@ test("setup selects the crossed row when the pointer pauses", async () => {
   menu.hover(100, 30, 15, 3, s, prefs, 0);
   menu.hover(100, 30, 22, 4, s, prefs, 100);
   expect(await menu.poll(no_setup_rpc, 100, 30, 399)).toBe(false);
-  expect(menu.item).toBe("clever_corgi");
+  expect(menu.item).toBe("ui_style");
   expect(await menu.poll(no_setup_rpc, 100, 30, 400)).toBe(true);
-  expect(menu.item).toBe("flourishes");
+  expect(menu.item).toBe("theme");
 });
 
 test("vertical setup browsing selects every row immediately in both directions", async () => {
@@ -158,11 +164,11 @@ test("vertical setup browsing selects every row immediately in both directions",
     s = status(),
     prefs = new Preferences();
   for (const [y, item] of [
-    [3, "clever_corgi"],
-    [4, "flourishes"],
-    [5, "readings"],
-    [4, "flourishes"],
-    [3, "clever_corgi"],
+    [3, "ui_style"],
+    [4, "theme"],
+    [5, "language"],
+    [4, "theme"],
+    [3, "ui_style"],
   ] as const) {
     menu.hover(100, 30, 15, y, s, prefs, 100);
     expect(menu.item).toBe(item);
@@ -175,12 +181,12 @@ test("setup keeps its options across the single-cell steps a terminal reports", 
     s = status(),
     prefs = new Preferences();
   let now = 0;
-  menu.hover(100, 30, 15, 3, s, prefs, now);
-  // Two columns right, then a row straight down, until the options.
-  for (let x = 16, y = 3; x <= 36; x++) {
+  menu.hover(100, 30, 15, 6, s, prefs, now);
+  // Two columns right, then a row straight down, until Keymap's options.
+  for (let x = 16, y = 6; x <= 36; x++) {
     menu.hover(100, 30, x, y, s, prefs, (now += 16));
     if (x % 2 === 1 && x < 35) menu.hover(100, 30, x, ++y, s, prefs, (now += 16));
-    expect(menu.item).toBe("clever_corgi");
+    expect(menu.item).toBe("keyboard");
   }
 });
 
@@ -191,31 +197,31 @@ test("setup tells a column of drift down the list from a turn toward the options
     // Drifting a column right on the way down the list keeps browsing.
     [
       [
-        [16, 4, 45],
-        [16, 5, 60],
+        [16, 8, 45],
+        [16, 9, 60],
       ],
-      "readings",
+      "agents",
     ],
     // Pausing on the row first, or moving two columns right, turns toward the options.
     [
       [
-        [16, 4, 500],
-        [16, 5, 516],
+        [16, 8, 500],
+        [16, 9, 516],
       ],
-      "flourishes",
+      "clever_corgi",
     ],
     [
       [
-        [16, 4, 40],
-        [17, 4, 50],
-        [17, 5, 60],
+        [16, 8, 40],
+        [17, 8, 50],
+        [17, 9, 60],
       ],
-      "flourishes",
+      "clever_corgi",
     ],
   ] as const) {
     const menu = Menu.open();
-    menu.hover(100, 30, 15, 3, s, prefs, 0);
-    menu.hover(100, 30, 15, 4, s, prefs, 30);
+    menu.hover(100, 30, 15, 6, s, prefs, 0);
+    menu.hover(100, 30, 15, 8, s, prefs, 30);
     for (const [x, y, now] of steps) menu.hover(100, 30, x, y, s, prefs, now);
     expect(menu.item).toBe(item);
   }
@@ -229,9 +235,9 @@ test("turning straight down drops the setup guard on the second row", async () =
   menu.hover(100, 30, 16, 3, s, prefs, 100);
   // One step straight down may be the path bending toward the options.
   menu.hover(100, 30, 16, 4, s, prefs, 150);
-  expect(menu.item).toBe("clever_corgi");
+  expect(menu.item).toBe("ui_style");
   menu.hover(100, 30, 16, 5, s, prefs, 200);
-  expect(menu.item).toBe("readings");
+  expect(menu.item).toBe("language");
   expect(await menu.poll(no_setup_rpc, 100, 30, 500)).toBe(false);
 });
 
@@ -251,23 +257,23 @@ function walk(x0: number, y0: number, x1: number, y1: number): [number, number][
 test("setup aims only at the options a click acts on", () => {
   const s = status(),
     prefs = new Preferences();
-  // Visual flourishes' Intensity sits on rows 7 and 8, its preview below.
+  // UI Style's Intensity sits on rows 9 and 10, its preview below.
   for (const [y, kept] of [
-    [8, true],
-    [15, false],
+    [10, true],
+    [16, false],
   ] as const) {
     const menu = Menu.open();
-    menu.hover(100, 30, 15, 4, s, prefs, 0);
-    menu.hover(100, 30, 16, 4, s, prefs, 200);
+    menu.hover(100, 30, 15, 3, s, prefs, 0);
+    menu.hover(100, 30, 16, 3, s, prefs, 200);
     let now = 200;
-    for (const [x, row] of walk(16, 4, 35, y)) menu.hover(100, 30, x, row, s, prefs, (now += 16));
-    expect(menu.item === "flourishes").toBe(kept);
+    for (const [x, row] of walk(16, 3, 35, y)) menu.hover(100, 30, x, row, s, prefs, (now += 16));
+    expect(menu.item === "ui_style").toBe(kept);
   }
   // Terminal capabilities has nothing to click, so nothing guards it.
   const menu = Menu.open();
   menu.hover(100, 30, 15, 15, s, prefs, 0);
   menu.hover(100, 30, 22, 11, s, prefs, 100);
-  expect(menu.item).toBe("source_control");
+  expect(menu.item).toBe("shell");
 });
 
 test("setup stops guarding when moving away, leaving the frame, or resizing", async () => {
@@ -289,10 +295,10 @@ test("setup stops guarding when moving away, leaving the frame, or resizing", as
         break;
       case "vertical":
         menu.hover(100, 30, 15, 3, s, prefs, 150);
-        menu.hover(100, 30, 15, 7, s, prefs, 200);
+        menu.hover(100, 30, 15, 6, s, prefs, 200);
         break;
     }
-    expect(menu.item).toBe(end === "outside" ? "clever_corgi" : end === "vertical" ? "theme" : "flourishes");
+    expect(menu.item).toBe(end === "outside" ? "ui_style" : end === "vertical" ? "keyboard" : "theme");
     expect(await menu.poll(no_setup_rpc, 100, 30, 500)).toBe(false);
   }
 });
@@ -304,11 +310,11 @@ test("setup clicks and keyboard navigation override a guarded hover", async () =
     const menu = Menu.open();
     menu.hover(100, 30, 15, 3, s, prefs, 0);
     menu.hover(100, 30, 28, 5, s, prefs, 100);
-    if (action === "click") menu.click({ item: "theme" }, s, prefs);
+    if (action === "click") menu.click({ item: "shell" }, s, prefs);
     else if (action === "move") menu.move(true, s, prefs);
     else menu.openOptions(s, prefs);
     expect(await menu.poll(no_setup_rpc, 100, 30, 500)).toBe(false);
-    expect(menu.item).toBe(action === "click" ? "theme" : action === "move" ? "flourishes" : "clever_corgi");
+    expect(menu.item).toBe(action === "click" ? "shell" : action === "move" ? "theme" : "ui_style");
   }
 });
 
@@ -319,7 +325,7 @@ test("resizing setup cancels a pending row even without further pointer motion",
   menu.hover(100, 30, 15, 3, s, prefs, 0);
   menu.hover(100, 30, 22, 4, s, prefs, 100);
   expect(await menu.poll(no_setup_rpc, 60, 30, 500)).toBe(false);
-  expect(menu.item).toBe("clever_corgi");
+  expect(menu.item).toBe("ui_style");
 });
 
 test("single-column setup hovers immediately", () => {
@@ -328,15 +334,15 @@ test("single-column setup hovers immediately", () => {
     prefs = new Preferences();
   menu.hover(60, 30, 15, 3, s, prefs, 0);
   menu.hover(60, 30, 22, 4, s, prefs, 100);
-  expect(menu.item).toBe("flourishes");
+  expect(menu.item).toBe("theme");
 });
 
 test("setup lists every setting beside the selected one's options", () => {
-  const menu = Menu.open();
+  const menu = clever();
   const rows = draw(menu, 100, 30, 0, status({ choice: "claude" }));
   const top = rows.findIndex(row => row.includes("Corgi setup"));
   expect(rows[top].indexOf("╭")).toBe(8);
-  expect(rows[top + 2]).toMatch(/Clever Corgi\s+│\s+Clever Corgi/);
+  expect(rows[top + 2]).toMatch(/UI Style\s+│\s+Clever Corgi/);
   expect(rows.join("\n")).toMatch(/Model +● Claude ▾/);
   for (const use of ["Activity summaries", "Worktree briefs", "Smart Links", "Auto-retry capacity errors"])
     expect(rows.join("\n")).toMatch(new RegExp(`${use} +● On`));
@@ -353,7 +359,7 @@ test("setup lists every setting beside the selected one's options", () => {
 });
 
 test("the top border says when the build was made and links its commit", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     s = status(),
     prefs = new Preferences(),
     commit = "be82c7b9090a" + "0".repeat(28);
@@ -388,7 +394,7 @@ test("translated setup titles and chart labels leave their borders intact", () =
   try {
     for (const language of i18n.locales) {
       i18n.setLanguage(language);
-      const menu = Menu.open(),
+      const menu = clever(),
         s = status(),
         prefs = new Preferences();
       menu.openOptions(s, prefs);
@@ -407,7 +413,7 @@ test("translated setup titles and chart labels leave their borders intact", () =
 });
 
 test("Model opens the prompt's model picker on the choice in use, and Left closes it", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences(),
     s = status({
       choice: "codex",
@@ -482,17 +488,17 @@ test("Model opens the prompt's model picker on the choice in use, and Left close
   expect(menu.back()).toBe(true);
   expect(menu.back()).toBe(false);
   menu.move(true, s, prefs);
-  expect(menu.item).toBe("flourishes");
+  expect(menu.item).toBe("agents");
   for (let i = 0; i < 20; i++) menu.move(true, s, prefs, false);
   expect(menu.item).toBe(items.at(-1)!);
   menu.move(true, s, prefs);
-  expect(menu.item).toBe("clever_corgi");
+  expect(menu.item).toBe("ui_style");
   menu.move(false, s, prefs);
   expect(menu.item).toBe(items.at(-1)!);
 });
 
 test("typing and pasting search every model of every account; Esc leaves the search first", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences();
   const available = Array.from({ length: 30 }, (_, i) => ({
     provider: "pi",
@@ -525,11 +531,11 @@ test("typing and pasting search every model of every account; Esc leaves the sea
   for (const byte of Buffer.from("no-such\nmodel")) menu.paste(byte);
   expect(menu.modelSearch()?.name()).toBe("no-such model");
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("No models match");
-  expect(menu.escape()).toBe(true);
+  expect(menu.escape(s, prefs)).toBe(true);
   expect(menu.modelSearch()?.name()).toBe("");
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("⏎ pick · esc close");
   // Outside a search, Esc is setup's, which closes.
-  expect(menu.escape()).toBe(false);
+  expect(menu.escape(s, prefs)).toBe(false);
   // Left keeps a search, and leaves an empty one.
   menu.key(47);
   menu.key("m".charCodeAt(0));
@@ -539,7 +545,7 @@ test("typing and pasting search every model of every account; Esc leaves the sea
 });
 
 test("the wheel scrolls a long search, and hovers and clicks pick the model under the pointer", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences(),
     s = status({
       choice: "pi",
@@ -588,7 +594,7 @@ test("the wheel scrolls a long search, and hovers and clicks pick the model unde
 });
 
 test("headers show each agent's mark and its account's plan and limits; rows what's true of the model alone", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences(),
     s = status({
       choice: "codex",
@@ -653,7 +659,7 @@ test("headers show each agent's mark and its account's plan and limits; rows wha
 });
 
 test("a launcher account that is signed out says so in its brief", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences(),
     s = status({ choice: "claude", models: { codex: "gpt-6-luna" } });
   menu.agents = new LauncherMenu();
@@ -696,7 +702,7 @@ test("a provider's recommended model follows the provider's choice, and picking 
         available,
       }),
     open = (s: ReturnType<typeof status>) => {
-      const menu = Menu.open();
+      const menu = clever();
       menu.enter(s, prefs);
       menu.enter(s, prefs);
       return menu;
@@ -735,7 +741,7 @@ test("a provider's recommended model follows the provider's choice, and picking 
 });
 
 test("named accounts list their own models, and a pick carries the account", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences(),
     s = status({
       choice: "claude",
@@ -783,7 +789,7 @@ test("named accounts list their own models, and a pick carries the account", () 
 
 test("suggestions are cheap models, with heavier ones a search away", () => {
   for (const provider of ["codex", "claude"] as const) {
-    const menu = Menu.open(),
+    const menu = clever(),
       prefs = new Preferences(),
       available = ["", "/nvidia"].flatMap(account =>
         Array.from({ length: 8 }, (_, i) => ({
@@ -825,7 +831,7 @@ test("suggestions are cheap models, with heavier ones a search away", () => {
 });
 
 test("a selected native account's model does not leak into the default account row", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences(),
     s = status({
       choice: "codex",
@@ -856,7 +862,7 @@ test("a heavy explicit default selection doesn't become another native account's
     ["codex", "gpt-6-astra", "gpt-6-luna"],
     ["claude", "claude-opus-5-5[1m]", "claude-haiku-5-5"],
   ] as const) {
-    const menu = Menu.open(),
+    const menu = clever(),
       prefs = new Preferences(),
       s = status({
         choice: provider,
@@ -878,7 +884,7 @@ test("a heavy explicit default selection doesn't become another native account's
 });
 
 test("cached models stay listed while catalogs refresh, and arrive in an open picker", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences(),
     loading = status({ choice: "pi", provider: "pi", loading: true });
   menu.enter(loading, prefs);
@@ -931,7 +937,7 @@ test("a narrow frame clips names inside the picker without crossing its borders"
       ],
     });
   for (const cols of [44, 50]) {
-    const menu = Menu.open();
+    const menu = clever();
     menu.enter(s, prefs);
     menu.enter(s, prefs);
     const rows = draw(menu, cols, 30, 0, s, prefs),
@@ -954,7 +960,7 @@ test("a narrow frame clips names inside the picker without crossing its borders"
 });
 
 test("where the picker overhangs the settings list, clicks go to the picker", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences(),
     s = status({ models: { codex: "gpt-6-luna" } });
   menu.enter(s, prefs);
@@ -969,7 +975,7 @@ test("where the picker overhangs the settings list, clicks go to the picker", ()
 });
 
 test("catalog billing reads as plans, metered, free or nothing", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences(),
     s = status({
       available: [
@@ -996,7 +1002,7 @@ test("catalog billing reads as plans, metered, free or nothing", () => {
 });
 
 test("the automatic choice says whom it follows", () => {
-  const menu = Menu.open(),
+  const menu = clever(),
     prefs = new Preferences();
   let text = draw(
     menu,
@@ -1092,12 +1098,13 @@ test("Command keys omit unbound actions and show customized cmux keys", () => {
   expect(text).not.toMatch(/New tab +⌘T/);
 });
 
-test("visual flourishes preview working and idle corgis with a keyboard slider", () => {
+test("UI Style puts the sidebar above the visual flourishes, whose slider takes left and right", () => {
   const menu = Menu.open(),
     prefs = new Preferences(),
     s = status();
-  menu.item = "flourishes";
+  menu.item = "ui_style";
   const text = (now = 0) => draw(menu, 100, 30, now, s, prefs).join("\n");
+  expect(text()).toMatch(/Sidebar[^]*● Left[^]*Visual flourishes[^]*Intensity +50%/);
   expect(text()).toContain("Intensity");
   expect(text()).toContain("━");
   expect(text()).toContain("agents: corgi ▾");
@@ -1108,14 +1115,18 @@ test("visual flourishes preview working and idle corgis with a keyboard slider",
   expect(text(corgiAnimation.puff_duration_ms)).not.toContain("ᶻ");
   expect(text()).not.toContain("Sleeping corgi");
   expect(text()).not.toContain("Reset");
-  expect(menu.intensityKey("left", prefs)).toBeNull();
+  expect(menu.intensityKey("left", s, prefs)).toBeNull();
+  // Options open on the sidebar in use, where left goes back.
   menu.openOptions(s, prefs);
-  expect(menu.intensityKey("left", prefs)).toEqual({ kind: "corgi_intensity", value: 45 });
-  expect(menu.intensityKey("right", prefs)).toEqual({ kind: "corgi_intensity", value: 55 });
-  expect(menu.intensityKey("home", prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
-  expect(menu.intensityKey("end", prefs)).toEqual({ kind: "corgi_intensity", value: 100 });
+  expect(menu.intensityKey("left", s, prefs)).toBeNull();
+  expect(menu.escape(s, prefs)).toBe(false);
+  for (let i = 0; i < 3; i++) menu.move(true, s, prefs);
+  expect(menu.intensityKey("left", s, prefs)).toEqual({ kind: "corgi_intensity", value: 45 });
+  expect(menu.intensityKey("right", s, prefs)).toEqual({ kind: "corgi_intensity", value: 55 });
+  expect(menu.intensityKey("home", s, prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
+  expect(menu.intensityKey("end", s, prefs)).toEqual({ kind: "corgi_intensity", value: 100 });
   prefs.corgi_intensity = 0;
-  expect(menu.intensityKey("left", prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
+  expect(menu.intensityKey("left", s, prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
   expect(text()).not.toContain("~ᐯ");
   expect(text()).toContain("ᶻ");
   expect(text()).toContain("Release notes");
@@ -1130,7 +1141,7 @@ test("the intensity slider previews a drag, clamps outside its track, and cancel
     const menu = Menu.open(),
       prefs = new Preferences(),
       s = status();
-    menu.item = "flourishes";
+    menu.item = "ui_style";
     menu.openOptions(s, prefs);
     const rendered = draw(menu, cols, rows, 0, s, prefs);
     const y = rendered.findIndex(row => row.includes("━"));
@@ -1295,10 +1306,10 @@ test("shortcuts grow the frame into onboarding's preset detail", () => {
   menu.openOptions(s, prefs);
   // The growth starts with the first frame after Enter.
   let text = draw(menu, 140, 36, 1000, s, prefs).join("\n");
-  expect(text).toContain("Visual flourishes");
+  expect(text).toContain("UI Style");
   expect(text).not.toContain("PREFIX");
   text = draw(menu, 140, 36, 1100, s, prefs).join("\n");
-  expect(text).not.toContain("Visual flourishes");
+  expect(text).not.toContain("UI Style");
   expect(text).not.toContain("PREFIX");
   text = draw(menu, 140, 36, 2000, s, prefs).join("\n");
   expect(text).toContain("Corgi setup › Keymap");
@@ -1316,7 +1327,7 @@ test("shortcuts grow the frame into onboarding's preset detail", () => {
   expect(menu.back()).toBe(true);
   text = draw(menu, 140, 36, 2200, s, prefs).join("\n");
   text = draw(menu, 140, 36, 3000, s, prefs).join("\n");
-  expect(text).toContain("Visual flourishes");
+  expect(text).toContain("UI Style");
   expect(text).not.toContain("PREFIX");
 });
 
@@ -1392,7 +1403,7 @@ test("each import source opens its sessions beside the list", async () => {
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Copying into Corgi");
   expect(menu.back()).toBe(true);
   expect(menu.focus).toBe("options");
-  expect(menu.escape()).toBe(true);
+  expect(menu.escape(s, prefs)).toBe(true);
   expect(menu.focus).toBe("options");
   progress.phase = "complete";
   menu.import_picker.last_poll = 0;

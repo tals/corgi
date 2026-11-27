@@ -1,6 +1,6 @@
 //! A row in Corgi setup's options: › while selected, then a name, and at the
-//! right edge "● On" or "○ Off" for an on/off setting, or the choice in use
-//! with ▾ for a dropdown. The import picker draws
+//! right edge "● On" or "○ Off" for an on/off setting, the choice in use
+//! with ▾ for a dropdown, or a slider's level. The import picker draws
 //! Herdr's handoff switch with it, in setup and onboarding alike.
 import * as palette from "./palette";
 import * as i18n from "./i18n";
@@ -92,6 +92,15 @@ export function drawChoice(
 ): void {
   const p = fill(w, x, y, width, here);
   drawValue(w, p, x, y, width, label, `${on ? "●" : "○"} ${choice} ▾`, on ? p.accent : p.quiet);
+}
+/** A slider's row: its name, and its level at the right edge, green while on. */
+export function drawLevel(w: Writer, x: number, y: number, width: number, label: string, level: number, here: boolean) {
+  const p = fill(w, x, y, width, here);
+  drawValue(w, p, x, y, width, label, level === 0 ? i18n.t`Off` : `${level}%`, level === 0 ? p.quiet : p.accent);
+}
+/** The columns a slider's track spans under its row: from its name to its level's end. */
+export function track(x: number, width: number): { start: number; end: number } {
+  return { start: x + 6, end: x + width - 3 };
 }
 function drawValue(
   w: Writer,

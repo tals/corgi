@@ -108,9 +108,8 @@ export const Summarizer = {
 };
 
 export type Item =
-  | "flourishes"
+  | "ui_style"
   | "readings"
-  | "sidebar"
   | "clever_corgi"
   | "theme"
   | "language"
@@ -133,18 +132,17 @@ const import_sources: Record<ImportItem, catalog.Source> = {
 type ListRow = Item | { heading: string } | null;
 /** The list, top to bottom. */
 const list = (): ListRow[] => [
-  "clever_corgi",
-  "flourishes",
-  "readings",
-  null,
+  "ui_style",
   "theme",
   "language",
-  "shell",
   "keyboard",
-  "source_control",
-  "sidebar",
   null,
+  "clever_corgi",
   "agents",
+  null,
+  "shell",
+  "source_control",
+  "readings",
   null,
   "terminal",
   null,
@@ -159,9 +157,8 @@ const list = (): ListRow[] => [
 ];
 export const items = list().filter((row): row is Item => typeof row === "string");
 const labels = (): Record<Item, string> => ({
-  flourishes: i18n.t`Visual flourishes`,
+  ui_style: i18n.t`UI Style`,
   readings: i18n.t`Resources`,
-  sidebar: i18n.t`Sidebar`,
   clever_corgi: i18n.t`Clever Corgi`,
   theme: i18n.t`Theme`,
   language: i18n.t`Language`,
@@ -510,7 +507,7 @@ function layout(cols: number, rows: number, grown: number, expanded = 0): Layout
 }
 
 export class Menu implements LinkSource {
-  item: Item = "clever_corgi";
+  item: Item = "ui_style";
   /** The same model and manager the new-tab picker uses. */
   agents: LauncherMenu | null = null;
   managing(): boolean {
@@ -649,8 +646,12 @@ export class Menu implements LinkSource {
   draggingIntensity(): boolean {
     return this.intensity_drag !== null;
   }
-  intensityKey(key: keys.Key | null, prefs: Preferences): Apply | null {
-    if (this.item !== "flourishes" || this.focus !== "options") return null;
+  /** Whether the options' cursor is on the intensity slider, which takes ← and →. */
+  private onSlider(s: Status, prefs: Preferences): boolean {
+    return this.focus === "options" && this.options(s, prefs)[this.cursor]?.slider !== undefined;
+  }
+  intensityKey(key: keys.Key | null, s: Status, prefs: Preferences): Apply | null {
+    if (!this.onSlider(s, prefs)) return null;
     const current = this.previewIntensity(prefs);
     let value: number;
     switch (key) {
@@ -682,7 +683,8 @@ export class Menu implements LinkSource {
     return value === null ? null : { kind: "corgi_intensity", value };
   }
   private intensityAt(l: Layout, x: number): number {
-    return clamp(Math.round(((x - l.options.x - 2) * 20) / Math.max(1, l.options.w - 4)) * 5, 0, 100);
+    const t = settingRow.track(l.options.x, l.options.w);
+    return clamp(Math.round(((x - t.start) * 20) / Math.max(1, t.end - t.start)) * 5, 0, 100);
   }
   /** The import picker while the list's cursor is on an import source,
    * switched to that source. A copy keeps the source it started from. */
@@ -852,12 +854,12 @@ export class Menu implements LinkSource {
     return true;
   }
   /** Esc closes setup, except while adjusting a slider or copying sessions. */
-  escape(): boolean {
+  escape(s: Status, prefs: Preferences): boolean {
     if (this.focus !== "options") return false;
     if (
       this.model_picker?.searching ||
       this.model_picker?.editing ||
-      this.item === "flourishes" ||
+      this.onSlider(s, prefs) ||
       this.importing()?.stage === "copying"
     )
       return this.back();
@@ -940,7 +942,7 @@ export class Menu implements LinkSource {
     if ("manager" in hit) return null;
     if ("intensity" in hit) {
       this.focus = "options";
-      this.cursor = 0;
+      this.cursor = this.options(s, prefs).findIndex(o => o.slider !== undefined);
       this.intensity_drag = hit.intensity;
       return null;
     }
@@ -1263,7 +1265,10 @@ export class Menu implements LinkSource {
       label_w = Math.max(
         0,
         ...lines.map(line =>
-          line.tag === "option" && line.option.toggle === undefined && line.option.choice === undefined
+          line.tag === "option" &&
+          line.option.toggle === undefined &&
+          line.option.choice === undefined &&
+          line.option.slider === undefined
             ? displayWidth(line.option.label)
             : 0,
         ),
@@ -1277,16 +1282,23 @@ export class Menu implements LinkSource {
           w.write(at(x0, y) + border + "─".repeat(sat(right, x0)));
           return;
         case "intensity": {
-          const thumb = Math.round((this.previewIntensity(prefs) * Math.max(0, right - x0 - 1)) / 100);
-          w.write(at(x0, y) + graph + "━".repeat(thumb));
-          w.write((this.focus === "options" ? bright : graph) + "●" + border + "─".repeat(sat(right - x0 - 1, thumb)));
+          const t = settingRow.track(x, width),
+            span = sat(t.end, t.start),
+            thumb = Math.round((this.previewIntensity(prefs) * span) / 100);
+          w.write(at(t.start, y) + graph + "━".repeat(thumb));
+          w.write((this.onSlider(s, prefs) ? bright : graph) + "●" + border + "─".repeat(sat(span, thumb)));
           return;
         }
-        case "intensity_ends":
-          w.write(at(x0, y) + panel + i18n.t`0 Off` + at(right - 10, y) + i18n.t`100 Bright`);
+        case "intensity_ends": {
+          const t = settingRow.track(x, width),
+            bright_end = i18n.t`100 Bright`;
+          w.write(at(t.start, y) + panel + i18n.t`0 Off` + at(t.end + 1 - displayWidth(bright_end), y) + bright_end);
           return;
-        case "corgi_preview":
-          return this.drawCorgiPreview(w, x0, y, Math.min(28, right - x0), line.row, prefs, now_ms);
+        }
+        case "corgi_preview": {
+          const t = settingRow.track(x, width);
+          return this.drawCorgiPreview(w, t.start, y, Math.min(28, right - t.start), line.row, prefs, now_ms);
+        }
         case "art":
           return this.drawArt(w, line.option, line.index, line.row, x, width, y);
         case "binding": {
@@ -1539,11 +1551,7 @@ export class Menu implements LinkSource {
       x0 = x + 2,
       right = x + width - 1;
     if (o.art) return this.drawArt(w, o, line.index, 0, x, width, y);
-    if (o.slider !== undefined) {
-      const value = o.slider === 0 ? i18n.t`Off` : `${o.slider}%`;
-      w.write(at(x0, y) + (here ? bright : text) + o.label + at(right - displayWidth(value), y) + bright + value);
-      return;
-    }
+    if (o.slider !== undefined) return settingRow.drawLevel(w, x, y, width, o.label, o.slider, here);
     if (o.toggle !== undefined)
       return settingRow.drawToggle(w, x, y, width, {
         label: o.label,
@@ -1639,8 +1647,9 @@ export class Menu implements LinkSource {
       );
     }
     if (this.item === "report_bug") return out.slice(0, l.body);
-    if (this.item === "flourishes" && out.length > l.body)
-      return out.filter(line => line.tag !== "blank" && line.tag !== "lead").slice(0, l.body);
+    // A short frame cuts the preview from the bottom.
+    if (this.item === "ui_style" && out.length > l.body)
+      return out.filter(line => line.tag !== "blank").slice(0, l.body);
     // A short frame draws the answer-time chart as one row.
     if (out.length > l.body && out.some(line => line.tag === "chart"))
       out = this.wrapped(s, prefs, l, { ...fit, chart: false });
@@ -1762,12 +1771,12 @@ export class Menu implements LinkSource {
             art: spaceship_rows,
           }),
         ];
-      case "flourishes":
+      case "ui_style":
         return [
+          title(i18n.t`Sidebar`),
+          ...sidebarOptions(prefs.sidebar_position).map(option),
+          blank,
           title(i18n.t`Visual flourishes`),
-          blank,
-          lead(i18n.t`Sidebar corgi brightness.`),
-          blank,
           option({
             label: i18n.t`Intensity`,
             detail: "",
@@ -1779,15 +1788,8 @@ export class Menu implements LinkSource {
           { tag: "intensity" },
           { tag: "intensity_ends" },
           blank,
-          { tag: "note", text: i18n.t`Preview` },
+          { tag: "brief", text: i18n.t`Preview` },
           ...Array.from({ length: 8 }, (_, row): Line => ({ tag: "corgi_preview", row })),
-        ];
-      case "sidebar":
-        return [
-          title(i18n.t`Sidebar`),
-          lead(i18n.t`Where the workspace and agent lists sit.`),
-          blank,
-          ...sidebarOptions(prefs.sidebar_position).map(option),
         ];
       case "readings":
         return [
@@ -2136,15 +2138,8 @@ export class Menu implements LinkSource {
     const flag = (enabled: boolean) =>
       enabled ? { text: i18n.t`On`, tone: "muted" as const } : { text: i18n.t`Off`, tone: "faint" as const };
     switch (item) {
-      case "flourishes":
-        return {
-          text: this.previewIntensity(prefs) === 0 ? i18n.t`Off` : `${this.previewIntensity(prefs)}%`,
-          tone: "muted",
-        };
       case "readings":
         return flag(prefs.resources.enabled);
-      case "sidebar":
-        return { text: sidebarLabel(prefs.sidebar_position), tone: "muted" };
       case "clever_corgi":
         return { text: "", tone: "faint" };
       case "theme":
@@ -2160,6 +2155,7 @@ export class Menu implements LinkSource {
         return prefs.worktree_folder === worktreeFolder.default_template
           ? { text: "", tone: "faint" }
           : { text: i18n.t`custom`, tone: "muted" };
+      case "ui_style":
       case "terminal":
       case "about":
       case "report_bug":
@@ -2196,11 +2192,12 @@ export class Menu implements LinkSource {
     }
     if (this.item === "agents") return [];
     if (picker) return importHints(picker);
-    if (this.item === "flourishes")
+    if (this.onSlider(s, prefs))
       return [
-        ["←→", i18n.t`adjust`],
         ["home", i18n.t`off`],
         ["end", i18n.t`bright`],
+        ["↑↓", i18n.t`move`],
+        ["←→", i18n.t`adjust`],
         ["esc", i18n.t`back`],
       ];
     if (this.model_picker)
