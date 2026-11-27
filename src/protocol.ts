@@ -64,6 +64,7 @@ export interface View<Session = unknown, Resources = unknown> {
   bell_seq: bigint;
   bell_kind: "none" | "finished" | "needs_input";
   controls: Control[];
+  /** New transcript evidence can change the link under a stationary pointer in this pane. */
   wrapped_notice?: { pane: number; seq: number };
   viewer: number;
   /** Always false; retained for older viewers. Detach uses an action control. */
@@ -237,6 +238,18 @@ export function check(op: string): "none" | "management" | "runtime" | "viewer" 
   )
     return "viewer";
   return local.has(op) ? "none" : "runtime";
+}
+/** Pane reads share the viewer's data connection on local and remote machines. */
+const pane_reads = new Set<Op>([
+  "viewer.surfaces",
+  "viewer.image",
+  "viewer.search",
+  "viewer.pick",
+  "viewer.wrapped_link",
+  "pane.surface",
+]);
+export function readsPane(op: Op): boolean {
+  return pane_reads.has(op);
 }
 export const capabilities = operations.filter(op => op !== "hello" && check(op) !== "none");
 /** The protocol versions a request for `op` carries. */
@@ -997,7 +1010,7 @@ export type GrepSummary = {
 };
 // RPC success payloads; opaque provider messages remain unknown.
 type SessionSnapshot = ReturnType<typeof import("./session").snapshot>;
-type ViewerSnapshot = ReturnType<typeof import("./session").viewerSnapshot>;
+export type ViewerSnapshot = ReturnType<typeof import("./session").viewerSnapshot> & { wrapped_links?: boolean };
 type Ok = { ok: true };
 type ViewerInfo = { id: number; pid: number; active: number; workspace: number; pane: number | null; watched: boolean };
 export interface ReplyPayloads {

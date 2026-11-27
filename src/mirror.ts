@@ -80,6 +80,14 @@ export interface Link {
   /** A file path found in plain text (see `file_ref.ts`). */
   path?: boolean;
 }
+type ResolvedLink = wrappedLink.Target & { id: bigint };
+interface LinkLookup extends wrappedLink.Span {
+  regions: wrappedLink.Span[];
+  target: ResolvedLink | null;
+}
+function covers(span: wrappedLink.Span, x: number, y: number): boolean {
+  return span.row === y && span.start <= x && x < span.end;
+}
 interface Selection {
   x: number;
   y: number;
@@ -89,6 +97,25 @@ interface Selection {
 /** Text without its row joins: the mirror breaks and trims rows the daemon unwraps. */
 export function joinRows(text: string): string {
   return text.replace(/\s*\n\s*/g, "");
+}
+
+/** Only changes to the cells used for a hit test invalidate its result. */
+function sameLinkWindow(before: surface.View, after: surface.View | null, y?: number): boolean {
+  if (before === after) return true;
+  if (
+    !after ||
+    before.stamp.identity !== after.stamp.identity ||
+    before.offset !== after.offset ||
+    before.stamp.offset !== after.stamp.offset ||
+    before.surface.cols !== after.surface.cols ||
+    before.surface.rows !== after.surface.rows
+  )
+    return false;
+  if (y !== undefined) {
+    for (let row = Math.max(0, y - 7); row < Math.min(before.surface.rows, y + 8); row++)
+      if (before.surface.lines[row] !== after.surface.lines[row]) return false;
+  }
+  return true;
 }
 
 // One evidence watch per viewer connection follows its most recent probe.
@@ -124,14 +151,12 @@ export class Terminal {
   private links: Link[] | null = null;
   private installed: surface.View | null = null;
   private link_context: { binding: bigint; cwd: string; phrases: boolean } | null = null;
-  private wrapped: (wrappedLink.Target & { id: bigint }) | null = null;
-  private link_notice = 0;
+  private last_link_recheck = 0;
   /** A transport failure backs off background hover requests on this pane. */
   private hover_retry_at = 0;
-  private lookup: { start: number; end: number; y: number } | null = null;
-  private pending_link: Promise<(wrappedLink.Target & { id: bigint }) | null> | null = null;
+  private lookup: LinkLookup | null = null;
+  private pending_link: Promise<ResolvedLink | null> | null = null;
   private resting: { x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
-  private link_row: { y: number; spans: wrappedLink.Span[] } | null = null;
   private changed_rows = new Uint16Array(0);
   private rendered: { key: string; rows: string } | null = null;
 
@@ -175,7 +200,7 @@ export class Terminal {
     this.updateRender();
     if (!this.links) {
       const native = this.inner.hyperlinks(),
-        target = this.wrapped;
+        target = this.lookup?.target;
       this.links = target
         ? [
             ...target.spans.map(span => ({ ...span, uri: target.uri, path: target.path, id: target.id })),
@@ -187,10 +212,8 @@ export class Terminal {
     }
     return this.links;
   }
-  private clearWrapped(): void {
+  private clearLinkLookup(): void {
     this.lookup = null;
-    this.link_row = null;
-    this.wrapped = null;
     this.links = null;
     this.rendered = null;
     if (this.resting) clearTimeout(this.resting.timer);
@@ -207,21 +230,20 @@ export class Terminal {
       return;
     this.link_context = enabled ? { binding, cwd, phrases } : null;
     this.hover_retry_at = 0;
-    this.clearWrapped();
+    this.clearLinkLookup();
   }
-  linkNotice(seq: number): void {
-    if (this.link_notice === seq) return;
-    this.link_notice = seq;
-    this.clearWrapped();
+  recheckLink(seq: number): void {
+    if (this.last_link_recheck === seq) return;
+    this.last_link_recheck = seq;
+    this.clearLinkLookup();
   }
-  wrappedFile(uri: string): string | null {
-    return this.wrapped?.uri === uri ? this.wrapped.file : null;
+  resolvedFile(uri: string): string | null {
+    const target = this.lookup?.target;
+    return target?.uri === uri ? target.file : null;
   }
   private answered(x: number, y: number): boolean {
-    return (
-      (this.lookup && x >= this.lookup.start && x < this.lookup.end && this.lookup.y === y) ||
-      !!this.wrapped?.spans.some(s => s.row === y && x >= s.start && x < s.end)
-    );
+    const lookup = this.lookup;
+    return !!lookup && (covers(lookup, x, y) || !!lookup.target?.spans.some(s => covers(s, x, y)));
   }
   /** Wait for pointer travel to settle before any lookups, including over SSH. */
   hoverLink(x: number, y: number, wanted: () => boolean, wake: () => void): void {
@@ -246,7 +268,7 @@ export class Terminal {
     };
   }
   private linkRegions(view: surface.View, y: number, phrases: boolean): wrappedLink.Span[] {
-    return this.link_row?.y === y ? this.link_row.spans : wrappedLink.regions(view.surface.lines, y, phrases);
+    return this.lookup?.row === y ? this.lookup.regions : wrappedLink.regions(view.surface.lines, y, phrases);
   }
   /** Return a pending hit only for plausible cells. Release, drag and other
    * input can proceed while the pane's daemon resolves the pressed text. */
@@ -259,59 +281,37 @@ export class Terminal {
     const view = this.installed,
       context = this.link_context;
     const cached = !this.pending_link && this.answered(x, y);
-    if (!view || !context || this.closed || (cached && this.wrapped)) return null;
+    if (!view || !context || this.closed || (cached && this.lookup?.target)) return null;
     const regions = this.linkRegions(view, y, context.phrases);
     if (!regions.some(s => s.start <= x && x < s.end)) return null;
     // A file can appear without changing these rows. Retry a completed miss on a press.
     if (cached) this.lookup = null;
-    const current = () => {
-      const now = this.installed;
-      return (
-        context === this.link_context &&
-        !this.closed &&
-        (view === now ||
-          (!!now &&
-            now.stamp.identity === view.stamp.identity &&
-            now.offset === view.offset &&
-            now.stamp.offset === view.stamp.offset &&
-            now.surface.cols === view.surface.cols &&
-            now.surface.rows === view.surface.rows &&
-            view.surface.lines
-              .slice(Math.max(0, y - 7), y + 8)
-              .every((line, i) => line === now.surface.lines[Math.max(0, y - 7) + i])))
-      );
-    };
-    return (async () => {
-      while (this.pending_link) {
-        await this.pending_link;
-        if (!wanted()) return null;
-      }
+    const current = () =>
+      wanted() && !this.closed && context === this.link_context && sameLinkWindow(view, this.installed, y);
+    return this.probeLink(x, y, wake, regions, current).then(target => {
       if (!current()) return null;
-      const target = await this.probeLink(x, y, wake, regions);
-      if (!wanted() || !current()) return null;
-      const span = target?.spans.find(s => s.row === y && s.start <= x && x < s.end);
+      const span = target?.spans.find(s => covers(s, x, y));
       if (target && span) return { ...span, uri: target.uri, path: target.path, id: target.id, file: target.file };
-      return this.hyperlinks().find(link => link.row === y && link.start <= x && x < link.end) ?? null;
-    })();
+      return this.hyperlinks().find(link => covers(link, x, y)) ?? null;
+    });
   }
-  async probeLink(x: number, y: number, wake: () => void, regions?: wrappedLink.Span[]) {
+  async probeLink(x: number, y: number, wake: () => void, regions?: wrappedLink.Span[], current?: () => boolean) {
     while (this.pending_link) await this.pending_link;
+    if (current && !current()) return null;
     const view = this.installed,
       context = this.link_context;
     if (!view || !context || this.closed || this.holding_selection) return null;
-    if (this.answered(x, y)) return this.wrapped;
+    if (this.answered(x, y)) return this.lookup?.target ?? null;
     regions ??= this.linkRegions(view, y, context.phrases);
-    this.link_row = { y, spans: regions };
-    const lookup: { start: number; end: number; y: number } = { start: x, end: x + 1, y };
-    if (this.wrapped) {
-      this.wrapped = null;
+    const lookup: LinkLookup = { row: y, start: x, end: x + 1, regions, target: null };
+    if (this.lookup?.target) {
       this.links = null;
       this.rendered = null;
     }
     this.lookup = lookup;
     if (!regions.some(s => s.start <= x && x < s.end)) return null;
     const other = watched.get(this.conn);
-    if (other && other !== this) other.clearWrapped();
+    if (other && other !== this) other.clearLinkLookup();
     watched.set(this.conn, this);
     const stamp = view.stamp;
     const pending = call(this.conn, "viewer.wrapped_link", {
@@ -328,10 +328,10 @@ export class Terminal {
         if (this.lookup !== lookup || this.closed) return null;
         this.hover_retry_at = 0;
         if (!target && range) Object.assign(lookup, range);
-        this.wrapped = target ? { ...target, id: BigInt(Bun.hash(JSON.stringify([target.uri, target.spans]))) } : null;
+        lookup.target = target ? { ...target, id: BigInt(Bun.hash(JSON.stringify([target.uri, target.spans]))) } : null;
         this.links = null;
         this.rendered = null;
-        return this.wrapped;
+        return lookup.target;
       })
       .catch(() => {
         if (this.lookup === lookup) {
@@ -370,7 +370,7 @@ export class Terminal {
     if (this.closed) return;
     this.closed = true;
     if (watched.get(this.conn) === this) watched.delete(this.conn);
-    this.clearWrapped();
+    this.clearLinkLookup();
     this.native?.destroy();
     this.native = null;
     this.pending = [];
@@ -431,14 +431,8 @@ export class Terminal {
     y: number,
     to: { x: number; y: number } | null = null,
   ): Promise<protocol.PickResult | null> {
-    const link = this.wrapped;
-    if (
-      unit === "word" &&
-      !to &&
-      link &&
-      !link.path &&
-      link.spans.some(s => s.row === y && s.start <= x && x < s.end)
-    ) {
+    const link = this.lookup?.target;
+    if (unit === "word" && !to && link && !link.path && link.spans.some(s => covers(s, x, y))) {
       const first = link.spans[0],
         last = link.spans.at(-1)!;
       return {
@@ -585,19 +579,7 @@ export class Terminal {
     const frame = view.surface;
     if (!frame || frame.cols === 0 || frame.rows === 0) return;
     const previous = this.installed;
-    if (
-      !previous ||
-      previous.stamp.identity !== view.stamp.identity ||
-      previous.surface.cols !== frame.cols ||
-      previous.surface.rows !== frame.rows ||
-      previous.offset !== view.offset ||
-      (this.link_row &&
-        frame.lines
-          .slice(Math.max(0, this.link_row.y - 7), this.link_row.y + 8)
-          .some((line, i) => line !== previous.surface.lines[Math.max(0, this.link_row!.y - 7) + i])) ||
-      previous.stamp.offset !== view.stamp.offset
-    )
-      this.clearWrapped();
+    if (!previous || !sameLinkWindow(previous, view, this.lookup?.row)) this.clearLinkLookup();
     let changed: Uint16Array | undefined;
     if (
       previous &&
@@ -667,7 +649,8 @@ export class Terminal {
   }
   rows(pane: number, x: number, y: number, w: number, h: number, dimmed: boolean, hovered: bigint | null): string {
     this.updateRender();
-    const key = `${pane}:${x}:${y}:${w}:${h}:${dimmed}:${hovered}`;
+    const key = `${pane}:${x}:${y}:${w}:${h}:${dimmed}:${hovered}`,
+      overlay = this.lookup?.target ?? undefined;
     if (this.rendered?.key !== key)
       this.rendered = {
         key,
@@ -680,7 +663,7 @@ export class Terminal {
           h,
           dimmed,
           hovered,
-          this.wrapped && hovered === this.wrapped.id ? this.wrapped : undefined,
+          overlay?.id === hovered ? overlay : undefined,
         ),
       };
     return this.rendered.rows;

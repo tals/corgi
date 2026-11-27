@@ -1,4 +1,5 @@
 import type { Wait as StartupWait } from "./startup";
+import { HoverWatch } from "./link_evidence";
 import * as telemetry from "./telemetry";
 import * as json from "./json";
 import * as wire_compression from "./wire_compression";
@@ -44,9 +45,7 @@ export class Client {
   terminal: unknown = null;
   view_focus: number | null = null;
   interests: Interest[] = [];
-  wrapped_watch: { pane: number; actor: number; binding: bigint; revision: number; missing: Set<string> } | null = null;
-  wrapped_notice: { pane: number; seq: number } | null = null;
-  wrapped_seq = 0;
+  readonly hover_link = new HoverWatch();
   protocol_version: number | null = null;
   startup_wait: StartupWait | null = null;
   subscribed = false;
@@ -61,7 +60,6 @@ export class Client {
     sent: number;
     wake: bigint;
     heartbeat: number;
-    wrapped_seq?: number;
   } | null = null;
   watching = false;
   stream_data = false;

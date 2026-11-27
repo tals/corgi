@@ -8,7 +8,7 @@ export interface Token {
   end: number;
   path: boolean;
   /** Includes the matching Markdown delimiters; the visible link excludes them. */
-  code?: { start: number; close: number; end: number };
+  code?: { start: number; end: number };
 }
 
 const max_path = 1024;
@@ -156,12 +156,12 @@ export function codePairs(text: string): Map<number, number> {
   return pairs;
 }
 
-export function* tokens(text: string): Generator<Token> {
+export function* tokens(text: string, paragraphPairs?: ReadonlyMap<number, number>, offset = 0): Generator<Token> {
   // Plain prose without a slash, dot or line number cannot name a target.
   if (!/[/.`]|[:(]\d|#L\d|", line \d/.test(text)) return;
   const scan = /[a-z][\w+.-]*:\/\/|`+|["']|[\p{L}\p{N}\p{M}\p{Extended_Pictographic}\u200d/._+@~-]+/giu;
   const body = /[^\s<>"`\x00-\x1f\x7f]*/uy;
-  const pairs = codePairs(text);
+  const pairs = paragraphPairs ?? codePairs(text);
   let m;
   while ((m = scan.exec(text))) {
     const raw = m[0],
@@ -180,15 +180,25 @@ export function* tokens(text: string): Generator<Token> {
       continue;
     }
     if (raw[0] === "`") {
-      const close = pairs.get(start);
-      if (close === undefined || close - scan.lastIndex > max_path + 2) continue;
+      const paired = pairs.get(offset + start);
+      if (paired === undefined) continue;
+      const close = paired - offset;
+      // A screen window may cut through a pair or join backtick runs at a hard break.
+      if (
+        close < scan.lastIndex ||
+        close - scan.lastIndex > max_path + 2 ||
+        !text.startsWith(raw, close) ||
+        text[close - 1] === "`" ||
+        text[close + raw.length] === "`"
+      )
+        continue;
       const original = text.slice(scan.lastIndex, close);
       const content = original.replace(/\r\n|[\r\n]/g, " ");
       const pad = Number(content.startsWith(" ") && content.endsWith(" "));
       const after = close + raw.length;
       const found = plain(text, scan.lastIndex + pad, content.slice(pad, content.length - pad), "`", after);
       if (found) {
-        yield { ...found, end: close - pad, code: { start, close, end: after } };
+        yield { ...found, end: close - pad, code: { start, end: after } };
         scan.lastIndex = after;
       }
       continue;
@@ -303,5 +313,36 @@ export class Dictionary {
     this.recent.set(owned, owned);
     if (unqualified) this.unqualified.add(owned);
     this.revision = ++revision;
+  }
+}
+
+/** One viewer can be waiting for a transcript to confirm the link under its pointer. */
+export class HoverWatch {
+  target: { pane: number; actor: number; binding: bigint; dictionary_revision: number; spellings: Set<string> } | null =
+    null;
+  private refresh_pane: number | null = null;
+  revision = 0;
+  sent_revision = 0;
+
+  clear() {
+    this.target = null;
+    this.refresh_pane = null;
+  }
+  check(dictionary: Dictionary | null) {
+    const target = this.target;
+    if (!target || !dictionary || dictionary.revision === target.dictionary_revision) return;
+    target.dictionary_revision = dictionary.revision;
+    for (const spelling of target.spellings) {
+      if (!dictionary.has(spelling)) continue;
+      this.refresh_pane = target.pane;
+      this.target = null;
+      this.revision++;
+      break;
+    }
+  }
+  /** A fresh stream also receives the last match, in case its predecessor disconnected. */
+  recheck(streaming: boolean) {
+    if (this.refresh_pane === null || (streaming && this.sent_revision === this.revision)) return undefined;
+    return { pane: this.refresh_pane, seq: this.revision };
   }
 }

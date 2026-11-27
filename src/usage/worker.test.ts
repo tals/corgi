@@ -978,14 +978,19 @@ test("tool output alone updates session link evidence without publishing usage",
       expect(links.has("/tmp/generated.png")).toBe(false);
       expect(opened).toHaveBeenCalledTimes(0);
       const fresh = Array.from({ length: 255 }, (_, n) => "assets/new-" + n + ".png");
-      appendFileSync(file, result("session", fresh.join(" ")));
+      const last = fresh.at(-1)!;
+      appendFileSync(file, result("session", fresh.slice(0, -1).join(" ")) + result("session", last).trimEnd());
       await resumed.run();
       expect(opened).toHaveBeenCalledTimes(1);
       expect(links.has(fresh[0])).toBe(true);
+      expect(links.has(last)).toBe(false);
       expect(links.has("/tmp/generated.png")).toBe(false);
       resumed.requestLinkHistory(1);
+      appendFileSync(file, "\n");
       await resumed.run();
+      // Finishing the new record and reading older spellings share one verified open.
       expect(opened).toHaveBeenCalledTimes(2);
+      expect(links.has(last)).toBe(true);
       expect(links.has("/tmp/generated.png")).toBe(true);
       expect(links.has("https://example.org/image")).toBe(false);
       resumed.requestLinkHistory(1);

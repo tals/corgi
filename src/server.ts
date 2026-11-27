@@ -258,7 +258,7 @@ export class Server {
     let seq = this.runtime.shown + this.bell_seq;
     for (const c of this.clients)
       if (c.viewer && c.viewer_id === id) {
-        seq += c.next_control + viewer.wrappedWake(this, c);
+        seq += c.next_control + viewer.hoverLinkRevision(this, c);
         for (const interest of c.interests) {
           const p = this.runtime.pane(interest.pane);
           if (p) seq += p.displayed().surface_revision;
@@ -994,7 +994,7 @@ export class Server {
         await viewer.search(this, cl, request.payload, reply);
         return;
       case "viewer.wrapped_link":
-        await viewer.wrapped(this, cl, request.payload, reply);
+        await viewer.resolveHoverLink(this, cl, request.payload, reply);
         return;
       case "viewer.pick":
         await viewer.pick(this, cl, request.payload, reply);

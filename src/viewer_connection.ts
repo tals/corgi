@@ -95,17 +95,9 @@ export class Connection implements Transport {
     data.close();
   }
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>> {
-    switch (op) {
-      case "viewer.sync":
-        return this.sync(args[0] as protocol.RequestInput<"viewer.sync">) as Promise<protocol.Response<K>>;
-      case "viewer.surfaces":
-      case "viewer.image":
-      case "viewer.search":
-      case "viewer.wrapped_link":
-      case "viewer.pick":
-      case "pane.surface":
-        return this.content(op, ...args);
-    }
+    if (op === "viewer.sync")
+      return this.sync(args[0] as protocol.RequestInput<"viewer.sync">) as Promise<protocol.Response<K>>;
+    if (protocol.readsPane(op)) return this.content(op, ...args);
     // Input and paste stay ordered with the commands that move or close panes.
     if (protocol.once(op)) return this.once(op, args[0]);
     return this.call(op, ...args);

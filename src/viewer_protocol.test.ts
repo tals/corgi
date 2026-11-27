@@ -18,8 +18,8 @@ import {
   open,
   sync,
   surfaces,
-  wrapped,
-  wrappedWake,
+  resolveHoverLink,
+  hoverLinkRevision,
   image,
   start,
   receipt,
@@ -575,17 +575,19 @@ test("unrelated live output cannot stale a wrapped hover but changed target cell
     };
   terminal.feed("\x1b[22;1Hbusy");
   expect(terminal.surface_revision).toBeGreaterThan(q.revision);
-  await wrapped(server, client, q);
+  await resolveHoverLink(server, client, q);
   expect(sent.mock.calls.at(-1)![0]).toMatchObject({ target: { uri: url } });
   terminal.feed("\x1b[2;1Hnew");
-  await wrapped(server, client, q);
+  await resolveHoverLink(server, client, q);
   expect(sent.mock.calls.at(-1)![0]).toMatchObject({ target: null });
 });
 
 test("only an exact missing spelling wakes a viewer and only once", async () => {
   const server = fixture(),
-    pane = new Pane(1, new Terminal(32, 5), "/tmp"),
+    workspace = new Workspace(1, "/tmp"),
+    pane = new Pane(workspace.model.newTab("shell"), new Terminal(32, 5), "/tmp"),
     client = peer(server);
+  server.runtime.workspaces.items.push(workspace);
   server.runtime.panes.push(pane);
   const actor = new Actor({ id: 7 }),
     dictionary = new Dictionary();
@@ -595,7 +597,7 @@ test("only an exact missing spelling wakes a viewer and only once", async () => 
   spyOn(client, "queue").mockImplementation(() => {});
   pane.terminal.feed("https://example.org/rec\r\nord");
   const view = pane.terminal.surface(1);
-  await wrapped(server, client, {
+  await resolveHoverLink(server, client, {
     pane: 1,
     x: 2,
     y: 1,
@@ -607,12 +609,16 @@ test("only an exact missing spelling wakes a viewer and only once", async () => 
   });
   for (let i = 0; i < 100; i++) {
     dictionary.add("https://other.test/" + i);
-    expect(wrappedWake(server, client)).toBe(0n);
+    expect(hoverLinkRevision(server, client)).toBe(0n);
   }
   dictionary.add("https://example.org/record");
-  expect(wrappedWake(server, client)).toBe(1n);
-  expect(client.wrapped_notice).toEqual({ pane: 1, seq: 1 });
+  expect(hoverLinkRevision(server, client)).toBe(1n);
+  const request = protocol.decode("viewer.stream", { sequence: 1, interests: client.interests });
+  const notice = { pane: 1, seq: 1 };
+  expect((await start(server, client, request)).view.wrapped_notice).toEqual(notice);
+  expect(client.hover_link.recheck(true)).toBeUndefined();
+  expect((await start(server, client, { ...request, sequence: 2 })).view.wrapped_notice).toEqual(notice);
   dictionary.add("https://other.test/again");
-  expect(wrappedWake(server, client)).toBe(1n);
+  expect(hoverLinkRevision(server, client)).toBe(1n);
   server.usage.stop();
 });

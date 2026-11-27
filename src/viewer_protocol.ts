@@ -11,13 +11,19 @@ import * as session from "./session";
 import * as workspace from "./workspace";
 import { microTimestamp } from "./clock";
 import { stringify } from "./json";
-import { version as wire_version, type View as WireView, type Control, type Request } from "./protocol";
+import {
+  version as wire_version,
+  type View as WireView,
+  type ViewerSnapshot,
+  type Control,
+  type Request,
+} from "./protocol";
 import type { Server } from "./server";
 import { Reply, type Client } from "./peer";
 import type { Snapshot as Resources } from "./trackers/resources";
 import * as viewer_stream from "./viewer_stream";
 export type { Control } from "./protocol";
-export type View = WireView<ReturnType<typeof session.viewerSnapshot>, Resources>;
+export type View = WireView<ViewerSnapshot, Resources>;
 export interface Interest {
   pane: number;
   cols: number;
@@ -185,7 +191,7 @@ function capture(
     rebuild = cl.session_shown !== s.runtime.shown || cl.session_bucket !== bucket || session_hash !== cl.session_hash;
   let snapshot: View["session"] = null;
   if (rebuild) {
-    snapshot = session.viewerSnapshot(s.runtime);
+    snapshot = { ...session.viewerSnapshot(s.runtime), wrapped_links: true };
     cl.session_hash = hash(stringify(snapshot));
     cl.session_shown = s.runtime.shown;
     cl.session_bucket = bucket;
@@ -194,14 +200,12 @@ function capture(
   const view: View = {
     type: "view",
     viewer_protocol: version,
-    session: session_hash === cl.session_hash ? null : (snapshot ?? session.viewerSnapshot(s.runtime)),
+    session: session_hash === cl.session_hash ? null : snapshot,
     session_hash: cl.session_hash,
     resources: resources_hash === resourcesHash ? null : readings,
     resources_hash: resourcesHash,
     surfaces: surfaces ? frames(s, cl) : [],
-    ...(cl.wrapped_notice && cl.wrapped_notice.seq !== cl.stream?.wrapped_seq
-      ? { wrapped_notice: cl.wrapped_notice }
-      : {}),
+    wrapped_notice: cl.hover_link.recheck(cl.stream !== null),
     bell_seq: s.bell_seq,
     bell_kind: s.last_bell_kind,
     controls: cl.controls,
@@ -311,7 +315,7 @@ export function remember(cl: Client, view: View, wake: bigint, now = Date.now())
   cl.cancelFrame();
   if (!cl.stream) return;
   cl.stream.sent = now;
-  if (view.wrapped_notice) cl.stream.wrapped_seq = view.wrapped_notice.seq;
+  if (view.wrapped_notice) cl.hover_link.sent_revision = view.wrapped_notice.seq;
   cl.stream.wake = wake;
   cl.stream.session_hash = view.session_hash;
   cl.stream.resources_hash = view.resources_hash;
@@ -353,31 +357,28 @@ export async function pick(s: Server, cl: Client, q: Request<"viewer.pick">, rep
   reply.ok(await p.displayed().pick(q.unit, q.x, q.y, q.to_x, q.to_y, viewport(q.offset)!));
 }
 /** Only a new spelling relevant to the last lookup wakes this viewer. */
-export function wrappedWake(s: Server, cl: Client): bigint {
-  const watch = cl.wrapped_watch;
-  if (watch) {
-    const pane = s.runtime.pane(watch.pane);
+export function hoverLinkRevision(s: Server, cl: Client): bigint {
+  const hover = cl.hover_link,
+    target = hover.target;
+  if (target) {
+    const pane = s.runtime.pane(target.pane);
     if (
-      pane?.attachment.generation !== watch.binding ||
-      pane.attachment.actor?.id !== watch.actor ||
-      !cl.interests.some(i => i.pane === watch.pane)
+      pane?.attachment.generation !== target.binding ||
+      pane.attachment.actor?.id !== target.actor ||
+      !cl.interests.some(i => i.pane === target.pane)
     )
-      cl.wrapped_watch = null;
-    else {
-      const known = s.usage?.linkEvidence(watch.actor);
-      if (known && known.revision !== watch.revision) {
-        watch.revision = known.revision;
-        if ([...watch.missing].some(uri => known.has(uri))) {
-          cl.wrapped_watch = null;
-          cl.wrapped_notice = { pane: watch.pane, seq: ++cl.wrapped_seq };
-        }
-      }
-    }
+      hover.clear();
+    else hover.check(s.usage?.linkEvidence(target.actor) ?? null);
   }
-  return BigInt(cl.wrapped_seq);
+  return BigInt(hover.revision);
 }
 /** Resolve the same displayed cells on whichever daemon owns the pane. */
-export async function wrapped(s: Server, cl: Client, q: Request<"viewer.wrapped_link">, reply = new Reply(cl)) {
+export async function resolveHoverLink(
+  s: Server,
+  cl: Client,
+  q: Request<"viewer.wrapped_link">,
+  reply = new Reply(cl),
+) {
   const viewer = owner(s, cl),
     pane = s.runtime.pane(q.pane);
   if (!pane || !viewer.interests.some(i => i.pane === q.pane)) throw Error("NoPane");
@@ -389,8 +390,7 @@ export async function wrapped(s: Server, cl: Client, q: Request<"viewer.wrapped_
     pane.displayed() === terminal &&
     terminal.surface_identity === q.identity &&
     pane.attachment.generation === q.binding;
-  viewer.wrapped_watch = null;
-  viewer.wrapped_notice = null;
+  viewer.hover_link.clear();
   if (!current()) return reply.ok({ target: null });
   const verify = terminal.surface_revision !== q.revision;
   const rows: wrappedLink.Row[] = terminal.native({
@@ -405,12 +405,12 @@ export async function wrapped(s: Server, cl: Client, q: Request<"viewer.wrapped_
   const probe = wrappedLink.inspect(rows, q.x, q.y, dictionary, !!actor);
   if (actor && probe.missing.size) {
     s.usage?.requestLinkHistory(actor.id);
-    viewer.wrapped_watch = {
+    viewer.hover_link.target = {
       pane: pane.id,
       actor: actor.id,
       binding: q.binding,
-      revision: dictionary?.revision ?? 0,
-      missing: probe.missing,
+      dictionary_revision: dictionary?.revision ?? 0,
+      spellings: probe.missing,
     };
   }
   const target = await wrappedLink.resolve(probe, fileAccess.here, pane.agent().cwd.text() || pane.cwd);

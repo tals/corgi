@@ -226,12 +226,6 @@ function tabWheel(button: number): boolean | null {
       return null;
   }
 }
-/** A verified file on the pane’s machine. */
-interface OpenFile {
-  path: string;
-  line: number | null;
-  column: number | null;
-}
 /** The file a link in a pane names on its machine, where it was found. */
 interface LinkedFile {
   path: string;
@@ -241,7 +235,7 @@ interface LinkedFile {
 }
 interface Destination {
   url: string;
-  file: OpenFile | null;
+  file: fileRef.Ref | null;
 }
 interface ClickTarget extends Destination {
   /** The pane may still be resolving the cell at release. */
@@ -4431,7 +4425,7 @@ export class Controller {
       }
     });
   }
-  private openLink(url: string, machine = this.machine, file: OpenFile | null = null): void {
+  private openLink(url: string, machine = this.machine, file: fileRef.Ref | null = null): void {
     if (!file) this.queueEffect(machine.remote ? { open_url: url, machine: machine.id } : { open_url: url });
     else if (linkThumbnail.isImage(file.path)) this.openImage(file.path, machine);
     else void this.openFile(file.path, file.line, file.column);
@@ -9568,18 +9562,10 @@ export class Controller {
           const target = this.pressedTarget(pane, px, py, hit, preview_click);
           // A mouse-aware program needs its press and release on a miss. For Ctrl-click
           // give the lookup the same short window as the previous synchronous hit test.
-          let confirmed = target;
-          if (app_mouse && !preview_click && target?.resolving) {
-            let timer: ReturnType<typeof setTimeout> | undefined;
-            try {
-              confirmed = await Promise.race([
-                target.resolving(),
-                new Promise<null>(done => (timer = setTimeout(() => done(null), 90))),
-              ]);
-            } finally {
-              clearTimeout(timer);
-            }
-          }
+          const confirmed =
+            app_mouse && !preview_click && target?.resolving
+              ? await Promise.race([target.resolving(), Bun.sleep(90).then(() => null)])
+              : target;
           if (confirmed) {
             if (plain_link && term.selection) term.clearSelection();
             cl.port_click = portClick({ ...confirmed, x, y, machine, pane: p.id, px, py, drag_selects: plain_link });
@@ -10592,7 +10578,7 @@ export class Controller {
     if (!pane) return null;
     const ref = fileRef.parse(uri, path, this.machine.remote ? null : undefined);
     if (!ref) return null;
-    const recovered = path && (verified ?? pane.terminal.wrappedFile(uri));
+    const recovered = path && (verified ?? pane.terminal.resolvedFile(uri));
     const status = recovered
       ? { kind: "file" as const, path: recovered }
       : this.file_refs.get(ref, pane.agent.cwd || pane.cwd, { fresh });

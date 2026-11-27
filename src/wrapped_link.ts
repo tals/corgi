@@ -63,11 +63,14 @@ function* screenTokens(
   phrases: boolean,
   firstEnd: number,
   lastStart: number,
+  pairs: ReadonlyMap<number, number>,
+  offset: number,
   styled?: evidence.Token[],
   next?: string,
 ) {
   const source = text.endsWith("`") ? withPeriod(text, next) : text;
-  for (const token of evidence.tokens(source)) if (token.end <= text.length) yield { token, phrase: false };
+  for (const token of evidence.tokens(source, pairs, offset))
+    if (token.end <= text.length) yield { token, phrase: false };
   for (const token of styled ?? []) {
     if (text.slice(token.start, token.end) === token.uri) yield { token, phrase: true };
   }
@@ -96,50 +99,73 @@ function* screenTokens(
 }
 
 function* windows(parts: string[], anchor: number, phrases: boolean, styled: evidence.Token[], wraps?: boolean[]) {
-  let paragraph = "";
-  const rowStarts = parts.map((part, row) => {
-    if (row && !wraps?.[row - 1]) paragraph += "\n";
-    const start = paragraph.length;
-    paragraph += part;
-    return start;
-  });
+  if (!parts[anchor]?.trim()) return;
+  let top = anchor,
+    bottom = anchor;
+  while (top > 0 && parts[top - 1].trim()) top--;
+  while (bottom + 1 < parts.length && parts[bottom + 1].trim()) bottom++;
+  if (!styled.length && !parts.slice(top, bottom + 1).some(r => /[/.#:(`"]/.test(r) || (phrases && /[A-Z]/.test(r))))
+    return;
+  let joined = "",
+    paragraph = "";
+  const starts: number[] = [],
+    wordStarts: number[] = [];
+  for (let row = top; row <= bottom; row++) {
+    if (row > top && !wraps?.[row - 1]) paragraph += "\n";
+    starts[row] = joined.length;
+    wordStarts[row] = paragraph.length;
+    joined += parts[row];
+    paragraph += parts[row];
+  }
+  // Pair delimiters once with the real paragraph breaks. Translate their positions
+  // for the spelling that removes breaks; inserting spaces keeps offsets unchanged.
   const pairs = evidence.codePairs(paragraph);
-  for (let first = anchor; first >= Math.max(0, anchor - 7); first--) {
-    const starts: number[] = [],
-      wordStarts: number[] = [];
-    let joined = "",
-      words = "";
-    for (let last = first; last < Math.min(parts.length, first + 8); last++) {
-      const part = parts[last];
-      if (!part) break;
-      if (last > first && !wraps?.[last - 1]) words += " ";
-      starts.push(joined.length);
-      wordStarts.push(words.length);
-      joined += part;
-      words += part;
-      if (last < anchor) continue;
-      for (const spaced of [false, true]) {
-        if (spaced && (words.length === joined.length || !(words.includes("`") || (phrases && renderedHint(words)))))
+  const joinedAt = (pos: number) => {
+    const row = wordStarts.findLastIndex(start => start <= pos);
+    return pos - wordStarts[row] + starts[row];
+  };
+  const joinedPairs = new Map<number, number>();
+  for (const [open, close] of pairs) {
+    const begin = joinedAt(open),
+      end = joinedAt(close);
+    // Removing a break between backticks can create an earlier closing delimiter.
+    if (/[`\\]\n`/.test(paragraph.slice(open, close + 1))) {
+      const run = paragraph.slice(open).match(/^`+/)![0];
+      if (evidence.codePairs(joined.slice(begin, end + run.length)).get(0) !== end - begin) continue;
+    }
+    joinedPairs.set(begin, end);
+  }
+  const forms = [{ text: joined, starts, pairs: joinedPairs, spaced: false }];
+  if (paragraph.length !== joined.length)
+    forms.push({ text: paragraph.replaceAll("\n", " "), starts: wordStarts, pairs, spaced: true });
+  for (let first = anchor; first >= Math.max(top, anchor - 7); first--) {
+    for (let last = anchor; last <= Math.min(bottom, first + 7); last++) {
+      for (const form of forms) {
+        const base = form.starts[first],
+          text = form.text.slice(base, form.starts[last] + parts[last].length);
+        const spaced = form.spaced;
+        if (
+          spaced &&
+          (form.starts[last] - base === starts[last] - starts[first] ||
+            !(text.includes("`") || (phrases && renderedHint(text))))
+        )
           continue;
-        const offsets = spaced ? wordStarts : starts,
-          text = spaced ? words : joined;
+        const second = last > first ? form.starts[first + 1] - base : Infinity,
+          tail = form.starts[last] - base;
         for (const { token, phrase } of screenTokens(
           text,
           phrases,
-          offsets[1] ?? Infinity,
-          offsets[last - first],
+          second,
+          tail,
+          form.pairs,
+          base,
           first === last ? styled : undefined,
           !wraps || wraps[last] ? parts[last + 1] : undefined,
         )) {
           if (!token.code && !phrase && (last === first || spaced)) continue;
           const extent = token.code ?? token;
-          if (last > first && (extent.start >= offsets[1] || extent.end <= offsets[last - first])) continue;
-          if (token.code) {
-            const open = rowStarts[first] + token.code.start;
-            const close = rowStarts[last] + token.code.close - offsets[last - first];
-            if (pairs.get(open) !== close) continue;
-          }
-          yield { first, last, text, offsets, token, phrase, spaced };
+          if (last > first && (extent.start >= second || extent.end <= tail)) continue;
+          yield { first, last, text, starts: form.starts, base, token, phrase, spaced };
         }
       }
     }
@@ -148,25 +174,25 @@ function* windows(parts: string[], anchor: number, phrases: boolean, styled: evi
 
 /** Cells on the hovered row that could belong to a recovered target. */
 export function regions(lines: string[], y: number, phrases = false): Span[] {
-  const firstRow = Math.max(0, y - 7);
-  const rows = lines.slice(firstRow, y + 8).map(line => Bun.stripANSI(line).trimEnd());
-  const at = y - firstRow,
+  const first = Math.max(0, y - 7),
+    rows = lines.slice(first, y + 8).map(line => Bun.stripANSI(line).trimEnd()),
+    at = y - first,
     row = rows[at];
-  if (!row?.trim()) return [];
+  if (!row) return [];
   const spans: Span[] = [];
   const plain = /^[\x20-\x7e]*$/.test(row),
     indent = row.length - row.trimStart().length;
   const styled = phrases ? styledNames(lines[y], indent, rows[at + 1]) : [];
-  if (!styled.length && !rows.some(r => /[/.#:(`]/.test(r) || (phrases && /[A-Z]/.test(r)))) return [];
-  for (const { first, offsets, token } of windows(
+  for (const { starts, base, token } of windows(
     rows.map(r => r.trimStart()),
     at,
     phrases,
     styled,
   )) {
-    const offset = offsets[at - first];
+    const offset = starts[at] - base;
     const start = plain ? indent + Math.max(0, token.start - offset) : 0,
       end = plain ? Math.min(row.length, indent + token.end - offset) : Infinity;
+    if (!plain || (start === indent && end === row.length)) return [{ row: y, start, end }];
     if (end > start && !spans.some(s => s.start === start && s.end === end)) spans.push({ row: y, start, end });
   }
   return spans;
@@ -216,7 +242,7 @@ export function inspect(
   const pieces = rows.map((row, i) => piece(row, !(row.continued || rows[i - 1]?.wrap), !row.wrap));
 
   const parts = pieces.map(p => p.text.slice(p.start, p.end));
-  for (const { first, last, text, offsets, token, phrase, spaced } of windows(
+  for (const { first, last, text, starts, base, token, phrase, spaced } of windows(
     parts,
     anchor,
     phrases,
@@ -261,7 +287,7 @@ export function inspect(
     const spans: Span[] = [];
     for (let i = first; i <= last; i++) {
       const p = pieces[i],
-        offset = offsets[i - first];
+        offset = starts[i] - base;
       const lo = p.start + Math.max(0, token.start - offset),
         hi = Math.min(p.end, p.start + token.end - offset);
       if (hi > lo) spans.push({ row: p.row.row, start: p.cols[lo], end: p.cols[hi] });

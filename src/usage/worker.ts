@@ -1,6 +1,6 @@
 import * as telemetry from "../telemetry";
 import type { Runtime } from "../runtime";
-import { open, lstat } from "node:fs/promises";
+import { open, lstat, type FileHandle } from "node:fs/promises";
 import { constants } from "node:fs";
 import { Agent, Provider, Text } from "../agents";
 import { adapter } from "../providers";
@@ -10,7 +10,8 @@ import * as linkEvidence from "../link_evidence";
 import { str, timestampMs, Text as Note } from "../providers/common";
 import { Model } from "../providers/model";
 import { parse } from "../json";
-import { head } from "../transcript";
+import { head, initial_tail, read_budget } from "../transcript";
+import { records } from "../launch/history";
 import { Counts, Tracker, type Window } from "./tokens";
 import { Counter, Meter, Tokens, View } from "./live";
 import { Reading } from "./context_window";
@@ -52,7 +53,6 @@ export class Result {
     return agent.provider ? (adapter(agent.provider).transcript?.fallback(this, agent, now) ?? false) : false;
   }
 }
-const history_bytes = 256 * 1024;
 
 export class Tail {
   actor = 0;
@@ -185,36 +185,16 @@ export class Tail {
     }
   }
   /** One bounded look behind the handoff cursor, if an unresolved hover asks. */
-  async readHistory(req: Request) {
-    const history = this.history;
-    this.history = null;
-    if (!history?.requested || this.evidence.full) return;
+  private async readHistory(file: FileHandle, end: number, session: string) {
+    if (!this.recordTexts || this.evidence.full) return;
     try {
-      this.recordTexts ??= (await adapter(req.agent.provider!).search?.())?.recordTexts;
-      if (!this.recordTexts) return;
-      const file = await open(
-        req.agent.transcriptPath(),
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-      );
-      try {
-        const stat = await file.stat();
-        if (!stat.isFile() || stat.ino !== this.inode || stat.dev !== this.device || stat.size < history.end) return;
-        const start = Math.max(0, history.end - history_bytes);
-        const bytes = Buffer.alloc(history.end - start);
-        const { bytesRead } = await file.read(bytes, 0, bytes.length, start);
-        const lines = bytes.toString("utf8", 0, bytesRead).split("\n");
-        const older = new linkEvidence.Dictionary();
-        for (let i = start ? 1 : 0; i < lines.length - 1; i++) {
-          try {
-            this.remember(parse(lines[i]), req.agent.sessionId(), older);
-          } catch {
-            // Malformed records give no evidence.
-          }
-        }
-        this.evidence.addOlder(older);
-      } finally {
-        await file.close();
-      }
+      const start = Math.max(0, end - initial_tail),
+        bytes = Buffer.alloc(end - start),
+        { bytesRead } = await file.read(bytes, 0, bytes.length, start),
+        older = new linkEvidence.Dictionary();
+      for (const value of records(bytes.toString("utf8", 0, bytesRead), start > 0))
+        this.remember(value, session, older);
+      this.evidence.addOlder(older);
     } catch {
       // Historical hover evidence is optional. Usage keeps its own cursor.
     }
@@ -243,7 +223,7 @@ export class Tail {
           try {
             const value = parse(this.partial.toString());
             const offset = start_offset + start;
-            if (offset > this.initial_until - history_bytes) this.remember(value, req.agent.sessionId());
+            if (offset > this.initial_until - initial_tail) this.remember(value, req.agent.sessionId());
             const appended = offset > this.initial_until,
               stamp = timestampMs(str(value, "timestamp")),
               delta = reader.record(this, req, value, appended, stamp);
@@ -261,17 +241,19 @@ export class Tail {
   }
   async poll(req: Request, reader: TranscriptReader, window?: Window) {
     const telemetry_started = telemetry.begin();
+    let atEof = false;
     try {
       const current = await lstat(req.agent.transcriptPath());
       // At EOF, historical counts survive revoked read access until more bytes need reading.
-      if (
+      atEof =
         this.inode !== 0 &&
         current.isFile() &&
         current.ino === this.inode &&
         current.dev === this.device &&
-        current.size === this.offset
-      )
-        return new Counts();
+        current.size === this.offset;
+      const end = this.history?.requested ? this.history.end : 0;
+      if (end) this.history = null;
+      if (atEof && (!end || this.evidence.full)) return new Counts();
       const file = await open(
         req.agent.transcriptPath(),
         constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
@@ -282,6 +264,7 @@ export class Tail {
         if (!stat.isFile()) throw Error("NotRegular");
         const resumed =
           this.inode !== 0 && stat.ino === this.inode && stat.dev === this.device && stat.size >= this.offset;
+        if (atEof && !resumed) return new Counts();
         if (!resumed) {
           this.evidence.clear();
           this.history = null;
@@ -295,7 +278,7 @@ export class Tail {
               stat.size >= carried.offset;
           this.carried = null;
           this.initial_until = continues ? carried.offset : stat.size;
-          this.offset = Math.max(0, this.initial_until - history_bytes);
+          this.offset = Math.max(0, this.initial_until - initial_tail);
           const catch_up = req.child && !this.opened && stat.size <= 2 * 1024 * 1024;
           if (catch_up) this.offset = 0;
           this.catch_up = catch_up;
@@ -320,17 +303,24 @@ export class Tail {
         if (!named.isFile() || named.ino !== this.inode || named.dev !== this.device || stat.size < this.offset)
           throw Error("Replaced");
         this.recordTexts ??= (await adapter(req.agent.provider!).search?.())?.recordTexts;
-        if (stat.size === this.offset) return new Counts();
-        const bytes = Buffer.alloc(65536),
-          start = this.offset,
-          { bytesRead } = await file.read(bytes, 0, bytes.length, this.offset);
-        this.offset += bytesRead;
-        // Visits during file I/O must also bound the bytes about to be counted.
-        req.since = window?.since ?? req.since;
-        return this.ingest(req, reader, bytes.subarray(0, bytesRead), start);
+        let found = new Counts();
+        if (!atEof && stat.size > this.offset) {
+          const bytes = Buffer.alloc(read_budget),
+            start = this.offset,
+            { bytesRead } = await file.read(bytes, 0, bytes.length, start);
+          this.offset += bytesRead;
+          // Visits during file I/O must also bound the bytes about to be counted.
+          req.since = window?.since ?? req.since;
+          found = this.ingest(req, reader, bytes.subarray(0, bytesRead), start);
+        }
+        if (end && resumed) await this.readHistory(file, end, req.agent.sessionId());
+        return found;
       } finally {
         await file.close();
       }
+    } catch (error) {
+      if (!atEof) throw error;
+      return new Counts(); // Only the optional hover read needed this open.
     } finally {
       telemetry.end("agent.usage.poll", telemetry_started);
     }
@@ -466,7 +456,6 @@ export class Worker {
         if (req.agent.transcript.len)
           try {
             delta = await t.poll(req, reader, window);
-            if (t.history?.requested) await t.readHistory(req);
           } catch {
             if (t.live.meter.value.known) t.live.meter.lose();
             t.closeFile();
