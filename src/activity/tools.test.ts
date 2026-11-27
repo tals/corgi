@@ -279,3 +279,65 @@ test("running tools publish stable evidence before completion for both providers
     expect(tracker.view().evidence.text()).toContain("Recent completed tools");
   }
 });
+
+test("mapped shell commands provide evidence for distinct worktree reads", () => {
+  const code = (names: string[]) =>
+    "const cmds=" +
+    JSON.stringify(names) +
+    ';const r=await Promise.allSettled(cmds.map(cmd=>tools.exec_command({cmd,workdir:load("wt")})));';
+  for (const command of ["cat src/activity/roadmap.ts", "rg -n tooltip src/controller.ts"]) {
+    const item = new Call();
+    expect(item.script(code([command, "git status --short"]))).toBe(true);
+    expect(item.text()).toContain(command);
+    expect(item.text()).not.toContain("exec_command");
+  }
+});
+
+test("code-mode tool outputs preserve failed commands inside a completed script and survive a handoff", () => {
+  const t = new Tracker();
+  t.bind("turn");
+  const shellResult = (code: number) =>
+    JSON.stringify({ status: "fulfilled", value: { chunk_id: "test", exit_code: code, output: "Exit code: 99" } });
+  for (const [id, result] of [
+    ["a", shellResult(7)],
+    ["b", shellResult(0)],
+    ["c", "Exit code: 1\nWall time: 0.2 seconds\nOutput:\nmissing file"],
+    ["d", "Process exited with code 0\nOutput:\nExit code: 99"],
+  ]) {
+    codexUsage.progress(
+      t,
+      {
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: id,
+          input: 'text(await tools.exec_command({cmd:"bun test"}))',
+        },
+      },
+      true,
+    );
+    codexUsage.progress(
+      t,
+      {
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: id,
+          output: [
+            { type: "input_text", text: "Script completed\nWall time 0.1 seconds\nOutput:\n" },
+            {
+              type: "input_text",
+              text: result,
+            },
+          ],
+        },
+      },
+      true,
+    );
+  }
+  expect(t.view().calls.map(c => c.outcome)).toEqual(["failure", "success", "failure", "success"]);
+  expect(
+    Tracker.restore(JSON.parse(JSON.stringify(t, (_, v) => (typeof v === "bigint" ? String(v) : v)))).view().calls,
+  ).toEqual(t.view().calls);
+});

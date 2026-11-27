@@ -114,11 +114,19 @@ for await (const line of createInterface({ input: process.stdin })) {
     const label = "label" in control ? control.label : "Tracing pane focus";
     const properties = (codex ? schema : claudeSchema)?.properties ?? {};
     const structured =
-      "name" in properties
-        ? { name: control.name ?? null }
-        : "action" in properties
-          ? { action: control.action ?? (label === null ? "none" : "new"), label }
-          : { label };
+      "summaries" in properties
+        ? {
+            summaries: JSON.parse(content).map((group: { id: number; outcome: string }) => ({
+              id: group.id,
+              title:
+                group.outcome === "success" ? "Checked sign-in redirect handling" : "Fork requests returned errors",
+            })),
+          }
+        : "name" in properties
+          ? { name: control.name ?? null }
+          : "action" in properties
+            ? { action: control.action ?? (label === null ? "none" : "new"), label }
+            : { label };
     if (schema && ("label" in control || "name" in control)) result = JSON.stringify(structured);
     if (control.roadmap && ("nodes" in properties || "ops" in properties || !(codex ? schema : claudeSchema))) {
       const input = JSON.parse(content.split("\n")[0]),
@@ -202,7 +210,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       for (const call of calls) {
         if (call.description) continue;
         const label = call.detail.startsWith("Read:")
-          ? "Read session return path"
+          ? "Read " + call.detail.slice(5).trim()
           : call.detail.startsWith("Edit:")
             ? "Edit " + call.detail.slice(5).trim()
             : "Run focused checks";

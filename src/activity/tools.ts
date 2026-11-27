@@ -1,7 +1,14 @@
 import { Text } from "./summary";
 import { BoundedText } from "../bounded_text";
 class Turn extends BoundedText(160) {}
-export type Observation = { key: string; detail: string; description: string; running: boolean };
+export type Outcome = "success" | "failure";
+export type Observation = {
+  key: string;
+  detail: string;
+  description: string;
+  running: boolean;
+  outcome?: Outcome | null;
+};
 export class View {
   calls: Observation[] = [];
   road_evidence = new Text();
@@ -118,6 +125,28 @@ export class Call {
       .replace(/\\(.)/g, "$1");
     this.append(clip(line.trim(), 128));
   }
+  /** A literal array mapped into exec_command({cmd}). Never evaluate the script. */
+  private mappedCommands(code: string) {
+    const array = String.raw`\[\s*"(?:\\.|[^"\\])*"(?:\s*,\s*"(?:\\.|[^"\\])*")*\s*\]`;
+    for (const match of code.matchAll(new RegExp(array, "g"))) {
+      const after = code.slice(match.index! + match[0].length);
+      const variable = code.slice(0, match.index).match(/\b(?:let|const)\s+([$\w]+)\s*=\s*$/)?.[1];
+      const reference = variable ? after.indexOf(variable + ".map(") : 0;
+      if (reference < 0) continue;
+      const use = variable ? after.slice(reference + variable.length) : after;
+      if (
+        !/^\s*\.map\(\s*(?:async\s+)?\(?\s*cmd\s*\)?\s*=>\s*(?:await\s+)?tools\.exec_command\(\s*\{\s*cmd\s*[,}]/.test(
+          use,
+        )
+      )
+        continue;
+      try {
+        const commands: string[] = JSON.parse(match[0]);
+        return commands.map(cmd => clip(cmd.split("\n", 1)[0], 54)).join("; ");
+      } catch {}
+    }
+    return "";
+  }
   script(code: string) {
     const start = Buffer.byteLength(this.value);
     let found = false,
@@ -136,7 +165,7 @@ export class Call {
       if (name === "exec_command") {
         const cmd = scriptString(args, "cmd");
         if (cmd !== null) this.appendScriptLine(cmd);
-        else this.append(name);
+        else this.append(this.mappedCommands(code) || name);
       } else if (name === "apply_patch") {
         this.append("apply_patch ");
         this.patchFiles(args);
@@ -189,7 +218,7 @@ export class Tracker {
     if (saved.finished !== undefined) {
       if (!Array.isArray(saved.finished) || saved.finished.length > 64) throw Error("InvalidCheckpoint");
       t.finished = saved.finished.map((item: unknown) => {
-        const call = Call.restore(item);
+        const call = Call.restoreOutcome(item);
         if (!call) throw Error("InvalidCheckpoint");
         return call;
       });
@@ -235,7 +264,13 @@ export class Tracker {
     out.commentary = this.commentary;
     out.ended = this.ended;
     const observe = (call: Call, running: boolean) => {
-      out.calls.push({ key: call.id.toString(16), detail: call.text(), description: call.description, running });
+      out.calls.push({
+        key: call.id.toString(16),
+        detail: call.text(),
+        description: call.description,
+        running,
+        outcome: call.outcome,
+      });
     };
     for (const call of this.finished) observe(call, false);
     for (const call of this.pending) if (call?.live) observe(call, !this.ended);

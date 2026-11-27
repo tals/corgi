@@ -601,3 +601,10 @@ $.conversations[].activity_plan?.tool_calls[].running: bool
 $.conversations[].activity_plan?.tool_calls[].key: string
 $.conversations[].activity_plan?.tool_calls[].turn: usize
 $.conversations[].activity_plan?.tool_calls[].group: usize
+$.conversations[].activity_plan?.tool_calls[].group_title: optional
+$.conversations[].activity_plan?.tool_calls[].group_title?: string
+$.conversations[].activity_plan?.tool_calls[].outcome: optional
+$.conversations[].activity_plan?.tool_calls[].outcome?: enum success failure
+$.conversations[].activity_plan?.tool_calls[].recap: optional
+$.conversations[].activity_plan?.tool_calls[].recap?.stamp: string
+$.conversations[].activity_plan?.tool_calls[].recap?.title: string

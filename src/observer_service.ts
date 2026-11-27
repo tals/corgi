@@ -543,6 +543,10 @@ export async function tick(server: Server) {
     if (server.clients.some(client => client.viewer && !client.dead)) workers.summaries.observe(now);
     workers.summaries.remember(runtime.last_agent);
     publishInference(server, workers);
+    if (workers.summaries.recaps.changed) {
+      workers.summaries.recaps.changed = false;
+      changed(server);
+    }
     for (const result of workers.summaries.take()) {
       const actor = runtime.conversations.byId(result.request.actor);
       if (actor && result.apply(actor)) changed(server);

@@ -113,6 +113,11 @@ export function context(r: Reading, value: any) {
   r.window = window;
   r.at = stamp;
 }
+function exitCode(output: string) {
+  const header = output.split(/\n(?:Final output|Output):/i, 1)[0];
+  const match = header.match(/^(?:Process exited with code|Exit code:)\s*(-?\d+)\s*$/m);
+  return match ? Number(match[1]) : null;
+}
 /** The tools a record starts or finishes, and the agent's commentary. */
 export function progress(t: Tools, value: any, live: boolean) {
   const r = Rollout.decode(value),
@@ -155,19 +160,53 @@ export function progress(t: Tools, value: any, live: boolean) {
   const key = t.key(id);
   if (t.seen.includes(key)) return;
   if (["function_call_output", "custom_tool_call_output"].includes(type ?? "")) {
-    const raw = str(p, "output");
+    const output = field(p, "output");
+    const blocks = Array.isArray(output) ? output.map(block => str(block, "text")) : [];
+    const raw = typeof output === "string" ? output : blocks.join("\n");
+    const header = blocks[0]?.split("\n", 1)[0] ?? "";
+    const wrapper = /^Script completed\b/.test(header) ? "success" : /^Script failed\b/.test(header) ? "failure" : null;
     let code: number | null = null;
-    try {
-      const v = JSON.parse(raw);
-      const exit = field(v, "exit_code") ?? field(field(v, "metadata"), "exit_code");
-      if (typeof exit === "number") code = exit;
-    } catch {}
-    const match = raw.match(/(?:Process exited with code|Exit code:)\s*(-?\d+)/);
-    if (match) code = Number(match[1]);
+    let pending = false;
+    if (wrapper) {
+      for (const block of blocks.slice(1)) {
+        try {
+          const item = JSON.parse(block);
+          if (item?.status === "rejected") {
+            code = 1;
+            break;
+          }
+          const shell = item?.status === "fulfilled" ? item.value : item;
+          if (typeof shell?.chunk_id !== "string") continue;
+          if (typeof shell.exit_code === "number") {
+            code = shell.exit_code;
+            if (code !== 0) break;
+          } else if (shell.session_id != null) pending = true;
+        } catch {
+          const exit = exitCode(block);
+          if (exit !== null) {
+            code = exit;
+            if (code !== 0) break;
+          }
+        }
+      }
+    } else {
+      try {
+        const value = JSON.parse(raw);
+        const exit = field(value, "exit_code") ?? field(field(value, "metadata"), "exit_code");
+        if (typeof exit === "number") code = exit;
+      } catch {}
+      code ??= exitCode(raw);
+    }
     t.finishId(
       key,
       live,
-      code === null ? null : code === 0 ? "success" : "failure",
+      wrapper === "failure" || (code !== null && code !== 0)
+        ? "failure"
+        : pending
+          ? null
+          : code === 0
+            ? "success"
+            : wrapper,
       raw.slice(0, 180) + (raw.length > 180 ? " … " + raw.slice(-120) : ""),
     );
     return;
@@ -191,6 +230,7 @@ export function progress(t: Tools, value: any, live: boolean) {
     }
   } else if (type === "web_search_call") call.detail(str(field(p, "action"), "query"));
   if (type === "web_search_call" && str(p, "status") === "completed") {
+    call.outcome = "success";
     t.finish(call, live);
     return;
   }

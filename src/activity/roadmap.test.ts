@@ -408,14 +408,10 @@ test.each([false, true])("parallel tools keep their own lifetimes and step, grou
   expect(road.apply(req, JSON.stringify(result.patch))).toBe(true);
   const rows = () =>
     plan_view.tail(road.view(), 10, true).rows.flatMap(r => (r.kind === "tool" ? [[r.title, r.active]] : []));
-  expect(rows()).toEqual(
-    grouped
-      ? [["Check parser behavior", true]]
-      : [
-          ["Check parser tests", false],
-          ["Read parser source", true],
-        ],
-  );
+  expect(rows()).toEqual([
+    [grouped ? "Read: src/parser.ts" : "Read parser source", true],
+    ["Check parser tests", false],
+  ]);
   const saved = JSON.parse(JSON.stringify(road));
   expect(roadmap.Roadmap.restore(saved, true).view()).toEqual(road.view());
   expect(
@@ -429,4 +425,84 @@ test.each([false, true])("parallel tools keep their own lifetimes and step, grou
   expect(road.view().tool_rows?.every(r => r.visit === 1)).toBe(true);
   expect(road.request()).toBeNull();
   expect(road.counts.e.tools).toBe("0"); // The provider usage meter alone supplies counts.
+});
+
+test("a call without an owner stays outside the step before and after inference", () => {
+  const road = new roadmap.Roadmap();
+  road.observe("t", "working", "Run tests", new List(), usage(100n), 1);
+  road.apply(road.request()!, patch());
+  const call = {
+    key: "a",
+    detail: "Read: src/auth.ts",
+    description: "Read auth",
+    running: false,
+    outcome: "success" as const,
+  };
+  road.observe("t", "working", "Check auth", new List(), usage(100n), 2, [call]);
+  const parent = () => plan_view.tail(road.view(), 10, true).rows.find(row => row.kind === "tool")?.parent;
+  expect(parent()).toBeNull();
+  road.apply(road.request()!, JSON.stringify({ nodes: [], spans: [{ from: 2, to: 2, node: null }] }));
+  road.observe("t", "working", "Resume tests", new List(), usage(120n), 3);
+  road.apply(road.request()!, patch([], 3));
+  expect(road.view().tool_rows?.[0].visit).toBeNull();
+  expect(parent()).toBeNull();
+});
+
+test("completed calls fold by result, keep individual labels, and ignore stale recaps", () => {
+  const road = new roadmap.Roadmap();
+  road.state = { nodes: nodes(), through: 4, spans: [] };
+  road.counts = Object.fromEntries(road.state.nodes.map(n => [n.id, roadmap.zero()]));
+  road.visits = [{ step: "s", from: 1, to: 4, counts: roadmap.zero() }];
+  const example = (key: string, title: string, outcome: "success" | "failure" | null, running = false) => ({
+    key,
+    description: title,
+    detail: "exec: " + title,
+    outcome,
+    running,
+  });
+  const calls = [
+    example("a", "Read parser source", "success"),
+    example("b", "Read parser tests", "success"),
+    example("c", "Run parser tests", "failure"),
+    example("d", "Run parser tests", null, true),
+  ];
+  road.tools.observe(calls, 1, 1, true);
+  road.tools.assign(1, 1, [], () => 1);
+  const req = road.tools.recaps(road.toolScopes())[0];
+  expect(req.labels).toEqual(["Read parser source", "Read parser tests"]);
+  road.tools.remember(req, "Inspected parser source and tests");
+  const view = road.view();
+  expect(view.tool_rows?.map(r => [r.running, r.outcome, r.members?.length])).toEqual([
+    [true, undefined, undefined],
+    [false, "success", 2],
+    [false, "failure", 1],
+  ]);
+  expect(view.tool_rows?.[1].title).toBe("Inspected parser source and tests");
+  expect(roadmap.Roadmap.restore(JSON.parse(JSON.stringify(road)), true).view()).toEqual(view);
+  const expanded = plan_view.tail(view, 14, true, { id: view.tool_rows![1].first!, offset: 0 });
+  expect(expanded.rows.filter(r => r.kind === "detail").map(r => r.title)).toEqual(req.labels);
+  calls[3] = example("d", "Run parser tests", "success");
+  road.tools.observe(calls, 1, 2, true);
+  road.tools.remember(req, "Inspected parser source and tests");
+  expect(road.view().tool_rows?.[0].title).not.toBe("Inspected parser source and tests");
+  expect(road.view().tool_rows?.[0].members).toHaveLength(3);
+  expect(road.view().tool_rows?.[1].outcome).toBe("failure");
+});
+
+test("a shell wrapper with no observable command shows just the live tool marker", () => {
+  const road = new roadmap.Roadmap();
+  road.tools.observe([{ key: "1", detail: "exec: exec_command", description: "", running: true }], 1, 1, true);
+  expect(road.tools.input(1, 1)).toEqual([]);
+  const lines: string[] = [];
+  const draw = () =>
+    plan_view.drawRows(road.view(), plan_view.tail(road.view(), 4, true).rows, 70, {
+      line: (_, s) => lines.push(s.trim()),
+      mark: () => {},
+    });
+  draw();
+  expect(lines).toEqual(["▶ ›_"]);
+  road.tools.observe([], 1, 2, false);
+  draw();
+  expect(lines.at(-1)).toContain("Outcome unknown (1)");
+  expect(lines.at(-1)).not.toContain("Succeeded");
 });

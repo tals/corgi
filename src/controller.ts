@@ -554,6 +554,7 @@ export class Controller {
     this.host.iterm2_pointer = value;
   }
   link_tooltip = new linkTooltip.State();
+  private tool_disclosure = new subagentTooltip.ToolDisclosure();
   link_press: { link: linkTooltip.Link; button: linkTooltip.Button | null; image?: string } | null = null;
   /** Each machine's files, read here or through its daemon, and whether the
    * paths its panes show name them. */
@@ -3682,6 +3683,15 @@ export class Controller {
         this.dirty = true;
         break;
       }
+      case "plan-tools-toggle":
+        this.tool_disclosure.toggle(act.value ?? 0);
+        this.dirty = true;
+        return;
+      case "plan-tools-prev":
+      case "plan-tools-next":
+        this.tool_disclosure.scroll(act.name === "plan-tools-next" ? 1 : -1);
+        this.dirty = true;
+        return;
       case "resource-next":
       case "resource-prev":
       case "resource-sort":
@@ -10840,7 +10850,30 @@ export class Controller {
     return linkTooltip.sameLink(link, card.link);
   }
   /** The same button capture for every terminal showing a link card. */
+  private agentCardContains(x: number, y: number) {
+    return (
+      this.link_tooltip.shown &&
+      this.link_tooltip.target?.agent === this.tool_disclosure.owner &&
+      this.tool_disclosure.contains(x, y)
+    );
+  }
   private async linkMouse(button: number, x: number, y: number, release: boolean): Promise<boolean> {
+    const tools = this.tool_disclosure;
+    const onTools = this.linkHoverIdle() && this.agentCardContains(x, y) && tools.rect?.contains(x, y);
+    if (release && tools.press !== null) {
+      const pressed = tools.press;
+      tools.press = null;
+      if (onTools && pressed === tools.rows.get(y)) await this.perform({ name: "plan-tools-toggle", value: pressed });
+      return true;
+    }
+    if (onTools) {
+      this.pointer = { x, y };
+      if (!release && button === 0) tools.press = tools.rows.get(y) ?? 0;
+      if (!release && (button === 64 || button === 65) && tools.expanded)
+        await this.perform({ name: button === 65 ? "plan-tools-next" : "plan-tools-prev" });
+      this.dirty = true;
+      return true;
+    }
     // The file peek scrolls under the wheel and opens its file on a click.
     const file = this.fileCard();
     if (this.file_press !== null) {
@@ -10906,6 +10939,7 @@ export class Controller {
     if (!release && isHover(button)) {
       if (
         moved &&
+        !this.agentCardContains(x, y) &&
         !this.linkHoverContains(x, y) &&
         // Moving along a file's name keeps its peek's wait.
         !this.waitsOnFile(x, y) &&
@@ -10959,7 +10993,7 @@ export class Controller {
     let target: linkTooltip.Target | null = null;
     const pointer = this.pointer;
     if (pointer && this.linkHoverIdle() && !this.ui_mouse_down) {
-      if (this.linkHoverContains(pointer.x, pointer.y)) return true;
+      if (this.agentCardContains(pointer.x, pointer.y) || this.linkHoverContains(pointer.x, pointer.y)) return true;
       if (!this.signin && !this.corgi_setup) {
         if (this.worktreeHoverContains(pointer.x, pointer.y)) return true;
         if (this.resourceHoverContains(pointer.x, pointer.y)) return true;
@@ -11106,6 +11140,11 @@ export class Controller {
         this.closeInlineRename();
     }
     const tooltip_ready = this.linkTooltipReady();
+    if (!tooltip_ready || this.link_tooltip.target?.agent !== this.tool_disclosure.owner) {
+      this.tool_disclosure.rect = null;
+      this.tool_disclosure.expanded = null;
+      this.tool_disclosure.rows.clear();
+    }
     const link_card = tooltip_ready ? this.linkCard() : null;
     const file_card = tooltip_ready ? this.fileCard() : null;
     // The prompt's pasted image under the pointer shares the link card's picture.
@@ -11159,6 +11198,7 @@ export class Controller {
         pointer: this.pointer,
         iterm2_pointer: this.host.iterm2_pointer,
         link_tooltip: tooltip_ready,
+        tool_disclosure: this.tool_disclosure,
         link_card,
         file_peek: file_card
           ? { rect: file_card.rect, draw: w => filePeek.draw(w, file_card.rect, file_card.peek, this.pointer) }

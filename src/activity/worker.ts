@@ -6,6 +6,7 @@ import { Agent, Provider, Text } from "../agents";
 import * as summary from "./summary";
 import * as prompt from "./prompt";
 import * as roadmap from "./roadmap";
+import { Recaps } from "./tool_recaps";
 import { clip, type View as ToolView } from "./tools";
 import { Backend, outcome } from "../summary_backend";
 import * as setup from "../inference/setup";
@@ -186,6 +187,8 @@ export class Worker {
   }
   slots: Array<Slot | null> = Array(max_actors).fill(null);
   implementation = new Backend();
+  recaps = new Recaps();
+  private prefer_recaps = false;
   catalog = new Catalog();
   selected = new Selection();
   system_meter = new Meter();
@@ -518,7 +521,9 @@ export class Worker {
   }
   reconcile(actors: Actor[], panes: readonly Pane[] = []) {
     const shown = new Set(panes.filter(p => !p.terminal.exited).map(p => p.attachment.actor));
-    this.names.reconcile(actors.filter(actor => shown.has(actor)));
+    const visible = actors.filter(actor => shown.has(actor));
+    this.names.reconcile(visible);
+    this.recaps.actors = this.plans && this.summarizing() ? visible : [];
     if (!this.summarizing()) return;
     if (this.plans)
       for (const actor of actors) {
@@ -640,7 +645,18 @@ export class Worker {
         this.link_results[selected_link] = result;
         return;
       }
+      if (
+        this.plans &&
+        this.summarizing() &&
+        (index < 0 || this.prefer_recaps) &&
+        (await this.recaps.run(this.implementation.pool, now, { load: () => this.stopping }))
+      ) {
+        this.prefer_recaps = false;
+        this.system_meter = this.implementation.pool.system_usage.meter;
+        return;
+      }
       if (index < 0) return;
+      this.prefer_recaps = true;
       this.prefer_links = true;
       const slot = this.slots[index]!,
         request = Object.assign(new Request(), slot.request),

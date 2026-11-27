@@ -299,6 +299,7 @@ export interface Ui {
   sidebar_offset: number;
   agents: Entry[];
   conversations: subagentTooltip.Conversation[];
+  tool_disclosure?: subagentTooltip.ToolDisclosure;
   system_model: string;
   system_model_name: string;
   release: subagentTooltip.Release;
@@ -1322,7 +1323,19 @@ export function frame(
     cover(card_rect);
   } else if (u.link_tooltip && !u.link_card && u.agent_launcher === null && u.corgi_setup === null && u.pointer) {
     const pointer = u.pointer;
-    if (u.resource_card) {
+    const disclosure = u.tool_disclosure;
+    const held = disclosure?.contains(pointer.x, pointer.y) && u.agents.find(e => e.target === disclosure.owner);
+    const drawAgent = (agent: Entry, x: number, y: number) => {
+      if (disclosure && sidebar.isAgent(agent.target)) disclosure.start(agent.target, x, y);
+      const box = subagentTooltip.draw(w, u.conversations, agent, width, height, x, y, u.accounts, disclosure);
+      if (disclosure) {
+        disclosure.rect = disclosure.rows.size ? box : null;
+        if (box?.contains(pointer.x, pointer.y) && disclosure.rows.has(pointer.y)) link_pointer = true;
+      }
+      cover(box);
+    };
+    if (held && disclosure) drawAgent(held, disclosure.anchor.x, disclosure.anchor.y);
+    else if (u.resource_card) {
       if (card_rect) {
         const name = u.workspaces.find(ws => ws.id === u.resource_card!.workspace)?.name ?? "workspace";
         resourceTooltip.draw(w, card_rect, name, u.resources, u.resource_card, pointer);
@@ -1347,8 +1360,7 @@ export function frame(
       if (git) cover(sidebar.drawGitTooltip(w, git, width, height, pointer.x, pointer.y));
       else {
         const agent = sidebar.agentAt(side, u.agents, pointer.x, pointer.y);
-        if (agent)
-          cover(subagentTooltip.draw(w, u.conversations, agent, width, height, pointer.x, pointer.y, u.accounts));
+        if (agent) drawAgent(agent, pointer.x, pointer.y);
       }
     }
   }

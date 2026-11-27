@@ -304,8 +304,7 @@ export class Roadmap {
     this.visits = visits;
     this.tools.assign(input.events[0].id, applied.through, tool_groups, event => {
       const owner = applied.spans.find(s => s.from <= event && event <= s.to)?.node;
-      const target = owner ? visitAt(visits, owner, event) : null;
-      return (target ?? visits.findLast(v => v.from <= event) ?? visits[0])?.from ?? null;
+      return owner ? (visitAt(visits, owner, event)?.from ?? null) : null;
     });
     const parents = new Map(applied.nodes.map(n => [n.id, n.parent]));
     this.focus = focusEpisode(applied.nodes, applied.spans, this.focus);
@@ -341,9 +340,26 @@ export class Roadmap {
       id = this.state.nodes.find(n => n.id === id)?.parent ?? null;
     }
   }
+  /** Repeated visits to one step share its visible row until another episode intervenes. */
+  toolScopes() {
+    const parents = new Map(this.state.nodes.map(n => [n.id, n.parent]));
+    const scopes = new Map<number, number>(),
+      steps = new Map<string, number>();
+    let episode: string | null | undefined;
+    for (const visit of this.visits) {
+      const parent = parents.get(visit.step);
+      if (episode !== parent) steps.clear();
+      episode = parent;
+      const first = steps.get(visit.step) ?? visit.from;
+      steps.set(visit.step, first);
+      scopes.set(visit.from, first);
+    }
+    return scopes;
+  }
+
   view(): Snapshot {
     return {
-      tool_rows: this.tools.rows(),
+      tool_rows: this.tools.rows(this.toolScopes()),
       nodes: this.state.nodes,
       visits: this.visits,
       focus: this.focus,

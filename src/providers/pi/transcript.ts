@@ -105,7 +105,12 @@ export const transcript: Transcript = {
           t.progress.commentary = new Summary(clip("Latest agent update: " + text, 2048));
           t.progress.dirty = true;
         }
-      } else if (role === "toolResult" && appended) t.progress.finishId(t.progress.key(str(m, "toolCallId")), true);
+      } else if (role === "toolResult" && appended)
+        t.progress.finishId(
+          t.progress.key(str(m, "toolCallId")),
+          true,
+          field(m, "isError") === true ? "failure" : "success",
+        );
       return delta;
     },
   }),

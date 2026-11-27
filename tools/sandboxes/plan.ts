@@ -187,7 +187,7 @@ if (import.meta.main) {
       file,
       JSON.stringify({ type, sessionId: session, timestamp: new Date().toISOString(), ...more }) + "\n",
     );
-  const call = async (tool: string, input: object, result: string, failed = false) => {
+  const call = async (tool: string, input: object, result: string, failed = false, duration?: number) => {
     const id = `tool-${++n}`,
       usage = { input_tokens: 900, cache_read_input_tokens: 21000 + n * 1500, output_tokens: 240 };
     record("assistant", {
@@ -199,7 +199,7 @@ if (import.meta.main) {
         usage,
       },
     });
-    await Bun.sleep(n <= 2 ? 7000 : 1200);
+    await Bun.sleep(duration ?? (n <= 2 ? 7000 : 1200));
     record("user", {
       message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: result, is_error: failed }] },
     });
@@ -211,8 +211,16 @@ if (import.meta.main) {
         : record("user", { message: { role: "user", content: beat.say } });
     else if ("run" in beat && beat.description) {
       await Promise.all([
-        call("Bash", { command: beat.run, description: beat.description }, beat.result),
-        call("Read", { file_path: "src/auth/session.ts" }, "returnPath reads the original request URL"),
+        call("Bash", { command: beat.run, description: beat.description }, beat.result, false, 20000),
+        call("Read", { file_path: "src/auth/session.ts" }, "returnPath reads the original request URL", false, 2800),
+        call("Read", { file_path: "src/auth/redirect.ts" }, "The callback redirects to the home page", false, 4400),
+        call(
+          "Bash",
+          { command: "cat src/auth/legacy.ts", description: "Check legacy redirect handler" },
+          "No such file or directory",
+          true,
+          5800,
+        ),
       ]);
     } else if ("run" in beat) await call("Bash", { command: beat.run }, beat.result, beat.failed);
     else if ("edit" in beat) await call("Edit", { file_path: beat.edit }, "The file has been updated.");

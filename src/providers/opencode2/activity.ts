@@ -42,9 +42,10 @@ export function progress(messages: Record<string, unknown>[]) {
       if (status === "streaming") continue;
       const call = describe(part);
       call.id = tools.key(str(part, "id"));
-      if (status === "completed" || status === "error" || typeof field(field(part, "time"), "completed") === "number")
+      if (status === "completed" || status === "error" || typeof field(field(part, "time"), "completed") === "number") {
+        call.outcome = status === "error" ? "failure" : status === "completed" ? "success" : null;
         tools.finish(call, true);
-      else tools.save(call, true);
+      } else tools.save(call, true);
     }
   }
   const view = tools.view();

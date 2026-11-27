@@ -675,10 +675,10 @@ export class Card {
       this.drawPoint(row + nodes, i18n.t`  now`, current, new UsageView(), true, "working");
     }
   }
-  plan(row: number, view: roadmap.Snapshot, running: boolean, budget: number) {
+  plan(row: number, view: roadmap.Snapshot, running: boolean, budget: number, disclosure?: ToolDisclosure) {
     if (budget < 2) return 0;
-    const whole = plan_view.tail(view, budget, running),
-      selected = whole.hidden ? plan_view.tail(view, budget - 1, running) : whole,
+    const whole = plan_view.tail(view, budget, running, disclosure?.expanded),
+      selected = whole.hidden ? plan_view.tail(view, budget - 1, running, disclosure?.expanded) : whole,
       hidden = selected.hidden,
       top = row - 1 + Number(hidden > 0),
       tone = (value: palette.Token): Tone => {
@@ -693,11 +693,24 @@ export class Card {
             return "faint";
           case "warm":
             return "warm";
+          case "hot":
+            return "hot";
           default:
             return "text";
         }
       };
     if (hidden) this.line(row, i18n.t`… ${hidden} earlier items`, "", "faint", "faint");
+    if (disclosure) {
+      let y = top + 1;
+      const shown = selected.rows.filter(r => r.kind === "detail").length;
+      for (const r of selected.rows) {
+        if (r.kind === "tool" && r.first && r.members) {
+          disclosure.rows.set(y, r.first);
+          if (disclosure.expanded?.id === r.first) disclosure.max_offset = Math.max(0, r.members.length - shown);
+        }
+        y += plan_view.height([r]);
+      }
+    }
     const used = plan_view.drawRows(view, selected.rows, this.width - 6, {
       line: (offset, label, counts, color) => {
         const y = top + 1 + offset;
@@ -1340,6 +1353,34 @@ export function elapsedCells(window: Window, now: number): number {
   return Math.ceil((into * limit_history.cells) / span);
 }
 
+export class ToolDisclosure {
+  owner: viewerRef.Agent | null = null;
+  rect: Rect | null = null;
+  anchor = { x: 0, y: 0 };
+  rows = new Map<number, number>();
+  expanded: plan_view.Expanded | null = null;
+  max_offset = 0;
+  press: number | null = null;
+  contains(x: number, y: number) {
+    return (
+      this.rect !== null &&
+      (this.rect.contains(x, y) || (Math.abs(x - this.anchor.x) <= 2 && Math.abs(y - this.anchor.y) <= 1))
+    );
+  }
+  start(owner: viewerRef.Agent, x: number, y: number) {
+    if (this.owner !== owner) this.expanded = null;
+    this.owner = owner;
+    this.anchor = { x, y };
+    this.rows.clear();
+    this.max_offset = 0;
+  }
+  toggle(id: number) {
+    if ([...this.rows.values()].includes(id)) this.expanded = this.expanded?.id === id ? null : { id, offset: 0 };
+  }
+  scroll(delta: number) {
+    if (this.expanded) this.expanded.offset = Math.max(0, Math.min(this.max_offset, this.expanded.offset + delta));
+  }
+}
 export function draw(
   w: Writer,
   all: readonly Conversation[],
@@ -1349,6 +1390,7 @@ export function draw(
   px: number,
   py: number,
   accounts: Accounts = new Accounts(),
+  disclosure?: ToolDisclosure,
 ): Rect | null {
   if (cols < 40 || rows < 13) return null;
   const parent = entry.conversation;
@@ -1378,7 +1420,9 @@ export function draw(
   const width = Math.min(88, cols);
   const pending = root.timeline.points.length > 0;
   const has_plan = root.activity_plan.nodes.length > 0 || !!root.activity_plan.tool_rows?.length;
-  const plan_tail = has_plan ? plan_view.tail(root.activity_plan, 16, root_agent.state === "working") : null;
+  const plan_tail = has_plan
+    ? plan_view.tail(root.activity_plan, 16, root_agent.state === "working", disclosure?.expanded)
+    : null;
   const plan_height = plan_tail ? Number(plan_tail.hidden > 0) + plan_view.height(plan_tail.rows) : 0;
   const timeline_nodes = Math.min(
     16,
@@ -1465,6 +1509,7 @@ export function draw(
       root.activity_plan,
       root_agent.state === "working",
       sat(room, reserved_children + total_rows),
+      disclosure,
     );
   } else if (visible_nodes > 0) {
     card.timeline(row, root, root_agent, visible_nodes, pending);
